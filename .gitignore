@@ -25,3 +25,4 @@ references/
 .git.backup-*/
 docs/
 AGENTS.md
+.repo_ignore

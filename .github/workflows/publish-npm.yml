@@ -9,7 +9,7 @@ jobs:
   build-and-publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
 
     steps:
@@ -23,6 +23,14 @@ jobs:
           registry-url: https://registry.npmjs.org/
           cache: npm
 
+      - name: Sync package.json version from release tag
+        if: github.event_name == 'release'
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+          echo "Setting package.json version to $VERSION (from tag $TAG)"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+
       - name: Install dependencies
         run: npm ci
 
@@ -35,15 +43,14 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Ensure release tag matches package.json version
+      - name: Commit version bump
         if: github.event_name == 'release'
         run: |
-          TAG="${{ github.event.release.tag_name }}"
-          VERSION="v$(node -p 'require("./package.json").version')"
-          if [ "$TAG" != "$VERSION" ]; then
-            echo "Release tag ($TAG) does not match package.json version ($VERSION)"
-            exit 1
-          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git diff --staged --quiet || git commit -m "chore: bump version to ${{ github.event.release.tag_name }}"
+          git push origin HEAD:main
 
       - name: Publish
         env:
