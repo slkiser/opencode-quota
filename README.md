@@ -129,7 +129,7 @@ Here's a complete example `opencode.json` with all common options:
   "plugin": ["@slkiser/opencode-quota"],
   "experimental": {
     "quotaToast": {
-      "enabledProviders": ["copilot", "firmware"],
+      "enabledProviders": ["copilot", "openai"],
       "showSessionTokens": true,
       "minIntervalMs": 300000,
       "toastDurationMs": 9000,

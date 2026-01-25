@@ -10,10 +10,23 @@ function totalTokens(t: TokenBuckets): number {
   return t.input + t.output + t.reasoning + t.cache_read + t.cache_write;
 }
 
+/**
+ * Format a timestamp as human-readable local time: "HH:MM YYYY-MM-DD"
+ */
+function fmtLocalDateTime(ms: number): string {
+  const d = new Date(ms);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const hours = String(d.getHours()).padStart(2, "0");
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes} ${year}-${month}-${day}`;
+}
+
 function fmtWindow(params: { sinceMs?: number; untilMs?: number }): string {
   if (!params.sinceMs && !params.untilMs) return "all time";
-  const since = typeof params.sinceMs === "number" ? new Date(params.sinceMs).toISOString() : "-";
-  const until = typeof params.untilMs === "number" ? new Date(params.untilMs).toISOString() : "now";
+  const since = typeof params.sinceMs === "number" ? fmtLocalDateTime(params.sinceMs) : "-";
+  const until = typeof params.untilMs === "number" ? fmtLocalDateTime(params.untilMs) : "now";
   return `${since} .. ${until}`;
 }
 
@@ -64,6 +77,17 @@ function sourceSortKey(source: string): number {
   if (s === "google") return 6;
   if (s === "azure") return 7;
   return 99;
+}
+
+/**
+ * Truncate a title to first 10 + last 10 chars with ellipsis in the middle.
+ */
+function truncateTitle(title: string | undefined): string {
+  if (!title) return "(untitled)";
+  const trimmed = title.trim();
+  if (trimmed.length <= 23) return trimmed;
+  // first 10 + ellipsis + last 10
+  return trimmed.slice(0, 10) + "\u2026" + trimmed.slice(-10);
 }
 
 export function formatQuotaStatsReport(params: {
@@ -178,41 +202,6 @@ export function formatQuotaStatsReport(params: {
     lines.push(renderMarkdownTable({ headers, rows, aligns }));
   }
 
-  // A narrower summary table that matches the common "Models (cost)" view.
-  // This is intentionally redundant: it reads well in narrow terminals.
-  if (r.bySourceModel.length > 0) {
-    const summaryRows: string[][] = [];
-    for (let i = 0; i < sources.length; i++) {
-      const src = sources[i]!;
-      const list = grouped.get(src)!;
-      list.sort((a, b) => b.costUsd - a.costUsd);
-
-      for (const row of list.slice(0, topModels)) {
-        summaryRows.push([
-          src,
-          normalizeSourceModelId(row.sourceModelID),
-          fmtCompact(totalTokens(row.tokens)),
-          fmtUsd(row.costUsd),
-        ]);
-      }
-
-      if (i !== sources.length - 1) {
-        summaryRows.push(["", "", "", ""]);
-      }
-    }
-
-    lines.push("");
-    lines.push(`## Model Breakdown`);
-    lines.push("");
-    lines.push(
-      renderMarkdownTable({
-        headers: ["Source", "Model", "Tokens", "Cost"],
-        aligns: ["left", "left", "right", "right"],
-        rows: summaryRows,
-      }),
-    );
-  }
-
   // Skip Top Sessions for session-only reports (e.g., /quota_session)
   if (r.bySession.length > 0 && !sessionOnly) {
     lines.push("");
@@ -230,7 +219,7 @@ export function formatQuotaStatsReport(params: {
         fmtUsd(focus.costUsd),
         fmtCompact(totalTokens(focus.tokens)),
         fmtCompact(focus.messageCount),
-        focus.title ? `${focus.title}` : "(untitled)",
+        truncateTitle(focus.title),
       ]);
     }
 
@@ -244,7 +233,7 @@ export function formatQuotaStatsReport(params: {
         fmtUsd(row.costUsd),
         fmtCompact(totalTokens(row.tokens)),
         fmtCompact(row.messageCount),
-        row.title ? `${row.title}` : "(untitled)",
+        truncateTitle(row.title),
       ]);
     }
 

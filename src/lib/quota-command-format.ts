@@ -4,9 +4,10 @@
  * This is intentionally more verbose than the toast:
  * - Always shows reset countdown when available
  * - Uses one line per limit, grouped under provider headers
+ * - Includes session token summary (input/output per model)
  */
 
-import type { QuotaToastError } from "./entries.js";
+import type { QuotaToastError, SessionTokensData } from "./entries.js";
 import type { ToastGroupEntry } from "./toast-format-grouped.js";
 
 function clampInt(n: number, min: number, max: number): number {
@@ -39,6 +40,42 @@ function bar(percentRemaining: number, width: number): string {
 function padRight(str: string, width: number): string {
   if (str.length >= width) return str.slice(0, width);
   return str + " ".repeat(width - str.length);
+}
+
+function padLeft(str: string, width: number): string {
+  if (str.length >= width) return str.slice(str.length - width);
+  return " ".repeat(width - str.length) + str;
+}
+
+/**
+ * Format a token count with K/M suffix for compactness
+ */
+function formatTokenCount(count: number): string {
+  if (count >= 1_000_000) {
+    return `${(count / 1_000_000).toFixed(1)}M`;
+  }
+  if (count >= 10_000) {
+    return `${(count / 1_000).toFixed(0)}K`;
+  }
+  if (count >= 1_000) {
+    return `${(count / 1_000).toFixed(1)}K`;
+  }
+  return String(count);
+}
+
+/**
+ * Shorten model name for compact display
+ */
+function shortenModelName(name: string, maxLen: number): string {
+  if (name.length <= maxLen) return name;
+  // Remove common prefixes/suffixes
+  let s = name
+    .replace(/^antigravity-/i, "")
+    .replace(/-thinking$/i, "")
+    .replace(/-preview$/i, "");
+  if (s.length <= maxLen) return s;
+  // Truncate with ellipsis
+  return s.slice(0, maxLen - 1) + "\u2026";
 }
 
 function normalizeGroupHeader(group: string): string {
@@ -81,6 +118,7 @@ function coerceGrouped(entries: ToastGroupEntry[]): ToastGroupEntry[] {
 export function formatQuotaCommand(params: {
   entries: ToastGroupEntry[];
   errors: QuotaToastError[];
+  sessionTokens?: SessionTokensData;
 }): string {
   const entries = coerceGrouped(params.entries);
 
@@ -107,7 +145,6 @@ export function formatQuotaCommand(params: {
     const g = groupOrder[i]!;
     const list = groups.get(g) ?? [];
 
-    lines.push("");
     lines.push(`→ ${normalizeGroupHeader(g)}`);
 
     for (const row of list) {
@@ -117,16 +154,24 @@ export function formatQuotaCommand(params: {
       const suffix = formatResetsIn(row.resetTimeIso);
       lines.push(`  ${labelCol} ${bar(pct, barWidth)}  ${pct}% left${suffix}`);
     }
+  }
 
-    if (i < groupOrder.length - 1) {
-      lines.push("");
-      lines.push("---");
+  // Add session token summary (if data available and non-empty)
+  if (params.sessionTokens && params.sessionTokens.models.length > 0) {
+    lines.push("");
+    lines.push("Session Tokens");
+
+    for (const model of params.sessionTokens.models) {
+      const shortName = shortenModelName(model.modelID, 20);
+      const inStr = formatTokenCount(model.input);
+      const outStr = formatTokenCount(model.output);
+      lines.push(
+        `  ${padRight(shortName, 20)}  ${padLeft(inStr, 6)} in  ${padLeft(outStr, 6)} out`,
+      );
     }
   }
 
   if (params.errors.length > 0) {
-    lines.push("");
-    lines.push("---");
     lines.push("");
     for (const err of params.errors) {
       lines.push(`${err.label}: ${err.message}`);

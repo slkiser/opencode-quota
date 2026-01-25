@@ -469,7 +469,10 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     }
   }
 
-  async function fetchQuotaCommandMessage(trigger: string): Promise<string | null> {
+  async function fetchQuotaCommandMessage(
+    trigger: string,
+    sessionID?: string,
+  ): Promise<string | null> {
     if (!configLoaded) await refreshConfig();
     if (!config.enabled) return null;
 
@@ -496,7 +499,25 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     const errors = results.flatMap((r) => r.errors);
 
     if (entries.length === 0) return null;
-    return formatQuotaCommand({ entries, errors });
+
+    // Fetch session tokens if enabled and sessionID is available
+    let sessionTokens: SessionTokensData | undefined;
+    if (config.showSessionTokens && sessionID) {
+      try {
+        const summary = await getSessionTokenSummary(sessionID);
+        if (summary && summary.models.length > 0) {
+          sessionTokens = {
+            models: summary.models,
+            totalInput: summary.totalInput,
+            totalOutput: summary.totalOutput,
+          };
+        }
+      } catch {
+        // Ignore errors fetching session tokens - it's a nice-to-have
+      }
+    }
+
+    return formatQuotaCommand({ entries, errors, sessionTokens });
   }
 
   async function buildQuotaReport(params: {
@@ -652,7 +673,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
           : await (quotaCache.inFlight ??
               (quotaCache.inFlight = (async () => {
                 try {
-                  return await fetchQuotaCommandMessage("command:/quota");
+                  return await fetchQuotaCommandMessage("command:/quota", sessionID);
                 } finally {
                   quotaCache!.inFlight = undefined;
                 }
