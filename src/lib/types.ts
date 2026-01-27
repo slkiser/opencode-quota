@@ -156,6 +156,10 @@ export interface AuthData {
     type: string;
     key?: string;
   };
+  chutes?: {
+    type: string;
+    key?: string;
+  };
 }
 
 // =============================================================================
@@ -286,6 +290,14 @@ export interface QuotaError {
 /** Combined quota result */
 export type CopilotResult = CopilotQuotaResult | QuotaError | null;
 export type GoogleResult = GoogleQuotaResult | QuotaError | null;
+export type ChutesResult =
+  | {
+      success: true;
+      percentRemaining: number;
+      resetTimeIso?: string;
+    }
+  | QuotaError
+  | null;
 
 /** Cached toast data */
 export interface CachedToast {

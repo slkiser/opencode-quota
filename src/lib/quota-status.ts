@@ -6,6 +6,7 @@ import {
   readAntigravityAccounts,
 } from "./google.js";
 import { getFirmwareKeyDiagnostics } from "./firmware.js";
+import { getChutesKeyDiagnostics } from "./chutes.js";
 import {
   getPricingSnapshotMeta,
   listProviders,
@@ -99,6 +100,26 @@ export async function buildQuotaStatusReport(params: {
   if (firmwareDiag.checkedPaths.length > 0) {
     lines.push(`- firmware api key checked: ${firmwareDiag.checkedPaths.join(" | ")}`);
   }
+
+  // Chutes API key diagnostics
+  let chutesDiag: { configured: boolean; source: string | null; checkedPaths: string[] } = {
+    configured: false,
+    source: null,
+    checkedPaths: [],
+  };
+  try {
+    chutesDiag = await getChutesKeyDiagnostics();
+  } catch {
+    // ignore
+  }
+  lines.push(`- chutes api key configured: ${chutesDiag.configured ? "true" : "false"}`);
+  if (chutesDiag.source) {
+    lines.push(`- chutes api key source: ${chutesDiag.source}`);
+  }
+  if (chutesDiag.checkedPaths.length > 0) {
+    lines.push(`- chutes api key checked: ${chutesDiag.checkedPaths.join(" | ")}`);
+  }
+
   lines.push(`- google token cache: ${getGoogleTokenCachePath()}`);
   lines.push(`- antigravity accounts (selected): ${pickAntigravityAccountsPath()}`);
   const candidates = getAntigravityAccountsCandidatePaths();
