@@ -310,19 +310,19 @@ describe("firmware-config", () => {
       const { getOpencodeConfigCandidatePaths } = await import("../src/lib/firmware-config.js");
       const paths = getOpencodeConfigCandidatePaths();
 
-      // Should have 4 candidates: global jsonc, global json, local jsonc, local json
+      // Should have 4 candidates: local jsonc, local json, global jsonc, global json
       expect(paths.length).toBe(4);
 
-      // Global paths should come before local paths
-      expect(paths[0].path).toContain(".config");
+      // Local paths should come before global paths
+      expect(paths[0].path).toContain(process.cwd());
       expect(paths[0].isJsonc).toBe(true);
-      expect(paths[1].path).toContain(".config");
+      expect(paths[1].path).toContain(process.cwd());
       expect(paths[1].isJsonc).toBe(false);
 
-      // Local paths
-      expect(paths[2].path).toContain(process.cwd());
+      // Global paths
+      expect(paths[2].path).toContain(".config");
       expect(paths[2].isJsonc).toBe(true);
-      expect(paths[3].path).toContain(process.cwd());
+      expect(paths[3].path).toContain(".config");
       expect(paths[3].isJsonc).toBe(false);
     });
   });

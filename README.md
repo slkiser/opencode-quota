@@ -58,6 +58,7 @@ That's it. Toasts appear automatically after main agent responses.
 | GitHub Copilot     | `copilot`            | Uses OpenCode auth\*                          |
 | OpenAI (Plus/Pro)  | `openai`             | Uses OpenCode auth                            |
 | Firmware AI        | `firmware`           | Uses OpenCode auth or API key                 |
+| Chutes AI          | `chutes`             | Uses OpenCode auth or API key                 |
 | Google Antigravity | `google-antigravity` | Multi-account via `opencode-antigravity-auth` |
 
 ### Firmware AI Setup
@@ -82,6 +83,27 @@ Firmware works automatically if OpenCode has Firmware configured. Alternatively,
 ```
 
 The `apiKey` field supports the `{env:VAR_NAME}` syntax to reference environment variables, or you can provide the key directly.
+
+### Chutes AI Setup
+
+Chutes works automatically if OpenCode has Chutes configured. Alternatively, you can provide an API key in your `opencode.json`:
+
+```jsonc
+{
+  "provider": {
+    "chutes": {
+      "options": {
+        "apiKey": "{env:CHUTES_API_KEY}",
+      },
+    },
+  },
+  "experimental": {
+    "quotaToast": {
+      "enabledProviders": ["chutes"],
+    },
+  },
+}
+```
 
 ### GitHub Copilot Setup (optional)
 
