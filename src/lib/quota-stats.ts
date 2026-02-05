@@ -1,6 +1,14 @@
 import type { OpenCodeMessage } from "./opencode-storage.js";
-import { iterAssistantMessages, readAllSessionsIndex } from "./opencode-storage.js";
+import {
+  iterAssistantMessages,
+  iterAssistantMessagesForSession,
+  readAllSessionsIndex,
+  SessionNotFoundError,
+} from "./opencode-storage.js";
 import { lookupCost } from "./modelsdev-pricing.js";
+
+// Re-export for consumers
+export { SessionNotFoundError } from "./opencode-storage.js";
 
 export type TokenBuckets = {
   input: number;
@@ -214,9 +222,16 @@ export async function aggregateUsage(params: {
   untilMs?: number;
   sessionID?: string;
 }): Promise<AggregateResult> {
-  let messages = await iterAssistantMessages({ sinceMs: params.sinceMs, untilMs: params.untilMs });
+  // Use session-scoped iterator when filtering by sessionID for better performance
+  let messages: OpenCodeMessage[];
   if (params.sessionID) {
-    messages = messages.filter((m) => m.sessionID === params.sessionID);
+    messages = await iterAssistantMessagesForSession({
+      sessionID: params.sessionID,
+      sinceMs: params.sinceMs,
+      untilMs: params.untilMs,
+    });
+  } else {
+    messages = await iterAssistantMessages({ sinceMs: params.sinceMs, untilMs: params.untilMs });
   }
   const sessionsIdx = await readAllSessionsIndex();
 
@@ -401,8 +416,8 @@ export type SessionTokenSummary = {
 export async function getSessionTokenSummary(
   sessionID: string,
 ): Promise<SessionTokenSummary | null> {
-  const messages = await iterAssistantMessages({});
-  const sessionMessages = messages.filter((m) => m.sessionID === sessionID);
+  // Use session-scoped iterator for better performance (only reads this session's directory)
+  const sessionMessages = await iterAssistantMessagesForSession({ sessionID });
 
   if (sessionMessages.length === 0) return null;
 

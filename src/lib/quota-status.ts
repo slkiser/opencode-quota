@@ -19,6 +19,13 @@ import {
 } from "./opencode-storage.js";
 import { aggregateUsage } from "./quota-stats.js";
 
+/** Session token fetch error info for status report */
+export interface SessionTokenError {
+  sessionID: string;
+  error: string;
+  checkedPath?: string;
+}
+
 function fmtInt(n: number): string {
   return Math.trunc(n).toLocaleString("en-US");
 }
@@ -51,6 +58,7 @@ export async function buildQuotaStatusReport(params: {
     successCount?: number;
     failures?: Array<{ email?: string; error: string }>;
   };
+  sessionTokenError?: SessionTokenError;
 }): Promise<string> {
   const lines: string[] = [];
 
@@ -154,6 +162,17 @@ export async function buildQuotaStatusReport(params: {
   }
   lines.push("");
   lines.push(`google accounts: count=${accountCount}`);
+
+  // === session token errors ===
+  if (params.sessionTokenError) {
+    lines.push("");
+    lines.push("session_tokens_error:");
+    lines.push(`- session_id: ${params.sessionTokenError.sessionID}`);
+    lines.push(`- error: ${params.sessionTokenError.error}`);
+    if (params.sessionTokenError.checkedPath) {
+      lines.push(`- checked_path: ${params.sessionTokenError.checkedPath}`);
+    }
+  }
 
   // === pricing snapshot ===
   const meta = getPricingSnapshotMeta();

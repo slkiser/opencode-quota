@@ -16,10 +16,10 @@ import { formatQuotaCommand } from "./lib/quota-command-format.js";
 import { getProviders } from "./providers/registry.js";
 import type { QuotaToastEntry, QuotaToastError } from "./lib/entries.js";
 import { tool } from "@opencode-ai/plugin";
-import { aggregateUsage, getSessionTokenSummary } from "./lib/quota-stats.js";
+import { aggregateUsage, getSessionTokenSummary, SessionNotFoundError } from "./lib/quota-stats.js";
 import type { SessionTokensData } from "./lib/entries.js";
 import { formatQuotaStatsReport } from "./lib/quota-stats-format.js";
-import { buildQuotaStatusReport } from "./lib/quota-status.js";
+import { buildQuotaStatusReport, type SessionTokenError } from "./lib/quota-status.js";
 import { refreshGoogleTokensForAllAccounts } from "./lib/google.js";
 
 // =============================================================================
@@ -304,6 +304,9 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
   let configLoaded = false;
   let configInFlight: Promise<void> | null = null;
   let configMeta: LoadConfigMeta = createLoadConfigMeta();
+
+  // Track last session token error for /quota_status diagnostics
+  let lastSessionTokenError: SessionTokenError | undefined;
 
   async function refreshConfig(): Promise<void> {
     if (configInFlight) return configInFlight;
@@ -625,8 +628,23 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
             totalOutput: summary.totalOutput,
           };
         }
-      } catch {
-        // Ignore errors fetching session tokens - it's a nice-to-have
+        // Clear any previous error on success
+        lastSessionTokenError = undefined;
+      } catch (err) {
+        // Capture error for /quota_status diagnostics
+        if (err instanceof SessionNotFoundError) {
+          lastSessionTokenError = {
+            sessionID: err.sessionID,
+            error: err.message,
+            checkedPath: err.checkedPath,
+          };
+        } else {
+          lastSessionTokenError = {
+            sessionID,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+        // Toast still displays without session tokens
       }
     }
 
@@ -772,8 +790,23 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
             totalOutput: summary.totalOutput,
           };
         }
-      } catch {
-        // Ignore errors fetching session tokens - it's a nice-to-have
+        // Clear any previous error on success
+        lastSessionTokenError = undefined;
+      } catch (err) {
+        // Capture error for /quota_status diagnostics
+        if (err instanceof SessionNotFoundError) {
+          lastSessionTokenError = {
+            sessionID: err.sessionID,
+            error: err.message,
+            checkedPath: err.checkedPath,
+          };
+        } else {
+          lastSessionTokenError = {
+            sessionID,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+        // Command still returns without session tokens
       }
     }
 
@@ -864,6 +897,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
             failures: refresh.failures,
           }
         : { attempted: false },
+      sessionTokenError: lastSessionTokenError,
     });
   }
 

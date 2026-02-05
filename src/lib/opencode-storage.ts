@@ -3,6 +3,22 @@ import { homedir } from "os";
 import { join } from "path";
 import { existsSync } from "fs";
 
+/**
+ * Error thrown when a session directory is not found.
+ *
+ * This is thrown by iterAssistantMessagesForSession when the session
+ * directory doesn't exist. Callers should catch this to handle gracefully.
+ */
+export class SessionNotFoundError extends Error {
+  constructor(
+    public readonly sessionID: string,
+    public readonly checkedPath: string,
+  ) {
+    super(`Session directory not found: ${sessionID}`);
+    this.name = "SessionNotFoundError";
+  }
+}
+
 export interface OpenCodeTokenCache {
   read: number;
   write: number;
@@ -114,6 +130,63 @@ export async function iterAssistantMessages(params: {
       if (typeof params.untilMs === "number" && created > params.untilMs) continue;
       out.push(msg);
     }
+  }
+
+  out.sort((a, b) => (a.time?.created ?? 0) - (b.time?.created ?? 0));
+  return out;
+}
+
+/**
+ * Read assistant messages for a specific session only.
+ *
+ * This is more efficient than iterAssistantMessages when you only need
+ * messages from a single session, as it only reads that session's directory.
+ *
+ * @param params.sessionID - Session ID (must start with "ses_")
+ * @param params.sinceMs - Optional: only messages created after this timestamp
+ * @param params.untilMs - Optional: only messages created before this timestamp
+ * @throws SessionNotFoundError if the session directory doesn't exist
+ */
+export async function iterAssistantMessagesForSession(params: {
+  sessionID: string;
+  sinceMs?: number;
+  untilMs?: number;
+}): Promise<OpenCodeMessage[]> {
+  const { sessionID, sinceMs, untilMs } = params;
+
+  // Validate session ID format
+  if (!sessionID.startsWith("ses_")) {
+    throw new SessionNotFoundError(sessionID, "(invalid session ID format)");
+  }
+
+  const base = getOpenCodeMessageDir();
+  const sessionDir = join(base, sessionID);
+
+  // Check if session directory exists
+  if (!existsSync(sessionDir)) {
+    throw new SessionNotFoundError(sessionID, sessionDir);
+  }
+
+  // Read messages from this session only
+  let files: string[];
+  try {
+    files = (await readdir(sessionDir)).filter((f) => f.endsWith(".json"));
+  } catch {
+    throw new SessionNotFoundError(sessionID, sessionDir);
+  }
+
+  const out: OpenCodeMessage[] = [];
+
+  for (const f of files) {
+    const p = join(sessionDir, f);
+    const msg = (await safeReadJson(p)) as OpenCodeMessage | null;
+    if (!msg) continue;
+    if (msg.role !== "assistant") continue;
+    const created = msg.time?.created;
+    if (typeof created !== "number") continue;
+    if (typeof sinceMs === "number" && created < sinceMs) continue;
+    if (typeof untilMs === "number" && created > untilMs) continue;
+    out.push(msg);
   }
 
   out.sort((a, b) => (a.time?.created ?? 0) - (b.time?.created ?? 0));
