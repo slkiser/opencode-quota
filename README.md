@@ -36,6 +36,8 @@ Then enable the providers you use:
 
 That's it. Toasts appear automatically after assistant responses.
 
+> **LLM Agents:** Ask your agent to install `https://github.com/slkiser/opencode-quota` with the providers you have enabled. See [LLM Agent Installation Instructions](#llm-agent-installation-instructions) for details.
+
 ## Commands
 
 | Command                  | Description                                    |
@@ -183,7 +185,7 @@ Toast not appearing? Run `/quota_status` to check config and provider availabili
 
 ---
 
-<details>
+<details id="llm-agent-installation-instructions">
 <summary><strong>LLM Agent Installation Instructions</strong></summary>
 
 ### For LLM Agents: How to Install and Configure

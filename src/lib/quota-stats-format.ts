@@ -1,5 +1,8 @@
 import type { AggregateResult, TokenBuckets } from "./quota-stats.js";
-import { renderMarkdownTable } from "./markdown-table.js";
+import { renderMarkdownTable, type WidthMode } from "./markdown-table.js";
+
+/** Use markdown-conceal for proper TUI alignment (strips markdown syntax for width calc) */
+const TABLE_WIDTH_MODE: WidthMode = "markdown-conceal";
 
 function fmtUsd(n: number): string {
   if (!Number.isFinite(n)) return "$0.00";
@@ -115,6 +118,7 @@ export function formatQuotaStatsReport(params: {
       renderMarkdownTable({
         headers: ["Messages", "Tokens", "Cost"],
         aligns: ["right", "right", "right"],
+        widthMode: TABLE_WIDTH_MODE,
         rows: [
           [
             fmtCompact(r.totals.messageCount),
@@ -129,6 +133,7 @@ export function formatQuotaStatsReport(params: {
       renderMarkdownTable({
         headers: ["Window", "Messages", "Sessions", "Tokens", "Cost"],
         aligns: ["left", "right", "right", "right", "right"],
+        widthMode: TABLE_WIDTH_MODE,
         rows: [
           [
             fmtWindow(r.window),
@@ -199,7 +204,7 @@ export function formatQuotaStatsReport(params: {
     lines.push("");
     lines.push(`## Models`);
     lines.push("");
-    lines.push(renderMarkdownTable({ headers, rows, aligns }));
+    lines.push(renderMarkdownTable({ headers, rows, aligns, widthMode: TABLE_WIDTH_MODE }));
   }
 
   // Skip Top Sessions for session-only reports (e.g., /tokens_session)
@@ -241,6 +246,7 @@ export function formatQuotaStatsReport(params: {
       renderMarkdownTable({
         headers: ["", "Session", "Cost", "Tokens", "Msgs", "Title"],
         aligns: ["left", "left", "right", "right", "right", "left"],
+        widthMode: TABLE_WIDTH_MODE,
         rows: sessionRows,
       }),
     );
@@ -254,6 +260,7 @@ export function formatQuotaStatsReport(params: {
       renderMarkdownTable({
         headers: ["Source", "Model", "Mapped", "Tokens", "Msgs"],
         aligns: ["left", "left", "left", "right", "right"],
+        widthMode: TABLE_WIDTH_MODE,
         rows: r.unknown.slice(0, 20).map((u) => {
           const mapped =
             u.key.mappedProvider && u.key.mappedModel
