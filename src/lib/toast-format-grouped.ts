@@ -6,6 +6,15 @@
  */
 
 import type { QuotaToastEntry, QuotaToastError, SessionTokensData } from "./entries.js";
+import {
+  bar,
+  clampInt,
+  formatResetCountdown,
+  formatTokenCount,
+  padLeft,
+  padRight,
+  shortenModelName,
+} from "./format-utils.js";
 
 export type ToastGroupEntry = QuotaToastEntry & {
   /** Group id (e.g. "OpenAI (Pro)", "Antigravity (abc..gmail)") */
@@ -16,78 +25,10 @@ export type ToastGroupEntry = QuotaToastEntry & {
   right?: string;
 };
 
-function clampInt(n: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, Math.trunc(n)));
-}
-
-function padRight(str: string, width: number): string {
-  if (str.length >= width) return str.slice(0, width);
-  return str + " ".repeat(width - str.length);
-}
-
-function padLeft(str: string, width: number): string {
-  if (str.length >= width) return str.slice(str.length - width);
-  return " ".repeat(width - str.length) + str;
-}
-
-function bar(percentRemaining: number, width: number): string {
-  const p = clampInt(percentRemaining, 0, 100);
-  const filled = Math.round((p / 100) * width);
-  const empty = width - filled;
-  return "█".repeat(filled) + "░".repeat(empty);
-}
-
-function formatResetCountdown(iso?: string): string {
-  if (!iso) return "";
-  const resetDate = new Date(iso);
-  const now = new Date();
-  const diffMs = resetDate.getTime() - now.getTime();
-  if (!Number.isFinite(diffMs) || diffMs <= 0) return "reset";
-
-  const diffMinutes = Math.floor(diffMs / 60000);
-  const days = Math.floor(diffMinutes / 1440);
-  const hours = Math.floor((diffMinutes % 1440) / 60);
-  const minutes = diffMinutes % 60;
-
-  if (days > 0) return `${days}d ${hours}h`;
-  return `${hours}h ${minutes}m`;
-}
-
 function splitGroupName(name: string): { group: string; label: string } {
   // Heuristic: "Label (group)" -> group is label, label is empty.
   // Prefer explicit group/label metadata when available.
   return { group: name, label: "" };
-}
-
-/**
- * Format a token count with K/M suffix for compactness
- */
-function formatTokenCount(count: number): string {
-  if (count >= 1_000_000) {
-    return `${(count / 1_000_000).toFixed(1)}M`;
-  }
-  if (count >= 10_000) {
-    return `${(count / 1_000).toFixed(0)}K`;
-  }
-  if (count >= 1_000) {
-    return `${(count / 1_000).toFixed(1)}K`;
-  }
-  return String(count);
-}
-
-/**
- * Shorten model name for compact display
- */
-function shortenModelName(name: string, maxLen: number): string {
-  if (name.length <= maxLen) return name;
-  // Remove common prefixes/suffixes
-  let s = name
-    .replace(/^antigravity-/i, "")
-    .replace(/-thinking$/i, "")
-    .replace(/-preview$/i, "");
-  if (s.length <= maxLen) return s;
-  // Truncate with ellipsis
-  return s.slice(0, maxLen - 1) + "\u2026";
 }
 
 export function formatQuotaRowsGrouped(params: {

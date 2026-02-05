@@ -8,12 +8,20 @@
  */
 
 import type { QuotaToastError, SessionTokensData } from "./entries.js";
+import {
+  bar,
+  clampInt,
+  formatTokenCount,
+  padLeft,
+  padRight,
+  shortenModelName,
+} from "./format-utils.js";
 import type { ToastGroupEntry } from "./toast-format-grouped.js";
 
-function clampInt(n: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, Math.trunc(n)));
-}
-
+/**
+ * Format reset time in compact form (different from toast countdown).
+ * Uses seconds/minutes/hours/days format for /quota command.
+ */
 function formatResetTimeSeconds(diffSeconds: number): string {
   if (!Number.isFinite(diffSeconds) || diffSeconds <= 0) return "now";
   if (diffSeconds < 60) return `${Math.ceil(diffSeconds)}s`;
@@ -28,54 +36,6 @@ function formatResetsIn(iso?: string): string {
   if (!Number.isFinite(t)) return "";
   const diffSeconds = (t - Date.now()) / 1000;
   return ` (resets in ${formatResetTimeSeconds(diffSeconds)})`;
-}
-
-function bar(percentRemaining: number, width: number): string {
-  const p = clampInt(percentRemaining, 0, 100);
-  const filled = Math.round((p / 100) * width);
-  const empty = width - filled;
-  return "█".repeat(filled) + "░".repeat(empty);
-}
-
-function padRight(str: string, width: number): string {
-  if (str.length >= width) return str.slice(0, width);
-  return str + " ".repeat(width - str.length);
-}
-
-function padLeft(str: string, width: number): string {
-  if (str.length >= width) return str.slice(str.length - width);
-  return " ".repeat(width - str.length) + str;
-}
-
-/**
- * Format a token count with K/M suffix for compactness
- */
-function formatTokenCount(count: number): string {
-  if (count >= 1_000_000) {
-    return `${(count / 1_000_000).toFixed(1)}M`;
-  }
-  if (count >= 10_000) {
-    return `${(count / 1_000).toFixed(0)}K`;
-  }
-  if (count >= 1_000) {
-    return `${(count / 1_000).toFixed(1)}K`;
-  }
-  return String(count);
-}
-
-/**
- * Shorten model name for compact display
- */
-function shortenModelName(name: string, maxLen: number): string {
-  if (name.length <= maxLen) return name;
-  // Remove common prefixes/suffixes
-  let s = name
-    .replace(/^antigravity-/i, "")
-    .replace(/-thinking$/i, "")
-    .replace(/-preview$/i, "");
-  if (s.length <= maxLen) return s;
-  // Truncate with ellipsis
-  return s.slice(0, maxLen - 1) + "\u2026";
 }
 
 function normalizeGroupHeader(group: string): string {
