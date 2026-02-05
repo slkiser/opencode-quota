@@ -6,7 +6,7 @@
  */
 
 import type { AuthData, QuotaError } from "./types.js";
-import { REQUEST_TIMEOUT_MS } from "./types.js";
+import { fetchWithTimeout } from "./http.js";
 import { readAuthFile } from "./opencode-auth.js";
 
 interface RateLimitWindow {
@@ -94,22 +94,6 @@ function derivePlanLabel(planType: string | undefined): string {
   if (raw.includes("plus")) return "OpenAI (Plus)";
   if (planType) return `OpenAI (${planType})`;
   return "OpenAI";
-}
-
-async function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new Error(`Request timeout after ${Math.round(REQUEST_TIMEOUT_MS / 1000)}s`);
-    }
-    throw err;
-  } finally {
-    clearTimeout(timeoutId);
-  }
 }
 
 const OPENAI_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";

@@ -18,7 +18,7 @@ import type {
   QuotaError,
   CopilotResult,
 } from "./types.js";
-import { REQUEST_TIMEOUT_MS } from "./types.js";
+import { fetchWithTimeout } from "./http.js";
 import { readAuthFile } from "./opencode-auth.js";
 
 import { existsSync, readFileSync } from "fs";
@@ -48,33 +48,6 @@ const COPILOT_QUOTA_CONFIG_PATH = join(
 // =============================================================================
 // Helpers
 // =============================================================================
-
-/**
- * Fetch with timeout
- */
-async function fetchWithTimeout(
-  url: string,
-  options: RequestInit,
-  timeoutMs: number = REQUEST_TIMEOUT_MS,
-): Promise<Response> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
-    return response;
-  } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new Error(`Request timeout after ${Math.round(timeoutMs / 1000)}s`);
-    }
-    throw err;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
 
 /**
  * Build headers for GitHub API requests

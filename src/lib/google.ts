@@ -25,7 +25,8 @@ import type {
   GoogleAccountError,
   GoogleResult,
 } from "./types.js";
-import { REQUEST_TIMEOUT_MS, GOOGLE_MODEL_KEYS } from "./types.js";
+import { GOOGLE_MODEL_KEYS } from "./types.js";
+import { fetchWithTimeout } from "./http.js";
 import {
   getCachedAccessToken,
   makeAccountCacheKey,
@@ -234,14 +235,11 @@ async function refreshAccessTokenWithCache(params: {
 export async function refreshGoogleTokensForAllAccounts(params?: {
   skewMs?: number;
   force?: boolean;
-}): Promise<
-  | null
-  | {
-      total: number;
-      successCount: number;
-      failures: Array<{ email?: string; error: string }>;
-    }
-> {
+}): Promise<null | {
+  total: number;
+  successCount: number;
+  failures: Array<{ email?: string; error: string }>;
+}> {
   const accounts = await readAntigravityAccounts();
   if (!accounts || accounts.length === 0) return null;
 
@@ -276,33 +274,6 @@ export async function refreshGoogleTokensForAllAccounts(params?: {
     successCount,
     failures,
   };
-}
-
-/**
- * Fetch with timeout
- */
-async function fetchWithTimeout(
-  url: string,
-  options: RequestInit,
-  timeoutMs: number = REQUEST_TIMEOUT_MS,
-): Promise<Response> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
-    return response;
-  } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new Error(`Request timeout after ${Math.round(timeoutMs / 1000)}s`);
-    }
-    throw err;
-  } finally {
-    clearTimeout(timeoutId);
-  }
 }
 
 /**
@@ -406,7 +377,8 @@ async function fetchAccountQuotaWithAntigravityRefresh(params: {
       email,
     });
 
-    if ("error" in tokenResult) return { success: false, error: tokenResult.error, accountEmail: email };
+    if ("error" in tokenResult)
+      return { success: false, error: tokenResult.error, accountEmail: email };
 
     let data: GoogleQuotaResponse;
     try {
