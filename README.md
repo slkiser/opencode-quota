@@ -1,6 +1,6 @@
 # Opencode Quota
 
-Quota and token tracking for OpenCode providers via Toasts and Commands with no LLM calls.
+Monitor quota and tokens for OpenCode providers via Toasts and Commands. Zero LLM calls, zero context pollution.
 
 ## What It Does
 
