@@ -1,6 +1,6 @@
 {
   "name": "@slkiser/opencode-quota",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Show quota status in OpenCode without LLM invocation. Toast + usage reports across providers.",
   "type": "module",
   "main": "dist/index.js",
