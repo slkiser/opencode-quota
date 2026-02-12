@@ -22,7 +22,9 @@ Add to your `opencode.json`:
 }
 ```
 
-Then enable the providers you use:
+That's it. Providers are auto-detected based on your OpenCode configuration. Toasts appear automatically after assistant responses.
+
+**Optional:** To restrict which providers are queried, set `enabledProviders` explicitly:
 
 ```jsonc
 {
@@ -33,8 +35,6 @@ Then enable the providers you use:
   },
 }
 ```
-
-That's it. Toasts appear automatically after assistant responses.
 
 > **LLM Agents:** Ask your agent to install `https://github.com/slkiser/opencode-quota` with the providers you have enabled. See [LLM Agent Installation Instructions](#llm-agent-installation-instructions) for details.
 
@@ -171,7 +171,7 @@ All options go under `experimental.quotaToast` in `opencode.json`:
 | ------------------- | ------------ | ----------------------------------------------- |
 | `enabled`           | `true`       | Enable/disable plugin                           |
 | `enableToast`       | `true`       | Show popup toasts                               |
-| `enabledProviders`  | `[]`         | Provider IDs to query (see table above)         |
+| `enabledProviders`  | `"auto"`     | Provider IDs to query, or `"auto"` to detect    |
 | `minIntervalMs`     | `300000`     | Minimum ms between API fetches (default: 5 min) |
 | `toastDurationMs`   | `9000`       | How long toasts display (ms)                    |
 | `onlyCurrentModel`  | `false`      | Only show quota for the current model           |
@@ -212,9 +212,9 @@ Add the plugin to the user's `opencode.json`:
 
 If the user already has plugins, append to the existing array.
 
-#### Step 3: Configure Providers
+#### Step 3: Configure Providers (Optional)
 
-Based on the user's connected providers, add the appropriate `enabledProviders`:
+By default, providers are auto-detected. If the user wants to restrict which providers are queried, add explicit `enabledProviders`:
 
 ```jsonc
 {

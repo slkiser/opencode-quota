@@ -34,8 +34,11 @@ export interface QuotaToastConfig {
    *
    * Keep this list short and user-friendly; each provider advertises a stable id.
    * Example: ["copilot", "google-antigravity"].
+   *
+   * When set to "auto" (or left unconfigured), the plugin will auto-enable
+   * all providers whose `isAvailable()` returns true at runtime.
    */
-  enabledProviders: string[];
+  enabledProviders: string[] | "auto";
 
   googleModels: GoogleModelId[];
   showOnIdle: boolean;
@@ -72,8 +75,8 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
 
   debug: false,
 
-  // Providers are OFF by default; users opt-in via config.
-  enabledProviders: [],
+  // Providers are auto-detected by default; set to explicit list to opt-in manually.
+  enabledProviders: "auto" as const,
 
   // If Google Antigravity is enabled, default to Claude only.
   googleModels: ["CLAUDE"],

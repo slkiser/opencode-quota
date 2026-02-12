@@ -14,16 +14,22 @@ export const copilotProvider: QuotaProvider = {
     try {
       const resp = await ctx.client.config.providers();
       const ids = new Set((resp.data?.providers ?? []).map((p) => p.id));
-      return ids.has("github-copilot");
+      return ids.has("github-copilot") || ids.has("copilot") || ids.has("copilot-chat");
     } catch {
       return false;
     }
   },
 
   matchesCurrentModel(model: string): boolean {
-    const provider = model.split("/")[0]?.toLowerCase();
-    if (!provider) return false;
-    return provider.includes("copilot") || provider.includes("github");
+    const lower = model.toLowerCase();
+    // Check provider prefix (part before "/")
+    const provider = lower.split("/")[0];
+    if (provider && (provider.includes("copilot") || provider.includes("github"))) {
+      return true;
+    }
+    // Also match if the full model string contains "copilot" or "github-copilot"
+    // to handle models like "github-copilot/claude-sonnet-4.5"
+    return lower.includes("copilot") || lower.includes("github-copilot");
   },
 
   async fetch(_ctx: QuotaProviderContext): Promise<QuotaProviderResult> {

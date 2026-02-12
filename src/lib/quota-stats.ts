@@ -110,12 +110,17 @@ function messageBuckets(msg: OpenCodeMessage): TokenBuckets {
 
 function normalizeModelId(raw: string): string {
   let s = raw.trim();
+
+  // Strip provider prefixes like "github-copilot/claude-opus-4.6" or "anthropic/claude-opus-4.6"
+  const lastSlash = s.lastIndexOf("/");
+  if (lastSlash !== -1) s = s.slice(lastSlash + 1);
+
   // routing prefixes
   if (s.toLowerCase().startsWith("antigravity-")) s = s.slice("antigravity-".length);
   // common subscription variants
   if (s.toLowerCase().endsWith("-thinking")) s = s.slice(0, -"-thinking".length);
-  // claude 4.5 -> 4-5 (models.dev uses dash)
-  s = s.replace(/claude-([a-z-]+)-4\.5\b/i, "claude-$1-4-5");
+  // claude dotted versions -> hyphenated (models.dev uses dash): 4.5 -> 4-5, 4.6 -> 4-6, etc.
+  s = s.replace(/(claude-[a-z-]+)-(\d+)\.(\d+)(?=$|[^0-9])/gi, "$1-$2-$3");
   // special: "glm-4.7-free" -> "glm-4.7"
   s = s.replace(/\bglm-(\d+)\.(\d+)-free\b/i, "glm-$1.$2");
   // internal OpenCode alias (Zen)
@@ -137,6 +142,26 @@ function inferOfficialProviderFromModelId(modelId: string): string | null {
   if (lower.includes("kimi")) return "moonshotai";
   if (lower.includes("glm")) return "zai";
   return null;
+}
+
+/**
+ * Get pricing alias candidates for Anthropic models when the exact key is missing.
+ * Returns ordered candidates to try, including the original model.
+ */
+function anthropicPricingCandidates(model: string): string[] {
+  // model is expected normalized like "claude-opus-4-6"
+  if (model === "claude-opus-4-6") return [model, "claude-opus-4-5"];
+  if (model === "claude-sonnet-4-6") return [model, "claude-sonnet-4-7", "claude-sonnet-4-5"];
+  // Future-proof: try next lower version for any claude-*-N-M pattern
+  const match = model.match(/^(claude-[a-z]+-\d+)-(\d+)$/);
+  if (match) {
+    const [, prefix, minor] = match;
+    const minorNum = parseInt(minor, 10);
+    if (minorNum > 0) {
+      return [model, `${prefix}-${minorNum - 1}`];
+    }
+  }
+  return [model];
 }
 
 function mapToOfficialPricingKey(source: {
@@ -184,6 +209,16 @@ function mapToOfficialPricingKey(source: {
     if (normalizedModel === "gemini-3-flash" && lookupCost("google", "gemini-3-flash") == null) {
       if (lookupCost("google", "gemini-3-flash-preview")) {
         return { ok: true, key: { provider: "google", model: "gemini-3-flash-preview" } };
+      }
+    }
+  }
+
+  // Anthropic alias fallback: try alternative version keys when exact key is missing
+  if (inferredProvider === "anthropic") {
+    const candidates = anthropicPricingCandidates(normalizedModel);
+    for (const candidate of candidates) {
+      if (lookupCost("anthropic", candidate)) {
+        return { ok: true, key: { provider: "anthropic", model: candidate } };
       }
     }
   }

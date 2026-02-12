@@ -43,9 +43,11 @@ function tokensTotal(t: {
 export async function buildQuotaStatusReport(params: {
   configSource: string;
   configPaths: string[];
-  enabledProviders: string[];
+  enabledProviders: string[] | "auto";
   onlyCurrentModel: boolean;
   currentModel?: string;
+  /** Whether a session was available for model lookup */
+  sessionModelLookup?: "ok" | "not_found" | "no_session";
   providerAvailability: Array<{
     id: string;
     enabled: boolean;
@@ -71,10 +73,17 @@ export async function buildQuotaStatusReport(params: {
     `- configSource: ${params.configSource}${params.configPaths.length ? ` (${params.configPaths.join(" | ")})` : ""}`,
   );
   lines.push(
-    `- enabledProviders: ${params.enabledProviders.length ? params.enabledProviders.join(",") : "(none)"}`,
+    `- enabledProviders: ${params.enabledProviders === "auto" ? "(auto)" : params.enabledProviders.length ? params.enabledProviders.join(",") : "(none)"}`,
   );
   lines.push(`- onlyCurrentModel: ${params.onlyCurrentModel ? "true" : "false"}`);
-  lines.push(`- currentModel: ${params.currentModel ?? "(unknown)"}`);
+  const modelDisplay = params.currentModel
+    ? params.currentModel
+    : params.sessionModelLookup === "not_found"
+      ? "(error: session.get returned no modelID)"
+      : params.sessionModelLookup === "no_session"
+        ? "(no session available)"
+        : "(unknown)";
+  lines.push(`- currentModel: ${modelDisplay}`);
   lines.push("- providers:");
   for (const p of params.providerAvailability) {
     const bits: string[] = [];

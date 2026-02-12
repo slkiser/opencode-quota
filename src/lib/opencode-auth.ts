@@ -17,7 +17,9 @@ export function getAuthPath(): string {
   const dataDir =
     process.platform === "win32"
       ? process.env.LOCALAPPDATA || join(home, "AppData", "Local")
-      : join(home, ".local", "share");
+      : process.platform === "darwin"
+        ? join(home, "Library", "Application Support")
+        : join(home, ".local", "share");
   return join(dataDir, "opencode", "auth.json");
 }
 

@@ -31,6 +31,30 @@ function isValidGoogleModelId(id: unknown): id is GoogleModelId {
 }
 
 /**
+ * Normalize a provider ID for consistent matching.
+ * - Trims whitespace and lowercases
+ * - Maps known synonyms to canonical IDs
+ */
+function normalizeProviderId(id: string): string {
+  const s = id.trim().toLowerCase();
+  switch (s) {
+    case "github-copilot":
+    case "copilot-chat":
+    case "github-copilot-chat":
+      return "copilot";
+    default:
+      return s;
+  }
+}
+
+/**
+ * Remove duplicates from an array while preserving order
+ */
+function dedupe<T>(list: T[]): T[] {
+  return [...new Set(list)];
+}
+
+/**
  * Load plugin configuration from OpenCode config
  *
  * @param client - OpenCode SDK client
@@ -72,9 +96,17 @@ export async function loadConfig(
       debug:
         typeof quotaToastConfig.debug === "boolean" ? quotaToastConfig.debug : DEFAULT_CONFIG.debug,
 
-      enabledProviders: Array.isArray(quotaToastConfig.enabledProviders)
-        ? quotaToastConfig.enabledProviders.filter((p) => typeof p === "string")
-        : DEFAULT_CONFIG.enabledProviders,
+      enabledProviders:
+        quotaToastConfig.enabledProviders === "auto"
+          ? "auto"
+          : Array.isArray(quotaToastConfig.enabledProviders)
+            ? dedupe(
+                quotaToastConfig.enabledProviders
+                  .filter((p): p is string => typeof p === "string")
+                  .map(normalizeProviderId)
+                  .filter(Boolean),
+              )
+            : DEFAULT_CONFIG.enabledProviders,
       googleModels: Array.isArray(quotaToastConfig.googleModels)
         ? quotaToastConfig.googleModels.filter(isValidGoogleModelId)
         : DEFAULT_CONFIG.googleModels,
@@ -124,7 +156,7 @@ export async function loadConfig(
       },
     };
 
-    // enabledProviders is intentionally allowed to be empty (providers OFF by default).
+    // enabledProviders: "auto" means auto-detect; explicit array means user-specified.
 
     // Ensure at least one Google model is configured
     if (config.googleModels.length === 0) {

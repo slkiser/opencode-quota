@@ -48,6 +48,7 @@ interface OpencodeClient {
     get: (params: { path: { id: string } }) => Promise<{
       data?: {
         parentID?: string;
+        modelID?: string;
       };
     }>;
     prompt: (params: {
@@ -491,11 +492,28 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     }
   }
 
+  /**
+   * Get the current model from the active session.
+   *
+   * Only uses session-scoped model lookup. Does NOT fall back to
+   * client.config.get() because that returns the global/default model
+   * which can be stale across sessions.
+   */
+  async function getCurrentModel(sessionID?: string): Promise<string | undefined> {
+    if (!sessionID) return undefined;
+    try {
+      const sessionResp = await typedClient.session.get({ path: { id: sessionID } });
+      return sessionResp.data?.modelID;
+    } catch {
+      return undefined;
+    }
+  }
+
   function formatDebugInfo(params: {
     trigger: string;
     reason: string;
     currentModel?: string;
-    enabledProviders: string[];
+    enabledProviders: string[] | "auto";
     availability?: Array<{ id: string; ok: boolean }>;
   }): string {
     const availability = params.availability
@@ -503,7 +521,11 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       : "unknown";
 
     const providers =
-      params.enabledProviders.length > 0 ? params.enabledProviders.join(",") : "(none)";
+      params.enabledProviders === "auto"
+        ? "(auto)"
+        : params.enabledProviders.length > 0
+          ? params.enabledProviders.join(",")
+          : "(none)";
 
     const modelPart = params.currentModel ? ` model=${params.currentModel}` : "";
 
@@ -531,10 +553,18 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
         : null;
     }
 
-    const providers = getProviders().filter((p) => config.enabledProviders.includes(p.id));
+    const allProviders = getProviders();
+    const isAutoMode = config.enabledProviders === "auto";
+    const enabledProviderIds = isAutoMode ? [] : config.enabledProviders;
 
-    // Providers are opt-in; when none are enabled, do nothing.
-    if (providers.length === 0) {
+    // When enabledProviders is "auto", we'll filter by availability below.
+    // When explicit, filter to just the listed providers.
+    const providers = isAutoMode
+      ? allProviders
+      : allProviders.filter((p) => enabledProviderIds.includes(p.id));
+
+    // Only bail on empty if user explicitly configured an empty list.
+    if (!isAutoMode && providers.length === 0) {
       return config.debug
         ? formatDebugInfo({ trigger, reason: "enabledProviders empty", enabledProviders: [] })
         : null;
@@ -542,12 +572,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
 
     let currentModel: string | undefined;
     if (config.onlyCurrentModel) {
-      try {
-        const configResponse = await typedClient.config.get();
-        currentModel = configResponse.data?.model;
-      } catch {
-        currentModel = undefined;
-      }
+      currentModel = await getCurrentModel(sessionID);
     }
 
     const ctx = {
@@ -633,7 +658,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
 
       if (!config.debug) return formatted;
 
-      const debugFooter = `\n\n[debug] src=${configMeta.source} providers=${config.enabledProviders.join(",") || "(none)"} avail=${avail
+      const debugFooter = `\n\n[debug] src=${configMeta.source} providers=${config.enabledProviders === "auto" ? "(auto)" : config.enabledProviders.join(",") || "(none)"} avail=${avail
         .map((x) => `${x.p.id}:${x.ok ? "ok" : "no"}`)
         .join(" ")}`;
 
@@ -727,8 +752,12 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     if (!configLoaded) await refreshConfig();
     if (!config.enabled) return null;
 
-    const providers = getProviders().filter((p) => config.enabledProviders.includes(p.id));
-    if (providers.length === 0) return null;
+    const allProviders = getProviders();
+    const isAutoMode = config.enabledProviders === "auto";
+    const providers = isAutoMode
+      ? allProviders
+      : allProviders.filter((p) => config.enabledProviders.includes(p.id));
+    if (!isAutoMode && providers.length === 0) return null;
 
     const ctx = {
       client: typedClient,
@@ -816,16 +845,18 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     refreshGoogleTokens?: boolean;
     skewMs?: number;
     force?: boolean;
+    sessionID?: string;
   }): Promise<string> {
     await refreshConfig();
 
-    let currentModel: string | undefined;
-    try {
-      const configResponse = await typedClient.config.get();
-      currentModel = configResponse.data?.model;
-    } catch {
-      currentModel = undefined;
-    }
+    const currentModel = await getCurrentModel(params.sessionID);
+    const sessionModelLookup: "ok" | "not_found" | "no_session" = !params.sessionID
+      ? "no_session"
+      : currentModel
+        ? "ok"
+        : "not_found";
+
+    const isAutoMode = config.enabledProviders === "auto";
 
     const providers = getProviders();
     const availability = await Promise.all(
@@ -841,7 +872,8 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
         }
         return {
           id: p.id,
-          enabled: config.enabledProviders.includes(p.id),
+          // In auto mode, a provider is effectively "enabled" if it's available.
+          enabled: isAutoMode ? ok : config.enabledProviders.includes(p.id),
           available: ok,
           matchesCurrentModel:
             typeof p.matchesCurrentModel === "function" && currentModel
@@ -861,6 +893,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       enabledProviders: config.enabledProviders,
       onlyCurrentModel: config.onlyCurrentModel,
       currentModel,
+      sessionModelLookup,
       providerAvailability: availability,
       googleRefresh: refresh
         ? {
@@ -942,7 +975,41 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
         }
 
         if (!msg) {
-          await injectRawOutput(sessionID, "Quota unavailable");
+          // Provide an actionable message instead of a generic "unavailable".
+          if (!configLoaded) {
+            await injectRawOutput(sessionID, "Quota unavailable (config not loaded, try again)");
+          } else if (!config.enabled) {
+            await injectRawOutput(sessionID, "Quota disabled in config (enabled: false)");
+          } else {
+            // Check what providers are available for a more specific hint.
+            const allProvs = getProviders();
+            const ctx = {
+              client: typedClient,
+              config: { googleModels: config.googleModels },
+            };
+            const avail = await Promise.all(
+              allProvs.map(async (p) => {
+                try {
+                  return { id: p.id, ok: await p.isAvailable(ctx) };
+                } catch {
+                  return { id: p.id, ok: false };
+                }
+              }),
+            );
+            const availableIds = avail.filter((x) => x.ok).map((x) => x.id);
+
+            if (availableIds.length === 0) {
+              await injectRawOutput(
+                sessionID,
+                "Quota unavailable\n\nNo quota providers detected. Make sure you are logged in to a supported provider (Copilot, OpenAI, etc.).\n\nRun /quota_status for diagnostics.",
+              );
+            } else {
+              await injectRawOutput(
+                sessionID,
+                `Quota unavailable\n\nProviders detected (${availableIds.join(", ")}) but returned no data. This may be a temporary API error.\n\nRun /quota_status for diagnostics.`,
+              );
+            }
+          }
           throw new Error("__QUOTA_COMMAND_HANDLED__");
         }
 
@@ -1037,6 +1104,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
               ? (parsed.value["skewMs"] as number)
               : undefined,
           force: parsed.value["force"] === true,
+          sessionID,
         });
         await injectRawOutput(sessionID, out);
         throw new Error("__QUOTA_COMMAND_HANDLED__");
@@ -1128,6 +1196,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
             refreshGoogleTokens: args.refreshGoogleTokens,
             skewMs: args.skewMs,
             force: args.force,
+            sessionID: context.sessionID,
           });
           context.metadata({ title: "Quota Status" });
           await injectRawOutput(context.sessionID, out);

@@ -77,10 +77,18 @@ function buildLegacyTokenHeaders(token: string): Record<string, string> {
 
 /**
  * Read Copilot auth data from auth.json
+ *
+ * Tries multiple key names to handle different OpenCode versions/configs.
  */
 async function readCopilotAuth(): Promise<CopilotAuthData | null> {
   const authData = await readAuthFile();
-  const copilotAuth = authData?.["github-copilot"];
+  if (!authData) return null;
+
+  // Try known key names in priority order
+  const copilotAuth =
+    authData["github-copilot"] ??
+    (authData as Record<string, CopilotAuthData | undefined>)["copilot"] ??
+    (authData as Record<string, CopilotAuthData | undefined>)["copilot-chat"];
 
   if (!copilotAuth || copilotAuth.type !== "oauth" || !copilotAuth.refresh) {
     return null;
