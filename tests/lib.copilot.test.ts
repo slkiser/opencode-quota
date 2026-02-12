@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { queryCopilotQuota } from "../src/lib/copilot.js";
+vi.mock("fs", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("fs")>();
+  return {
+    ...mod,
+    // Prevent test environment from accidentally using a real local PAT config.
+    existsSync: vi.fn(() => false),
+  };
+});
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
   readAuthFile: vi.fn(),
@@ -13,6 +20,7 @@ describe("queryCopilotQuota", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));
     process.env = { ...realEnv };
+    vi.resetModules();
   });
 
   afterEach(() => {
@@ -22,6 +30,7 @@ describe("queryCopilotQuota", () => {
   });
 
   it("returns null when not configured and no PAT config", async () => {
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
     const { readAuthFile } = await import("../src/lib/opencode-auth.js");
     (readAuthFile as any).mockResolvedValueOnce({});
 
@@ -29,6 +38,7 @@ describe("queryCopilotQuota", () => {
   });
 
   it("uses token exchange when legacy internal call fails", async () => {
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
     const { readAuthFile } = await import("../src/lib/opencode-auth.js");
     (readAuthFile as any).mockResolvedValueOnce({
       "github-copilot": { type: "oauth", refresh: "gho_abc" },

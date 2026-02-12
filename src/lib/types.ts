@@ -155,6 +155,20 @@ export interface AuthData {
     expires?: number;
     accountId?: string;
   };
+  // Some OpenCode installs store ChatGPT auth under "chatgpt".
+  chatgpt?: {
+    type: string;
+    access?: string;
+    refresh?: string;
+    expires?: number;
+  };
+  // Some OpenCode installs store OpenAI auth under "opencode".
+  opencode?: {
+    type: string;
+    access?: string;
+    refresh?: string;
+    expires?: number;
+  };
   firmware?: {
     type: string;
     key?: string;

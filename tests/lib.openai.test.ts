@@ -15,6 +15,7 @@ describe("queryOpenAIQuota", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   it("returns null when not configured", async () => {
@@ -32,6 +33,70 @@ describe("queryOpenAIQuota", () => {
 
     const out = await queryOpenAIQuota();
     expect(out && !out.success ? out.error : "").toContain("Token expired");
+  });
+
+  it("reads auth from chatgpt key when openai/codex not present", async () => {
+    const { readAuthFile } = await import("../src/lib/opencode-auth.js");
+    (readAuthFile as any).mockResolvedValueOnce({
+      chatgpt: { type: "oauth", access: "a.b.c", expires: Date.now() + 60_000 },
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              plan_type: "plus",
+              rate_limit: {
+                limit_reached: false,
+                primary_window: {
+                  used_percent: 20,
+                  limit_window_seconds: 3600,
+                  reset_after_seconds: 3600,
+                },
+                secondary_window: null,
+              },
+            }),
+            { status: 200 },
+          ),
+      ) as any,
+    );
+
+    const out = await queryOpenAIQuota();
+    expect(out && out.success ? out.windows.hourly?.percentRemaining : -1).toBe(80);
+  });
+
+  it("reads auth from opencode key when other keys not present", async () => {
+    const { readAuthFile } = await import("../src/lib/opencode-auth.js");
+    (readAuthFile as any).mockResolvedValueOnce({
+      opencode: { type: "oauth", access: "a.b.c", expires: Date.now() + 60_000 },
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              plan_type: "free",
+              rate_limit: {
+                limit_reached: false,
+                primary_window: {
+                  used_percent: 50,
+                  limit_window_seconds: 3600,
+                  reset_after_seconds: 3600,
+                },
+                secondary_window: null,
+              },
+            }),
+            { status: 200 },
+          ),
+      ) as any,
+    );
+
+    const out = await queryOpenAIQuota();
+    expect(out && out.success ? out.windows.hourly?.percentRemaining : -1).toBe(50);
   });
 
   it("returns separate hourly/weekly windows", async () => {
@@ -69,7 +134,5 @@ describe("queryOpenAIQuota", () => {
     const out = await queryOpenAIQuota();
     expect(out && out.success ? out.windows.hourly?.percentRemaining : -1).toBe(90);
     expect(out && out.success ? out.windows.weekly?.percentRemaining : -1).toBe(30);
-
-    vi.unstubAllGlobals();
   });
 });

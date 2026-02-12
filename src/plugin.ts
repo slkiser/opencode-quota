@@ -244,6 +244,23 @@ function isTokenReportCommand(cmd: string): cmd is TokenReportCommandId {
 export const QuotaToastPlugin: Plugin = async ({ client }) => {
   const typedClient = client as unknown as OpencodeClient;
 
+  function getProviderDisplayLabel(id: string): string {
+    switch (id) {
+      case "openai":
+        return "OpenAI";
+      case "copilot":
+        return "Copilot";
+      case "google-antigravity":
+        return "Google";
+      case "firmware":
+        return "Firmware";
+      case "chutes":
+        return "Chutes";
+      default:
+        return id;
+    }
+  }
+
   /**
    * Inject tool output directly into the session without triggering an LLM response.
    * This prevents models from summarizing/rewriting our carefully formatted reports.
@@ -614,6 +631,52 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     const errors: QuotaToastError[] = results.flatMap((r) => r.errors);
     const attemptedAny = results.some((r) => r.attempted);
 
+    let hasExplicitProviderIssues = false;
+
+    // When enabledProviders is an explicit list, surface "Not configured" errors
+    // for providers that returned attempted:false with no entries/errors.
+    // This prevents silently omitting providers that users explicitly requested.
+    if (!isAutoMode) {
+      for (let i = 0; i < active.length; i++) {
+        const provider = active[i];
+        const result = results[i];
+        if (!result.attempted && result.entries.length === 0 && result.errors.length === 0) {
+          errors.push({ label: getProviderDisplayLabel(provider.id), message: "Not configured" });
+          hasExplicitProviderIssues = true;
+        }
+      }
+
+      // If a user explicitly enabled providers that are unavailable (or skipped due
+      // to model filtering), surface that instead of silently omitting them.
+      const filteredIds = new Set(filtered.map((p) => p.id));
+      const activeIds = new Set(active.map((p) => p.id));
+      const availById = new Map(avail.map((x) => [x.p.id, x.ok] as const));
+
+      for (const p of providers) {
+        if (activeIds.has(p.id)) continue;
+
+        if (!filteredIds.has(p.id)) {
+          const detail =
+            config.onlyCurrentModel && currentModel ? `current model: ${currentModel}` : "filtered";
+          errors.push({
+            label: getProviderDisplayLabel(p.id),
+            message: `Skipped (${detail})`,
+          });
+          hasExplicitProviderIssues = true;
+          continue;
+        }
+
+        const ok = availById.get(p.id);
+        if (ok === false) {
+          errors.push({
+            label: getProviderDisplayLabel(p.id),
+            message: "Unavailable (not detected)",
+          });
+          hasExplicitProviderIssues = true;
+        }
+      }
+    }
+
     // Fetch session tokens if enabled and sessionID is available
     let sessionTokens: SessionTokensData | undefined;
     if (config.showSessionTokens && sessionID) {
@@ -665,14 +728,21 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       return formatted + debugFooter;
     }
 
-    if (config.showOnBothFail && attemptedAny && errors.length > 0) {
-      if (!config.debug) return "Quota unavailable";
+    // Show errors even without entries when:
+    // 1. showOnBothFail is enabled and at least one provider attempted (existing behavior)
+    // 2. OR we're in explicit mode and have "Not configured"/"Unavailable" errors (new behavior)
+    if ((config.showOnBothFail && attemptedAny && errors.length > 0) || hasExplicitProviderIssues) {
+      // Format errors as individual lines
+      const errorLines = errors.map((e) => `${e.label}: ${e.message}`).join("\n");
+      if (!config.debug) return errorLines || "Quota unavailable";
       return (
-        "Quota unavailable" +
+        (errorLines || "Quota unavailable") +
         "\n\n" +
         formatDebugInfo({
           trigger,
-          reason: "all providers failed",
+          reason: hasExplicitProviderIssues
+            ? "providers missing/unavailable"
+            : "all providers failed",
           currentModel,
           enabledProviders: config.enabledProviders,
           availability: avail.map((x) => ({ id: x.p.id, ok: x.ok })),

@@ -12,22 +12,47 @@ import { join } from "path";
 
 import type { AuthData } from "./types.js";
 
-export function getAuthPath(): string {
+/**
+ * Get candidate auth.json paths in priority order.
+ * Some OpenCode installations use Linux-style paths even on macOS,
+ * so we check multiple locations.
+ */
+export function getAuthPaths(): string[] {
   const home = homedir();
-  const dataDir =
-    process.platform === "win32"
-      ? process.env.LOCALAPPDATA || join(home, "AppData", "Local")
-      : process.platform === "darwin"
-        ? join(home, "Library", "Application Support")
-        : join(home, ".local", "share");
-  return join(dataDir, "opencode", "auth.json");
+
+  if (process.platform === "win32") {
+    const dataDir = process.env.LOCALAPPDATA || join(home, "AppData", "Local");
+    return [join(dataDir, "opencode", "auth.json")];
+  }
+
+  if (process.platform === "darwin") {
+    // Check both macOS standard and Linux-style paths
+    return [
+      join(home, "Library", "Application Support", "opencode", "auth.json"),
+      join(home, ".local", "share", "opencode", "auth.json"),
+    ];
+  }
+
+  // Linux
+  return [join(home, ".local", "share", "opencode", "auth.json")];
+}
+
+/** Returns the first candidate path (for display/logging purposes) */
+export function getAuthPath(): string {
+  return getAuthPaths()[0];
 }
 
 export async function readAuthFile(): Promise<AuthData | null> {
-  try {
-    const content = await readFile(getAuthPath(), "utf-8");
-    return JSON.parse(content) as AuthData;
-  } catch {
-    return null;
+  const paths = getAuthPaths();
+
+  for (const path of paths) {
+    try {
+      const content = await readFile(path, "utf-8");
+      return JSON.parse(content) as AuthData;
+    } catch {
+      // Try next path
+    }
   }
+
+  return null;
 }

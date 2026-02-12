@@ -126,7 +126,8 @@ type OpenAIOAuth = {
 
 async function readOpenAIAuth(): Promise<OpenAIOAuth | null> {
   const auth = await readAuthFile();
-  const openai = auth?.codex ?? auth?.openai;
+  // Check all keys that openaiProvider.isAvailable() recognizes as OpenAI providers
+  const openai = auth?.codex ?? auth?.openai ?? auth?.chatgpt ?? auth?.opencode;
   if (!openai || openai.type !== "oauth" || !openai.access) return null;
   return openai as OpenAIOAuth;
 }

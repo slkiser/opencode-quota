@@ -1,10 +1,8 @@
-import { getAuthPath } from "./opencode-auth.js";
+import { stat } from "fs/promises";
+
+import { getAuthPath, getAuthPaths } from "./opencode-auth.js";
 import { getGoogleTokenCachePath } from "./google-token-cache.js";
-import {
-  getAntigravityAccountsCandidatePaths,
-  pickAntigravityAccountsPath,
-  readAntigravityAccounts,
-} from "./google.js";
+import { getAntigravityAccountsCandidatePaths, readAntigravityAccounts } from "./google.js";
 import { getFirmwareKeyDiagnostics } from "./firmware.js";
 import { getChutesKeyDiagnostics } from "./chutes.js";
 import {
@@ -12,6 +10,7 @@ import {
   listProviders,
   getProviderModelCount,
 } from "./modelsdev-pricing.js";
+import { getPackageVersion } from "./version.js";
 import {
   getOpenCodeMessageDir,
   getOpenCodeSessionDir,
@@ -24,6 +23,15 @@ export interface SessionTokenError {
   sessionID: string;
   error: string;
   checkedPath?: string;
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function fmtInt(n: number): string {
@@ -64,7 +72,9 @@ export async function buildQuotaStatusReport(params: {
 }): Promise<string> {
   const lines: string[] = [];
 
-  lines.push("Quota Status (opencode-quota)");
+  const version = await getPackageVersion();
+
+  lines.push(`Quota Status (opencode-quota${version ? ` v${version}` : ""})`);
   lines.push("");
 
   // === toast diagnostics ===
@@ -97,7 +107,23 @@ export async function buildQuotaStatusReport(params: {
 
   lines.push("");
   lines.push("paths:");
-  lines.push(`- auth.json: ${getAuthPath()}`);
+  const authCandidates = getAuthPaths();
+  const authPresent: string[] = [];
+  await Promise.all(
+    authCandidates.map(async (p) => {
+      try {
+        await stat(p);
+        authPresent.push(p);
+      } catch {
+        // ignore missing/unreadable
+      }
+    }),
+  );
+  lines.push(`- auth.json (preferred): ${getAuthPath()}`);
+  lines.push(
+    `- auth.json (candidates): ${authCandidates.length ? authCandidates.join(" | ") : "(none)"}`,
+  );
+  lines.push(`- auth.json (present): ${authPresent.length ? authPresent.join(" | ") : "(none)"}`);
 
   // Firmware API key diagnostics
   let firmwareDiag: { configured: boolean; source: string | null; checkedPaths: string[] } = {
@@ -137,14 +163,35 @@ export async function buildQuotaStatusReport(params: {
     lines.push(`- chutes api key checked: ${chutesDiag.checkedPaths.join(" | ")}`);
   }
 
-  lines.push(`- google token cache: ${getGoogleTokenCachePath()}`);
-  lines.push(`- antigravity accounts (selected): ${pickAntigravityAccountsPath()}`);
+  const googleTokenCachePath = getGoogleTokenCachePath();
+  lines.push(
+    `- google token cache: ${googleTokenCachePath}${(await pathExists(googleTokenCachePath)) ? "" : " (missing)"}`,
+  );
+
   const candidates = getAntigravityAccountsCandidatePaths();
+  const presentCandidates: string[] = [];
+  await Promise.all(
+    candidates.map(async (p) => {
+      if (await pathExists(p)) presentCandidates.push(p);
+    }),
+  );
+  const selected = presentCandidates[0] ?? null;
+  lines.push(`- antigravity accounts (selected): ${selected ?? "(none)"}`);
   lines.push(
     `- antigravity accounts (candidates): ${candidates.length ? candidates.join(" | ") : "(none)"}`,
   );
-  lines.push(`- opencode storage message: ${getOpenCodeMessageDir()}`);
-  lines.push(`- opencode storage session: ${getOpenCodeSessionDir()}`);
+  lines.push(
+    `- antigravity accounts (present): ${presentCandidates.length ? presentCandidates.join(" | ") : "(none)"}`,
+  );
+
+  const msgDir = getOpenCodeMessageDir();
+  const sesDir = getOpenCodeSessionDir();
+  lines.push(
+    `- opencode storage message: ${msgDir}${(await pathExists(msgDir)) ? "" : " (missing)"}`,
+  );
+  lines.push(
+    `- opencode storage session: ${sesDir}${(await pathExists(sesDir)) ? "" : " (missing)"}`,
+  );
 
   if (params.googleRefresh?.attempted) {
     lines.push("");
