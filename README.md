@@ -14,7 +14,7 @@ Monitor quota and tokens for OpenCode providers via Toasts and Commands. Zero LL
 
 ## Installation
 
-Add to your `opencode.json`:
+Add to your `opencode.json` (strict JSON) or `opencode.jsonc` (JSONC with comments/trailing commas):
 
 ```json
 {
@@ -26,13 +26,13 @@ That's it. Providers are auto-detected based on your OpenCode configuration. Toa
 
 **Optional:** To restrict which providers are queried, set `enabledProviders` explicitly:
 
-```jsonc
+```json
 {
   "experimental": {
     "quotaToast": {
-      "enabledProviders": ["copilot", "openai", "google-antigravity"],
-    },
-  },
+      "enabledProviders": ["copilot", "openai", "google-antigravity"]
+    }
+  }
 }
 ```
 
@@ -101,20 +101,20 @@ OpenAI works automatically if OpenCode has OpenAI/ChatGPT configured.
 
 Works automatically if OpenCode has Firmware configured. Alternatively, provide an API key:
 
-```jsonc
+```json
 {
   "provider": {
     "firmware": {
       "options": {
-        "apiKey": "{env:FIRMWARE_API_KEY}",
-      },
-    },
+        "apiKey": "{env:FIRMWARE_API_KEY}"
+      }
+    }
   },
   "experimental": {
     "quotaToast": {
-      "enabledProviders": ["firmware"],
-    },
-  },
+      "enabledProviders": ["firmware"]
+    }
+  }
 }
 ```
 
@@ -129,20 +129,20 @@ The `apiKey` field supports `{env:VAR_NAME}` syntax or a direct key.
 
 Works automatically if OpenCode has Chutes configured. Alternatively, provide an API key:
 
-```jsonc
+```json
 {
   "provider": {
     "chutes": {
       "options": {
-        "apiKey": "{env:CHUTES_API_KEY}",
-      },
-    },
+        "apiKey": "{env:CHUTES_API_KEY}"
+      }
+    }
   },
   "experimental": {
     "quotaToast": {
-      "enabledProviders": ["chutes"],
-    },
-  },
+      "enabledProviders": ["chutes"]
+    }
+  }
 }
 ```
 
@@ -165,19 +165,27 @@ Account credentials are stored in `~/.config/opencode/antigravity-accounts.json`
 
 ## Configuration Reference
 
-All options go under `experimental.quotaToast` in `opencode.json`:
+All options go under `experimental.quotaToast` in `opencode.json` or `opencode.jsonc`:
 
-| Option              | Default      | Description                                     |
-| ------------------- | ------------ | ----------------------------------------------- |
-| `enabled`           | `true`       | Enable/disable plugin                           |
-| `enableToast`       | `true`       | Show popup toasts                               |
-| `enabledProviders`  | `"auto"`     | Provider IDs to query, or `"auto"` to detect    |
-| `minIntervalMs`     | `300000`     | Minimum ms between API fetches (default: 5 min) |
-| `toastDurationMs`   | `9000`       | How long toasts display (ms)                    |
-| `onlyCurrentModel`  | `false`      | Only show quota for the current model           |
-| `showSessionTokens` | `true`       | Show per-model input/output tokens in toast     |
-| `googleModels`      | `["CLAUDE"]` | Google models: `CLAUDE`, `G3PRO`, `G3FLASH`     |
-| `debug`             | `false`      | Show debug info in toasts                       |
+| Option              | Default      | Description                                                                  |
+| ------------------- | ------------ | ---------------------------------------------------------------------------- |
+| `enabled`           | `true`       | Enable/disable plugin                                                        |
+| `enableToast`       | `true`       | Show popup toasts                                                            |
+| `toastStyle`        | `classic`    | Toast layout style: `classic` or `grouped`                                   |
+| `enabledProviders`  | `"auto"`     | Provider IDs to query, or `"auto"` to detect                                 |
+| `minIntervalMs`     | `300000`     | Minimum ms between API fetches (default: 5 min)                              |
+| `toastDurationMs`   | `9000`       | How long toasts display (ms)                                                 |
+| `showOnIdle`        | `true`       | Show toast on idle trigger                                                   |
+| `showOnQuestion`    | `true`       | Show toast after a question/assistant response                               |
+| `showOnCompact`     | `true`       | Show toast after session compaction                                          |
+| `showOnBothFail`    | `true`       | If providers attempt and fail, show a fallback toast                         |
+| `onlyCurrentModel`  | `false`      | Only show quota for the current model (best-effort)                          |
+| `showSessionTokens` | `true`       | Show per-model input/output tokens in toast                                  |
+| `layout.maxWidth`   | `50`         | Formatting target width                                                      |
+| `layout.narrowAt`   | `42`         | Compact layout breakpoint                                                    |
+| `layout.tinyAt`     | `32`         | Ultra-compact layout breakpoint                                              |
+| `googleModels`      | `["CLAUDE"]` | Google models: `CLAUDE`, `G3PRO`, `G3FLASH`, `G3IMAGE`                       |
+| `debug`             | `false`      | Show debug info in toasts (and a debug-only toast when otherwise suppressed) |
 
 ## Troubleshooting
 
@@ -196,13 +204,13 @@ This section provides instructions for LLM agents to install and configure `open
 
 First, determine what providers the user has connected. You can:
 
-1. Read the user's `opencode.json` (typically at `~/.config/opencode/opencode.json`)
+1. Read the user's `opencode.json` or `opencode.jsonc` (typically at `~/.config/opencode/`)
 2. Run `/connected` in OpenCode to see active providers
 3. Ask the user which providers they use
 
 #### Step 2: Install the Plugin
 
-Add the plugin to the user's `opencode.json`:
+Add the plugin to the user's `opencode.json` (or `opencode.jsonc`):
 
 ```json
 {
