@@ -55,4 +55,6 @@ jobs:
       - name: Publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE_SOURCE_REPOSITORY: https://github.com/${{ github.repository }}
+          NPM_CONFIG_PROVENANCE_SOURCE_REPOSITORY_REF: ${{ github.ref }}
         run: npm publish --access public --provenance
