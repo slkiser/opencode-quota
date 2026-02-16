@@ -46,18 +46,19 @@ That's it. Providers are auto-detected based on your OpenCode configuration. Toa
 
 ## Commands
 
-| Command                  | Description                                      |
-| ------------------------ | ------------------------------------------------ |
-| `/quota`                 | Show quota toast (verbose)                       |
-| `/quota_status`          | Show diagnostics (config, providers, accounts)   |
-|                          |                                                  |
-| `/tokens_today`          | Tokens used today (calendar day)                 |
-| `/tokens_daily`          | Tokens used in last 24 hours                     |
-| `/tokens_weekly`         | Tokens used in last 7 days                       |
-| `/tokens_monthly`        | Tokens used in last 30 days                      |
-| `/tokens_all`            | Tokens used all time                             |
-| `/tokens_session`        | Tokens used in current session                   |
-| `/tokens_between`        | Tokens between two dates (YYYY-MM-DD)            |
+| Command                  | Description                                               |
+| ------------------------ | --------------------------------------------------------- |
+| `/quota`                 | Show quota toast (verbose)                                |
+| `/quota_status`          | Show diagnostics (config, providers, accounts) + pricing health |
+|                          |                                                           |
+| `/tokens_today`          | Tokens used today (calendar day)                          |
+| `/tokens_daily`          | Tokens used in last 24 hours                              |
+| `/tokens_weekly`         | Tokens used in last 7 days                                |
+| `/tokens_monthly`        | Tokens used in last 30 days (incl. pricing sections)       |
+| `/tokens_all`            | Tokens used all time                                      |
+| `/tokens_session`        | Tokens used in current session                            |
+| `/tokens_between`        | Tokens between two dates (YYYY-MM-DD)                     |
+
 ## Supported Providers
 
 | Provider           | Config ID            | Auth Source                                   |

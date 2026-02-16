@@ -5,7 +5,12 @@ import {
   readAllSessionsIndex,
   SessionNotFoundError,
 } from "./opencode-storage.js";
-import { inferProviderForModelId, listProviders, lookupCost } from "./modelsdev-pricing.js";
+import {
+  hasProvider,
+  inferProviderForModelId,
+  listProviders,
+  lookupCost,
+} from "./modelsdev-pricing.js";
 
 // Re-export for consumers
 export { SessionNotFoundError } from "./opencode-storage.js";
@@ -66,11 +71,26 @@ export type UnknownRow = {
   messageCount: number;
 };
 
+export type UnpricedKey = {
+  sourceProviderID: string;
+  sourceModelID: string;
+  mappedProvider: string;
+  mappedModel: string;
+  reason: string;
+};
+
+export type UnpricedRow = {
+  key: UnpricedKey;
+  tokens: TokenBuckets;
+  messageCount: number;
+};
+
 export type AggregateResult = {
   window: { sinceMs?: number; untilMs?: number };
   totals: {
     priced: TokenBuckets;
     unknown: TokenBuckets;
+    unpriced: TokenBuckets;
     costUsd: number;
     messageCount: number;
     sessionCount: number;
@@ -80,6 +100,7 @@ export type AggregateResult = {
   byModel: AggregateRow[];
   bySession: SessionRow[];
   unknown: UnknownRow[];
+  unpriced: UnpricedRow[];
 };
 
 function emptyBuckets(): TokenBuckets {
@@ -278,6 +299,24 @@ function calculateCostUsd(params: {
   return { ok: true, costUsd: usd };
 }
 
+function classifyMissingPricing(params: {
+  mappedProvider: string;
+  mappedModel: string;
+}): { kind: "unpriced"; reason: string } | { kind: "unknown" } {
+  // If we don't even have provider coverage in the pricing snapshot,
+  // we cannot price these tokens.
+  if (!hasProvider(params.mappedProvider)) {
+    return { kind: "unpriced", reason: "provider not in models.dev pricing snapshot" };
+  }
+
+  // Heuristic: free-tier model ids usually have no token pricing.
+  if (params.mappedModel.toLowerCase().endsWith("-free")) {
+    return { kind: "unpriced", reason: "free-tier model id not priced in snapshot" };
+  }
+
+  return { kind: "unknown" };
+}
+
 export async function aggregateUsage(params: {
   sinceMs?: number;
   untilMs?: number;
@@ -301,9 +340,11 @@ export async function aggregateUsage(params: {
   const bySourceProvider = new Map<string, SourceProviderRow>();
   const bySourceModel = new Map<string, SourceModelRow>();
   const unknown = new Map<string, UnknownRow>();
+  const unpriced = new Map<string, UnpricedRow>();
 
   let pricedTotals = emptyBuckets();
   let unknownTotals = emptyBuckets();
+  let unpricedTotals = emptyBuckets();
   let costTotal = 0;
 
   for (const msg of messages) {
@@ -329,6 +370,31 @@ export async function aggregateUsage(params: {
       tokens,
     });
     if (!priced.ok) {
+      const classification = classifyMissingPricing({
+        mappedProvider: mapping.key.provider,
+        mappedModel: mapping.key.model,
+      });
+
+      if (classification.kind === "unpriced") {
+        unpricedTotals = addBuckets(unpricedTotals, tokens);
+        const rowKey: UnpricedKey = {
+          sourceProviderID: msg.providerID ?? "unknown",
+          sourceModelID: msg.modelID ?? "unknown",
+          mappedProvider: mapping.key.provider,
+          mappedModel: mapping.key.model,
+          reason: classification.reason,
+        };
+        const k = JSON.stringify(rowKey);
+        const row = unpriced.get(k);
+        if (row) {
+          row.tokens = addBuckets(row.tokens, tokens);
+          row.messageCount += 1;
+        } else {
+          unpriced.set(k, { key: rowKey, tokens, messageCount: 1 });
+        }
+        continue;
+      }
+
       // Mapping succeeded but pricing missing.
       unknownTotals = addBuckets(unknownTotals, tokens);
       const unk: UnknownKey = {
@@ -440,11 +506,26 @@ export async function aggregateUsage(params: {
         a.tokens.cache_write),
   );
 
+  const unpricedRows = Array.from(unpriced.values()).sort(
+    (a, b) =>
+      b.tokens.input +
+      b.tokens.output +
+      b.tokens.reasoning +
+      b.tokens.cache_read +
+      b.tokens.cache_write -
+      (a.tokens.input +
+        a.tokens.output +
+        a.tokens.reasoning +
+        a.tokens.cache_read +
+        a.tokens.cache_write),
+  );
+
   return {
     window: { sinceMs: params.sinceMs, untilMs: params.untilMs },
     totals: {
       priced: pricedTotals,
       unknown: unknownTotals,
+      unpriced: unpricedTotals,
       costUsd: costTotal,
       messageCount: messages.length,
       sessionCount: new Set(messages.map((m) => m.sessionID)).size,
@@ -454,6 +535,7 @@ export async function aggregateUsage(params: {
     byModel: byModelRows,
     bySession: bySessionRows,
     unknown: unknownRows,
+    unpriced: unpricedRows,
   };
 }
 

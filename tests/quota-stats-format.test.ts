@@ -8,6 +8,7 @@ function makeEmptyResult(overrides?: Partial<AggregateResult>): AggregateResult 
     totals: {
       priced: { input: 0, output: 0, reasoning: 0, cache_read: 0, cache_write: 0 },
       unknown: { input: 0, output: 0, reasoning: 0, cache_read: 0, cache_write: 0 },
+      unpriced: { input: 0, output: 0, reasoning: 0, cache_read: 0, cache_write: 0 },
       costUsd: 0,
       messageCount: 0,
       sessionCount: 0,
@@ -17,6 +18,7 @@ function makeEmptyResult(overrides?: Partial<AggregateResult>): AggregateResult 
     byModel: [],
     bySession: [],
     unknown: [],
+    unpriced: [],
     ...overrides,
   };
 }
@@ -27,6 +29,7 @@ describe("formatQuotaStatsReport (markdown)", () => {
       totals: {
         priced: { input: 1000, output: 2000, reasoning: 0, cache_read: 0, cache_write: 0 },
         unknown: { input: 0, output: 0, reasoning: 0, cache_read: 0, cache_write: 0 },
+        unpriced: { input: 0, output: 0, reasoning: 0, cache_read: 0, cache_write: 0 },
         costUsd: 1.23,
         messageCount: 2,
         sessionCount: 1,
@@ -68,6 +71,7 @@ describe("formatQuotaStatsReport (markdown)", () => {
       totals: {
         priced: { input: 1, output: 1, reasoning: 0, cache_read: 0, cache_write: 0 },
         unknown: { input: 0, output: 0, reasoning: 0, cache_read: 0, cache_write: 0 },
+        unpriced: { input: 0, output: 0, reasoning: 0, cache_read: 0, cache_write: 0 },
         costUsd: 0,
         messageCount: 1,
         sessionCount: 1,
@@ -96,6 +100,7 @@ describe("formatQuotaStatsReport (markdown)", () => {
       totals: {
         priced: { input: 100, output: 200, reasoning: 0, cache_read: 0, cache_write: 0 },
         unknown: { input: 0, output: 0, reasoning: 0, cache_read: 0, cache_write: 0 },
+        unpriced: { input: 0, output: 0, reasoning: 0, cache_read: 0, cache_write: 0 },
         costUsd: 0.5,
         messageCount: 3,
         sessionCount: 1,
@@ -147,6 +152,7 @@ describe("formatQuotaStatsReport (markdown)", () => {
       totals: {
         priced: { input: 100, output: 200, reasoning: 0, cache_read: 0, cache_write: 0 },
         unknown: { input: 0, output: 0, reasoning: 0, cache_read: 0, cache_write: 0 },
+        unpriced: { input: 0, output: 0, reasoning: 0, cache_read: 0, cache_write: 0 },
         costUsd: 0.5,
         messageCount: 3,
         sessionCount: 1,
@@ -183,5 +189,8 @@ describe("formatQuotaStatsReport (markdown)", () => {
 
     // Top Sessions section SHOULD be present
     expect(out).toContain("## Top Sessions");
+    // Marker column should be named and not render as an empty header
+    expect(out).toContain("| Current");
+    expect(out).toContain("| Session");
   });
 });

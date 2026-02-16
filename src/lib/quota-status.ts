@@ -54,20 +54,26 @@ function tokensTotal(t: {
 type PricingCoverageByProvider = {
   pricedKeysSeen: number;
   mappedMissingKeysSeen: number;
+  unpricedKeysSeen: number;
 };
 
 function computePricingCoverageFromAgg(agg: Awaited<ReturnType<typeof aggregateUsage>>): {
   byProvider: Map<string, PricingCoverageByProvider>;
-  totals: { pricedKeysSeen: number; mappedMissingKeysSeen: number };
+  totals: { pricedKeysSeen: number; mappedMissingKeysSeen: number; unpricedKeysSeen: number };
 } {
   const byProvider = new Map<string, PricingCoverageByProvider>();
   let pricedKeysSeen = 0;
   let mappedMissingKeysSeen = 0;
+  let unpricedKeysSeen = 0;
 
   // Priced keys seen in history
   for (const row of agg.byModel) {
     const p = row.key.provider;
-    const existing = byProvider.get(p) ?? { pricedKeysSeen: 0, mappedMissingKeysSeen: 0 };
+    const existing = byProvider.get(p) ?? {
+      pricedKeysSeen: 0,
+      mappedMissingKeysSeen: 0,
+      unpricedKeysSeen: 0,
+    };
     existing.pricedKeysSeen += 1;
     byProvider.set(p, existing);
     pricedKeysSeen += 1;
@@ -77,13 +83,30 @@ function computePricingCoverageFromAgg(agg: Awaited<ReturnType<typeof aggregateU
   for (const row of agg.unknown) {
     const p = row.key.mappedProvider;
     if (!p || !row.key.mappedModel) continue;
-    const existing = byProvider.get(p) ?? { pricedKeysSeen: 0, mappedMissingKeysSeen: 0 };
+    const existing = byProvider.get(p) ?? {
+      pricedKeysSeen: 0,
+      mappedMissingKeysSeen: 0,
+      unpricedKeysSeen: 0,
+    };
     existing.mappedMissingKeysSeen += 1;
     byProvider.set(p, existing);
     mappedMissingKeysSeen += 1;
   }
 
-  return { byProvider, totals: { pricedKeysSeen, mappedMissingKeysSeen } };
+  // Mapped keys that we explicitly consider unpriced
+  for (const row of agg.unpriced) {
+    const p = row.key.mappedProvider;
+    const existing = byProvider.get(p) ?? {
+      pricedKeysSeen: 0,
+      mappedMissingKeysSeen: 0,
+      unpricedKeysSeen: 0,
+    };
+    existing.unpricedKeysSeen += 1;
+    byProvider.set(p, existing);
+    unpricedKeysSeen += 1;
+  }
+
+  return { byProvider, totals: { pricedKeysSeen, mappedMissingKeysSeen, unpricedKeysSeen } };
 }
 
 function supportedProviderPricingRow(params: {
@@ -137,7 +160,7 @@ function supportedProviderPricingRow(params: {
     return {
       id,
       pricing: "partial",
-      notes: "some models not in snapshot (see unknown_pricing)",
+      notes: "some models not in snapshot (see unpriced_models / unknown_pricing)",
     };
   }
 
@@ -173,8 +196,9 @@ export async function buildQuotaStatusReport(params: {
   const lines: string[] = [];
 
   const version = await getPackageVersion();
+  const v = version ?? "unknown";
 
-  lines.push(`Quota Status (opencode-quota${version ? ` v${version}` : ""})`);
+  lines.push(`Quota Status (opencode-quota v${v}) (/quota_status)`);
   lines.push("");
 
   // === toast diagnostics ===
@@ -365,12 +389,16 @@ export async function buildQuotaStatusReport(params: {
   lines.push(`- units: ${meta.units}`);
   lines.push(`- providers: ${providers.join(",")}`);
   lines.push(
-    `- coverage_seen: priced_keys=${fmtInt(coverage.totals.pricedKeysSeen)} mapped_but_missing=${fmtInt(coverage.totals.mappedMissingKeysSeen)}`,
+    `- coverage_seen: priced_keys=${fmtInt(coverage.totals.pricedKeysSeen)} mapped_but_missing=${fmtInt(coverage.totals.mappedMissingKeysSeen)} unpriced_keys=${fmtInt(coverage.totals.unpricedKeysSeen)}`,
   );
   for (const p of providers) {
-    const c = coverage.byProvider.get(p) ?? { pricedKeysSeen: 0, mappedMissingKeysSeen: 0 };
+    const c = coverage.byProvider.get(p) ?? {
+      pricedKeysSeen: 0,
+      mappedMissingKeysSeen: 0,
+      unpricedKeysSeen: 0,
+    };
     lines.push(
-      `  - ${p}: models=${fmtInt(getProviderModelCount(p))} priced_models_seen=${fmtInt(c.pricedKeysSeen)} mapped_but_missing_models_seen=${fmtInt(c.mappedMissingKeysSeen)}`,
+      `  - ${p}: models=${fmtInt(getProviderModelCount(p))} priced_models_seen=${fmtInt(c.pricedKeysSeen)} mapped_but_missing_models_seen=${fmtInt(c.mappedMissingKeysSeen)} unpriced_models_seen=${fmtInt(c.unpricedKeysSeen)}`,
     );
   }
 
@@ -381,6 +409,28 @@ export async function buildQuotaStatusReport(params: {
   for (const id of supported) {
     const row = supportedProviderPricingRow({ id, agg, snapshotProviders: providers });
     lines.push(`- ${row.id}: pricing=${row.pricing} (${row.notes})`);
+  }
+
+  // === unpriced models ===
+  // Mapped keys that are deterministically not token-priced by our snapshot.
+  lines.push("");
+  lines.push("unpriced_models:");
+  if (agg.unpriced.length === 0) {
+    lines.push("- none");
+  } else {
+    lines.push(
+      `- keys: ${fmtInt(agg.unpriced.length)} tokens_total=${fmtInt(tokensTotal(agg.totals.unpriced))}`,
+    );
+    for (const row of agg.unpriced.slice(0, 25)) {
+      const src = `${row.key.sourceProviderID}/${row.key.sourceModelID}`;
+      const mapped = `${row.key.mappedProvider}/${row.key.mappedModel}`;
+      lines.push(
+        `- ${src} mapped=${mapped} tokens=${fmtInt(tokensTotal(row.tokens))} msgs=${fmtInt(row.messageCount)} reason=${row.key.reason}`,
+      );
+    }
+    if (agg.unpriced.length > 25) {
+      lines.push(`- ... (${fmtInt(agg.unpriced.length - 25)} more)`);
+    }
   }
 
   // === unknown pricing ===

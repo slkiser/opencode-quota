@@ -90,7 +90,7 @@ function truncateTitle(title: string | undefined): string {
   const trimmed = title.trim();
   if (trimmed.length <= 23) return trimmed;
   // first 10 + ellipsis + last 10
-  return trimmed.slice(0, 10) + "\u2026" + trimmed.slice(-10);
+  return trimmed.slice(0, 10) + "..." + trimmed.slice(-10);
 }
 
 export function formatQuotaStatsReport(params: {
@@ -122,7 +122,9 @@ export function formatQuotaStatsReport(params: {
         rows: [
           [
             fmtCompact(r.totals.messageCount),
-            fmtCompact(totalTokens(r.totals.priced) + totalTokens(r.totals.unknown)),
+            fmtCompact(
+              totalTokens(r.totals.priced) + totalTokens(r.totals.unknown) + totalTokens(r.totals.unpriced),
+            ),
             fmtUsd(r.totals.costUsd),
           ],
         ],
@@ -139,7 +141,9 @@ export function formatQuotaStatsReport(params: {
             fmtWindow(r.window),
             fmtCompact(r.totals.messageCount),
             fmtCompact(r.totals.sessionCount),
-            fmtCompact(totalTokens(r.totals.priced) + totalTokens(r.totals.unknown)),
+            fmtCompact(
+              totalTokens(r.totals.priced) + totalTokens(r.totals.unknown) + totalTokens(r.totals.unpriced),
+            ),
             fmtUsd(r.totals.costUsd),
           ],
         ],
@@ -147,7 +151,10 @@ export function formatQuotaStatsReport(params: {
     );
   }
 
-  const hasAnyReasoning = r.totals.priced.reasoning > 0 || r.totals.unknown.reasoning > 0;
+  const hasAnyReasoning =
+    r.totals.priced.reasoning > 0 ||
+    r.totals.unknown.reasoning > 0 ||
+    r.totals.unpriced.reasoning > 0;
 
   const headers = ["Source", "Model", "Input", "Output", "C.Read", "C.Write"];
   const aligns: Array<"left" | "right"> = ["left", "left", "right", "right", "right", "right"];
@@ -208,46 +215,102 @@ export function formatQuotaStatsReport(params: {
   }
 
   // Skip Top Sessions for session-only reports (e.g., /tokens_session)
-  if (r.bySession.length > 0 && !sessionOnly) {
+  if (!sessionOnly) {
     lines.push("");
     lines.push(`## Top Sessions`);
     lines.push("");
 
     const sessionRows: string[][] = [];
+
     const focus = params.focusSessionID
       ? r.bySession.find((s) => s.sessionID === params.focusSessionID)
       : undefined;
+
     if (focus) {
       sessionRows.push([
-        "current",
+        "*",
         focus.sessionID,
         fmtUsd(focus.costUsd),
         fmtCompact(totalTokens(focus.tokens)),
         fmtCompact(focus.messageCount),
         truncateTitle(focus.title),
       ]);
+
+      // After showing the current session, show top sessions excluding it.
+      const rest = r.bySession.filter((s) => s.sessionID !== params.focusSessionID);
+      for (const row of rest.slice(0, topSessions)) {
+        sessionRows.push([
+          "",
+          row.sessionID,
+          fmtUsd(row.costUsd),
+          fmtCompact(totalTokens(row.tokens)),
+          fmtCompact(row.messageCount),
+          truncateTitle(row.title),
+        ]);
+      }
+    } else if (params.focusSessionID) {
+      // Keep the marker column, but make the state explicit.
+      sessionRows.push(["", "No current session", "-", "-", "-", "-"]);
+      sessionRows.push(["", params.focusSessionID, "-", "-", "-", "-"]);
+
+      for (const row of r.bySession.slice(0, topSessions)) {
+        sessionRows.push([
+          "",
+          row.sessionID,
+          fmtUsd(row.costUsd),
+          fmtCompact(totalTokens(row.tokens)),
+          fmtCompact(row.messageCount),
+          truncateTitle(row.title),
+        ]);
+      }
+    } else {
+      // No focus session, just list top sessions.
+      for (const row of r.bySession.slice(0, topSessions)) {
+        sessionRows.push([
+          "",
+          row.sessionID,
+          fmtUsd(row.costUsd),
+          fmtCompact(totalTokens(row.tokens)),
+          fmtCompact(row.messageCount),
+          truncateTitle(row.title),
+        ]);
+      }
     }
 
-    const rest = params.focusSessionID
-      ? r.bySession.filter((s) => s.sessionID !== params.focusSessionID)
-      : r.bySession;
-    for (const row of rest.slice(0, topSessions)) {
-      sessionRows.push([
-        "",
-        row.sessionID,
-        fmtUsd(row.costUsd),
-        fmtCompact(totalTokens(row.tokens)),
-        fmtCompact(row.messageCount),
-        truncateTitle(row.title),
-      ]);
+    if (sessionRows.length > 0) {
+      lines.push(
+        renderMarkdownTable({
+          headers: ["Current", "Session", "Cost", "Tokens", "Msgs", "Title"],
+          aligns: ["left", "left", "right", "right", "right", "left"],
+          widthMode: TABLE_WIDTH_MODE,
+          rows: sessionRows,
+        }),
+      );
+    } else {
+      lines.push("(no sessions)");
     }
+  }
 
+  if (r.unpriced.length > 0) {
+    lines.push("");
+    lines.push(`## Unpriced Models`);
+    lines.push("");
     lines.push(
       renderMarkdownTable({
-        headers: ["", "Session", "Cost", "Tokens", "Msgs", "Title"],
-        aligns: ["left", "left", "right", "right", "right", "left"],
+        headers: ["Source", "Model", "Mapped", "Reason", "Tokens", "Msgs"],
+        aligns: ["left", "left", "left", "left", "right", "right"],
         widthMode: TABLE_WIDTH_MODE,
-        rows: sessionRows,
+        rows: r.unpriced.slice(0, 20).map((u) => {
+          const mapped = `${u.key.mappedProvider}/${u.key.mappedModel}`;
+          return [
+            normalizeSourceName(u.key.sourceProviderID),
+            u.key.sourceModelID,
+            mapped,
+            u.key.reason,
+            fmtCompact(totalTokens(u.tokens)),
+            fmtCompact(u.messageCount),
+          ];
+        }),
       }),
     );
   }
@@ -277,7 +340,7 @@ export function formatQuotaStatsReport(params: {
       }),
     );
     lines.push("");
-    lines.push(`Run /quota_status to see the full unknown pricing report.`);
+    lines.push(`Run /quota_status to see the full pricing diagnostics report.`);
   }
 
   return lines.join("\n");
