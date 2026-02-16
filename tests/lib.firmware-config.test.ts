@@ -2,6 +2,21 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { join } from "path";
 import { homedir } from "os";
 
+vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
+  getOpencodeRuntimeDirCandidates: () => ({
+    dataDirs: [join(homedir(), ".local", "share", "opencode")],
+    configDirs: [join(homedir(), ".config", "opencode")],
+    cacheDirs: [join(homedir(), ".cache", "opencode")],
+    stateDirs: [join(homedir(), ".local", "state", "opencode")],
+  }),
+  getOpencodeRuntimeDirs: () => ({
+    dataDir: join(homedir(), ".local", "share", "opencode"),
+    configDir: join(homedir(), ".config", "opencode"),
+    cacheDir: join(homedir(), ".cache", "opencode"),
+    stateDir: join(homedir(), ".local", "state", "opencode"),
+  }),
+}));
+
 // Mock fs and fs/promises before importing the module
 vi.mock("fs", () => ({
   existsSync: vi.fn(),
@@ -27,6 +42,9 @@ describe("firmware-config", () => {
     delete process.env.FIRMWARE_AI_API_KEY;
     delete process.env.FIRMWARE_API_KEY;
     delete process.env.XDG_CONFIG_HOME;
+    delete process.env.XDG_DATA_HOME;
+    delete process.env.XDG_CACHE_HOME;
+    delete process.env.XDG_STATE_HOME;
   });
 
   afterEach(() => {
@@ -289,8 +307,7 @@ describe("firmware-config", () => {
       const { existsSync } = await import("fs");
       const { readAuthFile } = await import("../src/lib/opencode-auth.js");
 
-      const configDir = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
-      const expectedPath = join(configDir, "opencode", "opencode.json");
+      const expectedPath = join(homedir(), ".config", "opencode", "opencode.json");
 
       (existsSync as any).mockImplementation((path: string) => {
         return path === expectedPath;
@@ -320,9 +337,9 @@ describe("firmware-config", () => {
       expect(paths[1].isJsonc).toBe(false);
 
       // Global paths
-      expect(paths[2].path).toContain(".config");
+      expect(paths[2].path).toContain("opencode");
       expect(paths[2].isJsonc).toBe(true);
-      expect(paths[3].path).toContain(".config");
+      expect(paths[3].path).toContain("opencode");
       expect(paths[3].isJsonc).toBe(false);
     });
   });

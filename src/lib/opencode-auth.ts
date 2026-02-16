@@ -7,8 +7,9 @@
  */
 
 import { readFile } from "fs/promises";
-import { homedir } from "os";
 import { join } from "path";
+
+import { getOpencodeRuntimeDirCandidates, getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 
 import type { AuthData } from "./types.js";
 
@@ -18,28 +19,16 @@ import type { AuthData } from "./types.js";
  * so we check multiple locations.
  */
 export function getAuthPaths(): string[] {
-  const home = homedir();
-
-  if (process.platform === "win32") {
-    const dataDir = process.env.LOCALAPPDATA || join(home, "AppData", "Local");
-    return [join(dataDir, "opencode", "auth.json")];
-  }
-
-  if (process.platform === "darwin") {
-    // Check both macOS standard and Linux-style paths
-    return [
-      join(home, "Library", "Application Support", "opencode", "auth.json"),
-      join(home, ".local", "share", "opencode", "auth.json"),
-    ];
-  }
-
-  // Linux
-  return [join(home, ".local", "share", "opencode", "auth.json")];
+  // OpenCode stores auth at `${Global.Path.data}/auth.json`.
+  // We generate candidates based on OpenCode runtime dir semantics (xdg-basedir)
+  // plus platform fallbacks for alternate/legacy installs.
+  const { dataDirs } = getOpencodeRuntimeDirCandidates();
+  return dataDirs.map((d) => join(d, "auth.json"));
 }
 
-/** Returns the first candidate path (for display/logging purposes) */
+/** Returns OpenCode's primary auth.json path (for display/logging) */
 export function getAuthPath(): string {
-  return getAuthPaths()[0];
+  return join(getOpencodeRuntimeDirs().dataDir, "auth.json");
 }
 
 export async function readAuthFile(): Promise<AuthData | null> {

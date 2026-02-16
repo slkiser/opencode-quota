@@ -11,8 +11,9 @@ import { parseJsonOrJsonc } from "./jsonc.js";
 
 import { existsSync } from "fs";
 import { readFile } from "fs/promises";
-import { homedir } from "os";
 import { join } from "path";
+
+import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 
 export interface LoadConfigMeta {
   source: "sdk" | "files" | "defaults";
@@ -177,12 +178,12 @@ export async function loadConfig(
 
   async function loadFromFiles(): Promise<QuotaToastConfig> {
     const cwd = process.cwd();
-    const configBaseDir = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+    const { configDirs } = getOpencodeRuntimeDirCandidates();
 
     // Order: global first, then local overrides.
     // Within each location, load .json first, then .jsonc so that
     // .jsonc takes precedence on key collisions (matching the documented intent).
-    const locations = [join(configBaseDir, "opencode"), cwd];
+    const locations = [...configDirs, cwd];
 
     const quota: Partial<QuotaToastConfig> = {};
     const usedPaths: string[] = [];

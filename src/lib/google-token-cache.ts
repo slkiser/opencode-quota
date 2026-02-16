@@ -8,8 +8,9 @@
  */
 
 import { readFile, writeFile, mkdir } from "fs/promises";
-import { homedir } from "os";
 import { dirname, join } from "path";
+
+import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import { createHash } from "crypto";
 
 export interface GoogleAccessTokenCacheEntry {
@@ -31,11 +32,9 @@ let memCache: GoogleAccessTokenCacheFile | null = null;
 let loadPromise: Promise<GoogleAccessTokenCacheFile> | null = null;
 
 function getCacheBaseDir(): string {
-  const home = homedir();
-  if (process.platform === "win32") {
-    return process.env.LOCALAPPDATA || join(home, "AppData", "Local");
-  }
-  return process.env.XDG_CACHE_HOME || join(home, ".cache");
+  // Match OpenCode runtime cache semantics (xdg-basedir).
+  // This avoids mismatches on Windows where OpenCode cache is not under LOCALAPPDATA.
+  return getOpencodeRuntimeDirs().cacheDir;
 }
 
 export function getGoogleTokenCachePath(): string {

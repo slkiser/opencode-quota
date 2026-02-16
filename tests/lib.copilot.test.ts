@@ -9,6 +9,21 @@ vi.mock("fs", async (importOriginal) => {
   };
 });
 
+vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
+  getOpencodeRuntimeDirCandidates: () => ({
+    dataDirs: ["/home/test/.local/share/opencode"],
+    configDirs: ["/home/test/.config/opencode"],
+    cacheDirs: ["/home/test/.cache/opencode"],
+    stateDirs: ["/home/test/.local/state/opencode"],
+  }),
+  getOpencodeRuntimeDirs: () => ({
+    dataDir: "/home/test/.local/share/opencode",
+    configDir: "/home/test/.config/opencode",
+    cacheDir: "/home/test/.cache/opencode",
+    stateDir: "/home/test/.local/state/opencode",
+  }),
+}));
+
 vi.mock("../src/lib/opencode-auth.js", () => ({
   readAuthFile: vi.fn(),
 }));

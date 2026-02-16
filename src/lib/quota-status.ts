@@ -1,6 +1,7 @@
 import { stat } from "fs/promises";
 
 import { getAuthPath, getAuthPaths } from "./opencode-auth.js";
+import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import { getGoogleTokenCachePath } from "./google-token-cache.js";
 import { getAntigravityAccountsCandidatePaths, readAntigravityAccounts } from "./google.js";
 import { getFirmwareKeyDiagnostics } from "./firmware.js";
@@ -13,7 +14,9 @@ import {
 import { getPackageVersion } from "./version.js";
 import {
   getOpenCodeMessageDir,
+  getOpenCodeMessageDirCandidates,
   getOpenCodeSessionDir,
+  getOpenCodeSessionDirCandidates,
   listSessionIDsFromMessageStorage,
 } from "./opencode-storage.js";
 import { aggregateUsage } from "./quota-stats.js";
@@ -107,6 +110,12 @@ export async function buildQuotaStatusReport(params: {
 
   lines.push("");
   lines.push("paths:");
+
+  const runtime = getOpencodeRuntimeDirs();
+  lines.push(`- opencode data: ${runtime.dataDir}`);
+  lines.push(`- opencode config: ${runtime.configDir}`);
+  lines.push(`- opencode cache: ${runtime.cacheDir}`);
+  lines.push(`- opencode state: ${runtime.stateDir}`);
   const authCandidates = getAuthPaths();
   const authPresent: string[] = [];
   await Promise.all(
@@ -184,13 +193,38 @@ export async function buildQuotaStatusReport(params: {
     `- antigravity accounts (present): ${presentCandidates.length ? presentCandidates.join(" | ") : "(none)"}`,
   );
 
-  const msgDir = getOpenCodeMessageDir();
-  const sesDir = getOpenCodeSessionDir();
+  const msgCandidates = getOpenCodeMessageDirCandidates();
+  const msgSelected = getOpenCodeMessageDir();
+  const msgPresent: string[] = [];
+  await Promise.all(
+    msgCandidates.map(async (p) => {
+      if (await pathExists(p)) msgPresent.push(p);
+    }),
+  );
+
+  const sesCandidates = getOpenCodeSessionDirCandidates();
+  const sesSelected = getOpenCodeSessionDir();
+  const sesPresent: string[] = [];
+  await Promise.all(
+    sesCandidates.map(async (p) => {
+      if (await pathExists(p)) sesPresent.push(p);
+    }),
+  );
+
+  lines.push(`- opencode storage message (selected): ${msgSelected}`);
   lines.push(
-    `- opencode storage message: ${msgDir}${(await pathExists(msgDir)) ? "" : " (missing)"}`,
+    `- opencode storage message (candidates): ${msgCandidates.length ? msgCandidates.join(" | ") : "(none)"}`,
   );
   lines.push(
-    `- opencode storage session: ${sesDir}${(await pathExists(sesDir)) ? "" : " (missing)"}`,
+    `- opencode storage message (present): ${msgPresent.length ? msgPresent.join(" | ") : "(none)"}`,
+  );
+
+  lines.push(`- opencode storage session (selected): ${sesSelected}`);
+  lines.push(
+    `- opencode storage session (candidates): ${sesCandidates.length ? sesCandidates.join(" | ") : "(none)"}`,
+  );
+  lines.push(
+    `- opencode storage session (present): ${sesPresent.length ? sesPresent.join(" | ") : "(none)"}`,
   );
 
   if (params.googleRefresh?.attempted) {
