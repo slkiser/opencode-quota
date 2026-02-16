@@ -1,7 +1,9 @@
 import { readdir, readFile } from "fs/promises";
-import { homedir } from "os";
 import { join } from "path";
 import { existsSync } from "fs";
+
+import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import { pickFirstExistingPath } from "./path-pick.js";
 
 /**
  * Error thrown when a session directory is not found.
@@ -57,24 +59,38 @@ export interface OpenCodeSessionInfo {
   };
 }
 
+export function getOpenCodeDataDirCandidates(): string[] {
+  // OpenCode stores data under `${Global.Path.data}` which is `join(xdgData, "opencode")`.
+  // We return candidate opencode data dirs in priority order.
+  return getOpencodeRuntimeDirCandidates().dataDirs;
+}
+
 export function getOpenCodeDataDir(): string {
-  const home = homedir();
-  if (process.platform === "win32") {
-    return process.env.LOCALAPPDATA || join(home, "AppData", "Local");
-  }
-  return join(home, ".local", "share");
+  return pickFirstExistingPath(getOpenCodeDataDirCandidates());
+}
+
+export function getOpenCodeStorageDirCandidates(): string[] {
+  return getOpenCodeDataDirCandidates().map((d) => join(d, "storage"));
 }
 
 export function getOpenCodeStorageDir(): string {
-  return join(getOpenCodeDataDir(), "opencode", "storage");
+  return pickFirstExistingPath(getOpenCodeStorageDirCandidates());
+}
+
+export function getOpenCodeMessageDirCandidates(): string[] {
+  return getOpenCodeStorageDirCandidates().map((d) => join(d, "message"));
 }
 
 export function getOpenCodeMessageDir(): string {
-  return join(getOpenCodeStorageDir(), "message");
+  return pickFirstExistingPath(getOpenCodeMessageDirCandidates());
+}
+
+export function getOpenCodeSessionDirCandidates(): string[] {
+  return getOpenCodeStorageDirCandidates().map((d) => join(d, "session"));
 }
 
 export function getOpenCodeSessionDir(): string {
-  return join(getOpenCodeStorageDir(), "session");
+  return pickFirstExistingPath(getOpenCodeSessionDirCandidates());
 }
 
 async function safeReadJson(path: string): Promise<any | null> {

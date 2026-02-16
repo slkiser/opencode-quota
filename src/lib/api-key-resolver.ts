@@ -7,8 +7,9 @@
 
 import { existsSync } from "fs";
 import { readFile } from "fs/promises";
-import { homedir } from "os";
 import { join } from "path";
+
+import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 import { parseJsonOrJsonc } from "./jsonc.js";
 
 /** A candidate config file path with its format */
@@ -25,13 +26,18 @@ export interface ConfigCandidate {
  */
 export function getOpencodeConfigCandidatePaths(): ConfigCandidate[] {
   const cwd = process.cwd();
-  const configBaseDir = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+  const { configDirs } = getOpencodeRuntimeDirCandidates();
+
+  const global: ConfigCandidate[] = [];
+  for (const dir of configDirs) {
+    global.push({ path: join(dir, "opencode.jsonc"), isJsonc: true });
+    global.push({ path: join(dir, "opencode.json"), isJsonc: false });
+  }
 
   return [
     { path: join(cwd, "opencode.jsonc"), isJsonc: true },
     { path: join(cwd, "opencode.json"), isJsonc: false },
-    { path: join(configBaseDir, "opencode", "opencode.jsonc"), isJsonc: true },
-    { path: join(configBaseDir, "opencode", "opencode.json"), isJsonc: false },
+    ...global,
   ];
 }
 

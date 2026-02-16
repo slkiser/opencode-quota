@@ -75,7 +75,7 @@ Copilot works automatically if OpenCode has Copilot configured and logged in.
 **Optional:** For more reliable quota reporting, provide a fine-grained PAT:
 
 1. Create a fine-grained PAT at GitHub with **Account permissions > Plan > Read**
-2. Create `~/.config/opencode/copilot-quota-token.json`:
+2. Create `copilot-quota-token.json` under OpenCode's runtime config directory (see `opencode debug paths`):
 
 ```json
 {
@@ -159,7 +159,9 @@ Requires the `opencode-antigravity-auth` plugin for multi-account support:
 }
 ```
 
-Account credentials are stored in `~/.config/opencode/antigravity-accounts.json`.
+Account credentials are stored under OpenCode's runtime config directory (see `opencode debug paths`).
+
+If you are troubleshooting, `/quota_status` prints the candidate paths checked for `antigravity-accounts.json`.
 
 </details>
 

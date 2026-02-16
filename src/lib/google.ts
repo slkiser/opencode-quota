@@ -6,9 +6,10 @@
  */
 
 import { readFile } from "fs/promises";
-import { homedir } from "os";
 import { join } from "path";
 import { existsSync } from "fs";
+
+import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 
 import {
   ANTIGRAVITY_CLIENT_ID as GOOGLE_CLIENT_ID,
@@ -54,25 +55,13 @@ const GOOGLE_ACCOUNTS_CONCURRENCY = 3;
 // =============================================================================
 
 export function getAntigravityAccountsCandidatePaths(): string[] {
-  const home = homedir();
-  const isWindows = process.platform === "win32";
-
-  // Match common storage resolution used by opencode-antigravity-auth variants.
-  // - Config: $XDG_CONFIG_HOME/opencode (or ~/.config/opencode)
-  // - Data: $XDG_DATA_HOME/opencode (or ~/.local/share/opencode)
-  // - Windows: %APPDATA%/opencode (configBase), dataBase==configBase
-
-  const configBaseDir = isWindows
-    ? process.env.APPDATA || join(home, "AppData", "Roaming")
-    : process.env.XDG_CONFIG_HOME || join(home, ".config");
-
-  const xdgDataBase = isWindows
-    ? configBaseDir
-    : process.env.XDG_DATA_HOME || join(home, ".local", "share");
+  // Prefer OpenCode runtime dirs (xdg-basedir semantics), but include both
+  // config and data as candidates for compatibility with older variants.
+  const { configDirs, dataDirs } = getOpencodeRuntimeDirCandidates();
 
   const candidates = [
-    join(configBaseDir, "opencode", "antigravity-accounts.json"),
-    join(xdgDataBase, "opencode", "antigravity-accounts.json"),
+    ...configDirs.map((d) => join(d, "antigravity-accounts.json")),
+    ...dataDirs.map((d) => join(d, "antigravity-accounts.json")),
   ];
 
   // Unique + stable order.

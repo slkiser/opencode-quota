@@ -57,7 +57,8 @@
     "zod": "4.1.8"
   },
   "dependencies": {
-    "opencode-antigravity-auth": "^1.2.8"
+    "opencode-antigravity-auth": "^1.2.8",
+    "xdg-basedir": "^5.1.0"
   },
   "overrides": {
     "zod": "4.1.8"
