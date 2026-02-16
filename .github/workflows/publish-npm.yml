@@ -15,6 +15,9 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -31,6 +34,15 @@ jobs:
           echo "Setting package.json version to $VERSION (from tag $TAG)"
           npm version "$VERSION" --no-git-tag-version --allow-same-version
 
+      - name: Assert ref is a tag (release only)
+        if: github.event_name == 'release'
+        run: |
+          echo "GITHUB_REF=$GITHUB_REF"
+          case "$GITHUB_REF" in
+            refs/tags/*) echo "ok" ;;
+            *) echo "Expected refs/tags/* for release publish" >&2; exit 1 ;;
+          esac
+
       - name: Install dependencies
         run: npm ci
 
@@ -43,18 +55,11 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Commit version bump
-        if: github.event_name == 'release'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add package.json package-lock.json
-          git diff --staged --quiet || git commit -m "chore: bump version to ${{ github.event.release.tag_name }}"
-          git push origin HEAD:main
-
       - name: Publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE_SOURCE_REPOSITORY: https://github.com/${{ github.repository }}
           NPM_CONFIG_PROVENANCE_SOURCE_REPOSITORY_REF: ${{ github.ref }}
+          NPM_CONFIG_PROVENANCE_SOURCE_REPOSITORY_COMMIT: ${{ github.sha }}
+          NPM_CONFIG_PROVENANCE_SOURCE_REPOSITORY_URL: https://github.com/${{ github.repository }}
         run: npm publish --access public --provenance
