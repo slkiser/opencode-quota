@@ -84,10 +84,13 @@ Copilot works automatically if OpenCode has Copilot configured and logged in.
 ```json
 {
   "token": "github_pat_...",
-  "username": "your-username",
   "tier": "pro"
 }
 ```
+
+`username` is optional (kept for backwards compatibility). If provided, it is used only as a fallback for legacy GitHub REST paths.
+
+Both fine-grained PATs (`github_pat_...`) and classic PATs (`ghp_...`) should work. Fine-grained PATs must include **Account permissions > Plan > Read**.
 
 Tier options: `free`, `pro`, `pro+`, `business`, `enterprise`
 

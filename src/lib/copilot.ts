@@ -75,6 +75,78 @@ function buildLegacyTokenHeaders(token: string): Record<string, string> {
   };
 }
 
+type GitHubRestAuthScheme = "bearer" | "token";
+
+function buildGitHubRestHeaders(
+  token: string,
+  scheme: GitHubRestAuthScheme,
+): Record<string, string> {
+  return {
+    Accept: "application/vnd.github+json",
+    Authorization: scheme === "bearer" ? `Bearer ${token}` : `token ${token}`,
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": USER_AGENT,
+  };
+}
+
+function preferredSchemesForToken(token: string): GitHubRestAuthScheme[] {
+  const t = token.trim();
+
+  // Fine-grained PATs usually prefer Bearer.
+  if (t.startsWith("github_pat_")) {
+    return ["bearer", "token"];
+  }
+
+  // Classic PATs historically prefer legacy `token`.
+  if (t.startsWith("ghp_")) {
+    return ["token", "bearer"];
+  }
+
+  return ["bearer", "token"];
+}
+
+async function readGitHubRestErrorMessage(response: Response): Promise<string> {
+  const text = await response.text();
+
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed && typeof parsed === "object") {
+      const obj = parsed as Record<string, unknown>;
+      const msg = typeof obj.message === "string" ? obj.message : null;
+      const doc = typeof obj.documentation_url === "string" ? obj.documentation_url : null;
+      if (msg && doc) return `${msg} (${doc})`;
+      if (msg) return msg;
+    }
+  } catch {
+    // ignore
+  }
+
+  return text.slice(0, 160);
+}
+
+async function fetchGitHubRestJsonOnce<T>(
+  url: string,
+  token: string,
+  scheme: GitHubRestAuthScheme,
+): Promise<
+  | { ok: true; status: number; data: T }
+  | { ok: false; status: number; message: string }
+> {
+  const response = await fetchWithTimeout(url, {
+    headers: buildGitHubRestHeaders(token, scheme),
+  });
+
+  if (response.ok) {
+    return { ok: true, status: response.status, data: (await response.json()) as T };
+  }
+
+  return {
+    ok: false,
+    status: response.status,
+    message: await readGitHubRestErrorMessage(response),
+  };
+}
+
 /**
  * Read Copilot auth data from auth.json
  *
@@ -111,10 +183,17 @@ function readQuotaConfig(): CopilotQuotaConfig | null {
     const parsed = JSON.parse(content) as CopilotQuotaConfig;
 
     if (!parsed || typeof parsed !== "object") return null;
-    if (!parsed.token || !parsed.username || !parsed.tier) return null;
+
+    if (typeof parsed.token !== "string" || parsed.token.trim() === "") return null;
+    if (typeof parsed.tier !== "string" || parsed.tier.trim() === "") return null;
+
+    // Username is optional now that we prefer the /user/... billing endpoint.
+    if (parsed.username != null) {
+      if (typeof parsed.username !== "string" || parsed.username.trim() === "") return null;
+    }
 
     const validTiers: CopilotTier[] = ["free", "pro", "pro+", "business", "enterprise"];
-    if (!validTiers.includes(parsed.tier)) return null;
+    if (!validTiers.includes(parsed.tier as CopilotTier)) return null;
 
     return parsed;
   } catch {
@@ -155,23 +234,48 @@ function getApproxNextResetIso(nowMs: number = Date.now()): string {
 }
 
 async function fetchPublicBillingUsage(config: CopilotQuotaConfig): Promise<BillingUsageResponse> {
-  const response = await fetchWithTimeout(
-    `${GITHUB_API_BASE_URL}/users/${config.username}/settings/billing/premium_request/usage`,
-    {
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${config.token}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    },
-  );
+  const token = config.token;
+  const schemes = preferredSchemesForToken(token);
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`GitHub API error ${response.status}: ${errorText.slice(0, 160)}`);
+  // Prefer authenticated-user endpoint; fall back to /users/{username} for older behavior.
+  const urls: string[] = [`${GITHUB_API_BASE_URL}/user/settings/billing/premium_request/usage`];
+  if (config.username) {
+    urls.push(
+      `${GITHUB_API_BASE_URL}/users/${config.username}/settings/billing/premium_request/usage`,
+    );
   }
 
-  return response.json() as Promise<BillingUsageResponse>;
+  for (const url of urls) {
+    let lastUnauthorized: { status: number; message: string } | null = null;
+
+    for (const scheme of schemes) {
+      const res = await fetchGitHubRestJsonOnce<BillingUsageResponse>(url, token, scheme);
+
+      if (res.ok) {
+        return res.data;
+      }
+
+      if (res.status === 401) {
+        lastUnauthorized = { status: res.status, message: res.message };
+        continue; // retry with alternate scheme
+      }
+
+      // If /user/... isn't supported for some reason, fall back to /users/... when available.
+      if (res.status === 404 && url.includes("/user/")) {
+        break;
+      }
+
+      throw new Error(`GitHub API error ${res.status}: ${res.message}`);
+    }
+
+    if (lastUnauthorized) {
+      throw new Error(
+        `GitHub API error ${lastUnauthorized.status}: ${lastUnauthorized.message} (token rejected; verify PAT and permissions)`,
+      );
+    }
+  }
+
+  throw new Error("GitHub API error 404: Not Found");
 }
 
 function toQuotaResultFromBilling(
@@ -189,7 +293,13 @@ function toQuotaResultFromBilling(
   );
 
   const used = premiumItems.reduce((sum, item) => sum + (item.grossQuantity || 0), 0);
-  const total = COPILOT_PLAN_LIMITS[tier];
+
+  const limits = premiumItems
+    .map((item) => item.limit)
+    .filter((n): n is number => typeof n === "number" && n > 0);
+
+  // Prefer API-provided limits when available (more future-proof than hardcoding).
+  const total = limits.length ? Math.max(...limits) : COPILOT_PLAN_LIMITS[tier];
 
   if (!total || total <= 0) {
     throw new Error(`Unsupported Copilot tier: ${tier}`);
@@ -260,19 +370,28 @@ async function fetchCopilotUsage(authData: CopilotAuthData): Promise<CopilotUsag
     }
   }
 
-  // Strategy 2: Try direct call with OAuth token using legacy format.
-  const directResponse = await fetchWithTimeout(COPILOT_INTERNAL_USER_URL, {
+  // Strategy 2: Try direct call with OAuth token (newer tokens generally expect Bearer).
+  const directBearerResponse = await fetchWithTimeout(COPILOT_INTERNAL_USER_URL, {
+    headers: buildBearerHeaders(oauthToken),
+  });
+
+  if (directBearerResponse.ok) {
+    return directBearerResponse.json() as Promise<CopilotUsageResponse>;
+  }
+
+  // Strategy 2b: Legacy auth format.
+  const directLegacyResponse = await fetchWithTimeout(COPILOT_INTERNAL_USER_URL, {
     headers: buildLegacyTokenHeaders(oauthToken),
   });
 
-  if (directResponse.ok) {
-    return directResponse.json() as Promise<CopilotUsageResponse>;
+  if (directLegacyResponse.ok) {
+    return directLegacyResponse.json() as Promise<CopilotUsageResponse>;
   }
 
   // Strategy 3: Exchange OAuth token for Copilot session token (new auth flow).
   const copilotToken = await exchangeForCopilotToken(oauthToken);
   if (!copilotToken) {
-    const errorText = await directResponse.text();
+    const errorText = await directLegacyResponse.text();
     throw new Error(`GitHub Copilot quota unavailable: ${errorText.slice(0, 160)}`);
   }
 

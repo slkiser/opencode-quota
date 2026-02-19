@@ -126,8 +126,8 @@ export type CopilotTier = "free" | "pro" | "pro+" | "business" | "enterprise";
 export interface CopilotQuotaConfig {
   /** Fine-grained PAT with "Plan" read permission */
   token: string;
-  /** GitHub username (for API calls) */
-  username: string;
+  /** GitHub username (optional; used for legacy /users/{username} fallback) */
+  username?: string;
   /** Copilot subscription tier (determines monthly quota limit) */
   tier: CopilotTier;
 }
