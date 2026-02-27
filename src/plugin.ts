@@ -256,6 +256,8 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
         return "Firmware";
       case "chutes":
         return "Chutes";
+      case "nano-gpt":
+        return "NanoGPT";
       default:
         return id;
     }
@@ -1007,7 +1009,6 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
         await injectRawOutput(sessionID, out);
         handled();
       }
-
     },
 
     tool: {
@@ -1042,7 +1043,6 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
           return ""; // Empty return - output already injected with noReply
         },
       }),
-
     },
 
     // Event hook for session.idle and session.compacted

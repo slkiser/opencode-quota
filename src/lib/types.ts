@@ -177,6 +177,14 @@ export interface AuthData {
     type: string;
     key?: string;
   };
+  "nano-gpt"?: {
+    type: string;
+    key?: string;
+  };
+  nanogpt?: {
+    type: string;
+    key?: string;
+  };
 }
 
 // =============================================================================
@@ -312,6 +320,26 @@ export type ChutesResult =
       success: true;
       percentRemaining: number;
       resetTimeIso?: string;
+    }
+  | QuotaError
+  | null;
+
+/** NanoGPT usage window data */
+export interface NanoGptWindowData {
+  percentRemaining: number;
+  resetTimeIso?: string;
+  used: number;
+  remaining: number;
+  limit: number;
+}
+
+/** Result from fetching NanoGPT quota */
+export type NanoGptResult =
+  | {
+      success: true;
+      daily: NanoGptWindowData;
+      monthly: NanoGptWindowData;
+      state: string;
     }
   | QuotaError
   | null;

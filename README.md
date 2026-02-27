@@ -46,18 +46,18 @@ That's it. Providers are auto-detected based on your OpenCode configuration. Toa
 
 ## Commands
 
-| Command                  | Description                                               |
-| ------------------------ | --------------------------------------------------------- |
-| `/quota`                 | Show quota toast (verbose)                                |
-| `/quota_status`          | Show diagnostics (config, providers, accounts) + pricing health |
-|                          |                                                           |
-| `/tokens_today`          | Tokens used today (calendar day)                          |
-| `/tokens_daily`          | Tokens used in last 24 hours                              |
-| `/tokens_weekly`         | Tokens used in last 7 days                                |
-| `/tokens_monthly`        | Tokens used in last 30 days (incl. pricing sections)       |
-| `/tokens_all`            | Tokens used all time                                      |
-| `/tokens_session`        | Tokens used in current session                            |
-| `/tokens_between`        | Tokens between two dates (YYYY-MM-DD)                     |
+| Command           | Description                                                     |
+| ----------------- | --------------------------------------------------------------- |
+| `/quota`          | Show quota toast (verbose)                                      |
+| `/quota_status`   | Show diagnostics (config, providers, accounts) + pricing health |
+|                   |                                                                 |
+| `/tokens_today`   | Tokens used today (calendar day)                                |
+| `/tokens_daily`   | Tokens used in last 24 hours                                    |
+| `/tokens_weekly`  | Tokens used in last 7 days                                      |
+| `/tokens_monthly` | Tokens used in last 30 days (incl. pricing sections)            |
+| `/tokens_all`     | Tokens used all time                                            |
+| `/tokens_session` | Tokens used in current session                                  |
+| `/tokens_between` | Tokens between two dates (YYYY-MM-DD)                           |
 
 ## Supported Providers
 
@@ -67,6 +67,7 @@ That's it. Providers are auto-detected based on your OpenCode configuration. Toa
 | OpenAI (Plus/Pro)  | `openai`             | OpenCode auth (automatic)                     |
 | Firmware AI        | `firmware`           | OpenCode auth or API key                      |
 | Chutes AI          | `chutes`             | OpenCode auth or API key                      |
+| NanoGPT            | `nano-gpt`           | API key                                       |
 | Google Antigravity | `google-antigravity` | Multi-account via `opencode-antigravity-auth` |
 
 ### Provider-Specific Setup
@@ -124,8 +125,6 @@ Works automatically if OpenCode has Firmware configured. Alternatively, provide 
 
 The `apiKey` field supports `{env:VAR_NAME}` syntax or a direct key.
 
-
-
 </details>
 
 <details>
@@ -149,6 +148,37 @@ Works automatically if OpenCode has Chutes configured. Alternatively, provide an
   }
 }
 ```
+
+</details>
+
+<details>
+<summary><strong>NanoGPT</strong></summary>
+
+Works automatically if OpenCode has NanoGPT configured. Provide an API key:
+
+```json
+{
+  "provider": {
+    "nano-gpt": {
+      "options": {
+        "apiKey": "{env:NANOGPT_API_KEY}"
+      }
+    }
+  },
+  "experimental": {
+    "quotaToast": {
+      "enabledProviders": ["nano-gpt"]
+    }
+  }
+}
+```
+
+The `apiKey` field supports `{env:VAR_NAME}` syntax or a direct key.
+
+NanoGPT shows both daily and monthly quota windows:
+
+- **Classic mode**: Shows whichever limit has lower remaining percentage
+- **Grouped mode**: Shows both Daily and Monthly as separate entries
 
 </details>
 
@@ -242,6 +272,7 @@ By default, providers are auto-detected. If the user wants to restrict which pro
         // "openai"             - if using OpenAI/ChatGPT
         // "firmware"           - if using Firmware AI
         // "chutes"             - if using Chutes AI
+        // "nano-gpt"           - if using NanoGPT
         // "google-antigravity" - if using Google Antigravity (requires opencode-antigravity-auth)
       ],
     },
@@ -257,6 +288,7 @@ By default, providers are auto-detected. If the user wants to restrict which pro
 | `openai` / `chatgpt` provider               | `"openai"`              |
 | `firmware` / `firmware-ai` provider         | `"firmware"`            |
 | `chutes` provider                           | `"chutes"`              |
+| `nano-gpt` / `nanogpt` provider             | `"nano-gpt"`            |
 | `google` provider with antigravity models   | `"google-antigravity"`  |
 | `opencode-antigravity-auth` in plugins      | `"google-antigravity"`  |
 
