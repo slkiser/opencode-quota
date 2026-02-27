@@ -17,6 +17,7 @@ export function getProviders(): QuotaProvider[] {
   return [
     copilotProvider,
     openaiProvider,
+    qwenCodeProvider,
     firmwareProvider,
     chutesProvider,
     nanogptProvider,

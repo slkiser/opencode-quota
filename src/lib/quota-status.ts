@@ -1,11 +1,16 @@
 import { stat } from "fs/promises";
 
-import { getAuthPath, getAuthPaths } from "./opencode-auth.js";
+import { getAuthPath, getAuthPaths, readAuthFileCached } from "./opencode-auth.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import { getGoogleTokenCachePath } from "./google-token-cache.js";
 import { getAntigravityAccountsCandidatePaths, readAntigravityAccounts } from "./google.js";
 import { getFirmwareKeyDiagnostics } from "./firmware.js";
 import { getChutesKeyDiagnostics } from "./chutes.js";
+import {
+  computeQwenQuota,
+  getQwenLocalQuotaPath,
+  readQwenLocalQuotaState,
+} from "./qwen-local-quota.js";
 import {
   getPricingSnapshotMeta,
   listProviders,
@@ -121,6 +126,14 @@ function supportedProviderPricingRow(params: {
       id,
       pricing: "no",
       notes: "credits-based quota (not token-priced)",
+    };
+  }
+
+  if (id === "qwen-code") {
+    return {
+      id,
+      pricing: "no",
+      notes: "local request-count estimate (oauth plan, no token pricing API)",
     };
   }
 
@@ -254,6 +267,32 @@ export async function buildQuotaStatusReport(params: {
     `- auth.json (candidates): ${authCandidates.length ? authCandidates.join(" | ") : "(none)"}`,
   );
   lines.push(`- auth.json (present): ${authPresent.length ? authPresent.join(" | ") : "(none)"}`);
+
+  const authData = await readAuthFileCached({ maxAgeMs: 5_000 });
+  const qwenAuth = authData?.["opencode-qwencode-auth"];
+  const qwenAuthConfigured =
+    !!qwenAuth &&
+    qwenAuth.type === "oauth" &&
+    typeof qwenAuth.access === "string" &&
+    qwenAuth.access.trim().length > 0;
+  lines.push(`- qwen oauth auth configured: ${qwenAuthConfigured ? "true" : "false"}`);
+
+  const qwenLocalQuotaPath = getQwenLocalQuotaPath();
+  const qwenLocalQuotaExists = await pathExists(qwenLocalQuotaPath);
+  lines.push(
+    `- qwen local quota: ${qwenLocalQuotaPath}${qwenLocalQuotaExists ? "" : " (missing)"}`,
+  );
+  try {
+    const qwenState = await readQwenLocalQuotaState();
+    const qwenQuota = computeQwenQuota({ state: qwenState });
+    const qwenUsageSuffix = qwenLocalQuotaExists ? "" : " (default state)";
+    lines.push(
+      `- qwen local usage: daily=${qwenQuota.day.used}/${qwenQuota.day.limit} rpm=${qwenQuota.rpm.used}/${qwenQuota.rpm.limit}${qwenUsageSuffix}`,
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    lines.push(`- qwen local usage: error (${msg})`);
+  }
 
   // Firmware API key diagnostics
   let firmwareDiag: { configured: boolean; source: string | null; checkedPaths: string[] } = {

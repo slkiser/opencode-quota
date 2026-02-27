@@ -85,6 +85,8 @@ export interface QuotaProviderContext {
   config: {
     googleModels: string[];
     toastStyle?: "classic" | "grouped";
+    onlyCurrentModel?: boolean;
+    currentModel?: string;
   };
 }
 

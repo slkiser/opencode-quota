@@ -14,14 +14,22 @@ import { getOrFetchWithCacheControl } from "./lib/cache.js";
 import { formatQuotaRows } from "./lib/format.js";
 import { formatQuotaCommand } from "./lib/quota-command-format.js";
 import { getProviders } from "./providers/registry.js";
-import type { QuotaToastEntry, QuotaToastError } from "./lib/entries.js";
+import type {
+  QuotaProvider,
+  QuotaProviderContext,
+  QuotaProviderResult,
+  QuotaToastEntry,
+  QuotaToastError,
+  SessionTokensData,
+} from "./lib/entries.js";
 import { tool } from "@opencode-ai/plugin";
 import { aggregateUsage } from "./lib/quota-stats.js";
-import type { SessionTokensData } from "./lib/entries.js";
 import { fetchSessionTokensForDisplay } from "./lib/session-tokens.js";
 import { formatQuotaStatsReport } from "./lib/quota-stats-format.js";
 import { buildQuotaStatusReport, type SessionTokenError } from "./lib/quota-status.js";
 import { refreshGoogleTokensForAllAccounts } from "./lib/google.js";
+import { readAuthFileCached } from "./lib/opencode-auth.js";
+import { recordQwenCompletion } from "./lib/qwen-local-quota.js";
 import {
   parseOptionalJsonArgs,
   parseQuotaBetweenArgs,
@@ -99,9 +107,17 @@ interface PluginEvent {
 }
 
 /** Tool execute hook input */
-interface ToolExecuteInput {
+interface ToolExecuteAfterInput {
   tool: string;
   sessionID: string;
+  callID: string;
+}
+
+/** Tool execute hook output */
+interface ToolExecuteAfterOutput {
+  title: string;
+  output: string;
+  metadata: unknown;
 }
 
 /** Slash-command execute hook input (e.g. /quota_daily) */
@@ -243,6 +259,9 @@ function isTokenReportCommand(cmd: string): cmd is TokenReportCommandId {
  */
 export const QuotaToastPlugin: Plugin = async ({ client }) => {
   const typedClient = client as unknown as OpencodeClient;
+  const QWEN_AUTH_CACHE_MAX_AGE_MS = 5_000;
+  const TOOL_FAILURE_STATUSES = new Set(["error", "failed", "failure", "cancelled", "canceled"]);
+  const TOOL_SUCCESS_STATUSES = new Set(["success", "ok", "completed", "complete"]);
 
   function getProviderDisplayLabel(id: string): string {
     switch (id) {
@@ -300,6 +319,141 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
 
   // Track last session token error for /quota_status diagnostics
   let lastSessionTokenError: SessionTokenError | undefined;
+
+  type ProviderFetchCacheEntry = {
+    timestamp: number;
+    result?: QuotaProviderResult;
+    inFlight?: Promise<QuotaProviderResult>;
+  };
+
+  const providerFetchCache = new Map<string, ProviderFetchCacheEntry>();
+
+  function isQwenModel(model?: string): boolean {
+    return typeof model === "string" && model.toLowerCase().startsWith("qwen-code/");
+  }
+
+  async function hasQwenOAuthAuth(): Promise<boolean> {
+    const auth = await readAuthFileCached({ maxAgeMs: QWEN_AUTH_CACHE_MAX_AGE_MS });
+    const qwen = auth?.["opencode-qwencode-auth"];
+    return (
+      !!qwen &&
+      qwen.type === "oauth" &&
+      typeof qwen.access === "string" &&
+      qwen.access.trim().length > 0
+    );
+  }
+
+  function asRecord(value: unknown): Record<string, unknown> | null {
+    return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+  }
+
+  function evaluateToolOutcome(candidate: Record<string, unknown>): boolean | null {
+    if (typeof candidate.ok === "boolean") return candidate.ok;
+    if (typeof candidate.success === "boolean") return candidate.success;
+
+    const statusRaw = candidate.status;
+    if (typeof statusRaw === "string") {
+      const status = statusRaw.toLowerCase();
+      if (TOOL_FAILURE_STATUSES.has(status)) return false;
+      if (TOOL_SUCCESS_STATUSES.has(status)) return true;
+    }
+
+    if (candidate.error !== undefined && candidate.error !== null) return false;
+
+    const exitCode = candidate.exitCode;
+    if (typeof exitCode === "number" && Number.isFinite(exitCode)) {
+      return exitCode === 0;
+    }
+
+    return null;
+  }
+
+  function isSuccessfulQuestionExecution(output: ToolExecuteAfterOutput): boolean {
+    const metadata = asRecord(output.metadata);
+    const metadataOutcome = metadata ? evaluateToolOutcome(metadata) : null;
+    if (metadataOutcome !== null) return metadataOutcome;
+
+    const result = metadata ? asRecord(metadata.result) : null;
+    const resultOutcome = result ? evaluateToolOutcome(result) : null;
+    if (resultOutcome !== null) return resultOutcome;
+
+    // Fallback: keep behavior permissive if runtime omits explicit success state.
+    const title = output.title.trim().toLowerCase();
+    if (title.startsWith("error") || title.includes("failed")) return false;
+
+    return true;
+  }
+
+  function makeProviderFetchCacheKey(providerId: string, ctx: QuotaProviderContext): string {
+    const style = ctx.config.toastStyle ?? "classic";
+    const googleModels = ctx.config.googleModels.join(",");
+    const onlyCurrentModel = ctx.config.onlyCurrentModel ? "yes" : "no";
+    const currentModel = ctx.config.currentModel ?? "";
+    return `${providerId}|style=${style}|googleModels=${googleModels}|onlyCurrentModel=${onlyCurrentModel}|currentModel=${currentModel}`;
+  }
+
+  async function fetchProviderWithCache(params: {
+    provider: QuotaProvider;
+    ctx: QuotaProviderContext;
+    ttlMs: number;
+  }): Promise<QuotaProviderResult> {
+    const { provider, ctx, ttlMs } = params;
+
+    // Qwen is local-only and should update per completion for accurate RPM.
+    if (provider.id === "qwen-code") {
+      return await provider.fetch(ctx);
+    }
+
+    const cacheKey = makeProviderFetchCacheKey(provider.id, ctx);
+    const now = Date.now();
+    const existing = providerFetchCache.get(cacheKey);
+
+    if (
+      existing?.result &&
+      existing.timestamp > 0 &&
+      ttlMs > 0 &&
+      now - existing.timestamp < ttlMs
+    ) {
+      return existing.result;
+    }
+
+    if (existing?.inFlight) {
+      return existing.inFlight;
+    }
+
+    const promise = (async () => {
+      try {
+        const result = await provider.fetch(ctx);
+        if (result.attempted) {
+          providerFetchCache.set(cacheKey, { timestamp: Date.now(), result });
+        } else {
+          providerFetchCache.delete(cacheKey);
+        }
+        return result;
+      } catch (err) {
+        providerFetchCache.delete(cacheKey);
+        throw err;
+      }
+    })();
+
+    providerFetchCache.set(cacheKey, {
+      timestamp: existing?.timestamp ?? 0,
+      result: existing?.result,
+      inFlight: promise,
+    });
+
+    return promise;
+  }
+
+  async function shouldBypassToastCacheForQwen(trigger: string, sessionID: string): Promise<boolean> {
+    if (trigger !== "question") return false;
+    if (config.enabledProviders !== "auto" && !config.enabledProviders.includes("qwen-code")) return false;
+
+    const currentModel = await getCurrentModel(sessionID);
+    if (!isQwenModel(currentModel)) return false;
+
+    return await hasQwenOAuthAuth();
+  }
 
   async function refreshConfig(): Promise<void> {
     if (configInFlight) return configInFlight;
@@ -467,11 +621,13 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       currentModel = await getCurrentModel(sessionID);
     }
 
-    const ctx = {
+    const ctx: QuotaProviderContext = {
       client: typedClient,
       config: {
         googleModels: config.googleModels,
         toastStyle: config.toastStyle,
+        onlyCurrentModel: config.onlyCurrentModel,
+        currentModel,
       },
     };
 
@@ -500,7 +656,15 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
         : null;
     }
 
-    const results = await Promise.all(active.map((p) => p.fetch(ctx)));
+    const results = await Promise.all(
+      active.map((p) =>
+        fetchProviderWithCache({
+          provider: p,
+          ctx,
+          ttlMs: config.minIntervalMs,
+        }),
+      ),
+    );
 
     const entries: QuotaToastEntry[] = results.flatMap((r) => r.entries);
     const errors: QuotaToastError[] = results.flatMap((r) => r.errors);
@@ -620,6 +784,10 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
    * Show quota toast for a session
    */
   async function showQuotaToast(sessionID: string, trigger: string): Promise<void> {
+    if (!configLoaded) {
+      await refreshConfig();
+    }
+
     // Check if subagent session
     if (await isSubagentSession(sessionID)) {
       await log("Skipping toast for subagent session", { sessionID, trigger });
@@ -635,7 +803,11 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       return lines.some((l) => /\b\d{1,3}%\b/.test(l) && !/:\s/.test(l));
     }
 
-    const message = config.debug
+    const bypassMessageCache = config.debug
+      ? true
+      : await shouldBypassToastCacheForQwen(trigger, sessionID);
+
+    const message = bypassMessageCache
       ? await fetchQuotaMessage(trigger, sessionID)
       : await getOrFetchWithCacheControl(async () => {
           const msg = await fetchQuotaMessage(trigger, sessionID);
@@ -684,22 +856,35 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       : allProviders.filter((p) => config.enabledProviders.includes(p.id));
     if (!isAutoMode && providers.length === 0) return null;
 
-    const ctx = {
+    let currentModel: string | undefined;
+    if (config.onlyCurrentModel && sessionID) {
+      currentModel = await getCurrentModel(sessionID);
+    }
+
+    const ctx: QuotaProviderContext = {
       client: typedClient,
       config: {
         googleModels: config.googleModels,
         // Always format /quota in grouped mode for a more dashboard-like look.
         toastStyle: "grouped" as const,
+        onlyCurrentModel: config.onlyCurrentModel,
+        currentModel,
       },
     };
 
-    const avail = await Promise.all(
-      providers.map(async (p) => ({ p, ok: await p.isAvailable(ctx as any) })),
-    );
+    const avail = await Promise.all(providers.map(async (p) => ({ p, ok: await p.isAvailable(ctx) })));
     const active = avail.filter((x) => x.ok).map((x) => x.p);
     if (active.length === 0) return null;
 
-    const results = await Promise.all(active.map((p) => p.fetch(ctx as any)));
+    const results = await Promise.all(
+      active.map((p) =>
+        fetchProviderWithCache({
+          provider: p,
+          ctx,
+          ttlMs: config.minIntervalMs,
+        }),
+      ),
+    );
     const entries = results.flatMap((r) => r.entries) as any[];
     const errors = results.flatMap((r) => r.errors);
 
@@ -1058,8 +1243,29 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     },
 
     // Tool execute hook for question tool
-    "tool.execute.after": async (input: ToolExecuteInput) => {
-      if (input.tool === "question" && config.showOnQuestion) {
+    "tool.execute.after": async (input: ToolExecuteAfterInput, output: ToolExecuteAfterOutput) => {
+      if (input.tool !== "question") return;
+
+      if (!configLoaded) {
+        await refreshConfig();
+      }
+
+      if (!config.enabled) return;
+
+      if (isSuccessfulQuestionExecution(output)) {
+        const model = await getCurrentModel(input.sessionID);
+        if (isQwenModel(model) && (await hasQwenOAuthAuth())) {
+          try {
+            await recordQwenCompletion();
+          } catch (err) {
+            await log("Failed to record Qwen local quota completion", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      }
+
+      if (config.showOnQuestion) {
         await showQuotaToast(input.sessionID, "question");
       }
     },

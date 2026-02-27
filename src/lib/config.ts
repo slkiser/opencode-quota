@@ -43,6 +43,8 @@ function normalizeProviderId(id: string): string {
     case "copilot-chat":
     case "github-copilot-chat":
       return "copilot";
+    case "qwen":
+      return "qwen-code";
     default:
       return s;
   }

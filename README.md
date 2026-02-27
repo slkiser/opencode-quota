@@ -36,7 +36,7 @@ That's it. Providers are auto-detected based on your OpenCode configuration. Toa
 {
   "experimental": {
     "quotaToast": {
-      "enabledProviders": ["copilot", "openai", "google-antigravity"]
+      "enabledProviders": ["copilot", "openai", "qwen-code", "google-antigravity"]
     }
   }
 }
@@ -65,6 +65,7 @@ That's it. Providers are auto-detected based on your OpenCode configuration. Toa
 | ------------------ | -------------------- | --------------------------------------------- |
 | GitHub Copilot     | `copilot`            | OpenCode auth (automatic)                     |
 | OpenAI (Plus/Pro)  | `openai`             | OpenCode auth (automatic)                     |
+| Qwen Code (OAuth)  | `qwen-code`          | OpenCode auth via `opencode-qwencode-auth`    |
 | Firmware AI        | `firmware`           | OpenCode auth or API key                      |
 | Chutes AI          | `chutes`             | OpenCode auth or API key                      |
 | NanoGPT            | `nano-gpt`           | API key                                       |
@@ -85,10 +86,13 @@ Copilot works automatically if OpenCode has Copilot configured and logged in.
 ```json
 {
   "token": "github_pat_...",
-  "username": "your-username",
   "tier": "pro"
 }
 ```
+
+`username` is optional (kept for backwards compatibility). If provided, it is used only as a fallback for legacy GitHub REST paths.
+
+Both fine-grained PATs (`github_pat_...`) and classic PATs (`ghp_...`) should work. Fine-grained PATs must include **Account permissions > Plan > Read**.
 
 Tier options: `free`, `pro`, `pro+`, `business`, `enterprise`
 
@@ -98,6 +102,28 @@ Tier options: `free`, `pro`, `pro+`, `business`, `enterprise`
 <summary><strong>OpenAI</strong> (no setup needed)</summary>
 
 OpenAI works automatically if OpenCode has OpenAI/ChatGPT configured.
+
+</details>
+
+<details>
+<summary><strong>Qwen Code (OAuth)</strong></summary>
+
+Requires OAuth credentials from the `opencode-qwencode-auth` plugin.
+
+Quota output for Qwen is **local-only estimation**:
+
+- 1000 requests per UTC day (resets at UTC midnight)
+- 60 requests per rolling minute
+- Counter increments on successful question-tool completions while plugin is enabled and current model is `qwen-code/*`
+
+No remote quota endpoint is called for Qwen and Alibaba API is not used.
+
+Local state file path:
+
+- `.../opencode/opencode-quota/qwen-local-quota.json` (under OpenCode state dir)
+
+Use `/quota_status` to verify auth detection and local Qwen counter status.
+If the local Qwen state file is missing, `/quota_status` reports usage from a default empty state.
 
 </details>
 
@@ -209,7 +235,7 @@ All options go under `experimental.quotaToast` in `opencode.json` or `opencode.j
 | `enableToast`       | `true`       | Show popup toasts                                                            |
 | `toastStyle`        | `classic`    | Toast layout style: `classic` or `grouped`                                   |
 | `enabledProviders`  | `"auto"`     | Provider IDs to query, or `"auto"` to detect                                 |
-| `minIntervalMs`     | `300000`     | Minimum ms between API fetches (default: 5 min)                              |
+| `minIntervalMs`     | `300000`     | Minimum ms between provider fetches (default: 5 min); Qwen local RPM stays live on question triggers |
 | `toastDurationMs`   | `9000`       | How long toasts display (ms)                                                 |
 | `showOnIdle`        | `true`       | Show toast on idle trigger                                                   |
 | `showOnQuestion`    | `true`       | Show toast after a question/assistant response                               |
@@ -270,6 +296,7 @@ By default, providers are auto-detected. If the user wants to restrict which pro
         // Add only the providers the user has configured:
         // "copilot"            - if using GitHub Copilot
         // "openai"             - if using OpenAI/ChatGPT
+        // "qwen-code"          - if using Qwen Code OAuth (requires opencode-qwencode-auth)
         // "firmware"           - if using Firmware AI
         // "chutes"             - if using Chutes AI
         // "nano-gpt"           - if using NanoGPT
@@ -286,11 +313,13 @@ By default, providers are auto-detected. If the user wants to restrict which pro
 | ------------------------------------------- | ----------------------- |
 | `github-copilot` provider or Copilot models | `"copilot"`             |
 | `openai` / `chatgpt` provider               | `"openai"`              |
+| `qwen-code` provider                        | `"qwen-code"`           |
 | `firmware` / `firmware-ai` provider         | `"firmware"`            |
 | `chutes` provider                           | `"chutes"`              |
 | `nano-gpt` / `nanogpt` provider             | `"nano-gpt"`            |
 | `google` provider with antigravity models   | `"google-antigravity"`  |
 | `opencode-antigravity-auth` in plugins      | `"google-antigravity"`  |
+| `opencode-qwencode-auth` in plugins         | `"qwen-code"`           |
 
 #### Example: Full Configuration
 
