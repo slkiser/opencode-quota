@@ -1009,7 +1009,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       }
     },
 
-    "command.execute.before": async (input: CommandExecuteInput) => {
+    "command.execute.before": async (input: CommandExecuteInput, output?: { parts: Array<{ type: string; text?: string }> }) => {
       try {
         const cmd = input.command;
         const sessionID = input.sessionID;
@@ -1182,7 +1182,14 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
           handled();
         }
       } catch (err) {
-        if (isCommandHandledError(err)) return;
+        if (isCommandHandledError(err)) {
+          // Clear output parts so the original command text is not sent to the LLM
+          if (output?.parts) {
+            output.parts.length = 0;
+          }
+          // Re-throw to signal OpenCode to stop the command pipeline
+          throw err;
+        }
         throw err;
       }
     },

@@ -66,18 +66,21 @@ describe("plugin command handled boundary", () => {
     mocks.getProviders.mockReturnValue([]);
   });
 
-  it("swallows command-handled sentinel errors", async () => {
+  it("re-throws command-handled sentinel and clears output parts", async () => {
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient();
     const hooks = await QuotaToastPlugin({ client } as any);
+    const output = { parts: [{ type: "text", text: "/quota" }] };
 
     await expect(
       hooks["command.execute.before"]?.({
         command: "quota",
         sessionID: "session-1",
-      } as any),
-    ).resolves.toBeUndefined();
+      } as any, output as any),
+    ).rejects.toThrow("__QUOTA_COMMAND_HANDLED__");
 
+    // Output parts should be cleared to prevent LLM invocation
+    expect(output.parts).toHaveLength(0);
     expect(client.session.prompt).toHaveBeenCalledTimes(1);
   });
 
