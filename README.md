@@ -1,9 +1,9 @@
 # Opencode Quota
 
-Local quota toasts and token reports for OpenCode with zero context window pollution. `opencode-quota` gives you two things:
+`opencode-quota` gives you two things:
 
 - Automatic quota toasts after assistant responses
-- Manual `/quota` and `/tokens_*` commands for deeper local reporting
+- Manual `/quota` and `/tokens_*` commands for deeper local reporting with zero context window pollution
 
 **Quota provider supports**: GitHub Copilot, OpenAI (Plus/Pro), Qwen Code, Chutes AI, Firmware AI, Google Antigravity, and Z.ai coding plan.
 
