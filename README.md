@@ -121,7 +121,7 @@ If you want grouped toast layout instead of the default classic toast:
 
 | Provider | Works automatically | Extra setup when needed |
 | --- | --- | --- |
-| GitHub Copilot | Personal usage via existing OpenCode auth | Add `copilot-quota-token.json` for managed org or enterprise billing |
+| GitHub Copilot | OAuth may work for personal usage | Add `copilot-quota-token.json` for personal paid tiers when OAuth-only auth does not expose billing usage, and for managed org or enterprise billing |
 | OpenAI | Yes | None |
 | Qwen Code | Needs `opencode-qwencode-auth` | Local-only quota estimation, no remote Qwen quota API |
 | Firmware AI | Usually yes | Optional API key |
@@ -134,9 +134,21 @@ If you want grouped toast layout instead of the default classic toast:
 <details>
 <summary><strong>GitHub Copilot</strong></summary>
 
-Personal Copilot quota works automatically when OpenCode is already signed in.
+Personal Copilot quota may work automatically when OpenCode is already signed in.
 
-For managed billing, create `copilot-quota-token.json` under the OpenCode runtime config directory. You can find the directory with `opencode debug paths`.
+If personal paid-tier quota reporting returns `404 Not Found` for the user billing endpoint, create `copilot-quota-token.json` under the OpenCode runtime config directory. You can find the directory with `opencode debug paths`.
+
+For personal paid tiers such as `free`, `pro`, or `pro+`, a fine-grained GitHub personal access token with `Plan: read` may be required.
+
+Personal account example (`free`, `pro`, `pro+`):
+
+```json
+{
+  "token": "github_pat_...",
+  "tier": "pro",
+  "username": "your-github-username"
+}
+```
 
 Organization example:
 
@@ -167,6 +179,7 @@ Behavior notes:
 - Managed output includes the org or enterprise slug in the value line so the billing scope is still visible.
 - If both OpenCode OAuth and `copilot-quota-token.json` exist, the PAT config wins.
 - If the PAT config is invalid, the plugin reports that error and does not silently fall back to OAuth.
+- For personal paid tiers, a valid token without the required user billing access can still return `404 Not Found`.
 - `business` requires `organization`.
 - Enterprise premium usage does not support fine-grained PATs or GitHub App tokens. Use a supported enterprise token such as a classic PAT.
 
@@ -174,6 +187,13 @@ Useful checks:
 
 - Run `/quota_status` and inspect `copilot_quota_auth`.
 - Look for `billing_mode`, `billing_scope`, `effective_source`, and `billing_api_access_likely`.
+
+Troubleshooting personal paid tiers:
+
+- A fine-grained GitHub personal access token with `Plan: read` may be required. See GitHub's documentation for [Get billing premium request usage report for a user](https://docs.github.com/en/rest/billing/usage?apiVersion=2026-03-10#get-billing-premium-request-usage-report-for-a-user).
+- If `/quota` shows `GitHub API error 404: Not Found`, the token may not have access to `GET /users/{username}/settings/billing/premium_request/usage`.
+- An invalid token returns `401 Bad credentials`.
+- See #20 for a verified troubleshooting workflow, including manual API verification and working/failing output samples.
 
 </details>
 
