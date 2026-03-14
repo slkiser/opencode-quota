@@ -30,6 +30,7 @@ const copilotMocks = vi.hoisted(() => ({
     override: "pat_overrides_oauth",
     billingMode: "organization_usage",
     billingScope: "organization",
+    quotaApi: "github_billing_api",
     billingApiAccessLikely: true,
     remainingTotalsState: "not_available_from_org_usage",
     queryPeriod: {
@@ -90,15 +91,29 @@ vi.mock("../src/lib/copilot.js", () => ({
 
 vi.mock("../src/lib/qwen-local-quota.js", () => ({
   computeQwenQuota: () => ({
-    day: { used: 0, limit: 200 },
-    rpm: { used: 0, limit: 400 },
+    day: { used: 0, limit: 1000 },
+    rpm: { used: 0, limit: 60 },
+  }),
+  computeAlibabaCodingPlanQuota: () => ({
+    tier: "lite",
+    fiveHour: { used: 0, limit: 1200 },
+    weekly: { used: 0, limit: 9000 },
+    monthly: { used: 0, limit: 18000 },
   }),
   getQwenLocalQuotaPath: () => "/tmp/qwen-state.json",
+  getAlibabaCodingPlanQuotaPath: () => "/tmp/alibaba-state.json",
   readQwenLocalQuotaState: vi.fn(async () => ({})),
+  readAlibabaCodingPlanQuotaState: vi.fn(async () => ({})),
 }));
 
 vi.mock("../src/lib/qwen-auth.js", () => ({
   hasQwenOAuthAuth: () => false,
+  resolveQwenLocalPlan: () => ({ state: "none" }),
+}));
+
+vi.mock("../src/lib/alibaba-auth.js", () => ({
+  hasAlibabaAuth: () => false,
+  resolveAlibabaCodingPlanAuth: () => ({ state: "none" }),
 }));
 
 vi.mock("../src/lib/modelsdev-pricing.js", () => ({
@@ -163,6 +178,7 @@ describe("buildQuotaStatusReport", () => {
       configSource: "test",
       configPaths: [],
       enabledProviders: ["copilot"],
+      alibabaCodingPlanTier: "lite",
       onlyCurrentModel: false,
       providerAvailability: [
         {
@@ -187,9 +203,14 @@ describe("buildQuotaStatusReport", () => {
       "- pricing: source=test active_source=test generated_at=2026-01-01T00:00:00.000Z units=usd_per_1m_tokens",
     );
     expect(report).not.toContain("- opencode data:");
+    expect(report).toContain("- qwen_local_plan: (none)");
+    expect(report).toContain("- alibaba auth configured: false");
+    expect(report).toContain("- alibaba coding plan fallback tier: lite");
+    expect(report).toContain("- alibaba_coding_plan: (none)");
     expect(report).toContain("copilot_quota_auth:");
     expect(report).toContain("- billing_mode: organization_usage");
     expect(report).toContain("- billing_scope: organization");
+    expect(report).toContain("- quota_api: github_billing_api");
     expect(report).toContain("- billing_api_access_likely: true");
     expect(report).toContain("- remaining_totals_state: not_available_from_org_usage");
     expect(report).toContain("- billing_period: 2026-01");
@@ -227,6 +248,7 @@ describe("buildQuotaStatusReport", () => {
       override: "none",
       billingMode: "enterprise_usage",
       billingScope: "enterprise",
+      quotaApi: "github_billing_api",
       billingApiAccessLikely: false,
       remainingTotalsState: "not_available_from_enterprise_usage",
       queryPeriod: {
@@ -244,6 +266,7 @@ describe("buildQuotaStatusReport", () => {
       configSource: "test",
       configPaths: [],
       enabledProviders: ["copilot"],
+      alibabaCodingPlanTier: "lite",
       onlyCurrentModel: false,
       providerAvailability: [
         {
@@ -258,6 +281,7 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- pat_enterprise: acme-enterprise");
     expect(report).toContain("- billing_mode: enterprise_usage");
     expect(report).toContain("- billing_scope: enterprise");
+    expect(report).toContain("- quota_api: github_billing_api");
     expect(report).toContain("- billing_api_access_likely: false");
     expect(report).toContain("- remaining_totals_state: not_available_from_enterprise_usage");
     expect(report).toContain(

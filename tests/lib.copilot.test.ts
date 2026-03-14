@@ -114,28 +114,25 @@ describe("queryCopilotQuota", () => {
     );
   });
 
-  it("uses OpenCode auth against the documented user billing endpoint when PAT is absent", async () => {
+  it("uses /copilot_internal/user when OAuth is present and PAT is absent", async () => {
     authMocks.readAuthFile.mockResolvedValueOnce({
-      "github-copilot-chat": { type: "oauth", access: "oauth_access_token" },
+      "github-copilot-chat": { type: "oauth", access: "oauth_access_token", refresh: "refresh" },
     });
 
-    const fetchMock = vi.fn(async (url: unknown) => {
+    const fetchMock = vi.fn(async (url: unknown, init?: RequestInit) => {
       const target = String(url);
 
-      if (target.endsWith("/user")) {
-        return new Response(JSON.stringify({ login: "octocat" }), { status: 200 });
-      }
-
-      if (target.includes("/users/octocat/settings/billing/premium_request/usage")) {
+      if (target === "https://api.github.com/copilot_internal/user") {
+        expect(init?.headers).toMatchObject({
+          Authorization: "Bearer oauth_access_token",
+        });
         return new Response(
           JSON.stringify({
-            usageItems: [
-              {
-                sku: "Copilot Premium Request",
-                grossQuantity: 12,
-                limit: 300,
-              },
-            ],
+            quota: {
+              used: 12,
+              limit: 300,
+              reset_at: "2026-02-01T00:00:00.000Z",
+            },
           }),
           { status: 200 },
         );
@@ -157,10 +154,23 @@ describe("queryCopilotQuota", () => {
       percentRemaining: 96,
       resetTimeIso: "2026-02-01T00:00:00.000Z",
     });
-    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual([
-      "https://api.github.com/user",
-      "https://api.github.com/users/octocat/settings/billing/premium_request/usage",
-    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://api.github.com/copilot_internal/user");
+  });
+
+  it("returns a clear error when OAuth auth exists without an access token", async () => {
+    authMocks.readAuthFile.mockResolvedValueOnce({
+      "github-copilot": { type: "oauth", refresh: "refresh_only" },
+    });
+
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    const result = await queryCopilotQuota();
+
+    expect(result).toEqual({
+      success: false,
+      error:
+        "Copilot OAuth auth is configured but missing an access token required for GitHub /copilot_internal/user.",
+    });
   });
 
   it("does not fall back to OpenCode auth when PAT config is invalid", async () => {
@@ -671,6 +681,7 @@ describe("queryCopilotQuota", () => {
     expect(diagnostics.oauth.configured).toBe(true);
     expect(diagnostics.effectiveSource).toBe("pat");
     expect(diagnostics.override).toBe("pat_overrides_oauth");
+    expect(diagnostics.quotaApi).toBe("github_billing_api");
     expect(diagnostics.billingMode).toBe("organization_usage");
     expect(diagnostics.billingScope).toBe("organization");
     expect(diagnostics.billingApiAccessLikely).toBe(true);
@@ -691,6 +702,7 @@ describe("queryCopilotQuota", () => {
     expect(diagnostics.oauth.configured).toBe(true);
     expect(diagnostics.effectiveSource).toBe("pat");
     expect(diagnostics.override).toBe("pat_overrides_oauth");
+    expect(diagnostics.quotaApi).toBe("none");
     expect(diagnostics.billingMode).toBe("none");
     expect(diagnostics.billingScope).toBe("none");
     expect(diagnostics.billingApiAccessLikely).toBe(false);
@@ -717,6 +729,7 @@ describe("queryCopilotQuota", () => {
     expect(diagnostics.pat.config?.enterprise).toBe("acme-enterprise");
     expect(diagnostics.billingMode).toBe("enterprise_usage");
     expect(diagnostics.billingScope).toBe("enterprise");
+    expect(diagnostics.quotaApi).toBe("github_billing_api");
     expect(diagnostics.billingApiAccessLikely).toBe(false);
     expect(diagnostics.remainingTotalsState).toBe(
       "not_available_from_enterprise_usage",

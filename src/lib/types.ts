@@ -41,6 +41,7 @@ export interface QuotaToastConfig {
   enabledProviders: string[] | "auto";
 
   googleModels: GoogleModelId[];
+  alibabaCodingPlanTier: AlibabaCodingPlanTier;
   showOnIdle: boolean;
   showOnQuestion: boolean;
   showOnCompact: boolean;
@@ -80,6 +81,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
 
   // If Google Antigravity is enabled, default to Claude only.
   googleModels: ["CLAUDE"],
+  alibabaCodingPlanTier: "lite",
 
   showOnIdle: true,
   showOnQuestion: true,
@@ -105,6 +107,27 @@ export interface CopilotAuthData {
   refresh?: string;
   access?: string;
   expires?: number;
+}
+
+export type AlibabaCodingPlanTier = "lite" | "pro";
+
+export interface QwenOAuthAuthData {
+  type: string;
+  access?: string;
+  refresh?: string;
+  expires?: number;
+  plan?: string;
+  tier?: string;
+  [key: string]: unknown;
+}
+
+export interface AlibabaAuthData {
+  type: string;
+  key?: string;
+  access?: string;
+  tier?: string;
+  plan?: string;
+  [key: string]: unknown;
 }
 
 /**
@@ -198,12 +221,9 @@ export interface AuthData {
     type: string;
     key?: string;
   };
-  "opencode-qwencode-auth"?: {
-    type: string;
-    access?: string;
-    refresh?: string;
-    expires?: number;
-  };
+  "opencode-qwencode-auth"?: QwenOAuthAuthData;
+  alibaba?: AlibabaAuthData;
+  "alibaba-coding-plan"?: AlibabaAuthData;
   "zai-coding-plan"?: {
     type: "api";
     key: string;

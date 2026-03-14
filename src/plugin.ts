@@ -30,8 +30,19 @@ import { buildQuotaStatusReport, type SessionTokenError } from "./lib/quota-stat
 import { maybeRefreshPricingSnapshot } from "./lib/modelsdev-pricing.js";
 import { refreshGoogleTokensForAllAccounts } from "./lib/google.js";
 import { getQuotaProviderDisplayLabel } from "./lib/provider-metadata.js";
-import { hasQwenOAuthAuthCached, isQwenCodeModelId } from "./lib/qwen-auth.js";
-import { recordQwenCompletion } from "./lib/qwen-local-quota.js";
+import {
+  DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
+  isAlibabaModelId,
+  resolveAlibabaCodingPlanAuthCached,
+} from "./lib/alibaba-auth.js";
+import {
+  isQwenCodeModelId,
+  resolveQwenLocalPlanCached,
+} from "./lib/qwen-auth.js";
+import {
+  recordAlibabaCodingPlanCompletion,
+  recordQwenCompletion,
+} from "./lib/qwen-local-quota.js";
 import {
   parseOptionalJsonArgs,
   parseQuotaBetweenArgs,
@@ -257,6 +268,14 @@ function isTokenReportCommand(cmd: string): cmd is TokenReportCommandId {
 // Plugin Implementation
 // =============================================================================
 
+const LOCAL_REQUEST_PLAN_PROVIDER_IDS = new Set(["qwen-code", "alibaba-coding-plan"]);
+
+type QuotaCommandCacheEntry = {
+  body: string;
+  timestamp: number;
+  inFlight?: Promise<string | null>;
+};
+
 /**
  * Main plugin export
  */
@@ -311,6 +330,27 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
 
   const providerFetchCache = new Map<string, ProviderFetchCacheEntry>();
 
+  function getQuotaCommandCache(): QuotaCommandCacheEntry {
+    let quotaCache = (globalThis as any).__opencodeQuotaCommandCache as
+      | QuotaCommandCacheEntry
+      | undefined;
+    if (!quotaCache) {
+      quotaCache = { body: "", timestamp: 0 };
+      (globalThis as any).__opencodeQuotaCommandCache = quotaCache;
+    }
+    return quotaCache;
+  }
+
+  function clearQuotaCommandCache(): void {
+    const quotaCache = (globalThis as any).__opencodeQuotaCommandCache as
+      | QuotaCommandCacheEntry
+      | undefined;
+    if (!quotaCache) return;
+    quotaCache.body = "";
+    quotaCache.timestamp = 0;
+    quotaCache.inFlight = undefined;
+  }
+
   function asRecord(value: unknown): Record<string, unknown> | null {
     return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
   }
@@ -355,9 +395,10 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
   function makeProviderFetchCacheKey(providerId: string, ctx: QuotaProviderContext): string {
     const style = ctx.config.toastStyle ?? "classic";
     const googleModels = ctx.config.googleModels.join(",");
+    const alibabaCodingPlanTier = ctx.config.alibabaCodingPlanTier;
     const onlyCurrentModel = ctx.config.onlyCurrentModel ? "yes" : "no";
     const currentModel = ctx.config.currentModel ?? "";
-    return `${providerId}|style=${style}|googleModels=${googleModels}|onlyCurrentModel=${onlyCurrentModel}|currentModel=${currentModel}`;
+    return `${providerId}|style=${style}|googleModels=${googleModels}|alibabaTier=${alibabaCodingPlanTier}|onlyCurrentModel=${onlyCurrentModel}|currentModel=${currentModel}`;
   }
 
   async function fetchProviderWithCache(params: {
@@ -367,8 +408,8 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
   }): Promise<QuotaProviderResult> {
     const { provider, ctx, ttlMs } = params;
 
-    // Qwen is local-only and should update per completion for accurate RPM.
-    if (provider.id === "qwen-code") {
+    // Local request-plan providers should update per completion for accurate rolling counters.
+    if (LOCAL_REQUEST_PLAN_PROVIDER_IDS.has(provider.id)) {
       return await provider.fetch(ctx);
     }
 
@@ -413,14 +454,39 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     return promise;
   }
 
-  async function shouldBypassToastCacheForQwen(trigger: string, sessionID: string): Promise<boolean> {
+  async function shouldBypassToastCacheForLocalRequestPlan(
+    trigger: string,
+    sessionID: string,
+  ): Promise<boolean> {
     if (trigger !== "question") return false;
-    if (config.enabledProviders !== "auto" && !config.enabledProviders.includes("qwen-code")) return false;
 
     const currentModel = await getCurrentModel(sessionID);
-    if (!isQwenCodeModelId(currentModel)) return false;
+    if (isQwenCodeModelId(currentModel)) {
+      const plan = await resolveQwenLocalPlanCached();
+      return (
+        plan.state === "qwen_free" &&
+        (config.enabledProviders === "auto" || config.enabledProviders.includes("qwen-code"))
+      );
+    }
 
-    return await hasQwenOAuthAuthCached();
+    if (isAlibabaModelId(currentModel)) {
+      const plan = await resolveAlibabaCodingPlanAuthCached({
+        maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
+        fallbackTier: config.alibabaCodingPlanTier,
+      });
+      return (
+        plan.state === "configured" &&
+        (config.enabledProviders === "auto" ||
+          config.enabledProviders.includes("alibaba-coding-plan"))
+      );
+    }
+
+    return false;
+  }
+
+  async function shouldBypassQuotaCommandCache(sessionID?: string): Promise<boolean> {
+    if (config.debug || !sessionID) return config.debug;
+    return await shouldBypassToastCacheForLocalRequestPlan("question", sessionID);
   }
 
   async function refreshConfig(): Promise<void> {
@@ -622,6 +688,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       client: typedClient,
       config: {
         googleModels: config.googleModels,
+        alibabaCodingPlanTier: config.alibabaCodingPlanTier,
         toastStyle: config.toastStyle,
         onlyCurrentModel: config.onlyCurrentModel,
         currentModel,
@@ -805,7 +872,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
 
     const bypassMessageCache = config.debug
       ? true
-      : await shouldBypassToastCacheForQwen(trigger, sessionID);
+      : await shouldBypassToastCacheForLocalRequestPlan(trigger, sessionID);
 
     const message = bypassMessageCache
       ? await fetchQuotaMessage(trigger, sessionID)
@@ -865,6 +932,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       client: typedClient,
       config: {
         googleModels: config.googleModels,
+        alibabaCodingPlanTier: config.alibabaCodingPlanTier,
         // Always format /quota in grouped mode for a more dashboard-like look.
         toastStyle: "grouped" as const,
         onlyCurrentModel: config.onlyCurrentModel,
@@ -888,8 +956,6 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     const entries = results.flatMap((r) => r.entries) as any[];
     const errors = results.flatMap((r) => r.errors);
 
-    if (entries.length === 0) return null;
-
     // Fetch session tokens if enabled and sessionID is available
     let sessionTokens: SessionTokensData | undefined;
     if (config.showSessionTokens && sessionID) {
@@ -900,6 +966,11 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       sessionTokens = stResult.sessionTokens;
       // Update diagnostics state: clear on success (no error returned), set on failure
       lastSessionTokenError = stResult.error;
+    }
+
+    if (entries.length === 0) {
+      if (errors.length === 0 && !sessionTokens) return null;
+      return formatQuotaCommandBody({ entries, errors, sessionTokens });
     }
 
     return formatQuotaCommandBody({ entries, errors, sessionTokens });
@@ -960,7 +1031,10 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
         try {
           ok = await p.isAvailable({
             client: typedClient,
-            config: { googleModels: config.googleModels },
+            config: {
+              googleModels: config.googleModels,
+              alibabaCodingPlanTier: config.alibabaCodingPlanTier,
+            },
           });
         } catch {
           ok = false;
@@ -986,6 +1060,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       configSource: configMeta.source,
       configPaths: configMeta.paths,
       enabledProviders: config.enabledProviders,
+      alibabaCodingPlanTier: config.alibabaCodingPlanTier,
       onlyCurrentModel: config.onlyCurrentModel,
       currentModel,
       sessionModelLookup,
@@ -1046,17 +1121,14 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
         if (cmd === "quota") {
           const generatedAtMs = Date.now();
           // Separate cache for /quota so it doesn't pollute the toast cache.
-          let quotaCache = (globalThis as any).__opencodeQuotaCommandCache as
-            | { body: string; timestamp: number; inFlight?: Promise<string | null> }
-            | undefined;
-          if (!quotaCache) {
-            quotaCache = { body: "", timestamp: 0 };
-            (globalThis as any).__opencodeQuotaCommandCache = quotaCache;
-          }
+          const quotaCache = getQuotaCommandCache();
 
           const now = generatedAtMs;
+          const bypassCommandCache = await shouldBypassQuotaCommandCache(sessionID);
           const cached =
-            quotaCache.timestamp && now - quotaCache.timestamp < config.minIntervalMs
+            !bypassCommandCache &&
+            quotaCache.timestamp &&
+            now - quotaCache.timestamp < config.minIntervalMs
               ? quotaCache.body
               : null;
 
@@ -1087,7 +1159,10 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
               const allProvs = getProviders();
               const ctx = {
                 client: typedClient,
-                config: { googleModels: config.googleModels },
+                  config: {
+                    googleModels: config.googleModels,
+                    alibabaCodingPlanTier: config.alibabaCodingPlanTier,
+                  },
               };
               const avail = await Promise.all(
                 allProvs.map(async (p) => {
@@ -1291,15 +1366,29 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       if (!config.enabled) return;
 
       if (isSuccessfulQuestionExecution(output)) {
-        const model = await getCurrentModel(input.sessionID);
-        if (isQwenCodeModelId(model) && (await hasQwenOAuthAuthCached())) {
-          try {
-            await recordQwenCompletion();
-          } catch (err) {
-            await log("Failed to record Qwen local quota completion", {
-              error: err instanceof Error ? err.message : String(err),
-            });
-          }
+            const model = await getCurrentModel(input.sessionID);
+            try {
+              if (isQwenCodeModelId(model)) {
+                const plan = await resolveQwenLocalPlanCached();
+                if (plan.state === "qwen_free") {
+                  await recordQwenCompletion();
+                  clearQuotaCommandCache();
+                }
+              } else if (isAlibabaModelId(model)) {
+                const plan = await resolveAlibabaCodingPlanAuthCached({
+              maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
+              fallbackTier: config.alibabaCodingPlanTier,
+                });
+                if (plan.state === "configured") {
+                  await recordAlibabaCodingPlanCompletion();
+                  clearQuotaCommandCache();
+                }
+              }
+        } catch (err) {
+          await log("Failed to record local request-plan quota completion", {
+            error: err instanceof Error ? err.message : String(err),
+            model,
+          });
         }
       }
 

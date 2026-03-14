@@ -93,6 +93,7 @@ export interface QuotaProviderContext {
   };
   config: {
     googleModels: string[];
+    alibabaCodingPlanTier: "lite" | "pro";
     toastStyle?: "classic" | "grouped";
     onlyCurrentModel?: boolean;
     currentModel?: string;

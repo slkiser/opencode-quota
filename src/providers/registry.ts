@@ -11,6 +11,7 @@ import { googleAntigravityProvider } from "./google-antigravity.js";
 import { firmwareProvider } from "./firmware.js";
 import { chutesProvider } from "./chutes.js";
 import { qwenCodeProvider } from "./qwen-code.js";
+import { alibabaCodingPlanProvider } from "./alibaba-coding-plan.js";
 import { zaiProvider } from "./zai.js";
 
 export function getProviders(): QuotaProvider[] {
@@ -19,6 +20,7 @@ export function getProviders(): QuotaProvider[] {
     copilotProvider,
     openaiProvider,
     qwenCodeProvider,
+    alibabaCodingPlanProvider,
     firmwareProvider,
     chutesProvider,
     googleAntigravityProvider,

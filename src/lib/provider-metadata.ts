@@ -5,6 +5,7 @@ export const QUOTA_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   firmware: "Firmware",
   chutes: "Chutes",
   "qwen-code": "Qwen",
+  "alibaba-coding-plan": "Alibaba Coding Plan",
   zai: "Z.ai",
 };
 
@@ -13,6 +14,7 @@ export const QUOTA_PROVIDER_ID_SYNONYMS: Readonly<Record<string, string>> = {
   "copilot-chat": "copilot",
   "github-copilot-chat": "copilot",
   qwen: "qwen-code",
+  alibaba: "alibaba-coding-plan",
 };
 
 export function normalizeQuotaProviderId(id: string): string {

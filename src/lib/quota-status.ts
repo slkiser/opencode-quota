@@ -8,11 +8,18 @@ import { getFirmwareKeyDiagnostics } from "./firmware.js";
 import { getChutesKeyDiagnostics } from "./chutes.js";
 import { getCopilotQuotaAuthDiagnostics } from "./copilot.js";
 import {
+  computeAlibabaCodingPlanQuota,
   computeQwenQuota,
+  getAlibabaCodingPlanQuotaPath,
   getQwenLocalQuotaPath,
+  readAlibabaCodingPlanQuotaState,
   readQwenLocalQuotaState,
 } from "./qwen-local-quota.js";
-import { hasQwenOAuthAuth } from "./qwen-auth.js";
+import {
+  hasAlibabaAuth,
+  resolveAlibabaCodingPlanAuth,
+} from "./alibaba-auth.js";
+import { hasQwenOAuthAuth, resolveQwenLocalPlan } from "./qwen-auth.js";
 import {
   getPricingSnapshotHealth,
   getPricingRefreshPolicy,
@@ -148,7 +155,15 @@ function supportedProviderPricingRow(params: {
     return {
       id,
       pricing: "no",
-      notes: "local request-count estimate (oauth plan, no token pricing API)",
+      notes: "local request-count estimate (free tier, no token pricing API)",
+    };
+  }
+
+  if (id === "alibaba-coding-plan") {
+    return {
+      id,
+      pricing: "no",
+      notes: "local request-count estimate (tiered rolling windows, no token pricing API)",
     };
   }
 
@@ -203,6 +218,7 @@ export async function buildQuotaStatusReport(params: {
   configSource: string;
   configPaths: string[];
   enabledProviders: string[] | "auto";
+  alibabaCodingPlanTier: "lite" | "pro";
   onlyCurrentModel: boolean;
   currentModel?: string;
   /** Whether a session was available for model lookup */
@@ -288,23 +304,56 @@ export async function buildQuotaStatusReport(params: {
 
   const authData = await readAuthFileCached({ maxAgeMs: 5_000 });
   const qwenAuthConfigured = hasQwenOAuthAuth(authData);
+  const qwenLocalPlan = resolveQwenLocalPlan(authData);
+  const alibabaAuthConfigured = hasAlibabaAuth(authData);
+  const alibabaCodingPlanAuth = resolveAlibabaCodingPlanAuth(authData, params.alibabaCodingPlanTier);
   lines.push(`- qwen oauth auth configured: ${qwenAuthConfigured ? "true" : "false"}`);
+  lines.push(`- qwen_local_plan: ${qwenLocalPlan.state === "qwen_free" ? "qwen-code/free" : "(none)"}`);
+  lines.push(`- alibaba auth configured: ${alibabaAuthConfigured ? "true" : "false"}`);
+  lines.push(`- alibaba coding plan fallback tier: ${params.alibabaCodingPlanTier}`);
+  lines.push(
+    `- alibaba_coding_plan: ${alibabaCodingPlanAuth.state === "configured" ? alibabaCodingPlanAuth.tier : alibabaCodingPlanAuth.state === "invalid" ? "invalid" : "(none)"}`,
+  );
 
   const qwenLocalQuotaPath = getQwenLocalQuotaPath();
   const qwenLocalQuotaExists = await pathExists(qwenLocalQuotaPath);
   lines.push(
-    `- qwen local quota: path=${qwenLocalQuotaPath} exists=${qwenLocalQuotaExists ? "true" : "false"}`,
+    `- qwen free local quota: path=${qwenLocalQuotaPath} exists=${qwenLocalQuotaExists ? "true" : "false"}`,
   );
   try {
     const qwenState = await readQwenLocalQuotaState();
     const qwenQuota = computeQwenQuota({ state: qwenState });
     const qwenUsageSuffix = qwenLocalQuotaExists ? "" : " (default state)";
     lines.push(
-      `- qwen local usage: daily=${qwenQuota.day.used}/${qwenQuota.day.limit} rpm=${qwenQuota.rpm.used}/${qwenQuota.rpm.limit}${qwenUsageSuffix}`,
+      `- qwen free local usage: daily=${qwenQuota.day.used}/${qwenQuota.day.limit} rpm=${qwenQuota.rpm.used}/${qwenQuota.rpm.limit}${qwenUsageSuffix}`,
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    lines.push(`- qwen local usage: error (${msg})`);
+    lines.push(`- qwen free local usage: error (${msg})`);
+  }
+
+  const alibabaLocalQuotaPath = getAlibabaCodingPlanQuotaPath();
+  const alibabaLocalQuotaExists = await pathExists(alibabaLocalQuotaPath);
+  lines.push(
+    `- alibaba coding plan local quota: path=${alibabaLocalQuotaPath} exists=${alibabaLocalQuotaExists ? "true" : "false"}`,
+  );
+  if (alibabaCodingPlanAuth.state === "configured") {
+    try {
+      const alibabaState = await readAlibabaCodingPlanQuotaState();
+      const alibabaQuota = computeAlibabaCodingPlanQuota({
+        state: alibabaState,
+        tier: alibabaCodingPlanAuth.tier,
+      });
+      const alibabaUsageSuffix = alibabaLocalQuotaExists ? "" : " (default state)";
+      lines.push(
+        `- alibaba coding plan usage: tier=${alibabaCodingPlanAuth.tier} 5h=${alibabaQuota.fiveHour.used}/${alibabaQuota.fiveHour.limit} weekly=${alibabaQuota.weekly.used}/${alibabaQuota.weekly.limit} monthly=${alibabaQuota.monthly.used}/${alibabaQuota.monthly.limit}${alibabaUsageSuffix}`,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      lines.push(`- alibaba coding plan usage: error (${msg})`);
+    }
+  } else if (alibabaCodingPlanAuth.state === "invalid") {
+    lines.push(`- alibaba coding plan error: ${alibabaCodingPlanAuth.error}`);
   }
 
   // Firmware API key diagnostics
@@ -358,6 +407,7 @@ export async function buildQuotaStatusReport(params: {
   }
   lines.push(`- billing_mode: ${copilotDiag.billingMode}`);
   lines.push(`- billing_scope: ${copilotDiag.billingScope}`);
+  lines.push(`- quota_api: ${copilotDiag.quotaApi}`);
   lines.push(`- billing_api_access_likely: ${copilotDiag.billingApiAccessLikely ? "true" : "false"}`);
   lines.push(`- remaining_totals_state: ${copilotDiag.remainingTotalsState}`);
   if (copilotDiag.queryPeriod) {

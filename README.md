@@ -5,7 +5,7 @@
 - Automatic quota toasts after assistant responses
 - Manual `/quota` and `/tokens_*` commands for deeper local reporting with zero context window pollution
 
-**Quota provider supports**: GitHub Copilot, OpenAI (Plus/Pro), Qwen Code, Chutes AI, Firmware AI, Google Antigravity, and Z.ai coding plan.
+**Quota provider supports**: GitHub Copilot, OpenAI (Plus/Pro), Qwen Code, Alibaba Coding Plan, Chutes AI, Firmware AI, Google Antigravity, and Z.ai coding plan.
 
 **Token provider supports**: All models and providers in [models.dev](https://models.dev).
 
@@ -115,15 +115,28 @@ If you want grouped toast layout instead of the default classic toast:
 }
 ```
 
+If Alibaba Coding Plan auth does not include a `tier`, you can set the fallback tier here:
+
+```jsonc
+{
+  "experimental": {
+    "quotaToast": {
+      "alibabaCodingPlanTier": "lite"
+    }
+  }
+}
+```
+
 `/quota` already uses grouped formatting by default, even if toast style stays `classic`.
 
 ## Provider Setup At A Glance
 
 | Provider | Works automatically | Extra setup when needed |
 | --- | --- | --- |
-| GitHub Copilot | Personal usage via existing OpenCode auth | Add `copilot-quota-token.json` for managed org or enterprise billing |
+| GitHub Copilot | Usually yes | Add `copilot-quota-token.json` only for managed org or enterprise billing |
 | OpenAI | Yes | None |
-| Qwen Code | Needs `opencode-qwencode-auth` | Local-only quota estimation, no remote Qwen quota API |
+| Qwen Code | Needs `opencode-qwencode-auth` | Local free-tier request estimation |
+| Alibaba Coding Plan | Yes | Local request-count estimation |
 | Firmware AI | Usually yes | Optional API key |
 | Chutes AI | Usually yes | Optional API key |
 | Google Antigravity | Needs `opencode-antigravity-auth` | Multi-account account file lives in OpenCode runtime config |
@@ -134,7 +147,7 @@ If you want grouped toast layout instead of the default classic toast:
 <details>
 <summary><strong>GitHub Copilot</strong></summary>
 
-Personal Copilot quota works automatically when OpenCode is already signed in.
+Personal Copilot quota works automatically when OpenCode is already signed in. When no `copilot-quota-token.json` exists, the plugin reads the OpenCode Copilot OAuth token from `~/.local/share/opencode/auth.json` and queries `GET https://api.github.com/copilot_internal/user` with `Authorization: Bearer <access token>`.
 
 For managed billing, create `copilot-quota-token.json` under the OpenCode runtime config directory. You can find the directory with `opencode debug paths`.
 
@@ -166,6 +179,7 @@ Behavior notes:
 - Managed organization and enterprise output is labeled `[Copilot] (business)`.
 - Managed output includes the org or enterprise slug in the value line so the billing scope is still visible.
 - If both OpenCode OAuth and `copilot-quota-token.json` exist, the PAT config wins.
+- If no PAT config exists, OpenCode Copilot OAuth is treated as personal quota auth via `/copilot_internal/user`.
 - If the PAT config is invalid, the plugin reports that error and does not silently fall back to OAuth.
 - `business` requires `organization`.
 - Enterprise premium usage does not support fine-grained PATs or GitHub App tokens. Use a supported enterprise token such as a classic PAT.
@@ -173,7 +187,7 @@ Behavior notes:
 Useful checks:
 
 - Run `/quota_status` and inspect `copilot_quota_auth`.
-- Look for `billing_mode`, `billing_scope`, `effective_source`, and `billing_api_access_likely`.
+- Look for `billing_mode`, `billing_scope`, `quota_api`, `effective_source`, and `billing_api_access_likely`.
 
 </details>
 
@@ -187,19 +201,39 @@ No extra setup is required if OpenCode already has OpenAI or ChatGPT auth config
 <details>
 <summary><strong>Qwen Code</strong></summary>
 
-Qwen support is local-only estimation. The plugin does not call an Alibaba quota API.
+Qwen support is local-only estimation for the free plan. The plugin does not call an Alibaba quota API.
 
 Current behavior:
 
-- 1000 requests per UTC day
-- 60 requests per rolling minute
+- Free tier only: 1000 requests per UTC day
+- Free tier only: 60 requests per rolling minute
 - Counters increment on successful question-tool completions while the current model is `qwen-code/*`
 
 State file path:
 
 - `.../opencode/opencode-quota/qwen-local-quota.json`
 
-Run `/quota_status` to verify auth detection and local counter status.
+Run `/quota_status` to verify auth detection, `qwen_local_plan`, and local counter status.
+
+</details>
+
+<details>
+<summary><strong>Alibaba Coding Plan</strong></summary>
+
+Alibaba Coding Plan uses native OpenCode auth from either `alibaba` or `alibaba-coding-plan` in `auth.json`, instead of the Qwen companion plugin. Quota estimation is request-count based with rolling windows.
+
+Supported tiers:
+
+- `lite`: 1200 requests / 5 hours, 9000 / week, 18000 / month
+- `pro`: 6000 requests / 5 hours, 45000 / week, 90000 / month
+- If `tier` is missing from auth, the plugin uses `experimental.quotaToast.alibabaCodingPlanTier` and defaults that setting to `lite`
+- Counters increment on successful question-tool completions while the current model is `alibaba/*` or `alibaba-cn/*`
+
+State file path:
+
+- `.../opencode/opencode-quota/alibaba-coding-plan-local-quota.json`
+
+`/quota_status` shows whether Alibaba auth is configured, the resolved Alibaba coding-plan tier, the Alibaba state-file path, and the current 5h/weekly/monthly usage when this plan is active.
 
 </details>
 
@@ -291,6 +325,7 @@ All plugin settings live under `experimental.quotaToast`.
 | `layout.narrowAt` | `42` | Compact layout breakpoint |
 | `layout.tinyAt` | `32` | Tiny layout breakpoint |
 | `googleModels` | `["CLAUDE"]` | Google model keys: `CLAUDE`, `G3PRO`, `G3FLASH`, `G3IMAGE` |
+| `alibabaCodingPlanTier` | `"lite"` | Fallback Alibaba Coding Plan tier when auth does not include `tier` |
 | `debug` | `false` | Include debug context in toast output |
 
 ## Token Pricing Snapshot
@@ -326,7 +361,7 @@ If something is missing or looks wrong:
 2. Confirm the expected provider appears in the detected provider list.
 3. If token reports are empty, make sure OpenCode has already created `opencode.db`.
 4. If Copilot managed billing is expected, confirm `copilot-quota-token.json` is present and valid.
-5. If Google or Qwen support is expected, confirm the companion auth plugin is installed.
+5. If Google or Qwen support is expected, confirm the companion auth plugin is installed. If Alibaba Coding Plan support is expected, confirm OpenCode `alibaba` or `alibaba-coding-plan` auth is configured; `tier` may be `lite` or `pro`, and if it is missing the plugin falls back to `experimental.quotaToast.alibabaCodingPlanTier`.
 
 If `opencode.db` is missing, start OpenCode once and let its local migration complete.
 

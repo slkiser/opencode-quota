@@ -13,7 +13,7 @@ vi.mock("../src/lib/qwen-local-quota.js", () => ({
 }));
 
 describe("qwen-code provider", () => {
-  it("returns attempted:false when oauth auth is not configured", async () => {
+  it("returns attempted:false when qwen free auth is not configured", async () => {
     const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
     (readAuthFileCached as any).mockResolvedValueOnce({});
 
@@ -21,7 +21,17 @@ describe("qwen-code provider", () => {
     expectNotAttempted(out);
   });
 
-  it("maps local quota into grouped entries", async () => {
+  it("ignores native alibaba auth and still requires qwen oauth", async () => {
+    const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
+    (readAuthFileCached as any).mockResolvedValueOnce({
+      alibaba: { type: "api", key: "dashscope-key", tier: "lite" },
+    });
+
+    const out = await qwenCodeProvider.fetch({ config: {} } as any);
+    expectNotAttempted(out);
+  });
+
+  it("maps qwen free local quota into grouped entries", async () => {
     const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
     const { computeQwenQuota, readQwenLocalQuotaState } = await import("../src/lib/qwen-local-quota.js");
 
@@ -49,15 +59,15 @@ describe("qwen-code provider", () => {
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toHaveLength(2);
     expect(out.entries[0]).toMatchObject({
-      name: "Qwen Daily",
-      group: "Qwen (OAuth)",
+      name: "Qwen Free Daily",
+      group: "Qwen (free)",
       label: "Daily:",
       right: "42/1000",
       percentRemaining: 96,
     });
     expect(out.entries[1]).toMatchObject({
-      name: "Qwen RPM",
-      group: "Qwen (OAuth)",
+      name: "Qwen Free RPM",
+      group: "Qwen (free)",
       label: "RPM:",
       right: "5/60",
       percentRemaining: 92,

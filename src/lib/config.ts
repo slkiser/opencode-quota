@@ -95,6 +95,11 @@ export async function loadConfig(
       googleModels: Array.isArray(quotaToastConfig.googleModels)
         ? quotaToastConfig.googleModels.filter(isValidGoogleModelId)
         : DEFAULT_CONFIG.googleModels,
+      alibabaCodingPlanTier:
+        quotaToastConfig.alibabaCodingPlanTier === "lite" ||
+        quotaToastConfig.alibabaCodingPlanTier === "pro"
+          ? quotaToastConfig.alibabaCodingPlanTier
+          : DEFAULT_CONFIG.alibabaCodingPlanTier,
       showOnIdle:
         typeof quotaToastConfig.showOnIdle === "boolean"
           ? quotaToastConfig.showOnIdle

@@ -93,6 +93,58 @@ describe("qwen-local-quota", () => {
     expect(quota.rpm.resetTimeIso).toBe(new Date(now - 30_000 + 60_000).toISOString());
   });
 
+  it("computes alibaba coding plan rolling windows", async () => {
+    vi.setSystemTime(new Date("2026-02-24T12:00:00.000Z"));
+
+    const now = Date.now();
+    const { computeAlibabaCodingPlanQuota } = await import("../src/lib/qwen-local-quota.js");
+    const quota = computeAlibabaCodingPlanQuota({
+      nowMs: now,
+      tier: "lite",
+      state: {
+        version: 1,
+        recent: [
+          now - 31 * 24 * 60 * 60 * 1000,
+          now - 6 * 24 * 60 * 60 * 1000,
+          now - 60 * 60 * 1000,
+          now - 5 * 60 * 1000,
+        ],
+        updatedAt: now,
+      },
+    });
+
+    expect(quota.fiveHour.used).toBe(2);
+    expect(quota.fiveHour.limit).toBe(1200);
+    expect(quota.weekly.used).toBe(3);
+    expect(quota.weekly.limit).toBe(9000);
+    expect(quota.monthly.used).toBe(3);
+    expect(quota.monthly.limit).toBe(18000);
+    expect(quota.fiveHour.resetTimeIso).toBe(new Date(now - 60 * 60 * 1000 + 5 * 60 * 60 * 1000).toISOString());
+  });
+
+  it("records alibaba coding plan completions in a separate rolling state file", async () => {
+    vi.setSystemTime(new Date("2026-02-24T12:00:00.000Z"));
+    const fs = await import("fs/promises");
+    const now = Date.now();
+
+    (fs.readFile as any).mockResolvedValueOnce(
+      JSON.stringify({
+        version: 1,
+        recent: [now - 15_000],
+        updatedAt: now - 15_000,
+      }),
+    );
+
+    const { recordAlibabaCodingPlanCompletion } = await import("../src/lib/qwen-local-quota.js");
+    const next = await recordAlibabaCodingPlanCompletion();
+
+    expect(next.recent).toHaveLength(2);
+    expect(fs.writeFile).toHaveBeenCalledTimes(1);
+    const [, payload] = (fs.writeFile as any).mock.calls[0];
+    const persisted = JSON.parse(payload as string);
+    expect(persisted.recent).toHaveLength(2);
+  });
+
   it("replaces destination when rename fails on existing file", async () => {
     vi.setSystemTime(new Date("2026-02-24T12:00:00.000Z"));
     const fs = await import("fs/promises");
