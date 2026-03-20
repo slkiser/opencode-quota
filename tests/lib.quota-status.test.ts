@@ -41,6 +41,10 @@ const copilotMocks = vi.hoisted(() => ({
   })),
 }));
 
+const pricingMocks = vi.hoisted(() => ({
+  getPricingSnapshotSource: vi.fn(() => "bundled"),
+}));
+
 vi.mock("fs/promises", () => ({
   stat: fsPromiseMocks.stat,
 }));
@@ -170,7 +174,7 @@ vi.mock("../src/lib/modelsdev-pricing.js", () => ({
     generatedAt: Date.UTC(2026, 0, 1),
     units: "usd_per_1m_tokens",
   }),
-  getPricingSnapshotSource: () => "test",
+  getPricingSnapshotSource: pricingMocks.getPricingSnapshotSource,
   getRuntimePricingRefreshStatePath: () => "/tmp/pricing-refresh-state.json",
   getRuntimePricingSnapshotPath: () => "/tmp/pricing-snapshot.json",
   listProviders: () => ["openai"],
@@ -220,6 +224,7 @@ describe("buildQuotaStatusReport", () => {
       enabledProviders: ["copilot"],
       alibabaCodingPlanTier: "lite",
       cursorPlan: "pro",
+      pricingSnapshotSource: "runtime",
       onlyCurrentModel: false,
       providerAvailability: [
         {
@@ -241,7 +246,11 @@ describe("buildQuotaStatusReport", () => {
       "- auth.json: preferred=/tmp/auth.json present=(none) candidates=/tmp/auth.json",
     );
     expect(report).toContain(
-      "- pricing: source=test active_source=test generated_at=2026-01-01T00:00:00.000Z units=usd_per_1m_tokens",
+      "- pricing: source=test active_source=bundled generated_at=2026-01-01T00:00:00.000Z units=usd_per_1m_tokens",
+    );
+    expect(report).toContain("- selection: configured=runtime active=bundled");
+    expect(report).toContain(
+      "- selection_note: runtime config requested the local runtime snapshot, but bundled fallback is active because no valid runtime snapshot is available",
     );
     expect(report).not.toContain("- opencode data:");
     expect(report).toContain("- qwen_local_plan: (none)");
@@ -318,6 +327,7 @@ describe("buildQuotaStatusReport", () => {
       enabledProviders: ["copilot"],
       alibabaCodingPlanTier: "lite",
       cursorPlan: "none",
+      pricingSnapshotSource: "auto",
       onlyCurrentModel: false,
       providerAvailability: [
         {

@@ -7,6 +7,12 @@ const mocks = vi.hoisted(() => ({
   loadConfig: vi.fn(),
   getProviders: vi.fn(),
   maybeRefreshPricingSnapshot: vi.fn(),
+  getPricingSnapshotMeta: vi.fn(),
+  getPricingSnapshotSource: vi.fn(),
+  getRuntimePricingRefreshStatePath: vi.fn(),
+  getRuntimePricingSnapshotPath: vi.fn(),
+  setPricingSnapshotAutoRefresh: vi.fn(),
+  setPricingSnapshotSelection: vi.fn(),
   resolveQwenLocalPlanCached: vi.fn(),
   resolveAlibabaCodingPlanAuthCached: vi.fn(),
   fetchSessionTokensForDisplay: vi.fn(),
@@ -41,7 +47,13 @@ vi.mock("../src/providers/registry.js", () => ({
 }));
 
 vi.mock("../src/lib/modelsdev-pricing.js", () => ({
+  getPricingSnapshotMeta: mocks.getPricingSnapshotMeta,
+  getPricingSnapshotSource: mocks.getPricingSnapshotSource,
+  getRuntimePricingRefreshStatePath: mocks.getRuntimePricingRefreshStatePath,
+  getRuntimePricingSnapshotPath: mocks.getRuntimePricingSnapshotPath,
   maybeRefreshPricingSnapshot: mocks.maybeRefreshPricingSnapshot,
+  setPricingSnapshotAutoRefresh: mocks.setPricingSnapshotAutoRefresh,
+  setPricingSnapshotSelection: mocks.setPricingSnapshotSelection,
 }));
 
 vi.mock("../src/lib/session-tokens.js", () => ({
@@ -100,11 +112,48 @@ describe("/quota command behavior", () => {
       sessionTokens: undefined,
       error: undefined,
     });
+    mocks.getPricingSnapshotMeta.mockReturnValue({
+      source: "https://models.dev/api.json",
+      generatedAt: Date.UTC(2026, 0, 1),
+      units: "USD per 1M tokens",
+    });
+    mocks.getPricingSnapshotSource.mockReturnValue("runtime");
+    mocks.getRuntimePricingSnapshotPath.mockReturnValue("/tmp/modelsdev-pricing.runtime.min.json");
+    mocks.getRuntimePricingRefreshStatePath.mockReturnValue(
+      "/tmp/modelsdev-pricing.refresh-state.json",
+    );
     mocks.maybeRefreshPricingSnapshot.mockResolvedValue({
       attempted: false,
       updated: false,
       state: { version: 1, updatedAt: Date.now() },
     });
+  });
+
+  it("applies pricing snapshot selection from config during plugin init", async () => {
+    mocks.loadConfig.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      enabled: true,
+      pricingSnapshot: { source: "bundled", autoRefresh: 5 },
+      showOnQuestion: false,
+      showSessionTokens: false,
+      minIntervalMs: 60_000,
+    });
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const client = createClient();
+
+    await QuotaToastPlugin({ client } as any);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mocks.setPricingSnapshotSelection).toHaveBeenCalledWith("bundled");
+    expect(mocks.setPricingSnapshotAutoRefresh).toHaveBeenCalledWith(5);
+    expect(mocks.maybeRefreshPricingSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: "init",
+        snapshotSelection: "bundled",
+      }),
+    );
   });
 
   it("renders provider errors even when no quota entries are returned", async () => {
@@ -566,5 +615,75 @@ describe("/quota command behavior", () => {
     expect(provider.fetch).toHaveBeenCalledTimes(2);
     const latest = client.session.prompt.mock.calls[1]?.[0]?.body?.parts?.[0]?.text ?? "";
     expect(latest).toContain("90% left");
+  });
+
+  it("runs /pricing_refresh with force=true by default and reports bundled pinning", async () => {
+    mocks.loadConfig.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      enabled: true,
+      pricingSnapshot: { source: "bundled", autoRefresh: 5 },
+      showOnQuestion: false,
+      showSessionTokens: false,
+      minIntervalMs: 60_000,
+    });
+    mocks.getPricingSnapshotSource.mockReturnValue("bundled");
+    mocks.maybeRefreshPricingSnapshot.mockResolvedValue({
+      attempted: true,
+      updated: true,
+      state: {
+        version: 1,
+        updatedAt: Date.now(),
+        lastResult: "success",
+      },
+    });
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const client = createClient();
+    const hooks = await QuotaToastPlugin({ client } as any);
+    await Promise.resolve();
+    await Promise.resolve();
+    mocks.maybeRefreshPricingSnapshot.mockClear();
+
+    await expect(
+      hooks["command.execute.before"]?.({
+        command: "pricing_refresh",
+        sessionID: "session-pricing-refresh",
+      } as any),
+    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+
+    expect(mocks.maybeRefreshPricingSnapshot).toHaveBeenCalledWith({
+      reason: "manual",
+      force: true,
+      snapshotSelection: "bundled",
+      allowRefreshWhenSelectionBundled: true,
+    });
+    const injected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
+    expect(injected).toContain("Pricing Refresh (/pricing_refresh)");
+    expect(injected).toContain("- selection: configured=bundled active=bundled");
+    expect(injected).toContain(
+      "runtime snapshot refreshed locally, but active reports remain pinned to bundled pricing",
+    );
+  });
+
+  it("rejects /pricing_refresh arguments", async () => {
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const client = createClient();
+    const hooks = await QuotaToastPlugin({ client } as any);
+    await Promise.resolve();
+    await Promise.resolve();
+    mocks.maybeRefreshPricingSnapshot.mockClear();
+
+    await expect(
+      hooks["command.execute.before"]?.({
+        command: "pricing_refresh",
+        arguments: '{"force":false}',
+        sessionID: "session-pricing-refresh-invalid",
+      } as any),
+    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+
+    expect(mocks.maybeRefreshPricingSnapshot).not.toHaveBeenCalled();
+    const injected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
+    expect(injected).toContain("Invalid arguments for /pricing_refresh");
+    expect(injected).toContain("This command does not accept arguments.");
   });
 });

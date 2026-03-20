@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, rm, stat } from "fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { OpencodeRuntimeDirs } from "../src/lib/opencode-runtime-paths.js";
 
@@ -23,6 +23,27 @@ function createBootstrapSnapshot(generatedAt: number) {
           output: 0.6,
           cache_read: 0.03,
           cache_write: 0.2,
+        },
+      },
+    },
+  };
+}
+
+function createRuntimeSnapshot(generatedAt: number, input: number) {
+  return {
+    _meta: {
+      source: "test-runtime",
+      generatedAt,
+      providers: ["openai"],
+      units: "USD per 1M tokens",
+    },
+    providers: {
+      openai: {
+        "gpt-4o-mini": {
+          input,
+          output: input * 4,
+          cache_read: input / 5,
+          cache_write: input / 3,
         },
       },
     },
@@ -67,10 +88,6 @@ async function loadPricingModule() {
 }
 
 describe("pricing runtime refresh policy", () => {
-  beforeEach(() => {
-    vi.stubEnv("OPENCODE_QUOTA_PRICING_AUTO_REFRESH", "1");
-  });
-
   it("does not fetch when snapshot is fresh", async () => {
     const pricing = await loadPricingModule();
     const runtimeDirs = await createTempRuntimeDirs();
@@ -234,6 +251,180 @@ describe("pricing runtime refresh policy", () => {
     const persistedSnapshot = JSON.parse(await readFile(runtimeSnapshotPath, "utf-8"));
     expect(persistedSnapshot._meta.generatedAt).toBe(nowMs);
     expect(persistedSnapshot.providers.openai["gpt-4o-mini"].input).toBe(0.15);
+  });
+
+  it("pins the bundled snapshot and skips runtime refresh attempts", async () => {
+    const pricing = await loadPricingModule();
+    const runtimeDirs = await createTempRuntimeDirs();
+    const nowMs = 1_800_000_000_000;
+    const snapshotDir = join(runtimeDirs.cacheDir, "opencode-quota");
+    await mkdir(snapshotDir, { recursive: true });
+    await writeFile(
+      pricing.getRuntimePricingSnapshotPath(runtimeDirs),
+      JSON.stringify(createRuntimeSnapshot(nowMs + 60_000, 9.99)),
+      "utf-8",
+    );
+
+    const fetchFn = vi.fn();
+    const result = await pricing.maybeRefreshPricingSnapshot({
+      nowMs,
+      runtimeDirs,
+      fetchFn,
+      snapshotSelection: "bundled",
+      bootstrapSnapshotOverride: createBootstrapSnapshot(nowMs),
+    });
+
+    expect(result.attempted).toBe(false);
+    expect(result.reason).toBe("selection_bundled");
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(pricing.getPricingSnapshotSource()).toBe("bundled");
+    expect(pricing.lookupCost("openai", "gpt-4o-mini")?.input).toBe(0.15);
+
+    const refreshStatePath = pricing.getRuntimePricingRefreshStatePath(runtimeDirs);
+    expect(await exists(refreshStatePath)).toBe(false);
+  });
+
+  it("allows manual refresh to update the runtime snapshot while bundled selection stays active", async () => {
+    const pricing = await loadPricingModule();
+    const runtimeDirs = await createTempRuntimeDirs();
+    const nowMs = 1_800_000_000_000;
+    const staleGeneratedAt = nowMs - 4 * DAY_MS;
+
+    const fetchFn = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          openai: {
+            models: {
+              "gpt-4o-mini": {
+                cost: {
+                  input: 0.222,
+                  output: 0.888,
+                },
+              },
+            },
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await pricing.maybeRefreshPricingSnapshot({
+      nowMs,
+      runtimeDirs,
+      fetchFn,
+      force: true,
+      snapshotSelection: "bundled",
+      allowRefreshWhenSelectionBundled: true,
+      bootstrapSnapshotOverride: createBootstrapSnapshot(staleGeneratedAt),
+    });
+
+    expect(result.attempted).toBe(true);
+    expect(result.updated).toBe(true);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(pricing.getPricingSnapshotSource()).toBe("bundled");
+    expect(pricing.lookupCost("openai", "gpt-4o-mini")?.input).toBe(0.15);
+
+    const runtimeSnapshotPath = pricing.getRuntimePricingSnapshotPath(runtimeDirs);
+    const persistedSnapshot = JSON.parse(await readFile(runtimeSnapshotPath, "utf-8"));
+    expect(persistedSnapshot._meta.generatedAt).toBe(nowMs);
+    expect(persistedSnapshot.providers.openai["gpt-4o-mini"].input).toBe(0.222);
+  });
+
+  it("preserves the prior runtime snapshot contents on 304 even when bundled selection is active", async () => {
+    const pricing = await loadPricingModule();
+    const runtimeDirs = await createTempRuntimeDirs();
+    const nowMs = 1_800_000_000_000;
+    const staleGeneratedAt = nowMs - 4 * DAY_MS;
+    const snapshotDir = join(runtimeDirs.cacheDir, "opencode-quota");
+    await mkdir(snapshotDir, { recursive: true });
+    await writeFile(
+      pricing.getRuntimePricingSnapshotPath(runtimeDirs),
+      JSON.stringify(createRuntimeSnapshot(staleGeneratedAt - 60_000, 9.99)),
+      "utf-8",
+    );
+
+    const fetchFn = vi.fn().mockResolvedValue(
+      new Response(null, {
+        status: 304,
+        headers: {
+          etag: "etag-304-manual",
+          "last-modified": "Tue, 02 Mar 2026 00:00:00 GMT",
+        },
+      }),
+    );
+
+    const result = await pricing.maybeRefreshPricingSnapshot({
+      nowMs,
+      runtimeDirs,
+      fetchFn,
+      force: true,
+      snapshotSelection: "bundled",
+      allowRefreshWhenSelectionBundled: true,
+      bootstrapSnapshotOverride: createBootstrapSnapshot(nowMs),
+    });
+
+    expect(result.attempted).toBe(true);
+    expect(result.updated).toBe(true);
+    expect(result.state.lastResult).toBe("not_modified");
+    expect(pricing.getPricingSnapshotSource()).toBe("bundled");
+    expect(pricing.lookupCost("openai", "gpt-4o-mini")?.input).toBe(0.15);
+
+    const runtimeSnapshotPath = pricing.getRuntimePricingSnapshotPath(runtimeDirs);
+    const persistedSnapshot = JSON.parse(await readFile(runtimeSnapshotPath, "utf-8"));
+    expect(persistedSnapshot._meta.generatedAt).toBe(nowMs);
+    expect(persistedSnapshot.providers.openai["gpt-4o-mini"].input).toBe(9.99);
+  });
+
+  it("pins the runtime snapshot even when the bundled snapshot is newer", async () => {
+    const pricing = await loadPricingModule();
+    const runtimeDirs = await createTempRuntimeDirs();
+    const nowMs = 1_800_000_000_000;
+    const runtimeGeneratedAt = nowMs - 60_000;
+    const snapshotDir = join(runtimeDirs.cacheDir, "opencode-quota");
+    await mkdir(snapshotDir, { recursive: true });
+    await writeFile(
+      pricing.getRuntimePricingSnapshotPath(runtimeDirs),
+      JSON.stringify(createRuntimeSnapshot(runtimeGeneratedAt, 9.99)),
+      "utf-8",
+    );
+
+    const fetchFn = vi.fn();
+    const result = await pricing.maybeRefreshPricingSnapshot({
+      nowMs,
+      runtimeDirs,
+      fetchFn,
+      maxAgeMs: 3 * DAY_MS,
+      snapshotSelection: "runtime",
+      bootstrapSnapshotOverride: createBootstrapSnapshot(nowMs),
+    });
+
+    expect(result.attempted).toBe(false);
+    expect(result.reason).toBe("fresh");
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(pricing.getPricingSnapshotSource()).toBe("runtime");
+    expect(pricing.lookupCost("openai", "gpt-4o-mini")?.input).toBe(9.99);
+  });
+
+  it("falls back to the bundled snapshot when runtime pinning has no runtime snapshot", async () => {
+    const pricing = await loadPricingModule();
+    const runtimeDirs = await createTempRuntimeDirs();
+    const nowMs = 1_800_000_000_000;
+
+    const fetchFn = vi.fn();
+    const result = await pricing.maybeRefreshPricingSnapshot({
+      nowMs,
+      runtimeDirs,
+      fetchFn,
+      maxAgeMs: 3 * DAY_MS,
+      snapshotSelection: "runtime",
+      bootstrapSnapshotOverride: createBootstrapSnapshot(nowMs),
+    });
+
+    expect(result.attempted).toBe(false);
+    expect(result.reason).toBe("fresh");
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(pricing.getPricingSnapshotSource()).toBe("bundled");
+    expect(pricing.lookupCost("openai", "gpt-4o-mini")?.input).toBe(0.15);
   });
 
   it("throttles refresh attempts using persisted lastAttemptAt state", async () => {

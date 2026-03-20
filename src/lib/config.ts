@@ -5,7 +5,12 @@
  * Fallback: reads local config files directly.
  */
 
-import type { CursorQuotaPlan, QuotaToastConfig, GoogleModelId } from "./types.js";
+import type {
+  CursorQuotaPlan,
+  QuotaToastConfig,
+  GoogleModelId,
+  PricingSnapshotSource,
+} from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
 import { parseJsonOrJsonc } from "./jsonc.js";
 import { normalizeQuotaProviderId } from "./provider-metadata.js";
@@ -37,6 +42,14 @@ function isValidCursorQuotaPlan(plan: unknown): plan is CursorQuotaPlan {
     typeof plan === "string" &&
     ["none", "pro", "pro-plus", "ultra"].includes(plan)
   );
+}
+
+function isValidPricingSnapshotSource(source: unknown): source is PricingSnapshotSource {
+  return typeof source === "string" && ["auto", "bundled", "runtime"].includes(source);
+}
+
+function isValidPricingSnapshotAutoRefresh(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
 /**
@@ -123,6 +136,14 @@ export async function loadConfig(
         quotaToastConfig.cursorBillingCycleStartDay <= 28
           ? quotaToastConfig.cursorBillingCycleStartDay
           : undefined,
+      pricingSnapshot: {
+        source: isValidPricingSnapshotSource(quotaToastConfig.pricingSnapshot?.source)
+          ? quotaToastConfig.pricingSnapshot.source
+          : DEFAULT_CONFIG.pricingSnapshot.source,
+        autoRefresh: isValidPricingSnapshotAutoRefresh(quotaToastConfig.pricingSnapshot?.autoRefresh)
+          ? quotaToastConfig.pricingSnapshot.autoRefresh
+          : DEFAULT_CONFIG.pricingSnapshot.autoRefresh,
+      },
       showOnIdle:
         typeof quotaToastConfig.showOnIdle === "boolean"
           ? quotaToastConfig.showOnIdle

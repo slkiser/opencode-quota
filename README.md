@@ -3,7 +3,7 @@
 `opencode-quota` gives you two things:
 
 - Automatic quota toasts after assistant responses
-- Manual `/quota` and `/tokens_*` commands for deeper local reporting with zero context window pollution
+- Manual `/quota`, `/pricing_refresh`, and `/tokens_*` commands for deeper local reporting with zero context window pollution
 
 **Quota providers**: GitHub Copilot, OpenAI (Plus/Pro), Cursor, Qwen Code, Alibaba Coding Plan, Chutes AI, Firmware AI, Google Antigravity, and Z.ai coding plan.
 
@@ -160,6 +160,7 @@ For behavior details and troubleshooting, see [Qwen Code notes](#qwen-code-notes
 | --- | --- |
 | `/quota` | Manual grouped quota report with a local call timestamp |
 | `/quota_status` | Concise diagnostics for config, provider availability, account detection, and pricing snapshot health |
+| `/pricing_refresh` | Pull the local runtime pricing snapshot from `models.dev` on demand |
 | `/tokens_today` | Tokens used today (calendar day) |
 | `/tokens_daily` | Tokens used in the last 24 hours |
 | `/tokens_weekly` | Tokens used in the last 7 days |
@@ -396,7 +397,7 @@ All plugin settings live under `experimental.quotaToast`.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `enabled` | `true` | Master switch for the plugin. When `false`, `/quota`, `/quota_status`, and `/tokens_*` are no-ops. |
+| `enabled` | `true` | Master switch for the plugin. When `false`, `/quota`, `/quota_status`, `/pricing_refresh`, and `/tokens_*` are no-ops. |
 | `enableToast` | `true` | Show popup toasts |
 | `toastStyle` | `classic` | Toast layout: `classic` or `grouped` |
 | `enabledProviders` | `"auto"` | Auto-detect providers, or set an explicit provider list |
@@ -416,6 +417,8 @@ All plugin settings live under `experimental.quotaToast`.
 | `cursorPlan` | `"none"` | Cursor included API budget preset: `none`, `pro`, `pro-plus`, `ultra` |
 | `cursorIncludedApiUsd` | unset | Override Cursor monthly included API budget in USD |
 | `cursorBillingCycleStartDay` | unset | Local billing-cycle anchor day `1..28`; when unset, Cursor usage resets on the local calendar month |
+| `pricingSnapshot.source` | `"auto"` | Token pricing snapshot selection: `auto`, `bundled`, or `runtime` |
+| `pricingSnapshot.autoRefresh` | `5` | Refresh stale local pricing data after this many days |
 | `debug` | `false` | Include debug context in toast output |
 
 ## Token Pricing Snapshot
@@ -425,16 +428,16 @@ All plugin settings live under `experimental.quotaToast`.
 Behavior:
 
 - A bundled snapshot ships with the plugin for offline use.
-- The plugin can refresh the local runtime snapshot when the data is stale.
+- `pricingSnapshot.source: "auto"` keeps the current default behavior: newer runtime snapshot wins, otherwise the bundled snapshot stays active.
+- `pricingSnapshot.source: "bundled"` pins the packaged snapshot and ignores the runtime snapshot for active pricing.
+- `pricingSnapshot.source: "runtime"` pins the local runtime snapshot when present and falls back to the bundled snapshot until a runtime snapshot exists.
+- `pricingSnapshot.autoRefresh` controls how many days a local snapshot can age before the plugin refreshes it in the background.
+- Run `/pricing_refresh` to pull a fresh local runtime snapshot from `models.dev` on demand.
+- `/pricing_refresh` updates only the local runtime snapshot under the OpenCode cache directory. It does not rewrite the packaged bundled snapshot shipped in the plugin.
+- When `pricingSnapshot.source` is `"bundled"`, `/pricing_refresh` still refreshes the local runtime cache, but active reports remain pinned to bundled pricing until you switch selection mode.
 - Reports continue to work if refresh fails.
 - Cursor `auto` and `composer*` pricing is bundled in the plugin because those ids are not on `models.dev`.
-
-Useful environment variables:
-
-```sh
-OPENCODE_QUOTA_PRICING_AUTO_REFRESH=0
-OPENCODE_QUOTA_PRICING_MAX_AGE_DAYS=5
-```
+- Snapshot selection stays local and deterministic. This does not add custom remote URLs or arbitrary pricing sources.
 
 Maintainer refresh commands:
 

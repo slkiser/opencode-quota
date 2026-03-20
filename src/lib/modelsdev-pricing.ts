@@ -4,6 +4,7 @@ import { dirname, join } from "path";
 
 import { fetchWithTimeout } from "./http.js";
 import { getOpencodeRuntimeDirs, type OpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
+import type { PricingSnapshotSource } from "./types.js";
 
 const SOURCE_URL = "https://models.dev/api.json";
 const DEFAULT_MODELSDEV_PROVIDERS = ["anthropic", "google", "moonshotai", "openai", "xai", "zai"];
@@ -12,6 +13,7 @@ const RUNTIME_SNAPSHOT_FILENAME = "modelsdev-pricing.runtime.min.json";
 const RUNTIME_REFRESH_STATE_FILENAME = "modelsdev-pricing.refresh-state.json";
 const DEFAULT_REFRESH_MIN_ATTEMPT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_REFRESH_TIMEOUT_MS = 6_000;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export type CostBuckets = {
   input?: number;
@@ -60,7 +62,7 @@ export interface PricingRefreshPolicy {
 }
 
 export interface PricingRefreshOptions {
-  reason?: "init" | "tokens" | "status";
+  reason?: "init" | "tokens" | "status" | "manual";
   force?: boolean;
   nowMs?: number;
   maxAgeMs?: number;
@@ -70,6 +72,8 @@ export interface PricingRefreshOptions {
   fetchFn?: typeof fetch;
   bootstrapSnapshotOverride?: PricingSnapshot;
   providerAllowlist?: string[];
+  snapshotSelection?: PricingSnapshotSource;
+  allowRefreshWhenSelectionBundled?: boolean;
 }
 
 export interface PricingRefreshResult {
@@ -92,9 +96,11 @@ const EMPTY_SNAPSHOT: PricingSnapshot = {
 
 let SNAPSHOT: PricingSnapshot | null = null;
 let SNAPSHOT_SOURCE: "runtime" | "bundled" | "empty" = "bundled";
+let SNAPSHOT_SELECTION: PricingSnapshotSource = "auto";
 let MODEL_INDEX: Map<string, string[]> | null = null;
 let REFRESH_IN_FLIGHT: Promise<PricingRefreshResult> | null = null;
 let PROCESS_REFRESH_CHECKED = false;
+let CONFIGURED_PRICING_SNAPSHOT_MAX_AGE_MS = DEFAULT_PRICING_SNAPSHOT_MAX_AGE_MS;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
@@ -108,26 +114,24 @@ function sortRecordByKeys<T>(obj: Record<string, T>): Record<string, T> {
   return out;
 }
 
-function parseEnabled(value: string | undefined): boolean {
-  if (!value) return true;
-  const normalized = value.trim().toLowerCase();
-  return !["0", "false", "no", "off"].includes(normalized);
+function pricingSnapshotDaysToMs(days: number | undefined): number {
+  if (typeof days !== "number" || !Number.isFinite(days) || days <= 0) {
+    return DEFAULT_PRICING_SNAPSHOT_MAX_AGE_MS;
+  }
+  return Math.floor(days * MS_PER_DAY);
 }
 
-function parseMaxAgeMs(value: string | undefined): number {
-  if (!value) return DEFAULT_PRICING_SNAPSHOT_MAX_AGE_MS;
-  const days = Number(value);
-  if (!Number.isFinite(days) || days <= 0) return DEFAULT_PRICING_SNAPSHOT_MAX_AGE_MS;
-  return Math.floor(days * 24 * 60 * 60 * 1000);
-}
-
-export function getPricingRefreshPolicy(env: NodeJS.ProcessEnv = process.env): PricingRefreshPolicy {
+export function getPricingRefreshPolicy(): PricingRefreshPolicy {
   return {
-    enabled: parseEnabled(env.OPENCODE_QUOTA_PRICING_AUTO_REFRESH),
-    maxAgeMs: parseMaxAgeMs(env.OPENCODE_QUOTA_PRICING_MAX_AGE_DAYS),
+    enabled: true,
+    maxAgeMs: CONFIGURED_PRICING_SNAPSHOT_MAX_AGE_MS,
     minAttemptIntervalMs: DEFAULT_REFRESH_MIN_ATTEMPT_INTERVAL_MS,
     timeoutMs: DEFAULT_REFRESH_TIMEOUT_MS,
   };
+}
+
+export function setPricingSnapshotAutoRefresh(days: number): void {
+  CONFIGURED_PRICING_SNAPSHOT_MAX_AGE_MS = pricingSnapshotDaysToMs(days);
 }
 
 function normalizeSnapshot(raw: unknown): PricingSnapshot | null {
@@ -225,18 +229,41 @@ function loadRuntimeSnapshotSync(runtimeDirs?: OpencodeRuntimeDirs): PricingSnap
   }
 }
 
+function hasSnapshotData(snapshot: PricingSnapshot): boolean {
+  return snapshot._meta.generatedAt > 0;
+}
+
 function chooseSnapshot(params?: {
   runtimeDirs?: OpencodeRuntimeDirs;
   bootstrapSnapshotOverride?: PricingSnapshot;
+  selection?: PricingSnapshotSource;
 }): { snapshot: PricingSnapshot; source: "runtime" | "bundled" | "empty" } {
   const bundled = loadBundledSnapshotSync(params?.bootstrapSnapshotOverride);
   const runtime = loadRuntimeSnapshotSync(params?.runtimeDirs);
+  const selection = params?.selection ?? SNAPSHOT_SELECTION;
+
+  if (selection === "bundled") {
+    if (hasSnapshotData(bundled)) {
+      return { snapshot: bundled, source: "bundled" };
+    }
+    return { snapshot: EMPTY_SNAPSHOT, source: "empty" };
+  }
+
+  if (selection === "runtime") {
+    if (runtime) {
+      return { snapshot: runtime, source: "runtime" };
+    }
+    if (hasSnapshotData(bundled)) {
+      return { snapshot: bundled, source: "bundled" };
+    }
+    return { snapshot: EMPTY_SNAPSHOT, source: "empty" };
+  }
 
   if (runtime && runtime._meta.generatedAt >= bundled._meta.generatedAt) {
     return { snapshot: runtime, source: "runtime" };
   }
 
-  if (bundled._meta.generatedAt > 0) {
+  if (hasSnapshotData(bundled)) {
     return { snapshot: bundled, source: "bundled" };
   }
 
@@ -249,10 +276,19 @@ function setSnapshot(snapshot: PricingSnapshot, source: "runtime" | "bundled" | 
   MODEL_INDEX = null;
 }
 
+function applySnapshotSelection(params?: {
+  runtimeDirs?: OpencodeRuntimeDirs;
+  bootstrapSnapshotOverride?: PricingSnapshot;
+  selection?: PricingSnapshotSource;
+}): { snapshot: PricingSnapshot; source: "runtime" | "bundled" | "empty" } {
+  const selected = chooseSnapshot(params);
+  setSnapshot(selected.snapshot, selected.source);
+  return selected;
+}
+
 function ensureLoaded(): PricingSnapshot {
   if (SNAPSHOT) return SNAPSHOT;
-  const selected = chooseSnapshot();
-  setSnapshot(selected.snapshot, selected.source);
+  const selected = applySnapshotSelection();
   return selected.snapshot;
 }
 
@@ -466,7 +502,7 @@ export async function maybeRefreshPricingSnapshot(
 
   REFRESH_IN_FLIGHT = (async (): Promise<PricingRefreshResult> => {
     const nowMs = opts.nowMs ?? Date.now();
-    const policy = getPricingRefreshPolicy(process.env);
+    const policy = getPricingRefreshPolicy();
     const maxAgeMs = opts.maxAgeMs ?? policy.maxAgeMs;
     const minAttemptIntervalMs = opts.minAttemptIntervalMs ?? policy.minAttemptIntervalMs;
     const timeoutMs = opts.timeoutMs ?? policy.timeoutMs;
@@ -474,8 +510,29 @@ export async function maybeRefreshPricingSnapshot(
     const snapshotPath = getRuntimePricingSnapshotPath(runtimeDirs);
     const statePath = getRuntimePricingRefreshStatePath(runtimeDirs);
     const force = opts.force === true;
+    const selection = opts.snapshotSelection ?? SNAPSHOT_SELECTION;
+    const allowRefreshWhenSelectionBundled = opts.allowRefreshWhenSelectionBundled === true;
 
     const previousState = (await readRefreshState(statePath)) ?? makeDefaultRefreshState(nowMs);
+    const runtimeSnapshotBeforeRefresh = loadRuntimeSnapshotSync(runtimeDirs);
+
+    applySnapshotSelection({
+      runtimeDirs,
+      bootstrapSnapshotOverride: opts.bootstrapSnapshotOverride,
+      selection,
+    });
+
+    if (selection === "bundled" && !allowRefreshWhenSelectionBundled) {
+      return {
+        attempted: false,
+        updated: false,
+        reason: "selection_bundled",
+        state: {
+          ...previousState,
+          updatedAt: nowMs,
+        },
+      };
+    }
 
     if (!force && PROCESS_REFRESH_CHECKED) {
       return {
@@ -487,13 +544,6 @@ export async function maybeRefreshPricingSnapshot(
     }
 
     PROCESS_REFRESH_CHECKED = true;
-
-    const selected = chooseSnapshot({
-      runtimeDirs,
-      bootstrapSnapshotOverride: opts.bootstrapSnapshotOverride,
-    });
-
-    setSnapshot(selected.snapshot, selected.source);
 
     const health = getPricingSnapshotHealth({ nowMs, maxAgeMs });
 
@@ -551,16 +601,20 @@ export async function maybeRefreshPricingSnapshot(
       });
 
       if (response.status === 304) {
-        const activeSnapshot = ensureLoaded();
+        const baseSnapshot = runtimeSnapshotBeforeRefresh ?? ensureLoaded();
         const refreshedSnapshot: PricingSnapshot = {
           _meta: {
-            ...activeSnapshot._meta,
+            ...baseSnapshot._meta,
             generatedAt: nowMs,
           },
-          providers: activeSnapshot.providers,
+          providers: baseSnapshot.providers,
         };
         await writeJsonAtomic(snapshotPath, refreshedSnapshot);
-        setSnapshot(refreshedSnapshot, "runtime");
+        applySnapshotSelection({
+          runtimeDirs,
+          bootstrapSnapshotOverride: opts.bootstrapSnapshotOverride,
+          selection,
+        });
 
         const nextState: PricingRefreshStateV1 = {
           ...attemptingState,
@@ -598,7 +652,11 @@ export async function maybeRefreshPricingSnapshot(
       }
 
       await writeJsonAtomic(snapshotPath, snapshot);
-      setSnapshot(snapshot, "runtime");
+      applySnapshotSelection({
+        runtimeDirs,
+        bootstrapSnapshotOverride: opts.bootstrapSnapshotOverride,
+        selection,
+      });
 
       const nextState: PricingRefreshStateV1 = {
         ...attemptingState,
@@ -649,6 +707,17 @@ export async function maybeRefreshPricingSnapshot(
   });
 
   return REFRESH_IN_FLIGHT;
+}
+
+export function setPricingSnapshotSelection(selection: PricingSnapshotSource): void {
+  if (SNAPSHOT_SELECTION === selection) return;
+  SNAPSHOT_SELECTION = selection;
+  SNAPSHOT = null;
+  MODEL_INDEX = null;
+}
+
+export function getPricingSnapshotSelection(): PricingSnapshotSource {
+  return SNAPSHOT_SELECTION;
 }
 
 export function getPricingSnapshotMeta(): PricingSnapshot["_meta"] {
@@ -732,6 +801,8 @@ export function hasCost(providerId: string, modelId: string): boolean {
 export function __resetPricingSnapshotForTests(): void {
   SNAPSHOT = null;
   SNAPSHOT_SOURCE = "bundled";
+  SNAPSHOT_SELECTION = "auto";
+  CONFIGURED_PRICING_SNAPSHOT_MAX_AGE_MS = DEFAULT_PRICING_SNAPSHOT_MAX_AGE_MS;
   MODEL_INDEX = null;
   REFRESH_IN_FLIGHT = null;
   PROCESS_REFRESH_CHECKED = false;

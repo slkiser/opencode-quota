@@ -58,4 +58,60 @@ describe("loadConfig", () => {
     expect(explicit.cursorIncludedApiUsd).toBe(42);
     expect(explicit.cursorBillingCycleStartDay).toBe(7);
   });
+
+  it("defaults pricingSnapshot config and accepts valid overrides", async () => {
+    const defaults = await loadConfig({
+      config: { get: async () => ({ data: { experimental: { quotaToast: {} } } }) },
+    });
+    expect(defaults.pricingSnapshot.source).toBe("auto");
+    expect(defaults.pricingSnapshot.autoRefresh).toBe(5);
+
+    const bundled = await loadConfig({
+      config: {
+        get: async () => ({
+          data: {
+            experimental: {
+              quotaToast: {
+                pricingSnapshot: { source: "bundled", autoRefresh: 7 },
+              },
+            },
+          },
+        }),
+      },
+    });
+    expect(bundled.pricingSnapshot.source).toBe("bundled");
+    expect(bundled.pricingSnapshot.autoRefresh).toBe(7);
+
+    const runtime = await loadConfig({
+      config: {
+        get: async () => ({
+          data: {
+            experimental: {
+              quotaToast: {
+                pricingSnapshot: { source: "runtime", autoRefresh: 2 },
+              },
+            },
+          },
+        }),
+      },
+    });
+    expect(runtime.pricingSnapshot.source).toBe("runtime");
+    expect(runtime.pricingSnapshot.autoRefresh).toBe(2);
+
+    const invalid = await loadConfig({
+      config: {
+        get: async () => ({
+          data: {
+            experimental: {
+              quotaToast: {
+                pricingSnapshot: { source: "remote" as any, autoRefresh: 0 },
+              },
+            },
+          },
+        }),
+      },
+    });
+    expect(invalid.pricingSnapshot.source).toBe("auto");
+    expect(invalid.pricingSnapshot.autoRefresh).toBe(5);
+  });
 });

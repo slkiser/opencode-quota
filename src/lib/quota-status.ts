@@ -47,7 +47,7 @@ import {
   getCursorPlanDisplayName,
   getEffectiveCursorIncludedApiUsd,
 } from "./cursor-pricing.js";
-import type { CursorQuotaPlan } from "./types.js";
+import type { CursorQuotaPlan, PricingSnapshotSource } from "./types.js";
 
 /** Session token fetch error info for status report */
 export interface SessionTokenError {
@@ -237,6 +237,7 @@ export async function buildQuotaStatusReport(params: {
   cursorPlan: CursorQuotaPlan;
   cursorIncludedApiUsd?: number;
   cursorBillingCycleStartDay?: number;
+  pricingSnapshotSource: PricingSnapshotSource;
   onlyCurrentModel: boolean;
   currentModel?: string;
   /** Whether a session was available for model lookup */
@@ -587,7 +588,8 @@ export async function buildQuotaStatusReport(params: {
   const meta = getPricingSnapshotMeta();
   const providers = listProviders();
   const coverage = computePricingCoverageFromAgg(agg);
-  const refreshPolicy = getPricingRefreshPolicy(process.env);
+  const refreshPolicy = getPricingRefreshPolicy();
+  const autoRefreshDays = Math.round(refreshPolicy.maxAgeMs / (24 * 60 * 60 * 1000));
   const health = getPricingSnapshotHealth({
     maxAgeMs: refreshPolicy.maxAgeMs,
   });
@@ -601,10 +603,23 @@ export async function buildQuotaStatusReport(params: {
   lines.push(
     `- pricing: source=${meta.source} active_source=${snapshotSource} generated_at=${new Date(meta.generatedAt).toISOString()} units=${meta.units}`,
   );
+  lines.push(
+    `- selection: configured=${params.pricingSnapshotSource} active=${snapshotSource}`,
+  );
+  if (params.pricingSnapshotSource === "bundled") {
+    lines.push(
+      "- selection_note: bundled config pins the packaged snapshot and ignores runtime refresh for active pricing",
+    );
+  } else if (params.pricingSnapshotSource === "runtime" && snapshotSource !== "runtime") {
+    lines.push(
+      "- selection_note: runtime config requested the local runtime snapshot, but bundled fallback is active because no valid runtime snapshot is available",
+    );
+  }
   lines.push(`- runtime_paths: snapshot=${runtimeSnapshotPath} refresh_state=${refreshStatePath}`);
   lines.push(
     `- staleness: age_ms=${fmtInt(health.ageMs)} max_age_ms=${fmtInt(health.maxAgeMs)} stale=${health.stale ? "true" : "false"}`,
   );
+  lines.push(`- refresh_policy: auto_refresh_days=${fmtInt(autoRefreshDays)}`);
   if (pricingRefreshState) {
     lines.push(
       `- refresh: last_attempt_at=${pricingRefreshState.lastAttemptAt ? new Date(pricingRefreshState.lastAttemptAt).toISOString() : "(none)"} last_success_at=${pricingRefreshState.lastSuccessAt ? new Date(pricingRefreshState.lastSuccessAt).toISOString() : "(none)"} last_failure_at=${pricingRefreshState.lastFailureAt ? new Date(pricingRefreshState.lastFailureAt).toISOString() : "(none)"} last_result=${pricingRefreshState.lastResult ?? "(none)"}`,

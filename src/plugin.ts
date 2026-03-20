@@ -27,7 +27,16 @@ import { aggregateUsage } from "./lib/quota-stats.js";
 import { fetchSessionTokensForDisplay } from "./lib/session-tokens.js";
 import { formatQuotaStatsReport } from "./lib/quota-stats-format.js";
 import { buildQuotaStatusReport, type SessionTokenError } from "./lib/quota-status.js";
-import { maybeRefreshPricingSnapshot } from "./lib/modelsdev-pricing.js";
+import {
+  getPricingSnapshotMeta,
+  getPricingSnapshotSource,
+  getRuntimePricingRefreshStatePath,
+  getRuntimePricingSnapshotPath,
+  maybeRefreshPricingSnapshot,
+  setPricingSnapshotAutoRefresh,
+  setPricingSnapshotSelection,
+  type PricingRefreshResult,
+} from "./lib/modelsdev-pricing.js";
 import { refreshGoogleTokensForAllAccounts } from "./lib/google.js";
 import { getQuotaProviderDisplayLabel } from "./lib/provider-metadata.js";
 import {
@@ -605,10 +614,14 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       try {
         configMeta = createLoadConfigMeta();
         config = await loadConfig(typedClient, configMeta);
+        setPricingSnapshotAutoRefresh(config.pricingSnapshot.autoRefresh);
+        setPricingSnapshotSelection(config.pricingSnapshot.source);
         configLoaded = true;
       } catch {
         // Leave configLoaded=false so we can retry on next trigger.
         config = DEFAULT_CONFIG;
+        setPricingSnapshotAutoRefresh(DEFAULT_CONFIG.pricingSnapshot.autoRefresh);
+        setPricingSnapshotSelection(DEFAULT_CONFIG.pricingSnapshot.source);
       } finally {
         configInFlight = null;
       }
@@ -622,7 +635,10 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     maxWaitMs?: number;
   }): Promise<void> {
     try {
-      const refreshPromise = maybeRefreshPricingSnapshot({ reason: params.reason });
+      const refreshPromise = maybeRefreshPricingSnapshot({
+        reason: params.reason,
+        snapshotSelection: config.pricingSnapshot.source,
+      });
       const guardedRefreshPromise = refreshPromise.catch(() => undefined);
       if (!params.maxWaitMs || params.maxWaitMs <= 0) {
         void guardedRefreshPromise;
@@ -666,6 +682,8 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
             cursorPlan: config.cursorPlan,
             cursorIncludedApiUsd: config.cursorIncludedApiUsd,
             cursorBillingCycleStartDay: config.cursorBillingCycleStartDay,
+            pricingSnapshotSource: config.pricingSnapshot.source,
+            pricingSnapshotAutoRefresh: config.pricingSnapshot.autoRefresh,
             showOnIdle: config.showOnIdle,
             showOnQuestion: config.showOnQuestion,
             showOnCompact: config.showOnCompact,
@@ -1311,6 +1329,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       cursorPlan: config.cursorPlan,
       cursorIncludedApiUsd: config.cursorIncludedApiUsd,
       cursorBillingCycleStartDay: config.cursorBillingCycleStartDay,
+      pricingSnapshotSource: config.pricingSnapshot.source,
       onlyCurrentModel: config.onlyCurrentModel,
       currentModel,
       sessionModelLookup,
@@ -1326,6 +1345,58 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       sessionTokenError: lastSessionTokenError,
       generatedAtMs: params.generatedAtMs,
     });
+  }
+
+  function formatIsoTimestamp(timestampMs: number | undefined): string {
+    return typeof timestampMs === "number" && Number.isFinite(timestampMs) && timestampMs > 0
+      ? new Date(timestampMs).toISOString()
+      : "(none)";
+  }
+
+  function buildPricingRefreshCommandOutput(params: {
+    result: PricingRefreshResult;
+    generatedAtMs: number;
+  }): string {
+    const meta = getPricingSnapshotMeta();
+    const activeSource = getPricingSnapshotSource();
+    const configuredSelection = config.pricingSnapshot.source;
+    const resultLabel =
+      params.result.reason ??
+      params.result.state.lastResult ??
+      (params.result.updated ? "success" : "unknown");
+
+    const lines = [
+      renderCommandHeading({
+        title: "Pricing Refresh (/pricing_refresh)",
+        generatedAtMs: params.generatedAtMs,
+      }),
+      "",
+      "refresh:",
+      `- attempted: ${params.result.attempted ? "true" : "false"}`,
+      `- result: ${resultLabel}`,
+      `- runtime_snapshot_persisted: ${params.result.updated ? "true" : "false"}`,
+    ];
+
+    if (params.result.error) {
+      lines.push(`- error: ${params.result.error}`);
+    }
+
+    lines.push("");
+    lines.push("pricing_snapshot:");
+    lines.push(`- selection: configured=${configuredSelection} active=${activeSource}`);
+    lines.push(
+      `- active_snapshot: source=${meta.source} generated_at=${formatIsoTimestamp(meta.generatedAt)} units=${meta.units}`,
+    );
+    lines.push(
+      `- runtime_paths: snapshot=${getRuntimePricingSnapshotPath()} refresh_state=${getRuntimePricingRefreshStatePath()}`,
+    );
+    if (configuredSelection === "bundled" && params.result.updated) {
+      lines.push(
+        "- selection_note: runtime snapshot refreshed locally, but active reports remain pinned to bundled pricing",
+      );
+    }
+
+    return lines.join("\n");
   }
 
   // Return hook implementations
@@ -1344,6 +1415,10 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
         description:
           "Diagnostics for toast + pricing + local storage (includes unknown pricing report).",
       };
+      cfg.command["pricing_refresh"] = {
+        template: "/pricing_refresh",
+        description: "Refresh the local runtime pricing snapshot from models.dev.",
+      };
 
       // Register token report commands (/tokens_*)
       for (const spec of TOKEN_REPORT_COMMANDS) {
@@ -1359,7 +1434,10 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
         const cmd = input.command;
         const sessionID = input.sessionID;
         const isQuotaCommand =
-          cmd === "quota" || cmd === "quota_status" || isTokenReportCommand(cmd);
+          cmd === "quota" ||
+          cmd === "quota_status" ||
+          cmd === "pricing_refresh" ||
+          isTokenReportCommand(cmd);
 
         if (isQuotaCommand && !configLoaded) {
           await refreshConfig();
@@ -1440,6 +1518,32 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
             generatedAtMs,
           });
           await injectRawOutput(sessionID, `${heading}\n\n${body}`);
+          handled();
+        }
+
+        if (cmd === "pricing_refresh") {
+          const generatedAtMs = Date.now();
+          if ((input.arguments ?? "").trim()) {
+            await injectRawOutput(
+              sessionID,
+              "Invalid arguments for /pricing_refresh\n\nThis command does not accept arguments.\n\nUsage:\n/pricing_refresh",
+            );
+            handled();
+          }
+
+          const result = await maybeRefreshPricingSnapshot({
+            reason: "manual",
+            force: true,
+            snapshotSelection: config.pricingSnapshot.source,
+            allowRefreshWhenSelectionBundled: true,
+          });
+          await injectRawOutput(
+            sessionID,
+            buildPricingRefreshCommandOutput({
+              result,
+              generatedAtMs,
+            }),
+          );
           handled();
         }
 

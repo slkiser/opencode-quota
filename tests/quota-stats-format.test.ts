@@ -23,6 +23,17 @@ function makeEmptyResult(overrides?: Partial<AggregateResult>): AggregateResult 
   };
 }
 
+function makeSessionRow(overrides?: Partial<AggregateResult["bySession"][number]>): AggregateResult["bySession"][number] {
+  return {
+    sessionID: "ses_default",
+    title: "Default Session",
+    tokens: { input: 0, output: 0, reasoning: 0, cache_read: 0, cache_write: 0 },
+    costUsd: 0,
+    messageCount: 0,
+    ...overrides,
+  };
+}
+
 describe("formatQuotaStatsReport (markdown)", () => {
   it("renders a markdown table for models with separator rows", () => {
     const r = makeEmptyResult({
@@ -192,6 +203,81 @@ describe("formatQuotaStatsReport (markdown)", () => {
     // Marker column should be named and not render as an empty header
     expect(out).toContain("| Current");
     expect(out).toContain("| Session");
+  });
+
+  it("does not render a concrete focus session id when the current session is outside the selected window", () => {
+    const out = formatQuotaStatsReport({
+      title: "Tokens used (Last 7 Days) (/tokens_weekly)",
+      result: makeEmptyResult({
+        bySession: [
+          makeSessionRow({
+            sessionID: "ses_visible",
+            title: "Visible Session",
+            tokens: { input: 100, output: 200, reasoning: 0, cache_read: 0, cache_write: 0 },
+            costUsd: 0.75,
+            messageCount: 4,
+          }),
+        ],
+      }),
+      focusSessionID: "ses_missing",
+    });
+
+    expect(out).toContain("(current session not in selected window)");
+    expect(out).toContain("ses_visible");
+    expect(out).not.toContain("ses_missing");
+    expect(out).not.toContain("No current session");
+  });
+
+  it("does not render a concrete focus session id when it has no token usage in the selected window", () => {
+    const out = formatQuotaStatsReport({
+      title: "Tokens used (Last 7 Days) (/tokens_weekly)",
+      result: makeEmptyResult({
+        bySession: [
+          makeSessionRow({
+            sessionID: "ses_zero",
+            title: "Zero Session",
+            messageCount: 2,
+          }),
+          makeSessionRow({
+            sessionID: "ses_visible",
+            title: "Visible Session",
+            tokens: { input: 50, output: 75, reasoning: 0, cache_read: 0, cache_write: 0 },
+            costUsd: 0.25,
+            messageCount: 3,
+          }),
+        ],
+      }),
+      focusSessionID: "ses_zero",
+    });
+
+    expect(out).toContain("(current session has no token usage in selected window)");
+    expect(out).toContain("ses_visible");
+    expect(out).not.toContain("ses_zero");
+  });
+
+  it("filters zero-token session rows from top sessions", () => {
+    const out = formatQuotaStatsReport({
+      title: "Tokens used (Last 7 Days) (/tokens_weekly)",
+      result: makeEmptyResult({
+        bySession: [
+          makeSessionRow({
+            sessionID: "ses_zero",
+            title: "Zero Session",
+            messageCount: 2,
+          }),
+          makeSessionRow({
+            sessionID: "ses_visible",
+            title: "Visible Session",
+            tokens: { input: 10, output: 20, reasoning: 0, cache_read: 0, cache_write: 0 },
+            costUsd: 0.05,
+            messageCount: 1,
+          }),
+        ],
+      }),
+    });
+
+    expect(out).toContain("ses_visible");
+    expect(out).not.toContain("ses_zero");
   });
 
   it("shows provider candidates for ambiguous unknown pricing rows", () => {

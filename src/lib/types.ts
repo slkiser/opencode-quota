@@ -9,6 +9,12 @@
 /** Google model identifiers */
 export type GoogleModelId = "G3PRO" | "G3FLASH" | "CLAUDE" | "G3IMAGE";
 export type CursorQuotaPlan = "none" | "pro" | "pro-plus" | "ultra";
+export type PricingSnapshotSource = "auto" | "bundled" | "runtime";
+
+export interface PricingSnapshotConfig {
+  source: PricingSnapshotSource;
+  autoRefresh: number;
+}
 
 /** Plugin configuration from opencode.json experimental.quotaToast */
 export interface QuotaToastConfig {
@@ -46,6 +52,7 @@ export interface QuotaToastConfig {
   cursorPlan: CursorQuotaPlan;
   cursorIncludedApiUsd?: number;
   cursorBillingCycleStartDay?: number;
+  pricingSnapshot: PricingSnapshotConfig;
   showOnIdle: boolean;
   showOnQuestion: boolean;
   showOnCompact: boolean;
@@ -87,6 +94,10 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   googleModels: ["CLAUDE"],
   alibabaCodingPlanTier: "lite",
   cursorPlan: "none",
+  pricingSnapshot: {
+    source: "auto",
+    autoRefresh: 5,
+  },
 
   showOnIdle: true,
   showOnQuestion: true,

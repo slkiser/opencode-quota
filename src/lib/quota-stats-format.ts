@@ -14,6 +14,29 @@ function totalTokens(t: TokenBuckets): number {
   return t.input + t.output + t.reasoning + t.cache_read + t.cache_write;
 }
 
+type SessionReportRow = AggregateResult["bySession"][number];
+
+function hasRenderableSessionUsage(row: SessionReportRow): boolean {
+  return totalTokens(row.tokens) > 0 || row.costUsd > 0;
+}
+
+function appendSessionRow(sessionRows: string[][], row: SessionReportRow, current = ""): void {
+  sessionRows.push([
+    current,
+    row.sessionID,
+    fmtUsd(row.costUsd),
+    fmtCompact(totalTokens(row.tokens)),
+    fmtCompact(row.messageCount),
+    truncateTitle(row.title),
+  ]);
+}
+
+function missingFocusSessionLabel(hasRawFocus: boolean): string {
+  return hasRawFocus
+    ? "(current session has no token usage in selected window)"
+    : "(current session not in selected window)";
+}
+
 /**
  * Format a timestamp as human-readable local time: "HH:MM YYYY-MM-DD"
  */
@@ -228,59 +251,33 @@ export function formatQuotaStatsReport(params: {
     lines.push("");
 
     const sessionRows: string[][] = [];
+    const visibleSessions = r.bySession.filter(hasRenderableSessionUsage);
 
     const focus = params.focusSessionID
+      ? visibleSessions.find((s) => s.sessionID === params.focusSessionID)
+      : undefined;
+    const rawFocus = params.focusSessionID
       ? r.bySession.find((s) => s.sessionID === params.focusSessionID)
       : undefined;
 
     if (focus) {
-      sessionRows.push([
-        "*",
-        focus.sessionID,
-        fmtUsd(focus.costUsd),
-        fmtCompact(totalTokens(focus.tokens)),
-        fmtCompact(focus.messageCount),
-        truncateTitle(focus.title),
-      ]);
+      appendSessionRow(sessionRows, focus, "*");
 
       // After showing the current session, show top sessions excluding it.
-      const rest = r.bySession.filter((s) => s.sessionID !== params.focusSessionID);
+      const rest = visibleSessions.filter((s) => s.sessionID !== params.focusSessionID);
       for (const row of rest.slice(0, topSessions)) {
-        sessionRows.push([
-          "",
-          row.sessionID,
-          fmtUsd(row.costUsd),
-          fmtCompact(totalTokens(row.tokens)),
-          fmtCompact(row.messageCount),
-          truncateTitle(row.title),
-        ]);
+        appendSessionRow(sessionRows, row);
       }
     } else if (params.focusSessionID) {
-      // Keep the marker column, but make the state explicit.
-      sessionRows.push(["", "No current session", "-", "-", "-", "-"]);
-      sessionRows.push(["", params.focusSessionID, "-", "-", "-", "-"]);
+      sessionRows.push(["*", missingFocusSessionLabel(Boolean(rawFocus)), "-", "-", "-", "-"]);
 
-      for (const row of r.bySession.slice(0, topSessions)) {
-        sessionRows.push([
-          "",
-          row.sessionID,
-          fmtUsd(row.costUsd),
-          fmtCompact(totalTokens(row.tokens)),
-          fmtCompact(row.messageCount),
-          truncateTitle(row.title),
-        ]);
+      for (const row of visibleSessions.slice(0, topSessions)) {
+        appendSessionRow(sessionRows, row);
       }
     } else {
       // No focus session, just list top sessions.
-      for (const row of r.bySession.slice(0, topSessions)) {
-        sessionRows.push([
-          "",
-          row.sessionID,
-          fmtUsd(row.costUsd),
-          fmtCompact(totalTokens(row.tokens)),
-          fmtCompact(row.messageCount),
-          truncateTitle(row.title),
-        ]);
+      for (const row of visibleSessions.slice(0, topSessions)) {
+        appendSessionRow(sessionRows, row);
       }
     }
 

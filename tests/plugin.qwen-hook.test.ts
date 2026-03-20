@@ -8,7 +8,13 @@ const mocks = vi.hoisted(() => ({
   recordAlibabaCodingPlanCompletion: vi.fn(),
   resolveQwenLocalPlanCached: vi.fn(),
   resolveAlibabaCodingPlanAuthCached: vi.fn(),
+  getPricingSnapshotMeta: vi.fn(),
+  getPricingSnapshotSource: vi.fn(),
+  getRuntimePricingRefreshStatePath: vi.fn(),
+  getRuntimePricingSnapshotPath: vi.fn(),
   maybeRefreshPricingSnapshot: vi.fn(),
+  setPricingSnapshotAutoRefresh: vi.fn(),
+  setPricingSnapshotSelection: vi.fn(),
 }));
 
 vi.mock("@opencode-ai/plugin", () => {
@@ -69,7 +75,13 @@ vi.mock("../src/lib/qwen-local-quota.js", () => ({
 }));
 
 vi.mock("../src/lib/modelsdev-pricing.js", () => ({
+  getPricingSnapshotMeta: mocks.getPricingSnapshotMeta,
+  getPricingSnapshotSource: mocks.getPricingSnapshotSource,
+  getRuntimePricingRefreshStatePath: mocks.getRuntimePricingRefreshStatePath,
+  getRuntimePricingSnapshotPath: mocks.getRuntimePricingSnapshotPath,
   maybeRefreshPricingSnapshot: mocks.maybeRefreshPricingSnapshot,
+  setPricingSnapshotAutoRefresh: mocks.setPricingSnapshotAutoRefresh,
+  setPricingSnapshotSelection: mocks.setPricingSnapshotSelection,
 }));
 
 function createClient(modelID: string) {
@@ -115,6 +127,16 @@ describe("plugin qwen question hook", () => {
       recent: [],
       updatedAt: 1,
     });
+    mocks.getPricingSnapshotMeta.mockReturnValue({
+      source: "https://models.dev/api.json",
+      generatedAt: Date.UTC(2026, 0, 1),
+      units: "USD per 1M tokens",
+    });
+    mocks.getPricingSnapshotSource.mockReturnValue("runtime");
+    mocks.getRuntimePricingSnapshotPath.mockReturnValue("/tmp/modelsdev-pricing.runtime.min.json");
+    mocks.getRuntimePricingRefreshStatePath.mockReturnValue(
+      "/tmp/modelsdev-pricing.refresh-state.json",
+    );
     mocks.maybeRefreshPricingSnapshot.mockResolvedValue({
       attempted: false,
       updated: false,
