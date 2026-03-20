@@ -1,14 +1,13 @@
-# Opencode Quota
+# OpenCode Quota
 
 `opencode-quota` gives you two things:
 
 - Automatic quota toasts after assistant responses
 - Manual `/quota` and `/tokens_*` commands for deeper local reporting with zero context window pollution
 
-**Quota provider supports**: GitHub Copilot, OpenAI (Plus/Pro), Cursor, Qwen Code, Alibaba Coding Plan, Chutes AI, Firmware AI, Google Antigravity, and Z.ai coding plan.
+**Quota providers**: GitHub Copilot, OpenAI (Plus/Pro), Cursor, Qwen Code, Alibaba Coding Plan, Chutes AI, Firmware AI, Google Antigravity, and Z.ai coding plan.
 
-**Token provider supports**: All models and providers in [models.dev](https://models.dev), plus deterministic local pricing for Cursor Auto/Composer and Cursor model aliases that are not on models.dev.
-
+**Token reports**: All models and providers in [models.dev](https://models.dev), plus deterministic local pricing for Cursor Auto/Composer and Cursor model aliases that are not on models.dev.
 
 ![Image of quota toasts](https://github.com/slkiser/opencode-quota/blob/main/toast.png)
 
@@ -17,6 +16,8 @@
 ## Quick Start
 
 OpenCode `>= 1.2.0` is required.
+
+### Most installs
 
 Add the plugin to your `opencode.json` or `opencode.jsonc`:
 
@@ -30,39 +31,27 @@ Then:
 
 1. Restart or reload OpenCode.
 2. Run `/quota_status` to confirm provider detection.
-3. Run `/quota` to see the manual grouped report.
+3. Run `/quota` or `/tokens_today`.
 
 That is enough for most installs. Providers are auto-detected from your existing OpenCode setup.
 
-## What You Get
+### Cursor install in one block
 
-- Toasts after assistant responses, idle transitions, and compaction events
-- `/quota` for a grouped manual quota report such as `[OpenAI] (Pro)` or `[Copilot] (business)`, with a local call timestamp in the heading
-- `/tokens_*` commands backed by local OpenCode history and a local pricing snapshot, each with a local call timestamp in the heading
-- No model calls to compute the toast or report output
-
-## Common Install Patterns
-
-### Basic install
-
-If you already use Copilot, OpenAI, Firmware, Chutes, or Z.ai in OpenCode, start here:
+If you use Cursor in OpenCode, install the Cursor companion plugin and quota config together:
 
 ```jsonc
 {
-  "plugin": ["@slkiser/opencode-quota"]
-}
-```
-
-### Cursor
-
-Cursor model support requires the OAuth-based [`opencode-cursor`](https://github.com/ephraimduncan/opencode-cursor) plugin:
-
-```jsonc
-{
+  "$schema": "https://opencode.ai/config.json",
   "plugin": ["opencode-cursor-oauth", "@slkiser/opencode-quota"],
   "provider": {
     "cursor": {
       "name": "Cursor"
+    }
+  },
+  "experimental": {
+    "quotaToast": {
+      "cursorPlan": "pro",
+      "cursorBillingCycleStartDay": 7
     }
   }
 }
@@ -73,6 +62,19 @@ Then authenticate once:
 ```sh
 opencode auth login --provider cursor
 ```
+
+Restart or reload OpenCode, then run `/quota_status`.
+
+If you only want usage tracking and do not care about Cursor budget percentage remaining, you can omit the `experimental.quotaToast` block or set `"cursorPlan": "none"`.
+
+## What You Get
+
+- Toasts after assistant responses, idle transitions, and compaction events
+- `/quota` for a grouped manual quota report such as `[OpenAI] (Pro)` or `[Copilot] (business)`, with a local call timestamp in the heading
+- `/tokens_*` commands backed by local OpenCode history and a local pricing snapshot, each with a local call timestamp in the heading
+- No model calls to compute the toast or report output
+
+## Companion Plugins When Needed
 
 ### Google Antigravity
 
@@ -112,7 +114,7 @@ Quota and `/tokens_*` output are computed from local OpenCode session history.
 
 There is no `/token` command. The reporting commands are the `/tokens_*` family.
 
-## Minimal Config
+## Optional Config
 
 You do not need extra config to get started. If you want to narrow the plugin to specific providers, use:
 
@@ -158,7 +160,7 @@ If Alibaba Coding Plan auth does not include a `tier`, you can set the fallback 
 | --- | --- | --- |
 | GitHub Copilot | Usually yes | Add `copilot-quota-token.json` only for managed org or enterprise billing |
 | OpenAI | Yes | None |
-| Cursor | Needs `opencode-cursor-oauth` | Optional `cursorPlan`, `cursorIncludedApiUsd`, and `cursorBillingCycleStartDay` for monthly API budget tracking |
+| Cursor | Needs `opencode-cursor-oauth` and `provider.cursor` | Optional `cursorPlan`, `cursorIncludedApiUsd`, and `cursorBillingCycleStartDay` for monthly API budget tracking |
 | Qwen Code | Needs `opencode-qwencode-auth` | Local free-tier request estimation |
 | Alibaba Coding Plan | Yes | Local request-count estimation |
 | Firmware AI | Usually yes | Optional API key |
@@ -225,13 +227,7 @@ No extra setup is required if OpenCode already has OpenAI or ChatGPT auth config
 <details>
 <summary><strong>Cursor</strong></summary>
 
-Cursor support now targets the OAuth-based [`opencode-cursor`](https://github.com/ephraimduncan/opencode-cursor) plugin. OpenCode should install `opencode-cursor-oauth`, define a `provider.cursor` stub, and authenticate with `opencode auth login --provider cursor`.
-
-Recommended install path:
-
-- Add `opencode-cursor-oauth` and `@slkiser/opencode-quota` to `plugin`.
-- Add `provider.cursor` with `"name": "Cursor"` so OpenCode keeps the provider visible.
-- Run `opencode auth login --provider cursor` once.
+Cursor support targets the OAuth-based [`opencode-cursor`](https://github.com/ephraimduncan/opencode-cursor) plugin. For the fastest setup, use the combined Cursor config from Quick Start, then run `opencode auth login --provider cursor` once.
 
 Current behavior:
 
@@ -247,19 +243,6 @@ Notes:
 - Session cookies and Cursor team APIs are not required for this local reporting path
 - Legacy `cursor-acp/*` history remains readable for older installs, but new installs should use the OAuth plugin workflow
 - Unknown future Cursor model ids are surfaced in `/quota_status` under Cursor diagnostics and `unknown_pricing`
-
-Example config for a personal Pro account:
-
-```jsonc
-{
-  "experimental": {
-    "quotaToast": {
-      "cursorPlan": "pro",
-      "cursorBillingCycleStartDay": 7
-    }
-  }
-}
-```
 
 If you need a custom included API budget, override it directly:
 
@@ -458,27 +441,13 @@ npm run build
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution workflow and repository policy.
 
-## LLM Agent Installation Notes
-
-If you are using an agent to install the plugin for you, the safe default is:
-
-```jsonc
-{
-  "plugin": ["@slkiser/opencode-quota"]
-}
-```
-
-Then verify with `/quota_status`.
-
-Only add explicit `enabledProviders` if you want to limit which providers are queried. Only add companion plugins when the user actually uses Google Antigravity, Qwen Code, or Cursor in OpenCode. For Cursor, use `opencode-cursor-oauth` plus the `provider.cursor` stub.
-
 ## License
 
 MIT
 
 ## Remarks
 
-Opencode Quota is not built by the OpenCode team and is not affiliated with OpenCode or any provider listed above.
+OpenCode Quota is not built by the OpenCode team and is not affiliated with OpenCode or any provider listed above.
 
 ## Star History
 
