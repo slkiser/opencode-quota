@@ -163,6 +163,11 @@ type QuotaCommandSelection = {
   filteringByCurrentSelection: boolean;
 };
 
+type QuotaCommandRequestContext = {
+  sessionID?: string;
+  sessionMeta?: SessionModelMeta;
+};
+
 // =============================================================================
 // Token Report Command Specification
 // =============================================================================
@@ -293,6 +298,8 @@ type QuotaCommandCacheEntry = {
   inFlight?: Promise<string | null>;
 };
 
+type QuotaCommandCacheStore = Map<string, QuotaCommandCacheEntry>;
+
 /**
  * Main plugin export
  */
@@ -347,25 +354,53 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
 
   const providerFetchCache = new Map<string, ProviderFetchCacheEntry>();
 
-  function getQuotaCommandCache(): QuotaCommandCacheEntry {
-    let quotaCache = (globalThis as any).__opencodeQuotaCommandCache as
-      | QuotaCommandCacheEntry
-      | undefined;
-    if (!quotaCache) {
-      quotaCache = { body: "", timestamp: 0 };
-      (globalThis as any).__opencodeQuotaCommandCache = quotaCache;
+  function getQuotaCommandCache(): QuotaCommandCacheStore {
+    const existing = (globalThis as any).__opencodeQuotaCommandCache as unknown;
+    if (existing instanceof Map) {
+      return existing as QuotaCommandCacheStore;
     }
+
+    const quotaCache: QuotaCommandCacheStore = new Map();
+    (globalThis as any).__opencodeQuotaCommandCache = quotaCache;
     return quotaCache;
   }
 
   function clearQuotaCommandCache(): void {
-    const quotaCache = (globalThis as any).__opencodeQuotaCommandCache as
-      | QuotaCommandCacheEntry
-      | undefined;
-    if (!quotaCache) return;
-    quotaCache.body = "";
-    quotaCache.timestamp = 0;
-    quotaCache.inFlight = undefined;
+    getQuotaCommandCache().clear();
+  }
+
+  function buildQuotaCommandCacheKey(params: QuotaCommandRequestContext): string {
+    const enabledProviders =
+      config.enabledProviders === "auto" ? "auto" : config.enabledProviders.join(",");
+    const googleModels = config.googleModels.join(",");
+    const currentModel =
+      config.onlyCurrentModel && params.sessionID ? params.sessionMeta?.modelID ?? "" : "";
+    const currentProviderID =
+      config.onlyCurrentModel && params.sessionID ? params.sessionMeta?.providerID ?? "" : "";
+
+    return [
+      `sessionID=${params.sessionID ?? ""}`,
+      `showSessionTokens=${config.showSessionTokens ? "yes" : "no"}`,
+      `onlyCurrentModel=${config.onlyCurrentModel ? "yes" : "no"}`,
+      `enabledProviders=${enabledProviders}`,
+      `googleModels=${googleModels}`,
+      `alibabaTier=${config.alibabaCodingPlanTier}`,
+      `cursorPlan=${config.cursorPlan}`,
+      `cursorIncludedApiUsd=${config.cursorIncludedApiUsd ?? ""}`,
+      `cursorBillingCycleStartDay=${config.cursorBillingCycleStartDay ?? ""}`,
+      `currentModel=${currentModel}`,
+      `currentProviderID=${currentProviderID}`,
+    ].join("|");
+  }
+
+  function pruneQuotaCommandCache(ttlMs: number, nowMs: number): void {
+    const quotaCache = getQuotaCommandCache();
+    for (const [cacheKey, entry] of quotaCache.entries()) {
+      if (entry.inFlight) continue;
+      if (entry.timestamp <= 0 || ttlMs <= 0 || nowMs - entry.timestamp >= ttlMs) {
+        quotaCache.delete(cacheKey);
+      }
+    }
   }
 
   function asRecord(value: unknown): Record<string, unknown> | null {
@@ -521,13 +556,15 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     return config.enabledProviders === "auto" || config.enabledProviders.includes(providerId);
   }
 
-  async function shouldBypassToastCacheForLiveLocalUsage(
-    trigger: string,
-    sessionID: string,
-  ): Promise<boolean> {
+  async function shouldBypassToastCacheForLiveLocalUsage(params: {
+    trigger: string;
+    sessionID: string;
+    sessionMeta?: SessionModelMeta;
+  }): Promise<boolean> {
+    const { trigger, sessionID } = params;
     if (trigger !== "question") return false;
 
-    const currentSession = await getSessionModelMeta(sessionID);
+    const currentSession = params.sessionMeta ?? (await getSessionModelMeta(sessionID));
     const currentModel = currentSession.modelID;
     if (isQwenCodeModelId(currentModel)) {
       const plan = await resolveQwenLocalPlanCached();
@@ -549,9 +586,16 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     return false;
   }
 
-  async function shouldBypassQuotaCommandCache(sessionID?: string): Promise<boolean> {
+  async function shouldBypassQuotaCommandCache(
+    sessionID?: string,
+    sessionMeta?: SessionModelMeta,
+  ): Promise<boolean> {
     if (config.debug || !sessionID) return config.debug;
-    return await shouldBypassToastCacheForLiveLocalUsage("question", sessionID);
+    return await shouldBypassToastCacheForLiveLocalUsage({
+      trigger: "question",
+      sessionID,
+      sessionMeta,
+    });
   }
 
   async function refreshConfig(): Promise<void> {
@@ -737,7 +781,9 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     ].join("\n");
   }
 
-  async function resolveQuotaCommandSelection(sessionID?: string): Promise<QuotaCommandSelection | null> {
+  async function resolveQuotaCommandSelection(
+    params: QuotaCommandRequestContext = {},
+  ): Promise<QuotaCommandSelection | null> {
     if (!configLoaded) await refreshConfig();
     if (!config.enabled) return null;
 
@@ -750,8 +796,8 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
 
     let currentModel: string | undefined;
     let currentProviderID: string | undefined;
-    if (config.onlyCurrentModel && sessionID) {
-      const currentSession = await getSessionModelMeta(sessionID);
+    if (config.onlyCurrentModel && params.sessionID) {
+      const currentSession = params.sessionMeta ?? (await getSessionModelMeta(params.sessionID));
       currentModel = currentSession.modelID;
       currentProviderID = currentSession.providerID;
     }
@@ -804,8 +850,10 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     return "current session";
   }
 
-  async function buildQuotaCommandUnavailableMessage(sessionID?: string): Promise<string> {
-    const selection = await resolveQuotaCommandSelection(sessionID);
+  async function buildQuotaCommandUnavailableMessage(
+    params: QuotaCommandRequestContext = {},
+  ): Promise<string> {
+    const selection = await resolveQuotaCommandSelection(params);
     if (!selection) {
       return "Quota unavailable\n\nNo enabled quota providers are configured.\n\nRun /quota_status for diagnostics.";
     }
@@ -1076,7 +1124,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
 
     const bypassMessageCache = config.debug
       ? true
-      : await shouldBypassToastCacheForLiveLocalUsage(trigger, sessionID);
+      : await shouldBypassToastCacheForLiveLocalUsage({ trigger, sessionID });
 
     const message = bypassMessageCache
       ? await fetchQuotaMessage(trigger, sessionID)
@@ -1115,9 +1163,9 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
 
   async function fetchQuotaCommandBody(
     trigger: string,
-    sessionID?: string,
+    params: QuotaCommandRequestContext = {},
   ): Promise<string | null> {
-    const selection = await resolveQuotaCommandSelection(sessionID);
+    const selection = await resolveQuotaCommandSelection(params);
     if (!selection) return null;
 
     const { isAutoMode, ctx } = selection;
@@ -1150,10 +1198,10 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
 
     // Fetch session tokens if enabled and sessionID is available
     let sessionTokens: SessionTokensData | undefined;
-    if (config.showSessionTokens && sessionID) {
+    if (config.showSessionTokens && params.sessionID) {
       const stResult = await fetchSessionTokensForDisplay({
         enabled: config.showSessionTokens,
-        sessionID,
+        sessionID: params.sessionID,
       });
       sessionTokens = stResult.sessionTokens;
       // Update diagnostics state: clear on success (no error returned), set on failure
@@ -1322,33 +1370,55 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
 
         if (cmd === "quota") {
           const generatedAtMs = Date.now();
-          // Separate cache for /quota so it doesn't pollute the toast cache.
-          const quotaCache = getQuotaCommandCache();
-
           const now = generatedAtMs;
-          const bypassCommandCache = await shouldBypassQuotaCommandCache(sessionID);
-          const cached =
-            !bypassCommandCache &&
-            quotaCache.timestamp &&
-            now - quotaCache.timestamp < config.minIntervalMs
-              ? quotaCache.body
-              : null;
+          const quotaRequestContext: QuotaCommandRequestContext = {
+            sessionID,
+            sessionMeta: sessionID ? await getSessionModelMeta(sessionID) : undefined,
+          };
+          const bypassCommandCache = await shouldBypassQuotaCommandCache(
+            sessionID,
+            quotaRequestContext.sessionMeta,
+          );
+          const body = bypassCommandCache
+            ? await fetchQuotaCommandBody("command:/quota", quotaRequestContext)
+            : await (async () => {
+                const quotaCache = getQuotaCommandCache();
+                pruneQuotaCommandCache(config.minIntervalMs, now);
 
-          const body = cached
-            ? cached
-            : await (quotaCache.inFlight ??
-                (quotaCache.inFlight = (async () => {
-                  try {
-                    return await fetchQuotaCommandBody("command:/quota", sessionID);
-                  } finally {
-                    quotaCache!.inFlight = undefined;
-                  }
-                })()));
+                const cacheKey = buildQuotaCommandCacheKey(quotaRequestContext);
+                const cachedEntry = quotaCache.get(cacheKey);
+                if (
+                  cachedEntry?.timestamp &&
+                  now - cachedEntry.timestamp < config.minIntervalMs
+                ) {
+                  return cachedEntry.body;
+                }
 
-          if (body) {
-            quotaCache.body = body;
-            quotaCache.timestamp = Date.now();
-          }
+                const cacheEntry = cachedEntry ?? { body: "", timestamp: 0 };
+                if (!cachedEntry) {
+                  quotaCache.set(cacheKey, cacheEntry);
+                }
+
+                return await (cacheEntry.inFlight ??
+                  (cacheEntry.inFlight = (async () => {
+                    try {
+                      const freshBody = await fetchQuotaCommandBody(
+                        "command:/quota",
+                        quotaRequestContext,
+                      );
+                      if (freshBody) {
+                        cacheEntry.body = freshBody;
+                        cacheEntry.timestamp = Date.now();
+                      }
+                      return freshBody;
+                    } finally {
+                      cacheEntry.inFlight = undefined;
+                      if (!cacheEntry.body && cacheEntry.timestamp <= 0) {
+                        quotaCache.delete(cacheKey);
+                      }
+                    }
+                  })()));
+              })();
 
           if (!body) {
             // Provide an actionable message instead of a generic "unavailable".
@@ -1357,7 +1427,10 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
             } else if (!config.enabled) {
               await injectRawOutput(sessionID, "Quota disabled in config (enabled: false)");
             } else {
-              await injectRawOutput(sessionID, await buildQuotaCommandUnavailableMessage(sessionID));
+              await injectRawOutput(
+                sessionID,
+                await buildQuotaCommandUnavailableMessage(quotaRequestContext),
+              );
             }
             handled();
           }

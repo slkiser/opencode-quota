@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   maybeRefreshPricingSnapshot: vi.fn(),
   resolveQwenLocalPlanCached: vi.fn(),
   resolveAlibabaCodingPlanAuthCached: vi.fn(),
+  fetchSessionTokensForDisplay: vi.fn(),
 }));
 
 vi.mock("@opencode-ai/plugin", () => {
@@ -41,6 +42,10 @@ vi.mock("../src/providers/registry.js", () => ({
 
 vi.mock("../src/lib/modelsdev-pricing.js", () => ({
   maybeRefreshPricingSnapshot: mocks.maybeRefreshPricingSnapshot,
+}));
+
+vi.mock("../src/lib/session-tokens.js", () => ({
+  fetchSessionTokensForDisplay: mocks.fetchSessionTokensForDisplay,
 }));
 
 vi.mock("../src/lib/qwen-auth.js", () => ({
@@ -91,6 +96,10 @@ describe("/quota command behavior", () => {
     mocks.getProviders.mockReturnValue([]);
     mocks.resolveQwenLocalPlanCached.mockResolvedValue({ state: "none" });
     mocks.resolveAlibabaCodingPlanAuthCached.mockResolvedValue({ state: "none" });
+    mocks.fetchSessionTokensForDisplay.mockResolvedValue({
+      sessionTokens: undefined,
+      error: undefined,
+    });
     mocks.maybeRefreshPricingSnapshot.mockResolvedValue({
       attempted: false,
       updated: false,
@@ -224,6 +233,210 @@ describe("/quota command behavior", () => {
     const injected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
     expect(injected).toContain("No enabled quota providers matched the current model: openai/gpt-5.");
     expect(injected).not.toContain("Providers detected");
+  });
+
+  it("does not reuse cached /quota output after the current model changes in the same session", async () => {
+    mocks.loadConfig.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      enabled: true,
+      onlyCurrentModel: true,
+      showOnQuestion: false,
+      showSessionTokens: false,
+      minIntervalMs: 60_000,
+    });
+
+    const provider = {
+      id: "openai",
+      matchesCurrentModel: vi.fn((model?: string) => model === "openai/gpt-5"),
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [{ name: "OpenAI Pro", percentRemaining: 95 }],
+        errors: [],
+      }),
+    };
+    mocks.getProviders.mockReturnValue([provider]);
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const client = createClient("openai/gpt-5", "openai");
+    let currentSession = { data: { modelID: "openai/gpt-5", providerID: "openai" } };
+    client.session.get = vi.fn().mockImplementation(async () => currentSession);
+
+    const hooks = await QuotaToastPlugin({ client } as any);
+
+    await expect(
+      hooks["command.execute.before"]?.({
+        command: "quota",
+        sessionID: "session-model-switch",
+      } as any),
+    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+
+    currentSession = { data: { modelID: "openai/gpt-4.1", providerID: "openai" } };
+
+    await expect(
+      hooks["command.execute.before"]?.({
+        command: "quota",
+        sessionID: "session-model-switch",
+      } as any),
+    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+
+    expect(client.session.prompt).toHaveBeenCalledTimes(2);
+    const firstInjected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
+    const secondInjected = client.session.prompt.mock.calls[1]?.[0]?.body?.parts?.[0]?.text ?? "";
+
+    expect(firstInjected).toContain("95% left");
+    expect(secondInjected).toContain(
+      "No enabled quota providers matched the current model: openai/gpt-4.1.",
+    );
+    expect(secondInjected).not.toContain("95% left");
+  });
+
+  it("uses one session snapshot for both /quota cache keys and rendered output", async () => {
+    mocks.loadConfig.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      enabled: true,
+      onlyCurrentModel: true,
+      showOnQuestion: false,
+      showSessionTokens: false,
+      minIntervalMs: 60_000,
+    });
+
+    const provider = {
+      id: "openai",
+      matchesCurrentModel: vi.fn(() => true),
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockImplementation(async ({ config }: any) => ({
+        attempted: true,
+        entries: [{ name: config.currentModel ?? "unknown-model", percentRemaining: 95 }],
+        errors: [],
+      })),
+    };
+    mocks.getProviders.mockReturnValue([provider]);
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const client = createClient("openai/gpt-5", "openai");
+    let sessionReadCount = 0;
+    client.session.get = vi.fn().mockImplementation(async () => {
+      sessionReadCount += 1;
+      if (sessionReadCount === 3) {
+        return { data: { modelID: "openai/gpt-4.1", providerID: "openai" } };
+      }
+      return { data: { modelID: "openai/gpt-5", providerID: "openai" } };
+    });
+
+    const hooks = await QuotaToastPlugin({ client } as any);
+
+    await expect(
+      hooks["command.execute.before"]?.({
+        command: "quota",
+        sessionID: "session-snapshot-race",
+      } as any),
+    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+    await expect(
+      hooks["command.execute.before"]?.({
+        command: "quota",
+        sessionID: "session-snapshot-race",
+      } as any),
+    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+
+    expect(client.session.prompt).toHaveBeenCalledTimes(2);
+    const firstInjected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
+    const secondInjected = client.session.prompt.mock.calls[1]?.[0]?.body?.parts?.[0]?.text ?? "";
+
+    expect(firstInjected).toContain("openai/gpt-5");
+    expect(secondInjected).toContain("openai/gpt-5");
+    expect(firstInjected).not.toContain("openai/gpt-4.1");
+    expect(secondInjected).not.toContain("openai/gpt-4.1");
+  });
+
+  it("keeps concurrent /quota session-token output isolated per session", async () => {
+    mocks.loadConfig.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      enabled: true,
+      showOnQuestion: false,
+      showSessionTokens: true,
+      minIntervalMs: 60_000,
+    });
+
+    const provider = {
+      id: "openai",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [{ name: "OpenAI Pro", percentRemaining: 88 }],
+        errors: [],
+      }),
+    };
+    mocks.getProviders.mockReturnValue([provider]);
+
+    let resolveSessionA: ((value: any) => void) | undefined;
+    let resolveSessionB: ((value: any) => void) | undefined;
+    mocks.fetchSessionTokensForDisplay.mockImplementation(
+      ({ sessionID }: { sessionID: string }) =>
+        new Promise((resolve) => {
+          if (sessionID === "session-a") {
+            resolveSessionA = resolve;
+            return;
+          }
+          if (sessionID === "session-b") {
+            resolveSessionB = resolve;
+            return;
+          }
+          resolve({ sessionTokens: undefined, error: undefined });
+        }),
+    );
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const client = createClient("openai/gpt-5", "openai");
+    const hooks = await QuotaToastPlugin({ client } as any);
+
+    const firstRun = hooks["command.execute.before"]?.({
+      command: "quota",
+      sessionID: "session-a",
+    } as any);
+    const secondRun = hooks["command.execute.before"]?.({
+      command: "quota",
+      sessionID: "session-b",
+    } as any);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mocks.fetchSessionTokensForDisplay).toHaveBeenCalledTimes(2);
+    expect(resolveSessionA).toBeTypeOf("function");
+    expect(resolveSessionB).toBeTypeOf("function");
+
+    resolveSessionB?.({
+      sessionTokens: {
+        models: [{ modelID: "session-b-model", input: 222, output: 22 }],
+        totalInput: 222,
+        totalOutput: 22,
+      },
+      error: undefined,
+    });
+    resolveSessionA?.({
+      sessionTokens: {
+        models: [{ modelID: "session-a-model", input: 111, output: 11 }],
+        totalInput: 111,
+        totalOutput: 11,
+      },
+      error: undefined,
+    });
+
+    await expect(secondRun).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+    await expect(firstRun).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+
+    const promptOutputs = client.session.prompt.mock.calls.map((call) => ({
+      sessionID: call?.[0]?.path?.id,
+      text: call?.[0]?.body?.parts?.[0]?.text ?? "",
+    }));
+    const sessionAOutput = promptOutputs.find((output) => output.sessionID === "session-a")?.text ?? "";
+    const sessionBOutput = promptOutputs.find((output) => output.sessionID === "session-b")?.text ?? "";
+
+    expect(sessionAOutput).toContain("session-a-model");
+    expect(sessionAOutput).not.toContain("session-b-model");
+    expect(sessionBOutput).toContain("session-b-model");
+    expect(sessionBOutput).not.toContain("session-a-model");
   });
 
   it("bypasses stale /quota cache for qwen local request-plan sessions", async () => {
