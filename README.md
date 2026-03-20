@@ -42,10 +42,10 @@ Then:
 2. Run `/quota_status` to confirm provider detection.
 3. Run `/quota` or `/tokens_today`.
 
-That is enough for most installs. Providers are auto-detected from your existing OpenCode setup.
+That is enough for most installs. Providers are auto-detected from your existing OpenCode setup, and most providers work from your existing OpenCode auth. If a provider needs anything extra, use the setup table below.
 
 <details>
-<summary><strong>(Example) Narrow the plugin to specific providers</strong></summary>
+<summary><strong>Example: Narrow to specific providers</strong></summary>
 
 If you want to narrow the plugin to specific providers, use:
 
@@ -62,7 +62,7 @@ If you want to narrow the plugin to specific providers, use:
 </details>
 
 <details>
-<summary><strong>(Example) Grouped toast layout instead of the default classic toast</strong></summary>
+<summary><strong>Example: Grouped toast layout instead of the default classic toast</strong></summary>
 
 If you want grouped toast layout instead of the default classic toast, use:
 
@@ -80,20 +80,23 @@ If you want grouped toast layout instead of the default classic toast, use:
 
 ### Provider Setup At A Glance
 
-| Provider | Works automatically | Extra setup when needed |
+| Provider | Auto setup | How it works |
 | --- | --- | --- |
-| GitHub Copilot | Usually yes | Add `copilot-quota-token.json` only for managed org or enterprise billing |
-| OpenAI | Yes | None |
-| Cursor | Needs `opencode-cursor-oauth` and `provider.cursor` | Optional `cursorPlan`, `cursorIncludedApiUsd`, and `cursorBillingCycleStartDay` for monthly API budget tracking |
-| Qwen Code | Needs `opencode-qwencode-auth` | Local free-tier request estimation |
-| Alibaba Coding Plan | Yes | Local request-count estimation |
-| Firmware AI | Usually yes | Optional API key |
-| Chutes AI | Usually yes | Optional API key |
-| Google Antigravity | Needs `opencode-antigravity-auth` | Multi-account account file lives in OpenCode runtime config |
-| Z.ai | Yes | None |
+| GitHub Copilot | Usually | OpenCode auth; PAT only for managed billing. [Notes](#github-copilot-notes) |
+| OpenAI | Yes | OpenCode auth. [Notes](#openai-notes) |
+| Cursor | Needs quick setup | OAuth companion plugin + `provider.cursor`. [Quick setup](#cursor-quick-setup) · [Notes](#cursor-notes) |
+| Qwen Code | Needs quick setup | Companion auth plugin. [Quick setup](#qwen-code-quick-setup) · [Notes](#qwen-code-notes) |
+| Alibaba Coding Plan | Yes | Native OpenCode auth with local request estimation. [Notes](#alibaba-coding-plan-notes) |
+| Firmware AI | Usually | OpenCode config; API key optional. [Notes](#firmware-ai-notes) |
+| Chutes AI | Usually | OpenCode config; API key optional. [Notes](#chutes-ai-notes) |
+| Google Antigravity | Needs quick setup | Companion auth plugin. [Quick setup](#google-antigravity-quick-setup) · [Notes](#google-antigravity-notes) |
+| Z.ai | Yes | OpenCode auth. [Notes](#zai-notes) |
 
+<a id="cursor-quick-setup"></a>
 <details>
-<summary><strong>(Setup) Cursor companion plugin</strong></summary>
+<summary><strong>Quick setup: Cursor</strong></summary>
+
+For behavior details and troubleshooting, see [Cursor notes](#cursor-notes).
 
 Cursor quota support requires the [`opencode-cursor-oauth` companion auth plugin](https://github.com/ephraimduncan/opencode-cursor):
 
@@ -123,8 +126,11 @@ opencode auth login --provider cursor
 
 </details>
 
+<a id="google-antigravity-quick-setup"></a>
 <details>
-<summary><strong>(Setup) Google Antigravity companion plugin</strong></summary>
+<summary><strong>Quick setup: Google Antigravity</strong></summary>
+
+For behavior details and troubleshooting, see [Google Antigravity notes](#google-antigravity-notes).
 
 Google quota support requires the `opencode-antigravity-auth` [companion auth plugin](https://github.com/NoeFabris/opencode-antigravity-auth):
 
@@ -136,8 +142,11 @@ Google quota support requires the `opencode-antigravity-auth` [companion auth pl
 
 </details>
 
+<a id="qwen-code-quick-setup"></a>
 <details>
-<summary><strong>(Setup) Qwen Code companion plugin</strong></summary>
+<summary><strong>Quick setup: Qwen Code</strong></summary>
+
+For behavior details and troubleshooting, see [Qwen Code notes](#qwen-code-notes).
 
 Qwen quota support requires the `opencode-qwencode-auth` [companion auth plugin](https://github.com/gustavodiasdev/opencode-qwencode-auth):
 
@@ -167,6 +176,9 @@ There is no `/token` command. The reporting commands are the `/tokens_*` family.
 
 ## Provider-Specific Notes
 
+Jump to: [GitHub Copilot](#github-copilot-notes) · [OpenAI](#openai-notes) · [Cursor](#cursor-notes) · [Qwen Code](#qwen-code-notes) · [Alibaba Coding Plan](#alibaba-coding-plan-notes) · [Firmware AI](#firmware-ai-notes) · [Chutes AI](#chutes-ai-notes) · [Google Antigravity](#google-antigravity-notes) · [Z.ai](#zai-notes)
+
+<a id="github-copilot-notes"></a>
 <details>
 <summary><strong>GitHub Copilot</strong></summary>
 
@@ -214,6 +226,7 @@ Useful checks:
 
 </details>
 
+<a id="openai-notes"></a>
 <details>
 <summary><strong>OpenAI</strong></summary>
 
@@ -221,6 +234,7 @@ No extra setup is required if OpenCode already has OpenAI or ChatGPT auth config
 
 </details>
 
+<a id="cursor-notes"></a>
 <details>
 <summary><strong>Cursor</strong></summary>
 
@@ -259,6 +273,7 @@ If you need a custom included API budget, override it directly:
 
 </details>
 
+<a id="qwen-code-notes"></a>
 <details>
 <summary><strong>Qwen Code</strong></summary>
 
@@ -278,6 +293,7 @@ Run `/quota_status` to verify auth detection, `qwen_local_plan`, and local count
 
 </details>
 
+<a id="alibaba-coding-plan-notes"></a>
 <details>
 <summary><strong>Alibaba Coding Plan</strong></summary>
 
@@ -310,6 +326,7 @@ State file path:
 
 </details>
 
+<a id="firmware-ai-notes"></a>
 <details>
 <summary><strong>Firmware AI</strong></summary>
 
@@ -336,6 +353,7 @@ If OpenCode already has Firmware configured, it usually works automatically. You
 
 </details>
 
+<a id="chutes-ai-notes"></a>
 <details>
 <summary><strong>Chutes AI</strong></summary>
 
@@ -360,6 +378,7 @@ If OpenCode already has Chutes configured, it usually works automatically. You c
 
 </details>
 
+<a id="google-antigravity-notes"></a>
 <details>
 <summary><strong>Google Antigravity</strong></summary>
 
@@ -369,6 +388,7 @@ If you are debugging detection, `/quota_status` prints the candidate paths check
 
 </details>
 
+<a id="zai-notes"></a>
 <details>
 <summary><strong>Z.ai</strong></summary>
 
@@ -438,7 +458,7 @@ If something is missing or looks wrong:
 2. Confirm the expected provider appears in the detected provider list.
 3. If token reports are empty, make sure OpenCode has already created `opencode.db`.
 4. If Copilot managed billing is expected, confirm `copilot-quota-token.json` is present and valid.
-5. If Google or Qwen support is expected, confirm the companion auth plugin is installed. If Alibaba Coding Plan support is expected, confirm OpenCode `alibaba` or `alibaba-coding-plan` auth is configured; `tier` may be `lite` or `pro`, and if it is missing the plugin falls back to `experimental.quotaToast.alibabaCodingPlanTier`.
+5. If provider setup looks wrong, check [Provider Setup At A Glance](#provider-setup-at-a-glance) and [Provider-Specific Notes](#provider-specific-notes). For Google Antigravity or Qwen Code, confirm the companion auth plugin is installed. For Alibaba Coding Plan, confirm OpenCode `alibaba` or `alibaba-coding-plan` auth is configured; `tier` may be `lite` or `pro`, and if it is missing the plugin falls back to `experimental.quotaToast.alibabaCodingPlanTier`.
 
 If `opencode.db` is missing, start OpenCode once and let its local migration complete.
 
