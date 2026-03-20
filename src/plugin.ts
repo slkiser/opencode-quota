@@ -773,7 +773,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     };
 
     const filteringByCurrentSelection =
-      config.onlyCurrentModel && (currentModel || isCursorProviderId(currentProviderID));
+      config.onlyCurrentModel && Boolean(currentModel || isCursorProviderId(currentProviderID));
     const filtered = filteringByCurrentSelection
       ? providers.filter((p) =>
           matchesProviderCurrentSelection({ provider: p, currentModel, currentProviderID }),
