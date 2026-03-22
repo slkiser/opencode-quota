@@ -16,6 +16,7 @@ describe("quota provider boundary", () => {
       "chutes",
       "google-antigravity",
       "zai",
+      "nanogpt",
     ]);
   });
 

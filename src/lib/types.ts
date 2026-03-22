@@ -253,6 +253,10 @@ export interface AuthData {
     type: "api";
     key: string;
   };
+  "nano-gpt"?: {
+    type: "api";
+    key: string;
+  };
 }
 
 // =============================================================================
@@ -349,6 +353,53 @@ export interface ZaiQuotaResult {
 }
 
 // =============================================================================
+// NanoGPT Types
+// =============================================================================
+
+export interface NanoGptQuotaResponse {
+  active: boolean;
+  limits: {
+    weeklyInputTokens: number | null;
+    dailyInputTokens: number | null;
+    dailyImages: number | null;
+  };
+  allowOverage: boolean;
+  period?: {
+    currentPeriodEnd?: string;
+  };
+  weeklyInputTokens?: {
+    used: number;
+    remaining: number;
+    percentUsed: number;
+    resetAt: number;
+  } | null;
+  dailyInputTokens?: {
+    used: number;
+    remaining: number;
+    percentUsed: number;
+    resetAt: number;
+  } | null;
+  dailyImages?: {
+    used: number;
+    remaining: number;
+    percentUsed: number;
+    resetAt: number;
+  } | null;
+  state: "active" | "grace" | "inactive";
+  graceUntil?: string | null;
+}
+
+export interface NanoGptResult {
+  success: true;
+  label: string;
+  windows: {
+    weeklyTokens?: { percentRemaining: number; resetTimeIso?: string };
+    dailyTokens?: { percentRemaining: number; resetTimeIso?: string };
+    dailyImages?: { percentRemaining: number; resetTimeIso?: string };
+  };
+}
+
+// =============================================================================
 // Quota Result Types
 // =============================================================================
 
@@ -428,6 +479,7 @@ export type CopilotResult =
   | null;
 export type GoogleResult = GoogleQuotaResult | QuotaError | null;
 export type ZaiResult = ZaiQuotaResult | QuotaError | null;
+export type NanoGptResultType = NanoGptResult | QuotaError | null;
 export type ChutesResult =
   | {
     success: true;

@@ -6,6 +6,7 @@ import { getGoogleTokenCachePath } from "./google-token-cache.js";
 import { getAntigravityAccountsCandidatePaths, readAntigravityAccounts } from "./google.js";
 import { getFirmwareKeyDiagnostics } from "./firmware.js";
 import { getChutesKeyDiagnostics } from "./chutes.js";
+import { getNanoGptKeyDiagnostics } from "./nanogpt.js";
 import { getCopilotQuotaAuthDiagnostics } from "./copilot.js";
 import {
   computeAlibabaCodingPlanQuota,
@@ -449,6 +450,21 @@ export async function buildQuotaStatusReport(params: {
   }
   lines.push(
     `- chutes api key: configured=${chutesDiag.configured ? "true" : "false"}${chutesDiag.source ? ` source=${chutesDiag.source}` : ""}${chutesDiag.checkedPaths.length > 0 ? ` checked=${chutesDiag.checkedPaths.join(" | ")}` : ""}`,
+  );
+
+  // NanoGPT API key diagnostics
+  let nanogptDiag: { configured: boolean; source: string | null; checkedPaths: string[] } = {
+    configured: false,
+    source: null,
+    checkedPaths: [],
+  };
+  try {
+    nanogptDiag = await getNanoGptKeyDiagnostics();
+  } catch {
+    // ignore
+  }
+  lines.push(
+    `- nanogpt api key: configured=${nanogptDiag.configured ? "true" : "false"}${nanogptDiag.source ? ` source=${nanogptDiag.source}` : ""}${nanogptDiag.checkedPaths.length > 0 ? ` checked=${nanogptDiag.checkedPaths.join(" | ")}` : ""}`,
   );
 
   const copilotDiag = getCopilotQuotaAuthDiagnostics(authData);

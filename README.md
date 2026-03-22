@@ -5,7 +5,7 @@
 - Automatic quota toasts after assistant responses
 - Manual `/quota`, `/pricing_refresh`, and `/tokens_*` commands for deeper local reporting with zero context window pollution
 
-**Quota providers**: GitHub Copilot, OpenAI (Plus/Pro), Cursor, Qwen Code, Alibaba Coding Plan, Chutes AI, Firmware AI, Google Antigravity, and Z.ai coding plan.
+**Quota providers**: GitHub Copilot, OpenAI (Plus/Pro), Cursor, Qwen Code, Alibaba Coding Plan, Chutes AI, Firmware AI, Google Antigravity, Z.ai coding plan, and NanoGPT.
 
 **Token reports**: All models and providers in [models.dev](https://models.dev), plus deterministic local pricing for Cursor Auto/Composer and Cursor model aliases that are not on models.dev.
 
@@ -76,17 +76,18 @@ That is enough for most installs. Providers are auto-detected from your existing
 
 ### Provider Setup At A Glance
 
-| Provider | Auto setup | How it works |
-| --- | --- | --- |
-| **GitHub Copilot** | Usually | OpenCode auth; PAT only for managed billing. |
-| **OpenAI** | Yes | OpenCode auth. |
-| **Cursor** | Needs [quick setup](#cursor-quick-setup) | Companion auth plugin + `provider.cursor`. |
-| **Qwen Code** | Needs [quick setup](#qwen-code-quick-setup) | Companion auth plugin. |
-| **Alibaba Coding Plan** | Yes | OpenCode auth + local request estimation. |
-| **Firmware AI** | Usually | User/global OpenCode config or env; repo-local secrets ignored. |
-| **Chutes AI** | Usually | User/global OpenCode config or env; repo-local secrets ignored. |
-| **Google Antigravity** | Needs [quick setup](#google-antigravity-quick-setup) | Companion auth plugin. |
-| **Z.ai** | Yes | OpenCode auth. |
+| Provider                | Auto setup                                           | How it works                                                    |
+| ----------------------- | ---------------------------------------------------- | --------------------------------------------------------------- |
+| **GitHub Copilot**      | Usually                                              | OpenCode auth; PAT only for managed billing.                    |
+| **OpenAI**              | Yes                                                  | OpenCode auth.                                                  |
+| **Cursor**              | Needs [quick setup](#cursor-quick-setup)             | Companion auth plugin + `provider.cursor`.                      |
+| **Qwen Code**           | Needs [quick setup](#qwen-code-quick-setup)          | Companion auth plugin.                                          |
+| **Alibaba Coding Plan** | Yes                                                  | OpenCode auth + local request estimation.                       |
+| **Firmware AI**         | Usually                                              | User/global OpenCode config or env; repo-local secrets ignored. |
+| **Chutes AI**           | Usually                                              | User/global OpenCode config or env; repo-local secrets ignored. |
+| **Google Antigravity**  | Needs [quick setup](#google-antigravity-quick-setup) | Companion auth plugin.                                          |
+| **Z.ai**                | Yes                                                  | OpenCode auth.                                                  |
+| **NanoGPT**             | Yes                                                  | OpenCode auth (`auth.json` `"nano-gpt"` key).                   |
 
 <a id="cursor-quick-setup"></a>
 <details>
@@ -333,6 +334,32 @@ Example user/global config (`~/.config/opencode/opencode.jsonc` on Linux/macOS):
 See [Google Antigravity quick setup](#google-antigravity-quick-setup). Credentials live under the OpenCode runtime config directory.
 
 If detection looks wrong, `/quota_status` prints the candidate paths checked for `antigravity-accounts.json`.
+
+</details>
+
+<a id="nanogpt-notes"></a>
+
+<details>
+<summary><strong>NanoGPT</strong></summary>
+
+NanoGPT quota shows daily and monthly subscription usage limits.
+
+- Auth is read from `auth.json` under the `"nano-gpt"` key (type: `"api"`).
+- Also reads from `provider.nanogpt.options.apiKey` or `provider["nanogpt-custom"].options.apiKey` in global `opencode.json`.
+- Environment variable: `NANOGPT_API_KEY` (highest priority).
+- Shows both daily and monthly usage windows in grouped toast style.
+- Check `/quota_status` for `nanogpt api key` diagnostics.
+
+Example `auth.json` entry:
+
+```json
+{
+  "nano-gpt": {
+    "type": "api",
+    "key": "sk-nano-..."
+  }
+}
+```
 
 </details>
 
