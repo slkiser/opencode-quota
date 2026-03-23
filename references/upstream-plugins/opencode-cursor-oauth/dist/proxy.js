@@ -65,6 +65,7 @@ function spawnBridge(options) {
         accessToken: options.accessToken,
         url: options.url ?? CURSOR_API_URL,
         path: options.rpcPath,
+        unary: options.unary ?? false,
     });
     proc.stdin.write(lpEncode(new TextEncoder().encode(config)));
     const cbs = {
@@ -134,6 +135,7 @@ export async function callCursorUnaryRpc(options) {
         accessToken: options.accessToken,
         rpcPath: options.rpcPath,
         url: options.url,
+        unary: true,
     });
     const chunks = [];
     const { promise, resolve } = Promise.withResolvers();
@@ -160,7 +162,8 @@ export async function callCursorUnaryRpc(options) {
             timedOut,
         });
     });
-    bridge.write(frameConnectMessage(options.requestBody));
+    // Unary: send raw protobuf body (no Connect framing)
+    bridge.write(options.requestBody);
     bridge.end();
     return promise;
 }
@@ -250,14 +253,16 @@ function handleChatCompletion(body, accessToken) {
             },
         }), { status: 400, headers: { "Content-Type": "application/json" } });
     }
-    // Check for an active bridge waiting for tool results
+    // bridgeKey: model-specific, for active tool-call bridges
+    // convKey: model-independent, for conversation state that survives model switches
     const bridgeKey = deriveBridgeKey(modelId, body.messages);
+    const convKey = deriveConversationKey(body.messages);
     const activeBridge = activeBridges.get(bridgeKey);
     if (activeBridge && toolResults.length > 0) {
         activeBridges.delete(bridgeKey);
         if (activeBridge.bridge.alive) {
             // Resume the live bridge with tool results
-            return handleToolResultResume(activeBridge, toolResults, modelId, bridgeKey);
+            return handleToolResultResume(activeBridge, toolResults, modelId, bridgeKey, convKey);
         }
         // Bridge died (timeout, server disconnect, etc.).
         // Clean up and fall through to start a fresh bridge.
@@ -270,15 +275,15 @@ function handleChatCompletion(body, accessToken) {
         activeBridge.bridge.end();
         activeBridges.delete(bridgeKey);
     }
-    let stored = conversationStates.get(bridgeKey);
+    let stored = conversationStates.get(convKey);
     if (!stored) {
         stored = {
-            conversationId: crypto.randomUUID(),
+            conversationId: deterministicConversationId(convKey),
             checkpoint: null,
             blobStore: new Map(),
             lastAccessMs: Date.now(),
         };
-        conversationStates.set(bridgeKey, stored);
+        conversationStates.set(convKey, stored);
     }
     stored.lastAccessMs = Date.now();
     evictStaleConversations();
@@ -291,9 +296,9 @@ function handleChatCompletion(body, accessToken) {
     const payload = buildCursorRequest(modelId, systemPrompt, effectiveUserText, turns, stored.conversationId, stored.checkpoint, stored.blobStore);
     payload.mcpTools = mcpTools;
     if (body.stream === false) {
-        return handleNonStreamingResponse(payload, accessToken, modelId, bridgeKey);
+        return handleNonStreamingResponse(payload, accessToken, modelId, convKey);
     }
-    return handleStreamingResponse(payload, accessToken, modelId, bridgeKey);
+    return handleStreamingResponse(payload, accessToken, modelId, bridgeKey, convKey);
 }
 /** Normalize OpenAI message content to a plain string. */
 function textContent(content) {
@@ -572,10 +577,16 @@ function createThinkingTagFilter() {
         },
     };
 }
+function computeUsage(state) {
+    const completion_tokens = state.outputTokens;
+    const total_tokens = state.totalTokens || completion_tokens;
+    const prompt_tokens = Math.max(0, total_tokens - completion_tokens);
+    return { prompt_tokens, completion_tokens, total_tokens };
+}
 function processServerMessage(msg, blobStore, mcpTools, sendFrame, state, onText, onMcpExec, onCheckpoint) {
     const msgCase = msg.message.case;
     if (msgCase === "interactionUpdate") {
-        handleInteractionUpdate(msg.message.value, onText);
+        handleInteractionUpdate(msg.message.value, state, onText);
     }
     else if (msgCase === "kvServerMessage") {
         handleKvMessage(msg.message.value, blobStore, sendFrame);
@@ -583,11 +594,17 @@ function processServerMessage(msg, blobStore, mcpTools, sendFrame, state, onText
     else if (msgCase === "execServerMessage") {
         handleExecMessage(msg.message.value, mcpTools, sendFrame, onMcpExec);
     }
-    else if (msgCase === "conversationCheckpointUpdate" && onCheckpoint) {
-        onCheckpoint(toBinary(ConversationStateStructureSchema, msg.message.value));
+    else if (msgCase === "conversationCheckpointUpdate") {
+        const stateStructure = msg.message.value;
+        if (stateStructure.tokenDetails) {
+            state.totalTokens = stateStructure.tokenDetails.usedTokens;
+        }
+        if (onCheckpoint) {
+            onCheckpoint(toBinary(ConversationStateStructureSchema, stateStructure));
+        }
     }
 }
-function handleInteractionUpdate(update, onText) {
+function handleInteractionUpdate(update, state, onText) {
     const updateCase = update.message?.case;
     if (updateCase === "textDelta") {
         const delta = update.message.value.text || "";
@@ -598,6 +615,9 @@ function handleInteractionUpdate(update, onText) {
         const delta = update.message.value.text || "";
         if (delta)
             onText(delta, true);
+    }
+    else if (updateCase === "tokenDelta") {
+        state.outputTokens += update.message.value.tokens ?? 0;
     }
     // toolCallStarted, partialToolCall, toolCallDelta, toolCallCompleted
     // are intentionally ignored. MCP tool calls flow through the exec
@@ -784,15 +804,18 @@ function sendExecResult(execMsg, messageCase, value, sendFrame) {
     });
     sendFrame(frameConnectMessage(toBinary(AgentClientMessageSchema, clientMessage)));
 }
-/** Derive a stable key to associate a bridge with a conversation. */
-function deriveBridgeKey(modelId, messages) {
-    const normalizedMessages = messages
+function normalizeConversationMessages(messages) {
+    return messages
         .filter((m) => m.role !== "tool")
         .map((m) => ({
         role: m.role,
         content: textContent(m.content),
     }))
         .filter((m) => m.content || m.role === "user" || m.role === "system");
+}
+/** Derive a key for active bridge lookup (tool-call continuations). Model-specific. */
+function deriveBridgeKey(modelId, messages) {
+    const normalizedMessages = normalizeConversationMessages(messages);
     return createHash("sha256")
         .update(JSON.stringify({
         modelId,
@@ -801,8 +824,34 @@ function deriveBridgeKey(modelId, messages) {
         .digest("hex")
         .slice(0, 16);
 }
+/** Derive a key for conversation state. Model-independent so context survives model switches. */
+function deriveConversationKey(messages) {
+    const normalizedMessages = normalizeConversationMessages(messages);
+    return createHash("sha256")
+        .update(JSON.stringify({
+        messages: normalizedMessages,
+    }))
+        .digest("hex")
+        .slice(0, 16);
+}
+/** Deterministic UUID derived from convKey so Cursor's server-side conversation
+ *  persists across proxy restarts. Formats 16 bytes of SHA-256 as a v4-shaped UUID. */
+function deterministicConversationId(convKey) {
+    const hex = createHash("sha256")
+        .update(`cursor-conv-id:${convKey}`)
+        .digest("hex")
+        .slice(0, 32);
+    // Format as UUID: xxxxxxxx-xxxx-4xxx-Nxxx-xxxxxxxxxxxx
+    return [
+        hex.slice(0, 8),
+        hex.slice(8, 12),
+        `4${hex.slice(13, 16)}`,
+        `${(0x8 | (parseInt(hex[16], 16) & 0x3)).toString(16)}${hex.slice(17, 20)}`,
+        hex.slice(20, 32),
+    ].join("-");
+}
 /** Create an SSE streaming Response that reads from a live bridge. */
-function createBridgeStreamResponse(bridge, heartbeatTimer, blobStore, mcpTools, modelId, bridgeKey) {
+function createBridgeStreamResponse(bridge, heartbeatTimer, blobStore, mcpTools, modelId, bridgeKey, convKey) {
     const completionId = `chatcmpl-${crypto.randomUUID().replace(/-/g, "").slice(0, 28)}`;
     const created = Math.floor(Date.now() / 1000);
     const stream = new ReadableStream({
@@ -832,9 +881,22 @@ function createBridgeStreamResponse(bridge, heartbeatTimer, blobStore, mcpTools,
                 model: modelId,
                 choices: [{ index: 0, delta, finish_reason: finishReason }],
             });
+            const makeUsageChunk = () => {
+                const { prompt_tokens, completion_tokens, total_tokens } = computeUsage(state);
+                return {
+                    id: completionId,
+                    object: "chat.completion.chunk",
+                    created,
+                    model: modelId,
+                    choices: [],
+                    usage: { prompt_tokens, completion_tokens, total_tokens },
+                };
+            };
             const state = {
                 toolCallIndex: 0,
                 pendingExecs: [],
+                outputTokens: 0,
+                totalTokens: 0,
             };
             const tagFilter = createThinkingTagFilter();
             let mcpExecReceived = false;
@@ -886,7 +948,7 @@ function createBridgeStreamResponse(bridge, heartbeatTimer, blobStore, mcpTools,
                         sendDone();
                         closeController();
                     }, (checkpointBytes) => {
-                        const stored = conversationStates.get(bridgeKey);
+                        const stored = conversationStates.get(convKey);
                         if (stored) {
                             stored.checkpoint = checkpointBytes;
                             stored.lastAccessMs = Date.now();
@@ -905,7 +967,7 @@ function createBridgeStreamResponse(bridge, heartbeatTimer, blobStore, mcpTools,
             bridge.onData(processChunk);
             bridge.onClose((code) => {
                 clearInterval(heartbeatTimer);
-                const stored = conversationStates.get(bridgeKey);
+                const stored = conversationStates.get(convKey);
                 if (stored) {
                     for (const [k, v] of blobStore)
                         stored.blobStore.set(k, v);
@@ -918,6 +980,7 @@ function createBridgeStreamResponse(bridge, heartbeatTimer, blobStore, mcpTools,
                     if (flushed.content)
                         sendSSE(makeChunk({ content: flushed.content }));
                     sendSSE(makeChunk({}, "stop"));
+                    sendSSE(makeUsageChunk());
                     sendDone();
                     closeController();
                 }
@@ -926,6 +989,7 @@ function createBridgeStreamResponse(bridge, heartbeatTimer, blobStore, mcpTools,
                     // Close the SSE stream so the client doesn't hang forever.
                     sendSSE(makeChunk({ content: "\n[Error: bridge connection lost]" }));
                     sendSSE(makeChunk({}, "stop"));
+                    sendSSE(makeUsageChunk());
                     sendDone();
                     closeController();
                     // Remove stale entry so the next request doesn't try to resume it.
@@ -946,12 +1010,12 @@ function startBridge(accessToken, requestBytes) {
     const heartbeatTimer = setInterval(() => bridge.write(makeHeartbeatBytes()), 5_000);
     return { bridge, heartbeatTimer };
 }
-function handleStreamingResponse(payload, accessToken, modelId, bridgeKey) {
+function handleStreamingResponse(payload, accessToken, modelId, bridgeKey, convKey) {
     const { bridge, heartbeatTimer } = startBridge(accessToken, payload.requestBytes);
-    return createBridgeStreamResponse(bridge, heartbeatTimer, payload.blobStore, payload.mcpTools, modelId, bridgeKey);
+    return createBridgeStreamResponse(bridge, heartbeatTimer, payload.blobStore, payload.mcpTools, modelId, bridgeKey, convKey);
 }
 /** Resume a paused bridge by sending MCP results and continuing to stream. */
-function handleToolResultResume(active, toolResults, modelId, bridgeKey) {
+function handleToolResultResume(active, toolResults, modelId, bridgeKey, convKey) {
     const { bridge, heartbeatTimer, blobStore, mcpTools, pendingExecs } = active;
     // Send mcpResult for each pending exec that has a matching tool result
     for (const exec of pendingExecs) {
@@ -992,12 +1056,12 @@ function handleToolResultResume(active, toolResults, modelId, bridgeKey) {
         });
         bridge.write(frameConnectMessage(toBinary(AgentClientMessageSchema, clientMessage)));
     }
-    return createBridgeStreamResponse(bridge, heartbeatTimer, blobStore, mcpTools, modelId, bridgeKey);
+    return createBridgeStreamResponse(bridge, heartbeatTimer, blobStore, mcpTools, modelId, bridgeKey, convKey);
 }
-async function handleNonStreamingResponse(payload, accessToken, modelId, bridgeKey) {
+async function handleNonStreamingResponse(payload, accessToken, modelId, convKey) {
     const completionId = `chatcmpl-${crypto.randomUUID().replace(/-/g, "").slice(0, 28)}`;
     const created = Math.floor(Date.now() / 1000);
-    const fullText = await collectFullResponse(payload, accessToken, bridgeKey);
+    const { text, usage } = await collectFullResponse(payload, accessToken, convKey);
     return new Response(JSON.stringify({
         id: completionId,
         object: "chat.completion",
@@ -1006,24 +1070,22 @@ async function handleNonStreamingResponse(payload, accessToken, modelId, bridgeK
         choices: [
             {
                 index: 0,
-                message: { role: "assistant", content: fullText },
+                message: { role: "assistant", content: text },
                 finish_reason: "stop",
             },
         ],
-        usage: {
-            prompt_tokens: 0,
-            completion_tokens: 0,
-            total_tokens: 0,
-        },
+        usage,
     }), { headers: { "Content-Type": "application/json" } });
 }
-async function collectFullResponse(payload, accessToken, bridgeKey) {
+async function collectFullResponse(payload, accessToken, convKey) {
     const { promise, resolve } = Promise.withResolvers();
     let fullText = "";
     const { bridge, heartbeatTimer } = startBridge(accessToken, payload.requestBytes);
     const state = {
         toolCallIndex: 0,
         pendingExecs: [],
+        outputTokens: 0,
+        totalTokens: 0,
     };
     const tagFilter = createThinkingTagFilter();
     bridge.onData(createConnectFrameParser((messageBytes) => {
@@ -1035,7 +1097,7 @@ async function collectFullResponse(payload, accessToken, bridgeKey) {
                 const { content } = tagFilter.process(text);
                 fullText += content;
             }, () => { }, (checkpointBytes) => {
-                const stored = conversationStates.get(bridgeKey);
+                const stored = conversationStates.get(convKey);
                 if (stored) {
                     stored.checkpoint = checkpointBytes;
                     stored.lastAccessMs = Date.now();
@@ -1048,7 +1110,7 @@ async function collectFullResponse(payload, accessToken, bridgeKey) {
     }, () => { }));
     bridge.onClose(() => {
         clearInterval(heartbeatTimer);
-        const stored = conversationStates.get(bridgeKey);
+        const stored = conversationStates.get(convKey);
         if (stored) {
             for (const [k, v] of payload.blobStore)
                 stored.blobStore.set(k, v);
@@ -1056,7 +1118,11 @@ async function collectFullResponse(payload, accessToken, bridgeKey) {
         }
         const flushed = tagFilter.flush();
         fullText += flushed.content;
-        resolve(fullText);
+        const usage = computeUsage(state);
+        resolve({
+            text: fullText,
+            usage,
+        });
     });
     return promise;
 }

@@ -188,6 +188,12 @@ describe("upstream-plugin-sync", () => {
     await expect(readFile(path.join(referenceRoot, "opencode-cursor-oauth", "package.json"), "utf8")).resolves.toContain(
       "\"name\": \"opencode-cursor-oauth\"",
     );
+    await expect(readFile(path.join(referenceRoot, "opencode-cursor-oauth", "dist", "models.js"), "utf8")).resolves.toContain(
+      "if (discovered && discovered.length > 0) {",
+    );
+    await expect(readFile(path.join(referenceRoot, "opencode-cursor-oauth", "dist", "proxy.js"), "utf8")).resolves.toContain(
+      "messages: normalizedMessages",
+    );
     await expect(readFile(path.join(referenceRoot, "lock.json"), "utf8")).resolves.toContain("\"version\": \"2.0.0\"");
   });
 

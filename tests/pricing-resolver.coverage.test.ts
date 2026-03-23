@@ -10,6 +10,7 @@ import {
 import {
   CURSOR_OFFICIAL_MODEL_ALIASES,
   lookupCursorLocalCost,
+  resolveCursorModel,
 } from "../src/lib/cursor-pricing.js";
 import { resolvePricingKey } from "../src/lib/quota-stats.js";
 
@@ -18,10 +19,7 @@ const CURSOR_UPSTREAM_MODELS_PATH = new URL(
   import.meta.url,
 );
 
-const CURSOR_UPSTREAM_INTENTIONALLY_UNKNOWN_MODELS = new Set([
-  "claude-4-sonnet",
-  "grok-4.20",
-]);
+const CURSOR_UPSTREAM_INTENTIONALLY_UNKNOWN_MODELS = new Set<string>();
 
 function getCursorUpstreamFallbackModelIds(): string[] {
   const source = readFileSync(CURSOR_UPSTREAM_MODELS_PATH, "utf8");
@@ -348,20 +346,59 @@ describe("resolvePricingKey snapshot coverage", () => {
     const failures: string[] = [];
 
     for (const modelID of fallbackModelIds) {
-      const resolved = resolvePricingKey({
+      const resolvedModel = resolveCursorModel(`cursor/${modelID}`);
+      const resolvedPricing = resolvePricingKey({
         providerID: "cursor",
         modelID: `cursor/${modelID}`,
       });
 
-      if (resolved.ok) {
-        if (CURSOR_UPSTREAM_INTENTIONALLY_UNKNOWN_MODELS.has(modelID)) {
-          failures.push(`${modelID} -> resolved but still allowlisted as intentionally unknown`);
+      if (resolvedModel.kind === "unknown") {
+        if (!CURSOR_UPSTREAM_INTENTIONALLY_UNKNOWN_MODELS.has(modelID)) {
+          failures.push(`${modelID} -> resolveCursorModel() returned unknown`);
         }
         continue;
       }
 
-      if (!CURSOR_UPSTREAM_INTENTIONALLY_UNKNOWN_MODELS.has(modelID)) {
-        failures.push(`${modelID} -> unresolved upstream fallback model`);
+      if (CURSOR_UPSTREAM_INTENTIONALLY_UNKNOWN_MODELS.has(modelID)) {
+        failures.push(`${modelID} -> resolved but still allowlisted as intentionally unknown`);
+        continue;
+      }
+
+      if (resolvedModel.kind === "local") {
+        if (!lookupCursorLocalCost(resolvedModel.model)) {
+          failures.push(`${modelID} -> missing local Cursor pricing bucket`);
+        }
+        if (!resolvedPricing.ok) {
+          failures.push(`${modelID} -> resolvePricingKey() was unresolved`);
+        }
+        continue;
+      }
+
+      const cost = lookupCost(resolvedModel.providerHint, resolvedModel.modelHint);
+      if (!cost) {
+        failures.push(
+          `${modelID} -> missing priced snapshot key ${resolvedModel.providerHint}/${resolvedModel.modelHint}`,
+        );
+        continue;
+      }
+
+      if (!resolvedPricing.ok) {
+        failures.push(`${modelID} -> resolvePricingKey() was unresolved`);
+        continue;
+      }
+
+      if (resolvedPricing.method !== "cursor_api_alias") {
+        failures.push(`${modelID} -> unexpected resolvePricingKey() method ${resolvedPricing.method}`);
+        continue;
+      }
+
+      if (
+        resolvedPricing.key.provider !== resolvedModel.providerHint ||
+        resolvedPricing.key.model !== resolvedModel.modelHint
+      ) {
+        failures.push(
+          `${modelID} -> ${resolvedPricing.key.provider}/${resolvedPricing.key.model} (expected ${resolvedModel.providerHint}/${resolvedModel.modelHint})`,
+        );
       }
     }
 

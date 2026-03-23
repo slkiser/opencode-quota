@@ -88,4 +88,26 @@ describe("cursor usage", () => {
     expect(summary.api.messageCount).toBe(0);
     expect(summary.unknownModels).toEqual([]);
   });
+
+  it("treats new Cursor official fallback aliases as api usage instead of unknown models", async () => {
+    const { iterAssistantMessages } = await import("../src/lib/opencode-storage.js");
+    (iterAssistantMessages as any).mockResolvedValue([
+      {
+        role: "assistant",
+        providerID: "cursor",
+        modelID: "cursor/gpt-5.3-codex-spark-preview",
+        tokens: { input: 1_000_000, output: 1_000_000, cache: { read: 0, write: 0 } },
+      },
+    ]);
+
+    const summary = await getCurrentCursorUsageSummary({
+      nowMs: new Date(2026, 2, 19, 10, 0, 0, 0).getTime(),
+      billingCycleStartDay: 7,
+    });
+
+    expect(summary.autoComposer.messageCount).toBe(0);
+    expect(summary.api.messageCount).toBe(1);
+    expect(summary.api.costUsd).toBeCloseTo(15.75, 6);
+    expect(summary.unknownModels).toEqual([]);
+  });
 });

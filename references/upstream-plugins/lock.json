@@ -9,12 +9,12 @@
       "version": "1.6.0"
     },
     "opencode-cursor-oauth": {
-      "npmUrl": "https://www.npmjs.com/package/opencode-cursor-oauth/v/0.0.7",
+      "npmUrl": "https://www.npmjs.com/package/opencode-cursor-oauth/v/0.0.9",
       "packageName": "opencode-cursor-oauth",
-      "publishedAt": "2026-03-21T17:25:59.818Z",
+      "publishedAt": "2026-03-22T20:35:43.105Z",
       "referenceDir": "references/upstream-plugins/opencode-cursor-oauth",
       "repo": "ephraimduncan/opencode-cursor",
-      "version": "0.0.7"
+      "version": "0.0.9"
     },
     "opencode-qwencode-auth": {
       "npmUrl": "https://www.npmjs.com/package/opencode-qwencode-auth/v/1.3.0",
