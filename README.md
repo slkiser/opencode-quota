@@ -341,14 +341,15 @@ If detection looks wrong, `/quota_status` prints the candidate paths checked for
 <details>
 <summary><strong>NanoGPT</strong></summary>
 
-NanoGPT uses live NanoGPT subscription usage and balance endpoints, so `/quota`, grouped/classic toasts, and `/quota_status` can show daily quota, monthly quota, and account balance in real time.
+NanoGPT uses the live NanoGPT subscription usage endpoint, so `/quota`, grouped/classic toasts, and `/quota_status` show weekly input token usage as the primary quota, daily image usage, and daily input token usage only when the API returns it.
 
 - Canonical provider id is `nanogpt`. Alias `nano-gpt` also normalizes in `enabledProviders`.
 - Optional API key: `provider.nanogpt.options.apiKey` or `provider["nano-gpt"].options.apiKey`.
 - For security, provider secrets are read from `NANOGPT_API_KEY`, `NANO_GPT_API_KEY`, your user/global OpenCode config, or `auth.json`. Repo-local `opencode.json` / `opencode.jsonc` is ignored for NanoGPT secrets.
 - Allowed env templates are limited to `{env:NANOGPT_API_KEY}` and `{env:NANO_GPT_API_KEY}`.
-- `/quota_status` prints a `nanogpt` section with API-key diagnostics, auth candidate paths, live subscription state, daily/monthly usage windows, endpoint errors, and balance details.
-- NanoGPT quota reflects subscription-covered requests and account balance. It is not token-priced in `/tokens_*`.
+- `/quota_status` prints a `nanogpt` section with API-key diagnostics, auth candidate paths, live subscription state, weekly token usage, daily image usage, and optional daily token usage.
+- Balance is intentionally not used for `/quota`, grouped/classic toasts, or `/quota_status`.
+- NanoGPT quota reflects subscription usage windows and is not token-priced in `/tokens_*`.
 
 Example user/global config (`~/.config/opencode/opencode.jsonc` on Linux/macOS):
 

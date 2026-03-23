@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { queryNanoGptQuota } from "../src/lib/nanogpt.js";
 
@@ -8,6 +8,11 @@ vi.mock("../src/lib/nanogpt-config.js", () => ({
   getNanoGptKeyDiagnostics: vi.fn(),
 }));
 
+afterEach(() => {
+  vi.clearAllMocks();
+  vi.unstubAllGlobals();
+});
+
 describe("queryNanoGptQuota", () => {
   it("returns null when not configured", async () => {
     const { resolveNanoGptApiKey } = await import("../src/lib/nanogpt-config.js");
@@ -16,7 +21,7 @@ describe("queryNanoGptQuota", () => {
     await expect(queryNanoGptQuota()).resolves.toBeNull();
   });
 
-  it("returns usage and balance when both endpoints succeed", async () => {
+  it("returns weekly, image, and daily token usage from the subscription endpoint", async () => {
     const { resolveNanoGptApiKey } = await import("../src/lib/nanogpt-config.js");
     (resolveNanoGptApiKey as any).mockResolvedValueOnce({
       key: "nano-key",
@@ -24,84 +29,79 @@ describe("queryNanoGptQuota", () => {
     });
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes("/subscription/v1/usage")) {
-        expect(init?.method).toBe("GET");
-        expect((init?.headers as Record<string, string>)["x-api-key"]).toBe("nano-key");
-        return new Response(
-          JSON.stringify({
-            active: true,
-            limits: { daily: 5000, monthly: 60000 },
-            enforceDailyLimit: true,
-            daily: {
-              used: 50,
-              remaining: 4950,
-              percentUsed: 0.01,
-              resetAt: 1_738_540_800_000,
-            },
-            monthly: {
-              used: 1000,
-              remaining: 59000,
-              percentUsed: 0.0167,
-              resetAt: 1_739_404_800_000,
-            },
-            period: {
-              currentPeriodEnd: "2025-02-13T23:59:59.000Z",
-            },
-            state: "active",
-            graceUntil: null,
-          }),
-          { status: 200 },
-        );
-      }
-
-      expect(url).toContain("/check-balance");
-      expect(init?.method).toBe("POST");
+      expect(String(input)).toContain("/subscription/v1/usage");
+      expect(init?.method).toBe("GET");
       expect((init?.headers as Record<string, string>)["x-api-key"]).toBe("nano-key");
+
       return new Response(
         JSON.stringify({
-          usd_balance: "129.46956147",
-          nano_balance: "26.71801147",
+          active: true,
+          limits: {
+            weeklyInputTokens: 60_000_000,
+            dailyInputTokens: 250_000,
+            dailyImages: 100,
+          },
+          enforceDailyLimit: true,
+          weeklyInputTokens: {
+            used: 59_650_170,
+            remaining: 349_830,
+            percentUsed: 0.9941695,
+            resetAt: 1_738_540_800_000,
+          },
+          dailyInputTokens: {
+            used: 25_000,
+            remaining: 225_000,
+            percentUsed: 0.1,
+            resetAt: 1_738_540_800_000,
+          },
+          dailyImages: {
+            used: 0,
+            remaining: 100,
+            percentUsed: 0,
+            resetAt: 1_738_540_800_000,
+          },
+          state: "active",
+          graceUntil: null,
         }),
         { status: 200 },
       );
     });
     vi.stubGlobal("fetch", fetchMock as any);
 
-    const out = await queryNanoGptQuota();
-    expect(out).toEqual({
+    await expect(queryNanoGptQuota()).resolves.toEqual({
       success: true,
       subscription: {
         active: true,
         state: "active",
         enforceDailyLimit: true,
-        daily: {
-          used: 50,
-          limit: 5000,
-          remaining: 4950,
-          percentRemaining: 99,
+        weeklyInputTokens: {
+          used: 59_650_170,
+          limit: 60_000_000,
+          remaining: 349_830,
+          percentRemaining: 1,
           resetTimeIso: "2025-02-03T00:00:00.000Z",
         },
-        monthly: {
-          used: 1000,
-          limit: 60000,
-          remaining: 59000,
-          percentRemaining: 98,
-          resetTimeIso: "2025-02-13T00:00:00.000Z",
+        dailyImages: {
+          used: 0,
+          limit: 100,
+          remaining: 100,
+          percentRemaining: 100,
+          resetTimeIso: "2025-02-03T00:00:00.000Z",
         },
-        currentPeriodEndIso: "2025-02-13T23:59:59.000Z",
+        dailyInputTokens: {
+          used: 25_000,
+          limit: 250_000,
+          remaining: 225_000,
+          percentRemaining: 90,
+          resetTimeIso: "2025-02-03T00:00:00.000Z",
+        },
         graceUntilIso: undefined,
       },
-      balance: {
-        usdBalance: 129.46956147,
-        usdBalanceRaw: "129.46956147",
-        nanoBalanceRaw: "26.71801147",
-      },
-      endpointErrors: undefined,
     });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("returns partial success when usage succeeds and balance fails", async () => {
+  it("omits daily token usage when the API does not return it", async () => {
     const { resolveNanoGptApiKey } = await import("../src/lib/nanogpt-config.js");
     (resolveNanoGptApiKey as any).mockResolvedValueOnce({
       key: "nano-key",
@@ -110,101 +110,63 @@ describe("queryNanoGptQuota", () => {
 
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("/subscription/v1/usage")) {
-          return new Response(
-            JSON.stringify({
-              active: false,
-              limits: { daily: 100, monthly: 1000 },
-              enforceDailyLimit: true,
-              daily: {
-                used: 100,
-                remaining: 0,
-                percentUsed: 1,
-                resetAt: 1_735_776_000_000,
-              },
-              state: "grace",
-              graceUntil: "2026-01-09T00:00:00.000Z",
-            }),
-            { status: 200 },
-          );
-        }
-        return new Response("Unauthorized", { status: 401 });
-      }) as any,
-    );
-
-    const out = await queryNanoGptQuota();
-    expect(out).toEqual({
-      success: true,
-      subscription: {
-        active: false,
-        state: "grace",
-        enforceDailyLimit: true,
-        daily: {
-          used: 100,
-          limit: 100,
-          remaining: 0,
-          percentRemaining: 0,
-          resetTimeIso: "2025-01-02T00:00:00.000Z",
-        },
-        monthly: undefined,
-        currentPeriodEndIso: undefined,
-        graceUntilIso: "2026-01-09T00:00:00.000Z",
-      },
-      balance: undefined,
-      endpointErrors: [
-        {
-          endpoint: "balance",
-          message: "NanoGPT API error 401: Unauthorized",
-        },
-      ],
-    });
-  });
-
-  it("returns partial success when balance succeeds and usage fails", async () => {
-    const { resolveNanoGptApiKey } = await import("../src/lib/nanogpt-config.js");
-    (resolveNanoGptApiKey as any).mockResolvedValueOnce({
-      key: "nano-key",
-      source: "env:NANOGPT_API_KEY",
-    });
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("/subscription/v1/usage")) {
-          return new Response("bad gateway", { status: 502 });
-        }
+      vi.fn(async () => {
         return new Response(
           JSON.stringify({
-            usd_balance: "12.50",
-            nano_balance: "3.25",
+            active: false,
+            limits: {
+              weeklyInputTokens: 60_000_000,
+              dailyImages: 100,
+            },
+            enforceDailyLimit: true,
+            weeklyInputTokens: {
+              used: 500,
+              remaining: 59_999_500,
+              percentUsed: 0.000008333333333333334,
+              resetAt: 1_735_776_000_000,
+            },
+            dailyInputTokens: null,
+            dailyImages: {
+              used: 25,
+              remaining: 75,
+              percentUsed: 0.25,
+              resetAt: 1_735_776_000_000,
+            },
+            state: "grace",
+            graceUntil: "2026-01-09T00:00:00.000Z",
           }),
           { status: 200 },
         );
       }) as any,
     );
 
-    const out = await queryNanoGptQuota();
-    expect(out).toEqual({
+    await expect(queryNanoGptQuota()).resolves.toEqual({
       success: true,
-      subscription: undefined,
-      balance: {
-        usdBalance: 12.5,
-        usdBalanceRaw: "12.50",
-        nanoBalanceRaw: "3.25",
-      },
-      endpointErrors: [
-        {
-          endpoint: "usage",
-          message: "NanoGPT API error 502: bad gateway",
+      subscription: {
+        active: false,
+        state: "grace",
+        enforceDailyLimit: true,
+        weeklyInputTokens: {
+          used: 500,
+          limit: 60_000_000,
+          remaining: 59_999_500,
+          percentRemaining: 100,
+          resetTimeIso: "2025-01-02T00:00:00.000Z",
         },
-      ],
+        dailyImages: {
+          used: 25,
+          limit: 100,
+          remaining: 75,
+          percentRemaining: 75,
+          resetTimeIso: "2025-01-02T00:00:00.000Z",
+        },
+        dailyInputTokens: undefined,
+        graceUntilIso: "2026-01-09T00:00:00.000Z",
+      },
     });
   });
 
-  it("returns a combined error when both endpoints fail", async () => {
+  it("returns an error for unexpected response shapes", async () => {
     const { resolveNanoGptApiKey } = await import("../src/lib/nanogpt-config.js");
     (resolveNanoGptApiKey as any).mockResolvedValueOnce({
       key: "nano-key",
@@ -213,22 +175,16 @@ describe("queryNanoGptQuota", () => {
 
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        return new Response(url.includes("/subscription/v1/usage") ? "usage failed" : "balance failed", {
-          status: url.includes("/subscription/v1/usage") ? 500 : 403,
-        });
-      }) as any,
+      vi.fn(async () => new Response(JSON.stringify({ nope: true }), { status: 200 })) as any,
     );
 
     await expect(queryNanoGptQuota()).resolves.toEqual({
       success: false,
-      error:
-        "Usage: NanoGPT API error 500: usage failed; Balance: NanoGPT API error 403: balance failed",
+      error: "NanoGPT usage response returned an unexpected response shape",
     });
   });
 
-  it("treats unexpected response shapes as endpoint errors", async () => {
+  it("returns API errors when the usage endpoint fails", async () => {
     const { resolveNanoGptApiKey } = await import("../src/lib/nanogpt-config.js");
     (resolveNanoGptApiKey as any).mockResolvedValueOnce({
       key: "nano-key",
@@ -237,29 +193,12 @@ describe("queryNanoGptQuota", () => {
 
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("/subscription/v1/usage")) {
-          return new Response(JSON.stringify({ nope: true }), { status: 200 });
-        }
-        return new Response(JSON.stringify({ usd_balance: "5.00" }), { status: 200 });
-      }) as any,
+      vi.fn(async () => new Response("bad gateway", { status: 502 })) as any,
     );
 
     await expect(queryNanoGptQuota()).resolves.toEqual({
-      success: true,
-      subscription: undefined,
-      balance: {
-        usdBalance: 5,
-        usdBalanceRaw: "5.00",
-        nanoBalanceRaw: undefined,
-      },
-      endpointErrors: [
-        {
-          endpoint: "usage",
-          message: "NanoGPT usage response returned an unexpected response shape",
-        },
-      ],
+      success: false,
+      error: "NanoGPT API error 502: bad gateway",
     });
   });
 
@@ -274,7 +213,7 @@ describe("queryNanoGptQuota", () => {
 
     await expect(queryNanoGptQuota()).resolves.toEqual({
       success: false,
-      error: "Usage: network down; Balance: network down",
+      error: "network down",
     });
   });
 });

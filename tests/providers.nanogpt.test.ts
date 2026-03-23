@@ -10,12 +10,6 @@ import { nanoGptProvider } from "../src/providers/nanogpt.js";
 vi.mock("../src/lib/nanogpt.js", () => ({
   queryNanoGptQuota: vi.fn(),
   hasNanoGptApiKeyConfigured: vi.fn(),
-  formatNanoGptBalanceValue: vi.fn((balance: { usdBalance?: number; nanoBalanceRaw?: string }) => {
-    if (typeof balance.usdBalance === "number") {
-      return `$${balance.usdBalance.toFixed(2)}`;
-    }
-    return balance.nanoBalanceRaw ? `${balance.nanoBalanceRaw} NANO` : null;
-  }),
 }));
 
 describe("nanogpt provider", () => {
@@ -27,7 +21,7 @@ describe("nanogpt provider", () => {
     expectNotAttempted(out);
   });
 
-  it("maps grouped rows for daily, monthly, and balance", async () => {
+  it("maps grouped rows for weekly tokens, daily images, and daily tokens", async () => {
     const { queryNanoGptQuota } = await import("../src/lib/nanogpt.js");
     (queryNanoGptQuota as any).mockResolvedValueOnce({
       success: true,
@@ -35,23 +29,27 @@ describe("nanogpt provider", () => {
         active: true,
         state: "active",
         enforceDailyLimit: true,
-        daily: {
+        weeklyInputTokens: {
           used: 5,
-          limit: 5000,
-          remaining: 4995,
+          limit: 60_000_000,
+          remaining: 59_999_995,
           percentRemaining: 100,
           resetTimeIso: "2026-01-02T00:00:00.000Z",
         },
-        monthly: {
-          used: 50,
-          limit: 60000,
-          remaining: 59950,
-          percentRemaining: 100,
-          resetTimeIso: "2026-02-01T00:00:00.000Z",
+        dailyImages: {
+          used: 1,
+          limit: 100,
+          remaining: 99,
+          percentRemaining: 99,
+          resetTimeIso: "2026-01-02T00:00:00.000Z",
         },
-      },
-      balance: {
-        usdBalance: 12.34,
+        dailyInputTokens: {
+          used: 25_000,
+          limit: 250_000,
+          remaining: 225_000,
+          percentRemaining: 90,
+          resetTimeIso: "2026-01-02T00:00:00.000Z",
+        },
       },
     });
 
@@ -59,32 +57,33 @@ describe("nanogpt provider", () => {
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toEqual([
       {
-        name: "NanoGPT Daily",
+        name: "NanoGPT Weekly Tokens",
         group: "NanoGPT",
-        label: "Daily:",
-        right: "5/5000",
+        label: "Weekly:",
+        right: "5/60000000",
         percentRemaining: 100,
         resetTimeIso: "2026-01-02T00:00:00.000Z",
       },
       {
-        name: "NanoGPT Monthly",
+        name: "NanoGPT Daily Images",
         group: "NanoGPT",
-        label: "Monthly:",
-        right: "50/60000",
-        percentRemaining: 100,
-        resetTimeIso: "2026-02-01T00:00:00.000Z",
+        label: "Images:",
+        right: "1/100",
+        percentRemaining: 99,
+        resetTimeIso: "2026-01-02T00:00:00.000Z",
       },
       {
-        kind: "value",
-        name: "NanoGPT Balance",
+        name: "NanoGPT Daily Tokens",
         group: "NanoGPT",
-        label: "Balance:",
-        value: "$12.34",
+        label: "Daily Tokens:",
+        right: "25000/250000",
+        percentRemaining: 90,
+        resetTimeIso: "2026-01-02T00:00:00.000Z",
       },
     ]);
   });
 
-  it("maps classic rows for daily, monthly, and balance", async () => {
+  it("maps classic rows in fixed primary order", async () => {
     const { queryNanoGptQuota } = await import("../src/lib/nanogpt.js");
     (queryNanoGptQuota as any).mockResolvedValueOnce({
       success: true,
@@ -92,23 +91,27 @@ describe("nanogpt provider", () => {
         active: true,
         state: "active",
         enforceDailyLimit: true,
-        daily: {
+        weeklyInputTokens: {
+          used: 59_650_170,
+          limit: 60_000_000,
+          remaining: 349_830,
+          percentRemaining: 1,
+          resetTimeIso: "2026-01-02T00:00:00.000Z",
+        },
+        dailyImages: {
+          used: 75,
+          limit: 100,
+          remaining: 25,
+          percentRemaining: 25,
+          resetTimeIso: "2026-01-02T00:00:00.000Z",
+        },
+        dailyInputTokens: {
           used: 2.5,
           limit: 10,
           remaining: 7.5,
           percentRemaining: 75,
           resetTimeIso: "2026-01-02T00:00:00.000Z",
         },
-        monthly: {
-          used: 25,
-          limit: 100,
-          remaining: 75,
-          percentRemaining: 75,
-          resetTimeIso: "2026-02-01T00:00:00.000Z",
-        },
-      },
-      balance: {
-        nanoBalanceRaw: "3.20",
       },
     });
 
@@ -116,32 +119,32 @@ describe("nanogpt provider", () => {
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toEqual([
       {
-        name: "NanoGPT Daily",
-        percentRemaining: 75,
+        name: "NanoGPT Weekly Tokens",
+        percentRemaining: 1,
         resetTimeIso: "2026-01-02T00:00:00.000Z",
       },
       {
-        name: "NanoGPT Monthly",
-        percentRemaining: 75,
-        resetTimeIso: "2026-02-01T00:00:00.000Z",
+        name: "NanoGPT Daily Images",
+        percentRemaining: 25,
+        resetTimeIso: "2026-01-02T00:00:00.000Z",
       },
       {
-        kind: "value",
-        name: "NanoGPT Balance",
-        value: "3.20 NANO",
+        name: "NanoGPT Daily Tokens",
+        percentRemaining: 75,
+        resetTimeIso: "2026-01-02T00:00:00.000Z",
       },
     ]);
   });
 
-  it("maps partial endpoint errors and non-active subscription state", async () => {
+  it("reports missing weekly usage without hiding secondary windows", async () => {
     const { queryNanoGptQuota } = await import("../src/lib/nanogpt.js");
     (queryNanoGptQuota as any).mockResolvedValueOnce({
       success: true,
       subscription: {
-        active: false,
-        state: "grace",
+        active: true,
+        state: "active",
         enforceDailyLimit: true,
-        daily: {
+        dailyImages: {
           used: 100,
           limit: 100,
           remaining: 0,
@@ -149,21 +152,15 @@ describe("nanogpt provider", () => {
           resetTimeIso: "2026-01-02T00:00:00.000Z",
         },
       },
-      endpointErrors: [
-        {
-          endpoint: "balance",
-          message: "NanoGPT API error 401: Unauthorized",
-        },
-      ],
     });
 
     const out = await nanoGptProvider.fetch({ config: { toastStyle: "grouped" } } as any);
     expect(out.attempted).toBe(true);
     expect(out.entries).toEqual([
       {
-        name: "NanoGPT Daily",
+        name: "NanoGPT Daily Images",
         group: "NanoGPT",
-        label: "Daily:",
+        label: "Images:",
         right: "100/100",
         percentRemaining: 0,
         resetTimeIso: "2026-01-02T00:00:00.000Z",
@@ -171,9 +168,42 @@ describe("nanogpt provider", () => {
     ]);
     expect(out.errors).toEqual([
       {
-        label: "NanoGPT Balance",
-        message: "NanoGPT API error 401: Unauthorized",
+        label: "NanoGPT",
+        message: "Weekly input token usage unavailable from NanoGPT subscription API",
       },
+    ]);
+  });
+
+  it("reports non-active subscription state as a soft error", async () => {
+    const { queryNanoGptQuota } = await import("../src/lib/nanogpt.js");
+    (queryNanoGptQuota as any).mockResolvedValueOnce({
+      success: true,
+      subscription: {
+        active: false,
+        state: "grace",
+        enforceDailyLimit: true,
+        weeklyInputTokens: {
+          used: 100,
+          limit: 60_000_000,
+          remaining: 59_999_900,
+          percentRemaining: 100,
+          resetTimeIso: "2026-01-02T00:00:00.000Z",
+        },
+      },
+    });
+
+    const out = await nanoGptProvider.fetch({ config: { toastStyle: "grouped" } } as any);
+    expect(out.entries).toEqual([
+      {
+        name: "NanoGPT Weekly Tokens",
+        group: "NanoGPT",
+        label: "Weekly:",
+        right: "100/60000000",
+        percentRemaining: 100,
+        resetTimeIso: "2026-01-02T00:00:00.000Z",
+      },
+    ]);
+    expect(out.errors).toEqual([
       {
         label: "NanoGPT",
         message: "Subscription state: grace",
@@ -185,7 +215,7 @@ describe("nanogpt provider", () => {
     const { queryNanoGptQuota } = await import("../src/lib/nanogpt.js");
     (queryNanoGptQuota as any).mockResolvedValueOnce({
       success: false,
-      error: "Usage: Unauthorized; Balance: Unauthorized",
+      error: "NanoGPT API error 401: Unauthorized",
     });
 
     const out = await nanoGptProvider.fetch({} as any);
@@ -206,6 +236,12 @@ describe("nanogpt provider", () => {
     const out = await nanoGptProvider.fetch({ config: {} } as any);
     expectAttemptedWithErrorLabel(out, "NanoGPT");
     expect(out.entries).toEqual([]);
+    expect(out.errors).toEqual([
+      {
+        label: "NanoGPT",
+        message: "No usable NanoGPT subscription usage data",
+      },
+    ]);
   });
 
   it("matches NanoGPT model ids", () => {

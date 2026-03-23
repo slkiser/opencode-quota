@@ -301,11 +301,11 @@ describe("buildQuotaStatusReport", () => {
       "- remaining_quota_note: valid PAT access can query billing usage, but pooled org usage does not provide a true per-user remaining quota",
     );
     expect(report).toContain(
-      "- nanogpt: pricing=no (subscription request quota + account balance (not token-priced))",
+      "- nanogpt: pricing=no (subscription usage windows (weekly tokens, daily images, optional daily tokens; not token-priced))",
     );
   });
 
-  it("reports NanoGPT live subscription and balance diagnostics when configured", async () => {
+  it("reports NanoGPT live subscription usage diagnostics when configured", async () => {
     nanoGptMocks.getNanoGptKeyDiagnostics.mockResolvedValueOnce({
       configured: true,
       source: "env:NANOGPT_API_KEY",
@@ -318,34 +318,23 @@ describe("buildQuotaStatusReport", () => {
         active: false,
         state: "grace",
         enforceDailyLimit: true,
-        daily: {
-          used: 5,
-          limit: 5000,
-          remaining: 4995,
-          percentRemaining: 100,
+        weeklyInputTokens: {
+          used: 59_650_170,
+          limit: 60_000_000,
+          remaining: 349_830,
+          percentRemaining: 1,
           resetTimeIso: "2026-01-02T00:00:00.000Z",
         },
-        monthly: {
-          used: 45,
-          limit: 60000,
-          remaining: 59955,
-          percentRemaining: 100,
+        dailyImages: {
+          used: 5,
+          limit: 100,
+          remaining: 95,
+          percentRemaining: 95,
           resetTimeIso: "2026-02-01T00:00:00.000Z",
         },
-        currentPeriodEndIso: "2026-02-13T23:59:59.000Z",
+        dailyInputTokens: undefined,
         graceUntilIso: "2026-01-09T00:00:00.000Z",
       },
-      balance: {
-        usdBalance: 129.46956147,
-        usdBalanceRaw: "129.46956147",
-        nanoBalanceRaw: "26.71801147",
-      },
-      endpointErrors: [
-        {
-          endpoint: "balance",
-          message: "NanoGPT API error 401: Unauthorized",
-        },
-      ],
     });
 
     const { buildQuotaStatusReport } = await import("../src/lib/quota-status.js");
@@ -375,16 +364,18 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- subscription_state: grace");
     expect(report).toContain("- enforce_daily_limit: true");
     expect(report).toContain(
-      "- daily_usage: 5/5000 remaining=4995 percent_remaining=100 reset_at=2026-01-02T00:00:00.000Z",
+      "- weekly_input_tokens_usage: 59650170/60000000 remaining=349830 percent_remaining=1 reset_at=2026-01-02T00:00:00.000Z",
     );
     expect(report).toContain(
-      "- monthly_usage: 45/60000 remaining=59955 percent_remaining=100 reset_at=2026-02-01T00:00:00.000Z",
+      "- daily_images_usage: 5/100 remaining=95 percent_remaining=95 reset_at=2026-02-01T00:00:00.000Z",
     );
-    expect(report).toContain("- billing_period_end: 2026-02-13T23:59:59.000Z");
+    expect(report).toContain("- daily_input_tokens_usage: (none)");
     expect(report).toContain("- grace_until: 2026-01-09T00:00:00.000Z");
-    expect(report).toContain("- balance_usd: $129.47");
-    expect(report).toContain("- balance_nano: 26.71801147");
-    expect(report).toContain("- live_error_balance: NanoGPT API error 401: Unauthorized");
+    expect(report).not.toContain("- monthly_usage:");
+    expect(report).not.toContain("- billing_period_end:");
+    expect(report).not.toContain("- balance_usd:");
+    expect(report).not.toContain("- balance_nano:");
+    expect(report).not.toContain("- live_error_balance:");
   });
 
   it("reports enterprise billing scope and token compatibility notes", async () => {

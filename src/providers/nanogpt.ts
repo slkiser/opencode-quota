@@ -8,7 +8,7 @@ import type {
   QuotaProviderResult,
   QuotaToastEntry,
 } from "../lib/entries.js";
-import { formatNanoGptBalanceValue, hasNanoGptApiKeyConfigured, queryNanoGptQuota } from "../lib/nanogpt.js";
+import { hasNanoGptApiKeyConfigured, queryNanoGptQuota } from "../lib/nanogpt.js";
 
 function formatUsageAmount(value: number): string {
   if (!Number.isFinite(value)) return "0";
@@ -18,6 +18,37 @@ function formatUsageAmount(value: number): string {
 
 function formatUsageRight(window: { used: number; limit: number }): string {
   return `${formatUsageAmount(window.used)}/${formatUsageAmount(window.limit)}`;
+}
+
+function createUsageEntry(
+  style: "classic" | "grouped",
+  params: {
+    name: string;
+    label: string;
+    window: {
+      used: number;
+      limit: number;
+      percentRemaining: number;
+      resetTimeIso?: string;
+    };
+  },
+): QuotaToastEntry {
+  if (style === "grouped") {
+    return {
+      name: params.name,
+      group: "NanoGPT",
+      label: params.label,
+      right: formatUsageRight(params.window),
+      percentRemaining: params.window.percentRemaining,
+      resetTimeIso: params.window.resetTimeIso,
+    };
+  }
+
+  return {
+    name: params.name,
+    percentRemaining: params.window.percentRemaining,
+    resetTimeIso: params.window.resetTimeIso,
+  };
 }
 
 export const nanoGptProvider: QuotaProvider = {
@@ -60,71 +91,50 @@ export const nanoGptProvider: QuotaProvider = {
 
     const style = ctx.config.toastStyle ?? "classic";
     const entries: QuotaToastEntry[] = [];
-    const errors =
-      result.endpointErrors?.map((entry) => ({
-        label: entry.endpoint === "usage" ? "NanoGPT Usage" : "NanoGPT Balance",
-        message: entry.message,
-      })) ?? [];
-
+    const errors: Array<{ label: string; message: string }> = [];
     const subscription = result.subscription;
-    if (subscription?.daily) {
+
+    if (subscription.weeklyInputTokens) {
       entries.push(
-        style === "grouped"
-          ? {
-              name: "NanoGPT Daily",
-              group: "NanoGPT",
-              label: "Daily:",
-              right: formatUsageRight(subscription.daily),
-              percentRemaining: subscription.daily.percentRemaining,
-              resetTimeIso: subscription.daily.resetTimeIso,
-            }
-          : {
-              name: "NanoGPT Daily",
-              percentRemaining: subscription.daily.percentRemaining,
-              resetTimeIso: subscription.daily.resetTimeIso,
-            },
+        createUsageEntry(style, {
+          name: "NanoGPT Weekly Tokens",
+          label: "Weekly:",
+          window: subscription.weeklyInputTokens,
+        }),
       );
     }
 
-    if (subscription?.monthly) {
+    if (subscription.dailyImages) {
       entries.push(
-        style === "grouped"
-          ? {
-              name: "NanoGPT Monthly",
-              group: "NanoGPT",
-              label: "Monthly:",
-              right: formatUsageRight(subscription.monthly),
-              percentRemaining: subscription.monthly.percentRemaining,
-              resetTimeIso: subscription.monthly.resetTimeIso,
-            }
-          : {
-              name: "NanoGPT Monthly",
-              percentRemaining: subscription.monthly.percentRemaining,
-              resetTimeIso: subscription.monthly.resetTimeIso,
-            },
+        createUsageEntry(style, {
+          name: "NanoGPT Daily Images",
+          label: "Images:",
+          window: subscription.dailyImages,
+        }),
       );
     }
 
-    const balanceValue = result.balance ? formatNanoGptBalanceValue(result.balance) : null;
-    if (balanceValue) {
+    if (subscription.dailyInputTokens) {
       entries.push(
-        style === "grouped"
-          ? {
-              kind: "value",
-              name: "NanoGPT Balance",
-              group: "NanoGPT",
-              label: "Balance:",
-              value: balanceValue,
-            }
-          : {
-              kind: "value",
-              name: "NanoGPT Balance",
-              value: balanceValue,
-            },
+        createUsageEntry(style, {
+          name: "NanoGPT Daily Tokens",
+          label: "Daily Tokens:",
+          window: subscription.dailyInputTokens,
+        }),
       );
     }
 
-    if (subscription?.state && subscription.state.toLowerCase() !== "active") {
+    if (
+      !subscription.weeklyInputTokens &&
+      (subscription.dailyImages || subscription.dailyInputTokens)
+    ) {
+      errors.push({
+        label: "NanoGPT",
+        message: "Weekly input token usage unavailable from NanoGPT subscription API",
+      });
+    }
+
+    if (subscription.state && subscription.state.toLowerCase() !== "active") {
       errors.push({
         label: "NanoGPT",
         message: `Subscription state: ${subscription.state}`,
@@ -134,7 +144,7 @@ export const nanoGptProvider: QuotaProvider = {
     if (entries.length === 0) {
       errors.push({
         label: "NanoGPT",
-        message: "No usable NanoGPT quota or balance data",
+        message: "No usable NanoGPT subscription usage data",
       });
     }
 

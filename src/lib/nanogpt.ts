@@ -1,14 +1,13 @@
 /**
- * NanoGPT live quota and balance fetcher.
+ * NanoGPT live quota fetcher.
  *
  * Queries:
  * - https://nano-gpt.com/api/subscription/v1/usage
- * - https://nano-gpt.com/api/check-balance
  */
 
 import type { QuotaError } from "./types.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
-import { clampPercent, fmtUsdAmount } from "./format-utils.js";
+import { clampPercent } from "./format-utils.js";
 import { fetchWithTimeout } from "./http.js";
 import {
   getNanoGptKeyDiagnostics,
@@ -25,8 +24,6 @@ type NanoGptApiAuth = {
 
 type NanoGptRecord = Record<string, unknown>;
 
-export type NanoGptEndpoint = "usage" | "balance";
-
 export type NanoGptUsageWindow = {
   used: number;
   limit: number;
@@ -39,62 +36,44 @@ export interface NanoGptSubscription {
   active: boolean;
   state: string;
   enforceDailyLimit: boolean;
-  daily?: NanoGptUsageWindow;
-  monthly?: NanoGptUsageWindow;
-  currentPeriodEndIso?: string;
+  weeklyInputTokens?: NanoGptUsageWindow;
+  dailyImages?: NanoGptUsageWindow;
+  dailyInputTokens?: NanoGptUsageWindow;
   graceUntilIso?: string;
-}
-
-export interface NanoGptBalance {
-  usdBalance?: number;
-  usdBalanceRaw?: string;
-  nanoBalanceRaw?: string;
 }
 
 export type NanoGptResult =
   | {
       success: true;
-      subscription?: NanoGptSubscription;
-      balance?: NanoGptBalance;
-      endpointErrors?: Array<{ endpoint: NanoGptEndpoint; message: string }>;
+      subscription: NanoGptSubscription;
     }
   | QuotaError
   | null;
 
+interface NanoGptUsageEndpointWindow {
+  used?: number | null;
+  remaining?: number | null;
+  percentUsed?: number | null;
+  resetAt?: number | null;
+}
+
 interface NanoGptUsageResponse {
   active?: boolean;
   limits?: {
-    daily?: number;
-    monthly?: number;
+    weeklyInputTokens?: number | null;
+    dailyInputTokens?: number | null;
+    dailyImages?: number | null;
   };
   enforceDailyLimit?: boolean;
-  daily?: {
-    used?: number;
-    remaining?: number;
-    percentUsed?: number;
-    resetAt?: number;
-  };
-  monthly?: {
-    used?: number;
-    remaining?: number;
-    percentUsed?: number;
-    resetAt?: number;
-  };
-  period?: {
-    currentPeriodEnd?: string;
-  };
+  weeklyInputTokens?: NanoGptUsageEndpointWindow | null;
+  dailyInputTokens?: NanoGptUsageEndpointWindow | null;
+  dailyImages?: NanoGptUsageEndpointWindow | null;
   state?: string;
   graceUntil?: string | null;
 }
 
-interface NanoGptBalanceResponse {
-  usd_balance?: string;
-  nano_balance?: string;
-}
-
 const USER_AGENT = "OpenCode-Quota-Toast/1.0";
 const NANOGPT_USAGE_URL = "https://nano-gpt.com/api/subscription/v1/usage";
-const NANOGPT_BALANCE_URL = "https://nano-gpt.com/api/check-balance";
 
 function isRecord(value: unknown): value is NanoGptRecord {
   return Boolean(value) && typeof value === "object";
@@ -127,11 +106,7 @@ function getIsoFromEpochMs(value: unknown): string | undefined {
   return new Date(Math.round(ms)).toISOString();
 }
 
-function normalizeUsageWindow(
-  value: unknown,
-  limitValue: unknown,
-  fallbackResetTimeIso?: string,
-): NanoGptUsageWindow | undefined {
+function normalizeUsageWindow(value: unknown, limitValue: unknown): NanoGptUsageWindow | undefined {
   if (!isRecord(value)) return undefined;
 
   const used = getFiniteNumber(value.used);
@@ -158,7 +133,7 @@ function normalizeUsageWindow(
     limit: derivedLimit,
     remaining: Math.max(0, safeRemaining),
     percentRemaining,
-    resetTimeIso: getIsoFromEpochMs(value.resetAt) ?? fallbackResetTimeIso,
+    resetTimeIso: getIsoFromEpochMs(value.resetAt),
   };
 }
 
@@ -168,15 +143,22 @@ function parseNanoGptUsage(payload: unknown): NanoGptSubscription {
   }
 
   const data = payload as NanoGptUsageResponse;
-  const currentPeriodEndIso = getIsoString(data.period?.currentPeriodEnd);
-  const daily = normalizeUsageWindow(data.daily, data.limits?.daily);
-  const monthly = normalizeUsageWindow(data.monthly, data.limits?.monthly, currentPeriodEndIso);
+  const weeklyInputTokens = normalizeUsageWindow(
+    data.weeklyInputTokens,
+    data.limits?.weeklyInputTokens,
+  );
+  const dailyImages = normalizeUsageWindow(data.dailyImages, data.limits?.dailyImages);
+  const dailyInputTokens = normalizeUsageWindow(
+    data.dailyInputTokens,
+    data.limits?.dailyInputTokens,
+  );
   const hasSubscriptionShape =
     typeof data.active === "boolean" ||
     typeof data.enforceDailyLimit === "boolean" ||
     Boolean(getNonEmptyString(data.state)) ||
-    daily !== undefined ||
-    monthly !== undefined;
+    weeklyInputTokens !== undefined ||
+    dailyImages !== undefined ||
+    dailyInputTokens !== undefined;
 
   if (!hasSubscriptionShape) {
     throw new Error("NanoGPT usage response returned an unexpected response shape");
@@ -187,31 +169,10 @@ function parseNanoGptUsage(payload: unknown): NanoGptSubscription {
     state: getNonEmptyString(data.state) ?? (data.active ? "active" : "unknown"),
     enforceDailyLimit:
       typeof data.enforceDailyLimit === "boolean" ? data.enforceDailyLimit : false,
-    daily,
-    monthly,
-    currentPeriodEndIso,
+    weeklyInputTokens,
+    dailyImages,
+    dailyInputTokens,
     graceUntilIso: getIsoString(data.graceUntil),
-  };
-}
-
-function parseNanoGptBalance(payload: unknown): NanoGptBalance {
-  if (!isRecord(payload)) {
-    throw new Error("NanoGPT balance response returned an unexpected response shape");
-  }
-
-  const data = payload as NanoGptBalanceResponse;
-  const usdBalanceRaw = getNonEmptyString(data.usd_balance);
-  const nanoBalanceRaw = getNonEmptyString(data.nano_balance);
-  const usdParsed = usdBalanceRaw !== undefined ? Number.parseFloat(usdBalanceRaw) : NaN;
-
-  if (usdBalanceRaw === undefined && nanoBalanceRaw === undefined) {
-    throw new Error("NanoGPT balance response returned an unexpected response shape");
-  }
-
-  return {
-    usdBalance: Number.isFinite(usdParsed) ? usdParsed : undefined,
-    usdBalanceRaw,
-    nanoBalanceRaw,
   };
 }
 
@@ -250,55 +211,11 @@ async function fetchNanoGptUsage(headers: Record<string, string>): Promise<
   }
 }
 
-async function fetchNanoGptBalance(headers: Record<string, string>): Promise<
-  | { success: true; balance: NanoGptBalance }
-  | { success: false; message: string }
-> {
-  try {
-    const response = await fetchWithTimeout(NANOGPT_BALANCE_URL, {
-      method: "POST",
-      headers,
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      return {
-        success: false,
-        message: `NanoGPT API error ${response.status}: ${sanitizeDisplaySnippet(text, 120)}`,
-      };
-    }
-
-    return {
-      success: true,
-      balance: parseNanoGptBalance(await response.json()),
-    };
-  } catch (err) {
-    return {
-      success: false,
-      message: sanitizeDisplayText(err instanceof Error ? err.message : String(err)),
-    };
-  }
-}
-
 export async function hasNanoGptApiKeyConfigured(): Promise<boolean> {
   return await hasNanoGptApiKey();
 }
 
 export { getNanoGptKeyDiagnostics, type NanoGptKeySource } from "./nanogpt-config.js";
-
-export function formatNanoGptBalanceValue(balance: {
-  usdBalance?: number;
-  nanoBalanceRaw?: string;
-}): string | null {
-  if (typeof balance.usdBalance === "number" && Number.isFinite(balance.usdBalance)) {
-    return fmtUsdAmount(balance.usdBalance);
-  }
-
-  if (balance.nanoBalanceRaw) {
-    return `${balance.nanoBalanceRaw} NANO`;
-  }
-
-  return null;
-}
 
 export async function queryNanoGptQuota(): Promise<NanoGptResult> {
   const auth = await readNanoGptAuth();
@@ -309,32 +226,16 @@ export async function queryNanoGptQuota(): Promise<NanoGptResult> {
     "User-Agent": USER_AGENT,
   };
 
-  const [usageResult, balanceResult] = await Promise.all([
-    fetchNanoGptUsage(headers),
-    fetchNanoGptBalance(headers),
-  ]);
-
-  const endpointErrors: Array<{ endpoint: NanoGptEndpoint; message: string }> = [];
+  const usageResult = await fetchNanoGptUsage(headers);
   if (!usageResult.success) {
-    endpointErrors.push({ endpoint: "usage", message: usageResult.message });
-  }
-  if (!balanceResult.success) {
-    endpointErrors.push({ endpoint: "balance", message: balanceResult.message });
-  }
-
-  if (!usageResult.success && !balanceResult.success) {
     return {
       success: false,
-      error: endpointErrors
-        .map((entry) => `${entry.endpoint === "usage" ? "Usage" : "Balance"}: ${entry.message}`)
-        .join("; "),
+      error: usageResult.message,
     };
   }
 
   return {
     success: true,
-    subscription: usageResult.success ? usageResult.subscription : undefined,
-    balance: balanceResult.success ? balanceResult.balance : undefined,
-    endpointErrors: endpointErrors.length > 0 ? endpointErrors : undefined,
+    subscription: usageResult.subscription,
   };
 }

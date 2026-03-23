@@ -98,6 +98,17 @@ function fmtNanoGptMetric(value: number): string {
   return value.toFixed(2).replace(/\.?0+$/, "");
 }
 
+function fmtNanoGptUsageWindow(window?: {
+  used: number;
+  limit: number;
+  remaining: number;
+  percentRemaining: number;
+  resetTimeIso?: string;
+}): string {
+  if (!window) return "(none)";
+  return `${fmtNanoGptMetric(window.used)}/${fmtNanoGptMetric(window.limit)} remaining=${fmtNanoGptMetric(window.remaining)} percent_remaining=${window.percentRemaining} reset_at=${window.resetTimeIso ?? "(none)"}`;
+}
+
 function computePricingCoverageFromAgg(agg: Awaited<ReturnType<typeof aggregateUsage>>): {
   byProvider: Map<string, PricingCoverageByProvider>;
   totals: { pricedKeysSeen: number; mappedMissingKeysSeen: number; unpricedKeysSeen: number };
@@ -193,7 +204,8 @@ function supportedProviderPricingRow(params: {
     return {
       id,
       pricing: "no",
-      notes: "subscription request quota + account balance (not token-priced)",
+      notes:
+        "subscription usage windows (weekly tokens, daily images, optional daily tokens; not token-priced)",
     };
   }
 
@@ -496,39 +508,19 @@ export async function buildQuotaStatusReport(params: {
       } else if (!nanoGptQuota.success) {
         lines.push(`- live_fetch_error: ${nanoGptQuota.error}`);
       } else {
-        if (nanoGptQuota.subscription) {
-          lines.push(
-            `- subscription_active: ${nanoGptQuota.subscription.active ? "true" : "false"}`,
-          );
-          lines.push(`- subscription_state: ${nanoGptQuota.subscription.state}`);
-          lines.push(
-            `- enforce_daily_limit: ${nanoGptQuota.subscription.enforceDailyLimit ? "true" : "false"}`,
-          );
-          if (nanoGptQuota.subscription.daily) {
-            const daily = nanoGptQuota.subscription.daily;
-            lines.push(
-              `- daily_usage: ${fmtNanoGptMetric(daily.used)}/${fmtNanoGptMetric(daily.limit)} remaining=${fmtNanoGptMetric(daily.remaining)} percent_remaining=${daily.percentRemaining} reset_at=${daily.resetTimeIso ?? "(none)"}`,
-            );
-          }
-          if (nanoGptQuota.subscription.monthly) {
-            const monthly = nanoGptQuota.subscription.monthly;
-            lines.push(
-              `- monthly_usage: ${fmtNanoGptMetric(monthly.used)}/${fmtNanoGptMetric(monthly.limit)} remaining=${fmtNanoGptMetric(monthly.remaining)} percent_remaining=${monthly.percentRemaining} reset_at=${monthly.resetTimeIso ?? "(none)"}`,
-            );
-          }
-          lines.push(
-            `- billing_period_end: ${nanoGptQuota.subscription.currentPeriodEndIso ?? "(none)"}`,
-          );
-          if (nanoGptQuota.subscription.graceUntilIso) {
-            lines.push(`- grace_until: ${nanoGptQuota.subscription.graceUntilIso}`);
-          }
-        }
+        const subscription = nanoGptQuota.subscription;
+        lines.push(`- subscription_active: ${subscription.active ? "true" : "false"}`);
+        lines.push(`- subscription_state: ${subscription.state}`);
+        lines.push(`- enforce_daily_limit: ${subscription.enforceDailyLimit ? "true" : "false"}`);
         lines.push(
-          `- balance_usd: ${typeof nanoGptQuota.balance?.usdBalance === "number" ? fmtUsdAmount(nanoGptQuota.balance.usdBalance) : "(none)"}`,
+          `- weekly_input_tokens_usage: ${fmtNanoGptUsageWindow(subscription.weeklyInputTokens)}`,
         );
-        lines.push(`- balance_nano: ${nanoGptQuota.balance?.nanoBalanceRaw ?? "(none)"}`);
-        for (const entry of nanoGptQuota.endpointErrors ?? []) {
-          lines.push(`- live_error_${entry.endpoint}: ${entry.message}`);
+        lines.push(`- daily_images_usage: ${fmtNanoGptUsageWindow(subscription.dailyImages)}`);
+        lines.push(
+          `- daily_input_tokens_usage: ${fmtNanoGptUsageWindow(subscription.dailyInputTokens)}`,
+        );
+        if (subscription.graceUntilIso) {
+          lines.push(`- grace_until: ${subscription.graceUntilIso}`);
         }
       }
     } catch (err) {
