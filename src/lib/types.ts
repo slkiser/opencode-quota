@@ -358,12 +358,12 @@ export interface ZaiQuotaResult {
 
 export interface NanoGptQuotaResponse {
   active: boolean;
-  limits: {
+  limits?: {
     weeklyInputTokens: number | null;
     dailyInputTokens: number | null;
     dailyImages: number | null;
   };
-  allowOverage: boolean;
+  allowOverage?: boolean;
   period?: {
     currentPeriodEnd?: string;
   };
@@ -389,7 +389,7 @@ export interface NanoGptQuotaResponse {
   graceUntil?: string | null;
 }
 
-export interface NanoGptResult {
+export interface NanoGptQuotaResult {
   success: true;
   label: string;
   windows: {
@@ -479,13 +479,13 @@ export type CopilotResult =
   | null;
 export type GoogleResult = GoogleQuotaResult | QuotaError | null;
 export type ZaiResult = ZaiQuotaResult | QuotaError | null;
-export type NanoGptResultType = NanoGptResult | QuotaError | null;
+export type NanoGptResult = NanoGptQuotaResult | QuotaError | null;
 export type ChutesResult =
   | {
-    success: true;
-    percentRemaining: number;
-    resetTimeIso?: string;
-  }
+      success: true;
+      percentRemaining: number;
+      resetTimeIso?: string;
+    }
   | QuotaError
   | null;
 

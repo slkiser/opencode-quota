@@ -342,12 +342,12 @@ If detection looks wrong, `/quota_status` prints the candidate paths checked for
 <details>
 <summary><strong>NanoGPT</strong></summary>
 
-NanoGPT quota shows daily and monthly subscription usage limits.
+NanoGPT quota shows daily image usage limits and weekly token usage limits.
 
 - Auth is read from `auth.json` under the `"nano-gpt"` key (type: `"api"`).
-- Also reads from `provider.nanogpt.options.apiKey` or `provider["nanogpt-custom"].options.apiKey` in global `opencode.json`.
+- Also reads from `provider.nanogpt.options.apiKey`, `provider["nanogpt-custom"].options.apiKey`, `provider["nano-gpt"].options.apiKey`, or `provider["nano-gpt-custom"].options.apiKey` in global `opencode.json` / `opencode.jsonc`.
 - Environment variable: `NANOGPT_API_KEY` (highest priority).
-- Shows both daily and monthly usage windows in grouped toast style.
+- Shows daily and monthly usage windows in grouped toast style.
 - Check `/quota_status` for `nanogpt api key` diagnostics.
 
 Example `auth.json` entry:

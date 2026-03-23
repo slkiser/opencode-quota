@@ -8,7 +8,7 @@ import { clampPercent } from "./format-utils.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
 import { resolveNanoGptApiKey, hasNanoGptApiKey } from "./nanogpt-config.js";
-import type { NanoGptResult, NanoGptQuotaResponse, QuotaError } from "./types.js";
+import type { NanoGptQuotaResult, NanoGptQuotaResponse, QuotaError } from "./types.js";
 
 const NANOGPT_QUOTA_URL = "https://nano-gpt.com/api/subscription/v1/usage";
 
@@ -36,7 +36,7 @@ function processWindow(
   return { percentRemaining, resetTimeIso };
 }
 
-export async function queryNanoGptQuota(): Promise<NanoGptResult | QuotaError | null> {
+export async function queryNanoGptQuota(): Promise<NanoGptQuotaResult | QuotaError | null> {
   const auth = await readNanoGptAuth();
   if (!auth) return null;
 
@@ -62,11 +62,11 @@ export async function queryNanoGptQuota(): Promise<NanoGptResult | QuotaError | 
     if (!data.active) {
       return {
         success: false,
-        error: `NanoGPT subscription inactive (state: ${data.state})`,
+        error: `NanoGPT subscription inactive (state: ${sanitizeDisplaySnippet(data.state != null ? String(data.state) : "unknown", 60)})`,
       };
     }
 
-    const windows: NanoGptResult["windows"] = {};
+    const windows: NanoGptQuotaResult["windows"] = {};
 
     if (data.weeklyInputTokens) {
       windows.weeklyTokens = processWindow(data.weeklyInputTokens);
