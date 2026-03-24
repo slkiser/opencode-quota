@@ -8,7 +8,7 @@ export type ResolvedQwenLocalPlan =
   | { state: "qwen_free"; accessToken: string };
 
 function getQwenOAuthAccessToken(auth: AuthData | null | undefined): string | null {
-  const qwen = auth?.["opencode-qwencode-auth"];
+  const qwen = auth?.["qwen-code"] ?? auth?.["opencode-qwencode-auth"];
   if (!qwen || qwen.type !== "oauth") {
     return null;
   }
