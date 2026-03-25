@@ -5,6 +5,7 @@
  */
 
 import type { QuotaProvider } from "../lib/entries.js";
+import { anthropicProvider } from "./anthropic.js";
 import { copilotProvider } from "./copilot.js";
 import { openaiProvider } from "./openai.js";
 import { cursorProvider } from "./cursor.js";
@@ -19,6 +20,7 @@ import { nanoGptProvider } from "./nanogpt.js";
 export function getProviders(): QuotaProvider[] {
   // Order here defines display ordering in the toast.
   return [
+    anthropicProvider,
     copilotProvider,
     openaiProvider,
     cursorProvider,

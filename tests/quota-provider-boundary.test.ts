@@ -7,6 +7,7 @@ describe("quota provider boundary", () => {
   it("keeps quota providers limited to the curated registry", () => {
     const quotaProviders = getProviders().map((p) => p.id);
     expect(quotaProviders).toEqual([
+      "anthropic",
       "copilot",
       "openai",
       "cursor",

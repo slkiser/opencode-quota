@@ -7,6 +7,8 @@ import {
 
 describe("provider-metadata", () => {
   it("normalizes provider synonyms to canonical ids", () => {
+    expect(normalizeQuotaProviderId("claude")).toBe("anthropic");
+    expect(normalizeQuotaProviderId("claude-code")).toBe("anthropic");
     expect(normalizeQuotaProviderId("github-copilot")).toBe("copilot");
     expect(normalizeQuotaProviderId("copilot-chat")).toBe("copilot");
     expect(normalizeQuotaProviderId("github-copilot-chat")).toBe("copilot");
@@ -19,6 +21,7 @@ describe("provider-metadata", () => {
   });
 
   it("returns display labels for known providers", () => {
+    expect(getQuotaProviderDisplayLabel("anthropic")).toBe("Anthropic");
     expect(getQuotaProviderDisplayLabel("google-antigravity")).toBe("Google");
     expect(getQuotaProviderDisplayLabel("cursor")).toBe("Cursor");
     expect(getQuotaProviderDisplayLabel("alibaba-coding-plan")).toBe("Alibaba Coding Plan");

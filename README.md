@@ -5,7 +5,7 @@
 - Automatic quota toasts after assistant responses
 - Manual `/quota`, `/pricing_refresh`, and `/tokens_*` commands for deeper local reporting with zero context window pollution
 
-**Quota providers**: GitHub Copilot, OpenAI (Plus/Pro), Cursor, Qwen Code, Alibaba Coding Plan, Chutes AI, Firmware AI, Google Antigravity, Z.ai coding plan, and NanoGPT.
+**Quota providers**: Anthropic (Claude), GitHub Copilot, OpenAI (Plus/Pro), Cursor, Qwen Code, Alibaba Coding Plan, Chutes AI, Firmware AI, Google Antigravity, Z.ai coding plan, and NanoGPT.
 
 **Token reports**: All models and providers in [models.dev](https://models.dev), plus deterministic local pricing for Cursor Auto/Composer and Cursor model aliases that are not on models.dev.
 
@@ -78,16 +78,40 @@ That is enough for most installs. Providers are auto-detected from your existing
 
 | Provider | Auto setup | How it works |
 | --- | --- | --- |
+| **Anthropic (Claude)** | Needs [quick setup](#anthropic-quick-setup) | Claude Code credentials or env. |
 | **GitHub Copilot** | Usually | OpenCode auth; PAT only for managed billing. |
 | **OpenAI** | Yes | OpenCode auth. |
 | **Cursor** | Needs [quick setup](#cursor-quick-setup) | Companion auth plugin + `provider.cursor`. |
 | **Qwen Code** | Needs [quick setup](#qwen-code-quick-setup) | Companion auth plugin. |
 | **Alibaba Coding Plan** | Yes | OpenCode auth + local request estimation. |
-| **Firmware AI** | Usually | User/global OpenCode config or env; repo-local secrets ignored. |
-| **Chutes AI** | Usually | User/global OpenCode config or env; repo-local secrets ignored. |
-| **NanoGPT** | Usually | User/global OpenCode config, env, or auth.json; repo-local secrets ignored. |
+| **Firmware AI** | Usually | User/global OpenCode config or env. |
+| **Chutes AI** | Usually | User/global OpenCode config or env. |
+| **NanoGPT** | Usually | User/global OpenCode config, env, or auth.json. |
 | **Google Antigravity** | Needs [quick setup](#google-antigravity-quick-setup) | Companion auth plugin. |
 | **Z.ai** | Yes | OpenCode auth. |
+
+<a id="anthropic-quick-setup"></a>
+<details>
+<summary><strong>Quick setup: Anthropic (Claude)</strong></summary>
+
+Anthropic quota support uses Claude Code credentials and surfaces the 5-hour and 7-day rate-limit windows.
+
+Credential resolution order:
+
+1. `~/.claude/.credentials.json` → `claudeAiOauth.accessToken`
+2. `CLAUDE_CODE_OAUTH_TOKEN` environment variable
+
+OpenCode `auth.json` is not used for Anthropic quota resolution.
+
+If Claude Code is already installed and authenticated, this usually works automatically. Otherwise:
+
+1. Run Claude Code once so it writes `~/.claude/.credentials.json`.
+2. If needed, set `CLAUDE_CODE_OAUTH_TOKEN` manually as a fallback.
+3. Confirm OpenCode is configured with the `anthropic` provider.
+
+For behavior details and troubleshooting, see [Anthropic notes](#anthropic-notes).
+
+</details>
 
 <a id="cursor-quick-setup"></a>
 <details>
@@ -173,6 +197,22 @@ For behavior details and troubleshooting, see [Qwen Code notes](#qwen-code-notes
 There is no `/token` command. The reporting commands are the `/tokens_*` family.
 
 ## Provider-Specific Notes
+
+<a id="anthropic-notes"></a>
+<details>
+<summary><strong>Anthropic (Claude)</strong></summary>
+
+Quota is fetched from `GET https://api.anthropic.com/api/oauth/usage` using a Claude Code OAuth access token.
+
+**Troubleshooting:**
+
+| Problem | Solution |
+| --- | --- |
+| "No credentials found" | Run Claude Code once so it writes `~/.claude/.credentials.json`, or set `CLAUDE_CODE_OAUTH_TOKEN` |
+| "Invalid or expired token" | Refresh `~/.claude/.credentials.json` by re-authenticating Claude Code, or update `CLAUDE_CODE_OAUTH_TOKEN` |
+| Plugin not detected | Confirm OpenCode is configured with the `anthropic` provider |
+
+</details>
 
 <a id="github-copilot-notes"></a>
 <details>
@@ -438,6 +478,8 @@ MIT
 ## Remarks
 
 OpenCode Quota is not built by the OpenCode team and is not affiliated with OpenCode or any provider listed above.
+
+The Anthropic provider uses the documented OAuth usage endpoint with Claude Code credentials from `~/.claude/.credentials.json` or `CLAUDE_CODE_OAUTH_TOKEN`.
 
 ## Star History
 

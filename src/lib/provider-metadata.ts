@@ -1,4 +1,5 @@
 export const QUOTA_PROVIDER_LABELS: Readonly<Record<string, string>> = {
+  anthropic: "Anthropic",
   openai: "OpenAI",
   copilot: "Copilot",
   "google-antigravity": "Google",
@@ -18,6 +19,8 @@ export const QUOTA_PROVIDER_ID_SYNONYMS: Readonly<Record<string, string>> = {
   "cursor-acp": "cursor",
   "open-cursor": "cursor",
   "@rama_nigg/open-cursor": "cursor",
+  claude: "anthropic",
+  "claude-code": "anthropic",
   qwen: "qwen-code",
   alibaba: "alibaba-coding-plan",
   "nano-gpt": "nanogpt",
