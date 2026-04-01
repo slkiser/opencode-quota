@@ -89,7 +89,7 @@ That is enough for most installs. Providers are auto-detected from your existing
 | **NanoGPT** | Usually | User/global OpenCode config, env, or auth.json. |
 | **Google Antigravity** | Needs [quick setup](#google-antigravity-quick-setup) | Companion auth plugin. |
 | **Z.ai** | Yes | OpenCode auth. |
-| **MiniMax Coding Plan** | Needs [quick setup](#minimax-quick-setup) | OpenCode auth.json `minimax-coding-plan` section. |
+| **MiniMax Coding Plan** | Yes | Existing OpenCode provider config + auth.json `minimax-coding-plan` section. |
 
 <a id="anthropic-quick-setup"></a>
 <details>
@@ -175,19 +175,6 @@ Qwen quota support requires the `opencode-qwencode-auth` [plugin](https://github
 ```
 
 For behavior details and troubleshooting, see [Qwen Code notes](#qwen-code-notes).
-
-</details>
-
-
-<a id="minimax-quick-setup"></a>
-<details>
-<summary><strong>Quick setup: MiniMax Coding Plan</strong></summary>
-
-MiniMax Coding Plan uses the OpenCode `auth.json` `minimax-coding-plan` section. No additional plugins are required.
-
-Ensure OpenCode is configured with the `minimax-coding-plan` provider. Quota data is fetched from the MiniMax API using the stored credentials.
-
-For behavior details and troubleshooting, see [MiniMax Coding Plan notes](#minimax-coding-plan-notes).
 
 </details>
 
@@ -336,7 +323,20 @@ Example fallback tier:
 <details>
 <summary><strong>MiniMax Coding Plan</strong></summary>
 
-See [MiniMax Coding Plan quick setup](#minimax-quick-setup) for auth. Quota is fetched from the MiniMax API using stored credentials from the OpenCode `auth.json` `minimax-coding-plan` section.
+If OpenCode is already configured with the `minimax-coding-plan` provider and your `auth.json` has a `minimax-coding-plan` entry, quota detection works automatically. No additional plugin is required.
+
+The plugin reads `key` first and falls back to `access` from that auth entry. Quota is fetched from the MiniMax API using those stored credentials.
+
+Example `auth.json` entry:
+
+```json
+{
+  "minimax-coding-plan": {
+    "type": "api",
+    "key": "YOUR_MINIMAX_API_KEY"
+  }
+}
+```
 
 - `MiniMax-M*` models — rolling 5-hour interval + weekly
 - `/quota_status` shows auth detection, API-key diagnostics, live quota state, and endpoint errors

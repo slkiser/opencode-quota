@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const fsPromiseMocks = vi.hoisted(() => ({
   stat: vi.fn(async () => {
@@ -43,6 +43,11 @@ const copilotMocks = vi.hoisted(() => ({
 
 const pricingMocks = vi.hoisted(() => ({
   getPricingSnapshotSource: vi.fn(() => "bundled"),
+}));
+
+const minimaxMocks = vi.hoisted(() => ({
+  resolveMiniMaxAuthCached: vi.fn(async () => ({ state: "none" as const })),
+  queryMiniMaxQuota: vi.fn(async () => ({ success: true as const, entries: [] })),
 }));
 
 const nanoGptMocks = vi.hoisted(() => ({
@@ -151,6 +156,15 @@ vi.mock("../src/lib/alibaba-auth.js", () => ({
   resolveAlibabaCodingPlanAuth: () => ({ state: "none" }),
 }));
 
+vi.mock("../src/lib/minimax-auth.js", () => ({
+  DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS: 5_000,
+  resolveMiniMaxAuthCached: minimaxMocks.resolveMiniMaxAuthCached,
+}));
+
+vi.mock("../src/providers/minimax-coding-plan.js", () => ({
+  queryMiniMaxQuota: minimaxMocks.queryMiniMaxQuota,
+}));
+
 vi.mock("../src/lib/cursor-detection.js", () => ({
   inspectCursorAuthPresence: vi.fn(async () => ({
     state: "present",
@@ -246,6 +260,33 @@ vi.mock("../src/lib/quota-stats.js", () => ({
 }));
 
 describe("buildQuotaStatusReport", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  async function buildMiniMaxStatusReport(overrides: Record<string, unknown> = {}) {
+    const { buildQuotaStatusReport } = await import("../src/lib/quota-status.js");
+
+    return buildQuotaStatusReport({
+      configSource: "test",
+      configPaths: [],
+      enabledProviders: ["minimax-coding-plan"],
+      alibabaCodingPlanTier: "lite",
+      cursorPlan: "none",
+      pricingSnapshotSource: "auto",
+      onlyCurrentModel: false,
+      providerAvailability: [
+        {
+          id: "minimax-coding-plan",
+          enabled: true,
+          available: true,
+        },
+      ],
+      generatedAtMs: Date.UTC(2026, 2, 12, 12, 45, 0),
+      ...overrides,
+    } as any);
+  }
+
   it("distinguishes organization billing access from computable remaining quota totals", async () => {
     const { buildQuotaStatusReport } = await import("../src/lib/quota-status.js");
 
@@ -309,6 +350,8 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- api_key_source: (none)");
     expect(report).toContain("- api_key_checked_paths: (none)");
     expect(report).toContain("- api_key_auth_paths: /tmp/auth.json");
+    expect(report).toContain("firmware:");
+    expect(report).toContain("chutes:");
     expect(report).toContain("cursor:");
     expect(report).toContain("- plan: Pro");
     expect(report).toContain("- included_api_usd: $20.00");
@@ -468,6 +511,76 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- balance_usd: $129.47");
     expect(report).toContain("- balance_nano: 26.71801147");
     expect(report).toContain("- live_error_balance: NanoGPT API error 401: Unauthorized");
+  });
+
+  it("reports MiniMax auth diagnostics and live quota details when configured", async () => {
+    minimaxMocks.resolveMiniMaxAuthCached.mockResolvedValueOnce({
+      state: "configured",
+      apiKey: "test-key",
+    });
+    minimaxMocks.queryMiniMaxQuota.mockResolvedValueOnce({
+      success: true,
+      entries: [
+        {
+          window: "five_hour",
+          name: "Renamed MiniMax 5h",
+          right: "70/4500",
+          percentRemaining: 98,
+          resetTimeIso: "2026-03-25T18:00:00.000Z",
+        },
+        {
+          window: "weekly",
+          name: "Renamed MiniMax Weekly",
+          right: "105/45000",
+          percentRemaining: 100,
+          resetTimeIso: "2026-04-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const report = await buildMiniMaxStatusReport();
+
+    expect(report).toContain("minimax:");
+    expect(report).toContain("- auth_state: configured");
+    expect(report).toContain("- api_key_configured: true");
+    expect(report).toContain(
+      "- five_hour_usage: 70/4500 percent_remaining=98 reset_at=2026-03-25T18:00:00.000Z",
+    );
+    expect(report).toContain(
+      "- weekly_usage: 105/45000 percent_remaining=100 reset_at=2026-04-01T00:00:00.000Z",
+    );
+    expect(minimaxMocks.resolveMiniMaxAuthCached).toHaveBeenCalledWith({ maxAgeMs: 5_000 });
+    expect(minimaxMocks.queryMiniMaxQuota).toHaveBeenCalledWith("test-key");
+  });
+
+  it("reports MiniMax auth errors", async () => {
+    minimaxMocks.resolveMiniMaxAuthCached.mockResolvedValueOnce({
+      state: "invalid",
+      error: "Unsupported MiniMax auth type: \"oauth\"",
+    });
+
+    const invalidReport = await buildMiniMaxStatusReport();
+
+    expect(invalidReport).toContain("minimax:");
+    expect(invalidReport).toContain("- auth_state: invalid");
+    expect(invalidReport).toContain("- api_key_configured: false");
+    expect(invalidReport).toContain('- auth_error: Unsupported MiniMax auth type: "oauth"');
+    expect(minimaxMocks.queryMiniMaxQuota).not.toHaveBeenCalled();
+  });
+
+  it("reports MiniMax endpoint errors", async () => {
+    minimaxMocks.resolveMiniMaxAuthCached.mockResolvedValueOnce({
+      state: "configured",
+      apiKey: "test-key",
+    });
+    minimaxMocks.queryMiniMaxQuota.mockResolvedValueOnce({
+      success: false,
+      error: "MiniMax API error 401: Unauthorized",
+    });
+
+    const fetchErrorReport = await buildMiniMaxStatusReport();
+
+    expect(fetchErrorReport).toContain("- live_fetch_error: MiniMax API error 401: Unauthorized");
   });
 
   it("reports enterprise billing scope and token compatibility notes", async () => {

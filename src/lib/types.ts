@@ -452,6 +452,7 @@ export type GoogleResult = GoogleQuotaResult | QuotaError | null;
 export type ZaiResult = ZaiQuotaResult | QuotaError | null;
 /** Single entry in a MiniMax quota result */
 export interface MiniMaxResultEntry {
+  window: "five_hour" | "weekly";
   name: string;
   group?: string;
   label?: string;
@@ -465,8 +466,7 @@ export type MiniMaxResult =
       success: true;
       entries: MiniMaxResultEntry[];
     }
-  | QuotaError
-  | null;
+  | QuotaError;
 export type ChutesResult =
   | {
     success: true;

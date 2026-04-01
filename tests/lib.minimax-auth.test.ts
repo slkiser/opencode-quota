@@ -14,138 +14,122 @@ import {
   resolveMiniMaxAuthCached,
 } from "../src/lib/minimax-auth.js";
 
+const withMiniMaxAuth = (entry: unknown) => ({
+  "minimax-coding-plan": entry,
+});
+
 describe("minimax auth resolution", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("returns none when auth is null", () => {
-    expect(resolveMiniMaxAuth(null)).toEqual({ state: "none" });
-  });
+  describe("resolveMiniMaxAuth", () => {
+    it.each([
+      ["auth is null", null, { state: "none" }],
+      ["auth is undefined", undefined, { state: "none" }],
+      ["minimax-coding-plan entry is missing", {}, { state: "none" }],
+    ])("returns %j when %s", (_label, auth, expected) => {
+      expect(resolveMiniMaxAuth(auth as any)).toEqual(expected);
+    });
 
-  it("returns none when auth is undefined", () => {
-    expect(resolveMiniMaxAuth(undefined)).toEqual({ state: "none" });
-  });
+    it.each([
+      [
+        "type is not 'api'",
+        withMiniMaxAuth({ type: "oauth", key: "some-key" }),
+        { state: "invalid", error: 'Unsupported MiniMax auth type: "oauth"' },
+      ],
+      [
+        "invalid auth type text is sanitized",
+        withMiniMaxAuth({ type: "\u001b[31moauth\nretry\u001b[0m", key: "some-key" }),
+        { state: "invalid", error: 'Unsupported MiniMax auth type: "oauth retry"' },
+      ],
+      [
+        "auth entry is not an object",
+        withMiniMaxAuth("bad-shape"),
+        { state: "invalid", error: "MiniMax auth entry has invalid shape" },
+      ],
+      [
+        "auth type is missing or invalid",
+        withMiniMaxAuth({ type: { bad: true }, key: 123 }),
+        { state: "invalid", error: "MiniMax auth entry present but type is missing or invalid" },
+      ],
+      [
+        "type is api but credentials are empty",
+        withMiniMaxAuth({ type: "api", key: "", access: "" }),
+        { state: "invalid", error: "MiniMax auth entry present but credentials are empty" },
+      ],
+      [
+        "type is api but credentials are whitespace-only",
+        withMiniMaxAuth({ type: "api", key: "   ", access: "  " }),
+        { state: "invalid", error: "MiniMax auth entry present but credentials are empty" },
+      ],
+    ])("returns %j when %s", (_label, auth, expected) => {
+      expect(resolveMiniMaxAuth(auth as any)).toEqual(expected);
+    });
 
-  it("returns none when minimax-coding-plan entry is missing", () => {
-    expect(resolveMiniMaxAuth({})).toEqual({ state: "none" });
-  });
-
-  it("returns invalid when type is not 'api'", () => {
-    const result = resolveMiniMaxAuth({
-      "minimax-coding-plan": { type: "oauth", key: "some-key" },
-    });
-    expect(result).toEqual({
-      state: "invalid",
-      error: 'Unsupported MiniMax auth type: "oauth"',
-    });
-  });
-
-  it("returns invalid when type is api but credentials are empty", () => {
-    const result = resolveMiniMaxAuth({
-      "minimax-coding-plan": { type: "api", key: "", access: "" },
-    });
-    expect(result).toEqual({
-      state: "invalid",
-      error: "MiniMax auth entry present but credentials are empty",
-    });
-  });
-
-  it("returns invalid when type is api but credentials are whitespace-only", () => {
-    const result = resolveMiniMaxAuth({
-      "minimax-coding-plan": { type: "api", key: "   ", access: "  " },
-    });
-    expect(result).toEqual({
-      state: "invalid",
-      error: "MiniMax auth entry present but credentials are empty",
-    });
-  });
-
-  it("returns configured with key when both key and access are present", () => {
-    const result = resolveMiniMaxAuth({
-      "minimax-coding-plan": { type: "api", key: "primary-key", access: "access-key" },
-    });
-    expect(result).toEqual({
-      state: "configured",
-      apiKey: "primary-key",
-    });
-  });
-
-  it("prefers key over access", () => {
-    const result = resolveMiniMaxAuth({
-      "minimax-coding-plan": { type: "api", key: "the-key", access: "the-access" },
-    });
-    expect(result.state).toBe("configured");
-    expect((result as any).apiKey).toBe("the-key");
-  });
-
-  it("falls back to access when key is missing", () => {
-    const result = resolveMiniMaxAuth({
-      "minimax-coding-plan": { type: "api", access: "access-token" },
-    });
-    expect(result).toEqual({
-      state: "configured",
-      apiKey: "access-token",
-    });
-  });
-
-  it("falls back to access when key is whitespace", () => {
-    const result = resolveMiniMaxAuth({
-      "minimax-coding-plan": { type: "api", key: "  ", access: "access-token" },
-    });
-    expect(result).toEqual({
-      state: "configured",
-      apiKey: "access-token",
-    });
-  });
-
-  it("trims whitespace from key", () => {
-    const result = resolveMiniMaxAuth({
-      "minimax-coding-plan": { type: "api", key: "  my-key  " },
-    });
-    expect(result).toEqual({
-      state: "configured",
-      apiKey: "my-key",
+    it.each([
+      [
+        "key when both key and access are present",
+        withMiniMaxAuth({ type: "api", key: "primary-key", access: "access-key" }),
+        { state: "configured", apiKey: "primary-key" },
+      ],
+      [
+        "key over access",
+        withMiniMaxAuth({ type: "api", key: "the-key", access: "the-access" }),
+        { state: "configured", apiKey: "the-key" },
+      ],
+      [
+        "access when key is missing",
+        withMiniMaxAuth({ type: "api", access: "access-token" }),
+        { state: "configured", apiKey: "access-token" },
+      ],
+      [
+        "access when key is whitespace",
+        withMiniMaxAuth({ type: "api", key: "  ", access: "access-token" }),
+        { state: "configured", apiKey: "access-token" },
+      ],
+      [
+        "trimmed key",
+        withMiniMaxAuth({ type: "api", key: "  my-key  " }),
+        { state: "configured", apiKey: "my-key" },
+      ],
+      [
+        "trimmed access",
+        withMiniMaxAuth({ type: "api", access: "  my-access  " }),
+        { state: "configured", apiKey: "my-access" },
+      ],
+    ])("returns %j when using %s", (_label, auth, expected) => {
+      expect(resolveMiniMaxAuth(auth as any)).toEqual(expected);
     });
   });
 
-  it("trims whitespace from access", () => {
-    const result = resolveMiniMaxAuth({
-      "minimax-coding-plan": { type: "api", access: "  my-access  " },
-    });
-    expect(result).toEqual({
-      state: "configured",
-      apiKey: "my-access",
-    });
-  });
+  describe("resolveMiniMaxAuthCached", () => {
+    it("uses cached auth reads for resolveMiniMaxAuthCached", async () => {
+      mocks.readAuthFileCached.mockResolvedValueOnce(
+        withMiniMaxAuth({ type: "api", key: "cached-key" }),
+      );
 
-  it("uses cached auth reads for resolveMiniMaxAuthCached", async () => {
-    mocks.readAuthFileCached.mockResolvedValueOnce({
-      "minimax-coding-plan": { type: "api", key: "cached-key" },
-    });
-
-    await expect(resolveMiniMaxAuthCached()).resolves.toEqual({
-      state: "configured",
-      apiKey: "cached-key",
-    });
-    expect(mocks.readAuthFileCached).toHaveBeenCalledWith({
-      maxAgeMs: DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS,
-    });
-  });
-
-  it("respects custom maxAgeMs in resolveMiniMaxAuthCached", async () => {
-    mocks.readAuthFileCached.mockResolvedValueOnce({
-      "minimax-coding-plan": { type: "api", key: "key" },
+      await expect(resolveMiniMaxAuthCached()).resolves.toEqual({
+        state: "configured",
+        apiKey: "cached-key",
+      });
+      expect(mocks.readAuthFileCached).toHaveBeenCalledWith({
+        maxAgeMs: DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS,
+      });
     });
 
-    await resolveMiniMaxAuthCached({ maxAgeMs: 10_000 });
-    expect(mocks.readAuthFileCached).toHaveBeenCalledWith({ maxAgeMs: 10_000 });
-  });
+    it("respects custom maxAgeMs in resolveMiniMaxAuthCached", async () => {
+      mocks.readAuthFileCached.mockResolvedValueOnce(withMiniMaxAuth({ type: "api", key: "key" }));
 
-  it("clamps negative maxAgeMs to 0", async () => {
-    mocks.readAuthFileCached.mockResolvedValueOnce({});
+      await resolveMiniMaxAuthCached({ maxAgeMs: 10_000 });
+      expect(mocks.readAuthFileCached).toHaveBeenCalledWith({ maxAgeMs: 10_000 });
+    });
 
-    await resolveMiniMaxAuthCached({ maxAgeMs: -500 });
-    expect(mocks.readAuthFileCached).toHaveBeenCalledWith({ maxAgeMs: 0 });
+    it("clamps negative maxAgeMs to 0", async () => {
+      mocks.readAuthFileCached.mockResolvedValueOnce({});
+
+      await resolveMiniMaxAuthCached({ maxAgeMs: -500 });
+      expect(mocks.readAuthFileCached).toHaveBeenCalledWith({ maxAgeMs: 0 });
+    });
   });
 });

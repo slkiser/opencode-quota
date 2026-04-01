@@ -23,6 +23,10 @@ import {
 } from "./alibaba-auth.js";
 import { hasQwenOAuthAuth, resolveQwenLocalPlan } from "./qwen-auth.js";
 import {
+  DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS,
+  resolveMiniMaxAuthCached,
+} from "./minimax-auth.js";
+import {
   getPricingSnapshotHealth,
   getPricingRefreshPolicy,
   getPricingSnapshotMeta,
@@ -51,6 +55,7 @@ import {
   getEffectiveCursorIncludedApiUsd,
 } from "./cursor-pricing.js";
 import type { CursorQuotaPlan, PricingSnapshotSource } from "./types.js";
+import { queryMiniMaxQuota } from "../providers/minimax-coding-plan.js";
 
 /** Session token fetch error info for status report */
 export interface SessionTokenError {
@@ -475,7 +480,42 @@ export async function buildQuotaStatusReport(params: {
     lines.push(`- alibaba coding plan error: ${alibabaCodingPlanAuth.error}`);
   }
 
+  lines.push("");
+  lines.push("minimax:");
+  const minimaxAuth = await resolveMiniMaxAuthCached({
+    maxAgeMs: DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS,
+  });
+  lines.push(`- auth_state: ${minimaxAuth.state}`);
+  lines.push(`- api_key_configured: ${minimaxAuth.state === "configured" ? "true" : "false"}`);
+  if (minimaxAuth.state === "invalid") {
+    lines.push(`- auth_error: ${sanitizeDisplayText(minimaxAuth.error)}`);
+  }
+  if (minimaxAuth.state === "configured") {
+    const minimaxQuota = await queryMiniMaxQuota(minimaxAuth.apiKey);
+    if (!minimaxQuota.success) {
+      lines.push(`- live_fetch_error: ${minimaxQuota.error}`);
+    } else {
+      const fiveHourEntry = minimaxQuota.entries.find((entry) => entry.window === "five_hour");
+      const weeklyEntry = minimaxQuota.entries.find((entry) => entry.window === "weekly");
+      if (fiveHourEntry) {
+        lines.push(
+          `- five_hour_usage: ${fiveHourEntry.right ?? "(none)"} percent_remaining=${fiveHourEntry.percentRemaining} reset_at=${fiveHourEntry.resetTimeIso ?? "(none)"}`,
+        );
+      }
+      if (weeklyEntry) {
+        lines.push(
+          `- weekly_usage: ${weeklyEntry.right ?? "(none)"} percent_remaining=${weeklyEntry.percentRemaining} reset_at=${weeklyEntry.resetTimeIso ?? "(none)"}`,
+        );
+      }
+      if (!fiveHourEntry && !weeklyEntry) {
+        lines.push("- live_state: no reportable MiniMax Coding Plan quota");
+      }
+    }
+  }
+
   // Firmware API key diagnostics
+  lines.push("");
+  lines.push("firmware:");
   let firmwareDiag: { configured: boolean; source: string | null; checkedPaths: string[] } = {
     configured: false,
     source: null,
@@ -491,6 +531,8 @@ export async function buildQuotaStatusReport(params: {
   );
 
   // Chutes API key diagnostics
+  lines.push("");
+  lines.push("chutes:");
   let chutesDiag: { configured: boolean; source: string | null; checkedPaths: string[] } = {
     configured: false,
     source: null,

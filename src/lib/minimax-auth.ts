@@ -6,6 +6,7 @@
  */
 
 import type { AuthData, MiniMaxAuthData } from "./types.js";
+import { sanitizeDisplayText } from "./display-sanitize.js";
 import { readAuthFileCached } from "./opencode-auth.js";
 
 export const DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS = 5_000;
@@ -15,12 +16,23 @@ export type ResolvedMiniMaxAuth =
   | { state: "configured"; apiKey: string }
   | { state: "invalid"; error: string };
 
-function getMiniMaxAuth(auth: AuthData | null | undefined): MiniMaxAuthData | null {
-  return auth?.["minimax-coding-plan"] ?? null;
+function getMiniMaxAuthEntry(auth: AuthData | null | undefined): unknown {
+  return auth?.["minimax-coding-plan"];
+}
+
+function isMiniMaxAuthData(value: unknown): value is MiniMaxAuthData {
+  return value !== null && typeof value === "object";
 }
 
 function getMiniMaxCredential(auth: MiniMaxAuthData): string {
-  return auth.key?.trim() || auth.access?.trim() || "";
+  const key = typeof auth.key === "string" ? auth.key.trim() : "";
+  const access = typeof auth.access === "string" ? auth.access.trim() : "";
+  return key || access || "";
+}
+
+function sanitizeMiniMaxAuthValue(value: string): string {
+  const sanitized = sanitizeDisplayText(value).replace(/\s+/g, " ").trim();
+  return (sanitized || "unknown").slice(0, 120);
 }
 
 /**
@@ -31,13 +43,24 @@ function getMiniMaxCredential(auth: MiniMaxAuthData): string {
  * and `"configured"` when a usable API key is found.
  */
 export function resolveMiniMaxAuth(auth: AuthData | null | undefined): ResolvedMiniMaxAuth {
-  const minimax = getMiniMaxAuth(auth);
-  if (!minimax) {
+  const minimax = getMiniMaxAuthEntry(auth);
+  if (minimax === null || minimax === undefined) {
     return { state: "none" };
   }
 
+  if (!isMiniMaxAuthData(minimax)) {
+    return { state: "invalid", error: "MiniMax auth entry has invalid shape" };
+  }
+
+  if (typeof minimax.type !== "string") {
+    return { state: "invalid", error: "MiniMax auth entry present but type is missing or invalid" };
+  }
+
   if (minimax.type !== "api") {
-    return { state: "invalid", error: `Unsupported MiniMax auth type: "${minimax.type}"` };
+    return {
+      state: "invalid",
+      error: `Unsupported MiniMax auth type: "${sanitizeMiniMaxAuthValue(minimax.type)}"`,
+    };
   }
 
   const credential = getMiniMaxCredential(minimax);
