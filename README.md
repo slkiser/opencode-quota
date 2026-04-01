@@ -16,10 +16,10 @@
   </tr>
   <tr>
     <td width="50%">
-      <img src="https://github.com/slkiser/opencode-quota/blob/main/toasts.webp" alt="Image of opencode-quota toast" />
+      <img src="https://shawnkiser.com/opencode-quota/toasts.webp" alt="Image of opencode-quota toast" />
     </td>
     <td width="50%">
-      <img src="https://github.com/slkiser/opencode-quota/blob/main/tokens.webp" alt="Image of opencode-quota /tokens_weekly output" />
+      <img src="https://shawnkiser.com/opencode-quota/tokens.webp" alt="Image of opencode-quota /tokens_weekly output" />
     </td>
   </tr>
 </table>
