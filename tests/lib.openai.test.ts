@@ -1,43 +1,61 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { queryOpenAIQuota } from "../src/lib/openai.js";
-
-// Mock auth reader
-vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => ({
-    dataDirs: ["/home/test/.local/share/opencode"],
-    configDirs: ["/home/test/.config/opencode"],
-    cacheDirs: ["/home/test/.cache/opencode"],
-    stateDirs: ["/home/test/.local/state/opencode"],
-  }),
-  getOpencodeRuntimeDirs: () => ({
-    dataDir: "/home/test/.local/share/opencode",
-    configDir: "/home/test/.config/opencode",
-    cacheDir: "/home/test/.cache/opencode",
-    stateDir: "/home/test/.local/state/opencode",
-  }),
+const mocks = vi.hoisted(() => ({
+  readAuthFileCached: vi.fn(),
 }));
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
-  readAuthFile: vi.fn(),
+  readAuthFileCached: mocks.readAuthFileCached,
 }));
 
-describe("queryOpenAIQuota", () => {
+import {
+  DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS,
+  hasOpenAIOAuthCached,
+  queryOpenAIQuota,
+  resolveOpenAIOAuth,
+} from "../src/lib/openai.js";
+
+describe("openai auth resolution", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
   });
 
-  it("returns null when not configured", async () => {
-    const { readAuthFile } = await import("../src/lib/opencode-auth.js");
-    (readAuthFile as any).mockResolvedValueOnce({});
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns none when no supported native OpenCode auth entry exists", () => {
+    expect(resolveOpenAIOAuth({})).toEqual({ state: "none" });
+  });
+
+  it("prefers openai before legacy compatibility keys", () => {
+    expect(
+      resolveOpenAIOAuth({
+        codex: { type: "oauth", access: "codex-token" },
+        openai: { type: "oauth", access: "openai-token" },
+        chatgpt: { type: "oauth", access: "chatgpt-token" },
+        opencode: { type: "oauth", access: "opencode-token" },
+      }),
+    ).toMatchObject({
+      state: "configured",
+      sourceKey: "openai",
+      accessToken: "openai-token",
+    });
+  });
+
+  it("returns null when quota is not configured", async () => {
+    mocks.readAuthFileCached.mockResolvedValueOnce({});
 
     await expect(queryOpenAIQuota()).resolves.toBeNull();
+    expect(mocks.readAuthFileCached).toHaveBeenCalledWith({
+      maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS,
+    });
   });
 
   it("returns token expired error when expires is in the past", async () => {
-    const { readAuthFile } = await import("../src/lib/opencode-auth.js");
-    (readAuthFile as any).mockResolvedValueOnce({
+    mocks.readAuthFileCached.mockResolvedValueOnce({
       openai: { type: "oauth", access: "tok", expires: Date.now() - 1 },
     });
 
@@ -45,9 +63,8 @@ describe("queryOpenAIQuota", () => {
     expect(out && !out.success ? out.error : "").toContain("Token expired");
   });
 
-  it("reads auth from chatgpt key when openai/codex not present", async () => {
-    const { readAuthFile } = await import("../src/lib/opencode-auth.js");
-    (readAuthFile as any).mockResolvedValueOnce({
+  it("reads auth from chatgpt when codex and openai are absent", async () => {
+    mocks.readAuthFileCached.mockResolvedValueOnce({
       chatgpt: { type: "oauth", access: "a.b.c", expires: Date.now() + 60_000 },
     });
 
@@ -77,9 +94,11 @@ describe("queryOpenAIQuota", () => {
     expect(out && out.success ? out.windows.hourly?.percentRemaining : -1).toBe(80);
   });
 
-  it("reads auth from opencode key when other keys not present", async () => {
-    const { readAuthFile } = await import("../src/lib/opencode-auth.js");
-    (readAuthFile as any).mockResolvedValueOnce({
+  it("reads auth from opencode when higher-priority keys are unusable", async () => {
+    mocks.readAuthFileCached.mockResolvedValueOnce({
+      codex: { type: "oauth", access: "   " },
+      openai: { type: "api", access: "ignored" },
+      chatgpt: { type: "oauth", access: "   " },
       opencode: { type: "oauth", access: "a.b.c", expires: Date.now() + 60_000 },
     });
 
@@ -109,9 +128,19 @@ describe("queryOpenAIQuota", () => {
     expect(out && out.success ? out.windows.hourly?.percentRemaining : -1).toBe(50);
   });
 
-  it("returns separate hourly/weekly windows", async () => {
-    const { readAuthFile } = await import("../src/lib/opencode-auth.js");
-    (readAuthFile as any).mockResolvedValueOnce({
+  it("uses cached auth reads for hasOpenAIOAuthCached", async () => {
+    mocks.readAuthFileCached.mockResolvedValueOnce({
+      openai: { type: "oauth", access: "cached-token" },
+    });
+
+    await expect(hasOpenAIOAuthCached()).resolves.toBe(true);
+    expect(mocks.readAuthFileCached).toHaveBeenCalledWith({
+      maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS,
+    });
+  });
+
+  it("returns separate hourly and weekly windows", async () => {
+    mocks.readAuthFileCached.mockResolvedValueOnce({
       openai: { type: "oauth", access: "a.b.c", expires: Date.now() + 60_000 },
     });
 

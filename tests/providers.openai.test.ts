@@ -8,6 +8,8 @@ import {
 import { openaiProvider } from "../src/providers/openai.js";
 
 vi.mock("../src/lib/openai.js", () => ({
+  DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS: 5_000,
+  hasOpenAIOAuthCached: vi.fn(),
   queryOpenAIQuota: vi.fn(),
 }));
 
@@ -53,6 +55,9 @@ describe("openai provider", () => {
   });
 
   it("is available when provider ids include openai/chatgpt/codex/opencode", async () => {
+    const { hasOpenAIOAuthCached } = await import("../src/lib/openai.js");
+    (hasOpenAIOAuthCached as any).mockResolvedValue(false);
+
     const makeCtx = (ids: string[]) =>
       ({
         client: {
@@ -69,9 +74,32 @@ describe("openai provider", () => {
     await expect(openaiProvider.isAvailable(makeCtx(["codex"]))).resolves.toBe(true);
     await expect(openaiProvider.isAvailable(makeCtx(["opencode"]))).resolves.toBe(true);
     await expect(openaiProvider.isAvailable(makeCtx(["zai"]))).resolves.toBe(false);
+    expect(hasOpenAIOAuthCached).toHaveBeenCalledTimes(1);
+    expect(hasOpenAIOAuthCached).toHaveBeenCalledWith({ maxAgeMs: 5_000 });
+  });
+
+  it("falls back to native OpenCode auth when provider ids do not include an OpenAI alias", async () => {
+    const { hasOpenAIOAuthCached } = await import("../src/lib/openai.js");
+    (hasOpenAIOAuthCached as any).mockResolvedValueOnce(true);
+
+    const ctx = {
+      client: {
+        config: {
+          providers: vi.fn().mockResolvedValue({ data: { providers: [{ id: "zai" }] } }),
+          get: vi.fn(),
+        },
+      },
+      config: { googleModels: [] },
+    } as any;
+
+    await expect(openaiProvider.isAvailable(ctx)).resolves.toBe(true);
+    expect(hasOpenAIOAuthCached).toHaveBeenCalledWith({ maxAgeMs: 5_000 });
   });
 
   it("falls back to available when provider lookup throws", async () => {
+    const { hasOpenAIOAuthCached } = await import("../src/lib/openai.js");
+    (hasOpenAIOAuthCached as any).mockResolvedValue(false);
+
     const ctx = {
       client: {
         config: {
@@ -83,5 +111,6 @@ describe("openai provider", () => {
     } as any;
 
     await expect(openaiProvider.isAvailable(ctx)).resolves.toBe(true);
+    expect(hasOpenAIOAuthCached).not.toHaveBeenCalled();
   });
 });

@@ -45,6 +45,20 @@ const pricingMocks = vi.hoisted(() => ({
   getPricingSnapshotSource: vi.fn(() => "bundled"),
 }));
 
+const googleMocks = vi.hoisted(() => ({
+  inspectAntigravityAccountsPresence: vi.fn(async () => ({
+    state: "missing" as const,
+    presentPaths: [],
+    candidatePaths: ["/tmp/antigravity-accounts.json"],
+    accountCount: 0,
+    validAccountCount: 0,
+  })),
+}));
+
+const openaiMocks = vi.hoisted(() => ({
+  resolveOpenAIOAuth: vi.fn(() => ({ state: "none" as const })),
+}));
+
 const alibabaMocks = vi.hoisted(() => ({
   getAlibabaCodingPlanAuthDiagnostics: vi.fn(async () => ({
     state: "none" as const,
@@ -119,8 +133,7 @@ vi.mock("../src/lib/google-token-cache.js", () => ({
 }));
 
 vi.mock("../src/lib/google.js", () => ({
-  getAntigravityAccountsCandidatePaths: () => ["/tmp/antigravity-accounts.json"],
-  readAntigravityAccounts: vi.fn(async () => []),
+  inspectAntigravityAccountsPresence: googleMocks.inspectAntigravityAccountsPresence,
 }));
 
 vi.mock("../src/lib/anthropic.js", () => ({
@@ -172,6 +185,10 @@ vi.mock("../src/lib/qwen-local-quota.js", () => ({
 vi.mock("../src/lib/qwen-auth.js", () => ({
   hasQwenOAuthAuth: () => false,
   resolveQwenLocalPlan: () => ({ state: "none" }),
+}));
+
+vi.mock("../src/lib/openai.js", () => ({
+  resolveOpenAIOAuth: openaiMocks.resolveOpenAIOAuth,
 }));
 
 vi.mock("../src/lib/alibaba-auth.js", () => ({
@@ -383,6 +400,14 @@ describe("buildQuotaStatusReport", () => {
       "- selection_note: runtime config requested the local runtime snapshot, but bundled fallback is active because no valid runtime snapshot is available",
     );
     expect(report).not.toContain("- opencode data:");
+    expect(report).toContain("openai:");
+    expect(report).toContain("- auth_configured: false");
+    expect(report).toContain("- auth_source: (none)");
+    expect(report).toContain("- token_status: (none)");
+    expect(report).toContain("- token_expires_at: (none)");
+    expect(report).toContain("- account_email: (none)");
+    expect(report).toContain("- account_id: (none)");
+    expect(report).toContain("- qwen_oauth_source: (none)");
     expect(report).toContain("- qwen_local_plan: (none)");
     expect(report).toContain("- alibaba auth configured: false");
     expect(report).toContain("- alibaba coding plan fallback tier: lite");
@@ -430,6 +455,14 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- remaining_totals_state: not_available_from_org_usage");
     expect(report).toContain("- billing_period: 2026-01");
     expect(report).toContain("- username_filter: alice");
+    expect(report).toContain("google_antigravity:");
+    expect(report).toContain("- auth_state: missing");
+    expect(report).toContain("- selected_accounts_path: (none)");
+    expect(report).toContain("- present_accounts_paths: (none)");
+    expect(report).toContain("- candidate_accounts_paths: /tmp/antigravity-accounts.json");
+    expect(report).toContain("- account_count: 0");
+    expect(report).toContain("- valid_account_count: 0");
+    expect(report).toContain("- token_cache_path: /tmp/google-token-cache.json exists=false");
     expect(report).toContain(
       "- billing_usage_note: organization premium usage for the current billing period",
     );

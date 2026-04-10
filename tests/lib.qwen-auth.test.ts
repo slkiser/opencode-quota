@@ -29,6 +29,7 @@ describe("qwen auth resolution", () => {
     ).toEqual({
       state: "qwen_free",
       accessToken: "canonical-token",
+      sourceKey: "qwen-code",
     });
   });
 
@@ -40,6 +41,7 @@ describe("qwen auth resolution", () => {
     ).toEqual({
       state: "qwen_free",
       accessToken: "legacy-token",
+      sourceKey: "opencode-qwencode-auth",
     });
   });
 
@@ -52,6 +54,7 @@ describe("qwen auth resolution", () => {
     ).toEqual({
       state: "qwen_free",
       accessToken: "canonical-token",
+      sourceKey: "qwen-code",
     });
   });
 
@@ -64,6 +67,7 @@ describe("qwen auth resolution", () => {
     ).toEqual({
       state: "qwen_free",
       accessToken: "legacy-token",
+      sourceKey: "opencode-qwencode-auth",
     });
   });
 
@@ -98,6 +102,7 @@ describe("qwen auth resolution", () => {
     await expect(resolveQwenLocalPlanCached({ maxAgeMs: -1 })).resolves.toEqual({
       state: "qwen_free",
       accessToken: "legacy-token",
+      sourceKey: "opencode-qwencode-auth",
     });
     expect(mocks.readAuthFileCached).toHaveBeenCalledWith({ maxAgeMs: 0 });
   });

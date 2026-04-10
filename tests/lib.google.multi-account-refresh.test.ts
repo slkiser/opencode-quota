@@ -6,6 +6,10 @@ vi.mock("fs/promises", () => ({
   readFile: vi.fn(),
 }));
 
+vi.mock("fs", () => ({
+  existsSync: vi.fn(() => true),
+}));
+
 vi.mock("../src/lib/google-token-cache.js", () => ({
   getCachedAccessToken: vi.fn(async () => null),
   makeAccountCacheKey: vi.fn(() => "key"),

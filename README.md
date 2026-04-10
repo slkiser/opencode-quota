@@ -257,7 +257,7 @@ Example `copilot-quota-token.json`:
 <details>
 <summary><strong>Cursor</strong></summary>
 
-See [Cursor quick setup](#cursor-quick-setup) for auth. Quota and token reporting stays local to OpenCode history and local pricing data.
+See [Cursor quick setup](#cursor-quick-setup) for companion-plugin OAuth auth. Quota and token reporting stays local to OpenCode history and local pricing data.
 
 - Detects Cursor usage when the provider is `cursor` or the stored/current model id is `cursor/*`.
 - `/tokens_*` maps Cursor API-pool models to official pricing and uses bundled static pricing for `auto` and `composer*`.
@@ -280,6 +280,18 @@ Example override:
 
 </details>
 
+<a id="openai-notes"></a>
+<details>
+<summary><strong>OpenAI</strong></summary>
+
+OpenAI uses native OpenCode OAuth from `auth.json`. The canonical auth family is OpenCode auth, not companion-plugin auth.
+
+- Quota is fetched from the OpenAI usage API using the native OpenCode OAuth token stored under `openai` in `auth.json`.
+- Older OpenCode installs may still have compatible OpenAI OAuth entries under `codex`, `chatgpt`, or `opencode`. Those remain supported for backward compatibility.
+- `/quota_status` includes an `openai` section with the detected auth source, token status, expiry, and account details derived from the token when available.
+
+</details>
+
 <a id="qwen-code-notes"></a>
 <details>
 <summary><strong>Qwen Code</strong></summary>
@@ -287,9 +299,10 @@ Example override:
 See [Qwen Code quick setup](#qwen-code-quick-setup) for auth. Usage is local-only estimation for the free plan; the plugin does not call an Alibaba quota API.
 
 - Free tier limits: `1000` requests per UTC day and `60` requests per rolling minute.
+- The canonical companion auth key is `qwen-code`. Older installs may still use `opencode-qwencode-auth`, which remains a supported fallback.
 - Counters increment on successful question-tool completions while the current model is `qwen-code/*`.
 - State file: `.../opencode/opencode-quota/qwen-local-quota.json`.
-- Check `/quota_status` for auth detection, `qwen_local_plan`, and local counter state.
+- Check `/quota_status` for auth detection, `qwen_oauth_source`, `qwen_local_plan`, and local counter state.
 
 </details>
 
@@ -426,9 +439,10 @@ Example user/global config (`~/.config/opencode/opencode.jsonc` on Linux/macOS):
 <details>
 <summary><strong>Google Antigravity</strong></summary>
 
-See [Google Antigravity quick setup](#google-antigravity-quick-setup). Credentials live under the OpenCode runtime config directory.
+See [Google Antigravity quick setup](#google-antigravity-quick-setup). This companion auth flow does not use `auth.json`; it reads `antigravity-accounts.json` from the OpenCode runtime directories.
 
-If detection looks wrong, `/quota_status` prints the candidate paths checked for `antigravity-accounts.json`.
+- `/quota_status` includes a `google_antigravity` section with the selected accounts path, all present/candidate paths, account counts, valid refresh-token counts, and the Google token-cache path.
+- If detection looks wrong, start with the `google_antigravity` section in `/quota_status`.
 
 </details>
 

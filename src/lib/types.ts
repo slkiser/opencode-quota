@@ -150,6 +150,15 @@ export interface CursorOAuthAuthData {
   [key: string]: unknown;
 }
 
+export interface OpenAIOAuthData {
+  type: string;
+  access?: string;
+  refresh?: string;
+  expires?: number;
+  accountId?: string;
+  [key: string]: unknown;
+}
+
 export interface AlibabaAuthData {
   type: string;
   key?: string;
@@ -225,34 +234,13 @@ export interface AuthData {
     refresh?: string;
     expires?: number;
   };
-  openai?: {
-    type: string;
-    access?: string;
-    refresh?: string;
-    expires?: number;
-  };
+  openai?: OpenAIOAuthData;
   // Some OpenCode installs store ChatGPT auth under "codex".
-  codex?: {
-    type: string;
-    access?: string;
-    refresh?: string;
-    expires?: number;
-    accountId?: string;
-  };
+  codex?: OpenAIOAuthData;
   // Some OpenCode installs store ChatGPT auth under "chatgpt".
-  chatgpt?: {
-    type: string;
-    access?: string;
-    refresh?: string;
-    expires?: number;
-  };
+  chatgpt?: OpenAIOAuthData;
   // Some OpenCode installs store OpenAI auth under "opencode".
-  opencode?: {
-    type: string;
-    access?: string;
-    refresh?: string;
-    expires?: number;
-  };
+  opencode?: OpenAIOAuthData;
   firmware?: {
     type: string;
     key?: string;

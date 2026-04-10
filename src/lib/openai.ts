@@ -1,14 +1,14 @@
 /**
  * OpenAI (ChatGPT) quota fetcher
  *
- * Uses OpenCode's auth.json (openai oauth) and queries:
+ * Uses OpenCode's auth.json native OpenCode OAuth entries and queries:
  * https://chatgpt.com/backend-api/wham/usage
  */
 
-import type { AuthData, QuotaError } from "./types.js";
+import type { AuthData, OpenAIOAuthData, QuotaError } from "./types.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
-import { readAuthFile } from "./opencode-auth.js";
+import { readAuthFileCached } from "./opencode-auth.js";
 import { clampPercent } from "./format-utils.js";
 
 interface RateLimitWindow {
@@ -94,6 +94,10 @@ function derivePlanLabel(planType: string | undefined): string {
 }
 
 const OPENAI_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
+export const DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS = 5_000;
+export const OPENAI_AUTH_SOURCE_KEYS = ["openai", "codex", "chatgpt", "opencode"] as const;
+
+export type OpenAIAuthSourceKey = (typeof OPENAI_AUTH_SOURCE_KEYS)[number];
 
 export type OpenAIResult =
   | {
@@ -114,36 +118,90 @@ export type OpenAIResult =
   | QuotaError
   | null;
 
-type OpenAIOAuth = {
-  type: "oauth";
-  access: string;
-  refresh?: string;
-  expires?: number;
-};
+export type ResolvedOpenAIOAuth =
+  | { state: "none" }
+  | {
+      state: "configured";
+      sourceKey: OpenAIAuthSourceKey;
+      accessToken: string;
+      refreshToken?: string;
+      expiresAt?: number;
+      email?: string;
+      accountId?: string;
+    };
 
-async function readOpenAIAuth(): Promise<OpenAIOAuth | null> {
-  const auth = await readAuthFile();
-  // Check all keys that openaiProvider.isAvailable() recognizes as OpenAI providers
-  const openai = auth?.codex ?? auth?.openai ?? auth?.chatgpt ?? auth?.opencode;
-  if (!openai || openai.type !== "oauth" || !openai.access) return null;
-  return openai as OpenAIOAuth;
+function getOpenAIOAuthEntry(
+  auth: AuthData | null | undefined,
+): { sourceKey: OpenAIAuthSourceKey; entry: OpenAIOAuthData; accessToken: string } | null {
+  for (const sourceKey of OPENAI_AUTH_SOURCE_KEYS) {
+    const entry = auth?.[sourceKey];
+    if (!entry || entry.type !== "oauth") {
+      continue;
+    }
+
+    const accessToken = typeof entry.access === "string" ? entry.access.trim() : "";
+    if (accessToken) {
+      return { sourceKey, entry, accessToken };
+    }
+  }
+
+  return null;
+}
+
+export function resolveOpenAIOAuth(auth: AuthData | null | undefined): ResolvedOpenAIOAuth {
+  const resolved = getOpenAIOAuthEntry(auth);
+  if (!resolved) {
+    return { state: "none" };
+  }
+
+  const email = getEmailFromJwt(resolved.accessToken) ?? undefined;
+  const accountId = getAccountIdFromJwt(resolved.accessToken) ?? resolved.entry.accountId ?? undefined;
+
+  return {
+    state: "configured",
+    sourceKey: resolved.sourceKey,
+    accessToken: resolved.accessToken,
+    refreshToken:
+      typeof resolved.entry.refresh === "string" && resolved.entry.refresh.trim()
+        ? resolved.entry.refresh
+        : undefined,
+    expiresAt: typeof resolved.entry.expires === "number" ? resolved.entry.expires : undefined,
+    email,
+    accountId,
+  };
+}
+
+export function hasOpenAIOAuth(auth: AuthData | null | undefined): boolean {
+  return resolveOpenAIOAuth(auth).state === "configured";
+}
+
+export async function hasOpenAIOAuthCached(params?: {
+  maxAgeMs?: number;
+}): Promise<boolean> {
+  const auth = await readAuthFileCached({
+    maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS),
+  });
+  return hasOpenAIOAuth(auth);
 }
 
 export async function queryOpenAIQuota(): Promise<OpenAIResult> {
-  const auth = await readOpenAIAuth();
-  if (!auth) return null;
+  const auth = await readAuthFileCached({
+    maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS,
+  });
+  const resolvedAuth = resolveOpenAIOAuth(auth);
+  if (resolvedAuth.state !== "configured") return null;
 
-  if (auth.expires && auth.expires < Date.now()) {
+  if (resolvedAuth.expiresAt && resolvedAuth.expiresAt < Date.now()) {
     return { success: false, error: "Token expired" };
   }
 
   try {
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${auth.access}`,
+      Authorization: `Bearer ${resolvedAuth.accessToken}`,
       "User-Agent": "OpenCode-Quota-Toast/1.0",
     };
 
-    const accountId = getAccountIdFromJwt(auth.access);
+    const accountId = resolvedAuth.accountId;
     if (accountId) {
       headers["ChatGPT-Account-Id"] = accountId;
     }
@@ -183,7 +241,7 @@ export async function queryOpenAIQuota(): Promise<OpenAIResult> {
     return {
       success: true,
       label: derivePlanLabel(data.plan_type),
-      email: getEmailFromJwt(auth.access) ?? undefined,
+      email: resolvedAuth.email,
       windows: {
         hourly: { percentRemaining: clampPercent(hourlyRemain), resetTimeIso: hourlyResetIso },
         weekly:

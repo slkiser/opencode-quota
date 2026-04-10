@@ -3,21 +3,25 @@ import { readAuthFileCached } from "./opencode-auth.js";
 
 export const DEFAULT_QWEN_AUTH_CACHE_MAX_AGE_MS = 5_000;
 const QWEN_AUTH_KEYS = ["qwen-code", "opencode-qwencode-auth"] as const;
+export type QwenOAuthSourceKey = (typeof QWEN_AUTH_KEYS)[number];
 
 export type ResolvedQwenLocalPlan =
   | { state: "none" }
-  | { state: "qwen_free"; accessToken: string };
+  | { state: "qwen_free"; accessToken: string; sourceKey: QwenOAuthSourceKey };
 
-function getQwenOAuthAccessToken(auth: AuthData | null | undefined): string | null {
+function getQwenOAuthAccessToken(auth: AuthData | null | undefined): {
+  accessToken: string;
+  sourceKey: QwenOAuthSourceKey;
+} | null {
   for (const key of QWEN_AUTH_KEYS) {
     const qwen = auth?.[key];
     if (!qwen || qwen.type !== "oauth") {
       continue;
     }
 
-    const access = typeof qwen.access === "string" ? qwen.access.trim() : "";
-    if (access) {
-      return access;
+    const accessToken = typeof qwen.access === "string" ? qwen.access.trim() : "";
+    if (accessToken) {
+      return { accessToken, sourceKey: key };
     }
   }
 
@@ -38,12 +42,12 @@ export async function hasQwenOAuthAuthCached(params?: {
 }
 
 export function resolveQwenLocalPlan(auth: AuthData | null | undefined): ResolvedQwenLocalPlan {
-  const accessToken = getQwenOAuthAccessToken(auth);
-  if (!accessToken) {
+  const resolved = getQwenOAuthAccessToken(auth);
+  if (!resolved) {
     return { state: "none" };
   }
 
-  return { state: "qwen_free", accessToken };
+  return { state: "qwen_free", accessToken: resolved.accessToken, sourceKey: resolved.sourceKey };
 }
 
 export async function resolveQwenLocalPlanCached(params?: {

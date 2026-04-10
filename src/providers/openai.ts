@@ -8,7 +8,11 @@ import type {
   QuotaProviderResult,
   QuotaToastEntry,
 } from "../lib/entries.js";
-import { queryOpenAIQuota } from "../lib/openai.js";
+import {
+  DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS,
+  hasOpenAIOAuthCached,
+  queryOpenAIQuota,
+} from "../lib/openai.js";
 import { isAnyProviderIdAvailable } from "../lib/provider-availability.js";
 
 export const openaiProvider: QuotaProvider = {
@@ -16,11 +20,17 @@ export const openaiProvider: QuotaProvider = {
 
   async isAvailable(ctx: QuotaProviderContext): Promise<boolean> {
     // Best-effort: if provider lookup errors, preserve current permissive fallback.
-    return isAnyProviderIdAvailable({
+    const availableByProviderId = await isAnyProviderIdAvailable({
       ctx,
       candidateIds: ["openai", "chatgpt", "codex", "opencode"],
       fallbackOnError: true,
     });
+
+    if (availableByProviderId) {
+      return true;
+    }
+
+    return hasOpenAIOAuthCached({ maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS });
   },
 
   matchesCurrentModel(model: string): boolean {

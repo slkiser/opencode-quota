@@ -59,6 +59,29 @@ const GOOGLE_ACCOUNTS_CONCURRENCY = 3;
 // Helpers
 // =============================================================================
 
+export interface GoogleAntigravityAuthPresence {
+  state: "missing" | "present" | "invalid";
+  selectedPath?: string;
+  presentPaths: string[];
+  candidatePaths: string[];
+  accountCount: number;
+  validAccountCount: number;
+  error?: string;
+}
+
+type AntigravityAccountsReadResult =
+  | {
+      state: "present";
+      path: string;
+      file: AntigravityAccountsFile;
+      validAccounts: AntigravityAccount[];
+    }
+  | {
+      state: "invalid";
+      path: string;
+      error: string;
+    };
+
 export function getAntigravityAccountsCandidatePaths(): string[] {
   // Prefer OpenCode runtime dirs (xdg-basedir semantics), but include both
   // config and data as candidates for compatibility with older variants.
@@ -81,33 +104,117 @@ export function pickAntigravityAccountsPath(): string {
   return getAntigravityAccountsCandidatePaths()[0]!;
 }
 
+async function readAntigravityAccountsFile(path: string): Promise<AntigravityAccountsReadResult> {
+  try {
+    const content = await readFile(path, "utf-8");
+    const file = JSON.parse(content) as AntigravityAccountsFile;
+
+    if (!Array.isArray(file.accounts)) {
+      return {
+        state: "invalid",
+        path,
+        error: "accounts file is missing an accounts array",
+      };
+    }
+
+    const validAccounts = file.accounts.filter(
+      (account) =>
+        typeof account.refreshToken === "string" && account.refreshToken.trim().length > 0,
+    );
+
+    return {
+      state: "present",
+      path,
+      file,
+      validAccounts,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      state: "invalid",
+      path,
+      error: message,
+    };
+  }
+}
+
 /**
  * Read Antigravity accounts from storage
  */
 export async function readAntigravityAccounts(): Promise<AntigravityAccount[] | null> {
   for (const path of getAntigravityAccountsCandidatePaths()) {
-    try {
-      const content = await readFile(path, "utf-8");
-      const file = JSON.parse(content) as AntigravityAccountsFile;
-
-      if (!file.accounts || file.accounts.length === 0) {
-        continue;
-      }
-
-      // Filter to accounts with refresh tokens
-      const validAccounts = file.accounts.filter((account) => account.refreshToken);
-      return validAccounts.length > 0 ? validAccounts : null;
-    } catch {
-      // try next candidate
+    if (!existsSync(path)) {
+      continue;
     }
+
+    const result = await readAntigravityAccountsFile(path);
+    if (result.state === "invalid") {
+      continue;
+    }
+
+    if (result.file.accounts.length === 0) {
+      continue;
+    }
+
+    return result.validAccounts.length > 0 ? result.validAccounts : null;
   }
 
   return null;
 }
 
+export async function inspectAntigravityAccountsPresence(): Promise<GoogleAntigravityAuthPresence> {
+  const candidatePaths = getAntigravityAccountsCandidatePaths();
+  const presentPaths = candidatePaths.filter((path) => existsSync(path));
+
+  if (presentPaths.length === 0) {
+    return {
+      state: "missing",
+      presentPaths,
+      candidatePaths,
+      accountCount: 0,
+      validAccountCount: 0,
+    };
+  }
+
+  let firstInvalid: { path: string; error: string } | null = null;
+
+  for (const path of presentPaths) {
+    const result = await readAntigravityAccountsFile(path);
+    if (result.state === "invalid") {
+      if (!firstInvalid) {
+        firstInvalid = { path: result.path, error: result.error };
+      }
+      continue;
+    }
+
+    if (result.file.accounts.length === 0) {
+      continue;
+    }
+
+    return {
+      state: "present",
+      selectedPath: result.path,
+      presentPaths,
+      candidatePaths,
+      accountCount: result.file.accounts.length,
+      validAccountCount: result.validAccounts.length,
+    };
+  }
+
+  return {
+    state: "invalid",
+    selectedPath: firstInvalid?.path,
+    presentPaths,
+    candidatePaths,
+    accountCount: 0,
+    validAccountCount: 0,
+    error: firstInvalid?.error,
+  };
+}
+
 export async function hasAntigravityAccountsConfigured(): Promise<boolean> {
-  const accounts = await readAntigravityAccounts();
-  return !!accounts && accounts.length > 0;
+  const presence = await inspectAntigravityAccountsPresence();
+  return presence.state === "present" && presence.validAccountCount > 0;
 }
 
 async function mapWithConcurrency<T, R>(params: {

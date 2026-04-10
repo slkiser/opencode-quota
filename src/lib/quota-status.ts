@@ -3,7 +3,7 @@ import { stat } from "fs/promises";
 import { getAuthPath, getAuthPaths, readAuthFileCached } from "./opencode-auth.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import { getGoogleTokenCachePath } from "./google-token-cache.js";
-import { getAntigravityAccountsCandidatePaths, readAntigravityAccounts } from "./google.js";
+import { inspectAntigravityAccountsPresence } from "./google.js";
 import { getAnthropicDiagnostics } from "./anthropic.js";
 import { getFirmwareKeyDiagnostics } from "./firmware.js";
 import { getChutesKeyDiagnostics } from "./chutes.js";
@@ -23,6 +23,7 @@ import {
   resolveAlibabaCodingPlanAuth,
 } from "./alibaba-auth.js";
 import { hasQwenOAuthAuth, resolveQwenLocalPlan } from "./qwen-auth.js";
+import { resolveOpenAIOAuth } from "./openai.js";
 import {
   DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS,
   getMiniMaxAuthDiagnostics,
@@ -345,17 +346,44 @@ export async function buildQuotaStatusReport(params: {
   const authData = await readAuthFileCached({ maxAgeMs: 5_000 });
   const qwenAuthConfigured = hasQwenOAuthAuth(authData);
   const qwenLocalPlan = resolveQwenLocalPlan(authData);
+  const openaiAuth = resolveOpenAIOAuth(authData);
   const alibabaAuthDiagnostics = await getAlibabaCodingPlanAuthDiagnostics({
     maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
     fallbackTier: params.alibabaCodingPlanTier,
   });
   const alibabaCodingPlanAuth = resolveAlibabaCodingPlanAuth(authData, params.alibabaCodingPlanTier);
   lines.push(`- qwen oauth auth configured: ${qwenAuthConfigured ? "true" : "false"}`);
+  lines.push(
+    `- qwen_oauth_source: ${qwenLocalPlan.state === "qwen_free" ? qwenLocalPlan.sourceKey : "(none)"}`,
+  );
   lines.push(`- qwen_local_plan: ${qwenLocalPlan.state === "qwen_free" ? "qwen-code/free" : "(none)"}`);
   lines.push(`- alibaba auth configured: ${alibabaAuthDiagnostics.state === "none" ? "false" : "true"}`);
   lines.push(`- alibaba coding plan fallback tier: ${params.alibabaCodingPlanTier}`);
   lines.push(
     `- alibaba_coding_plan: ${alibabaAuthDiagnostics.state === "configured" ? alibabaAuthDiagnostics.tier : alibabaAuthDiagnostics.state === "invalid" ? "invalid" : "(none)"}`,
+  );
+
+  lines.push("");
+  lines.push("openai:");
+  lines.push(`- auth_configured: ${openaiAuth.state === "configured" ? "true" : "false"}`);
+  lines.push(
+    `- auth_source: ${openaiAuth.state === "configured" ? openaiAuth.sourceKey : "(none)"}`,
+  );
+  const openaiTokenStatus =
+    openaiAuth.state !== "configured"
+      ? "(none)"
+      : openaiAuth.expiresAt && openaiAuth.expiresAt < Date.now()
+        ? "expired"
+        : "valid";
+  lines.push(`- token_status: ${openaiTokenStatus}`);
+  lines.push(
+    `- token_expires_at: ${openaiAuth.state === "configured" && openaiAuth.expiresAt ? new Date(openaiAuth.expiresAt).toISOString() : "(none)"}`,
+  );
+  lines.push(
+    `- account_email: ${openaiAuth.state === "configured" && openaiAuth.email ? sanitizeDisplayText(openaiAuth.email) : "(none)"}`,
+  );
+  lines.push(
+    `- account_id: ${openaiAuth.state === "configured" && openaiAuth.accountId ? sanitizeDisplayText(openaiAuth.accountId) : "(none)"}`,
   );
 
   lines.push("");
@@ -724,21 +752,21 @@ export async function buildQuotaStatusReport(params: {
   lines.push(`- effective_source: ${copilotDiag.effectiveSource}`);
   lines.push(`- override: ${copilotDiag.override}`);
   const googleTokenCachePath = getGoogleTokenCachePath();
+  const googleAuthPresence = await inspectAntigravityAccountsPresence();
+  lines.push("");
+  lines.push("google_antigravity:");
+  lines.push(`- auth_state: ${googleAuthPresence.state}`);
+  lines.push(`- selected_accounts_path: ${googleAuthPresence.selectedPath ?? "(none)"}`);
+  lines.push(`- present_accounts_paths: ${joinOrNone(googleAuthPresence.presentPaths)}`);
+  lines.push(`- candidate_accounts_paths: ${joinOrNone(googleAuthPresence.candidatePaths)}`);
+  lines.push(`- account_count: ${googleAuthPresence.accountCount}`);
+  lines.push(`- valid_account_count: ${googleAuthPresence.validAccountCount}`);
   lines.push(
-    `- google token cache: path=${googleTokenCachePath} exists=${(await pathExists(googleTokenCachePath)) ? "true" : "false"}`,
+    `- token_cache_path: ${googleTokenCachePath} exists=${(await pathExists(googleTokenCachePath)) ? "true" : "false"}`,
   );
-
-  const candidates = getAntigravityAccountsCandidatePaths();
-  const presentCandidates: string[] = [];
-  await Promise.all(
-    candidates.map(async (p) => {
-      if (await pathExists(p)) presentCandidates.push(p);
-    }),
-  );
-  const selected = presentCandidates[0] ?? null;
-  lines.push(
-    `- antigravity accounts: selected=${selected ?? "(none)"} present=${joinOrNone(presentCandidates)} candidates=${joinOrNone(candidates)}`,
-  );
+  if (googleAuthPresence.state === "invalid" && googleAuthPresence.error) {
+    lines.push(`- auth_error: ${sanitizeDisplayText(googleAuthPresence.error)}`);
+  }
 
   const dbCandidates = getOpenCodeDbPathCandidates();
   const dbSelected = getOpenCodeDbPath();
@@ -768,16 +796,6 @@ export async function buildQuotaStatusReport(params: {
       lines.push(`- ${f.email ?? "Unknown"}: ${f.error}`);
     }
   }
-
-  let accountCount = 0;
-  try {
-    const accounts = await readAntigravityAccounts();
-    accountCount = accounts?.length ?? 0;
-  } catch {
-    accountCount = 0;
-  }
-  lines.push("");
-  lines.push(`google accounts: count=${accountCount}`);
 
   // === session token errors ===
   if (params.sessionTokenError) {
