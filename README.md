@@ -76,20 +76,20 @@ That is enough for most installs. Providers are auto-detected from your existing
 
 ### Provider Setup At A Glance
 
-| Provider | Auto setup | How it works |
-| --- | --- | --- |
-| **Anthropic (Claude)** | Needs [quick setup](#anthropic-quick-setup) | Local Claude CLI auth/status probe. |
-| **GitHub Copilot** | Usually | OpenCode auth; PAT only for managed billing. |
-| **OpenAI** | Yes | OpenCode auth. |
-| **Cursor** | Needs [quick setup](#cursor-quick-setup) | Companion auth plugin + `provider.cursor`. |
-| **Qwen Code** | Needs [quick setup](#qwen-code-quick-setup) | Companion auth plugin. |
-| **Alibaba Coding Plan** | Yes | OpenCode auth + local request estimation. |
-| **Firmware AI** | Usually | OpenCode auth, OpenCode config, or env. |
-| **Chutes AI** | Usually | OpenCode auth, OpenCode config, or env. |
-| **NanoGPT** | Usually | OpenCode auth, OpenCode config, or env. |
-| **Google Antigravity** | Needs [quick setup](#google-antigravity-quick-setup) | Companion auth plugin. |
-| **Z.ai** | Yes | OpenCode auth. |
-| **MiniMax Coding Plan** | Yes | OpenCode auth, OpenCode config, or env. |
+| Provider | Auto setup | Authentication | Quota |
+| --- | --- | --- | --- |
+| **Anthropic (Claude)** | Needs [quick setup](#anthropic-quick-setup) | Local CLI auth | Local CLI report |
+| **GitHub Copilot** | Usually | GitHub OAuth or PAT | Remote API |
+| **OpenAI** | Yes | OpenCode auth (OAuth token) | Remote API |
+| **Cursor** | Needs [quick setup](#cursor-quick-setup) | Companion auth (OAuth token) | Local runtime accounting |
+| **Qwen Code** | Needs [quick setup](#qwen-code-quick-setup) | Companion auth (OAuth token) | Local estimation |
+| **Alibaba Coding Plan** | Yes | OpenCode auth (API key) | Local estimation |
+| **Firmware AI** | Usually | OpenCode auth (API key; env/global config fallback) | Remote API |
+| **Chutes AI** | Usually | OpenCode auth (API key; env/global config fallback) | Remote API |
+| **Google Antigravity** | Needs [quick setup](#google-antigravity-quick-setup) | Companion auth (OAuth token) | Remote API |
+| **Z.ai** | Yes | OpenCode auth (API key) | Remote API |
+| **NanoGPT** | Usually | OpenCode auth (API key; env/global config fallback) | Remote API |
+| **MiniMax Coding Plan** | Yes | OpenCode auth (API key) | Remote API |
 
 <a id="anthropic-quick-setup"></a>
 <details>
