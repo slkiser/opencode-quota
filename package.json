@@ -1,6 +1,6 @@
 {
   "name": "@slkiser/opencode-quota",
-  "version": "2.14.0",
+  "version": "2.15.0",
   "description": "OpenCode quota & tokens usage with zero context window pollution. Supports GitHub Copilot, OpenAI (Plus/Pro), Qwen Code, Chutes AI, Firmware AI, Google Antigravity, Z.ai coding plan and more.",
   "type": "module",
   "main": "dist/index.js",
