@@ -29,10 +29,7 @@ import {
   getMiniMaxAuthDiagnostics,
   resolveMiniMaxAuthCached,
 } from "./minimax-auth.js";
-import {
-  DEFAULT_ZAI_AUTH_CACHE_MAX_AGE_MS,
-  getZaiAuthDiagnostics,
-} from "./zai-auth.js";
+import { DEFAULT_ZAI_AUTH_CACHE_MAX_AGE_MS, getZaiAuthDiagnostics } from "./zai-auth.js";
 import {
   getPricingSnapshotHealth,
   getPricingRefreshPolicy,
@@ -58,13 +55,16 @@ import { totalTokenBuckets } from "./token-buckets.js";
 import { inspectCursorAuthPresence, inspectCursorOpenCodeIntegration } from "./cursor-detection.js";
 import { getCurrentCursorUsageSummary } from "./cursor-usage.js";
 import { sanitizeDisplayText } from "./display-sanitize.js";
-import {
-  getCursorPlanDisplayName,
-  getEffectiveCursorIncludedApiUsd,
-} from "./cursor-pricing.js";
+import { getCursorPlanDisplayName, getEffectiveCursorIncludedApiUsd } from "./cursor-pricing.js";
 import type { CursorQuotaPlan, PricingSnapshotSource } from "./types.js";
 import { queryMiniMaxQuota } from "../providers/minimax-coding-plan.js";
 import { queryZaiQuota } from "./zai.js";
+import {
+  getOpenCodeGoConfigDiagnostics,
+  resolveOpenCodeGoConfigCached,
+  DEFAULT_OPENCODE_GO_CONFIG_CACHE_MAX_AGE_MS,
+} from "./opencode-go-config.js";
+import { queryOpenCodeGoQuota } from "./opencode-go.js";
 
 /** Session token fetch error info for status report */
 export interface SessionTokenError {
@@ -158,10 +158,7 @@ async function readNanoGptApiKeyDiagnostics(
   }
 }
 
-function appendNanoGptApiKeySection(
-  lines: string[],
-  diagnostics: NanoGptApiKeyDiagnostics,
-): void {
+function appendNanoGptApiKeySection(lines: string[], diagnostics: NanoGptApiKeyDiagnostics): void {
   lines.push("");
   lines.push("nanogpt:");
   lines.push(`- api_key_configured: ${diagnostics.configured ? "true" : "false"}`);
@@ -263,7 +260,8 @@ function supportedProviderPricingRow(params: {
     return {
       id,
       pricing: "partial",
-      notes: "API-pool models map to official pricing; Auto/Composer use bundled static Cursor rates",
+      notes:
+        "API-pool models map to official pricing; Auto/Composer use bundled static Cursor rates",
     };
   }
 
@@ -272,6 +270,14 @@ function supportedProviderPricingRow(params: {
       id,
       pricing: "no",
       notes: "subscription request quota + account balance (not token-priced)",
+    };
+  }
+
+  if (id === "opencode-go") {
+    return {
+      id,
+      pricing: "no",
+      notes: "subscription percentage quota via dashboard scraping (not token-priced)",
     };
   }
 
@@ -423,13 +429,20 @@ export async function buildQuotaStatusReport(params: {
     maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
     fallbackTier: params.alibabaCodingPlanTier,
   });
-  const alibabaCodingPlanAuth = resolveAlibabaCodingPlanAuth(authData, params.alibabaCodingPlanTier);
+  const alibabaCodingPlanAuth = resolveAlibabaCodingPlanAuth(
+    authData,
+    params.alibabaCodingPlanTier,
+  );
   lines.push(`- qwen oauth auth configured: ${qwenAuthConfigured ? "true" : "false"}`);
   lines.push(
     `- qwen_oauth_source: ${qwenLocalPlan.state === "qwen_free" ? qwenLocalPlan.sourceKey : "(none)"}`,
   );
-  lines.push(`- qwen_local_plan: ${qwenLocalPlan.state === "qwen_free" ? "qwen-code/free" : "(none)"}`);
-  lines.push(`- alibaba auth configured: ${alibabaAuthDiagnostics.state === "none" ? "false" : "true"}`);
+  lines.push(
+    `- qwen_local_plan: ${qwenLocalPlan.state === "qwen_free" ? "qwen-code/free" : "(none)"}`,
+  );
+  lines.push(
+    `- alibaba auth configured: ${alibabaAuthDiagnostics.state === "none" ? "false" : "true"}`,
+  );
   lines.push(`- alibaba coding plan fallback tier: ${params.alibabaCodingPlanTier}`);
   lines.push(
     `- alibaba_coding_plan: ${alibabaAuthDiagnostics.state === "configured" ? alibabaAuthDiagnostics.tier : alibabaAuthDiagnostics.state === "invalid" ? "invalid" : "(none)"}`,
@@ -527,7 +540,9 @@ export async function buildQuotaStatusReport(params: {
     });
     lines.push(`- cycle_source: ${cursorUsage.window.source}`);
     lines.push(`- cycle_reset_at: ${cursorUsage.window.resetTimeIso}`);
-    lines.push(`- api_usage: ${fmtUsdAmount(cursorUsage.api.costUsd)} across ${fmtInt(cursorUsage.api.messageCount)} messages`);
+    lines.push(
+      `- api_usage: ${fmtUsdAmount(cursorUsage.api.costUsd)} across ${fmtInt(cursorUsage.api.messageCount)} messages`,
+    );
     lines.push(
       `- auto_composer_usage: ${fmtUsdAmount(cursorUsage.autoComposer.costUsd)} across ${fmtInt(cursorUsage.autoComposer.messageCount)} messages`,
     );
@@ -619,6 +634,38 @@ export async function buildQuotaStatusReport(params: {
         if (!fiveHourEntry && !weeklyEntry) {
           lines.push("- live_state: no reportable MiniMax Coding Plan quota");
         }
+      }
+    }
+  }
+
+  lines.push("");
+  lines.push("opencode_go:");
+  const openCodeGoDiag = await getOpenCodeGoConfigDiagnostics();
+  lines.push(`- config_state: ${openCodeGoDiag.state}`);
+  lines.push(`- config_source: ${openCodeGoDiag.source ?? "(none)"}`);
+  if (openCodeGoDiag.missing) {
+    lines.push(`- config_missing: ${openCodeGoDiag.missing}`);
+  }
+  lines.push(`- config_checked_paths: ${joinOrNone(openCodeGoDiag.checkedPaths)}`);
+  if (openCodeGoDiag.state === "configured") {
+    const openCodeGoConfig = await resolveOpenCodeGoConfigCached({
+      maxAgeMs: DEFAULT_OPENCODE_GO_CONFIG_CACHE_MAX_AGE_MS,
+    });
+    if (openCodeGoConfig.state !== "configured") {
+      lines.push("- live_fetch_error: OpenCode Go config became unavailable before fetch");
+    } else {
+      const openCodeGoQuota = await queryOpenCodeGoQuota(
+        openCodeGoConfig.config.workspaceId,
+        openCodeGoConfig.config.authCookie,
+      );
+      if (!openCodeGoQuota) {
+        lines.push("- live_fetch_error: OpenCode Go returned null");
+      } else if (!openCodeGoQuota.success) {
+        lines.push(`- live_fetch_error: ${openCodeGoQuota.error}`);
+      } else {
+        lines.push(
+          `- monthly_usage: percent_used=${openCodeGoQuota.usagePercent} percent_remaining=${openCodeGoQuota.percentRemaining} reset_in_sec=${openCodeGoQuota.resetInSec} reset_at=${openCodeGoQuota.resetTimeIso}`,
+        );
       }
     }
   }
@@ -752,21 +799,29 @@ export async function buildQuotaStatusReport(params: {
   lines.push(`- billing_mode: ${copilotDiag.billingMode}`);
   lines.push(`- billing_scope: ${copilotDiag.billingScope}`);
   lines.push(`- quota_api: ${copilotDiag.quotaApi}`);
-  lines.push(`- billing_api_access_likely: ${copilotDiag.billingApiAccessLikely ? "true" : "false"}`);
+  lines.push(
+    `- billing_api_access_likely: ${copilotDiag.billingApiAccessLikely ? "true" : "false"}`,
+  );
   lines.push(`- remaining_totals_state: ${copilotDiag.remainingTotalsState}`);
   if (copilotDiag.queryPeriod) {
-    lines.push(`- billing_period: ${copilotDiag.queryPeriod.year}-${String(copilotDiag.queryPeriod.month).padStart(2, "0")}`);
+    lines.push(
+      `- billing_period: ${copilotDiag.queryPeriod.year}-${String(copilotDiag.queryPeriod.month).padStart(2, "0")}`,
+    );
   }
   if (copilotDiag.usernameFilter) {
     lines.push(`- username_filter: ${copilotDiag.usernameFilter}`);
   }
   if (copilotDiag.billingMode === "organization_usage") {
     lines.push("- billing_usage_note: organization premium usage for the current billing period");
-    lines.push("- remaining_quota_note: valid PAT access can query billing usage, but pooled org usage does not provide a true per-user remaining quota");
+    lines.push(
+      "- remaining_quota_note: valid PAT access can query billing usage, but pooled org usage does not provide a true per-user remaining quota",
+    );
   }
   if (copilotDiag.billingMode === "enterprise_usage") {
     lines.push("- billing_usage_note: enterprise premium usage for the current billing period");
-    lines.push("- remaining_quota_note: valid enterprise billing access can query pooled enterprise usage, but it does not provide a true per-user remaining quota");
+    lines.push(
+      "- remaining_quota_note: valid enterprise billing access can query pooled enterprise usage, but it does not provide a true per-user remaining quota",
+    );
   }
   if (copilotDiag.billingTargetError) {
     lines.push(`- billing_target_error: ${copilotDiag.billingTargetError}`);
@@ -872,9 +927,7 @@ export async function buildQuotaStatusReport(params: {
   lines.push(
     `- pricing: source=${meta.source} active_source=${snapshotSource} generated_at=${new Date(meta.generatedAt).toISOString()} units=${meta.units}`,
   );
-  lines.push(
-    `- selection: configured=${params.pricingSnapshotSource} active=${snapshotSource}`,
-  );
+  lines.push(`- selection: configured=${params.pricingSnapshotSource} active=${snapshotSource}`);
   if (params.pricingSnapshotSource === "bundled") {
     lines.push(
       "- selection_note: bundled config pins the packaged snapshot and ignores runtime refresh for active pricing",
@@ -937,7 +990,7 @@ export async function buildQuotaStatusReport(params: {
       const src = `${row.key.sourceProviderID}/${row.key.sourceModelID}`;
       const mapped = `${row.key.mappedProvider}/${row.key.mappedModel}`;
       lines.push(
-          `- ${src} mapped=${mapped} tokens=${fmtInt(totalTokenBuckets(row.tokens))} msgs=${fmtInt(row.messageCount)} reason=${row.key.reason}`,
+        `- ${src} mapped=${mapped} tokens=${fmtInt(totalTokenBuckets(row.tokens))} msgs=${fmtInt(row.messageCount)} reason=${row.key.reason}`,
       );
     }
     if (agg.unpriced.length > STATUS_SAMPLE_LIMIT) {
@@ -966,7 +1019,7 @@ export async function buildQuotaStatusReport(params: {
           ? ` candidates=${row.key.providerCandidates.join(",")}`
           : "";
       lines.push(
-          `- ${src} mapped=${mappedBase}${candidates} tokens=${fmtInt(totalTokenBuckets(row.tokens))} msgs=${fmtInt(row.messageCount)}`,
+        `- ${src} mapped=${mappedBase}${candidates} tokens=${fmtInt(totalTokenBuckets(row.tokens))} msgs=${fmtInt(row.messageCount)}`,
       );
     }
     if (agg.unknown.length > STATUS_SAMPLE_LIMIT) {

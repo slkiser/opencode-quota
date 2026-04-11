@@ -126,6 +126,24 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
     cacheDir: "/tmp/cache",
     stateDir: "/tmp/state",
   }),
+  getOpencodeRuntimeDirCandidates: () => ({
+    configDirs: ["/tmp/config"],
+  }),
+}));
+
+vi.mock("../src/lib/opencode-go-config.js", () => ({
+  getOpenCodeGoConfigDiagnostics: vi.fn(async () => ({
+    state: "none",
+    source: null,
+    missing: null,
+    checkedPaths: [],
+  })),
+  resolveOpenCodeGoConfigCached: vi.fn(async () => ({ state: "none" })),
+  DEFAULT_OPENCODE_GO_CONFIG_CACHE_MAX_AGE_MS: 30_000,
+}));
+
+vi.mock("../src/lib/opencode-go.js", () => ({
+  queryOpenCodeGoQuota: vi.fn(async () => null),
 }));
 
 vi.mock("../src/lib/google-token-cache.js", () => ({
@@ -418,9 +436,7 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- auth_status: authenticated");
     expect(report).toContain("- quota_supported: false");
     expect(report).toContain("- quota_source: (none)");
-    expect(report).toContain(
-      "- checked_commands: claude --version | claude auth status --json",
-    );
+    expect(report).toContain("- checked_commands: claude --version | claude auth status --json");
     expect(report).toContain(
       "- message: Claude CLI auth detected, but local quota windows were not exposed.",
     );
@@ -517,12 +533,8 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- cli_version: 1.2.4");
     expect(report).toContain("- quota_supported: true");
     expect(report).toContain("- quota_source: claude-auth-status-json");
-    expect(report).toContain(
-      "- five_hour_remaining: 43% reset_at=2026-03-25T18:00:00.000Z",
-    );
-    expect(report).toContain(
-      "- seven_day_remaining: 88% reset_at=2026-04-01T00:00:00.000Z",
-    );
+    expect(report).toContain("- five_hour_remaining: 43% reset_at=2026-03-25T18:00:00.000Z");
+    expect(report).toContain("- seven_day_remaining: 88% reset_at=2026-04-01T00:00:00.000Z");
   });
 
   it("reports NanoGPT live subscription and balance diagnostics when configured", async () => {
@@ -659,7 +671,7 @@ describe("buildQuotaStatusReport", () => {
       state: "invalid",
       source: "auth.json",
       checkedPaths: ["/tmp/auth.json"],
-      error: "Unsupported MiniMax auth type: \"oauth\"",
+      error: 'Unsupported MiniMax auth type: "oauth"',
     });
 
     const invalidReport = await buildMiniMaxStatusReport();
@@ -826,6 +838,8 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain(
       "- remaining_quota_note: valid enterprise billing access can query pooled enterprise usage, but it does not provide a true per-user remaining quota",
     );
-    expect(report).toContain("- token_compatibility_error: GitHub's enterprise premium usage endpoint does not support fine-grained personal access tokens.");
+    expect(report).toContain(
+      "- token_compatibility_error: GitHub's enterprise premium usage endpoint does not support fine-grained personal access tokens.",
+    );
   });
 });

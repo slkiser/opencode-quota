@@ -10,7 +10,8 @@ export type CanonicalQuotaProviderId =
   | "google-antigravity"
   | "zai"
   | "nanogpt"
-  | "minimax-coding-plan";
+  | "minimax-coding-plan"
+  | "opencode-go";
 
 export type QuotaProviderAutoSetup = "yes" | "usually" | "needs_quick_setup";
 
@@ -22,9 +23,7 @@ export type QuotaProviderAuthentication =
   | "github_oauth_or_pat"
   | "state_only";
 
-export type QuotaProviderAuthFallback =
-  | "env_api_key"
-  | "global_opencode_config";
+export type QuotaProviderAuthFallback = "env_api_key" | "global_opencode_config";
 
 export type QuotaProviderQuotaSource =
   | "remote_api"
@@ -41,9 +40,7 @@ export interface QuotaProviderShape {
   notes?: string;
 }
 
-export type QuotaProviderRuntimeIds = Readonly<
-  Record<CanonicalQuotaProviderId, readonly string[]>
->;
+export type QuotaProviderRuntimeIds = Readonly<Record<CanonicalQuotaProviderId, readonly string[]>>;
 
 export const QUOTA_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   anthropic: "Anthropic",
@@ -58,6 +55,7 @@ export const QUOTA_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   zai: "Z.ai",
   nanogpt: "NanoGPT",
   "minimax-coding-plan": "MiniMax Coding Plan",
+  "opencode-go": "OpenCode Go",
 };
 
 export const QUOTA_PROVIDER_ID_SYNONYMS: Readonly<Record<string, string>> = {
@@ -73,6 +71,7 @@ export const QUOTA_PROVIDER_ID_SYNONYMS: Readonly<Record<string, string>> = {
   alibaba: "alibaba-coding-plan",
   "nano-gpt": "nanogpt",
   minimax: "minimax-coding-plan",
+  "opencode-go-subscription": "opencode-go",
 };
 
 export const QUOTA_PROVIDER_RUNTIME_IDS: QuotaProviderRuntimeIds = {
@@ -88,6 +87,7 @@ export const QUOTA_PROVIDER_RUNTIME_IDS: QuotaProviderRuntimeIds = {
   zai: ["zai", "glm", "zai-coding-plan"],
   nanogpt: ["nanogpt", "nano-gpt"],
   "minimax-coding-plan": ["minimax-coding-plan", "minimax"],
+  "opencode-go": ["opencode-go"],
 };
 
 export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
@@ -168,13 +168,18 @@ export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
     authentication: "opencode_auth_api_key",
     quota: "remote_api",
   },
+  {
+    id: "opencode-go",
+    autoSetup: "needs_quick_setup",
+    authentication: "state_only",
+    quota: "remote_api",
+    notes: "Scrapes the OpenCode Go dashboard; requires workspaceId and authCookie",
+  },
 ];
 
 const QUOTA_PROVIDER_SHAPES_BY_ID: Readonly<
   Partial<Record<CanonicalQuotaProviderId, QuotaProviderShape>>
-> = Object.fromEntries(
-  QUOTA_PROVIDER_SHAPES.map((shape) => [shape.id, shape]),
-);
+> = Object.fromEntries(QUOTA_PROVIDER_SHAPES.map((shape) => [shape.id, shape]));
 
 export function normalizeQuotaProviderId(id: string): string {
   const normalized = id.trim().toLowerCase();

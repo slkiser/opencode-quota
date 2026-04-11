@@ -90,6 +90,13 @@ describe("provider-metadata", () => {
         authentication: "opencode_auth_api_key",
         quota: "remote_api",
       },
+      {
+        id: "opencode-go",
+        autoSetup: "needs_quick_setup",
+        authentication: "state_only",
+        quota: "remote_api",
+        notes: "Scrapes the OpenCode Go dashboard; requires workspaceId and authCookie",
+      },
     ]);
   });
 

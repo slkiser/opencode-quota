@@ -457,10 +457,26 @@ export type MiniMaxResult =
   | QuotaError;
 export type ChutesResult =
   | {
-    success: true;
-    percentRemaining: number;
-    resetTimeIso?: string;
-  }
+      success: true;
+      percentRemaining: number;
+      resetTimeIso?: string;
+    }
+  | QuotaError
+  | null;
+
+/** Result from scraping OpenCode Go dashboard usage */
+export type OpenCodeGoResult =
+  | {
+      success: true;
+      /** Usage percentage [0..100] */
+      usagePercent: number;
+      /** Seconds until usage resets */
+      resetInSec: number;
+      /** Remaining percentage [0..100] */
+      percentRemaining: number;
+      /** ISO reset timestamp */
+      resetTimeIso: string;
+    }
   | QuotaError
   | null;
 
@@ -482,8 +498,16 @@ export const GOOGLE_MODEL_KEYS: Record<
   GoogleModelId,
   { key: string; altKey?: string; display: string }
 > = {
-  G3PRO: { key: "gemini-3.1-pro", altKey: "gemini-3.1-pro-high|gemini-3.1-pro-low|gemini-3-pro-high|gemini-3-pro-low", display: "G3Pro" },
+  G3PRO: {
+    key: "gemini-3.1-pro",
+    altKey: "gemini-3.1-pro-high|gemini-3.1-pro-low|gemini-3-pro-high|gemini-3-pro-low",
+    display: "G3Pro",
+  },
   G3FLASH: { key: "gemini-3-flash", display: "G3Flash" },
-  CLAUDE: { key: "claude-opus-4-6-thinking", altKey: "claude-opus-4-5-thinking|claude-opus-4-5", display: "Claude" },
+  CLAUDE: {
+    key: "claude-opus-4-6-thinking",
+    altKey: "claude-opus-4-5-thinking|claude-opus-4-5",
+    display: "Claude",
+  },
   G3IMAGE: { key: "gemini-3-pro-image", display: "G3Image" },
 };

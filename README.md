@@ -5,7 +5,7 @@
 - Automatic quota toasts after assistant responses
 - Manual `/quota`, `/pricing_refresh`, and `/tokens_*` commands for deeper local reporting with zero context window pollution
 
-**Quota providers**: Anthropic (Claude), GitHub Copilot, OpenAI (Plus/Pro), Cursor, Qwen Code, Alibaba Coding Plan, MiniMax Coding Plan, Chutes AI, Firmware AI, Google Antigravity, Z.ai coding plan, and NanoGPT.
+**Quota providers**: Anthropic (Claude), GitHub Copilot, OpenAI (Plus/Pro), Cursor, Qwen Code, Alibaba Coding Plan, MiniMax Coding Plan, Chutes AI, Firmware AI, Google Antigravity, Z.ai coding plan, NanoGPT, and OpenCode Go.
 
 **Token reports**: All models and providers in [models.dev](https://models.dev), plus deterministic local pricing for Cursor Auto/Composer and Cursor model aliases that are not on models.dev.
 
@@ -90,6 +90,7 @@ That is enough for most installs. Providers are auto-detected from your existing
 | **Z.ai** | Yes | OpenCode auth (API key) | Remote API |
 | **NanoGPT** | Usually | OpenCode auth (API key; env/global config fallback) | Remote API |
 | **MiniMax Coding Plan** | Yes | OpenCode auth (API key) | Remote API |
+| **OpenCode Go** | Needs [quick setup](#opencode-go-quick-setup) | State only (env vars or config file) | Remote API (dashboard scraping) |
 
 <a id="anthropic-quick-setup"></a>
 <details>
@@ -175,6 +176,37 @@ Qwen quota support requires the `opencode-qwencode-auth` [plugin](https://github
 ```
 
 For behavior details and troubleshooting, see [Qwen Code notes](#qwen-code-notes).
+
+</details>
+
+<a id="opencode-go-quick-setup"></a>
+<details>
+<summary><strong>Quick setup: OpenCode Go</strong></summary>
+
+OpenCode Go quota scrapes the OpenCode Go dashboard. It requires a workspace ID and an auth cookie.
+
+**Option A — Environment variables:**
+
+```sh
+export OPENCODE_GO_WORKSPACE_ID="your-workspace-id"
+export OPENCODE_GO_AUTH_COOKIE="your-auth-cookie"
+```
+
+**Option B — Config file** (`~/.config/opencode/opencode-quota/opencode-go.json`):
+
+```json
+{
+  "workspaceId": "your-workspace-id",
+  "authCookie": "your-auth-cookie"
+}
+```
+
+To find these values:
+
+1. **workspaceId** — Visit [opencode.ai](https://opencode.ai), open your workspace, and copy the workspace ID from the URL: `https://opencode.ai/workspace/<workspaceId>/go`.
+2. **authCookie** — Open your browser DevTools on `opencode.ai`, go to Application → Cookies, and copy the value of the `auth` cookie.
+
+Environment variables take precedence over the config file. For behavior details and troubleshooting, see [OpenCode Go notes](#opencode-go-notes).
 
 </details>
 
@@ -472,6 +504,31 @@ Example user/global config (`~/.config/opencode/opencode.jsonc` on Linux/macOS):
   }
 }
 ```
+
+</details>
+
+<a id="opencode-go-notes"></a>
+<details>
+<summary><strong>OpenCode Go</strong></summary>
+
+OpenCode Go quota scrapes the OpenCode Go dashboard at `https://opencode.ai/workspace/<workspaceId>/go` using an `auth` cookie. There is no official usage API yet; the plugin parses the SolidJS SSR hydration output for `monthlyUsage` data.
+
+- **Config sources** (checked in order):
+  1. Environment variables: `OPENCODE_GO_WORKSPACE_ID` and `OPENCODE_GO_AUTH_COOKIE`
+  2. Config file: `~/.config/opencode/opencode-quota/opencode-go.json` with `{ "workspaceId": "...", "authCookie": "..." }`
+- Environment variables take precedence. Both `workspaceId` and `authCookie` must come from the same source.
+- Quota returns a usage percentage and a reset countdown. There is no absolute request count.
+- `/quota_status` shows an `opencode_go` section with config state, config source, checked paths, and live scrape results or errors.
+- Because this is a scraper, it may break if OpenCode changes their dashboard markup. An official API ([opencode#16513](https://github.com/anomalyco/opencode/pull/16513)) is pending.
+
+**Troubleshooting:**
+
+| Problem | Solution |
+| --- | --- |
+| Config not detected | Confirm `OPENCODE_GO_WORKSPACE_ID` and `OPENCODE_GO_AUTH_COOKIE` are set, or the config file exists |
+| Incomplete config | Both `workspaceId` and `authCookie` are required; check `/quota_status` for which field is missing |
+| Scrape returns no data | The auth cookie may have expired; get a fresh one from your browser |
+| Dashboard format changed | The SolidJS SSR pattern may have changed; file an issue or wait for the official API |
 
 </details>
 
