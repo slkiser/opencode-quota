@@ -22,7 +22,7 @@ export const opencodeGoProvider: QuotaProvider = {
     const config = await resolveOpenCodeGoConfigCached({
       maxAgeMs: DEFAULT_OPENCODE_GO_CONFIG_CACHE_MAX_AGE_MS,
     });
-    return config.state === "configured" || config.state === "incomplete";
+    return config.state === "configured";
   },
 
   matchesCurrentModel(model: string): boolean {
@@ -47,6 +47,19 @@ export const opencodeGoProvider: QuotaProvider = {
           {
             label: OPENCODE_GO_PROVIDER_LABEL,
             message: `Missing ${config.missing} (source: ${config.source})`,
+          },
+        ],
+      };
+    }
+
+    if (config.state === "invalid") {
+      return {
+        attempted: true,
+        entries: [],
+        errors: [
+          {
+            label: OPENCODE_GO_PROVIDER_LABEL,
+            message: `Invalid config (${config.source}): ${config.error}`,
           },
         ],
       };

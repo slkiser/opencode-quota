@@ -5,7 +5,7 @@
 - Automatic quota toasts after assistant responses
 - Manual `/quota`, `/pricing_refresh`, and `/tokens_*` commands for deeper local reporting with zero context window pollution
 
-**Quota providers**: Anthropic (Claude), GitHub Copilot, OpenAI (Plus/Pro), Cursor, Qwen Code, Alibaba Coding Plan, MiniMax Coding Plan, Chutes AI, Firmware AI, Google Antigravity, Z.ai coding plan, NanoGPT, and OpenCode Go.
+**Quota providers**: Anthropic (Claude), GitHub Copilot, OpenAI (Plus/Pro), Cursor, Qwen Code, Alibaba Coding Plan, MiniMax Coding Plan, Chutes AI, Firmware AI, Google Antigravity, Z.ai Coding Plan, NanoGPT, and OpenCode Go.
 
 **Token reports**: All models and providers in [models.dev](https://models.dev), plus deterministic local pricing for Cursor Auto/Composer and Cursor model aliases that are not on models.dev.
 
@@ -192,7 +192,7 @@ export OPENCODE_GO_WORKSPACE_ID="your-workspace-id"
 export OPENCODE_GO_AUTH_COOKIE="your-auth-cookie"
 ```
 
-**Option B — Config file** (`~/.config/opencode/opencode-quota/opencode-go.json`):
+**Option B — Config file** (for example, `~/.config/opencode/opencode-quota/opencode-go.json` on Linux or legacy macOS installs):
 
 ```json
 {
@@ -206,7 +206,7 @@ To find these values:
 1. **workspaceId** — Visit [opencode.ai](https://opencode.ai), open your workspace, and copy the workspace ID from the URL: `https://opencode.ai/workspace/<workspaceId>/go`.
 2. **authCookie** — Open your browser DevTools on `opencode.ai`, go to Application → Cookies, and copy the value of the `auth` cookie.
 
-Environment variables take precedence over the config file. For behavior details and troubleshooting, see [OpenCode Go notes](#opencode-go-notes).
+Environment variables take precedence over the config file. Run `/quota_status` to see the exact config paths checked on your machine. For behavior details and troubleshooting, see [OpenCode Go notes](#opencode-go-notes).
 
 </details>
 
@@ -515,7 +515,7 @@ OpenCode Go quota scrapes the OpenCode Go dashboard at `https://opencode.ai/work
 
 - **Config sources** (checked in order):
   1. Environment variables: `OPENCODE_GO_WORKSPACE_ID` and `OPENCODE_GO_AUTH_COOKIE`
-  2. Config file: `~/.config/opencode/opencode-quota/opencode-go.json` with `{ "workspaceId": "...", "authCookie": "..." }`
+  2. Config file: for example `~/.config/opencode/opencode-quota/opencode-go.json` on Linux or legacy macOS installs, with `{ "workspaceId": "...", "authCookie": "..." }`
 - Environment variables take precedence. Both `workspaceId` and `authCookie` must come from the same source.
 - Quota returns a usage percentage and a reset countdown. There is no absolute request count.
 - `/quota_status` shows an `opencode_go` section with config state, config source, checked paths, and live scrape results or errors.
@@ -525,7 +525,7 @@ OpenCode Go quota scrapes the OpenCode Go dashboard at `https://opencode.ai/work
 
 | Problem | Solution |
 | --- | --- |
-| Config not detected | Confirm `OPENCODE_GO_WORKSPACE_ID` and `OPENCODE_GO_AUTH_COOKIE` are set, or the config file exists |
+| Config not detected | Confirm `OPENCODE_GO_WORKSPACE_ID` and `OPENCODE_GO_AUTH_COOKIE` are set, then use `/quota_status` to inspect the exact config paths checked on your machine |
 | Incomplete config | Both `workspaceId` and `authCookie` are required; check `/quota_status` for which field is missing |
 | Scrape returns no data | The auth cookie may have expired; get a fresh one from your browser |
 | Dashboard format changed | The SolidJS SSR pattern may have changed; file an issue or wait for the official API |

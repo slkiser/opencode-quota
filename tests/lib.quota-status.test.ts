@@ -97,6 +97,18 @@ const nanoGptMocks = vi.hoisted(() => ({
   queryNanoGptQuota: vi.fn(async () => null),
 }));
 
+const openCodeGoMocks = vi.hoisted(() => ({
+  getOpenCodeGoConfigDiagnostics: vi.fn(async () => ({
+    state: "none" as const,
+    source: null,
+    missing: null,
+    error: null,
+    checkedPaths: [],
+  })),
+  resolveOpenCodeGoConfigCached: vi.fn(async () => ({ state: "none" as const })),
+  queryOpenCodeGoQuota: vi.fn(async () => null),
+}));
+
 const anthropicMocks = vi.hoisted(() => ({
   getAnthropicDiagnostics: vi.fn(async () => ({
     installed: true,
@@ -132,18 +144,13 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
 }));
 
 vi.mock("../src/lib/opencode-go-config.js", () => ({
-  getOpenCodeGoConfigDiagnostics: vi.fn(async () => ({
-    state: "none",
-    source: null,
-    missing: null,
-    checkedPaths: [],
-  })),
-  resolveOpenCodeGoConfigCached: vi.fn(async () => ({ state: "none" })),
+  getOpenCodeGoConfigDiagnostics: openCodeGoMocks.getOpenCodeGoConfigDiagnostics,
+  resolveOpenCodeGoConfigCached: openCodeGoMocks.resolveOpenCodeGoConfigCached,
   DEFAULT_OPENCODE_GO_CONFIG_CACHE_MAX_AGE_MS: 30_000,
 }));
 
 vi.mock("../src/lib/opencode-go.js", () => ({
-  queryOpenCodeGoQuota: vi.fn(async () => null),
+  queryOpenCodeGoQuota: openCodeGoMocks.queryOpenCodeGoQuota,
 }));
 
 vi.mock("../src/lib/google-token-cache.js", () => ({
@@ -372,6 +379,29 @@ describe("buildQuotaStatusReport", () => {
           id: "zai",
           enabled: true,
           available: true,
+        },
+      ],
+      generatedAtMs: Date.UTC(2026, 2, 12, 12, 45, 0),
+      ...overrides,
+    } as any);
+  }
+
+  async function buildOpenCodeGoStatusReport(overrides: Record<string, unknown> = {}) {
+    const { buildQuotaStatusReport } = await import("../src/lib/quota-status.js");
+
+    return buildQuotaStatusReport({
+      configSource: "test",
+      configPaths: [],
+      enabledProviders: ["opencode-go"],
+      alibabaCodingPlanTier: "lite",
+      cursorPlan: "none",
+      pricingSnapshotSource: "auto",
+      onlyCurrentModel: false,
+      providerAvailability: [
+        {
+          id: "opencode-go",
+          enabled: true,
+          available: false,
         },
       ],
       generatedAtMs: Date.UTC(2026, 2, 12, 12, 45, 0),
@@ -617,6 +647,26 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- balance_usd: $129.47");
     expect(report).toContain("- balance_nano: 26.71801147");
     expect(report).toContain("- live_error_balance: NanoGPT API error 401: Unauthorized");
+  });
+
+  it("reports OpenCode Go invalid config details without attempting a live fetch", async () => {
+    openCodeGoMocks.getOpenCodeGoConfigDiagnostics.mockResolvedValueOnce({
+      state: "invalid",
+      source: "/tmp/config/opencode-quota/opencode-go.json",
+      missing: null,
+      error: "Config file must contain a JSON object",
+      checkedPaths: ["/tmp/config/opencode-quota/opencode-go.json"],
+    });
+
+    const report = await buildOpenCodeGoStatusReport();
+
+    expect(report).toContain("opencode_go:");
+    expect(report).toContain("- config_state: invalid");
+    expect(report).toContain("- config_source: /tmp/config/opencode-quota/opencode-go.json");
+    expect(report).toContain("- config_error: Config file must contain a JSON object");
+    expect(report).toContain("- config_checked_paths: /tmp/config/opencode-quota/opencode-go.json");
+    expect(openCodeGoMocks.resolveOpenCodeGoConfigCached).not.toHaveBeenCalled();
+    expect(openCodeGoMocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
   });
 
   it("reports MiniMax auth diagnostics and live quota details when configured", async () => {

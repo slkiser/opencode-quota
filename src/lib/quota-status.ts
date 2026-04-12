@@ -646,6 +646,9 @@ export async function buildQuotaStatusReport(params: {
   if (openCodeGoDiag.missing) {
     lines.push(`- config_missing: ${openCodeGoDiag.missing}`);
   }
+  if (openCodeGoDiag.error) {
+    lines.push(`- config_error: ${sanitizeDisplayText(openCodeGoDiag.error)}`);
+  }
   lines.push(`- config_checked_paths: ${joinOrNone(openCodeGoDiag.checkedPaths)}`);
   if (openCodeGoDiag.state === "configured") {
     const openCodeGoConfig = await resolveOpenCodeGoConfigCached({

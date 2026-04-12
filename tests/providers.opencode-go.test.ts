@@ -35,6 +35,17 @@ function mockConfigIncomplete(source = "env", missing = "OPENCODE_GO_AUTH_COOKIE
   });
 }
 
+function mockConfigInvalid(
+  source = "/tmp/opencode-go.json",
+  error = "Failed to parse JSON: Unexpected end of JSON input",
+) {
+  mocks.resolveOpenCodeGoConfigCached.mockResolvedValueOnce({
+    state: "invalid",
+    source,
+    error,
+  });
+}
+
 function mockConfigConfigured(workspaceId = "ws-123", authCookie = "cookie-abc") {
   mocks.resolveOpenCodeGoConfigCached.mockResolvedValueOnce({
     state: "configured",
@@ -86,6 +97,15 @@ describe("opencode-go provider", () => {
     const out = await runProviderFetch();
     expectAttemptedWithErrorLabel(out, "OpenCode Go");
     expect(out.errors[0]?.message).toContain("OPENCODE_GO_AUTH_COOKIE");
+  });
+
+  it("returns error when config is invalid", async () => {
+    mockConfigInvalid();
+    const out = await runProviderFetch();
+    expectAttemptedWithErrorLabel(out, "OpenCode Go");
+    expect(out.errors[0]?.message).toContain("Invalid config");
+    expect(out.errors[0]?.message).toContain("/tmp/opencode-go.json");
+    expect(mocks.fetchWithTimeout).not.toHaveBeenCalled();
   });
 
   it("returns usage entry on successful dashboard scrape", async () => {
@@ -182,7 +202,8 @@ describe("opencode-go isAvailable", () => {
 
   it.each([
     [{ state: "configured", config: { workspaceId: "ws", authCookie: "ck" }, source: "env" }, true],
-    [{ state: "incomplete", source: "env", missing: "authCookie" }, true],
+    [{ state: "incomplete", source: "env", missing: "authCookie" }, false],
+    [{ state: "invalid", source: "/tmp/opencode-go.json", error: "broken" }, false],
     [{ state: "none" }, false],
   ])("returns correct availability for config state %j", async (configState, expected) => {
     mocks.resolveOpenCodeGoConfigCached.mockResolvedValueOnce(configState);

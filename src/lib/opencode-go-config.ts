@@ -11,28 +11,50 @@ export interface OpenCodeGoConfig {
 export type ResolvedOpenCodeGoConfig =
   | { state: "none" }
   | { state: "configured"; config: OpenCodeGoConfig; source: string }
-  | { state: "incomplete"; source: string; missing: string };
+  | { state: "incomplete"; source: string; missing: string }
+  | { state: "invalid"; source: string; error: string };
 
 export interface OpenCodeGoConfigDiagnostics {
   state: ResolvedOpenCodeGoConfig["state"];
   source: string | null;
   missing: string | null;
+  error: string | null;
   checkedPaths: string[];
 }
+
+type ReadConfigFileResult =
+  | { state: "missing" }
+  | { state: "loaded"; config: Partial<OpenCodeGoConfig> }
+  | { state: "invalid"; error: string };
 
 function getConfigCandidatePaths(): string[] {
   const { configDirs } = getOpencodeRuntimeDirCandidates();
   return configDirs.map((dir) => join(dir, "opencode-quota", "opencode-go.json"));
 }
 
-async function readConfigFile(path: string): Promise<Partial<OpenCodeGoConfig> | null> {
+function getConfigFileError(error: unknown): string {
+  if (error instanceof SyntaxError) {
+    return `Failed to parse JSON: ${error.message}`;
+  }
+  if (error instanceof Error && error.message) {
+    return `Failed to read config file: ${error.message}`;
+  }
+  return `Failed to read config file: ${String(error)}`;
+}
+
+async function readConfigFile(path: string): Promise<ReadConfigFileResult> {
   try {
     const data = await readFile(path, "utf-8");
     const parsed = JSON.parse(data) as Record<string, unknown>;
-    if (!parsed || typeof parsed !== "object") return null;
-    return parsed as Partial<OpenCodeGoConfig>;
-  } catch {
-    return null;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { state: "invalid", error: "Config file must contain a JSON object" };
+    }
+    return { state: "loaded", config: parsed as Partial<OpenCodeGoConfig> };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+      return { state: "missing" };
+    }
+    return { state: "invalid", error: getConfigFileError(error) };
   }
 }
 
@@ -65,8 +87,13 @@ export async function resolveOpenCodeGoConfig(): Promise<ResolvedOpenCodeGoConfi
 
   const candidates = getConfigCandidatePaths();
   for (const path of candidates) {
-    const config = await readConfigFile(path);
-    if (!config) continue;
+    const fileResult = await readConfigFile(path);
+    if (fileResult.state === "missing") continue;
+    if (fileResult.state === "invalid") {
+      return { state: "invalid", source: path, error: fileResult.error };
+    }
+
+    const config = fileResult.config;
 
     const workspaceId = typeof config.workspaceId === "string" ? config.workspaceId.trim() : "";
     const authCookie = typeof config.authCookie === "string" ? config.authCookie.trim() : "";
@@ -110,7 +137,7 @@ export async function getOpenCodeGoConfigDiagnostics(): Promise<OpenCodeGoConfig
   const checkedPaths = getConfigCandidatePaths();
 
   if (resolved.state === "none") {
-    return { state: "none", source: null, missing: null, checkedPaths };
+    return { state: "none", source: null, missing: null, error: null, checkedPaths };
   }
 
   if (resolved.state === "incomplete") {
@@ -118,6 +145,17 @@ export async function getOpenCodeGoConfigDiagnostics(): Promise<OpenCodeGoConfig
       state: "incomplete",
       source: resolved.source,
       missing: resolved.missing,
+      error: null,
+      checkedPaths,
+    };
+  }
+
+  if (resolved.state === "invalid") {
+    return {
+      state: "invalid",
+      source: resolved.source,
+      missing: null,
+      error: resolved.error,
       checkedPaths,
     };
   }
@@ -126,6 +164,7 @@ export async function getOpenCodeGoConfigDiagnostics(): Promise<OpenCodeGoConfig
     state: "configured",
     source: resolved.source,
     missing: null,
+    error: null,
     checkedPaths,
   };
 }
