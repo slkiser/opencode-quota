@@ -9,6 +9,7 @@ import type {
   QuotaToastEntry,
 } from "../lib/entries.js";
 import { formatNanoGptBalanceValue, hasNanoGptApiKeyConfigured, queryNanoGptQuota } from "../lib/nanogpt.js";
+import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";
 
 function formatUsageAmount(value: number): string {
   if (!Number.isFinite(value)) return "0";
@@ -36,15 +37,11 @@ export const nanoGptProvider: QuotaProvider = {
     const result = await queryNanoGptQuota();
 
     if (!result) {
-      return { attempted: false, entries: [], errors: [] };
+      return notAttemptedResult();
     }
 
     if (!result.success) {
-      return {
-        attempted: true,
-        entries: [],
-        errors: [{ label: "NanoGPT", message: result.error }],
-      };
+      return attemptedErrorResult("NanoGPT", result.error);
     }
 
     const style = ctx.config.toastStyle ?? "classic";
@@ -127,10 +124,6 @@ export const nanoGptProvider: QuotaProvider = {
       });
     }
 
-    return {
-      attempted: true,
-      entries,
-      errors,
-    };
+    return attemptedResult(entries, errors);
   },
 };

@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { COMMAND_HANDLED_SENTINEL } from "../src/lib/command-handled.js";
-import { DEFAULT_CONFIG } from "../src/lib/types.js";
+import {
+  createPluginTestClient as createClient,
+  makeQuotaToastTestConfig,
+  resetPluginTestState,
+  seedDefaultPricingMocks,
+} from "./helpers/plugin-test-harness.js";
 
 const mocks = vi.hoisted(() => ({
   loadConfig: vi.fn(),
@@ -93,58 +98,26 @@ vi.mock("../src/lib/quota-stats-format.js", () => ({
   formatQuotaStatsReport: mocks.formatQuotaStatsReport,
 }));
 
-function createClient() {
-  return {
-    config: {
-      get: vi.fn().mockResolvedValue({ data: {} }),
-      providers: vi.fn().mockResolvedValue({ data: { providers: [] } }),
-    },
-    session: {
-      get: vi.fn().mockResolvedValue({ data: {} }),
-      prompt: vi.fn().mockResolvedValue({}),
-    },
-    tui: {
-      showToast: vi.fn().mockResolvedValue({}),
-    },
-    app: {
-      log: vi.fn().mockResolvedValue({}),
-    },
-  };
-}
-
 describe("/tokens_session_all command", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.resetModules();
-    delete (globalThis as any).__opencodeQuotaCommandCache;
+    resetPluginTestState();
 
-    mocks.loadConfig.mockResolvedValue({
-      ...DEFAULT_CONFIG,
-      enabled: true,
-      showOnQuestion: false,
-      showSessionTokens: false,
-      minIntervalMs: 60_000,
-    });
+    mocks.loadConfig.mockResolvedValue(
+      makeQuotaToastTestConfig({
+        enabled: true,
+        showOnQuestion: false,
+        showSessionTokens: false,
+        minIntervalMs: 60_000,
+      }),
+    );
     mocks.getProviders.mockReturnValue([]);
     mocks.fetchSessionTokensForDisplay.mockResolvedValue({
       sessionTokens: undefined,
       error: undefined,
     });
-    mocks.getPricingSnapshotMeta.mockReturnValue({
-      source: "https://models.dev/api.json",
-      generatedAt: Date.UTC(2026, 0, 1),
-      units: "USD per 1M tokens",
-    });
-    mocks.getPricingSnapshotSource.mockReturnValue("runtime");
-    mocks.getRuntimePricingSnapshotPath.mockReturnValue("/tmp/modelsdev-pricing.runtime.min.json");
-    mocks.getRuntimePricingRefreshStatePath.mockReturnValue(
-      "/tmp/modelsdev-pricing.refresh-state.json",
-    );
-    mocks.maybeRefreshPricingSnapshot.mockResolvedValue({
-      attempted: false,
-      updated: false,
-      state: { version: 1, updatedAt: Date.now() },
-    });
+    seedDefaultPricingMocks(mocks);
     mocks.aggregateUsage.mockResolvedValue({ totals: {}, bySession: [] });
     mocks.formatQuotaStatsReport.mockReturnValue("formatted token report");
     mocks.resolveSessionTree.mockResolvedValue([

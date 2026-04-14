@@ -2,6 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { COMMAND_HANDLED_SENTINEL } from "../src/lib/command-handled.js";
 import { DEFAULT_CONFIG } from "../src/lib/types.js";
+import {
+  createPluginTestClient as createClient,
+  makeQuotaToastTestConfig,
+  resetPluginTestState,
+  seedDefaultPricingMocks,
+} from "./helpers/plugin-test-harness.js";
 
 const mocks = vi.hoisted(() => ({
   loadConfig: vi.fn(),
@@ -74,37 +80,19 @@ vi.mock("../src/lib/alibaba-auth.js", () => ({
   resolveAlibabaCodingPlanAuthCached: mocks.resolveAlibabaCodingPlanAuthCached,
 }));
 
-function createClient(modelID = "qwen-code/qwen3-coder-plus", providerID?: string) {
-  return {
-    config: {
-      get: vi.fn().mockResolvedValue({ data: {} }),
-      providers: vi.fn().mockResolvedValue({ data: { providers: [] } }),
-    },
-    session: {
-      get: vi.fn().mockResolvedValue({ data: { modelID, providerID } }),
-      prompt: vi.fn().mockResolvedValue({}),
-    },
-    tui: {
-      showToast: vi.fn().mockResolvedValue({}),
-    },
-    app: {
-      log: vi.fn().mockResolvedValue({}),
-    },
-  };
-}
-
 describe("/quota command behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (globalThis as any).__opencodeQuotaCommandCache;
+    resetPluginTestState();
 
-    mocks.loadConfig.mockResolvedValue({
-      ...DEFAULT_CONFIG,
-      enabled: true,
-      showOnQuestion: false,
-      showSessionTokens: false,
-      minIntervalMs: 60_000,
-    });
+    mocks.loadConfig.mockResolvedValue(
+      makeQuotaToastTestConfig({
+        enabled: true,
+        showOnQuestion: false,
+        showSessionTokens: false,
+        minIntervalMs: 60_000,
+      }),
+    );
     mocks.getProviders.mockReturnValue([]);
     mocks.resolveQwenLocalPlanCached.mockResolvedValue({ state: "none" });
     mocks.resolveAlibabaCodingPlanAuthCached.mockResolvedValue({ state: "none" });
@@ -112,21 +100,7 @@ describe("/quota command behavior", () => {
       sessionTokens: undefined,
       error: undefined,
     });
-    mocks.getPricingSnapshotMeta.mockReturnValue({
-      source: "https://models.dev/api.json",
-      generatedAt: Date.UTC(2026, 0, 1),
-      units: "USD per 1M tokens",
-    });
-    mocks.getPricingSnapshotSource.mockReturnValue("runtime");
-    mocks.getRuntimePricingSnapshotPath.mockReturnValue("/tmp/modelsdev-pricing.runtime.min.json");
-    mocks.getRuntimePricingRefreshStatePath.mockReturnValue(
-      "/tmp/modelsdev-pricing.refresh-state.json",
-    );
-    mocks.maybeRefreshPricingSnapshot.mockResolvedValue({
-      attempted: false,
-      updated: false,
-      state: { version: 1, updatedAt: Date.now() },
-    });
+    seedDefaultPricingMocks(mocks);
   });
 
   it("applies pricing snapshot selection from config on first use", async () => {
@@ -262,7 +236,7 @@ describe("/quota command behavior", () => {
     mocks.getProviders.mockReturnValue([provider]);
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const client = createClient("auto", "cursor");
+    const client = createClient({ modelID: "auto", providerID: "cursor" });
     const hooks = await QuotaToastPlugin({ client } as any);
 
     await expect(
@@ -300,7 +274,7 @@ describe("/quota command behavior", () => {
     mocks.getProviders.mockReturnValue([provider]);
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const client = createClient("auto", "cursor");
+    const client = createClient({ modelID: "auto", providerID: "cursor" });
     const hooks = await QuotaToastPlugin({ client } as any);
 
     await expect(
@@ -338,7 +312,10 @@ describe("/quota command behavior", () => {
     mocks.getProviders.mockReturnValue([provider]);
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const client = createClient("anthropic/claude-sonnet-4-5", "anthropic");
+    const client = createClient({
+      modelID: "anthropic/claude-sonnet-4-5",
+      providerID: "anthropic",
+    });
     const hooks = await QuotaToastPlugin({ client } as any);
 
     await expect(
@@ -376,7 +353,10 @@ describe("/quota command behavior", () => {
     mocks.getProviders.mockReturnValue([provider]);
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const client = createClient("anthropic/claude-sonnet-4-5", "anthropic");
+    const client = createClient({
+      modelID: "anthropic/claude-sonnet-4-5",
+      providerID: "anthropic",
+    });
     const hooks = await QuotaToastPlugin({ client } as any);
 
     await expect(
@@ -411,7 +391,7 @@ describe("/quota command behavior", () => {
     mocks.getProviders.mockReturnValue([provider]);
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const client = createClient("openai/gpt-5");
+    const client = createClient({ modelID: "openai/gpt-5" });
     const hooks = await QuotaToastPlugin({ client } as any);
 
     await expect(
@@ -453,7 +433,7 @@ describe("/quota command behavior", () => {
     mocks.getProviders.mockReturnValue([provider]);
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const client = createClient("openai/gpt-5", "openai");
+    const client = createClient({ modelID: "openai/gpt-5", providerID: "openai" });
     let currentSession = { data: { modelID: "openai/gpt-5", providerID: "openai" } };
     client.session.get = vi.fn().mockImplementation(async () => currentSession);
 
@@ -509,7 +489,7 @@ describe("/quota command behavior", () => {
     mocks.getProviders.mockReturnValue([provider]);
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const client = createClient("openai/gpt-5", "openai");
+    const client = createClient({ modelID: "openai/gpt-5", providerID: "openai" });
     let sessionReadCount = 0;
     client.session.get = vi.fn().mockImplementation(async () => {
       sessionReadCount += 1;
@@ -582,7 +562,7 @@ describe("/quota command behavior", () => {
     );
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const client = createClient("openai/gpt-5", "openai");
+    const client = createClient({ modelID: "openai/gpt-5", providerID: "openai" });
     const hooks = await QuotaToastPlugin({ client } as any);
 
     const firstRun = hooks["command.execute.before"]?.({
@@ -660,7 +640,7 @@ describe("/quota command behavior", () => {
     });
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const client = createClient("qwen-code/qwen3-coder-plus");
+    const client = createClient({ modelID: "qwen-code/qwen3-coder-plus" });
     const hooks = await QuotaToastPlugin({ client } as any);
 
     await expect(
@@ -706,7 +686,7 @@ describe("/quota command behavior", () => {
     });
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const client = createClient("alibaba/qwen3-coder-plus");
+    const client = createClient({ modelID: "alibaba/qwen3-coder-plus" });
     const hooks = await QuotaToastPlugin({ client } as any);
 
     await expect(
@@ -747,7 +727,7 @@ describe("/quota command behavior", () => {
     mocks.getProviders.mockReturnValue([provider]);
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const client = createClient("auto", "cursor");
+    const client = createClient({ modelID: "auto", providerID: "cursor" });
     const hooks = await QuotaToastPlugin({ client } as any);
 
     await expect(

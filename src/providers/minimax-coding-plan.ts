@@ -14,6 +14,7 @@ import { fetchWithTimeout } from "../lib/http.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
 import type { MiniMaxResult, MiniMaxResultEntry } from "../lib/types.js";
+import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";
 
 const MINIMAX_API_URL = "https://api.minimax.io/v1/api/openplatform/coding_plan/remains";
 const MINIMAX_PROVIDER_LABEL = "MiniMax Coding Plan";
@@ -237,25 +238,17 @@ export const minimaxCodingPlanProvider: QuotaProvider = {
     });
 
     if (auth.state === "none") {
-      return { attempted: false, entries: [], errors: [] };
+      return notAttemptedResult();
     }
 
     if (auth.state === "invalid") {
-      return {
-        attempted: true,
-        entries: [],
-        errors: [{ label: MINIMAX_PROVIDER_LABEL, message: auth.error }],
-      };
+      return attemptedErrorResult(MINIMAX_PROVIDER_LABEL, auth.error);
     }
 
     const result = await queryMiniMaxQuota(auth.apiKey);
 
     if (!result.success) {
-      return {
-        attempted: true,
-        entries: [],
-        errors: [{ label: MINIMAX_PROVIDER_LABEL, message: result.error }],
-      };
+      return attemptedErrorResult(MINIMAX_PROVIDER_LABEL, result.error);
     }
 
     const style = ctx.config.toastStyle ?? "classic";
@@ -263,25 +256,17 @@ export const minimaxCodingPlanProvider: QuotaProvider = {
     if (style === "classic") {
       const worst = [...result.entries].sort((a, b) => a.percentRemaining - b.percentRemaining)[0];
       if (!worst) {
-        return { attempted: true, entries: [], errors: [] };
+        return attemptedResult([]);
       }
-      return {
-        attempted: true,
-        entries: [
-          {
-            name: worst.name,
-            percentRemaining: worst.percentRemaining,
-            resetTimeIso: worst.resetTimeIso,
-          },
-        ],
-        errors: [],
-      };
+      return attemptedResult([
+        {
+          name: worst.name,
+          percentRemaining: worst.percentRemaining,
+          resetTimeIso: worst.resetTimeIso,
+        },
+      ]);
     }
 
-    return {
-      attempted: true,
-      entries: result.entries,
-      errors: [],
-    };
+    return attemptedResult(result.entries);
   },
 };

@@ -6,6 +6,7 @@ import type { QuotaProvider, QuotaProviderContext, QuotaProviderResult } from ".
 import { fmtUsdAmount } from "../lib/format-utils.js";
 import { hasFirmwareApiKeyConfigured, queryFirmwareQuota } from "../lib/firmware.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
+import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";
 
 export const firmwareProvider: QuotaProvider = {
   id: "firmware",
@@ -31,30 +32,22 @@ export const firmwareProvider: QuotaProvider = {
     const result = await queryFirmwareQuota();
 
     if (!result) {
-      return { attempted: false, entries: [], errors: [] };
+      return notAttemptedResult();
     }
 
     if (!result.success) {
-      return {
-        attempted: true,
-        entries: [],
-        errors: [{ label: "Firmware", message: result.error }],
-      };
+      return attemptedErrorResult("Firmware", result.error);
     }
 
     const value = fmtUsdAmount(result.creditsUsd);
 
-    return {
-      attempted: true,
-      entries: [
-        {
-          kind: "value",
-          name: "Firmware",
-          value,
-          resetTimeIso: result.resetTimeIso,
-        },
-      ],
-      errors: [],
-    };
+    return attemptedResult([
+      {
+        kind: "value",
+        name: "Firmware",
+        value,
+        resetTimeIso: result.resetTimeIso,
+      },
+    ]);
   },
 };

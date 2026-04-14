@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
-import { cp, mkdir, mkdtemp, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { replacePath, safeRm } from "./upstream-plugin-fs.mjs";
 import { serializeUpstreamPluginLock } from "./upstream-plugin-lock.mjs";
 import { upstreamPluginReferenceRoot } from "./upstream-plugin-paths.mjs";
 import { downloadTarball, fetchLatestPublishedPluginVersion } from "./upstream-plugin-registry.mjs";
@@ -11,30 +12,6 @@ import { sanitizeUpstreamPluginSnapshot } from "./upstream-plugin-sanitization.m
 import { UPSTREAM_PLUGIN_SPECS } from "./upstream-plugin-specs.mjs";
 
 const execFileAsync = promisify(execFile);
-
-async function safeRm(target) {
-  try {
-    await rm(target, { force: true, recursive: true });
-  } catch {
-    // best-effort cleanup
-  }
-}
-
-async function replaceDirectory(tempDir, targetDir) {
-  await mkdir(path.dirname(targetDir), { recursive: true });
-
-  try {
-    await rename(tempDir, targetDir);
-  } catch (error) {
-    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-    const shouldReplace = code === "EEXIST" || code === "EPERM" || code === "EACCES" || code === "ENOTEMPTY";
-
-    if (!shouldReplace) throw error;
-
-    await safeRm(targetDir);
-    await rename(tempDir, targetDir);
-  }
-}
 
 async function extractTarball(tarballPath, destinationPath) {
   await mkdir(destinationPath, { recursive: true });
@@ -131,11 +108,11 @@ async function swapStagedReferenceRoot(stageRoot) {
   }
 
   try {
-    await replaceDirectory(stageRoot, upstreamPluginReferenceRoot);
+    await replacePath(stageRoot, upstreamPluginReferenceRoot);
   } catch (error) {
     if (backupCreated) {
       try {
-        await replaceDirectory(backupRoot, upstreamPluginReferenceRoot);
+        await replacePath(backupRoot, upstreamPluginReferenceRoot);
       } catch {
         // best-effort rollback
       }

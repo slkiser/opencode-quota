@@ -10,6 +10,7 @@ import {
   isQwenCodeModelId,
   resolveQwenLocalPlanCached,
 } from "../lib/qwen-auth.js";
+import { attemptedResult, notAttemptedResult } from "./result-helpers.js";
 
 export const qwenCodeProvider: QuotaProvider = {
   id: "qwen-code",
@@ -30,7 +31,7 @@ export const qwenCodeProvider: QuotaProvider = {
       maxAgeMs: DEFAULT_QWEN_AUTH_CACHE_MAX_AGE_MS,
     });
     if (plan.state !== "qwen_free") {
-      return { attempted: false, entries: [], errors: [] };
+      return notAttemptedResult();
     }
 
     const quota = computeQwenQuota({ state: await readQwenLocalQuotaState() });
@@ -56,24 +57,20 @@ export const qwenCodeProvider: QuotaProvider = {
         },
       ];
 
-      return { attempted: true, entries, errors: [] };
+      return attemptedResult(entries);
     }
 
-    return {
-      attempted: true,
-      entries: [
-        {
-          name: "Qwen Free Daily",
-          percentRemaining: quota.day.percentRemaining,
-          resetTimeIso: quota.day.resetTimeIso,
-        },
-        {
-          name: "Qwen Free RPM",
-          percentRemaining: quota.rpm.percentRemaining,
-          resetTimeIso: quota.rpm.resetTimeIso,
-        },
-      ],
-      errors: [],
-    };
+    return attemptedResult([
+      {
+        name: "Qwen Free Daily",
+        percentRemaining: quota.day.percentRemaining,
+        resetTimeIso: quota.day.resetTimeIso,
+      },
+      {
+        name: "Qwen Free RPM",
+        percentRemaining: quota.rpm.percentRemaining,
+        resetTimeIso: quota.rpm.resetTimeIso,
+      },
+    ]);
   },
 };

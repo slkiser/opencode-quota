@@ -15,6 +15,7 @@ import {
   queryAnthropicQuota,
 } from "../lib/anthropic.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
+import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";
 
 export function getAnthropicNoDataMessage(): string {
   return "Quota unavailable via local Claude CLI";
@@ -48,15 +49,11 @@ export const anthropicProvider: QuotaProvider = {
     });
 
     if (!result) {
-      return { attempted: false, entries: [], errors: [] };
+      return notAttemptedResult();
     }
 
     if (!result.success) {
-      return {
-        attempted: true,
-        entries: [],
-        errors: [{ label: "Claude", message: result.error }],
-      };
+      return attemptedErrorResult("Claude", result.error);
     }
 
     const style = ctx.config?.toastStyle ?? "classic";
@@ -79,7 +76,7 @@ export const anthropicProvider: QuotaProvider = {
         },
       ];
 
-      return { attempted: true, entries, errors: [] };
+      return attemptedResult(entries);
     }
 
     // Classic style: show the worse of the two windows.
@@ -88,16 +85,12 @@ export const anthropicProvider: QuotaProvider = {
         ? { name: "Claude 5h", ...result.five_hour }
         : { name: "Claude 7d", ...result.seven_day };
 
-    return {
-      attempted: true,
-      entries: [
-        {
-          name: worst.name,
-          percentRemaining: worst.percentRemaining,
-          resetTimeIso: worst.resetTimeIso,
-        },
-      ],
-      errors: [],
-    };
+    return attemptedResult([
+      {
+        name: worst.name,
+        percentRemaining: worst.percentRemaining,
+        resetTimeIso: worst.resetTimeIso,
+      },
+    ]);
   },
 };

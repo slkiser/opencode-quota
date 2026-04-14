@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_CONFIG } from "../src/lib/types.js";
+import {
+  createPluginTestClient as createClient,
+  makeQuotaToastTestConfig,
+  seedDefaultPricingMocks,
+} from "./helpers/plugin-test-harness.js";
 
 const mocks = vi.hoisted(() => ({
   loadConfig: vi.fn(),
@@ -84,32 +88,10 @@ vi.mock("../src/lib/modelsdev-pricing.js", () => ({
   setPricingSnapshotSelection: mocks.setPricingSnapshotSelection,
 }));
 
-function createClient(modelID: string) {
-  return {
-    config: {
-      get: vi.fn().mockResolvedValue({ data: {} }),
-      providers: vi.fn().mockResolvedValue({ data: { providers: [] } }),
-    },
-    session: {
-      get: vi.fn().mockResolvedValue({ data: { modelID } }),
-      prompt: vi.fn().mockResolvedValue({}),
-    },
-    tui: {
-      showToast: vi.fn().mockResolvedValue({}),
-    },
-    app: {
-      log: vi.fn().mockResolvedValue({}),
-    },
-  };
-}
-
 describe("plugin qwen question hook", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.loadConfig.mockResolvedValue({
-      ...DEFAULT_CONFIG,
-      showOnQuestion: false,
-    });
+    mocks.loadConfig.mockResolvedValue(makeQuotaToastTestConfig({ showOnQuestion: false }));
     mocks.resolveQwenLocalPlanCached.mockResolvedValue({
       state: "qwen_free",
       accessToken: "token",
@@ -127,26 +109,14 @@ describe("plugin qwen question hook", () => {
       recent: [],
       updatedAt: 1,
     });
-    mocks.getPricingSnapshotMeta.mockReturnValue({
-      source: "https://models.dev/api.json",
-      generatedAt: Date.UTC(2026, 0, 1),
-      units: "USD per 1M tokens",
-    });
-    mocks.getPricingSnapshotSource.mockReturnValue("runtime");
-    mocks.getRuntimePricingSnapshotPath.mockReturnValue("/tmp/modelsdev-pricing.runtime.min.json");
-    mocks.getRuntimePricingRefreshStatePath.mockReturnValue(
-      "/tmp/modelsdev-pricing.refresh-state.json",
-    );
-    mocks.maybeRefreshPricingSnapshot.mockResolvedValue({
-      attempted: false,
-      updated: false,
-      state: { version: 1, updatedAt: Date.now() },
-    });
+    seedDefaultPricingMocks(mocks);
   });
 
   it("records qwen free completion on successful qwen question execution", async () => {
     const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const hooks = await QuotaToastPlugin({ client: createClient("qwen-code/qwen3-coder-plus") } as any);
+    const hooks = await QuotaToastPlugin({
+      client: createClient({ modelID: "qwen-code/qwen3-coder-plus" }),
+    } as any);
 
     await hooks["tool.execute.after"]?.(
       { tool: "question", sessionID: "session-1", callID: "call-1" },
@@ -166,7 +136,9 @@ describe("plugin qwen question hook", () => {
     });
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const hooks = await QuotaToastPlugin({ client: createClient("alibaba/qwen3-coder-plus") } as any);
+    const hooks = await QuotaToastPlugin({
+      client: createClient({ modelID: "alibaba/qwen3-coder-plus" }),
+    } as any);
 
     await hooks["tool.execute.after"]?.(
       { tool: "question", sessionID: "session-1", callID: "call-2" },
@@ -178,14 +150,17 @@ describe("plugin qwen question hook", () => {
   });
 
   it("does not record completion when plugin is disabled", async () => {
-    mocks.loadConfig.mockResolvedValueOnce({
-      ...DEFAULT_CONFIG,
-      enabled: false,
-      showOnQuestion: false,
-    });
+    mocks.loadConfig.mockResolvedValueOnce(
+      makeQuotaToastTestConfig({
+        enabled: false,
+        showOnQuestion: false,
+      }),
+    );
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const hooks = await QuotaToastPlugin({ client: createClient("qwen-code/qwen3-coder-plus") } as any);
+    const hooks = await QuotaToastPlugin({
+      client: createClient({ modelID: "qwen-code/qwen3-coder-plus" }),
+    } as any);
 
     await hooks["tool.execute.after"]?.(
       { tool: "question", sessionID: "session-1", callID: "call-3" },
@@ -198,7 +173,9 @@ describe("plugin qwen question hook", () => {
 
   it("does not record completion when tool output indicates failure", async () => {
     const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const hooks = await QuotaToastPlugin({ client: createClient("qwen-code/qwen3-coder-plus") } as any);
+    const hooks = await QuotaToastPlugin({
+      client: createClient({ modelID: "qwen-code/qwen3-coder-plus" }),
+    } as any);
 
     await hooks["tool.execute.after"]?.(
       { tool: "question", sessionID: "session-1", callID: "call-4" },

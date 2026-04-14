@@ -16,6 +16,7 @@ import {
   DEFAULT_ZAI_AUTH_CACHE_MAX_AGE_MS,
   resolveZaiAuthCached,
 } from "../lib/zai-auth.js";
+import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";
 
 export const zaiProvider: QuotaProvider = {
   id: "zai",
@@ -49,15 +50,11 @@ export const zaiProvider: QuotaProvider = {
     const result = await queryZaiQuota();
 
     if (!result) {
-      return { attempted: false, entries: [], errors: [] };
+      return notAttemptedResult();
     }
 
     if (!result.success) {
-      return {
-        attempted: true,
-        entries: [],
-        errors: [{ label: "Z.ai", message: result.error }],
-      };
+      return attemptedErrorResult("Z.ai", result.error);
     }
 
     const style = ctx.config.toastStyle ?? "classic";
@@ -77,27 +74,19 @@ export const zaiProvider: QuotaProvider = {
       }
 
       if (windows.length === 0) {
-        return {
-          attempted: true,
-          entries: [{ name: result.label, percentRemaining: 0 }],
-          errors: [],
-        };
+        return attemptedResult([{ name: result.label, percentRemaining: 0 }]);
       }
 
       windows.sort((a, b) => a.percentRemaining - b.percentRemaining);
       const worst = windows[0]!;
 
-      return {
-        attempted: true,
-        entries: [
-          {
-            name: result.label,
-            percentRemaining: worst.percentRemaining,
-            resetTimeIso: worst.resetTimeIso,
-          },
-        ],
-        errors: [],
-      };
+      return attemptedResult([
+        {
+          name: result.label,
+          percentRemaining: worst.percentRemaining,
+          resetTimeIso: worst.resetTimeIso,
+        },
+      ]);
     }
 
     // Grouped style: expose all windows
@@ -137,10 +126,6 @@ export const zaiProvider: QuotaProvider = {
       });
     }
 
-    return {
-      attempted: true,
-      entries,
-      errors: [],
-    };
+    return attemptedResult(entries);
   },
 };

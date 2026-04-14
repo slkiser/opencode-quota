@@ -13,6 +13,7 @@ import {
   isAlibabaModelId,
   resolveAlibabaCodingPlanAuthCached,
 } from "../lib/alibaba-auth.js";
+import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";
 
 function tierLabel(tier: "lite" | "pro"): string {
   return tier === "pro" ? "Pro" : "Lite";
@@ -39,15 +40,11 @@ export const alibabaCodingPlanProvider: QuotaProvider = {
       fallbackTier: ctx.config.alibabaCodingPlanTier,
     });
     if (plan.state === "none") {
-      return { attempted: false, entries: [], errors: [] };
+      return notAttemptedResult();
     }
 
     if (plan.state === "invalid") {
-      return {
-        attempted: true,
-        entries: [],
-        errors: [{ label: "Alibaba Coding Plan", message: plan.error }],
-      };
+      return attemptedErrorResult("Alibaba Coding Plan", plan.error);
     }
 
     const quota = computeAlibabaCodingPlanQuota({
@@ -65,17 +62,13 @@ export const alibabaCodingPlanProvider: QuotaProvider = {
       ].sort((a, b) => a.percentRemaining - b.percentRemaining);
       const worst = windows[0]!;
 
-      return {
-        attempted: true,
-        entries: [
-          {
-            name: `${label} ${worst.name}`,
-            percentRemaining: worst.percentRemaining,
-            resetTimeIso: worst.resetTimeIso,
-          },
-        ],
-        errors: [],
-      };
+      return attemptedResult([
+        {
+          name: `${label} ${worst.name}`,
+          percentRemaining: worst.percentRemaining,
+          resetTimeIso: worst.resetTimeIso,
+        },
+      ]);
     }
 
     const entries: QuotaToastEntry[] = [
@@ -105,6 +98,6 @@ export const alibabaCodingPlanProvider: QuotaProvider = {
       },
     ];
 
-    return { attempted: true, entries, errors: [] };
+    return attemptedResult(entries);
   },
 };

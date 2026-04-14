@@ -1,6 +1,7 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { replacePath, safeRm } from "./upstream-plugin-fs.mjs";
 import { upstreamPluginLockPath } from "./upstream-plugin-paths.mjs";
 
 function isLockEntry(value) {
@@ -28,14 +29,6 @@ function assertLockShape(lock) {
   }
 }
 
-async function safeRm(target) {
-  try {
-    await rm(target, { force: true, recursive: true });
-  } catch {
-    // best-effort cleanup
-  }
-}
-
 async function writeFileAtomic(filePath, content) {
   const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
@@ -43,18 +36,10 @@ async function writeFileAtomic(filePath, content) {
   await writeFile(tempPath, content, "utf8");
 
   try {
-    await rename(tempPath, filePath);
+    await replacePath(tempPath, filePath);
   } catch (error) {
-    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-    const shouldReplace = code === "EEXIST" || code === "EPERM" || code === "EACCES" || code === "ENOTEMPTY";
-
-    if (!shouldReplace) {
-      await safeRm(tempPath);
-      throw error;
-    }
-
-    await safeRm(filePath);
-    await rename(tempPath, filePath);
+    await safeRm(tempPath);
+    throw error;
   }
 }
 

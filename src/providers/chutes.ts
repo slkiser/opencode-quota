@@ -5,6 +5,7 @@
 import type { QuotaProvider, QuotaProviderContext, QuotaProviderResult } from "../lib/entries.js";
 import { queryChutesQuota, hasChutesApiKeyConfigured } from "../lib/chutes.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
+import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";
 
 export const chutesProvider: QuotaProvider = {
   id: "chutes",
@@ -30,27 +31,19 @@ export const chutesProvider: QuotaProvider = {
     const result = await queryChutesQuota();
 
     if (!result) {
-      return { attempted: false, entries: [], errors: [] };
+      return notAttemptedResult();
     }
 
     if (!result.success) {
-      return {
-        attempted: true,
-        entries: [],
-        errors: [{ label: "Chutes", message: result.error }],
-      };
+      return attemptedErrorResult("Chutes", result.error);
     }
 
-    return {
-      attempted: true,
-      entries: [
-        {
-          name: "Chutes",
-          percentRemaining: result.percentRemaining,
-          resetTimeIso: result.resetTimeIso,
-        },
-      ],
-      errors: [],
-    };
+    return attemptedResult([
+      {
+        name: "Chutes",
+        percentRemaining: result.percentRemaining,
+        resetTimeIso: result.resetTimeIso,
+      },
+    ]);
   },
 };

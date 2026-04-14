@@ -12,6 +12,7 @@ import {
 } from "../lib/opencode-go-config.js";
 import { queryOpenCodeGoQuota } from "../lib/opencode-go.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
+import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";
 
 const OPENCODE_GO_PROVIDER_LABEL = "OpenCode Go";
 
@@ -36,61 +37,41 @@ export const opencodeGoProvider: QuotaProvider = {
     });
 
     if (config.state === "none") {
-      return { attempted: false, entries: [], errors: [] };
+      return notAttemptedResult();
     }
 
     if (config.state === "incomplete") {
-      return {
-        attempted: true,
-        entries: [],
-        errors: [
-          {
-            label: OPENCODE_GO_PROVIDER_LABEL,
-            message: `Missing ${config.missing} (source: ${config.source})`,
-          },
-        ],
-      };
+      return attemptedErrorResult(
+        OPENCODE_GO_PROVIDER_LABEL,
+        `Missing ${config.missing} (source: ${config.source})`,
+      );
     }
 
     if (config.state === "invalid") {
-      return {
-        attempted: true,
-        entries: [],
-        errors: [
-          {
-            label: OPENCODE_GO_PROVIDER_LABEL,
-            message: `Invalid config (${config.source}): ${config.error}`,
-          },
-        ],
-      };
+      return attemptedErrorResult(
+        OPENCODE_GO_PROVIDER_LABEL,
+        `Invalid config (${config.source}): ${config.error}`,
+      );
     }
 
     const result = await queryOpenCodeGoQuota(config.config.workspaceId, config.config.authCookie);
 
     if (!result) {
-      return { attempted: false, entries: [], errors: [] };
+      return notAttemptedResult();
     }
 
     if (!result.success) {
-      return {
-        attempted: true,
-        entries: [],
-        errors: [{ label: OPENCODE_GO_PROVIDER_LABEL, message: result.error }],
-      };
+      return attemptedErrorResult(OPENCODE_GO_PROVIDER_LABEL, result.error);
     }
 
-    return {
-      attempted: true,
-      entries: [
-        {
-          name: OPENCODE_GO_PROVIDER_LABEL,
-          group: OPENCODE_GO_PROVIDER_LABEL,
-          label: "Monthly:",
-          percentRemaining: result.percentRemaining,
-          resetTimeIso: result.resetTimeIso,
-        },
-      ],
-      errors: [],
-    };
+    return attemptedResult([
+      {
+        name: OPENCODE_GO_PROVIDER_LABEL,
+        group: OPENCODE_GO_PROVIDER_LABEL,
+        label: "Monthly:",
+        percentRemaining: result.percentRemaining,
+        resetTimeIso: result.resetTimeIso,
+      },
+    ]);
   },
 };

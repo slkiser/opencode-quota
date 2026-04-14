@@ -14,6 +14,7 @@ import {
   queryOpenAIQuota,
 } from "../lib/openai.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
+import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";
 
 export const openaiProvider: QuotaProvider = {
   id: "openai",
@@ -45,15 +46,11 @@ export const openaiProvider: QuotaProvider = {
     const result = await queryOpenAIQuota();
 
     if (!result) {
-      return { attempted: false, entries: [], errors: [] };
+      return notAttemptedResult();
     }
 
     if (!result.success) {
-      return {
-        attempted: true,
-        entries: [],
-        errors: [{ label: "OpenAI", message: result.error }],
-      };
+      return attemptedErrorResult("OpenAI", result.error);
     }
 
     const style = _ctx.config.toastStyle ?? "classic";
@@ -67,27 +64,19 @@ export const openaiProvider: QuotaProvider = {
       ].filter(Boolean) as Array<{ name: string; percentRemaining: number; resetTimeIso?: string }>;
 
       if (windows.length === 0) {
-        return {
-          attempted: true,
-          entries: [{ name: result.label, percentRemaining: 0 }],
-          errors: [],
-        };
+        return attemptedResult([{ name: result.label, percentRemaining: 0 }]);
       }
 
       windows.sort((a, b) => a.percentRemaining - b.percentRemaining);
       const worst = windows[0]!;
 
-      return {
-        attempted: true,
-        entries: [
-          {
-            name: result.label,
-            percentRemaining: worst.percentRemaining,
-            resetTimeIso: worst.resetTimeIso,
-          },
-        ],
-        errors: [],
-      };
+      return attemptedResult([
+        {
+          name: result.label,
+          percentRemaining: worst.percentRemaining,
+          resetTimeIso: worst.resetTimeIso,
+        },
+      ]);
     }
 
     // Grouped style: expose all windows.
@@ -127,10 +116,6 @@ export const openaiProvider: QuotaProvider = {
       });
     }
 
-    return {
-      attempted: true,
-      entries,
-      errors: [],
-    };
+    return attemptedResult(entries);
   },
 };

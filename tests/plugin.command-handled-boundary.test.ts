@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { COMMAND_HANDLED_SENTINEL } from "../src/lib/command-handled.js";
-import { DEFAULT_CONFIG } from "../src/lib/types.js";
+import {
+  createPluginTestClient as createClient,
+  makeQuotaToastTestConfig,
+  resetPluginTestState,
+  seedDefaultPricingMocks,
+} from "./helpers/plugin-test-harness.js";
 
 const mocks = vi.hoisted(() => ({
   loadConfig: vi.fn(),
@@ -53,50 +58,14 @@ vi.mock("../src/lib/modelsdev-pricing.js", () => ({
   setPricingSnapshotSelection: mocks.setPricingSnapshotSelection,
 }));
 
-function createClient() {
-  return {
-    config: {
-      get: vi.fn().mockResolvedValue({ data: {} }),
-      providers: vi.fn().mockResolvedValue({ data: { providers: [] } }),
-    },
-    session: {
-      get: vi.fn().mockResolvedValue({ data: {} }),
-      prompt: vi.fn().mockResolvedValue({}),
-    },
-    tui: {
-      showToast: vi.fn().mockResolvedValue({}),
-    },
-    app: {
-      log: vi.fn().mockResolvedValue({}),
-    },
-  };
-}
-
 describe("plugin command handled boundary", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (globalThis as any).__opencodeQuotaCommandCache;
+    resetPluginTestState();
 
-    mocks.loadConfig.mockResolvedValue({
-      ...DEFAULT_CONFIG,
-      enabled: true,
-    });
+    mocks.loadConfig.mockResolvedValue(makeQuotaToastTestConfig({ enabled: true }));
     mocks.getProviders.mockReturnValue([]);
-    mocks.getPricingSnapshotMeta.mockReturnValue({
-      source: "https://models.dev/api.json",
-      generatedAt: Date.UTC(2026, 0, 1),
-      units: "USD per 1M tokens",
-    });
-    mocks.getPricingSnapshotSource.mockReturnValue("runtime");
-    mocks.getRuntimePricingSnapshotPath.mockReturnValue("/tmp/modelsdev-pricing.runtime.min.json");
-    mocks.getRuntimePricingRefreshStatePath.mockReturnValue(
-      "/tmp/modelsdev-pricing.refresh-state.json",
-    );
-    mocks.maybeRefreshPricingSnapshot.mockResolvedValue({
-      attempted: false,
-      updated: false,
-      state: { version: 1, updatedAt: Date.now() },
-    });
+    seedDefaultPricingMocks(mocks);
   });
 
   it("propagates command-handled sentinel errors to abort command pipeline", async () => {
@@ -134,10 +103,7 @@ describe("plugin command handled boundary", () => {
   });
 
   it("treats handled token slash commands as strict no-op when disabled", async () => {
-    mocks.loadConfig.mockResolvedValue({
-      ...DEFAULT_CONFIG,
-      enabled: false,
-    });
+    mocks.loadConfig.mockResolvedValue(makeQuotaToastTestConfig({ enabled: false }));
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient();
@@ -191,10 +157,7 @@ describe("plugin command handled boundary", () => {
   });
 
   it("treats /pricing_refresh as a strict no-op when disabled", async () => {
-    mocks.loadConfig.mockResolvedValue({
-      ...DEFAULT_CONFIG,
-      enabled: false,
-    });
+    mocks.loadConfig.mockResolvedValue(makeQuotaToastTestConfig({ enabled: false }));
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient();
