@@ -98,6 +98,13 @@ describe("provider-metadata", () => {
         quota: "remote_api",
       },
       {
+        id: "kimi-for-coding",
+        autoSetup: "yes",
+        authentication: "opencode_auth_api_key",
+        authFallbacks: ["env_api_key", "global_opencode_config"],
+        quota: "remote_api",
+      },
+      {
         id: "opencode-go",
         autoSetup: "needs_quick_setup",
         authentication: "state_only",
@@ -144,6 +151,11 @@ describe("provider-metadata", () => {
       "minimax-coding-plan",
       "minimax",
     ]);
+    expect(QUOTA_PROVIDER_RUNTIME_IDS["kimi-for-coding"]).toEqual([
+      "kimi-for-coding",
+      "kimi",
+      "kimi-code",
+    ]);
   });
 
   it("keeps runtime ids distinct from broad normalization aliases", () => {
@@ -163,6 +175,7 @@ describe("provider-metadata", () => {
     ]);
     expect(getQuotaProviderRuntimeIds("zai")).toEqual(["zai", "glm", "zai-coding-plan"]);
     expect(getQuotaProviderRuntimeIds("minimax")).toEqual(["minimax-coding-plan", "minimax"]);
+    expect(getQuotaProviderRuntimeIds("kimi")).toEqual(["kimi-for-coding", "kimi", "kimi-code"]);
     expect(getQuotaProviderRuntimeIds("not-a-provider")).toEqual([]);
   });
 
@@ -199,6 +212,8 @@ describe("provider-metadata", () => {
     expect(getQuotaProviderDisplayLabel("nanogpt")).toBe("NanoGPT");
     expect(getQuotaProviderDisplayLabel("nano-gpt")).toBe("NanoGPT");
     expect(getQuotaProviderDisplayLabel("minimax")).toBe("MiniMax Coding Plan");
+    expect(getQuotaProviderDisplayLabel("kimi-code")).toBe("Kimi Code");
+    expect(getQuotaProviderDisplayLabel("kimi")).toBe("Kimi Code");
     expect(getQuotaProviderDisplayLabel("something-else")).toBe("something-else");
   });
 });
