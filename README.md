@@ -8,8 +8,8 @@
 
 `opencode-quota` gives you three things:
 
-- Automatic quota toasts after assistant responses
-- A TUI sidebar quota panel that reuses the same quota/session-token data pipeline with a fixed compact sidebar renderer
+- Quota toasts after assistant responses
+- A TUI sidebar quota panel 
 - Manual `/quota`, `/pricing_refresh`, and `/tokens_*` commands for deeper local reporting with zero context window pollution
 
 **Quota providers**: Anthropic (Claude), GitHub Copilot, OpenAI (Plus/Pro), Cursor, Qwen Code, Alibaba Coding Plan, MiniMax Coding Plan, Chutes AI, Firmware AI, Google Antigravity, Z.ai Coding Plan, NanoGPT, and OpenCode Go.
@@ -30,8 +30,6 @@
     </td>
   </tr>
 </table>
-
-`/tokens_*` output is computed from local OpenCode session history. Quota rows use each provider's existing local auth plus deterministic local state or live provider quota endpoints, depending on the provider.
 
 ## Quick Start
 
@@ -55,17 +53,7 @@ If you also want the sidebar, add the same package to a `tui.json` or `tui.jsonc
 }
 ```
 
-Keep `experimental.quotaToast` in `opencode.json(c)`. Use `tui.json(c)` only for TUI settings and TUI plugins.
-
-Then restart OpenCode, run `/quota_status`, run `/quota`, and open the session sidebar to confirm the `Quota` panel appears.
-
-That is enough for most installs. Providers are auto-detected from your existing OpenCode setup, and most providers work from your existing OpenCode auth. If you want both pop-up toasts and the sidebar, list the package in both files. If a provider needs anything extra, use the setup table below.
-
-`experimental.quotaToast.enableToast: false` disables pop-up toasts only. The sidebar panel still renders when the TUI plugin is installed and quota data is available.
-
-The sidebar uses its own fixed compact layout, but it still honors `experimental.quotaToast.toastStyle`. `classic` and `grouped` both work in the sidebar; `experimental.quotaToast.layout.*` affects toast formatting only, not the TUI sidebar.
-
-When `experimental.quotaToast.showSessionTokens` is enabled and session token data is available, the shared section is labeled `Session input/output tokens`. Toasts and `/quota` keep per-model input/output rows, while the TUI sidebar renders the same section as a one-line total summary so it fits the fixed-width panel.
+Then restart OpenCode, run `/quota_status`, run `/quota`, and open the session sidebar to confirm the `Quota` panel appears. Providers are auto-detected from your existing OpenCode setup, and most providers work from your existing OpenCode auth. 
 
 <details>
 <summary><strong>Example: Turn off auto-detection and choose providers</strong></summary>
@@ -249,8 +237,6 @@ Environment variables take precedence over the config file. Run `/quota_status` 
 | `/tokens_session_all` | Tokens used in the current session plus all descendant child/subagent sessions |
 | `/tokens_between` | Tokens used between two dates: `YYYY-MM-DD YYYY-MM-DD` |
 
-There is no `/token` command. The reporting commands are the `/tokens_*` family.
-Use `/tokens_session` for strict per-session accounting, and `/tokens_session_all` when you want the selected parent session plus every nested child session linked by `parent_id`.
 
 ## Provider-Specific Notes
 
