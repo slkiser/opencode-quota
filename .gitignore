@@ -19,6 +19,8 @@ coverage/
 .env.*
 .npmrc
 opencode.json
+tui.json
+tui.jsonc
 
 # Local scratch & AI Slop
 references/*
