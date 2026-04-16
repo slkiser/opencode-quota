@@ -20,7 +20,6 @@ coverage/
 .npmrc
 opencode.json
 tui.json
-tui.jsonc
 
 # Local scratch & AI Slop
 references/*
@@ -29,5 +28,3 @@ references/*
 .git.backup-*/
 docs/
 AGENTS.md
-.repo_ignore
-.superset
