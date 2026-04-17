@@ -125,6 +125,38 @@ describe("buildSidebarQuotaPanelLines", () => {
     expect(lines.every((line) => line.length <= TUI_SIDEBAR_MAX_WIDTH)).toBe(true);
   });
 
+  it("renders grouped quota windows shortest to longest in the sidebar", () => {
+    const lines = buildSidebarQuotaPanelLines({
+      config: {
+        toastStyle: "grouped",
+      },
+      data: {
+        entries: [
+          {
+            name: "Anthropic Weekly",
+            group: "Anthropic",
+            label: "Weekly:",
+            percentRemaining: 81,
+          },
+          {
+            name: "Anthropic 5h",
+            group: "Anthropic",
+            label: "5h:",
+            percentRemaining: 94,
+          },
+        ],
+        errors: [],
+        sessionTokens: undefined,
+      },
+    });
+
+    expect(lines.findIndex((line) => line.includes("5h:"))).toBeGreaterThanOrEqual(0);
+    expect(lines.findIndex((line) => line.includes("Weekly:"))).toBeGreaterThanOrEqual(0);
+    expect(lines.findIndex((line) => line.includes("5h:"))).toBeLessThan(
+      lines.findIndex((line) => line.includes("Weekly:")),
+    );
+  });
+
   it("renders sidebar session tokens as a standalone one-line summary", () => {
     const lines = buildSidebarQuotaPanelLines({
       config: {

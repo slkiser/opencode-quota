@@ -337,7 +337,7 @@ export async function buildQuotaStatusReport(params: {
   configPaths: string[];
   tuiDiagnostics?: {
     configured: boolean;
-    selectedPath: string | null;
+    inferredSelectedPath: string | null;
     presentPaths: string[];
     candidatePaths: string[];
     quotaPluginConfigured: boolean;
@@ -403,7 +403,7 @@ export async function buildQuotaStatusReport(params: {
     lines.push("");
     lines.push("tui:");
     lines.push(`- config_configured: ${params.tuiDiagnostics.configured ? "true" : "false"}`);
-    lines.push(`- selected_config_path: ${params.tuiDiagnostics.selectedPath ?? "(none)"}`);
+    lines.push(`- inferred_selected_config_path: ${params.tuiDiagnostics.inferredSelectedPath ?? "(none)"}`);
     lines.push(`- present_config_paths: ${joinOrNone(params.tuiDiagnostics.presentPaths)}`);
     lines.push(`- candidate_config_paths: ${joinOrNone(params.tuiDiagnostics.candidatePaths)}`);
     lines.push(`- quota_plugin_configured: ${params.tuiDiagnostics.quotaPluginConfigured ? "true" : "false"}`);

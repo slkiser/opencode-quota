@@ -85,6 +85,78 @@ describe("formatQuotaCommand", () => {
     `);
   });
 
+  it("renders grouped /quota windows shortest to longest within a provider group", () => {
+    const out = formatQuotaCommand({
+      entries: [
+        {
+          name: "OpenAI Weekly",
+          group: "OpenAI (Pro)",
+          label: "Weekly:",
+          percentRemaining: 81,
+        },
+        {
+          name: "OpenAI Hourly",
+          group: "OpenAI (Pro)",
+          label: "Hourly:",
+          percentRemaining: 42,
+        },
+        {
+          name: "OpenAI Code Review",
+          group: "OpenAI (Pro)",
+          label: "Code Review:",
+          kind: "value" as const,
+          value: "2 used",
+        },
+      ],
+      errors: [],
+    });
+
+    expect(out.indexOf("Hourly:")).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("Weekly:")).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("Code Review:")).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("Hourly:")).toBeLessThan(out.indexOf("Weekly:"));
+    expect(out.indexOf("Weekly:")).toBeLessThan(out.indexOf("Code Review:"));
+  });
+
+  it("locks rendered grouped /quota ordering for Qwen and OpenAI provider groups", () => {
+    const out = formatQuotaCommand({
+      entries: [
+        {
+          name: "Qwen Free Daily",
+          group: "Qwen (free)",
+          label: "Daily:",
+          percentRemaining: 90,
+        },
+        {
+          name: "OpenAI Weekly",
+          group: "OpenAI (Pro)",
+          label: "Weekly:",
+          percentRemaining: 81,
+        },
+        {
+          name: "Qwen Free RPM",
+          group: "Qwen (free)",
+          label: "RPM:",
+          percentRemaining: 60,
+        },
+        {
+          name: "OpenAI Hourly",
+          group: "OpenAI (Pro)",
+          label: "Hourly:",
+          percentRemaining: 42,
+        },
+      ],
+      errors: [],
+    });
+
+    expect(out.indexOf("→ [Qwen] (free)")).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("→ [OpenAI] (Pro)")).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("→ [Qwen] (free)")).toBeLessThan(out.indexOf("→ [OpenAI] (Pro)"));
+
+    expect(out.indexOf("RPM:")).toBeLessThan(out.indexOf("Daily:"));
+    expect(out.indexOf("Hourly:")).toBeLessThan(out.indexOf("Weekly:"));
+  });
+
   it("sizes the grouped /quota label column from the visible grouped text", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));

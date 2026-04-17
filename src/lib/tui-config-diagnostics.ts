@@ -7,7 +7,7 @@ import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 
 export interface TuiConfigDiagnostics {
   configured: boolean;
-  selectedPath: string | null;
+  inferredSelectedPath: string | null;
   presentPaths: string[];
   candidatePaths: string[];
   quotaPluginConfigured: boolean;
@@ -106,7 +106,7 @@ export async function inspectTuiConfig(params?: { cwd?: string }): Promise<TuiCo
 
   return {
     configured: presentPaths.length > 0,
-    selectedPath: presentPaths[presentPaths.length - 1] ?? null,
+    inferredSelectedPath: presentPaths[presentPaths.length - 1] ?? null,
     presentPaths,
     candidatePaths,
     quotaPluginConfigured: quotaPluginConfigPaths.length > 0,

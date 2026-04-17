@@ -39,12 +39,10 @@ function createTuiQuotaClient(api: TuiPluginApi) {
           if (api.client.config?.get) {
             const response = await api.client.config.get();
             return {
-              data: {
-                model:
-                  response.data && typeof response.data === "object" && "model" in response.data
-                    ? (response.data.model as string | undefined)
-                    : undefined,
-              },
+              data:
+                response?.data && typeof response.data === "object"
+                  ? response.data
+                  : {},
             };
           }
         } catch {
@@ -96,8 +94,9 @@ export async function loadSidebarPanel(params: {
   sessionID: string;
   providerFetchCache: ProviderFetchCacheStore;
 }): Promise<SidebarPanelState> {
+  const quotaClient = createTuiQuotaClient(params.api);
   const configMeta = createLoadConfigMeta();
-  const config = await loadConfig(undefined, configMeta, {
+  const config = await loadConfig(quotaClient, configMeta, {
     cwd: resolveWorkspaceDir(params.api),
   });
 
@@ -115,7 +114,7 @@ export async function loadSidebarPanel(params: {
       : undefined,
   };
   const result = await collectQuotaRenderData({
-    client: createTuiQuotaClient(params.api),
+    client: quotaClient,
     config,
     request,
     providerFetchCache: params.providerFetchCache,

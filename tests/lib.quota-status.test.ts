@@ -421,7 +421,7 @@ describe("buildQuotaStatusReport", () => {
       configPaths: [],
       tuiDiagnostics: {
         configured: true,
-        selectedPath: "/tmp/project/tui.jsonc",
+        inferredSelectedPath: "/tmp/project/tui.jsonc",
         presentPaths: ["/tmp/config/tui.json", "/tmp/project/tui.jsonc"],
         candidatePaths: ["/tmp/config/tui.json", "/tmp/config/tui.jsonc", "/tmp/project/tui.json", "/tmp/project/tui.jsonc"],
         quotaPluginConfigured: true,
@@ -451,7 +451,7 @@ describe("buildQuotaStatusReport", () => {
     );
     expect(report).toContain("tui:");
     expect(report).toContain("- config_configured: true");
-    expect(report).toContain("- selected_config_path: /tmp/project/tui.jsonc");
+    expect(report).toContain("- inferred_selected_config_path: /tmp/project/tui.jsonc");
     expect(report).toContain("- present_config_paths: /tmp/config/tui.json | /tmp/project/tui.jsonc");
     expect(report).toContain(
       "- candidate_config_paths: /tmp/config/tui.json | /tmp/config/tui.jsonc | /tmp/project/tui.json | /tmp/project/tui.jsonc",

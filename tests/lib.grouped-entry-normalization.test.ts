@@ -26,4 +26,71 @@ describe("normalizeGroupedQuotaEntries", () => {
       },
     ]);
   });
+
+  it("sorts recognized grouped duration rows from shortest to longest for toast output", () => {
+    const entries = [
+      {
+        name: "Example Daily",
+        group: "Example",
+        label: "Daily:",
+        percentRemaining: 80,
+      },
+      {
+        name: "Example RPM",
+        group: "Example",
+        label: "RPM:",
+        percentRemaining: 90,
+      },
+      {
+        name: "Example Monthly",
+        group: "Example",
+        label: "Monthly:",
+        percentRemaining: 70,
+      },
+    ];
+
+    expect(normalizeGroupedQuotaEntries(entries, "toast").map((entry) => entry.label)).toEqual([
+      "RPM:",
+      "Daily:",
+      "Monthly:",
+    ]);
+  });
+
+  it("keeps unknown grouped rows after duration rows while preserving unknown-row order for /quota", () => {
+    const entries = [
+      {
+        name: "Example Balance",
+        group: "Example",
+        label: "Balance:",
+        kind: "value" as const,
+        value: "$42",
+      },
+      {
+        name: "Example Monthly",
+        group: "Example",
+        label: "Monthly:",
+        percentRemaining: 75,
+      },
+      {
+        name: "Example Daily",
+        group: "Example",
+        label: "Daily:",
+        percentRemaining: 85,
+      },
+      {
+        name: "Example MCP",
+        group: "Example",
+        label: "MCP:",
+        kind: "value" as const,
+        value: "Connected",
+      },
+    ];
+
+    expect(normalizeGroupedQuotaEntries(entries, "quota").map((entry) => entry.label)).toEqual([
+      "Daily:",
+      "Monthly:",
+      "Balance:",
+      "MCP:",
+    ]);
+  });
 });

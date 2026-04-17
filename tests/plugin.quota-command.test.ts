@@ -169,6 +169,84 @@ describe("/quota command behavior", () => {
     );
   });
 
+  it("shows explicit provider availability errors in idle-triggered toasts", async () => {
+    mocks.loadConfig.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      enabled: true,
+      enabledProviders: ["copilot"],
+      showOnIdle: true,
+      showOnCompact: false,
+      showOnQuestion: false,
+      showSessionTokens: false,
+      minIntervalMs: 60_000,
+    });
+
+    const provider = {
+      id: "copilot",
+      isAvailable: vi.fn().mockRejectedValue(new Error("boom")),
+      fetch: vi.fn(),
+    };
+    mocks.getProviders.mockReturnValue([provider]);
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const client = createClient();
+    const hooks = await QuotaToastPlugin({ client } as any);
+
+    await hooks.event?.({
+      event: {
+        type: "session.idle",
+        properties: { sessionID: "session-idle-explicit-provider" },
+      },
+    } as any);
+
+    expect(provider.fetch).not.toHaveBeenCalled();
+    expect(client.tui.showToast).toHaveBeenCalledTimes(1);
+    const message = client.tui.showToast.mock.calls[0]?.[0]?.body?.message ?? "";
+    expect(message).toContain("Copilot: Unavailable (not detected)");
+  });
+
+  it("shows explicit current-model skip errors in idle-triggered toasts", async () => {
+    mocks.loadConfig.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      enabled: true,
+      enabledProviders: ["openai"],
+      onlyCurrentModel: true,
+      showOnIdle: true,
+      showOnCompact: false,
+      showOnQuestion: false,
+      showSessionTokens: false,
+      minIntervalMs: 60_000,
+    });
+
+    const provider = {
+      id: "openai",
+      matchesCurrentModel: vi.fn().mockReturnValue(false),
+      isAvailable: vi.fn(),
+      fetch: vi.fn(),
+    };
+    mocks.getProviders.mockReturnValue([provider]);
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const client = createClient({
+      modelID: "claude-3.7-sonnet",
+      providerID: "anthropic",
+    });
+    const hooks = await QuotaToastPlugin({ client } as any);
+
+    await hooks.event?.({
+      event: {
+        type: "session.idle",
+        properties: { sessionID: "session-idle-model-filter" },
+      },
+    } as any);
+
+    expect(provider.isAvailable).not.toHaveBeenCalled();
+    expect(provider.fetch).not.toHaveBeenCalled();
+    expect(client.tui.showToast).toHaveBeenCalledTimes(1);
+    const message = client.tui.showToast.mock.calls[0]?.[0]?.body?.message ?? "";
+    expect(message).toContain("OpenAI: Skipped (current model: claude-3.7-sonnet)");
+  });
+
   it("rewrites default_agent only when one zero-width-normalized key matches", async () => {
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const hooks = await QuotaToastPlugin({ client: createClient() } as any);

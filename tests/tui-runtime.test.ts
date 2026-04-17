@@ -127,6 +127,120 @@ describe("tui runtime helpers", () => {
     expect(collectQuotaRenderData).not.toHaveBeenCalled();
   });
 
+  it("honors sdk-backed quota config fallback when no config files are present", async () => {
+    const panel = await loadSidebarPanel({
+      api: {
+        state: {
+          provider: [],
+          path: {
+            worktree: worktreeDir,
+            directory: nestedDir,
+          },
+          session: {
+            messages: () => [],
+          },
+        },
+        client: {
+          config: {
+            get: vi.fn().mockResolvedValue({
+              data: {
+                experimental: {
+                  quotaToast: {
+                    enabled: false,
+                  },
+                },
+              },
+            }),
+          },
+        },
+      } as any,
+      sessionID: "session-sdk-fallback",
+      providerFetchCache: new Map(),
+    });
+
+    expect(panel).toEqual({ status: "disabled", lines: [] });
+    expect(collectQuotaRenderData).not.toHaveBeenCalled();
+  });
+
+  it("preserves sdk-backed quota config fields when no config files are present", async () => {
+    collectQuotaRenderData.mockResolvedValue({
+      data: {
+        entries: [],
+        errors: [],
+        sessionTokens: undefined,
+      },
+    });
+    buildSidebarQuotaPanelLines.mockReturnValue(["Quota line"]);
+
+    const panel = await loadSidebarPanel({
+      api: {
+        state: {
+          provider: [],
+          path: {
+            worktree: worktreeDir,
+            directory: nestedDir,
+          },
+          session: {
+            messages: () => [],
+          },
+        },
+        client: {
+          config: {
+            get: vi.fn().mockResolvedValue({
+              data: {
+                experimental: {
+                  quotaToast: {
+                    enabled: true,
+                    toastStyle: "grouped",
+                    onlyCurrentModel: true,
+                  },
+                },
+              },
+            }),
+          },
+          session: {
+            get: vi.fn().mockResolvedValue({
+              data: {
+                providerID: "copilot",
+                modelID: "gpt-4.1",
+              },
+            }),
+          },
+        },
+      } as any,
+      sessionID: "session-sdk-fields",
+      providerFetchCache: new Map(),
+    });
+
+    expect(panel).toEqual({ status: "ready", lines: ["Quota line"] });
+    expect(collectQuotaRenderData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          toastStyle: "grouped",
+          onlyCurrentModel: true,
+        }),
+        style: "grouped",
+        request: expect.objectContaining({
+          sessionMeta: {
+            providerID: "copilot",
+            modelID: "gpt-4.1",
+          },
+        }),
+      }),
+    );
+    expect(buildSidebarQuotaPanelLines).toHaveBeenCalledWith({
+      data: {
+        entries: [],
+        errors: [],
+        sessionTokens: undefined,
+      },
+      config: expect.objectContaining({
+        toastStyle: "grouped",
+        onlyCurrentModel: true,
+      }),
+    });
+  });
+
   it("keeps the sidebar enabled when enableToast is false", async () => {
     writeFileSync(
       join(worktreeDir, "opencode.json"),

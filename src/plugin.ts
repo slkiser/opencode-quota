@@ -772,8 +772,9 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     }
 
     const currentModel = selection?.currentModel;
+    const errors = data?.errors ?? [];
 
-    if (active.length === 0) {
+    if (active.length === 0 && !(hasExplicitProviderIssues && errors.length > 0)) {
       return config.debug
         ? formatDebugInfo({
             trigger,
@@ -806,8 +807,6 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
 
       return formatted + debugFooter;
     }
-
-    const errors = data?.errors ?? [];
 
     // Show errors even without entries when:
     // 1. showOnBothFail is enabled and at least one provider attempted (existing behavior)

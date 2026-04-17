@@ -60,7 +60,7 @@ describe("inspectTuiConfig", () => {
     const diagnostics = await inspectTuiConfig({ cwd: projectDir });
 
     expect(diagnostics.configured).toBe(true);
-    expect(diagnostics.selectedPath).toBe(join(projectDir, ".opencode", "tui.json"));
+    expect(diagnostics.inferredSelectedPath).toBe(join(projectDir, ".opencode", "tui.json"));
     expect(diagnostics.presentPaths).toEqual([
       join(globalDir, "tui.json"),
       join(projectDir, "tui.jsonc"),
@@ -101,7 +101,7 @@ describe("inspectTuiConfig", () => {
     const { inspectTuiConfig } = await import("../src/lib/tui-config-diagnostics.js");
     const diagnostics = await inspectTuiConfig({ cwd: nestedDir });
 
-    expect(diagnostics.selectedPath).toBe(join(projectDir, ".opencode", "tui.json"));
+    expect(diagnostics.inferredSelectedPath).toBe(join(projectDir, ".opencode", "tui.json"));
     expect(diagnostics.quotaPluginConfigured).toBe(true);
     expect(diagnostics.quotaPluginConfigPaths).toEqual([join(projectDir, ".opencode", "tui.json")]);
   });
@@ -111,7 +111,7 @@ describe("inspectTuiConfig", () => {
     const diagnostics = await inspectTuiConfig({ cwd: projectDir });
 
     expect(diagnostics.configured).toBe(false);
-    expect(diagnostics.selectedPath).toBeNull();
+    expect(diagnostics.inferredSelectedPath).toBeNull();
     expect(diagnostics.presentPaths).toEqual([]);
     expect(diagnostics.quotaPluginConfigured).toBe(false);
     expect(diagnostics.quotaPluginConfigPaths).toEqual([]);

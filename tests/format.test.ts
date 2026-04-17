@@ -98,6 +98,73 @@ describe("formatQuotaRows", () => {
     expect(out).toContain("→ [Copilot] (business)");
   });
 
+  it("renders grouped quota windows from shortest to longest within a provider group", () => {
+    const out = formatQuotaRows({
+      version: "1.0.0",
+      style: "grouped",
+      layout: { maxWidth: 50, narrowAt: 42, tinyAt: 32 },
+      entries: [
+        {
+          name: "OpenAI Weekly",
+          group: "OpenAI (Pro)",
+          label: "Weekly:",
+          percentRemaining: 88,
+        },
+        {
+          name: "OpenAI 5h",
+          group: "OpenAI (Pro)",
+          label: "5h:",
+          percentRemaining: 92,
+        },
+      ],
+    });
+
+    expect(out.indexOf("5h:")).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("Weekly:")).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("5h:")).toBeLessThan(out.indexOf("Weekly:"));
+  });
+
+  it("locks rendered grouped toast ordering for Qwen and OpenAI provider groups", () => {
+    const out = formatQuotaRows({
+      version: "1.0.0",
+      style: "grouped",
+      layout: { maxWidth: 50, narrowAt: 42, tinyAt: 32 },
+      entries: [
+        {
+          name: "Qwen Free Daily",
+          group: "Qwen (free)",
+          label: "Daily:",
+          percentRemaining: 90,
+        },
+        {
+          name: "OpenAI Weekly",
+          group: "OpenAI (Pro)",
+          label: "Weekly:",
+          percentRemaining: 81,
+        },
+        {
+          name: "Qwen Free RPM",
+          group: "Qwen (free)",
+          label: "RPM:",
+          percentRemaining: 60,
+        },
+        {
+          name: "OpenAI Hourly",
+          group: "OpenAI (Pro)",
+          label: "Hourly:",
+          percentRemaining: 42,
+        },
+      ],
+    });
+
+    expect(out.indexOf("→ [Qwen] (free)")).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("→ [OpenAI] (Pro)")).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("→ [Qwen] (free)")).toBeLessThan(out.indexOf("→ [OpenAI] (Pro)"));
+
+    expect(out.indexOf("RPM:")).toBeLessThan(out.indexOf("Daily:"));
+    expect(out.indexOf("Hourly:")).toBeLessThan(out.indexOf("Weekly:"));
+  });
+
   it("groups legacy Google-style entries without duplicating the header text", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));
