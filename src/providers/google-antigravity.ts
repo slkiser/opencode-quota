@@ -9,7 +9,7 @@ import type {
   QuotaToastError,
 } from "../lib/entries.js";
 import type { GoogleModelId, GoogleResult } from "../lib/types.js";
-import { hasAntigravityAccountsConfigured, queryGoogleQuota } from "../lib/google.js";
+import { hasAntigravityQuotaRuntimeAvailable, queryGoogleQuota } from "../lib/google.js";
 
 function truncateEmail(email?: string): string {
   if (!email) return "Unknown";
@@ -24,7 +24,7 @@ function normalizeGoogleErrors(result: GoogleResult): QuotaToastError[] {
 
 async function isAccountsConfigured(): Promise<boolean> {
   try {
-    return await hasAntigravityAccountsConfigured();
+    return await hasAntigravityQuotaRuntimeAvailable();
   } catch {
     return false;
   }
@@ -34,8 +34,8 @@ export const googleAntigravityProvider: QuotaProvider = {
   id: "google-antigravity",
 
   async isAvailable(_ctx: QuotaProviderContext): Promise<boolean> {
-    // Google quota always depends on the Antigravity accounts file, so the
-    // provider should only surface as available when that file is present.
+    // Google quota depends on both the accounts file and the separately
+    // installed companion auth plugin.
     return await isAccountsConfigured();
   },
 

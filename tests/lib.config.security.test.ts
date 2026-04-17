@@ -56,7 +56,7 @@ describe("loadConfig security precedence", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("keeps user/global network-affecting settings authoritative over workspace config", async () => {
+  it("uses global config as defaults and lets workspace config override matching keys", async () => {
     writeFileSync(
       join(xdgConfigHome, "opencode", "opencode.json"),
       JSON.stringify({
@@ -112,14 +112,13 @@ describe("loadConfig security precedence", () => {
       },
     });
 
-    expect(cfg.enabled).toBe(false);
-    expect(cfg.enabledProviders).toEqual(["openai"]);
-    expect(cfg.showOnIdle).toBe(false);
-    expect(cfg.showOnQuestion).toBe(false);
-    expect(cfg.showOnCompact).toBe(false);
-    expect(cfg.minIntervalMs).toBe(600000);
-    expect(cfg.pricingSnapshot).toEqual({ source: "bundled", autoRefresh: 30 });
-
+    expect(cfg.enabled).toBe(true);
+    expect(cfg.enabledProviders).toEqual(["chutes"]);
+    expect(cfg.showOnIdle).toBe(true);
+    expect(cfg.showOnQuestion).toBe(true);
+    expect(cfg.showOnCompact).toBe(true);
+    expect(cfg.minIntervalMs).toBe(1000);
+    expect(cfg.pricingSnapshot).toEqual({ source: "runtime", autoRefresh: 1 });
     expect(cfg.formatStyle).toBe("grouped");
     expect(cfg.onlyCurrentModel).toBe(true);
   });

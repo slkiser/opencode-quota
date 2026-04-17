@@ -173,7 +173,6 @@ Important install notes:
 - **Project** scope writes to the git worktree root when one is detected; otherwise it writes to the current directory.
 - **Global** scope writes to OpenCode's primary runtime config directory.
 - If a modified file is `.jsonc`, the installer rewrites it as normalized JSON.
-- A global `experimental.quotaToast.enabledProviders` can still override a project-scoped provider-mode choice at runtime.
 
 <a id="anthropic-quick-setup"></a>
 <details>
@@ -234,7 +233,7 @@ For behavior details and troubleshooting, see [Cursor notes](#cursor-notes).
 <details>
 <summary><strong>Quick setup: Google Antigravity</strong></summary>
 
-Google quota support requires the `opencode-antigravity-auth` [plugin](https://github.com/NoeFabris/opencode-antigravity-auth):
+Google quota support requires the `opencode-antigravity-auth` [plugin](https://github.com/NoeFabris/opencode-antigravity-auth). `@slkiser/opencode-quota` does not install that companion plugin transitively, so install/configure it separately and then enable both plugins:
 
 ```jsonc
 {
@@ -535,9 +534,10 @@ Example user/global config (`~/.config/opencode/opencode.jsonc` on Linux/macOS):
 <details>
 <summary><strong>Google Antigravity</strong></summary>
 
-See [Google Antigravity quick setup](#google-antigravity-quick-setup). This companion auth flow does not use `auth.json`; it reads `antigravity-accounts.json` from the OpenCode runtime directories.
+See [Google Antigravity quick setup](#google-antigravity-quick-setup). This companion auth flow does not use `auth.json`; it reads `antigravity-accounts.json` from the OpenCode runtime directories. `@slkiser/opencode-quota` expects the companion plugin to be installed separately.
 
-- `/quota_status` includes a `google_antigravity` section with the selected accounts path, all present/candidate paths, account counts, valid refresh-token counts, and the Google token-cache path.
+- `/quota_status` includes a `google_antigravity` section with the selected accounts path, all present/candidate paths, account counts, valid refresh-token counts, companion package state/path, and the Google token-cache path.
+- If the companion plugin is missing or incompatible, `/quota_status` shows `companion_package_state` and `companion_error`.
 - If detection looks wrong, start with the `google_antigravity` section in `/quota_status`.
 
 </details>
@@ -598,9 +598,9 @@ OpenCode Go quota scrapes the OpenCode Go dashboard at `https://opencode.ai/work
 
 ## Configuration Reference
 
-All quota plugin settings live under `experimental.quotaToast` in `opencode.json` or `opencode.jsonc`. The sidebar install step is separate: add the package to `tui.json` or `tui.jsonc`, or choose `Sidebar` in `npx @slkiser/opencode-quota init`.
+All quota plugin settings live under `experimental.quotaToast` in `opencode.json` or `opencode.jsonc`. The sidebar install step is separate: add the package to `tui.json` or `tui.jsonc`, or choose `Sidebar` or `Toast + Sidebar` in `npx @slkiser/opencode-quota init`.
 
-Workspace-local config can still customize display/report behavior, but user/global config is authoritative for network-affecting settings such as `enabled`, `enabledProviders`, `minIntervalMs`, `pricingSnapshot`, `showOnIdle`, `showOnQuestion`, and `showOnCompact`.
+When both are present, user/global config provides defaults and project/workspace config overrides those defaults for that project. SDK config is only used when no config files are found.
 
 ### Core/shared settings
 

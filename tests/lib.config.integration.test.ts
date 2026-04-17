@@ -57,7 +57,7 @@ describe("loadConfig integration runtime-path resolution", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("uses real runtime dirs for global precedence and explicit cwd loading", async () => {
+  it("uses real runtime dirs as defaults and explicit cwd config as overrides", async () => {
     const env = {
       ...process.env,
       HOME: tempDir,
@@ -117,8 +117,8 @@ describe("loadConfig integration runtime-path resolution", () => {
     const meta = { source: "defaults" as const, paths: [] as string[] };
     const cfg = await loadConfig(undefined, meta, { cwd: workspaceDir });
 
-    expect(cfg.enabled).toBe(false);
-    expect(cfg.enabledProviders).toEqual(["openai"]);
+    expect(cfg.enabled).toBe(true);
+    expect(cfg.enabledProviders).toEqual(["nanogpt"]);
     expect(cfg.showOnIdle).toBe(false);
     expect(cfg.pricingSnapshot).toEqual({ source: "bundled", autoRefresh: 30 });
     expect(cfg.formatStyle).toBe("grouped");

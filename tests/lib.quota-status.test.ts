@@ -55,6 +55,14 @@ const googleMocks = vi.hoisted(() => ({
   })),
 }));
 
+const googleCompanionMocks = vi.hoisted(() => ({
+  inspectAntigravityCompanionPresence: vi.fn(async () => ({
+    state: "missing" as const,
+    importSpecifier: "opencode-antigravity-auth/dist/src/constants.js",
+    error: "Install opencode-antigravity-auth separately to enable Google Antigravity quota",
+  })),
+}));
+
 const openaiMocks = vi.hoisted(() => ({
   resolveOpenAIOAuth: vi.fn(() => ({ state: "none" as const })),
 }));
@@ -162,6 +170,10 @@ vi.mock("../src/lib/google-token-cache.js", () => ({
 
 vi.mock("../src/lib/google.js", () => ({
   inspectAntigravityAccountsPresence: googleMocks.inspectAntigravityAccountsPresence,
+}));
+
+vi.mock("../src/lib/google-antigravity-companion.js", () => ({
+  inspectAntigravityCompanionPresence: googleCompanionMocks.inspectAntigravityCompanionPresence,
 }));
 
 vi.mock("../src/lib/anthropic.js", () => ({
@@ -534,6 +546,11 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- candidate_accounts_paths: /tmp/antigravity-accounts.json");
     expect(report).toContain("- account_count: 0");
     expect(report).toContain("- valid_account_count: 0");
+    expect(report).toContain("- companion_package_state: missing");
+    expect(report).toContain("- companion_package_path: (none)");
+    expect(report).toContain(
+      "- companion_error: Install opencode-antigravity-auth separately to enable Google Antigravity quota",
+    );
     expect(report).toContain("- token_cache_path: /tmp/google-token-cache.json exists=false");
     expect(report).toContain(
       "- billing_usage_note: organization premium usage for the current billing period",

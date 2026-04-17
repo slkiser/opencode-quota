@@ -3,6 +3,7 @@ import { stat } from "fs/promises";
 import { getAuthPath, getAuthPaths, readAuthFileCached } from "./opencode-auth.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import { getGoogleTokenCachePath } from "./google-token-cache.js";
+import { inspectAntigravityCompanionPresence } from "./google-antigravity-companion.js";
 import { inspectAntigravityAccountsPresence } from "./google.js";
 import { getAnthropicDiagnostics } from "./anthropic.js";
 import { getFirmwareKeyDiagnostics } from "./firmware.js";
@@ -878,6 +879,7 @@ export async function buildQuotaStatusReport(params: {
   lines.push(`- override: ${copilotDiag.override}`);
   const googleTokenCachePath = getGoogleTokenCachePath();
   const googleAuthPresence = await inspectAntigravityAccountsPresence();
+  const googleCompanionPresence = await inspectAntigravityCompanionPresence();
   lines.push("");
   lines.push("google_antigravity:");
   lines.push(`- auth_state: ${googleAuthPresence.state}`);
@@ -886,6 +888,13 @@ export async function buildQuotaStatusReport(params: {
   lines.push(`- candidate_accounts_paths: ${joinOrNone(googleAuthPresence.candidatePaths)}`);
   lines.push(`- account_count: ${googleAuthPresence.accountCount}`);
   lines.push(`- valid_account_count: ${googleAuthPresence.validAccountCount}`);
+  lines.push(`- companion_package_state: ${googleCompanionPresence.state}`);
+  lines.push(
+    `- companion_package_path: ${googleCompanionPresence.state === "present" || googleCompanionPresence.state === "invalid" ? googleCompanionPresence.resolvedPath ?? "(none)" : "(none)"}`,
+  );
+  if (googleCompanionPresence.state !== "present") {
+    lines.push(`- companion_error: ${sanitizeDisplayText(googleCompanionPresence.error)}`);
+  }
   lines.push(
     `- token_cache_path: ${googleTokenCachePath} exists=${(await pathExists(googleTokenCachePath)) ? "true" : "false"}`,
   );

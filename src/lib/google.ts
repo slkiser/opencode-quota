@@ -10,16 +10,17 @@ import { join } from "path";
 import { existsSync } from "fs";
 
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import {
+  inspectAntigravityCompanionPresence,
+  resolveAntigravityClientCredentials,
+  type GoogleAntigravityConfiguredCredentials,
+} from "./google-antigravity-companion.js";
 
 // NOTE: Google Antigravity auth differs intentionally from Qwen:
 // - Qwen reads OpenCode auth.json key "qwen-code" first, then falls back to
 //   legacy key "opencode-qwencode-auth", and uses local quota state.
 // - Google refresh flow requires upstream OAuth client credentials from
 //   opencode-antigravity-auth to match that plugin's runtime behavior.
-import {
-  ANTIGRAVITY_CLIENT_ID as GOOGLE_CLIENT_ID,
-  ANTIGRAVITY_CLIENT_SECRET as GOOGLE_CLIENT_SECRET,
-} from "opencode-antigravity-auth/dist/src/constants.js";
 
 import type {
   AntigravityAccount,
@@ -54,6 +55,12 @@ const GOOGLE_QUOTA_TIMEOUT_MS = 6000;
 
 // Multi-account fetching concurrency (reliability > speed).
 const GOOGLE_ACCOUNTS_CONCURRENCY = 3;
+
+function getCompanionQuotaError(state: "missing" | "invalid"): string {
+  return state === "missing"
+    ? "Google Antigravity requires the opencode-antigravity-auth plugin"
+    : "Installed opencode-antigravity-auth package is incompatible";
+}
 
 // =============================================================================
 // Helpers
@@ -217,6 +224,19 @@ export async function hasAntigravityAccountsConfigured(): Promise<boolean> {
   return presence.state === "present" && presence.validAccountCount > 0;
 }
 
+export async function hasAntigravityQuotaRuntimeAvailable(): Promise<boolean> {
+  const [authPresence, companionPresence] = await Promise.all([
+    inspectAntigravityAccountsPresence(),
+    inspectAntigravityCompanionPresence(),
+  ]);
+
+  return (
+    authPresence.state === "present" &&
+    authPresence.validAccountCount > 0 &&
+    companionPresence.state === "present"
+  );
+}
+
 async function mapWithConcurrency<T, R>(params: {
   items: T[];
   concurrency: number;
@@ -242,14 +262,18 @@ async function mapWithConcurrency<T, R>(params: {
  * Refresh Google access token
  */
 async function refreshAccessToken(
-  refreshToken: string,
-  timeoutMs: number = GOOGLE_TOKEN_TIMEOUT_MS,
+  params: {
+    refreshToken: string;
+    clientId: string;
+    clientSecret: string;
+    timeoutMs?: number;
+  },
 ): Promise<{ accessToken: string; expiresIn: number } | { error: string }> {
   try {
-    const params = new URLSearchParams({
-      client_id: GOOGLE_CLIENT_ID,
-      client_secret: GOOGLE_CLIENT_SECRET,
-      refresh_token: refreshToken,
+    const body = new URLSearchParams({
+      client_id: params.clientId,
+      client_secret: params.clientSecret,
+      refresh_token: params.refreshToken,
       grant_type: "refresh_token",
     });
 
@@ -258,9 +282,9 @@ async function refreshAccessToken(
       {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: params,
+        body,
       },
-      timeoutMs,
+      params.timeoutMs ?? GOOGLE_TOKEN_TIMEOUT_MS,
     );
 
     if (!response.ok) {
@@ -304,6 +328,7 @@ async function refreshAccessTokenWithCache(params: {
   email?: string;
   skewMs?: number;
   force?: boolean;
+  credentials: GoogleAntigravityConfiguredCredentials;
 }): Promise<{ accessToken: string } | { error: string }> {
   const skewMs = params.skewMs ?? 2 * 60_000;
   const key = makeAccountCacheKey({
@@ -317,7 +342,11 @@ async function refreshAccessTokenWithCache(params: {
     if (cached) return { accessToken: cached.accessToken };
   }
 
-  const refreshed = await refreshAccessToken(params.refreshToken);
+  const refreshed = await refreshAccessToken({
+    refreshToken: params.refreshToken,
+    clientId: params.credentials.clientId,
+    clientSecret: params.credentials.clientSecret,
+  });
   if ("error" in refreshed) return refreshed;
 
   await setCachedAccessToken({
@@ -347,6 +376,19 @@ export async function refreshGoogleTokensForAllAccounts(params?: {
   const valid = accounts.filter((a) => !!a.refreshToken);
   if (valid.length === 0) return null;
 
+  const credentials = await resolveAntigravityClientCredentials();
+  if (credentials.state !== "configured") {
+    const error = getCompanionQuotaError(credentials.state);
+    return {
+      total: valid.length,
+      successCount: 0,
+      failures: valid.map((account) => ({
+        email: account.email,
+        error,
+      })),
+    };
+  }
+
   const results = await mapWithConcurrency({
     items: valid,
     concurrency: GOOGLE_ACCOUNTS_CONCURRENCY,
@@ -361,6 +403,7 @@ export async function refreshGoogleTokensForAllAccounts(params?: {
         email,
         skewMs: params?.skewMs,
         force: params?.force,
+        credentials,
       });
       if ("error" in token) return { ok: false as const, email, error: token.error };
       return { ok: true as const, email };
@@ -462,6 +505,7 @@ function getProjectId(account: AntigravityAccount): string | undefined {
 async function fetchAccountQuotaWithAntigravityRefresh(params: {
   account: AntigravityAccount;
   modelIds: GoogleModelId[];
+  credentials: GoogleAntigravityConfiguredCredentials;
 }): Promise<{
   success: boolean;
   models?: GoogleModelQuota[];
@@ -480,6 +524,7 @@ async function fetchAccountQuotaWithAntigravityRefresh(params: {
       refreshToken: params.account.refreshToken,
       projectId,
       email,
+      credentials: params.credentials,
     });
 
     if ("error" in tokenResult)
@@ -491,7 +536,11 @@ async function fetchAccountQuotaWithAntigravityRefresh(params: {
     } catch (err) {
       // One auth retry: refresh token then retry quota call.
       if (err instanceof Error && err.message.includes("auth error")) {
-        const retryToken = await refreshAccessToken(params.account.refreshToken);
+        const retryToken = await refreshAccessToken({
+          refreshToken: params.account.refreshToken,
+          clientId: params.credentials.clientId,
+          clientSecret: params.credentials.clientSecret,
+        });
         if ("error" in retryToken) {
           return { success: false, error: retryToken.error, accountEmail: email };
         }
@@ -543,11 +592,20 @@ export async function queryGoogleQuota(modelIds: GoogleModelId[]): Promise<Googl
     return null;
   }
 
+  const credentials = await resolveAntigravityClientCredentials();
+  if (credentials.state !== "configured") {
+    return {
+      success: false,
+      error: getCompanionQuotaError(credentials.state),
+    };
+  }
+
   // Query accounts with bounded concurrency (reliability > speed).
   const results = await mapWithConcurrency({
     items: accounts,
     concurrency: GOOGLE_ACCOUNTS_CONCURRENCY,
-    fn: async (account) => fetchAccountQuotaWithAntigravityRefresh({ account, modelIds }),
+    fn: async (account) =>
+      fetchAccountQuotaWithAntigravityRefresh({ account, modelIds, credentials }),
   });
 
   // Collect all successful models and errors

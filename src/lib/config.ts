@@ -1,11 +1,9 @@
 /**
  * Configuration loader for opencode-quota plugin.
  *
- * Security model:
- * - Config is loaded from opencode.json/opencode.jsonc files directly so we can
- *   enforce precedence for network-affecting fields.
- * - User/global config is authoritative for fields that control whether the
- *   plugin performs automatic network-backed quota fetches.
+ * Precedence model:
+ * - Global/user config provides defaults.
+ * - Project/workspace config overrides those defaults for the current project.
  * - SDK config is used only as a fallback when no config files are found.
  */
 
@@ -36,20 +34,6 @@ export interface LoadConfigOptions {
 
 export function createLoadConfigMeta(): LoadConfigMeta {
   return { source: "defaults", paths: [] };
-}
-
-const NETWORK_AFFECTING_KEYS = [
-  "enabled",
-  "enabledProviders",
-  "minIntervalMs",
-  "pricingSnapshot",
-  "showOnIdle",
-  "showOnQuestion",
-  "showOnCompact",
-] as const satisfies readonly (keyof QuotaToastConfig)[];
-
-function hasOwnKey<T extends object>(value: T, key: PropertyKey): boolean {
-  return Object.prototype.hasOwnProperty.call(value, key);
 }
 
 /**
@@ -292,16 +276,6 @@ export async function loadConfig(
       ...globalConfig.quota,
       ...localConfig.quota,
     };
-
-    // Repo-local config may customize display/formatting, but user/global config
-    // remains authoritative for settings that trigger or shape automatic network activity.
-    for (const key of NETWORK_AFFECTING_KEYS) {
-      if (hasOwnKey(globalConfig.quota, key)) {
-        (quota as Record<string, unknown>)[key] = globalConfig.quota[key];
-      } else if (hasOwnKey(localConfig.quota, key)) {
-        (quota as Record<string, unknown>)[key] = localConfig.quota[key];
-      }
-    }
 
     return {
       config: normalize(quota),

@@ -345,28 +345,6 @@ async function readExistingConfig(params: {
   }
 }
 
-async function tryReadQuotaToastConfig(params: {
-  path: string;
-  format: ConfigFileFormat;
-  existed: boolean;
-}): Promise<JsonObject | null> {
-  if (!params.existed) {
-    return null;
-  }
-
-  try {
-    const root = await readExistingConfig(params);
-    if (!isPlainObject(root.experimental)) {
-      return null;
-    }
-
-    const quotaToast = root.experimental.quotaToast;
-    return isPlainObject(quotaToast) ? quotaToast : null;
-  } catch {
-    return null;
-  }
-}
-
 function buildQuickSetupNotes(selections: InitInstallerSelections): InitInstallerQuickSetupNote[] {
   if (selections.providerMode !== "manual") {
     return [];
@@ -597,28 +575,6 @@ export async function planInitInstaller(params: {
     env: params.env,
     homeDir: params.homeDir,
   });
-  const warnings: string[] = [];
-
-  const desiredEnabledProviders = resolveRequestedProviders(selections);
-  if (selections.scope === "project") {
-    const globalDir = resolveInitInstallerBaseDir({
-      scope: "global",
-      env: params.env,
-      homeDir: params.homeDir,
-    });
-    const globalTarget = resolveEditableConfigPath({ dir: globalDir, kind: "opencode" });
-    const globalQuotaToast = await tryReadQuotaToastConfig(globalTarget);
-    if (
-      globalQuotaToast &&
-      hasOwnKey(globalQuotaToast, "enabledProviders") &&
-      !jsonEqual(globalQuotaToast.enabledProviders, desiredEnabledProviders)
-    ) {
-      warnings.push(
-        "Global experimental.quotaToast.enabledProviders will override the project-scoped provider mode at runtime.",
-      );
-    }
-  }
-
   const edits = [await planOpencodeEdit({ selections, baseDir })];
   if (shouldInstallTuiPlugin(selections.quotaUi)) {
     edits.push(await planTuiEdit({ selections, baseDir }));
@@ -629,7 +585,7 @@ export async function planInitInstaller(params: {
     selections,
     baseDir,
     edits,
-    warnings: [...warnings, ...edits.flatMap((edit) => edit.warnings)],
+    warnings: edits.flatMap((edit) => edit.warnings),
     quickSetupNotes,
     summaryLines: [],
   };

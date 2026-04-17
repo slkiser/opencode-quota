@@ -4,7 +4,7 @@ import { expectAttemptedWithErrorLabel, expectNotAttempted } from "./helpers/pro
 import { googleAntigravityProvider } from "../src/providers/google-antigravity.js";
 
 vi.mock("../src/lib/google.js", () => ({
-  hasAntigravityAccountsConfigured: vi.fn(),
+  hasAntigravityQuotaRuntimeAvailable: vi.fn(),
   queryGoogleQuota: vi.fn(),
 }));
 
@@ -55,18 +55,18 @@ describe("google antigravity provider", () => {
     expectAttemptedWithErrorLabel(out, "Antigravity");
   });
 
-  it("is available only when the antigravity accounts file is configured", async () => {
-    const { hasAntigravityAccountsConfigured } = await import("../src/lib/google.js");
-    (hasAntigravityAccountsConfigured as any).mockResolvedValueOnce(true);
+  it("is available only when the antigravity runtime is configured", async () => {
+    const { hasAntigravityQuotaRuntimeAvailable } = await import("../src/lib/google.js");
+    (hasAntigravityQuotaRuntimeAvailable as any).mockResolvedValueOnce(true);
     await expect(googleAntigravityProvider.isAvailable({} as any)).resolves.toBe(true);
 
-    (hasAntigravityAccountsConfigured as any).mockResolvedValueOnce(false);
+    (hasAntigravityQuotaRuntimeAvailable as any).mockResolvedValueOnce(false);
     await expect(googleAntigravityProvider.isAvailable({} as any)).resolves.toBe(false);
   });
 
-  it("returns false when account detection throws", async () => {
-    const { hasAntigravityAccountsConfigured } = await import("../src/lib/google.js");
-    (hasAntigravityAccountsConfigured as any).mockRejectedValueOnce(new Error("boom"));
+  it("returns false when runtime detection throws", async () => {
+    const { hasAntigravityQuotaRuntimeAvailable } = await import("../src/lib/google.js");
+    (hasAntigravityQuotaRuntimeAvailable as any).mockRejectedValueOnce(new Error("boom"));
 
     await expect(googleAntigravityProvider.isAvailable({} as any)).resolves.toBe(false);
   });
