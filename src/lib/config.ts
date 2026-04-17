@@ -3,7 +3,8 @@
  *
  * Precedence model:
  * - Global/user config provides defaults.
- * - Project/workspace config overrides those defaults for the current project.
+ * - Project/workspace config may override display-oriented settings for the current project.
+ * - Global/user config remains authoritative for automatic/network-affecting settings.
  * - SDK config is used only as a fallback when no config files are found.
  */
 
@@ -26,6 +27,7 @@ import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 export interface LoadConfigMeta {
   source: "sdk" | "files" | "defaults";
   paths: string[];
+  networkSettingSources: Record<string, string>;
 }
 
 export interface LoadConfigOptions {
@@ -33,7 +35,25 @@ export interface LoadConfigOptions {
 }
 
 export function createLoadConfigMeta(): LoadConfigMeta {
-  return { source: "defaults", paths: [] };
+  return { source: "defaults", paths: [], networkSettingSources: {} };
+}
+
+const NETWORK_AFFECTING_KEYS = [
+  "enabled",
+  "enabledProviders",
+  "minIntervalMs",
+  "showOnIdle",
+  "showOnQuestion",
+  "showOnCompact",
+  "showOnBothFail",
+] as const satisfies readonly (keyof QuotaToastConfig)[];
+
+function hasOwnKey<T extends object>(value: T, key: PropertyKey): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 /**
@@ -58,6 +78,10 @@ function isValidPricingSnapshotAutoRefresh(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
+function isValidFormatStyle(value: unknown): value is QuotaToastConfig["formatStyle"] {
+  return value === "classic" || value === "grouped";
+}
+
 function normalizeOptionalString(value: unknown): string | undefined {
   if (typeof value !== "string") {
     return undefined;
@@ -72,6 +96,66 @@ function normalizeOptionalString(value: unknown): string | undefined {
  */
 function dedupe<T>(list: T[]): T[] {
   return [...new Set(list)];
+}
+
+const NETWORK_SETTING_SOURCE_KEYS = [
+  "enabled",
+  "enabledProviders",
+  "minIntervalMs",
+  "pricingSnapshot.source",
+  "pricingSnapshot.autoRefresh",
+  "showOnIdle",
+  "showOnQuestion",
+  "showOnCompact",
+  "showOnBothFail",
+] as const;
+
+function resolveEffectiveNetworkSettingSources(params: {
+  globalSources: Record<string, string>;
+  localSources: Record<string, string>;
+}): Record<string, string> {
+  const resolved: Record<string, string> = {};
+
+  for (const key of NETWORK_SETTING_SOURCE_KEYS) {
+    if (typeof params.globalSources[key] === "string" && params.globalSources[key].length > 0) {
+      resolved[key] = params.globalSources[key]!;
+    } else if (typeof params.localSources[key] === "string" && params.localSources[key].length > 0) {
+      resolved[key] = params.localSources[key]!;
+    }
+  }
+
+  return resolved;
+}
+
+function recordNetworkSettingSource(
+  sources: Record<string, string>,
+  quotaToast: Record<string, unknown>,
+  sourcePath: string,
+): void {
+  for (const key of [
+    "enabled",
+    "enabledProviders",
+    "minIntervalMs",
+    "showOnIdle",
+    "showOnQuestion",
+    "showOnCompact",
+    "showOnBothFail",
+  ] as const) {
+    if (key in quotaToast) {
+      sources[key] = sourcePath;
+    }
+  }
+
+  const pricingSnapshot = quotaToast.pricingSnapshot;
+  if (pricingSnapshot && typeof pricingSnapshot === "object") {
+    const pricingSnapshotRecord = pricingSnapshot as Record<string, unknown>;
+    if ("source" in pricingSnapshotRecord) {
+      sources["pricingSnapshot.source"] = sourcePath;
+    }
+    if ("autoRefresh" in pricingSnapshotRecord) {
+      sources["pricingSnapshot.autoRefresh"] = sourcePath;
+    }
+  }
 }
 
 /**
@@ -109,9 +193,10 @@ export async function loadConfig(
           ? quotaToastConfig.enableToast
           : DEFAULT_CONFIG.enableToast,
 
-      formatStyle:
-        quotaToastConfig.formatStyle === "grouped" || quotaToastConfig.formatStyle === "classic"
-          ? quotaToastConfig.formatStyle
+      formatStyle: isValidFormatStyle(quotaToastConfig.formatStyle)
+        ? quotaToastConfig.formatStyle
+        : isValidFormatStyle((quotaToastConfig as { toastStyle?: unknown }).toastStyle)
+          ? (quotaToastConfig as { toastStyle?: QuotaToastConfig["formatStyle"] }).toastStyle!
           : DEFAULT_CONFIG.formatStyle,
       minIntervalMs:
         typeof quotaToastConfig.minIntervalMs === "number" && quotaToastConfig.minIntervalMs > 0
@@ -235,9 +320,11 @@ export async function loadConfig(
   async function loadQuotaToastFromLocations(locations: string[]): Promise<{
     quota: Partial<QuotaToastConfig>;
     usedPaths: string[];
+    networkSettingSources: Record<string, string>;
   }> {
     const quota: Partial<QuotaToastConfig> = {};
     const usedPaths: string[] = [];
+    const networkSettingSources: Record<string, string> = {};
 
     for (const dir of locations) {
       for (const filename of ["opencode.json", "opencode.jsonc"]) {
@@ -251,16 +338,23 @@ export async function loadConfig(
         if (!rawQuotaToast || typeof rawQuotaToast !== "object") continue;
 
         Object.assign(quota, rawQuotaToast);
-        usedPaths.push(`${p} (experimental.quotaToast)`);
+        const sourcePath = `${p} (experimental.quotaToast)`;
+        usedPaths.push(sourcePath);
+        recordNetworkSettingSource(
+          networkSettingSources,
+          rawQuotaToast as Record<string, unknown>,
+          sourcePath,
+        );
       }
     }
 
-    return { quota, usedPaths };
+    return { quota, usedPaths, networkSettingSources };
   }
 
   async function loadFromFiles(): Promise<{
     config: QuotaToastConfig | null;
     usedPaths: string[];
+    networkSettingSources: Record<string, string>;
   }> {
     const cwd = options?.cwd ?? process.cwd();
     const { configDirs } = getOpencodeRuntimeDirCandidates();
@@ -268,8 +362,12 @@ export async function loadConfig(
     const localConfig = await loadQuotaToastFromLocations([cwd]);
 
     const usedPaths = [...globalConfig.usedPaths, ...localConfig.usedPaths];
+    const networkSettingSources = resolveEffectiveNetworkSettingSources({
+      globalSources: globalConfig.networkSettingSources,
+      localSources: localConfig.networkSettingSources,
+    });
     if (usedPaths.length === 0) {
-      return { config: null, usedPaths: [] };
+      return { config: null, usedPaths: [], networkSettingSources: {} };
     }
 
     const quota: Partial<QuotaToastConfig> = {
@@ -277,9 +375,32 @@ export async function loadConfig(
       ...localConfig.quota,
     };
 
+    for (const key of NETWORK_AFFECTING_KEYS) {
+      if (hasOwnKey(globalConfig.quota, key)) {
+        (quota as Record<string, unknown>)[key] = globalConfig.quota[key];
+      } else if (hasOwnKey(localConfig.quota, key)) {
+        (quota as Record<string, unknown>)[key] = localConfig.quota[key];
+      }
+    }
+
+    const mergedPricingSnapshot: Record<string, unknown> = {};
+    let hasMergedPricingSnapshot = false;
+    if (isPlainObject(localConfig.quota.pricingSnapshot)) {
+      Object.assign(mergedPricingSnapshot, localConfig.quota.pricingSnapshot);
+      hasMergedPricingSnapshot = true;
+    }
+    if (isPlainObject(globalConfig.quota.pricingSnapshot)) {
+      Object.assign(mergedPricingSnapshot, globalConfig.quota.pricingSnapshot);
+      hasMergedPricingSnapshot = true;
+    }
+    if (hasMergedPricingSnapshot) {
+      quota.pricingSnapshot = mergedPricingSnapshot as unknown as QuotaToastConfig["pricingSnapshot"];
+    }
+
     return {
       config: normalize(quota),
       usedPaths,
+      networkSettingSources,
     };
   }
 
@@ -288,6 +409,7 @@ export async function loadConfig(
     if (meta) {
       meta.source = "files";
       meta.paths = fileConfig.usedPaths;
+      meta.networkSettingSources = fileConfig.networkSettingSources;
     }
     return fileConfig.config;
   }
@@ -306,6 +428,12 @@ export async function loadConfig(
         if (meta) {
           meta.source = "sdk";
           meta.paths = ["client.config.get"];
+          meta.networkSettingSources = {};
+          recordNetworkSettingSource(
+            meta.networkSettingSources,
+            quotaToastConfig as unknown as Record<string, unknown>,
+            "client.config.get",
+          );
         }
         return normalize(quotaToastConfig);
       }
@@ -317,6 +445,7 @@ export async function loadConfig(
   if (meta) {
     meta.source = "defaults";
     meta.paths = [];
+    meta.networkSettingSources = {};
   }
   return DEFAULT_CONFIG;
 }

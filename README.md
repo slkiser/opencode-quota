@@ -600,7 +600,7 @@ OpenCode Go quota scrapes the OpenCode Go dashboard at `https://opencode.ai/work
 
 All quota plugin settings live under `experimental.quotaToast` in `opencode.json` or `opencode.jsonc`. The sidebar install step is separate: add the package to `tui.json` or `tui.jsonc`, or choose `Sidebar` or `Toast + Sidebar` in `npx @slkiser/opencode-quota init`.
 
-When both are present, user/global config provides defaults and project/workspace config overrides those defaults for that project. SDK config is only used when no config files are found.
+When both are present, user/global config provides defaults. Project/workspace config may override display-oriented settings for that project, but user/global config remains authoritative for automatic/network-affecting settings such as `enabled`, `enabledProviders`, `minIntervalMs`, `pricingSnapshot.*`, `showOnIdle`, `showOnQuestion`, `showOnCompact`, and `showOnBothFail`. SDK config is only used when no config files are found.
 
 ### Core/shared settings
 
@@ -609,7 +609,7 @@ When both are present, user/global config provides defaults and project/workspac
 | `enabled` | `true` | Master switch for quota collection and handled slash commands. When `false`, `/quota`, `/quota_status`, `/pricing_refresh`, and `/tokens_*` are handled as no-ops. |
 | `enabledProviders` | `"auto"` | Auto-detect providers, or set an explicit provider list. |
 | `minIntervalMs` | `300000` | Minimum fetch interval between provider updates. |
-| `formatStyle` | `classic` | Shared quota-row style for popup toasts and the TUI sidebar: `classic` or `grouped`. |
+| `formatStyle` | `classic` | Shared quota-row style for popup toasts and the TUI sidebar: `classic` or `grouped`. Legacy `toastStyle` is still accepted on read for backward compatibility, but `formatStyle` is the canonical key. |
 | `onlyCurrentModel` | `false` | Filter quota rows to the current model/provider when that session selection can be resolved. |
 | `showSessionTokens` | `true` | Show the `Session input/output tokens` section in quota displays when session token data is available. Toasts and `/quota` show per-model input/output rows; the TUI sidebar shows a one-line total summary. |
 | `pricingSnapshot.source` | `"auto"` | Token pricing snapshot selection for `/tokens_*`: `auto`, `bundled`, or `runtime`. |

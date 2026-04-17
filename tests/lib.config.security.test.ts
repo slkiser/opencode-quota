@@ -56,7 +56,7 @@ describe("loadConfig security precedence", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("uses global config as defaults and lets workspace config override matching keys", async () => {
+  it("keeps global config authoritative for network-affecting keys while allowing workspace display overrides", async () => {
     writeFileSync(
       join(xdgConfigHome, "opencode", "opencode.json"),
       JSON.stringify({
@@ -112,13 +112,13 @@ describe("loadConfig security precedence", () => {
       },
     });
 
-    expect(cfg.enabled).toBe(true);
-    expect(cfg.enabledProviders).toEqual(["chutes"]);
-    expect(cfg.showOnIdle).toBe(true);
-    expect(cfg.showOnQuestion).toBe(true);
-    expect(cfg.showOnCompact).toBe(true);
-    expect(cfg.minIntervalMs).toBe(1000);
-    expect(cfg.pricingSnapshot).toEqual({ source: "runtime", autoRefresh: 1 });
+    expect(cfg.enabled).toBe(false);
+    expect(cfg.enabledProviders).toEqual(["openai"]);
+    expect(cfg.showOnIdle).toBe(false);
+    expect(cfg.showOnQuestion).toBe(false);
+    expect(cfg.showOnCompact).toBe(false);
+    expect(cfg.minIntervalMs).toBe(600000);
+    expect(cfg.pricingSnapshot).toEqual({ source: "bundled", autoRefresh: 30 });
     expect(cfg.formatStyle).toBe("grouped");
     expect(cfg.onlyCurrentModel).toBe(true);
   });
@@ -141,7 +141,7 @@ describe("loadConfig security precedence", () => {
       "utf-8",
     );
 
-    const meta = { source: "defaults" as const, paths: [] as string[] };
+    const meta = { source: "defaults" as const, paths: [] as string[], networkSettingSources: {} as Record<string, string> };
     const cfg = await loadConfig(undefined, meta, { cwd: altWorkspaceDir });
 
     expect(cfg.enabledProviders).toEqual(["nanogpt"]);
@@ -149,9 +149,49 @@ describe("loadConfig security precedence", () => {
     expect(cfg.onlyCurrentModel).toBe(true);
     expect(meta.source).toBe("files");
     expect(meta.paths).toContain(join(altWorkspaceDir, "opencode.json") + " (experimental.quotaToast)");
+    expect(meta.networkSettingSources).toEqual({
+      enabledProviders: join(altWorkspaceDir, "opencode.json") + " (experimental.quotaToast)",
+    });
   });
 
-  it("ignores legacy toastStyle in file-backed config and prefers formatStyle when present", async () => {
+  it("merges pricingSnapshot per field so global and workspace sources can coexist", async () => {
+    writeFileSync(
+      join(xdgConfigHome, "opencode", "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            pricingSnapshot: { source: "bundled" },
+          },
+        },
+      }),
+      "utf-8",
+    );
+
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            pricingSnapshot: { autoRefresh: 2 },
+          },
+        },
+      }),
+      "utf-8",
+    );
+
+    const meta = { source: "defaults" as const, paths: [] as string[], networkSettingSources: {} as Record<string, string> };
+    const cfg = await loadConfig(undefined, meta, { cwd: workspaceDir });
+
+    expect(cfg.pricingSnapshot).toEqual({ source: "bundled", autoRefresh: 2 });
+    expect(
+      meta.networkSettingSources["pricingSnapshot.source"],
+    ).toBe(join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)");
+    expect(meta.networkSettingSources["pricingSnapshot.autoRefresh"]).toBe(
+      join(workspaceDir, "opencode.json") + " (experimental.quotaToast)",
+    );
+  });
+
+  it("accepts legacy toastStyle in file-backed config and still prefers formatStyle when present", async () => {
     const legacyWorkspaceDir = join(tempDir, "legacy-workspace");
     mkdirSync(legacyWorkspaceDir, { recursive: true });
 
@@ -168,7 +208,7 @@ describe("loadConfig security precedence", () => {
     );
 
     let cfg = await loadConfig(undefined, undefined, { cwd: legacyWorkspaceDir });
-    expect(cfg.formatStyle).toBe("classic");
+    expect(cfg.formatStyle).toBe("grouped");
 
     writeFileSync(
       join(legacyWorkspaceDir, "opencode.json"),

@@ -114,11 +114,11 @@ describe("loadConfig integration runtime-path resolution", () => {
       "utf8",
     );
 
-    const meta = { source: "defaults" as const, paths: [] as string[] };
+    const meta = { source: "defaults" as const, paths: [] as string[], networkSettingSources: {} as Record<string, string> };
     const cfg = await loadConfig(undefined, meta, { cwd: workspaceDir });
 
-    expect(cfg.enabled).toBe(true);
-    expect(cfg.enabledProviders).toEqual(["nanogpt"]);
+    expect(cfg.enabled).toBe(false);
+    expect(cfg.enabledProviders).toEqual(["openai"]);
     expect(cfg.showOnIdle).toBe(false);
     expect(cfg.pricingSnapshot).toEqual({ source: "bundled", autoRefresh: 30 });
     expect(cfg.formatStyle).toBe("grouped");
@@ -134,5 +134,33 @@ describe("loadConfig integration runtime-path resolution", () => {
     ).toBe(true);
     expect(meta.paths).toContain(join(workspaceDir, "opencode.json") + " (experimental.quotaToast)");
     expect(meta.paths).not.toContain(join(nestedDir, "opencode.json") + " (experimental.quotaToast)");
+    expect(
+      configDirs.some(
+        (dir) =>
+          meta.networkSettingSources.enabled ===
+          join(dir, "opencode.json") + " (experimental.quotaToast)",
+      ),
+    ).toBe(true);
+    expect(
+      configDirs.some(
+        (dir) =>
+          meta.networkSettingSources.enabledProviders ===
+          join(dir, "opencode.json") + " (experimental.quotaToast)",
+      ),
+    ).toBe(true);
+    expect(
+      configDirs.some(
+        (dir) =>
+          meta.networkSettingSources["pricingSnapshot.source"] ===
+          join(dir, "opencode.json") + " (experimental.quotaToast)",
+      ),
+    ).toBe(true);
+    expect(
+      configDirs.some(
+        (dir) =>
+          meta.networkSettingSources["pricingSnapshot.autoRefresh"] ===
+          join(dir, "opencode.json") + " (experimental.quotaToast)",
+      ),
+    ).toBe(true);
   });
 });

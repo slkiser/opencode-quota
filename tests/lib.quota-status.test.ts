@@ -431,6 +431,17 @@ describe("buildQuotaStatusReport", () => {
     const report = await buildQuotaStatusReport({
       configSource: "test",
       configPaths: [],
+      networkSettingSources: {
+        enabled: "/tmp/config/opencode.json (experimental.quotaToast)",
+        enabledProviders: "/tmp/config/opencode.json (experimental.quotaToast)",
+        minIntervalMs: "/tmp/config/opencode.json (experimental.quotaToast)",
+        "pricingSnapshot.source": "/tmp/config/opencode.json (experimental.quotaToast)",
+        "pricingSnapshot.autoRefresh": "/tmp/config/opencode.json (experimental.quotaToast)",
+        showOnIdle: "/tmp/config/opencode.json (experimental.quotaToast)",
+        showOnQuestion: "/tmp/config/opencode.json (experimental.quotaToast)",
+        showOnCompact: "/tmp/config/opencode.json (experimental.quotaToast)",
+        showOnBothFail: "/tmp/config/opencode.json (experimental.quotaToast)",
+      },
       tuiDiagnostics: {
         configured: true,
         inferredSelectedPath: "/tmp/project/tui.jsonc",
@@ -460,6 +471,9 @@ describe("buildQuotaStatusReport", () => {
     );
     expect(report).toContain(
       "- opencode_dirs: data=/tmp/data config=/tmp/config cache=/tmp/cache state=/tmp/state",
+    );
+    expect(report).toContain(
+      "- network_setting_sources: enabled<=/tmp/config/opencode.json (experimental.quotaToast) | enabledProviders<=/tmp/config/opencode.json (experimental.quotaToast) | minIntervalMs<=/tmp/config/opencode.json (experimental.quotaToast) | pricingSnapshot.source<=/tmp/config/opencode.json (experimental.quotaToast) | pricingSnapshot.autoRefresh<=/tmp/config/opencode.json (experimental.quotaToast) | showOnIdle<=/tmp/config/opencode.json (experimental.quotaToast) | showOnQuestion<=/tmp/config/opencode.json (experimental.quotaToast) | showOnCompact<=/tmp/config/opencode.json (experimental.quotaToast) | showOnBothFail<=/tmp/config/opencode.json (experimental.quotaToast)",
     );
     expect(report).toContain("tui:");
     expect(report).toContain("- config_configured: true");

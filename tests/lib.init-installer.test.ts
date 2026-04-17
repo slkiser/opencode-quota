@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,10 +6,35 @@ import { join } from "node:path";
 import {
   applyInitInstallerPlan,
   planInitInstaller,
+  runInitInstaller,
 } from "../src/lib/init-installer.js";
 
 function readJson(path: string): any {
   return JSON.parse(readFileSync(path, "utf8"));
+}
+
+function createPromptStub(params: {
+  selectValues?: unknown[];
+  multiselectValues?: unknown[];
+  confirmValues?: unknown[];
+}) {
+  const selectValues = [...(params.selectValues ?? [])];
+  const multiselectValues = [...(params.multiselectValues ?? [])];
+  const confirmValues = [...(params.confirmValues ?? [])];
+
+  return {
+    intro: () => {},
+    outro: () => {},
+    select: async () => selectValues.shift(),
+    multiselect: async () => multiselectValues.shift(),
+    confirm: async () => confirmValues.shift(),
+    isCancel: (value: unknown) => value === Symbol.for("cancel"),
+    log: {
+      info: () => {},
+      success: () => {},
+      error: () => {},
+    },
+  };
 }
 
 describe("init installer planning and merge behavior", () => {
@@ -156,6 +181,78 @@ describe("init installer planning and merge behavior", () => {
     expect(tui.tui.plugin).toHaveLength(1);
   });
 
+  it("adds the server plugin when opencode config only references the tui entrypoint", async () => {
+    const projectDir = join(tempDir, "project");
+    mkdirSync(projectDir, { recursive: true });
+
+    writeFileSync(
+      join(projectDir, "opencode.json"),
+      JSON.stringify({
+        plugin: ["file:///Users/test/Downloads/GitHub/opencode-quota/dist/tui.tsx"],
+      }),
+      "utf8",
+    );
+
+    const plan = await planInitInstaller({
+      cwd: projectDir,
+      selections: {
+        scope: "project",
+        quotaUi: "toast",
+        providerMode: "auto",
+        manualProviders: [],
+        formatStyle: "classic",
+        showSessionTokens: true,
+      },
+    });
+
+    const opencodeEdit = plan.edits.find((edit) => edit.kind === "opencode");
+    expect(opencodeEdit?.addedPlugins).toEqual(["plugin: @slkiser/opencode-quota"]);
+
+    await applyInitInstallerPlan(plan);
+
+    const opencode = readJson(join(projectDir, "opencode.json"));
+    expect(opencode.plugin).toEqual([
+      "file:///Users/test/Downloads/GitHub/opencode-quota/dist/tui.tsx",
+      "@slkiser/opencode-quota",
+    ]);
+  });
+
+  it("adds the tui plugin when tui config only references the server entrypoint", async () => {
+    const projectDir = join(tempDir, "project");
+    mkdirSync(projectDir, { recursive: true });
+
+    writeFileSync(
+      join(projectDir, "tui.json"),
+      JSON.stringify({
+        plugin: ["file:///Users/test/Downloads/GitHub/opencode-quota/dist/index.js"],
+      }),
+      "utf8",
+    );
+
+    const plan = await planInitInstaller({
+      cwd: projectDir,
+      selections: {
+        scope: "project",
+        quotaUi: "sidebar",
+        providerMode: "auto",
+        manualProviders: [],
+        formatStyle: "classic",
+        showSessionTokens: true,
+      },
+    });
+
+    const tuiEdit = plan.edits.find((edit) => edit.kind === "tui");
+    expect(tuiEdit?.addedPlugins).toEqual(["plugin: @slkiser/opencode-quota"]);
+
+    await applyInitInstallerPlan(plan);
+
+    const tui = readJson(join(projectDir, "tui.json"));
+    expect(tui.plugin).toEqual([
+      "file:///Users/test/Downloads/GitHub/opencode-quota/dist/index.js",
+      "@slkiser/opencode-quota",
+    ]);
+  });
+
   it("creates both opencode and tui targets for sidebar mode and appends missing plugins", async () => {
     const projectDir = join(tempDir, "project");
     mkdirSync(projectDir, { recursive: true });
@@ -252,6 +349,49 @@ describe("init installer planning and merge behavior", () => {
     expect(existsSync(join(projectDir, "tui.json"))).toBe(false);
     const opencode = readJson(join(projectDir, "opencode.json"));
     expect(opencode.experimental.quotaToast.enableToast).toBe(false);
+  });
+
+  it("returns zero when the user cancels before applying changes", async () => {
+    const prompts = createPromptStub({
+      selectValues: ["project", "toast", "auto", "classic", "yes"],
+      confirmValues: [false],
+    });
+
+    const code = await runInitInstaller({
+      cwd: tempDir,
+      prompts: prompts as any,
+    });
+
+    expect(code).toBe(0);
+    expect(existsSync(join(tempDir, "opencode.json"))).toBe(false);
+  });
+
+  it("returns one when planning fails after prompt collection", async () => {
+    const projectDir = join(tempDir, "project");
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(
+      join(projectDir, "opencode.json"),
+      JSON.stringify({
+        plugin: {
+          bad: true,
+        },
+      }),
+      "utf8",
+    );
+
+    const logError = vi.fn();
+    const prompts = createPromptStub({
+      selectValues: ["project", "toast", "auto", "classic", "yes"],
+    });
+    prompts.log.error = logError;
+
+    const code = await runInitInstaller({
+      cwd: projectDir,
+      prompts: prompts as any,
+    });
+
+    expect(code).toBe(1);
+    expect(logError).toHaveBeenCalledWith(expect.stringMatching(/plugin is not an array/i));
   });
 
   it("fails when an existing plugin container is not an array", async () => {

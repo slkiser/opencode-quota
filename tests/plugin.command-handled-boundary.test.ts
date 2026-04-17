@@ -41,7 +41,7 @@ vi.mock("@opencode-ai/plugin", () => {
 
 vi.mock("../src/lib/config.js", () => ({
   loadConfig: mocks.loadConfig,
-  createLoadConfigMeta: () => ({ source: "test", paths: [] }),
+  createLoadConfigMeta: () => ({ source: "test", paths: [], networkSettingSources: {} }),
 }));
 
 vi.mock("../src/providers/registry.js", () => ({

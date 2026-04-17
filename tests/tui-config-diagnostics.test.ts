@@ -86,6 +86,22 @@ describe("inspectTuiConfig", () => {
     expect(diagnostics.quotaPluginConfigPaths).toEqual([join(projectDir, "tui.json")]);
   });
 
+  it("does not treat the server dist/index.js entrypoint as a tui plugin", async () => {
+    writeFileSync(
+      join(projectDir, "tui.json"),
+      JSON.stringify({
+        plugin: ["file:///Users/test/Downloads/GitHub/opencode-quota/dist/index.js"],
+      }),
+      "utf8",
+    );
+
+    const { inspectTuiConfig } = await import("../src/lib/tui-config-diagnostics.js");
+    const diagnostics = await inspectTuiConfig({ cwd: projectDir });
+
+    expect(diagnostics.quotaPluginConfigured).toBe(false);
+    expect(diagnostics.quotaPluginConfigPaths).toEqual([]);
+  });
+
   it("detects worktree-root tui config when cwd is nested", async () => {
     const nestedDir = join(projectDir, "packages", "feature");
     mkdirSync(nestedDir, { recursive: true });

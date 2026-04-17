@@ -105,12 +105,12 @@ describe("loadConfig", () => {
     expect(invalid.pricingSnapshot.autoRefresh).toBe(7);
   });
 
-  it("reads formatStyle and ignores legacy toastStyle entirely", async () => {
+  it("reads formatStyle and falls back to legacy toastStyle when needed", async () => {
     const explicit = await loadSdkConfig({ formatStyle: "grouped" });
     expect(explicit.formatStyle).toBe("grouped");
 
     const legacyOnly = await loadSdkConfig({ toastStyle: "grouped" });
-    expect(legacyOnly.formatStyle).toBe("classic");
+    expect(legacyOnly.formatStyle).toBe("grouped");
 
     const both = await loadSdkConfig({
       formatStyle: "grouped",

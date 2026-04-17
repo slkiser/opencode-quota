@@ -1035,6 +1035,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       tuiDiagnostics,
       configSource: configMeta.source,
       configPaths: configMeta.paths,
+      networkSettingSources: configMeta.networkSettingSources,
       enabledProviders: config.enabledProviders,
       anthropicBinaryPath: config.anthropicBinaryPath,
       alibabaCodingPlanTier: config.alibabaCodingPlanTier,

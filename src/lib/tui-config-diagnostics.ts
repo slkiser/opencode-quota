@@ -53,7 +53,7 @@ export async function inspectTuiConfig(params?: { cwd?: string }): Promise<TuiCo
   for (const path of presentPaths) {
     const parsed = await readJson(path);
     const specs = extractPluginSpecsFromParsedConfig(parsed);
-    if (specs.some(isQuotaPluginSpec)) {
+    if (specs.some((spec) => isQuotaPluginSpec(spec, "tui"))) {
       quotaPluginConfigPaths.push(path);
     }
   }

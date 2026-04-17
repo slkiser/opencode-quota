@@ -226,11 +226,12 @@ function ensureSchema(
 function appendQuotaPluginIfMissing(params: {
   container: unknown[];
   pathLabel: string;
+  kind: "opencode" | "tui";
   edit: PlannedConfigEdit;
 }): void {
   const alreadyConfigured = params.container.some((entry) => {
     const spec = getPluginSpecFromEntry(entry);
-    return typeof spec === "string" && isQuotaPluginSpec(spec);
+    return typeof spec === "string" && isQuotaPluginSpec(spec, params.kind);
   });
 
   if (alreadyConfigured) {
@@ -393,6 +394,7 @@ async function planOpencodeEdit(params: {
   appendQuotaPluginIfMissing({
     container: plugin,
     pathLabel: "plugin",
+    kind: "opencode",
     edit,
   });
 
@@ -459,13 +461,14 @@ async function planTuiEdit(params: {
   ensureSchema(root, TUI_SCHEMA_URL, edit);
 
   const existingPluginSpecs = extractPluginSpecsFromParsedConfig(root);
-  if (existingPluginSpecs.some(isQuotaPluginSpec)) {
+  if (existingPluginSpecs.some((spec) => isQuotaPluginSpec(spec, "tui"))) {
     edit.skippedValues.push(`tui config already includes ${QUOTA_PLUGIN_SPEC}`);
   } else {
     const pluginTarget = ensureTuiPluginArray(root, edit);
     appendQuotaPluginIfMissing({
       container: pluginTarget.container,
       pathLabel: pluginTarget.pathLabel,
+      kind: "tui",
       edit,
     });
   }

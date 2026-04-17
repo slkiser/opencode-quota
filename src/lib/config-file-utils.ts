@@ -105,12 +105,18 @@ export function extractPluginSpecsFromParsedConfig(parsed: unknown): string[] {
   );
 }
 
-export function isQuotaPluginSpec(spec: string): boolean {
+export function isQuotaPluginSpec(spec: string, kind: ConfigFileKind): boolean {
   const normalized = spec.replace(/\\/g, "/").toLowerCase();
-  return (
-    normalized.includes("@slkiser/opencode-quota") ||
-    normalized.includes("/opencode-quota") ||
-    normalized.includes("opencode-quota/dist/tui.tsx") ||
-    normalized.includes("opencode-quota/dist/index.js")
-  );
+
+  if (normalized.includes("@slkiser/opencode-quota")) {
+    return true;
+  }
+
+  if (normalized.includes("/opencode-quota") && !normalized.includes("/opencode-quota/dist/")) {
+    return true;
+  }
+
+  return kind === "tui"
+    ? normalized.includes("opencode-quota/dist/tui.tsx")
+    : normalized.includes("opencode-quota/dist/index.js");
 }

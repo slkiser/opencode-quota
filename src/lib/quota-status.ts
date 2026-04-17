@@ -113,6 +113,28 @@ function joinOrNone(values: string[]): string {
   return values.length > 0 ? values.join(" | ") : "(none)";
 }
 
+function formatNetworkSettingSources(sources: Record<string, string> | undefined): string {
+  if (!sources) return "(none)";
+
+  const keys = [
+    "enabled",
+    "enabledProviders",
+    "minIntervalMs",
+    "pricingSnapshot.source",
+    "pricingSnapshot.autoRefresh",
+    "showOnIdle",
+    "showOnQuestion",
+    "showOnCompact",
+    "showOnBothFail",
+  ] as const;
+
+  const parts = keys
+    .filter((key) => typeof sources[key] === "string" && sources[key].length > 0)
+    .map((key) => `${key}<=${sources[key]}`);
+
+  return parts.length > 0 ? parts.join(" | ") : "(none)";
+}
+
 function getDefaultBasicApiKeyDiagnostics(): BasicApiKeyDiagnostics {
   return {
     configured: false,
@@ -336,6 +358,7 @@ function supportedProviderPricingRow(params: {
 export async function buildQuotaStatusReport(params: {
   configSource: string;
   configPaths: string[];
+  networkSettingSources?: Record<string, string>;
   tuiDiagnostics?: {
     configured: boolean;
     inferredSelectedPath: string | null;
@@ -388,6 +411,7 @@ export async function buildQuotaStatusReport(params: {
   lines.push(
     `- configSource: ${params.configSource}${params.configPaths.length ? ` (${params.configPaths.join(" | ")})` : ""}`,
   );
+  lines.push(`- network_setting_sources: ${formatNetworkSettingSources(params.networkSettingSources)}`);
   lines.push(
     `- enabledProviders: ${params.enabledProviders === "auto" ? "(auto)" : params.enabledProviders.length ? params.enabledProviders.join(",") : "(none)"}`,
   );
