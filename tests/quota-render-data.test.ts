@@ -49,7 +49,7 @@ describe("collectQuotaRenderData availability handling", () => {
       },
       providerFetchCache: new Map(),
       surfaceExplicitProviderIssues: true,
-      style: "classic",
+      formatStyle: "classic",
     });
 
     expect(failingProvider.isAvailable).toHaveBeenCalledOnce();
@@ -90,7 +90,7 @@ describe("collectQuotaRenderData availability handling", () => {
       },
       providerFetchCache: new Map(),
       surfaceExplicitProviderIssues: true,
-      style: "classic",
+      formatStyle: "classic",
     });
 
     expect(result.availability).toEqual([{ provider: failingProvider, ok: false }]);
@@ -125,7 +125,7 @@ describe("collectQuotaRenderData availability handling", () => {
       },
       providerFetchCache: new Map(),
       surfaceExplicitProviderIssues: true,
-      style: "classic",
+      formatStyle: "classic",
     });
 
     expect(result.availability).toEqual([{ provider: failingProvider, ok: false }]);

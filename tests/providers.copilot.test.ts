@@ -65,7 +65,7 @@ describe("copilot provider", () => {
       resetTimeIso: "2026-02-01T00:00:00.000Z",
     });
 
-    const out = await copilotProvider.fetch({ config: { toastStyle: "grouped" } } as any);
+    const out = await copilotProvider.fetch({ config: { formatStyle: "grouped" } } as any);
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toEqual([
       {
@@ -121,7 +121,7 @@ describe("copilot provider", () => {
       resetTimeIso: "2026-02-01T00:00:00.000Z",
     });
 
-    const out = await copilotProvider.fetch({ config: { toastStyle: "grouped" } } as any);
+    const out = await copilotProvider.fetch({ config: { formatStyle: "grouped" } } as any);
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toEqual([
       {
@@ -177,7 +177,7 @@ describe("copilot provider", () => {
       resetTimeIso: "2026-02-01T00:00:00.000Z",
     });
 
-    const out = await copilotProvider.fetch({ config: { toastStyle: "grouped" } } as any);
+    const out = await copilotProvider.fetch({ config: { formatStyle: "grouped" } } as any);
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toEqual([
       {

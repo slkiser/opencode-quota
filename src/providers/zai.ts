@@ -57,7 +57,7 @@ export const zaiProvider: QuotaProvider = {
       return attemptedErrorResult("Z.ai", result.error);
     }
 
-    const style = ctx.config.toastStyle ?? "classic";
+    const style = ctx.config.formatStyle ?? "classic";
 
     // Classic toast: show a single entry based on the worst remaining window
     if (style === "classic") {

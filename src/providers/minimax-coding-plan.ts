@@ -251,7 +251,7 @@ export const minimaxCodingPlanProvider: QuotaProvider = {
       return attemptedErrorResult(MINIMAX_PROVIDER_LABEL, result.error);
     }
 
-    const style = ctx.config.toastStyle ?? "classic";
+    const style = ctx.config.formatStyle ?? "classic";
 
     if (style === "classic") {
       const worst = [...result.entries].sort((a, b) => a.percentRemaining - b.percentRemaining)[0];

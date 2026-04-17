@@ -107,7 +107,7 @@ describe("/quota command behavior", () => {
     mocks.loadConfig.mockResolvedValueOnce({
       ...DEFAULT_CONFIG,
       enabled: true,
-      pricingSnapshot: { source: "bundled", autoRefresh: 5 },
+      pricingSnapshot: { source: "bundled", autoRefresh: 7 },
       showOnQuestion: false,
       showSessionTokens: false,
       minIntervalMs: 60_000,
@@ -127,7 +127,7 @@ describe("/quota command behavior", () => {
     ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
 
     expect(mocks.setPricingSnapshotSelection).toHaveBeenCalledWith("bundled");
-    expect(mocks.setPricingSnapshotAutoRefresh).toHaveBeenCalledWith(5);
+    expect(mocks.setPricingSnapshotAutoRefresh).toHaveBeenCalledWith(7);
     expect(mocks.maybeRefreshPricingSnapshot).toHaveBeenCalledWith(
       expect.objectContaining({
         reason: "init",
@@ -830,7 +830,7 @@ describe("/quota command behavior", () => {
     mocks.loadConfig.mockResolvedValueOnce({
       ...DEFAULT_CONFIG,
       enabled: true,
-      pricingSnapshot: { source: "bundled", autoRefresh: 5 },
+      pricingSnapshot: { source: "bundled", autoRefresh: 7 },
       showOnQuestion: false,
       showSessionTokens: false,
       minIntervalMs: 60_000,

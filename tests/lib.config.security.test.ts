@@ -69,7 +69,7 @@ describe("loadConfig security precedence", () => {
             showOnCompact: false,
             minIntervalMs: 600000,
             pricingSnapshot: { source: "bundled", autoRefresh: 30 },
-            toastStyle: "classic",
+            formatStyle: "classic",
           },
         },
       }),
@@ -88,7 +88,7 @@ describe("loadConfig security precedence", () => {
             showOnCompact: true,
             minIntervalMs: 1000,
             pricingSnapshot: { source: "runtime", autoRefresh: 1 },
-            toastStyle: "grouped",
+            formatStyle: "grouped",
             onlyCurrentModel: true,
           },
         },
@@ -104,7 +104,7 @@ describe("loadConfig security precedence", () => {
               quotaToast: {
                 enabled: true,
                 enabledProviders: ["zai"],
-                toastStyle: "grouped",
+                formatStyle: "grouped",
               },
             },
           },
@@ -120,7 +120,7 @@ describe("loadConfig security precedence", () => {
     expect(cfg.minIntervalMs).toBe(600000);
     expect(cfg.pricingSnapshot).toEqual({ source: "bundled", autoRefresh: 30 });
 
-    expect(cfg.toastStyle).toBe("grouped");
+    expect(cfg.formatStyle).toBe("grouped");
     expect(cfg.onlyCurrentModel).toBe(true);
   });
 
@@ -134,7 +134,7 @@ describe("loadConfig security precedence", () => {
         experimental: {
           quotaToast: {
             enabledProviders: ["nano-gpt"],
-            toastStyle: "grouped",
+            formatStyle: "grouped",
             onlyCurrentModel: true,
           },
         },
@@ -146,9 +146,45 @@ describe("loadConfig security precedence", () => {
     const cfg = await loadConfig(undefined, meta, { cwd: altWorkspaceDir });
 
     expect(cfg.enabledProviders).toEqual(["nanogpt"]);
-    expect(cfg.toastStyle).toBe("grouped");
+    expect(cfg.formatStyle).toBe("grouped");
     expect(cfg.onlyCurrentModel).toBe(true);
     expect(meta.source).toBe("files");
     expect(meta.paths).toContain(join(altWorkspaceDir, "opencode.json") + " (experimental.quotaToast)");
+  });
+
+  it("ignores legacy toastStyle in file-backed config and prefers formatStyle when present", async () => {
+    const legacyWorkspaceDir = join(tempDir, "legacy-workspace");
+    mkdirSync(legacyWorkspaceDir, { recursive: true });
+
+    writeFileSync(
+      join(legacyWorkspaceDir, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            toastStyle: "grouped",
+          },
+        },
+      }),
+      "utf-8",
+    );
+
+    let cfg = await loadConfig(undefined, undefined, { cwd: legacyWorkspaceDir });
+    expect(cfg.formatStyle).toBe("classic");
+
+    writeFileSync(
+      join(legacyWorkspaceDir, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            toastStyle: "classic",
+            formatStyle: "grouped",
+          },
+        },
+      }),
+      "utf-8",
+    );
+
+    cfg = await loadConfig(undefined, undefined, { cwd: legacyWorkspaceDir });
+    expect(cfg.formatStyle).toBe("grouped");
   });
 });

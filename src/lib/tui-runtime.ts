@@ -119,7 +119,7 @@ export async function loadSidebarPanel(params: {
     request,
     providerFetchCache: params.providerFetchCache,
     surfaceExplicitProviderIssues: true,
-    style: config.toastStyle,
+    formatStyle: config.formatStyle,
   });
 
   return {

@@ -24,7 +24,7 @@ export interface QuotaToastConfig {
   enableToast: boolean;
 
   /** Shared quota-row formatting style for popup toasts and the TUI sidebar. */
-  toastStyle: "classic" | "grouped";
+  formatStyle: "classic" | "grouped";
   minIntervalMs: number;
 
   /**
@@ -88,7 +88,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   enabled: true,
 
   enableToast: true,
-  toastStyle: "classic",
+  formatStyle: "classic",
   minIntervalMs: 300000, // 5 minutes
 
   debug: false,
@@ -104,7 +104,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   cursorPlan: "none",
   pricingSnapshot: {
     source: "auto",
-    autoRefresh: 5,
+    autoRefresh: 7,
   },
 
   showOnIdle: true,

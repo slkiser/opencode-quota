@@ -29,7 +29,7 @@ describe("anthropic provider", () => {
       seven_day: { percentRemaining: 60, resetTimeIso: "2026-04-01T00:00:00.000Z" },
     });
 
-    const out = await anthropicProvider.fetch({ config: { toastStyle: "classic" } } as any);
+    const out = await anthropicProvider.fetch({ config: { formatStyle: "classic" } } as any);
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toEqual([
       {
@@ -48,7 +48,7 @@ describe("anthropic provider", () => {
       seven_day: { percentRemaining: 10, resetTimeIso: "2026-04-01T00:00:00.000Z" },
     });
 
-    const out = await anthropicProvider.fetch({ config: { toastStyle: "classic" } } as any);
+    const out = await anthropicProvider.fetch({ config: { formatStyle: "classic" } } as any);
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toEqual([
       {
@@ -59,7 +59,7 @@ describe("anthropic provider", () => {
     ]);
   });
 
-  it("defaults to classic style when toastStyle is not specified", async () => {
+  it("defaults to classic style when formatStyle is not specified", async () => {
     const { queryAnthropicQuota } = await import("../src/lib/anthropic.js");
     (queryAnthropicQuota as any).mockResolvedValueOnce({
       success: true,
@@ -81,7 +81,7 @@ describe("anthropic provider", () => {
       seven_day: { percentRemaining: 88, resetTimeIso: "2026-04-01T00:00:00.000Z" },
     });
 
-    const out = await anthropicProvider.fetch({ config: { toastStyle: "grouped" } } as any);
+    const out = await anthropicProvider.fetch({ config: { formatStyle: "grouped" } } as any);
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toEqual([
       {

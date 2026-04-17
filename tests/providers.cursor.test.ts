@@ -27,7 +27,7 @@ describe("cursor provider", () => {
     });
 
     const out = await cursorProvider.fetch({
-      config: { cursorPlan: "none", toastStyle: "grouped" },
+      config: { cursorPlan: "none", formatStyle: "grouped" },
     } as any);
     expectNotAttempted(out);
   });
@@ -43,7 +43,7 @@ describe("cursor provider", () => {
     });
 
     const out = await cursorProvider.fetch({
-      config: { cursorPlan: "pro", toastStyle: "grouped" },
+      config: { cursorPlan: "pro", formatStyle: "grouped" },
     } as any);
 
     expectAttemptedWithNoErrors(out);
@@ -73,7 +73,7 @@ describe("cursor provider", () => {
     });
 
     const out = await cursorProvider.fetch({
-      config: { cursorPlan: "none", toastStyle: "classic" },
+      config: { cursorPlan: "none", formatStyle: "classic" },
     } as any);
 
     expectAttemptedWithNoErrors(out);
@@ -98,7 +98,7 @@ describe("cursor provider", () => {
     });
 
     const out = await cursorProvider.fetch({
-      config: { cursorPlan: "pro", toastStyle: "classic" },
+      config: { cursorPlan: "pro", formatStyle: "classic" },
     } as any);
 
     expect(out.attempted).toBe(true);

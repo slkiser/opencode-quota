@@ -191,7 +191,7 @@ describe("tui runtime helpers", () => {
                 experimental: {
                   quotaToast: {
                     enabled: true,
-                    toastStyle: "grouped",
+                    formatStyle: "grouped",
                     onlyCurrentModel: true,
                   },
                 },
@@ -216,10 +216,10 @@ describe("tui runtime helpers", () => {
     expect(collectQuotaRenderData).toHaveBeenCalledWith(
       expect.objectContaining({
         config: expect.objectContaining({
-          toastStyle: "grouped",
+          formatStyle: "grouped",
           onlyCurrentModel: true,
         }),
-        style: "grouped",
+        formatStyle: "grouped",
         request: expect.objectContaining({
           sessionMeta: {
             providerID: "copilot",
@@ -235,7 +235,7 @@ describe("tui runtime helpers", () => {
         sessionTokens: undefined,
       },
       config: expect.objectContaining({
-        toastStyle: "grouped",
+        formatStyle: "grouped",
         onlyCurrentModel: true,
       }),
     });
@@ -287,14 +287,14 @@ describe("tui runtime helpers", () => {
     expect(buildSidebarQuotaPanelLines).toHaveBeenCalledOnce();
   });
 
-  it("preserves grouped toastStyle through sidebar runtime collection and formatting", async () => {
+  it("preserves grouped formatStyle through sidebar runtime collection and formatting", async () => {
     writeFileSync(
       join(worktreeDir, "opencode.json"),
       JSON.stringify({
         experimental: {
           quotaToast: {
             enabled: true,
-            toastStyle: "grouped",
+            formatStyle: "grouped",
           },
         },
       }),
@@ -340,13 +340,13 @@ describe("tui runtime helpers", () => {
     expect(panel).toEqual({ status: "ready", lines: ["→ [Copilot] (business)"] });
     expect(collectQuotaRenderData).toHaveBeenCalledWith(
       expect.objectContaining({
-        style: "grouped",
+        formatStyle: "grouped",
       }),
     );
     expect(buildSidebarQuotaPanelLines).toHaveBeenCalledWith({
       data,
       config: expect.objectContaining({
-        toastStyle: "grouped",
+        formatStyle: "grouped",
       }),
     });
   });

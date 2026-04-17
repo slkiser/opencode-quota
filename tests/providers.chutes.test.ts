@@ -33,7 +33,7 @@ describe("chutes provider", () => {
       resetTimeIso: "2026-01-02T00:00:00.000Z",
     });
 
-    const out = await chutesProvider.fetch({ config: { toastStyle: "classic" } } as any);
+    const out = await chutesProvider.fetch({ config: { formatStyle: "classic" } } as any);
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toEqual([
       {

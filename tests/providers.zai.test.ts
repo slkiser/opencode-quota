@@ -49,7 +49,7 @@ describe("zai provider", () => {
       },
     });
 
-    const out = await zaiProvider.fetch({ config: { toastStyle: "classic" } } as any);
+    const out = await zaiProvider.fetch({ config: { formatStyle: "classic" } } as any);
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toEqual([
       {
@@ -72,7 +72,7 @@ describe("zai provider", () => {
       },
     });
 
-    const out = await zaiProvider.fetch({ config: { toastStyle: "grouped" } } as any);
+    const out = await zaiProvider.fetch({ config: { formatStyle: "grouped" } } as any);
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toEqual([
       {

@@ -54,7 +54,7 @@ describe("qwen-code provider", () => {
       },
     });
 
-    const out = await qwenCodeProvider.fetch({ config: { toastStyle: "grouped" } } as any);
+    const out = await qwenCodeProvider.fetch({ config: { formatStyle: "grouped" } } as any);
 
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toHaveLength(2);
@@ -97,7 +97,7 @@ describe("qwen-code provider", () => {
       },
     });
 
-    const out = await qwenCodeProvider.fetch({ config: { toastStyle: "classic" } } as any);
+    const out = await qwenCodeProvider.fetch({ config: { formatStyle: "classic" } } as any);
 
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toEqual([

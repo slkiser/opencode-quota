@@ -1,7 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join, normalize } from "path";
+
+const mockedHomeDir = vi.hoisted(() => ({
+  value: "",
+}));
+
+vi.mock("os", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("os")>();
+  return {
+    ...actual,
+    homedir: () => mockedHomeDir.value || actual.homedir(),
+  };
+});
 
 import { loadConfig } from "../src/lib/config.js";
 import { getOpencodeRuntimeDirCandidates } from "../src/lib/opencode-runtime-paths.js";
@@ -17,6 +29,7 @@ describe("loadConfig integration runtime-path resolution", () => {
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "opencode-quota-config-integration-"));
+    mockedHomeDir.value = tempDir;
     workspaceDir = join(tempDir, "workspace");
     nestedDir = join(workspaceDir, "packages", "feature");
     xdgConfigHome = join(tempDir, "xdg-config");
@@ -40,6 +53,7 @@ describe("loadConfig integration runtime-path resolution", () => {
   afterEach(() => {
     process.chdir(originalCwd);
     process.env = originalEnv;
+    mockedHomeDir.value = "";
     rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -80,7 +94,7 @@ describe("loadConfig integration runtime-path resolution", () => {
           quotaToast: {
             enabled: true,
             enabledProviders: ["nano-gpt"],
-            toastStyle: "grouped",
+            formatStyle: "grouped",
             onlyCurrentModel: true,
           },
         },
@@ -107,7 +121,7 @@ describe("loadConfig integration runtime-path resolution", () => {
     expect(cfg.enabledProviders).toEqual(["openai"]);
     expect(cfg.showOnIdle).toBe(false);
     expect(cfg.pricingSnapshot).toEqual({ source: "bundled", autoRefresh: 30 });
-    expect(cfg.toastStyle).toBe("grouped");
+    expect(cfg.formatStyle).toBe("grouped");
     expect(cfg.onlyCurrentModel).toBe(true);
 
     expect(meta.source).toBe("files");

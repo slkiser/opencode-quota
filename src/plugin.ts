@@ -686,7 +686,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       client: typedClient,
       config,
       request: params,
-      style: "grouped",
+      formatStyle: "grouped",
     });
     if (!selection) {
       return "Quota unavailable\n\nNo enabled quota providers are configured.\n\nRun /quota_status for diagnostics.";
@@ -762,7 +762,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       request: quotaRequestContext,
       providerFetchCache,
       surfaceExplicitProviderIssues: true,
-      style: config.toastStyle,
+      formatStyle: config.formatStyle,
     });
     const { selection, availability, active, attemptedAny, hasExplicitProviderIssues, data } =
       quotaResult;
@@ -795,7 +795,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
         layout: config.layout,
         entries: data.entries,
         errors: data.errors,
-        style: config.toastStyle,
+        style: config.formatStyle,
         sessionTokens: data.sessionTokens,
       });
 
@@ -918,7 +918,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       request: params,
       providerFetchCache,
       surfaceExplicitProviderIssues: false,
-      style: "grouped",
+      formatStyle: "grouped",
     });
 
     if (config.showSessionTokens && params.sessionID) {

@@ -100,7 +100,7 @@ export interface QuotaProviderContext {
     cursorPlan: CursorQuotaPlan;
     cursorIncludedApiUsd?: number;
     cursorBillingCycleStartDay?: number;
-    toastStyle?: "classic" | "grouped";
+    formatStyle?: "classic" | "grouped";
     onlyCurrentModel?: boolean;
     currentModel?: string;
     currentProviderID?: string;

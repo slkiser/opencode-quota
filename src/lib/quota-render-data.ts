@@ -83,16 +83,16 @@ export type CollectQuotaRenderDataResult = {
   sessionTokenError?: SessionTokenError;
 };
 
-type QuotaRenderStyle = NonNullable<QuotaProviderContext["config"]["toastStyle"]>;
+type QuotaFormatStyle = NonNullable<QuotaProviderContext["config"]["formatStyle"]>;
 
 function buildQuotaProviderContext(params: {
   client: QuotaProviderContext["client"];
   config: QuotaToastConfig;
   currentModel?: string;
   currentProviderID?: string;
-  style?: QuotaRenderStyle;
+  formatStyle?: QuotaFormatStyle;
 }): QuotaProviderContext {
-  const { client, config, currentModel, currentProviderID, style } = params;
+  const { client, config, currentModel, currentProviderID, formatStyle } = params;
 
   return {
     client,
@@ -103,7 +103,7 @@ function buildQuotaProviderContext(params: {
       cursorPlan: config.cursorPlan,
       cursorIncludedApiUsd: config.cursorIncludedApiUsd,
       cursorBillingCycleStartDay: config.cursorBillingCycleStartDay,
-      toastStyle: style ?? config.toastStyle,
+      formatStyle: formatStyle ?? config.formatStyle,
       onlyCurrentModel: config.onlyCurrentModel,
       currentModel,
       currentProviderID,
@@ -129,9 +129,9 @@ export async function resolveQuotaRenderSelection(params: {
   client: QuotaProviderContext["client"];
   config: QuotaToastConfig;
   request?: QuotaRequestContext;
-  style?: QuotaRenderStyle;
+  formatStyle?: QuotaFormatStyle;
 }): Promise<QuotaRenderSelection | null> {
-  const { client, config, request, style } = params;
+  const { client, config, request, formatStyle } = params;
   if (!config.enabled) return null;
 
   const allProviders = getProviders();
@@ -153,7 +153,7 @@ export async function resolveQuotaRenderSelection(params: {
     config,
     currentModel,
     currentProviderID,
-    style,
+    formatStyle,
   });
 
   const filteringByCurrentSelection =
@@ -176,7 +176,7 @@ export async function resolveQuotaRenderSelection(params: {
 }
 
 function makeProviderFetchCacheKey(providerId: string, ctx: QuotaProviderContext): string {
-  const style = ctx.config.toastStyle ?? "classic";
+  const formatStyle = ctx.config.formatStyle ?? "classic";
   const googleModels = ctx.config.googleModels.join(",");
   const alibabaCodingPlanTier = ctx.config.alibabaCodingPlanTier;
   const cursorPlan = ctx.config.cursorPlan;
@@ -186,7 +186,7 @@ function makeProviderFetchCacheKey(providerId: string, ctx: QuotaProviderContext
   const currentModel = ctx.config.currentModel ?? "";
   const currentProviderID = ctx.config.currentProviderID ?? "";
   const anthropicBinaryPath = ctx.config.anthropicBinaryPath ?? "";
-  return `${providerId}|style=${style}|anthropicBinaryPath=${anthropicBinaryPath}|googleModels=${googleModels}|alibabaTier=${alibabaCodingPlanTier}|cursorPlan=${cursorPlan}|cursorIncludedApiUsd=${cursorIncludedApiUsd}|cursorBillingCycleStartDay=${cursorBillingCycleStartDay}|onlyCurrentModel=${onlyCurrentModel}|currentModel=${currentModel}|currentProviderID=${currentProviderID}`;
+  return `${providerId}|formatStyle=${formatStyle}|anthropicBinaryPath=${anthropicBinaryPath}|googleModels=${googleModels}|alibabaTier=${alibabaCodingPlanTier}|cursorPlan=${cursorPlan}|cursorIncludedApiUsd=${cursorIncludedApiUsd}|cursorBillingCycleStartDay=${cursorBillingCycleStartDay}|onlyCurrentModel=${onlyCurrentModel}|currentModel=${currentModel}|currentProviderID=${currentProviderID}`;
 }
 
 async function fetchProviderWithCache(params: {
@@ -313,7 +313,7 @@ export async function collectQuotaRenderData(params: {
   request?: QuotaRequestContext;
   providerFetchCache: ProviderFetchCacheStore;
   surfaceExplicitProviderIssues: boolean;
-  style?: QuotaRenderStyle;
+  formatStyle?: QuotaFormatStyle;
 }): Promise<CollectQuotaRenderDataResult> {
   const selection = await resolveQuotaRenderSelection(params);
   if (!selection) {

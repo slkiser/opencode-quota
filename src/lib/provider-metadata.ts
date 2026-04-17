@@ -37,6 +37,7 @@ export interface QuotaProviderShape {
   authentication: QuotaProviderAuthentication;
   authFallbacks?: QuotaProviderAuthFallback[];
   quota: QuotaProviderQuotaSource;
+  quickSetupAnchor?: string;
   notes?: string;
 }
 
@@ -96,6 +97,7 @@ export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
     autoSetup: "needs_quick_setup",
     authentication: "local_cli_auth",
     quota: "local_cli_report",
+    quickSetupAnchor: "anthropic-quick-setup",
   },
   {
     id: "copilot",
@@ -115,6 +117,7 @@ export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
     autoSetup: "needs_quick_setup",
     authentication: "companion_auth_oauth_token",
     quota: "local_runtime_accounting",
+    quickSetupAnchor: "cursor-quick-setup",
     notes: "companion runtime/plugin integration plus local usage accounting",
   },
   {
@@ -122,6 +125,7 @@ export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
     autoSetup: "needs_quick_setup",
     authentication: "companion_auth_oauth_token",
     quota: "local_estimation",
+    quickSetupAnchor: "qwen-code-quick-setup",
   },
   {
     id: "alibaba-coding-plan",
@@ -149,6 +153,7 @@ export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
     autoSetup: "needs_quick_setup",
     authentication: "companion_auth_oauth_token",
     quota: "remote_api",
+    quickSetupAnchor: "google-antigravity-quick-setup",
   },
   {
     id: "zai",
@@ -176,6 +181,7 @@ export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
     autoSetup: "needs_quick_setup",
     authentication: "state_only",
     quota: "remote_api",
+    quickSetupAnchor: "opencode-go-quick-setup",
     notes: "Scrapes the OpenCode Go dashboard; requires workspaceId and authCookie",
   },
 ];

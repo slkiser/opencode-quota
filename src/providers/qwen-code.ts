@@ -35,7 +35,7 @@ export const qwenCodeProvider: QuotaProvider = {
     }
 
     const quota = computeQwenQuota({ state: await readQwenLocalQuotaState() });
-    const style = ctx.config.toastStyle ?? "classic";
+    const style = ctx.config.formatStyle ?? "classic";
 
     if (style === "grouped") {
       const entries: QuotaToastEntry[] = [

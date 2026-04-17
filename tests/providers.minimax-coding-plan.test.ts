@@ -80,8 +80,8 @@ function mockMiniMaxHttpFailure(status: number, text: string) {
   });
 }
 
-async function runProviderFetch(toastStyle: "grouped" | "classic" = "grouped") {
-  return minimaxCodingPlanProvider.fetch({ config: { toastStyle } } as any);
+async function runProviderFetch(formatStyle: "grouped" | "classic" = "grouped") {
+  return minimaxCodingPlanProvider.fetch({ config: { formatStyle } } as any);
 }
 
 describe("minimax-coding-plan provider", () => {

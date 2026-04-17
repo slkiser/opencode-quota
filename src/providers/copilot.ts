@@ -58,7 +58,7 @@ export const copilotProvider: QuotaProvider = {
 
   async fetch(_ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
     const result = await queryCopilotQuota();
-    const style = _ctx.config?.toastStyle ?? "classic";
+    const style = _ctx.config?.formatStyle ?? "classic";
 
     if (!result) {
       return { attempted: false, entries: [], errors: [] };

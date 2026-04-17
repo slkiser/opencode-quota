@@ -53,7 +53,7 @@ export const openaiProvider: QuotaProvider = {
       return attemptedErrorResult("OpenAI", result.error);
     }
 
-    const style = _ctx.config.toastStyle ?? "classic";
+    const style = _ctx.config.formatStyle ?? "classic";
 
     // Keep the classic toast behavior: show a single entry based on the worst remaining window.
     if (style === "classic") {

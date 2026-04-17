@@ -44,7 +44,7 @@ export const nanoGptProvider: QuotaProvider = {
       return attemptedErrorResult("NanoGPT", result.error);
     }
 
-    const style = ctx.config.toastStyle ?? "classic";
+    const style = ctx.config.formatStyle ?? "classic";
     const entries: QuotaToastEntry[] = [];
     const errors =
       result.endpointErrors?.map((entry) => ({

@@ -51,7 +51,7 @@ export const alibabaCodingPlanProvider: QuotaProvider = {
       state: await readAlibabaCodingPlanQuotaState(),
       tier: plan.tier,
     });
-    const style = ctx.config.toastStyle ?? "classic";
+    const style = ctx.config.formatStyle ?? "classic";
     const label = `Alibaba Coding Plan (${tierLabel(plan.tier)})`;
 
     if (style === "classic") {

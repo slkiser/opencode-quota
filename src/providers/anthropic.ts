@@ -56,7 +56,7 @@ export const anthropicProvider: QuotaProvider = {
       return attemptedErrorResult("Claude", result.error);
     }
 
-    const style = ctx.config?.toastStyle ?? "classic";
+    const style = ctx.config?.formatStyle ?? "classic";
 
     if (style === "grouped") {
       const entries: QuotaToastEntry[] = [

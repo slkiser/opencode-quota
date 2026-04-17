@@ -125,10 +125,10 @@ export async function loadConfig(
           ? quotaToastConfig.enableToast
           : DEFAULT_CONFIG.enableToast,
 
-      toastStyle:
-        quotaToastConfig.toastStyle === "grouped" || quotaToastConfig.toastStyle === "classic"
-          ? quotaToastConfig.toastStyle
-          : DEFAULT_CONFIG.toastStyle,
+      formatStyle:
+        quotaToastConfig.formatStyle === "grouped" || quotaToastConfig.formatStyle === "classic"
+          ? quotaToastConfig.formatStyle
+          : DEFAULT_CONFIG.formatStyle,
       minIntervalMs:
         typeof quotaToastConfig.minIntervalMs === "number" && quotaToastConfig.minIntervalMs > 0
           ? quotaToastConfig.minIntervalMs

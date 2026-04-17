@@ -6,11 +6,13 @@
 [![Node >=18](https://img.shields.io/badge/node-%3E%3D18-339933)](./package.json)
 
 
-`opencode-quota` gives you three things:
+`opencode-quota` adds usage quota and token visibility to OpenCode with zero context-window pollution.
 
-- Quota toasts after assistant responses
-- A TUI sidebar quota panel 
-- Manual `/quota` and `/tokens_*` commands for deeper local reporting with zero context window pollution
+What you get:
+
+- popup quota toasts after assistant responses
+- TUI sidebar panel
+- manual `/quota`, `/quota_status`, and `/tokens_*` commands
 
 **Quota providers**: Anthropic (Claude), GitHub Copilot, OpenAI (Plus/Pro), Cursor, Qwen Code, Alibaba Coding Plan, MiniMax Coding Plan, Chutes AI, Firmware AI, Google Antigravity, Z.ai Coding Plan, NanoGPT, and OpenCode Go.
 
@@ -31,11 +33,47 @@
   </tr>
 </table>
 
-## Quick Start
+## Start here
 
 OpenCode `>= 1.4.3` is required.
 
-Add the plugin to `opencode.json` or `opencode.jsonc`:
+If you are new to the plugin, do this first:
+
+```sh
+npx @slkiser/opencode-quota init
+```
+
+### Recommended path: interactive install
+
+The installer (append-only, preserves existing values) asks for:
+
+- **Scope**: `Project` or `Global` (`Project` is the usual default)
+- **Quota UI**: `Toast`, `Sidebar`, `Toast + Sidebar`, or `None (manual /quota and /tokens_* only)`
+- **Provider mode**: `Auto-detect` or `Manual select` (`Auto-detect` is the usual default)
+- **Layout style**: `classic` or `grouped` (`classic` is the usual default)
+- **Show session input/output tokens**: `Yes` or `No` (`Yes` is the usual default)
+
+All quota settings live in `opencode.json` or `opencode.jsonc`. `tui.json` or `tui.jsonc` is only for loading the sidebar plugin.
+
+| Choice | `opencode.json` / `opencode.jsonc` | `tui.json` / `tui.jsonc` | Result |
+| --- | --- | --- | --- |
+| `Toast` | Adds the server plugin and enables popup toasts if `enableToast` is not already set. | No changes. | Toasts on, no sidebar plugin install. |
+| `Sidebar` | Adds the server plugin and disables popup toasts if `enableToast` is not already set. | Adds the TUI plugin entry. | Sidebar on, popup toasts off by default. |
+| `Toast + Sidebar` | Adds the server plugin and enables popup toasts if `enableToast` is not already set. | Adds the TUI plugin entry. | Sidebar on and popup toasts on. |
+| `None` | Adds the server plugin and disables popup toasts if `enableToast` is not already set. | No changes. | Manual commands only. |
+
+### After install
+
+1. Restart OpenCode.
+2. Run `/quota_status`.
+3. Run `/quota`.
+4. If you chose `Sidebar` or `Toast + Sidebar`, open the session sidebar and confirm the `Quota` panel appears.
+
+### Manual setup (only if you do not want the installer)
+
+You can install manually, but the installer is easier and safer.
+
+1. Add the server plugin to `opencode.json` or `opencode.jsonc`:
 
 ```jsonc
 {
@@ -44,7 +82,7 @@ Add the plugin to `opencode.json` or `opencode.jsonc`:
 }
 ```
 
-If you also want the sidebar, add the same package to a `tui.json` or `tui.jsonc` file that OpenCode loads (commonly the same folder):
+2. If you also want the sidebar, add the same package to a `tui.json` or `tui.jsonc` file that OpenCode loads (commonly the same folder):
 
 ```jsonc
 {
@@ -53,7 +91,9 @@ If you also want the sidebar, add the same package to a `tui.json` or `tui.jsonc
 }
 ```
 
-Then restart OpenCode, run `/quota_status`, run `/quota`, and open the session sidebar to confirm the `Quota` panel appears. Providers are auto-detected from your existing OpenCode setup, and most providers work from your existing OpenCode auth.
+3. Optional settings still go in `opencode.json`, not `tui.json`.
+
+Providers are auto-detected from your existing OpenCode setup by default, and most providers work from your existing OpenCode auth.
 
 <details>
 <summary><strong>Example: Sidebar only (turn off popup toasts)</strong></summary>
@@ -96,13 +136,19 @@ Keep the `tui.json` or `tui.jsonc` entry above and disable toasts in `opencode.j
 {
   "experimental": {
     "quotaToast": {
-      "toastStyle": "grouped"
+      "formatStyle": "grouped"
     }
   }
 }
 ```
 
 </details>
+
+If you are coming back later:
+- see [Provider Setup At A Glance](#provider-setup-at-a-glance) for provider-specific setup needs
+- see [Commands](#commands) for the slash commands
+- see [Configuration Reference](#configuration-reference) when you want to customize behavior
+- see [Troubleshooting](#troubleshooting) if something does not appear or auto-detect correctly
 
 ### Provider Setup At A Glance
 
@@ -121,6 +167,13 @@ Keep the `tui.json` or `tui.jsonc` entry above and disable toasts in `opencode.j
 | **NanoGPT** | Usually | OpenCode auth/global config/env | Remote API |
 | **MiniMax Coding Plan** | Yes | OpenCode auth/global config/env | Remote API |
 | **OpenCode Go** | Needs [quick setup](#opencode-go-quick-setup) | Env/config auth | Dashboard scraping |
+
+Important install notes:
+
+- **Project** scope writes to the git worktree root when one is detected; otherwise it writes to the current directory.
+- **Global** scope writes to OpenCode's primary runtime config directory.
+- If a modified file is `.jsonc`, the installer rewrites it as normalized JSON.
+- A global `experimental.quotaToast.enabledProviders` can still override a project-scoped provider-mode choice at runtime.
 
 <a id="anthropic-quick-setup"></a>
 <details>
@@ -545,7 +598,7 @@ OpenCode Go quota scrapes the OpenCode Go dashboard at `https://opencode.ai/work
 
 ## Configuration Reference
 
-All quota plugin settings live under `experimental.quotaToast` in `opencode.json` or `opencode.jsonc`. The one TUI-specific install step is separate: add the package to `tui.json` or `tui.jsonc`.
+All quota plugin settings live under `experimental.quotaToast` in `opencode.json` or `opencode.jsonc`. The sidebar install step is separate: add the package to `tui.json` or `tui.jsonc`, or choose `Sidebar` in `npx @slkiser/opencode-quota init`.
 
 Workspace-local config can still customize display/report behavior, but user/global config is authoritative for network-affecting settings such as `enabled`, `enabledProviders`, `minIntervalMs`, `pricingSnapshot`, `showOnIdle`, `showOnQuestion`, and `showOnCompact`.
 
@@ -556,11 +609,12 @@ Workspace-local config can still customize display/report behavior, but user/glo
 | `enabled` | `true` | Master switch for quota collection and handled slash commands. When `false`, `/quota`, `/quota_status`, `/pricing_refresh`, and `/tokens_*` are handled as no-ops. |
 | `enabledProviders` | `"auto"` | Auto-detect providers, or set an explicit provider list. |
 | `minIntervalMs` | `300000` | Minimum fetch interval between provider updates. |
-| `toastStyle` | `classic` | Shared quota-row style for popup toasts and the TUI sidebar: `classic` or `grouped`. |
+| `formatStyle` | `classic` | Shared quota-row style for popup toasts and the TUI sidebar: `classic` or `grouped`. |
 | `onlyCurrentModel` | `false` | Filter quota rows to the current model/provider when that session selection can be resolved. |
 | `showSessionTokens` | `true` | Show the `Session input/output tokens` section in quota displays when session token data is available. Toasts and `/quota` show per-model input/output rows; the TUI sidebar shows a one-line total summary. |
 | `pricingSnapshot.source` | `"auto"` | Token pricing snapshot selection for `/tokens_*`: `auto`, `bundled`, or `runtime`. |
-| `pricingSnapshot.autoRefresh` | `5` | Refresh stale local pricing data after this many days. |
+| `pricingSnapshot.autoRefresh` | `7` | Refresh stale local pricing data after this many days. |
+
 
 ### Toast settings
 
@@ -577,19 +631,19 @@ Workspace-local config can still customize display/report behavior, but user/glo
 | `layout.tinyAt` | `32` | Toast tiny-layout breakpoint. Ignored by the TUI sidebar. |
 | `debug` | `false` | Append toast debug context when troubleshooting. |
 
-### TUI sidebar settings and notes
+### TUI sidebar setup
 
-There are no separate TUI-only width/style knobs under `experimental.quotaToast`. The sidebar reuses the shared quota pipeline plus the TUI plugin install entry in `tui.json` or `tui.jsonc`.
+If you want the `Quota` sidebar panel, you need **two files**:
 
-| Setting / location | Default | Sidebar behavior |
+1. **`tui.json` or `tui.jsonc`**: add the plugin entry so OpenCode mounts the sidebar panel.
+2. **`opencode.json` or `opencode.jsonc`**: put all quota settings under `experimental.quotaToast`.
+
+**Important:** `experimental.quotaToast.*` settings do **not** go in `tui.json`. `tui.json` is only for loading the TUI plugin.
+
+| File | What goes there | Needed for sidebar? |
 | --- | --- | --- |
-| `tui.json` or `tui.jsonc` → `plugin` | unset | Add `@slkiser/opencode-quota` here to install the `Quota` sidebar panel. |
-| `experimental.quotaToast.enabled` | `true` | Shared master switch. When `false`, the sidebar panel stops collecting quota data and hides its quota content instead of showing stale/loading rows. |
-| `experimental.quotaToast.toastStyle` | `classic` | The sidebar honors both `classic` and `grouped` quota-row formatting. |
-| `experimental.quotaToast.onlyCurrentModel` | `false` | Filters sidebar quota rows to the current session model/provider when available. |
-| `experimental.quotaToast.showSessionTokens` | `true` | Adds the `Session input/output tokens` heading plus a one-line total input/output summary in the sidebar when session token data is available. |
-| `experimental.quotaToast.enableToast` | `true` | Toast-only switch. Turning it off does not disable the sidebar panel. |
-| `experimental.quotaToast.layout.*` | `50 / 42 / 32` | Ignored by the sidebar. The sidebar uses its own fixed compact width. |
+| `tui.json` / `tui.jsonc` | `plugin: ["@slkiser/opencode-quota"]` | Yes |
+| `opencode.json` / `opencode.jsonc` | All `experimental.quotaToast.*` settings | Yes |
 
 ### Provider-specific settings
 

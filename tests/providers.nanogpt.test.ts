@@ -55,7 +55,7 @@ describe("nanogpt provider", () => {
       },
     });
 
-    const out = await nanoGptProvider.fetch({ config: { toastStyle: "grouped" } } as any);
+    const out = await nanoGptProvider.fetch({ config: { formatStyle: "grouped" } } as any);
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toEqual([
       {
@@ -112,7 +112,7 @@ describe("nanogpt provider", () => {
       },
     });
 
-    const out = await nanoGptProvider.fetch({ config: { toastStyle: "classic" } } as any);
+    const out = await nanoGptProvider.fetch({ config: { formatStyle: "classic" } } as any);
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toEqual([
       {
@@ -157,7 +157,7 @@ describe("nanogpt provider", () => {
       ],
     });
 
-    const out = await nanoGptProvider.fetch({ config: { toastStyle: "grouped" } } as any);
+    const out = await nanoGptProvider.fetch({ config: { formatStyle: "grouped" } } as any);
     expect(out.attempted).toBe(true);
     expect(out.entries).toEqual([
       {

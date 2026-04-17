@@ -62,7 +62,7 @@ describe("alibaba-coding-plan provider", () => {
     });
 
     const out = await alibabaCodingPlanProvider.fetch({
-      config: { toastStyle: "grouped", alibabaCodingPlanTier: "pro" },
+      config: { formatStyle: "grouped", alibabaCodingPlanTier: "pro" },
     } as any);
 
     expectAttemptedWithNoErrors(out);
@@ -87,7 +87,7 @@ describe("alibaba-coding-plan provider", () => {
     });
 
     const out = await alibabaCodingPlanProvider.fetch({
-      config: { toastStyle: "grouped", alibabaCodingPlanTier: "pro" },
+      config: { formatStyle: "grouped", alibabaCodingPlanTier: "pro" },
     } as any);
 
     expectAttemptedWithNoErrors(out);
@@ -112,7 +112,7 @@ describe("alibaba-coding-plan provider", () => {
       monthly: { used: 0, limit: 90000, percentRemaining: 100 },
     });
 
-    const out = await alibabaCodingPlanProvider.fetch({ config: { toastStyle: "grouped" } } as any);
+    const out = await alibabaCodingPlanProvider.fetch({ config: { formatStyle: "grouped" } } as any);
 
     expectAttemptedWithNoErrors(out);
     expect(computeAlibabaCodingPlanQuota as any).toHaveBeenCalledWith({ state: {}, tier: "pro" });
@@ -161,7 +161,7 @@ describe("alibaba-coding-plan provider", () => {
       },
     });
 
-    const out = await alibabaCodingPlanProvider.fetch({ config: { toastStyle: "grouped" } } as any);
+    const out = await alibabaCodingPlanProvider.fetch({ config: { formatStyle: "grouped" } } as any);
 
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toHaveLength(3);
@@ -206,7 +206,7 @@ describe("alibaba-coding-plan provider", () => {
       },
     });
 
-    const out = await alibabaCodingPlanProvider.fetch({ config: { toastStyle: "classic" } } as any);
+    const out = await alibabaCodingPlanProvider.fetch({ config: { formatStyle: "classic" } } as any);
 
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toEqual([

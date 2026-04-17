@@ -70,7 +70,7 @@ export const cursorProvider: QuotaProvider = {
         : [];
     const hasPartialApiCoverage = usage.unknownModels.length > 0;
 
-    if ((ctx.config.toastStyle ?? "classic") === "grouped") {
+    if ((ctx.config.formatStyle ?? "classic") === "grouped") {
       const entries: QuotaToastEntry[] = [];
 
       if (includedApiUsd !== undefined) {

@@ -84,7 +84,7 @@ describe("loadConfig", () => {
   it("defaults pricingSnapshot config and accepts valid overrides", async () => {
     const defaults = await loadSdkConfig({});
     expect(defaults.pricingSnapshot.source).toBe("auto");
-    expect(defaults.pricingSnapshot.autoRefresh).toBe(5);
+    expect(defaults.pricingSnapshot.autoRefresh).toBe(7);
 
     const bundled = await loadSdkConfig({
       pricingSnapshot: { source: "bundled", autoRefresh: 7 },
@@ -102,7 +102,21 @@ describe("loadConfig", () => {
       pricingSnapshot: { source: "remote", autoRefresh: 0 },
     });
     expect(invalid.pricingSnapshot.source).toBe("auto");
-    expect(invalid.pricingSnapshot.autoRefresh).toBe(5);
+    expect(invalid.pricingSnapshot.autoRefresh).toBe(7);
+  });
+
+  it("reads formatStyle and ignores legacy toastStyle entirely", async () => {
+    const explicit = await loadSdkConfig({ formatStyle: "grouped" });
+    expect(explicit.formatStyle).toBe("grouped");
+
+    const legacyOnly = await loadSdkConfig({ toastStyle: "grouped" });
+    expect(legacyOnly.formatStyle).toBe("classic");
+
+    const both = await loadSdkConfig({
+      formatStyle: "grouped",
+      toastStyle: "classic",
+    });
+    expect(both.formatStyle).toBe("grouped");
   });
 
   it("defaults anthropicBinaryPath and trims explicit overrides", async () => {

@@ -33,7 +33,7 @@ describe("firmware provider", () => {
       resetTimeIso: "2026-01-20T18:12:03.000Z",
     });
 
-    const out = await firmwareProvider.fetch({ config: { toastStyle: "classic" } } as any);
+    const out = await firmwareProvider.fetch({ config: { formatStyle: "classic" } } as any);
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toEqual([
       {

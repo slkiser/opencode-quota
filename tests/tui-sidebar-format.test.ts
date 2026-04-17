@@ -12,7 +12,7 @@ describe("buildSidebarQuotaPanelLines", () => {
   it("sanitizes structured entry, error, and session-token text before rendering", () => {
     const lines = buildSidebarQuotaPanelLines({
       config: {
-        toastStyle: "grouped",
+        formatStyle: "grouped",
       },
       data: {
         entries: [
@@ -82,7 +82,7 @@ describe("buildSidebarQuotaPanelLines", () => {
       buildSidebarQuotaPanelLines({
         data,
         config: {
-          toastStyle: "classic",
+          formatStyle: "classic",
         },
       }),
     ).toEqual(expected);
@@ -115,7 +115,7 @@ describe("buildSidebarQuotaPanelLines", () => {
     const lines = buildSidebarQuotaPanelLines({
       data,
       config: {
-        toastStyle: "grouped",
+        formatStyle: "grouped",
       },
     });
 
@@ -128,7 +128,7 @@ describe("buildSidebarQuotaPanelLines", () => {
   it("renders grouped quota windows shortest to longest in the sidebar", () => {
     const lines = buildSidebarQuotaPanelLines({
       config: {
-        toastStyle: "grouped",
+        formatStyle: "grouped",
       },
       data: {
         entries: [
@@ -160,7 +160,7 @@ describe("buildSidebarQuotaPanelLines", () => {
   it("renders sidebar session tokens as a standalone one-line summary", () => {
     const lines = buildSidebarQuotaPanelLines({
       config: {
-        toastStyle: "classic",
+        formatStyle: "classic",
       },
       data: {
         entries: [],
