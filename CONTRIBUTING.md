@@ -15,6 +15,7 @@ Thanks for contributing. This repo has strict local-only behavior and regression
 - Use `.github/ISSUE_TEMPLATE/bug_report.yml` for bug reports.
 - Use `.github/ISSUE_TEMPLATE/feature_request.yml` for feature requests.
 - Use template title prefixes for consistent issue titles.
+- Inactive issues may be marked stale after 23 days and closed 7 days later if there are still no updates.
 - Bug title format: `[bug]: <short description>`
 - Feature title format: `[feature]: <short description>`
 - Pull requests use `.github/pull_request_template.md` and should include tested OpenCode version details.
@@ -54,9 +55,9 @@ PR and `main` pushes trigger `.github/workflows/ci.yml` (`CI` workflow):
 
 - Job: `build`
 - Matrix: Node `18.x`, `20.x`, `22.x`
-- Steps: `npm ci`, `npm run typecheck`, `npm run build`
+- Steps: `npm ci`, `npm run typecheck`, `npm run build`, `npm test`
 
-Current PR CI does not run `npm test`. Tests still run locally via Husky pre-commit and in release publishing automation.
+PR CI also runs `npm test` in the matrix job.
 
 Release workflow `.github/workflows/publish-npm.yml` runs on release/manual dispatch and includes typecheck, test, and build before publish. It is not a normal PR required check.
 

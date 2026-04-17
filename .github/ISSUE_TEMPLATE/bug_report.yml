@@ -9,6 +9,7 @@ body:
       value: |
         Thanks for filing a bug. Please include enough detail to reproduce the issue.
         Review `CONTRIBUTING.md` before submitting.
+        Inactive issues may be marked stale after 23 days and closed 7 days later if there are still no updates.
 
   - type: checkboxes
     id: checks

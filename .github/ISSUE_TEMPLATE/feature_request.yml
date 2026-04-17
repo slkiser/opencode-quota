@@ -9,6 +9,7 @@ body:
       value: |
         Thanks for the idea. Please keep the proposal scoped and concrete.
         Review `CONTRIBUTING.md` for contribution expectations.
+        Inactive issues may be marked stale after 23 days and closed 7 days later if there are still no updates.
 
   - type: checkboxes
     id: checks
