@@ -45,8 +45,6 @@ What you get:
   </tr>
 </table>
 
-## Start here
-
 OpenCode `>= 1.4.3` is required. 
 
 If you are coming back later:
