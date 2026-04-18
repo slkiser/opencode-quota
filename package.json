@@ -81,6 +81,7 @@
     "@clack/prompts": "^1.2.0",
     "@opentui/core": "^0.1.92",
     "@opentui/solid": "^0.1.92",
+    "comment-json": "^5.0.0",
     "solid-js": "^1.9.10",
     "xdg-basedir": "^5.1.0"
   },

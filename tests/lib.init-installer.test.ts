@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { parseJsonOrJsonc } from "../src/lib/jsonc.js";
 
 import {
   applyInitInstallerPlan,
@@ -10,7 +11,8 @@ import {
 } from "../src/lib/init-installer.js";
 
 function readJson(path: string): any {
-  return JSON.parse(readFileSync(path, "utf8"));
+  const content = readFileSync(path, "utf8");
+  return parseJsonOrJsonc(content, path.endsWith(".jsonc"));
 }
 
 function createPromptStub(params: {
@@ -147,7 +149,9 @@ describe("init installer planning and merge behavior", () => {
 
     const opencodeEdit = plan.edits.find((edit) => edit.kind === "opencode");
     const tuiEdit = plan.edits.find((edit) => edit.kind === "tui");
-    expect(opencodeEdit?.warnings).toContain("Existing JSONC comments/trailing commas will be stripped.");
+    expect(opencodeEdit?.warnings).toContain(
+      "Existing JSONC comments/trailing commas will be stripped.",
+    );
     expect(opencodeEdit?.addedPlugins).toEqual([]);
     expect(opencodeEdit?.addedKeys).toContain("experimental.quotaToast.formatStyle");
     expect(opencodeEdit?.skippedValues).toEqual(
@@ -422,5 +426,4 @@ describe("init installer planning and merge behavior", () => {
       }),
     ).rejects.toThrow(/plugin is not an array/i);
   });
-
 });

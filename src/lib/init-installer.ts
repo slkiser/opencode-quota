@@ -93,19 +93,13 @@ type PromptOption = {
 type PromptAdapter = {
   intro: (message: string) => void;
   outro: (message: string) => void;
-  select: (options: {
-    message: string;
-    options: PromptOption[];
-  }) => Promise<unknown>;
+  select: (options: { message: string; options: PromptOption[] }) => Promise<unknown>;
   multiselect: (options: {
     message: string;
     required?: boolean;
     options: PromptOption[];
   }) => Promise<unknown>;
-  confirm: (options: {
-    message: string;
-    initialValue?: boolean;
-  }) => Promise<unknown>;
+  confirm: (options: { message: string; initialValue?: boolean }) => Promise<unknown>;
   isCancel: (value: unknown) => boolean;
   log: {
     info: (message: string) => void;
@@ -200,19 +194,18 @@ function ensureJsonObject(
 
   const existing = parent[key];
   if (!isPlainObject(existing)) {
-    throw new InitInstallerError(`Cannot update ${edit.kind} config because ${pathLabel} is not an object.`, {
-      path: edit.path,
-    });
+    throw new InitInstallerError(
+      `Cannot update ${edit.kind} config because ${pathLabel} is not an object.`,
+      {
+        path: edit.path,
+      },
+    );
   }
 
   return existing;
 }
 
-function ensureSchema(
-  root: JsonObject,
-  schemaUrl: string,
-  edit: PlannedConfigEdit,
-): void {
+function ensureSchema(root: JsonObject, schemaUrl: string, edit: PlannedConfigEdit): void {
   if (!hasOwnKey(root, "$schema")) {
     root.$schema = schemaUrl;
     edit.changed = true;
@@ -262,7 +255,10 @@ function ensureTopLevelPluginArray(root: JsonObject, edit: PlannedConfigEdit): u
   return root.plugin;
 }
 
-function ensureTuiPluginArray(root: JsonObject, edit: PlannedConfigEdit): {
+function ensureTuiPluginArray(
+  root: JsonObject,
+  edit: PlannedConfigEdit,
+): {
   container: unknown[];
   pathLabel: string;
 } {
@@ -334,7 +330,7 @@ async function readExistingConfig(params: {
       });
     }
 
-    return structuredClone(parsed) as JsonObject;
+    return parsed as JsonObject;
   } catch (error) {
     if (error instanceof InitInstallerError) {
       throw error;
@@ -358,9 +354,8 @@ function buildQuickSetupNotes(selections: InitInstallerSelections): InitInstalle
 
   return requestedProviders
     .map((providerId) => QUOTA_PROVIDER_SHAPES.find((shape) => shape.id === providerId))
-    .filter(
-      (shape): shape is (typeof QUOTA_PROVIDER_SHAPES)[number] =>
-        Boolean(shape?.quickSetupAnchor && shape.autoSetup === "needs_quick_setup"),
+    .filter((shape): shape is (typeof QUOTA_PROVIDER_SHAPES)[number] =>
+      Boolean(shape?.quickSetupAnchor && shape.autoSetup === "needs_quick_setup"),
     )
     .map((shape) => ({
       providerId: shape.id,
@@ -383,7 +378,10 @@ async function planOpencodeEdit(params: {
     addedPlugins: [],
     addedKeys: [],
     skippedValues: [],
-    warnings: target.format === "jsonc" ? ["Existing JSONC comments/trailing commas will be stripped."] : [],
+    warnings:
+      target.format === "jsonc"
+        ? ["Existing JSONC comments/trailing commas will be stripped."]
+        : [],
   };
 
   const root = target.existed ? await readExistingConfig(target) : {};
@@ -454,7 +452,10 @@ async function planTuiEdit(params: {
     addedPlugins: [],
     addedKeys: [],
     skippedValues: [],
-    warnings: target.format === "jsonc" ? ["Existing JSONC comments/trailing commas will be stripped."] : [],
+    warnings:
+      target.format === "jsonc"
+        ? ["Existing JSONC comments/trailing commas will be stripped."]
+        : [],
   };
 
   const root = target.existed ? await readExistingConfig(target) : {};
@@ -625,7 +626,9 @@ export async function applyInitInstallerPlan(
   };
 }
 
-async function promptForSelections(prompts: PromptAdapter): Promise<InitInstallerSelections | null> {
+async function promptForSelections(
+  prompts: PromptAdapter,
+): Promise<InitInstallerSelections | null> {
   const scope = await prompts.select({
     message: "Install scope",
     options: [
@@ -703,9 +706,7 @@ export async function runInitInstaller(params?: {
   homeDir?: string;
   prompts?: PromptAdapter;
 }): Promise<number> {
-  const prompts =
-    params?.prompts ??
-    ((await import("@clack/prompts")) as unknown as PromptAdapter);
+  const prompts = params?.prompts ?? ((await import("@clack/prompts")) as unknown as PromptAdapter);
 
   prompts.intro("Configure @slkiser/opencode-quota");
 
