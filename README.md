@@ -35,15 +35,20 @@ What you get:
 
 ## Start here
 
-OpenCode `>= 1.4.3` is required.
+OpenCode `>= 1.4.3` is required. 
 
-If you are new to the plugin, do this first:
+If you are coming back later:
+- see [Provider Setup At A Glance](#provider-setup-at-a-glance) for provider-specific setup needs
+- see [Commands](#commands) for the slash commands
+- see [Configuration Reference](#configuration-reference) when you want to customize behavior
+- see [Troubleshooting](#troubleshooting) if something does not appear or auto-detect correctly
+
+## Installation
+### Automatic setup (recommended)
 
 ```sh
 npx @slkiser/opencode-quota init
 ```
-
-### Recommended path: interactive install
 
 The installer (append-only, preserves existing values) asks for:
 
@@ -55,21 +60,15 @@ The installer (append-only, preserves existing values) asks for:
 
 All quota settings live in `opencode.json` or `opencode.jsonc`. `tui.json` or `tui.jsonc` is only for loading the sidebar plugin.
 
-| Choice | `opencode.json` / `opencode.jsonc` | `tui.json` / `tui.jsonc` | Result |
-| --- | --- | --- | --- |
-| `Toast` | Adds the server plugin and enables popup toasts if `enableToast` is not already set. | No changes. | Toasts on, no sidebar plugin install. |
-| `Sidebar` | Adds the server plugin and disables popup toasts if `enableToast` is not already set. | Adds the TUI plugin entry. | Sidebar on, popup toasts off by default. |
-| `Toast + Sidebar` | Adds the server plugin and enables popup toasts if `enableToast` is not already set. | Adds the TUI plugin entry. | Sidebar on and popup toasts on. |
-| `None` | Adds the server plugin and disables popup toasts if `enableToast` is not already set. | No changes. | Manual commands only. |
 
-### After install
+### After install 
 
 1. Restart OpenCode.
 2. Run `/quota_status`.
 3. Run `/quota`.
 4. If you chose `Sidebar` or `Toast + Sidebar`, open the session sidebar and confirm the `Quota` panel appears.
 
-### Manual setup (only if you do not want the installer)
+### Manual setup 
 
 You can install manually, but the installer is easier and safer.
 
@@ -144,13 +143,7 @@ Keep the `tui.json` or `tui.jsonc` entry above and disable toasts in `opencode.j
 
 </details>
 
-If you are coming back later:
-- see [Provider Setup At A Glance](#provider-setup-at-a-glance) for provider-specific setup needs
-- see [Commands](#commands) for the slash commands
-- see [Configuration Reference](#configuration-reference) when you want to customize behavior
-- see [Troubleshooting](#troubleshooting) if something does not appear or auto-detect correctly
-
-### Provider Setup At A Glance
+## Provider Setup At A Glance
 
 | Provider | Auto setup | Authentication | Quota |
 | --- | --- | --- | --- |
@@ -168,11 +161,6 @@ If you are coming back later:
 | **MiniMax Coding Plan** | Yes | OpenCode auth/global config/env | Remote API |
 | **OpenCode Go** | Needs [quick setup](#opencode-go-quick-setup) | Env/config auth | Dashboard scraping |
 
-Important install notes:
-
-- **Project** scope writes to the git worktree root when one is detected; otherwise it writes to the current directory.
-- **Global** scope writes to OpenCode's primary runtime config directory.
-- If a modified file is `.jsonc`, the installer rewrites it as normalized JSON.
 
 <a id="anthropic-quick-setup"></a>
 <details>
