@@ -18,7 +18,7 @@ import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";
 
 export function getAnthropicNoDataMessage(): string {
-  return "Quota unavailable via local Claude CLI";
+  return "Quota unavailable via local Claude CLI or Claude OAuth fallback";
 }
 
 export const anthropicProvider: QuotaProvider = {

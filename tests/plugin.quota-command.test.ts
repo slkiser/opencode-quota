@@ -395,7 +395,9 @@ describe("/quota command behavior", () => {
 
     expect(client.session.prompt).toHaveBeenCalledTimes(1);
     const injected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
-    expect(injected).toContain("Anthropic: Quota unavailable via local Claude CLI");
+    expect(injected).toContain(
+      "Anthropic: Quota unavailable via local Claude CLI or Claude OAuth fallback",
+    );
     expect(injected).not.toContain("Anthropic: Not configured");
   });
 
@@ -436,7 +438,9 @@ describe("/quota command behavior", () => {
 
     expect(client.session.prompt).toHaveBeenCalledTimes(1);
     const injected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
-    expect(injected).toContain("Anthropic: Quota unavailable via local Claude CLI");
+    expect(injected).toContain(
+      "Anthropic: Quota unavailable via local Claude CLI or Claude OAuth fallback",
+    );
     expect(injected).not.toContain("Providers detected");
   });
 

@@ -128,7 +128,8 @@ const anthropicMocks = vi.hoisted(() => ({
     quotaSupported: false,
     quotaSource: "none",
     checkedCommands: ["claude --version", "claude auth status --json"],
-    message: "Claude CLI auth detected, but local quota windows were not exposed.",
+    message:
+      "Claude CLI auth detected, but quota was unavailable from both the local CLI and Claude OAuth fallback. Claude credentials file not found at /Users/test/.claude/.credentials.json.",
   })),
 }));
 
@@ -518,7 +519,7 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- quota_source: (none)");
     expect(report).toContain("- checked_commands: claude --version | claude auth status --json");
     expect(report).toContain(
-      "- message: Claude CLI auth detected, but local quota windows were not exposed.",
+      "- message: Claude CLI auth detected, but quota was unavailable from both the local CLI and Claude OAuth fallback. Claude credentials file not found at /Users/test/.claude/.credentials.json.",
     );
     expect(anthropicMocks.getAnthropicDiagnostics).toHaveBeenCalledWith({
       binaryPath: "/opt/claude/bin/claude",
@@ -625,6 +626,53 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- quota_source: claude-auth-status-json");
     expect(report).toContain("- five_hour_remaining: 43% reset_at=2026-03-25T18:00:00.000Z");
     expect(report).toContain("- seven_day_remaining: 88% reset_at=2026-04-01T00:00:00.000Z");
+  });
+
+  it("reports Anthropic quota window details when the Claude OAuth fallback wins", async () => {
+    anthropicMocks.getAnthropicDiagnostics.mockResolvedValueOnce({
+      installed: true,
+      version: "1.2.5",
+      authStatus: "authenticated",
+      quotaSupported: true,
+      quotaSource: "claude-credentials-oauth-api",
+      checkedCommands: ["claude --version", "claude auth status --json"],
+      quota: {
+        success: true,
+        five_hour: {
+          percentRemaining: 65,
+          resetTimeIso: "2026-03-25T18:00:00.000Z",
+        },
+        seven_day: {
+          percentRemaining: 85,
+          resetTimeIso: "2026-04-01T00:00:00.000Z",
+        },
+      },
+    });
+
+    const { buildQuotaStatusReport } = await import("../src/lib/quota-status.js");
+    const report = await buildQuotaStatusReport({
+      configSource: "test",
+      configPaths: [],
+      enabledProviders: ["anthropic"],
+      alibabaCodingPlanTier: "lite",
+      cursorPlan: "none",
+      pricingSnapshotSource: "auto",
+      onlyCurrentModel: false,
+      providerAvailability: [
+        {
+          id: "anthropic",
+          enabled: true,
+          available: true,
+        },
+      ],
+      generatedAtMs: Date.UTC(2026, 2, 12, 12, 45, 0),
+    });
+
+    expect(report).toContain("- cli_version: 1.2.5");
+    expect(report).toContain("- quota_supported: true");
+    expect(report).toContain("- quota_source: claude-credentials-oauth-api");
+    expect(report).toContain("- five_hour_remaining: 65% reset_at=2026-03-25T18:00:00.000Z");
+    expect(report).toContain("- seven_day_remaining: 85% reset_at=2026-04-01T00:00:00.000Z");
   });
 
   it("reports NanoGPT live subscription and balance diagnostics when configured", async () => {

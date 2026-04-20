@@ -158,7 +158,7 @@ Keep the `tui.json` or `tui.jsonc` entry above and disable toasts in `opencode.j
 
 | Provider                | Auto setup                                           | Authentication                  | Quota                    |
 | ----------------------- | ---------------------------------------------------- | ------------------------------- | ------------------------ |
-| **Anthropic (Claude)**  | Needs [quick setup](#anthropic-quick-setup)          | Local CLI auth                  | Local CLI report         |
+| **Anthropic (Claude)**  | Needs [quick setup](#anthropic-quick-setup)          | Local CLI auth                  | Local CLI report, OAuth fallback |
 | **GitHub Copilot**      | Usually                                              | OpenCode auth or PAT            | Remote API               |
 | **OpenAI**              | Yes                                                  | OpenCode auth                   | Remote API               |
 | **Cursor**              | Needs [quick setup](#cursor-quick-setup)             | Companion auth                  | Local runtime accounting |
@@ -178,18 +178,20 @@ Keep the `tui.json` or `tui.jsonc` entry above and disable toasts in `opencode.j
 <details>
 <summary><strong>Quick setup: Anthropic (Claude)</strong></summary>
 
-Anthropic quota support now checks the local Claude CLI instead of passing Claude consumer OAuth tokens directly to Anthropic APIs.
+Anthropic quota support is local-first: it checks the local Claude CLI first, and if Claude auth is confirmed but local quota windows are missing, it falls back to Claude's local credentials file plus the Anthropic OAuth usage API.
 
 If Claude Code is already installed and authenticated, this usually works automatically. Otherwise:
 
 1. Install Claude Code so `claude` is available on your `PATH`.
 2. Run `claude auth login`.
-3. Confirm `claude auth status` succeeds locally.
+3. Confirm `claude auth status --json` or `claude auth status` succeeds locally.
 4. Confirm OpenCode is configured with the `anthropic` provider.
 
 If Claude lives at a custom path, set `experimental.quotaToast.anthropicBinaryPath`. The default is `claude`.
 
-If you use Anthropic via API key in OpenCode, model usage still works normally. This plugin only shows Anthropic quota rows when the local Claude CLI exposes quota windows.
+When local CLI auth is present but local windows are missing, the plugin reads `~/.claude/.credentials.json`, extracts `claudeAiOauth.accessToken`, and queries Anthropic's OAuth usage endpoint. No manual Claude consumer token config is required.
+
+If you use Anthropic via API key in OpenCode, model usage still works normally. This plugin only shows Anthropic quota rows when local Claude auth is present and either the CLI or the Claude OAuth fallback can provide quota windows.
 
 For behavior details and troubleshooting, see [Anthropic notes](#anthropic-notes).
 
@@ -319,19 +321,25 @@ Environment variables take precedence over the config file. Run `/quota_status` 
 <details>
 <summary><strong>Anthropic (Claude)</strong></summary>
 
-The plugin probes the local Claude CLI with `anthropicBinaryPath --version` and `anthropicBinaryPath auth status`. By default `anthropicBinaryPath` is `claude`, so standard installs work without extra config. It does not pass Claude Free/Pro/Max OAuth tokens directly to Anthropic endpoints.
+The plugin probes the local Claude CLI with `anthropicBinaryPath --version` and `anthropicBinaryPath auth status --json` first. By default `anthropicBinaryPath` is `claude`, so standard installs work without extra config.
 
-If the Claude CLI exposes 5-hour and 7-day quota windows in local structured output, the plugin shows them. If the CLI only exposes auth state, Anthropic quota rows are skipped and `/quota_status` explains why.
+If the Claude CLI exposes 5-hour and 7-day quota windows in local structured output, the plugin shows them directly. If the CLI only exposes auth state, the plugin falls back to `~/.claude/.credentials.json` and Anthropic's OAuth usage endpoint. Anthropic rows are skipped only when both the local CLI and the fallback cannot provide quota windows.
+
+- Provider availability remains local-only: Anthropic is considered available when the local Claude CLI is installed and authenticated.
+- `experimental.quotaToast.anthropicBinaryPath` only changes CLI probing. It does not change the fallback credentials-file location.
+- `/quota_status` shows `quota_source` as either `claude-auth-status-json`, `claude-credentials-oauth-api`, or `(none)`.
 
 **Troubleshooting:**
 
-| Problem                           | Solution                                                                                                   |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `claude` not found                | Install Claude Code and make sure `claude` is on your `PATH`                                               |
-| Claude installed at a custom path | Set `experimental.quotaToast.anthropicBinaryPath` to the Claude executable path                            |
-| Not authenticated                 | Run `claude auth login`, then confirm `claude auth status` works                                           |
-| Authenticated but no quota rows   | Your local Claude CLI version did not expose quota windows; run `/quota_status` for the exact probe result |
-| Plugin not detected               | Confirm OpenCode is configured with the `anthropic` provider                                               |
+| Problem                                      | Solution                                                                                                                                      |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claude` not found                           | Install Claude Code and make sure `claude` is on your `PATH`                                                                                  |
+| Claude installed at a custom path            | Set `experimental.quotaToast.anthropicBinaryPath` to the Claude executable path                                                               |
+| Not authenticated                            | Run `claude auth login`, then confirm `claude auth status --json` or `claude auth status` works                                              |
+| Authenticated but no quota rows              | Run `/quota_status` and check `quota_source` plus `message` to see whether the local CLI, the fallback credentials file, or the fallback API failed |
+| Missing or invalid `~/.claude/.credentials.json` | Re-authenticate Claude Code so it rewrites the local credentials file, then rerun `/quota_status`                                             |
+| Fallback API error or no quota response      | Check `/quota_status` for the sanitized fallback error detail and retry after Claude Code refreshes local auth                               |
+| Plugin not detected                          | Confirm OpenCode is configured with the `anthropic` provider                                                                                  |
 
 </details>
 
