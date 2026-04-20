@@ -11,6 +11,7 @@ export type CanonicalQuotaProviderId =
   | "zai"
   | "nanogpt"
   | "minimax-coding-plan"
+  | "kimi-for-coding"
   | "opencode-go";
 
 export type QuotaProviderAutoSetup = "yes" | "usually" | "needs_quick_setup";
@@ -56,6 +57,8 @@ export const QUOTA_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   zai: "Z.ai",
   nanogpt: "NanoGPT",
   "minimax-coding-plan": "MiniMax Coding Plan",
+  "kimi-for-coding": "Kimi Code",
+  "kimi-code": "Kimi Code",
   "opencode-go": "OpenCode Go",
 };
 
@@ -72,6 +75,9 @@ export const QUOTA_PROVIDER_ID_SYNONYMS: Readonly<Record<string, string>> = {
   alibaba: "alibaba-coding-plan",
   "nano-gpt": "nanogpt",
   minimax: "minimax-coding-plan",
+  kimi: "kimi-for-coding",
+  "kimi-for-code": "kimi-for-coding",
+  "kimi-code": "kimi-for-coding",
   "opencode-go-subscription": "opencode-go",
 };
 
@@ -88,6 +94,7 @@ export const QUOTA_PROVIDER_RUNTIME_IDS: QuotaProviderRuntimeIds = {
   zai: ["zai", "glm", "zai-coding-plan"],
   nanogpt: ["nanogpt", "nano-gpt"],
   "minimax-coding-plan": ["minimax-coding-plan", "minimax"],
+  "kimi-for-coding": ["kimi-for-coding", "kimi", "kimi-code"],
   "opencode-go": ["opencode-go"],
 };
 
@@ -171,6 +178,13 @@ export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
   },
   {
     id: "minimax-coding-plan",
+    autoSetup: "yes",
+    authentication: "opencode_auth_api_key",
+    authFallbacks: ["env_api_key", "global_opencode_config"],
+    quota: "remote_api",
+  },
+  {
+    id: "kimi-for-coding",
     autoSetup: "yes",
     authentication: "opencode_auth_api_key",
     authFallbacks: ["env_api_key", "global_opencode_config"],

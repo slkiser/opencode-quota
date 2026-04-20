@@ -266,6 +266,8 @@ export interface AuthData {
     key: string;
   };
   "minimax-coding-plan"?: MiniMaxAuthData;
+  "kimi-code"?: KimiAuthData;
+  kimi?: KimiAuthData;
 }
 
 // =============================================================================
@@ -312,6 +314,34 @@ export interface GoogleQuotaResponse {
     }
   >;
 }
+
+// =============================================================================
+// Kimi Types
+// =============================================================================
+
+/** Kimi auth entry in auth.json */
+export interface KimiAuthData {
+  type: "api";
+  key: string;
+}
+
+/** Kimi quota window */
+export interface KimiQuotaWindow {
+  label: string;
+  used: number;
+  limit: number;
+  percentRemaining: number;
+  resetTimeIso?: string;
+}
+
+/** Result from fetching Kimi quota */
+export interface KimiQuotaResult {
+  success: true;
+  label: string;
+  windows: KimiQuotaWindow[];
+}
+
+export type KimiResult = KimiQuotaResult | QuotaError | null;
 
 // =============================================================================
 // Z.ai Types

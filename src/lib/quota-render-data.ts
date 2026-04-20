@@ -205,12 +205,7 @@ async function fetchProviderWithCache(params: {
   const now = Date.now();
   const existing = providerFetchCache.get(cacheKey);
 
-  if (
-    existing?.result &&
-    existing.timestamp > 0 &&
-    ttlMs > 0 &&
-    now - existing.timestamp < ttlMs
-  ) {
+  if (existing?.result && existing.timestamp > 0 && ttlMs > 0 && now - existing.timestamp < ttlMs) {
     return existing.result;
   }
 

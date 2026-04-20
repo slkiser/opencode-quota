@@ -32,6 +32,12 @@ import {
 } from "./minimax-auth.js";
 import { DEFAULT_ZAI_AUTH_CACHE_MAX_AGE_MS, getZaiAuthDiagnostics } from "./zai-auth.js";
 import {
+  DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS,
+  getKimiAuthDiagnostics,
+  resolveKimiAuthCached,
+} from "./kimi-auth.js";
+import { queryKimiQuota } from "./kimi.js";
+import {
   getPricingSnapshotHealth,
   getPricingRefreshPolicy,
   getPricingSnapshotMeta,
@@ -308,6 +314,14 @@ function supportedProviderPricingRow(params: {
     };
   }
 
+  if (id === "kimi-code") {
+    return {
+      id,
+      pricing: "no",
+      notes: "request quota via Kimi Code API (not token-priced)",
+    };
+  }
+
   // Providers that correspond directly to models.dev providers.
   if (params.snapshotProviders.includes(id)) {
     return { id, pricing: "yes", notes: "models.dev snapshot provider" };
@@ -431,7 +445,9 @@ export async function buildQuotaStatusReport(params: {
     lines.push(`- inferred_selected_config_path: ${params.tuiDiagnostics.inferredSelectedPath ?? "(none)"}`);
     lines.push(`- present_config_paths: ${joinOrNone(params.tuiDiagnostics.presentPaths)}`);
     lines.push(`- candidate_config_paths: ${joinOrNone(params.tuiDiagnostics.candidatePaths)}`);
-    lines.push(`- quota_plugin_configured: ${params.tuiDiagnostics.quotaPluginConfigured ? "true" : "false"}`);
+    lines.push(
+      `- quota_plugin_configured: ${params.tuiDiagnostics.quotaPluginConfigured ? "true" : "false"}`,
+    );
     lines.push(`- quota_plugin_paths: ${joinOrNone(params.tuiDiagnostics.quotaPluginConfigPaths)}`);
   }
   lines.push("- providers:");
@@ -491,9 +507,7 @@ export async function buildQuotaStatusReport(params: {
     `- alibaba auth configured: ${alibabaAuthDiagnostics.state === "none" ? "false" : "true"}`,
   );
   lines.push(`- alibaba_api_key_source: ${alibabaAuthDiagnostics.source ?? "(none)"}`);
-  lines.push(
-    `- alibaba_api_key_checked_paths: ${joinOrNone(alibabaAuthDiagnostics.checkedPaths)}`,
-  );
+  lines.push(`- alibaba_api_key_checked_paths: ${joinOrNone(alibabaAuthDiagnostics.checkedPaths)}`);
   lines.push(`- alibaba_api_key_auth_paths: ${joinOrNone(alibabaAuthDiagnostics.authPaths)}`);
   lines.push(`- alibaba coding plan fallback tier: ${params.alibabaCodingPlanTier}`);
   lines.push(
@@ -691,6 +705,37 @@ export async function buildQuotaStatusReport(params: {
         if (!fiveHourEntry && !weeklyEntry) {
           lines.push("- live_state: no reportable MiniMax Coding Plan quota");
         }
+      }
+    }
+  }
+
+  lines.push("");
+  lines.push("kimi:");
+  const kimiAuth = await getKimiAuthDiagnostics({
+    maxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS,
+  });
+  lines.push(`- auth_state: ${kimiAuth.state}`);
+  lines.push(`- api_key_configured: ${kimiAuth.state === "configured" ? "true" : "false"}`);
+  lines.push(`- api_key_source: ${kimiAuth.source ?? "(none)"}`);
+  lines.push(`- api_key_checked_paths: ${joinOrNone(kimiAuth.checkedPaths)}`);
+  lines.push(`- api_key_auth_paths: ${joinOrNone(kimiAuth.authPaths)}`);
+  if (kimiAuth.state === "invalid") {
+    lines.push(`- auth_error: ${sanitizeDisplayText(kimiAuth.error)}`);
+  }
+  if (kimiAuth.state === "configured") {
+    const kimiQuota = await queryKimiQuota();
+    if (!kimiQuota) {
+      lines.push("- live_fetch_error: Kimi API key became unavailable before fetch");
+    } else if (!kimiQuota.success) {
+      lines.push(`- live_fetch_error: ${kimiQuota.error}`);
+    } else {
+      for (const window of kimiQuota.windows) {
+        lines.push(
+          `- ${window.label.toLowerCase().replace(/\s+/g, "_")}: used=${window.used}/${window.limit} percent_remaining=${window.percentRemaining} reset_at=${window.resetTimeIso ?? "(none)"}`,
+        );
+      }
+      if (kimiQuota.windows.length === 0) {
+        lines.push("- live_state: no reportable Kimi quota");
       }
     }
   }

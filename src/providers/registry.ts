@@ -18,6 +18,7 @@ import { zaiProvider } from "./zai.js";
 import { nanoGptProvider } from "./nanogpt.js";
 import { minimaxCodingPlanProvider } from "./minimax-coding-plan.js";
 import { opencodeGoProvider } from "./opencode-go.js";
+import { kimiCodeProvider } from "./kimi-code.js";
 
 export function getProviders(): QuotaProvider[] {
   // Order here defines display ordering in the toast.
@@ -34,6 +35,7 @@ export function getProviders(): QuotaProvider[] {
     zaiProvider,
     nanoGptProvider,
     minimaxCodingPlanProvider,
+    kimiCodeProvider,
     opencodeGoProvider,
   ];
 }

@@ -1,20 +1,20 @@
 # OpenCode Quota
+
 [![npm version](https://img.shields.io/npm/v/%40slkiser%2Fopencode-quota)](https://www.npmjs.com/package/@slkiser/opencode-quota)
 [![npm downloads](https://img.shields.io/npm/dm/%40slkiser%2Fopencode-quota)](https://www.npmjs.com/package/@slkiser/opencode-quota)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/slkiser/opencode-quota/ci.yml?branch=main&label=CI)](https://github.com/slkiser/opencode-quota/actions/workflows/ci.yml)
 [![Node >=18](https://img.shields.io/badge/node-%3E%3D18-339933)](./package.json)
 
-
 `opencode-quota` adds usage quota and token visibility to OpenCode with zero context-window pollution.
 
 What you get:
 
-- TUI sidebar panel with quota 
+- TUI sidebar panel with quota
 - popup quota toasts after assistant responses
 - manual `/quota`, `/quota_status`, and `/tokens_*` commands
 
-**Quota providers**: Anthropic (Claude), GitHub Copilot, OpenAI (Plus/Pro), Cursor, Qwen Code, Alibaba Coding Plan, MiniMax Coding Plan, Chutes AI, Firmware AI, Google Antigravity, Z.ai Coding Plan, NanoGPT, and OpenCode Go.
+**Quota providers**: Anthropic (Claude), GitHub Copilot, OpenAI (Plus/Pro), Cursor, Qwen Code, Alibaba Coding Plan, MiniMax Coding Plan, Kimi Code, Chutes AI, Firmware AI, Google Antigravity, Z.ai Coding Plan, NanoGPT, and OpenCode Go.
 
 **Token reports**: All models and providers in [models.dev](https://models.dev), plus deterministic local pricing for Cursor Auto/Composer and Cursor model aliases that are not on models.dev.
 
@@ -45,15 +45,17 @@ What you get:
   </tr>
 </table>
 
-OpenCode `>= 1.4.3` is required. 
+OpenCode `>= 1.4.3` is required.
 
 If you are coming back later:
+
 - see [Provider Setup At A Glance](#provider-setup-at-a-glance) for provider-specific setup needs
 - see [Commands](#commands) for the slash commands
 - see [Configuration Reference](#configuration-reference) when you want to customize behavior
 - see [Troubleshooting](#troubleshooting) if something does not appear or auto-detect correctly
 
 ## Installation
+
 ### Automatic setup (recommended)
 
 ```sh
@@ -62,23 +64,22 @@ npx @slkiser/opencode-quota init
 
 The installer (append-only, preserves existing values) asks for:
 
-- **Scope**: `Project` or `Global` 
+- **Scope**: `Project` or `Global`
 - **Quota UI**: `Toast`, `Sidebar`, `Toast + Sidebar`, or `None (manual /quota and /tokens_* only)`
-- **Provider mode**: `Auto-detect` or `Manual select` 
-- **Layout style**: `classic` or `grouped` 
-- **Show session input/output tokens**: `Yes` or `No` 
+- **Provider mode**: `Auto-detect` or `Manual select`
+- **Layout style**: `classic` or `grouped`
+- **Show session input/output tokens**: `Yes` or `No`
 
 All quota settings live in `opencode.json` or `opencode.jsonc`. `tui.json` or `tui.jsonc` is only for loading the sidebar plugin.
 
-
-### After install 
+### After install
 
 1. Restart OpenCode.
 2. Run `/quota_status`.
 3. Run `/quota`.
 4. If you chose `Sidebar` or `Toast + Sidebar`, open the session sidebar and confirm the `Quota` panel appears.
 
-### Manual setup 
+### Manual setup
 
 You can install manually, but the installer is easier and safer.
 
@@ -87,7 +88,7 @@ You can install manually, but the installer is easier and safer.
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["@slkiser/opencode-quota"]
+  "plugin": ["@slkiser/opencode-quota"],
 }
 ```
 
@@ -96,7 +97,7 @@ You can install manually, but the installer is easier and safer.
 ```jsonc
 {
   "$schema": "https://opencode.ai/tui.json",
-  "plugin": ["@slkiser/opencode-quota"]
+  "plugin": ["@slkiser/opencode-quota"],
 }
 ```
 
@@ -115,9 +116,9 @@ Keep the `tui.json` or `tui.jsonc` entry above and disable toasts in `opencode.j
   "plugin": ["@slkiser/opencode-quota"],
   "experimental": {
     "quotaToast": {
-      "enableToast": false
-    }
-  }
+      "enableToast": false,
+    },
+  },
 }
 ```
 
@@ -130,9 +131,9 @@ Keep the `tui.json` or `tui.jsonc` entry above and disable toasts in `opencode.j
 {
   "experimental": {
     "quotaToast": {
-      "enabledProviders": ["copilot", "openai", "google-antigravity"]
-    }
-  }
+      "enabledProviders": ["copilot", "openai", "google-antigravity"],
+    },
+  },
 }
 ```
 
@@ -145,9 +146,9 @@ Keep the `tui.json` or `tui.jsonc` entry above and disable toasts in `opencode.j
 {
   "experimental": {
     "quotaToast": {
-      "formatStyle": "grouped"
-    }
-  }
+      "formatStyle": "grouped",
+    },
+  },
 }
 ```
 
@@ -155,24 +156,25 @@ Keep the `tui.json` or `tui.jsonc` entry above and disable toasts in `opencode.j
 
 ## Provider Setup At A Glance
 
-| Provider | Auto setup | Authentication | Quota |
-| --- | --- | --- | --- |
-| **Anthropic (Claude)** | Needs [quick setup](#anthropic-quick-setup) | Local CLI auth | Local CLI report |
-| **GitHub Copilot** | Usually | OpenCode auth or PAT | Remote API |
-| **OpenAI** | Yes | OpenCode auth | Remote API |
-| **Cursor** | Needs [quick setup](#cursor-quick-setup) | Companion auth | Local runtime accounting |
-| **Qwen Code** | Needs [quick setup](#qwen-code-quick-setup) | Companion auth | Local estimation |
-| **Alibaba Coding Plan** | Yes | OpenCode auth/global config/env | Local estimation |
-| **Firmware AI** | Usually | OpenCode auth/global config/env | Remote API |
-| **Chutes AI** | Usually | OpenCode auth/global config/env | Remote API |
-| **Google Antigravity** | Needs [quick setup](#google-antigravity-quick-setup) | Companion auth | Remote API |
-| **Z.ai** | Yes | OpenCode auth/global config/env | Remote API |
-| **NanoGPT** | Usually | OpenCode auth/global config/env | Remote API |
-| **MiniMax Coding Plan** | Yes | OpenCode auth/global config/env | Remote API |
-| **OpenCode Go** | Needs [quick setup](#opencode-go-quick-setup) | Env/config auth | Dashboard scraping |
-
+| Provider                | Auto setup                                           | Authentication                  | Quota                    |
+| ----------------------- | ---------------------------------------------------- | ------------------------------- | ------------------------ |
+| **Anthropic (Claude)**  | Needs [quick setup](#anthropic-quick-setup)          | Local CLI auth                  | Local CLI report         |
+| **GitHub Copilot**      | Usually                                              | OpenCode auth or PAT            | Remote API               |
+| **OpenAI**              | Yes                                                  | OpenCode auth                   | Remote API               |
+| **Cursor**              | Needs [quick setup](#cursor-quick-setup)             | Companion auth                  | Local runtime accounting |
+| **Qwen Code**           | Needs [quick setup](#qwen-code-quick-setup)          | Companion auth                  | Local estimation         |
+| **Alibaba Coding Plan** | Yes                                                  | OpenCode auth/global config/env | Local estimation         |
+| **Firmware AI**         | Usually                                              | OpenCode auth/global config/env | Remote API               |
+| **Chutes AI**           | Usually                                              | OpenCode auth/global config/env | Remote API               |
+| **Google Antigravity**  | Needs [quick setup](#google-antigravity-quick-setup) | Companion auth                  | Remote API               |
+| **Z.ai**                | Yes                                                  | OpenCode auth/global config/env | Remote API               |
+| **NanoGPT**             | Usually                                              | OpenCode auth/global config/env | Remote API               |
+| **MiniMax Coding Plan** | Yes                                                  | OpenCode auth/global config/env | Remote API               |
+| **Kimi Code**           | Yes                                                  | OpenCode auth/global config/env | Remote API               |
+| **OpenCode Go**         | Needs [quick setup](#opencode-go-quick-setup)        | Env/config auth                 | Dashboard scraping       |
 
 <a id="anthropic-quick-setup"></a>
+
 <details>
 <summary><strong>Quick setup: Anthropic (Claude)</strong></summary>
 
@@ -194,6 +196,7 @@ For behavior details and troubleshooting, see [Anthropic notes](#anthropic-notes
 </details>
 
 <a id="cursor-quick-setup"></a>
+
 <details>
 <summary><strong>Quick setup: Cursor</strong></summary>
 
@@ -205,15 +208,15 @@ Cursor quota support requires the `@playwo/opencode-cursor-oauth` [plugin](https
   "plugin": ["@playwo/opencode-cursor-oauth", "@slkiser/opencode-quota"],
   "provider": {
     "cursor": {
-      "name": "Cursor"
-    }
+      "name": "Cursor",
+    },
   },
   "experimental": {
     "quotaToast": {
       "cursorPlan": "pro",
-      "cursorBillingCycleStartDay": 7
-    }
-  }
+      "cursorBillingCycleStartDay": 7,
+    },
+  },
 }
 ```
 
@@ -228,6 +231,7 @@ For behavior details and troubleshooting, see [Cursor notes](#cursor-notes).
 </details>
 
 <a id="google-antigravity-quick-setup"></a>
+
 <details>
 <summary><strong>Quick setup: Google Antigravity</strong></summary>
 
@@ -235,7 +239,7 @@ Google quota support requires the `opencode-antigravity-auth` [plugin](https://g
 
 ```jsonc
 {
-  "plugin": ["opencode-antigravity-auth", "@slkiser/opencode-quota"]
+  "plugin": ["opencode-antigravity-auth", "@slkiser/opencode-quota"],
 }
 ```
 
@@ -244,6 +248,7 @@ For behavior details and troubleshooting, see [Google Antigravity notes](#google
 </details>
 
 <a id="qwen-code-quick-setup"></a>
+
 <details>
 <summary><strong>Quick setup: Qwen Code</strong></summary>
 
@@ -251,7 +256,7 @@ Qwen quota support requires the `opencode-qwencode-auth` [plugin](https://github
 
 ```jsonc
 {
-  "plugin": ["opencode-qwencode-auth", "@slkiser/opencode-quota"]
+  "plugin": ["opencode-qwencode-auth", "@slkiser/opencode-quota"],
 }
 ```
 
@@ -260,6 +265,7 @@ For behavior details and troubleshooting, see [Qwen Code notes](#qwen-code-notes
 </details>
 
 <a id="opencode-go-quick-setup"></a>
+
 <details>
 <summary><strong>Quick setup: OpenCode Go</strong></summary>
 
@@ -292,24 +298,24 @@ Environment variables take precedence over the config file. Run `/quota_status` 
 
 ## Commands
 
-| Command | What it shows |
-| --- | --- |
-| `/quota` | Manual grouped quota report with a local call timestamp |
-| `/quota_status` | Concise diagnostics for config, TUI setup, provider availability, account detection, and pricing snapshot health |
-| `/pricing_refresh` | Pull the local runtime pricing snapshot from `models.dev` on demand |
-| `/tokens_today` | Tokens used today (calendar day) |
-| `/tokens_daily` | Tokens used in the last 24 hours |
-| `/tokens_weekly` | Tokens used in the last 7 days |
-| `/tokens_monthly` | Tokens used in the last 30 days, including pricing sections |
-| `/tokens_all` | Tokens used across all local history |
-| `/tokens_session` | Tokens used in the current session only |
-| `/tokens_session_all` | Tokens used in the current session plus all descendant child/subagent sessions |
-| `/tokens_between` | Tokens used between two dates: `YYYY-MM-DD YYYY-MM-DD` |
-
+| Command               | What it shows                                                                                                    |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `/quota`              | Manual grouped quota report with a local call timestamp                                                          |
+| `/quota_status`       | Concise diagnostics for config, TUI setup, provider availability, account detection, and pricing snapshot health |
+| `/pricing_refresh`    | Pull the local runtime pricing snapshot from `models.dev` on demand                                              |
+| `/tokens_today`       | Tokens used today (calendar day)                                                                                 |
+| `/tokens_daily`       | Tokens used in the last 24 hours                                                                                 |
+| `/tokens_weekly`      | Tokens used in the last 7 days                                                                                   |
+| `/tokens_monthly`     | Tokens used in the last 30 days, including pricing sections                                                      |
+| `/tokens_all`         | Tokens used across all local history                                                                             |
+| `/tokens_session`     | Tokens used in the current session only                                                                          |
+| `/tokens_session_all` | Tokens used in the current session plus all descendant child/subagent sessions                                   |
+| `/tokens_between`     | Tokens used between two dates: `YYYY-MM-DD YYYY-MM-DD`                                                           |
 
 ## Provider-Specific Notes
 
 <a id="anthropic-notes"></a>
+
 <details>
 <summary><strong>Anthropic (Claude)</strong></summary>
 
@@ -319,17 +325,18 @@ If the Claude CLI exposes 5-hour and 7-day quota windows in local structured out
 
 **Troubleshooting:**
 
-| Problem | Solution |
-| --- | --- |
-| `claude` not found | Install Claude Code and make sure `claude` is on your `PATH` |
-| Claude installed at a custom path | Set `experimental.quotaToast.anthropicBinaryPath` to the Claude executable path |
-| Not authenticated | Run `claude auth login`, then confirm `claude auth status` works |
-| Authenticated but no quota rows | Your local Claude CLI version did not expose quota windows; run `/quota_status` for the exact probe result |
-| Plugin not detected | Confirm OpenCode is configured with the `anthropic` provider |
+| Problem                           | Solution                                                                                                   |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `claude` not found                | Install Claude Code and make sure `claude` is on your `PATH`                                               |
+| Claude installed at a custom path | Set `experimental.quotaToast.anthropicBinaryPath` to the Claude executable path                            |
+| Not authenticated                 | Run `claude auth login`, then confirm `claude auth status` works                                           |
+| Authenticated but no quota rows   | Your local Claude CLI version did not expose quota windows; run `/quota_status` for the exact probe result |
+| Plugin not detected               | Confirm OpenCode is configured with the `anthropic` provider                                               |
 
 </details>
 
 <a id="github-copilot-notes"></a>
+
 <details>
 <summary><strong>GitHub Copilot</strong></summary>
 
@@ -364,6 +371,7 @@ Example `copilot-quota-token.json`:
 </details>
 
 <a id="cursor-notes"></a>
+
 <details>
 <summary><strong>Cursor</strong></summary>
 
@@ -382,15 +390,16 @@ Example override:
   "experimental": {
     "quotaToast": {
       "cursorPlan": "none",
-      "cursorIncludedApiUsd": 120
-    }
-  }
+      "cursorIncludedApiUsd": 120,
+    },
+  },
 }
 ```
 
 </details>
 
 <a id="openai-notes"></a>
+
 <details>
 <summary><strong>OpenAI</strong></summary>
 
@@ -403,6 +412,7 @@ OpenAI uses native OpenCode OAuth from `auth.json`. The canonical auth family is
 </details>
 
 <a id="qwen-code-notes"></a>
+
 <details>
 <summary><strong>Qwen Code</strong></summary>
 
@@ -417,6 +427,7 @@ See [Qwen Code quick setup](#qwen-code-quick-setup) for auth. Usage is local-onl
 </details>
 
 <a id="alibaba-coding-plan-notes"></a>
+
 <details>
 <summary><strong>Alibaba Coding Plan</strong></summary>
 
@@ -438,16 +449,16 @@ Example fallback tier:
 {
   "experimental": {
     "quotaToast": {
-      "alibabaCodingPlanTier": "lite"
-    }
-  }
+      "alibabaCodingPlanTier": "lite",
+    },
+  },
 }
 ```
 
 </details>
 
-
 <a id="minimax-coding-plan-notes"></a>
+
 <details>
 <summary><strong>MiniMax Coding Plan</strong></summary>
 
@@ -462,7 +473,23 @@ MiniMax Coding Plan uses trusted env vars or trusted user/global OpenCode config
 
 </details>
 
+<a id="kimi-code-notes"></a>
+
+<details>
+<summary><strong>Kimi Code</strong></summary>
+
+Kimi Code uses trusted env vars or trusted user/global OpenCode config first, then native OpenCode auth from `auth.json["kimi-for-coding"]` or `auth.json["kimi-code"]`. No additional plugin is required.
+
+- API key sources are `KIMI_API_KEY`, `KIMI_CODE_API_KEY`, trusted user/global `provider["kimi-for-coding"].options.apiKey` or `provider["kimi-code"].options.apiKey`, then `auth.json`.
+- Repo-local `opencode.json` / `opencode.jsonc` is ignored for Kimi secrets.
+- Allowed env templates are limited to `{env:KIMI_API_KEY}` and `{env:KIMI_CODE_API_KEY}`.
+- The plugin calls `https://api.kimi.com/coding/v1/usages`.
+- `/quota_status` shows auth detection, API-key diagnostics, live quota state, and endpoint errors.
+
+</details>
+
 <a id="zai-notes"></a>
+
 <details>
 <summary><strong>Z.ai</strong></summary>
 
@@ -477,6 +504,7 @@ Z.ai uses trusted env vars or trusted user/global OpenCode config first, then na
 </details>
 
 <a id="firmware-ai-notes"></a>
+
 <details>
 <summary><strong>Firmware AI</strong></summary>
 
@@ -493,16 +521,17 @@ Example user/global config (`~/.config/opencode/opencode.jsonc` on Linux/macOS):
   "provider": {
     "firmware": {
       "options": {
-        "apiKey": "{env:FIRMWARE_API_KEY}"
-      }
-    }
-  }
+        "apiKey": "{env:FIRMWARE_API_KEY}",
+      },
+    },
+  },
 }
 ```
 
 </details>
 
 <a id="chutes-ai-notes"></a>
+
 <details>
 <summary><strong>Chutes AI</strong></summary>
 
@@ -519,16 +548,17 @@ Example user/global config (`~/.config/opencode/opencode.jsonc` on Linux/macOS):
   "provider": {
     "chutes": {
       "options": {
-        "apiKey": "{env:CHUTES_API_KEY}"
-      }
-    }
-  }
+        "apiKey": "{env:CHUTES_API_KEY}",
+      },
+    },
+  },
 }
 ```
 
 </details>
 
 <a id="google-antigravity-notes"></a>
+
 <details>
 <summary><strong>Google Antigravity</strong></summary>
 
@@ -541,6 +571,7 @@ See [Google Antigravity quick setup](#google-antigravity-quick-setup). This comp
 </details>
 
 <a id="nanogpt-notes"></a>
+
 <details>
 <summary><strong>NanoGPT</strong></summary>
 
@@ -560,16 +591,17 @@ Example user/global config (`~/.config/opencode/opencode.jsonc` on Linux/macOS):
   "provider": {
     "nanogpt": {
       "options": {
-        "apiKey": "{env:NANOGPT_API_KEY}"
-      }
-    }
-  }
+        "apiKey": "{env:NANOGPT_API_KEY}",
+      },
+    },
+  },
 }
 ```
 
 </details>
 
 <a id="opencode-go-notes"></a>
+
 <details>
 <summary><strong>OpenCode Go</strong></summary>
 
@@ -585,12 +617,12 @@ OpenCode Go quota scrapes the OpenCode Go dashboard at `https://opencode.ai/work
 
 **Troubleshooting:**
 
-| Problem | Solution |
-| --- | --- |
-| Config not detected | Confirm `OPENCODE_GO_WORKSPACE_ID` and `OPENCODE_GO_AUTH_COOKIE` are set, then use `/quota_status` to inspect the exact config paths checked on your machine |
-| Incomplete config | Both `workspaceId` and `authCookie` are required; check `/quota_status` for which field is missing |
-| Scrape returns no data | The auth cookie may have expired; get a fresh one from your browser |
-| Dashboard format changed | The SolidJS SSR pattern may have changed; file an issue or wait for the official API |
+| Problem                  | Solution                                                                                                                                                     |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Config not detected      | Confirm `OPENCODE_GO_WORKSPACE_ID` and `OPENCODE_GO_AUTH_COOKIE` are set, then use `/quota_status` to inspect the exact config paths checked on your machine |
+| Incomplete config        | Both `workspaceId` and `authCookie` are required; check `/quota_status` for which field is missing                                                           |
+| Scrape returns no data   | The auth cookie may have expired; get a fresh one from your browser                                                                                          |
+| Dashboard format changed | The SolidJS SSR pattern may have changed; file an issue or wait for the official API                                                                         |
 
 </details>
 
@@ -602,32 +634,31 @@ When both are present, user/global config provides defaults. Project/workspace c
 
 ### Core/shared settings
 
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `enabled` | `true` | Master switch for quota collection and handled slash commands. When `false`, `/quota`, `/quota_status`, `/pricing_refresh`, and `/tokens_*` are handled as no-ops. |
-| `enabledProviders` | `"auto"` | Auto-detect providers, or set an explicit provider list. |
-| `minIntervalMs` | `300000` | Minimum fetch interval between provider updates. |
-| `formatStyle` | `classic` | Shared quota-row style for popup toasts and the TUI sidebar: `classic` or `grouped`. Legacy `toastStyle` is still accepted on read for backward compatibility, but `formatStyle` is the canonical key. |
-| `onlyCurrentModel` | `false` | Filter quota rows to the current model/provider when that session selection can be resolved. |
-| `showSessionTokens` | `true` | Show the `Session input/output tokens` section in quota displays when session token data is available. Toasts and `/quota` show per-model input/output rows; the TUI sidebar shows a one-line total summary. |
-| `pricingSnapshot.source` | `"auto"` | Token pricing snapshot selection for `/tokens_*`: `auto`, `bundled`, or `runtime`. |
-| `pricingSnapshot.autoRefresh` | `7` | Refresh stale local pricing data after this many days. |
-
+| Option                        | Default   | Meaning                                                                                                                                                                                                      |
+| ----------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `enabled`                     | `true`    | Master switch for quota collection and handled slash commands. When `false`, `/quota`, `/quota_status`, `/pricing_refresh`, and `/tokens_*` are handled as no-ops.                                           |
+| `enabledProviders`            | `"auto"`  | Auto-detect providers, or set an explicit provider list.                                                                                                                                                     |
+| `minIntervalMs`               | `300000`  | Minimum fetch interval between provider updates.                                                                                                                                                             |
+| `formatStyle`                 | `classic` | Shared quota-row style for popup toasts and the TUI sidebar: `classic` or `grouped`. Legacy `toastStyle` is still accepted on read for backward compatibility, but `formatStyle` is the canonical key.       |
+| `onlyCurrentModel`            | `false`   | Filter quota rows to the current model/provider when that session selection can be resolved.                                                                                                                 |
+| `showSessionTokens`           | `true`    | Show the `Session input/output tokens` section in quota displays when session token data is available. Toasts and `/quota` show per-model input/output rows; the TUI sidebar shows a one-line total summary. |
+| `pricingSnapshot.source`      | `"auto"`  | Token pricing snapshot selection for `/tokens_*`: `auto`, `bundled`, or `runtime`.                                                                                                                           |
+| `pricingSnapshot.autoRefresh` | `7`       | Refresh stale local pricing data after this many days.                                                                                                                                                       |
 
 ### Toast settings
 
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `enableToast` | `true` | Show popup toasts. Disabling this does not disable `/quota` or the TUI sidebar. |
-| `toastDurationMs` | `9000` | Toast duration in milliseconds. |
-| `showOnIdle` | `true` | Show a toast on the idle trigger. |
-| `showOnQuestion` | `true` | Show a toast after a question/assistant response. |
-| `showOnCompact` | `true` | Show a toast after session compaction. |
-| `showOnBothFail` | `true` | Show a fallback toast when providers attempted quota reads and all failed. |
-| `layout.maxWidth` | `50` | Toast formatting width target. Ignored by the TUI sidebar. |
-| `layout.narrowAt` | `42` | Toast compact-layout breakpoint. Ignored by the TUI sidebar. |
-| `layout.tinyAt` | `32` | Toast tiny-layout breakpoint. Ignored by the TUI sidebar. |
-| `debug` | `false` | Append toast debug context when troubleshooting. |
+| Option            | Default | Meaning                                                                         |
+| ----------------- | ------- | ------------------------------------------------------------------------------- |
+| `enableToast`     | `true`  | Show popup toasts. Disabling this does not disable `/quota` or the TUI sidebar. |
+| `toastDurationMs` | `9000`  | Toast duration in milliseconds.                                                 |
+| `showOnIdle`      | `true`  | Show a toast on the idle trigger.                                               |
+| `showOnQuestion`  | `true`  | Show a toast after a question/assistant response.                               |
+| `showOnCompact`   | `true`  | Show a toast after session compaction.                                          |
+| `showOnBothFail`  | `true`  | Show a fallback toast when providers attempted quota reads and all failed.      |
+| `layout.maxWidth` | `50`    | Toast formatting width target. Ignored by the TUI sidebar.                      |
+| `layout.narrowAt` | `42`    | Toast compact-layout breakpoint. Ignored by the TUI sidebar.                    |
+| `layout.tinyAt`   | `32`    | Toast tiny-layout breakpoint. Ignored by the TUI sidebar.                       |
+| `debug`           | `false` | Append toast debug context when troubleshooting.                                |
 
 ### TUI sidebar setup
 
@@ -638,31 +669,31 @@ If you want the `Quota` sidebar panel, you need **two files**:
 
 **Important:** `experimental.quotaToast.*` settings do **not** go in `tui.json`. `tui.json` is only for loading the TUI plugin.
 
-| File | What goes there | Needed for sidebar? |
-| --- | --- | --- |
-| `tui.json` / `tui.jsonc` | `plugin: ["@slkiser/opencode-quota"]` | Yes |
-| `opencode.json` / `opencode.jsonc` | All `experimental.quotaToast.*` settings | Yes |
+| File                               | What goes there                          | Needed for sidebar? |
+| ---------------------------------- | ---------------------------------------- | ------------------- |
+| `tui.json` / `tui.jsonc`           | `plugin: ["@slkiser/opencode-quota"]`    | Yes                 |
+| `opencode.json` / `opencode.jsonc` | All `experimental.quotaToast.*` settings | Yes                 |
 
 ### Provider-specific settings
 
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `anthropicBinaryPath` | `"claude"` | Command/path used for local Claude CLI probing; override this for custom installs or shim locations. |
-| `googleModels` | `["CLAUDE"]` | Google model keys to query: `CLAUDE`, `G3PRO`, `G3FLASH`, `G3IMAGE`. |
-| `alibabaCodingPlanTier` | `"lite"` | Fallback Alibaba Coding Plan tier when auth does not include `tier`. |
-| `cursorPlan` | `"none"` | Cursor included API budget preset: `none`, `pro`, `pro-plus`, `ultra`. |
-| `cursorIncludedApiUsd` | unset | Override Cursor monthly included API budget in USD. |
-| `cursorBillingCycleStartDay` | unset | Local billing-cycle anchor day `1..28`; when unset, Cursor usage resets on the local calendar month. |
+| Option                       | Default      | Meaning                                                                                              |
+| ---------------------------- | ------------ | ---------------------------------------------------------------------------------------------------- |
+| `anthropicBinaryPath`        | `"claude"`   | Command/path used for local Claude CLI probing; override this for custom installs or shim locations. |
+| `googleModels`               | `["CLAUDE"]` | Google model keys to query: `CLAUDE`, `G3PRO`, `G3FLASH`, `G3IMAGE`.                                 |
+| `alibabaCodingPlanTier`      | `"lite"`     | Fallback Alibaba Coding Plan tier when auth does not include `tier`.                                 |
+| `cursorPlan`                 | `"none"`     | Cursor included API budget preset: `none`, `pro`, `pro-plus`, `ultra`.                               |
+| `cursorIncludedApiUsd`       | unset        | Override Cursor monthly included API budget in USD.                                                  |
+| `cursorBillingCycleStartDay` | unset        | Local billing-cycle anchor day `1..28`; when unset, Cursor usage resets on the local calendar month. |
 
 ## Token Pricing Snapshot
 
 `/tokens_*` uses a local `models.dev` pricing snapshot. A bundled snapshot ships for offline use, and Cursor `auto` and `composer*` pricing stays bundled because those ids are not on `models.dev`.
 
-| `pricingSnapshot.source` | Active pricing behavior |
-| --- | --- |
-| `auto` | Newer runtime snapshot wins; otherwise bundled pricing stays active. |
-| `bundled` | Packaged bundled snapshot stays active. |
-| `runtime` | Runtime snapshot stays active when present; bundled pricing is fallback until one exists. |
+| `pricingSnapshot.source` | Active pricing behavior                                                                   |
+| ------------------------ | ----------------------------------------------------------------------------------------- |
+| `auto`                   | Newer runtime snapshot wins; otherwise bundled pricing stays active.                      |
+| `bundled`                | Packaged bundled snapshot stays active.                                                   |
+| `runtime`                | Runtime snapshot stays active when present; bundled pricing is fallback until one exists. |
 
 - See [Configuration Reference](#configuration-reference) for option defaults.
 - `pricingSnapshot.autoRefresh` controls how many days a runtime snapshot can age before background refresh.
