@@ -75,7 +75,7 @@ describe("kimi-code provider", () => {
       ],
     });
 
-    const out = await kimiCodeProvider.fetch({ config: { toastStyle: "grouped" } } as any);
+    const out = await kimiCodeProvider.fetch({ config: { formatStyle: "grouped" } } as any);
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toEqual([
       {
@@ -120,7 +120,7 @@ describe("kimi-code provider", () => {
       ],
     });
 
-    const out = await kimiCodeProvider.fetch({ config: { toastStyle: "classic" } } as any);
+    const out = await kimiCodeProvider.fetch({ config: { formatStyle: "classic" } } as any);
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toEqual([
       {

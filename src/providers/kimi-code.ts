@@ -61,7 +61,7 @@ export const kimiCodeProvider: QuotaProvider = {
       return attemptedErrorResult("Kimi Code", result.error);
     }
 
-    const style = ctx.config.toastStyle ?? "classic";
+    const style = ctx.config.formatStyle ?? "classic";
 
     if (style === "classic") {
       const worst = [...result.windows].sort((a, b) => a.percentRemaining - b.percentRemaining)[0];
