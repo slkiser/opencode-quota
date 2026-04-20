@@ -37,7 +37,7 @@ export type QuotaToastEntry =
       /** Value-based entry (no percent bar). */
       kind: "value";
 
-      /** Display label (already human-friendly), e.g. "Firmware". */
+      /** Display label (already human-friendly), e.g. "OpenCode Go". */
       name: string;
 
       /** Human-readable value, e.g. "$42.50". */

@@ -1,7 +1,7 @@
 /**
  * Generic API key resolution from env vars, config files, and auth.json.
  *
- * Used by provider-specific config modules (firmware-config, chutes-config)
+ * Used by provider-specific config modules (synthetic-config, chutes-config)
  * to resolve API keys with consistent priority and behavior.
  */
 

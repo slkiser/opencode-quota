@@ -176,6 +176,11 @@ export interface NanoGptAuthData {
   key: string;
 }
 
+export interface SyntheticAuthData {
+  type: "api";
+  key: string;
+}
+
 export interface MiniMaxAuthData {
   type: string;
   key?: string;
@@ -244,10 +249,7 @@ export interface AuthData {
   chatgpt?: OpenAIOAuthData;
   // Some OpenCode installs store OpenAI auth under "opencode".
   opencode?: OpenAIOAuthData;
-  firmware?: {
-    type: string;
-    key?: string;
-  };
+  synthetic?: SyntheticAuthData;
   chutes?: {
     type: string;
     key?: string;
@@ -491,6 +493,16 @@ export type MiniMaxResult =
 export type ChutesResult =
   | {
       success: true;
+      percentRemaining: number;
+      resetTimeIso?: string;
+    }
+  | QuotaError
+  | null;
+export type SyntheticResult =
+  | {
+      success: true;
+      requestLimit: number;
+      usedRequests: number;
       percentRemaining: number;
       resetTimeIso?: string;
     }

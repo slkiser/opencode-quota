@@ -180,8 +180,8 @@ vi.mock("../src/lib/anthropic.js", () => ({
   getAnthropicDiagnostics: anthropicMocks.getAnthropicDiagnostics,
 }));
 
-vi.mock("../src/lib/firmware.js", () => ({
-  getFirmwareKeyDiagnostics: vi.fn(async () => ({
+vi.mock("../src/lib/synthetic.js", () => ({
+  getSyntheticKeyDiagnostics: vi.fn(async () => ({
     configured: false,
     source: null,
     checkedPaths: [],
@@ -321,7 +321,7 @@ vi.mock("../src/lib/modelsdev-pricing.js", () => ({
 }));
 
 vi.mock("../src/providers/registry.js", () => ({
-  getProviders: () => [{ id: "copilot" }, { id: "cursor" }, { id: "nanogpt" }],
+  getProviders: () => [{ id: "copilot" }, { id: "cursor" }, { id: "synthetic" }, { id: "nanogpt" }],
 }));
 
 vi.mock("../src/lib/version.js", () => ({
@@ -533,7 +533,7 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- api_key_source: (none)");
     expect(report).toContain("- api_key_checked_paths: (none)");
     expect(report).toContain("- api_key_auth_paths: /tmp/auth.json");
-    expect(report).toContain("firmware:");
+    expect(report).toContain("synthetic:");
     expect(report).toContain("chutes:");
     expect(report).toContain("cursor:");
     expect(report).toContain("- plan: Pro");
@@ -571,6 +571,9 @@ describe("buildQuotaStatusReport", () => {
     );
     expect(report).toContain(
       "- remaining_quota_note: valid PAT access can query billing usage, but pooled org usage does not provide a true per-user remaining quota",
+    );
+    expect(report).toContain(
+      "- synthetic: pricing=no (subscription request quota (not token-priced))",
     );
     expect(report).toContain(
       "- nanogpt: pricing=no (subscription request quota + account balance (not token-priced))",

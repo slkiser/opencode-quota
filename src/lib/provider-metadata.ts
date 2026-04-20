@@ -5,7 +5,7 @@ export type CanonicalQuotaProviderId =
   | "cursor"
   | "qwen-code"
   | "alibaba-coding-plan"
-  | "firmware"
+  | "synthetic"
   | "chutes"
   | "google-antigravity"
   | "zai"
@@ -49,7 +49,7 @@ export const QUOTA_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   openai: "OpenAI",
   copilot: "Copilot",
   "google-antigravity": "Google",
-  firmware: "Firmware",
+  synthetic: "Synthetic",
   chutes: "Chutes",
   cursor: "Cursor",
   "qwen-code": "Qwen",
@@ -88,7 +88,7 @@ export const QUOTA_PROVIDER_RUNTIME_IDS: QuotaProviderRuntimeIds = {
   cursor: ["cursor", "cursor-acp"],
   "qwen-code": ["qwen-code"],
   "alibaba-coding-plan": ["alibaba-coding-plan"],
-  firmware: ["firmware", "firmware-ai"],
+  synthetic: ["synthetic"],
   chutes: ["chutes", "chutes-ai"],
   "google-antigravity": ["google-antigravity", "google", "antigravity"],
   zai: ["zai", "glm", "zai-coding-plan"],
@@ -142,8 +142,8 @@ export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
     quota: "local_estimation",
   },
   {
-    id: "firmware",
-    autoSetup: "usually",
+    id: "synthetic",
+    autoSetup: "yes",
     authentication: "opencode_auth_api_key",
     authFallbacks: ["env_api_key", "global_opencode_config"],
     quota: "remote_api",

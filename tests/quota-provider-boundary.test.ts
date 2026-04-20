@@ -8,6 +8,7 @@ describe("quota provider boundary", () => {
   it("keeps the runtime registry aligned with the canonical provider catalog", () => {
     const quotaProviders = getProviders().map((p) => p.id);
     expect(quotaProviders).toEqual(QUOTA_PROVIDER_SHAPES.map((shape) => shape.id));
+    expect(quotaProviders).toContain("synthetic");
   });
 
   it("models.dev pricing providers include ids beyond quota provider support", () => {

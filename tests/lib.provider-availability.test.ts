@@ -66,6 +66,13 @@ describe("provider availability", () => {
     ).resolves.toBe(true);
     await expect(
       isCanonicalProviderAvailable({
+        ctx: makeCtx({ ids: ["synthetic"] }),
+        providerId: "synthetic",
+        fallbackOnError: false,
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      isCanonicalProviderAvailable({
         ctx: makeCtx({ ids: ["antigravity"] }),
         providerId: "google-antigravity",
         fallbackOnError: false,

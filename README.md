@@ -14,7 +14,7 @@ What you get:
 - popup quota toasts after assistant responses
 - manual `/quota`, `/quota_status`, and `/tokens_*` commands
 
-**Quota providers**: Anthropic (Claude), GitHub Copilot, OpenAI (Plus/Pro), Cursor, Qwen Code, Alibaba Coding Plan, MiniMax Coding Plan, Kimi Code, Chutes AI, Firmware AI, Google Antigravity, Z.ai Coding Plan, NanoGPT, and OpenCode Go.
+**Quota providers**: Anthropic (Claude), GitHub Copilot, OpenAI (Plus/Pro), Cursor, Qwen Code, Alibaba Coding Plan, MiniMax Coding Plan, Kimi Code, Chutes AI, Synthetic, Google Antigravity, Z.ai Coding Plan, NanoGPT, and OpenCode Go.
 
 **Token reports**: All models and providers in [models.dev](https://models.dev), plus deterministic local pricing for Cursor Auto/Composer and Cursor model aliases that are not on models.dev.
 
@@ -164,7 +164,7 @@ Keep the `tui.json` or `tui.jsonc` entry above and disable toasts in `opencode.j
 | **Cursor**              | Needs [quick setup](#cursor-quick-setup)             | Companion auth                  | Local runtime accounting |
 | **Qwen Code**           | Needs [quick setup](#qwen-code-quick-setup)          | Companion auth                  | Local estimation         |
 | **Alibaba Coding Plan** | Yes                                                  | OpenCode auth/global config/env | Local estimation         |
-| **Firmware AI**         | Usually                                              | OpenCode auth/global config/env | Remote API               |
+| **Synthetic**           | Yes                                                  | OpenCode auth/global config/env | Remote API               |
 | **Chutes AI**           | Usually                                              | OpenCode auth/global config/env | Remote API               |
 | **Google Antigravity**  | Needs [quick setup](#google-antigravity-quick-setup) | Companion auth                  | Remote API               |
 | **Z.ai**                | Yes                                                  | OpenCode auth/global config/env | Remote API               |
@@ -503,25 +503,29 @@ Z.ai uses trusted env vars or trusted user/global OpenCode config first, then na
 
 </details>
 
-<a id="firmware-ai-notes"></a>
+<a id="synthetic-notes"></a>
 
 <details>
-<summary><strong>Firmware AI</strong></summary>
+<summary><strong>Synthetic</strong></summary>
 
-If OpenCode already has Firmware configured, it usually works automatically. Optional API key: `provider.firmware.options.apiKey`.
+If OpenCode already has Synthetic configured, it should work automatically. Optional API key: `provider.synthetic.options.apiKey`.
 
-For security, provider secrets are read from environment variables or your user/global OpenCode config only. Repo-local `opencode.json` / `opencode.jsonc` is ignored for `provider.firmware.options.apiKey`.
+For security, provider secrets are read from `SYNTHETIC_API_KEY`, your user/global OpenCode config, or `auth.json.synthetic` only. Repo-local `opencode.json` / `opencode.jsonc` is ignored for `provider.synthetic.options.apiKey`.
 
-Allowed env templates are limited to `{env:FIRMWARE_AI_API_KEY}` and `{env:FIRMWARE_API_KEY}`.
+- The plugin calls `GET https://api.synthetic.new/v2/quotas`.
+- It reads `subscription.limit`, `subscription.requests`, and `subscription.renewsAt`.
+- `/quota`, toasts, and the sidebar show one Synthetic row with remaining percent plus a compact `used/limit` summary.
+- `/quota_status` shows a `synthetic` section with API-key diagnostics only; it does not do a live Synthetic fetch there.
+- Allowed env templates are limited to `{env:SYNTHETIC_API_KEY}`.
 
 Example user/global config (`~/.config/opencode/opencode.jsonc` on Linux/macOS):
 
 ```jsonc
 {
   "provider": {
-    "firmware": {
+    "synthetic": {
       "options": {
-        "apiKey": "{env:FIRMWARE_API_KEY}",
+        "apiKey": "{env:SYNTHETIC_API_KEY}",
       },
     },
   },

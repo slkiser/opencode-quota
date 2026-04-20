@@ -56,8 +56,8 @@ describe("provider-metadata", () => {
         quota: "local_estimation",
       },
       {
-        id: "firmware",
-        autoSetup: "usually",
+        id: "synthetic",
+        autoSetup: "yes",
         authentication: "opencode_auth_api_key",
         authFallbacks: ["env_api_key", "global_opencode_config"],
         quota: "remote_api",
@@ -138,7 +138,7 @@ describe("provider-metadata", () => {
     expect(QUOTA_PROVIDER_RUNTIME_IDS.anthropic).toEqual(["anthropic"]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS.openai).toEqual(["openai", "chatgpt", "codex"]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS.cursor).toEqual(["cursor", "cursor-acp"]);
-    expect(QUOTA_PROVIDER_RUNTIME_IDS.firmware).toEqual(["firmware", "firmware-ai"]);
+    expect(QUOTA_PROVIDER_RUNTIME_IDS.synthetic).toEqual(["synthetic"]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS.chutes).toEqual(["chutes", "chutes-ai"]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS["google-antigravity"]).toEqual([
       "google-antigravity",
@@ -208,6 +208,7 @@ describe("provider-metadata", () => {
     expect(getQuotaProviderDisplayLabel("google-antigravity")).toBe("Google");
     expect(getQuotaProviderDisplayLabel("cursor")).toBe("Cursor");
     expect(getQuotaProviderDisplayLabel("alibaba-coding-plan")).toBe("Alibaba Coding Plan");
+    expect(getQuotaProviderDisplayLabel("synthetic")).toBe("Synthetic");
     expect(getQuotaProviderDisplayLabel("zai")).toBe("Z.ai");
     expect(getQuotaProviderDisplayLabel("nanogpt")).toBe("NanoGPT");
     expect(getQuotaProviderDisplayLabel("nano-gpt")).toBe("NanoGPT");

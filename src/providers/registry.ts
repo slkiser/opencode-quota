@@ -10,7 +10,7 @@ import { copilotProvider } from "./copilot.js";
 import { openaiProvider } from "./openai.js";
 import { cursorProvider } from "./cursor.js";
 import { googleAntigravityProvider } from "./google-antigravity.js";
-import { firmwareProvider } from "./firmware.js";
+import { syntheticProvider } from "./synthetic.js";
 import { chutesProvider } from "./chutes.js";
 import { qwenCodeProvider } from "./qwen-code.js";
 import { alibabaCodingPlanProvider } from "./alibaba-coding-plan.js";
@@ -29,7 +29,7 @@ export function getProviders(): QuotaProvider[] {
     cursorProvider,
     qwenCodeProvider,
     alibabaCodingPlanProvider,
-    firmwareProvider,
+    syntheticProvider,
     chutesProvider,
     googleAntigravityProvider,
     zaiProvider,

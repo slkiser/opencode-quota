@@ -6,9 +6,9 @@ import { getGoogleTokenCachePath } from "./google-token-cache.js";
 import { inspectAntigravityCompanionPresence } from "./google-antigravity-companion.js";
 import { inspectAntigravityAccountsPresence } from "./google.js";
 import { getAnthropicDiagnostics } from "./anthropic.js";
-import { getFirmwareKeyDiagnostics } from "./firmware.js";
 import { getChutesKeyDiagnostics } from "./chutes.js";
 import { getNanoGptKeyDiagnostics, queryNanoGptQuota } from "./nanogpt.js";
+import { getSyntheticKeyDiagnostics } from "./synthetic.js";
 import { getCopilotQuotaAuthDiagnostics } from "./copilot.js";
 import {
   computeAlibabaCodingPlanQuota,
@@ -265,11 +265,11 @@ function supportedProviderPricingRow(params: {
 }): { id: string; pricing: "yes" | "partial" | "no"; notes: string } {
   const id = params.id;
 
-  if (id === "firmware") {
+  if (id === "synthetic") {
     return {
       id,
       pricing: "no",
-      notes: "credits-based quota (not token-priced)",
+      notes: "subscription request quota (not token-priced)",
     };
   }
 
@@ -816,12 +816,12 @@ export async function buildQuotaStatusReport(params: {
     }
   }
 
-  const firmwareDiag = await readBasicApiKeyDiagnostics(getFirmwareKeyDiagnostics);
+  const syntheticDiag = await readBasicApiKeyDiagnostics(getSyntheticKeyDiagnostics);
   appendBasicApiKeySection({
     lines,
-    section: "firmware:",
-    label: "firmware api key",
-    diagnostics: firmwareDiag,
+    section: "synthetic:",
+    label: "synthetic api key",
+    diagnostics: syntheticDiag,
   });
 
   const chutesDiag = await readBasicApiKeyDiagnostics(getChutesKeyDiagnostics);
