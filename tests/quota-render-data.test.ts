@@ -8,7 +8,10 @@ vi.mock("../src/providers/registry.js", () => ({
   getProviders: () => mockProviders,
 }));
 
-import { collectQuotaRenderData } from "../src/lib/quota-render-data.js";
+import {
+  collectQuotaRenderData,
+  collectQuotaStatusLiveProbes,
+} from "../src/lib/quota-render-data.js";
 import { DEFAULT_CONFIG } from "../src/lib/types.js";
 
 describe("collectQuotaRenderData availability handling", () => {
@@ -132,5 +135,88 @@ describe("collectQuotaRenderData availability handling", () => {
     expect(result.active).toEqual([]);
     expect(result.hasExplicitProviderIssues).toBe(false);
     expect(result.data).toBeNull();
+  });
+
+  it("collects per-provider live probes in order and reuses the shared fetch cache", async () => {
+    const syntheticProvider = {
+      id: "synthetic",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [
+          {
+            name: "Synthetic",
+            percentRemaining: 84,
+            right: "8/50",
+            resetTimeIso: "2026-04-21T18:00:00.000Z",
+          },
+        ],
+        errors: [],
+      }),
+    };
+    const openaiProvider = {
+      id: "openai",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [],
+        errors: [{ label: "OpenAI", message: "Temporary outage" }],
+      }),
+    };
+
+    const providerFetchCache = new Map();
+    const client = {
+      config: {
+        providers: async () => ({ data: { providers: [] } }),
+        get: async () => ({ data: {} }),
+      },
+    };
+    const config = {
+      ...DEFAULT_CONFIG,
+      minIntervalMs: 60_000,
+      showSessionTokens: false,
+    };
+
+    const first = await collectQuotaStatusLiveProbes({
+      client,
+      config,
+      providers: [syntheticProvider, openaiProvider],
+      providerFetchCache,
+    });
+    const second = await collectQuotaStatusLiveProbes({
+      client,
+      config,
+      providers: [syntheticProvider, openaiProvider],
+      providerFetchCache,
+    });
+
+    expect(first).toEqual([
+      {
+        providerId: "synthetic",
+        result: {
+          attempted: true,
+          entries: [
+            {
+              name: "Synthetic",
+              percentRemaining: 84,
+              right: "8/50",
+              resetTimeIso: "2026-04-21T18:00:00.000Z",
+            },
+          ],
+          errors: [],
+        },
+      },
+      {
+        providerId: "openai",
+        result: {
+          attempted: true,
+          entries: [],
+          errors: [{ label: "OpenAI", message: "Temporary outage" }],
+        },
+      },
+    ]);
+    expect(second).toEqual(first);
+    expect(syntheticProvider.fetch).toHaveBeenCalledOnce();
+    expect(openaiProvider.fetch).toHaveBeenCalledOnce();
   });
 });

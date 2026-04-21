@@ -319,7 +319,7 @@ Environment variables take precedence over the config file. Run `/quota_status` 
 | Command               | What it shows                                                                                                    |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `/quota`              | Manual grouped quota report with a local call timestamp                                                          |
-| `/quota_status`       | Concise diagnostics for config, TUI setup, provider availability, account detection, and pricing snapshot health |
+| `/quota_status`       | Concise diagnostics for config, TUI setup, provider availability, account detection, pricing snapshot health, and compact live probe rows for supported providers |
 | `/pricing_refresh`    | Pull the local runtime pricing snapshot from `models.dev` on demand                                              |
 | `/tokens_today`       | Tokens used today (calendar day)                                                                                 |
 | `/tokens_daily`       | Tokens used in the last 24 hours                                                                                 |
@@ -541,7 +541,7 @@ For security, provider secrets are read from `SYNTHETIC_API_KEY`, your user/glob
 - Synthetic currently expects numeric JSON values for `subscription.limit` and `subscription.requests`; malformed or stringified values are treated as API-shape errors. Invalid `subscription.renewsAt` values are ignored.
 - `/quota`, toasts, and the sidebar currently expose the documented Synthetic subscription quota only. Grouped mode labels it as `5h:`; classic mode collapses it to one `Synthetic` row with the same compact `used/limit` summary used by other percent-based providers.
 - Weekly credits and other billing-dashboard metrics are not shown unless Synthetic documents them in a public API response the plugin can verify.
-- `/quota_status` shows a `synthetic` section with API-key diagnostics only; it does not do a live Synthetic fetch there.
+- `/quota_status` keeps the existing Synthetic API-key diagnostics and now adds a compact sanitized live probe summary when Synthetic is enabled and detected/available.
 - Allowed env templates are limited to `{env:SYNTHETIC_API_KEY}`.
 
 Example user/global config (`~/.config/opencode/opencode.jsonc` on Linux/macOS):

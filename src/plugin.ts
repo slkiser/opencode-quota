@@ -56,11 +56,13 @@ import { renderCommandHeading } from "./lib/format-utils.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
 import {
   collectQuotaRenderData,
+  collectQuotaStatusLiveProbes,
   matchesQuotaProviderCurrentSelection,
   resolveQuotaRenderSelection,
   type ProviderFetchCacheStore,
   type QuotaRenderData as QuotaCommandRenderData,
   type QuotaRequestContext as QuotaCommandRequestContext,
+  type QuotaStatusLiveProbe,
   type SessionModelMeta,
 } from "./lib/quota-render-data.js";
 
@@ -293,6 +295,7 @@ function isTokenReportCommand(cmd: string): cmd is TokenReportCommandId {
 // =============================================================================
 
 const LIVE_LOCAL_USAGE_PROVIDER_IDS = new Set(["qwen-code", "alibaba-coding-plan", "cursor"]);
+const STATUS_LIVE_PROBE_PROVIDER_IDS = new Set(["synthetic"]);
 
 type QuotaCommandCacheEntry = {
   data?: QuotaCommandRenderData;
@@ -1026,6 +1029,43 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       }),
     );
 
+    const providersById = new Map(providers.map((provider) => [provider.id, provider] as const));
+    const liveProbeProviders = availability.flatMap((item) => {
+      if (!item.enabled || !item.available || !STATUS_LIVE_PROBE_PROVIDER_IDS.has(item.id)) {
+        return [];
+      }
+      const provider = providersById.get(item.id);
+      return provider ? [provider] : [];
+    });
+
+    let providerLiveProbes: QuotaStatusLiveProbe[] = [];
+    if (liveProbeProviders.length > 0) {
+      try {
+        providerLiveProbes = await collectQuotaStatusLiveProbes({
+          client: typedClient,
+          config,
+          request: {
+            sessionID: params.sessionID,
+            sessionMeta: currentSession,
+          },
+          providers: liveProbeProviders,
+          providerFetchCache,
+        });
+      } catch (error) {
+        await typedClient.app.log({
+          body: {
+            service: "quota-toast",
+            level: "warn",
+            message: "Failed to collect /quota_status live probes",
+            extra: {
+              providers: liveProbeProviders.map((provider) => provider.id),
+              error: error instanceof Error ? error.message : String(error),
+            },
+          },
+        });
+      }
+    }
+
     const refresh = params.refreshGoogleTokens
       ? await refreshGoogleTokensForAllAccounts({ skewMs: params.skewMs, force: params.force })
       : null;
@@ -1048,6 +1088,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       currentModel,
       sessionModelLookup,
       providerAvailability: availability,
+      providerLiveProbes,
       googleRefresh: refresh
         ? {
             attempted: true,

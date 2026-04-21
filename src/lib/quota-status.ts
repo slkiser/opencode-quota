@@ -66,8 +66,16 @@ import {
   inspectCursorOpenCodeIntegration,
 } from "./cursor-detection.js";
 import { getCurrentCursorUsageSummary } from "./cursor-usage.js";
-import { sanitizeDisplayText } from "./display-sanitize.js";
+import {
+  sanitizeSingleLineDisplaySnippet,
+  sanitizeSingleLineDisplayText,
+  sanitizeDisplayText,
+  sanitizeQuotaProviderResult,
+} from "./display-sanitize.js";
 import { getCursorPlanDisplayName, getEffectiveCursorIncludedApiUsd } from "./cursor-pricing.js";
+import { getQuotaProviderDisplayLabel } from "./provider-metadata.js";
+import type { QuotaProviderResult, QuotaToastEntry, QuotaToastError } from "./entries.js";
+import { isValueEntry } from "./entries.js";
 import type { CursorQuotaPlan, PricingSnapshotSource } from "./types.js";
 import { queryMiniMaxQuota } from "../providers/minimax-coding-plan.js";
 import { queryZaiQuota } from "./zai.js";
@@ -115,6 +123,14 @@ type PricingCoverageByProvider = {
 };
 
 const STATUS_SAMPLE_LIMIT = 5;
+const STATUS_LIVE_ENTRY_LIMIT = 2;
+const STATUS_LIVE_ERROR_LIMIT = 2;
+const STATUS_LIVE_ROW_MAX_LENGTH = 120;
+
+type ProviderLiveProbe = {
+  providerId: string;
+  result: QuotaProviderResult;
+};
 
 function joinOrNone(values: string[]): string {
   return values.length > 0 ? values.join(" | ") : "(none)";
@@ -192,6 +208,118 @@ function buildBasicApiKeySection(params: {
       value: formatInlineApiKeyDiagnosticsValue(params.diagnostics),
     },
   ]);
+}
+
+function normalizeLiveProbeText(value: string): string {
+  return sanitizeSingleLineDisplayText(value).replace(/:+$/u, "").toLowerCase();
+}
+
+function isRedundantLiveProbeDescriptor(providerId: string, value?: string): boolean {
+  if (!value) return true;
+
+  const normalized = normalizeLiveProbeText(value);
+  if (!normalized) return true;
+
+  return (
+    normalized === normalizeLiveProbeText(providerId) ||
+    normalized === normalizeLiveProbeText(getQuotaProviderDisplayLabel(providerId))
+  );
+}
+
+function findProviderLiveProbe(
+  providerId: string,
+  probes?: ProviderLiveProbe[],
+): ProviderLiveProbe | undefined {
+  return probes?.find((probe) => probe.providerId === providerId);
+}
+
+function getCompactLiveProbeDescriptor(providerId: string, entry: QuotaToastEntry): string | undefined {
+  const candidates = [entry.label, entry.name, entry.group];
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue;
+    const cleaned = sanitizeSingleLineDisplayText(candidate);
+    if (!cleaned || isRedundantLiveProbeDescriptor(providerId, cleaned)) {
+      continue;
+    }
+    return cleaned;
+  }
+  return undefined;
+}
+
+function formatCompactLiveProbeEntry(providerId: string, entry: QuotaToastEntry): string {
+  const parts: string[] = [];
+  const descriptor = getCompactLiveProbeDescriptor(providerId, entry);
+  if (descriptor) {
+    parts.push(descriptor);
+  }
+
+  if (isValueEntry(entry)) {
+    parts.push(`value=${sanitizeSingleLineDisplayText(entry.value)}`);
+  } else {
+    if (entry.right) {
+      parts.push(sanitizeSingleLineDisplayText(entry.right));
+    }
+    const percentRemaining = Number.isFinite(entry.percentRemaining)
+      ? Math.max(0, Math.min(100, Math.round(entry.percentRemaining)))
+      : 0;
+    parts.push(`percent_remaining=${percentRemaining}`);
+  }
+
+  if (entry.resetTimeIso) {
+    parts.push(`reset_at=${sanitizeSingleLineDisplayText(entry.resetTimeIso)}`);
+  }
+
+  return sanitizeSingleLineDisplaySnippet(parts.join(" "), STATUS_LIVE_ROW_MAX_LENGTH);
+}
+
+function formatCompactLiveProbeError(providerId: string, error: QuotaToastError): string {
+  const label = isRedundantLiveProbeDescriptor(providerId, error.label)
+    ? ""
+    : sanitizeSingleLineDisplayText(error.label);
+  const message = sanitizeSingleLineDisplayText(error.message);
+  return sanitizeSingleLineDisplaySnippet(
+    label ? `${label}: ${message}` : message,
+    STATUS_LIVE_ROW_MAX_LENGTH,
+  );
+}
+
+function appendCompactLiveProbeRows(
+  rows: ReportKvRow[],
+  providerId: string,
+  probe?: ProviderLiveProbe,
+): void {
+  if (!probe) return;
+
+  const result = sanitizeQuotaProviderResult(probe.result);
+  const entryCount = Math.min(result.entries.length, STATUS_LIVE_ENTRY_LIMIT);
+  const errorCount = Math.min(result.errors.length, STATUS_LIVE_ERROR_LIMIT);
+  const state =
+    result.entries.length > 0 ? "success" : result.errors.length > 0 ? "error" : "no_data";
+
+  rows.push({ key: "live_probe", value: state });
+
+  for (let index = 0; index < entryCount; index += 1) {
+    rows.push({
+      key: `live_entry_${index + 1}`,
+      value: formatCompactLiveProbeEntry(providerId, result.entries[index]!),
+    });
+  }
+
+  for (let index = 0; index < errorCount; index += 1) {
+    rows.push({
+      key: `live_error_${index + 1}`,
+      value: formatCompactLiveProbeError(providerId, result.errors[index]!),
+    });
+  }
+
+  const suppressedCount =
+    Math.max(0, result.entries.length - entryCount) + Math.max(0, result.errors.length - errorCount);
+  if (suppressedCount > 0) {
+    rows.push({
+      key: "live_more",
+      value: `+${suppressedCount} additional rows suppressed`,
+    });
+  }
 }
 
 function getDefaultNanoGptApiKeyDiagnostics(): NanoGptApiKeyDiagnostics {
@@ -409,6 +537,7 @@ export async function buildQuotaStatusReport(params: {
     available: boolean;
     matchesCurrentModel?: boolean;
   }>;
+  providerLiveProbes?: ProviderLiveProbe[];
   googleRefresh?: {
     attempted: boolean;
     total?: number;
@@ -919,14 +1048,18 @@ export async function buildQuotaStatusReport(params: {
 
   // === simple API key sections ===
   const syntheticDiag = await readBasicApiKeyDiagnostics(getSyntheticKeyDiagnostics);
-  sections.push(
-    buildBasicApiKeySection({
-      id: "synthetic",
-      section: "synthetic:",
-      label: "synthetic api key",
-      diagnostics: syntheticDiag,
-    }),
+  const syntheticRows: ReportKvRow[] = [
+    {
+      key: "synthetic api key",
+      value: formatInlineApiKeyDiagnosticsValue(syntheticDiag),
+    },
+  ];
+  appendCompactLiveProbeRows(
+    syntheticRows,
+    "synthetic",
+    findProviderLiveProbe("synthetic", params.providerLiveProbes),
   );
+  sections.push(createKvSection("synthetic", "synthetic:", syntheticRows));
 
   const chutesDiag = await readBasicApiKeyDiagnostics(getChutesKeyDiagnostics);
   sections.push(

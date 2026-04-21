@@ -432,6 +432,29 @@ describe("buildQuotaStatusReport", () => {
     } as any);
   }
 
+  async function buildSyntheticStatusReport(overrides: Record<string, unknown> = {}) {
+    const { buildQuotaStatusReport } = await import("../src/lib/quota-status.js");
+
+    return buildQuotaStatusReport({
+      configSource: "test",
+      configPaths: [],
+      enabledProviders: ["synthetic"],
+      alibabaCodingPlanTier: "lite",
+      cursorPlan: "none",
+      pricingSnapshotSource: "auto",
+      onlyCurrentModel: false,
+      providerAvailability: [
+        {
+          id: "synthetic",
+          enabled: true,
+          available: true,
+        },
+      ],
+      generatedAtMs: Date.UTC(2026, 2, 12, 12, 45, 0),
+      ...overrides,
+    } as any);
+  }
+
   it("distinguishes organization billing access from computable remaining quota totals", async () => {
     const { buildQuotaStatusReport } = await import("../src/lib/quota-status.js");
 
@@ -681,35 +704,103 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- seven_day_remaining: 85% reset_at=2026-04-01T00:00:00.000Z");
   });
 
-  it("renders Synthetic diagnostics without performing a live Synthetic fetch", async () => {
+  it("renders Synthetic API-key diagnostics plus compact live success rows", async () => {
     syntheticMocks.getSyntheticKeyDiagnostics.mockResolvedValueOnce({
       configured: true,
       source: "env:SYNTHETIC_API_KEY",
       checkedPaths: ["env:SYNTHETIC_API_KEY"],
     });
 
-    const { buildQuotaStatusReport } = await import("../src/lib/quota-status.js");
-    const report = await buildQuotaStatusReport({
-      configSource: "test",
-      configPaths: [],
-      enabledProviders: ["synthetic"],
-      alibabaCodingPlanTier: "lite",
-      cursorPlan: "none",
-      pricingSnapshotSource: "auto",
-      onlyCurrentModel: false,
-      providerAvailability: [
+    const report = await buildSyntheticStatusReport({
+      providerLiveProbes: [
         {
-          id: "synthetic",
-          enabled: true,
-          available: true,
+          providerId: "synthetic",
+          result: {
+            attempted: true,
+            entries: [
+              {
+                name: "Synthetic 5h",
+                group: "Synthetic",
+                label: "5h:",
+                percentRemaining: 84.4,
+                right: "8/50",
+                resetTimeIso: "2026-04-21T18:00:00.000Z",
+              },
+            ],
+            errors: [],
+          },
         },
       ],
-      generatedAtMs: Date.UTC(2026, 2, 12, 12, 45, 0),
     });
 
     expect(report).toContain("synthetic:");
     expect(report).toContain("- synthetic api key: configured=true source=env:SYNTHETIC_API_KEY");
+    expect(report).toContain("- live_probe: success");
+    expect(report).toContain(
+      "- live_entry_1: 5h: 8/50 percent_remaining=84 reset_at=2026-04-21T18:00:00.000Z",
+    );
     expect(syntheticMocks.querySyntheticQuota).not.toHaveBeenCalled();
+  });
+
+  it("renders Synthetic live no-data state when the shared probe returns nothing reportable", async () => {
+    syntheticMocks.getSyntheticKeyDiagnostics.mockResolvedValueOnce({
+      configured: true,
+      source: "env:SYNTHETIC_API_KEY",
+      checkedPaths: ["env:SYNTHETIC_API_KEY"],
+    });
+
+    const report = await buildSyntheticStatusReport({
+      providerLiveProbes: [
+        {
+          providerId: "synthetic",
+          result: {
+            attempted: false,
+            entries: [],
+            errors: [],
+          },
+        },
+      ],
+    });
+
+    expect(report).toContain("synthetic:");
+    expect(report).toContain("- synthetic api key: configured=true source=env:SYNTHETIC_API_KEY");
+    expect(report).toContain("- live_probe: no_data");
+  });
+
+  it("sanitizes and truncates Synthetic live probe errors", async () => {
+    syntheticMocks.getSyntheticKeyDiagnostics.mockResolvedValueOnce({
+      configured: true,
+      source: "env:SYNTHETIC_API_KEY",
+      checkedPaths: ["env:SYNTHETIC_API_KEY"],
+    });
+
+    const report = await buildSyntheticStatusReport({
+      providerLiveProbes: [
+        {
+          providerId: "synthetic",
+          result: {
+            attempted: true,
+            entries: [],
+            errors: [
+              {
+                label: "Synthetic",
+                message: `failure \u001b[31mwith control codes\u0007\n\t${"x".repeat(200)}`,
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(report).toContain("- live_probe: error");
+    const errorLine = report.split("\n").find((line) => line.startsWith("- live_error_1: "));
+    expect(errorLine).toBeDefined();
+    expect(errorLine).toContain("failure with control codes");
+    expect(errorLine).not.toContain("\u001b[31m");
+    expect(errorLine).not.toContain("\u0007");
+    expect(errorLine).not.toContain("\n");
+    expect(errorLine).not.toContain("\t");
+    expect(errorLine!.length).toBeLessThanOrEqual(140);
   });
 
   it("reports NanoGPT live subscription and balance diagnostics when configured", async () => {

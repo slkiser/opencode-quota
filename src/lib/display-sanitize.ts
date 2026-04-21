@@ -7,7 +7,12 @@
  */
 
 import type { QuotaRenderData } from "./quota-render-data.js";
-import type { QuotaToastEntry, QuotaToastError, SessionTokensData } from "./entries.js";
+import type {
+  QuotaProviderResult,
+  QuotaToastEntry,
+  QuotaToastError,
+  SessionTokensData,
+} from "./entries.js";
 import { isValueEntry } from "./entries.js";
 
 // Remove ANSI escape sequences and other control characters except newline/tab.
@@ -18,8 +23,16 @@ export function sanitizeDisplayText(text: string): string {
   return text.replace(DISPLAY_CONTROL_RE, "");
 }
 
+export function sanitizeSingleLineDisplayText(text: string): string {
+  return sanitizeDisplayText(text).replace(/\s+/gu, " ").trim();
+}
+
 export function sanitizeDisplaySnippet(text: string, maxLength: number): string {
   return sanitizeDisplayText(text).slice(0, maxLength);
+}
+
+export function sanitizeSingleLineDisplaySnippet(text: string, maxLength: number): string {
+  return sanitizeSingleLineDisplayText(text).slice(0, maxLength);
 }
 
 export function sanitizeOptionalDisplayText(value?: string): string | undefined {
@@ -53,6 +66,14 @@ export function sanitizeQuotaToastError(error: QuotaToastError): QuotaToastError
   return {
     label: sanitizeDisplayText(error.label),
     message: sanitizeDisplayText(error.message),
+  };
+}
+
+export function sanitizeQuotaProviderResult(result: QuotaProviderResult): QuotaProviderResult {
+  return {
+    attempted: result.attempted,
+    entries: result.entries.map(sanitizeQuotaToastEntry),
+    errors: result.errors.map(sanitizeQuotaToastError),
   };
 }
 

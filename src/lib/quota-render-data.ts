@@ -83,6 +83,11 @@ export type CollectQuotaRenderDataResult = {
   sessionTokenError?: SessionTokenError;
 };
 
+export type QuotaStatusLiveProbe = {
+  providerId: string;
+  result: QuotaProviderResult;
+};
+
 type QuotaFormatStyle = NonNullable<QuotaProviderContext["config"]["formatStyle"]>;
 
 function buildQuotaProviderContext(params: {
@@ -272,6 +277,44 @@ export async function fetchProviderResults(params: {
       ? result.value
       : makeProviderFetchFailure(params.providers[index]!),
   );
+}
+
+export async function collectQuotaStatusLiveProbes(params: {
+  client: QuotaProviderContext["client"];
+  config: QuotaToastConfig;
+  request?: QuotaRequestContext;
+  providers: QuotaProvider[];
+  providerFetchCache: ProviderFetchCacheStore;
+}): Promise<QuotaStatusLiveProbe[]> {
+  if (params.providers.length === 0) {
+    return [];
+  }
+
+  let currentModel: string | undefined;
+  let currentProviderID: string | undefined;
+  if (params.config.onlyCurrentModel && params.request?.sessionMeta) {
+    currentModel = params.request.sessionMeta.modelID;
+    currentProviderID = params.request.sessionMeta.providerID;
+  }
+
+  const ctx = buildQuotaProviderContext({
+    client: params.client,
+    config: params.config,
+    currentModel,
+    currentProviderID,
+  });
+
+  const results = await fetchProviderResults({
+    providers: params.providers,
+    ctx,
+    ttlMs: params.config.minIntervalMs,
+    providerFetchCache: params.providerFetchCache,
+  });
+
+  return params.providers.map((provider, index) => ({
+    providerId: provider.id,
+    result: results[index]!,
+  }));
 }
 
 function getExplicitNoDataMessage(provider: QuotaProvider): string {
