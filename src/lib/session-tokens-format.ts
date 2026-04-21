@@ -10,6 +10,10 @@ import { formatTokenCount, padLeft, padRight, shortenModelName } from "./format-
 
 export const WIDE_SESSION_TOKEN_LINE_WIDTH = 45;
 export const SESSION_TOKEN_SECTION_HEADING = "Session input/output tokens";
+export type SessionTokenSectionModel = {
+  heading: string;
+  lines: string[];
+};
 
 function normalizeMaxWidth(maxWidth?: number): number | undefined {
   if (typeof maxWidth !== "number" || !Number.isFinite(maxWidth)) return undefined;
@@ -21,10 +25,8 @@ function clampRenderedLine(line: string, maxWidth?: number): string {
   return width === undefined ? line : line.slice(0, width);
 }
 
-function renderWideSessionTokensLines(sessionTokens: SessionTokensData): string[] {
+function buildWideSessionTokenSectionModel(sessionTokens: SessionTokensData): SessionTokenSectionModel {
   const lines: string[] = [];
-  lines.push(SESSION_TOKEN_SECTION_HEADING);
-
   for (const model of sessionTokens.models) {
     const shortName = shortenModelName(model.modelID, 20);
     const inStr = formatTokenCount(model.input);
@@ -32,16 +34,18 @@ function renderWideSessionTokensLines(sessionTokens: SessionTokensData): string[
     lines.push(`  ${padRight(shortName, 20)}  ${padLeft(inStr, 6)} in  ${padLeft(outStr, 6)} out`);
   }
 
-  return lines;
+  return {
+    heading: SESSION_TOKEN_SECTION_HEADING,
+    lines,
+  };
 }
 
-function renderCompactSessionTokensLines(
+function buildCompactSessionTokenSectionModel(
   sessionTokens: SessionTokensData,
   maxWidth: number,
-): string[] {
+): SessionTokenSectionModel {
   const width = Math.max(1, Math.trunc(maxWidth));
   const lines: string[] = [];
-  lines.push(SESSION_TOKEN_SECTION_HEADING.slice(0, width));
 
   for (const model of sessionTokens.models) {
     const modelIndent = width > 2 ? "  " : "";
@@ -62,7 +66,39 @@ function renderCompactSessionTokensLines(
     lines.push(`${detailIndent}${outStr} out`.slice(0, width));
   }
 
-  return lines;
+  return {
+    heading: SESSION_TOKEN_SECTION_HEADING.slice(0, width),
+    lines,
+  };
+}
+
+function buildSidebarSessionTokenSummaryModel(
+  sessionTokens: SessionTokensData,
+  options?: { maxWidth?: number },
+): SessionTokenSectionModel {
+  const summaryLine = `  ${formatTokenCount(sessionTokens.totalInput)} in  ${formatTokenCount(sessionTokens.totalOutput)} out`;
+  return {
+    heading: clampRenderedLine(SESSION_TOKEN_SECTION_HEADING, options?.maxWidth),
+    lines: [clampRenderedLine(summaryLine, options?.maxWidth)],
+  };
+}
+
+export function buildSessionTokenSectionModel(
+  sessionTokens?: SessionTokensData,
+  options?: { maxWidth?: number; variant?: "detailed" | "sidebar_summary" },
+): SessionTokenSectionModel | null {
+  if (!sessionTokens || sessionTokens.models.length === 0) return null;
+
+  if (options?.variant === "sidebar_summary") {
+    return buildSidebarSessionTokenSummaryModel(sessionTokens, options);
+  }
+
+  const maxWidth = normalizeMaxWidth(options?.maxWidth);
+  if (maxWidth !== undefined && maxWidth < WIDE_SESSION_TOKEN_LINE_WIDTH) {
+    return buildCompactSessionTokenSectionModel(sessionTokens, maxWidth);
+  }
+
+  return buildWideSessionTokenSectionModel(sessionTokens);
 }
 
 /**
@@ -75,14 +111,8 @@ export function renderSessionTokensLines(
   sessionTokens?: SessionTokensData,
   options?: { maxWidth?: number },
 ): string[] {
-  if (!sessionTokens || sessionTokens.models.length === 0) return [];
-
-  const maxWidth = normalizeMaxWidth(options?.maxWidth);
-  if (maxWidth !== undefined && maxWidth < WIDE_SESSION_TOKEN_LINE_WIDTH) {
-    return renderCompactSessionTokensLines(sessionTokens, maxWidth);
-  }
-
-  return renderWideSessionTokensLines(sessionTokens);
+  const section = buildSessionTokenSectionModel(sessionTokens, options);
+  return section ? [section.heading, ...section.lines] : [];
 }
 
 /**
@@ -95,11 +125,9 @@ export function renderSidebarSessionTokenSummaryLines(
   sessionTokens?: SessionTokensData,
   options?: { maxWidth?: number },
 ): string[] {
-  if (!sessionTokens || sessionTokens.models.length === 0) return [];
-
-  const summaryLine = `  ${formatTokenCount(sessionTokens.totalInput)} in  ${formatTokenCount(sessionTokens.totalOutput)} out`;
-  return [
-    clampRenderedLine(SESSION_TOKEN_SECTION_HEADING, options?.maxWidth),
-    clampRenderedLine(summaryLine, options?.maxWidth),
-  ];
+  const section = buildSessionTokenSectionModel(sessionTokens, {
+    maxWidth: options?.maxWidth,
+    variant: "sidebar_summary",
+  });
+  return section ? [section.heading, ...section.lines] : [];
 }

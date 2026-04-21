@@ -384,4 +384,102 @@ describe("formatQuotaStatsReport (markdown)", () => {
 
     expect(out).toContain("candidates: openai,anthropic");
   });
+
+  it("locks the full markdown report layout for the shared report-document renderer", () => {
+    const out = formatQuotaStatsReport({
+      title: "Tokens used (Last 24 Hours) (/tokens_daily)",
+      generatedAtMs: Date.UTC(2026, 0, 15, 12, 0, 0),
+      result: makeEmptyResult({
+        window: {},
+        totals: {
+          priced: { input: 1000, output: 2000, reasoning: 0, cache_read: 0, cache_write: 0 },
+          unknown: { input: 10, output: 20, reasoning: 0, cache_read: 0, cache_write: 0 },
+          unpriced: { input: 30, output: 40, reasoning: 0, cache_read: 0, cache_write: 0 },
+          costUsd: 1.23,
+          messageCount: 6,
+          sessionCount: 2,
+        },
+        bySourceModel: [
+          {
+            sourceProviderID: "opencode",
+            sourceModelID: "claude-opus-4-5-high",
+            tokens: { input: 1000, output: 2000, reasoning: 0, cache_read: 0, cache_write: 0 },
+            costUsd: 1.23,
+            messageCount: 2,
+          },
+        ],
+        bySession: [
+          {
+            sessionID: "ses_123",
+            title: "Test Session",
+            tokens: { input: 100, output: 200, reasoning: 0, cache_read: 0, cache_write: 0 },
+            costUsd: 0.5,
+            messageCount: 3,
+          },
+        ],
+        unpriced: [
+          {
+            key: {
+              sourceProviderID: "cursor",
+              sourceModelID: "foo-model",
+              mappedProvider: "openai",
+              mappedModel: "foo-model",
+              reason: "snapshot missing model",
+            },
+            tokens: { input: 30, output: 40, reasoning: 0, cache_read: 0, cache_write: 0 },
+            messageCount: 1,
+          },
+        ],
+        unknown: [
+          {
+            key: {
+              sourceProviderID: "opencode",
+              sourceModelID: "bar-model",
+              mappedProvider: "openai",
+              mappedModel: "bar-model",
+              providerCandidates: ["openai", "anthropic"],
+            },
+            tokens: { input: 10, output: 20, reasoning: 0, cache_read: 0, cache_write: 0 },
+            messageCount: 1,
+          },
+        ],
+      }),
+    });
+
+    const [heading, blank, ...body] = out.split("\n");
+    expect(heading).toMatch(/^# Tokens used \(Last 24 Hours\) \(\/tokens_daily\) \d{2}:\d{2} \d{2}\/\d{2}\/\d{4}$/);
+    expect(blank).toBe("");
+
+    expect(body.join("\n")).toMatchInlineSnapshot(`
+      "| Window   | Messages | Sessions | Tokens |  Cost |
+      | -------- | -------: | -------: | -----: | ----: |
+      | all time |        6 |        2 |   3.1K | $1.23 |
+
+      ## Models
+
+      | Source   | Model                | Input | Output | C.Read | C.Write | Total |  Cost |
+      | -------- | -------------------- | ----: | -----: | -----: | ------: | ----: | ----: |
+      | OpenCode | claude-opus-4-5-high |  1.0K |   2.0K |      0 |       0 |  3.0K | $1.23 |
+
+      ## Top Sessions
+
+      | Current | Session |  Cost | Tokens | Msgs | Title        |
+      | ------- | ------- | ----: | -----: | ---: | ------------ |
+      |         | ses_123 | $0.50 |    300 |    3 | Test Session |
+
+      ## Unpriced Models
+
+      | Source | Model     | Mapped           | Reason                 | Tokens | Msgs |
+      | ------ | --------- | ---------------- | ---------------------- | -----: | ---: |
+      | Cursor | foo-model | openai/foo-model | snapshot missing model |     70 |    1 |
+
+      ## Unknown Pricing
+
+      | Source   | Model     | Mapped                                          | Tokens | Msgs |
+      | -------- | --------- | ----------------------------------------------- | -----: | ---: |
+      | OpenCode | bar-model | openai/bar-model (candidates: openai,anthropic) |     30 |    1 |
+
+      Run /quota_status to see the full pricing diagnostics report."
+    `);
+  });
 });

@@ -9,10 +9,11 @@
 
 import type { QuotaToastEntry, QuotaToastError, SessionTokensData } from "./entries.js";
 import { isValueEntry } from "./entries.js";
-import { bar, clampInt, padRight, renderCommandHeading } from "./format-utils.js";
+import { bar, clampInt, padRight } from "./format-utils.js";
 import { formatGroupedHeader } from "./grouped-header-format.js";
-import { normalizeGroupedQuotaEntries } from "./grouped-entry-normalization.js";
-import { renderSessionTokensLines } from "./session-tokens-format.js";
+import { groupQuotaEntries } from "./grouped-entry-normalization.js";
+import { renderPlainTextReport, type ReportDocument, type ReportSection } from "./report-document.js";
+import { buildSessionTokenSectionModel } from "./session-tokens-format.js";
 
 /**
  * Format reset time in compact form (different from toast countdown).
@@ -40,44 +41,27 @@ function getGroupedLeftText(entry: QuotaToastEntry): string {
   return right ? `${label} ${right}` : label;
 }
 
-function formatQuotaCommandBody(params: {
+function buildQuotaCommandDocument(params: {
   entries: QuotaToastEntry[];
   errors: QuotaToastError[];
   sessionTokens?: SessionTokensData;
-}): string {
-  const entries = normalizeGroupedQuotaEntries(params.entries, "quota");
-
-  const groupOrder: string[] = [];
-  const groups = new Map<string, QuotaToastEntry[]>();
-  for (const e of entries) {
-    const list = groups.get(e.group);
-    if (list) list.push(e);
-    else {
-      groupOrder.push(e.group);
-      groups.set(e.group, [e]);
-    }
-  }
-
-  const lines: string[] = [];
+  generatedAtMs?: number;
+}): ReportDocument {
+  const groups = groupQuotaEntries(params.entries, "quota");
+  const normalizedEntries = groups.flatMap((group) => group.entries);
 
   const barWidth = 18;
   const leftCol = Math.max(
     16,
     Math.min(
       30,
-      entries.reduce((max, entry) => Math.max(max, getGroupedLeftText(entry).length), 0),
+      normalizedEntries.reduce((max, entry) => Math.max(max, getGroupedLeftText(entry).length), 0),
     ),
   );
 
-  for (let i = 0; i < groupOrder.length; i++) {
-    const g = groupOrder[i]!;
-    const list = groups.get(g) ?? [];
-
-    if (i > 0) lines.push("");
-
-    lines.push(`→ ${formatGroupedHeader(g)}`);
-
-    for (const row of list) {
+  const sections: ReportSection[] = groups.map((group, index) => {
+    const lines: string[] = [];
+    for (const row of group.entries) {
       const leftText = getGroupedLeftText(row);
       const labelCol = padRight(leftText, leftCol);
       const suffix = formatResetsIn(row.resetTimeIso);
@@ -90,23 +74,41 @@ function formatQuotaCommandBody(params: {
       const pct = clampInt(row.percentRemaining, 0, 100);
       lines.push(`  ${labelCol} ${bar(pct, barWidth)}  ${pct}% left${suffix}`);
     }
-  }
+    return {
+      id: `group-${index}`,
+      title: `→ ${formatGroupedHeader(group.group)}`,
+      blocks: [{ kind: "lines", lines }],
+    };
+  });
 
-  // Add session token summary (if data available and non-empty)
-  const tokenLines = renderSessionTokensLines(params.sessionTokens);
-  if (tokenLines.length > 0) {
-    lines.push("");
-    lines.push(...tokenLines);
+  const tokenSection = buildSessionTokenSectionModel(params.sessionTokens);
+  if (tokenSection) {
+    sections.push({
+      id: "session-tokens",
+      title: tokenSection.heading,
+      blocks: [{ kind: "lines", lines: tokenSection.lines }],
+    });
   }
 
   if (params.errors.length > 0) {
-    lines.push("");
-    for (const err of params.errors) {
-      lines.push(`${err.label}: ${err.message}`);
-    }
+    sections.push({
+      id: "errors",
+      blocks: [
+        {
+          kind: "lines",
+          lines: params.errors.map((err) => `${err.label}: ${err.message}`),
+        },
+      ],
+    });
   }
 
-  return lines.join("\n");
+  return {
+    heading: {
+      title: "Quota (/quota)",
+      generatedAtMs: params.generatedAtMs,
+    },
+    sections,
+  };
 }
 
 export function formatQuotaCommand(params: {
@@ -115,10 +117,5 @@ export function formatQuotaCommand(params: {
   sessionTokens?: SessionTokensData;
   generatedAtMs?: number;
 }): string {
-  const heading = renderCommandHeading({
-    title: "Quota (/quota)",
-    generatedAtMs: params.generatedAtMs,
-  });
-  const body = formatQuotaCommandBody(params);
-  return body.length > 0 ? `${heading}\n\n${body}` : heading;
+  return renderPlainTextReport(buildQuotaCommandDocument(params));
 }

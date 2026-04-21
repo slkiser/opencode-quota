@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeGroupedQuotaEntries } from "../src/lib/grouped-entry-normalization.js";
+import {
+  groupQuotaEntries,
+  normalizeGroupedQuotaEntries,
+} from "../src/lib/grouped-entry-normalization.js";
 
 describe("normalizeGroupedQuotaEntries", () => {
   it("applies the Google fallback to grouped toast and /quota rendering", () => {
@@ -91,6 +94,46 @@ describe("normalizeGroupedQuotaEntries", () => {
       "Monthly:",
       "Balance:",
       "MCP:",
+    ]);
+  });
+
+  it("returns grouped quota entries in stable group and in-group order", () => {
+    const groups = groupQuotaEntries(
+      [
+        {
+          name: "Qwen Free Daily",
+          group: "Qwen (free)",
+          label: "Daily:",
+          percentRemaining: 90,
+        },
+        {
+          name: "Qwen Free RPM",
+          group: "Qwen (free)",
+          label: "RPM:",
+          percentRemaining: 60,
+        },
+        {
+          name: "OpenAI Weekly",
+          group: "OpenAI (Pro)",
+          label: "Weekly:",
+          percentRemaining: 81,
+        },
+      ],
+      "quota",
+    );
+
+    expect(groups).toEqual([
+      {
+        group: "Qwen (free)",
+        entries: [
+          expect.objectContaining({ label: "RPM:" }),
+          expect.objectContaining({ label: "Daily:" }),
+        ],
+      },
+      {
+        group: "OpenAI (Pro)",
+        entries: [expect.objectContaining({ label: "Weekly:" })],
+      },
     ]);
   });
 });

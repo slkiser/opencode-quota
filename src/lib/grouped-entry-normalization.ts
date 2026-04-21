@@ -6,6 +6,11 @@ export type NormalizedGroupedQuotaEntry = QuotaToastEntry & {
   group: string;
 };
 
+export type QuotaEntryGroup = {
+  group: string;
+  entries: NormalizedGroupedQuotaEntry[];
+};
+
 type RankedGroupedQuotaEntry = {
   entry: NormalizedGroupedQuotaEntry;
   originalIndex: number;
@@ -93,10 +98,10 @@ function normalizeGroupedQuotaEntry(
   };
 }
 
-export function normalizeGroupedQuotaEntries(
+export function groupQuotaEntries(
   entries: QuotaToastEntry[],
   target: GroupedRenderTarget,
-): NormalizedGroupedQuotaEntry[] {
+): QuotaEntryGroup[] {
   const groupOrder: string[] = [];
   const groupedEntries = new Map<string, RankedGroupedQuotaEntry[]>();
 
@@ -117,9 +122,9 @@ export function normalizeGroupedQuotaEntries(
     groupedEntries.set(normalizedEntry.group, [rankedEntry]);
   }
 
-  return groupOrder.flatMap((group) => {
+  return groupOrder.map((group) => {
     const rankedEntries = groupedEntries.get(group) ?? [];
-    return rankedEntries
+    const entries = rankedEntries
       .slice()
       .sort((left, right) => {
         if (left.rank !== null && right.rank !== null && left.rank !== right.rank) {
@@ -130,5 +135,14 @@ export function normalizeGroupedQuotaEntries(
         return left.originalIndex - right.originalIndex;
       })
       .map(({ entry }) => entry);
+
+    return { group, entries };
   });
+}
+
+export function normalizeGroupedQuotaEntries(
+  entries: QuotaToastEntry[],
+  target: GroupedRenderTarget,
+): NormalizedGroupedQuotaEntry[] {
+  return groupQuotaEntries(entries, target).flatMap((group) => group.entries);
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildSessionTokenSectionModel,
   renderSessionTokensLines,
   renderSidebarSessionTokenSummaryLines,
   SESSION_TOKEN_SECTION_HEADING,
@@ -38,6 +39,19 @@ describe("renderSessionTokensLines", () => {
       "  openai/gpt-5.4-mini",
       "    372 in  41 out",
     ]);
+  });
+
+  it("builds a reusable detailed section model without duplicating the heading in body rows", () => {
+    const section = buildSessionTokenSectionModel({
+      models: [{ modelID: "openai/gpt-5", input: 1234, output: 567 }],
+      totalInput: 1234,
+      totalOutput: 567,
+    });
+
+    expect(section).toEqual({
+      heading: SESSION_TOKEN_SECTION_HEADING,
+      lines: ["  openai/gpt-5            1.2K in     567 out"],
+    });
   });
 });
 

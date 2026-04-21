@@ -1047,4 +1047,108 @@ describe("buildQuotaStatusReport", () => {
       "- token_compatibility_error: GitHub's enterprise premium usage endpoint does not support fine-grained personal access tokens.",
     );
   });
+
+  it("locks the early /quota_status section layout after the shared report-document migration", async () => {
+    const { buildQuotaStatusReport } = await import("../src/lib/quota-status.js");
+
+    const report = await buildQuotaStatusReport({
+      configSource: "test",
+      configPaths: [],
+      enabledProviders: ["copilot"],
+      alibabaCodingPlanTier: "lite",
+      cursorPlan: "none",
+      pricingSnapshotSource: "auto",
+      onlyCurrentModel: false,
+      providerAvailability: [
+        {
+          id: "copilot",
+          enabled: true,
+          available: true,
+        },
+      ],
+      generatedAtMs: Date.UTC(2026, 2, 12, 12, 45, 0),
+    } as any);
+
+    const [heading, blank, ...body] = report.split("\n");
+    expect(heading).toMatch(
+      /^# Quota Status \(opencode-quota v1\.2\.3\) \(\/quota_status\) \d{2}:\d{2} \d{2}\/\d{2}\/\d{4}$/,
+    );
+    expect(blank).toBe("");
+
+    const excerpt = body.slice(0, 46).join("\n");
+    expect(excerpt).toMatchInlineSnapshot(`
+      "toast:
+      - configSource: test
+      - network_setting_sources: (none)
+      - enabledProviders: copilot
+      - onlyCurrentModel: false
+      - currentModel: (unknown)
+      - providers:
+        - copilot: enabled available
+
+      paths:
+      - opencode_dirs: data=/tmp/data config=/tmp/config cache=/tmp/cache state=/tmp/state
+      - auth.json: preferred=/tmp/auth.json present=(none) candidates=/tmp/auth.json
+      - qwen oauth auth configured: false
+      - qwen_oauth_source: (none)
+      - qwen_local_plan: (none)
+      - alibaba auth configured: false
+      - alibaba_api_key_source: (none)
+      - alibaba_api_key_checked_paths: (none)
+      - alibaba_api_key_auth_paths: /tmp/auth.json
+      - alibaba coding plan fallback tier: lite
+      - alibaba_coding_plan: (none)
+
+      openai:
+      - auth_configured: false
+      - auth_source: (none)
+      - token_status: (none)
+      - token_expires_at: (none)
+      - account_email: (none)
+      - account_id: (none)
+
+      anthropic:
+      - cli_installed: true
+      - cli_version: 1.2.3
+      - auth_status: authenticated
+      - quota_supported: false
+      - quota_source: (none)
+      - checked_commands: claude --version | claude auth status --json
+      - message: Claude CLI auth detected, but quota was unavailable from both the local CLI and Claude OAuth fallback. Claude credentials file not found at /Users/test/.claude/.credentials.json.
+
+      cursor:
+      - plan: none
+      - included_api_usd: (none)
+      - billing_cycle_start_day: (calendar month)
+      - auth_state: present
+      - auth_selected_path: /tmp/auth.json
+      - auth_present_paths: /tmp/auth.json"
+    `);
+
+    const titles = report
+      .split("\n")
+      .filter((line) => /^[a-z0-9_]+:$/u.test(line))
+      .join("\n");
+    expect(titles).toMatchInlineSnapshot(`
+      "toast:
+      paths:
+      openai:
+      anthropic:
+      cursor:
+      minimax:
+      kimi:
+      opencode_go:
+      zai:
+      synthetic:
+      chutes:
+      nanogpt:
+      copilot_quota_auth:
+      google_antigravity:
+      storage:
+      pricing_snapshot:
+      supported_providers_pricing:
+      unpriced_models:
+      unknown_pricing:"
+    `);
+  });
 });

@@ -1,6 +1,6 @@
 import type { AggregateResult, SessionTreeNode, TokenBuckets } from "./quota-stats.js";
-import { renderCommandHeading } from "./format-utils.js";
-import { renderMarkdownTable, type WidthMode } from "./markdown-table.js";
+import type { WidthMode } from "./markdown-table.js";
+import { renderMarkdownReport, type ReportDocument, type ReportSection } from "./report-document.js";
 import { emptyTokenBuckets, totalTokenBuckets } from "./token-buckets.js";
 
 /** Use markdown-conceal for proper TUI alignment (strips markdown syntax for width calc) */
@@ -152,65 +152,69 @@ export function formatQuotaStatsReport(params: {
     totalTokenBuckets(r.totals.unknown) +
     totalTokenBuckets(r.totals.unpriced);
 
-  const lines: string[] = [];
-
-  lines.push(
-    renderCommandHeading({
-      title: params.title,
-      generatedAtMs: params.generatedAtMs,
-    }),
-  );
-  lines.push("");
+  const sections: ReportSection[] = [];
 
   // Session-scoped reports use a compact summary without the time window column.
   if (sessionOnly) {
-    lines.push(
-      renderMarkdownTable({
-        headers: ["Messages", "Tokens", "Cost"],
-        aligns: ["right", "right", "right"],
-        widthMode: TABLE_WIDTH_MODE,
-        rows: [
-          [
-            fmtCompact(r.totals.messageCount),
-            fmtCompact(combinedTokens),
-            fmtUsd(r.totals.costUsd),
+    sections.push({
+      id: "summary",
+      blocks: [
+        {
+          kind: "table",
+          headers: ["Messages", "Tokens", "Cost"],
+          aligns: ["right", "right", "right"],
+          widthMode: TABLE_WIDTH_MODE,
+          rows: [
+            [
+              fmtCompact(r.totals.messageCount),
+              fmtCompact(combinedTokens),
+              fmtUsd(r.totals.costUsd),
+            ],
           ],
-        ],
-      }),
-    );
+        },
+      ],
+    });
   } else if (sessionTreeMode) {
-    lines.push(
-      renderMarkdownTable({
-        headers: ["Messages", "Sessions", "Tokens", "Cost"],
-        aligns: ["right", "right", "right", "right"],
-        widthMode: TABLE_WIDTH_MODE,
-        rows: [
-          [
-            fmtCompact(r.totals.messageCount),
-            fmtCompact(sessionTree!.nodes.length),
-            fmtCompact(combinedTokens),
-            fmtUsd(r.totals.costUsd),
+    sections.push({
+      id: "summary",
+      blocks: [
+        {
+          kind: "table",
+          headers: ["Messages", "Sessions", "Tokens", "Cost"],
+          aligns: ["right", "right", "right", "right"],
+          widthMode: TABLE_WIDTH_MODE,
+          rows: [
+            [
+              fmtCompact(r.totals.messageCount),
+              fmtCompact(sessionTree!.nodes.length),
+              fmtCompact(combinedTokens),
+              fmtUsd(r.totals.costUsd),
+            ],
           ],
-        ],
-      }),
-    );
+        },
+      ],
+    });
   } else {
-    lines.push(
-      renderMarkdownTable({
-        headers: ["Window", "Messages", "Sessions", "Tokens", "Cost"],
-        aligns: ["left", "right", "right", "right", "right"],
-        widthMode: TABLE_WIDTH_MODE,
-        rows: [
-          [
-            fmtWindow(r.window),
-            fmtCompact(r.totals.messageCount),
-            fmtCompact(r.totals.sessionCount),
-            fmtCompact(combinedTokens),
-            fmtUsd(r.totals.costUsd),
+    sections.push({
+      id: "summary",
+      blocks: [
+        {
+          kind: "table",
+          headers: ["Window", "Messages", "Sessions", "Tokens", "Cost"],
+          aligns: ["left", "right", "right", "right", "right"],
+          widthMode: TABLE_WIDTH_MODE,
+          rows: [
+            [
+              fmtWindow(r.window),
+              fmtCompact(r.totals.messageCount),
+              fmtCompact(r.totals.sessionCount),
+              fmtCompact(combinedTokens),
+              fmtUsd(r.totals.costUsd),
+            ],
           ],
-        ],
-      }),
-    );
+        },
+      ],
+    });
   }
 
   const hasAnyReasoning =
@@ -259,7 +263,7 @@ export function formatQuotaStatsReport(params: {
         fmtCompact(t.cache_write),
       ];
       if (hasAnyReasoning) out.push(fmtCompact(t.reasoning));
-        out.push(fmtCompact(totalTokenBuckets(t)), fmtUsd(row.costUsd));
+      out.push(fmtCompact(totalTokenBuckets(t)), fmtUsd(row.costUsd));
       rows.push(out);
     }
 
@@ -270,17 +274,22 @@ export function formatQuotaStatsReport(params: {
   }
 
   if (rows.length > 0) {
-    lines.push("");
-    lines.push(`## Models`);
-    lines.push("");
-    lines.push(renderMarkdownTable({ headers, rows, aligns, widthMode: TABLE_WIDTH_MODE }));
+    sections.push({
+      id: "models",
+      title: "Models",
+      blocks: [
+        {
+          kind: "table",
+          headers,
+          rows,
+          aligns,
+          widthMode: TABLE_WIDTH_MODE,
+        },
+      ],
+    });
   }
 
   if (sessionTreeMode) {
-    lines.push("");
-    lines.push(`## Session Tree`);
-    lines.push("");
-
     const sessionUsageByID = new Map(r.bySession.map((row) => [row.sessionID, row]));
     const sessionTreeRows = sessionTree!.nodes.map((node) => {
       const usage = sessionUsageByID.get(node.sessionID);
@@ -289,28 +298,29 @@ export function formatQuotaStatsReport(params: {
         node.parentID ?? "-",
         node.sessionID,
         fmtUsd(usage?.costUsd ?? 0),
-          fmtCompact(totalTokenBuckets(usage?.tokens ?? emptyTokenBuckets())),
+        fmtCompact(totalTokenBuckets(usage?.tokens ?? emptyTokenBuckets())),
         fmtCompact(usage?.messageCount ?? 0),
         truncateTitle(node.title ?? usage?.title),
       ];
     });
 
-    lines.push(
-      renderMarkdownTable({
-        headers: ["Relation", "Parent", "Session", "Cost", "Tokens", "Msgs", "Title"],
-        aligns: ["left", "left", "left", "right", "right", "right", "left"],
-        widthMode: TABLE_WIDTH_MODE,
-        rows: sessionTreeRows,
-      }),
-    );
+    sections.push({
+      id: "session-tree",
+      title: "Session Tree",
+      blocks: [
+        {
+          kind: "table",
+          headers: ["Relation", "Parent", "Session", "Cost", "Tokens", "Msgs", "Title"],
+          aligns: ["left", "left", "left", "right", "right", "right", "left"],
+          widthMode: TABLE_WIDTH_MODE,
+          rows: sessionTreeRows,
+        },
+      ],
+    });
   }
 
   // Skip Top Sessions for session-scoped reports (e.g., /tokens_session, /tokens_session_all).
   if (reportKind === "standard") {
-    lines.push("");
-    lines.push(`## Top Sessions`);
-    lines.push("");
-
     const sessionRows: string[][] = [];
     const visibleSessions = r.bySession.filter(hasRenderableSessionUsage);
 
@@ -342,81 +352,99 @@ export function formatQuotaStatsReport(params: {
       }
     }
 
-    if (sessionRows.length > 0) {
-      lines.push(
-        renderMarkdownTable({
-          headers: ["Current", "Session", "Cost", "Tokens", "Msgs", "Title"],
-          aligns: ["left", "left", "right", "right", "right", "left"],
-          widthMode: TABLE_WIDTH_MODE,
-          rows: sessionRows,
-        }),
-      );
-    } else {
-      lines.push("(no sessions)");
-    }
+    sections.push({
+      id: "top-sessions",
+      title: "Top Sessions",
+      blocks:
+        sessionRows.length > 0
+          ? [
+              {
+                kind: "table",
+                headers: ["Current", "Session", "Cost", "Tokens", "Msgs", "Title"],
+                aligns: ["left", "left", "right", "right", "right", "left"],
+                widthMode: TABLE_WIDTH_MODE,
+                rows: sessionRows,
+              },
+            ]
+          : [{ kind: "lines", lines: ["(no sessions)"] }],
+    });
   }
 
   if (r.unpriced.length > 0) {
-    lines.push("");
-    lines.push(`## Unpriced Models`);
-    lines.push("");
-    lines.push(
-      renderMarkdownTable({
-        headers: ["Source", "Model", "Mapped", "Reason", "Tokens", "Msgs"],
-        aligns: ["left", "left", "left", "left", "right", "right"],
-        widthMode: TABLE_WIDTH_MODE,
-        rows: r.unpriced.slice(0, 20).map((u) => {
-          const mapped = `${u.key.mappedProvider}/${u.key.mappedModel}`;
-          return [
-            normalizeSourceName(u.key.sourceProviderID),
-            u.key.sourceModelID,
-            mapped,
-            u.key.reason,
+    sections.push({
+      id: "unpriced-models",
+      title: "Unpriced Models",
+      blocks: [
+        {
+          kind: "table",
+          headers: ["Source", "Model", "Mapped", "Reason", "Tokens", "Msgs"],
+          aligns: ["left", "left", "left", "left", "right", "right"],
+          widthMode: TABLE_WIDTH_MODE,
+          rows: r.unpriced.slice(0, 20).map((u) => {
+            const mapped = `${u.key.mappedProvider}/${u.key.mappedModel}`;
+            return [
+              normalizeSourceName(u.key.sourceProviderID),
+              u.key.sourceModelID,
+              mapped,
+              u.key.reason,
               fmtCompact(totalTokenBuckets(u.tokens)),
-            fmtCompact(u.messageCount),
-          ];
-        }),
-      }),
-    );
+              fmtCompact(u.messageCount),
+            ];
+          }),
+        },
+      ],
+    });
   }
 
   if (r.unknown.length > 0) {
-    lines.push("");
-    lines.push(`## Unknown Pricing`);
-    lines.push("");
-    lines.push(
-      renderMarkdownTable({
-        headers: ["Source", "Model", "Mapped", "Tokens", "Msgs"],
-        aligns: ["left", "left", "left", "right", "right"],
-        widthMode: TABLE_WIDTH_MODE,
-        rows: r.unknown.slice(0, 20).map((u) => {
-          const mappedBase =
-            u.key.mappedProvider && u.key.mappedModel
-              ? `${u.key.mappedProvider}/${u.key.mappedModel}`
-              : "-";
-          const candidateSuffix =
-            u.key.providerCandidates && u.key.providerCandidates.length > 0
-              ? `candidates: ${u.key.providerCandidates.join(",")}`
-              : "";
-          const mapped =
-            candidateSuffix.length > 0
-              ? mappedBase === "-"
-                ? candidateSuffix
-                : `${mappedBase} (${candidateSuffix})`
-              : mappedBase;
-          return [
-            normalizeSourceName(u.key.sourceProviderID),
-            u.key.sourceModelID,
-            mapped,
+    sections.push({
+      id: "unknown-pricing",
+      title: "Unknown Pricing",
+      blocks: [
+        {
+          kind: "table",
+          headers: ["Source", "Model", "Mapped", "Tokens", "Msgs"],
+          aligns: ["left", "left", "left", "right", "right"],
+          widthMode: TABLE_WIDTH_MODE,
+          rows: r.unknown.slice(0, 20).map((u) => {
+            const mappedBase =
+              u.key.mappedProvider && u.key.mappedModel
+                ? `${u.key.mappedProvider}/${u.key.mappedModel}`
+                : "-";
+            const candidateSuffix =
+              u.key.providerCandidates && u.key.providerCandidates.length > 0
+                ? `candidates: ${u.key.providerCandidates.join(",")}`
+                : "";
+            const mapped =
+              candidateSuffix.length > 0
+                ? mappedBase === "-"
+                  ? candidateSuffix
+                  : `${mappedBase} (${candidateSuffix})`
+                : mappedBase;
+            return [
+              normalizeSourceName(u.key.sourceProviderID),
+              u.key.sourceModelID,
+              mapped,
               fmtCompact(totalTokenBuckets(u.tokens)),
-            fmtCompact(u.messageCount),
-          ];
-        }),
-      }),
-    );
-    lines.push("");
-    lines.push(`Run /quota_status to see the full pricing diagnostics report.`);
+              fmtCompact(u.messageCount),
+            ];
+          }),
+        },
+        {
+          kind: "lines",
+          lines: ["Run /quota_status to see the full pricing diagnostics report."],
+        },
+      ],
+    });
   }
 
-  return lines.join("\n");
+  const document: ReportDocument = {
+    heading: {
+      title: params.title,
+      generatedAtMs: params.generatedAtMs,
+    },
+    sections,
+  };
+
+  return renderMarkdownReport(document);
 }

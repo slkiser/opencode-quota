@@ -57,7 +57,8 @@ import {
   getOpenCodeDbStats,
 } from "./opencode-storage.js";
 import { aggregateUsage } from "./quota-stats.js";
-import { fmtUsdAmount, renderCommandHeading } from "./format-utils.js";
+import { fmtUsdAmount } from "./format-utils.js";
+import { renderPlainTextReport, type ReportKvRow, type ReportSection } from "./report-document.js";
 import { totalTokenBuckets } from "./token-buckets.js";
 import {
   CURSOR_CANONICAL_PLUGIN_PACKAGE,
@@ -159,19 +160,38 @@ async function readBasicApiKeyDiagnostics(
   }
 }
 
-function formatInlineApiKeyDiagnostics(label: string, diagnostics: BasicApiKeyDiagnostics): string {
-  return `- ${label}: configured=${diagnostics.configured ? "true" : "false"}${diagnostics.source ? ` source=${diagnostics.source}` : ""}${diagnostics.checkedPaths.length > 0 ? ` checked=${diagnostics.checkedPaths.join(" | ")}` : ""}`;
+function formatInlineApiKeyDiagnosticsValue(diagnostics: BasicApiKeyDiagnostics): string {
+  return `configured=${diagnostics.configured ? "true" : "false"}${diagnostics.source ? ` source=${diagnostics.source}` : ""}${diagnostics.checkedPaths.length > 0 ? ` checked=${diagnostics.checkedPaths.join(" | ")}` : ""}`;
 }
 
-function appendBasicApiKeySection(params: {
-  lines: string[];
+function createKvSection(id: string, title: string, rows: ReportKvRow[]): ReportSection {
+  return {
+    id,
+    title,
+    blocks: [{ kind: "kv", rows }],
+  };
+}
+
+function createLinesSection(id: string, title: string, lines: string[]): ReportSection {
+  return {
+    id,
+    title,
+    blocks: [{ kind: "lines", lines }],
+  };
+}
+
+function buildBasicApiKeySection(params: {
+  id: string;
   section: string;
   label: string;
   diagnostics: BasicApiKeyDiagnostics;
-}): void {
-  params.lines.push("");
-  params.lines.push(params.section);
-  params.lines.push(formatInlineApiKeyDiagnostics(params.label, params.diagnostics));
+}): ReportSection {
+  return createKvSection(params.id, params.section, [
+    {
+      key: params.label,
+      value: formatInlineApiKeyDiagnosticsValue(params.diagnostics),
+    },
+  ]);
 }
 
 function getDefaultNanoGptApiKeyDiagnostics(): NanoGptApiKeyDiagnostics {
@@ -189,15 +209,6 @@ async function readNanoGptApiKeyDiagnostics(
   } catch {
     return getDefaultNanoGptApiKeyDiagnostics();
   }
-}
-
-function appendNanoGptApiKeySection(lines: string[], diagnostics: NanoGptApiKeyDiagnostics): void {
-  lines.push("");
-  lines.push("nanogpt:");
-  lines.push(`- api_key_configured: ${diagnostics.configured ? "true" : "false"}`);
-  lines.push(`- api_key_source: ${diagnostics.source ?? "(none)"}`);
-  lines.push(`- api_key_checked_paths: ${joinOrNone(diagnostics.checkedPaths)}`);
-  lines.push(`- api_key_auth_paths: ${joinOrNone(diagnostics.authPaths)}`);
 }
 
 function fmtNanoGptMetric(value: number): string {
@@ -407,29 +418,8 @@ export async function buildQuotaStatusReport(params: {
   sessionTokenError?: SessionTokenError;
   generatedAtMs?: number;
 }): Promise<string> {
-  const lines: string[] = [];
-
   const version = await getPackageVersion();
   const v = version ?? "unknown";
-
-  lines.push(
-    renderCommandHeading({
-      title: `Quota Status (opencode-quota v${v}) (/quota_status)`,
-      generatedAtMs: params.generatedAtMs,
-    }),
-  );
-  lines.push("");
-
-  // === toast diagnostics ===
-  lines.push("toast:");
-  lines.push(
-    `- configSource: ${params.configSource}${params.configPaths.length ? ` (${params.configPaths.join(" | ")})` : ""}`,
-  );
-  lines.push(`- network_setting_sources: ${formatNetworkSettingSources(params.networkSettingSources)}`);
-  lines.push(
-    `- enabledProviders: ${params.enabledProviders === "auto" ? "(auto)" : params.enabledProviders.length ? params.enabledProviders.join(",") : "(none)"}`,
-  );
-  lines.push(`- onlyCurrentModel: ${params.onlyCurrentModel ? "true" : "false"}`);
   const modelDisplay = params.currentModel
     ? params.currentModel
     : params.sessionModelLookup === "not_found"
@@ -437,20 +427,31 @@ export async function buildQuotaStatusReport(params: {
       : params.sessionModelLookup === "no_session"
         ? "(no session available)"
         : "(unknown)";
-  lines.push(`- currentModel: ${modelDisplay}`);
+  const sections: ReportSection[] = [];
+
+  // === toast diagnostics ===
+  const toastLines: string[] = [
+    `- configSource: ${params.configSource}${params.configPaths.length ? ` (${params.configPaths.join(" | ")})` : ""}`,
+    `- network_setting_sources: ${formatNetworkSettingSources(params.networkSettingSources)}`,
+    `- enabledProviders: ${params.enabledProviders === "auto" ? "(auto)" : params.enabledProviders.length ? params.enabledProviders.join(",") : "(none)"}`,
+    `- onlyCurrentModel: ${params.onlyCurrentModel ? "true" : "false"}`,
+    `- currentModel: ${modelDisplay}`,
+  ];
   if (params.tuiDiagnostics) {
-    lines.push("");
-    lines.push("tui:");
-    lines.push(`- config_configured: ${params.tuiDiagnostics.configured ? "true" : "false"}`);
-    lines.push(`- inferred_selected_config_path: ${params.tuiDiagnostics.inferredSelectedPath ?? "(none)"}`);
-    lines.push(`- present_config_paths: ${joinOrNone(params.tuiDiagnostics.presentPaths)}`);
-    lines.push(`- candidate_config_paths: ${joinOrNone(params.tuiDiagnostics.candidatePaths)}`);
-    lines.push(
+    toastLines.push("");
+    toastLines.push("tui:");
+    toastLines.push(`- config_configured: ${params.tuiDiagnostics.configured ? "true" : "false"}`);
+    toastLines.push(
+      `- inferred_selected_config_path: ${params.tuiDiagnostics.inferredSelectedPath ?? "(none)"}`,
+    );
+    toastLines.push(`- present_config_paths: ${joinOrNone(params.tuiDiagnostics.presentPaths)}`);
+    toastLines.push(`- candidate_config_paths: ${joinOrNone(params.tuiDiagnostics.candidatePaths)}`);
+    toastLines.push(
       `- quota_plugin_configured: ${params.tuiDiagnostics.quotaPluginConfigured ? "true" : "false"}`,
     );
-    lines.push(`- quota_plugin_paths: ${joinOrNone(params.tuiDiagnostics.quotaPluginConfigPaths)}`);
+    toastLines.push(`- quota_plugin_paths: ${joinOrNone(params.tuiDiagnostics.quotaPluginConfigPaths)}`);
   }
-  lines.push("- providers:");
+  toastLines.push("- providers:");
   for (const p of params.providerAvailability) {
     const bits: string[] = [];
     bits.push(p.enabled ? "enabled" : "disabled");
@@ -458,16 +459,17 @@ export async function buildQuotaStatusReport(params: {
     if (p.matchesCurrentModel !== undefined) {
       bits.push(`matchesCurrentModel=${p.matchesCurrentModel ? "yes" : "no"}`);
     }
-    lines.push(`  - ${p.id}: ${bits.join(" ")}`);
+    toastLines.push(`  - ${p.id}: ${bits.join(" ")}`);
   }
+  sections.push(createLinesSection("toast", "toast:", toastLines));
 
-  lines.push("");
-  lines.push("paths:");
-
+  // === paths ===
+  const pathsRows: ReportKvRow[] = [];
   const runtime = getOpencodeRuntimeDirs();
-  lines.push(
-    `- opencode_dirs: data=${runtime.dataDir} config=${runtime.configDir} cache=${runtime.cacheDir} state=${runtime.stateDir}`,
-  );
+  pathsRows.push({
+    key: "opencode_dirs",
+    value: `data=${runtime.dataDir} config=${runtime.configDir} cache=${runtime.cacheDir} state=${runtime.stateDir}`,
+  });
   const authCandidates = getAuthPaths();
   const authPresent: string[] = [];
   await Promise.all(
@@ -480,9 +482,10 @@ export async function buildQuotaStatusReport(params: {
       }
     }),
   );
-  lines.push(
-    `- auth.json: preferred=${getAuthPath()} present=${joinOrNone(authPresent)} candidates=${joinOrNone(authCandidates)}`,
-  );
+  pathsRows.push({
+    key: "auth.json",
+    value: `preferred=${getAuthPath()} present=${joinOrNone(authPresent)} candidates=${joinOrNone(authCandidates)}`,
+  });
 
   const authData = await readAuthFileCached({ maxAgeMs: 5_000 });
   const qwenAuthConfigured = hasQwenOAuthAuth(authData);
@@ -496,86 +499,139 @@ export async function buildQuotaStatusReport(params: {
     maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
     fallbackTier: params.alibabaCodingPlanTier,
   });
-  lines.push(`- qwen oauth auth configured: ${qwenAuthConfigured ? "true" : "false"}`);
-  lines.push(
-    `- qwen_oauth_source: ${qwenLocalPlan.state === "qwen_free" ? qwenLocalPlan.sourceKey : "(none)"}`,
-  );
-  lines.push(
-    `- qwen_local_plan: ${qwenLocalPlan.state === "qwen_free" ? "qwen-code/free" : "(none)"}`,
-  );
-  lines.push(
-    `- alibaba auth configured: ${alibabaAuthDiagnostics.state === "none" ? "false" : "true"}`,
-  );
-  lines.push(`- alibaba_api_key_source: ${alibabaAuthDiagnostics.source ?? "(none)"}`);
-  lines.push(`- alibaba_api_key_checked_paths: ${joinOrNone(alibabaAuthDiagnostics.checkedPaths)}`);
-  lines.push(`- alibaba_api_key_auth_paths: ${joinOrNone(alibabaAuthDiagnostics.authPaths)}`);
-  lines.push(`- alibaba coding plan fallback tier: ${params.alibabaCodingPlanTier}`);
-  lines.push(
-    `- alibaba_coding_plan: ${alibabaAuthDiagnostics.state === "configured" ? alibabaAuthDiagnostics.tier : alibabaAuthDiagnostics.state === "invalid" ? "invalid" : "(none)"}`,
-  );
+  pathsRows.push({ key: "qwen oauth auth configured", value: qwenAuthConfigured ? "true" : "false" });
+  pathsRows.push({
+    key: "qwen_oauth_source",
+    value: qwenLocalPlan.state === "qwen_free" ? qwenLocalPlan.sourceKey : "(none)",
+  });
+  pathsRows.push({
+    key: "qwen_local_plan",
+    value: qwenLocalPlan.state === "qwen_free" ? "qwen-code/free" : "(none)",
+  });
+  pathsRows.push({
+    key: "alibaba auth configured",
+    value: alibabaAuthDiagnostics.state === "none" ? "false" : "true",
+  });
+  pathsRows.push({ key: "alibaba_api_key_source", value: alibabaAuthDiagnostics.source ?? "(none)" });
+  pathsRows.push({
+    key: "alibaba_api_key_checked_paths",
+    value: joinOrNone(alibabaAuthDiagnostics.checkedPaths),
+  });
+  pathsRows.push({
+    key: "alibaba_api_key_auth_paths",
+    value: joinOrNone(alibabaAuthDiagnostics.authPaths),
+  });
+  pathsRows.push({
+    key: "alibaba coding plan fallback tier",
+    value: params.alibabaCodingPlanTier,
+  });
+  pathsRows.push({
+    key: "alibaba_coding_plan",
+    value:
+      alibabaAuthDiagnostics.state === "configured"
+        ? alibabaAuthDiagnostics.tier
+        : alibabaAuthDiagnostics.state === "invalid"
+          ? "invalid"
+          : "(none)",
+  });
   if (alibabaAuthDiagnostics.state === "invalid") {
-    lines.push(`- alibaba_auth_error: ${sanitizeDisplayText(alibabaAuthDiagnostics.error)}`);
+    pathsRows.push({
+      key: "alibaba_auth_error",
+      value: sanitizeDisplayText(alibabaAuthDiagnostics.error),
+    });
   }
+  sections.push(createKvSection("paths", "paths:", pathsRows));
 
-  lines.push("");
-  lines.push("openai:");
-  lines.push(`- auth_configured: ${openaiAuth.state === "configured" ? "true" : "false"}`);
-  lines.push(
-    `- auth_source: ${openaiAuth.state === "configured" ? openaiAuth.sourceKey : "(none)"}`,
-  );
+  // === openai ===
+  const openaiRows: ReportKvRow[] = [
+    { key: "auth_configured", value: openaiAuth.state === "configured" ? "true" : "false" },
+    {
+      key: "auth_source",
+      value: openaiAuth.state === "configured" ? openaiAuth.sourceKey : "(none)",
+    },
+  ];
   const openaiTokenStatus =
     openaiAuth.state !== "configured"
       ? "(none)"
       : openaiAuth.expiresAt && openaiAuth.expiresAt < Date.now()
         ? "expired"
         : "valid";
-  lines.push(`- token_status: ${openaiTokenStatus}`);
-  lines.push(
-    `- token_expires_at: ${openaiAuth.state === "configured" && openaiAuth.expiresAt ? new Date(openaiAuth.expiresAt).toISOString() : "(none)"}`,
-  );
-  lines.push(
-    `- account_email: ${openaiAuth.state === "configured" && openaiAuth.email ? sanitizeDisplayText(openaiAuth.email) : "(none)"}`,
-  );
-  lines.push(
-    `- account_id: ${openaiAuth.state === "configured" && openaiAuth.accountId ? sanitizeDisplayText(openaiAuth.accountId) : "(none)"}`,
-  );
+  openaiRows.push({ key: "token_status", value: openaiTokenStatus });
+  openaiRows.push({
+    key: "token_expires_at",
+    value:
+      openaiAuth.state === "configured" && openaiAuth.expiresAt
+        ? new Date(openaiAuth.expiresAt).toISOString()
+        : "(none)",
+  });
+  openaiRows.push({
+    key: "account_email",
+    value:
+      openaiAuth.state === "configured" && openaiAuth.email
+        ? sanitizeDisplayText(openaiAuth.email)
+        : "(none)",
+  });
+  openaiRows.push({
+    key: "account_id",
+    value:
+      openaiAuth.state === "configured" && openaiAuth.accountId
+        ? sanitizeDisplayText(openaiAuth.accountId)
+        : "(none)",
+  });
+  sections.push(createKvSection("openai", "openai:", openaiRows));
 
-  lines.push("");
-  lines.push("anthropic:");
+  // === anthropic ===
+  const anthropicRows: ReportKvRow[] = [];
   try {
     const anthropicDiagnostics = await getAnthropicDiagnostics({
       binaryPath: params.anthropicBinaryPath,
     });
-    lines.push(`- cli_installed: ${anthropicDiagnostics.installed ? "true" : "false"}`);
-    lines.push(`- cli_version: ${anthropicDiagnostics.version ?? "(none)"}`);
-    lines.push(`- auth_status: ${anthropicDiagnostics.authStatus}`);
-    lines.push(`- quota_supported: ${anthropicDiagnostics.quotaSupported ? "true" : "false"}`);
-    lines.push(
-      `- quota_source: ${anthropicDiagnostics.quotaSource === "none" ? "(none)" : anthropicDiagnostics.quotaSource}`,
-    );
-    lines.push(
-      `- checked_commands: ${anthropicDiagnostics.checkedCommands.length > 0 ? anthropicDiagnostics.checkedCommands.join(" | ") : "(none)"}`,
-    );
+    anthropicRows.push({
+      key: "cli_installed",
+      value: anthropicDiagnostics.installed ? "true" : "false",
+    });
+    anthropicRows.push({ key: "cli_version", value: anthropicDiagnostics.version ?? "(none)" });
+    anthropicRows.push({ key: "auth_status", value: anthropicDiagnostics.authStatus });
+    anthropicRows.push({
+      key: "quota_supported",
+      value: anthropicDiagnostics.quotaSupported ? "true" : "false",
+    });
+    anthropicRows.push({
+      key: "quota_source",
+      value: anthropicDiagnostics.quotaSource === "none" ? "(none)" : anthropicDiagnostics.quotaSource,
+    });
+    anthropicRows.push({
+      key: "checked_commands",
+      value:
+        anthropicDiagnostics.checkedCommands.length > 0
+          ? anthropicDiagnostics.checkedCommands.join(" | ")
+          : "(none)",
+    });
     if (anthropicDiagnostics.message) {
-      lines.push(`- message: ${anthropicDiagnostics.message}`);
+      anthropicRows.push({ key: "message", value: anthropicDiagnostics.message });
     }
     if (anthropicDiagnostics.quotaSupported && anthropicDiagnostics.quota) {
-      lines.push(
-        `- five_hour_remaining: ${anthropicDiagnostics.quota.five_hour.percentRemaining}% reset_at=${anthropicDiagnostics.quota.five_hour.resetTimeIso ?? "(none)"}`,
-      );
-      lines.push(
-        `- seven_day_remaining: ${anthropicDiagnostics.quota.seven_day.percentRemaining}% reset_at=${anthropicDiagnostics.quota.seven_day.resetTimeIso ?? "(none)"}`,
-      );
+      anthropicRows.push({
+        key: "five_hour_remaining",
+        value: `${anthropicDiagnostics.quota.five_hour.percentRemaining}% reset_at=${anthropicDiagnostics.quota.five_hour.resetTimeIso ?? "(none)"}`,
+      });
+      anthropicRows.push({
+        key: "seven_day_remaining",
+        value: `${anthropicDiagnostics.quota.seven_day.percentRemaining}% reset_at=${anthropicDiagnostics.quota.seven_day.resetTimeIso ?? "(none)"}`,
+      });
     }
   } catch (err) {
-    lines.push("- cli_installed: false");
-    lines.push(
-      `- message: failed to probe Claude CLI${
+    anthropicRows.push({ key: "cli_installed", value: "false" });
+    anthropicRows.push({
+      key: "message",
+      value: `failed to probe Claude CLI${
         err ? `: ${sanitizeDisplayText(err instanceof Error ? err.message : String(err))}` : ""
       }`,
-    );
+    });
   }
+  sections.push(createKvSection("anthropic", "anthropic:", anthropicRows));
 
+  // === cursor ===
   const cursorPlanLabel = getCursorPlanDisplayName(params.cursorPlan);
   const cursorIncludedApiUsd = getEffectiveCursorIncludedApiUsd({
     plan: params.cursorPlan,
@@ -583,70 +639,84 @@ export async function buildQuotaStatusReport(params: {
   });
   const cursorAuth = await inspectCursorAuthPresence();
   const cursorIntegration = await inspectCursorOpenCodeIntegration();
-  lines.push("");
-  lines.push("cursor:");
-  lines.push(`- plan: ${cursorPlanLabel ?? "none"}`);
-  lines.push(
-    `- included_api_usd: ${typeof cursorIncludedApiUsd === "number" ? fmtUsdAmount(cursorIncludedApiUsd) : "(none)"}`,
-  );
-  lines.push(
-    `- billing_cycle_start_day: ${typeof params.cursorBillingCycleStartDay === "number" ? params.cursorBillingCycleStartDay : "(calendar month)"}`,
-  );
-  lines.push(`- auth_state: ${cursorAuth.state}`);
-  lines.push(`- auth_selected_path: ${cursorAuth.selectedPath ?? "(none)"}`);
-  lines.push(`- auth_present_paths: ${joinOrNone(cursorAuth.presentPaths)}`);
-  lines.push(`- auth_candidate_paths: ${joinOrNone(cursorAuth.candidatePaths)}`);
+  const cursorRows: ReportKvRow[] = [
+    { key: "plan", value: cursorPlanLabel ?? "none" },
+    {
+      key: "included_api_usd",
+      value: typeof cursorIncludedApiUsd === "number" ? fmtUsdAmount(cursorIncludedApiUsd) : "(none)",
+    },
+    {
+      key: "billing_cycle_start_day",
+      value:
+        typeof params.cursorBillingCycleStartDay === "number"
+          ? String(params.cursorBillingCycleStartDay)
+          : "(calendar month)",
+    },
+    { key: "auth_state", value: cursorAuth.state },
+    { key: "auth_selected_path", value: cursorAuth.selectedPath ?? "(none)" },
+    { key: "auth_present_paths", value: joinOrNone(cursorAuth.presentPaths) },
+    { key: "auth_candidate_paths", value: joinOrNone(cursorAuth.candidatePaths) },
+  ];
   if (cursorAuth.error) {
-    lines.push(`- auth_error: ${cursorAuth.error}`);
+    cursorRows.push({ key: "auth_error", value: cursorAuth.error });
   }
-  lines.push(`- plugin_enabled: ${cursorIntegration.pluginEnabled ? "true" : "false"}`);
-  lines.push(`- canonical_plugin_package: ${CURSOR_CANONICAL_PLUGIN_PACKAGE}`);
-  lines.push(`- provider_configured: ${cursorIntegration.providerConfigured ? "true" : "false"}`);
-  lines.push(`- config_matches: ${joinOrNone(cursorIntegration.matchedPaths)}`);
-  lines.push(`- config_checked_paths: ${joinOrNone(cursorIntegration.checkedPaths)}`);
+  cursorRows.push({ key: "plugin_enabled", value: cursorIntegration.pluginEnabled ? "true" : "false" });
+  cursorRows.push({ key: "canonical_plugin_package", value: CURSOR_CANONICAL_PLUGIN_PACKAGE });
+  cursorRows.push({
+    key: "provider_configured",
+    value: cursorIntegration.providerConfigured ? "true" : "false",
+  });
+  cursorRows.push({ key: "config_matches", value: joinOrNone(cursorIntegration.matchedPaths) });
+  cursorRows.push({ key: "config_checked_paths", value: joinOrNone(cursorIntegration.checkedPaths) });
   try {
     const cursorUsage = await getCurrentCursorUsageSummary({
       billingCycleStartDay: params.cursorBillingCycleStartDay,
     });
-    lines.push(`- cycle_source: ${cursorUsage.window.source}`);
-    lines.push(`- cycle_reset_at: ${cursorUsage.window.resetTimeIso}`);
-    lines.push(
-      `- api_usage: ${fmtUsdAmount(cursorUsage.api.costUsd)} across ${fmtInt(cursorUsage.api.messageCount)} messages`,
-    );
-    lines.push(
-      `- auto_composer_usage: ${fmtUsdAmount(cursorUsage.autoComposer.costUsd)} across ${fmtInt(cursorUsage.autoComposer.messageCount)} messages`,
-    );
-    lines.push(
-      `- total_cursor_usage: ${fmtUsdAmount(cursorUsage.total.costUsd)} across ${fmtInt(cursorUsage.total.messageCount)} messages`,
-    );
-    lines.push(`- unknown_cursor_models: ${fmtInt(cursorUsage.unknownModels.length)}`);
+    cursorRows.push({ key: "cycle_source", value: cursorUsage.window.source });
+    cursorRows.push({ key: "cycle_reset_at", value: cursorUsage.window.resetTimeIso });
+    cursorRows.push({
+      key: "api_usage",
+      value: `${fmtUsdAmount(cursorUsage.api.costUsd)} across ${fmtInt(cursorUsage.api.messageCount)} messages`,
+    });
+    cursorRows.push({
+      key: "auto_composer_usage",
+      value: `${fmtUsdAmount(cursorUsage.autoComposer.costUsd)} across ${fmtInt(cursorUsage.autoComposer.messageCount)} messages`,
+    });
+    cursorRows.push({
+      key: "total_cursor_usage",
+      value: `${fmtUsdAmount(cursorUsage.total.costUsd)} across ${fmtInt(cursorUsage.total.messageCount)} messages`,
+    });
+    cursorRows.push({ key: "unknown_cursor_models", value: fmtInt(cursorUsage.unknownModels.length) });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    lines.push(`- usage_error: ${msg}`);
+    cursorRows.push({ key: "usage_error", value: msg });
   }
 
   const qwenLocalQuotaPath = getQwenLocalQuotaPath();
   const qwenLocalQuotaExists = await pathExists(qwenLocalQuotaPath);
-  lines.push(
-    `- qwen free local quota: path=${qwenLocalQuotaPath} exists=${qwenLocalQuotaExists ? "true" : "false"}`,
-  );
+  cursorRows.push({
+    key: "qwen free local quota",
+    value: `path=${qwenLocalQuotaPath} exists=${qwenLocalQuotaExists ? "true" : "false"}`,
+  });
   try {
     const qwenState = await readQwenLocalQuotaState();
     const qwenQuota = computeQwenQuota({ state: qwenState });
     const qwenUsageSuffix = qwenLocalQuotaExists ? "" : " (default state)";
-    lines.push(
-      `- qwen free local usage: daily=${qwenQuota.day.used}/${qwenQuota.day.limit} rpm=${qwenQuota.rpm.used}/${qwenQuota.rpm.limit}${qwenUsageSuffix}`,
-    );
+    cursorRows.push({
+      key: "qwen free local usage",
+      value: `daily=${qwenQuota.day.used}/${qwenQuota.day.limit} rpm=${qwenQuota.rpm.used}/${qwenQuota.rpm.limit}${qwenUsageSuffix}`,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    lines.push(`- qwen free local usage: error (${msg})`);
+    cursorRows.push({ key: "qwen free local usage", value: `error (${msg})` });
   }
 
   const alibabaLocalQuotaPath = getAlibabaCodingPlanQuotaPath();
   const alibabaLocalQuotaExists = await pathExists(alibabaLocalQuotaPath);
-  lines.push(
-    `- alibaba coding plan local quota: path=${alibabaLocalQuotaPath} exists=${alibabaLocalQuotaExists ? "true" : "false"}`,
-  );
+  cursorRows.push({
+    key: "alibaba coding plan local quota",
+    value: `path=${alibabaLocalQuotaPath} exists=${alibabaLocalQuotaExists ? "true" : "false"}`,
+  });
   if (alibabaCodingPlanAuth.state === "configured") {
     try {
       const alibabaState = await readAlibabaCodingPlanQuotaState();
@@ -655,322 +725,371 @@ export async function buildQuotaStatusReport(params: {
         tier: alibabaCodingPlanAuth.tier,
       });
       const alibabaUsageSuffix = alibabaLocalQuotaExists ? "" : " (default state)";
-      lines.push(
-        `- alibaba coding plan usage: tier=${alibabaCodingPlanAuth.tier} 5h=${alibabaQuota.fiveHour.used}/${alibabaQuota.fiveHour.limit} weekly=${alibabaQuota.weekly.used}/${alibabaQuota.weekly.limit} monthly=${alibabaQuota.monthly.used}/${alibabaQuota.monthly.limit}${alibabaUsageSuffix}`,
-      );
+      cursorRows.push({
+        key: "alibaba coding plan usage",
+        value: `tier=${alibabaCodingPlanAuth.tier} 5h=${alibabaQuota.fiveHour.used}/${alibabaQuota.fiveHour.limit} weekly=${alibabaQuota.weekly.used}/${alibabaQuota.weekly.limit} monthly=${alibabaQuota.monthly.used}/${alibabaQuota.monthly.limit}${alibabaUsageSuffix}`,
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      lines.push(`- alibaba coding plan usage: error (${msg})`);
+      cursorRows.push({ key: "alibaba coding plan usage", value: `error (${msg})` });
     }
   } else if (alibabaCodingPlanAuth.state === "invalid") {
-    lines.push(`- alibaba coding plan error: ${alibabaCodingPlanAuth.error}`);
+    cursorRows.push({ key: "alibaba coding plan error", value: alibabaCodingPlanAuth.error });
   }
+  sections.push(createKvSection("cursor", "cursor:", cursorRows));
 
-  lines.push("");
-  lines.push("minimax:");
+  // === minimax ===
+  const minimaxRows: ReportKvRow[] = [];
   const minimaxAuth = await getMiniMaxAuthDiagnostics({
     maxAgeMs: DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS,
   });
-  lines.push(`- auth_state: ${minimaxAuth.state}`);
-  lines.push(`- api_key_configured: ${minimaxAuth.state === "configured" ? "true" : "false"}`);
-  lines.push(`- api_key_source: ${minimaxAuth.source ?? "(none)"}`);
-  lines.push(`- api_key_checked_paths: ${joinOrNone(minimaxAuth.checkedPaths)}`);
-  lines.push(`- api_key_auth_paths: ${joinOrNone(minimaxAuth.authPaths)}`);
+  minimaxRows.push({ key: "auth_state", value: minimaxAuth.state });
+  minimaxRows.push({
+    key: "api_key_configured",
+    value: minimaxAuth.state === "configured" ? "true" : "false",
+  });
+  minimaxRows.push({ key: "api_key_source", value: minimaxAuth.source ?? "(none)" });
+  minimaxRows.push({ key: "api_key_checked_paths", value: joinOrNone(minimaxAuth.checkedPaths) });
+  minimaxRows.push({ key: "api_key_auth_paths", value: joinOrNone(minimaxAuth.authPaths) });
   if (minimaxAuth.state === "invalid") {
-    lines.push(`- auth_error: ${sanitizeDisplayText(minimaxAuth.error)}`);
+    minimaxRows.push({ key: "auth_error", value: sanitizeDisplayText(minimaxAuth.error) });
   }
   if (minimaxAuth.state === "configured") {
     const resolvedMiniMaxAuth = await resolveMiniMaxAuthCached({
       maxAgeMs: DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS,
     });
     if (resolvedMiniMaxAuth.state !== "configured") {
-      lines.push("- live_fetch_error: MiniMax API key became unavailable before fetch");
+      minimaxRows.push({
+        key: "live_fetch_error",
+        value: "MiniMax API key became unavailable before fetch",
+      });
     } else {
       const minimaxQuota = await queryMiniMaxQuota(resolvedMiniMaxAuth.apiKey);
       if (!minimaxQuota.success) {
-        lines.push(`- live_fetch_error: ${minimaxQuota.error}`);
+        minimaxRows.push({ key: "live_fetch_error", value: minimaxQuota.error });
       } else {
         const fiveHourEntry = minimaxQuota.entries.find((entry) => entry.window === "five_hour");
         const weeklyEntry = minimaxQuota.entries.find((entry) => entry.window === "weekly");
         if (fiveHourEntry) {
-          lines.push(
-            `- five_hour_usage: ${fiveHourEntry.right ?? "(none)"} percent_remaining=${fiveHourEntry.percentRemaining} reset_at=${fiveHourEntry.resetTimeIso ?? "(none)"}`,
-          );
+          minimaxRows.push({
+            key: "five_hour_usage",
+            value: `${fiveHourEntry.right ?? "(none)"} percent_remaining=${fiveHourEntry.percentRemaining} reset_at=${fiveHourEntry.resetTimeIso ?? "(none)"}`,
+          });
         }
         if (weeklyEntry) {
-          lines.push(
-            `- weekly_usage: ${weeklyEntry.right ?? "(none)"} percent_remaining=${weeklyEntry.percentRemaining} reset_at=${weeklyEntry.resetTimeIso ?? "(none)"}`,
-          );
+          minimaxRows.push({
+            key: "weekly_usage",
+            value: `${weeklyEntry.right ?? "(none)"} percent_remaining=${weeklyEntry.percentRemaining} reset_at=${weeklyEntry.resetTimeIso ?? "(none)"}`,
+          });
         }
         if (!fiveHourEntry && !weeklyEntry) {
-          lines.push("- live_state: no reportable MiniMax Coding Plan quota");
+          minimaxRows.push({ key: "live_state", value: "no reportable MiniMax Coding Plan quota" });
         }
       }
     }
   }
+  sections.push(createKvSection("minimax", "minimax:", minimaxRows));
 
-  lines.push("");
-  lines.push("kimi:");
+  // === kimi ===
+  const kimiRows: ReportKvRow[] = [];
   const kimiAuth = await getKimiAuthDiagnostics({
     maxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS,
   });
-  lines.push(`- auth_state: ${kimiAuth.state}`);
-  lines.push(`- api_key_configured: ${kimiAuth.state === "configured" ? "true" : "false"}`);
-  lines.push(`- api_key_source: ${kimiAuth.source ?? "(none)"}`);
-  lines.push(`- api_key_checked_paths: ${joinOrNone(kimiAuth.checkedPaths)}`);
-  lines.push(`- api_key_auth_paths: ${joinOrNone(kimiAuth.authPaths)}`);
+  kimiRows.push({ key: "auth_state", value: kimiAuth.state });
+  kimiRows.push({
+    key: "api_key_configured",
+    value: kimiAuth.state === "configured" ? "true" : "false",
+  });
+  kimiRows.push({ key: "api_key_source", value: kimiAuth.source ?? "(none)" });
+  kimiRows.push({ key: "api_key_checked_paths", value: joinOrNone(kimiAuth.checkedPaths) });
+  kimiRows.push({ key: "api_key_auth_paths", value: joinOrNone(kimiAuth.authPaths) });
   if (kimiAuth.state === "invalid") {
-    lines.push(`- auth_error: ${sanitizeDisplayText(kimiAuth.error)}`);
+    kimiRows.push({ key: "auth_error", value: sanitizeDisplayText(kimiAuth.error) });
   }
   if (kimiAuth.state === "configured") {
     const kimiQuota = await queryKimiQuota();
     if (!kimiQuota) {
-      lines.push("- live_fetch_error: Kimi API key became unavailable before fetch");
+      kimiRows.push({
+        key: "live_fetch_error",
+        value: "Kimi API key became unavailable before fetch",
+      });
     } else if (!kimiQuota.success) {
-      lines.push(`- live_fetch_error: ${kimiQuota.error}`);
+      kimiRows.push({ key: "live_fetch_error", value: kimiQuota.error });
     } else {
       for (const window of kimiQuota.windows) {
-        lines.push(
-          `- ${window.label.toLowerCase().replace(/\s+/g, "_")}: used=${window.used}/${window.limit} percent_remaining=${window.percentRemaining} reset_at=${window.resetTimeIso ?? "(none)"}`,
-        );
+        kimiRows.push({
+          key: window.label.toLowerCase().replace(/\s+/g, "_"),
+          value: `used=${window.used}/${window.limit} percent_remaining=${window.percentRemaining} reset_at=${window.resetTimeIso ?? "(none)"}`,
+        });
       }
       if (kimiQuota.windows.length === 0) {
-        lines.push("- live_state: no reportable Kimi quota");
+        kimiRows.push({ key: "live_state", value: "no reportable Kimi quota" });
       }
     }
   }
+  sections.push(createKvSection("kimi", "kimi:", kimiRows));
 
-  lines.push("");
-  lines.push("opencode_go:");
+  // === opencode_go ===
+  const openCodeGoRows: ReportKvRow[] = [];
   const openCodeGoDiag = await getOpenCodeGoConfigDiagnostics();
-  lines.push(`- config_state: ${openCodeGoDiag.state}`);
-  lines.push(`- config_source: ${openCodeGoDiag.source ?? "(none)"}`);
+  openCodeGoRows.push({ key: "config_state", value: openCodeGoDiag.state });
+  openCodeGoRows.push({ key: "config_source", value: openCodeGoDiag.source ?? "(none)" });
   if (openCodeGoDiag.missing) {
-    lines.push(`- config_missing: ${openCodeGoDiag.missing}`);
+    openCodeGoRows.push({ key: "config_missing", value: openCodeGoDiag.missing });
   }
   if (openCodeGoDiag.error) {
-    lines.push(`- config_error: ${sanitizeDisplayText(openCodeGoDiag.error)}`);
+    openCodeGoRows.push({ key: "config_error", value: sanitizeDisplayText(openCodeGoDiag.error) });
   }
-  lines.push(`- config_checked_paths: ${joinOrNone(openCodeGoDiag.checkedPaths)}`);
+  openCodeGoRows.push({ key: "config_checked_paths", value: joinOrNone(openCodeGoDiag.checkedPaths) });
   if (openCodeGoDiag.state === "configured") {
     const openCodeGoConfig = await resolveOpenCodeGoConfigCached({
       maxAgeMs: DEFAULT_OPENCODE_GO_CONFIG_CACHE_MAX_AGE_MS,
     });
     if (openCodeGoConfig.state !== "configured") {
-      lines.push("- live_fetch_error: OpenCode Go config became unavailable before fetch");
+      openCodeGoRows.push({
+        key: "live_fetch_error",
+        value: "OpenCode Go config became unavailable before fetch",
+      });
     } else {
       const openCodeGoQuota = await queryOpenCodeGoQuota(
         openCodeGoConfig.config.workspaceId,
         openCodeGoConfig.config.authCookie,
       );
       if (!openCodeGoQuota) {
-        lines.push("- live_fetch_error: OpenCode Go returned null");
+        openCodeGoRows.push({ key: "live_fetch_error", value: "OpenCode Go returned null" });
       } else if (!openCodeGoQuota.success) {
-        lines.push(`- live_fetch_error: ${openCodeGoQuota.error}`);
+        openCodeGoRows.push({ key: "live_fetch_error", value: openCodeGoQuota.error });
       } else {
-        lines.push(
-          `- monthly_usage: percent_used=${openCodeGoQuota.usagePercent} percent_remaining=${openCodeGoQuota.percentRemaining} reset_in_sec=${openCodeGoQuota.resetInSec} reset_at=${openCodeGoQuota.resetTimeIso}`,
-        );
+        openCodeGoRows.push({
+          key: "monthly_usage",
+          value: `percent_used=${openCodeGoQuota.usagePercent} percent_remaining=${openCodeGoQuota.percentRemaining} reset_in_sec=${openCodeGoQuota.resetInSec} reset_at=${openCodeGoQuota.resetTimeIso}`,
+        });
       }
     }
   }
+  sections.push(createKvSection("opencode_go", "opencode_go:", openCodeGoRows));
 
-  lines.push("");
-  lines.push("zai:");
+  // === zai ===
+  const zaiRows: ReportKvRow[] = [];
   const zaiAuth = await getZaiAuthDiagnostics({
     maxAgeMs: DEFAULT_ZAI_AUTH_CACHE_MAX_AGE_MS,
   });
-  lines.push(`- auth_state: ${zaiAuth.state}`);
-  lines.push(`- api_key_configured: ${zaiAuth.state === "configured" ? "true" : "false"}`);
-  lines.push(`- api_key_source: ${zaiAuth.source ?? "(none)"}`);
-  lines.push(`- api_key_checked_paths: ${joinOrNone(zaiAuth.checkedPaths)}`);
-  lines.push(`- api_key_auth_paths: ${joinOrNone(zaiAuth.authPaths)}`);
+  zaiRows.push({ key: "auth_state", value: zaiAuth.state });
+  zaiRows.push({
+    key: "api_key_configured",
+    value: zaiAuth.state === "configured" ? "true" : "false",
+  });
+  zaiRows.push({ key: "api_key_source", value: zaiAuth.source ?? "(none)" });
+  zaiRows.push({ key: "api_key_checked_paths", value: joinOrNone(zaiAuth.checkedPaths) });
+  zaiRows.push({ key: "api_key_auth_paths", value: joinOrNone(zaiAuth.authPaths) });
   if (zaiAuth.state === "invalid") {
-    lines.push(`- auth_error: ${sanitizeDisplayText(zaiAuth.error)}`);
+    zaiRows.push({ key: "auth_error", value: sanitizeDisplayText(zaiAuth.error) });
   }
   if (zaiAuth.state === "configured") {
     const zaiQuota = await queryZaiQuota();
     if (!zaiQuota) {
-      lines.push("- live_fetch_error: Z.ai API key became unavailable before fetch");
+      zaiRows.push({ key: "live_fetch_error", value: "Z.ai API key became unavailable before fetch" });
     } else if (!zaiQuota.success) {
-      lines.push(`- live_fetch_error: ${zaiQuota.error}`);
+      zaiRows.push({ key: "live_fetch_error", value: zaiQuota.error });
     } else {
       if (zaiQuota.windows.fiveHour) {
-        lines.push(
-          `- five_hour_remaining: ${zaiQuota.windows.fiveHour.percentRemaining}% reset_at=${zaiQuota.windows.fiveHour.resetTimeIso ?? "(none)"}`,
-        );
+        zaiRows.push({
+          key: "five_hour_remaining",
+          value: `${zaiQuota.windows.fiveHour.percentRemaining}% reset_at=${zaiQuota.windows.fiveHour.resetTimeIso ?? "(none)"}`,
+        });
       }
       if (zaiQuota.windows.weekly) {
-        lines.push(
-          `- weekly_remaining: ${zaiQuota.windows.weekly.percentRemaining}% reset_at=${zaiQuota.windows.weekly.resetTimeIso ?? "(none)"}`,
-        );
+        zaiRows.push({
+          key: "weekly_remaining",
+          value: `${zaiQuota.windows.weekly.percentRemaining}% reset_at=${zaiQuota.windows.weekly.resetTimeIso ?? "(none)"}`,
+        });
       }
       if (zaiQuota.windows.mcp) {
-        lines.push(
-          `- mcp_remaining: ${zaiQuota.windows.mcp.percentRemaining}% reset_at=${zaiQuota.windows.mcp.resetTimeIso ?? "(none)"}`,
-        );
+        zaiRows.push({
+          key: "mcp_remaining",
+          value: `${zaiQuota.windows.mcp.percentRemaining}% reset_at=${zaiQuota.windows.mcp.resetTimeIso ?? "(none)"}`,
+        });
       }
       if (!zaiQuota.windows.fiveHour && !zaiQuota.windows.weekly && !zaiQuota.windows.mcp) {
-        lines.push("- live_state: no reportable Z.ai quota windows");
+        zaiRows.push({ key: "live_state", value: "no reportable Z.ai quota windows" });
       }
     }
   }
+  sections.push(createKvSection("zai", "zai:", zaiRows));
 
+  // === simple API key sections ===
   const syntheticDiag = await readBasicApiKeyDiagnostics(getSyntheticKeyDiagnostics);
-  appendBasicApiKeySection({
-    lines,
-    section: "synthetic:",
-    label: "synthetic api key",
-    diagnostics: syntheticDiag,
-  });
+  sections.push(
+    buildBasicApiKeySection({
+      id: "synthetic",
+      section: "synthetic:",
+      label: "synthetic api key",
+      diagnostics: syntheticDiag,
+    }),
+  );
 
   const chutesDiag = await readBasicApiKeyDiagnostics(getChutesKeyDiagnostics);
-  appendBasicApiKeySection({
-    lines,
-    section: "chutes:",
-    label: "chutes api key",
-    diagnostics: chutesDiag,
-  });
+  sections.push(
+    buildBasicApiKeySection({
+      id: "chutes",
+      section: "chutes:",
+      label: "chutes api key",
+      diagnostics: chutesDiag,
+    }),
+  );
 
+  // === nanogpt ===
   const nanoGptDiag = await readNanoGptApiKeyDiagnostics(getNanoGptKeyDiagnostics);
-  appendNanoGptApiKeySection(lines, nanoGptDiag);
+  const nanoGptRows: ReportKvRow[] = [
+    { key: "api_key_configured", value: nanoGptDiag.configured ? "true" : "false" },
+    { key: "api_key_source", value: nanoGptDiag.source ?? "(none)" },
+    { key: "api_key_checked_paths", value: joinOrNone(nanoGptDiag.checkedPaths) },
+    { key: "api_key_auth_paths", value: joinOrNone(nanoGptDiag.authPaths) },
+  ];
   if (nanoGptDiag.configured) {
     try {
       const nanoGptQuota = await queryNanoGptQuota();
       if (!nanoGptQuota) {
-        lines.push("- live_fetch_error: NanoGPT API key became unavailable before fetch");
+        nanoGptRows.push({
+          key: "live_fetch_error",
+          value: "NanoGPT API key became unavailable before fetch",
+        });
       } else if (!nanoGptQuota.success) {
-        lines.push(`- live_fetch_error: ${nanoGptQuota.error}`);
+        nanoGptRows.push({ key: "live_fetch_error", value: nanoGptQuota.error });
       } else {
         if (nanoGptQuota.subscription) {
-          lines.push(
-            `- subscription_active: ${nanoGptQuota.subscription.active ? "true" : "false"}`,
-          );
-          lines.push(`- subscription_state: ${nanoGptQuota.subscription.state}`);
-          lines.push(
-            `- enforce_daily_limit: ${nanoGptQuota.subscription.enforceDailyLimit ? "true" : "false"}`,
-          );
+          nanoGptRows.push({
+            key: "subscription_active",
+            value: nanoGptQuota.subscription.active ? "true" : "false",
+          });
+          nanoGptRows.push({ key: "subscription_state", value: nanoGptQuota.subscription.state });
+          nanoGptRows.push({
+            key: "enforce_daily_limit",
+            value: nanoGptQuota.subscription.enforceDailyLimit ? "true" : "false",
+          });
           if (nanoGptQuota.subscription.daily) {
             const daily = nanoGptQuota.subscription.daily;
-            lines.push(
-              `- daily_usage: ${fmtNanoGptMetric(daily.used)}/${fmtNanoGptMetric(daily.limit)} remaining=${fmtNanoGptMetric(daily.remaining)} percent_remaining=${daily.percentRemaining} reset_at=${daily.resetTimeIso ?? "(none)"}`,
-            );
+            nanoGptRows.push({
+              key: "daily_usage",
+              value: `${fmtNanoGptMetric(daily.used)}/${fmtNanoGptMetric(daily.limit)} remaining=${fmtNanoGptMetric(daily.remaining)} percent_remaining=${daily.percentRemaining} reset_at=${daily.resetTimeIso ?? "(none)"}`,
+            });
           }
           if (nanoGptQuota.subscription.monthly) {
             const monthly = nanoGptQuota.subscription.monthly;
-            lines.push(
-              `- monthly_usage: ${fmtNanoGptMetric(monthly.used)}/${fmtNanoGptMetric(monthly.limit)} remaining=${fmtNanoGptMetric(monthly.remaining)} percent_remaining=${monthly.percentRemaining} reset_at=${monthly.resetTimeIso ?? "(none)"}`,
-            );
+            nanoGptRows.push({
+              key: "monthly_usage",
+              value: `${fmtNanoGptMetric(monthly.used)}/${fmtNanoGptMetric(monthly.limit)} remaining=${fmtNanoGptMetric(monthly.remaining)} percent_remaining=${monthly.percentRemaining} reset_at=${monthly.resetTimeIso ?? "(none)"}`,
+            });
           }
-          lines.push(
-            `- billing_period_end: ${nanoGptQuota.subscription.currentPeriodEndIso ?? "(none)"}`,
-          );
+          nanoGptRows.push({
+            key: "billing_period_end",
+            value: nanoGptQuota.subscription.currentPeriodEndIso ?? "(none)",
+          });
           if (nanoGptQuota.subscription.graceUntilIso) {
-            lines.push(`- grace_until: ${nanoGptQuota.subscription.graceUntilIso}`);
+            nanoGptRows.push({ key: "grace_until", value: nanoGptQuota.subscription.graceUntilIso });
           }
         }
-        lines.push(
-          `- balance_usd: ${typeof nanoGptQuota.balance?.usdBalance === "number" ? fmtUsdAmount(nanoGptQuota.balance.usdBalance) : "(none)"}`,
-        );
-        lines.push(`- balance_nano: ${nanoGptQuota.balance?.nanoBalanceRaw ?? "(none)"}`);
+        nanoGptRows.push({
+          key: "balance_usd",
+          value:
+            typeof nanoGptQuota.balance?.usdBalance === "number"
+              ? fmtUsdAmount(nanoGptQuota.balance.usdBalance)
+              : "(none)",
+        });
+        nanoGptRows.push({ key: "balance_nano", value: nanoGptQuota.balance?.nanoBalanceRaw ?? "(none)" });
         for (const entry of nanoGptQuota.endpointErrors ?? []) {
-          lines.push(`- live_error_${entry.endpoint}: ${entry.message}`);
+          nanoGptRows.push({ key: `live_error_${entry.endpoint}`, value: entry.message });
         }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      lines.push(`- live_fetch_error: ${msg}`);
+      nanoGptRows.push({ key: "live_fetch_error", value: msg });
     }
   }
+  sections.push(createKvSection("nanogpt", "nanogpt:", nanoGptRows));
 
+  // === copilot auth ===
   const copilotDiag = getCopilotQuotaAuthDiagnostics(authData);
-  lines.push("");
-  lines.push("copilot_quota_auth:");
-  lines.push(`- pat_state: ${copilotDiag.pat.state}`);
+  const copilotRows: ReportKvRow[] = [{ key: "pat_state", value: copilotDiag.pat.state }];
   if (copilotDiag.pat.selectedPath) {
-    lines.push(`- pat_path: ${copilotDiag.pat.selectedPath}`);
+    copilotRows.push({ key: "pat_path", value: copilotDiag.pat.selectedPath });
   }
   if (copilotDiag.pat.tokenKind) {
-    lines.push(`- pat_token_kind: ${copilotDiag.pat.tokenKind}`);
+    copilotRows.push({ key: "pat_token_kind", value: copilotDiag.pat.tokenKind });
   }
   if (copilotDiag.pat.config?.tier) {
-    lines.push(`- pat_tier: ${copilotDiag.pat.config.tier}`);
+    copilotRows.push({ key: "pat_tier", value: copilotDiag.pat.config.tier });
   }
   if (copilotDiag.pat.config?.organization) {
-    lines.push(`- pat_organization: ${copilotDiag.pat.config.organization}`);
+    copilotRows.push({ key: "pat_organization", value: copilotDiag.pat.config.organization });
   }
   if (copilotDiag.pat.config?.enterprise) {
-    lines.push(`- pat_enterprise: ${copilotDiag.pat.config.enterprise}`);
+    copilotRows.push({ key: "pat_enterprise", value: copilotDiag.pat.config.enterprise });
   }
-  lines.push(`- billing_mode: ${copilotDiag.billingMode}`);
-  lines.push(`- billing_scope: ${copilotDiag.billingScope}`);
-  lines.push(`- quota_api: ${copilotDiag.quotaApi}`);
-  lines.push(
-    `- billing_api_access_likely: ${copilotDiag.billingApiAccessLikely ? "true" : "false"}`,
-  );
-  lines.push(`- remaining_totals_state: ${copilotDiag.remainingTotalsState}`);
+  copilotRows.push({ key: "billing_mode", value: copilotDiag.billingMode });
+  copilotRows.push({ key: "billing_scope", value: copilotDiag.billingScope });
+  copilotRows.push({ key: "quota_api", value: copilotDiag.quotaApi });
+  copilotRows.push({
+    key: "billing_api_access_likely",
+    value: copilotDiag.billingApiAccessLikely ? "true" : "false",
+  });
+  copilotRows.push({ key: "remaining_totals_state", value: copilotDiag.remainingTotalsState });
   if (copilotDiag.queryPeriod) {
-    lines.push(
-      `- billing_period: ${copilotDiag.queryPeriod.year}-${String(copilotDiag.queryPeriod.month).padStart(2, "0")}`,
-    );
+    copilotRows.push({
+      key: "billing_period",
+      value: `${copilotDiag.queryPeriod.year}-${String(copilotDiag.queryPeriod.month).padStart(2, "0")}`,
+    });
   }
   if (copilotDiag.usernameFilter) {
-    lines.push(`- username_filter: ${copilotDiag.usernameFilter}`);
+    copilotRows.push({ key: "username_filter", value: copilotDiag.usernameFilter });
   }
   if (copilotDiag.billingMode === "organization_usage") {
-    lines.push("- billing_usage_note: organization premium usage for the current billing period");
-    lines.push(
-      "- remaining_quota_note: valid PAT access can query billing usage, but pooled org usage does not provide a true per-user remaining quota",
-    );
+    copilotRows.push({
+      key: "billing_usage_note",
+      value: "organization premium usage for the current billing period",
+    });
+    copilotRows.push({
+      key: "remaining_quota_note",
+      value:
+        "valid PAT access can query billing usage, but pooled org usage does not provide a true per-user remaining quota",
+    });
   }
   if (copilotDiag.billingMode === "enterprise_usage") {
-    lines.push("- billing_usage_note: enterprise premium usage for the current billing period");
-    lines.push(
-      "- remaining_quota_note: valid enterprise billing access can query pooled enterprise usage, but it does not provide a true per-user remaining quota",
-    );
+    copilotRows.push({
+      key: "billing_usage_note",
+      value: "enterprise premium usage for the current billing period",
+    });
+    copilotRows.push({
+      key: "remaining_quota_note",
+      value:
+        "valid enterprise billing access can query pooled enterprise usage, but it does not provide a true per-user remaining quota",
+    });
   }
   if (copilotDiag.billingTargetError) {
-    lines.push(`- billing_target_error: ${copilotDiag.billingTargetError}`);
+    copilotRows.push({ key: "billing_target_error", value: copilotDiag.billingTargetError });
   }
   if (copilotDiag.tokenCompatibilityError) {
-    lines.push(`- token_compatibility_error: ${copilotDiag.tokenCompatibilityError}`);
+    copilotRows.push({ key: "token_compatibility_error", value: copilotDiag.tokenCompatibilityError });
   }
   if (copilotDiag.pat.error) {
-    lines.push(`- pat_error: ${copilotDiag.pat.error}`);
+    copilotRows.push({ key: "pat_error", value: copilotDiag.pat.error });
   }
-  lines.push(
-    `- pat_checked_paths: ${copilotDiag.pat.checkedPaths.length ? copilotDiag.pat.checkedPaths.join(" | ") : "(none)"}`,
-  );
-  lines.push(
-    `- oauth_configured: ${copilotDiag.oauth.configured ? "true" : "false"} key=${copilotDiag.oauth.keyName ?? "(none)"} refresh=${copilotDiag.oauth.hasRefreshToken ? "true" : "false"} access=${copilotDiag.oauth.hasAccessToken ? "true" : "false"}`,
-  );
-  lines.push(`- effective_source: ${copilotDiag.effectiveSource}`);
-  lines.push(`- override: ${copilotDiag.override}`);
+  copilotRows.push({
+    key: "pat_checked_paths",
+    value: copilotDiag.pat.checkedPaths.length ? copilotDiag.pat.checkedPaths.join(" | ") : "(none)",
+  });
+  copilotRows.push({
+    key: "oauth_configured",
+    value: `${copilotDiag.oauth.configured ? "true" : "false"} key=${copilotDiag.oauth.keyName ?? "(none)"} refresh=${copilotDiag.oauth.hasRefreshToken ? "true" : "false"} access=${copilotDiag.oauth.hasAccessToken ? "true" : "false"}`,
+  });
+  copilotRows.push({ key: "effective_source", value: copilotDiag.effectiveSource });
+  copilotRows.push({ key: "override", value: copilotDiag.override });
+  sections.push(createKvSection("copilot_quota_auth", "copilot_quota_auth:", copilotRows));
+
+  // === google antigravity + db path ===
   const googleTokenCachePath = getGoogleTokenCachePath();
   const googleAuthPresence = await inspectAntigravityAccountsPresence();
   const googleCompanionPresence = await inspectAntigravityCompanionPresence();
-  lines.push("");
-  lines.push("google_antigravity:");
-  lines.push(`- auth_state: ${googleAuthPresence.state}`);
-  lines.push(`- selected_accounts_path: ${googleAuthPresence.selectedPath ?? "(none)"}`);
-  lines.push(`- present_accounts_paths: ${joinOrNone(googleAuthPresence.presentPaths)}`);
-  lines.push(`- candidate_accounts_paths: ${joinOrNone(googleAuthPresence.candidatePaths)}`);
-  lines.push(`- account_count: ${googleAuthPresence.accountCount}`);
-  lines.push(`- valid_account_count: ${googleAuthPresence.validAccountCount}`);
-  lines.push(`- companion_package_state: ${googleCompanionPresence.state}`);
-  lines.push(
-    `- companion_package_path: ${googleCompanionPresence.state === "present" || googleCompanionPresence.state === "invalid" ? googleCompanionPresence.resolvedPath ?? "(none)" : "(none)"}`,
-  );
-  if (googleCompanionPresence.state !== "present") {
-    lines.push(`- companion_error: ${sanitizeDisplayText(googleCompanionPresence.error)}`);
-  }
-  lines.push(
-    `- token_cache_path: ${googleTokenCachePath} exists=${(await pathExists(googleTokenCachePath)) ? "true" : "false"}`,
-  );
-  if (googleAuthPresence.state === "invalid" && googleAuthPresence.error) {
-    lines.push(`- auth_error: ${sanitizeDisplayText(googleAuthPresence.error)}`);
-  }
-
   const dbCandidates = getOpenCodeDbPathCandidates();
   const dbSelected = getOpenCodeDbPath();
   const dbPresent: string[] = [];
@@ -979,49 +1098,85 @@ export async function buildQuotaStatusReport(params: {
       if (await pathExists(p)) dbPresent.push(p);
     }),
   );
-
-  lines.push(
-    `- opencode db: preferred=${dbSelected} present=${joinOrNone(dbPresent)} candidates=${joinOrNone(dbCandidates)}`,
-  );
+  const googleRows: ReportKvRow[] = [
+    { key: "auth_state", value: googleAuthPresence.state },
+    { key: "selected_accounts_path", value: googleAuthPresence.selectedPath ?? "(none)" },
+    { key: "present_accounts_paths", value: joinOrNone(googleAuthPresence.presentPaths) },
+    { key: "candidate_accounts_paths", value: joinOrNone(googleAuthPresence.candidatePaths) },
+    { key: "account_count", value: String(googleAuthPresence.accountCount) },
+    { key: "valid_account_count", value: String(googleAuthPresence.validAccountCount) },
+    { key: "companion_package_state", value: googleCompanionPresence.state },
+    {
+      key: "companion_package_path",
+      value:
+        googleCompanionPresence.state === "present" || googleCompanionPresence.state === "invalid"
+          ? googleCompanionPresence.resolvedPath ?? "(none)"
+          : "(none)",
+    },
+  ];
+  if (googleCompanionPresence.state !== "present") {
+    googleRows.push({
+      key: "companion_error",
+      value: sanitizeDisplayText(googleCompanionPresence.error),
+    });
+  }
+  googleRows.push({
+    key: "token_cache_path",
+    value: `${googleTokenCachePath} exists=${(await pathExists(googleTokenCachePath)) ? "true" : "false"}`,
+  });
+  if (googleAuthPresence.state === "invalid" && googleAuthPresence.error) {
+    googleRows.push({ key: "auth_error", value: sanitizeDisplayText(googleAuthPresence.error) });
+  }
+  googleRows.push({
+    key: "opencode db",
+    value: `preferred=${dbSelected} present=${joinOrNone(dbPresent)} candidates=${joinOrNone(dbCandidates)}`,
+  });
+  sections.push(createKvSection("google_antigravity", "google_antigravity:", googleRows));
 
   if (params.googleRefresh?.attempted) {
-    lines.push("");
-    lines.push("google_token_refresh:");
+    const googleRefreshRows: ReportKvRow[] = [];
     if (
       typeof params.googleRefresh.total === "number" &&
       typeof params.googleRefresh.successCount === "number"
     ) {
-      lines.push(`- refreshed: ${params.googleRefresh.successCount}/${params.googleRefresh.total}`);
+      googleRefreshRows.push({
+        key: "refreshed",
+        value: `${params.googleRefresh.successCount}/${params.googleRefresh.total}`,
+      });
     } else {
-      lines.push("- attempted");
+      googleRefreshRows.push({ key: "attempted" });
     }
     for (const f of params.googleRefresh.failures ?? []) {
-      lines.push(`- ${f.email ?? "Unknown"}: ${f.error}`);
+      googleRefreshRows.push({ key: f.email ?? "Unknown", value: f.error });
     }
+    sections.push(createKvSection("google_token_refresh", "google_token_refresh:", googleRefreshRows));
   }
 
   // === session token errors ===
   if (params.sessionTokenError) {
-    lines.push("");
-    lines.push("session_tokens_error:");
-    lines.push(`- session_id: ${params.sessionTokenError.sessionID}`);
-    lines.push(`- error: ${params.sessionTokenError.error}`);
+    const sessionTokenErrorRows: ReportKvRow[] = [
+      { key: "session_id", value: params.sessionTokenError.sessionID },
+      { key: "error", value: params.sessionTokenError.error },
+    ];
     if (params.sessionTokenError.checkedPath) {
-      lines.push(`- checked_path: ${params.sessionTokenError.checkedPath}`);
+      sessionTokenErrorRows.push({ key: "checked_path", value: params.sessionTokenError.checkedPath });
     }
+    sections.push(
+      createKvSection("session_tokens_error", "session_tokens_error:", sessionTokenErrorRows),
+    );
   }
 
   // === storage scan ===
   const dbStats = await getOpenCodeDbStats();
-  lines.push("");
-  lines.push("storage:");
-  lines.push(`- sessions_in_db: ${fmtInt(dbStats.sessionCount)}`);
-  lines.push(`- messages_in_db: ${fmtInt(dbStats.messageCount)}`);
-  lines.push(`- assistant_messages_in_db: ${fmtInt(dbStats.assistantMessageCount)}`);
+  sections.push(
+    createKvSection("storage", "storage:", [
+      { key: "sessions_in_db", value: fmtInt(dbStats.sessionCount) },
+      { key: "messages_in_db", value: fmtInt(dbStats.messageCount) },
+      { key: "assistant_messages_in_db", value: fmtInt(dbStats.assistantMessageCount) },
+    ]),
+  );
 
   // === pricing snapshot ===
-  // We intentionally compute all-time usage once so that pricing coverage and unknown_pricing
-  // are consistent and do not require multiple storage scans.
   const agg = await aggregateUsage({});
   const meta = getPricingSnapshotMeta();
   const providers = listProviders();
@@ -1036,92 +1191,115 @@ export async function buildQuotaStatusReport(params: {
   const refreshStatePath = getRuntimePricingRefreshStatePath();
   const pricingRefreshState = await readPricingRefreshState();
 
-  lines.push("");
-  lines.push("pricing_snapshot:");
-  lines.push(
-    `- pricing: source=${meta.source} active_source=${snapshotSource} generated_at=${new Date(meta.generatedAt).toISOString()} units=${meta.units}`,
-  );
-  lines.push(`- selection: configured=${params.pricingSnapshotSource} active=${snapshotSource}`);
+  const pricingRows: ReportKvRow[] = [
+    {
+      key: "pricing",
+      value: `source=${meta.source} active_source=${snapshotSource} generated_at=${new Date(meta.generatedAt).toISOString()} units=${meta.units}`,
+    },
+    {
+      key: "selection",
+      value: `configured=${params.pricingSnapshotSource} active=${snapshotSource}`,
+    },
+  ];
   if (params.pricingSnapshotSource === "bundled") {
-    lines.push(
-      "- selection_note: bundled config pins the packaged snapshot and ignores runtime refresh for active pricing",
-    );
+    pricingRows.push({
+      key: "selection_note",
+      value: "bundled config pins the packaged snapshot and ignores runtime refresh for active pricing",
+    });
   } else if (params.pricingSnapshotSource === "runtime" && snapshotSource !== "runtime") {
-    lines.push(
-      "- selection_note: runtime config requested the local runtime snapshot, but bundled fallback is active because no valid runtime snapshot is available",
-    );
+    pricingRows.push({
+      key: "selection_note",
+      value:
+        "runtime config requested the local runtime snapshot, but bundled fallback is active because no valid runtime snapshot is available",
+    });
   }
-  lines.push(`- runtime_paths: snapshot=${runtimeSnapshotPath} refresh_state=${refreshStatePath}`);
-  lines.push(
-    `- staleness: age_ms=${fmtInt(health.ageMs)} max_age_ms=${fmtInt(health.maxAgeMs)} stale=${health.stale ? "true" : "false"}`,
-  );
-  lines.push(`- refresh_policy: auto_refresh_days=${fmtInt(autoRefreshDays)}`);
+  pricingRows.push({
+    key: "runtime_paths",
+    value: `snapshot=${runtimeSnapshotPath} refresh_state=${refreshStatePath}`,
+  });
+  pricingRows.push({
+    key: "staleness",
+    value: `age_ms=${fmtInt(health.ageMs)} max_age_ms=${fmtInt(health.maxAgeMs)} stale=${health.stale ? "true" : "false"}`,
+  });
+  pricingRows.push({
+    key: "refresh_policy",
+    value: `auto_refresh_days=${fmtInt(autoRefreshDays)}`,
+  });
   if (pricingRefreshState) {
-    lines.push(
-      `- refresh: last_attempt_at=${pricingRefreshState.lastAttemptAt ? new Date(pricingRefreshState.lastAttemptAt).toISOString() : "(none)"} last_success_at=${pricingRefreshState.lastSuccessAt ? new Date(pricingRefreshState.lastSuccessAt).toISOString() : "(none)"} last_failure_at=${pricingRefreshState.lastFailureAt ? new Date(pricingRefreshState.lastFailureAt).toISOString() : "(none)"} last_result=${pricingRefreshState.lastResult ?? "(none)"}`,
-    );
+    pricingRows.push({
+      key: "refresh",
+      value: `last_attempt_at=${pricingRefreshState.lastAttemptAt ? new Date(pricingRefreshState.lastAttemptAt).toISOString() : "(none)"} last_success_at=${pricingRefreshState.lastSuccessAt ? new Date(pricingRefreshState.lastSuccessAt).toISOString() : "(none)"} last_failure_at=${pricingRefreshState.lastFailureAt ? new Date(pricingRefreshState.lastFailureAt).toISOString() : "(none)"} last_result=${pricingRefreshState.lastResult ?? "(none)"}`,
+    });
     if (pricingRefreshState.lastError) {
-      lines.push(`- refresh_error: ${pricingRefreshState.lastError}`);
+      pricingRows.push({ key: "refresh_error", value: pricingRefreshState.lastError });
     }
   } else {
-    lines.push("- refresh: (no runtime refresh state yet)");
+    pricingRows.push({ key: "refresh", value: "(no runtime refresh state yet)" });
   }
-  lines.push(`- providers: ${providers.join(",")}`);
-  lines.push(
-    `- coverage_seen: priced_keys=${fmtInt(coverage.totals.pricedKeysSeen)} mapped_but_missing=${fmtInt(coverage.totals.mappedMissingKeysSeen)} unpriced_keys=${fmtInt(coverage.totals.unpricedKeysSeen)}`,
-  );
+  pricingRows.push({ key: "providers", value: providers.join(",") });
+  pricingRows.push({
+    key: "coverage_seen",
+    value: `priced_keys=${fmtInt(coverage.totals.pricedKeysSeen)} mapped_but_missing=${fmtInt(coverage.totals.mappedMissingKeysSeen)} unpriced_keys=${fmtInt(coverage.totals.unpricedKeysSeen)}`,
+  });
   for (const p of providers) {
     const c = coverage.byProvider.get(p) ?? {
       pricedKeysSeen: 0,
       mappedMissingKeysSeen: 0,
       unpricedKeysSeen: 0,
     };
-    lines.push(
-      `  - ${p}: models=${fmtInt(getProviderModelCount(p))} priced_models_seen=${fmtInt(c.pricedKeysSeen)} mapped_but_missing_models_seen=${fmtInt(c.mappedMissingKeysSeen)} unpriced_models_seen=${fmtInt(c.unpricedKeysSeen)}`,
-    );
+    pricingRows.push({
+      key: p,
+      value: `models=${fmtInt(getProviderModelCount(p))} priced_models_seen=${fmtInt(c.pricedKeysSeen)} mapped_but_missing_models_seen=${fmtInt(c.mappedMissingKeysSeen)} unpriced_models_seen=${fmtInt(c.unpricedKeysSeen)}`,
+      indent: 1,
+    });
   }
+  sections.push(createKvSection("pricing_snapshot", "pricing_snapshot:", pricingRows));
 
   // === supported providers pricing ===
   const supported = getProviders().map((p) => p.id);
-  lines.push("");
-  lines.push("supported_providers_pricing:");
-  for (const id of supported) {
+  const supportedRows: ReportKvRow[] = supported.map((id) => {
     const row = supportedProviderPricingRow({ id, agg, snapshotProviders: providers });
-    lines.push(`- ${row.id}: pricing=${row.pricing} (${row.notes})`);
-  }
+    return {
+      key: row.id,
+      value: `pricing=${row.pricing} (${row.notes})`,
+    };
+  });
+  sections.push(
+    createKvSection("supported_providers_pricing", "supported_providers_pricing:", supportedRows),
+  );
 
   // === unpriced models ===
-  // Mapped keys that are deterministically not token-priced by our snapshot.
-  lines.push("");
-  lines.push("unpriced_models:");
+  const unpricedRows: ReportKvRow[] = [];
   if (agg.unpriced.length === 0) {
-    lines.push("- none");
+    unpricedRows.push({ key: "none" });
   } else {
-    lines.push(
-      `- keys: ${fmtInt(agg.unpriced.length)} tokens_total=${fmtInt(totalTokenBuckets(agg.totals.unpriced))}`,
-    );
+    unpricedRows.push({
+      key: "keys",
+      value: `${fmtInt(agg.unpriced.length)} tokens_total=${fmtInt(totalTokenBuckets(agg.totals.unpriced))}`,
+    });
     for (const row of agg.unpriced.slice(0, STATUS_SAMPLE_LIMIT)) {
       const src = `${row.key.sourceProviderID}/${row.key.sourceModelID}`;
       const mapped = `${row.key.mappedProvider}/${row.key.mappedModel}`;
-      lines.push(
-        `- ${src} mapped=${mapped} tokens=${fmtInt(totalTokenBuckets(row.tokens))} msgs=${fmtInt(row.messageCount)} reason=${row.key.reason}`,
-      );
+      unpricedRows.push({
+        key: src,
+        value: `mapped=${mapped} tokens=${fmtInt(totalTokenBuckets(row.tokens))} msgs=${fmtInt(row.messageCount)} reason=${row.key.reason}`,
+      });
     }
     if (agg.unpriced.length > STATUS_SAMPLE_LIMIT) {
-      lines.push(`- ... (${fmtInt(agg.unpriced.length - STATUS_SAMPLE_LIMIT)} more)`);
+      unpricedRows.push({ key: `... (${fmtInt(agg.unpriced.length - STATUS_SAMPLE_LIMIT)} more)` });
     }
   }
+  sections.push(createKvSection("unpriced_models", "unpriced_models:", unpricedRows));
 
   // === unknown pricing ===
-  // We intentionally report unknowns for *all time* so users can see what needs mapping.
-  lines.push("");
-  lines.push("unknown_pricing:");
+  const unknownRows: ReportKvRow[] = [];
   if (agg.unknown.length === 0) {
-    lines.push("- none");
+    unknownRows.push({ key: "none" });
   } else {
-    lines.push(
-      `- keys: ${fmtInt(agg.unknown.length)} tokens_total=${fmtInt(totalTokenBuckets(agg.totals.unknown))}`,
-    );
+    unknownRows.push({
+      key: "keys",
+      value: `${fmtInt(agg.unknown.length)} tokens_total=${fmtInt(totalTokenBuckets(agg.totals.unknown))}`,
+    });
     for (const row of agg.unknown.slice(0, STATUS_SAMPLE_LIMIT)) {
       const src = `${row.key.sourceProviderID}/${row.key.sourceModelID}`;
       const mappedBase =
@@ -1132,14 +1310,22 @@ export async function buildQuotaStatusReport(params: {
         row.key.providerCandidates && row.key.providerCandidates.length > 0
           ? ` candidates=${row.key.providerCandidates.join(",")}`
           : "";
-      lines.push(
-        `- ${src} mapped=${mappedBase}${candidates} tokens=${fmtInt(totalTokenBuckets(row.tokens))} msgs=${fmtInt(row.messageCount)}`,
-      );
+      unknownRows.push({
+        key: src,
+        value: `mapped=${mappedBase}${candidates} tokens=${fmtInt(totalTokenBuckets(row.tokens))} msgs=${fmtInt(row.messageCount)}`,
+      });
     }
     if (agg.unknown.length > STATUS_SAMPLE_LIMIT) {
-      lines.push(`- ... (${fmtInt(agg.unknown.length - STATUS_SAMPLE_LIMIT)} more)`);
+      unknownRows.push({ key: `... (${fmtInt(agg.unknown.length - STATUS_SAMPLE_LIMIT)} more)` });
     }
   }
+  sections.push(createKvSection("unknown_pricing", "unknown_pricing:", unknownRows));
 
-  return lines.join("\n");
+  return renderPlainTextReport({
+    heading: {
+      title: `Quota Status (opencode-quota v${v}) (/quota_status)`,
+      generatedAtMs: params.generatedAtMs,
+    },
+    sections,
+  });
 }
