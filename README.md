@@ -657,9 +657,9 @@ OpenCode Go quota scrapes the OpenCode Go dashboard at `https://opencode.ai/work
 
 ## Configuration Reference
 
-All quota plugin settings live under `experimental.quotaToast` in `opencode.json` or `opencode.jsonc`. The sidebar install step is separate: add the package to `tui.json` or `tui.jsonc`, or choose `Sidebar` or `Toast + Sidebar` in `npx @slkiser/opencode-quota init`.
+All quota plugin settings live under `experimental.quotaToast` in `opencode.json` or `opencode.jsonc`.
 
-When both are present, user/global config provides defaults. Project/workspace config may override display-oriented settings for that project, but user/global config remains authoritative for automatic/network-affecting settings such as `enabled`, `enabledProviders`, `minIntervalMs`, `pricingSnapshot.*`, `showOnIdle`, `showOnQuestion`, `showOnCompact`, and `showOnBothFail`. SDK config is only used when no config files are found.
+Project/workspace config may override display-oriented settings for that project, but user/global config remains authoritative for automatic/network-affecting settings such as `enabled`, `enabledProviders`, `minIntervalMs`, `pricingSnapshot.*`, `showOnIdle`, `showOnQuestion`, `showOnCompact`, and `showOnBothFail`. SDK config is only used when no config files are found.
 
 ### Core/shared settings
 
