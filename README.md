@@ -538,7 +538,8 @@ For security, provider secrets are read from `SYNTHETIC_API_KEY`, your user/glob
 
 - The plugin calls `GET https://api.synthetic.new/v2/quotas`.
 - It reads `subscription.limit`, `subscription.requests`, and `subscription.renewsAt`.
-- `/quota`, toasts, and the sidebar show one Synthetic row with remaining percent plus a compact `used/limit` summary.
+- Synthetic currently expects numeric JSON values for `subscription.limit` and `subscription.requests`; malformed or stringified values are treated as API-shape errors. Invalid `subscription.renewsAt` values are ignored.
+- `/quota`, toasts, and the sidebar show one Synthetic row with remaining percent plus the same compact `used/limit` summary used by other percent-based providers when that row data is available.
 - `/quota_status` shows a `synthetic` section with API-key diagnostics only; it does not do a live Synthetic fetch there.
 - Allowed env templates are limited to `{env:SYNTHETIC_API_KEY}`.
 

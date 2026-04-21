@@ -43,6 +43,24 @@ function invalidSyntheticResponse(message: string): QuotaError {
   };
 }
 
+function normalizeResetTimeIso(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const parsed = Date.parse(trimmed);
+  if (!Number.isFinite(parsed)) {
+    return undefined;
+  }
+
+  return new Date(parsed).toISOString();
+}
+
 export async function querySyntheticQuota(): Promise<SyntheticResult> {
   const resolved = await resolveSyntheticApiKey();
   if (!resolved) return null;
@@ -80,10 +98,7 @@ export async function querySyntheticQuota(): Promise<SyntheticResult> {
       return invalidSyntheticResponse("Synthetic API response missing subscription.requests");
     }
 
-    const renewsAt =
-      typeof subscription.renewsAt === "string" && subscription.renewsAt.trim().length > 0
-        ? subscription.renewsAt.trim()
-        : undefined;
+    const renewsAt = normalizeResetTimeIso(subscription.renewsAt);
 
     const percentRemaining = clampPercent(((limit - requests) / limit) * 100);
 

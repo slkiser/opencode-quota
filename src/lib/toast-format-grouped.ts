@@ -120,8 +120,9 @@ export function formatQuotaRowsGrouped(params: {
       if (isTiny) {
         // Tiny: "label  time  XX%" (ignore bar)
         const tinyNameCol = maxWidth - separator.length - timeCol - separator.length - percentCol;
+        const leftText = right ? `${label} ${right}` : label;
         const line = [
-          padRight(label, tinyNameCol),
+          padRight(leftText, tinyNameCol),
           padLeft(timeStr, timeCol),
           padLeft(percentLabel, percentCol),
         ].join(separator);

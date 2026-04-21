@@ -108,6 +108,15 @@ const nanoGptMocks = vi.hoisted(() => ({
   queryNanoGptQuota: vi.fn(async () => null),
 }));
 
+const syntheticMocks = vi.hoisted(() => ({
+  getSyntheticKeyDiagnostics: vi.fn(async () => ({
+    configured: false,
+    source: null,
+    checkedPaths: [],
+  })),
+  querySyntheticQuota: vi.fn(async () => null),
+}));
+
 const openCodeGoMocks = vi.hoisted(() => ({
   getOpenCodeGoConfigDiagnostics: vi.fn(async () => ({
     state: "none" as const,
@@ -182,11 +191,8 @@ vi.mock("../src/lib/anthropic.js", () => ({
 }));
 
 vi.mock("../src/lib/synthetic.js", () => ({
-  getSyntheticKeyDiagnostics: vi.fn(async () => ({
-    configured: false,
-    source: null,
-    checkedPaths: [],
-  })),
+  getSyntheticKeyDiagnostics: syntheticMocks.getSyntheticKeyDiagnostics,
+  querySyntheticQuota: syntheticMocks.querySyntheticQuota,
 }));
 
 vi.mock("../src/lib/chutes.js", () => ({
@@ -673,6 +679,37 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- quota_source: claude-credentials-oauth-api");
     expect(report).toContain("- five_hour_remaining: 65% reset_at=2026-03-25T18:00:00.000Z");
     expect(report).toContain("- seven_day_remaining: 85% reset_at=2026-04-01T00:00:00.000Z");
+  });
+
+  it("renders Synthetic diagnostics without performing a live Synthetic fetch", async () => {
+    syntheticMocks.getSyntheticKeyDiagnostics.mockResolvedValueOnce({
+      configured: true,
+      source: "env:SYNTHETIC_API_KEY",
+      checkedPaths: ["env:SYNTHETIC_API_KEY"],
+    });
+
+    const { buildQuotaStatusReport } = await import("../src/lib/quota-status.js");
+    const report = await buildQuotaStatusReport({
+      configSource: "test",
+      configPaths: [],
+      enabledProviders: ["synthetic"],
+      alibabaCodingPlanTier: "lite",
+      cursorPlan: "none",
+      pricingSnapshotSource: "auto",
+      onlyCurrentModel: false,
+      providerAvailability: [
+        {
+          id: "synthetic",
+          enabled: true,
+          available: true,
+        },
+      ],
+      generatedAtMs: Date.UTC(2026, 2, 12, 12, 45, 0),
+    });
+
+    expect(report).toContain("synthetic:");
+    expect(report).toContain("- synthetic api key: configured=true source=env:SYNTHETIC_API_KEY");
+    expect(syntheticMocks.querySyntheticQuota).not.toHaveBeenCalled();
   });
 
   it("reports NanoGPT live subscription and balance diagnostics when configured", async () => {

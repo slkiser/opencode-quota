@@ -72,6 +72,55 @@ describe("querySyntheticQuota", () => {
     );
   });
 
+  it("normalizes valid renewsAt timestamps and drops malformed ones", async () => {
+    process.env.SYNTHETIC_API_KEY = "test-key";
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              subscription: {
+                limit: 135,
+                requests: 0,
+                renewsAt: "2025-09-21T14:36:14.288Z",
+              },
+            }),
+            { status: 200 },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              subscription: {
+                limit: 135,
+                requests: 0,
+                renewsAt: "\u001b[31mbad-date",
+              },
+            }),
+            { status: 200 },
+          ),
+        ),
+    );
+
+    await expect(querySyntheticQuota()).resolves.toEqual({
+      success: true,
+      requestLimit: 135,
+      usedRequests: 0,
+      percentRemaining: 100,
+      resetTimeIso: "2025-09-21T14:36:14.288Z",
+    });
+    await expect(querySyntheticQuota()).resolves.toEqual({
+      success: true,
+      requestLimit: 135,
+      usedRequests: 0,
+      percentRemaining: 100,
+      resetTimeIso: undefined,
+    });
+  });
+
   it("handles API errors and sanitizes response text", async () => {
     process.env.SYNTHETIC_API_KEY = "test-key";
 
@@ -224,6 +273,32 @@ describe("querySyntheticQuota", () => {
 
     const out = await querySyntheticQuota();
     expect(out).toEqual({
+      success: false,
+      error: "Synthetic API response missing subscription.limit",
+    });
+  });
+
+  it("requires numeric subscription.limit and subscription.requests fields", async () => {
+    process.env.SYNTHETIC_API_KEY = "test-key";
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              subscription: {
+                limit: "135",
+                requests: "0",
+                renewsAt: "2025-09-21T14:36:14.288Z",
+              },
+            }),
+            { status: 200 },
+          ),
+      ) as any,
+    );
+
+    await expect(querySyntheticQuota()).resolves.toEqual({
       success: false,
       error: "Synthetic API response missing subscription.limit",
     });

@@ -62,9 +62,16 @@ export function formatQuotaRows(params: {
 
   const lines: string[] = [];
 
-  const addPercentEntry = (name: string, resetIso: string | undefined, remaining: number) => {
+  const addPercentEntry = (
+    name: string,
+    resetIso: string | undefined,
+    remaining: number,
+    rightSummary?: string,
+  ) => {
     const displayedPercent = resolveDisplayedPercent(remaining, params.percentDisplayMode);
     const percentLabel = formatDisplayedPercentLabel(remaining, params.percentDisplayMode);
+    const summary = rightSummary?.trim() || "";
+    const leftText = summary ? `${name} ${summary}` : name;
 
     // Show reset countdown whenever quota is not fully available.
     // (i.e., any usage at all, or depleted)
@@ -74,7 +81,7 @@ export function formatQuotaRows(params: {
       // In tiny mode: single line with name + time + percent
       const tinyNameCol = maxWidth - separator.length - timeCol - separator.length - percentCol;
       const line = [
-        padRight(name, tinyNameCol),
+        padRight(leftText, tinyNameCol),
         padLeft(timeStr, timeCol),
         padLeft(percentLabel, percentCol),
       ].join(separator);
@@ -86,7 +93,7 @@ export function formatQuotaRows(params: {
     // Time is right-aligned to end of bar
     const timeWidth = Math.max(timeStr.length, timeCol);
     const nameWidth = Math.max(1, barWidth - separator.length - timeWidth);
-    const timeLine = padRight(name, nameWidth) + separator + padLeft(timeStr, timeWidth);
+    const timeLine = padRight(leftText, nameWidth) + separator + padLeft(timeStr, timeWidth);
     lines.push(timeLine.slice(0, barWidth));
 
     // Line 2: bar + percent (percent extends beyond bar width)
@@ -134,7 +141,7 @@ export function formatQuotaRows(params: {
     if (isValueEntry(entry)) {
       addValueEntry(entry.name, entry.resetTimeIso, entry.value);
     } else {
-      addPercentEntry(entry.name, entry.resetTimeIso, entry.percentRemaining);
+      addPercentEntry(entry.name, entry.resetTimeIso, entry.percentRemaining, entry.right);
     }
   }
 

@@ -67,6 +67,32 @@ describe("formatQuotaRows", () => {
     expect((barLine.match(/█/g) ?? [])).toHaveLength(2);
   });
 
+  it("renders percent-row usage summaries in classic output when providers supply them", () => {
+    const out = formatQuotaRows({
+      version: "1.0.0",
+      layout: { maxWidth: 50, narrowAt: 42, tinyAt: 32 },
+      entries: [
+        {
+          name: "Synthetic",
+          right: "0/135",
+          percentRemaining: 100,
+        },
+        {
+          name: "Qwen RPM",
+          right: "5/60",
+          percentRemaining: 92,
+          resetTimeIso: "2099-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(out).toContain("Synthetic");
+    expect(out).toContain("0/135");
+    expect(out).toContain("Qwen RPM");
+    expect(out).toContain("5/60");
+    expect(out).toContain("92% left");
+  });
+
   it("shows reset countdown when quota is partially used", () => {
     const out = formatQuotaRows({
       version: "1.0.0",
@@ -174,6 +200,26 @@ describe("formatQuotaRows", () => {
     expect(out).not.toContain("Quota (remaining)");
     expect(out).not.toContain("Quota (used)");
     expect((barLine?.match(/█/g) ?? [])).toHaveLength(2);
+  });
+
+  it("renders grouped percent-row usage summaries when providers supply them", () => {
+    const out = formatQuotaRows({
+      version: "1.0.0",
+      style: "grouped",
+      layout: { maxWidth: 50, narrowAt: 42, tinyAt: 32 },
+      entries: [
+        {
+          name: "Synthetic",
+          group: "Synthetic",
+          label: "Quota:",
+          right: "0/135",
+          percentRemaining: 100,
+        },
+      ],
+    });
+
+    expect(out).toContain("Quota: 0/135");
+    expect(out).toContain("100% left");
   });
 
   it("locks rendered grouped toast ordering for Qwen and OpenAI provider groups", () => {

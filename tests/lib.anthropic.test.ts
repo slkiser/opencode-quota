@@ -68,8 +68,19 @@ function mockJsonResponse(body: unknown, status = 200): Response {
   } as unknown as Response;
 }
 
+function mockInvalidJsonResponse(status = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: vi.fn().mockRejectedValue(new Error("invalid json")),
+    text: vi.fn().mockResolvedValue("{"),
+  } as unknown as Response;
+}
+
 afterEach(() => {
-  vi.clearAllMocks();
+  execFileMock.mockReset();
+  readFileMock.mockReset();
+  fetchWithTimeoutMock.mockReset();
   clearAnthropicDiagnosticsCacheForTests();
 });
 
@@ -366,6 +377,129 @@ describe("Claude CLI diagnostics", () => {
     expect(readFileMock).toHaveBeenCalledTimes(1);
   });
 
+  it("returns no quota when the Claude OAuth fallback access token is malformed", async () => {
+    mockExecSequence([
+      { stdout: "claude 1.2.3\n" },
+      {
+        stdout: JSON.stringify({
+          authenticated: true,
+        }),
+      },
+    ]);
+    readFileMock.mockResolvedValue(
+      JSON.stringify({
+        claudeAiOauth: {
+          accessToken: 123,
+        },
+      }),
+    );
+
+    const diagnostics = await getAnthropicDiagnostics();
+    expect(diagnostics.quotaSupported).toBe(false);
+    expect(diagnostics.message).toContain("Claude OAuth access token missing");
+
+    const quota = await queryAnthropicQuota();
+    expect(quota?.success).toBe(false);
+    if (quota && !quota.success) {
+      expect(quota.error).toContain("Claude OAuth access token missing");
+    }
+    expect(fetchWithTimeoutMock).not.toHaveBeenCalled();
+  });
+
+  it("returns no quota when the Claude OAuth fallback API returns a non-2xx response", async () => {
+    mockExecSequence([
+      { stdout: "claude 1.2.3\n" },
+      {
+        stdout: JSON.stringify({
+          authenticated: true,
+        }),
+      },
+    ]);
+    readFileMock.mockResolvedValue(
+      JSON.stringify({
+        claudeAiOauth: {
+          accessToken: "oauth-access-token",
+        },
+      }),
+    );
+    fetchWithTimeoutMock.mockResolvedValue({
+      ok: false,
+      status: 429,
+      json: vi.fn(),
+      text: vi.fn().mockResolvedValue("rate\u001b[31m limited"),
+    } as unknown as Response);
+
+    const diagnostics = await getAnthropicDiagnostics();
+    expect(diagnostics.quotaSupported).toBe(false);
+    expect(diagnostics.message).toContain("Anthropic API error 429: rate limited");
+    expect(diagnostics.message).not.toContain("\u001b");
+
+    const quota = await queryAnthropicQuota();
+    expect(quota?.success).toBe(false);
+    if (quota && !quota.success) {
+      expect(quota.error).toContain("Anthropic API error 429: rate limited");
+      expect(quota.error).not.toContain("\u001b");
+    }
+  });
+
+  it("returns no quota when the Claude OAuth fallback API returns invalid JSON", async () => {
+    mockExecSequence([
+      { stdout: "claude 1.2.3\n" },
+      {
+        stdout: JSON.stringify({
+          authenticated: true,
+        }),
+      },
+    ]);
+    readFileMock.mockResolvedValue(
+      JSON.stringify({
+        claudeAiOauth: {
+          accessToken: "oauth-access-token",
+        },
+      }),
+    );
+    fetchWithTimeoutMock.mockResolvedValue(mockInvalidJsonResponse());
+
+    const diagnostics = await getAnthropicDiagnostics();
+    expect(diagnostics.quotaSupported).toBe(false);
+    expect(diagnostics.message).toContain("Failed to parse Anthropic quota response");
+
+    const quota = await queryAnthropicQuota();
+    expect(quota?.success).toBe(false);
+    if (quota && !quota.success) {
+      expect(quota.error).toContain("Failed to parse Anthropic quota response");
+    }
+  });
+
+  it("returns no quota when the Claude OAuth fallback API returns an unexpected JSON shape", async () => {
+    mockExecSequence([
+      { stdout: "claude 1.2.3\n" },
+      {
+        stdout: JSON.stringify({
+          authenticated: true,
+        }),
+      },
+    ]);
+    readFileMock.mockResolvedValue(
+      JSON.stringify({
+        claudeAiOauth: {
+          accessToken: "oauth-access-token",
+        },
+      }),
+    );
+    fetchWithTimeoutMock.mockResolvedValue(mockJsonResponse({ ok: true }));
+
+    const diagnostics = await getAnthropicDiagnostics();
+    expect(diagnostics.quotaSupported).toBe(false);
+    expect(diagnostics.message).toContain("Unexpected Anthropic quota response shape");
+
+    const quota = await queryAnthropicQuota();
+    expect(quota?.success).toBe(false);
+    if (quota && !quota.success) {
+      expect(quota.error).toContain("Unexpected Anthropic quota response shape");
+    }
+  });
+
   it("falls back to plain auth status when --json is unsupported", async () => {
     mockExecSequence([
       { stdout: "Claude CLI version 1.2.3\n" },
@@ -377,6 +511,11 @@ describe("Claude CLI diagnostics", () => {
         stdout: "Authenticated",
       },
     ]);
+    readFileMock.mockRejectedValue(
+      Object.assign(new Error("missing credentials"), {
+        code: "ENOENT",
+      }),
+    );
 
     const diagnostics = await getAnthropicDiagnostics();
 
