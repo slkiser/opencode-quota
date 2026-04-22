@@ -174,10 +174,10 @@ Keep the `tui.json` or `tui.jsonc` entry above and disable toasts in `opencode.j
 
 | Provider                | Auto setup                                           | Authentication                  | Quota                    |
 | ----------------------- | ---------------------------------------------------- | ------------------------------- | ------------------------ |
-| **Anthropic (Claude)**  | Needs [quick setup](#anthropic-quick-setup)          | Local CLI auth                  | Local CLI report, OAuth fallback |
+| **Anthropic (Claude)**  | Needs [quick setup](#anthropic-quick-setup)          | Local CLI auth                  | Local CLI, OAuth |
 | **GitHub Copilot**      | Usually                                              | OpenCode auth or PAT            | Remote API               |
 | **OpenAI**              | Yes                                                  | OpenCode auth                   | Remote API               |
-| **Cursor**              | Needs [quick setup](#cursor-quick-setup)             | Companion auth                  | Local runtime accounting |
+| **Cursor**              | Needs [quick setup](#cursor-quick-setup)             | Companion auth                  | Local estimation |
 | **Qwen Code**           | Needs [quick setup](#qwen-code-quick-setup)          | Companion auth                  | Local estimation         |
 | **Alibaba Coding Plan** | Yes                                                  | OpenCode auth/global config/env | Local estimation         |
 | **Synthetic**           | Yes                                                  | OpenCode auth/global config/env | Remote API               |
