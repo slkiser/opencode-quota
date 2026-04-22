@@ -38,6 +38,14 @@ const ANTHROPIC_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const execFileMock = vi.mocked(execFile);
 const readFileMock = vi.mocked(readFile);
 const fetchWithTimeoutMock = vi.mocked(fetchWithTimeout);
+const originalProcessPlatformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
+
+function setProcessPlatform(platform: NodeJS.Platform): void {
+  Object.defineProperty(process, "platform", {
+    configurable: true,
+    value: platform,
+  });
+}
 
 function mockExecSequence(steps: ExecSequenceStep[]): void {
   execFileMock.mockImplementation((_file, _args, _options, callback) => {
@@ -82,6 +90,9 @@ afterEach(() => {
   readFileMock.mockReset();
   fetchWithTimeoutMock.mockReset();
   clearAnthropicDiagnosticsCacheForTests();
+  if (originalProcessPlatformDescriptor) {
+    Object.defineProperty(process, "platform", originalProcessPlatformDescriptor);
+  }
 });
 
 describe("parseUsageResponse", () => {
@@ -281,6 +292,7 @@ describe("Claude CLI diagnostics", () => {
   });
 
   it("falls back to Claude OAuth usage when local Claude auth omits quota windows", async () => {
+    setProcessPlatform("linux");
     mockExecSequence([
       { stdout: "claude 1.2.3\n" },
       {
@@ -339,7 +351,100 @@ describe("Claude CLI diagnostics", () => {
     expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
   });
 
+  it("falls back to macOS Keychain Claude OAuth credentials when local Claude auth omits quota windows", async () => {
+    setProcessPlatform("darwin");
+    mockExecSequence([
+      { stdout: "claude 1.2.3\n" },
+      {
+        stdout: JSON.stringify({
+          authenticated: true,
+        }),
+      },
+      {
+        stdout: JSON.stringify({
+          claudeAiOauth: {
+            accessToken: "oauth-access-token-from-keychain",
+          },
+        }),
+      },
+    ]);
+    fetchWithTimeoutMock.mockResolvedValue(
+      mockJsonResponse({
+        oauth_usage: {
+          fiveHour: {
+            usedPercent: 25,
+            resetAt: "2026-03-25T18:00:00.000Z",
+          },
+          sevenDay: {
+            usedPercent: 40,
+            resetAt: "2026-04-01T00:00:00.000Z",
+          },
+        },
+      }),
+    );
+
+    const diagnostics = await getAnthropicDiagnostics();
+    expect(diagnostics.quotaSupported).toBe(true);
+    expect(diagnostics.quotaSource).toBe("claude-credentials-oauth-api");
+    expect(diagnostics.quota?.five_hour.percentRemaining).toBe(75);
+    expect(diagnostics.quota?.seven_day.percentRemaining).toBe(60);
+    expect(fetchWithTimeoutMock).toHaveBeenCalledWith(ANTHROPIC_USAGE_URL, {
+      headers: {
+        Authorization: "Bearer oauth-access-token-from-keychain",
+        "anthropic-beta": "oauth-2025-04-20",
+      },
+    });
+    expect(readFileMock).not.toHaveBeenCalled();
+    expect(execFileMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("falls back to the Claude credentials file when the macOS Keychain entry is unusable", async () => {
+    setProcessPlatform("darwin");
+    mockExecSequence([
+      { stdout: "claude 1.2.3\n" },
+      {
+        stdout: JSON.stringify({
+          authenticated: true,
+        }),
+      },
+      {
+        stdout: JSON.stringify({
+          claudeAiOauth: {},
+        }),
+      },
+    ]);
+    readFileMock.mockResolvedValue(
+      JSON.stringify({
+        claudeAiOauth: {
+          accessToken: "oauth-access-token-from-file",
+        },
+      }),
+    );
+    fetchWithTimeoutMock.mockResolvedValue(
+      mockJsonResponse({
+        usage: {
+          five_hour: { used_percentage: 5 },
+          seven_day: { used_percentage: 10 },
+        },
+      }),
+    );
+
+    const diagnostics = await getAnthropicDiagnostics();
+    expect(diagnostics.quotaSupported).toBe(true);
+    expect(diagnostics.quota?.five_hour.percentRemaining).toBe(95);
+    expect(diagnostics.quota?.seven_day.percentRemaining).toBe(90);
+    expect(fetchWithTimeoutMock).toHaveBeenCalledWith(ANTHROPIC_USAGE_URL, {
+      headers: {
+        Authorization: "Bearer oauth-access-token-from-file",
+        "anthropic-beta": "oauth-2025-04-20",
+      },
+    });
+    expect(readFileMock).toHaveBeenCalledTimes(1);
+    expect(execFileMock).toHaveBeenCalledTimes(3);
+  });
+
   it("returns no quota when the Claude OAuth fallback credentials are unavailable", async () => {
+    setProcessPlatform("linux");
     mockExecSequence([
       { stdout: "claude 1.2.3\n" },
       {
@@ -377,7 +482,44 @@ describe("Claude CLI diagnostics", () => {
     expect(readFileMock).toHaveBeenCalledTimes(1);
   });
 
+  it("includes the macOS Keychain source when Claude OAuth fallback credentials are unavailable on macOS", async () => {
+    setProcessPlatform("darwin");
+    mockExecSequence([
+      { stdout: "claude 1.2.3\n" },
+      {
+        stdout: JSON.stringify({
+          authenticated: true,
+        }),
+      },
+      {
+        code: 44,
+        stderr: "The specified item could not be found in the keychain.",
+      },
+    ]);
+    readFileMock.mockRejectedValue(
+      Object.assign(new Error("missing credentials"), {
+        code: "ENOENT",
+      }),
+    );
+
+    const diagnostics = await getAnthropicDiagnostics();
+    expect(diagnostics.quotaSupported).toBe(false);
+    expect(diagnostics.message).toContain("Claude Code-credentials");
+    expect(diagnostics.message).toContain(".claude/.credentials.json");
+
+    const quota = await queryAnthropicQuota();
+    expect(quota?.success).toBe(false);
+    if (quota && !quota.success) {
+      expect(quota.error).toContain("Claude Code-credentials");
+      expect(quota.error).toContain(".claude/.credentials.json");
+    }
+    expect(fetchWithTimeoutMock).not.toHaveBeenCalled();
+    expect(readFileMock).toHaveBeenCalledTimes(1);
+    expect(execFileMock).toHaveBeenCalledTimes(3);
+  });
+
   it("returns no quota when the Claude OAuth fallback access token is malformed", async () => {
+    setProcessPlatform("linux");
     mockExecSequence([
       { stdout: "claude 1.2.3\n" },
       {
@@ -407,6 +549,7 @@ describe("Claude CLI diagnostics", () => {
   });
 
   it("returns no quota when the Claude OAuth fallback API returns a non-2xx response", async () => {
+    setProcessPlatform("linux");
     mockExecSequence([
       { stdout: "claude 1.2.3\n" },
       {
@@ -443,6 +586,7 @@ describe("Claude CLI diagnostics", () => {
   });
 
   it("returns no quota when the Claude OAuth fallback API returns invalid JSON", async () => {
+    setProcessPlatform("linux");
     mockExecSequence([
       { stdout: "claude 1.2.3\n" },
       {
@@ -472,6 +616,7 @@ describe("Claude CLI diagnostics", () => {
   });
 
   it("returns no quota when the Claude OAuth fallback API returns an unexpected JSON shape", async () => {
+    setProcessPlatform("linux");
     mockExecSequence([
       { stdout: "claude 1.2.3\n" },
       {
@@ -501,6 +646,7 @@ describe("Claude CLI diagnostics", () => {
   });
 
   it("falls back to plain auth status when --json is unsupported", async () => {
+    setProcessPlatform("linux");
     mockExecSequence([
       { stdout: "Claude CLI version 1.2.3\n" },
       {
@@ -597,6 +743,7 @@ describe("Claude CLI diagnostics", () => {
   });
 
   it("caches fallback-backed diagnostics until the test helper clears the cache", async () => {
+    setProcessPlatform("linux");
     mockExecSequence([
       { stdout: "claude 1.2.3\n" },
       {

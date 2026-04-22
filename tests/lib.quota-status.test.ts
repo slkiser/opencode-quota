@@ -736,8 +736,16 @@ describe("buildQuotaStatusReport", () => {
                 group: "Synthetic",
                 label: "5h:",
                 percentRemaining: 84.4,
-                right: "8/50",
+                right: "9/50",
                 resetTimeIso: "2026-04-21T18:00:00.000Z",
+              },
+              {
+                name: "Synthetic Weekly",
+                group: "Synthetic",
+                label: "Weekly:",
+                percentRemaining: 8.4552365,
+                right: "$22/$24",
+                resetTimeIso: "2026-04-27T18:00:00.000Z",
               },
             ],
             errors: [],
@@ -750,7 +758,10 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- synthetic api key: configured=true source=env:SYNTHETIC_API_KEY");
     expect(report).toContain("- live_probe: success");
     expect(report).toContain(
-      "- live_entry_1: 5h: 8/50 percent_remaining=84 reset_at=2026-04-21T18:00:00.000Z",
+      "- live_entry_1: 5h: 9/50 percent_remaining=84 reset_at=2026-04-21T18:00:00.000Z",
+    );
+    expect(report).toContain(
+      "- live_entry_2: Weekly: $22/$24 percent_remaining=8 reset_at=2026-04-27T18:00:00.000Z",
     );
     expect(syntheticMocks.querySyntheticQuota).not.toHaveBeenCalled();
   });

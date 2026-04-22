@@ -194,7 +194,7 @@ Keep the `tui.json` or `tui.jsonc` entry above and disable toasts in `opencode.j
 <details>
 <summary><strong>Quick setup: Anthropic (Claude)</strong></summary>
 
-Anthropic quota support is local-first: it checks the local Claude CLI first, and if Claude auth is confirmed but local quota windows are missing, it falls back to Claude's local credentials file plus the Anthropic OAuth usage API.
+Anthropic quota support is local-first: it checks the local Claude CLI first, and if Claude auth is confirmed but local quota windows are missing, it falls back to Claude OAuth credentials plus the Anthropic OAuth usage API.
 
 If Claude Code is already installed and authenticated, this usually works automatically. Otherwise:
 
@@ -205,7 +205,7 @@ If Claude Code is already installed and authenticated, this usually works automa
 
 If Claude lives at a custom path, set `experimental.quotaToast.anthropicBinaryPath`. The default is `claude`.
 
-When local CLI auth is present but local windows are missing, the plugin reads `~/.claude/.credentials.json`, extracts `claudeAiOauth.accessToken`, and queries Anthropic's OAuth usage endpoint. No manual Claude consumer token config is required.
+When local CLI auth is present but local windows are missing, the plugin first checks the macOS Keychain service `Claude Code-credentials`, then falls back to `~/.claude/.credentials.json`, extracts `claudeAiOauth.accessToken`, and queries Anthropic's OAuth usage endpoint. No manual Claude consumer token config is required.
 
 If you use Anthropic via API key in OpenCode, model usage still works normally. This plugin only shows Anthropic quota rows when local Claude auth is present and either the CLI or the Claude OAuth fallback can provide quota windows. If Claude auth is present but both quota probes fail, `/quota`, toasts, and the sidebar surface a sanitized Anthropic error instead of silently skipping the provider.
 
@@ -341,10 +341,10 @@ Environment variables take precedence over the config file. Run `/quota_status` 
 
 The plugin probes the local Claude CLI with `anthropicBinaryPath --version` and `anthropicBinaryPath auth status --json` first. By default `anthropicBinaryPath` is `claude`, so standard installs work without extra config.
 
-If the Claude CLI exposes 5-hour and 7-day quota windows in local structured output, the plugin shows them directly. If the CLI only exposes auth state, the plugin falls back to `~/.claude/.credentials.json` and Anthropic's OAuth usage endpoint. When Claude is authenticated but both quota probes fail, `/quota`, toasts, and the sidebar surface a sanitized Anthropic error instead of silently skipping the provider.
+If the Claude CLI exposes 5-hour and 7-day quota windows in local structured output, the plugin shows them directly. If the CLI only exposes auth state, the plugin falls back to the macOS Keychain service `Claude Code-credentials` and then `~/.claude/.credentials.json` before calling Anthropic's OAuth usage endpoint. When Claude is authenticated but both quota probes fail, `/quota`, toasts, and the sidebar surface a sanitized Anthropic error instead of silently skipping the provider.
 
 - Provider availability remains local-only: Anthropic is considered available when the local Claude CLI is installed and authenticated.
-- `experimental.quotaToast.anthropicBinaryPath` only changes CLI probing. It does not change the fallback credentials-file location.
+- `experimental.quotaToast.anthropicBinaryPath` only changes CLI probing. It does not change Claude OAuth credential lookup locations.
 - `/quota_status` shows `quota_source` as either `claude-auth-status-json`, `claude-credentials-oauth-api`, or `(none)`.
 
 **Troubleshooting:**
@@ -354,8 +354,8 @@ If the Claude CLI exposes 5-hour and 7-day quota windows in local structured out
 | `claude` not found                           | Install Claude Code and make sure `claude` is on your `PATH`                                                                                  |
 | Claude installed at a custom path            | Set `experimental.quotaToast.anthropicBinaryPath` to the Claude executable path                                                               |
 | Not authenticated                            | Run `claude auth login`, then confirm `claude auth status --json` or `claude auth status` works                                              |
-| Authenticated but no quota rows              | Run `/quota_status` and check `quota_source` plus `message` to see whether the local CLI, the fallback credentials file, or the fallback API failed |
-| Missing or invalid `~/.claude/.credentials.json` | Re-authenticate Claude Code so it rewrites the local credentials file, then rerun `/quota_status`                                             |
+| Authenticated but no quota rows              | Run `/quota_status` and check `quota_source` plus `message` to see whether the local CLI, the macOS Keychain / fallback credentials file, or the fallback API failed |
+| Missing or invalid Claude OAuth credentials  | Re-authenticate Claude Code so it refreshes the macOS Keychain entry and local credentials file, then rerun `/quota_status`                  |
 | Fallback API error or no quota response      | Check `/quota_status` for the sanitized fallback error detail and retry after Claude Code refreshes local auth                               |
 | Plugin not detected                          | Confirm OpenCode is configured with the `anthropic` provider                                                                                  |
 
@@ -539,11 +539,12 @@ If OpenCode already has Synthetic configured, it should work automatically. Opti
 For security, provider secrets are read from `SYNTHETIC_API_KEY`, your user/global OpenCode config, or `auth.json.synthetic` only. Repo-local `opencode.json` / `opencode.jsonc` is ignored for `provider.synthetic.options.apiKey`.
 
 - The plugin calls `GET https://api.synthetic.new/v2/quotas`.
-- It reads the documented subscription window fields `subscription.limit`, `subscription.requests`, and `subscription.renewsAt`.
-- Synthetic currently expects numeric JSON values for `subscription.limit` and `subscription.requests`; malformed or stringified values are treated as API-shape errors. Invalid `subscription.renewsAt` values are ignored.
-- `/quota`, toasts, and the sidebar currently expose the documented Synthetic subscription quota only. Grouped mode labels it as `5h:`; classic mode collapses it to one `Synthetic` row with the same compact `used/limit` summary used by other percent-based providers.
-- Weekly credits and other billing-dashboard metrics are not shown unless Synthetic documents them in a public API response the plugin can verify.
-- `/quota_status` keeps the existing Synthetic API-key diagnostics and now adds a compact sanitized live probe summary when Synthetic is enabled and detected/available.
+- It uses only the current top-level Synthetic payload sections: `rollingFiveHourLimit` (`max`, `remaining`, `nextTickAt`) and `weeklyTokenLimit` (`maxCredits`, `remainingCredits`, `percentRemaining`, `nextRegenAt`).
+- `weeklyTokenLimit.maxCredits` and `weeklyTokenLimit.remainingCredits` are parsed from the real Synthetic dollar-string format (for example `$24.00` and `$2.02`). Legacy `subscription.limit`, `subscription.requests`, and `subscription.renewsAt` are ignored.
+- Missing or malformed top-level windows are treated as API-shape errors. Invalid reset timestamps are ignored. Weekly `percentRemaining` uses `weeklyTokenLimit.percentRemaining` when valid and otherwise falls back to deterministic derivation from the parsed credit amounts.
+- `/quota`, toasts, and the sidebar surface both Synthetic windows: `Synthetic 5h` / `Synthetic Weekly` in classic mode, or grouped `5h:` / `Weekly:` rows under `Synthetic`.
+- Compact summaries still round displayed `used` values, and the weekly row keeps dollar semantics (for example `$22/$24`) instead of showing long floats.
+- `/quota_status` keeps the existing Synthetic API-key diagnostics and adds a compact sanitized live probe summary from those same Synthetic rows when Synthetic is enabled and detected/available.
 - Allowed env templates are limited to `{env:SYNTHETIC_API_KEY}`.
 
 Example user/global config (`~/.config/opencode/opencode.jsonc` on Linux/macOS):

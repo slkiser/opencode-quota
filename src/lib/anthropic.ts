@@ -3,7 +3,8 @@
  *
  * Uses the local Claude CLI/runtime to detect install/auth state first. When
  * Claude auth is confirmed but local quota windows are missing, it falls back
- * to Claude's local credentials file and Anthropic's OAuth usage endpoint.
+ * to Claude OAuth credentials (macOS Keychain first, then the local credentials
+ * file) and Anthropic's OAuth usage endpoint.
  */
 
 import { execFile } from "child_process";
@@ -19,6 +20,7 @@ const CLAUDE_COMMAND_TIMEOUT_MS = 3_000;
 const ANTHROPIC_DIAGNOSTICS_TTL_MS = 5_000;
 const ANTHROPIC_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const ANTHROPIC_BETA_HEADER = "oauth-2025-04-20";
+const CLAUDE_CODE_CREDENTIALS_SERVICE = "Claude Code-credentials";
 const CLAUDE_NO_LOCAL_QUOTA_MESSAGE =
   "Claude CLI auth detected, but local quota windows were not exposed.";
 const ANTHROPIC_NO_QUOTA_MESSAGE =
@@ -120,6 +122,20 @@ type ClaudeCredentialsAccess =
   | {
       state: "unavailable";
       detail?: string;
+    };
+
+type ClaudeCredentialSourceResult =
+  | {
+      state: "configured";
+      accessToken: string;
+    }
+  | {
+      state: "not-found";
+      location: string;
+    }
+  | {
+      state: "unavailable";
+      detail: string;
     };
 
 type AnthropicFallbackQuota =
@@ -323,6 +339,23 @@ function getClaudeCredentialsPath(): string {
   return join(homedir(), ".claude", ".credentials.json");
 }
 
+function getClaudeKeychainLocation(): string {
+  return `macOS Keychain service ${sanitizeDisplayText(CLAUDE_CODE_CREDENTIALS_SERVICE)}`;
+}
+
+function getClaudeCredentialsNotFoundDetail(locations: string[]): string {
+  if (locations.length === 0) {
+    return "Claude OAuth credentials were not found.";
+  }
+
+  if (locations.length === 1) {
+    return `Claude OAuth credentials not found in ${locations[0]}.`;
+  }
+
+  const [head, ...tail] = locations;
+  return `Claude OAuth credentials not found in ${head} or ${tail.join(" or ")}.`;
+}
+
 function buildAnthropicNoQuotaDiagnosticsMessage(detail?: string): string {
   const normalizedDetail = detail?.trim();
   return normalizedDetail
@@ -330,19 +363,150 @@ function buildAnthropicNoQuotaDiagnosticsMessage(detail?: string): string {
     : ANTHROPIC_NO_QUOTA_MESSAGE;
 }
 
-async function readClaudeCredentialsAccessToken(): Promise<ClaudeCredentialsAccess> {
+function extractClaudeCredentialsAccessToken(data: unknown): string {
+  const root = asRecord(data);
+  if (!root) {
+    return "";
+  }
+
+  for (const candidate of [
+    asRecord(root["claudeAiOauth"]),
+    asRecord(root["oauth"]),
+    root,
+  ]) {
+    if (!candidate) {
+      continue;
+    }
+
+    for (const key of ["accessToken", "access_token", "token"]) {
+      const token = candidate[key];
+      if (typeof token === "string" && token.trim()) {
+        return token.trim();
+      }
+    }
+  }
+
+  return "";
+}
+
+function parseClaudeCredentialsAccessToken(
+  content: string,
+  options: { allowPlainText: boolean },
+): { accessToken?: string; error?: string } {
+  const trimmed = content.trim();
+  if (!trimmed) {
+    return { error: "missing" };
+  }
+
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+    return options.allowPlainText ? { accessToken: trimmed } : { error: "missing" };
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    const accessToken = extractClaudeCredentialsAccessToken(parsed);
+    return accessToken ? { accessToken } : { error: "missing" };
+  } catch (error) {
+    return {
+      error: sanitizeDisplayText(error instanceof Error ? error.message : String(error)),
+    };
+  }
+}
+
+async function runCredentialCommand(file: string, args: string[]): Promise<ClaudeCommandResult> {
+  return await new Promise<ClaudeCommandResult>((resolve, reject) => {
+    try {
+      execFile(
+        file,
+        args,
+        {
+          encoding: "utf8",
+          timeout: CLAUDE_COMMAND_TIMEOUT_MS,
+          maxBuffer: 1024 * 1024,
+        },
+        (error: Error | null, stdout: string | Buffer, stderr: string | Buffer) => {
+          const stdoutText = typeof stdout === "string" ? stdout : stdout.toString("utf8");
+          const stderrText = typeof stderr === "string" ? stderr : stderr.toString("utf8");
+
+          if (!error) {
+            resolve({
+              code: 0,
+              stdout: stdoutText,
+              stderr: stderrText,
+              timedOut: false,
+            });
+            return;
+          }
+
+          const execError = error as Error & { code?: number | string; killed?: boolean };
+          resolve({
+            code: typeof execError.code === "number" ? execError.code : null,
+            stdout: stdoutText,
+            stderr: stderrText,
+            timedOut: isTimedOutError(execError),
+            spawnErrorCode: execError.code,
+            errorMessage: execError.message,
+          });
+        },
+      );
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+async function readClaudeCredentialsAccessTokenFromMacOSKeychain(): Promise<ClaudeCredentialSourceResult | null> {
+  if (process.platform !== "darwin") {
+    return null;
+  }
+
+  const location = getClaudeKeychainLocation();
+  const result = await runCredentialCommand("security", [
+    "find-generic-password",
+    "-s",
+    CLAUDE_CODE_CREDENTIALS_SERVICE,
+    "-w",
+  ]);
+
+  if (result.code !== 0) {
+    return {
+      state: "not-found",
+      location,
+    };
+  }
+
+  const parsed = parseClaudeCredentialsAccessToken(result.stdout, { allowPlainText: true });
+  if (parsed.accessToken) {
+    return {
+      state: "configured",
+      accessToken: parsed.accessToken,
+    };
+  }
+
+  return {
+    state: "unavailable",
+    detail:
+      parsed.error && parsed.error !== "missing"
+        ? `Could not parse Claude OAuth credentials from ${location}: ${parsed.error}.`
+        : `Claude OAuth access token missing in ${location}.`,
+  };
+}
+
+async function readClaudeCredentialsAccessTokenFromFile(): Promise<ClaudeCredentialSourceResult> {
   const credentialsPath = getClaudeCredentialsPath();
 
   try {
     const content = await readFile(credentialsPath, "utf8");
-    const parsed = JSON.parse(content) as unknown;
-    const token = asRecord(asRecord(parsed)?.["claudeAiOauth"])?.["accessToken"];
-    const accessToken = typeof token === "string" ? token.trim() : "";
+    const parsed = parseClaudeCredentialsAccessToken(content, { allowPlainText: false });
+    const accessToken = parsed.accessToken?.trim() ?? "";
 
     if (!accessToken) {
       return {
         state: "unavailable",
-        detail: `Claude OAuth access token missing in ${sanitizeDisplayText(credentialsPath)}.`,
+        detail:
+          parsed.error && parsed.error !== "missing"
+            ? `Could not parse Claude credentials file ${sanitizeDisplayText(credentialsPath)}: ${parsed.error}.`
+            : `Claude OAuth access token missing in ${sanitizeDisplayText(credentialsPath)}.`,
       };
     }
 
@@ -358,8 +522,8 @@ async function readClaudeCredentialsAccessToken(): Promise<ClaudeCredentialsAcce
 
     if (code === "ENOENT") {
       return {
-        state: "unavailable",
-        detail: `Claude credentials file not found at ${sanitizeDisplayText(credentialsPath)}.`,
+        state: "not-found",
+        location: sanitizeDisplayText(credentialsPath),
       };
     }
 
@@ -370,6 +534,37 @@ async function readClaudeCredentialsAccessToken(): Promise<ClaudeCredentialsAcce
       )}`,
     };
   }
+}
+
+async function readClaudeCredentialsAccessToken(): Promise<ClaudeCredentialsAccess> {
+  const locationsChecked: string[] = [];
+  const unavailableDetails: string[] = [];
+
+  const keychainCredentials = await readClaudeCredentialsAccessTokenFromMacOSKeychain();
+  if (keychainCredentials?.state === "configured") {
+    return keychainCredentials;
+  }
+  if (keychainCredentials?.state === "unavailable") {
+    unavailableDetails.push(keychainCredentials.detail);
+  }
+  if (keychainCredentials?.state === "not-found") {
+    locationsChecked.push(keychainCredentials.location);
+  }
+
+  const fileCredentials = await readClaudeCredentialsAccessTokenFromFile();
+  if (fileCredentials.state === "configured") {
+    return fileCredentials;
+  }
+  if (fileCredentials.state === "unavailable") {
+    unavailableDetails.push(fileCredentials.detail);
+  }
+  if (fileCredentials.state === "not-found") {
+    locationsChecked.push(fileCredentials.location);
+  }
+  return {
+    state: "unavailable",
+    detail: unavailableDetails[0] ?? getClaudeCredentialsNotFoundDetail(locationsChecked),
+  };
 }
 
 async function queryAnthropicQuotaFromOAuthAccessToken(

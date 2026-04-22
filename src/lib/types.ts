@@ -503,8 +503,8 @@ export type ChutesResult =
   | QuotaError
   | null;
 export interface SyntheticQuotaWindow {
-  requestLimit: number;
-  usedRequests: number;
+  limit: number;
+  used: number;
   percentRemaining: number;
   resetTimeIso?: string;
 }
@@ -513,6 +513,7 @@ export type SyntheticResult =
       success: true;
       windows: {
         fiveHour: SyntheticQuotaWindow;
+        weekly: SyntheticQuotaWindow;
       };
     }
   | QuotaError

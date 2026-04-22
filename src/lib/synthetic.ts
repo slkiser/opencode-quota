@@ -16,15 +16,8 @@ import {
   type SyntheticKeySource,
 } from "./synthetic-config.js";
 
-export interface SyntheticQuotaResponse {
-  subscription?: {
-    limit?: unknown;
-    requests?: unknown;
-    renewsAt?: unknown;
-  };
-}
-
 const SYNTHETIC_QUOTA_URL = "https://api.synthetic.new/v2/quotas";
+const SYNTHETIC_CREDIT_AMOUNT_PATTERN = /^\$(\d+)(?:\.(\d{1,2}))?$/;
 
 export {
   getSyntheticKeyDiagnostics,
@@ -61,22 +54,94 @@ function normalizeResetTimeIso(value: unknown): string | undefined {
   return new Date(parsed).toISOString();
 }
 
-function buildFiveHourWindow(subscription: Record<string, unknown>): SyntheticQuotaWindow | QuotaError {
-  const limit = subscription.limit;
-  if (typeof limit !== "number" || !Number.isFinite(limit) || limit <= 0) {
-    return invalidSyntheticResponse("Synthetic API response missing subscription.limit");
+function normalizeSyntheticAmount(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Number(value.toFixed(6));
+}
+
+function parseSyntheticCreditAmount(value: unknown): number | null {
+  if (typeof value !== "string") {
+    return null;
   }
 
-  const requests = subscription.requests;
-  if (typeof requests !== "number" || !Number.isFinite(requests) || requests < 0) {
-    return invalidSyntheticResponse("Synthetic API response missing subscription.requests");
+  const trimmed = value.trim();
+  const match = SYNTHETIC_CREDIT_AMOUNT_PATTERN.exec(trimmed);
+  if (!match) {
+    return null;
+  }
+
+  const whole = Number.parseInt(match[1] ?? "0", 10);
+  const fractionalDigits = (match[2] ?? "").padEnd(2, "0");
+  const fractional = fractionalDigits ? Number.parseInt(fractionalDigits, 10) : 0;
+  if (!Number.isFinite(whole) || !Number.isFinite(fractional)) {
+    return null;
+  }
+
+  return normalizeSyntheticAmount((whole * 100 + fractional) / 100);
+}
+
+function buildRollingFiveHourWindow(payload: Record<string, unknown>): SyntheticQuotaWindow | QuotaError {
+  const rolling = asRecord(payload.rollingFiveHourLimit);
+  if (!rolling) {
+    return invalidSyntheticResponse("Synthetic API response missing rollingFiveHourLimit quota window");
+  }
+
+  const max = rolling.max;
+  const remaining = rolling.remaining;
+
+  if (typeof max !== "number" || !Number.isFinite(max) || max <= 0) {
+    return invalidSyntheticResponse("Synthetic API response missing rollingFiveHourLimit quota window");
+  }
+
+  if (typeof remaining !== "number" || !Number.isFinite(remaining) || remaining < 0) {
+    return invalidSyntheticResponse("Synthetic API response missing rollingFiveHourLimit quota window");
+  }
+
+  const used = normalizeSyntheticAmount(max - remaining);
+  if (!Number.isFinite(used) || used < 0) {
+    return invalidSyntheticResponse("Synthetic API response missing rollingFiveHourLimit quota window");
   }
 
   return {
-    requestLimit: limit,
-    usedRequests: requests,
-    percentRemaining: clampPercent(((limit - requests) / limit) * 100),
-    resetTimeIso: normalizeResetTimeIso(subscription.renewsAt),
+    limit: max,
+    used,
+    percentRemaining: clampPercent((remaining / max) * 100),
+    resetTimeIso: normalizeResetTimeIso(rolling.nextTickAt),
+  };
+}
+
+function buildWeeklyTokenWindow(payload: Record<string, unknown>): SyntheticQuotaWindow | QuotaError {
+  const weekly = asRecord(payload.weeklyTokenLimit);
+  if (!weekly) {
+    return invalidSyntheticResponse("Synthetic API response missing weeklyTokenLimit quota window");
+  }
+
+  const limit = parseSyntheticCreditAmount(weekly.maxCredits);
+  const remaining = parseSyntheticCreditAmount(weekly.remainingCredits);
+  if (limit === null || limit <= 0 || remaining === null || remaining < 0) {
+    return invalidSyntheticResponse("Synthetic API response missing weeklyTokenLimit quota window");
+  }
+
+  const used = normalizeSyntheticAmount(limit - remaining);
+  if (!Number.isFinite(used) || used < 0) {
+    return invalidSyntheticResponse("Synthetic API response missing weeklyTokenLimit quota window");
+  }
+
+  const payloadPercentRemaining = weekly.percentRemaining;
+  const hasValidPayloadPercentRemaining =
+    typeof payloadPercentRemaining === "number" &&
+    Number.isFinite(payloadPercentRemaining) &&
+    payloadPercentRemaining >= 0 &&
+    payloadPercentRemaining <= 100;
+  const percentRemaining = hasValidPayloadPercentRemaining
+    ? clampPercent(payloadPercentRemaining)
+    : clampPercent((remaining / limit) * 100);
+
+  return {
+    limit,
+    used,
+    percentRemaining,
+    resetTimeIso: normalizeResetTimeIso(weekly.nextRegenAt),
   };
 }
 
@@ -101,21 +166,27 @@ export async function querySyntheticQuota(): Promise<SyntheticResult> {
       };
     }
 
-    const data = (await resp.json()) as SyntheticQuotaResponse;
-    const subscription = asRecord(data?.subscription);
-    if (!subscription) {
-      return invalidSyntheticResponse("Synthetic API response missing subscription");
+    const data = (await resp.json()) as unknown;
+    const record = asRecord(data);
+    if (!record) {
+      return invalidSyntheticResponse("Synthetic API response missing rollingFiveHourLimit quota window");
     }
 
-    const fiveHour = buildFiveHourWindow(subscription);
-    if (!("requestLimit" in fiveHour)) {
-      return fiveHour;
+    const rollingFiveHour = buildRollingFiveHourWindow(record);
+    if (!("limit" in rollingFiveHour)) {
+      return rollingFiveHour;
+    }
+
+    const weekly = buildWeeklyTokenWindow(record);
+    if (!("limit" in weekly)) {
+      return weekly;
     }
 
     return {
       success: true,
       windows: {
-        fiveHour,
+        fiveHour: rollingFiveHour,
+        weekly,
       },
     };
   } catch (err) {

@@ -25,16 +25,22 @@ describe("synthetic provider", () => {
     expectNotAttempted(out);
   });
 
-  it("maps success into a percent toast entry with usage summary", async () => {
+  it("maps both Synthetic quota windows into classic entries with rounded usage summaries", async () => {
     const { querySyntheticQuota } = await import("../src/lib/synthetic.js");
     (querySyntheticQuota as any).mockResolvedValueOnce({
       success: true,
       windows: {
         fiveHour: {
-          requestLimit: 100,
-          usedRequests: 25,
+          limit: 100,
+          used: 25.5,
           percentRemaining: 75,
           resetTimeIso: "2026-01-20T18:12:03.000Z",
+        },
+        weekly: {
+          limit: 24,
+          used: 21.98,
+          percentRemaining: 8,
+          resetTimeIso: "2026-01-27T18:12:03.000Z",
         },
       },
     });
@@ -43,24 +49,36 @@ describe("synthetic provider", () => {
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toEqual([
       {
-        name: "Synthetic",
+        name: "Synthetic 5h",
         percentRemaining: 75,
-        right: "25/100",
+        right: "26/100",
         resetTimeIso: "2026-01-20T18:12:03.000Z",
+      },
+      {
+        name: "Synthetic Weekly",
+        percentRemaining: 8,
+        right: "$22/$24",
+        resetTimeIso: "2026-01-27T18:12:03.000Z",
       },
     ]);
   });
 
-  it("maps the documented subscription window into a grouped 5h row", async () => {
+  it("maps both top-level Synthetic windows into grouped rows", async () => {
     const { querySyntheticQuota } = await import("../src/lib/synthetic.js");
     (querySyntheticQuota as any).mockResolvedValueOnce({
       success: true,
       windows: {
         fiveHour: {
-          requestLimit: 500,
-          usedRequests: 52,
-          percentRemaining: 89.6,
+          limit: 500,
+          used: 52.4,
+          percentRemaining: 90,
           resetTimeIso: "2026-01-20T18:12:03.000Z",
+        },
+        weekly: {
+          limit: 24,
+          used: 21.98,
+          percentRemaining: 8,
+          resetTimeIso: "2026-01-27T18:12:03.000Z",
         },
       },
     });
@@ -72,9 +90,17 @@ describe("synthetic provider", () => {
         name: "Synthetic 5h",
         group: "Synthetic",
         label: "5h:",
-        percentRemaining: 89.6,
+        percentRemaining: 90,
         right: "52/500",
         resetTimeIso: "2026-01-20T18:12:03.000Z",
+      },
+      {
+        name: "Synthetic Weekly",
+        group: "Synthetic",
+        label: "Weekly:",
+        percentRemaining: 8,
+        right: "$22/$24",
+        resetTimeIso: "2026-01-27T18:12:03.000Z",
       },
     ]);
   });
