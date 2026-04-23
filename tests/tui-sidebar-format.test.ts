@@ -56,7 +56,7 @@ describe("buildSidebarQuotaPanelLines", () => {
     expect(rendered).toContain("Err: Bad");
     expect(rendered).toContain(SESSION_TOKEN_SECTION_HEADING);
     expect(rendered).toContain("12 in  34 out");
-    expect(rendered).toContain("(2 requests this session)");
+    expect(rendered).toContain("2 assistant responses");
     expect(rendered).not.toContain("gpt-5");
   });
 
@@ -277,7 +277,7 @@ describe("buildSidebarQuotaPanelLines", () => {
     expect(lines).toEqual([
       SESSION_TOKEN_SECTION_HEADING,
       "  372 in  41 out",
-      "  (3 requests this session)",
+      "  3 assistant responses",
     ]);
   });
 

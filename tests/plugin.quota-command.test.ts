@@ -746,13 +746,13 @@ describe("/quota command behavior", () => {
       promptOutputs.find((output) => output.sessionID === "session-b")?.text ?? "";
 
     expect(sessionAOutput).toContain("session-a-model");
-    expect(sessionAOutput).toContain("(3 requests this session)");
+    expect(sessionAOutput).toContain("3 assistant responses");
     expect(sessionAOutput).not.toContain("session-b-model");
-    expect(sessionAOutput).not.toContain("(2 requests this session)");
+    expect(sessionAOutput).not.toContain("2 assistant responses");
     expect(sessionBOutput).toContain("session-b-model");
-    expect(sessionBOutput).toContain("(2 requests this session)");
+    expect(sessionBOutput).toContain("2 assistant responses");
     expect(sessionBOutput).not.toContain("session-a-model");
-    expect(sessionBOutput).not.toContain("(3 requests this session)");
+    expect(sessionBOutput).not.toContain("3 assistant responses");
   });
 
   it("bypasses stale /quota cache for qwen local request-plan sessions", async () => {

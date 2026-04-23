@@ -20,7 +20,7 @@ describe("renderSessionTokensLines", () => {
     expect(lines).toEqual([
       SESSION_TOKEN_SECTION_HEADING,
       "  openai/gpt-5            1.2K in     567 out",
-      "  (3 requests this session)",
+      "  3 assistant responses",
     ]);
     expect(lines[1]?.length).toBe(WIDE_SESSION_TOKEN_LINE_WIDTH);
   });
@@ -41,7 +41,7 @@ describe("renderSessionTokensLines", () => {
       SESSION_TOKEN_SECTION_HEADING.slice(0, 36),
       "  openai/gpt-5.4-mini",
       "    372 in  41 out",
-      "  (3 requests this session)",
+      "  3 assistant responses",
     ]);
   });
 
@@ -57,7 +57,7 @@ describe("renderSessionTokensLines", () => {
       heading: SESSION_TOKEN_SECTION_HEADING,
       lines: [
         "  openai/gpt-5            1.2K in     567 out",
-        "  (3 requests this session)",
+        "  3 assistant responses",
       ],
     });
   });
@@ -78,7 +78,7 @@ describe("renderSidebarSessionTokenSummaryLines", () => {
     expect(lines).toEqual([
       SESSION_TOKEN_SECTION_HEADING.slice(0, 36),
       "  372 in  41 out",
-      "  (3 requests this session)",
+      "  3 assistant responses",
     ]);
     expect(lines.every((line) => line.length <= 36)).toBe(true);
   });

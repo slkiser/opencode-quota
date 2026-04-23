@@ -19,8 +19,8 @@ function formatSessionRequestLine(requestCount?: number): string | null {
   if (typeof requestCount !== "number" || !Number.isFinite(requestCount)) return null;
   const safeCount = Math.max(0, Math.trunc(requestCount));
   if (safeCount <= 0) return null;
-  const label = safeCount === 1 ? "request" : "requests";
-  return `  (${safeCount} ${label} this session)`;
+  const label = safeCount === 1 ? "assistant response" : "assistant responses";
+  return `  ${safeCount} ${label}`;
 }
 
 function appendSessionRequestLine(

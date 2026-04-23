@@ -146,7 +146,7 @@ describe("formatQuotaRows", () => {
 
     expect(out).toContain("Session input/output tokens");
     expect(out).toMatch(/372 in\s+41 out/);
-    expect(out).toContain("(3 requests this session)");
+    expect(out).toContain("3 assistant responses");
   });
 
   it("normalizes grouped headers in grouped toast output", () => {
