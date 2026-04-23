@@ -2,30 +2,38 @@ import { vi } from "vitest";
 
 import { DEFAULT_CONFIG } from "../../src/lib/types.js";
 
-type ReturnValueMock = {
-  mockReturnValue(value: unknown): unknown;
+type MockFunction = ReturnType<typeof vi.fn>;
+
+type PromptClient = {
+  session: {
+    prompt: MockFunction;
+  };
 };
 
-type ResolvedValueMock = {
-  mockResolvedValue(value: unknown): unknown;
+type ToastClient = {
+  tui: {
+    showToast: MockFunction;
+  };
 };
 
 interface PricingMocks {
-  getPricingSnapshotMeta: ReturnValueMock;
-  getPricingSnapshotSource: ReturnValueMock;
-  getRuntimePricingRefreshStatePath: ReturnValueMock;
-  getRuntimePricingSnapshotPath: ReturnValueMock;
-  maybeRefreshPricingSnapshot: ResolvedValueMock;
+  getPricingSnapshotMeta: MockFunction;
+  getPricingSnapshotSource: MockFunction;
+  getRuntimePricingRefreshStatePath: MockFunction;
+  getRuntimePricingSnapshotPath: MockFunction;
+  maybeRefreshPricingSnapshot: MockFunction;
+  setPricingSnapshotAutoRefresh: MockFunction;
+  setPricingSnapshotSelection: MockFunction;
 }
 
 interface SessionTokenMocks {
-  fetchSessionTokensForDisplay: ResolvedValueMock;
+  fetchSessionTokensForDisplay: MockFunction;
 }
 
 interface PluginBootstrapMocks extends PricingMocks {
-  loadConfig: ResolvedValueMock;
-  getProviders?: ReturnValueMock;
-  fetchSessionTokensForDisplay?: ResolvedValueMock;
+  loadConfig: MockFunction;
+  getProviders?: MockFunction;
+  fetchSessionTokensForDisplay?: MockFunction;
 }
 
 interface PluginBootstrapOptions {
@@ -34,6 +42,71 @@ interface PluginBootstrapOptions {
   resetModules?: boolean;
   resetPluginState?: boolean;
   seedSessionTokens?: boolean;
+}
+
+function createSchemaChain() {
+  const chain: any = {};
+  chain.optional = () => chain;
+  chain.describe = () => chain;
+  chain.int = () => chain;
+  chain.min = () => chain;
+  return chain;
+}
+
+export function createPluginToolMockModule() {
+  const toolFn = ((definition: unknown) => definition) as any;
+  toolFn.schema = {
+    boolean: () => createSchemaChain(),
+    number: () => createSchemaChain(),
+  };
+
+  return { tool: toolFn };
+}
+
+export function createConfigModuleMock(loadConfig: MockFunction) {
+  return {
+    loadConfig,
+    createLoadConfigMeta: () => ({ source: "test", paths: [], networkSettingSources: {} }),
+  };
+}
+
+export function createProvidersRegistryModuleMock(getProviders: MockFunction) {
+  return { getProviders };
+}
+
+export function createPricingModuleMock(mocks: PricingMocks) {
+  return {
+    getPricingSnapshotMeta: mocks.getPricingSnapshotMeta,
+    getPricingSnapshotSource: mocks.getPricingSnapshotSource,
+    getRuntimePricingRefreshStatePath: mocks.getRuntimePricingRefreshStatePath,
+    getRuntimePricingSnapshotPath: mocks.getRuntimePricingSnapshotPath,
+    maybeRefreshPricingSnapshot: mocks.maybeRefreshPricingSnapshot,
+    setPricingSnapshotAutoRefresh: mocks.setPricingSnapshotAutoRefresh,
+    setPricingSnapshotSelection: mocks.setPricingSnapshotSelection,
+  };
+}
+
+export function createSessionTokensModuleMock(fetchSessionTokensForDisplay: MockFunction) {
+  return { fetchSessionTokensForDisplay };
+}
+
+export function createQwenAuthModuleMock(resolveQwenLocalPlanCached: MockFunction) {
+  return {
+    isQwenCodeModelId: (model?: string) =>
+      typeof model === "string" && model.toLowerCase().startsWith("qwen-code/"),
+    resolveQwenLocalPlanCached,
+  };
+}
+
+export function createAlibabaAuthModuleMock(resolveAlibabaCodingPlanAuthCached: MockFunction) {
+  return {
+    DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS: 5000,
+    isAlibabaModelId: (model?: string) =>
+      typeof model === "string" &&
+      (model.toLowerCase().startsWith("alibaba/") ||
+        model.toLowerCase().startsWith("alibaba-cn/")),
+    resolveAlibabaCodingPlanAuthCached,
+  };
 }
 
 export function resetPluginTestState(): void {
@@ -80,7 +153,8 @@ export function seedDefaultPluginBootstrapMocks(
 ): void {
   vi.clearAllMocks();
 
-  if (options.resetModules) {
+  if (options.resetModules || options.resetPluginState) {
+    // Fresh module instances clear singleton state such as src/lib/cache.ts.
     vi.resetModules();
   }
 
@@ -129,4 +203,12 @@ export function createPluginTestClient({
       log: vi.fn().mockResolvedValue({}),
     },
   };
+}
+
+export function getPromptText(client: PromptClient, callIndex = 0): string {
+  return client.session.prompt.mock.calls[callIndex]?.[0]?.body?.parts?.[0]?.text ?? "";
+}
+
+export function getToastMessage(client: ToastClient, callIndex = 0): string {
+  return client.tui.showToast.mock.calls[callIndex]?.[0]?.body?.message ?? "";
 }

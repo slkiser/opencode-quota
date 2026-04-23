@@ -5,6 +5,7 @@ import {
   expectAttemptedWithNoErrors,
   expectNotAttempted,
 } from "./helpers/provider-assertions.js";
+import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 import { openaiProvider } from "../src/providers/openai.js";
 
 vi.mock("../src/lib/openai.js", () => ({
@@ -58,22 +59,21 @@ describe("openai provider", () => {
     const { hasOpenAIOAuthCached } = await import("../src/lib/openai.js");
     (hasOpenAIOAuthCached as any).mockResolvedValue(false);
 
-    const makeCtx = (ids: string[]) =>
-      ({
-        client: {
-          config: {
-            providers: vi.fn().mockResolvedValue({ data: { providers: ids.map((id) => ({ id })) } }),
-            get: vi.fn(),
-          },
-        },
-        config: { googleModels: [] },
-      }) as any;
-
-    await expect(openaiProvider.isAvailable(makeCtx(["openai"]))).resolves.toBe(true);
-    await expect(openaiProvider.isAvailable(makeCtx(["chatgpt"]))).resolves.toBe(true);
-    await expect(openaiProvider.isAvailable(makeCtx(["codex"]))).resolves.toBe(true);
-    await expect(openaiProvider.isAvailable(makeCtx(["opencode"]))).resolves.toBe(false);
-    await expect(openaiProvider.isAvailable(makeCtx(["zai"]))).resolves.toBe(false);
+    await expect(
+      openaiProvider.isAvailable(createProviderAvailabilityContext({ providerIds: ["openai"] })),
+    ).resolves.toBe(true);
+    await expect(
+      openaiProvider.isAvailable(createProviderAvailabilityContext({ providerIds: ["chatgpt"] })),
+    ).resolves.toBe(true);
+    await expect(
+      openaiProvider.isAvailable(createProviderAvailabilityContext({ providerIds: ["codex"] })),
+    ).resolves.toBe(true);
+    await expect(
+      openaiProvider.isAvailable(createProviderAvailabilityContext({ providerIds: ["opencode"] })),
+    ).resolves.toBe(false);
+    await expect(
+      openaiProvider.isAvailable(createProviderAvailabilityContext({ providerIds: ["zai"] })),
+    ).resolves.toBe(false);
     expect(hasOpenAIOAuthCached).toHaveBeenCalledTimes(2);
     expect(hasOpenAIOAuthCached).toHaveBeenCalledWith({ maxAgeMs: 5_000 });
   });
@@ -82,15 +82,7 @@ describe("openai provider", () => {
     const { hasOpenAIOAuthCached } = await import("../src/lib/openai.js");
     (hasOpenAIOAuthCached as any).mockResolvedValueOnce(true);
 
-    const ctx = {
-      client: {
-        config: {
-          providers: vi.fn().mockResolvedValue({ data: { providers: [{ id: "zai" }] } }),
-          get: vi.fn(),
-        },
-      },
-      config: { googleModels: [] },
-    } as any;
+    const ctx = createProviderAvailabilityContext({ providerIds: ["zai"] });
 
     await expect(openaiProvider.isAvailable(ctx)).resolves.toBe(true);
     expect(hasOpenAIOAuthCached).toHaveBeenCalledWith({ maxAgeMs: 5_000 });
@@ -100,15 +92,7 @@ describe("openai provider", () => {
     const { hasOpenAIOAuthCached } = await import("../src/lib/openai.js");
     (hasOpenAIOAuthCached as any).mockResolvedValue(false);
 
-    const ctx = {
-      client: {
-        config: {
-          providers: vi.fn().mockRejectedValue(new Error("boom")),
-          get: vi.fn(),
-        },
-      },
-      config: { googleModels: [] },
-    } as any;
+    const ctx = createProviderAvailabilityContext({ providersError: new Error("boom") });
 
     await expect(openaiProvider.isAvailable(ctx)).resolves.toBe(true);
     expect(hasOpenAIOAuthCached).not.toHaveBeenCalled();

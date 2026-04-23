@@ -5,6 +5,7 @@ import {
   expectAttemptedWithNoErrors,
   expectNotAttempted,
 } from "./helpers/provider-assertions.js";
+import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 
 const authMocks = vi.hoisted(() => ({
   resolveKimiAuthCached: vi.fn(),
@@ -152,7 +153,9 @@ describe("kimi-code provider", () => {
     const { isCanonicalProviderAvailable } = await import("../src/lib/provider-availability.js");
     (isCanonicalProviderAvailable as any).mockResolvedValue(true);
 
-    const available = await kimiCodeProvider.isAvailable({} as any);
+    const available = await kimiCodeProvider.isAvailable(
+      createProviderAvailabilityContext({ providerIds: ["kimi-for-coding"] }),
+    );
     expect(available).toBe(true);
   });
 
@@ -164,7 +167,9 @@ describe("kimi-code provider", () => {
       error: 'Unsupported Kimi auth type: "oauth"',
     });
 
-    const available = await kimiCodeProvider.isAvailable({} as any);
+    const available = await kimiCodeProvider.isAvailable(
+      createProviderAvailabilityContext({ providerIds: ["kimi-for-coding"] }),
+    );
     expect(available).toBe(true);
   });
 
@@ -173,7 +178,9 @@ describe("kimi-code provider", () => {
     (isCanonicalProviderAvailable as any).mockResolvedValue(true);
     authMocks.resolveKimiAuthCached.mockResolvedValueOnce({ state: "none" });
 
-    const available = await kimiCodeProvider.isAvailable({} as any);
+    const available = await kimiCodeProvider.isAvailable(
+      createProviderAvailabilityContext({ providerIds: ["kimi-for-coding"] }),
+    );
     expect(available).toBe(false);
   });
 
@@ -181,15 +188,7 @@ describe("kimi-code provider", () => {
     const { isCanonicalProviderAvailable } = await import("../src/lib/provider-availability.js");
     (isCanonicalProviderAvailable as any).mockRestore();
 
-    const ctx = {
-      client: {
-        config: {
-          providers: vi.fn().mockRejectedValue(new Error("boom")),
-          get: vi.fn(),
-        },
-      },
-      config: { googleModels: [] },
-    } as any;
+    const ctx = createProviderAvailabilityContext({ providersError: new Error("boom") });
 
     const available = await kimiCodeProvider.isAvailable(ctx);
     expect(available).toBe(false);

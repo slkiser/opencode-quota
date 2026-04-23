@@ -3,7 +3,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { COMMAND_HANDLED_SENTINEL } from "../src/lib/command-handled.js";
 import { DEFAULT_CONFIG } from "../src/lib/types.js";
 import {
+  createAlibabaAuthModuleMock,
+  createConfigModuleMock,
   createPluginTestClient as createClient,
+  createPluginToolMockModule,
+  createPricingModuleMock,
+  createProvidersRegistryModuleMock,
+  createQwenAuthModuleMock,
+  createSessionTokensModuleMock,
+  getPromptText,
+  getToastMessage,
   seedDefaultPluginBootstrapMocks,
 } from "./helpers/plugin-test-harness.js";
 
@@ -22,61 +31,27 @@ const mocks = vi.hoisted(() => ({
   fetchSessionTokensForDisplay: vi.fn(),
 }));
 
-vi.mock("@opencode-ai/plugin", () => {
-  const makeChain = () => {
-    const chain: any = {};
-    chain.optional = () => chain;
-    chain.describe = () => chain;
-    chain.int = () => chain;
-    chain.min = () => chain;
-    return chain;
-  };
+vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
 
-  const toolFn = ((definition: unknown) => definition) as any;
-  toolFn.schema = {
-    boolean: () => makeChain(),
-    number: () => makeChain(),
-  };
+vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
 
-  return { tool: toolFn };
-});
+vi.mock("../src/providers/registry.js", () =>
+  createProvidersRegistryModuleMock(mocks.getProviders),
+);
 
-vi.mock("../src/lib/config.js", () => ({
-  loadConfig: mocks.loadConfig,
-  createLoadConfigMeta: () => ({ source: "test", paths: [], networkSettingSources: {} }),
-}));
+vi.mock("../src/lib/modelsdev-pricing.js", () => createPricingModuleMock(mocks));
 
-vi.mock("../src/providers/registry.js", () => ({
-  getProviders: mocks.getProviders,
-}));
+vi.mock("../src/lib/session-tokens.js", () =>
+  createSessionTokensModuleMock(mocks.fetchSessionTokensForDisplay),
+);
 
-vi.mock("../src/lib/modelsdev-pricing.js", () => ({
-  getPricingSnapshotMeta: mocks.getPricingSnapshotMeta,
-  getPricingSnapshotSource: mocks.getPricingSnapshotSource,
-  getRuntimePricingRefreshStatePath: mocks.getRuntimePricingRefreshStatePath,
-  getRuntimePricingSnapshotPath: mocks.getRuntimePricingSnapshotPath,
-  maybeRefreshPricingSnapshot: mocks.maybeRefreshPricingSnapshot,
-  setPricingSnapshotAutoRefresh: mocks.setPricingSnapshotAutoRefresh,
-  setPricingSnapshotSelection: mocks.setPricingSnapshotSelection,
-}));
+vi.mock("../src/lib/qwen-auth.js", () =>
+  createQwenAuthModuleMock(mocks.resolveQwenLocalPlanCached),
+);
 
-vi.mock("../src/lib/session-tokens.js", () => ({
-  fetchSessionTokensForDisplay: mocks.fetchSessionTokensForDisplay,
-}));
-
-vi.mock("../src/lib/qwen-auth.js", () => ({
-  isQwenCodeModelId: (model?: string) =>
-    typeof model === "string" && model.toLowerCase().startsWith("qwen-code/"),
-  resolveQwenLocalPlanCached: mocks.resolveQwenLocalPlanCached,
-}));
-
-vi.mock("../src/lib/alibaba-auth.js", () => ({
-  DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS: 5000,
-  isAlibabaModelId: (model?: string) =>
-    typeof model === "string" &&
-    (model.toLowerCase().startsWith("alibaba/") || model.toLowerCase().startsWith("alibaba-cn/")),
-  resolveAlibabaCodingPlanAuthCached: mocks.resolveAlibabaCodingPlanAuthCached,
-}));
+vi.mock("../src/lib/alibaba-auth.js", () =>
+  createAlibabaAuthModuleMock(mocks.resolveAlibabaCodingPlanAuthCached),
+);
 
 describe("/quota command behavior", () => {
   beforeEach(() => {
@@ -191,7 +166,7 @@ describe("/quota command behavior", () => {
 
     expect(provider.fetch).not.toHaveBeenCalled();
     expect(client.tui.showToast).toHaveBeenCalledTimes(1);
-    const message = client.tui.showToast.mock.calls[0]?.[0]?.body?.message ?? "";
+    const message = getToastMessage(client);
     expect(message).toContain("Copilot: Unavailable (not detected)");
   });
 
@@ -233,7 +208,7 @@ describe("/quota command behavior", () => {
     expect(provider.isAvailable).not.toHaveBeenCalled();
     expect(provider.fetch).not.toHaveBeenCalled();
     expect(client.tui.showToast).toHaveBeenCalledTimes(1);
-    const message = client.tui.showToast.mock.calls[0]?.[0]?.body?.message ?? "";
+    const message = getToastMessage(client);
     expect(message).toContain("OpenAI: Skipped (current model: claude-3.7-sonnet)");
   });
 
@@ -279,7 +254,7 @@ describe("/quota command behavior", () => {
     } as any);
 
     expect(client.tui.showToast).toHaveBeenCalledTimes(1);
-    const message = client.tui.showToast.mock.calls[0]?.[0]?.body?.message ?? "";
+    const message = getToastMessage(client);
     expect(message).toContain("19% used");
     expect(message).not.toContain("81% left");
   });
@@ -318,7 +293,7 @@ describe("/quota command behavior", () => {
     ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
 
     expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    const injected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
+    const injected = getPromptText(client);
     expect(injected).toContain("81% left");
     expect(injected).not.toContain("19% left");
   });
@@ -376,7 +351,7 @@ describe("/quota command behavior", () => {
     ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
 
     expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    const injected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
+    const injected = getPromptText(client);
     expect(injected).toContain("Alibaba Coding Plan: Unsupported Alibaba Coding Plan tier: max");
     expect(injected).not.toContain("Providers detected");
   });
@@ -401,7 +376,7 @@ describe("/quota command behavior", () => {
     ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
 
     expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    const injected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
+    const injected = getPromptText(client);
     expect(injected).toContain("Cursor: Failed to read quota data");
     expect(injected).not.toContain("Providers detected");
   });
@@ -439,7 +414,7 @@ describe("/quota command behavior", () => {
     ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
 
     expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    const injected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
+    const injected = getPromptText(client);
     expect(injected).toContain("Cursor: No local usage yet");
     expect(injected).not.toContain("Cursor: Not configured");
   });
@@ -480,7 +455,7 @@ describe("/quota command behavior", () => {
     ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
 
     expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    const injected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
+    const injected = getPromptText(client);
     expect(injected).toContain(
       "Anthropic: Quota unavailable via local Claude CLI or Claude OAuth fallback",
     );
@@ -523,7 +498,7 @@ describe("/quota command behavior", () => {
     ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
 
     expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    const injected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
+    const injected = getPromptText(client);
     expect(injected).toContain(
       "Anthropic: Quota unavailable via local Claude CLI or Claude OAuth fallback",
     );
@@ -561,7 +536,7 @@ describe("/quota command behavior", () => {
 
     expect(provider.fetch).not.toHaveBeenCalled();
     expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    const injected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
+    const injected = getPromptText(client);
     expect(injected).toContain(
       "No enabled quota providers matched the current model: openai/gpt-5.",
     );
@@ -614,8 +589,8 @@ describe("/quota command behavior", () => {
     ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
 
     expect(client.session.prompt).toHaveBeenCalledTimes(2);
-    const firstInjected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
-    const secondInjected = client.session.prompt.mock.calls[1]?.[0]?.body?.parts?.[0]?.text ?? "";
+    const firstInjected = getPromptText(client);
+    const secondInjected = getPromptText(client, 1);
 
     expect(firstInjected).toContain("95% left");
     expect(secondInjected).toContain(
@@ -673,8 +648,8 @@ describe("/quota command behavior", () => {
     ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
 
     expect(client.session.prompt).toHaveBeenCalledTimes(2);
-    const firstInjected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
-    const secondInjected = client.session.prompt.mock.calls[1]?.[0]?.body?.parts?.[0]?.text ?? "";
+    const firstInjected = getPromptText(client);
+    const secondInjected = getPromptText(client, 1);
 
     expect(firstInjected).toContain("openai/gpt-5");
     expect(secondInjected).toContain("openai/gpt-5");
@@ -815,7 +790,7 @@ describe("/quota command behavior", () => {
     ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
 
     expect(provider.fetch).toHaveBeenCalledTimes(2);
-    const latest = client.session.prompt.mock.calls[1]?.[0]?.body?.parts?.[0]?.text ?? "";
+    const latest = getPromptText(client, 1);
     expect(latest).toContain("80% left");
   });
 
@@ -861,7 +836,7 @@ describe("/quota command behavior", () => {
     ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
 
     expect(provider.fetch).toHaveBeenCalledTimes(2);
-    const latest = client.session.prompt.mock.calls[1]?.[0]?.body?.parts?.[0]?.text ?? "";
+    const latest = getPromptText(client, 1);
     expect(latest).toContain("60% left");
   });
 
@@ -902,7 +877,7 @@ describe("/quota command behavior", () => {
     ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
 
     expect(provider.fetch).toHaveBeenCalledTimes(2);
-    const latest = client.session.prompt.mock.calls[1]?.[0]?.body?.parts?.[0]?.text ?? "";
+    const latest = getPromptText(client, 1);
     expect(latest).toContain("90% left");
   });
 
@@ -946,7 +921,7 @@ describe("/quota command behavior", () => {
       snapshotSelection: "bundled",
       allowRefreshWhenSelectionBundled: true,
     });
-    const injected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
+    const injected = getPromptText(client);
     expect(injected).toContain("Pricing Refresh (/pricing_refresh)");
     expect(injected).toContain("- selection: configured=bundled active=bundled");
     expect(injected).toContain(
@@ -979,7 +954,7 @@ describe("/quota command behavior", () => {
     ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
 
     expect(mocks.maybeRefreshPricingSnapshot).not.toHaveBeenCalled();
-    const injected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
+    const injected = getPromptText(client);
     expect(injected).toContain("Invalid arguments for /pricing_refresh");
     expect(injected).toContain("This command does not accept arguments.");
   });

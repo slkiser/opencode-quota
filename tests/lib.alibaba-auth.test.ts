@@ -1,26 +1,22 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { homedir } from "os";
 import { join } from "path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  createRuntimePathsMockModule,
+  getTrustedOpencodeConfigPaths,
+  getWorkspaceOpencodeConfigPaths,
+  loadFsConfigMocks,
+  mockTrustedConfigFile,
+  resetFsConfigMocks,
+  resetProcessEnv,
+} from "./helpers/trusted-config-test-harness.js";
 
 const mocks = vi.hoisted(() => ({
   getAuthPaths: vi.fn(() => ["/tmp/auth.json", "/tmp/auth-fallback.json"]),
   readAuthFileCached: vi.fn(),
 }));
 
-vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => ({
-    dataDirs: [join(homedir(), ".local", "share", "opencode")],
-    configDirs: [join(homedir(), ".config", "opencode")],
-    cacheDirs: [join(homedir(), ".cache", "opencode")],
-    stateDirs: [join(homedir(), ".local", "state", "opencode")],
-  }),
-  getOpencodeRuntimeDirs: () => ({
-    dataDir: join(homedir(), ".local", "share", "opencode"),
-    configDir: join(homedir(), ".config", "opencode"),
-    cacheDir: join(homedir(), ".cache", "opencode"),
-    stateDir: join(homedir(), ".local", "state", "opencode"),
-  }),
-}));
+vi.mock("../src/lib/opencode-runtime-paths.js", () => createRuntimePathsMockModule());
 
 vi.mock("fs", () => ({
   existsSync: vi.fn(),
@@ -46,22 +42,23 @@ import {
 
 describe("alibaba auth resolution", () => {
   const originalEnv = process.env;
-  const trustedJsonPath = join(homedir(), ".config", "opencode", "opencode.json");
-  const trustedJsoncPath = join(homedir(), ".config", "opencode", "opencode.jsonc");
+  const trustedPaths = getTrustedOpencodeConfigPaths();
+  const workspacePaths = getWorkspaceOpencodeConfigPaths();
+  const expectedTrustedCandidates = [
+    { path: join(homedir(), ".config", "opencode", "opencode.jsonc"), isJsonc: true },
+    { path: join(homedir(), ".config", "opencode", "opencode.json"), isJsonc: false },
+  ];
+  let fsConfigMocks: Awaited<ReturnType<typeof loadFsConfigMocks>>;
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    process.env = { ...originalEnv };
-    delete process.env.ALIBABA_CODING_PLAN_API_KEY;
-    delete process.env.ALIBABA_API_KEY;
+    resetProcessEnv(originalEnv, ["ALIBABA_CODING_PLAN_API_KEY", "ALIBABA_API_KEY"]);
 
     mocks.getAuthPaths.mockReset().mockReturnValue(["/tmp/auth.json", "/tmp/auth-fallback.json"]);
     mocks.readAuthFileCached.mockReset();
 
-    const { existsSync } = await import("fs");
-    const { readFile } = await import("fs/promises");
-    (existsSync as any).mockReset().mockReturnValue(false);
-    (readFile as any).mockReset();
+    fsConfigMocks = await loadFsConfigMocks();
+    resetFsConfigMocks(fsConfigMocks);
   });
 
   afterEach(() => {
@@ -148,11 +145,9 @@ describe("alibaba auth resolution", () => {
     });
 
     it("reads from trusted global config aliases", async () => {
-      const { existsSync } = await import("fs");
-      const { readFile } = await import("fs/promises");
-
-      (existsSync as any).mockImplementation((path: string) => path === trustedJsonPath);
-      (readFile as any).mockResolvedValue(
+      mockTrustedConfigFile(
+        fsConfigMocks,
+        trustedPaths.json,
         JSON.stringify({
           provider: {
             alibaba: {
@@ -175,11 +170,10 @@ describe("alibaba auth resolution", () => {
     it("resolves allowlisted env templates from trusted config", async () => {
       process.env.ALIBABA_API_KEY = "templated-key";
 
-      const { existsSync } = await import("fs");
-      const { readFile } = await import("fs/promises");
-
-      (existsSync as any).mockImplementation((path: string) => path === trustedJsoncPath);
-      (readFile as any).mockResolvedValue(`{
+      mockTrustedConfigFile(
+        fsConfigMocks,
+        trustedPaths.jsonc,
+        `{
         "provider": {
           "alibaba-coding-plan": {
             "options": {
@@ -187,7 +181,8 @@ describe("alibaba auth resolution", () => {
             }
           }
         }
-      }`);
+      }`,
+      );
 
       await expect(resolveAlibabaCodingPlanAuthCached()).resolves.toEqual({
         state: "configured",
@@ -196,11 +191,11 @@ describe("alibaba auth resolution", () => {
       });
     });
 
-    it("ignores workspace-local opencode.json when resolving provider secrets", async () => {
-      const { existsSync } = await import("fs");
-      const workspacePath = join(process.cwd(), "opencode.json");
-
-      (existsSync as any).mockImplementation((path: string) => path === workspacePath);
+    it.each([
+      ["opencode.json", workspacePaths.json],
+      ["opencode.jsonc", workspacePaths.jsonc],
+    ])("ignores workspace-local %s when resolving provider secrets", async (_label, workspacePath) => {
+      fsConfigMocks.existsSync.mockImplementation((path: string) => path === workspacePath);
       mocks.readAuthFileCached.mockResolvedValueOnce(null);
 
       await expect(resolveAlibabaCodingPlanAuthCached()).resolves.toEqual({ state: "none" });
@@ -255,17 +250,13 @@ describe("alibaba auth resolution", () => {
     });
 
     it("reports checked trusted config paths separately from auth paths", async () => {
-      const { existsSync } = await import("fs");
-      const { readFile } = await import("fs/promises");
-
-      (existsSync as any).mockImplementation((path: string) => path === trustedJsonPath);
-      (readFile as any).mockResolvedValue("{}");
+      mockTrustedConfigFile(fsConfigMocks, trustedPaths.json, "{}");
       mocks.readAuthFileCached.mockResolvedValueOnce(null);
 
       await expect(getAlibabaCodingPlanAuthDiagnostics()).resolves.toEqual({
         state: "none",
         source: null,
-        checkedPaths: [trustedJsonPath],
+        checkedPaths: [trustedPaths.json],
         authPaths: ["/tmp/auth.json", "/tmp/auth-fallback.json"],
       });
     });
@@ -290,9 +281,7 @@ describe("alibaba auth resolution", () => {
     it("returns trusted global paths only", () => {
       const paths = getOpencodeConfigCandidatePaths();
 
-      expect(paths).toHaveLength(2);
-      expect(paths[0]).toEqual({ path: trustedJsoncPath, isJsonc: true });
-      expect(paths[1]).toEqual({ path: trustedJsonPath, isJsonc: false });
+      expect(paths).toEqual(expectedTrustedCandidates);
     });
   });
 });

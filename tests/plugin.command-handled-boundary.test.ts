@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { COMMAND_HANDLED_SENTINEL } from "../src/lib/command-handled.js";
 import {
+  createConfigModuleMock,
   createPluginTestClient as createClient,
+  createPluginToolMockModule,
+  createPricingModuleMock,
+  createProvidersRegistryModuleMock,
+  getPromptText,
   makeQuotaToastTestConfig,
   seedDefaultPluginBootstrapMocks,
 } from "./helpers/plugin-test-harness.js";
@@ -19,43 +24,15 @@ const mocks = vi.hoisted(() => ({
   setPricingSnapshotSelection: vi.fn(),
 }));
 
-vi.mock("@opencode-ai/plugin", () => {
-  const makeChain = () => {
-    const chain: any = {};
-    chain.optional = () => chain;
-    chain.describe = () => chain;
-    chain.int = () => chain;
-    chain.min = () => chain;
-    return chain;
-  };
+vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
 
-  const toolFn = ((definition: unknown) => definition) as any;
-  toolFn.schema = {
-    boolean: () => makeChain(),
-    number: () => makeChain(),
-  };
+vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
 
-  return { tool: toolFn };
-});
+vi.mock("../src/providers/registry.js", () =>
+  createProvidersRegistryModuleMock(mocks.getProviders),
+);
 
-vi.mock("../src/lib/config.js", () => ({
-  loadConfig: mocks.loadConfig,
-  createLoadConfigMeta: () => ({ source: "test", paths: [], networkSettingSources: {} }),
-}));
-
-vi.mock("../src/providers/registry.js", () => ({
-  getProviders: mocks.getProviders,
-}));
-
-vi.mock("../src/lib/modelsdev-pricing.js", () => ({
-  getPricingSnapshotMeta: mocks.getPricingSnapshotMeta,
-  getPricingSnapshotSource: mocks.getPricingSnapshotSource,
-  getRuntimePricingRefreshStatePath: mocks.getRuntimePricingRefreshStatePath,
-  getRuntimePricingSnapshotPath: mocks.getRuntimePricingSnapshotPath,
-  maybeRefreshPricingSnapshot: mocks.maybeRefreshPricingSnapshot,
-  setPricingSnapshotAutoRefresh: mocks.setPricingSnapshotAutoRefresh,
-  setPricingSnapshotSelection: mocks.setPricingSnapshotSelection,
-}));
+vi.mock("../src/lib/modelsdev-pricing.js", () => createPricingModuleMock(mocks));
 
 describe("plugin command handled boundary", () => {
   beforeEach(() => {
@@ -100,7 +77,7 @@ describe("plugin command handled boundary", () => {
     ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
 
     expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    const injected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
+    const injected = getPromptText(client);
     expect(injected).toContain("Quota unavailable");
     expect(injected).toContain("No quota providers detected");
   });

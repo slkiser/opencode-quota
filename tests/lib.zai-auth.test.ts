@@ -1,26 +1,22 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { homedir } from "os";
 import { join } from "path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  createRuntimePathsMockModule,
+  getTrustedOpencodeConfigPaths,
+  getWorkspaceOpencodeConfigPaths,
+  loadFsConfigMocks,
+  mockTrustedConfigFile,
+  resetFsConfigMocks,
+  resetProcessEnv,
+} from "./helpers/trusted-config-test-harness.js";
 
 const mocks = vi.hoisted(() => ({
   getAuthPaths: vi.fn(() => ["/tmp/auth.json"]),
   readAuthFileCached: vi.fn(),
 }));
 
-vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => ({
-    dataDirs: [join(homedir(), ".local", "share", "opencode")],
-    configDirs: [join(homedir(), ".config", "opencode")],
-    cacheDirs: [join(homedir(), ".cache", "opencode")],
-    stateDirs: [join(homedir(), ".local", "state", "opencode")],
-  }),
-  getOpencodeRuntimeDirs: () => ({
-    dataDir: join(homedir(), ".local", "share", "opencode"),
-    configDir: join(homedir(), ".config", "opencode"),
-    cacheDir: join(homedir(), ".cache", "opencode"),
-    stateDir: join(homedir(), ".local", "state", "opencode"),
-  }),
-}));
+vi.mock("../src/lib/opencode-runtime-paths.js", () => createRuntimePathsMockModule());
 
 vi.mock("fs", () => ({
   existsSync: vi.fn(),
@@ -49,21 +45,23 @@ const withZaiAuth = (entry: unknown) => ({
 
 describe("zai auth resolution", () => {
   const originalEnv = process.env;
-  const trustedJsonPath = join(homedir(), ".config", "opencode", "opencode.json");
+  const trustedPaths = getTrustedOpencodeConfigPaths();
+  const workspacePaths = getWorkspaceOpencodeConfigPaths();
+  const expectedTrustedCandidates = [
+    { path: join(homedir(), ".config", "opencode", "opencode.jsonc"), isJsonc: true },
+    { path: join(homedir(), ".config", "opencode", "opencode.json"), isJsonc: false },
+  ];
+  let fsConfigMocks: Awaited<ReturnType<typeof loadFsConfigMocks>>;
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    process.env = { ...originalEnv };
-    delete process.env.ZAI_API_KEY;
-    delete process.env.ZAI_CODING_PLAN_API_KEY;
+    resetProcessEnv(originalEnv, ["ZAI_API_KEY", "ZAI_CODING_PLAN_API_KEY"]);
 
     mocks.getAuthPaths.mockReset().mockReturnValue(["/tmp/auth.json"]);
     mocks.readAuthFileCached.mockReset();
 
-    const { existsSync } = await import("fs");
-    const { readFile } = await import("fs/promises");
-    (existsSync as any).mockReset().mockReturnValue(false);
-    (readFile as any).mockReset();
+    fsConfigMocks = await loadFsConfigMocks();
+    resetFsConfigMocks(fsConfigMocks);
   });
 
   afterEach(() => {
@@ -130,11 +128,9 @@ describe("zai auth resolution", () => {
     });
 
     it("reads from trusted global config aliases in provider-key order", async () => {
-      const { existsSync } = await import("fs");
-      const { readFile } = await import("fs/promises");
-
-      (existsSync as any).mockImplementation((path: string) => path === trustedJsonPath);
-      (readFile as any).mockResolvedValue(
+      mockTrustedConfigFile(
+        fsConfigMocks,
+        trustedPaths.json,
         JSON.stringify({
           provider: {
             zai: {
@@ -158,11 +154,11 @@ describe("zai auth resolution", () => {
       expect(mocks.readAuthFileCached).not.toHaveBeenCalled();
     });
 
-    it("ignores workspace-local opencode.json when resolving provider secrets", async () => {
-      const { existsSync } = await import("fs");
-      const workspacePath = join(process.cwd(), "opencode.json");
-
-      (existsSync as any).mockImplementation((path: string) => path === workspacePath);
+    it.each([
+      ["opencode.json", workspacePaths.json],
+      ["opencode.jsonc", workspacePaths.jsonc],
+    ])("ignores workspace-local %s when resolving provider secrets", async (_label, workspacePath) => {
+      fsConfigMocks.existsSync.mockImplementation((path: string) => path === workspacePath);
       mocks.readAuthFileCached.mockResolvedValueOnce(null);
 
       await expect(resolveZaiAuthCached()).resolves.toEqual({ state: "none" });
@@ -226,9 +222,7 @@ describe("zai auth resolution", () => {
     it("returns trusted global paths only", () => {
       const paths = getOpencodeConfigCandidatePaths();
 
-      expect(paths).toHaveLength(2);
-      expect(paths[0].path).toBe(join(homedir(), ".config", "opencode", "opencode.jsonc"));
-      expect(paths[1].path).toBe(trustedJsonPath);
+      expect(paths).toEqual(expectedTrustedCandidates);
     });
   });
 });

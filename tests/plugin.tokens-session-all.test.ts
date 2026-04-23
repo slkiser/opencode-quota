@@ -2,7 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { COMMAND_HANDLED_SENTINEL } from "../src/lib/command-handled.js";
 import {
+  createAlibabaAuthModuleMock,
+  createConfigModuleMock,
   createPluginTestClient as createClient,
+  createPluginToolMockModule,
+  createPricingModuleMock,
+  createProvidersRegistryModuleMock,
+  createQwenAuthModuleMock,
+  createSessionTokensModuleMock,
+  getPromptText,
   seedDefaultPluginBootstrapMocks,
 } from "./helpers/plugin-test-harness.js";
 
@@ -17,6 +25,8 @@ const mocks = vi.hoisted(() => ({
   setPricingSnapshotAutoRefresh: vi.fn(),
   setPricingSnapshotSelection: vi.fn(),
   fetchSessionTokensForDisplay: vi.fn(),
+  resolveQwenLocalPlanCached: vi.fn(),
+  resolveAlibabaCodingPlanAuthCached: vi.fn(),
   aggregateUsage: vi.fn(),
   resolveSessionTree: vi.fn(),
   formatQuotaStatsReport: vi.fn(),
@@ -33,58 +43,27 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@opencode-ai/plugin", () => {
-  const makeChain = () => {
-    const chain: any = {};
-    chain.optional = () => chain;
-    chain.describe = () => chain;
-    chain.int = () => chain;
-    chain.min = () => chain;
-    return chain;
-  };
+vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
 
-  const toolFn = ((definition: unknown) => definition) as any;
-  toolFn.schema = {
-    boolean: () => makeChain(),
-    number: () => makeChain(),
-  };
+vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
 
-  return { tool: toolFn };
-});
+vi.mock("../src/providers/registry.js", () =>
+  createProvidersRegistryModuleMock(mocks.getProviders),
+);
 
-vi.mock("../src/lib/config.js", () => ({
-  loadConfig: mocks.loadConfig,
-  createLoadConfigMeta: () => ({ source: "test", paths: [], networkSettingSources: {} }),
-}));
+vi.mock("../src/lib/modelsdev-pricing.js", () => createPricingModuleMock(mocks));
 
-vi.mock("../src/providers/registry.js", () => ({
-  getProviders: mocks.getProviders,
-}));
+vi.mock("../src/lib/session-tokens.js", () =>
+  createSessionTokensModuleMock(mocks.fetchSessionTokensForDisplay),
+);
 
-vi.mock("../src/lib/modelsdev-pricing.js", () => ({
-  getPricingSnapshotMeta: mocks.getPricingSnapshotMeta,
-  getPricingSnapshotSource: mocks.getPricingSnapshotSource,
-  getRuntimePricingRefreshStatePath: mocks.getRuntimePricingRefreshStatePath,
-  getRuntimePricingSnapshotPath: mocks.getRuntimePricingSnapshotPath,
-  maybeRefreshPricingSnapshot: mocks.maybeRefreshPricingSnapshot,
-  setPricingSnapshotAutoRefresh: mocks.setPricingSnapshotAutoRefresh,
-  setPricingSnapshotSelection: mocks.setPricingSnapshotSelection,
-}));
+vi.mock("../src/lib/qwen-auth.js", () =>
+  createQwenAuthModuleMock(mocks.resolveQwenLocalPlanCached),
+);
 
-vi.mock("../src/lib/session-tokens.js", () => ({
-  fetchSessionTokensForDisplay: mocks.fetchSessionTokensForDisplay,
-}));
-
-vi.mock("../src/lib/qwen-auth.js", () => ({
-  isQwenCodeModelId: () => false,
-  resolveQwenLocalPlanCached: vi.fn().mockResolvedValue({ state: "none" }),
-}));
-
-vi.mock("../src/lib/alibaba-auth.js", () => ({
-  DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS: 5000,
-  isAlibabaModelId: () => false,
-  resolveAlibabaCodingPlanAuthCached: vi.fn().mockResolvedValue({ state: "none" }),
-}));
+vi.mock("../src/lib/alibaba-auth.js", () =>
+  createAlibabaAuthModuleMock(mocks.resolveAlibabaCodingPlanAuthCached),
+);
 
 vi.mock("../src/lib/quota-stats.js", () => ({
   aggregateUsage: mocks.aggregateUsage,
@@ -108,6 +87,8 @@ describe("/tokens_session_all command", () => {
       resetModules: true,
       resetPluginState: true,
     });
+    mocks.resolveQwenLocalPlanCached.mockResolvedValue({ state: "none" });
+    mocks.resolveAlibabaCodingPlanAuthCached.mockResolvedValue({ state: "none" });
     mocks.aggregateUsage.mockResolvedValue({ totals: {}, bySession: [] });
     mocks.formatQuotaStatsReport.mockReturnValue("formatted token report");
     mocks.resolveSessionTree.mockResolvedValue([
@@ -174,7 +155,7 @@ describe("/tokens_session_all command", () => {
       }),
     );
     expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    const injected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
+    const injected = getPromptText(client);
     expect(injected).toContain("formatted token report");
   });
 
@@ -224,7 +205,7 @@ describe("/tokens_session_all command", () => {
     ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
 
     expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    const injected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
+    const injected = getPromptText(client);
     expect(injected).toContain("Token report unavailable (/tokens_session_all)");
     expect(injected).toContain("session_lookup_error:");
     expect(injected).toContain("- session_id: ses_missing");
@@ -248,7 +229,7 @@ describe("/tokens_session_all command", () => {
     ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
 
     expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    const injected = client.session.prompt.mock.calls[0]?.[0]?.body?.parts?.[0]?.text ?? "";
+    const injected = getPromptText(client);
     expect(injected).toContain("Token report unavailable (/tokens_session)");
     expect(injected).toContain("- session_id: ses_parent");
     expect(injected).toContain("- checked_path: /tmp/opencode.db");

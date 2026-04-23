@@ -5,6 +5,7 @@ import {
   expectAttemptedWithNoErrors,
   expectNotAttempted,
 } from "./helpers/provider-assertions.js";
+import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 import { anthropicProvider } from "../src/providers/anthropic.js";
 
 vi.mock("../src/lib/anthropic.js", () => ({
@@ -125,23 +126,20 @@ describe("anthropic provider", () => {
     const { hasAnthropicCredentialsConfigured } = await import("../src/lib/anthropic.js");
     (hasAnthropicCredentialsConfigured as any).mockResolvedValue(true);
 
-    const makeCtx = (ids: string[]) =>
-      ({
-        client: {
-          config: {
-            providers: vi.fn().mockResolvedValue({ data: { providers: ids.map((id) => ({ id })) } }),
-            get: vi.fn(),
-          },
-        },
-        config: { googleModels: [] },
-      }) as any;
-
-    await expect(anthropicProvider.isAvailable(makeCtx(["anthropic"]))).resolves.toBe(true);
-    await expect(anthropicProvider.isAvailable(makeCtx(["claude"]))).resolves.toBe(false);
-    await expect(anthropicProvider.isAvailable(makeCtx(["openai"]))).resolves.toBe(false);
-    await expect(anthropicProvider.isAvailable(makeCtx(["copilot", "anthropic"]))).resolves.toBe(
-      true,
-    );
+    await expect(
+      anthropicProvider.isAvailable(createProviderAvailabilityContext({ providerIds: ["anthropic"] })),
+    ).resolves.toBe(true);
+    await expect(
+      anthropicProvider.isAvailable(createProviderAvailabilityContext({ providerIds: ["claude"] })),
+    ).resolves.toBe(false);
+    await expect(
+      anthropicProvider.isAvailable(createProviderAvailabilityContext({ providerIds: ["openai"] })),
+    ).resolves.toBe(false);
+    await expect(
+      anthropicProvider.isAvailable(
+        createProviderAvailabilityContext({ providerIds: ["copilot", "anthropic"] }),
+      ),
+    ).resolves.toBe(true);
   });
 
   it("passes the configured Claude binary path through Anthropic probes", async () => {
@@ -151,18 +149,12 @@ describe("anthropic provider", () => {
     (hasAnthropicCredentialsConfigured as any).mockResolvedValue(true);
     (queryAnthropicQuota as any).mockResolvedValueOnce(null);
 
-    const ctx = {
-      client: {
-        config: {
-          providers: vi.fn().mockResolvedValue({ data: { providers: [{ id: "anthropic" }] } }),
-          get: vi.fn(),
-        },
-      },
-      config: {
-        googleModels: [],
+    const ctx = createProviderAvailabilityContext({
+      providerIds: ["anthropic"],
+      configOverrides: {
         anthropicBinaryPath: "/opt/claude/bin/claude",
       },
-    } as any;
+    });
 
     await expect(anthropicProvider.isAvailable(ctx)).resolves.toBe(true);
     expect(hasAnthropicCredentialsConfigured).toHaveBeenCalledWith({
@@ -179,29 +171,13 @@ describe("anthropic provider", () => {
     const { hasAnthropicCredentialsConfigured } = await import("../src/lib/anthropic.js");
     (hasAnthropicCredentialsConfigured as any).mockResolvedValue(false);
 
-    const ctx = {
-      client: {
-        config: {
-          providers: vi.fn().mockResolvedValue({ data: { providers: [{ id: "anthropic" }] } }),
-          get: vi.fn(),
-        },
-      },
-      config: { googleModels: [] },
-    } as any;
+    const ctx = createProviderAvailabilityContext({ providerIds: ["anthropic"] });
 
     await expect(anthropicProvider.isAvailable(ctx)).resolves.toBe(false);
   });
 
   it("is not available when provider lookup throws", async () => {
-    const ctx = {
-      client: {
-        config: {
-          providers: vi.fn().mockRejectedValue(new Error("boom")),
-          get: vi.fn(),
-        },
-      },
-      config: { googleModels: [] },
-    } as any;
+    const ctx = createProviderAvailabilityContext({ providersError: new Error("boom") });
 
     await expect(anthropicProvider.isAvailable(ctx)).resolves.toBe(false);
   });

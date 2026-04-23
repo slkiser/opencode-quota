@@ -1,21 +1,15 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { join } from "path";
-import { homedir } from "os";
+import {
+  createRuntimePathsMockModule,
+  getTrustedOpencodeConfigPaths,
+  getWorkspaceOpencodeConfigPaths,
+  loadFsConfigMocks,
+  mockTrustedConfigFile,
+  resetFsConfigMocks,
+  resetProcessEnv,
+} from "./helpers/trusted-config-test-harness.js";
 
-vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => ({
-    dataDirs: [join(homedir(), ".local", "share", "opencode")],
-    configDirs: [join(homedir(), ".config", "opencode")],
-    cacheDirs: [join(homedir(), ".cache", "opencode")],
-    stateDirs: [join(homedir(), ".local", "state", "opencode")],
-  }),
-  getOpencodeRuntimeDirs: () => ({
-    dataDir: join(homedir(), ".local", "share", "opencode"),
-    configDir: join(homedir(), ".config", "opencode"),
-    cacheDir: join(homedir(), ".cache", "opencode"),
-    stateDir: join(homedir(), ".local", "state", "opencode"),
-  }),
-}));
+vi.mock("../src/lib/opencode-runtime-paths.js", () => createRuntimePathsMockModule());
 
 vi.mock("fs", () => ({
   existsSync: vi.fn(),
@@ -31,16 +25,22 @@ vi.mock("../src/lib/opencode-auth.js", () => ({
 
 describe("synthetic-config", () => {
   const originalEnv = process.env;
+  const trustedPaths = getTrustedOpencodeConfigPaths();
+  const workspacePaths = getWorkspaceOpencodeConfigPaths();
+  let fsConfigMocks: Awaited<ReturnType<typeof loadFsConfigMocks>>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetModules();
     vi.clearAllMocks();
-    process.env = { ...originalEnv };
-    delete process.env.SYNTHETIC_API_KEY;
-    delete process.env.XDG_CONFIG_HOME;
-    delete process.env.XDG_DATA_HOME;
-    delete process.env.XDG_CACHE_HOME;
-    delete process.env.XDG_STATE_HOME;
+    resetProcessEnv(originalEnv, [
+      "SYNTHETIC_API_KEY",
+      "XDG_CONFIG_HOME",
+      "XDG_DATA_HOME",
+      "XDG_CACHE_HOME",
+      "XDG_STATE_HOME",
+    ]);
+    fsConfigMocks = await loadFsConfigMocks();
+    resetFsConfigMocks(fsConfigMocks);
   });
 
   afterEach(() => {
@@ -61,12 +61,9 @@ describe("synthetic-config", () => {
     });
 
     it("reads from opencode.json when env var not set", async () => {
-      const { existsSync } = await import("fs");
-      const { readFile } = await import("fs/promises");
-
-      (existsSync as any).mockImplementation((path: string) => path.endsWith("opencode.json"));
-
-      (readFile as any).mockResolvedValue(
+      mockTrustedConfigFile(
+        fsConfigMocks,
+        trustedPaths.json,
         JSON.stringify({
           provider: {
             synthetic: {
@@ -88,12 +85,10 @@ describe("synthetic-config", () => {
     });
 
     it("reads from opencode.jsonc with comments stripped", async () => {
-      const { existsSync } = await import("fs");
-      const { readFile } = await import("fs/promises");
-
-      (existsSync as any).mockImplementation((path: string) => path.endsWith("opencode.jsonc"));
-
-      (readFile as any).mockResolvedValue(`{
+      mockTrustedConfigFile(
+        fsConfigMocks,
+        trustedPaths.jsonc,
+        `{
         // This is a comment
         "provider": {
           "synthetic": {
@@ -102,7 +97,8 @@ describe("synthetic-config", () => {
             }
           }
         }
-      }`);
+      }`,
+      );
 
       const { resolveSyntheticApiKey } = await import("../src/lib/synthetic-config.js");
       const result = await resolveSyntheticApiKey();
@@ -116,15 +112,11 @@ describe("synthetic-config", () => {
     it("rejects arbitrary {env:VAR_NAME} syntax in opencode.json", async () => {
       process.env.MY_SYNTHETIC_KEY = "resolved-from-env";
 
-      const { existsSync } = await import("fs");
-      const { readFile } = await import("fs/promises");
       const { readAuthFile } = await import("../src/lib/opencode-auth.js");
 
-      (existsSync as any).mockImplementation(
-        (path: string) => path === join(homedir(), ".config", "opencode", "opencode.json"),
-      );
-
-      (readFile as any).mockResolvedValue(
+      mockTrustedConfigFile(
+        fsConfigMocks,
+        trustedPaths.json,
         JSON.stringify({
           provider: {
             synthetic: {
@@ -135,6 +127,7 @@ describe("synthetic-config", () => {
           },
         }),
       );
+
       (readAuthFile as any).mockResolvedValue(null);
 
       const { resolveSyntheticApiKey } = await import("../src/lib/synthetic-config.js");
@@ -144,13 +137,11 @@ describe("synthetic-config", () => {
     });
 
     it("returns null when {env:VAR_NAME} references unset variable", async () => {
-      const { existsSync } = await import("fs");
-      const { readFile } = await import("fs/promises");
       const { readAuthFile } = await import("../src/lib/opencode-auth.js");
 
-      (existsSync as any).mockImplementation((path: string) => path.includes("opencode.json"));
-
-      (readFile as any).mockResolvedValue(
+      mockTrustedConfigFile(
+        fsConfigMocks,
+        trustedPaths.json,
         JSON.stringify({
           provider: {
             synthetic: {
@@ -170,13 +161,13 @@ describe("synthetic-config", () => {
       expect(result).toBeNull();
     });
 
-    it("ignores workspace-local opencode.json when resolving provider secrets", async () => {
-      const { existsSync } = await import("fs");
+    it.each([
+      ["opencode.json", workspacePaths.json],
+      ["opencode.jsonc", workspacePaths.jsonc],
+    ])("ignores workspace-local %s when resolving provider secrets", async (_label, workspacePath) => {
       const { readAuthFile } = await import("../src/lib/opencode-auth.js");
 
-      const workspacePath = join(process.cwd(), "opencode.json");
-
-      (existsSync as any).mockImplementation((path: string) => path === workspacePath);
+      fsConfigMocks.existsSync.mockImplementation((path: string) => path === workspacePath);
       (readAuthFile as any).mockResolvedValue(null);
 
       const { resolveSyntheticApiKey } = await import("../src/lib/synthetic-config.js");
@@ -186,10 +177,9 @@ describe("synthetic-config", () => {
     });
 
     it("falls back to auth.json when no other sources configured", async () => {
-      const { existsSync } = await import("fs");
       const { readAuthFile } = await import("../src/lib/opencode-auth.js");
 
-      (existsSync as any).mockReturnValue(false);
+      fsConfigMocks.existsSync.mockReturnValue(false);
       (readAuthFile as any).mockResolvedValue({
         synthetic: {
           type: "api",
@@ -207,10 +197,9 @@ describe("synthetic-config", () => {
     });
 
     it("returns null when no sources have a key", async () => {
-      const { existsSync } = await import("fs");
       const { readAuthFile } = await import("../src/lib/opencode-auth.js");
 
-      (existsSync as any).mockReturnValue(false);
+      fsConfigMocks.existsSync.mockReturnValue(false);
       (readAuthFile as any).mockResolvedValue(null);
 
       const { resolveSyntheticApiKey } = await import("../src/lib/synthetic-config.js");
@@ -222,10 +211,9 @@ describe("synthetic-config", () => {
     it("ignores empty string env vars", async () => {
       process.env.SYNTHETIC_API_KEY = "   ";
 
-      const { existsSync } = await import("fs");
       const { readAuthFile } = await import("../src/lib/opencode-auth.js");
 
-      (existsSync as any).mockReturnValue(false);
+      fsConfigMocks.existsSync.mockReturnValue(false);
       (readAuthFile as any).mockResolvedValue({
         synthetic: {
           type: "api",
@@ -254,10 +242,9 @@ describe("synthetic-config", () => {
     });
 
     it("returns false when no key is configured", async () => {
-      const { existsSync } = await import("fs");
       const { readAuthFile } = await import("../src/lib/opencode-auth.js");
 
-      (existsSync as any).mockReturnValue(false);
+      fsConfigMocks.existsSync.mockReturnValue(false);
       (readAuthFile as any).mockResolvedValue(null);
 
       const { hasSyntheticApiKey } = await import("../src/lib/synthetic-config.js");
@@ -280,12 +267,11 @@ describe("synthetic-config", () => {
     });
 
     it("returns diagnostics with checked paths", async () => {
-      const { existsSync } = await import("fs");
       const { readAuthFile } = await import("../src/lib/opencode-auth.js");
 
-      const expectedPath = join(homedir(), ".config", "opencode", "opencode.json");
+      const expectedPath = trustedPaths.json;
 
-      (existsSync as any).mockImplementation((path: string) => path === expectedPath);
+      fsConfigMocks.existsSync.mockImplementation((path: string) => path === expectedPath);
       (readAuthFile as any).mockResolvedValue(null);
 
       const { getSyntheticKeyDiagnostics } = await import("../src/lib/synthetic-config.js");

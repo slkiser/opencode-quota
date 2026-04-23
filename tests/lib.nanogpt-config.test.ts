@@ -1,21 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { homedir } from "os";
 import { join } from "path";
+import {
+  createRuntimePathsMockModule,
+  getTrustedOpencodeConfigPaths,
+  getWorkspaceOpencodeConfigPaths,
+  loadFsConfigMocks,
+  mockTrustedConfigFile,
+  resetFsConfigMocks,
+  resetProcessEnv,
+} from "./helpers/trusted-config-test-harness.js";
 
-vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => ({
-    dataDirs: [join(homedir(), ".local", "share", "opencode")],
-    configDirs: [join(homedir(), ".config", "opencode")],
-    cacheDirs: [join(homedir(), ".cache", "opencode")],
-    stateDirs: [join(homedir(), ".local", "state", "opencode")],
-  }),
-  getOpencodeRuntimeDirs: () => ({
-    dataDir: join(homedir(), ".local", "share", "opencode"),
-    configDir: join(homedir(), ".config", "opencode"),
-    cacheDir: join(homedir(), ".cache", "opencode"),
-    stateDir: join(homedir(), ".local", "state", "opencode"),
-  }),
-}));
+vi.mock("../src/lib/opencode-runtime-paths.js", () => createRuntimePathsMockModule());
 
 vi.mock("fs", () => ({
   existsSync: vi.fn(),
@@ -32,17 +28,23 @@ vi.mock("../src/lib/opencode-auth.js", () => ({
 
 describe("nanogpt-config", () => {
   const originalEnv = process.env;
+  const trustedPaths = getTrustedOpencodeConfigPaths();
+  const workspacePaths = getWorkspaceOpencodeConfigPaths();
+  let fsConfigMocks: Awaited<ReturnType<typeof loadFsConfigMocks>>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetModules();
     vi.clearAllMocks();
-    process.env = { ...originalEnv };
-    delete process.env.NANOGPT_API_KEY;
-    delete process.env.NANO_GPT_API_KEY;
-    delete process.env.XDG_CONFIG_HOME;
-    delete process.env.XDG_DATA_HOME;
-    delete process.env.XDG_CACHE_HOME;
-    delete process.env.XDG_STATE_HOME;
+    resetProcessEnv(originalEnv, [
+      "NANOGPT_API_KEY",
+      "NANO_GPT_API_KEY",
+      "XDG_CONFIG_HOME",
+      "XDG_DATA_HOME",
+      "XDG_CACHE_HOME",
+      "XDG_STATE_HOME",
+    ]);
+    fsConfigMocks = await loadFsConfigMocks();
+    resetFsConfigMocks(fsConfigMocks);
   });
 
   afterEach(() => {
@@ -71,13 +73,9 @@ describe("nanogpt-config", () => {
     });
 
     it("reads from trusted global opencode.json provider.nanogpt", async () => {
-      const { existsSync } = await import("fs");
-      const { readFile } = await import("fs/promises");
-
-      (existsSync as any).mockImplementation((path: string) =>
-        path === join(homedir(), ".config", "opencode", "opencode.json"),
-      );
-      (readFile as any).mockResolvedValue(
+      mockTrustedConfigFile(
+        fsConfigMocks,
+        trustedPaths.json,
         JSON.stringify({
           provider: {
             nanogpt: {
@@ -88,7 +86,6 @@ describe("nanogpt-config", () => {
           },
         }),
       );
-
       const { resolveNanoGptApiKey } = await import("../src/lib/nanogpt-config.js");
       await expect(resolveNanoGptApiKey()).resolves.toEqual({
         key: "json-api-key",
@@ -97,13 +94,10 @@ describe("nanogpt-config", () => {
     });
 
     it("reads from trusted global opencode.jsonc provider.nano-gpt", async () => {
-      const { existsSync } = await import("fs");
-      const { readFile } = await import("fs/promises");
-
-      (existsSync as any).mockImplementation((path: string) =>
-        path === join(homedir(), ".config", "opencode", "opencode.jsonc"),
-      );
-      (readFile as any).mockResolvedValue(`{
+      mockTrustedConfigFile(
+        fsConfigMocks,
+        trustedPaths.jsonc,
+        `{
         "provider": {
           "nano-gpt": {
             "options": {
@@ -111,8 +105,8 @@ describe("nanogpt-config", () => {
             }
           }
         }
-      }`);
-
+      }`,
+      );
       const { resolveNanoGptApiKey } = await import("../src/lib/nanogpt-config.js");
       await expect(resolveNanoGptApiKey()).resolves.toEqual({
         key: "jsonc-api-key",
@@ -121,14 +115,11 @@ describe("nanogpt-config", () => {
     });
 
     it("rejects arbitrary env-template names in trusted config", async () => {
-      const { existsSync } = await import("fs");
-      const { readFile } = await import("fs/promises");
       const { readAuthFile } = await import("../src/lib/opencode-auth.js");
 
-      (existsSync as any).mockImplementation((path: string) =>
-        path === join(homedir(), ".config", "opencode", "opencode.json"),
-      );
-      (readFile as any).mockResolvedValue(
+      mockTrustedConfigFile(
+        fsConfigMocks,
+        trustedPaths.json,
         JSON.stringify({
           provider: {
             nanogpt: {
@@ -146,13 +137,9 @@ describe("nanogpt-config", () => {
     });
 
     it("falls back to nano-gpt alias when nanogpt env template is invalid", async () => {
-      const { existsSync } = await import("fs");
-      const { readFile } = await import("fs/promises");
-
-      (existsSync as any).mockImplementation((path: string) =>
-        path === join(homedir(), ".config", "opencode", "opencode.json"),
-      );
-      (readFile as any).mockResolvedValue(
+      mockTrustedConfigFile(
+        fsConfigMocks,
+        trustedPaths.json,
         JSON.stringify({
           provider: {
             nanogpt: {
@@ -168,7 +155,6 @@ describe("nanogpt-config", () => {
           },
         }),
       );
-
       const { resolveNanoGptApiKey } = await import("../src/lib/nanogpt-config.js");
       await expect(resolveNanoGptApiKey()).resolves.toEqual({
         key: "json-alias-key",
@@ -176,12 +162,13 @@ describe("nanogpt-config", () => {
       });
     });
 
-    it("ignores workspace-local opencode.json when resolving provider secrets", async () => {
-      const { existsSync } = await import("fs");
+    it.each([
+      ["opencode.json", workspacePaths.json],
+      ["opencode.jsonc", workspacePaths.jsonc],
+    ])("ignores workspace-local %s when resolving provider secrets", async (_label, workspacePath) => {
       const { readAuthFile } = await import("../src/lib/opencode-auth.js");
 
-      const workspacePath = join(process.cwd(), "opencode.json");
-      (existsSync as any).mockImplementation((path: string) => path === workspacePath);
+      fsConfigMocks.existsSync.mockImplementation((path: string) => path === workspacePath);
       (readAuthFile as any).mockResolvedValue(null);
 
       const { resolveNanoGptApiKey } = await import("../src/lib/nanogpt-config.js");
@@ -189,10 +176,9 @@ describe("nanogpt-config", () => {
     });
 
     it("falls back to auth.json for nanogpt and nano-gpt keys", async () => {
-      const { existsSync } = await import("fs");
       const { readAuthFile } = await import("../src/lib/opencode-auth.js");
 
-      (existsSync as any).mockReturnValue(false);
+      fsConfigMocks.existsSync.mockReturnValue(false);
       (readAuthFile as any).mockResolvedValueOnce({
         nanogpt: {
           type: "api",
@@ -209,9 +195,10 @@ describe("nanogpt-config", () => {
       vi.resetModules();
       vi.clearAllMocks();
 
-      const fsAgain = await import("fs");
+      fsConfigMocks = await loadFsConfigMocks();
+      resetFsConfigMocks(fsConfigMocks);
       const authAgain = await import("../src/lib/opencode-auth.js");
-      (fsAgain.existsSync as any).mockReturnValue(false);
+      fsConfigMocks.existsSync.mockReturnValue(false);
       (authAgain.readAuthFile as any).mockResolvedValueOnce({
         "nano-gpt": {
           type: "api",
@@ -250,13 +237,10 @@ describe("nanogpt-config", () => {
     });
 
     it("reports checked trusted config paths", async () => {
-      const { existsSync } = await import("fs");
-      const { readFile } = await import("fs/promises");
       const { readAuthFile } = await import("../src/lib/opencode-auth.js");
-      const expectedPath = join(homedir(), ".config", "opencode", "opencode.json");
+      const expectedPath = trustedPaths.json;
 
-      (existsSync as any).mockImplementation((path: string) => path === expectedPath);
-      (readFile as any).mockResolvedValue("{}");
+      mockTrustedConfigFile(fsConfigMocks, expectedPath, "{}");
       (readAuthFile as any).mockResolvedValue(null);
 
       const { getNanoGptKeyDiagnostics } = await import("../src/lib/nanogpt-config.js");
@@ -273,11 +257,10 @@ describe("nanogpt-config", () => {
       const { getOpencodeConfigCandidatePaths } = await import("../src/lib/nanogpt-config.js");
       const paths = getOpencodeConfigCandidatePaths();
 
-      expect(paths).toHaveLength(2);
-      expect(paths[0].isJsonc).toBe(true);
-      expect(paths[1].isJsonc).toBe(false);
-      expect(paths[0].path).toContain("opencode");
-      expect(paths[1].path).toContain("opencode");
+      expect(paths).toEqual([
+        { path: join(homedir(), ".config", "opencode", "opencode.jsonc"), isJsonc: true },
+        { path: join(homedir(), ".config", "opencode", "opencode.json"), isJsonc: false },
+      ]);
     });
   });
 });

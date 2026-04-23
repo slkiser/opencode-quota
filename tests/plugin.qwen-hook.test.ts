@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createAlibabaAuthModuleMock,
+  createConfigModuleMock,
   createPluginTestClient as createClient,
+  createPluginToolMockModule,
+  createPricingModuleMock,
+  createQwenAuthModuleMock,
   makeQuotaToastTestConfig,
   seedDefaultPluginBootstrapMocks,
 } from "./helpers/plugin-test-harness.js";
@@ -21,29 +26,9 @@ const mocks = vi.hoisted(() => ({
   setPricingSnapshotSelection: vi.fn(),
 }));
 
-vi.mock("@opencode-ai/plugin", () => {
-  const makeChain = () => {
-    const chain: any = {};
-    chain.optional = () => chain;
-    chain.describe = () => chain;
-    chain.int = () => chain;
-    chain.min = () => chain;
-    return chain;
-  };
+vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
 
-  const toolFn = ((definition: unknown) => definition) as any;
-  toolFn.schema = {
-    boolean: () => makeChain(),
-    number: () => makeChain(),
-  };
-
-  return { tool: toolFn };
-});
-
-vi.mock("../src/lib/config.js", () => ({
-  loadConfig: mocks.loadConfig,
-  createLoadConfigMeta: () => ({ source: "test", paths: [], networkSettingSources: {} }),
-}));
+vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
   readAuthFileCached: vi.fn(),
@@ -53,19 +38,13 @@ vi.mock("../src/lib/opencode-auth.js", () => ({
   clearReadAuthFileCacheForTests: vi.fn(),
 }));
 
-vi.mock("../src/lib/qwen-auth.js", () => ({
-  isQwenCodeModelId: (model?: string) =>
-    typeof model === "string" && model.toLowerCase().startsWith("qwen-code/"),
-  resolveQwenLocalPlanCached: mocks.resolveQwenLocalPlanCached,
-}));
+vi.mock("../src/lib/qwen-auth.js", () =>
+  createQwenAuthModuleMock(mocks.resolveQwenLocalPlanCached),
+);
 
-vi.mock("../src/lib/alibaba-auth.js", () => ({
-  DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS: 5000,
-  isAlibabaModelId: (model?: string) =>
-    typeof model === "string" &&
-    (model.toLowerCase().startsWith("alibaba/") || model.toLowerCase().startsWith("alibaba-cn/")),
-  resolveAlibabaCodingPlanAuthCached: mocks.resolveAlibabaCodingPlanAuthCached,
-}));
+vi.mock("../src/lib/alibaba-auth.js", () =>
+  createAlibabaAuthModuleMock(mocks.resolveAlibabaCodingPlanAuthCached),
+);
 
 vi.mock("../src/lib/qwen-local-quota.js", () => ({
   recordQwenCompletion: mocks.recordQwenCompletion,
@@ -78,15 +57,7 @@ vi.mock("../src/lib/qwen-local-quota.js", () => ({
   computeAlibabaCodingPlanQuota: vi.fn(),
 }));
 
-vi.mock("../src/lib/modelsdev-pricing.js", () => ({
-  getPricingSnapshotMeta: mocks.getPricingSnapshotMeta,
-  getPricingSnapshotSource: mocks.getPricingSnapshotSource,
-  getRuntimePricingRefreshStatePath: mocks.getRuntimePricingRefreshStatePath,
-  getRuntimePricingSnapshotPath: mocks.getRuntimePricingSnapshotPath,
-  maybeRefreshPricingSnapshot: mocks.maybeRefreshPricingSnapshot,
-  setPricingSnapshotAutoRefresh: mocks.setPricingSnapshotAutoRefresh,
-  setPricingSnapshotSelection: mocks.setPricingSnapshotSelection,
-}));
+vi.mock("../src/lib/modelsdev-pricing.js", () => createPricingModuleMock(mocks));
 
 describe("plugin qwen question hook", () => {
   beforeEach(() => {
