@@ -677,7 +677,7 @@ Project/workspace config may override display-oriented settings for that project
 | `formatStyle`                 | `classic` | Shared quota-row style for popup toasts and the TUI sidebar: `classic` or `grouped`. Legacy `toastStyle` is still accepted on read for backward compatibility, but `formatStyle` is the canonical key.       |
 | `percentDisplayMode`          | `remaining` | Shared percent meaning for popup toasts and the TUI sidebar: `remaining` renders labels like `81% left`, while `used` renders labels like `19% used`; the bar fill always matches the shown meaning.        |
 | `onlyCurrentModel`            | `false`   | Filter quota rows to the current model/provider when that session selection can be resolved.                                                                                                                 |
-| `showSessionTokens`           | `true`    | Show the `Session input/output tokens` section in quota displays when session token data is available. Toasts and `/quota` show per-model input/output rows; the TUI sidebar shows a one-line total summary. |
+| `showSessionTokens`           | `true`    | Show the `Session input/output tokens` section in quota displays when session token data is available. Toasts and `/quota` show per-model input/output rows plus a per-session request count line; the TUI sidebar shows a one-line total summary plus the same request count line. |
 | `pricingSnapshot.source`      | `"auto"`  | Token pricing snapshot selection for `/tokens_*`: `auto`, `bundled`, or `runtime`.                                                                                                                           |
 | `pricingSnapshot.autoRefresh` | `7`       | Refresh stale local pricing data after this many days.                                                                                                                                                       |
 
@@ -766,5 +766,4 @@ OpenCode Quota is not built by the OpenCode team and is not affiliated with Open
 
 ## Star History
 [![Star History Chart](https://api.star-history.com/chart?repos=slkiser/opencode-quota&type=date&legend=bottom-right)](https://www.star-history.com/?repos=slkiser%2Fopencode-quota&type=date&legend=bottom-right)
-
 
