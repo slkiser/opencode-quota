@@ -189,6 +189,11 @@ function getFirstNestedString(source: unknown, paths: string[][]): string | unde
   return coerceNonEmptyString(getFirstNestedValue(source, paths));
 }
 
+function getFirstNestedBoolean(source: unknown, paths: string[][]): boolean | undefined {
+  const value = getFirstNestedValue(source, paths);
+  return typeof value === "boolean" ? value : undefined;
+}
+
 function normalizeCopilotTier(value: string | undefined): CopilotTier | undefined {
   const normalized = value?.trim().toLowerCase();
   if (!normalized) return undefined;
@@ -803,6 +808,22 @@ function toUserQuotaResultFromCopilotInternal(response: unknown): CopilotQuotaRe
     ["quota_reset_date"],
     ["quota_reset_at"],
   ];
+  const percentRemainingPaths = [
+    ["quota", "percent_remaining"],
+    ["monthly_quota", "percent_remaining"],
+    ["monthly_premium_requests", "percent_remaining"],
+    ["premium_requests", "percent_remaining"],
+    ["quota_snapshots", "premium_interactions", "percent_remaining"],
+    ["percent_remaining"],
+  ];
+  const unlimitedPaths = [
+    ["quota", "unlimited"],
+    ["monthly_quota", "unlimited"],
+    ["monthly_premium_requests", "unlimited"],
+    ["premium_requests", "unlimited"],
+    ["quota_snapshots", "premium_interactions", "unlimited"],
+    ["unlimited"],
+  ];
   const tierPaths = [
     ["plan", "type"],
     ["plan", "name"],
@@ -815,6 +836,8 @@ function toUserQuotaResultFromCopilotInternal(response: unknown): CopilotQuotaRe
   let total = getFirstNestedNumber(response, totalPaths);
   let used = getFirstNestedNumber(response, usedPaths);
   const remaining = getFirstNestedNumber(response, remainingPaths);
+  const unlimited = getFirstNestedBoolean(response, unlimitedPaths) === true;
+  const explicitPercentRemaining = getFirstNestedNumber(response, percentRemainingPaths);
   const resetTimeIso =
     normalizeResetTimeIso(getFirstNestedString(response, resetPaths)) ?? getApproxNextResetIso();
   const tier = normalizeCopilotTier(getFirstNestedString(response, tierPaths));
@@ -829,6 +852,21 @@ function toUserQuotaResultFromCopilotInternal(response: unknown): CopilotQuotaRe
     total = COPILOT_PLAN_LIMITS[tier];
   }
 
+  if (unlimited) {
+    return {
+      success: true,
+      mode: "user_quota",
+      used: used ?? 0,
+      total: total ?? 1,
+      percentRemaining:
+        explicitPercentRemaining !== undefined
+          ? Math.max(0, Math.min(100, Math.floor(explicitPercentRemaining)))
+          : 100,
+      unlimited: true,
+      resetTimeIso,
+    };
+  }
+
   if (!Number.isFinite(total) || total === undefined || total <= 0 || used === undefined || used < 0) {
     throw new Error(
       "GitHub /copilot_internal/user response did not include usable personal quota fields.",
@@ -840,7 +878,10 @@ function toUserQuotaResultFromCopilotInternal(response: unknown): CopilotQuotaRe
     mode: "user_quota",
     used,
     total,
-    percentRemaining: computePercentRemainingFromUsed({ used, total }),
+    percentRemaining:
+      explicitPercentRemaining !== undefined
+        ? Math.max(0, Math.min(100, Math.floor(explicitPercentRemaining)))
+        : computePercentRemainingFromUsed({ used, total }),
     resetTimeIso,
   };
 }
@@ -1108,6 +1149,10 @@ export function formatCopilotQuota(result: CopilotResult): string | null {
       details.push(`user=${result.username}`);
     }
     return `Copilot Enterprise (${result.enterprise}) ${details.join(" | ")}`;
+  }
+
+  if (result.unlimited) {
+    return "Copilot Unlimited";
   }
 
   const percentUsed = 100 - result.percentRemaining;

@@ -210,6 +210,100 @@ describe("queryCopilotQuota", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://api.github.com/copilot_internal/user");
   });
 
+  it("treats unlimited premium_interactions as unlimited instead of rendering 0/1 quota", async () => {
+    authMocks.readAuthFile.mockResolvedValueOnce({
+      "github-copilot": { type: "oauth", access: "oauth_access_token", refresh: "refresh" },
+    });
+
+    const fetchMock = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const target = String(url);
+
+      if (target === "https://api.github.com/copilot_internal/user") {
+        expect(init?.headers).toMatchObject({
+          Authorization: "Bearer oauth_access_token",
+        });
+        return new Response(
+          JSON.stringify({
+            quota_reset_date_utc: "2026-04-01T00:00:00.000Z",
+            quota_snapshots: {
+              premium_interactions: {
+                entitlement: 1,
+                remaining: 1,
+                percent_remaining: 100,
+                unlimited: true,
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+
+      return new Response("not found", { status: 404 });
+    });
+
+    vi.stubGlobal("fetch", fetchMock as any);
+
+    const { formatCopilotQuota, queryCopilotQuota } = await import("../src/lib/copilot.js");
+    const result = await queryCopilotQuota();
+
+    expect(result).toEqual({
+      success: true,
+      mode: "user_quota",
+      used: 0,
+      total: 1,
+      percentRemaining: 100,
+      unlimited: true,
+      resetTimeIso: "2026-04-01T00:00:00.000Z",
+    });
+    expect(formatCopilotQuota(result)).toBe("Copilot Unlimited");
+  });
+
+  it("prefers percent_remaining from /copilot_internal/user when present", async () => {
+    authMocks.readAuthFile.mockResolvedValueOnce({
+      "github-copilot": { type: "oauth", access: "oauth_access_token", refresh: "refresh" },
+    });
+
+    const fetchMock = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const target = String(url);
+
+      if (target === "https://api.github.com/copilot_internal/user") {
+        expect(init?.headers).toMatchObject({
+          Authorization: "Bearer oauth_access_token",
+        });
+        return new Response(
+          JSON.stringify({
+            quota_reset_date_utc: "2026-05-01T00:00:00.000Z",
+            quota_snapshots: {
+              premium_interactions: {
+                entitlement: 1500,
+                remaining: 401,
+                percent_remaining: 26.7,
+                unlimited: false,
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+
+      return new Response("not found", { status: 404 });
+    });
+
+    vi.stubGlobal("fetch", fetchMock as any);
+
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    const result = await queryCopilotQuota();
+
+    expect(result).toEqual({
+      success: true,
+      mode: "user_quota",
+      used: 1099,
+      total: 1500,
+      percentRemaining: 26,
+      resetTimeIso: "2026-05-01T00:00:00.000Z",
+    });
+  });
+
   it("returns a clear error when OAuth auth exists without an access token", async () => {
     authMocks.readAuthFile.mockResolvedValueOnce({
       "github-copilot": { type: "oauth", refresh: "refresh_only" },

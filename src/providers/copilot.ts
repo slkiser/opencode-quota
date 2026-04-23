@@ -110,20 +110,36 @@ export const copilotProvider: QuotaProvider = {
                 },
             ]
           : [
-              style === "grouped"
-                ? {
-                  name: "Copilot",
-                  group: getCopilotGroup(result.mode),
-                  label: "Quota:",
-                  right: `${result.used}/${result.total}`,
-                  percentRemaining: result.percentRemaining,
-                  resetTimeIso: result.resetTimeIso,
-                }
-                : {
-                  name: "Copilot",
-                  percentRemaining: result.percentRemaining,
-                  resetTimeIso: result.resetTimeIso,
-                },
+              result.unlimited
+                ? style === "grouped"
+                  ? {
+                      kind: "value",
+                      name: "Copilot",
+                      group: getCopilotGroup(result.mode),
+                      label: "Quota:",
+                      value: "Unlimited",
+                      resetTimeIso: result.resetTimeIso,
+                    }
+                  : {
+                      kind: "value",
+                      name: "Copilot",
+                      value: "Unlimited",
+                      resetTimeIso: result.resetTimeIso,
+                    }
+                : style === "grouped"
+                  ? {
+                      name: "Copilot",
+                      group: getCopilotGroup(result.mode),
+                      label: "Quota:",
+                      right: `${result.used}/${result.total}`,
+                      percentRemaining: result.percentRemaining,
+                      resetTimeIso: result.resetTimeIso,
+                    }
+                  : {
+                      name: "Copilot",
+                      percentRemaining: result.percentRemaining,
+                      resetTimeIso: result.resetTimeIso,
+                    },
             ],
       errors: [],
     };

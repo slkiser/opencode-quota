@@ -68,6 +68,56 @@ describe("copilot provider", () => {
     ]);
   });
 
+  it("maps unlimited personal quota into a value toast entry", async () => {
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    (queryCopilotQuota as any).mockResolvedValueOnce({
+      success: true,
+      mode: "user_quota",
+      used: 0,
+      total: 1,
+      percentRemaining: 100,
+      unlimited: true,
+      resetTimeIso: "2026-02-01T00:00:00.000Z",
+    });
+
+    const out = await copilotProvider.fetch({} as any);
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries).toEqual([
+      {
+        kind: "value",
+        name: "Copilot",
+        value: "Unlimited",
+        resetTimeIso: "2026-02-01T00:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("maps unlimited personal quota into a grouped value entry", async () => {
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    (queryCopilotQuota as any).mockResolvedValueOnce({
+      success: true,
+      mode: "user_quota",
+      used: 0,
+      total: 1,
+      percentRemaining: 100,
+      unlimited: true,
+      resetTimeIso: "2026-02-01T00:00:00.000Z",
+    });
+
+    const out = await copilotProvider.fetch({ config: { formatStyle: "grouped" } } as any);
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries).toEqual([
+      {
+        kind: "value",
+        name: "Copilot",
+        group: "Copilot (personal)",
+        label: "Quota:",
+        value: "Unlimited",
+        resetTimeIso: "2026-02-01T00:00:00.000Z",
+      },
+    ]);
+  });
+
   it("maps organization usage into a value toast entry", async () => {
     const { queryCopilotQuota } = await import("../src/lib/copilot.js");
     (queryCopilotQuota as any).mockResolvedValueOnce({
