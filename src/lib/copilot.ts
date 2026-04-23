@@ -857,8 +857,8 @@ function toUserQuotaResultFromCopilotInternal(response: unknown): CopilotQuotaRe
     return {
       success: true,
       mode: "user_quota",
-      used: used ?? 0,
-      total: total ?? 1,
+      used: Math.max(0, used ?? 0),
+      total: Math.max(1, total ?? 1),
       percentRemaining:
         explicitPercentRemaining !== undefined
           ? Math.max(0, Math.min(100, Math.floor(explicitPercentRemaining)))
