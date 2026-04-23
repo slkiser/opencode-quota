@@ -77,6 +77,7 @@ export interface SessionTokensData {
   models: SessionTokenModel[];
   totalInput: number;
   totalOutput: number;
+  requestCount?: number;
 }
 
 export interface QuotaProviderResult {

@@ -57,6 +57,7 @@ describe("formatQuotaCommand", () => {
         ],
         totalInput: 2221,
         totalOutput: 1221,
+        requestCount: 3,
       },
     });
 
@@ -80,6 +81,7 @@ describe("formatQuotaCommand", () => {
       Session input/output tokens
         openai/gpt-5            1.2K in     567 out
         github-copilot/clau…     987 in     654 out
+        (3 requests this session)
 
       Z.ai: Authentication expired"
     `);

@@ -35,6 +35,7 @@ describe("buildSidebarQuotaPanelLines", () => {
         sessionTokens: {
           totalInput: 12,
           totalOutput: 34,
+          requestCount: 2,
           models: [
             {
               modelID: "gpt-5\u001b[99m",
@@ -55,6 +56,7 @@ describe("buildSidebarQuotaPanelLines", () => {
     expect(rendered).toContain("Err: Bad");
     expect(rendered).toContain(SESSION_TOKEN_SECTION_HEADING);
     expect(rendered).toContain("12 in  34 out");
+    expect(rendered).toContain("(2 requests this session)");
     expect(rendered).not.toContain("gpt-5");
   });
 
@@ -259,6 +261,7 @@ describe("buildSidebarQuotaPanelLines", () => {
         sessionTokens: {
           totalInput: 372,
           totalOutput: 41,
+          requestCount: 3,
           models: [
             {
               modelID: "openai/gpt-5.4-mini",
@@ -271,7 +274,11 @@ describe("buildSidebarQuotaPanelLines", () => {
     });
 
     expect(lines.every((line) => line.length <= TUI_SIDEBAR_MAX_WIDTH)).toBe(true);
-    expect(lines).toEqual([SESSION_TOKEN_SECTION_HEADING, "  372 in  41 out"]);
+    expect(lines).toEqual([
+      SESSION_TOKEN_SECTION_HEADING,
+      "  372 in  41 out",
+      "  (3 requests this session)",
+    ]);
   });
 
   it("keeps value-only rows unchanged when percentDisplayMode is used", () => {

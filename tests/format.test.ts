@@ -126,6 +126,29 @@ describe("formatQuotaRows", () => {
     expect(out).not.toMatch(/\d+[dhms]/);
   });
 
+  it("renders session request counts under the shared session token block", () => {
+    const out = formatQuotaRows({
+      version: "1.0.0",
+      layout: { maxWidth: 50, narrowAt: 42, tinyAt: 32 },
+      entries: [
+        {
+          name: "Copilot",
+          percentRemaining: 75,
+        },
+      ],
+      sessionTokens: {
+        models: [{ modelID: "openai/gpt-5.4-mini", input: 372, output: 41 }],
+        totalInput: 372,
+        totalOutput: 41,
+        requestCount: 3,
+      },
+    });
+
+    expect(out).toContain("Session input/output tokens");
+    expect(out).toMatch(/372 in\s+41 out/);
+    expect(out).toContain("(3 requests this session)");
+  });
+
   it("normalizes grouped headers in grouped toast output", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));

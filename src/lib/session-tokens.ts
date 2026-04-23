@@ -36,6 +36,7 @@ export async function fetchSessionTokensForDisplay(params: {
           models: summary.models,
           totalInput: summary.totalInput,
           totalOutput: summary.totalOutput,
+          requestCount: summary.requestCount,
         },
       };
     }

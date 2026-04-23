@@ -719,6 +719,7 @@ describe("/quota command behavior", () => {
         models: [{ modelID: "session-b-model", input: 222, output: 22 }],
         totalInput: 222,
         totalOutput: 22,
+        requestCount: 2,
       },
       error: undefined,
     });
@@ -727,6 +728,7 @@ describe("/quota command behavior", () => {
         models: [{ modelID: "session-a-model", input: 111, output: 11 }],
         totalInput: 111,
         totalOutput: 11,
+        requestCount: 3,
       },
       error: undefined,
     });
@@ -744,9 +746,13 @@ describe("/quota command behavior", () => {
       promptOutputs.find((output) => output.sessionID === "session-b")?.text ?? "";
 
     expect(sessionAOutput).toContain("session-a-model");
+    expect(sessionAOutput).toContain("(3 requests this session)");
     expect(sessionAOutput).not.toContain("session-b-model");
+    expect(sessionAOutput).not.toContain("(2 requests this session)");
     expect(sessionBOutput).toContain("session-b-model");
+    expect(sessionBOutput).toContain("(2 requests this session)");
     expect(sessionBOutput).not.toContain("session-a-model");
+    expect(sessionBOutput).not.toContain("(3 requests this session)");
   });
 
   it("bypasses stale /quota cache for qwen local request-plan sessions", async () => {

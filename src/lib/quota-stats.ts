@@ -816,7 +816,7 @@ export async function aggregateUsage(params: {
 
 /**
  * Lightweight session token summary for toast display.
- * Returns per-model input/output totals for a single session.
+ * Returns per-model input/output totals and request count for a single session.
  */
 export type SessionTokenRow = {
   modelID: string;
@@ -829,6 +829,7 @@ export type SessionTokenSummary = {
   models: SessionTokenRow[];
   totalInput: number;
   totalOutput: number;
+  requestCount: number;
 };
 
 export async function getSessionTokenSummary(
@@ -877,5 +878,6 @@ export async function getSessionTokenSummary(
     models,
     totalInput,
     totalOutput,
+    requestCount: sessionMessages.length,
   };
 }

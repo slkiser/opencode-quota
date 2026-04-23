@@ -15,6 +15,24 @@ export type SessionTokenSectionModel = {
   lines: string[];
 };
 
+function formatSessionRequestLine(requestCount?: number): string | null {
+  if (typeof requestCount !== "number" || !Number.isFinite(requestCount)) return null;
+  const safeCount = Math.max(0, Math.trunc(requestCount));
+  if (safeCount <= 0) return null;
+  const label = safeCount === 1 ? "request" : "requests";
+  return `  (${safeCount} ${label} this session)`;
+}
+
+function appendSessionRequestLine(
+  lines: string[],
+  sessionTokens: SessionTokensData,
+  maxWidth?: number,
+): void {
+  const requestLine = formatSessionRequestLine(sessionTokens.requestCount);
+  if (!requestLine) return;
+  lines.push(clampRenderedLine(requestLine, maxWidth));
+}
+
 function normalizeMaxWidth(maxWidth?: number): number | undefined {
   if (typeof maxWidth !== "number" || !Number.isFinite(maxWidth)) return undefined;
   return Math.max(1, Math.trunc(maxWidth));
@@ -33,6 +51,8 @@ function buildWideSessionTokenSectionModel(sessionTokens: SessionTokensData): Se
     const outStr = formatTokenCount(model.output);
     lines.push(`  ${padRight(shortName, 20)}  ${padLeft(inStr, 6)} in  ${padLeft(outStr, 6)} out`);
   }
+
+  appendSessionRequestLine(lines, sessionTokens);
 
   return {
     heading: SESSION_TOKEN_SECTION_HEADING,
@@ -66,6 +86,8 @@ function buildCompactSessionTokenSectionModel(
     lines.push(`${detailIndent}${outStr} out`.slice(0, width));
   }
 
+  appendSessionRequestLine(lines, sessionTokens, width);
+
   return {
     heading: SESSION_TOKEN_SECTION_HEADING.slice(0, width),
     lines,
@@ -77,9 +99,13 @@ function buildSidebarSessionTokenSummaryModel(
   options?: { maxWidth?: number },
 ): SessionTokenSectionModel {
   const summaryLine = `  ${formatTokenCount(sessionTokens.totalInput)} in  ${formatTokenCount(sessionTokens.totalOutput)} out`;
+  const requestLine = formatSessionRequestLine(sessionTokens.requestCount);
   return {
     heading: clampRenderedLine(SESSION_TOKEN_SECTION_HEADING, options?.maxWidth),
-    lines: [clampRenderedLine(summaryLine, options?.maxWidth)],
+    lines: [
+      clampRenderedLine(summaryLine, options?.maxWidth),
+      ...(requestLine ? [clampRenderedLine(requestLine, options?.maxWidth)] : []),
+    ],
   };
 }
 
