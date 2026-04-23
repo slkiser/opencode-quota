@@ -26,6 +26,7 @@ import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 
 const GITHUB_API_BASE_URL = "https://api.github.com";
 const COPILOT_INTERNAL_USER_URL = `${GITHUB_API_BASE_URL}/copilot_internal/user`;
+const COPILOT_REQUEST_TIMEOUT_MS = 10000;
 const GITHUB_API_VERSION = "2022-11-28";
 const COPILOT_QUOTA_CONFIG_FILENAME = "copilot-quota-token.json";
 const USER_AGENT = "opencode-quota/copilot-billing";
@@ -643,7 +644,7 @@ async function fetchGitHubRestJsonOnce<T>(
 ): Promise<{ ok: true; status: number; data: T } | { ok: false; status: number; message: string }> {
   const response = await fetchWithTimeout(url, {
     headers: buildGitHubRestHeaders(token, scheme),
-  });
+  }, COPILOT_REQUEST_TIMEOUT_MS);
 
   if (response.ok) {
     return { ok: true, status: response.status, data: (await response.json()) as T };

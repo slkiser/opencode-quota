@@ -547,7 +547,7 @@ export interface CachedToast {
 // =============================================================================
 
 /** Request timeout in milliseconds */
-export const REQUEST_TIMEOUT_MS = 10000;
+export const REQUEST_TIMEOUT_MS = 3000;
 
 /** Model key mapping for Google API */
 export const GOOGLE_MODEL_KEYS: Record<

@@ -34,6 +34,86 @@ function formatManagedUsageValue(
   return parts.join(" | ");
 }
 
+function buildManagedUsageEntry(
+  result: CopilotOrganizationUsageResult | CopilotEnterpriseUsageResult,
+  style: "classic" | "grouped",
+) {
+  if (style === "grouped") {
+    return {
+      kind: "value" as const,
+      name: "Copilot",
+      group: getCopilotGroup(result.mode),
+      label: "Usage:",
+      value: formatManagedUsageValue(result),
+      resetTimeIso: result.resetTimeIso,
+    };
+  }
+
+  return {
+    kind: "value" as const,
+    name:
+      result.mode === "enterprise_usage"
+        ? `Copilot Enterprise (${result.enterprise})`
+        : `Copilot Org (${result.organization})`,
+    value:
+      result.mode === "enterprise_usage"
+        ? [
+            `${result.used} used`,
+            formatBillingPeriod(result.period),
+            ...(result.organization ? [`org=${result.organization}`] : []),
+            ...(result.username ? [`user=${result.username}`] : []),
+          ].join(" | ")
+        : [
+            `${result.used} used`,
+            formatBillingPeriod(result.period),
+            ...(result.username ? [`user=${result.username}`] : []),
+          ].join(" | "),
+    resetTimeIso: result.resetTimeIso,
+  };
+}
+
+function buildUserQuotaEntry(
+  result: Extract<Awaited<ReturnType<typeof queryCopilotQuota>>, { success: true; mode: "user_quota" }>,
+  style: "classic" | "grouped",
+) {
+  if (result.unlimited) {
+    if (style === "grouped") {
+      return {
+        kind: "value" as const,
+        name: "Copilot",
+        group: getCopilotGroup(result.mode),
+        label: "Quota:",
+        value: "Unlimited",
+        resetTimeIso: result.resetTimeIso,
+      };
+    }
+
+    return {
+      kind: "value" as const,
+      name: "Copilot",
+      value: "Unlimited",
+      resetTimeIso: result.resetTimeIso,
+    };
+  }
+
+  if (style === "grouped") {
+    return {
+      name: "Copilot",
+      group: getCopilotGroup(result.mode),
+      label: "Quota:",
+      right: `${result.used}/${result.total}`,
+      percentRemaining: result.percentRemaining,
+      resetTimeIso: result.resetTimeIso,
+    };
+  }
+
+  return {
+    name: "Copilot",
+    percentRemaining: result.percentRemaining,
+    resetTimeIso: result.resetTimeIso,
+  };
+}
+
 export const copilotProvider: QuotaProvider = {
   id: "copilot",
 
@@ -77,70 +157,8 @@ export const copilotProvider: QuotaProvider = {
       attempted: true,
       entries:
         result.mode === "organization_usage" || result.mode === "enterprise_usage"
-          ? [
-              style === "grouped"
-                ? {
-                  kind: "value",
-                  name: "Copilot",
-                  group: getCopilotGroup(result.mode),
-                  label: "Usage:",
-                  value: formatManagedUsageValue(result),
-                  resetTimeIso: result.resetTimeIso,
-                }
-                : {
-                  kind: "value",
-                  name:
-                    result.mode === "enterprise_usage"
-                      ? `Copilot Enterprise (${result.enterprise})`
-                      : `Copilot Org (${result.organization})`,
-                  value:
-                    result.mode === "enterprise_usage"
-                      ? [
-                        `${result.used} used`,
-                        formatBillingPeriod(result.period),
-                        ...(result.organization ? [`org=${result.organization}`] : []),
-                        ...(result.username ? [`user=${result.username}`] : []),
-                      ].join(" | ")
-                      : [
-                        `${result.used} used`,
-                        formatBillingPeriod(result.period),
-                        ...(result.username ? [`user=${result.username}`] : []),
-                      ].join(" | "),
-                  resetTimeIso: result.resetTimeIso,
-                },
-            ]
-          : [
-              result.unlimited
-                ? style === "grouped"
-                  ? {
-                      kind: "value",
-                      name: "Copilot",
-                      group: getCopilotGroup(result.mode),
-                      label: "Quota:",
-                      value: "Unlimited",
-                      resetTimeIso: result.resetTimeIso,
-                    }
-                  : {
-                      kind: "value",
-                      name: "Copilot",
-                      value: "Unlimited",
-                      resetTimeIso: result.resetTimeIso,
-                    }
-                : style === "grouped"
-                  ? {
-                      name: "Copilot",
-                      group: getCopilotGroup(result.mode),
-                      label: "Quota:",
-                      right: `${result.used}/${result.total}`,
-                      percentRemaining: result.percentRemaining,
-                      resetTimeIso: result.resetTimeIso,
-                    }
-                  : {
-                      name: "Copilot",
-                      percentRemaining: result.percentRemaining,
-                      resetTimeIso: result.resetTimeIso,
-                    },
-            ],
+          ? [buildManagedUsageEntry(result, style)]
+          : [buildUserQuotaEntry(result, style)],
       errors: [],
     };
   },
