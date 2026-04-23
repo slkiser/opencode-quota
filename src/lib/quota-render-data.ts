@@ -180,6 +180,14 @@ export async function resolveQuotaRenderSelection(params: {
   };
 }
 
+function cloneQuotaProviderResult(result: QuotaProviderResult): QuotaProviderResult {
+  return {
+    attempted: result.attempted,
+    entries: result.entries.map((entry) => ({ ...entry })),
+    errors: result.errors.map((error) => ({ ...error })),
+  };
+}
+
 function makeProviderFetchCacheKey(providerId: string, ctx: QuotaProviderContext): string {
   const formatStyle = ctx.config.formatStyle ?? "classic";
   const googleModels = ctx.config.googleModels.join(",");
@@ -203,7 +211,8 @@ async function fetchProviderWithCache(params: {
   const { provider, ctx, ttlMs, providerFetchCache } = params;
 
   if (LIVE_LOCAL_USAGE_PROVIDER_IDS.has(provider.id)) {
-    return await provider.fetch(ctx);
+    const result = await provider.fetch(ctx);
+    return cloneQuotaProviderResult(result);
   }
 
   const cacheKey = makeProviderFetchCacheKey(provider.id, ctx);
@@ -211,22 +220,26 @@ async function fetchProviderWithCache(params: {
   const existing = providerFetchCache.get(cacheKey);
 
   if (existing?.result && existing.timestamp > 0 && ttlMs > 0 && now - existing.timestamp < ttlMs) {
-    return existing.result;
+    return cloneQuotaProviderResult(existing.result);
   }
 
   if (existing?.inFlight) {
-    return existing.inFlight;
+    return existing.inFlight.then((result) => cloneQuotaProviderResult(result));
   }
 
   const promise = (async () => {
     try {
-      const result = await provider.fetch(ctx);
-      if (result.attempted) {
-        providerFetchCache.set(cacheKey, { timestamp: Date.now(), result });
+      const fetched = await provider.fetch(ctx);
+      const resultForCache = cloneQuotaProviderResult(fetched);
+      if (resultForCache.attempted) {
+        providerFetchCache.set(cacheKey, {
+          timestamp: Date.now(),
+          result: resultForCache,
+        });
       } else {
         providerFetchCache.delete(cacheKey);
       }
-      return result;
+      return cloneQuotaProviderResult(resultForCache);
     } catch (error) {
       providerFetchCache.delete(cacheKey);
       throw error;

@@ -165,6 +165,61 @@ describe("buildSidebarQuotaPanelLines", () => {
     );
   });
 
+  it("preserves weekly right/percent values in classic sidebar mode", () => {
+    const lines = buildSidebarQuotaPanelLines({
+      config: {
+        formatStyle: "classic",
+        percentDisplayMode: "used",
+      },
+      data: {
+        entries: [
+          {
+            name: "Weekly",
+            percentRemaining: 8,
+            right: "$22/$24",
+          },
+        ],
+        errors: [],
+        sessionTokens: undefined,
+      },
+    });
+
+    const rendered = lines.join("\n");
+    expect(rendered).toContain("Weekly $22/$24");
+    expect(rendered).toContain("92% used");
+    expect(rendered).not.toContain("0/500");
+    expect(rendered).not.toContain("0% used");
+  });
+
+  it("preserves weekly right/percent values in grouped sidebar mode", () => {
+    const lines = buildSidebarQuotaPanelLines({
+      config: {
+        formatStyle: "grouped",
+        percentDisplayMode: "used",
+      },
+      data: {
+        entries: [
+          {
+            name: "Synthetic Weekly",
+            group: "Synthetic",
+            label: "Weekly:",
+            percentRemaining: 8,
+            right: "$22/$24",
+          },
+        ],
+        errors: [],
+        sessionTokens: undefined,
+      },
+    });
+
+    const rendered = lines.join("\n");
+    expect(rendered).toContain("→ [Synthetic]");
+    expect(rendered).toContain("Weekly: $22/$24");
+    expect(rendered).toContain("92% used");
+    expect(rendered).not.toContain("0/500");
+    expect(rendered).not.toContain("0% used");
+  });
+
   it("renders used percentages and matching bar fill in the sidebar", () => {
     const lines = buildSidebarQuotaPanelLines({
       config: {

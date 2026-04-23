@@ -137,6 +137,69 @@ describe("collectQuotaRenderData availability handling", () => {
     expect(result.data).toBeNull();
   });
 
+  it("returns snapshot-owned weekly rows so sidebar/runtime mutations cannot poison future live fetches", async () => {
+    const sharedResult = {
+      attempted: true,
+      entries: [
+        {
+          name: "Cursor Weekly",
+          percentRemaining: 8,
+          right: "22/24",
+          resetTimeIso: "2099-01-01T00:00:00.000Z",
+        },
+      ],
+      errors: [],
+    };
+    const cursorProvider = {
+      id: "cursor",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue(sharedResult),
+    };
+
+    mockProviders.push(cursorProvider);
+
+    const providerFetchCache = new Map();
+    const params = {
+      client: {
+        config: {
+          providers: async () => ({ data: { providers: [] } }),
+          get: async () => ({ data: {} }),
+        },
+      },
+      config: {
+        ...DEFAULT_CONFIG,
+        enabledProviders: ["cursor"],
+        showSessionTokens: false,
+      },
+      providerFetchCache,
+      surfaceExplicitProviderIssues: true,
+      formatStyle: "classic" as const,
+    };
+
+    const first = await collectQuotaRenderData(params);
+    const firstEntry = first.data?.entries[0];
+    expect(firstEntry).toBeDefined();
+    if (!firstEntry || firstEntry.kind === "value") {
+      throw new Error("expected percent entry for cursor weekly test");
+    }
+
+    firstEntry.right = "0/500";
+    firstEntry.percentRemaining = 100;
+
+    const second = await collectQuotaRenderData(params);
+    const secondEntry = second.data?.entries[0];
+    expect(secondEntry).toBeDefined();
+    if (!secondEntry || secondEntry.kind === "value") {
+      throw new Error("expected percent entry for cursor weekly test");
+    }
+
+    expect(secondEntry.right).toBe("22/24");
+    expect(secondEntry.percentRemaining).toBe(8);
+    expect(sharedResult.entries[0]?.right).toBe("22/24");
+    expect(sharedResult.entries[0]?.percentRemaining).toBe(8);
+    expect(cursorProvider.fetch).toHaveBeenCalledTimes(2);
+  });
+
   it("collects per-provider live probes in order, forces classic formatting, and bypasses stale shared fetch cache entries", async () => {
     const syntheticProvider = {
       id: "synthetic",

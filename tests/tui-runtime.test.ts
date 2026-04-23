@@ -354,6 +354,67 @@ describe("tui runtime helpers", () => {
     });
   });
 
+  it("forwards weekly grouped row data unchanged from render-data to sidebar formatter", async () => {
+    writeFileSync(
+      join(worktreeDir, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            enabled: true,
+            formatStyle: "grouped",
+            percentDisplayMode: "used",
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const weeklyData = {
+      entries: [
+        {
+          name: "Synthetic Weekly",
+          group: "Synthetic",
+          label: "Weekly:",
+          percentRemaining: 8,
+          right: "$22/$24",
+          resetTimeIso: "2099-01-01T00:00:00.000Z",
+        },
+      ],
+      errors: [],
+      sessionTokens: undefined,
+    };
+
+    collectQuotaRenderData.mockResolvedValue({ data: weeklyData });
+    buildSidebarQuotaPanelLines.mockReturnValue(["→ [Synthetic]", "  Weekly: $22/$24"]);
+
+    const panel = await loadSidebarPanel({
+      api: {
+        state: {
+          provider: [],
+          path: {
+            worktree: worktreeDir,
+            directory: nestedDir,
+          },
+          session: {
+            messages: () => [],
+          },
+        },
+        client: {},
+      } as any,
+      sessionID: "session-weekly-grouped",
+      providerFetchCache: new Map(),
+    });
+
+    expect(panel).toEqual({ status: "ready", lines: ["→ [Synthetic]", "  Weekly: $22/$24"] });
+    expect(buildSidebarQuotaPanelLines).toHaveBeenCalledWith({
+      data: weeklyData,
+      config: expect.objectContaining({
+        formatStyle: "grouped",
+        percentDisplayMode: "used",
+      }),
+    });
+  });
+
   it("prefers api.client.config.providers over sidebar state providers", async () => {
     writeFileSync(
       join(worktreeDir, "opencode.json"),
