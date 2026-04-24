@@ -72,10 +72,7 @@ describe("qwen-code provider", () => {
       right: "5/60",
       percentRemaining: 92,
     });
-    expect(out.presentation).toEqual({
-      classicStrategy: "preserve",
-      classicShowRight: false,
-    });
+    expect(out.presentation).toBeUndefined();
   });
 
   it("falls back to the legacy qwen auth key when the canonical key is absent", async () => {

@@ -105,9 +105,6 @@ export const nanoGptProvider: QuotaProvider = {
       });
     }
 
-    return attemptedResult(entries, errors, {
-      classicStrategy: "preserve",
-      classicShowRight: false,
-    });
+    return attemptedResult(entries, errors);
   },
 };

@@ -127,13 +127,13 @@ describe("formatQuotaRows", () => {
     expect(out).not.toMatch(/\d+[dhms]/);
   });
 
-  it("normalizes grouped headers in grouped toast output", () => {
+  it("normalizes grouped headers in all-window toast output", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));
 
     const out = formatQuotaRows({
       version: "1.0.0",
-      style: "grouped",
+      style: "allWindows",
       layout: { maxWidth: 50, narrowAt: 42, tinyAt: 32 },
       entries: [
         {
@@ -150,10 +150,10 @@ describe("formatQuotaRows", () => {
     expect(out).toContain("→ [Copilot] (business)");
   });
 
-  it("renders grouped quota windows from shortest to longest within a provider group", () => {
+  it("renders all-window quota entries from shortest to longest within a provider group", () => {
     const out = formatQuotaRows({
       version: "1.0.0",
-      style: "grouped",
+      style: "allWindows",
       layout: { maxWidth: 50, narrowAt: 42, tinyAt: 32 },
       entries: [
         {
@@ -176,10 +176,10 @@ describe("formatQuotaRows", () => {
     expect(out.indexOf("5h:")).toBeLessThan(out.indexOf("Weekly:"));
   });
 
-  it("renders grouped percent rows as used when percentDisplayMode is used", () => {
+  it("renders all-window percent rows as used when percentDisplayMode is used", () => {
     const out = formatQuotaRows({
       version: "1.0.0",
-      style: "grouped",
+      style: "allWindows",
       layout: { maxWidth: 24, narrowAt: 16, tinyAt: 10 },
       percentDisplayMode: "used",
       entries: [
@@ -203,10 +203,10 @@ describe("formatQuotaRows", () => {
     expect((barLine?.match(/█/g) ?? [])).toHaveLength(2);
   });
 
-  it("renders grouped percent-row usage summaries when providers supply them", () => {
+  it("renders all-window percent-row usage summaries when providers supply them", () => {
     const out = formatQuotaRows({
       version: "1.0.0",
-      style: "grouped",
+      style: "allWindows",
       layout: { maxWidth: 50, narrowAt: 42, tinyAt: 32 },
       entries: [
         {
@@ -223,10 +223,10 @@ describe("formatQuotaRows", () => {
     expect(out).toContain("100% left");
   });
 
-  it("locks rendered grouped toast ordering for Qwen and OpenAI provider groups", () => {
+  it("locks rendered all-window toast ordering for Qwen and OpenAI provider groups", () => {
     const out = formatQuotaRows({
       version: "1.0.0",
-      style: "grouped",
+      style: "allWindows",
       layout: { maxWidth: 50, narrowAt: 42, tinyAt: 32 },
       entries: [
         {
@@ -270,7 +270,7 @@ describe("formatQuotaRows", () => {
 
     const out = formatQuotaRows({
       version: "1.0.0",
-      style: "grouped",
+      style: "allWindows",
       layout: { maxWidth: 50, narrowAt: 42, tinyAt: 32 },
       entries: [
         {
@@ -286,10 +286,10 @@ describe("formatQuotaRows", () => {
     expect(out).not.toContain("→ [Claude] (acct)");
   });
 
-  it("renders classic session tokens as a one-line total summary", () => {
+  it("renders single-window session tokens as a one-line total summary", () => {
     const out = formatQuotaRows({
       version: "1.0.0",
-      style: "classic",
+      style: "singleWindow",
       layout: { maxWidth: 36, narrowAt: 32, tinyAt: 20 },
       entries: [],
       sessionTokens: {
@@ -303,10 +303,10 @@ describe("formatQuotaRows", () => {
     expect(out).not.toContain("openai/gpt-5.4-mini");
   });
 
-  it("renders grouped session tokens with detailed per-model rows", () => {
+  it("renders all-window session tokens with detailed per-model rows", () => {
     const out = formatQuotaRows({
       version: "1.0.0",
-      style: "grouped",
+      style: "allWindows",
       layout: { maxWidth: 36, narrowAt: 32, tinyAt: 20 },
       entries: [],
       sessionTokens: {
@@ -321,6 +321,34 @@ describe("formatQuotaRows", () => {
       "  openai/gpt-5.4-mini",
       "    372 in  41 out",
     ]);
+  });
+
+  it("keeps legacy style aliases working for direct formatter calls", () => {
+    const aliasOutput = formatQuotaRows({
+      version: "1.0.0",
+      style: "grouped",
+      layout: { maxWidth: 36, narrowAt: 32, tinyAt: 20 },
+      entries: [],
+      sessionTokens: {
+        totalInput: 372,
+        totalOutput: 41,
+        models: [{ modelID: "openai/gpt-5.4-mini", input: 372, output: 41 }],
+      },
+    });
+
+    const canonicalOutput = formatQuotaRows({
+      version: "1.0.0",
+      style: "allWindows",
+      layout: { maxWidth: 36, narrowAt: 32, tinyAt: 20 },
+      entries: [],
+      sessionTokens: {
+        totalInput: 372,
+        totalOutput: 41,
+        models: [{ modelID: "openai/gpt-5.4-mini", input: 372, output: 41 }],
+      },
+    });
+
+    expect(aliasOutput).toBe(canonicalOutput);
   });
 
   it("does not change value-only rows when percentDisplayMode changes", () => {

@@ -94,8 +94,7 @@ export const openaiProvider: QuotaProvider = {
     }
 
     return attemptedResult(entries, [], {
-      classicStrategy: "collapse_worst",
-      classicDisplayName: result.label,
+      singleWindowDisplayName: result.label,
     });
   },
 };

@@ -18,6 +18,12 @@ import {
   getQuotaProviderDisplayLabel,
   normalizeQuotaProviderId,
 } from "./provider-metadata.js";
+import {
+  getQuotaFormatStyleLabel,
+  isQuotaFormatStyle,
+  resolveQuotaFormatStyle,
+  type CanonicalQuotaFormatStyle,
+} from "./quota-format-style.js";
 import type { QuotaToastConfig } from "./types.js";
 
 const QUOTA_PLUGIN_SPEC = "@slkiser/opencode-quota";
@@ -33,7 +39,7 @@ export interface InitInstallerSelections {
   quotaUi: InitQuotaUi;
   providerMode: InitProviderMode;
   manualProviders: string[];
-  formatStyle: QuotaToastConfig["formatStyle"];
+  formatStyle: CanonicalQuotaFormatStyle;
   percentDisplayMode: QuotaToastConfig["percentDisplayMode"];
   showSessionTokens: boolean;
 }
@@ -164,10 +170,10 @@ function resolveRequestedProviders(selections: InitInstallerSelections): string[
 
 function pickFormatStyleToWrite(params: {
   quotaToast: JsonObject;
-  selectedFormatStyle: QuotaToastConfig["formatStyle"];
-}): QuotaToastConfig["formatStyle"] {
-  if (params.quotaToast.toastStyle === "classic" || params.quotaToast.toastStyle === "grouped") {
-    return params.quotaToast.toastStyle;
+  selectedFormatStyle: CanonicalQuotaFormatStyle;
+}): CanonicalQuotaFormatStyle {
+  if (isQuotaFormatStyle(params.quotaToast.toastStyle)) {
+    return resolveQuotaFormatStyle(params.quotaToast.toastStyle);
   }
 
   return params.selectedFormatStyle;
@@ -498,7 +504,7 @@ function buildPlanSummary(plan: InitInstallerPlan): string[] {
     `Scope: ${plan.selections.scope} (${plan.baseDir})`,
     `Quota UI: ${getUiLabel(plan.selections.quotaUi)}`,
     `Provider mode: ${getProviderModeLabel(plan.selections.providerMode)}`,
-    `Layout style: ${plan.selections.formatStyle}`,
+    `Quota display style: ${getQuotaFormatStyleLabel(plan.selections.formatStyle)}`,
     `Percent display (toast/sidebar): ${getPercentDisplayModeLabel(plan.selections.percentDisplayMode)}`,
     `Show session tokens: ${plan.selections.showSessionTokens ? "Yes" : "No"}`,
   ];
@@ -686,10 +692,13 @@ async function promptForSelections(
   }
 
   const formatStyle = await prompts.select({
-    message: "Layout style",
+    message: "Quota display style",
     options: [
-      { label: "Classic", value: "classic" },
-      { label: "Grouped", value: "grouped" },
+      {
+        label: "Single window",
+        value: "singleWindow",
+      },
+      { label: "All windows", value: "allWindows" }
     ],
   });
   if (prompts.isCancel(formatStyle)) return null;
@@ -717,7 +726,7 @@ async function promptForSelections(
     quotaUi: quotaUi as InitQuotaUi,
     providerMode: providerMode as InitProviderMode,
     manualProviders,
-    formatStyle: formatStyle as QuotaToastConfig["formatStyle"],
+    formatStyle: formatStyle as CanonicalQuotaFormatStyle,
     percentDisplayMode: percentDisplayMode as QuotaToastConfig["percentDisplayMode"],
     showSessionTokens: showSessionTokens === "yes",
   };

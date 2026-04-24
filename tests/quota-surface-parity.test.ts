@@ -151,8 +151,7 @@ describe("quota surface parity regressions", () => {
         ],
         errors: [],
         presentation: {
-          classicStrategy: "preserve",
-          classicShowRight: true,
+          singleWindowShowRight: true,
         },
       }),
     };
@@ -161,7 +160,7 @@ describe("quota surface parity regressions", () => {
     const sharedConfig = {
       enabled: true,
       enabledProviders: ["synthetic"],
-      formatStyle: "grouped",
+      formatStyle: "allWindows",
       showOnQuestion: false,
       showSessionTokens: false,
       minIntervalMs: 60_000,
@@ -213,7 +212,7 @@ describe("quota surface parity regressions", () => {
     expect(syntheticProvider.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps intentional classic-vs-grouped non-parity while still sharing the same underlying snapshot", async () => {
+  it("keeps intentional single-window-vs-all-windows non-parity while still sharing the same underlying snapshot", async () => {
     const openaiProvider = {
       id: "openai",
       isAvailable: vi.fn().mockResolvedValue(true),
@@ -237,8 +236,7 @@ describe("quota surface parity regressions", () => {
         ],
         errors: [],
         presentation: {
-          classicStrategy: "collapse_worst",
-          classicDisplayName: "OpenAI Pro",
+          singleWindowDisplayName: "OpenAI Pro",
         },
       }),
     };
@@ -247,7 +245,7 @@ describe("quota surface parity regressions", () => {
     const config = {
       enabled: true,
       enabledProviders: ["openai"],
-      formatStyle: "classic",
+      formatStyle: "singleWindow",
       showOnQuestion: false,
       showSessionTokens: false,
       minIntervalMs: 60_000,
@@ -271,7 +269,7 @@ describe("quota surface parity regressions", () => {
     expect(quotaOutput).toContain("95% left");
     expect(quotaOutput).toContain("40% left");
 
-    // Ensure sidebar reads from shared persisted snapshot, then projects as classic.
+    // Ensure sidebar reads from shared persisted snapshot, then projects as single-window.
     await resetQuotaStateForTests();
 
     const { loadSidebarPanel } = await import("../src/lib/tui-runtime.js");

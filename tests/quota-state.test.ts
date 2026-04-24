@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readdir, rm, writeFile } from "fs/promises";
+import { mkdir, readdir, rm, writeFile } from "fs/promises";
 
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-state-tests";
 
@@ -47,16 +47,16 @@ describe("quota-state shared cache", () => {
     const { buildQuotaProviderStateCacheKey } = await import("../src/lib/quota-state.js");
     const base = createTestContext();
 
-    const classicKey = buildQuotaProviderStateCacheKey("synthetic", {
+    const singleWindowKey = buildQuotaProviderStateCacheKey("synthetic", {
       ...base,
-      config: { ...base.config, formatStyle: "classic" },
+      config: { ...base.config, formatStyle: "singleWindow" },
     } as any);
-    const groupedKey = buildQuotaProviderStateCacheKey("synthetic", {
+    const allWindowsKey = buildQuotaProviderStateCacheKey("synthetic", {
       ...base,
-      config: { ...base.config, formatStyle: "grouped" },
+      config: { ...base.config, formatStyle: "allWindows" },
     } as any);
 
-    expect(classicKey).toBe(groupedKey);
+    expect(singleWindowKey).toBe(allWindowsKey);
   });
 
   it("returns cache-owned clones for repeated non-live provider reads", async () => {
@@ -80,12 +80,11 @@ describe("quota-state shared cache", () => {
             resetTimeIso: "2026-04-21T18:00:00.000Z",
           },
         ],
-        errors: [],
-        presentation: {
-          classicStrategy: "preserve",
-          classicShowRight: true,
-        },
-      }),
+      errors: [],
+      presentation: {
+        singleWindowShowRight: true,
+      },
+    }),
     } as any;
 
     const first = await fetchQuotaProviderResult({
@@ -117,8 +116,7 @@ describe("quota-state shared cache", () => {
       ],
       errors: [],
       presentation: {
-        classicStrategy: "preserve",
-        classicShowRight: true,
+        singleWindowShowRight: true,
       },
     });
     expect(provider.fetch).toHaveBeenCalledTimes(1);
@@ -159,6 +157,62 @@ describe("quota-state shared cache", () => {
       errors: [],
     });
     expect(provider.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts persisted legacy classic presentation fields for cache compatibility", async () => {
+    const quotaStateA = await import("../src/lib/quota-state.js");
+    quotaStateA.__resetQuotaStateForTests();
+
+    const provider = {
+      id: "synthetic",
+      isAvailable: vi.fn(),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [{ name: "Synthetic", percentRemaining: 55 }],
+        errors: [],
+      }),
+    } as any;
+    const ctx = createTestContext();
+    const key = quotaStateA.buildQuotaProviderStateCacheKey(provider.id, ctx);
+    const path = quotaStateA.getQuotaProviderStateCacheFilePath(provider.id, key);
+
+    await mkdir(`${TEST_RUNTIME_ROOT}/cache/quota-provider-state`, { recursive: true });
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 1,
+        key,
+        providerId: provider.id,
+        timestamp: Date.now(),
+        result: {
+          attempted: true,
+          entries: [{ name: "Synthetic", percentRemaining: 55 }],
+          errors: [],
+          presentation: {
+            classicDisplayName: "Synthetic",
+            classicShowRight: true,
+            classicStrategy: "preserve",
+          },
+        },
+      }),
+      "utf-8",
+    );
+
+    vi.resetModules();
+    const quotaStateB = await import("../src/lib/quota-state.js");
+    const result = await quotaStateB.fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+
+    expect(result).toEqual({
+      attempted: true,
+      entries: [{ name: "Synthetic", percentRemaining: 55 }],
+      errors: [],
+      presentation: {
+        classicDisplayName: "Synthetic",
+        classicShowRight: true,
+        classicStrategy: "preserve",
+      },
+    });
+    expect(provider.fetch).not.toHaveBeenCalled();
   });
 
   it("treats cache corruption as a miss and refetches live data", async () => {

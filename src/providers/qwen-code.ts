@@ -56,10 +56,6 @@ export const qwenCodeProvider: QuotaProvider = {
         },
       ],
       [],
-      {
-        classicStrategy: "preserve",
-        classicShowRight: false,
-      },
     );
   },
 };

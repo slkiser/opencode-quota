@@ -22,7 +22,7 @@ describe("anthropic provider", () => {
     expectNotAttempted(out);
   });
 
-  it("maps quota windows into canonical grouped-capable rows with collapse metadata", async () => {
+  it("maps quota windows into canonical grouped-capable rows", async () => {
     const { queryAnthropicQuota } = await import("../src/lib/anthropic.js");
     (queryAnthropicQuota as any).mockResolvedValueOnce({
       success: true,
@@ -48,9 +48,7 @@ describe("anthropic provider", () => {
         resetTimeIso: "2026-04-01T00:00:00.000Z",
       },
     ]);
-    expect(out.presentation).toEqual({
-      classicStrategy: "collapse_worst",
-    });
+    expect(out.presentation).toBeUndefined();
   });
 
   it("defaults to canonical grouped-capable rows when no style is specified", async () => {

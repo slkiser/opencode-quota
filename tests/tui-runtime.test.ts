@@ -214,11 +214,11 @@ describe("tui runtime helpers", () => {
     expect(collectQuotaRenderData).toHaveBeenCalledWith(
       expect.objectContaining({
         config: expect.objectContaining({
-          formatStyle: "grouped",
+          formatStyle: "allWindows",
           percentDisplayMode: "used",
           onlyCurrentModel: true,
         }),
-        formatStyle: "grouped",
+        formatStyle: "allWindows",
         request: expect.objectContaining({
           sessionMeta: {
             providerID: "copilot",
@@ -234,7 +234,7 @@ describe("tui runtime helpers", () => {
         sessionTokens: undefined,
       },
       config: expect.objectContaining({
-        formatStyle: "grouped",
+        formatStyle: "allWindows",
         percentDisplayMode: "used",
         onlyCurrentModel: true,
       }),
@@ -286,14 +286,14 @@ describe("tui runtime helpers", () => {
     expect(buildSidebarQuotaPanelLines).toHaveBeenCalledOnce();
   });
 
-  it("preserves grouped formatStyle through sidebar runtime collection and formatting", async () => {
+  it("preserves canonical all-window formatStyle through sidebar runtime collection and formatting", async () => {
     writeFileSync(
       join(worktreeDir, "opencode.json"),
       JSON.stringify({
         experimental: {
           quotaToast: {
             enabled: true,
-            formatStyle: "grouped",
+            formatStyle: "allWindows",
           },
         },
       }),
@@ -338,13 +338,13 @@ describe("tui runtime helpers", () => {
     expect(panel).toEqual({ status: "ready", lines: ["→ [Copilot] (business)"] });
     expect(collectQuotaRenderData).toHaveBeenCalledWith(
       expect.objectContaining({
-        formatStyle: "grouped",
+        formatStyle: "allWindows",
       }),
     );
     expect(buildSidebarQuotaPanelLines).toHaveBeenCalledWith({
       data,
       config: expect.objectContaining({
-        formatStyle: "grouped",
+        formatStyle: "allWindows",
       }),
     });
   });
@@ -356,7 +356,7 @@ describe("tui runtime helpers", () => {
         experimental: {
           quotaToast: {
             enabled: true,
-            formatStyle: "grouped",
+            formatStyle: "allWindows",
             percentDisplayMode: "used",
           },
         },
@@ -403,7 +403,7 @@ describe("tui runtime helpers", () => {
     expect(buildSidebarQuotaPanelLines).toHaveBeenCalledWith({
       data: weeklyData,
       config: expect.objectContaining({
-        formatStyle: "grouped",
+        formatStyle: "allWindows",
         percentDisplayMode: "used",
       }),
     });

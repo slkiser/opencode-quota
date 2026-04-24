@@ -79,12 +79,9 @@ export interface SessionTokensData {
   totalOutput: number;
 }
 
-export type QuotaProviderClassicStrategy = "preserve" | "collapse_worst" | "first";
-
 export interface QuotaProviderPresentation {
-  classicStrategy: QuotaProviderClassicStrategy;
-  classicDisplayName?: string;
-  classicShowRight?: boolean;
+  singleWindowDisplayName?: string;
+  singleWindowShowRight?: boolean;
 }
 
 export interface QuotaProviderResult {

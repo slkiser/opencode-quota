@@ -92,8 +92,7 @@ export const syntheticProvider: QuotaProvider = {
       ],
       [],
       {
-        classicStrategy: "preserve",
-        classicShowRight: true,
+        singleWindowShowRight: true,
       },
     );
   },

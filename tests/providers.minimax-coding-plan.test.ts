@@ -286,7 +286,7 @@ describe("minimax-coding-plan provider", () => {
     expect(thrownOut.errors[0]?.message).toBe("network failed");
   });
 
-  it("adds collapse metadata for later classic projection", async () => {
+  it("does not add provider-specific projection metadata", async () => {
     mockMiniMaxAuthConfigured();
     mockMiniMaxHttpSuccess([
       createCodingPlanModel({
@@ -299,10 +299,7 @@ describe("minimax-coding-plan provider", () => {
 
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toHaveLength(2);
-    expect(out.presentation).toEqual({
-      classicStrategy: "collapse_worst",
-      classicShowRight: false,
-    });
+    expect(out.presentation).toBeUndefined();
   });
 
   it.each([

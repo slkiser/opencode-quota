@@ -67,7 +67,7 @@ The installer (append-only, preserves existing values) asks for:
 - **Scope**: `Project` or `Global`
 - **Quota UI**: `Toast`, `Sidebar`, `Toast + Sidebar`, or `None (manual /quota and /tokens_* only)`
 - **Provider mode**: `Auto-detect` or `Manual select`
-- **Layout style**: `classic` or `grouped`
+- **Quota display style**: `Single window` (`singleWindow`) or `All windows` (`allWindows`)
 - **Percent display (toast/sidebar only)**: `remaining` or `used`
 - **Show session input/output tokens**: `Yes` or `No`
 
@@ -141,13 +141,13 @@ Keep the `tui.json` or `tui.jsonc` entry above and disable toasts in `opencode.j
 </details>
 
 <details>
-<summary><strong>Example: Grouped quota layout instead of the default classic layout</strong></summary>
+<summary><strong>Example: Show all quota windows instead of the default single-window layout</strong></summary>
 
 ```jsonc
 {
   "experimental": {
     "quotaToast": {
-      "formatStyle": "grouped",
+      "formatStyle": "allWindows",
     },
   },
 }
@@ -318,8 +318,8 @@ Environment variables take precedence over the config file. Run `/quota_status` 
 
 | Command               | What it shows                                                                                                    |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `/quota`              | Manual grouped quota report with a local call timestamp                                                          |
-| `/quota_status`       | Concise diagnostics for config, TUI setup, provider availability, account detection, pricing snapshot health, and fresh compact live probe rows in matching provider sections |
+| `/quota`              | Manual detailed all-window quota report with a local call timestamp                                               |
+| `/quota_status`       | Concise diagnostics for config, TUI setup, provider availability, account detection, pricing snapshot health, and fresh compact single-window live probe rows in matching provider sections |
 | `/pricing_refresh`    | Pull the local runtime pricing snapshot from `models.dev` on demand                                              |
 | `/tokens_today`       | Tokens used today (calendar day)                                                                                 |
 | `/tokens_daily`       | Tokens used in the last 24 hours                                                                                 |
@@ -542,7 +542,7 @@ For security, provider secrets are read from `SYNTHETIC_API_KEY`, your user/glob
 - It uses only the current top-level Synthetic payload sections: `rollingFiveHourLimit` (`max`, `remaining`, `nextTickAt`) and `weeklyTokenLimit` (`maxCredits`, `remainingCredits`, `percentRemaining`, `nextRegenAt`).
 - `weeklyTokenLimit.maxCredits` and `weeklyTokenLimit.remainingCredits` are parsed from the real Synthetic dollar-string format (for example `$24.00` and `$2.02`). Legacy `subscription.limit`, `subscription.requests`, and `subscription.renewsAt` are ignored.
 - Missing or malformed top-level windows are treated as API-shape errors. Invalid reset timestamps are ignored. Weekly `percentRemaining` uses `weeklyTokenLimit.percentRemaining` when valid and otherwise falls back to deterministic derivation from the parsed credit amounts.
-- `/quota`, toasts, and the sidebar surface both Synthetic windows: `Synthetic 5h` / `Synthetic Weekly` in classic mode, or grouped `5h:` / `Weekly:` rows under `Synthetic`.
+- `/quota` always shows both Synthetic windows (`5h:` and `Weekly:` rows under `Synthetic`). Toast/sidebar in `singleWindow` mode collapse to the most constrained Synthetic row; `allWindows` mode shows both rows.
 - Compact summaries still round displayed `used` values, and the weekly row keeps dollar semantics (for example `$22/$24`) instead of showing long floats.
 - `/quota_status` keeps the existing Synthetic API-key diagnostics and adds a compact sanitized live probe summary from those same Synthetic rows when Synthetic is enabled and detected/available.
 - Allowed env templates are limited to `{env:SYNTHETIC_API_KEY}`.
@@ -610,7 +610,7 @@ See [Google Antigravity quick setup](#google-antigravity-quick-setup). This comp
 <details>
 <summary><strong>NanoGPT</strong></summary>
 
-NanoGPT uses live NanoGPT subscription usage and balance endpoints, so `/quota`, grouped/classic toasts, and `/quota_status` can show daily quota, monthly quota, and account balance in real time.
+NanoGPT uses live NanoGPT subscription usage and balance endpoints, so `/quota`, both quota display styles (`singleWindow` and `allWindows`), and `/quota_status` can show daily quota, monthly quota, and account balance in real time.
 
 - Canonical provider id is `nanogpt`. Alias `nano-gpt` also normalizes in `enabledProviders`.
 - Optional API key: `provider.nanogpt.options.apiKey` or `provider["nano-gpt"].options.apiKey`.
@@ -674,14 +674,16 @@ Project/workspace config may override display-oriented settings for that project
 | `enabled`                     | `true`    | Master switch for quota collection and handled slash commands. When `false`, `/quota`, `/quota_status`, `/pricing_refresh`, and `/tokens_*` are handled as no-ops.                                           |
 | `enabledProviders`            | `"auto"`  | Auto-detect providers, or set an explicit provider list.                                                                                                                                                     |
 | `minIntervalMs`               | `300000`  | Minimum fetch interval between provider updates.                                                                                                                                                             |
-| `formatStyle`                 | `classic` | Shared quota-row style for popup toasts and the TUI sidebar: `classic` or `grouped`. Legacy `toastStyle` is still accepted on read for backward compatibility, but `formatStyle` is the canonical key.       |
+| `formatStyle`                 | `singleWindow` | Shared quota-row style for popup toasts and the TUI sidebar: `singleWindow` (single window) or `allWindows` (all windows). Legacy `classic`/`grouped` aliases still work, and legacy `toastStyle` is still accepted on read for backward compatibility.       |
 | `percentDisplayMode`          | `remaining` | Shared percent meaning for popup toasts and the TUI sidebar: `remaining` renders labels like `81% left`, while `used` renders labels like `19% used`; the bar fill always matches the shown meaning.        |
 | `onlyCurrentModel`            | `false`   | Filter quota rows to the current model/provider when that session selection can be resolved.                                                                                                                 |
-| `showSessionTokens`           | `true`    | Show the `Session input/output tokens` section in quota displays when session token data is available. `grouped` layout shows per-model rows on toast + sidebar, `classic` layout shows a one-line total summary on both, and `/quota` keeps per-model rows. |
+| `showSessionTokens`           | `true`    | Show the `Session input/output tokens` section in quota displays when session token data is available. `allWindows` shows per-model rows on toast + sidebar, `singleWindow` shows a one-line total summary on both, and `/quota` keeps per-model rows. |
 | `pricingSnapshot.source`      | `"auto"`  | Token pricing snapshot selection for `/tokens_*`: `auto`, `bundled`, or `runtime`.                                                                                                                           |
 | `pricingSnapshot.autoRefresh` | `7`       | Refresh stale local pricing data after this many days.                                                                                                                                                       |
 
 `percentDisplayMode` affects popup toasts and the TUI sidebar only. `/quota` keeps its existing remaining-oriented percentage output. Value-only rows such as spend or used/limit summaries are unchanged.
+
+Compatibility note: newer installs write canonical `formatStyle` values (`singleWindow` or `allWindows`). Legacy aliases (`classic`, `grouped`) and legacy `toastStyle` still normalize on read. Older plugin versions may not recognize the camelCase values and can fall back to their own default style in mixed-version rollback scenarios.
 
 ### Toast settings
 

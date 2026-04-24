@@ -16,6 +16,7 @@ import type {
   PricingSnapshotSource,
 } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
+import { isQuotaFormatStyle, resolveQuotaFormatStyle } from "./quota-format-style.js";
 import { parseJsonOrJsonc } from "./jsonc.js";
 import { normalizeQuotaProviderId } from "./provider-metadata.js";
 
@@ -79,10 +80,6 @@ function isValidPricingSnapshotAutoRefresh(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
-function isValidFormatStyle(value: unknown): value is QuotaToastConfig["formatStyle"] {
-  return value === "classic" || value === "grouped";
-}
-
 function isValidPercentDisplayMode(value: unknown): value is PercentDisplayMode {
   return value === "remaining" || value === "used";
 }
@@ -94,6 +91,25 @@ function normalizeOptionalString(value: unknown): string | undefined {
 
   const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function getConfiguredFormatStyle(
+  quotaToastConfig: Partial<QuotaToastConfig> | undefined | null,
+): QuotaToastConfig["formatStyle"] | undefined {
+  if (!quotaToastConfig) {
+    return undefined;
+  }
+
+  if (isQuotaFormatStyle(quotaToastConfig.formatStyle)) {
+    return resolveQuotaFormatStyle(quotaToastConfig.formatStyle);
+  }
+
+  const legacyFormatStyle = (quotaToastConfig as { toastStyle?: unknown }).toastStyle;
+  if (isQuotaFormatStyle(legacyFormatStyle)) {
+    return resolveQuotaFormatStyle(legacyFormatStyle);
+  }
+
+  return undefined;
 }
 
 /**
@@ -186,6 +202,7 @@ export async function loadConfig(
     quotaToastConfig: Partial<QuotaToastConfig> | undefined | null,
   ): QuotaToastConfig {
     if (!quotaToastConfig) return DEFAULT_CONFIG;
+    const formatStyle = getConfiguredFormatStyle(quotaToastConfig) ?? DEFAULT_CONFIG.formatStyle;
 
     const config: QuotaToastConfig = {
       enabled:
@@ -198,11 +215,7 @@ export async function loadConfig(
           ? quotaToastConfig.enableToast
           : DEFAULT_CONFIG.enableToast,
 
-      formatStyle: isValidFormatStyle(quotaToastConfig.formatStyle)
-        ? quotaToastConfig.formatStyle
-        : isValidFormatStyle((quotaToastConfig as { toastStyle?: unknown }).toastStyle)
-          ? (quotaToastConfig as { toastStyle?: QuotaToastConfig["formatStyle"] }).toastStyle!
-          : DEFAULT_CONFIG.formatStyle,
+      formatStyle,
       percentDisplayMode: isValidPercentDisplayMode(quotaToastConfig.percentDisplayMode)
         ? quotaToastConfig.percentDisplayMode
         : DEFAULT_CONFIG.percentDisplayMode,
@@ -403,6 +416,14 @@ export async function loadConfig(
     }
     if (hasMergedPricingSnapshot) {
       quota.pricingSnapshot = mergedPricingSnapshot as unknown as QuotaToastConfig["pricingSnapshot"];
+    }
+
+    const localFormatStyle = getConfiguredFormatStyle(localConfig.quota);
+    const globalFormatStyle = getConfiguredFormatStyle(globalConfig.quota);
+    if (localFormatStyle) {
+      quota.formatStyle = localFormatStyle;
+    } else if (globalFormatStyle) {
+      quota.formatStyle = globalFormatStyle;
     }
 
     return {

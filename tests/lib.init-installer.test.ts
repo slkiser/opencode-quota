@@ -63,7 +63,7 @@ describe("init installer planning and merge behavior", () => {
         quotaUi: "toast",
         providerMode: "manual",
         manualProviders: ["openai", "anthropic"],
-        formatStyle: "grouped",
+        formatStyle: "allWindows",
         percentDisplayMode: "used",
         showSessionTokens: false,
       },
@@ -90,7 +90,7 @@ describe("init installer planning and merge behavior", () => {
         quotaToast: {
           enableToast: true,
           enabledProviders: ["openai", "anthropic"],
-          formatStyle: "grouped",
+          formatStyle: "allWindows",
           percentDisplayMode: "used",
           showSessionTokens: false,
         },
@@ -144,7 +144,7 @@ describe("init installer planning and merge behavior", () => {
         quotaUi: "sidebar",
         providerMode: "manual",
         manualProviders: ["cursor", "opencode-go"],
-        formatStyle: "classic",
+        formatStyle: "singleWindow",
         percentDisplayMode: "remaining",
         showSessionTokens: false,
       },
@@ -180,7 +180,7 @@ describe("init installer planning and merge behavior", () => {
     expect(opencode.plugin).toHaveLength(1);
     expect(opencode.experimental.quotaToast).toMatchObject({
       toastStyle: "grouped",
-      formatStyle: "grouped",
+      formatStyle: "allWindows",
       percentDisplayMode: "remaining",
       enableToast: true,
       showSessionTokens: true,
@@ -213,7 +213,7 @@ describe("init installer planning and merge behavior", () => {
         quotaUi: "toast",
         providerMode: "auto",
         manualProviders: [],
-        formatStyle: "classic",
+        formatStyle: "singleWindow",
         percentDisplayMode: "remaining",
         showSessionTokens: true,
       },
@@ -250,7 +250,7 @@ describe("init installer planning and merge behavior", () => {
         quotaUi: "sidebar",
         providerMode: "auto",
         manualProviders: [],
-        formatStyle: "classic",
+        formatStyle: "singleWindow",
         percentDisplayMode: "remaining",
         showSessionTokens: true,
       },
@@ -279,7 +279,7 @@ describe("init installer planning and merge behavior", () => {
         quotaUi: "sidebar",
         providerMode: "auto",
         manualProviders: [],
-        formatStyle: "classic",
+        formatStyle: "singleWindow",
         percentDisplayMode: "remaining",
         showSessionTokens: true,
       },
@@ -296,7 +296,7 @@ describe("init installer planning and merge behavior", () => {
     expect(opencode.experimental.quotaToast).toMatchObject({
       enableToast: false,
       enabledProviders: "auto",
-      formatStyle: "classic",
+      formatStyle: "singleWindow",
       percentDisplayMode: "remaining",
       showSessionTokens: true,
     });
@@ -317,13 +317,14 @@ describe("init installer planning and merge behavior", () => {
         quotaUi: "toast_sidebar",
         providerMode: "auto",
         manualProviders: [],
-        formatStyle: "classic",
+        formatStyle: "singleWindow",
         percentDisplayMode: "remaining",
         showSessionTokens: true,
       },
     });
 
     expect(plan.summaryLines).toContain("Quota UI: Toast + Sidebar");
+    expect(plan.summaryLines).toContain("Quota display style: Single window");
     expect(plan.summaryLines).toContain("Percent display (toast/sidebar): Remaining");
     expect(plan.edits.map((edit) => edit.kind)).toEqual(["opencode", "tui"]);
 
@@ -336,7 +337,7 @@ describe("init installer planning and merge behavior", () => {
     expect(opencode.experimental.quotaToast).toMatchObject({
       enableToast: true,
       enabledProviders: "auto",
-      formatStyle: "classic",
+      formatStyle: "singleWindow",
       percentDisplayMode: "remaining",
       showSessionTokens: true,
     });
@@ -357,7 +358,7 @@ describe("init installer planning and merge behavior", () => {
         quotaUi: "none",
         providerMode: "auto",
         manualProviders: [],
-        formatStyle: "classic",
+        formatStyle: "singleWindow",
         percentDisplayMode: "remaining",
         showSessionTokens: true,
       },
@@ -374,7 +375,7 @@ describe("init installer planning and merge behavior", () => {
 
   it("returns zero when the user cancels before applying changes", async () => {
     const prompts = createPromptStub({
-      selectValues: ["project", "toast", "auto", "classic", "remaining", "yes"],
+      selectValues: ["project", "toast", "auto", "singleWindow", "remaining", "yes"],
       confirmValues: [false],
     });
 
@@ -402,7 +403,7 @@ describe("init installer planning and merge behavior", () => {
 
     const logError = vi.fn();
     const prompts = createPromptStub({
-      selectValues: ["project", "toast", "auto", "classic", "remaining", "yes"],
+      selectValues: ["project", "toast", "auto", "singleWindow", "remaining", "yes"],
     });
     prompts.log.error = logError;
 
@@ -437,7 +438,7 @@ describe("init installer planning and merge behavior", () => {
           quotaUi: "toast",
           providerMode: "auto",
           manualProviders: [],
-          formatStyle: "classic",
+          formatStyle: "singleWindow",
           percentDisplayMode: "remaining",
           showSessionTokens: true,
         },

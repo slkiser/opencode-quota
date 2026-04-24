@@ -60,10 +60,7 @@ describe("cursor provider", () => {
       label: "Auto+Composer:",
       value: "$1.25 used",
     });
-    expect(out.presentation).toEqual({
-      classicStrategy: "first",
-      classicShowRight: false,
-    });
+    expect(out.presentation).toBeUndefined();
   });
 
   it("renders a canonical total-usage value row first when no included api budget is configured", async () => {

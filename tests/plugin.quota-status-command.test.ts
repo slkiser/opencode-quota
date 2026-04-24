@@ -120,7 +120,7 @@ describe("/quota_status command behavior", () => {
     mocks.buildQuotaStatusReport.mockResolvedValue("Injected quota status");
   });
 
-  it("probes every enabled and available provider with fresh classic status probes and still throws the handled sentinel", async () => {
+  it("probes every enabled and available provider with fresh single-window status probes and still throws the handled sentinel", async () => {
     const openai = {
       id: "openai",
       isAvailable: vi.fn().mockResolvedValue(true),
@@ -159,7 +159,7 @@ describe("/quota_status command behavior", () => {
       expect.objectContaining({
         client,
         config: expect.objectContaining({ enabledProviders: ["openai", "synthetic", "copilot", "cursor"] }),
-        formatStyle: "classic",
+        formatStyle: "singleWindow",
         providers: [openai, synthetic, copilot],
       }),
     );

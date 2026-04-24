@@ -2,18 +2,24 @@ import type { QuotaToastConfig } from "./types.js";
 import type {
   QuotaProvider,
   QuotaProviderContext,
+  QuotaProviderPresentation,
   QuotaProviderResult,
   QuotaToastEntry,
   QuotaToastError,
   SessionTokensData,
 } from "./entries.js";
 import type { SessionTokenError } from "./quota-status.js";
+import type { QuotaFormatStyle } from "./quota-format-style.js";
 
 import { isPercentEntry } from "./entries.js";
 import { fetchSessionTokensForDisplay } from "./session-tokens.js";
 import { getQuotaProviderDisplayLabel } from "./provider-metadata.js";
 import { isCursorProviderId } from "./cursor-pricing.js";
 import { fetchQuotaProviderResult } from "./quota-state.js";
+import {
+  DEFAULT_QUOTA_FORMAT_STYLE,
+  getQuotaFormatStyleDefinition,
+} from "./quota-format-style.js";
 import { getProviders } from "../providers/registry.js";
 import { getAnthropicNoDataMessage } from "../providers/anthropic.js";
 
@@ -79,8 +85,6 @@ export type QuotaStatusLiveProbe = {
   providerId: string;
   result: QuotaProviderResult;
 };
-
-type QuotaFormatStyle = NonNullable<QuotaToastConfig["formatStyle"]>;
 
 function buildQuotaProviderContext(params: {
   client: QuotaProviderContext["client"];
@@ -257,7 +261,10 @@ export async function collectQuotaStatusLiveProbes(params: {
     providerId: provider.id,
     result: {
       ...results[index]!,
-      entries: projectProviderResultToStyle(results[index]!, params.formatStyle ?? "classic"),
+      entries: projectProviderResultToStyle(
+        results[index]!,
+        params.formatStyle ?? DEFAULT_QUOTA_FORMAT_STYLE,
+      ),
       errors: results[index]!.errors.map((error) => ({ ...error })),
       ...(results[index]!.presentation
         ? { presentation: { ...results[index]!.presentation } }
@@ -266,7 +273,7 @@ export async function collectQuotaStatusLiveProbes(params: {
   }));
 }
 
-function stripClassicEntryMeta(
+function stripSingleWindowEntryMeta(
   entry: QuotaToastEntry,
   showRight: boolean,
 ): QuotaToastEntry {
@@ -279,8 +286,56 @@ function stripClassicEntryMeta(
   return { ...withoutRight };
 }
 
-function renameClassicEntry(entry: QuotaToastEntry, name?: string): QuotaToastEntry {
+function renameSingleWindowEntry(entry: QuotaToastEntry, name?: string): QuotaToastEntry {
   return name ? { ...entry, name } : entry;
+}
+
+type LegacyQuotaProviderPresentation = QuotaProviderPresentation & {
+  classicDisplayName?: string;
+  classicShowRight?: boolean;
+};
+
+function normalizeSingleWindowPresentation(
+  presentation: QuotaProviderResult["presentation"],
+): QuotaProviderPresentation | undefined {
+  if (!presentation) {
+    return undefined;
+  }
+
+  const legacyPresentation = presentation as LegacyQuotaProviderPresentation;
+  const singleWindowDisplayName =
+    typeof legacyPresentation.singleWindowDisplayName === "string"
+      ? legacyPresentation.singleWindowDisplayName
+      : typeof legacyPresentation.classicDisplayName === "string"
+        ? legacyPresentation.classicDisplayName
+        : undefined;
+  const singleWindowShowRight =
+    typeof legacyPresentation.singleWindowShowRight === "boolean"
+      ? legacyPresentation.singleWindowShowRight
+      : typeof legacyPresentation.classicShowRight === "boolean"
+        ? legacyPresentation.classicShowRight
+        : false;
+
+  return {
+    ...(singleWindowDisplayName ? { singleWindowDisplayName } : {}),
+    ...(singleWindowShowRight ? { singleWindowShowRight } : {}),
+  };
+}
+
+function selectSingleWindowEntry(entries: QuotaToastEntry[]): QuotaToastEntry | undefined {
+  let selectedPercentEntry: Extract<QuotaToastEntry, { percentRemaining: number }> | undefined;
+
+  for (const entry of entries) {
+    if (!isPercentEntry(entry)) {
+      continue;
+    }
+
+    if (!selectedPercentEntry || entry.percentRemaining < selectedPercentEntry.percentRemaining) {
+      selectedPercentEntry = entry;
+    }
+  }
+
+  return selectedPercentEntry ?? entries[0];
 }
 
 function projectProviderResultToStyle(
@@ -288,34 +343,23 @@ function projectProviderResultToStyle(
   style: QuotaFormatStyle,
 ): QuotaToastEntry[] {
   const entries = result.entries.map((entry) => ({ ...entry }));
-  if (style === "grouped") {
+  const definition = getQuotaFormatStyleDefinition(style);
+  if (definition.projection === "allWindows") {
     return entries;
   }
 
-  const presentation = result.presentation;
-  const classicStrategy = presentation?.classicStrategy ?? "preserve";
-  const classicShowRight = presentation?.classicShowRight ?? false;
-
-  const classicEntries = entries.map((entry) => stripClassicEntryMeta(entry, classicShowRight));
-  if (classicEntries.length === 0) {
+  const presentation = normalizeSingleWindowPresentation(result.presentation);
+  const selectedEntry = selectSingleWindowEntry(entries);
+  if (!selectedEntry) {
     return [];
   }
 
-  if (classicStrategy === "preserve") {
-    return classicEntries;
-  }
-
-  if (classicStrategy === "first") {
-    return [renameClassicEntry(classicEntries[0]!, presentation?.classicDisplayName)];
-  }
-
-  const percentEntries = classicEntries.filter(isPercentEntry);
-  const selected =
-    percentEntries.length > 0
-      ? [...percentEntries].sort((left, right) => left.percentRemaining - right.percentRemaining)[0]
-      : classicEntries[0];
-
-  return selected ? [renameClassicEntry(selected, presentation?.classicDisplayName)] : [];
+  return [
+    renameSingleWindowEntry(
+      stripSingleWindowEntryMeta(selectedEntry, presentation?.singleWindowShowRight ?? false),
+      presentation?.singleWindowDisplayName,
+    ),
+  ];
 }
 
 function getExplicitNoDataMessage(provider: QuotaProvider): string {

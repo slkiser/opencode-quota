@@ -97,8 +97,7 @@ describe("kimi-code provider", () => {
       },
     ]);
     expect(out.presentation).toEqual({
-      classicStrategy: "collapse_worst",
-      classicDisplayName: "Kimi Code",
+      singleWindowDisplayName: "Kimi Code",
     });
   });
 

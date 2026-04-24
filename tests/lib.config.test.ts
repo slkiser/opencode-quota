@@ -106,17 +106,23 @@ describe("loadConfig", () => {
   });
 
   it("reads formatStyle and falls back to legacy toastStyle when needed", async () => {
-    const explicit = await loadSdkConfig({ formatStyle: "grouped" });
-    expect(explicit.formatStyle).toBe("grouped");
+    const defaults = await loadSdkConfig({});
+    expect(defaults.formatStyle).toBe("singleWindow");
+
+    const explicit = await loadSdkConfig({ formatStyle: "allWindows" });
+    expect(explicit.formatStyle).toBe("allWindows");
+
+    const alias = await loadSdkConfig({ formatStyle: "grouped" });
+    expect(alias.formatStyle).toBe("allWindows");
 
     const legacyOnly = await loadSdkConfig({ toastStyle: "grouped" });
-    expect(legacyOnly.formatStyle).toBe("grouped");
+    expect(legacyOnly.formatStyle).toBe("allWindows");
 
     const both = await loadSdkConfig({
-      formatStyle: "grouped",
-      toastStyle: "classic",
+      formatStyle: "singleWindow",
+      toastStyle: "grouped",
     });
-    expect(both.formatStyle).toBe("grouped");
+    expect(both.formatStyle).toBe("singleWindow");
   });
 
   it("defaults percentDisplayMode to remaining and accepts valid overrides", async () => {

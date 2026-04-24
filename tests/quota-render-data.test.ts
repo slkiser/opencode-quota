@@ -70,8 +70,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         ],
         errors: [],
         presentation: {
-          classicStrategy: "collapse_worst",
-          classicDisplayName: "OpenAI (Pro)",
+          singleWindowDisplayName: "OpenAI (Pro)",
         },
       }),
     };
@@ -86,7 +85,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         showSessionTokens: false,
       },
       surfaceExplicitProviderIssues: true,
-      formatStyle: "classic",
+      formatStyle: "singleWindow",
     });
 
     expect(workingProvider.fetch).toHaveBeenCalledOnce();
@@ -119,7 +118,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         showSessionTokens: false,
       },
       surfaceExplicitProviderIssues: true,
-      formatStyle: "classic",
+      formatStyle: "singleWindow",
     });
 
     expect(result.availability).toEqual([{ provider: failingProvider, ok: false }]);
@@ -148,7 +147,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         showSessionTokens: false,
       },
       surfaceExplicitProviderIssues: true,
-      formatStyle: "classic",
+      formatStyle: "singleWindow",
     });
 
     expect(result.availability).toEqual([{ provider: failingProvider, ok: false }]);
@@ -157,7 +156,7 @@ describe("collectQuotaRenderData shared quota state", () => {
     expect(result.data).toBeNull();
   });
 
-  it("reuses one canonical provider snapshot across classic and grouped renders without mutation bleed", async () => {
+  it("reuses one canonical provider snapshot across single-window and all-window renders without mutation bleed", async () => {
     const syntheticProvider = {
       id: "synthetic",
       isAvailable: vi.fn().mockResolvedValue(true),
@@ -183,8 +182,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         ],
         errors: [],
         presentation: {
-          classicStrategy: "preserve",
-          classicShowRight: true,
+          singleWindowShowRight: true,
         },
       }),
     };
@@ -202,17 +200,11 @@ describe("collectQuotaRenderData shared quota state", () => {
       surfaceExplicitProviderIssues: true,
     };
 
-    const classic = await collectQuotaRenderData({
+    const singleWindow = await collectQuotaRenderData({
       ...baseParams,
-      formatStyle: "classic",
+      formatStyle: "singleWindow",
     });
-    expect(classic.data?.entries).toEqual([
-      {
-        name: "Synthetic 5h",
-        percentRemaining: 75,
-        right: "26/100",
-        resetTimeIso: "2026-01-20T18:12:03.000Z",
-      },
+    expect(singleWindow.data?.entries).toEqual([
       {
         name: "Synthetic Weekly",
         percentRemaining: 8,
@@ -221,16 +213,16 @@ describe("collectQuotaRenderData shared quota state", () => {
       },
     ]);
 
-    const firstEntry = classic.data?.entries[0];
+    const firstEntry = singleWindow.data?.entries[0];
     if (!firstEntry || firstEntry.kind === "value") {
-      throw new Error("expected classic synthetic percent entry");
+      throw new Error("expected single-window synthetic percent entry");
     }
     firstEntry.right = "0/500";
     firstEntry.percentRemaining = 100;
 
     const grouped = await collectQuotaRenderData({
       ...baseParams,
-      formatStyle: "grouped",
+      formatStyle: "allWindows",
     });
 
     expect(grouped.data?.entries).toEqual([
@@ -279,10 +271,6 @@ describe("collectQuotaRenderData shared quota state", () => {
           },
         ],
         errors: [],
-        presentation: {
-          classicStrategy: "first",
-          classicShowRight: false,
-        },
       }),
     };
 
@@ -297,13 +285,13 @@ describe("collectQuotaRenderData shared quota state", () => {
         showSessionTokens: false,
       },
       surfaceExplicitProviderIssues: true,
-      formatStyle: "classic" as const,
+      formatStyle: "singleWindow" as const,
     };
 
     const first = await collectQuotaRenderData(params);
     const firstEntry = first.data?.entries[0];
     if (!firstEntry || firstEntry.kind === "value") {
-      throw new Error("expected classic cursor percent entry");
+      throw new Error("expected single-window cursor percent entry");
     }
     firstEntry.percentRemaining = 1;
 
@@ -318,7 +306,7 @@ describe("collectQuotaRenderData shared quota state", () => {
     expect(cursorProvider.fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("collects live probes in order, projects them to classic rows, and bypasses shared cache reuse", async () => {
+  it("collects live probes in order, projects them to single-window rows, and bypasses shared cache reuse", async () => {
     const syntheticProvider = {
       id: "synthetic",
       isAvailable: vi.fn().mockResolvedValue(true),
@@ -336,8 +324,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         ],
         errors: [],
         presentation: {
-          classicStrategy: "preserve",
-          classicShowRight: true,
+          singleWindowShowRight: true,
         },
       }),
     };
@@ -349,8 +336,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         entries: [],
         errors: [{ label: "OpenAI", message: "Temporary outage" }],
         presentation: {
-          classicStrategy: "collapse_worst",
-          classicDisplayName: "OpenAI",
+          singleWindowDisplayName: "OpenAI",
         },
       }),
     };
@@ -362,7 +348,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         minIntervalMs: 60_000,
         showSessionTokens: false,
       },
-      formatStyle: "classic" as const,
+      formatStyle: "singleWindow" as const,
       providers: [syntheticProvider, openaiProvider],
     };
 
@@ -384,8 +370,7 @@ describe("collectQuotaRenderData shared quota state", () => {
           ],
           errors: [],
           presentation: {
-            classicStrategy: "preserve",
-            classicShowRight: true,
+            singleWindowShowRight: true,
           },
         },
       },
@@ -396,8 +381,7 @@ describe("collectQuotaRenderData shared quota state", () => {
           entries: [],
           errors: [{ label: "OpenAI", message: "Temporary outage" }],
           presentation: {
-            classicStrategy: "collapse_worst",
-            classicDisplayName: "OpenAI",
+            singleWindowDisplayName: "OpenAI",
           },
         },
       },
@@ -405,5 +389,67 @@ describe("collectQuotaRenderData shared quota state", () => {
     expect(second).toEqual(first);
     expect(syntheticProvider.fetch).toHaveBeenCalledTimes(2);
     expect(openaiProvider.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps legacy style ids and presentation fields working for direct render-data calls", async () => {
+    const syntheticProvider = {
+      id: "synthetic",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [
+          {
+            name: "Synthetic 5h",
+            group: "Synthetic",
+            label: "5h:",
+            percentRemaining: 75,
+            right: "26/100",
+          },
+          {
+            name: "Synthetic Weekly",
+            group: "Synthetic",
+            label: "Weekly:",
+            percentRemaining: 8,
+            right: "$22/$24",
+          },
+        ],
+        errors: [],
+        presentation: {
+          classicDisplayName: "Synthetic",
+          classicShowRight: true,
+        },
+      }),
+    };
+
+    mockProviders.push(syntheticProvider);
+
+    const baseParams = {
+      client: TEST_CLIENT,
+      config: {
+        ...DEFAULT_CONFIG,
+        enabledProviders: ["synthetic"],
+        minIntervalMs: 60_000,
+        showSessionTokens: false,
+      },
+      surfaceExplicitProviderIssues: true,
+    };
+
+    const alias = await collectQuotaRenderData({
+      ...baseParams,
+      formatStyle: "classic",
+    });
+    const canonical = await collectQuotaRenderData({
+      ...baseParams,
+      formatStyle: "singleWindow",
+    });
+
+    expect(alias.data?.entries).toEqual([
+      {
+        name: "Synthetic",
+        percentRemaining: 8,
+        right: "$22/$24",
+      },
+    ]);
+    expect(alias.data).toEqual(canonical.data);
   });
 });

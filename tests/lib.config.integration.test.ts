@@ -94,7 +94,7 @@ describe("loadConfig integration runtime-path resolution", () => {
           quotaToast: {
             enabled: true,
             enabledProviders: ["nano-gpt"],
-            formatStyle: "grouped",
+            formatStyle: "allWindows",
             onlyCurrentModel: true,
           },
         },
@@ -121,7 +121,7 @@ describe("loadConfig integration runtime-path resolution", () => {
     expect(cfg.enabledProviders).toEqual(["openai"]);
     expect(cfg.showOnIdle).toBe(false);
     expect(cfg.pricingSnapshot).toEqual({ source: "bundled", autoRefresh: 30 });
-    expect(cfg.formatStyle).toBe("grouped");
+    expect(cfg.formatStyle).toBe("allWindows");
     expect(cfg.onlyCurrentModel).toBe(true);
 
     expect(meta.source).toBe("files");

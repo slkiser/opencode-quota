@@ -73,8 +73,6 @@ export const anthropicProvider: QuotaProvider = {
       },
     ];
 
-    return attemptedResult(entries, [], {
-      classicStrategy: "collapse_worst",
-    });
+    return attemptedResult(entries);
   },
 };

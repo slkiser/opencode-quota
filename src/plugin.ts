@@ -55,6 +55,11 @@ import { handled } from "./lib/command-handled.js";
 import { renderCommandHeading } from "./lib/format-utils.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
 import {
+  ALL_WINDOWS_FORMAT_STYLE,
+  SINGLE_WINDOW_PER_PROVIDER_FORMAT_STYLE,
+  resolveQuotaFormatStyle,
+} from "./lib/quota-format-style.js";
+import {
   collectQuotaRenderData,
   collectQuotaStatusLiveProbes,
   matchesQuotaProviderCurrentSelection,
@@ -662,6 +667,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     sessionID: string;
     sessionMeta?: SessionModelMeta;
   }): string {
+    const formatStyle = resolveQuotaFormatStyle(config.formatStyle);
     const enabledProviders =
       config.enabledProviders === "auto" ? "auto" : config.enabledProviders.join(",");
     const googleModels = config.googleModels.join(",");
@@ -673,7 +679,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     return [
       `sessionID=${params.sessionID}`,
       `enabledProviders=${enabledProviders}`,
-      `formatStyle=${config.formatStyle}`,
+      `formatStyle=${formatStyle}`,
       `percentDisplayMode=${config.percentDisplayMode}`,
       `layout=${JSON.stringify(config.layout)}`,
       `showSessionTokens=${config.showSessionTokens ? "yes" : "no"}`,
@@ -735,7 +741,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       config,
       request: quotaRequestContext,
       surfaceExplicitProviderIssues: true,
-      formatStyle: config.formatStyle,
+      formatStyle: resolveQuotaFormatStyle(config.formatStyle),
     });
     const { selection, availability, active, attemptedAny, hasExplicitProviderIssues, data } =
       quotaResult;
@@ -768,7 +774,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
         layout: config.layout,
         entries: data.entries,
         errors: data.errors,
-        style: config.formatStyle,
+        style: resolveQuotaFormatStyle(config.formatStyle),
         percentDisplayMode: config.percentDisplayMode,
         sessionTokens: data.sessionTokens,
       });
@@ -892,7 +898,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       config,
       request: params,
       surfaceExplicitProviderIssues: false,
-      formatStyle: "grouped",
+      formatStyle: ALL_WINDOWS_FORMAT_STYLE,
     });
 
     if (config.showSessionTokens && params.sessionID) {
@@ -1018,7 +1024,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
             sessionID: params.sessionID,
             sessionMeta: currentSession,
           },
-          formatStyle: "classic",
+          formatStyle: SINGLE_WINDOW_PER_PROVIDER_FORMAT_STYLE,
           providers: liveProbeProviders,
         });
       } catch (error) {

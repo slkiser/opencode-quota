@@ -4,6 +4,7 @@
 
 import type { QuotaToastConfig } from "./types.js";
 import type { QuotaToastEntry, QuotaToastError, SessionTokensData } from "./entries.js";
+import type { QuotaFormatStyle } from "./quota-format-style.js";
 import { isValueEntry } from "./entries.js";
 import {
   bar,
@@ -19,6 +20,7 @@ import {
   renderSessionTokensLines,
   renderSidebarSessionTokenSummaryLines,
 } from "./session-tokens-format.js";
+import { getQuotaFormatStyleDefinition } from "./quota-format-style.js";
 
 export function formatQuotaRows(params: {
   version: string;
@@ -29,11 +31,13 @@ export function formatQuotaRows(params: {
   };
   entries?: QuotaToastEntry[];
   errors?: QuotaToastError[];
-  style?: "classic" | "grouped";
+  style?: QuotaFormatStyle;
   percentDisplayMode?: QuotaToastConfig["percentDisplayMode"];
   sessionTokens?: SessionTokensData;
 }): string {
-  if (params.style === "grouped") {
+  const styleDefinition = getQuotaFormatStyleDefinition(params.style);
+
+  if (styleDefinition.renderer === "grouped") {
     return formatQuotaRowsGrouped({
       layout: params.layout,
       entries: params.entries,
@@ -155,7 +159,7 @@ export function formatQuotaRows(params: {
 
   // Add session token section (if data available and non-empty)
   const tokenLines =
-    params.style === "grouped"
+    styleDefinition.sessionTokens === "detailed"
       ? renderSessionTokensLines(params.sessionTokens, { maxWidth })
       : renderSidebarSessionTokenSummaryLines(params.sessionTokens, { maxWidth });
   if (tokenLines.length > 0) {

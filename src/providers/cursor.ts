@@ -118,9 +118,6 @@ export const cursorProvider: QuotaProvider = {
       });
     }
 
-    return attemptedResult(entries, errors, {
-      classicStrategy: "first",
-      classicShowRight: false,
-    });
+    return attemptedResult(entries, errors);
   },
 };

@@ -172,9 +172,6 @@ describe("alibaba-coding-plan provider", () => {
       right: "120/6000",
       percentRemaining: 98,
     });
-    expect(out.presentation).toEqual({
-      classicStrategy: "collapse_worst",
-      classicShowRight: false,
-    });
+    expect(out.presentation).toBeUndefined();
   });
 });

@@ -23,7 +23,7 @@ describe("openai provider", () => {
     expectNotAttempted(out);
   });
 
-  it("maps success into canonical grouped-capable windows with classic projection metadata", async () => {
+  it("maps success into canonical grouped-capable windows with single-window display metadata", async () => {
     const { queryOpenAIQuota } = await import("../src/lib/openai.js");
     (queryOpenAIQuota as any).mockResolvedValueOnce({
       success: true,
@@ -53,8 +53,7 @@ describe("openai provider", () => {
       },
     ]);
     expect(out.presentation).toEqual({
-      classicStrategy: "collapse_worst",
-      classicDisplayName: "OpenAI (Pro)",
+      singleWindowDisplayName: "OpenAI (Pro)",
     });
   });
 

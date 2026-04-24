@@ -66,8 +66,7 @@ describe("synthetic provider", () => {
       },
     ]);
     expect(out.presentation).toEqual({
-      classicStrategy: "preserve",
-      classicShowRight: true,
+      singleWindowShowRight: true,
     });
   });
 

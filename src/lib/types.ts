@@ -2,6 +2,9 @@
  * Type definitions for opencode-quota plugin
  */
 
+import type { QuotaFormatStyle } from "./quota-format-style.js";
+import { DEFAULT_QUOTA_FORMAT_STYLE } from "./quota-format-style.js";
+
 // =============================================================================
 // Configuration Types
 // =============================================================================
@@ -24,8 +27,16 @@ export interface QuotaToastConfig {
   /** If false, never show popup toasts (commands/tools still work). */
   enableToast: boolean;
 
-  /** Shared quota-row formatting style for popup toasts and the TUI sidebar. */
-  formatStyle: "classic" | "grouped";
+  /**
+   * Shared quota-row formatting style for popup toasts and the TUI sidebar.
+   *
+   * Canonical values:
+   * - "singleWindow": collapse each provider to a single displayable quota window
+   * - "allWindows": render all quota windows
+   *
+   * Legacy aliases "classic" and "grouped" remain accepted for backward compatibility.
+   */
+  formatStyle: QuotaFormatStyle;
   /** Shared percent meaning for popup toasts and the TUI sidebar. */
   percentDisplayMode: PercentDisplayMode;
   minIntervalMs: number;
@@ -71,7 +82,8 @@ export interface QuotaToastConfig {
 
   /**
    * If true, show the Session input/output tokens section in quota displays when session token data is available.
-   * Grouped layout keeps per-model rows on toast + sidebar; classic layout uses a one-line total summary.
+   * "allWindows" keeps per-model rows on toast + sidebar; "singleWindow"
+   * uses a one-line total summary.
    * The `/quota` command keeps its detailed per-model rendering.
    */
   showSessionTokens: boolean;
@@ -92,7 +104,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   enabled: true,
 
   enableToast: true,
-  formatStyle: "classic",
+  formatStyle: DEFAULT_QUOTA_FORMAT_STYLE,
   percentDisplayMode: "remaining",
   minIntervalMs: 300000, // 5 minutes
 

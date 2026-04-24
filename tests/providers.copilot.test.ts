@@ -44,10 +44,7 @@ describe("copilot provider", () => {
         resetTimeIso: "2026-02-01T00:00:00.000Z",
       },
     ]);
-    expect(out.presentation).toEqual({
-      classicStrategy: "first",
-      classicShowRight: false,
-    });
+    expect(out.presentation).toBeUndefined();
   });
 
   it("maps organization usage into a grouped-capable business entry", async () => {
@@ -78,8 +75,7 @@ describe("copilot provider", () => {
       },
     ]);
     expect(out.presentation).toEqual({
-      classicStrategy: "first",
-      classicDisplayName: "Copilot Org (acme-corp)",
+      singleWindowDisplayName: "Copilot Org (acme-corp)",
     });
   });
 
@@ -111,8 +107,7 @@ describe("copilot provider", () => {
       },
     ]);
     expect(out.presentation).toEqual({
-      classicStrategy: "first",
-      classicDisplayName: "Copilot Enterprise (acme-enterprise)",
+      singleWindowDisplayName: "Copilot Enterprise (acme-enterprise)",
     });
   });
 

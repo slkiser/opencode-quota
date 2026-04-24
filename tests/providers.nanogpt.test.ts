@@ -82,10 +82,7 @@ describe("nanogpt provider", () => {
         value: "$12.34",
       },
     ]);
-    expect(out.presentation).toEqual({
-      classicStrategy: "preserve",
-      classicShowRight: false,
-    });
+    expect(out.presentation).toBeUndefined();
   });
 
   it("maps partial endpoint errors and non-active subscription state", async () => {

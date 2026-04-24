@@ -80,9 +80,6 @@ export const alibabaCodingPlanProvider: QuotaProvider = {
       },
     ];
 
-    return attemptedResult(entries, [], {
-      classicStrategy: "collapse_worst",
-      classicShowRight: false,
-    });
+    return attemptedResult(entries);
   },
 };

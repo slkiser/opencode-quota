@@ -251,9 +251,6 @@ export const minimaxCodingPlanProvider: QuotaProvider = {
       return attemptedErrorResult(MINIMAX_PROVIDER_LABEL, result.error);
     }
 
-    return attemptedResult(result.entries, [], {
-      classicStrategy: "collapse_worst",
-      classicShowRight: false,
-    });
+    return attemptedResult(result.entries);
   },
 };

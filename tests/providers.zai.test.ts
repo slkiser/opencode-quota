@@ -38,7 +38,7 @@ describe("zai provider", () => {
     expectNotAttempted(out);
   });
 
-  it("maps success into canonical grouped-capable entries with collapse metadata", async () => {
+  it("maps success into canonical grouped-capable entries with single-window display metadata", async () => {
     const { queryZaiQuota } = await import("../src/lib/zai.js");
     (queryZaiQuota as any).mockResolvedValueOnce({
       success: true,
@@ -76,8 +76,7 @@ describe("zai provider", () => {
       },
     ]);
     expect(out.presentation).toEqual({
-      classicStrategy: "collapse_worst",
-      classicDisplayName: "Z.ai",
+      singleWindowDisplayName: "Z.ai",
     });
   });
 

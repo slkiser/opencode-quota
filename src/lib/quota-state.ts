@@ -66,10 +66,30 @@ function isQuotaProviderPresentation(value: unknown): boolean {
   }
 
   const presentation = value as Record<string, unknown>;
+  const hasKnownField =
+    "singleWindowDisplayName" in presentation ||
+    "singleWindowShowRight" in presentation ||
+    "classicDisplayName" in presentation ||
+    "classicShowRight" in presentation ||
+    "classicStrategy" in presentation;
+
+  if (!hasKnownField) {
+    return false;
+  }
+
   return (
-    presentation.classicStrategy === "preserve" ||
-    presentation.classicStrategy === "collapse_worst" ||
-    presentation.classicStrategy === "first"
+    (presentation.singleWindowDisplayName === undefined ||
+      typeof presentation.singleWindowDisplayName === "string") &&
+    (presentation.singleWindowShowRight === undefined ||
+      typeof presentation.singleWindowShowRight === "boolean") &&
+    (presentation.classicDisplayName === undefined ||
+      typeof presentation.classicDisplayName === "string") &&
+    (presentation.classicShowRight === undefined ||
+      typeof presentation.classicShowRight === "boolean") &&
+    (presentation.classicStrategy === undefined ||
+      presentation.classicStrategy === "preserve" ||
+      presentation.classicStrategy === "collapse_worst" ||
+      presentation.classicStrategy === "first")
   );
 }
 

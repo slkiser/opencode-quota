@@ -86,8 +86,7 @@ export const copilotProvider: QuotaProvider = {
         ],
         [],
         {
-          classicStrategy: "first",
-          classicDisplayName:
+          singleWindowDisplayName:
             result.mode === "enterprise_usage"
               ? `Copilot Enterprise (${result.enterprise})`
               : `Copilot Org (${result.organization})`,
@@ -107,10 +106,6 @@ export const copilotProvider: QuotaProvider = {
         },
       ],
       [],
-      {
-        classicStrategy: "first",
-        classicShowRight: false,
-      },
     );
   },
 };

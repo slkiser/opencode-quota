@@ -12,7 +12,7 @@ describe("buildSidebarQuotaPanelLines", () => {
   it("sanitizes structured entry, error, and session-token text before rendering", () => {
     const lines = buildSidebarQuotaPanelLines({
       config: {
-        formatStyle: "grouped",
+        formatStyle: "allWindows",
         percentDisplayMode: "remaining",
       },
       data: {
@@ -75,7 +75,7 @@ describe("buildSidebarQuotaPanelLines", () => {
       layout: TUI_SIDEBAR_LAYOUT,
       entries: data.entries,
       errors: data.errors,
-      style: "classic",
+      style: "singleWindow",
       percentDisplayMode: "remaining",
       sessionTokens: data.sessionTokens,
     }).split("\n");
@@ -83,7 +83,7 @@ describe("buildSidebarQuotaPanelLines", () => {
     const lines = buildSidebarQuotaPanelLines({
       data,
       config: {
-        formatStyle: "classic",
+        formatStyle: "singleWindow",
         percentDisplayMode: "remaining",
       },
     });
@@ -93,7 +93,7 @@ describe("buildSidebarQuotaPanelLines", () => {
     expect(lines.join("\n")).not.toContain("Quota (used)");
   });
 
-  it("renders grouped sidebar output via the shared grouped formatter", () => {
+  it("renders all-window sidebar output via the shared grouped formatter", () => {
     const data = {
       entries: [
         {
@@ -113,7 +113,7 @@ describe("buildSidebarQuotaPanelLines", () => {
       layout: TUI_SIDEBAR_LAYOUT,
       entries: data.entries,
       errors: data.errors,
-      style: "grouped",
+      style: "allWindows",
       percentDisplayMode: "remaining",
       sessionTokens: data.sessionTokens,
     }).split("\n");
@@ -121,7 +121,7 @@ describe("buildSidebarQuotaPanelLines", () => {
     const lines = buildSidebarQuotaPanelLines({
       data,
       config: {
-        formatStyle: "grouped",
+        formatStyle: "allWindows",
         percentDisplayMode: "remaining",
       },
     });
@@ -135,7 +135,7 @@ describe("buildSidebarQuotaPanelLines", () => {
   it("renders grouped quota windows shortest to longest in the sidebar", () => {
     const lines = buildSidebarQuotaPanelLines({
       config: {
-        formatStyle: "grouped",
+        formatStyle: "allWindows",
         percentDisplayMode: "remaining",
       },
       data: {
@@ -168,7 +168,7 @@ describe("buildSidebarQuotaPanelLines", () => {
   it("preserves weekly right/percent values in classic sidebar mode", () => {
     const lines = buildSidebarQuotaPanelLines({
       config: {
-        formatStyle: "classic",
+        formatStyle: "singleWindow",
         percentDisplayMode: "used",
       },
       data: {
@@ -194,7 +194,7 @@ describe("buildSidebarQuotaPanelLines", () => {
   it("preserves weekly right/percent values in grouped sidebar mode", () => {
     const lines = buildSidebarQuotaPanelLines({
       config: {
-        formatStyle: "grouped",
+        formatStyle: "allWindows",
         percentDisplayMode: "used",
       },
       data: {
@@ -223,7 +223,7 @@ describe("buildSidebarQuotaPanelLines", () => {
   it("renders used percentages and matching bar fill in the sidebar", () => {
     const lines = buildSidebarQuotaPanelLines({
       config: {
-        formatStyle: "classic",
+        formatStyle: "singleWindow",
         percentDisplayMode: "used",
       },
       data: {
@@ -247,10 +247,10 @@ describe("buildSidebarQuotaPanelLines", () => {
     expect((barLine.match(/█/g) ?? [])).toHaveLength(5);
   });
 
-  it("renders grouped sidebar session tokens with detailed per-model rows", () => {
+  it("renders all-window sidebar session tokens with detailed per-model rows", () => {
     const lines = buildSidebarQuotaPanelLines({
       config: {
-        formatStyle: "grouped",
+        formatStyle: "allWindows",
         percentDisplayMode: "remaining",
       },
       data: {
@@ -278,10 +278,10 @@ describe("buildSidebarQuotaPanelLines", () => {
     ]);
   });
 
-  it("renders classic sidebar session tokens as a standalone one-line summary", () => {
+  it("renders single-window sidebar session tokens as a standalone one-line summary", () => {
     const lines = buildSidebarQuotaPanelLines({
       config: {
-        formatStyle: "classic",
+        formatStyle: "singleWindow",
         percentDisplayMode: "remaining",
       },
       data: {
@@ -322,14 +322,14 @@ describe("buildSidebarQuotaPanelLines", () => {
     const remaining = buildSidebarQuotaPanelLines({
       data,
       config: {
-        formatStyle: "classic",
+        formatStyle: "singleWindow",
         percentDisplayMode: "remaining",
       },
     });
     const used = buildSidebarQuotaPanelLines({
       data,
       config: {
-        formatStyle: "classic",
+        formatStyle: "singleWindow",
         percentDisplayMode: "used",
       },
     });

@@ -69,7 +69,7 @@ describe("loadConfig security precedence", () => {
             showOnCompact: false,
             minIntervalMs: 600000,
             pricingSnapshot: { source: "bundled", autoRefresh: 30 },
-            formatStyle: "classic",
+            formatStyle: "singleWindow",
             percentDisplayMode: "remaining",
           },
         },
@@ -89,7 +89,7 @@ describe("loadConfig security precedence", () => {
             showOnCompact: true,
             minIntervalMs: 1000,
             pricingSnapshot: { source: "runtime", autoRefresh: 1 },
-            formatStyle: "grouped",
+            formatStyle: "allWindows",
             percentDisplayMode: "used",
             onlyCurrentModel: true,
           },
@@ -106,7 +106,7 @@ describe("loadConfig security precedence", () => {
               quotaToast: {
                 enabled: true,
                 enabledProviders: ["zai"],
-                formatStyle: "grouped",
+                formatStyle: "allWindows",
                 percentDisplayMode: "remaining",
               },
             },
@@ -122,7 +122,7 @@ describe("loadConfig security precedence", () => {
     expect(cfg.showOnCompact).toBe(false);
     expect(cfg.minIntervalMs).toBe(600000);
     expect(cfg.pricingSnapshot).toEqual({ source: "bundled", autoRefresh: 30 });
-    expect(cfg.formatStyle).toBe("grouped");
+    expect(cfg.formatStyle).toBe("allWindows");
     expect(cfg.percentDisplayMode).toBe("used");
     expect(cfg.onlyCurrentModel).toBe(true);
   });
@@ -137,7 +137,7 @@ describe("loadConfig security precedence", () => {
         experimental: {
           quotaToast: {
             enabledProviders: ["nano-gpt"],
-            formatStyle: "grouped",
+            formatStyle: "allWindows",
             percentDisplayMode: "used",
             onlyCurrentModel: true,
           },
@@ -150,7 +150,7 @@ describe("loadConfig security precedence", () => {
     const cfg = await loadConfig(undefined, meta, { cwd: altWorkspaceDir });
 
     expect(cfg.enabledProviders).toEqual(["nanogpt"]);
-    expect(cfg.formatStyle).toBe("grouped");
+    expect(cfg.formatStyle).toBe("allWindows");
     expect(cfg.percentDisplayMode).toBe("used");
     expect(cfg.onlyCurrentModel).toBe(true);
     expect(meta.source).toBe("files");
@@ -215,7 +215,7 @@ describe("loadConfig security precedence", () => {
     );
 
     let cfg = await loadConfig(undefined, undefined, { cwd: legacyWorkspaceDir });
-    expect(cfg.formatStyle).toBe("grouped");
+    expect(cfg.formatStyle).toBe("allWindows");
 
     writeFileSync(
       join(legacyWorkspaceDir, "opencode.json"),
@@ -223,7 +223,7 @@ describe("loadConfig security precedence", () => {
         experimental: {
           quotaToast: {
             toastStyle: "classic",
-            formatStyle: "grouped",
+            formatStyle: "allWindows",
           },
         },
       }),
@@ -231,6 +231,38 @@ describe("loadConfig security precedence", () => {
     );
 
     cfg = await loadConfig(undefined, undefined, { cwd: legacyWorkspaceDir });
-    expect(cfg.formatStyle).toBe("grouped");
+    expect(cfg.formatStyle).toBe("allWindows");
+  });
+
+  it("lets a workspace legacy toastStyle override a global canonical formatStyle", async () => {
+    const mixedWorkspaceDir = join(tempDir, "mixed-style-workspace");
+    mkdirSync(mixedWorkspaceDir, { recursive: true });
+
+    writeFileSync(
+      join(xdgConfigHome, "opencode", "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            formatStyle: "allWindows",
+          },
+        },
+      }),
+      "utf-8",
+    );
+
+    writeFileSync(
+      join(mixedWorkspaceDir, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            toastStyle: "classic",
+          },
+        },
+      }),
+      "utf-8",
+    );
+
+    const cfg = await loadConfig(undefined, undefined, { cwd: mixedWorkspaceDir });
+    expect(cfg.formatStyle).toBe("singleWindow");
   });
 });
