@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Force LF for husky scripts to ensure cross-platform compatibility
+.husky/* text eol=lf
