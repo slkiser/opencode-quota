@@ -10,8 +10,51 @@ export interface EditableConfigPath {
   existed: boolean;
 }
 
+export interface RuntimeContextRootHints {
+  workspaceRoot?: string | null;
+  worktreeRoot?: string | null;
+  activeDirectory?: string | null;
+  configRoot?: string | null;
+  fallbackDirectory: string;
+}
+
+export interface RuntimeContextRoots {
+  workspaceRoot: string;
+  configRoot: string;
+}
+
 export function dedupeNonEmptyStrings(items: string[]): string[] {
   return [...new Set(items.map((item) => item.trim()).filter(Boolean))];
+}
+
+function pickFirstNonEmptyString(items: Array<string | null | undefined>): string | null {
+  for (const item of items) {
+    if (typeof item !== "string") {
+      continue;
+    }
+
+    const trimmed = item.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+
+  return null;
+}
+
+export function resolveRuntimeContextRoots(params: RuntimeContextRootHints): RuntimeContextRoots {
+  const workspaceRoot =
+    pickFirstNonEmptyString([
+      params.workspaceRoot,
+      params.worktreeRoot,
+      params.activeDirectory,
+      params.fallbackDirectory,
+    ]) ?? params.fallbackDirectory;
+  const configRoot =
+    pickFirstNonEmptyString([params.configRoot, workspaceRoot, params.activeDirectory]) ??
+    workspaceRoot;
+
+  return { workspaceRoot, configRoot };
 }
 
 export function findGitWorktreeRoot(startDir: string): string | null {

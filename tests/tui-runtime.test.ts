@@ -80,6 +80,100 @@ describe("tui runtime helpers", () => {
     ).toBe(worktreeDir);
   });
 
+  it("still uses worktree root when process.cwd() differs from the active nested directory", async () => {
+    process.chdir(tempDir);
+
+    writeFileSync(
+      join(worktreeDir, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            enabled: false,
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    writeFileSync(
+      join(nestedDir, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            enabled: true,
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const panel = await loadSidebarPanel({
+      api: {
+        state: {
+          provider: [],
+          path: {
+            worktree: worktreeDir,
+            directory: nestedDir,
+          },
+          session: {
+            messages: () => [],
+          },
+        },
+        client: {},
+      } as any,
+      sessionID: "session-worktree-over-cwd",
+    });
+
+    expect(panel).toEqual({ status: "disabled", lines: [] });
+    expect(collectQuotaRenderData).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the active directory when no worktree root is available", async () => {
+    writeFileSync(
+      join(worktreeDir, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            enabled: true,
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    writeFileSync(
+      join(nestedDir, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            enabled: false,
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const panel = await loadSidebarPanel({
+      api: {
+        state: {
+          provider: [],
+          path: {
+            worktree: undefined,
+            directory: nestedDir,
+          },
+          session: {
+            messages: () => [],
+          },
+        },
+        client: {},
+      } as any,
+      sessionID: "session-no-worktree",
+    });
+
+    expect(panel).toEqual({ status: "disabled", lines: [] });
+    expect(collectQuotaRenderData).not.toHaveBeenCalled();
+  });
+
   it("loads sidebar config from the worktree root when the active directory is nested", async () => {
     writeFileSync(
       join(worktreeDir, "opencode.json"),

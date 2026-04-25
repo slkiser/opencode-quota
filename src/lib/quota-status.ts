@@ -523,6 +523,8 @@ export async function buildQuotaStatusReport(params: {
   configPaths: string[];
   networkSettingSources?: Record<string, string>;
   tuiDiagnostics?: {
+    workspaceRoot: string;
+    configRoot: string;
     configured: boolean;
     inferredSelectedPath: string | null;
     presentPaths: string[];
@@ -579,6 +581,8 @@ export async function buildQuotaStatusReport(params: {
   if (params.tuiDiagnostics) {
     toastLines.push("");
     toastLines.push("tui:");
+    toastLines.push(`- workspace_root: ${params.tuiDiagnostics.workspaceRoot}`);
+    toastLines.push(`- config_root: ${params.tuiDiagnostics.configRoot}`);
     toastLines.push(`- config_configured: ${params.tuiDiagnostics.configured ? "true" : "false"}`);
     toastLines.push(
       `- inferred_selected_config_path: ${params.tuiDiagnostics.inferredSelectedPath ?? "(none)"}`,

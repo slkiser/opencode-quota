@@ -59,6 +59,8 @@ describe("inspectTuiConfig", () => {
     const { inspectTuiConfig } = await import("../src/lib/tui-config-diagnostics.js");
     const diagnostics = await inspectTuiConfig({ cwd: projectDir });
 
+    expect(diagnostics.workspaceRoot).toBe(projectDir);
+    expect(diagnostics.configRoot).toBe(projectDir);
     expect(diagnostics.configured).toBe(true);
     expect(diagnostics.inferredSelectedPath).toBe(join(projectDir, ".opencode", "tui.json"));
     expect(diagnostics.presentPaths).toEqual([
@@ -117,15 +119,51 @@ describe("inspectTuiConfig", () => {
     const { inspectTuiConfig } = await import("../src/lib/tui-config-diagnostics.js");
     const diagnostics = await inspectTuiConfig({ cwd: nestedDir });
 
+    expect(diagnostics.workspaceRoot).toBe(projectDir);
+    expect(diagnostics.configRoot).toBe(projectDir);
     expect(diagnostics.inferredSelectedPath).toBe(join(projectDir, ".opencode", "tui.json"));
     expect(diagnostics.quotaPluginConfigured).toBe(true);
     expect(diagnostics.quotaPluginConfigPaths).toEqual([join(projectDir, ".opencode", "tui.json")]);
+  });
+
+  it("honors caller-supplied shared roots instead of rediscovering the git worktree", async () => {
+    const nestedDir = join(projectDir, "packages", "feature");
+    mkdirSync(nestedDir, { recursive: true });
+    mkdirSync(join(projectDir, ".git"), { recursive: true });
+    mkdirSync(join(projectDir, ".opencode"), { recursive: true });
+
+    writeFileSync(
+      join(projectDir, ".opencode", "tui.json"),
+      JSON.stringify({ plugin: ["@slkiser/opencode-quota"] }),
+      "utf8",
+    );
+
+    const { inspectTuiConfig } = await import("../src/lib/tui-config-diagnostics.js");
+    const diagnostics = await inspectTuiConfig({
+      cwd: nestedDir,
+      roots: {
+        workspaceRoot: nestedDir,
+        configRoot: nestedDir,
+      },
+    });
+
+    expect(diagnostics.workspaceRoot).toBe(nestedDir);
+    expect(diagnostics.configRoot).toBe(nestedDir);
+    expect(diagnostics.inferredSelectedPath).toBeNull();
+    expect(diagnostics.presentPaths).toEqual([]);
+    expect(diagnostics.candidatePaths).toContain(join(nestedDir, "tui.json"));
+    expect(diagnostics.candidatePaths).toContain(join(nestedDir, ".opencode", "tui.json"));
+    expect(diagnostics.candidatePaths).not.toContain(join(projectDir, ".opencode", "tui.json"));
+    expect(diagnostics.quotaPluginConfigured).toBe(false);
+    expect(diagnostics.quotaPluginConfigPaths).toEqual([]);
   });
 
   it("reports missing tui config cleanly", async () => {
     const { inspectTuiConfig } = await import("../src/lib/tui-config-diagnostics.js");
     const diagnostics = await inspectTuiConfig({ cwd: projectDir });
 
+    expect(diagnostics.workspaceRoot).toBe(projectDir);
+    expect(diagnostics.configRoot).toBe(projectDir);
     expect(diagnostics.configured).toBe(false);
     expect(diagnostics.inferredSelectedPath).toBeNull();
     expect(diagnostics.presentPaths).toEqual([]);

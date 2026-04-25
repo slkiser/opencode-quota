@@ -91,6 +91,8 @@ describe("/quota_status command behavior", () => {
     mocks.resolveQwenLocalPlanCached.mockResolvedValue({ state: "none" });
     mocks.resolveAlibabaCodingPlanAuthCached.mockResolvedValue({ state: "none" });
     mocks.inspectTuiConfig.mockResolvedValue({
+      workspaceRoot: process.cwd(),
+      configRoot: process.cwd(),
       configured: false,
       inferredSelectedPath: null,
       presentPaths: [],
@@ -155,6 +157,12 @@ describe("/quota_status command behavior", () => {
     ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
 
     expect(mocks.collectQuotaStatusLiveProbes).toHaveBeenCalledTimes(1);
+    expect(mocks.inspectTuiConfig).toHaveBeenCalledWith({
+      roots: {
+        workspaceRoot: process.cwd(),
+        configRoot: process.cwd(),
+      },
+    });
     expect(mocks.collectQuotaStatusLiveProbes).toHaveBeenCalledWith(
       expect.objectContaining({
         client,

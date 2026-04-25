@@ -33,7 +33,9 @@ export interface LoadConfigMeta {
 }
 
 export interface LoadConfigOptions {
+  /** @deprecated Prefer configRootDir for new callers. */
   cwd?: string;
+  configRootDir?: string;
 }
 
 export function createLoadConfigMeta(): LoadConfigMeta {
@@ -377,10 +379,10 @@ export async function loadConfig(
     usedPaths: string[];
     networkSettingSources: Record<string, string>;
   }> {
-    const cwd = options?.cwd ?? process.cwd();
+    const configRootDir = options?.configRootDir ?? options?.cwd ?? process.cwd();
     const { configDirs } = getOpencodeRuntimeDirCandidates();
     const globalConfig = await loadQuotaToastFromLocations(configDirs);
-    const localConfig = await loadQuotaToastFromLocations([cwd]);
+    const localConfig = await loadQuotaToastFromLocations([configRootDir]);
 
     const usedPaths = [...globalConfig.usedPaths, ...localConfig.usedPaths];
     const networkSettingSources = resolveEffectiveNetworkSettingSources({

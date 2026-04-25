@@ -319,7 +319,7 @@ Environment variables take precedence over the config file. Run `/quota_status` 
 | Command               | What it shows                                                                                                    |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `/quota`              | Manual detailed all-window quota report with a local call timestamp                                               |
-| `/quota_status`       | Concise diagnostics for config, TUI setup, provider availability, account detection, pricing snapshot health, and fresh compact single-window live probe rows in matching provider sections |
+| `/quota_status`       | Concise diagnostics for config, resolved workspace/config roots, TUI setup, provider availability, account detection, pricing snapshot health, and fresh compact single-window live probe rows in matching provider sections |
 | `/pricing_refresh`    | Pull the local runtime pricing snapshot from `models.dev` on demand                                              |
 | `/tokens_today`       | Tokens used today (calendar day)                                                                                 |
 | `/tokens_daily`       | Tokens used in the last 24 hours                                                                                 |

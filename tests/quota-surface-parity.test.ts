@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -123,6 +123,104 @@ describe("quota surface parity regressions", () => {
     process.env = originalEnv;
     rmSync(tempDir, { recursive: true, force: true });
     vi.clearAllMocks();
+  });
+
+  it("uses the same effective worktree local root for plugin and sidebar in nested-directory sessions", async () => {
+    const syntheticProvider = {
+      id: "synthetic",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [
+          {
+            name: "Synthetic Weekly",
+            group: "Synthetic",
+            label: "Weekly:",
+            percentRemaining: 64,
+            right: "$16/$24",
+            resetTimeIso: "2099-01-08T00:00:00.000Z",
+          },
+        ],
+        errors: [],
+      }),
+    };
+    mockProviders.push(syntheticProvider);
+
+    // Stage 1 parity guard: both surfaces should resolve local config from worktree root,
+    // not nested active directory config.
+    writeFileSync(
+      join(worktreeDir, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            enabled: true,
+            enabledProviders: ["synthetic"],
+            formatStyle: "allWindows",
+            showOnQuestion: false,
+            showSessionTokens: false,
+            minIntervalMs: 60_000,
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    writeFileSync(
+      join(nestedDir, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            enabled: false,
+            enabledProviders: [],
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const client = createClient({
+      config: {
+        enabled: false,
+        enabledProviders: [],
+      },
+      sessionMeta: { modelID: "synthetic/default", providerID: "synthetic" },
+    });
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const hooks = await QuotaToastPlugin({ client } as any);
+    await expect(
+      hooks["command.execute.before"]?.({
+        command: "quota",
+        sessionID: "session-worktree-root-parity",
+      } as any),
+    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+
+    const quotaOutput = getPromptText(client);
+    expect(quotaOutput).toContain("64% left");
+
+    await resetQuotaStateForTests();
+
+    const { loadSidebarPanel } = await import("../src/lib/tui-runtime.js");
+    const panel = await loadSidebarPanel({
+      api: {
+        state: {
+          provider: [],
+          path: {
+            worktree: worktreeDir,
+            directory: nestedDir,
+          },
+          session: {
+            messages: () => [],
+          },
+        },
+        client,
+      } as any,
+      sessionID: "session-worktree-root-parity",
+    });
+
+    expect(panel.status).toBe("ready");
+    expect(panel.lines.join("\n")).toContain("64% left");
+    expect(syntheticProvider.fetch).toHaveBeenCalledTimes(1);
   });
 
   it("keeps synthetic grouped numeric parity between real /quota and real sidebar from shared snapshot storage", async () => {

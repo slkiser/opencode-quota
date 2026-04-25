@@ -486,6 +486,8 @@ describe("buildQuotaStatusReport", () => {
         showOnBothFail: "/tmp/config/opencode.json (experimental.quotaToast)",
       },
       tuiDiagnostics: {
+        workspaceRoot: "/tmp/workspace",
+        configRoot: "/tmp/project",
         configured: true,
         inferredSelectedPath: "/tmp/project/tui.jsonc",
         presentPaths: ["/tmp/config/tui.json", "/tmp/project/tui.jsonc"],
@@ -519,6 +521,8 @@ describe("buildQuotaStatusReport", () => {
       "- network_setting_sources: enabled<=/tmp/config/opencode.json (experimental.quotaToast) | enabledProviders<=/tmp/config/opencode.json (experimental.quotaToast) | minIntervalMs<=/tmp/config/opencode.json (experimental.quotaToast) | pricingSnapshot.source<=/tmp/config/opencode.json (experimental.quotaToast) | pricingSnapshot.autoRefresh<=/tmp/config/opencode.json (experimental.quotaToast) | showOnIdle<=/tmp/config/opencode.json (experimental.quotaToast) | showOnQuestion<=/tmp/config/opencode.json (experimental.quotaToast) | showOnCompact<=/tmp/config/opencode.json (experimental.quotaToast) | showOnBothFail<=/tmp/config/opencode.json (experimental.quotaToast)",
     );
     expect(report).toContain("tui:");
+    expect(report).toContain("- workspace_root: /tmp/workspace");
+    expect(report).toContain("- config_root: /tmp/project");
     expect(report).toContain("- config_configured: true");
     expect(report).toContain("- inferred_selected_config_path: /tmp/project/tui.jsonc");
     expect(report).toContain("- present_config_paths: /tmp/config/tui.json | /tmp/project/tui.jsonc");

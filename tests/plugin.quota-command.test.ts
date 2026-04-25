@@ -112,6 +112,11 @@ describe("/quota command behavior", () => {
       } as any),
     ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
 
+    expect(mocks.loadConfig).toHaveBeenCalledWith(
+      client,
+      expect.any(Object),
+      expect.objectContaining({ configRootDir: process.cwd() }),
+    );
     expect(mocks.setPricingSnapshotSelection).toHaveBeenCalledWith("bundled");
     expect(mocks.setPricingSnapshotAutoRefresh).toHaveBeenCalledWith(7);
     expect(mocks.maybeRefreshPricingSnapshot).toHaveBeenCalledWith(

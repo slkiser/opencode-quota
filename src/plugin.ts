@@ -9,7 +9,7 @@
 import type { Plugin } from "@opencode-ai/plugin";
 import type { QuotaToastConfig } from "./lib/types.js";
 import { DEFAULT_CONFIG } from "./lib/types.js";
-import { loadConfig, createLoadConfigMeta, type LoadConfigMeta } from "./lib/config.js";
+import { createLoadConfigMeta, type LoadConfigMeta } from "./lib/config.js";
 import { clearCache, getOrFetchWithCacheControl } from "./lib/cache.js";
 import { formatQuotaRows } from "./lib/format.js";
 import { formatQuotaCommand } from "./lib/quota-command-format.js";
@@ -65,10 +65,15 @@ import {
   matchesQuotaProviderCurrentSelection,
   resolveQuotaRenderSelection,
   type QuotaRenderData as QuotaCommandRenderData,
-  type QuotaRequestContext as QuotaCommandRequestContext,
   type QuotaStatusLiveProbe,
   type SessionModelMeta,
 } from "./lib/quota-render-data.js";
+import {
+  createQuotaProviderRuntimeContext,
+  createQuotaRuntimeRequestContext,
+  resolveQuotaRuntimeContext,
+  type QuotaRuntimeContext,
+} from "./lib/quota-runtime-context.js";
 
 // =============================================================================
 // Types
@@ -340,6 +345,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
   let configLoaded = false;
   let configInFlight: Promise<void> | null = null;
   let configMeta: LoadConfigMeta = createLoadConfigMeta();
+  let runtimeProviders = getProviders();
 
   // Track last session token error for /quota_status diagnostics
   let lastSessionTokenError: SessionTokenError | undefined;
@@ -419,13 +425,49 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     return false;
   }
 
+  function getPluginRuntimeRootHints() {
+    const cwd = process.cwd();
+    return {
+      workspaceRoot: cwd,
+      configRoot: cwd,
+      fallbackDirectory: cwd,
+    };
+  }
+
+  async function resolvePluginRuntimeContext(params: {
+    sessionID?: string;
+    sessionMeta?: SessionModelMeta;
+    includeSessionMeta?: boolean | ((config: QuotaToastConfig) => boolean);
+  } = {}): Promise<QuotaRuntimeContext> {
+    if (!configLoaded) {
+      await refreshConfig();
+    }
+
+    return resolveQuotaRuntimeContext({
+      client: typedClient,
+      roots: getPluginRuntimeRootHints(),
+      config,
+      configMeta,
+      providers: runtimeProviders,
+      sessionID: params.sessionID,
+      sessionMeta: params.sessionMeta,
+      resolveSessionMeta: (sessionID) => getSessionModelMeta(sessionID),
+      includeSessionMeta: params.includeSessionMeta,
+    });
+  }
+
   async function refreshConfig(): Promise<void> {
     if (configInFlight) return configInFlight;
 
     configInFlight = (async () => {
       try {
-        configMeta = createLoadConfigMeta();
-        config = await loadConfig(typedClient, configMeta);
+        const runtime = await resolveQuotaRuntimeContext({
+          client: typedClient,
+          roots: getPluginRuntimeRootHints(),
+        });
+        configMeta = runtime.configMeta;
+        config = runtime.config;
+        runtimeProviders = runtime.providers;
         setPricingSnapshotAutoRefresh(config.pricingSnapshot.autoRefresh);
         setPricingSnapshotSelection(config.pricingSnapshot.source);
         configLoaded = true;
@@ -433,6 +475,8 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       } catch {
         // Leave configLoaded=false so we can retry on next trigger.
         config = DEFAULT_CONFIG;
+        configMeta = createLoadConfigMeta();
+        runtimeProviders = getProviders();
         setPricingSnapshotAutoRefresh(DEFAULT_CONFIG.pricingSnapshot.autoRefresh);
         setPricingSnapshotSelection(DEFAULT_CONFIG.pricingSnapshot.source);
       } finally {
@@ -611,13 +655,11 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     return "current session";
   }
 
-  async function buildQuotaCommandUnavailableMessage(
-    params: QuotaCommandRequestContext = {},
-  ): Promise<string> {
+  async function buildQuotaCommandUnavailableMessage(runtime: QuotaRuntimeContext): Promise<string> {
     const selection = await resolveQuotaRenderSelection({
-      client: typedClient,
-      config,
-      request: params,
+      client: runtime.client,
+      config: runtime.config,
+      request: createQuotaRuntimeRequestContext(runtime),
     });
     if (!selection) {
       return "Quota unavailable\n\nNo enabled quota providers are configured.\n\nRun /quota_status for diagnostics.";
@@ -729,24 +771,24 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
         : null;
     }
 
-    const quotaRequestContext: QuotaCommandRequestContext = {
+    const runtime = await resolvePluginRuntimeContext({
       sessionID: params.sessionID,
-      sessionMeta:
-        config.onlyCurrentModel && params.sessionID
-          ? (params.sessionMeta ?? (await getSessionModelMeta(params.sessionID)))
-          : undefined,
-    };
+      sessionMeta: params.sessionMeta,
+      includeSessionMeta: (config) => config.onlyCurrentModel,
+    });
+    const runtimeConfig = runtime.config;
+    const quotaRequestContext = createQuotaRuntimeRequestContext(runtime);
     const quotaResult = await collectQuotaRenderData({
-      client: typedClient,
-      config,
+      client: runtime.client,
+      config: runtimeConfig,
       request: quotaRequestContext,
       surfaceExplicitProviderIssues: true,
-      formatStyle: resolveQuotaFormatStyle(config.formatStyle),
+      formatStyle: resolveQuotaFormatStyle(runtimeConfig.formatStyle),
     });
     const { selection, availability, active, attemptedAny, hasExplicitProviderIssues, data } =
       quotaResult;
 
-    if (config.showSessionTokens && params.sessionID) {
+    if (runtimeConfig.showSessionTokens && params.sessionID) {
       lastSessionTokenError = quotaResult.sessionTokenError;
     }
 
@@ -754,12 +796,12 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     const errors = data?.errors ?? [];
 
     if (active.length === 0 && !(hasExplicitProviderIssues && errors.length > 0)) {
-      return config.debug
+      return runtimeConfig.debug
         ? formatDebugInfo({
             trigger: params.trigger,
             reason: "no enabled providers available",
             currentModel,
-            enabledProviders: config.enabledProviders,
+            enabledProviders: runtimeConfig.enabledProviders,
             availability: availability.map((item) => ({
               id: item.provider.id,
               ok: item.ok,
@@ -771,17 +813,17 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     if (data?.entries.length) {
       const formatted = formatQuotaRows({
         version: "1.0.0",
-        layout: config.layout,
+        layout: runtimeConfig.layout,
         entries: data.entries,
         errors: data.errors,
-        style: resolveQuotaFormatStyle(config.formatStyle),
-        percentDisplayMode: config.percentDisplayMode,
+        style: resolveQuotaFormatStyle(runtimeConfig.formatStyle),
+        percentDisplayMode: runtimeConfig.percentDisplayMode,
         sessionTokens: data.sessionTokens,
       });
 
-      if (!config.debug) return formatted;
+      if (!runtimeConfig.debug) return formatted;
 
-      const debugFooter = `\n\n[debug] src=${configMeta.source} providers=${config.enabledProviders === "auto" ? "(auto)" : config.enabledProviders.join(",") || "(none)"} avail=${availability
+      const debugFooter = `\n\n[debug] src=${configMeta.source} providers=${runtimeConfig.enabledProviders === "auto" ? "(auto)" : runtimeConfig.enabledProviders.join(",") || "(none)"} avail=${availability
         .map((item) => `${item.provider.id}:${item.ok ? "ok" : "no"}`)
         .join(" ")}`;
 
@@ -791,9 +833,9 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     // Show errors even without entries when:
     // 1. showOnBothFail is enabled and at least one provider attempted (existing behavior)
     // 2. OR we're in explicit mode and have "Not configured"/"Unavailable" errors (new behavior)
-    if ((config.showOnBothFail && attemptedAny && errors.length > 0) || hasExplicitProviderIssues) {
+    if ((runtimeConfig.showOnBothFail && attemptedAny && errors.length > 0) || hasExplicitProviderIssues) {
       const errorLines = errors.map((error) => `${error.label}: ${error.message}`).join("\n");
-      if (!config.debug) return errorLines || "Quota unavailable";
+      if (!runtimeConfig.debug) return errorLines || "Quota unavailable";
       return (
         (errorLines || "Quota unavailable") +
         "\n\n" +
@@ -803,7 +845,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
             ? "providers missing/unavailable"
             : "all providers failed",
           currentModel,
-          enabledProviders: config.enabledProviders,
+          enabledProviders: runtimeConfig.enabledProviders,
           availability: availability.map((item) => ({
             id: item.provider.id,
             ok: item.ok,
@@ -812,12 +854,12 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       );
     }
 
-    return config.debug
+    return runtimeConfig.debug
       ? formatDebugInfo({
           trigger: params.trigger,
           reason: "no entries",
           currentModel,
-          enabledProviders: config.enabledProviders,
+          enabledProviders: runtimeConfig.enabledProviders,
           availability: availability.map((item) => ({
             id: item.provider.id,
             ok: item.ok,
@@ -890,18 +932,17 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     }
   }
 
-  async function fetchQuotaCommandData(
-    params: QuotaCommandRequestContext = {},
-  ): Promise<QuotaCommandRenderData | null> {
+  async function fetchQuotaCommandData(runtime: QuotaRuntimeContext): Promise<QuotaCommandRenderData | null> {
+    const request = createQuotaRuntimeRequestContext(runtime);
     const quotaResult = await collectQuotaRenderData({
-      client: typedClient,
-      config,
-      request: params,
+      client: runtime.client,
+      config: runtime.config,
+      request,
       surfaceExplicitProviderIssues: false,
       formatStyle: ALL_WINDOWS_FORMAT_STYLE,
     });
 
-    if (config.showSessionTokens && params.sessionID) {
+    if (runtime.config.showSessionTokens && request.sessionID) {
       lastSessionTokenError = quotaResult.sessionTokenError;
     }
 
@@ -952,11 +993,15 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     sessionID?: string;
     generatedAtMs: number;
   }): Promise<string | null> {
-    await refreshConfig();
-    if (!config.enabled) return null;
+    const runtime = await resolvePluginRuntimeContext({
+      sessionID: params.sessionID,
+      includeSessionMeta: true,
+    });
+    const runtimeConfig = runtime.config;
+    if (!runtimeConfig.enabled) return null;
     await kickPricingRefresh({ reason: "status", maxWaitMs: 750 });
 
-    const currentSession = await getSessionModelMeta(params.sessionID);
+    const currentSession = runtime.session.sessionMeta ?? {};
     const currentModel = currentSession.modelID;
     const currentProviderID = currentSession.providerID;
     const sessionModelLookup: "ok" | "not_found" | "no_session" = !params.sessionID
@@ -965,33 +1010,22 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
         ? "ok"
         : "not_found";
 
-    const isAutoMode = config.enabledProviders === "auto";
+    const isAutoMode = runtimeConfig.enabledProviders === "auto";
 
-    const providers = getProviders();
+    const providers = runtime.providers;
+    const providerContext = createQuotaProviderRuntimeContext(runtime);
     const availability = await Promise.all(
       providers.map(async (p) => {
         let ok = false;
         try {
-          ok = await p.isAvailable({
-            client: typedClient,
-            config: {
-              googleModels: config.googleModels,
-              anthropicBinaryPath: config.anthropicBinaryPath,
-              alibabaCodingPlanTier: config.alibabaCodingPlanTier,
-              cursorPlan: config.cursorPlan,
-              cursorIncludedApiUsd: config.cursorIncludedApiUsd,
-              cursorBillingCycleStartDay: config.cursorBillingCycleStartDay,
-              currentModel,
-              currentProviderID,
-            },
-          });
+          ok = await p.isAvailable(providerContext);
         } catch {
           ok = false;
         }
         return {
           id: p.id,
           // In auto mode, a provider is effectively "enabled" if it's available.
-          enabled: isAutoMode ? ok : config.enabledProviders.includes(p.id),
+          enabled: isAutoMode ? ok : runtimeConfig.enabledProviders.includes(p.id),
           available: ok,
           matchesCurrentModel:
             currentModel || isCursorProviderId(currentProviderID)
@@ -1018,12 +1052,9 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     if (liveProbeProviders.length > 0) {
       try {
         providerLiveProbes = await collectQuotaStatusLiveProbes({
-          client: typedClient,
-          config,
-          request: {
-            sessionID: params.sessionID,
-            sessionMeta: currentSession,
-          },
+          client: runtime.client,
+          config: runtimeConfig,
+          request: createQuotaRuntimeRequestContext(runtime),
           formatStyle: SINGLE_WINDOW_PER_PROVIDER_FORMAT_STYLE,
           providers: liveProbeProviders,
         });
@@ -1046,21 +1077,21 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       ? await refreshGoogleTokensForAllAccounts({ skewMs: params.skewMs, force: params.force })
       : null;
 
-    const tuiDiagnostics = await inspectTuiConfig();
+    const tuiDiagnostics = await inspectTuiConfig({ roots: runtime.roots });
 
     return await buildQuotaStatusReport({
       tuiDiagnostics,
-      configSource: configMeta.source,
-      configPaths: configMeta.paths,
-      networkSettingSources: configMeta.networkSettingSources,
-      enabledProviders: config.enabledProviders,
-      anthropicBinaryPath: config.anthropicBinaryPath,
-      alibabaCodingPlanTier: config.alibabaCodingPlanTier,
-      cursorPlan: config.cursorPlan,
-      cursorIncludedApiUsd: config.cursorIncludedApiUsd,
-      cursorBillingCycleStartDay: config.cursorBillingCycleStartDay,
-      pricingSnapshotSource: config.pricingSnapshot.source,
-      onlyCurrentModel: config.onlyCurrentModel,
+      configSource: runtime.configMeta.source,
+      configPaths: runtime.configMeta.paths,
+      networkSettingSources: runtime.configMeta.networkSettingSources,
+      enabledProviders: runtimeConfig.enabledProviders,
+      anthropicBinaryPath: runtimeConfig.anthropicBinaryPath,
+      alibabaCodingPlanTier: runtimeConfig.alibabaCodingPlanTier,
+      cursorPlan: runtimeConfig.cursorPlan,
+      cursorIncludedApiUsd: runtimeConfig.cursorIncludedApiUsd,
+      cursorBillingCycleStartDay: runtimeConfig.cursorBillingCycleStartDay,
+      pricingSnapshotSource: runtimeConfig.pricingSnapshot.source,
+      onlyCurrentModel: runtimeConfig.onlyCurrentModel,
       currentModel,
       sessionModelLookup,
       providerAvailability: availability,
@@ -1163,11 +1194,13 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
   async function handleQuotaSlashCommand(input: CommandExecuteInput): Promise<never> {
     const sessionID = input.sessionID;
     const generatedAtMs = Date.now();
-    const quotaRequestContext: QuotaCommandRequestContext = {
+    const sessionMeta = sessionID ? await getSessionModelMeta(sessionID) : undefined;
+    const runtime = await resolvePluginRuntimeContext({
       sessionID,
-      sessionMeta: sessionID ? await getSessionModelMeta(sessionID) : undefined,
-    };
-    const reportData = await fetchQuotaCommandData(quotaRequestContext);
+      sessionMeta,
+      includeSessionMeta: (config) => config.onlyCurrentModel,
+    });
+    const reportData = await fetchQuotaCommandData(runtime);
 
     if (!reportData) {
       if (!configLoaded) {
@@ -1176,7 +1209,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
           "Quota unavailable (config not loaded, try again)",
         );
       }
-      if (!config.enabled) {
+      if (!runtime.config.enabled) {
         return await injectCommandOutputAndHandle(
           sessionID,
           "Quota disabled in config (enabled: false)",
@@ -1184,7 +1217,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       }
       return await injectCommandOutputAndHandle(
         sessionID,
-        await buildQuotaCommandUnavailableMessage(quotaRequestContext),
+        await buildQuotaCommandUnavailableMessage(runtime),
       );
     }
 

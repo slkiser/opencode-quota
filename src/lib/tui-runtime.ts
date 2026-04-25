@@ -3,12 +3,24 @@ import type { SidebarPanelState } from "./tui-panel-state.js";
 
 import type { SessionModelMeta } from "./quota-render-data.js";
 
-import { createLoadConfigMeta, loadConfig } from "./config.js";
+import {
+  resolveRuntimeContextRoots,
+  type RuntimeContextRootHints,
+} from "./config-file-utils.js";
+import { createQuotaRuntimeRequestContext, resolveQuotaRuntimeContext } from "./quota-runtime-context.js";
 import { collectQuotaRenderData } from "./quota-render-data.js";
 import { buildSidebarQuotaPanelLines } from "./tui-sidebar-format.js";
 
+function getTuiRuntimeRootHints(api: TuiPluginApi): RuntimeContextRootHints {
+  return {
+    worktreeRoot: api.state.path.worktree,
+    activeDirectory: api.state.path.directory,
+    fallbackDirectory: process.cwd(),
+  };
+}
+
 export function resolveWorkspaceDir(api: TuiPluginApi): string {
-  return api.state.path.worktree || api.state.path.directory || process.cwd();
+  return resolveRuntimeContextRoots(getTuiRuntimeRootHints(api)).workspaceRoot;
 }
 
 function createTuiQuotaClient(api: TuiPluginApi) {
@@ -94,34 +106,34 @@ export async function loadSidebarPanel(params: {
   sessionID: string;
 }): Promise<SidebarPanelState> {
   const quotaClient = createTuiQuotaClient(params.api);
-  const configMeta = createLoadConfigMeta();
-  const config = await loadConfig(quotaClient, configMeta, {
-    cwd: resolveWorkspaceDir(params.api),
+  const runtime = await resolveQuotaRuntimeContext({
+    client: quotaClient,
+    roots: getTuiRuntimeRootHints(params.api),
+    sessionID: params.sessionID,
+    resolveSessionMeta: (sessionID) => getTuiSessionModelMeta(params.api, sessionID),
+    includeSessionMeta: (config) => config.onlyCurrentModel,
   });
 
-  if (!config.enabled) {
+  if (!runtime.config.enabled) {
     return {
       status: "disabled",
       lines: [],
     };
   }
 
-  const request = {
-    sessionID: params.sessionID,
-    sessionMeta: config.onlyCurrentModel
-      ? await getTuiSessionModelMeta(params.api, params.sessionID)
-      : undefined,
-  };
+  const request = createQuotaRuntimeRequestContext(runtime);
   const result = await collectQuotaRenderData({
-    client: quotaClient,
-    config,
+    client: runtime.client,
+    config: runtime.config,
     request,
     surfaceExplicitProviderIssues: true,
-    formatStyle: config.formatStyle,
+    formatStyle: runtime.config.formatStyle,
   });
 
   return {
     status: "ready",
-    lines: result.data ? buildSidebarQuotaPanelLines({ data: result.data, config }) : [],
+    lines: result.data
+      ? buildSidebarQuotaPanelLines({ data: result.data, config: runtime.config })
+      : [],
   };
 }
