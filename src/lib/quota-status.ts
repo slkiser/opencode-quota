@@ -72,6 +72,7 @@ import {
   sanitizeDisplayText,
   sanitizeQuotaProviderResult,
 } from "./display-sanitize.js";
+import { QUOTA_TOAST_SETTING_SOURCE_KEYS, type QuotaToastSettingSources } from "./config.js";
 import { getCursorPlanDisplayName, getEffectiveCursorIncludedApiUsd } from "./cursor-pricing.js";
 import { getQuotaProviderDisplayLabel } from "./provider-metadata.js";
 import type { QuotaProviderResult, QuotaToastEntry, QuotaToastError } from "./entries.js";
@@ -136,26 +137,27 @@ function joinOrNone(values: string[]): string {
   return values.length > 0 ? values.join(" | ") : "(none)";
 }
 
-function formatNetworkSettingSources(sources: Record<string, string> | undefined): string {
+function formatSettingSources(sources: QuotaToastSettingSources | undefined): string {
   if (!sources) return "(none)";
 
-  const keys = [
-    "enabled",
-    "enabledProviders",
-    "minIntervalMs",
-    "pricingSnapshot.source",
-    "pricingSnapshot.autoRefresh",
-    "showOnIdle",
-    "showOnQuestion",
-    "showOnCompact",
-    "showOnBothFail",
-  ] as const;
-
-  const parts = keys
-    .filter((key) => typeof sources[key] === "string" && sources[key].length > 0)
-    .map((key) => `${key}<=${sources[key]}`);
+  const parts = QUOTA_TOAST_SETTING_SOURCE_KEYS.filter(
+    (key) => typeof sources[key] === "string" && sources[key].length > 0,
+  ).map((key) => `${key}<=${sources[key]}`);
 
   return parts.length > 0 ? parts.join(" | ") : "(none)";
+}
+
+function getConfigPrecedenceLabel(configSource: string): string {
+  switch (configSource) {
+    case "files":
+      return "global defaults -> workspace overrides";
+    case "sdk":
+      return "sdk fallback (no file-backed config)";
+    case "defaults":
+      return "built-in defaults only";
+    default:
+      return configSource;
+  }
 }
 
 function getDefaultBasicApiKeyDiagnostics(): BasicApiKeyDiagnostics {
@@ -521,6 +523,10 @@ function supportedProviderPricingRow(params: {
 export async function buildQuotaStatusReport(params: {
   configSource: string;
   configPaths: string[];
+  globalConfigPaths?: string[];
+  workspaceConfigPaths?: string[];
+  settingSources?: QuotaToastSettingSources;
+  /** @deprecated compatibility only; not rendered */
   networkSettingSources?: Record<string, string>;
   tuiDiagnostics?: {
     workspaceRoot: string;
@@ -572,8 +578,12 @@ export async function buildQuotaStatusReport(params: {
 
   // === toast diagnostics ===
   const toastLines: string[] = [
-    `- configSource: ${params.configSource}${params.configPaths.length ? ` (${params.configPaths.join(" | ")})` : ""}`,
-    `- network_setting_sources: ${formatNetworkSettingSources(params.networkSettingSources)}`,
+    `- configSource: ${params.configSource}`,
+    `- configPaths: ${joinOrNone(params.configPaths)}`,
+    `- precedence: ${getConfigPrecedenceLabel(params.configSource)}`,
+    `- global_config_paths: ${joinOrNone(params.globalConfigPaths ?? [])}`,
+    `- workspace_config_paths: ${joinOrNone(params.workspaceConfigPaths ?? [])}`,
+    `- setting_sources: ${formatSettingSources(params.settingSources)}`,
     `- enabledProviders: ${params.enabledProviders === "auto" ? "(auto)" : params.enabledProviders.length ? params.enabledProviders.join(",") : "(none)"}`,
     `- onlyCurrentModel: ${params.onlyCurrentModel ? "true" : "false"}`,
     `- currentModel: ${modelDisplay}`,

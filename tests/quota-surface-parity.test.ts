@@ -223,6 +223,131 @@ describe("quota surface parity regressions", () => {
     expect(syntheticProvider.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps workspace overrides for formerly global-authoritative settings aligned between plugin and sidebar", async () => {
+    const syntheticProvider = {
+      id: "synthetic",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [
+          {
+            name: "Synthetic Weekly",
+            group: "Synthetic",
+            label: "Weekly:",
+            percentRemaining: 17,
+            right: "$4/$24",
+            resetTimeIso: "2099-01-08T00:00:00.000Z",
+          },
+        ],
+        errors: [],
+      }),
+    };
+    const openaiProvider = {
+      id: "openai",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [
+          {
+            name: "OpenAI Pro",
+            group: "OpenAI",
+            label: "Pro:",
+            percentRemaining: 82,
+            right: "82/100",
+            resetTimeIso: "2099-01-08T00:00:00.000Z",
+          },
+        ],
+        errors: [],
+      }),
+    };
+    mockProviders.push(syntheticProvider, openaiProvider);
+
+    const globalConfigDir = join(process.env.XDG_CONFIG_HOME!, "opencode");
+    mkdirSync(globalConfigDir, { recursive: true });
+
+    writeFileSync(
+      join(globalConfigDir, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            enabled: true,
+            enabledProviders: ["synthetic"],
+            formatStyle: "allWindows",
+            showOnQuestion: false,
+            showSessionTokens: false,
+            minIntervalMs: 60_000,
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    writeFileSync(
+      join(worktreeDir, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            enabled: true,
+            enabledProviders: ["openai"],
+            formatStyle: "allWindows",
+            showOnQuestion: false,
+            showSessionTokens: false,
+            minIntervalMs: 60_000,
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const client = createClient({
+      config: {
+        enabled: false,
+        enabledProviders: ["synthetic"],
+      },
+      sessionMeta: { modelID: "openai/gpt-5", providerID: "openai" },
+    });
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const hooks = await QuotaToastPlugin({ client } as any);
+    await expect(
+      hooks["command.execute.before"]?.({
+        command: "quota",
+        sessionID: "session-layered-provider-override",
+      } as any),
+    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+
+    const quotaOutput = getPromptText(client);
+    expect(quotaOutput).toContain("82% left");
+    expect(quotaOutput).not.toContain("17% left");
+
+    await resetQuotaStateForTests();
+
+    const { loadSidebarPanel } = await import("../src/lib/tui-runtime.js");
+    const panel = await loadSidebarPanel({
+      api: {
+        state: {
+          provider: [],
+          path: {
+            worktree: worktreeDir,
+            directory: nestedDir,
+          },
+          session: {
+            messages: () => [],
+          },
+        },
+        client,
+      } as any,
+      sessionID: "session-layered-provider-override",
+    });
+
+    expect(panel.status).toBe("ready");
+    const sidebarOutput = panel.lines.join("\n");
+    expect(sidebarOutput).toContain("82% left");
+    expect(sidebarOutput).not.toContain("17% left");
+    expect(openaiProvider.fetch).toHaveBeenCalledTimes(1);
+    expect(syntheticProvider.fetch).not.toHaveBeenCalled();
+  });
+
   it("keeps synthetic grouped numeric parity between real /quota and real sidebar from shared snapshot storage", async () => {
     const syntheticProvider = {
       id: "synthetic",

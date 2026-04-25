@@ -16,9 +16,9 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
   getOpencodeRuntimeDirCandidates: () => runtimeDirs.value,
 }));
 
-import { loadConfig } from "../src/lib/config.js";
+import { createLoadConfigMeta, loadConfig } from "../src/lib/config.js";
 
-describe("loadConfig security precedence", () => {
+describe("loadConfig layered precedence", () => {
   const originalEnv = process.env;
   const originalCwd = process.cwd();
   let tempDir: string;
@@ -56,7 +56,7 @@ describe("loadConfig security precedence", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("keeps global config authoritative for network-affecting keys while allowing workspace display overrides", async () => {
+  it("lets workspace ordinary settings override global defaults while file-backed config still blocks sdk fallback", async () => {
     writeFileSync(
       join(xdgConfigHome, "opencode", "opencode.json"),
       JSON.stringify({
@@ -67,6 +67,7 @@ describe("loadConfig security precedence", () => {
             showOnIdle: false,
             showOnQuestion: false,
             showOnCompact: false,
+            showOnBothFail: false,
             minIntervalMs: 600000,
             pricingSnapshot: { source: "bundled", autoRefresh: 30 },
             formatStyle: "singleWindow",
@@ -87,6 +88,7 @@ describe("loadConfig security precedence", () => {
             showOnIdle: true,
             showOnQuestion: true,
             showOnCompact: true,
+            showOnBothFail: true,
             minIntervalMs: 1000,
             pricingSnapshot: { source: "runtime", autoRefresh: 1 },
             formatStyle: "allWindows",
@@ -104,9 +106,9 @@ describe("loadConfig security precedence", () => {
           data: {
             experimental: {
               quotaToast: {
-                enabled: true,
+                enabled: false,
                 enabledProviders: ["zai"],
-                formatStyle: "allWindows",
+                formatStyle: "singleWindow",
                 percentDisplayMode: "remaining",
               },
             },
@@ -115,19 +117,20 @@ describe("loadConfig security precedence", () => {
       },
     });
 
-    expect(cfg.enabled).toBe(false);
-    expect(cfg.enabledProviders).toEqual(["openai"]);
-    expect(cfg.showOnIdle).toBe(false);
-    expect(cfg.showOnQuestion).toBe(false);
-    expect(cfg.showOnCompact).toBe(false);
-    expect(cfg.minIntervalMs).toBe(600000);
-    expect(cfg.pricingSnapshot).toEqual({ source: "bundled", autoRefresh: 30 });
+    expect(cfg.enabled).toBe(true);
+    expect(cfg.enabledProviders).toEqual(["chutes"]);
+    expect(cfg.showOnIdle).toBe(true);
+    expect(cfg.showOnQuestion).toBe(true);
+    expect(cfg.showOnCompact).toBe(true);
+    expect(cfg.showOnBothFail).toBe(true);
+    expect(cfg.minIntervalMs).toBe(1000);
+    expect(cfg.pricingSnapshot).toEqual({ source: "runtime", autoRefresh: 1 });
     expect(cfg.formatStyle).toBe("allWindows");
     expect(cfg.percentDisplayMode).toBe("used");
     expect(cfg.onlyCurrentModel).toBe(true);
   });
 
-  it("supports file loading with an explicit cwd override", async () => {
+  it("supports file loading with an explicit cwd override and records layered provenance", async () => {
     const altWorkspaceDir = join(tempDir, "alt-workspace");
     mkdirSync(altWorkspaceDir, { recursive: true });
 
@@ -146,7 +149,7 @@ describe("loadConfig security precedence", () => {
       "utf-8",
     );
 
-    const meta = { source: "defaults" as const, paths: [] as string[], networkSettingSources: {} as Record<string, string> };
+    const meta = createLoadConfigMeta();
     const cfg = await loadConfig(undefined, meta, { cwd: altWorkspaceDir });
 
     expect(cfg.enabledProviders).toEqual(["nanogpt"]);
@@ -154,11 +157,20 @@ describe("loadConfig security precedence", () => {
     expect(cfg.percentDisplayMode).toBe("used");
     expect(cfg.onlyCurrentModel).toBe(true);
     expect(meta.source).toBe("files");
-    expect(meta.paths).toContain(join(altWorkspaceDir, "opencode.json") + " (experimental.quotaToast)");
+    expect(meta.globalConfigPaths).toEqual([]);
+    expect(meta.workspaceConfigPaths).toEqual([
+      join(altWorkspaceDir, "opencode.json") + " (experimental.quotaToast)",
+    ]);
+    expect(meta.paths).toEqual(meta.workspaceConfigPaths);
+    expect(meta.settingSources).toEqual({
+      enabledProviders: join(altWorkspaceDir, "opencode.json") + " (experimental.quotaToast)",
+      formatStyle: join(altWorkspaceDir, "opencode.json") + " (experimental.quotaToast)",
+      percentDisplayMode: join(altWorkspaceDir, "opencode.json") + " (experimental.quotaToast)",
+      onlyCurrentModel: join(altWorkspaceDir, "opencode.json") + " (experimental.quotaToast)",
+    });
     expect(meta.networkSettingSources).toEqual({
       enabledProviders: join(altWorkspaceDir, "opencode.json") + " (experimental.quotaToast)",
     });
-    expect(meta.networkSettingSources).not.toHaveProperty("percentDisplayMode");
   });
 
   it("merges pricingSnapshot per field so global and workspace sources can coexist", async () => {
@@ -186,14 +198,136 @@ describe("loadConfig security precedence", () => {
       "utf-8",
     );
 
-    const meta = { source: "defaults" as const, paths: [] as string[], networkSettingSources: {} as Record<string, string> };
+    const meta = createLoadConfigMeta();
     const cfg = await loadConfig(undefined, meta, { cwd: workspaceDir });
 
     expect(cfg.pricingSnapshot).toEqual({ source: "bundled", autoRefresh: 2 });
-    expect(
-      meta.networkSettingSources["pricingSnapshot.source"],
-    ).toBe(join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)");
-    expect(meta.networkSettingSources["pricingSnapshot.autoRefresh"]).toBe(
+    expect(meta.settingSources["pricingSnapshot.source"]).toBe(
+      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+    );
+    expect(meta.settingSources["pricingSnapshot.autoRefresh"]).toBe(
+      join(workspaceDir, "opencode.json") + " (experimental.quotaToast)",
+    );
+  });
+
+  it("merges layout per field so global and workspace sources can coexist", async () => {
+    writeFileSync(
+      join(xdgConfigHome, "opencode", "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            layout: { maxWidth: 72, narrowAt: 40 },
+          },
+        },
+      }),
+      "utf-8",
+    );
+
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            layout: { narrowAt: 36, tinyAt: 24 },
+          },
+        },
+      }),
+      "utf-8",
+    );
+
+    const meta = createLoadConfigMeta();
+    const cfg = await loadConfig(undefined, meta, { cwd: workspaceDir });
+
+    expect(cfg.layout).toEqual({ maxWidth: 72, narrowAt: 36, tinyAt: 24 });
+    expect(meta.settingSources["layout.maxWidth"]).toBe(
+      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+    );
+    expect(meta.settingSources["layout.narrowAt"]).toBe(
+      join(workspaceDir, "opencode.json") + " (experimental.quotaToast)",
+    );
+    expect(meta.settingSources["layout.tinyAt"]).toBe(
+      join(workspaceDir, "opencode.json") + " (experimental.quotaToast)",
+    );
+  });
+
+  it("preserves the previous valid layer when workspace values are invalid", async () => {
+    writeFileSync(
+      join(xdgConfigHome, "opencode", "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            enabledProviders: ["openai"],
+            anthropicBinaryPath: "/usr/local/bin/claude",
+            googleModels: ["CLAUDE", "G3PRO"],
+            cursorIncludedApiUsd: 42,
+            cursorBillingCycleStartDay: 7,
+            pricingSnapshot: { source: "bundled", autoRefresh: 30 },
+            formatStyle: "allWindows",
+            layout: { maxWidth: 64, narrowAt: 40 },
+          },
+        },
+      }),
+      "utf-8",
+    );
+
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            enabledProviders: ["not-a-provider"],
+            anthropicBinaryPath: "   ",
+            googleModels: [],
+            cursorIncludedApiUsd: 0,
+            cursorBillingCycleStartDay: 31,
+            pricingSnapshot: { source: "remote", autoRefresh: 0 },
+            formatStyle: "bad-style",
+            layout: { maxWidth: -1, narrowAt: 35 },
+          },
+        },
+      }),
+      "utf-8",
+    );
+
+    const meta = createLoadConfigMeta();
+    const cfg = await loadConfig(undefined, meta, { cwd: workspaceDir });
+
+    expect(cfg.enabledProviders).toEqual(["openai"]);
+    expect(cfg.anthropicBinaryPath).toBe("/usr/local/bin/claude");
+    expect(cfg.googleModels).toEqual(["CLAUDE", "G3PRO"]);
+    expect(cfg.cursorIncludedApiUsd).toBe(42);
+    expect(cfg.cursorBillingCycleStartDay).toBe(7);
+    expect(cfg.pricingSnapshot).toEqual({ source: "bundled", autoRefresh: 30 });
+    expect(cfg.formatStyle).toBe("allWindows");
+    expect(cfg.layout).toEqual({ maxWidth: 64, narrowAt: 35, tinyAt: 32 });
+    expect(meta.settingSources.enabledProviders).toBe(
+      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+    );
+    expect(meta.settingSources.anthropicBinaryPath).toBe(
+      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+    );
+    expect(meta.settingSources.googleModels).toBe(
+      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+    );
+    expect(meta.settingSources.cursorIncludedApiUsd).toBe(
+      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+    );
+    expect(meta.settingSources.cursorBillingCycleStartDay).toBe(
+      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+    );
+    expect(meta.settingSources["pricingSnapshot.source"]).toBe(
+      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+    );
+    expect(meta.settingSources["pricingSnapshot.autoRefresh"]).toBe(
+      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+    );
+    expect(meta.settingSources.formatStyle).toBe(
+      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+    );
+    expect(meta.settingSources["layout.maxWidth"]).toBe(
+      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+    );
+    expect(meta.settingSources["layout.narrowAt"]).toBe(
       join(workspaceDir, "opencode.json") + " (experimental.quotaToast)",
     );
   });

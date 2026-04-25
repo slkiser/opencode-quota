@@ -15,7 +15,7 @@ vi.mock("os", async (importOriginal) => {
   };
 });
 
-import { loadConfig } from "../src/lib/config.js";
+import { createLoadConfigMeta, loadConfig } from "../src/lib/config.js";
 import { getOpencodeRuntimeDirCandidates } from "../src/lib/opencode-runtime-paths.js";
 
 describe("loadConfig integration runtime-path resolution", () => {
@@ -57,7 +57,7 @@ describe("loadConfig integration runtime-path resolution", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("uses real runtime dirs as defaults and explicit cwd config as overrides", async () => {
+  it("uses real runtime dirs as defaults and explicit cwd config as workspace overrides", async () => {
     const env = {
       ...process.env,
       HOME: tempDir,
@@ -114,11 +114,11 @@ describe("loadConfig integration runtime-path resolution", () => {
       "utf8",
     );
 
-    const meta = { source: "defaults" as const, paths: [] as string[], networkSettingSources: {} as Record<string, string> };
+    const meta = createLoadConfigMeta();
     const cfg = await loadConfig(undefined, meta, { cwd: workspaceDir });
 
-    expect(cfg.enabled).toBe(false);
-    expect(cfg.enabledProviders).toEqual(["openai"]);
+    expect(cfg.enabled).toBe(true);
+    expect(cfg.enabledProviders).toEqual(["nanogpt"]);
     expect(cfg.showOnIdle).toBe(false);
     expect(cfg.pricingSnapshot).toEqual({ source: "bundled", autoRefresh: 30 });
     expect(cfg.formatStyle).toBe("allWindows");
@@ -134,37 +134,73 @@ describe("loadConfig integration runtime-path resolution", () => {
     ).toBe(true);
     expect(meta.paths).toContain(join(workspaceDir, "opencode.json") + " (experimental.quotaToast)");
     expect(meta.paths).not.toContain(join(nestedDir, "opencode.json") + " (experimental.quotaToast)");
+    expect(meta.workspaceConfigPaths).toEqual([
+      join(workspaceDir, "opencode.json") + " (experimental.quotaToast)",
+    ]);
+    expect(
+      meta.globalConfigPaths.some((path) =>
+        configDirs.includes(
+          normalize(dirname(path.replace(/ \(experimental\.quotaToast\)$/, ""))),
+        ),
+      ),
+    ).toBe(true);
+    expect(meta.settingSources.enabled).toBe(
+      join(workspaceDir, "opencode.json") + " (experimental.quotaToast)",
+    );
+    expect(meta.settingSources.enabledProviders).toBe(
+      join(workspaceDir, "opencode.json") + " (experimental.quotaToast)",
+    );
     expect(
       configDirs.some(
         (dir) =>
-          meta.networkSettingSources.enabled ===
+          meta.settingSources["pricingSnapshot.source"] ===
           join(dir, "opencode.json") + " (experimental.quotaToast)",
       ),
     ).toBe(true);
     expect(
       configDirs.some(
         (dir) =>
-          meta.networkSettingSources.enabledProviders ===
-          join(dir, "opencode.json") + " (experimental.quotaToast)",
-      ),
-    ).toBe(true);
-    expect(
-      configDirs.some(
-        (dir) =>
-          meta.networkSettingSources["pricingSnapshot.source"] ===
-          join(dir, "opencode.json") + " (experimental.quotaToast)",
-      ),
-    ).toBe(true);
-    expect(
-      configDirs.some(
-        (dir) =>
-          meta.networkSettingSources["pricingSnapshot.autoRefresh"] ===
+          meta.settingSources["pricingSnapshot.autoRefresh"] ===
           join(dir, "opencode.json") + " (experimental.quotaToast)",
       ),
     ).toBe(true);
   });
 
-  it("keeps global network-setting precedence while switching local config root", async () => {
+  it("treats an overlapping configRootDir as the workspace layer instead of a duplicate global path", async () => {
+    const overlappingRoot = join(xdgConfigHome, "opencode");
+
+    writeFileSync(
+      join(overlappingRoot, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            enabled: false,
+            minIntervalMs: 12_345,
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const meta = createLoadConfigMeta();
+    const cfg = await loadConfig(undefined, meta, { configRootDir: overlappingRoot });
+
+    expect(cfg.enabled).toBe(false);
+    expect(cfg.minIntervalMs).toBe(12_345);
+    expect(meta.globalConfigPaths).toEqual([]);
+    expect(meta.workspaceConfigPaths).toEqual([
+      join(overlappingRoot, "opencode.json") + " (experimental.quotaToast)",
+    ]);
+    expect(meta.paths).toEqual(meta.workspaceConfigPaths);
+    expect(meta.settingSources.enabled).toBe(
+      join(overlappingRoot, "opencode.json") + " (experimental.quotaToast)",
+    );
+    expect(meta.settingSources.minIntervalMs).toBe(
+      join(overlappingRoot, "opencode.json") + " (experimental.quotaToast)",
+    );
+  });
+
+  it("uses the provided configRootDir to pick the workspace override layer over shared global defaults", async () => {
     const env = {
       ...process.env,
       HOME: tempDir,
@@ -200,6 +236,8 @@ describe("loadConfig integration runtime-path resolution", () => {
         experimental: {
           quotaToast: {
             enabled: true,
+            enabledProviders: ["nano-gpt"],
+            minIntervalMs: 1_000,
             formatStyle: "allWindows",
             onlyCurrentModel: true,
           },
@@ -214,6 +252,8 @@ describe("loadConfig integration runtime-path resolution", () => {
         experimental: {
           quotaToast: {
             enabled: true,
+            enabledProviders: ["chutes"],
+            minIntervalMs: 2_000,
             formatStyle: "singleWindow",
             onlyCurrentModel: false,
           },
@@ -222,43 +262,52 @@ describe("loadConfig integration runtime-path resolution", () => {
       "utf8",
     );
 
-    const workspaceMeta = {
-      source: "defaults" as const,
-      paths: [] as string[],
-      networkSettingSources: {} as Record<string, string>,
-    };
+    const workspaceMeta = createLoadConfigMeta();
     const workspaceCfg = await loadConfig(undefined, workspaceMeta, { configRootDir: workspaceDir });
 
-    const nestedMeta = {
-      source: "defaults" as const,
-      paths: [] as string[],
-      networkSettingSources: {} as Record<string, string>,
-    };
+    const nestedMeta = createLoadConfigMeta();
     const nestedCfg = await loadConfig(undefined, nestedMeta, { configRootDir: nestedDir });
 
-    expect(workspaceCfg.enabled).toBe(false);
-    expect(nestedCfg.enabled).toBe(false);
-    expect(workspaceCfg.enabledProviders).toEqual(["openai"]);
-    expect(nestedCfg.enabledProviders).toEqual(["openai"]);
+    expect(workspaceCfg.enabled).toBe(true);
+    expect(nestedCfg.enabled).toBe(true);
+    expect(workspaceCfg.enabledProviders).toEqual(["nanogpt"]);
+    expect(nestedCfg.enabledProviders).toEqual(["chutes"]);
+    expect(workspaceCfg.minIntervalMs).toBe(1_000);
+    expect(nestedCfg.minIntervalMs).toBe(2_000);
 
     expect(workspaceCfg.formatStyle).toBe("allWindows");
     expect(nestedCfg.formatStyle).toBe("singleWindow");
     expect(workspaceCfg.onlyCurrentModel).toBe(true);
     expect(nestedCfg.onlyCurrentModel).toBe(false);
 
-    expect(workspaceMeta.paths).toContain(
+    expect(workspaceMeta.workspaceConfigPaths).toEqual([
       join(workspaceDir, "opencode.json") + " (experimental.quotaToast)",
-    );
-    expect(nestedMeta.paths).toContain(join(nestedDir, "opencode.json") + " (experimental.quotaToast)");
-
+    ]);
+    expect(nestedMeta.workspaceConfigPaths).toEqual([
+      join(nestedDir, "opencode.json") + " (experimental.quotaToast)",
+    ]);
     expect(
       configDirs.some(
         (dir) =>
-          workspaceMeta.networkSettingSources.enabled ===
-            join(dir, "opencode.json") + " (experimental.quotaToast)" &&
-          nestedMeta.networkSettingSources.enabled ===
+          workspaceMeta.globalConfigPaths.includes(
             join(dir, "opencode.json") + " (experimental.quotaToast)",
+          ) &&
+          nestedMeta.globalConfigPaths.includes(
+            join(dir, "opencode.json") + " (experimental.quotaToast)",
+          ),
       ),
     ).toBe(true);
+    expect(workspaceMeta.settingSources.enabled).toBe(
+      join(workspaceDir, "opencode.json") + " (experimental.quotaToast)",
+    );
+    expect(nestedMeta.settingSources.enabled).toBe(
+      join(nestedDir, "opencode.json") + " (experimental.quotaToast)",
+    );
+    expect(workspaceMeta.settingSources.minIntervalMs).toBe(
+      join(workspaceDir, "opencode.json") + " (experimental.quotaToast)",
+    );
+    expect(nestedMeta.settingSources.minIntervalMs).toBe(
+      join(nestedDir, "opencode.json") + " (experimental.quotaToast)",
+    );
   });
 });

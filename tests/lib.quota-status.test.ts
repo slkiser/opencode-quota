@@ -472,18 +472,25 @@ describe("buildQuotaStatusReport", () => {
     const { buildQuotaStatusReport } = await import("../src/lib/quota-status.js");
 
     const report = await buildQuotaStatusReport({
-      configSource: "test",
-      configPaths: [],
-      networkSettingSources: {
+      configSource: "files",
+      configPaths: [
+        "/tmp/config/opencode.json (experimental.quotaToast)",
+        "/tmp/project/opencode.jsonc (experimental.quotaToast)",
+      ],
+      globalConfigPaths: ["/tmp/config/opencode.json (experimental.quotaToast)"],
+      workspaceConfigPaths: ["/tmp/project/opencode.jsonc (experimental.quotaToast)"],
+      settingSources: {
         enabled: "/tmp/config/opencode.json (experimental.quotaToast)",
-        enabledProviders: "/tmp/config/opencode.json (experimental.quotaToast)",
-        minIntervalMs: "/tmp/config/opencode.json (experimental.quotaToast)",
+        enableToast: "/tmp/config/opencode.json (experimental.quotaToast)",
+        minIntervalMs: "/tmp/project/opencode.jsonc (experimental.quotaToast)",
+        enabledProviders: "/tmp/project/opencode.jsonc (experimental.quotaToast)",
         "pricingSnapshot.source": "/tmp/config/opencode.json (experimental.quotaToast)",
-        "pricingSnapshot.autoRefresh": "/tmp/config/opencode.json (experimental.quotaToast)",
+        "pricingSnapshot.autoRefresh": "/tmp/project/opencode.jsonc (experimental.quotaToast)",
         showOnIdle: "/tmp/config/opencode.json (experimental.quotaToast)",
-        showOnQuestion: "/tmp/config/opencode.json (experimental.quotaToast)",
-        showOnCompact: "/tmp/config/opencode.json (experimental.quotaToast)",
+        showOnQuestion: "/tmp/project/opencode.jsonc (experimental.quotaToast)",
+        showOnCompact: "/tmp/project/opencode.jsonc (experimental.quotaToast)",
         showOnBothFail: "/tmp/config/opencode.json (experimental.quotaToast)",
+        "layout.maxWidth": "/tmp/project/opencode.jsonc (experimental.quotaToast)",
       },
       tuiDiagnostics: {
         workspaceRoot: "/tmp/workspace",
@@ -518,7 +525,17 @@ describe("buildQuotaStatusReport", () => {
       "- opencode_dirs: data=/tmp/data config=/tmp/config cache=/tmp/cache state=/tmp/state",
     );
     expect(report).toContain(
-      "- network_setting_sources: enabled<=/tmp/config/opencode.json (experimental.quotaToast) | enabledProviders<=/tmp/config/opencode.json (experimental.quotaToast) | minIntervalMs<=/tmp/config/opencode.json (experimental.quotaToast) | pricingSnapshot.source<=/tmp/config/opencode.json (experimental.quotaToast) | pricingSnapshot.autoRefresh<=/tmp/config/opencode.json (experimental.quotaToast) | showOnIdle<=/tmp/config/opencode.json (experimental.quotaToast) | showOnQuestion<=/tmp/config/opencode.json (experimental.quotaToast) | showOnCompact<=/tmp/config/opencode.json (experimental.quotaToast) | showOnBothFail<=/tmp/config/opencode.json (experimental.quotaToast)",
+      "- configPaths: /tmp/config/opencode.json (experimental.quotaToast) | /tmp/project/opencode.jsonc (experimental.quotaToast)",
+    );
+    expect(report).toContain("- precedence: global defaults -> workspace overrides");
+    expect(report).toContain(
+      "- global_config_paths: /tmp/config/opencode.json (experimental.quotaToast)",
+    );
+    expect(report).toContain(
+      "- workspace_config_paths: /tmp/project/opencode.jsonc (experimental.quotaToast)",
+    );
+    expect(report).toContain(
+      "- setting_sources: enabled<=/tmp/config/opencode.json (experimental.quotaToast) | enableToast<=/tmp/config/opencode.json (experimental.quotaToast) | minIntervalMs<=/tmp/project/opencode.jsonc (experimental.quotaToast) | enabledProviders<=/tmp/project/opencode.jsonc (experimental.quotaToast) | pricingSnapshot.source<=/tmp/config/opencode.json (experimental.quotaToast) | pricingSnapshot.autoRefresh<=/tmp/project/opencode.jsonc (experimental.quotaToast) | showOnIdle<=/tmp/config/opencode.json (experimental.quotaToast) | showOnQuestion<=/tmp/project/opencode.jsonc (experimental.quotaToast) | showOnCompact<=/tmp/project/opencode.jsonc (experimental.quotaToast) | showOnBothFail<=/tmp/config/opencode.json (experimental.quotaToast) | layout.maxWidth<=/tmp/project/opencode.jsonc (experimental.quotaToast)",
     );
     expect(report).toContain("tui:");
     expect(report).toContain("- workspace_root: /tmp/workspace");
@@ -1361,7 +1378,7 @@ describe("buildQuotaStatusReport", () => {
     const { buildQuotaStatusReport } = await import("../src/lib/quota-status.js");
 
     const report = await buildQuotaStatusReport({
-      configSource: "test",
+      configSource: "defaults",
       configPaths: [],
       enabledProviders: ["copilot"],
       alibabaCodingPlanTier: "lite",
@@ -1387,8 +1404,12 @@ describe("buildQuotaStatusReport", () => {
     const excerpt = body.slice(0, 46).join("\n");
     expect(excerpt).toMatchInlineSnapshot(`
       "toast:
-      - configSource: test
-      - network_setting_sources: (none)
+      - configSource: defaults
+      - configPaths: (none)
+      - precedence: built-in defaults only
+      - global_config_paths: (none)
+      - workspace_config_paths: (none)
+      - setting_sources: (none)
       - enabledProviders: copilot
       - onlyCurrentModel: false
       - currentModel: (unknown)
@@ -1427,11 +1448,7 @@ describe("buildQuotaStatusReport", () => {
 
       cursor:
       - plan: none
-      - included_api_usd: (none)
-      - billing_cycle_start_day: (calendar month)
-      - auth_state: present
-      - auth_selected_path: /tmp/auth.json
-      - auth_present_paths: /tmp/auth.json"
+      - included_api_usd: (none)"
     `);
 
     const titles = report

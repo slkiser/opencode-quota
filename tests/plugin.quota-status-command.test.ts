@@ -173,6 +173,9 @@ describe("/quota_status command behavior", () => {
     );
     expect(mocks.buildQuotaStatusReport).toHaveBeenCalledWith(
       expect.objectContaining({
+        globalConfigPaths: [],
+        workspaceConfigPaths: [],
+        settingSources: {},
         providerLiveProbes: [
           {
             providerId: "openai",

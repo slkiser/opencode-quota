@@ -319,7 +319,7 @@ Environment variables take precedence over the config file. Run `/quota_status` 
 | Command               | What it shows                                                                                                    |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `/quota`              | Manual detailed all-window quota report with a local call timestamp                                               |
-| `/quota_status`       | Concise diagnostics for config, resolved workspace/config roots, TUI setup, provider availability, account detection, pricing snapshot health, and fresh compact single-window live probe rows in matching provider sections |
+| `/quota_status`       | Concise diagnostics for layered config provenance, resolved workspace/config roots, TUI setup, provider availability, account detection, pricing snapshot health, and fresh compact single-window live probe rows in matching provider sections |
 | `/pricing_refresh`    | Pull the local runtime pricing snapshot from `models.dev` on demand                                              |
 | `/tokens_today`       | Tokens used today (calendar day)                                                                                 |
 | `/tokens_daily`       | Tokens used in the last 24 hours                                                                                 |
@@ -665,7 +665,15 @@ OpenCode Go quota scrapes the OpenCode Go dashboard at `https://opencode.ai/work
 
 All quota plugin settings live under `experimental.quotaToast` in `opencode.json` or `opencode.jsonc`.
 
-Project/workspace config may override display-oriented settings for that project, but user/global config remains authoritative for automatic/network-affecting settings such as `enabled`, `enabledProviders`, `minIntervalMs`, `pricingSnapshot.*`, `showOnIdle`, `showOnQuestion`, `showOnCompact`, and `showOnBothFail`. SDK config is only used when no config files are found.
+User/global runtime config provides defaults, and workspace config at the resolved `configRoot` overrides ordinary `experimental.quotaToast` settings for that worktree. SDK config is used only when no file-backed quota config exists.
+
+This layered behavior applies to all ordinary quota settings, including `enabled`, `enabledProviders`, `minIntervalMs`, `pricingSnapshot.*`, `showOnIdle`, `showOnQuestion`, `showOnCompact`, and `showOnBothFail`. Nested `layout.*` settings also merge per field across layers, so a workspace can override one layout sub-setting without replacing the others.
+
+`tui.json` / `tui.jsonc` behavior is unchanged: those files only control whether OpenCode mounts the sidebar plugin. Same-worktree multi-instance behavior is still a runtime coordination concern, not a config-precedence rule.
+
+#### Migration note
+
+If you previously relied on user/global quota config silently overriding workspace values for ordinary `experimental.quotaToast` settings, workspace config now wins at the resolved `configRoot`. The file format and setting names are unchanged; only precedence semantics changed.
 
 ### Core/shared settings
 

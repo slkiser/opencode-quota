@@ -66,7 +66,14 @@ export function createPluginToolMockModule() {
 export function createConfigModuleMock(loadConfig: MockFunction) {
   return {
     loadConfig,
-    createLoadConfigMeta: () => ({ source: "test", paths: [], networkSettingSources: {} }),
+    createLoadConfigMeta: () => ({
+      source: "defaults",
+      paths: [],
+      globalConfigPaths: [],
+      workspaceConfigPaths: [],
+      settingSources: {},
+      networkSettingSources: {},
+    }),
   };
 }
 

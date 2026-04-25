@@ -3,9 +3,8 @@
  *
  * Precedence model:
  * - Global/user config provides defaults.
- * - Project/workspace config may override display-oriented settings for the current project.
- * - Global/user config remains authoritative for automatic/network-affecting settings.
- * - SDK config is used only as a fallback when no config files are found.
+ * - Workspace config at the resolved config root overrides ordinary settings.
+ * - SDK config is used only as a fallback when no file-backed config exists.
  */
 
 import type {
@@ -18,7 +17,7 @@ import type {
 import { DEFAULT_CONFIG } from "./types.js";
 import { isQuotaFormatStyle, resolveQuotaFormatStyle } from "./quota-format-style.js";
 import { parseJsonOrJsonc } from "./jsonc.js";
-import { normalizeQuotaProviderId } from "./provider-metadata.js";
+import { getQuotaProviderShape, normalizeQuotaProviderId } from "./provider-metadata.js";
 
 import { existsSync } from "fs";
 import { readFile } from "fs/promises";
@@ -26,9 +25,43 @@ import { join } from "path";
 
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 
+export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
+  "enabled",
+  "enableToast",
+  "formatStyle",
+  "percentDisplayMode",
+  "minIntervalMs",
+  "debug",
+  "enabledProviders",
+  "anthropicBinaryPath",
+  "googleModels",
+  "alibabaCodingPlanTier",
+  "cursorPlan",
+  "cursorIncludedApiUsd",
+  "cursorBillingCycleStartDay",
+  "pricingSnapshot.source",
+  "pricingSnapshot.autoRefresh",
+  "showOnIdle",
+  "showOnQuestion",
+  "showOnCompact",
+  "showOnBothFail",
+  "toastDurationMs",
+  "onlyCurrentModel",
+  "showSessionTokens",
+  "layout.maxWidth",
+  "layout.narrowAt",
+  "layout.tinyAt",
+] as const;
+
+export type QuotaToastSettingSourceKey = (typeof QUOTA_TOAST_SETTING_SOURCE_KEYS)[number];
+export type QuotaToastSettingSources = Partial<Record<QuotaToastSettingSourceKey, string>>;
+
 export interface LoadConfigMeta {
   source: "sdk" | "files" | "defaults";
   paths: string[];
+  globalConfigPaths: string[];
+  workspaceConfigPaths: string[];
+  settingSources: QuotaToastSettingSources;
   networkSettingSources: Record<string, string>;
 }
 
@@ -39,18 +72,58 @@ export interface LoadConfigOptions {
 }
 
 export function createLoadConfigMeta(): LoadConfigMeta {
-  return { source: "defaults", paths: [], networkSettingSources: {} };
+  return {
+    source: "defaults",
+    paths: [],
+    globalConfigPaths: [],
+    workspaceConfigPaths: [],
+    settingSources: {},
+    networkSettingSources: {},
+  };
 }
 
-const NETWORK_AFFECTING_KEYS = [
+const CONFIG_FILENAMES = ["opencode.json", "opencode.jsonc"] as const;
+const NETWORK_SETTING_SOURCE_KEYS = [
   "enabled",
   "enabledProviders",
   "minIntervalMs",
+  "pricingSnapshot.source",
+  "pricingSnapshot.autoRefresh",
   "showOnIdle",
   "showOnQuestion",
   "showOnCompact",
   "showOnBothFail",
-] as const satisfies readonly (keyof QuotaToastConfig)[];
+] as const satisfies readonly QuotaToastSettingSourceKey[];
+
+type PricingSnapshotPatch = Partial<QuotaToastConfig["pricingSnapshot"]>;
+type LayoutPatch = Partial<QuotaToastConfig["layout"]>;
+
+type ValidatedQuotaToastPatch = {
+  enabled?: boolean;
+  enableToast?: boolean;
+  formatStyle?: QuotaToastConfig["formatStyle"];
+  percentDisplayMode?: PercentDisplayMode;
+  minIntervalMs?: number;
+  debug?: boolean;
+  enabledProviders?: string[] | "auto";
+  anthropicBinaryPath?: string;
+  googleModels?: GoogleModelId[];
+  alibabaCodingPlanTier?: QuotaToastConfig["alibabaCodingPlanTier"];
+  cursorPlan?: CursorQuotaPlan;
+  cursorIncludedApiUsd?: number;
+  cursorBillingCycleStartDay?: number;
+  pricingSnapshot?: PricingSnapshotPatch;
+  showOnIdle?: boolean;
+  showOnQuestion?: boolean;
+  showOnCompact?: boolean;
+  showOnBothFail?: boolean;
+  toastDurationMs?: number;
+  onlyCurrentModel?: boolean;
+  showSessionTokens?: boolean;
+  layout?: LayoutPatch;
+};
+
+type ConfigLayerScope = "global" | "workspace";
 
 function hasOwnKey<T extends object>(value: T, key: PropertyKey): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
@@ -69,8 +142,7 @@ function isValidGoogleModelId(id: unknown): id is GoogleModelId {
 
 function isValidCursorQuotaPlan(plan: unknown): plan is CursorQuotaPlan {
   return (
-    typeof plan === "string" &&
-    ["none", "pro", "pro-plus", "ultra"].includes(plan)
+    typeof plan === "string" && ["none", "pro", "pro-plus", "ultra"].includes(plan)
   );
 }
 
@@ -84,6 +156,20 @@ function isValidPricingSnapshotAutoRefresh(value: unknown): value is number {
 
 function isValidPercentDisplayMode(value: unknown): value is PercentDisplayMode {
   return value === "remaining" || value === "used";
+}
+
+function isValidAlibabaCodingPlanTier(
+  value: unknown,
+): value is QuotaToastConfig["alibabaCodingPlanTier"] {
+  return value === "lite" || value === "pro";
+}
+
+function isPositiveNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function isValidCursorBillingCycleStartDay(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 28;
 }
 
 function normalizeOptionalString(value: unknown): string | undefined {
@@ -121,64 +207,412 @@ function dedupe<T>(list: T[]): T[] {
   return [...new Set(list)];
 }
 
-const NETWORK_SETTING_SOURCE_KEYS = [
-  "enabled",
-  "enabledProviders",
-  "minIntervalMs",
-  "pricingSnapshot.source",
-  "pricingSnapshot.autoRefresh",
-  "showOnIdle",
-  "showOnQuestion",
-  "showOnCompact",
-  "showOnBothFail",
-] as const;
-
-function resolveEffectiveNetworkSettingSources(params: {
-  globalSources: Record<string, string>;
-  localSources: Record<string, string>;
-}): Record<string, string> {
-  const resolved: Record<string, string> = {};
-
-  for (const key of NETWORK_SETTING_SOURCE_KEYS) {
-    if (typeof params.globalSources[key] === "string" && params.globalSources[key].length > 0) {
-      resolved[key] = params.globalSources[key]!;
-    } else if (typeof params.localSources[key] === "string" && params.localSources[key].length > 0) {
-      resolved[key] = params.localSources[key]!;
-    }
-  }
-
-  return resolved;
+function cloneDefaultConfig(): QuotaToastConfig {
+  return {
+    ...DEFAULT_CONFIG,
+    enabledProviders: Array.isArray(DEFAULT_CONFIG.enabledProviders)
+      ? [...DEFAULT_CONFIG.enabledProviders]
+      : DEFAULT_CONFIG.enabledProviders,
+    googleModels: [...DEFAULT_CONFIG.googleModels],
+    pricingSnapshot: { ...DEFAULT_CONFIG.pricingSnapshot },
+    layout: { ...DEFAULT_CONFIG.layout },
+  };
 }
 
-function recordNetworkSettingSource(
-  sources: Record<string, string>,
-  quotaToast: Record<string, unknown>,
-  sourcePath: string,
-): void {
-  for (const key of [
-    "enabled",
-    "enabledProviders",
-    "minIntervalMs",
-    "showOnIdle",
-    "showOnQuestion",
-    "showOnCompact",
-    "showOnBothFail",
-  ] as const) {
-    if (key in quotaToast) {
-      sources[key] = sourcePath;
+function normalizeEnabledProviders(value: unknown): string[] | "auto" | undefined {
+  if (value === "auto") {
+    return "auto";
+  }
+
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  if (value.length === 0) {
+    return [];
+  }
+
+  const normalized = dedupe(
+    value
+      .filter((provider): provider is string => typeof provider === "string")
+      .map(normalizeQuotaProviderId)
+      .filter((provider): provider is string => Boolean(getQuotaProviderShape(provider))),
+  );
+
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeGoogleModels(value: unknown): GoogleModelId[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const models = value.filter(isValidGoogleModelId);
+  return models.length > 0 ? models : undefined;
+}
+
+function extractPricingSnapshotPatch(value: unknown): PricingSnapshotPatch | undefined {
+  if (!isPlainObject(value)) {
+    return undefined;
+  }
+
+  const patch: PricingSnapshotPatch = {};
+
+  if (hasOwnKey(value, "source") && isValidPricingSnapshotSource(value.source)) {
+    patch.source = value.source;
+  }
+
+  if (hasOwnKey(value, "autoRefresh") && isValidPricingSnapshotAutoRefresh(value.autoRefresh)) {
+    patch.autoRefresh = value.autoRefresh;
+  }
+
+  return Object.keys(patch).length > 0 ? patch : undefined;
+}
+
+function extractLayoutPatch(value: unknown): LayoutPatch | undefined {
+  if (!isPlainObject(value)) {
+    return undefined;
+  }
+
+  const patch: LayoutPatch = {};
+
+  if (hasOwnKey(value, "maxWidth") && isPositiveNumber(value.maxWidth)) {
+    patch.maxWidth = value.maxWidth;
+  }
+
+  if (hasOwnKey(value, "narrowAt") && isPositiveNumber(value.narrowAt)) {
+    patch.narrowAt = value.narrowAt;
+  }
+
+  if (hasOwnKey(value, "tinyAt") && isPositiveNumber(value.tinyAt)) {
+    patch.tinyAt = value.tinyAt;
+  }
+
+  return Object.keys(patch).length > 0 ? patch : undefined;
+}
+
+function extractValidatedQuotaToastPatch(
+  quotaToastConfig: Record<string, unknown>,
+): ValidatedQuotaToastPatch {
+  const patch: ValidatedQuotaToastPatch = {};
+
+  if (hasOwnKey(quotaToastConfig, "enabled") && typeof quotaToastConfig.enabled === "boolean") {
+    patch.enabled = quotaToastConfig.enabled;
+  }
+
+  if (
+    hasOwnKey(quotaToastConfig, "enableToast") &&
+    typeof quotaToastConfig.enableToast === "boolean"
+  ) {
+    patch.enableToast = quotaToastConfig.enableToast;
+  }
+
+  const formatStyle = getConfiguredFormatStyle(quotaToastConfig as Partial<QuotaToastConfig>);
+  if (formatStyle) {
+    patch.formatStyle = formatStyle;
+  }
+
+  if (
+    hasOwnKey(quotaToastConfig, "percentDisplayMode") &&
+    isValidPercentDisplayMode(quotaToastConfig.percentDisplayMode)
+  ) {
+    patch.percentDisplayMode = quotaToastConfig.percentDisplayMode;
+  }
+
+  if (hasOwnKey(quotaToastConfig, "minIntervalMs") && isPositiveNumber(quotaToastConfig.minIntervalMs)) {
+    patch.minIntervalMs = quotaToastConfig.minIntervalMs;
+  }
+
+  if (hasOwnKey(quotaToastConfig, "debug") && typeof quotaToastConfig.debug === "boolean") {
+    patch.debug = quotaToastConfig.debug;
+  }
+
+  if (hasOwnKey(quotaToastConfig, "enabledProviders")) {
+    const enabledProviders = normalizeEnabledProviders(quotaToastConfig.enabledProviders);
+    if (enabledProviders !== undefined) {
+      patch.enabledProviders = enabledProviders;
     }
   }
 
-  const pricingSnapshot = quotaToast.pricingSnapshot;
-  if (pricingSnapshot && typeof pricingSnapshot === "object") {
-    const pricingSnapshotRecord = pricingSnapshot as Record<string, unknown>;
-    if ("source" in pricingSnapshotRecord) {
-      sources["pricingSnapshot.source"] = sourcePath;
-    }
-    if ("autoRefresh" in pricingSnapshotRecord) {
-      sources["pricingSnapshot.autoRefresh"] = sourcePath;
+  if (hasOwnKey(quotaToastConfig, "anthropicBinaryPath")) {
+    const anthropicBinaryPath = normalizeOptionalString(quotaToastConfig.anthropicBinaryPath);
+    if (anthropicBinaryPath !== undefined) {
+      patch.anthropicBinaryPath = anthropicBinaryPath;
     }
   }
+
+  if (hasOwnKey(quotaToastConfig, "googleModels")) {
+    const googleModels = normalizeGoogleModels(quotaToastConfig.googleModels);
+    if (googleModels !== undefined) {
+      patch.googleModels = googleModels;
+    }
+  }
+
+  if (
+    hasOwnKey(quotaToastConfig, "alibabaCodingPlanTier") &&
+    isValidAlibabaCodingPlanTier(quotaToastConfig.alibabaCodingPlanTier)
+  ) {
+    patch.alibabaCodingPlanTier = quotaToastConfig.alibabaCodingPlanTier;
+  }
+
+  if (hasOwnKey(quotaToastConfig, "cursorPlan") && isValidCursorQuotaPlan(quotaToastConfig.cursorPlan)) {
+    patch.cursorPlan = quotaToastConfig.cursorPlan;
+  }
+
+  if (
+    hasOwnKey(quotaToastConfig, "cursorIncludedApiUsd") &&
+    isPositiveNumber(quotaToastConfig.cursorIncludedApiUsd)
+  ) {
+    patch.cursorIncludedApiUsd = quotaToastConfig.cursorIncludedApiUsd;
+  }
+
+  if (
+    hasOwnKey(quotaToastConfig, "cursorBillingCycleStartDay") &&
+    isValidCursorBillingCycleStartDay(quotaToastConfig.cursorBillingCycleStartDay)
+  ) {
+    patch.cursorBillingCycleStartDay = quotaToastConfig.cursorBillingCycleStartDay;
+  }
+
+  if (hasOwnKey(quotaToastConfig, "pricingSnapshot")) {
+    const pricingSnapshot = extractPricingSnapshotPatch(quotaToastConfig.pricingSnapshot);
+    if (pricingSnapshot) {
+      patch.pricingSnapshot = pricingSnapshot;
+    }
+  }
+
+  if (hasOwnKey(quotaToastConfig, "showOnIdle") && typeof quotaToastConfig.showOnIdle === "boolean") {
+    patch.showOnIdle = quotaToastConfig.showOnIdle;
+  }
+
+  if (
+    hasOwnKey(quotaToastConfig, "showOnQuestion") &&
+    typeof quotaToastConfig.showOnQuestion === "boolean"
+  ) {
+    patch.showOnQuestion = quotaToastConfig.showOnQuestion;
+  }
+
+  if (
+    hasOwnKey(quotaToastConfig, "showOnCompact") &&
+    typeof quotaToastConfig.showOnCompact === "boolean"
+  ) {
+    patch.showOnCompact = quotaToastConfig.showOnCompact;
+  }
+
+  if (
+    hasOwnKey(quotaToastConfig, "showOnBothFail") &&
+    typeof quotaToastConfig.showOnBothFail === "boolean"
+  ) {
+    patch.showOnBothFail = quotaToastConfig.showOnBothFail;
+  }
+
+  if (
+    hasOwnKey(quotaToastConfig, "toastDurationMs") &&
+    isPositiveNumber(quotaToastConfig.toastDurationMs)
+  ) {
+    patch.toastDurationMs = quotaToastConfig.toastDurationMs;
+  }
+
+  if (
+    hasOwnKey(quotaToastConfig, "onlyCurrentModel") &&
+    typeof quotaToastConfig.onlyCurrentModel === "boolean"
+  ) {
+    patch.onlyCurrentModel = quotaToastConfig.onlyCurrentModel;
+  }
+
+  if (
+    hasOwnKey(quotaToastConfig, "showSessionTokens") &&
+    typeof quotaToastConfig.showSessionTokens === "boolean"
+  ) {
+    patch.showSessionTokens = quotaToastConfig.showSessionTokens;
+  }
+
+  if (hasOwnKey(quotaToastConfig, "layout")) {
+    const layout = extractLayoutPatch(quotaToastConfig.layout);
+    if (layout) {
+      patch.layout = layout;
+    }
+  }
+
+  return patch;
+}
+
+function applySettingSource(
+  settingSources: QuotaToastSettingSources,
+  key: QuotaToastSettingSourceKey,
+  sourcePath: string,
+): void {
+  settingSources[key] = sourcePath;
+}
+
+function applyValidatedQuotaToastPatch(
+  config: QuotaToastConfig,
+  patch: ValidatedQuotaToastPatch,
+  sourcePath: string,
+  settingSources: QuotaToastSettingSources,
+): void {
+  if (hasOwnKey(patch, "enabled")) {
+    config.enabled = patch.enabled!;
+    applySettingSource(settingSources, "enabled", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "enableToast")) {
+    config.enableToast = patch.enableToast!;
+    applySettingSource(settingSources, "enableToast", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "formatStyle")) {
+    config.formatStyle = patch.formatStyle!;
+    applySettingSource(settingSources, "formatStyle", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "percentDisplayMode")) {
+    config.percentDisplayMode = patch.percentDisplayMode!;
+    applySettingSource(settingSources, "percentDisplayMode", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "minIntervalMs")) {
+    config.minIntervalMs = patch.minIntervalMs!;
+    applySettingSource(settingSources, "minIntervalMs", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "debug")) {
+    config.debug = patch.debug!;
+    applySettingSource(settingSources, "debug", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "enabledProviders")) {
+    config.enabledProviders =
+      patch.enabledProviders === "auto" ? "auto" : [...patch.enabledProviders!];
+    applySettingSource(settingSources, "enabledProviders", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "anthropicBinaryPath")) {
+    config.anthropicBinaryPath = patch.anthropicBinaryPath!;
+    applySettingSource(settingSources, "anthropicBinaryPath", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "googleModels")) {
+    config.googleModels = [...patch.googleModels!];
+    applySettingSource(settingSources, "googleModels", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "alibabaCodingPlanTier")) {
+    config.alibabaCodingPlanTier = patch.alibabaCodingPlanTier!;
+    applySettingSource(settingSources, "alibabaCodingPlanTier", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "cursorPlan")) {
+    config.cursorPlan = patch.cursorPlan!;
+    applySettingSource(settingSources, "cursorPlan", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "cursorIncludedApiUsd")) {
+    config.cursorIncludedApiUsd = patch.cursorIncludedApiUsd;
+    applySettingSource(settingSources, "cursorIncludedApiUsd", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "cursorBillingCycleStartDay")) {
+    config.cursorBillingCycleStartDay = patch.cursorBillingCycleStartDay;
+    applySettingSource(settingSources, "cursorBillingCycleStartDay", sourcePath);
+  }
+
+  if (patch.pricingSnapshot) {
+    if (hasOwnKey(patch.pricingSnapshot, "source")) {
+      config.pricingSnapshot.source = patch.pricingSnapshot.source!;
+      applySettingSource(settingSources, "pricingSnapshot.source", sourcePath);
+    }
+
+    if (hasOwnKey(patch.pricingSnapshot, "autoRefresh")) {
+      config.pricingSnapshot.autoRefresh = patch.pricingSnapshot.autoRefresh!;
+      applySettingSource(settingSources, "pricingSnapshot.autoRefresh", sourcePath);
+    }
+  }
+
+  if (hasOwnKey(patch, "showOnIdle")) {
+    config.showOnIdle = patch.showOnIdle!;
+    applySettingSource(settingSources, "showOnIdle", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "showOnQuestion")) {
+    config.showOnQuestion = patch.showOnQuestion!;
+    applySettingSource(settingSources, "showOnQuestion", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "showOnCompact")) {
+    config.showOnCompact = patch.showOnCompact!;
+    applySettingSource(settingSources, "showOnCompact", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "showOnBothFail")) {
+    config.showOnBothFail = patch.showOnBothFail!;
+    applySettingSource(settingSources, "showOnBothFail", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "toastDurationMs")) {
+    config.toastDurationMs = patch.toastDurationMs!;
+    applySettingSource(settingSources, "toastDurationMs", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "onlyCurrentModel")) {
+    config.onlyCurrentModel = patch.onlyCurrentModel!;
+    applySettingSource(settingSources, "onlyCurrentModel", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "showSessionTokens")) {
+    config.showSessionTokens = patch.showSessionTokens!;
+    applySettingSource(settingSources, "showSessionTokens", sourcePath);
+  }
+
+  if (patch.layout) {
+    if (hasOwnKey(patch.layout, "maxWidth")) {
+      config.layout.maxWidth = patch.layout.maxWidth!;
+      applySettingSource(settingSources, "layout.maxWidth", sourcePath);
+    }
+
+    if (hasOwnKey(patch.layout, "narrowAt")) {
+      config.layout.narrowAt = patch.layout.narrowAt!;
+      applySettingSource(settingSources, "layout.narrowAt", sourcePath);
+    }
+
+    if (hasOwnKey(patch.layout, "tinyAt")) {
+      config.layout.tinyAt = patch.layout.tinyAt!;
+      applySettingSource(settingSources, "layout.tinyAt", sourcePath);
+    }
+  }
+}
+
+function projectNetworkSettingSources(
+  settingSources: QuotaToastSettingSources,
+): Record<string, string> {
+  const projected: Record<string, string> = {};
+
+  for (const key of NETWORK_SETTING_SOURCE_KEYS) {
+    const source = settingSources[key];
+    if (typeof source === "string" && source.length > 0) {
+      projected[key] = source;
+    }
+  }
+
+  return projected;
+}
+
+function buildConfigLayerCandidates(
+  configDirs: string[],
+  configRootDir: string,
+): Array<{ path: string; scope: ConfigLayerScope }> {
+  const workspaceCandidates = CONFIG_FILENAMES.map((filename) => ({
+    path: join(configRootDir, filename),
+    scope: "workspace" as const,
+  }));
+  const workspacePaths = new Set(workspaceCandidates.map((candidate) => candidate.path));
+  const globalCandidates = configDirs.flatMap((dir) =>
+    CONFIG_FILENAMES.map((filename) => ({ path: join(dir, filename), scope: "global" as const })),
+  );
+
+  return [
+    ...globalCandidates.filter((candidate) => !workspacePaths.has(candidate.path)),
+    ...workspaceCandidates,
+  ];
 }
 
 /**
@@ -200,137 +634,6 @@ export async function loadConfig(
   meta?: LoadConfigMeta,
   options?: LoadConfigOptions,
 ): Promise<QuotaToastConfig> {
-  function normalize(
-    quotaToastConfig: Partial<QuotaToastConfig> | undefined | null,
-  ): QuotaToastConfig {
-    if (!quotaToastConfig) return DEFAULT_CONFIG;
-    const formatStyle = getConfiguredFormatStyle(quotaToastConfig) ?? DEFAULT_CONFIG.formatStyle;
-
-    const config: QuotaToastConfig = {
-      enabled:
-        typeof quotaToastConfig.enabled === "boolean"
-          ? quotaToastConfig.enabled
-          : DEFAULT_CONFIG.enabled,
-
-      enableToast:
-        typeof quotaToastConfig.enableToast === "boolean"
-          ? quotaToastConfig.enableToast
-          : DEFAULT_CONFIG.enableToast,
-
-      formatStyle,
-      percentDisplayMode: isValidPercentDisplayMode(quotaToastConfig.percentDisplayMode)
-        ? quotaToastConfig.percentDisplayMode
-        : DEFAULT_CONFIG.percentDisplayMode,
-      minIntervalMs:
-        typeof quotaToastConfig.minIntervalMs === "number" && quotaToastConfig.minIntervalMs > 0
-          ? quotaToastConfig.minIntervalMs
-          : DEFAULT_CONFIG.minIntervalMs,
-
-      debug:
-        typeof quotaToastConfig.debug === "boolean" ? quotaToastConfig.debug : DEFAULT_CONFIG.debug,
-
-      enabledProviders:
-        quotaToastConfig.enabledProviders === "auto"
-          ? "auto"
-          : Array.isArray(quotaToastConfig.enabledProviders)
-            ? dedupe(
-                quotaToastConfig.enabledProviders
-                  .filter((p): p is string => typeof p === "string")
-                  .map(normalizeQuotaProviderId)
-                  .filter(Boolean),
-              )
-            : DEFAULT_CONFIG.enabledProviders,
-      anthropicBinaryPath:
-        normalizeOptionalString(quotaToastConfig.anthropicBinaryPath) ??
-        DEFAULT_CONFIG.anthropicBinaryPath,
-      googleModels: Array.isArray(quotaToastConfig.googleModels)
-        ? quotaToastConfig.googleModels.filter(isValidGoogleModelId)
-        : DEFAULT_CONFIG.googleModels,
-      alibabaCodingPlanTier:
-        quotaToastConfig.alibabaCodingPlanTier === "lite" ||
-        quotaToastConfig.alibabaCodingPlanTier === "pro"
-          ? quotaToastConfig.alibabaCodingPlanTier
-          : DEFAULT_CONFIG.alibabaCodingPlanTier,
-      cursorPlan: isValidCursorQuotaPlan(quotaToastConfig.cursorPlan)
-        ? quotaToastConfig.cursorPlan
-        : DEFAULT_CONFIG.cursorPlan,
-      cursorIncludedApiUsd:
-        typeof quotaToastConfig.cursorIncludedApiUsd === "number" &&
-        Number.isFinite(quotaToastConfig.cursorIncludedApiUsd) &&
-        quotaToastConfig.cursorIncludedApiUsd > 0
-          ? quotaToastConfig.cursorIncludedApiUsd
-          : undefined,
-      cursorBillingCycleStartDay:
-        typeof quotaToastConfig.cursorBillingCycleStartDay === "number" &&
-        Number.isInteger(quotaToastConfig.cursorBillingCycleStartDay) &&
-        quotaToastConfig.cursorBillingCycleStartDay >= 1 &&
-        quotaToastConfig.cursorBillingCycleStartDay <= 28
-          ? quotaToastConfig.cursorBillingCycleStartDay
-          : undefined,
-      pricingSnapshot: {
-        source: isValidPricingSnapshotSource(quotaToastConfig.pricingSnapshot?.source)
-          ? quotaToastConfig.pricingSnapshot.source
-          : DEFAULT_CONFIG.pricingSnapshot.source,
-        autoRefresh: isValidPricingSnapshotAutoRefresh(quotaToastConfig.pricingSnapshot?.autoRefresh)
-          ? quotaToastConfig.pricingSnapshot.autoRefresh
-          : DEFAULT_CONFIG.pricingSnapshot.autoRefresh,
-      },
-      showOnIdle:
-        typeof quotaToastConfig.showOnIdle === "boolean"
-          ? quotaToastConfig.showOnIdle
-          : DEFAULT_CONFIG.showOnIdle,
-      showOnQuestion:
-        typeof quotaToastConfig.showOnQuestion === "boolean"
-          ? quotaToastConfig.showOnQuestion
-          : DEFAULT_CONFIG.showOnQuestion,
-      showOnCompact:
-        typeof quotaToastConfig.showOnCompact === "boolean"
-          ? quotaToastConfig.showOnCompact
-          : DEFAULT_CONFIG.showOnCompact,
-      showOnBothFail:
-        typeof quotaToastConfig.showOnBothFail === "boolean"
-          ? quotaToastConfig.showOnBothFail
-          : DEFAULT_CONFIG.showOnBothFail,
-      toastDurationMs:
-        typeof quotaToastConfig.toastDurationMs === "number" && quotaToastConfig.toastDurationMs > 0
-          ? quotaToastConfig.toastDurationMs
-          : DEFAULT_CONFIG.toastDurationMs,
-      onlyCurrentModel:
-        typeof quotaToastConfig.onlyCurrentModel === "boolean"
-          ? quotaToastConfig.onlyCurrentModel
-          : DEFAULT_CONFIG.onlyCurrentModel,
-      showSessionTokens:
-        typeof quotaToastConfig.showSessionTokens === "boolean"
-          ? quotaToastConfig.showSessionTokens
-          : DEFAULT_CONFIG.showSessionTokens,
-      layout: {
-        maxWidth:
-          typeof quotaToastConfig.layout?.maxWidth === "number" &&
-          quotaToastConfig.layout.maxWidth > 0
-            ? quotaToastConfig.layout.maxWidth
-            : DEFAULT_CONFIG.layout.maxWidth,
-        narrowAt:
-          typeof quotaToastConfig.layout?.narrowAt === "number" &&
-          quotaToastConfig.layout.narrowAt > 0
-            ? quotaToastConfig.layout.narrowAt
-            : DEFAULT_CONFIG.layout.narrowAt,
-        tinyAt:
-          typeof quotaToastConfig.layout?.tinyAt === "number" && quotaToastConfig.layout.tinyAt > 0
-            ? quotaToastConfig.layout.tinyAt
-            : DEFAULT_CONFIG.layout.tinyAt,
-      },
-    };
-
-    // enabledProviders: "auto" means auto-detect; explicit array means user-specified.
-
-    // Ensure at least one Google model is configured
-    if (config.googleModels.length === 0) {
-      config.googleModels = DEFAULT_CONFIG.googleModels;
-    }
-
-    return config;
-  }
-
   async function readJson(path: string): Promise<unknown | null> {
     try {
       const content = await readFile(path, "utf-8");
@@ -340,98 +643,71 @@ export async function loadConfig(
     }
   }
 
-  async function loadQuotaToastFromLocations(locations: string[]): Promise<{
-    quota: Partial<QuotaToastConfig>;
-    usedPaths: string[];
-    networkSettingSources: Record<string, string>;
-  }> {
-    const quota: Partial<QuotaToastConfig> = {};
-    const usedPaths: string[] = [];
-    const networkSettingSources: Record<string, string> = {};
-
-    for (const dir of locations) {
-      for (const filename of ["opencode.json", "opencode.jsonc"]) {
-        const p = join(dir, filename);
-        if (!existsSync(p)) continue;
-        const parsed = await readJson(p);
-        if (!parsed || typeof parsed !== "object") continue;
-
-        const root = parsed as any;
-        const rawQuotaToast = root?.experimental?.quotaToast;
-        if (!rawQuotaToast || typeof rawQuotaToast !== "object") continue;
-
-        Object.assign(quota, rawQuotaToast);
-        const sourcePath = `${p} (experimental.quotaToast)`;
-        usedPaths.push(sourcePath);
-        recordNetworkSettingSource(
-          networkSettingSources,
-          rawQuotaToast as Record<string, unknown>,
-          sourcePath,
-        );
-      }
-    }
-
-    return { quota, usedPaths, networkSettingSources };
-  }
-
   async function loadFromFiles(): Promise<{
     config: QuotaToastConfig | null;
     usedPaths: string[];
+    globalConfigPaths: string[];
+    workspaceConfigPaths: string[];
+    settingSources: QuotaToastSettingSources;
     networkSettingSources: Record<string, string>;
   }> {
     const configRootDir = options?.configRootDir ?? options?.cwd ?? process.cwd();
     const { configDirs } = getOpencodeRuntimeDirCandidates();
-    const globalConfig = await loadQuotaToastFromLocations(configDirs);
-    const localConfig = await loadQuotaToastFromLocations([configRootDir]);
+    const config = cloneDefaultConfig();
+    const usedPaths: string[] = [];
+    const globalConfigPaths: string[] = [];
+    const workspaceConfigPaths: string[] = [];
+    const settingSources: QuotaToastSettingSources = {};
 
-    const usedPaths = [...globalConfig.usedPaths, ...localConfig.usedPaths];
-    const networkSettingSources = resolveEffectiveNetworkSettingSources({
-      globalSources: globalConfig.networkSettingSources,
-      localSources: localConfig.networkSettingSources,
-    });
-    if (usedPaths.length === 0) {
-      return { config: null, usedPaths: [], networkSettingSources: {} };
-    }
-
-    const quota: Partial<QuotaToastConfig> = {
-      ...globalConfig.quota,
-      ...localConfig.quota,
-    };
-
-    for (const key of NETWORK_AFFECTING_KEYS) {
-      if (hasOwnKey(globalConfig.quota, key)) {
-        (quota as Record<string, unknown>)[key] = globalConfig.quota[key];
-      } else if (hasOwnKey(localConfig.quota, key)) {
-        (quota as Record<string, unknown>)[key] = localConfig.quota[key];
+    for (const candidate of buildConfigLayerCandidates(configDirs, configRootDir)) {
+      if (!existsSync(candidate.path)) {
+        continue;
       }
+
+      const parsed = await readJson(candidate.path);
+      if (!isPlainObject(parsed) || !isPlainObject(parsed.experimental)) {
+        continue;
+      }
+
+      const rawQuotaToast = parsed.experimental.quotaToast;
+      if (!isPlainObject(rawQuotaToast)) {
+        continue;
+      }
+
+      const sourcePath = `${candidate.path} (experimental.quotaToast)`;
+      usedPaths.push(sourcePath);
+      if (candidate.scope === "global") {
+        globalConfigPaths.push(sourcePath);
+      } else {
+        workspaceConfigPaths.push(sourcePath);
+      }
+
+      applyValidatedQuotaToastPatch(
+        config,
+        extractValidatedQuotaToastPatch(rawQuotaToast),
+        sourcePath,
+        settingSources,
+      );
     }
 
-    const mergedPricingSnapshot: Record<string, unknown> = {};
-    let hasMergedPricingSnapshot = false;
-    if (isPlainObject(localConfig.quota.pricingSnapshot)) {
-      Object.assign(mergedPricingSnapshot, localConfig.quota.pricingSnapshot);
-      hasMergedPricingSnapshot = true;
-    }
-    if (isPlainObject(globalConfig.quota.pricingSnapshot)) {
-      Object.assign(mergedPricingSnapshot, globalConfig.quota.pricingSnapshot);
-      hasMergedPricingSnapshot = true;
-    }
-    if (hasMergedPricingSnapshot) {
-      quota.pricingSnapshot = mergedPricingSnapshot as unknown as QuotaToastConfig["pricingSnapshot"];
-    }
-
-    const localFormatStyle = getConfiguredFormatStyle(localConfig.quota);
-    const globalFormatStyle = getConfiguredFormatStyle(globalConfig.quota);
-    if (localFormatStyle) {
-      quota.formatStyle = localFormatStyle;
-    } else if (globalFormatStyle) {
-      quota.formatStyle = globalFormatStyle;
+    if (usedPaths.length === 0) {
+      return {
+        config: null,
+        usedPaths: [],
+        globalConfigPaths: [],
+        workspaceConfigPaths: [],
+        settingSources: {},
+        networkSettingSources: {},
+      };
     }
 
     return {
-      config: normalize(quota),
+      config,
       usedPaths,
-      networkSettingSources,
+      globalConfigPaths,
+      workspaceConfigPaths,
+      settingSources,
+      networkSettingSources: projectNetworkSettingSources(settingSources),
     };
   }
 
@@ -440,6 +716,9 @@ export async function loadConfig(
     if (meta) {
       meta.source = "files";
       meta.paths = fileConfig.usedPaths;
+      meta.globalConfigPaths = fileConfig.globalConfigPaths;
+      meta.workspaceConfigPaths = fileConfig.workspaceConfigPaths;
+      meta.settingSources = fileConfig.settingSources;
       meta.networkSettingSources = fileConfig.networkSettingSources;
     }
     return fileConfig.config;
@@ -451,22 +730,28 @@ export async function loadConfig(
 
       // OpenCode config schema is strict; plugin-specific config must live under
       // experimental.* to avoid "unrecognized key" validation errors.
-      const quotaToastConfig = (response.data as any)?.experimental?.quotaToast as
-        | Partial<QuotaToastConfig>
-        | undefined;
+      const quotaToastConfig = (response.data as any)?.experimental?.quotaToast;
 
-      if (quotaToastConfig && typeof quotaToastConfig === "object") {
+      if (isPlainObject(quotaToastConfig)) {
+        const config = cloneDefaultConfig();
+        const settingSources: QuotaToastSettingSources = {};
+        applyValidatedQuotaToastPatch(
+          config,
+          extractValidatedQuotaToastPatch(quotaToastConfig),
+          "client.config.get",
+          settingSources,
+        );
+
         if (meta) {
           meta.source = "sdk";
           meta.paths = ["client.config.get"];
-          meta.networkSettingSources = {};
-          recordNetworkSettingSource(
-            meta.networkSettingSources,
-            quotaToastConfig as unknown as Record<string, unknown>,
-            "client.config.get",
-          );
+          meta.globalConfigPaths = [];
+          meta.workspaceConfigPaths = [];
+          meta.settingSources = settingSources;
+          meta.networkSettingSources = projectNetworkSettingSources(settingSources);
         }
-        return normalize(quotaToastConfig);
+
+        return config;
       }
     } catch {
       // ignore; fall back to defaults below
@@ -476,6 +761,9 @@ export async function loadConfig(
   if (meta) {
     meta.source = "defaults";
     meta.paths = [];
+    meta.globalConfigPaths = [];
+    meta.workspaceConfigPaths = [];
+    meta.settingSources = {};
     meta.networkSettingSources = {};
   }
   return DEFAULT_CONFIG;

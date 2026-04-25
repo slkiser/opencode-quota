@@ -118,18 +118,20 @@ describe("quota runtime context", () => {
       providers: [],
     });
 
+    const worktreeConfigPath = join(worktreeDir, "opencode.json") + " (experimental.quotaToast)";
+    const nestedConfigPath = join(nestedDir, "opencode.json") + " (experimental.quotaToast)";
+
     expect(runtime.roots).toEqual({
       workspaceRoot: worktreeDir,
       configRoot: worktreeDir,
     });
     expect(runtime.config.enabled).toBe(false);
     expect(runtime.configMeta.source).toBe("files");
-    expect(runtime.configMeta.paths).toContain(
-      join(worktreeDir, "opencode.json") + " (experimental.quotaToast)",
-    );
-    expect(runtime.configMeta.paths).not.toContain(
-      join(nestedDir, "opencode.json") + " (experimental.quotaToast)",
-    );
+    expect(runtime.configMeta.paths).toContain(worktreeConfigPath);
+    expect(runtime.configMeta.paths).not.toContain(nestedConfigPath);
+    expect(runtime.configMeta.globalConfigPaths).toEqual([]);
+    expect(runtime.configMeta.workspaceConfigPaths).toEqual([worktreeConfigPath]);
+    expect(runtime.configMeta.settingSources.enabled).toBe(worktreeConfigPath);
   });
 
   it("resolves session meta only when the shared config requests it", async () => {
