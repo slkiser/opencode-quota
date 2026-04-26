@@ -663,7 +663,7 @@ async function promptForSelections(
       { label: "Toast", value: "toast" },
       { label: "Sidebar", value: "sidebar" },
       { label: "Toast + Sidebar", value: "toast_sidebar" },
-      { label: "None (manual /quota and /tokens_* only)", value: "none" },
+      { label: "None (slash commands and terminal only)", value: "none" },
     ],
   });
   if (prompts.isCancel(quotaUi)) return null;
@@ -698,7 +698,7 @@ async function promptForSelections(
         label: "Single window",
         value: "singleWindow",
       },
-      { label: "All windows", value: "allWindows" }
+      { label: "All windows", value: "allWindows" },
     ],
   });
   if (prompts.isCancel(formatStyle)) return null;

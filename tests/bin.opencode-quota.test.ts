@@ -5,18 +5,24 @@ import { fileURLToPath } from "node:url";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const installerMocks = vi.hoisted(() => ({
+const commandMocks = vi.hoisted(() => ({
   runInitInstaller: vi.fn(),
+  runCliShowCommand: vi.fn(),
 }));
 
 vi.mock("../src/lib/init-installer.js", () => ({
-  runInitInstaller: installerMocks.runInitInstaller,
+  runInitInstaller: commandMocks.runInitInstaller,
+}));
+
+vi.mock("../src/lib/cli-show.js", () => ({
+  runCliShowCommand: commandMocks.runCliShowCommand,
 }));
 
 describe("opencode-quota bin", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    installerMocks.runInitInstaller.mockResolvedValue(0);
+    commandMocks.runInitInstaller.mockResolvedValue(0);
+    commandMocks.runCliShowCommand.mockResolvedValue(0);
   });
 
   it("dispatches init to the interactive installer", async () => {
@@ -25,7 +31,29 @@ describe("opencode-quota bin", () => {
     const code = await main(["init"]);
 
     expect(code).toBe(0);
-    expect(installerMocks.runInitInstaller).toHaveBeenCalledOnce();
+    expect(commandMocks.runInitInstaller).toHaveBeenCalledOnce();
+    expect(commandMocks.runCliShowCommand).not.toHaveBeenCalled();
+  });
+
+  it("dispatches show to the quota CLI command", async () => {
+    const { main } = await import("../src/bin/opencode-quota.js");
+
+    const code = await main(["show"]);
+
+    expect(code).toBe(0);
+    expect(commandMocks.runCliShowCommand).toHaveBeenCalledWith({ argv: [] });
+    expect(commandMocks.runInitInstaller).not.toHaveBeenCalled();
+  });
+
+  it("passes show provider args through to the quota CLI command", async () => {
+    const { main } = await import("../src/bin/opencode-quota.js");
+
+    const code = await main(["show", "--provider", "copilot"]);
+
+    expect(code).toBe(0);
+    expect(commandMocks.runCliShowCommand).toHaveBeenCalledWith({
+      argv: ["--provider", "copilot"],
+    });
   });
 
   it("prints help and exits zero for --help", async () => {
@@ -36,6 +64,7 @@ describe("opencode-quota bin", () => {
 
     expect(code).toBe(0);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("Usage:"));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("opencode-quota show"));
     log.mockRestore();
   });
 
@@ -47,6 +76,7 @@ describe("opencode-quota bin", () => {
 
     expect(code).toBe(1);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("Usage:"));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("opencode-quota show"));
     log.mockRestore();
   });
 
@@ -58,6 +88,7 @@ describe("opencode-quota bin", () => {
 
     expect(code).toBe(1);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("Usage:"));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("opencode-quota show"));
     log.mockRestore();
   });
 

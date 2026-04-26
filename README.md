@@ -38,6 +38,16 @@ After install:
 3. Run `/quota`.
 4. If you enabled the sidebar, open the session sidebar and confirm the `Quota` panel appears.
 
+For a terminal-only quota glance:
+
+```bash
+npx @slkiser/opencode-quota show
+# or, if installed/on PATH:
+opencode-quota show --provider copilot
+```
+
+`show` is quota-only: no token/cost reports or `models.dev` refresh. Installer `None (commands and terminal only)` disables toast/sidebar but keeps `/quota`, `/tokens_*`, and terminal `show`.
+
 ### Manual Setup
 
 Add the server plugin to `opencode.json` or `opencode.jsonc`:
@@ -65,6 +75,7 @@ All quota settings live in `opencode.json` or `opencode.jsonc`, not `tui.json`.
 - TUI sidebar panel with quota rows
 - Popup quota toasts after assistant responses
 - Manual `/quota`, `/quota_status`, and `/tokens_*` commands
+- Terminal `opencode-quota show` command for a quota-only quick glance
 - Local token reports using bundled and runtime `models.dev` pricing
 - Cursor Auto/Composer and Cursor alias pricing that stays deterministic locally
 
@@ -159,6 +170,7 @@ Turn off popup toasts while keeping `/quota` and the sidebar:
 
 | Command               | What it shows                                      |
 | --------------------- | -------------------------------------------------- |
+| `opencode-quota show` | Terminal quota-only quick glance                   |
 | `/quota`              | Detailed quota report                              |
 | `/quota_status`       | Config, provider, auth, pricing, and live probes   |
 | `/pricing_refresh`    | Refresh local runtime pricing from `models.dev`    |

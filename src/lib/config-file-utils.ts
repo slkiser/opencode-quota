@@ -148,6 +148,19 @@ export function extractPluginSpecsFromParsedConfig(parsed: unknown): string[] {
   );
 }
 
+export function extractProviderIdsFromParsedConfig(parsed: unknown): string[] {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return [];
+  }
+
+  const root = parsed as Record<string, unknown>;
+  if (!root.provider || typeof root.provider !== "object" || Array.isArray(root.provider)) {
+    return [];
+  }
+
+  return dedupeNonEmptyStrings(Object.keys(root.provider));
+}
+
 export function isQuotaPluginSpec(spec: string, kind: ConfigFileKind): boolean {
   const normalized = spec.replace(/\\/g, "/").toLowerCase();
 
