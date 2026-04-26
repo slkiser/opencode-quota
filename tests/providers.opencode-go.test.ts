@@ -235,4 +235,67 @@ describe("_parseMonthlyUsage", () => {
     const html = "monthlyUsage:$R[1]={usagePercent:10,foo:bar,resetInSec:500}";
     expect(_parseMonthlyUsage(html)).toEqual({ usagePercent: 10, resetInSec: 500 });
   });
+
+  it("handles quoted property names and spaces", () => {
+    const html = 'monthlyUsage:$R[123]={"usagePercent": 45, "resetInSec" : 7200}';
+    expect(_parseMonthlyUsage(html)).toEqual({ usagePercent: 45, resetInSec: 7200 });
+  });
+
+  it("handles single quotes and decimal values", () => {
+    const html = "monthlyUsage:$R[0]={'usagePercent':12.5, 'resetInSec':30.5}";
+    expect(_parseMonthlyUsage(html)).toEqual({ usagePercent: 12.5, resetInSec: 30.5 });
+  });
+
+  it("handles quoted numeric values", () => {
+    const html = 'monthlyUsage:$R[99]={usagePercent:"88",resetInSec:"1000"}';
+    expect(_parseMonthlyUsage(html)).toEqual({ usagePercent: 88, resetInSec: 1000 });
+  });
+
+  it("handles variations of $R (e.g. no brackets, colon)", () => {
+    const html1 = "monthlyUsage:$R42={usagePercent:10,resetInSec:100}";
+    const html2 = "monthlyUsage:$R:7={usagePercent:20,resetInSec:200}";
+    const html3 = "monthlyUsage: $R = {usagePercent:30,resetInSec:300}";
+    expect(_parseMonthlyUsage(html1)).toEqual({ usagePercent: 10, resetInSec: 100 });
+    expect(_parseMonthlyUsage(html2)).toEqual({ usagePercent: 20, resetInSec: 200 });
+    expect(_parseMonthlyUsage(html3)).toEqual({ usagePercent: 30, resetInSec: 300 });
+  });
+
+  it("handles fuzzy matching of JSON objects without $R marker", () => {
+    const html = '<div>Data: {"usagePercent": 5, "resetInSec": 50}</div>';
+    expect(_parseMonthlyUsage(html)).toEqual({ usagePercent: 5, resetInSec: 50 });
+  });
+
+  it("handles the exact pattern found in opencode.htm", () => {
+    const html = 'monthlyUsage:$R[33]={status:"ok",resetInSec:2066217,usagePercent:50}';
+    expect(_parseMonthlyUsage(html)).toEqual({ usagePercent: 50, resetInSec: 2066217 });
+  });
+
+  it("normalizes workspaceId if it is a full URL", async () => {
+    const fullUrl = "https://opencode.ai/workspace/wrk_999/go";
+    mockConfigConfigured(fullUrl, "auth-token");
+    mockDashboardSuccess(buildDashboardHtml(10, 100));
+
+    await runProviderFetch();
+
+    // Verify fetchWithTimeout was called with the normalized URL
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
+      "https://opencode.ai/workspace/wrk_999/go",
+      expect.any(Object),
+      expect.any(Number),
+    );
+  });
+
+  it("returns error with masked snippet on parsing failure", async () => {
+    mockConfigConfigured();
+    mockDashboardSuccess(
+      "<html><body>monthlyUsage:$R[1]={wrong:0} some sensitive info like 12345 and test@example.com</body></html>",
+    );
+
+    const out = await runProviderFetch();
+    expectAttemptedWithErrorLabel(out, "OpenCode Go");
+    expect(out.errors[0]?.message).toContain("Snippet:");
+    expect(out.errors[0]?.message).toContain("v3.3.2-diag");
+    expect(out.errors[0]?.message).toContain("***"); // Masked digits
+    expect(out.errors[0]?.message).toContain("[EMAIL]"); // Masked email
+  });
 });
