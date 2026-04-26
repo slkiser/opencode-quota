@@ -83,13 +83,13 @@ const SNAPSHOT_SANITIZERS = Object.freeze({
       replacements: [
         {
           label: "GEMINI_CLIENT_ID",
-          pattern: /(export const GEMINI_CLIENT_ID = )"[^"]+";/,
-          replacement: `$1"${REDACTED_GOOGLE_OAUTH_CLIENT_ID}";`,
+          pattern: /(export const GEMINI_CLIENT_ID = )(["'])[^"']+\2;/,
+          replacement: `$1$2${REDACTED_GOOGLE_OAUTH_CLIENT_ID}$2;`,
         },
         {
           label: "GEMINI_CLIENT_SECRET",
-          pattern: /(export const GEMINI_CLIENT_SECRET = )"[^"]+";/,
-          replacement: `$1"${REDACTED_GOOGLE_OAUTH_CLIENT_SECRET}";`,
+          pattern: /(export const GEMINI_CLIENT_SECRET = )(["'])[^"']+\2;/,
+          replacement: `$1$2${REDACTED_GOOGLE_OAUTH_CLIENT_SECRET}$2;`,
         },
       ],
     },

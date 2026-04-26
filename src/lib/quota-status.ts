@@ -74,7 +74,11 @@ import {
   sanitizeDisplayText,
   sanitizeQuotaProviderResult,
 } from "./display-sanitize.js";
-import { QUOTA_TOAST_SETTING_SOURCE_KEYS, type QuotaToastSettingSources } from "./config.js";
+import {
+  QUOTA_TOAST_SETTING_SOURCE_KEYS,
+  type LoadConfigIssue,
+  type QuotaToastSettingSources,
+} from "./config.js";
 import { getCursorPlanDisplayName, getEffectiveCursorIncludedApiUsd } from "./cursor-pricing.js";
 import { getQuotaProviderDisplayLabel } from "./provider-metadata.js";
 import type { QuotaProviderResult, QuotaToastEntry, QuotaToastError } from "./entries.js";
@@ -118,6 +122,12 @@ async function pathExists(path: string): Promise<boolean> {
 function fmtInt(n: number): string {
   return Math.trunc(n).toLocaleString("en-US");
 }
+
+type ConfigClient = {
+  config?: {
+    get?: () => Promise<{ data?: unknown }>;
+  };
+};
 
 type PricingCoverageByProvider = {
   pricedKeysSeen: number;
@@ -534,6 +544,7 @@ export async function buildQuotaStatusReport(params: {
   globalConfigPaths?: string[];
   workspaceConfigPaths?: string[];
   settingSources?: QuotaToastSettingSources;
+  configIssues?: LoadConfigIssue[];
   /** @deprecated compatibility only; not rendered */
   networkSettingSources?: Record<string, string>;
   tuiDiagnostics?: {
@@ -571,6 +582,7 @@ export async function buildQuotaStatusReport(params: {
     failures?: Array<{ email?: string; error: string }>;
   };
   sessionTokenError?: SessionTokenError;
+  geminiCliClient?: ConfigClient;
   generatedAtMs?: number;
 }): Promise<string> {
   const version = await getPackageVersion();
@@ -596,6 +608,14 @@ export async function buildQuotaStatusReport(params: {
     `- onlyCurrentModel: ${params.onlyCurrentModel ? "true" : "false"}`,
     `- currentModel: ${modelDisplay}`,
   ];
+  if (params.configIssues?.length) {
+    toastLines.push("- config_errors:");
+    for (const issue of params.configIssues) {
+      toastLines.push(
+        `  - ${sanitizeSingleLineDisplayText(issue.path)} ${sanitizeSingleLineDisplayText(issue.key)}: ${sanitizeSingleLineDisplayText(issue.message)}`,
+      );
+    }
+  }
   if (params.tuiDiagnostics) {
     toastLines.push("");
     toastLines.push("tui:");
@@ -1325,7 +1345,7 @@ export async function buildQuotaStatusReport(params: {
   sections.push(createKvSection("google_antigravity", "google_antigravity:", googleRows));
 
   // === google gemini cli ===
-  const geminiCliAuthPresence = await inspectGeminiCliAuthPresence();
+  const geminiCliAuthPresence = await inspectGeminiCliAuthPresence(params.geminiCliClient);
   const geminiCliCompanionPresence = await inspectGeminiCliCompanionPresence();
   const geminiCliRows: ReportKvRow[] = [
     { key: "auth_state", value: geminiCliAuthPresence.state },

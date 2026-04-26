@@ -33,6 +33,7 @@
   ],
   "scripts": {
     "build": "tsc && node scripts/copy-data.mjs && node scripts/prepare-tui-dist.mjs",
+    "build:check": "npm run build && npm pack --dry-run",
     "pricing:refresh": "node scripts/refresh-modelsdev-pricing.mjs",
     "pricing:refresh:if-stale": "node scripts/refresh-modelsdev-pricing-if-stale.mjs",
     "upstream:check": "node scripts/check-upstream-plugin-updates.mjs",

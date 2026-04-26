@@ -1392,6 +1392,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       globalConfigPaths: runtime.configMeta.globalConfigPaths,
       workspaceConfigPaths: runtime.configMeta.workspaceConfigPaths,
       settingSources: runtime.configMeta.settingSources,
+      configIssues: runtime.configMeta.configIssues,
       enabledProviders: runtimeConfig.enabledProviders,
       anthropicBinaryPath: runtimeConfig.anthropicBinaryPath,
       alibabaCodingPlanTier: runtimeConfig.alibabaCodingPlanTier,
@@ -1413,6 +1414,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
           }
         : { attempted: false },
       sessionTokenError: lastSessionTokenError,
+      geminiCliClient: typedClient,
       generatedAtMs: params.generatedAtMs,
     });
   }

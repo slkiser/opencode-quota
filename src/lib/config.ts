@@ -56,6 +56,12 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
 export type QuotaToastSettingSourceKey = (typeof QUOTA_TOAST_SETTING_SOURCE_KEYS)[number];
 export type QuotaToastSettingSources = Partial<Record<QuotaToastSettingSourceKey, string>>;
 
+export interface LoadConfigIssue {
+  path: string;
+  key: string;
+  message: string;
+}
+
 export interface LoadConfigMeta {
   source: "sdk" | "files" | "defaults";
   paths: string[];
@@ -63,6 +69,7 @@ export interface LoadConfigMeta {
   workspaceConfigPaths: string[];
   settingSources: QuotaToastSettingSources;
   networkSettingSources: Record<string, string>;
+  configIssues: LoadConfigIssue[];
 }
 
 export interface LoadConfigOptions {
@@ -79,6 +86,7 @@ export function createLoadConfigMeta(): LoadConfigMeta {
     workspaceConfigPaths: [],
     settingSources: {},
     networkSettingSources: {},
+    configIssues: [],
   };
 }
 
@@ -219,27 +227,53 @@ function cloneDefaultConfig(): QuotaToastConfig {
   };
 }
 
-function normalizeEnabledProviders(value: unknown): string[] | "auto" | undefined {
+type NormalizedEnabledProviders = {
+  value?: string[] | "auto";
+  issues: string[];
+};
+
+function describeInvalidProviderValue(value: unknown): string {
+  return typeof value === "string" ? value : typeof value;
+}
+
+function normalizeEnabledProviders(value: unknown): NormalizedEnabledProviders {
   if (value === "auto") {
-    return "auto";
+    return { value: "auto", issues: [] };
   }
 
   if (!Array.isArray(value)) {
-    return undefined;
+    return {
+      value: [],
+      issues: ["expected \"auto\" or an array of provider ids"],
+    };
   }
 
   if (value.length === 0) {
-    return [];
+    return { value: [], issues: [] };
   }
 
-  const normalized = dedupe(
-    value
-      .filter((provider): provider is string => typeof provider === "string")
-      .map(normalizeQuotaProviderId)
-      .filter((provider): provider is string => Boolean(getQuotaProviderShape(provider))),
-  );
+  const validProviders: string[] = [];
+  const invalidProviders: string[] = [];
 
-  return normalized.length > 0 ? normalized : undefined;
+  for (const provider of value) {
+    if (typeof provider !== "string") {
+      invalidProviders.push(describeInvalidProviderValue(provider));
+      continue;
+    }
+
+    const normalized = normalizeQuotaProviderId(provider);
+    if (normalized && getQuotaProviderShape(normalized)) {
+      validProviders.push(normalized);
+    } else {
+      invalidProviders.push(provider);
+    }
+  }
+
+  const issues = invalidProviders.length
+    ? [`unknown provider id(s): ${dedupe(invalidProviders).join(", ")}`]
+    : [];
+
+  return { value: dedupe(validProviders), issues };
 }
 
 function normalizeGoogleModels(value: unknown): GoogleModelId[] | undefined {
@@ -293,6 +327,7 @@ function extractLayoutPatch(value: unknown): LayoutPatch | undefined {
 
 function extractValidatedQuotaToastPatch(
   quotaToastConfig: Record<string, unknown>,
+  reportIssue?: (key: string, message: string) => void,
 ): ValidatedQuotaToastPatch {
   const patch: ValidatedQuotaToastPatch = {};
 
@@ -329,8 +364,11 @@ function extractValidatedQuotaToastPatch(
 
   if (hasOwnKey(quotaToastConfig, "enabledProviders")) {
     const enabledProviders = normalizeEnabledProviders(quotaToastConfig.enabledProviders);
-    if (enabledProviders !== undefined) {
-      patch.enabledProviders = enabledProviders;
+    for (const issue of enabledProviders.issues) {
+      reportIssue?.("enabledProviders", issue);
+    }
+    if (enabledProviders.value !== undefined) {
+      patch.enabledProviders = enabledProviders.value;
     }
   }
 
@@ -650,6 +688,7 @@ export async function loadConfig(
     workspaceConfigPaths: string[];
     settingSources: QuotaToastSettingSources;
     networkSettingSources: Record<string, string>;
+    configIssues: LoadConfigIssue[];
   }> {
     const configRootDir = options?.configRootDir ?? options?.cwd ?? process.cwd();
     const { configDirs } = getOpencodeRuntimeDirCandidates();
@@ -658,6 +697,7 @@ export async function loadConfig(
     const globalConfigPaths: string[] = [];
     const workspaceConfigPaths: string[] = [];
     const settingSources: QuotaToastSettingSources = {};
+    const configIssues: LoadConfigIssue[] = [];
 
     for (const candidate of buildConfigLayerCandidates(configDirs, configRootDir)) {
       if (!existsSync(candidate.path)) {
@@ -684,7 +724,9 @@ export async function loadConfig(
 
       applyValidatedQuotaToastPatch(
         config,
-        extractValidatedQuotaToastPatch(rawQuotaToast),
+        extractValidatedQuotaToastPatch(rawQuotaToast, (key, message) => {
+          configIssues.push({ path: sourcePath, key, message });
+        }),
         sourcePath,
         settingSources,
       );
@@ -698,6 +740,7 @@ export async function loadConfig(
         workspaceConfigPaths: [],
         settingSources: {},
         networkSettingSources: {},
+        configIssues: [],
       };
     }
 
@@ -708,6 +751,7 @@ export async function loadConfig(
       workspaceConfigPaths,
       settingSources,
       networkSettingSources: projectNetworkSettingSources(settingSources),
+      configIssues,
     };
   }
 
@@ -720,6 +764,7 @@ export async function loadConfig(
       meta.workspaceConfigPaths = fileConfig.workspaceConfigPaths;
       meta.settingSources = fileConfig.settingSources;
       meta.networkSettingSources = fileConfig.networkSettingSources;
+      meta.configIssues = fileConfig.configIssues;
     }
     return fileConfig.config;
   }
@@ -735,9 +780,12 @@ export async function loadConfig(
       if (isPlainObject(quotaToastConfig)) {
         const config = cloneDefaultConfig();
         const settingSources: QuotaToastSettingSources = {};
+        const configIssues: LoadConfigIssue[] = [];
         applyValidatedQuotaToastPatch(
           config,
-          extractValidatedQuotaToastPatch(quotaToastConfig),
+          extractValidatedQuotaToastPatch(quotaToastConfig, (key, message) => {
+            configIssues.push({ path: "client.config.get", key, message });
+          }),
           "client.config.get",
           settingSources,
         );
@@ -749,6 +797,7 @@ export async function loadConfig(
           meta.workspaceConfigPaths = [];
           meta.settingSources = settingSources;
           meta.networkSettingSources = projectNetworkSettingSources(settingSources);
+          meta.configIssues = configIssues;
         }
 
         return config;
@@ -765,6 +814,7 @@ export async function loadConfig(
     meta.workspaceConfigPaths = [];
     meta.settingSources = {};
     meta.networkSettingSources = {};
+    meta.configIssues = [];
   }
   return DEFAULT_CONFIG;
 }

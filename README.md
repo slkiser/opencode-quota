@@ -726,7 +726,7 @@ If you previously relied on user/global quota config silently overriding workspa
 | Option                        | Default   | Meaning                                                                                                                                                                                                      |
 | ----------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `enabled`                     | `true`    | Master switch for quota collection and handled slash commands. When `false`, `/quota`, `/quota_status`, `/pricing_refresh`, and `/tokens_*` are handled as no-ops.                                           |
-| `enabledProviders`            | `"auto"`  | Auto-detect providers, or set an explicit provider list.                                                                                                                                                     |
+| `enabledProviders`            | `"auto"`  | Auto-detect providers, or set an explicit provider list. Unknown provider ids are reported under `config_errors` in `/quota_status`; an explicit list with no valid providers resolves to none instead of falling back to auto-detect. |
 | `minIntervalMs`               | `300000`  | Minimum fetch interval between provider updates.                                                                                                                                                             |
 | `formatStyle`                 | `singleWindow` | Shared quota-row style for popup toasts and the TUI sidebar: `singleWindow` (single window) or `allWindows` (all windows). Legacy `classic`/`grouped` aliases still work, and legacy `toastStyle` is still accepted on read for backward compatibility.       |
 | `percentDisplayMode`          | `remaining` | Shared percent meaning for popup toasts and the TUI sidebar: `remaining` renders labels like `81% left`, while `used` renders labels like `19% used` (or `125% used` when over quota); the bar fill always matches the shown meaning.        |
@@ -738,6 +738,8 @@ If you previously relied on user/global quota config silently overriding workspa
 `percentDisplayMode` affects popup toasts and the TUI sidebar only. `/quota` keeps its existing remaining-oriented percentage output. Value-only rows such as spend or used/limit summaries are unchanged.
 
 Compatibility note: newer installs write canonical `formatStyle` values (`singleWindow` or `allWindows`). Legacy aliases (`classic`, `grouped`) and legacy `toastStyle` still normalize on read. Older plugin versions may not recognize the camelCase values and can fall back to their own default style in mixed-version rollback scenarios.
+
+Release guard: `npm run build:check` rebuilds ignored `dist/` outputs and runs `npm pack --dry-run` so release packaging uses fresh generated files.
 
 ### Toast settings
 

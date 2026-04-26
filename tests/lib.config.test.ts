@@ -161,6 +161,31 @@ describe("loadConfig", () => {
     expect(cfg.config.enabledProviders).toEqual(["nanogpt", "cursor", "google-gemini-cli"]);
   });
 
+  it("reports unknown enabled provider ids and does not fall back to auto", async () => {
+    const cfg = await loadSdkConfig({
+      enabledProviders: ["opnai", "gemini-cli", "not-a-provider"],
+    });
+
+    expect(cfg.config.enabledProviders).toEqual(["google-gemini-cli"]);
+    expect(cfg.meta.configIssues).toEqual([
+      {
+        path: "client.config.get",
+        key: "enabledProviders",
+        message: "unknown provider id(s): opnai, not-a-provider",
+      },
+    ]);
+
+    const allInvalid = await loadSdkConfig({ enabledProviders: ["opnai"] });
+    expect(allInvalid.config.enabledProviders).toEqual([]);
+    expect(allInvalid.meta.configIssues).toEqual([
+      {
+        path: "client.config.get",
+        key: "enabledProviders",
+        message: "unknown provider id(s): opnai",
+      },
+    ]);
+  });
+
   it("keeps sdk fallback disabled once any file-backed experimental.quotaToast exists, even if it is invalid", async () => {
     const workspaceConfigPath = join(isolatedCwd, "opencode.json");
     const { writeFileSync } = await import("fs");
@@ -200,13 +225,22 @@ describe("loadConfig", () => {
     );
 
     expect(config.enabled).toBe(true);
-    expect(config.enabledProviders).toBe("auto");
+    expect(config.enabledProviders).toEqual([]);
     expect(config.formatStyle).toBe("singleWindow");
     expect(meta.source).toBe("files");
     expect(meta.paths).toEqual([workspaceConfigPath + " (experimental.quotaToast)"]);
     expect(meta.workspaceConfigPaths).toEqual(meta.paths);
     expect(meta.globalConfigPaths).toEqual([]);
-    expect(meta.settingSources).toEqual({});
+    expect(meta.settingSources).toEqual({
+      enabledProviders: workspaceConfigPath + " (experimental.quotaToast)",
+    });
+    expect(meta.configIssues).toEqual([
+      {
+        path: workspaceConfigPath + " (experimental.quotaToast)",
+        key: "enabledProviders",
+        message: "unknown provider id(s): not-a-provider",
+      },
+    ]);
   });
 
   it("records sdk fallback provenance only for explicitly applied valid settings", async () => {

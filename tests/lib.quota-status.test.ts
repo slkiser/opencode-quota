@@ -384,6 +384,40 @@ describe("buildQuotaStatusReport", () => {
     vi.clearAllMocks();
   });
 
+  it("renders config validation errors in the toast diagnostics section", async () => {
+    const { buildQuotaStatusReport } = await import("../src/lib/quota-status.js");
+    const geminiCliClient = { config: { get: vi.fn() } };
+
+    const report = await buildQuotaStatusReport({
+      configSource: "files",
+      configPaths: ["/tmp/project/opencode.json (experimental.quotaToast)"],
+      settingSources: {
+        enabledProviders: "/tmp/project/opencode.json (experimental.quotaToast)",
+      },
+      configIssues: [
+        {
+          path: "/tmp/project/opencode.json (experimental.quotaToast)",
+          key: "enabledProviders",
+          message: "unknown provider id(s): opnai",
+        },
+      ],
+      enabledProviders: [],
+      alibabaCodingPlanTier: "lite",
+      cursorPlan: "none",
+      pricingSnapshotSource: "auto",
+      onlyCurrentModel: false,
+      providerAvailability: [],
+      geminiCliClient,
+    });
+
+    expect(report).toContain("- enabledProviders: (none)");
+    expect(report).toContain("- config_errors:");
+    expect(report).toContain(
+      "  - /tmp/project/opencode.json (experimental.quotaToast) enabledProviders: unknown provider id(s): opnai",
+    );
+    expect(geminiCliMocks.inspectGeminiCliAuthPresence).toHaveBeenCalledWith(geminiCliClient);
+  });
+
   async function buildMiniMaxStatusReport(overrides: Record<string, unknown> = {}) {
     const { buildQuotaStatusReport } = await import("../src/lib/quota-status.js");
 

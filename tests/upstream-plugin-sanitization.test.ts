@@ -195,6 +195,25 @@ describe("upstream-plugin-sanitization", () => {
     expect(constantsSource).toContain("REDACTED_GOOGLE_OAUTH_CLIENT_SECRET");
   });
 
+  it("redacts Gemini CLI auth snapshots when constants use single quotes", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "opencode-quota-sanitize-"));
+    tempRoots.push(tempRoot);
+
+    const constantsDir = path.join(tempRoot, "src");
+    await mkdir(constantsDir, { recursive: true });
+    await writeFile(
+      path.join(constantsDir, "constants.ts"),
+      "export const GEMINI_CLIENT_ID = 'SAFE_TEST_CLIENT_ID';\nexport const GEMINI_CLIENT_SECRET = 'SAFE_TEST_CLIENT_SECRET';\n",
+      "utf8",
+    );
+
+    await sanitizeUpstreamPluginSnapshot("opencode-gemini-auth", tempRoot);
+
+    const constantsSource = await readFile(path.join(tempRoot, "src", "constants.ts"), "utf8");
+    expect(constantsSource).toContain("'REDACTED_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com'");
+    expect(constantsSource).toContain("'REDACTED_GOOGLE_OAUTH_CLIENT_SECRET'");
+  });
+
   it("fails closed when an expected secret assignment disappears", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "opencode-quota-sanitize-"));
     tempRoots.push(tempRoot);

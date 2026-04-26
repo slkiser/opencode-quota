@@ -73,6 +73,7 @@ export function createConfigModuleMock(loadConfig: MockFunction) {
       workspaceConfigPaths: [],
       settingSources: {},
       networkSettingSources: {},
+      configIssues: [],
     }),
   };
 }
