@@ -114,6 +114,7 @@ type ValidatedQuotaToastPatch = {
   minIntervalMs?: number;
   debug?: boolean;
   enabledProviders?: string[] | "auto";
+  enabledProvidersInvalidEmpty?: boolean;
   anthropicBinaryPath?: string;
   googleModels?: GoogleModelId[];
   alibabaCodingPlanTier?: QuotaToastConfig["alibabaCodingPlanTier"];
@@ -230,6 +231,7 @@ function cloneDefaultConfig(): QuotaToastConfig {
 type NormalizedEnabledProviders = {
   value?: string[] | "auto";
   issues: string[];
+  invalidEmpty?: boolean;
 };
 
 function describeInvalidProviderValue(value: unknown): string {
@@ -245,6 +247,7 @@ function normalizeEnabledProviders(value: unknown): NormalizedEnabledProviders {
     return {
       value: [],
       issues: ["expected \"auto\" or an array of provider ids"],
+      invalidEmpty: true,
     };
   }
 
@@ -273,7 +276,12 @@ function normalizeEnabledProviders(value: unknown): NormalizedEnabledProviders {
     ? [`unknown provider id(s): ${dedupe(invalidProviders).join(", ")}`]
     : [];
 
-  return { value: dedupe(validProviders), issues };
+  const normalizedProviders = dedupe(validProviders);
+  return {
+    value: normalizedProviders,
+    issues,
+    invalidEmpty: normalizedProviders.length === 0 && invalidProviders.length > 0,
+  };
 }
 
 function normalizeGoogleModels(value: unknown): GoogleModelId[] | undefined {
@@ -369,6 +377,9 @@ function extractValidatedQuotaToastPatch(
     }
     if (enabledProviders.value !== undefined) {
       patch.enabledProviders = enabledProviders.value;
+      if (enabledProviders.invalidEmpty) {
+        patch.enabledProvidersInvalidEmpty = true;
+      }
     }
   }
 
@@ -519,9 +530,11 @@ function applyValidatedQuotaToastPatch(
   }
 
   if (hasOwnKey(patch, "enabledProviders")) {
-    config.enabledProviders =
-      patch.enabledProviders === "auto" ? "auto" : [...patch.enabledProviders!];
-    applySettingSource(settingSources, "enabledProviders", sourcePath);
+    if (!(patch.enabledProvidersInvalidEmpty && settingSources.enabledProviders)) {
+      config.enabledProviders =
+        patch.enabledProviders === "auto" ? "auto" : [...patch.enabledProviders!];
+      applySettingSource(settingSources, "enabledProviders", sourcePath);
+    }
   }
 
   if (hasOwnKey(patch, "anthropicBinaryPath")) {
