@@ -105,6 +105,7 @@ function buildQuotaProviderContext(params: {
       cursorPlan: config.cursorPlan,
       cursorIncludedApiUsd: config.cursorIncludedApiUsd,
       cursorBillingCycleStartDay: config.cursorBillingCycleStartDay,
+      opencodeGoWindows: config.opencodeGoWindows,
       onlyCurrentModel: config.onlyCurrentModel,
       currentModel,
       currentProviderID,

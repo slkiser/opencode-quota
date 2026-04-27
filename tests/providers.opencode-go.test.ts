@@ -91,8 +91,8 @@ function mockDashboardHttpFailure(status: number, text: string) {
   });
 }
 
-async function runProviderFetch() {
-  return opencodeGoProvider.fetch({ config: {} } as any);
+async function runProviderFetch(opencodeGoWindows?: Array<"rolling" | "weekly" | "monthly">) {
+  return opencodeGoProvider.fetch({ config: { opencodeGoWindows } } as any);
 }
 
 describe("opencode-go provider", () => {
@@ -151,6 +151,44 @@ describe("opencode-go provider", () => {
       percentRemaining: 84,
     });
     expect(out.entries[2]).toHaveProperty("resetTimeIso");
+  });
+
+  it("filters windows based on opencodeGoWindows config", async () => {
+    mockConfigConfigured();
+    mockDashboardSuccess(buildDashboardHtml(7, 18000, 2, 540000, 16, 2480000));
+
+    const out = await runProviderFetch(["weekly"]);
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries).toHaveLength(1);
+    expect(out.entries[0]).toMatchObject({
+      name: "OpenCode Go Weekly",
+      group: "OpenCode Go",
+      label: "Weekly:",
+      percentRemaining: 98,
+    });
+  });
+
+  it("defaults to all windows when opencodeGoWindows is not set", async () => {
+    mockConfigConfigured();
+    mockDashboardSuccess(buildDashboardHtml(7, 18000, 2, 540000, 16, 2480000));
+
+    const out = await runProviderFetch();
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries).toHaveLength(3);
+  });
+
+  it("supports custom window combinations", async () => {
+    mockConfigConfigured();
+    mockDashboardSuccess(buildDashboardHtml(7, 18000, 2, 540000, 16, 2480000));
+
+    const out = await runProviderFetch(["rolling", "monthly"]);
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries).toHaveLength(2);
+    expect(out.entries[0]).toMatchObject({ name: "OpenCode Go Rolling" });
+    expect(out.entries[1]).toMatchObject({ name: "OpenCode Go Monthly" });
   });
 
   it("parses resetInSec-first field order", async () => {

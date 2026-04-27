@@ -39,6 +39,7 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "cursorPlan",
   "cursorIncludedApiUsd",
   "cursorBillingCycleStartDay",
+  "opencodeGoWindows",
   "pricingSnapshot.source",
   "pricingSnapshot.autoRefresh",
   "showOnIdle",
@@ -121,6 +122,7 @@ type ValidatedQuotaToastPatch = {
   cursorPlan?: CursorQuotaPlan;
   cursorIncludedApiUsd?: number;
   cursorBillingCycleStartDay?: number;
+  opencodeGoWindows?: Array<"rolling" | "weekly" | "monthly">;
   pricingSnapshot?: PricingSnapshotPatch;
   showOnIdle?: boolean;
   showOnQuestion?: boolean;
@@ -179,6 +181,14 @@ function isPositiveNumber(value: unknown): value is number {
 
 function isValidCursorBillingCycleStartDay(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 28;
+}
+
+const VALID_OPENCODE_GO_WINDOWS = ["rolling", "weekly", "monthly"] as const;
+
+function isValidOpenCodeGoWindows(value: unknown): value is Array<"rolling" | "weekly" | "monthly"> {
+  if (!Array.isArray(value)) return false;
+  if (value.length === 0) return false;
+  return value.every((v) => typeof v === "string" && VALID_OPENCODE_GO_WINDOWS.includes(v as typeof VALID_OPENCODE_GO_WINDOWS[number]));
 }
 
 function normalizeOptionalString(value: unknown): string | undefined {
@@ -422,6 +432,13 @@ function extractValidatedQuotaToastPatch(
     patch.cursorBillingCycleStartDay = quotaToastConfig.cursorBillingCycleStartDay;
   }
 
+  if (
+    hasOwnKey(quotaToastConfig, "opencodeGoWindows") &&
+    isValidOpenCodeGoWindows(quotaToastConfig.opencodeGoWindows)
+  ) {
+    patch.opencodeGoWindows = quotaToastConfig.opencodeGoWindows;
+  }
+
   if (hasOwnKey(quotaToastConfig, "pricingSnapshot")) {
     const pricingSnapshot = extractPricingSnapshotPatch(quotaToastConfig.pricingSnapshot);
     if (pricingSnapshot) {
@@ -565,6 +582,11 @@ function applyValidatedQuotaToastPatch(
   if (hasOwnKey(patch, "cursorBillingCycleStartDay")) {
     config.cursorBillingCycleStartDay = patch.cursorBillingCycleStartDay;
     applySettingSource(settingSources, "cursorBillingCycleStartDay", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "opencodeGoWindows")) {
+    config.opencodeGoWindows = [...patch.opencodeGoWindows!];
+    applySettingSource(settingSources, "opencodeGoWindows", sourcePath);
   }
 
   if (patch.pricingSnapshot) {

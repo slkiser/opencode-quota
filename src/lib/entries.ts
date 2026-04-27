@@ -106,6 +106,7 @@ export interface QuotaProviderContext {
     cursorPlan: CursorQuotaPlan;
     cursorIncludedApiUsd?: number;
     cursorBillingCycleStartDay?: number;
+    opencodeGoWindows?: Array<"rolling" | "weekly" | "monthly">;
     onlyCurrentModel?: boolean;
     currentModel?: string;
     currentProviderID?: string;

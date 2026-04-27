@@ -64,28 +64,39 @@ export const opencodeGoProvider: QuotaProvider = {
       return attemptedErrorResult(OPENCODE_GO_PROVIDER_LABEL, result.error);
     }
 
-    return attemptedResult([
-      {
+    const windows = _ctx.config.opencodeGoWindows ?? ["rolling", "weekly", "monthly"];
+    const entries = [];
+
+    if (windows.includes("rolling")) {
+      entries.push({
         name: `${OPENCODE_GO_PROVIDER_LABEL} Rolling`,
         group: OPENCODE_GO_PROVIDER_LABEL,
         label: "Rolling:",
         percentRemaining: result.rolling.percentRemaining,
         resetTimeIso: result.rolling.resetTimeIso,
-      },
-      {
+      });
+    }
+
+    if (windows.includes("weekly")) {
+      entries.push({
         name: `${OPENCODE_GO_PROVIDER_LABEL} Weekly`,
         group: OPENCODE_GO_PROVIDER_LABEL,
         label: "Weekly:",
         percentRemaining: result.weekly.percentRemaining,
         resetTimeIso: result.weekly.resetTimeIso,
-      },
-      {
+      });
+    }
+
+    if (windows.includes("monthly")) {
+      entries.push({
         name: `${OPENCODE_GO_PROVIDER_LABEL} Monthly`,
         group: OPENCODE_GO_PROVIDER_LABEL,
         label: "Monthly:",
         percentRemaining: result.monthly.percentRemaining,
         resetTimeIso: result.monthly.resetTimeIso,
-      },
-    ]);
+      });
+    }
+
+    return attemptedResult(entries);
   },
 };

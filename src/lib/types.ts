@@ -73,6 +73,11 @@ export interface QuotaToastConfig {
   googleModels: GoogleModelId[];
   alibabaCodingPlanTier: AlibabaCodingPlanTier;
   cursorPlan: CursorQuotaPlan;
+  /**
+   * Which OpenCode Go usage windows to display.
+   * Defaults to ["rolling", "weekly", "monthly"].
+   */
+  opencodeGoWindows: Array<"rolling" | "weekly" | "monthly">;
   cursorIncludedApiUsd?: number;
   cursorBillingCycleStartDay?: number;
   pricingSnapshot: PricingSnapshotConfig;
@@ -125,6 +130,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   googleModels: ["CLAUDE"],
   alibabaCodingPlanTier: "lite",
   cursorPlan: "none",
+  opencodeGoWindows: ["rolling", "weekly", "monthly"],
   pricingSnapshot: {
     source: "auto",
     autoRefresh: 7,
