@@ -577,14 +577,24 @@ export type SyntheticResult =
 export type OpenCodeGoResult =
   | {
       success: true;
-      /** Usage percentage [0..100] */
-      usagePercent: number;
-      /** Seconds until usage resets */
-      resetInSec: number;
-      /** Remaining percentage [0..100] */
-      percentRemaining: number;
-      /** ISO reset timestamp */
-      resetTimeIso: string;
+      rolling: {
+        usagePercent: number;
+        resetInSec: number;
+        percentRemaining: number;
+        resetTimeIso: string;
+      };
+      weekly: {
+        usagePercent: number;
+        resetInSec: number;
+        percentRemaining: number;
+        resetTimeIso: string;
+      };
+      monthly: {
+        usagePercent: number;
+        resetInSec: number;
+        percentRemaining: number;
+        resetTimeIso: string;
+      };
     }
   | QuotaError
   | null;

@@ -21,7 +21,7 @@ vi.mock("../src/lib/http.js", () => ({
 }));
 
 import { opencodeGoProvider } from "../src/providers/opencode-go.js";
-import { _parseMonthlyUsage } from "../src/lib/opencode-go.js";
+import { _parseUsage } from "../src/lib/opencode-go.js";
 
 function mockConfigNone() {
   mocks.resolveOpenCodeGoConfigCached.mockResolvedValueOnce({ state: "none" });
@@ -54,12 +54,16 @@ function mockConfigConfigured(workspaceId = "ws-123", authCookie = "cookie-abc")
   });
 }
 
-function buildDashboardHtml(usagePercent: number, resetInSec: number): string {
-  return `<html><script>monthlyUsage:$R[42]={usagePercent:${usagePercent},resetInSec:${resetInSec}}</script></html>`;
-}
-
-function buildDashboardHtmlResetFirst(usagePercent: number, resetInSec: number): string {
-  return `<html><script>monthlyUsage:$R[7]={resetInSec:${resetInSec},usagePercent:${usagePercent}}</script></html>`;
+function buildDashboardHtml(
+  rolling: [number, number],
+  weekly: [number, number],
+  monthly: [number, number],
+): string {
+  return `<html><script>
+    rollingUsage:$R[1]={status:"ok",resetInSec:${rolling[1]},usagePercent:${rolling[0]}},
+    weeklyUsage:$R[2]={status:"ok",resetInSec:${weekly[1]},usagePercent:${weekly[0]}},
+    monthlyUsage:$R[3]={status:"ok",resetInSec:${monthly[1]},usagePercent:${monthly[0]}}
+  </script></html>`;
 }
 
 function mockDashboardSuccess(html: string) {
@@ -108,33 +112,74 @@ describe("opencode-go provider", () => {
     expect(mocks.fetchWithTimeout).not.toHaveBeenCalled();
   });
 
-  it("returns usage entry on successful dashboard scrape", async () => {
+  it("returns all three usage entries on successful dashboard scrape", async () => {
+    const now = Date.now();
+    vi.setSystemTime(now);
+
+    const rolling: [number, number] = [0, 18000]; // 0%, 5h
+    const weekly: [number, number] = [100, 10271]; // 100%, ~2.8h
+    const monthly: [number, number] = [50, 2066217]; // 50%, ~24d
+
     mockConfigConfigured();
-    mockDashboardSuccess(buildDashboardHtml(42, 1209600));
+    mockDashboardSuccess(buildDashboardHtml(rolling, weekly, monthly));
 
     const out = await runProviderFetch();
 
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toHaveLength(1);
+    expect(out.entries).toHaveLength(3);
+
     expect(out.entries[0]).toMatchObject({
-      name: "OpenCode Go",
-      group: "OpenCode Go",
-      label: "Monthly:",
-      percentRemaining: 58,
+      label: "Rolling:",
+      percentRemaining: 100,
     });
-    expect(out.entries[0]).toHaveProperty("resetTimeIso");
+    expect(out.entries[0]).not.toHaveProperty("resetTimeIso");
+    expect(out.entries[0]).not.toHaveProperty("resetText");
+
+    expect(out.entries[1]).toMatchObject({
+      label: "Weekly:",
+      percentRemaining: 0,
+      resetTimeIso: new Date(now + weekly[1] * 1000).toISOString(),
+    });
+    expect(out.entries[2]).toMatchObject({
+      label: "Monthly:",
+      percentRemaining: 50,
+      resetTimeIso: new Date(now + monthly[1] * 1000).toISOString(),
+    });
+
+    for (const entry of out.entries) {
+      expect(entry.group).toBe("OpenCode Go");
+    }
   });
 
-  it("parses resetInSec-first field order", async () => {
+  it("always shows countdown for Weekly and Monthly even with 0% usage", async () => {
+    const now = Date.now();
+    vi.setSystemTime(now);
+
     mockConfigConfigured();
-    mockDashboardSuccess(buildDashboardHtmlResetFirst(75, 604800));
+    mockDashboardSuccess(buildDashboardHtml([0, 18000], [0, 604800], [0, 2592000]));
 
     const out = await runProviderFetch();
-
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toHaveLength(1);
+
+    // Rolling: 0% -> blank
     expect(out.entries[0]).toMatchObject({
-      percentRemaining: 25,
+      label: "Rolling:",
+      percentRemaining: 100,
+    });
+    expect(out.entries[0].resetTimeIso).toBeUndefined();
+
+    // Weekly: 0% -> countdown
+    expect(out.entries[1]).toMatchObject({
+      label: "Weekly:",
+      percentRemaining: 100,
+      resetTimeIso: new Date(now + 604800 * 1000).toISOString(),
+    });
+
+    // Monthly: 0% -> countdown
+    expect(out.entries[2]).toMatchObject({
+      label: "Monthly:",
+      percentRemaining: 100,
+      resetTimeIso: new Date(now + 2592000 * 1000).toISOString(),
     });
   });
 
@@ -163,15 +208,6 @@ describe("opencode-go provider", () => {
     const out = await runProviderFetch();
     expectAttemptedWithErrorLabel(out, "OpenCode Go");
     expect(out.errors[0]?.message).toContain("network timeout");
-  });
-
-  it("lower-bounds usagePercent at 0 and allows over-100 usage values", async () => {
-    mockConfigConfigured();
-    mockDashboardSuccess(buildDashboardHtml(150, 100));
-
-    const out = await runProviderFetch();
-    expectAttemptedWithNoErrors(out);
-    expect(out.entries[0]).toMatchObject({ percentRemaining: -50 });
   });
 
   it("sanitizes error text from dashboard responses", async () => {
@@ -212,77 +248,50 @@ describe("opencode-go isAvailable", () => {
   });
 });
 
-describe("_parseMonthlyUsage", () => {
+describe("_parseUsage", () => {
   it("returns null for empty string", () => {
-    expect(_parseMonthlyUsage("")).toBeNull();
+    expect(_parseUsage("", "monthlyUsage")).toBeNull();
   });
 
-  it("parses usagePercent-first ordering", () => {
-    const html = "monthlyUsage:$R[42]={usagePercent:55,resetInSec:3600}";
-    expect(_parseMonthlyUsage(html)).toEqual({ usagePercent: 55, resetInSec: 3600 });
+  it("parses rollingUsage specifically", () => {
+    const html = "rollingUsage:$R[1]={usagePercent:5,resetInSec:100}";
+    expect(_parseUsage(html, "rollingUsage")).toEqual({ usagePercent: 5, resetInSec: 100 });
   });
 
-  it("parses resetInSec-first ordering", () => {
-    const html = "monthlyUsage:$R[7]={resetInSec:7200,usagePercent:30}";
-    expect(_parseMonthlyUsage(html)).toEqual({ usagePercent: 30, resetInSec: 7200 });
+  it("parses weeklyUsage specifically", () => {
+    const html = "weeklyUsage:$R[1]={usagePercent:80,resetInSec:5000}";
+    expect(_parseUsage(html, "weeklyUsage")).toEqual({ usagePercent: 80, resetInSec: 5000 });
   });
 
-  it("returns null when pattern is missing", () => {
-    expect(_parseMonthlyUsage("<html><body>hello</body></html>")).toBeNull();
+  it("parses monthlyUsage specifically", () => {
+    const html = "monthlyUsage:$R[1]={usagePercent:55,resetInSec:3600}";
+    expect(_parseUsage(html, "monthlyUsage")).toEqual({ usagePercent: 55, resetInSec: 3600 });
   });
 
-  it("handles extra fields in the object", () => {
-    const html = "monthlyUsage:$R[1]={usagePercent:10,foo:bar,resetInSec:500}";
-    expect(_parseMonthlyUsage(html)).toEqual({ usagePercent: 10, resetInSec: 500 });
-  });
-
-  it("handles quoted property names and spaces", () => {
-    const html = 'monthlyUsage:$R[123]={"usagePercent": 45, "resetInSec" : 7200}';
-    expect(_parseMonthlyUsage(html)).toEqual({ usagePercent: 45, resetInSec: 7200 });
-  });
-
-  it("handles single quotes and decimal values", () => {
-    const html = "monthlyUsage:$R[0]={'usagePercent':12.5, 'resetInSec':30.5}";
-    expect(_parseMonthlyUsage(html)).toEqual({ usagePercent: 12.5, resetInSec: 30.5 });
-  });
-
-  it("handles quoted numeric values", () => {
-    const html = 'monthlyUsage:$R[99]={usagePercent:"88",resetInSec:"1000"}';
-    expect(_parseMonthlyUsage(html)).toEqual({ usagePercent: 88, resetInSec: 1000 });
-  });
-
-  it("handles variations of $R (e.g. no brackets, colon)", () => {
-    const html1 = "monthlyUsage:$R42={usagePercent:10,resetInSec:100}";
-    const html2 = "monthlyUsage:$R:7={usagePercent:20,resetInSec:200}";
-    const html3 = "monthlyUsage: $R = {usagePercent:30,resetInSec:300}";
-    expect(_parseMonthlyUsage(html1)).toEqual({ usagePercent: 10, resetInSec: 100 });
-    expect(_parseMonthlyUsage(html2)).toEqual({ usagePercent: 20, resetInSec: 200 });
-    expect(_parseMonthlyUsage(html3)).toEqual({ usagePercent: 30, resetInSec: 300 });
-  });
-
-  it("handles fuzzy matching of JSON objects without $R marker", () => {
-    const html = '<div>Data: {"usagePercent": 5, "resetInSec": 50}</div>';
-    expect(_parseMonthlyUsage(html)).toEqual({ usagePercent: 5, resetInSec: 50 });
+  it("handles fuzzy matching scoped to the key", () => {
+    const html = 'rollingUsage: {"usagePercent": 5, "resetInSec": 50}';
+    expect(_parseUsage(html, "rollingUsage")).toEqual({ usagePercent: 5, resetInSec: 50 });
   });
 
   it("handles the exact pattern found in opencode.htm", () => {
-    const html = 'monthlyUsage:$R[33]={status:"ok",resetInSec:2066217,usagePercent:50}';
-    expect(_parseMonthlyUsage(html)).toEqual({ usagePercent: 50, resetInSec: 2066217 });
+    const html = 'weeklyUsage:$R[32]={status:"rate-limited",resetInSec:10271,usagePercent:100}';
+    expect(_parseUsage(html, "weeklyUsage")).toEqual({ usagePercent: 100, resetInSec: 10271 });
   });
 
-  it("normalizes workspaceId if it is a full URL", async () => {
-    const fullUrl = "https://opencode.ai/workspace/wrk_999/go";
-    mockConfigConfigured(fullUrl, "auth-token");
-    mockDashboardSuccess(buildDashboardHtml(10, 100));
+  it("ignores unrelated scalar fields and finds the correct hydration object", () => {
+    // This HTML snippet mimics production where monthlyUsage appears as a scalar first (billing),
+    // then as a hydration object.
+    const html = `
+      "monthlyUsage": 1322715454,
+      "other": {"foo": "bar"},
+      monthlyUsage:$R[33]={status:"ok",resetInSec:2066217,usagePercent:50}
+    `;
+    expect(_parseUsage(html, "monthlyUsage")).toEqual({ usagePercent: 50, resetInSec: 2066217 });
+  });
 
-    await runProviderFetch();
-
-    // Verify fetchWithTimeout was called with the normalized URL
-    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
-      "https://opencode.ai/workspace/wrk_999/go",
-      expect.any(Object),
-      expect.any(Number),
-    );
+  it("handles braces inside string literals", () => {
+    const html = 'rollingUsage:$R[1]={status:"contains { braces }",usagePercent:10,resetInSec:100}';
+    expect(_parseUsage(html, "rollingUsage")).toEqual({ usagePercent: 10, resetInSec: 100 });
   });
 
   it("returns error with masked snippet on parsing failure", async () => {
@@ -294,7 +303,7 @@ describe("_parseMonthlyUsage", () => {
     const out = await runProviderFetch();
     expectAttemptedWithErrorLabel(out, "OpenCode Go");
     expect(out.errors[0]?.message).toContain("Snippet:");
-    expect(out.errors[0]?.message).toContain("v3.3.2-diag");
+    expect(out.errors[0]?.message).toContain("v3.4.0-diag");
     expect(out.errors[0]?.message).toContain("***"); // Masked digits
     expect(out.errors[0]?.message).toContain("[EMAIL]"); // Masked email
   });

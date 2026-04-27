@@ -32,6 +32,9 @@ export type QuotaToastEntry =
 
       /** Optional ISO reset timestamp (shown when percentRemaining is < 100). */
       resetTimeIso?: string;
+
+      /** Optional static reset text (e.g. "5h 0m") to show instead of live countdown. */
+      resetText?: string;
     })
   | (GroupedQuotaEntryMeta & {
       /** Value-based entry (no percent bar). */
@@ -45,11 +48,12 @@ export type QuotaToastEntry =
 
       /** Optional ISO reset timestamp (shown when available). */
       resetTimeIso?: string;
+
+      /** Optional static reset text to show instead of live countdown. */
+      resetText?: string;
     });
 
-export function isValueEntry(
-  e: QuotaToastEntry,
-): e is Extract<QuotaToastEntry, { kind: "value" }> {
+export function isValueEntry(e: QuotaToastEntry): e is Extract<QuotaToastEntry, { kind: "value" }> {
   return e.kind === "value";
 }
 
@@ -82,6 +86,8 @@ export interface SessionTokensData {
 export interface QuotaProviderPresentation {
   singleWindowDisplayName?: string;
   singleWindowShowRight?: boolean;
+  /** If true, always project all entries regardless of format style. */
+  forceAllWindows?: boolean;
 }
 
 export interface QuotaProviderResult {

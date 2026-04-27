@@ -16,10 +16,7 @@ import { fetchSessionTokensForDisplay } from "./session-tokens.js";
 import { getQuotaProviderDisplayLabel } from "./provider-metadata.js";
 import { isCursorProviderId } from "./cursor-pricing.js";
 import { fetchQuotaProviderResult } from "./quota-state.js";
-import {
-  DEFAULT_QUOTA_FORMAT_STYLE,
-  getQuotaFormatStyleDefinition,
-} from "./quota-format-style.js";
+import { DEFAULT_QUOTA_FORMAT_STYLE, getQuotaFormatStyleDefinition } from "./quota-format-style.js";
 import { getProviders } from "../providers/registry.js";
 import { getAnthropicNoDataMessage } from "../providers/anthropic.js";
 
@@ -275,10 +272,7 @@ export async function collectQuotaStatusLiveProbes(params: {
   }));
 }
 
-function stripSingleWindowEntryMeta(
-  entry: QuotaToastEntry,
-  showRight: boolean,
-): QuotaToastEntry {
+function stripSingleWindowEntryMeta(entry: QuotaToastEntry, showRight: boolean): QuotaToastEntry {
   const { group: _group, label: _label, ...withoutGroupLabel } = entry;
   if (showRight) {
     return { ...withoutGroupLabel };
@@ -346,7 +340,7 @@ function projectProviderResultToStyle(
 ): QuotaToastEntry[] {
   const entries = result.entries.map((entry) => ({ ...entry }));
   const definition = getQuotaFormatStyleDefinition(style);
-  if (definition.projection === "allWindows") {
+  if (definition.projection === "allWindows" || result.presentation?.forceAllWindows) {
     return entries;
   }
 

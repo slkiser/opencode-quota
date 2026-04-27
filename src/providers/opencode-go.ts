@@ -64,14 +64,34 @@ export const opencodeGoProvider: QuotaProvider = {
       return attemptedErrorResult(OPENCODE_GO_PROVIDER_LABEL, result.error);
     }
 
-    return attemptedResult([
+    return attemptedResult(
+      [
+        {
+          name: `${OPENCODE_GO_PROVIDER_LABEL} Rolling`,
+          group: OPENCODE_GO_PROVIDER_LABEL,
+          label: "Rolling:",
+          percentRemaining: result.rolling.percentRemaining,
+          ...(result.rolling.usagePercent > 0 ? { resetTimeIso: result.rolling.resetTimeIso } : {}),
+        },
+        {
+          name: `${OPENCODE_GO_PROVIDER_LABEL} Weekly`,
+          group: OPENCODE_GO_PROVIDER_LABEL,
+          label: "Weekly:",
+          percentRemaining: result.weekly.percentRemaining,
+          resetTimeIso: result.weekly.resetTimeIso,
+        },
+        {
+          name: `${OPENCODE_GO_PROVIDER_LABEL} Monthly`,
+          group: OPENCODE_GO_PROVIDER_LABEL,
+          label: "Monthly:",
+          percentRemaining: result.monthly.percentRemaining,
+          resetTimeIso: result.monthly.resetTimeIso,
+        },
+      ],
+      [],
       {
-        name: OPENCODE_GO_PROVIDER_LABEL,
-        group: OPENCODE_GO_PROVIDER_LABEL,
-        label: "Monthly:",
-        percentRemaining: result.percentRemaining,
-        resetTimeIso: result.resetTimeIso,
+        forceAllWindows: true,
       },
-    ]);
+    );
   },
 };

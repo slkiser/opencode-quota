@@ -42,8 +42,9 @@ export function formatQuotaRowsGrouped(params: {
     DISPLAYED_PERCENT_LABEL_WIDTH,
     ...(params.entries ?? [])
       .filter((entry) => !isValueEntry(entry))
-      .map((entry) =>
-        formatDisplayedPercentLabel(entry.percentRemaining, params.percentDisplayMode).length,
+      .map(
+        (entry) =>
+          formatDisplayedPercentLabel(entry.percentRemaining, params.percentDisplayMode).length,
       ),
   );
   const barWidth = Math.max(10, maxWidth - separator.length - percentCol);
@@ -76,7 +77,7 @@ export function formatQuotaRowsGrouped(params: {
       const right = entry.right ? entry.right.trim() : "";
 
       if (isValueEntry(entry)) {
-        const timeStr = formatResetCountdown(entry.resetTimeIso);
+        const timeStr = entry.resetText || formatResetCountdown(entry.resetTimeIso);
         const value = entry.value.trim();
 
         if (isTiny) {
@@ -105,19 +106,22 @@ export function formatQuotaRowsGrouped(params: {
         );
         const leftText = right ? `${label} ${right}` : label;
         lines.push(
-          (padRight(leftText, leftMax) +
+          (
+            padRight(leftText, leftMax) +
             separator +
             padLeft(value, valueWidth) +
             separator +
-            padLeft(timeStr, timeWidth)).slice(0, maxWidth),
+            padLeft(timeStr, timeWidth)
+          ).slice(0, maxWidth),
         );
         continue;
       }
 
       // Percent entries
       // Show reset countdown whenever quota is not fully available.
-      // (i.e., any usage at all, or depleted)
-      const timeStr = entry.percentRemaining < 100 ? formatResetCountdown(entry.resetTimeIso) : "";
+      const timeStr =
+        entry.resetText ||
+        (entry.percentRemaining < 100 ? formatResetCountdown(entry.resetTimeIso) : "");
       const displayedPercent = resolveDisplayedPercent(
         entry.percentRemaining,
         params.percentDisplayMode,

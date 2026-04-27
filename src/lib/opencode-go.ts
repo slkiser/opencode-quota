@@ -2,7 +2,7 @@
  * OpenCode Go dashboard scraper.
  *
  * Fetches the OpenCode Go workspace page and parses SolidJS SSR hydration
- * output for `monthlyUsage` containing `usagePercent` and `resetInSec`.
+ * output for rolling, weekly, and monthly usage.
  */
 
 import { fetchWithTimeout } from "./http.js";
@@ -15,49 +15,127 @@ const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Gecko/201001
 
 const SCRAPE_TIMEOUT_MS = 10_000;
 
-/**
- * Regex patterns matching the SolidJS SSR hydration output and general JSON-like objects.
- * We use a "strategy" approach: first look for SolidJS markers, then fuzzy match objects.
- */
-const RE_STRATEGY_HYDRATION =
-  /monthlyUsage[:\s]*\$R(?:[:\d\[\]]*)\s*=\s*\{.*?["']?usagePercent["']?\s*:\s*["']?(\d+(?:\.\d+)?)["']?.*?["']?resetInSec["']?\s*:\s*["']?(\d+(?:\.\d+)?)["']?.*?\}/i;
-const RE_STRATEGY_HYDRATION_REVERSE =
-  /monthlyUsage[:\s]*\$R(?:[:\d\[\]]*)\s*=\s*\{.*?["']?resetInSec["']?\s*:\s*["']?(\d+(?:\.\d+)?)["']?.*?["']?usagePercent["']?\s*:\s*["']?(\d+(?:\.\d+)?)["']?.*?\}/i;
-const RE_STRATEGY_FUZZY_OBJECT =
-  /\{.*?["']?usagePercent["']?\s*:\s*["']?(\d+(?:\.\d+)?)["']?.*?["']?resetInSec["']?\s*:\s*["']?(\d+(?:\.\d+)?)["']?.*?\}/i;
-
-interface ScrapedMonthlyUsage {
+interface ScrapedUsage {
   usagePercent: number;
   resetInSec: number;
 }
 
-function parseMonthlyUsage(html: string): ScrapedMonthlyUsage | null {
-  // Strategy 1: Standard or slightly varied SolidJS hydration
-  const hydrationMatch = RE_STRATEGY_HYDRATION.exec(html);
-  if (hydrationMatch) {
-    const usagePercent = Number(hydrationMatch[1]);
-    const resetInSec = Number(hydrationMatch[2]);
-    if (Number.isFinite(usagePercent) && Number.isFinite(resetInSec)) {
-      return { usagePercent, resetInSec };
+/**
+ * Parses usage data (usagePercent and resetInSec) for a specific key from the HTML.
+ *
+ * This version uses a strict anchor approach to ignore unrelated scalar properties
+ * (like billing metadata) and isolates the correct hydration object.
+ */
+function parseUsage(html: string, key: string): ScrapedUsage | null {
+  // Strategy 1: Strict Anchor Matching
+  // Find occurrences of the key that are part of a SolidJS hydration assignment
+  // e.g. weeklyUsage:$R[32]={...}
+  const anchorRegex = new RegExp(`${key}[:\\s]*\\$R(?:[:\\d\\[\\]]*)[:\\s]*=`, "gi");
+  const keyMatches = Array.from(html.matchAll(anchorRegex));
+
+  for (const match of keyMatches) {
+    const keyIndex = match.index!;
+
+    // Find the first '{' after this anchor
+    const startBraceIndex = html.indexOf("{", keyIndex);
+    if (startBraceIndex === -1 || startBraceIndex - keyIndex > 100) continue;
+
+    // Isolate the object string with string-aware brace matching
+    let endBraceIndex = -1;
+    let depth = 0;
+    let inString: string | null = null;
+    let isEscaped = false;
+
+    for (let i = startBraceIndex; i < html.length; i++) {
+      const char = html[i];
+
+      if (isEscaped) {
+        isEscaped = false;
+        continue;
+      }
+
+      if (char === "\\") {
+        isEscaped = true;
+        continue;
+      }
+
+      if (inString) {
+        if (char === inString) {
+          inString = null;
+        }
+        continue;
+      }
+
+      if (char === '"' || char === "'") {
+        inString = char;
+        continue;
+      }
+
+      if (char === "{") {
+        depth++;
+      } else if (char === "}") {
+        depth--;
+        if (depth === 0) {
+          endBraceIndex = i;
+          break;
+        }
+      }
+
+      // Safety break if we're scanning too much (e.g. 5KB per object)
+      if (i - startBraceIndex > 5000) break;
+    }
+
+    if (endBraceIndex === -1) continue;
+
+    const objectText = html.slice(startBraceIndex, endBraceIndex + 1);
+
+    // Extract fields using robust regexes that handle quotes and spacing
+    const RE_VAL = /:\s*["']?(\d+(?:\.\d+)?)["']?/;
+    const usageMatch = new RegExp(`["']?usagePercent["']?${RE_VAL.source}`, "i").exec(objectText);
+    const resetMatch = new RegExp(`["']?resetInSec["']?${RE_VAL.source}`, "i").exec(objectText);
+
+    if (usageMatch && resetMatch) {
+      const usagePercent = Number(usageMatch[1]);
+      const resetInSec = Number(resetMatch[1]);
+      if (Number.isFinite(usagePercent) && Number.isFinite(resetInSec)) {
+        return { usagePercent, resetInSec };
+      }
     }
   }
 
-  const hydrationReverseMatch = RE_STRATEGY_HYDRATION_REVERSE.exec(html);
-  if (hydrationReverseMatch) {
-    const resetInSec = Number(hydrationReverseMatch[1]);
-    const usagePercent = Number(hydrationReverseMatch[2]);
-    if (Number.isFinite(usagePercent) && Number.isFinite(resetInSec)) {
-      return { usagePercent, resetInSec };
-    }
-  }
+  // Strategy 2: Loose Fallback
+  // If no strict anchor found, try a looser search but still isolate the object.
+  // This handles cases where the dashboard might change its hydration pattern.
+  const looseMatches = Array.from(html.matchAll(new RegExp(`["']?${key}["']?[:\\s]*`, "gi")));
+  for (const match of looseMatches) {
+    const keyIndex = match.index!;
+    const startBraceIndex = html.indexOf("{", keyIndex);
+    if (startBraceIndex === -1 || startBraceIndex - keyIndex > 50) continue;
 
-  // Strategy 2: Fuzzy JSON-like object match (backup)
-  const fuzzyMatch = RE_STRATEGY_FUZZY_OBJECT.exec(html);
-  if (fuzzyMatch) {
-    const usagePercent = Number(fuzzyMatch[1]);
-    const resetInSec = Number(fuzzyMatch[2]);
-    if (Number.isFinite(usagePercent) && Number.isFinite(resetInSec)) {
-      return { usagePercent, resetInSec };
+    // Isolate and parse as above
+    let endBraceIndex = -1;
+    let depth = 0;
+    for (let i = startBraceIndex; i < html.length; i++) {
+      if (html[i] === "{") depth++;
+      else if (html[i] === "}") {
+        depth--;
+        if (depth === 0) {
+          endBraceIndex = i;
+          break;
+        }
+      }
+    }
+    if (endBraceIndex === -1) continue;
+    const objectText = html.slice(startBraceIndex, endBraceIndex + 1);
+    const RE_VAL = /:\s*["']?(\d+(?:\.\d+)?)["']?/;
+    const usageMatch = new RegExp(`["']?usagePercent["']?${RE_VAL.source}`, "i").exec(objectText);
+    const resetMatch = new RegExp(`["']?resetInSec["']?${RE_VAL.source}`, "i").exec(objectText);
+    if (usageMatch && resetMatch) {
+      const usagePercent = Number(usageMatch[1]);
+      const resetInSec = Number(resetMatch[1]);
+      if (Number.isFinite(usagePercent) && Number.isFinite(resetInSec)) {
+        return { usagePercent, resetInSec };
+      }
     }
   }
 
@@ -68,11 +146,16 @@ function parseMonthlyUsage(html: string): ScrapedMonthlyUsage | null {
  * Extracts a masked snippet of the HTML for diagnostics.
  */
 function getMaskedHtmlSnippet(html: string, maxLength = 200): string {
-  // Find "monthlyUsage" or "usagePercent" to center the snippet
-  const index =
-    html.indexOf("monthlyUsage") !== -1
-      ? html.indexOf("monthlyUsage")
-      : html.indexOf("usagePercent");
+  // Find "rollingUsage", "weeklyUsage", "monthlyUsage" or "usagePercent" to center the snippet
+  const keys = ["rollingUsage", "weeklyUsage", "monthlyUsage", "usagePercent"];
+  let index = -1;
+  for (const key of keys) {
+    const found = html.indexOf(key);
+    if (found !== -1) {
+      index = found;
+      break;
+    }
+  }
 
   let snippet: string;
   if (index === -1) {
@@ -103,7 +186,6 @@ export async function queryOpenCodeGoQuota(
 ): Promise<OpenCodeGoResult> {
   try {
     // If workspaceId is a full URL, strip the prefix and suffix to get just the ID.
-    // e.g. https://opencode.ai/workspace/wrk_123/go -> wrk_123
     let normalizedId = workspaceId.trim();
     if (normalizedId.includes("://")) {
       const match = normalizedId.match(/\/workspace\/([^\/]+)/);
@@ -136,28 +218,45 @@ export async function queryOpenCodeGoQuota(
     }
 
     const html = await response.text();
-    const monthly = parseMonthlyUsage(html);
+    const rolling = parseUsage(html, "rollingUsage");
+    const weekly = parseUsage(html, "weeklyUsage");
+    const monthly = parseUsage(html, "monthlyUsage");
 
-    if (!monthly) {
+    if (!rolling || !weekly || !monthly) {
       const snippet = getMaskedHtmlSnippet(html);
       const maskedUrl = url.replace(workspaceId, "REDACTED");
+      const missing = [!rolling && "rolling", !weekly && "weekly", !monthly && "monthly"]
+        .filter(Boolean)
+        .join(", ");
+
       return {
         success: false,
-        error: `Could not parse monthly usage from dashboard. Status: ${response.status}. URL: ${maskedUrl}. Snippet: ${snippet} (v3.3.2-diag)`,
+        error: `Could not parse ${missing} usage from dashboard. Status: ${response.status}. URL: ${maskedUrl}. Snippet: ${snippet} (v3.4.0-diag)`,
       };
     }
 
-    const usagePercent = Math.max(0, monthly.usagePercent);
-    const percentRemaining = 100 - usagePercent;
-    const resetInSec = Math.max(0, monthly.resetInSec);
-    const resetTimeIso = new Date(Date.now() + resetInSec * 1000).toISOString();
+    const now = Date.now();
 
     return {
       success: true,
-      usagePercent,
-      resetInSec,
-      percentRemaining,
-      resetTimeIso,
+      rolling: {
+        usagePercent: Math.max(0, rolling.usagePercent),
+        resetInSec: Math.max(0, rolling.resetInSec),
+        percentRemaining: Math.max(0, 100 - rolling.usagePercent),
+        resetTimeIso: new Date(now + Math.max(0, rolling.resetInSec) * 1000).toISOString(),
+      },
+      weekly: {
+        usagePercent: Math.max(0, weekly.usagePercent),
+        resetInSec: Math.max(0, weekly.resetInSec),
+        percentRemaining: Math.max(0, 100 - weekly.usagePercent),
+        resetTimeIso: new Date(now + Math.max(0, weekly.resetInSec) * 1000).toISOString(),
+      },
+      monthly: {
+        usagePercent: Math.max(0, monthly.usagePercent),
+        resetInSec: Math.max(0, monthly.resetInSec),
+        percentRemaining: Math.max(0, 100 - monthly.usagePercent),
+        resetTimeIso: new Date(now + Math.max(0, monthly.resetInSec) * 1000).toISOString(),
+      },
     };
   } catch (err) {
     return {
@@ -167,4 +266,4 @@ export async function queryOpenCodeGoQuota(
   }
 }
 
-export { parseMonthlyUsage as _parseMonthlyUsage };
+export { parseUsage as _parseUsage };

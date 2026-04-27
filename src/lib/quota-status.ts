@@ -1067,8 +1067,16 @@ export async function buildQuotaStatusReport(params: {
         openCodeGoRows.push({ key: "live_fetch_error", value: openCodeGoQuota.error });
       } else {
         openCodeGoRows.push({
+          key: "rolling_usage",
+          value: `used=${openCodeGoQuota.rolling.usagePercent}% rem=${openCodeGoQuota.rolling.percentRemaining}% reset=${openCodeGoQuota.rolling.resetInSec}s at=${openCodeGoQuota.rolling.resetTimeIso}`,
+        });
+        openCodeGoRows.push({
+          key: "weekly_usage",
+          value: `used=${openCodeGoQuota.weekly.usagePercent}% rem=${openCodeGoQuota.weekly.percentRemaining}% reset=${openCodeGoQuota.weekly.resetInSec}s at=${openCodeGoQuota.weekly.resetTimeIso}`,
+        });
+        openCodeGoRows.push({
           key: "monthly_usage",
-          value: `percent_used=${openCodeGoQuota.usagePercent} percent_remaining=${openCodeGoQuota.percentRemaining} reset_in_sec=${openCodeGoQuota.resetInSec} reset_at=${openCodeGoQuota.resetTimeIso}`,
+          value: `used=${openCodeGoQuota.monthly.usagePercent}% rem=${openCodeGoQuota.monthly.percentRemaining}% reset=${openCodeGoQuota.monthly.resetInSec}s at=${openCodeGoQuota.monthly.resetTimeIso}`,
         });
       }
     }
