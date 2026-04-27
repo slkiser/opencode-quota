@@ -2,7 +2,8 @@
  * OpenCode Go dashboard scraper.
  *
  * Fetches the OpenCode Go workspace page and parses SolidJS SSR hydration
- * output for `monthlyUsage` containing `usagePercent` and `resetInSec`.
+ * output for `rollingUsage`, `weeklyUsage`, and `monthlyUsage` containing
+ * `usagePercent` and `resetInSec`.
  */
 
 import { fetchWithTimeout } from "./http.js";
@@ -19,18 +20,32 @@ const SCRAPE_TIMEOUT_MS = 10_000;
  * Regex patterns matching the SolidJS SSR hydration output.
  * Field order may vary, so we try both orderings.
  */
+const RE_ROLLING_PCT_FIRST =
+  /rollingUsage:\$R\[\d+\]=\{[^}]*usagePercent:(\d+)[^}]*resetInSec:(\d+)[^}]*\}/;
+const RE_ROLLING_RESET_FIRST =
+  /rollingUsage:\$R\[\d+\]=\{[^}]*resetInSec:(\d+)[^}]*usagePercent:(\d+)[^}]*\}/;
+
+const RE_WEEKLY_PCT_FIRST =
+  /weeklyUsage:\$R\[\d+\]=\{[^}]*usagePercent:(\d+)[^}]*resetInSec:(\d+)[^}]*\}/;
+const RE_WEEKLY_RESET_FIRST =
+  /weeklyUsage:\$R\[\d+\]=\{[^}]*resetInSec:(\d+)[^}]*usagePercent:(\d+)[^}]*\}/;
+
 const RE_MONTHLY_PCT_FIRST =
   /monthlyUsage:\$R\[\d+\]=\{[^}]*usagePercent:(\d+)[^}]*resetInSec:(\d+)[^}]*\}/;
 const RE_MONTHLY_RESET_FIRST =
   /monthlyUsage:\$R\[\d+\]=\{[^}]*resetInSec:(\d+)[^}]*usagePercent:(\d+)[^}]*\}/;
 
-interface ScrapedMonthlyUsage {
+interface ScrapedWindowUsage {
   usagePercent: number;
   resetInSec: number;
 }
 
-function parseMonthlyUsage(html: string): ScrapedMonthlyUsage | null {
-  const pctFirstMatch = RE_MONTHLY_PCT_FIRST.exec(html);
+function parseWindowUsage(
+  html: string,
+  rePctFirst: RegExp,
+  reResetFirst: RegExp,
+): ScrapedWindowUsage | null {
+  const pctFirstMatch = rePctFirst.exec(html);
   if (pctFirstMatch) {
     const usagePercent = Number(pctFirstMatch[1]);
     const resetInSec = Number(pctFirstMatch[2]);
@@ -39,7 +54,7 @@ function parseMonthlyUsage(html: string): ScrapedMonthlyUsage | null {
     }
   }
 
-  const resetFirstMatch = RE_MONTHLY_RESET_FIRST.exec(html);
+  const resetFirstMatch = reResetFirst.exec(html);
   if (resetFirstMatch) {
     const resetInSec = Number(resetFirstMatch[1]);
     const usagePercent = Number(resetFirstMatch[2]);
@@ -85,26 +100,47 @@ export async function queryOpenCodeGoQuota(
     }
 
     const html = await response.text();
-    const monthly = parseMonthlyUsage(html);
+    const rolling = parseWindowUsage(html, RE_ROLLING_PCT_FIRST, RE_ROLLING_RESET_FIRST);
+    const weekly = parseWindowUsage(html, RE_WEEKLY_PCT_FIRST, RE_WEEKLY_RESET_FIRST);
+    const monthly = parseWindowUsage(html, RE_MONTHLY_PCT_FIRST, RE_MONTHLY_RESET_FIRST);
 
-    if (!monthly) {
+    if (!rolling || !weekly || !monthly) {
+      const missing: string[] = [];
+      if (!rolling) missing.push("rollingUsage");
+      if (!weekly) missing.push("weeklyUsage");
+      if (!monthly) missing.push("monthlyUsage");
       return {
         success: false,
-        error: "Could not parse monthly usage from OpenCode Go dashboard",
+        error: `Could not parse ${missing.join(", ")} from OpenCode Go dashboard`,
       };
     }
 
-    const usagePercent = Math.max(0, monthly.usagePercent);
-    const percentRemaining = 100 - usagePercent;
-    const resetInSec = Math.max(0, monthly.resetInSec);
-    const resetTimeIso = new Date(Date.now() + resetInSec * 1000).toISOString();
+    const now = Date.now();
+
+    const rollingUsagePercent = Math.max(0, rolling.usagePercent);
+    const weeklyUsagePercent = Math.max(0, weekly.usagePercent);
+    const monthlyUsagePercent = Math.max(0, monthly.usagePercent);
 
     return {
       success: true,
-      usagePercent,
-      resetInSec,
-      percentRemaining,
-      resetTimeIso,
+      rolling: {
+        usagePercent: rollingUsagePercent,
+        resetInSec: Math.max(0, rolling.resetInSec),
+        percentRemaining: 100 - rollingUsagePercent,
+        resetTimeIso: new Date(now + Math.max(0, rolling.resetInSec) * 1000).toISOString(),
+      },
+      weekly: {
+        usagePercent: weeklyUsagePercent,
+        resetInSec: Math.max(0, weekly.resetInSec),
+        percentRemaining: 100 - weeklyUsagePercent,
+        resetTimeIso: new Date(now + Math.max(0, weekly.resetInSec) * 1000).toISOString(),
+      },
+      monthly: {
+        usagePercent: monthlyUsagePercent,
+        resetInSec: Math.max(0, monthly.resetInSec),
+        percentRemaining: 100 - monthlyUsagePercent,
+        resetTimeIso: new Date(now + Math.max(0, monthly.resetInSec) * 1000).toISOString(),
+      },
     };
   } catch (err) {
     return {
@@ -114,4 +150,4 @@ export async function queryOpenCodeGoQuota(
   }
 }
 
-export { parseMonthlyUsage as _parseMonthlyUsage };
+export { parseWindowUsage as _parseWindowUsage };

@@ -1,8 +1,8 @@
 /**
  * OpenCode Go provider wrapper.
  *
- * Scrapes the OpenCode Go workspace dashboard and reports monthly usage
- * as a percentage-based quota entry.
+ * Scrapes the OpenCode Go workspace dashboard and reports rolling (~5h),
+ * weekly, and monthly usage as percentage-based quota entries.
  */
 
 import type { QuotaProvider, QuotaProviderContext, QuotaProviderResult } from "../lib/entries.js";
@@ -66,11 +66,25 @@ export const opencodeGoProvider: QuotaProvider = {
 
     return attemptedResult([
       {
-        name: OPENCODE_GO_PROVIDER_LABEL,
+        name: `${OPENCODE_GO_PROVIDER_LABEL} Rolling`,
+        group: OPENCODE_GO_PROVIDER_LABEL,
+        label: "Rolling:",
+        percentRemaining: result.rolling.percentRemaining,
+        resetTimeIso: result.rolling.resetTimeIso,
+      },
+      {
+        name: `${OPENCODE_GO_PROVIDER_LABEL} Weekly`,
+        group: OPENCODE_GO_PROVIDER_LABEL,
+        label: "Weekly:",
+        percentRemaining: result.weekly.percentRemaining,
+        resetTimeIso: result.weekly.resetTimeIso,
+      },
+      {
+        name: `${OPENCODE_GO_PROVIDER_LABEL} Monthly`,
         group: OPENCODE_GO_PROVIDER_LABEL,
         label: "Monthly:",
-        percentRemaining: result.percentRemaining,
-        resetTimeIso: result.resetTimeIso,
+        percentRemaining: result.monthly.percentRemaining,
+        resetTimeIso: result.monthly.resetTimeIso,
       },
     ]);
   },

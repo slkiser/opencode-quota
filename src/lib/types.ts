@@ -573,18 +573,28 @@ export type SyntheticResult =
   | QuotaError
   | null;
 
+/** Single usage window from OpenCode Go dashboard */
+export interface OpenCodeGoWindow {
+  /** Usage percentage [0..100] */
+  usagePercent: number;
+  /** Seconds until usage resets */
+  resetInSec: number;
+  /** Remaining percentage [0..100] */
+  percentRemaining: number;
+  /** ISO reset timestamp */
+  resetTimeIso: string;
+}
+
 /** Result from scraping OpenCode Go dashboard usage */
 export type OpenCodeGoResult =
   | {
       success: true;
-      /** Usage percentage [0..100] */
-      usagePercent: number;
-      /** Seconds until usage resets */
-      resetInSec: number;
-      /** Remaining percentage [0..100] */
-      percentRemaining: number;
-      /** ISO reset timestamp */
-      resetTimeIso: string;
+      /** Rolling (~5h) usage window */
+      rolling: OpenCodeGoWindow;
+      /** Weekly usage window */
+      weekly: OpenCodeGoWindow;
+      /** Monthly usage window */
+      monthly: OpenCodeGoWindow;
     }
   | QuotaError
   | null;
