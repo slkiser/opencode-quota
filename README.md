@@ -142,6 +142,18 @@ Show every quota window instead of the default most-constrained window:
 }
 ```
 
+Choose which OpenCode Go usage windows to display (default is all three):
+
+```jsonc
+{
+  "experimental": {
+    "quotaToast": {
+      "opencodeGoWindows": ["rolling", "weekly", "monthly"],
+    },
+  },
+}
+```
+
 Show percentages as used instead of remaining in toasts and the sidebar:
 
 ```jsonc
@@ -292,6 +304,8 @@ OpenCode Go quota scrapes the dashboard and needs a workspace ID plus an `auth` 
 export OPENCODE_GO_WORKSPACE_ID="your-workspace-id"
 export OPENCODE_GO_AUTH_COOKIE="your-auth-cookie"
 ```
+
+The provider reports three usage windows — **Rolling** (~5h), **Weekly**, and **Monthly** — which you can filter with `experimental.quotaToast.opencodeGoWindows`.
 
 Environment variables take precedence over the optional `opencode-go.json` config file. Run `/quota_status` to see the exact paths checked on your machine.
 
