@@ -204,7 +204,7 @@ Some providers need an auth companion plugin installed separately. Add the compa
 
 #### Cursor
 
-Companion plugin: `@playwo/opencode-cursor-oauth`
+Companion plugin: [`@playwo/opencode-cursor-oauth`](https://github.com/PoolPirate/opencode-cursor#readme)
 
 Add both plugins to `opencode.json`, with the Cursor auth plugin first:
 
@@ -230,7 +230,7 @@ opencode auth login --provider cursor
 
 #### Qwen Code
 
-Companion plugin: `opencode-qwencode-auth`
+Companion plugin: [`opencode-qwencode-auth`](https://github.com/gustavodiasdev/opencode-qwencode-auth#readme)
 
 Add both plugins to `opencode.json`, with the Qwen auth plugin first:
 
@@ -245,7 +245,7 @@ Add both plugins to `opencode.json`, with the Qwen auth plugin first:
 
 #### Google Antigravity
 
-Companion plugin: `opencode-antigravity-auth`
+Companion plugin: [`opencode-antigravity-auth`](https://github.com/NoeFabris/opencode-antigravity-auth#readme)
 
 Add both plugins to `opencode.json`, with the Antigravity auth plugin first:
 
@@ -260,7 +260,7 @@ Add both plugins to `opencode.json`, with the Antigravity auth plugin first:
 
 #### Gemini CLI
 
-Companion plugin: `opencode-gemini-auth`
+Companion plugin: [`opencode-gemini-auth`](https://github.com/jenslys/opencode-gemini-auth#readme)
 
 Add both plugins to `opencode.json`, with the Gemini auth plugin first. If you manually choose providers, include `google-gemini-cli`:
 
