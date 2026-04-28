@@ -19,10 +19,9 @@
 
 ---
 
-### Installation
+### Installation (automatic setup)
 
 ```bash
-# Automatic setup
 npx @slkiser/opencode-quota init
 ```
 
@@ -48,7 +47,7 @@ opencode-quota show --provider copilot
 
 `show` is quota-only: no token/cost reports or `models.dev` refresh. Installer `None (commands and terminal only)` disables toast/sidebar but keeps `/quota`, `/tokens_*`, and terminal `show`.
 
-### Manual Setup
+### Manual setup
 
 Add the server plugin to `opencode.json` or `opencode.jsonc`:
 
@@ -70,14 +69,14 @@ If you also want the sidebar, add the same package to the `tui.json` or `tui.jso
 
 All quota settings live in `opencode.json` or `opencode.jsonc`, not `tui.json`.
 
-### What It Adds
+### What plugin adds
 
 - TUI sidebar panel with quota rows
 - Popup quota toasts after assistant responses
 - Manual `/quota`, `/quota_status`, and `/tokens_*` commands
 - Terminal `opencode-quota show` command for a quota-only quick glance
 - Local token reports using bundled and runtime `models.dev` pricing
-- Cursor Auto/Composer and Cursor alias pricing that stays deterministic locally
+- Custom quota tracking for companion plugins
 
 <table>
   <tr>
@@ -128,7 +127,7 @@ Providers are auto-detected by default. To choose providers explicitly:
 }
 ```
 
-### Display Options
+### Display options
 
 Show every quota window instead of the default most-constrained window:
 
@@ -197,7 +196,7 @@ Turn off popup toasts while keeping `/quota` and the sidebar:
 
 <a id="anthropic-claude-quick-setup"></a>
 
-### Anthropic Quick Setup
+### Anthropic quick setup
 
 Anthropic does not use a companion OpenCode plugin. Install Claude Code, authenticate it, and make sure `claude` is available on your `PATH`:
 
@@ -208,7 +207,7 @@ claude auth status
 
 If Claude lives at a custom path, set `experimental.quotaToast.anthropicBinaryPath` in `opencode.json`.
 
-### Companion Providers
+### Companion providers
 
 Some providers need an auth companion plugin installed separately. Add the companion plugin first and `@slkiser/opencode-quota` second in `opencode.json` or `opencode.jsonc`.
 
