@@ -69,9 +69,9 @@ export const opencodeGoProvider: QuotaProvider = {
 
     if (windows.includes("rolling")) {
       entries.push({
-        name: `${OPENCODE_GO_PROVIDER_LABEL} Rolling`,
+        name: `${OPENCODE_GO_PROVIDER_LABEL} 5h`,
         group: OPENCODE_GO_PROVIDER_LABEL,
-        label: "Rolling:",
+        label: "5h:",
         percentRemaining: result.rolling.percentRemaining,
         resetTimeIso: result.rolling.resetTimeIso,
       });

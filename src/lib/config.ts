@@ -233,6 +233,7 @@ function cloneDefaultConfig(): QuotaToastConfig {
       ? [...DEFAULT_CONFIG.enabledProviders]
       : DEFAULT_CONFIG.enabledProviders,
     googleModels: [...DEFAULT_CONFIG.googleModels],
+    opencodeGoWindows: [...DEFAULT_CONFIG.opencodeGoWindows],
     pricingSnapshot: { ...DEFAULT_CONFIG.pricingSnapshot },
     layout: { ...DEFAULT_CONFIG.layout },
   };

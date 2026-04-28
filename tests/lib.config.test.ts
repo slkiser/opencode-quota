@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -84,6 +84,54 @@ describe("loadConfig", () => {
     expect(explicit.config.cursorPlan).toBe("pro-plus");
     expect(explicit.config.cursorIncludedApiUsd).toBe(42);
     expect(explicit.config.cursorBillingCycleStartDay).toBe(7);
+  });
+
+  it("defaults OpenCode Go windows and accepts valid explicit windows", async () => {
+    const defaults = await loadSdkConfig({});
+    expect(defaults.config.opencodeGoWindows).toEqual(["rolling", "weekly", "monthly"]);
+
+    const explicit = await loadSdkConfig({ opencodeGoWindows: ["monthly", "rolling"] });
+    expect(explicit.config.opencodeGoWindows).toEqual(["monthly", "rolling"]);
+    expect(explicit.meta.settingSources).toEqual({
+      opencodeGoWindows: "client.config.get",
+    });
+    expect(explicit.meta.networkSettingSources).toEqual({});
+  });
+
+  it("ignores invalid OpenCode Go windows without recording a setting source", async () => {
+    const invalidValues: unknown[] = [[], ["rolling", "daily"], ["weekly", 5], "weekly"];
+
+    for (const opencodeGoWindows of invalidValues) {
+      const { config, meta } = await loadSdkConfig({ opencodeGoWindows });
+      expect(config.opencodeGoWindows).toEqual(["rolling", "weekly", "monthly"]);
+      expect(meta.settingSources).not.toHaveProperty("opencodeGoWindows");
+      expect(meta.networkSettingSources).toEqual({});
+    }
+  });
+
+  it("records file-backed OpenCode Go windows setting source", async () => {
+    const workspaceConfigPath = join(isolatedCwd, "opencode.json");
+    writeFileSync(
+      workspaceConfigPath,
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            opencodeGoWindows: ["weekly", "monthly"],
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const meta = createLoadConfigMeta();
+    const config = await loadConfig(undefined, meta, { cwd: isolatedCwd });
+
+    expect(config.opencodeGoWindows).toEqual(["weekly", "monthly"]);
+    expect(meta.source).toBe("files");
+    expect(meta.settingSources).toEqual({
+      opencodeGoWindows: `${workspaceConfigPath} (experimental.quotaToast)`,
+    });
+    expect(meta.networkSettingSources).toEqual({});
   });
 
   it("defaults pricingSnapshot config and accepts valid overrides", async () => {

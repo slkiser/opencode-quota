@@ -1201,6 +1201,67 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- live_error_balance: NanoGPT API error 401: Unauthorized");
   });
 
+  it("reports OpenCode Go rolling, weekly, and monthly live usage when configured", async () => {
+    openCodeGoMocks.getOpenCodeGoConfigDiagnostics.mockResolvedValueOnce({
+      state: "configured",
+      source: "env",
+      missing: null,
+      error: null,
+      checkedPaths: ["env:OPENCODE_GO_WORKSPACE_ID", "env:OPENCODE_GO_AUTH_COOKIE"],
+    });
+    openCodeGoMocks.resolveOpenCodeGoConfigCached.mockResolvedValueOnce({
+      state: "configured",
+      source: "env",
+      config: { workspaceId: "ws-123", authCookie: "cookie-abc" },
+    });
+    openCodeGoMocks.queryOpenCodeGoQuota.mockResolvedValueOnce({
+      success: true,
+      rolling: {
+        usagePercent: 7,
+        percentRemaining: 93,
+        resetInSec: 18000,
+        resetTimeIso: "2026-03-12T17:45:00.000Z",
+      },
+      weekly: {
+        usagePercent: 22,
+        percentRemaining: 78,
+        resetInSec: 540000,
+        resetTimeIso: "2026-03-18T18:45:00.000Z",
+      },
+      monthly: {
+        usagePercent: 64,
+        percentRemaining: 36,
+        resetInSec: 2480000,
+        resetTimeIso: "2026-04-10T05:38:20.000Z",
+      },
+    });
+
+    const report = await buildOpenCodeGoStatusReport({
+      providerAvailability: [
+        {
+          id: "opencode-go",
+          enabled: true,
+          available: true,
+        },
+      ],
+    });
+
+    expect(report).toContain("opencode_go:");
+    expect(report).toContain("- config_state: configured");
+    expect(report).toContain("- config_source: env");
+    expect(report).toContain(
+      "- rolling_usage: percent_used=7 percent_remaining=93 reset_in_sec=18000 reset_at=2026-03-12T17:45:00.000Z",
+    );
+    expect(report).toContain(
+      "- weekly_usage: percent_used=22 percent_remaining=78 reset_in_sec=540000 reset_at=2026-03-18T18:45:00.000Z",
+    );
+    expect(report).toContain(
+      "- monthly_usage: percent_used=64 percent_remaining=36 reset_in_sec=2480000 reset_at=2026-04-10T05:38:20.000Z",
+    );
+    expect(openCodeGoMocks.resolveOpenCodeGoConfigCached).toHaveBeenCalledWith({ maxAgeMs: 30_000 });
+    expect(openCodeGoMocks.queryOpenCodeGoQuota).toHaveBeenCalledWith("ws-123", "cookie-abc");
+  });
+
   it("reports OpenCode Go invalid config details without attempting a live fetch", async () => {
     openCodeGoMocks.getOpenCodeGoConfigDiagnostics.mockResolvedValueOnce({
       state: "invalid",

@@ -131,9 +131,9 @@ describe("opencode-go provider", () => {
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toHaveLength(3);
     expect(out.entries[0]).toMatchObject({
-      name: "OpenCode Go Rolling",
+      name: "OpenCode Go 5h",
       group: "OpenCode Go",
-      label: "Rolling:",
+      label: "5h:",
       percentRemaining: 93,
     });
     expect(out.entries[0]).toHaveProperty("resetTimeIso");
@@ -187,7 +187,7 @@ describe("opencode-go provider", () => {
 
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toHaveLength(2);
-    expect(out.entries[0]).toMatchObject({ name: "OpenCode Go Rolling" });
+    expect(out.entries[0]).toMatchObject({ name: "OpenCode Go 5h" });
     expect(out.entries[1]).toMatchObject({ name: "OpenCode Go Monthly" });
   });
 
