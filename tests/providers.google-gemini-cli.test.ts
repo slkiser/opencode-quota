@@ -23,6 +23,7 @@ describe("google gemini cli provider", () => {
       success: true,
       buckets: [
         {
+          modelId: "gemini-2.5-pro",
           displayName: "Gemini Pro",
           accountEmail: "alice@example.com",
           percentRemaining: 64,
@@ -47,6 +48,74 @@ describe("google gemini cli provider", () => {
       },
     ]);
     expect(out.errors).toEqual([{ label: "bob..example", message: "Unauthorized" }]);
+    expect(out.presentation).toEqual({
+      singleWindowDisplayName: "Gemini CLI",
+      singleWindowShowRight: true,
+    });
+  });
+
+  it("maps aggregated Gemini quality tiers without changing provider presentation", async () => {
+    const { queryGeminiCliQuota } = await import("../src/lib/google-gemini-cli.js");
+    (queryGeminiCliQuota as any).mockResolvedValueOnce({
+      success: true,
+      buckets: [
+        {
+          modelId: "gemini-2.5-pro",
+          displayName: "Gemini Pro",
+          accountEmail: "alice@example.com",
+          percentRemaining: 20,
+          resetTimeIso: "2026-01-01T12:00:00Z",
+          remainingAmount: "50",
+          tokenType: "TOKENS",
+        },
+        {
+          modelId: "gemini-2.5-flash",
+          displayName: "Gemini Flash",
+          accountEmail: "alice@example.com",
+          percentRemaining: 50,
+          resetTimeIso: "2026-01-01T08:00:00Z",
+          remainingAmount: "1000",
+          tokenType: "REQUESTS",
+        },
+        {
+          modelId: "gemini-2.5-flash-lite",
+          displayName: "Gemini Flash Lite",
+          accountEmail: "alice@example.com",
+          percentRemaining: 10,
+          resetTimeIso: "2026-01-01T06:00:00Z",
+          remainingAmount: "25",
+          tokenType: "REQUESTS",
+        },
+      ],
+    });
+
+    const out = await googleGeminiCliProvider.fetch({ client: {} } as any);
+    expect(out.entries).toEqual([
+      {
+        name: "Gemini Pro (ali..example)",
+        group: "Gemini CLI",
+        label: "Gemini Pro:",
+        right: "50 left TOKENS",
+        percentRemaining: 20,
+        resetTimeIso: "2026-01-01T12:00:00Z",
+      },
+      {
+        name: "Gemini Flash (ali..example)",
+        group: "Gemini CLI",
+        label: "Gemini Flash:",
+        right: "1,000 left",
+        percentRemaining: 50,
+        resetTimeIso: "2026-01-01T08:00:00Z",
+      },
+      {
+        name: "Gemini Flash Lite (ali..example)",
+        group: "Gemini CLI",
+        label: "Gemini Flash Lite:",
+        right: "25 left",
+        percentRemaining: 10,
+        resetTimeIso: "2026-01-01T06:00:00Z",
+      },
+    ]);
     expect(out.presentation).toEqual({
       singleWindowDisplayName: "Gemini CLI",
       singleWindowShowRight: true,
