@@ -175,12 +175,15 @@ describe("quota-state shared cache", () => {
     const ctx = createTestContext();
     const key = quotaStateA.buildQuotaProviderStateCacheKey(provider.id, ctx);
     const path = quotaStateA.getQuotaProviderStateCacheFilePath(provider.id, key);
+    const { getPackageVersion } = await import("../src/lib/version.js");
+    const packageVersion = (await getPackageVersion()) ?? "unknown";
 
     await mkdir(`${TEST_RUNTIME_ROOT}/cache/quota-provider-state`, { recursive: true });
     await writeFile(
       path,
       JSON.stringify({
         version: 1,
+        packageVersion,
         key,
         providerId: provider.id,
         timestamp: Date.now(),
@@ -234,6 +237,44 @@ describe("quota-state shared cache", () => {
 
     await quotaStateA.fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
     await writeFile(path, "{ definitely-not-json", "utf-8");
+
+    vi.resetModules();
+    const quotaStateB = await import("../src/lib/quota-state.js");
+    await quotaStateB.fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("treats cache package-version mismatches as a miss and refetches live data", async () => {
+    const quotaStateA = await import("../src/lib/quota-state.js");
+    quotaStateA.__resetQuotaStateForTests();
+
+    const provider = {
+      id: "synthetic",
+      isAvailable: vi.fn(),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [{ name: "Synthetic", percentRemaining: 55 }],
+        errors: [],
+      }),
+    } as any;
+    const ctx = createTestContext();
+    const key = quotaStateA.buildQuotaProviderStateCacheKey(provider.id, ctx);
+    const path = quotaStateA.getQuotaProviderStateCacheFilePath(provider.id, key);
+
+    await quotaStateA.fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 1,
+        packageVersion: "0.0.0-stale-cache",
+        key,
+        providerId: provider.id,
+        timestamp: Date.now(),
+        result: { attempted: true, entries: [{ name: "Synthetic", percentRemaining: 10 }], errors: [] },
+      }),
+      "utf-8",
+    );
 
     vi.resetModules();
     const quotaStateB = await import("../src/lib/quota-state.js");

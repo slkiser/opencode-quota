@@ -7,14 +7,17 @@ import type { QuotaProvider, QuotaProviderContext, QuotaProviderResult } from ".
 import { writeJsonAtomic } from "./atomic-json.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import { isLiveLocalUsageProviderId } from "./provider-metadata.js";
+import { getPackageVersion } from "./version.js";
 
 const QUOTA_PROVIDER_CACHE_VERSION = 1 as const;
+const QUOTA_PROVIDER_CACHE_PACKAGE_VERSION_FALLBACK = "unknown";
 const QUOTA_PROVIDER_CACHE_DIRNAME = "quota-provider-state";
 const QUOTA_PROVIDER_CACHE_RETENTION_MS = 24 * 60 * 60 * 1000;
 const QUOTA_PROVIDER_CACHE_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 
 export type PersistedQuotaProviderCacheEntry = {
   version: typeof QUOTA_PROVIDER_CACHE_VERSION;
+  packageVersion: string;
   key: string;
   providerId: string;
   timestamp: number;
@@ -114,10 +117,15 @@ function isQuotaProviderResult(value: unknown): value is QuotaProviderResult {
   return true;
 }
 
+async function getQuotaProviderCachePackageVersion(): Promise<string> {
+  return (await getPackageVersion()) ?? QUOTA_PROVIDER_CACHE_PACKAGE_VERSION_FALLBACK;
+}
+
 function isPersistedQuotaProviderCacheEntry(
   value: unknown,
   key: string,
   providerId: string,
+  packageVersion: string,
 ): value is PersistedQuotaProviderCacheEntry {
   if (!value || typeof value !== "object") {
     return false;
@@ -126,6 +134,7 @@ function isPersistedQuotaProviderCacheEntry(
   const entry = value as Record<string, unknown>;
   return (
     entry.version === QUOTA_PROVIDER_CACHE_VERSION &&
+    entry.packageVersion === packageVersion &&
     entry.key === key &&
     entry.providerId === providerId &&
     typeof entry.timestamp === "number" &&
@@ -176,6 +185,7 @@ async function maybePrunePersistedQuotaProviderCache(now: number): Promise<void>
 async function readPersistedQuotaProviderCacheEntry(params: {
   key: string;
   providerId: string;
+  packageVersion: string;
   ttlMs: number;
   now: number;
 }): Promise<PersistedQuotaProviderCacheEntry | null> {
@@ -188,7 +198,14 @@ async function readPersistedQuotaProviderCacheEntry(params: {
   try {
     const raw = await readFile(path, "utf-8");
     const parsed = JSON.parse(raw) as unknown;
-    if (!isPersistedQuotaProviderCacheEntry(parsed, params.key, params.providerId)) {
+    if (
+      !isPersistedQuotaProviderCacheEntry(
+        parsed,
+        params.key,
+        params.providerId,
+        params.packageVersion,
+      )
+    ) {
       await safeRm(path);
       return null;
     }
@@ -199,6 +216,7 @@ async function readPersistedQuotaProviderCacheEntry(params: {
 
     return {
       version: parsed.version,
+      packageVersion: parsed.packageVersion,
       key: parsed.key,
       providerId: parsed.providerId,
       timestamp: parsed.timestamp,
@@ -235,10 +253,16 @@ export async function fetchQuotaProviderResult(params: {
 
   const key = buildQuotaProviderStateCacheKey(provider.id, ctx);
   const now = Date.now();
+  const packageVersion = await getQuotaProviderCachePackageVersion();
   await maybePrunePersistedQuotaProviderCache(now);
 
   const inMemory = inMemoryCache.get(key);
-  if (inMemory && ttlMs > 0 && now - inMemory.timestamp < ttlMs) {
+  if (
+    inMemory &&
+    inMemory.packageVersion === packageVersion &&
+    ttlMs > 0 &&
+    now - inMemory.timestamp < ttlMs
+  ) {
     return cloneQuotaProviderResult(inMemory.result);
   }
 
@@ -250,6 +274,7 @@ export async function fetchQuotaProviderResult(params: {
   const persisted = await readPersistedQuotaProviderCacheEntry({
     key,
     providerId: provider.id,
+    packageVersion,
     ttlMs,
     now,
   });
@@ -273,6 +298,7 @@ export async function fetchQuotaProviderResult(params: {
 
     const entry: PersistedQuotaProviderCacheEntry = {
       version: QUOTA_PROVIDER_CACHE_VERSION,
+      packageVersion,
       key,
       providerId: provider.id,
       timestamp: Date.now(),
