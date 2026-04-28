@@ -91,6 +91,7 @@ function cloneCliConfig(config: QuotaToastConfig): QuotaToastConfig {
       ? [...config.enabledProviders]
       : config.enabledProviders,
     googleModels: [...config.googleModels],
+    opencodeGoWindows: [...config.opencodeGoWindows],
     pricingSnapshot: { ...config.pricingSnapshot },
     layout: { ...config.layout },
     showSessionTokens: false,

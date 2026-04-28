@@ -20,6 +20,7 @@ export type GeminiCliAuthSourceKey =
 export type CursorQuotaPlan = "none" | "pro" | "pro-plus" | "ultra";
 export type PricingSnapshotSource = "auto" | "bundled" | "runtime";
 export type PercentDisplayMode = "remaining" | "used";
+export type OpenCodeGoWindowKey = "rolling" | "weekly" | "monthly";
 
 export interface PricingSnapshotConfig {
   source: PricingSnapshotSource;
@@ -73,6 +74,11 @@ export interface QuotaToastConfig {
   googleModels: GoogleModelId[];
   alibabaCodingPlanTier: AlibabaCodingPlanTier;
   cursorPlan: CursorQuotaPlan;
+  /**
+   * Which OpenCode Go usage windows to display.
+   * Defaults to ["rolling", "weekly", "monthly"].
+   */
+  opencodeGoWindows: OpenCodeGoWindowKey[];
   cursorIncludedApiUsd?: number;
   cursorBillingCycleStartDay?: number;
   pricingSnapshot: PricingSnapshotConfig;
@@ -125,6 +131,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   googleModels: ["CLAUDE"],
   alibabaCodingPlanTier: "lite",
   cursorPlan: "none",
+  opencodeGoWindows: ["rolling", "weekly", "monthly"],
   pricingSnapshot: {
     source: "auto",
     autoRefresh: 7,
@@ -573,18 +580,28 @@ export type SyntheticResult =
   | QuotaError
   | null;
 
+/** Single usage window from OpenCode Go dashboard */
+export interface OpenCodeGoWindow {
+  /** Usage percentage [0..100] */
+  usagePercent: number;
+  /** Seconds until usage resets */
+  resetInSec: number;
+  /** Remaining percentage [0..100] */
+  percentRemaining: number;
+  /** ISO reset timestamp */
+  resetTimeIso: string;
+}
+
 /** Result from scraping OpenCode Go dashboard usage */
 export type OpenCodeGoResult =
   | {
       success: true;
-      /** Usage percentage [0..100] */
-      usagePercent: number;
-      /** Seconds until usage resets */
-      resetInSec: number;
-      /** Remaining percentage [0..100] */
-      percentRemaining: number;
-      /** ISO reset timestamp */
-      resetTimeIso: string;
+      /** Rolling (~5h) usage window, when present in the dashboard payload */
+      rolling?: OpenCodeGoWindow;
+      /** Weekly usage window, when present in the dashboard payload */
+      weekly?: OpenCodeGoWindow;
+      /** Monthly usage window, when present in the dashboard payload */
+      monthly?: OpenCodeGoWindow;
     }
   | QuotaError
   | null;

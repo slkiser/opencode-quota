@@ -59,6 +59,35 @@ describe("normalizeGroupedQuotaEntries", () => {
     ]);
   });
 
+  it("sorts OpenCode Go windows as rolling, weekly, monthly", () => {
+    const entries = [
+      {
+        name: "OpenCode Go Weekly",
+        group: "OpenCode Go",
+        label: "Weekly:",
+        percentRemaining: 98,
+      },
+      {
+        name: "OpenCode Go Monthly",
+        group: "OpenCode Go",
+        label: "Monthly:",
+        percentRemaining: 84,
+      },
+      {
+        name: "OpenCode Go Rolling",
+        group: "OpenCode Go",
+        label: "Rolling:",
+        percentRemaining: 93,
+      },
+    ];
+
+    expect(normalizeGroupedQuotaEntries(entries, "toast").map((entry) => entry.label)).toEqual([
+      "Rolling:",
+      "Weekly:",
+      "Monthly:",
+    ]);
+  });
+
   it("keeps unknown grouped rows after duration rows while preserving unknown-row order for /quota", () => {
     const entries = [
       {

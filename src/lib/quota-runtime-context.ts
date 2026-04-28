@@ -111,6 +111,7 @@ export function createQuotaProviderRuntimeContext(
       cursorPlan: runtime.config.cursorPlan,
       cursorIncludedApiUsd: runtime.config.cursorIncludedApiUsd,
       cursorBillingCycleStartDay: runtime.config.cursorBillingCycleStartDay,
+      opencodeGoWindows: runtime.config.opencodeGoWindows,
       onlyCurrentModel: runtime.config.onlyCurrentModel,
       currentModel: runtime.session.sessionMeta?.modelID,
       currentProviderID: runtime.session.sessionMeta?.providerID,

@@ -142,6 +142,18 @@ Show every quota window instead of the default most-constrained window:
 }
 ```
 
+Choose which OpenCode Go usage windows to display (default is all three; `rolling` displays as `5h`):
+
+```jsonc
+{
+  "experimental": {
+    "quotaToast": {
+      "opencodeGoWindows": ["rolling", "weekly", "monthly"],
+    },
+  },
+}
+```
+
 Show percentages as used instead of remaining in toasts and the sidebar:
 
 ```jsonc
@@ -292,6 +304,8 @@ OpenCode Go quota scrapes the dashboard and needs a workspace ID plus an `auth` 
 export OPENCODE_GO_WORKSPACE_ID="your-workspace-id"
 export OPENCODE_GO_AUTH_COOKIE="your-auth-cookie"
 ```
+
+The provider can report three usage windows — **5h** rolling, **Weekly**, and **Monthly** — and emits whichever dashboard windows are available in that order. Filter displayed windows with `experimental.quotaToast.opencodeGoWindows` (`rolling`, `weekly`, `monthly`); non-default subsets report missing selected dashboard fields, while default/all-windows mode shows available windows and diagnostics indicate what was found.
 
 Environment variables take precedence over the optional `opencode-go.json` config file. Run `/quota_status` to see the exact paths checked on your machine.
 
@@ -448,6 +462,7 @@ Run `/quota_status` and check the `opencode_go` section.
 | Config not detected | Set both `OPENCODE_GO_WORKSPACE_ID` and `OPENCODE_GO_AUTH_COOKIE`, then rerun `/quota_status`. |
 | Incomplete config | `workspaceId` and `authCookie` must come from the same source. |
 | Scrape returns no data | Refresh the browser `auth` cookie from `opencode.ai`. |
+| Selected window missing | Check `/quota_status` for `selected_windows` and `live_fetch_error`; remove unavailable windows from `experimental.quotaToast.opencodeGoWindows` or refresh the dashboard cookie. |
 | Dashboard format changed | This integration scrapes the dashboard, so it can break if the dashboard markup changes. |
 
 </details>

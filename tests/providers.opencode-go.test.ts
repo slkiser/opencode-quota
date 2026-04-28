@@ -21,7 +21,7 @@ vi.mock("../src/lib/http.js", () => ({
 }));
 
 import { opencodeGoProvider } from "../src/providers/opencode-go.js";
-import { _parseMonthlyUsage } from "../src/lib/opencode-go.js";
+import { _parseWindowUsage } from "../src/lib/opencode-go.js";
 
 function mockConfigNone() {
   mocks.resolveOpenCodeGoConfigCached.mockResolvedValueOnce({ state: "none" });
@@ -54,12 +54,53 @@ function mockConfigConfigured(workspaceId = "ws-123", authCookie = "cookie-abc")
   });
 }
 
-function buildDashboardHtml(usagePercent: number, resetInSec: number): string {
-  return `<html><script>monthlyUsage:$R[42]={usagePercent:${usagePercent},resetInSec:${resetInSec}}</script></html>`;
+type OpenCodeGoTestWindow = "rolling" | "weekly" | "monthly";
+
+const DASHBOARD_FIELD_BY_WINDOW: Record<OpenCodeGoTestWindow, string> = {
+  rolling: "rollingUsage",
+  weekly: "weeklyUsage",
+  monthly: "monthlyUsage",
+};
+
+function buildDashboardHtml(
+  rollingUsagePercent: number,
+  rollingResetInSec: number,
+  weeklyUsagePercent: number,
+  weeklyResetInSec: number,
+  monthlyUsagePercent: number,
+  monthlyResetInSec: number,
+): string {
+  return buildPartialDashboardHtml({
+    rolling: [rollingUsagePercent, rollingResetInSec],
+    weekly: [weeklyUsagePercent, weeklyResetInSec],
+    monthly: [monthlyUsagePercent, monthlyResetInSec],
+  });
 }
 
-function buildDashboardHtmlResetFirst(usagePercent: number, resetInSec: number): string {
-  return `<html><script>monthlyUsage:$R[7]={resetInSec:${resetInSec},usagePercent:${usagePercent}}</script></html>`;
+function buildDashboardHtmlResetFirst(
+  rollingUsagePercent: number,
+  rollingResetInSec: number,
+  weeklyUsagePercent: number,
+  weeklyResetInSec: number,
+  monthlyUsagePercent: number,
+  monthlyResetInSec: number,
+): string {
+  return `<html><script>rollingUsage:$R[10]={resetInSec:${rollingResetInSec},usagePercent:${rollingUsagePercent}}weeklyUsage:$R[11]={resetInSec:${weeklyResetInSec},usagePercent:${weeklyUsagePercent}}monthlyUsage:$R[12]={resetInSec:${monthlyResetInSec},usagePercent:${monthlyUsagePercent}}</script></html>`;
+}
+
+function buildPartialDashboardHtml(
+  windows: Partial<Record<OpenCodeGoTestWindow, [usagePercent: number, resetInSec: number]>>,
+): string {
+  const chunks = (["rolling", "weekly", "monthly"] as const)
+    .map((window, index) => {
+      const usage = windows[window];
+      if (!usage) return "";
+      const [usagePercent, resetInSec] = usage;
+      return `${DASHBOARD_FIELD_BY_WINDOW[window]}:$R[${10 + index}]={usagePercent:${usagePercent},resetInSec:${resetInSec}}`;
+    })
+    .join("");
+
+  return `<html><script>${chunks}</script></html>`;
 }
 
 function mockDashboardSuccess(html: string) {
@@ -77,8 +118,8 @@ function mockDashboardHttpFailure(status: number, text: string) {
   });
 }
 
-async function runProviderFetch() {
-  return opencodeGoProvider.fetch({ config: {} } as any);
+async function runProviderFetch(opencodeGoWindows?: Array<"rolling" | "weekly" | "monthly">) {
+  return opencodeGoProvider.fetch({ config: { opencodeGoWindows } } as any);
 }
 
 describe("opencode-go provider", () => {
@@ -108,34 +149,128 @@ describe("opencode-go provider", () => {
     expect(mocks.fetchWithTimeout).not.toHaveBeenCalled();
   });
 
-  it("returns usage entry on successful dashboard scrape", async () => {
+  it("returns usage entries on successful dashboard scrape", async () => {
     mockConfigConfigured();
-    mockDashboardSuccess(buildDashboardHtml(42, 1209600));
+    mockDashboardSuccess(buildDashboardHtml(7, 18000, 2, 540000, 16, 2480000));
 
     const out = await runProviderFetch();
 
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toHaveLength(1);
+    expect(out.entries).toHaveLength(3);
     expect(out.entries[0]).toMatchObject({
-      name: "OpenCode Go",
+      name: "OpenCode Go 5h",
       group: "OpenCode Go",
-      label: "Monthly:",
-      percentRemaining: 58,
+      label: "5h:",
+      percentRemaining: 93,
     });
     expect(out.entries[0]).toHaveProperty("resetTimeIso");
+    expect(out.entries[1]).toMatchObject({
+      name: "OpenCode Go Weekly",
+      group: "OpenCode Go",
+      label: "Weekly:",
+      percentRemaining: 98,
+    });
+    expect(out.entries[1]).toHaveProperty("resetTimeIso");
+    expect(out.entries[2]).toMatchObject({
+      name: "OpenCode Go Monthly",
+      group: "OpenCode Go",
+      label: "Monthly:",
+      percentRemaining: 84,
+    });
+    expect(out.entries[2]).toHaveProperty("resetTimeIso");
+  });
+
+  it("filters windows based on opencodeGoWindows config", async () => {
+    mockConfigConfigured();
+    mockDashboardSuccess(buildDashboardHtml(7, 18000, 2, 540000, 16, 2480000));
+
+    const out = await runProviderFetch(["weekly"]);
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries).toHaveLength(1);
+    expect(out.entries[0]).toMatchObject({
+      name: "OpenCode Go Weekly",
+      group: "OpenCode Go",
+      label: "Weekly:",
+      percentRemaining: 98,
+    });
+  });
+
+  it("defaults to available windows when opencodeGoWindows is not set", async () => {
+    mockConfigConfigured();
+    mockDashboardSuccess(buildPartialDashboardHtml({ rolling: [7, 18000], monthly: [16, 2480000] }));
+
+    const out = await runProviderFetch();
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries.map((entry) => entry.name)).toEqual(["OpenCode Go 5h", "OpenCode Go Monthly"]);
+  });
+
+  it("succeeds when weekly is selected and only weeklyUsage is present", async () => {
+    mockConfigConfigured();
+    mockDashboardSuccess(buildPartialDashboardHtml({ weekly: [2, 540000] }));
+
+    const out = await runProviderFetch(["weekly"]);
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries).toHaveLength(1);
+    expect(out.entries[0]).toMatchObject({
+      name: "OpenCode Go Weekly",
+      group: "OpenCode Go",
+      label: "Weekly:",
+      percentRemaining: 98,
+    });
+  });
+
+  it("returns a clear error when a selected weekly window is missing", async () => {
+    mockConfigConfigured();
+    mockDashboardSuccess(buildPartialDashboardHtml({ rolling: [7, 18000], monthly: [16, 2480000] }));
+
+    const out = await runProviderFetch(["weekly"]);
+
+    expectAttemptedWithErrorLabel(out, "OpenCode Go");
+    expect(out.entries).toHaveLength(0);
+    expect(out.errors[0]?.message).toContain("weekly");
+    expect(out.errors[0]?.message).toContain("weeklyUsage");
+  });
+
+  it("supports custom window combinations", async () => {
+    mockConfigConfigured();
+    mockDashboardSuccess(buildDashboardHtml(7, 18000, 2, 540000, 16, 2480000));
+
+    const out = await runProviderFetch(["rolling", "monthly"]);
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries).toHaveLength(2);
+    expect(out.entries[0]).toMatchObject({ name: "OpenCode Go 5h" });
+    expect(out.entries[1]).toMatchObject({ name: "OpenCode Go Monthly" });
+  });
+
+  it("keeps selected windows in canonical order", async () => {
+    mockConfigConfigured();
+    mockDashboardSuccess(buildDashboardHtml(7, 18000, 2, 540000, 16, 2480000));
+
+    const out = await runProviderFetch(["weekly", "monthly", "rolling"]);
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries.map((entry) => entry.name)).toEqual([
+      "OpenCode Go 5h",
+      "OpenCode Go Weekly",
+      "OpenCode Go Monthly",
+    ]);
   });
 
   it("parses resetInSec-first field order", async () => {
     mockConfigConfigured();
-    mockDashboardSuccess(buildDashboardHtmlResetFirst(75, 604800));
+    mockDashboardSuccess(buildDashboardHtmlResetFirst(10, 3600, 20, 7200, 30, 14400));
 
     const out = await runProviderFetch();
 
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toHaveLength(1);
-    expect(out.entries[0]).toMatchObject({
-      percentRemaining: 25,
-    });
+    expect(out.entries).toHaveLength(3);
+    expect(out.entries[0]).toMatchObject({ percentRemaining: 90 });
+    expect(out.entries[1]).toMatchObject({ percentRemaining: 80 });
+    expect(out.entries[2]).toMatchObject({ percentRemaining: 70 });
   });
 
   it("returns error on HTTP failure", async () => {
@@ -147,13 +282,13 @@ describe("opencode-go provider", () => {
     expect(out.errors[0]?.message).toContain("403");
   });
 
-  it("returns error when dashboard HTML does not contain usage data", async () => {
+  it("returns parse error when dashboard HTML does not contain any known usage windows", async () => {
     mockConfigConfigured();
     mockDashboardSuccess("<html><body>No usage data here</body></html>");
 
     const out = await runProviderFetch();
     expectAttemptedWithErrorLabel(out, "OpenCode Go");
-    expect(out.errors[0]?.message).toContain("Could not parse");
+    expect(out.errors[0]?.message).toContain("Could not parse any known OpenCode Go dashboard usage windows");
   });
 
   it("returns error on network failure", async () => {
@@ -167,11 +302,13 @@ describe("opencode-go provider", () => {
 
   it("lower-bounds usagePercent at 0 and allows over-100 usage values", async () => {
     mockConfigConfigured();
-    mockDashboardSuccess(buildDashboardHtml(150, 100));
+    mockDashboardSuccess(buildDashboardHtml(150, 100, 0, 200, 50, 300));
 
     const out = await runProviderFetch();
     expectAttemptedWithNoErrors(out);
     expect(out.entries[0]).toMatchObject({ percentRemaining: -50 });
+    expect(out.entries[1]).toMatchObject({ percentRemaining: 100 });
+    expect(out.entries[2]).toMatchObject({ percentRemaining: 50 });
   });
 
   it("sanitizes error text from dashboard responses", async () => {
@@ -212,27 +349,41 @@ describe("opencode-go isAvailable", () => {
   });
 });
 
-describe("_parseMonthlyUsage", () => {
+describe("_parseWindowUsage", () => {
+  const rollingRePctFirst = /rollingUsage:\$R\[\d+\]=\{[^}]*usagePercent:(\d+)[^}]*resetInSec:(\d+)[^}]*\}/;
+  const rollingReResetFirst = /rollingUsage:\$R\[\d+\]=\{[^}]*resetInSec:(\d+)[^}]*usagePercent:(\d+)[^}]*\}/;
+
   it("returns null for empty string", () => {
-    expect(_parseMonthlyUsage("")).toBeNull();
+    expect(_parseWindowUsage("", rollingRePctFirst, rollingReResetFirst)).toBeNull();
   });
 
   it("parses usagePercent-first ordering", () => {
-    const html = "monthlyUsage:$R[42]={usagePercent:55,resetInSec:3600}";
-    expect(_parseMonthlyUsage(html)).toEqual({ usagePercent: 55, resetInSec: 3600 });
+    const html = "rollingUsage:$R[42]={usagePercent:55,resetInSec:3600}";
+    expect(_parseWindowUsage(html, rollingRePctFirst, rollingReResetFirst)).toEqual({
+      usagePercent: 55,
+      resetInSec: 3600,
+    });
   });
 
   it("parses resetInSec-first ordering", () => {
-    const html = "monthlyUsage:$R[7]={resetInSec:7200,usagePercent:30}";
-    expect(_parseMonthlyUsage(html)).toEqual({ usagePercent: 30, resetInSec: 7200 });
+    const html = "rollingUsage:$R[7]={resetInSec:7200,usagePercent:30}";
+    expect(_parseWindowUsage(html, rollingRePctFirst, rollingReResetFirst)).toEqual({
+      usagePercent: 30,
+      resetInSec: 7200,
+    });
   });
 
   it("returns null when pattern is missing", () => {
-    expect(_parseMonthlyUsage("<html><body>hello</body></html>")).toBeNull();
+    expect(
+      _parseWindowUsage("<html><body>hello</body></html>", rollingRePctFirst, rollingReResetFirst),
+    ).toBeNull();
   });
 
   it("handles extra fields in the object", () => {
-    const html = "monthlyUsage:$R[1]={usagePercent:10,foo:bar,resetInSec:500}";
-    expect(_parseMonthlyUsage(html)).toEqual({ usagePercent: 10, resetInSec: 500 });
+    const html = "rollingUsage:$R[1]={usagePercent:10,foo:bar,resetInSec:500}";
+    expect(_parseWindowUsage(html, rollingRePctFirst, rollingReResetFirst)).toEqual({
+      usagePercent: 10,
+      resetInSec: 500,
+    });
   });
 });
