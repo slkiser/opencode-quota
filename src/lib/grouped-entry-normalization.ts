@@ -51,7 +51,7 @@ function getDurationRankFromText(value?: string): number | null {
   if (!text) return null;
 
   if (/\b(?:rpm|per minute|minute|minutes)\b/u.test(text)) return 1;
-  if (/\b(?:5h|5 h|5-hour|5 hour|five-hour|five hour)\b/u.test(text)) return 300;
+  if (/\b(?:rolling|5h|5 h|5-hour|5 hour|five-hour|five hour)\b/u.test(text)) return 300;
   if (/\b(?:hourly|1h|1 h|1-hour|1 hour|hour)\b/u.test(text)) return 60;
   if (/\b(?:7d|7 d|7-day|7 day|weekly|week)\b/u.test(text)) return 10080;
   if (/\b(?:daily|1d|1 d|1-day|1 day|day)\b/u.test(text)) return 1440;

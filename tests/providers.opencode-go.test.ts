@@ -191,6 +191,20 @@ describe("opencode-go provider", () => {
     expect(out.entries[1]).toMatchObject({ name: "OpenCode Go Monthly" });
   });
 
+  it("keeps selected windows in canonical order", async () => {
+    mockConfigConfigured();
+    mockDashboardSuccess(buildDashboardHtml(7, 18000, 2, 540000, 16, 2480000));
+
+    const out = await runProviderFetch(["weekly", "monthly", "rolling"]);
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries.map((entry) => entry.name)).toEqual([
+      "OpenCode Go Rolling",
+      "OpenCode Go Weekly",
+      "OpenCode Go Monthly",
+    ]);
+  });
+
   it("parses resetInSec-first field order", async () => {
     mockConfigConfigured();
     mockDashboardSuccess(buildDashboardHtmlResetFirst(10, 3600, 20, 7200, 30, 14400));
