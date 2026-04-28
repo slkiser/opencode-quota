@@ -180,6 +180,18 @@ describe("opencode-go provider", () => {
     expect(out.entries[2]).toHaveProperty("resetTimeIso");
   });
 
+  it("parses decimal dashboard usage values", async () => {
+    mockConfigConfigured();
+    mockDashboardSuccess(buildDashboardHtml(7.5, 18000, 2.25, 540000, 16.75, 2480000));
+
+    const out = await runProviderFetch();
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries[0]).toMatchObject({ percentRemaining: 92.5 });
+    expect(out.entries[1]).toMatchObject({ percentRemaining: 97.75 });
+    expect(out.entries[2]).toMatchObject({ percentRemaining: 83.25 });
+  });
+
   it("filters windows based on opencodeGoWindows config", async () => {
     mockConfigConfigured();
     mockDashboardSuccess(buildDashboardHtml(7, 18000, 2, 540000, 16, 2480000));
@@ -258,6 +270,16 @@ describe("opencode-go provider", () => {
       "OpenCode Go Weekly",
       "OpenCode Go Monthly",
     ]);
+  });
+
+  it("treats reordered full window selection as the default missing-window-tolerant selection", async () => {
+    mockConfigConfigured();
+    mockDashboardSuccess(buildPartialDashboardHtml({ rolling: [7, 18000], monthly: [16, 2480000] }));
+
+    const out = await runProviderFetch(["weekly", "monthly", "rolling"]);
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries.map((entry) => entry.name)).toEqual(["OpenCode Go 5h", "OpenCode Go Monthly"]);
   });
 
   it("parses resetInSec-first field order", async () => {

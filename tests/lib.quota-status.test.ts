@@ -349,7 +349,14 @@ vi.mock("../src/lib/modelsdev-pricing.js", () => ({
 }));
 
 vi.mock("../src/providers/registry.js", () => ({
-  getProviders: () => [{ id: "copilot" }, { id: "cursor" }, { id: "synthetic" }, { id: "nanogpt" }],
+  getProviders: () => [
+    { id: "copilot" },
+    { id: "cursor" },
+    { id: "synthetic" },
+    { id: "nanogpt" },
+    { id: "kimi-for-coding" },
+    { id: "kimi-code" },
+  ],
 }));
 
 vi.mock("../src/lib/version.js", () => ({
@@ -696,6 +703,12 @@ describe("buildQuotaStatusReport", () => {
     );
     expect(report).toContain(
       "- nanogpt: pricing=no (subscription request quota + account balance (not token-priced))",
+    );
+    expect(report).toContain(
+      "- kimi-for-coding: pricing=no (request quota via Kimi Code API (not token-priced))",
+    );
+    expect(report).toContain(
+      "- kimi-code: pricing=no (request quota via Kimi Code API (not token-priced))",
     );
   });
 
@@ -1302,6 +1315,49 @@ describe("buildQuotaStatusReport", () => {
       "- weekly_usage: percent_used=22 percent_remaining=78 reset_in_sec=540000 reset_at=2026-03-18T18:45:00.000Z",
     );
     expect(report).not.toContain("- monthly_usage:");
+    expect(report).not.toContain("- live_fetch_error:");
+  });
+
+  it("does not report an OpenCode Go status error when a reordered full selection is missing a window", async () => {
+    openCodeGoMocks.getOpenCodeGoConfigDiagnostics.mockResolvedValueOnce({
+      state: "configured",
+      source: "env",
+      missing: null,
+      error: null,
+      checkedPaths: ["env:OPENCODE_GO_WORKSPACE_ID", "env:OPENCODE_GO_AUTH_COOKIE"],
+    });
+    openCodeGoMocks.resolveOpenCodeGoConfigCached.mockResolvedValueOnce({
+      state: "configured",
+      source: "env",
+      config: { workspaceId: "ws-123", authCookie: "cookie-abc" },
+    });
+    openCodeGoMocks.queryOpenCodeGoQuota.mockResolvedValueOnce({
+      success: true,
+      rolling: {
+        usagePercent: 7,
+        percentRemaining: 93,
+        resetInSec: 18000,
+        resetTimeIso: "2026-03-12T17:45:00.000Z",
+      },
+      monthly: {
+        usagePercent: 64,
+        percentRemaining: 36,
+        resetInSec: 2480000,
+        resetTimeIso: "2026-04-10T05:38:20.000Z",
+      },
+    });
+
+    const report = await buildOpenCodeGoStatusReport({
+      opencodeGoWindows: ["weekly", "monthly", "rolling"],
+    });
+
+    expect(report).toContain("- selected_windows: weekly,monthly,rolling");
+    expect(report).toContain(
+      "- rolling_usage: percent_used=7 percent_remaining=93 reset_in_sec=18000 reset_at=2026-03-12T17:45:00.000Z",
+    );
+    expect(report).toContain(
+      "- monthly_usage: percent_used=64 percent_remaining=36 reset_in_sec=2480000 reset_at=2026-04-10T05:38:20.000Z",
+    );
     expect(report).not.toContain("- live_fetch_error:");
   });
 

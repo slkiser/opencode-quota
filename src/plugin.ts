@@ -759,6 +759,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       client: runtime.client,
       config: runtime.config,
       request: createQuotaRuntimeRequestContext(runtime),
+      providers: runtime.providers,
     });
     if (!selection) {
       return "Quota unavailable\n\nNo enabled quota providers are configured.\n\nRun /quota_status for diagnostics.";
@@ -917,6 +918,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       surfaceExplicitProviderIssues: true,
       formatStyle: resolveQuotaFormatStyle(runtimeConfig.formatStyle),
       bypassProviderCache: params.bypassProviderCache,
+      providers: runtime.providers,
     });
     const { selection, availability, active, attemptedAny, hasExplicitProviderIssues, data } =
       quotaResult;
@@ -1246,6 +1248,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       request,
       surfaceExplicitProviderIssues: false,
       formatStyle: ALL_WINDOWS_FORMAT_STYLE,
+      providers: runtime.providers,
     });
 
     if (runtime.config.showSessionTokens && request.sessionID) {

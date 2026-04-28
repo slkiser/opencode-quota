@@ -20,20 +20,28 @@ const SCRAPE_TIMEOUT_MS = 10_000;
  * Regex patterns matching the SolidJS SSR hydration output.
  * Field order may vary, so we try both orderings.
  */
-const RE_ROLLING_PCT_FIRST =
-  /rollingUsage:\$R\[\d+\]=\{[^}]*usagePercent:(\d+)[^}]*resetInSec:(\d+)[^}]*\}/;
-const RE_ROLLING_RESET_FIRST =
-  /rollingUsage:\$R\[\d+\]=\{[^}]*resetInSec:(\d+)[^}]*usagePercent:(\d+)[^}]*\}/;
+const SCRAPED_NUMBER_PATTERN = String.raw`(-?\d+(?:\.\d+)?)`;
 
-const RE_WEEKLY_PCT_FIRST =
-  /weeklyUsage:\$R\[\d+\]=\{[^}]*usagePercent:(\d+)[^}]*resetInSec:(\d+)[^}]*\}/;
-const RE_WEEKLY_RESET_FIRST =
-  /weeklyUsage:\$R\[\d+\]=\{[^}]*resetInSec:(\d+)[^}]*usagePercent:(\d+)[^}]*\}/;
+const RE_ROLLING_PCT_FIRST = new RegExp(
+  String.raw`rollingUsage:\$R\[\d+\]=\{[^}]*usagePercent:${SCRAPED_NUMBER_PATTERN}[^}]*resetInSec:${SCRAPED_NUMBER_PATTERN}[^}]*\}`,
+);
+const RE_ROLLING_RESET_FIRST = new RegExp(
+  String.raw`rollingUsage:\$R\[\d+\]=\{[^}]*resetInSec:${SCRAPED_NUMBER_PATTERN}[^}]*usagePercent:${SCRAPED_NUMBER_PATTERN}[^}]*\}`,
+);
 
-const RE_MONTHLY_PCT_FIRST =
-  /monthlyUsage:\$R\[\d+\]=\{[^}]*usagePercent:(\d+)[^}]*resetInSec:(\d+)[^}]*\}/;
-const RE_MONTHLY_RESET_FIRST =
-  /monthlyUsage:\$R\[\d+\]=\{[^}]*resetInSec:(\d+)[^}]*usagePercent:(\d+)[^}]*\}/;
+const RE_WEEKLY_PCT_FIRST = new RegExp(
+  String.raw`weeklyUsage:\$R\[\d+\]=\{[^}]*usagePercent:${SCRAPED_NUMBER_PATTERN}[^}]*resetInSec:${SCRAPED_NUMBER_PATTERN}[^}]*\}`,
+);
+const RE_WEEKLY_RESET_FIRST = new RegExp(
+  String.raw`weeklyUsage:\$R\[\d+\]=\{[^}]*resetInSec:${SCRAPED_NUMBER_PATTERN}[^}]*usagePercent:${SCRAPED_NUMBER_PATTERN}[^}]*\}`,
+);
+
+const RE_MONTHLY_PCT_FIRST = new RegExp(
+  String.raw`monthlyUsage:\$R\[\d+\]=\{[^}]*usagePercent:${SCRAPED_NUMBER_PATTERN}[^}]*resetInSec:${SCRAPED_NUMBER_PATTERN}[^}]*\}`,
+);
+const RE_MONTHLY_RESET_FIRST = new RegExp(
+  String.raw`monthlyUsage:\$R\[\d+\]=\{[^}]*resetInSec:${SCRAPED_NUMBER_PATTERN}[^}]*usagePercent:${SCRAPED_NUMBER_PATTERN}[^}]*\}`,
+);
 
 interface ScrapedWindowUsage {
   usagePercent: number;

@@ -165,9 +165,10 @@ function formatOpenCodeGoWindowSelection(windows: OpenCodeGoWindowKey[]): string
 }
 
 function isDefaultOpenCodeGoStatusWindowSelection(windows: OpenCodeGoWindowKey[]): boolean {
+  const selected = new Set(windows);
   return (
-    windows.length === OPENCODE_GO_STATUS_WINDOW_ORDER.length &&
-    OPENCODE_GO_STATUS_WINDOW_ORDER.every((window, index) => windows[index] === window)
+    selected.size === OPENCODE_GO_STATUS_WINDOW_ORDER.length &&
+    OPENCODE_GO_STATUS_WINDOW_ORDER.every((window) => selected.has(window))
   );
 }
 
@@ -507,7 +508,7 @@ function supportedProviderPricingRow(params: {
     };
   }
 
-  if (id === "kimi-code") {
+  if (id === "kimi-for-coding" || id === "kimi-code") {
     return {
       id,
       pricing: "no",

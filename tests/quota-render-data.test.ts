@@ -49,6 +49,49 @@ describe("collectQuotaRenderData shared quota state", () => {
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
   });
 
+  it("uses explicitly provided providers instead of the global registry", async () => {
+    const runtimeProvider = {
+      id: "custom-runtime",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [
+          {
+            name: "Custom Runtime Daily",
+            group: "Custom Runtime",
+            label: "Daily:",
+            percentRemaining: 42,
+          },
+        ],
+        errors: [],
+      }),
+    };
+
+    const result = await collectQuotaRenderData({
+      client: TEST_CLIENT,
+      config: {
+        ...DEFAULT_CONFIG,
+        enabledProviders: ["custom-runtime"],
+        showSessionTokens: false,
+      },
+      surfaceExplicitProviderIssues: true,
+      formatStyle: "allWindows",
+      providers: [runtimeProvider],
+    });
+
+    expect(runtimeProvider.isAvailable).toHaveBeenCalledOnce();
+    expect(runtimeProvider.fetch).toHaveBeenCalledOnce();
+    expect(result.active).toEqual([runtimeProvider]);
+    expect(result.data?.entries).toEqual([
+      {
+        name: "Custom Runtime Daily",
+        group: "Custom Runtime",
+        label: "Daily:",
+        percentRemaining: 42,
+      },
+    ]);
+  });
+
   it("treats a thrown availability probe as unavailable instead of rejecting the whole render", async () => {
     const failingProvider = {
       id: "copilot",

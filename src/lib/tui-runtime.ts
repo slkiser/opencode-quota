@@ -128,6 +128,7 @@ export async function loadSidebarPanel(params: {
     request,
     surfaceExplicitProviderIssues: true,
     formatStyle: runtime.config.formatStyle,
+    providers: runtime.providers,
   });
 
   return {

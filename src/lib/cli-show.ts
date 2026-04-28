@@ -192,6 +192,7 @@ export async function runCliShowCommand(options: RunCliShowCommandOptions = {}):
       request: createQuotaRuntimeRequestContext(runtime),
       surfaceExplicitProviderIssues: true,
       formatStyle: resolveQuotaFormatStyle(config.formatStyle),
+      providers: runtime.providers,
     });
 
     if (!result.data) {

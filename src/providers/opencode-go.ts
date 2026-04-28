@@ -44,9 +44,10 @@ const OPENCODE_GO_WINDOW_LABELS: Record<
 };
 
 function isDefaultOpenCodeGoWindowSelection(windows: OpenCodeGoWindowKey[]): boolean {
+  const selected = new Set(windows);
   return (
-    windows.length === OPENCODE_GO_WINDOW_ORDER.length &&
-    OPENCODE_GO_WINDOW_ORDER.every((window, index) => windows[index] === window)
+    selected.size === OPENCODE_GO_WINDOW_ORDER.length &&
+    OPENCODE_GO_WINDOW_ORDER.every((window) => selected.has(window))
   );
 }
 

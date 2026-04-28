@@ -131,11 +131,12 @@ export async function resolveQuotaRenderSelection(params: {
   client: QuotaProviderContext["client"];
   config: QuotaToastConfig;
   request?: QuotaRequestContext;
+  providers?: QuotaProvider[];
 }): Promise<QuotaRenderSelection | null> {
   const { client, config, request } = params;
   if (!config.enabled) return null;
 
-  const allProviders = getProviders();
+  const allProviders = params.providers ?? getProviders();
   const isAutoMode = config.enabledProviders === "auto";
   const providers = isAutoMode
     ? allProviders
@@ -400,6 +401,7 @@ export async function collectQuotaRenderData(params: {
   surfaceExplicitProviderIssues: boolean;
   formatStyle?: QuotaFormatStyle;
   bypassProviderCache?: boolean;
+  providers?: QuotaProvider[];
 }): Promise<CollectQuotaRenderDataResult> {
   const selection = await resolveQuotaRenderSelection(params);
   if (!selection) {
