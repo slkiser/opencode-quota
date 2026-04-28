@@ -246,6 +246,105 @@ describe("collectQuotaRenderData shared quota state", () => {
     expect(syntheticProvider.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("projects Gemini quality tiers as bottleneck-only in single-window and all rows in all-windows", async () => {
+    const geminiProvider = {
+      id: "google-gemini-cli",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [
+          {
+            name: "Gemini Pro (ali..example)",
+            group: "Gemini CLI",
+            label: "Gemini Pro:",
+            percentRemaining: 45,
+            right: "50 left",
+            resetTimeIso: "2026-01-01T12:00:00.000Z",
+          },
+          {
+            name: "Gemini Flash (ali..example)",
+            group: "Gemini CLI",
+            label: "Gemini Flash:",
+            percentRemaining: 12,
+            right: "20 left",
+            resetTimeIso: "2026-01-01T08:00:00.000Z",
+          },
+          {
+            name: "Gemini Flash Lite (ali..example)",
+            group: "Gemini CLI",
+            label: "Gemini Flash Lite:",
+            percentRemaining: 30,
+            right: "25 left",
+            resetTimeIso: "2026-01-01T06:00:00.000Z",
+          },
+        ],
+        errors: [],
+        presentation: {
+          singleWindowDisplayName: "Gemini CLI",
+          singleWindowShowRight: true,
+        },
+      }),
+    };
+
+    mockProviders.push(geminiProvider);
+
+    const baseParams = {
+      client: TEST_CLIENT,
+      config: {
+        ...DEFAULT_CONFIG,
+        enabledProviders: ["google-gemini-cli"],
+        minIntervalMs: 60_000,
+        showSessionTokens: false,
+      },
+      surfaceExplicitProviderIssues: true,
+    };
+
+    const singleWindow = await collectQuotaRenderData({
+      ...baseParams,
+      formatStyle: "singleWindow",
+    });
+    expect(singleWindow.data?.entries).toEqual([
+      {
+        name: "Gemini CLI",
+        percentRemaining: 12,
+        right: "20 left",
+        resetTimeIso: "2026-01-01T08:00:00.000Z",
+      },
+    ]);
+
+    const allWindows = await collectQuotaRenderData({
+      ...baseParams,
+      formatStyle: "allWindows",
+    });
+    expect(allWindows.data?.entries).toEqual([
+      {
+        name: "Gemini Pro (ali..example)",
+        group: "Gemini CLI",
+        label: "Gemini Pro:",
+        percentRemaining: 45,
+        right: "50 left",
+        resetTimeIso: "2026-01-01T12:00:00.000Z",
+      },
+      {
+        name: "Gemini Flash (ali..example)",
+        group: "Gemini CLI",
+        label: "Gemini Flash:",
+        percentRemaining: 12,
+        right: "20 left",
+        resetTimeIso: "2026-01-01T08:00:00.000Z",
+      },
+      {
+        name: "Gemini Flash Lite (ali..example)",
+        group: "Gemini CLI",
+        label: "Gemini Flash Lite:",
+        percentRemaining: 30,
+        right: "25 left",
+        resetTimeIso: "2026-01-01T06:00:00.000Z",
+      },
+    ]);
+    expect(geminiProvider.fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps live-local providers uncached and returns snapshot-owned entries", async () => {
     const cursorProvider = {
       id: "cursor",

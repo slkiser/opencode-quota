@@ -444,6 +444,65 @@ function formatDisplayName(modelId: string): string {
   return words.length > 0 ? `Gemini ${words.join(" ")}` : "Gemini";
 }
 
+type GeminiCliQualityTierKey = "pro" | "flash" | "flashLite";
+
+type GeminiCliQualityTierDefinition = {
+  key: GeminiCliQualityTierKey;
+  displayName: string;
+  order: number;
+};
+
+const GEMINI_CLI_QUALITY_TIERS = [
+  { key: "pro", displayName: "Gemini Pro", order: 0 },
+  { key: "flash", displayName: "Gemini Flash", order: 1 },
+  { key: "flashLite", displayName: "Gemini Flash Lite", order: 2 },
+] as const satisfies readonly GeminiCliQualityTierDefinition[];
+
+function getGeminiCliQualityTier(modelId: string): GeminiCliQualityTierDefinition | undefined {
+  const normalized = modelId.toLowerCase().replace(/_/g, "-");
+  const tokens = normalized.split(/[^a-z0-9]+/).filter(Boolean);
+
+  if (normalized.includes("flash-lite") || (tokens.includes("flash") && tokens.includes("lite"))) {
+    return GEMINI_CLI_QUALITY_TIERS[2];
+  }
+  if (tokens.includes("pro")) {
+    return GEMINI_CLI_QUALITY_TIERS[0];
+  }
+  if (tokens.includes("flash")) {
+    return GEMINI_CLI_QUALITY_TIERS[1];
+  }
+  return undefined;
+}
+
+function aggregateGeminiCliQualityTiers(
+  buckets: GeminiCliQuotaBucket[],
+): GeminiCliQuotaBucket[] {
+  const groupedBuckets = new Map<GeminiCliQualityTierKey, GeminiCliQuotaBucket>();
+  const unknownBuckets: GeminiCliQuotaBucket[] = [];
+
+  for (const bucket of buckets) {
+    const tier = getGeminiCliQualityTier(bucket.modelId);
+    if (!tier) {
+      unknownBuckets.push(bucket);
+      continue;
+    }
+
+    const candidate = { ...bucket, displayName: tier.displayName };
+    const existing = groupedBuckets.get(tier.key);
+    if (!existing || candidate.percentRemaining < existing.percentRemaining) {
+      groupedBuckets.set(tier.key, candidate);
+    }
+  }
+
+  return [
+    ...GEMINI_CLI_QUALITY_TIERS.flatMap((tier) => {
+      const bucket = groupedBuckets.get(tier.key);
+      return bucket ? [bucket] : [];
+    }),
+    ...unknownBuckets,
+  ];
+}
+
 function mapQuotaBuckets(
   buckets: RetrieveUserQuotaBucket[] | undefined,
   account: GeminiCliAccount,
@@ -452,7 +511,7 @@ function mapQuotaBuckets(
     return [];
   }
 
-  return buckets
+  const normalizedBuckets = buckets
     .filter((bucket) => normalizeString(bucket.modelId))
     .map((bucket) => {
       const modelId = normalizeString(bucket.modelId)!;
@@ -474,6 +533,8 @@ function mapQuotaBuckets(
         sourceKey: account.sourceKey,
       };
     });
+
+  return aggregateGeminiCliQualityTiers(normalizedBuckets);
 }
 
 async function fetchAccountQuota(params: {
