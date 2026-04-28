@@ -199,7 +199,7 @@ describe("opencode-go provider", () => {
 
     expectAttemptedWithNoErrors(out);
     expect(out.entries.map((entry) => entry.name)).toEqual([
-      "OpenCode Go Rolling",
+      "OpenCode Go 5h",
       "OpenCode Go Weekly",
       "OpenCode Go Monthly",
     ]);
