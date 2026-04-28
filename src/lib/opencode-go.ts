@@ -2,13 +2,13 @@
  * OpenCode Go dashboard scraper.
  *
  * Fetches the OpenCode Go workspace page and parses SolidJS SSR hydration
- * output for `rollingUsage`, `weeklyUsage`, and `monthlyUsage` containing
- * `usagePercent` and `resetInSec`.
+ * output for known usage windows (`rollingUsage`, `weeklyUsage`, and
+ * `monthlyUsage`) containing `usagePercent` and `resetInSec`.
  */
 
 import { fetchWithTimeout } from "./http.js";
 import { sanitizeDisplayText } from "./display-sanitize.js";
-import type { OpenCodeGoResult } from "./types.js";
+import type { OpenCodeGoResult, OpenCodeGoWindow } from "./types.js";
 
 const DASHBOARD_URL_PREFIX = "https://opencode.ai/workspace/";
 const DASHBOARD_URL_SUFFIX = "/go";
@@ -71,6 +71,18 @@ function sanitizeMessage(text: string, maxLength = 120): string {
   return (sanitized || "unknown").slice(0, maxLength);
 }
 
+function normalizeWindowUsage(window: ScrapedWindowUsage, now: number): OpenCodeGoWindow {
+  const usagePercent = Math.max(0, window.usagePercent);
+  const resetInSec = Math.max(0, window.resetInSec);
+
+  return {
+    usagePercent,
+    resetInSec,
+    percentRemaining: 100 - usagePercent,
+    resetTimeIso: new Date(now + resetInSec * 1000).toISOString(),
+  };
+}
+
 export async function queryOpenCodeGoQuota(
   workspaceId: string,
   authCookie: string,
@@ -104,43 +116,21 @@ export async function queryOpenCodeGoQuota(
     const weekly = parseWindowUsage(html, RE_WEEKLY_PCT_FIRST, RE_WEEKLY_RESET_FIRST);
     const monthly = parseWindowUsage(html, RE_MONTHLY_PCT_FIRST, RE_MONTHLY_RESET_FIRST);
 
-    if (!rolling || !weekly || !monthly) {
-      const missing: string[] = [];
-      if (!rolling) missing.push("rollingUsage");
-      if (!weekly) missing.push("weeklyUsage");
-      if (!monthly) missing.push("monthlyUsage");
+    if (!rolling && !weekly && !monthly) {
       return {
         success: false,
-        error: `Could not parse ${missing.join(", ")} from OpenCode Go dashboard`,
+        error:
+          "Could not parse any known OpenCode Go dashboard usage windows (rollingUsage, weeklyUsage, monthlyUsage)",
       };
     }
 
     const now = Date.now();
 
-    const rollingUsagePercent = Math.max(0, rolling.usagePercent);
-    const weeklyUsagePercent = Math.max(0, weekly.usagePercent);
-    const monthlyUsagePercent = Math.max(0, monthly.usagePercent);
-
     return {
       success: true,
-      rolling: {
-        usagePercent: rollingUsagePercent,
-        resetInSec: Math.max(0, rolling.resetInSec),
-        percentRemaining: 100 - rollingUsagePercent,
-        resetTimeIso: new Date(now + Math.max(0, rolling.resetInSec) * 1000).toISOString(),
-      },
-      weekly: {
-        usagePercent: weeklyUsagePercent,
-        resetInSec: Math.max(0, weekly.resetInSec),
-        percentRemaining: 100 - weeklyUsagePercent,
-        resetTimeIso: new Date(now + Math.max(0, weekly.resetInSec) * 1000).toISOString(),
-      },
-      monthly: {
-        usagePercent: monthlyUsagePercent,
-        resetInSec: Math.max(0, monthly.resetInSec),
-        percentRemaining: 100 - monthlyUsagePercent,
-        resetTimeIso: new Date(now + Math.max(0, monthly.resetInSec) * 1000).toISOString(),
-      },
+      ...(rolling ? { rolling: normalizeWindowUsage(rolling, now) } : {}),
+      ...(weekly ? { weekly: normalizeWindowUsage(weekly, now) } : {}),
+      ...(monthly ? { monthly: normalizeWindowUsage(monthly, now) } : {}),
     };
   } catch (err) {
     return {

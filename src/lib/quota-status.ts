@@ -83,7 +83,12 @@ import { getCursorPlanDisplayName, getEffectiveCursorIncludedApiUsd } from "./cu
 import { getQuotaProviderDisplayLabel } from "./provider-metadata.js";
 import type { QuotaProviderResult, QuotaToastEntry, QuotaToastError } from "./entries.js";
 import { isValueEntry } from "./entries.js";
-import type { CursorQuotaPlan, PricingSnapshotSource } from "./types.js";
+import type {
+  CursorQuotaPlan,
+  OpenCodeGoWindow,
+  OpenCodeGoWindowKey,
+  PricingSnapshotSource,
+} from "./types.js";
 import { queryMiniMaxQuota } from "../providers/minimax-coding-plan.js";
 import { queryZaiQuota } from "./zai.js";
 import {
@@ -139,6 +144,12 @@ const STATUS_SAMPLE_LIMIT = 5;
 const STATUS_LIVE_ENTRY_LIMIT = 2;
 const STATUS_LIVE_ERROR_LIMIT = 2;
 const STATUS_LIVE_ROW_MAX_LENGTH = 120;
+const OPENCODE_GO_STATUS_WINDOW_ORDER: OpenCodeGoWindowKey[] = ["rolling", "weekly", "monthly"];
+const OPENCODE_GO_STATUS_WINDOW_FIELDS: Record<OpenCodeGoWindowKey, string> = {
+  rolling: "rollingUsage",
+  weekly: "weeklyUsage",
+  monthly: "monthlyUsage",
+};
 
 type ProviderLiveProbe = {
   providerId: string;
@@ -147,6 +158,25 @@ type ProviderLiveProbe = {
 
 function joinOrNone(values: string[]): string {
   return values.length > 0 ? values.join(" | ") : "(none)";
+}
+
+function formatOpenCodeGoWindowSelection(windows: OpenCodeGoWindowKey[]): string {
+  return windows.join(",");
+}
+
+function isDefaultOpenCodeGoStatusWindowSelection(windows: OpenCodeGoWindowKey[]): boolean {
+  return (
+    windows.length === OPENCODE_GO_STATUS_WINDOW_ORDER.length &&
+    OPENCODE_GO_STATUS_WINDOW_ORDER.every((window, index) => windows[index] === window)
+  );
+}
+
+function formatOpenCodeGoMissingWindows(windows: OpenCodeGoWindowKey[]): string {
+  return windows.map((window) => `${window} (${OPENCODE_GO_STATUS_WINDOW_FIELDS[window]})`).join(", ");
+}
+
+function formatOpenCodeGoUsage(window: OpenCodeGoWindow): string {
+  return `percent_used=${window.usagePercent} percent_remaining=${window.percentRemaining} reset_in_sec=${window.resetInSec} reset_at=${window.resetTimeIso}`;
 }
 
 function formatSettingSources(sources: QuotaToastSettingSources | undefined): string {
@@ -563,6 +593,7 @@ export async function buildQuotaStatusReport(params: {
   cursorPlan: CursorQuotaPlan;
   cursorIncludedApiUsd?: number;
   cursorBillingCycleStartDay?: number;
+  opencodeGoWindows?: OpenCodeGoWindowKey[];
   pricingSnapshotSource: PricingSnapshotSource;
   onlyCurrentModel: boolean;
   currentModel?: string;
@@ -1047,6 +1078,11 @@ export async function buildQuotaStatusReport(params: {
     openCodeGoRows.push({ key: "config_error", value: sanitizeDisplayText(openCodeGoDiag.error) });
   }
   openCodeGoRows.push({ key: "config_checked_paths", value: joinOrNone(openCodeGoDiag.checkedPaths) });
+  const openCodeGoSelectedWindows = params.opencodeGoWindows ?? OPENCODE_GO_STATUS_WINDOW_ORDER;
+  openCodeGoRows.push({
+    key: "selected_windows",
+    value: formatOpenCodeGoWindowSelection(openCodeGoSelectedWindows),
+  });
   if (openCodeGoDiag.state === "configured") {
     const openCodeGoConfig = await resolveOpenCodeGoConfigCached({
       maxAgeMs: DEFAULT_OPENCODE_GO_CONFIG_CACHE_MAX_AGE_MS,
@@ -1066,18 +1102,26 @@ export async function buildQuotaStatusReport(params: {
       } else if (!openCodeGoQuota.success) {
         openCodeGoRows.push({ key: "live_fetch_error", value: openCodeGoQuota.error });
       } else {
-        openCodeGoRows.push({
-          key: "rolling_usage",
-          value: `percent_used=${openCodeGoQuota.rolling.usagePercent} percent_remaining=${openCodeGoQuota.rolling.percentRemaining} reset_in_sec=${openCodeGoQuota.rolling.resetInSec} reset_at=${openCodeGoQuota.rolling.resetTimeIso}`,
-        });
-        openCodeGoRows.push({
-          key: "weekly_usage",
-          value: `percent_used=${openCodeGoQuota.weekly.usagePercent} percent_remaining=${openCodeGoQuota.weekly.percentRemaining} reset_in_sec=${openCodeGoQuota.weekly.resetInSec} reset_at=${openCodeGoQuota.weekly.resetTimeIso}`,
-        });
-        openCodeGoRows.push({
-          key: "monthly_usage",
-          value: `percent_used=${openCodeGoQuota.monthly.usagePercent} percent_remaining=${openCodeGoQuota.monthly.percentRemaining} reset_in_sec=${openCodeGoQuota.monthly.resetInSec} reset_at=${openCodeGoQuota.monthly.resetTimeIso}`,
-        });
+        for (const window of OPENCODE_GO_STATUS_WINDOW_ORDER) {
+          const usage = openCodeGoQuota[window];
+          if (!usage) continue;
+
+          openCodeGoRows.push({
+            key: `${window}_usage`,
+            value: formatOpenCodeGoUsage(usage),
+          });
+        }
+
+        const missingSelectedWindows = openCodeGoSelectedWindows.filter((window) => !openCodeGoQuota[window]);
+        if (
+          missingSelectedWindows.length > 0 &&
+          !isDefaultOpenCodeGoStatusWindowSelection(openCodeGoSelectedWindows)
+        ) {
+          openCodeGoRows.push({
+            key: "live_fetch_error",
+            value: `Selected OpenCode Go dashboard window(s) missing: ${formatOpenCodeGoMissingWindows(missingSelectedWindows)}`,
+          });
+        }
       }
     }
   }

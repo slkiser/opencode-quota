@@ -1,4 +1,4 @@
-import type { CursorQuotaPlan } from "./types.js";
+import type { CursorQuotaPlan, OpenCodeGoWindowKey } from "./types.js";
 
 /**
  * Normalized quota output model.
@@ -106,7 +106,7 @@ export interface QuotaProviderContext {
     cursorPlan: CursorQuotaPlan;
     cursorIncludedApiUsd?: number;
     cursorBillingCycleStartDay?: number;
-    opencodeGoWindows?: Array<"rolling" | "weekly" | "monthly">;
+    opencodeGoWindows?: OpenCodeGoWindowKey[];
     onlyCurrentModel?: boolean;
     currentModel?: string;
     currentProviderID?: string;

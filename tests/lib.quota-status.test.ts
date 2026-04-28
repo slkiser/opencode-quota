@@ -1249,6 +1249,7 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("opencode_go:");
     expect(report).toContain("- config_state: configured");
     expect(report).toContain("- config_source: env");
+    expect(report).toContain("- selected_windows: rolling,weekly,monthly");
     expect(report).toContain(
       "- rolling_usage: percent_used=7 percent_remaining=93 reset_in_sec=18000 reset_at=2026-03-12T17:45:00.000Z",
     );
@@ -1260,6 +1261,86 @@ describe("buildQuotaStatusReport", () => {
     );
     expect(openCodeGoMocks.resolveOpenCodeGoConfigCached).toHaveBeenCalledWith({ maxAgeMs: 30_000 });
     expect(openCodeGoMocks.queryOpenCodeGoQuota).toHaveBeenCalledWith("ws-123", "cookie-abc");
+  });
+
+  it("reports available OpenCode Go live usage without failing when a default window is absent", async () => {
+    openCodeGoMocks.getOpenCodeGoConfigDiagnostics.mockResolvedValueOnce({
+      state: "configured",
+      source: "env",
+      missing: null,
+      error: null,
+      checkedPaths: ["env:OPENCODE_GO_WORKSPACE_ID", "env:OPENCODE_GO_AUTH_COOKIE"],
+    });
+    openCodeGoMocks.resolveOpenCodeGoConfigCached.mockResolvedValueOnce({
+      state: "configured",
+      source: "env",
+      config: { workspaceId: "ws-123", authCookie: "cookie-abc" },
+    });
+    openCodeGoMocks.queryOpenCodeGoQuota.mockResolvedValueOnce({
+      success: true,
+      rolling: {
+        usagePercent: 7,
+        percentRemaining: 93,
+        resetInSec: 18000,
+        resetTimeIso: "2026-03-12T17:45:00.000Z",
+      },
+      weekly: {
+        usagePercent: 22,
+        percentRemaining: 78,
+        resetInSec: 540000,
+        resetTimeIso: "2026-03-18T18:45:00.000Z",
+      },
+    });
+
+    const report = await buildOpenCodeGoStatusReport();
+
+    expect(report).toContain("- selected_windows: rolling,weekly,monthly");
+    expect(report).toContain(
+      "- rolling_usage: percent_used=7 percent_remaining=93 reset_in_sec=18000 reset_at=2026-03-12T17:45:00.000Z",
+    );
+    expect(report).toContain(
+      "- weekly_usage: percent_used=22 percent_remaining=78 reset_in_sec=540000 reset_at=2026-03-18T18:45:00.000Z",
+    );
+    expect(report).not.toContain("- monthly_usage:");
+    expect(report).not.toContain("- live_fetch_error:");
+  });
+
+  it("reports a clear OpenCode Go status error when a selected window is absent", async () => {
+    openCodeGoMocks.getOpenCodeGoConfigDiagnostics.mockResolvedValueOnce({
+      state: "configured",
+      source: "env",
+      missing: null,
+      error: null,
+      checkedPaths: ["env:OPENCODE_GO_WORKSPACE_ID", "env:OPENCODE_GO_AUTH_COOKIE"],
+    });
+    openCodeGoMocks.resolveOpenCodeGoConfigCached.mockResolvedValueOnce({
+      state: "configured",
+      source: "env",
+      config: { workspaceId: "ws-123", authCookie: "cookie-abc" },
+    });
+    openCodeGoMocks.queryOpenCodeGoQuota.mockResolvedValueOnce({
+      success: true,
+      rolling: {
+        usagePercent: 7,
+        percentRemaining: 93,
+        resetInSec: 18000,
+        resetTimeIso: "2026-03-12T17:45:00.000Z",
+      },
+      monthly: {
+        usagePercent: 64,
+        percentRemaining: 36,
+        resetInSec: 2480000,
+        resetTimeIso: "2026-04-10T05:38:20.000Z",
+      },
+    });
+
+    const report = await buildOpenCodeGoStatusReport({ opencodeGoWindows: ["weekly"] });
+
+    expect(report).toContain("- selected_windows: weekly");
+    expect(report).toContain(
+      "- rolling_usage: percent_used=7 percent_remaining=93 reset_in_sec=18000 reset_at=2026-03-12T17:45:00.000Z",
+    );
+    expect(report).toContain("- live_fetch_error: Selected OpenCode Go dashboard window(s) missing: weekly (weeklyUsage)");
   });
 
   it("reports OpenCode Go invalid config details without attempting a live fetch", async () => {

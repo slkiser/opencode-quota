@@ -20,6 +20,7 @@ export type GeminiCliAuthSourceKey =
 export type CursorQuotaPlan = "none" | "pro" | "pro-plus" | "ultra";
 export type PricingSnapshotSource = "auto" | "bundled" | "runtime";
 export type PercentDisplayMode = "remaining" | "used";
+export type OpenCodeGoWindowKey = "rolling" | "weekly" | "monthly";
 
 export interface PricingSnapshotConfig {
   source: PricingSnapshotSource;
@@ -77,7 +78,7 @@ export interface QuotaToastConfig {
    * Which OpenCode Go usage windows to display.
    * Defaults to ["rolling", "weekly", "monthly"].
    */
-  opencodeGoWindows: Array<"rolling" | "weekly" | "monthly">;
+  opencodeGoWindows: OpenCodeGoWindowKey[];
   cursorIncludedApiUsd?: number;
   cursorBillingCycleStartDay?: number;
   pricingSnapshot: PricingSnapshotConfig;
@@ -595,12 +596,12 @@ export interface OpenCodeGoWindow {
 export type OpenCodeGoResult =
   | {
       success: true;
-      /** Rolling (~5h) usage window */
-      rolling: OpenCodeGoWindow;
-      /** Weekly usage window */
-      weekly: OpenCodeGoWindow;
-      /** Monthly usage window */
-      monthly: OpenCodeGoWindow;
+      /** Rolling (~5h) usage window, when present in the dashboard payload */
+      rolling?: OpenCodeGoWindow;
+      /** Weekly usage window, when present in the dashboard payload */
+      weekly?: OpenCodeGoWindow;
+      /** Monthly usage window, when present in the dashboard payload */
+      monthly?: OpenCodeGoWindow;
     }
   | QuotaError
   | null;
