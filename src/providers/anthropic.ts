@@ -60,14 +60,14 @@ export const anthropicProvider: QuotaProvider = {
       {
         name: "Claude 5h",
         group: "Claude",
-        label: "5-hour:",
+        label: "5h:",
         percentRemaining: result.five_hour.percentRemaining,
         resetTimeIso: result.five_hour.resetTimeIso,
       },
       {
-        name: "Claude 7d",
+        name: "Claude Weekly",
         group: "Claude",
-        label: "7-day:",
+        label: "Weekly:",
         percentRemaining: result.seven_day.percentRemaining,
         resetTimeIso: result.seven_day.resetTimeIso,
       },

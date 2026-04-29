@@ -56,9 +56,9 @@ export const openaiProvider: QuotaProvider = {
     const hourly = result.windows.hourly;
     if (hourly) {
       entries.push({
-        name: `${group} Hourly`,
+        name: `${group} 5h`,
         group,
-        label: "Hourly:",
+        label: "5h:",
         percentRemaining: hourly.percentRemaining,
         resetTimeIso: hourly.resetTimeIso,
       });

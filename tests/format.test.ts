@@ -288,9 +288,9 @@ describe("formatQuotaRows", () => {
           percentRemaining: 60,
         },
         {
-          name: "OpenAI Hourly",
+          name: "OpenAI 5h",
           group: "OpenAI (Pro)",
-          label: "Hourly:",
+          label: "5h:",
           percentRemaining: 42,
         },
       ],
@@ -301,7 +301,7 @@ describe("formatQuotaRows", () => {
     expect(out.indexOf("→ [Qwen] (free)")).toBeLessThan(out.indexOf("→ [OpenAI] (Pro)"));
 
     expect(out.indexOf("RPM:")).toBeLessThan(out.indexOf("Daily:"));
-    expect(out.indexOf("Hourly:")).toBeLessThan(out.indexOf("Weekly:"));
+    expect(out.indexOf("5h:")).toBeLessThan(out.indexOf("Weekly:"));
   });
 
   it("groups legacy Google-style entries without duplicating the header text", () => {

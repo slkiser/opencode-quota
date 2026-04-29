@@ -105,9 +105,9 @@ describe("collectQuotaRenderData shared quota state", () => {
         attempted: true,
         entries: [
           {
-            name: "OpenAI (Pro) Hourly",
+            name: "OpenAI (Pro) 5h",
             group: "OpenAI (Pro)",
-            label: "Hourly:",
+            label: "5h:",
             percentRemaining: 75,
           },
         ],

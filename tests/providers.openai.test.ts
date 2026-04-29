@@ -38,9 +38,9 @@ describe("openai provider", () => {
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toEqual([
       {
-        name: "OpenAI (Pro) Hourly",
+        name: "OpenAI (Pro) 5h",
         group: "OpenAI (Pro)",
-        label: "Hourly:",
+        label: "5h:",
         percentRemaining: 42,
         resetTimeIso: "2026-01-01T00:00:00.000Z",
       },

@@ -30,9 +30,9 @@ describe("formatQuotaCommand", () => {
           resetTimeIso: "2026-02-01T00:00:00.000Z",
         },
         {
-          name: "OpenAI (Pro) Hourly",
+          name: "OpenAI (Pro) 5h",
           group: "OpenAI (Pro)",
-          label: "Hourly:",
+          label: "5h:",
           percentRemaining: 42,
           resetTimeIso: "2026-01-15T14:00:00.000Z",
         },
@@ -71,7 +71,7 @@ describe("formatQuotaCommand", () => {
         Usage:           9 used | 2026-01 | org=acme-corp | user=alice (resets in 17d)
 
       → [OpenAI] (Pro)
-        Hourly:          ████████░░░░░░░░░░  42% left (resets in 2h)
+        5h:              ████████░░░░░░░░░░  42% left (resets in 2h)
         Weekly:          ███████████████░░░  81% left (resets in 3d)
 
       → [Google Antigravity] (acct)
@@ -95,9 +95,9 @@ describe("formatQuotaCommand", () => {
           percentRemaining: 81,
         },
         {
-          name: "OpenAI Hourly",
+          name: "OpenAI 5h",
           group: "OpenAI (Pro)",
-          label: "Hourly:",
+          label: "5h:",
           percentRemaining: 42,
         },
         {
@@ -111,10 +111,10 @@ describe("formatQuotaCommand", () => {
       errors: [],
     });
 
-    expect(out.indexOf("Hourly:")).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("5h:")).toBeGreaterThanOrEqual(0);
     expect(out.indexOf("Weekly:")).toBeGreaterThanOrEqual(0);
     expect(out.indexOf("Code Review:")).toBeGreaterThanOrEqual(0);
-    expect(out.indexOf("Hourly:")).toBeLessThan(out.indexOf("Weekly:"));
+    expect(out.indexOf("5h:")).toBeLessThan(out.indexOf("Weekly:"));
     expect(out.indexOf("Weekly:")).toBeLessThan(out.indexOf("Code Review:"));
   });
 
@@ -140,9 +140,9 @@ describe("formatQuotaCommand", () => {
           percentRemaining: 60,
         },
         {
-          name: "OpenAI Hourly",
+          name: "OpenAI 5h",
           group: "OpenAI (Pro)",
-          label: "Hourly:",
+          label: "5h:",
           percentRemaining: 42,
         },
       ],
@@ -154,7 +154,7 @@ describe("formatQuotaCommand", () => {
     expect(out.indexOf("→ [Qwen] (free)")).toBeLessThan(out.indexOf("→ [OpenAI] (Pro)"));
 
     expect(out.indexOf("RPM:")).toBeLessThan(out.indexOf("Daily:"));
-    expect(out.indexOf("Hourly:")).toBeLessThan(out.indexOf("Weekly:"));
+    expect(out.indexOf("5h:")).toBeLessThan(out.indexOf("Weekly:"));
   });
 
   it("sizes the grouped /quota label column from the visible grouped text", () => {

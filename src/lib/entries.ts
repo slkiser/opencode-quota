@@ -10,7 +10,7 @@ import type { CursorQuotaPlan, OpenCodeGoWindowKey } from "./types.js";
 export interface GroupedQuotaEntryMeta {
   /** Optional provider/account group header for grouped toast and /quota output. */
   group?: string;
-  /** Optional row label inside the group, e.g. "Hourly:" or "Usage:". */
+  /** Optional row label inside the group, e.g. "5h:" or "Usage:". */
   label?: string;
   /** Optional compact right-hand summary, e.g. "42/300". */
   right?: string;

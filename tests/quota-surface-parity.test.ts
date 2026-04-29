@@ -443,9 +443,9 @@ describe("quota surface parity regressions", () => {
         attempted: true,
         entries: [
           {
-            name: "OpenAI Pro Hourly",
+            name: "OpenAI Pro 5h",
             group: "OpenAI (Pro)",
-            label: "Hourly:",
+            label: "5h:",
             percentRemaining: 95,
             resetTimeIso: "2099-01-01T00:00:00.000Z",
           },
