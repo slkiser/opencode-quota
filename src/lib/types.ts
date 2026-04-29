@@ -451,6 +451,7 @@ export interface CopilotQuotaResult {
   used: number;
   total: number;
   percentRemaining: number;
+  unlimited?: boolean;
   resetTimeIso?: string;
 }
 

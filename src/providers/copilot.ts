@@ -92,6 +92,22 @@ export const copilotProvider: QuotaProvider = {
       );
     }
 
+    if (result.unlimited) {
+      return attemptedResult(
+        [
+          {
+            kind: "value",
+            name: "Copilot",
+            group: getCopilotGroup(result.mode),
+            label: "Quota:",
+            value: "Unlimited",
+            resetTimeIso: result.resetTimeIso,
+          },
+        ],
+        [],
+      );
+    }
+
     return attemptedResult(
       [
         {

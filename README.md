@@ -340,6 +340,8 @@ Run `/quota_status` and check the Anthropic section.
 
 Run `/quota_status` and check `copilot_quota_auth`, `billing_mode`, `billing_scope`, and `quota_api`.
 
+For personal Copilot OAuth quota, the plugin uses GitHub's reported premium-interaction quota fields when available. If that specific quota payload marks premium interactions as unlimited, quota output renders `Unlimited` instead of a synthetic used/total ratio.
+
 | Symptom | Fix |
 | --- | --- |
 | Personal quota missing | Confirm OpenCode Copilot auth works. The plugin can read OpenCode's Copilot OAuth token. |
