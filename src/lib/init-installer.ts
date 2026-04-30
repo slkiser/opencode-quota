@@ -63,6 +63,7 @@ export interface PlannedConfigEdit {
   skippedValues: string[];
   warnings: string[];
   nextData?: Record<string, unknown>;
+  plannedData?: Record<string, unknown>;
 }
 
 export interface InitInstallerPlan {
@@ -329,8 +330,12 @@ async function readExistingConfig(params: {
   }
 }
 
+function cloneJsonValue<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
 function cloneJsonObject(value: JsonObject): JsonObject {
-  return JSON.parse(JSON.stringify(value)) as JsonObject;
+  return cloneJsonValue(value);
 }
 
 async function readLegacyQuotaToastSeed(baseDir: string): Promise<JsonObject | null> {
@@ -369,9 +374,61 @@ function buildQuickSetupNotes(selections: InitInstallerSelections): InitInstalle
     }));
 }
 
+function syncLegacyQuotaToast(params: {
+  root: JsonObject;
+  quotaToast: JsonObject;
+  edit: PlannedConfigEdit;
+}): void {
+  if (Object.keys(params.quotaToast).length === 0) {
+    return;
+  }
+
+  let experimental: JsonObject;
+  if (!hasOwnKey(params.root, "experimental")) {
+    experimental = {};
+    params.root.experimental = experimental;
+  } else if (isPlainObject(params.root.experimental)) {
+    experimental = params.root.experimental;
+  } else {
+    throw new InitInstallerError(
+      "Cannot sync legacy config because experimental is not an object.",
+      { path: params.edit.path },
+    );
+  }
+
+  let legacyQuotaToast: JsonObject;
+  if (!hasOwnKey(experimental, "quotaToast")) {
+    legacyQuotaToast = {};
+    experimental.quotaToast = legacyQuotaToast;
+  } else if (isPlainObject(experimental.quotaToast)) {
+    legacyQuotaToast = experimental.quotaToast;
+  } else {
+    throw new InitInstallerError(
+      "Cannot sync legacy config because experimental.quotaToast is not an object.",
+      { path: params.edit.path },
+    );
+  }
+
+  let changed = false;
+  for (const [key, value] of Object.entries(params.quotaToast)) {
+    if (!jsonEqual(legacyQuotaToast[key], value)) {
+      legacyQuotaToast[key] = cloneJsonValue(value);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    params.edit.changed = true;
+    params.edit.addedKeys.push(
+      "experimental.quotaToast (synced from opencode-quota/quota-toast.json)",
+    );
+  }
+}
+
 async function planOpencodeEdit(params: {
   selections: InitInstallerSelections;
   baseDir: string;
+  legacyQuotaToastToSync?: JsonObject;
 }): Promise<PlannedConfigEdit> {
   const target = resolveEditableConfigPath({ dir: params.baseDir, kind: "opencode" });
   const edit: PlannedConfigEdit = {
@@ -400,6 +457,14 @@ async function planOpencodeEdit(params: {
     kind: "opencode",
     edit,
   });
+
+  if (params.legacyQuotaToastToSync) {
+    syncLegacyQuotaToast({
+      root,
+      quotaToast: params.legacyQuotaToastToSync,
+      edit,
+    });
+  }
 
   if (edit.changed) {
     edit.nextData = root;
@@ -437,7 +502,7 @@ async function planQuotaConfigEdit(params: {
     edit.changed = true;
     edit.addedKeys.push(
       legacyQuotaToast
-        ? `${QUOTA_TOAST_CONFIG_RELATIVE_PATH} (migrated experimental.quotaToast)`
+        ? `${QUOTA_TOAST_CONFIG_RELATIVE_PATH} (seeded from experimental.quotaToast)`
         : QUOTA_TOAST_CONFIG_RELATIVE_PATH,
     );
   }
@@ -481,6 +546,7 @@ async function planQuotaConfigEdit(params: {
     edit,
   );
 
+  edit.plannedData = quotaToast;
   if (edit.changed) {
     edit.nextData = quotaToast;
   }
@@ -616,6 +682,7 @@ export async function planInitInstaller(params: {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   homeDir?: string;
+  syncLegacyConfig?: boolean;
 }): Promise<InitInstallerPlan> {
   const selections: InitInstallerSelections = {
     ...params.selections,
@@ -630,9 +697,14 @@ export async function planInitInstaller(params: {
     env: params.env,
     homeDir: params.homeDir,
   });
+  const quotaEdit = await planQuotaConfigEdit({ selections, baseDir });
   const edits = [
-    await planOpencodeEdit({ selections, baseDir }),
-    await planQuotaConfigEdit({ selections, baseDir }),
+    await planOpencodeEdit({
+      selections,
+      baseDir,
+      legacyQuotaToastToSync: params.syncLegacyConfig ? quotaEdit.plannedData : undefined,
+    }),
+    quotaEdit,
   ];
   if (shouldInstallTuiPlugin(selections.quotaUi)) {
     edits.push(await planTuiEdit({ selections, baseDir }));
@@ -772,6 +844,7 @@ export async function runInitInstaller(params?: {
   env?: NodeJS.ProcessEnv;
   homeDir?: string;
   prompts?: PromptAdapter;
+  syncLegacyConfig?: boolean;
 }): Promise<number> {
   const prompts = params?.prompts ?? ((await import("@clack/prompts")) as unknown as PromptAdapter);
 
@@ -789,6 +862,7 @@ export async function runInitInstaller(params?: {
       cwd: params?.cwd,
       env: params?.env,
       homeDir: params?.homeDir,
+      syncLegacyConfig: params?.syncLegacyConfig,
     });
 
     for (const line of plan.summaryLines) {

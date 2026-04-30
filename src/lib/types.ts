@@ -27,7 +27,7 @@ export interface PricingSnapshotConfig {
   autoRefresh: number;
 }
 
-/** Plugin configuration from opencode.json experimental.quotaToast */
+/** Plugin configuration from opencode-quota/quota-toast.json or legacy experimental.quotaToast. */
 export interface QuotaToastConfig {
   enabled: boolean;
 

@@ -28,7 +28,7 @@ npx @slkiser/opencode-quota init
 > [!IMPORTANT]
 > OpenCode `>= 1.4.3` and Node.js `>= 18` are required.
 
-The installer is append-only and preserves existing config values. It asks where to install, which quota UI to enable, whether providers should be auto-detected, which quota display style to use, how percentages should be labeled, and whether session input/output tokens should appear in quota displays.
+The installer is append-only and preserves existing config values. It asks where to install, which quota UI to enable, whether providers should be auto-detected, which quota display style to use, how percentages should be labeled, and whether session input/output tokens should appear in quota displays. By default it writes quota settings to `opencode-quota/quota-toast.json` only; if you also need the legacy OpenCode `experimental.quotaToast` block, run `npx @slkiser/opencode-quota init --sync-legacy-config`.
 
 After install:
 
@@ -67,7 +67,7 @@ If you also want the sidebar, add the same package to the `tui.json` or `tui.jso
 }
 ```
 
-Quota settings live in `opencode-quota/quota-toast.json` next to the OpenCode config file chosen by the installer (project or global). Existing `experimental.quotaToast` settings in `opencode.json` / `opencode.jsonc` still work and are copied into the plugin-owned file when possible; if both exist, `opencode-quota/quota-toast.json` wins. Quota settings do not live in `tui.json`.
+Quota settings live in `opencode-quota/quota-toast.json` next to the OpenCode config file chosen by the installer (project or global). On load, OpenCode Quota reads that sidecar first and falls back to existing `experimental.quotaToast` settings in `opencode.json` / `opencode.jsonc` only when the sidecar is absent. Normal runtime/load does not create, re-add, or migrate `experimental.quotaToast`; use `init --sync-legacy-config` when you explicitly want the installer to also write/sync that legacy block. Quota settings do not live in `tui.json`.
 
 ### What plugin adds
 

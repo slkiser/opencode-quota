@@ -102,6 +102,43 @@ describe("init installer planning and merge behavior", () => {
     });
   });
 
+  it("writes legacy experimental.quotaToast only when explicitly requested", async () => {
+    const projectDir = join(tempDir, "project");
+    mkdirSync(projectDir, { recursive: true });
+
+    const plan = await planInitInstaller({
+      cwd: projectDir,
+      syncLegacyConfig: true,
+      selections: {
+        scope: "project",
+        quotaUi: "toast",
+        providerMode: "manual",
+        manualProviders: ["openai"],
+        formatStyle: "allWindows",
+        percentDisplayMode: "used",
+        showSessionTokens: false,
+      },
+    });
+
+    const opencodeEdit = plan.edits.find((edit) => edit.kind === "opencode");
+    expect(opencodeEdit?.addedKeys).toContain(
+      "experimental.quotaToast (synced from opencode-quota/quota-toast.json)",
+    );
+
+    await applyInitInstallerPlan(plan);
+
+    const opencode = readJson(join(projectDir, "opencode.json"));
+    const quotaConfig = readJson(join(projectDir, "opencode-quota", "quota-toast.json"));
+    expect(opencode.experimental.quotaToast).toMatchObject(quotaConfig);
+    expect(opencode.experimental.quotaToast).toMatchObject({
+      enableToast: true,
+      enabledProviders: ["openai"],
+      formatStyle: "allWindows",
+      percentDisplayMode: "used",
+      showSessionTokens: false,
+    });
+  });
+
   it("preserves unrelated values, dedupes plugins, and adds formatStyle without deleting legacy toastStyle", async () => {
     const projectDir = join(tempDir, "project");
     mkdirSync(projectDir, { recursive: true });
@@ -171,7 +208,7 @@ describe("init installer planning and merge behavior", () => {
     const quotaEdit = plan.edits.find((edit) => edit.kind === "quota");
     expect(quotaEdit?.addedKeys).toEqual(
       expect.arrayContaining([
-        "opencode-quota/quota-toast.json (migrated experimental.quotaToast)",
+        "opencode-quota/quota-toast.json (seeded from experimental.quotaToast)",
         "quotaToast.formatStyle",
         "quotaToast.percentDisplayMode",
       ]),

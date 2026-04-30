@@ -8,12 +8,13 @@ import { runInitInstaller } from "../lib/init-installer.js";
 
 const USAGE = [
   "Usage:",
-  "  npx @slkiser/opencode-quota init",
+  "  npx @slkiser/opencode-quota init [--sync-legacy-config]",
   "  npx @slkiser/opencode-quota show [--provider <provider-id>]",
   "  npx @slkiser/opencode-quota --help",
   "",
   "Commands:",
   "  init    Run the interactive quota installer",
+  "          --sync-legacy-config also writes experimental.quotaToast",
   "  show    Print a quick quota glance",
 ].join("\n");
 
@@ -54,8 +55,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     return 0;
   }
 
-  if (command === "init" && rest.length === 0) {
-    return await runInitInstaller();
+  if (command === "init") {
+    if (rest.length === 0) {
+      return await runInitInstaller();
+    }
+    if (rest.length === 1 && rest[0] === "--sync-legacy-config") {
+      return await runInitInstaller({ syncLegacyConfig: true });
+    }
   }
 
   if (command === "show") {

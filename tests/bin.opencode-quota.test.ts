@@ -35,6 +35,16 @@ describe("opencode-quota bin", () => {
     expect(commandMocks.runCliShowCommand).not.toHaveBeenCalled();
   });
 
+  it("passes the legacy config sync option to init", async () => {
+    const { main } = await import("../src/bin/opencode-quota.js");
+
+    const code = await main(["init", "--sync-legacy-config"]);
+
+    expect(code).toBe(0);
+    expect(commandMocks.runInitInstaller).toHaveBeenCalledWith({ syncLegacyConfig: true });
+    expect(commandMocks.runCliShowCommand).not.toHaveBeenCalled();
+  });
+
   it("dispatches show to the quota CLI command", async () => {
     const { main } = await import("../src/bin/opencode-quota.js");
 

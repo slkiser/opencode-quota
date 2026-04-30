@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -109,7 +109,7 @@ describe("loadConfig", () => {
     }
   });
 
-  it("records file-backed OpenCode Go windows setting source", async () => {
+  it("records legacy OpenCode Go windows setting source when sidecar is absent", async () => {
     const workspaceConfigPath = join(isolatedCwd, "opencode.json");
     writeFileSync(
       workspaceConfigPath,
@@ -129,12 +129,13 @@ describe("loadConfig", () => {
     expect(config.opencodeGoWindows).toEqual(["weekly", "monthly"]);
     expect(meta.source).toBe("files");
     expect(meta.settingSources).toEqual({
-      opencodeGoWindows: `${join(isolatedCwd, "opencode-quota", "quota-toast.json")} (opencode-quota/quota-toast.json)`,
+      opencodeGoWindows: `${workspaceConfigPath} (experimental.quotaToast)`,
     });
+    expect(existsSync(join(isolatedCwd, "opencode-quota", "quota-toast.json"))).toBe(false);
     expect(meta.networkSettingSources).toEqual({});
   });
 
-  it("migrates legacy experimental.quotaToast into plugin-owned quota settings", async () => {
+  it("falls back to legacy experimental.quotaToast without migrating on load", async () => {
     const workspaceConfigPath = join(isolatedCwd, "opencode.json");
     const quotaConfigPath = join(isolatedCwd, "opencode-quota", "quota-toast.json");
     mkdirSync(join(isolatedCwd, "opencode-quota"), { recursive: true });
@@ -158,39 +159,13 @@ describe("loadConfig", () => {
     expect(firstConfig.enabledProviders).toEqual(["openai"]);
     expect(firstConfig.formatStyle).toBe("allWindows");
     expect(firstConfig.pricingSnapshot.source).toBe("bundled");
-    expect(existsSync(quotaConfigPath)).toBe(true);
-    expect(JSON.parse(readFileSync(quotaConfigPath, "utf8"))).toMatchObject({
-      enabledProviders: ["openai"],
-      formatStyle: "allWindows",
-      pricingSnapshot: { source: "bundled" },
-    });
+    expect(existsSync(quotaConfigPath)).toBe(false);
     expect(firstMeta.settingSources.enabledProviders).toBe(
-      `${quotaConfigPath} (opencode-quota/quota-toast.json)`,
+      `${workspaceConfigPath} (experimental.quotaToast)`,
     );
     expect(firstMeta.paths).toEqual([
-      `${quotaConfigPath} (opencode-quota/quota-toast.json)`,
+      `${workspaceConfigPath} (experimental.quotaToast)`,
     ]);
-
-    writeFileSync(
-      workspaceConfigPath,
-      JSON.stringify({
-        plugin: ["@slkiser/opencode-quota"],
-      }),
-      "utf8",
-    );
-
-    const secondMeta = createLoadConfigMeta();
-    const secondConfig = await loadConfig(undefined, secondMeta, { cwd: isolatedCwd });
-
-    expect(secondConfig.enabledProviders).toEqual(["openai"]);
-    expect(secondConfig.formatStyle).toBe("allWindows");
-    expect(secondConfig.pricingSnapshot.source).toBe("bundled");
-    expect(secondMeta.paths).toEqual([
-      `${quotaConfigPath} (opencode-quota/quota-toast.json)`,
-    ]);
-    expect(secondMeta.settingSources.enabledProviders).toBe(
-      `${quotaConfigPath} (opencode-quota/quota-toast.json)`,
-    );
   });
 
   it("prefers plugin-owned quota settings over legacy experimental.quotaToast", async () => {
@@ -229,7 +204,63 @@ describe("loadConfig", () => {
     });
   });
 
-  it("migrates split legacy json/jsonc settings using validated layer semantics", async () => {
+  it("does not fall through to legacy or sdk config when sidecar exists but is invalid", async () => {
+    const workspaceConfigPath = join(isolatedCwd, "opencode.json");
+    const quotaConfigPath = join(isolatedCwd, "opencode-quota", "quota-toast.json");
+    const quotaConfigSource = `${quotaConfigPath} (opencode-quota/quota-toast.json)`;
+    mkdirSync(join(isolatedCwd, "opencode-quota"), { recursive: true });
+    writeFileSync(
+      workspaceConfigPath,
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            enabled: false,
+            enabledProviders: ["openai"],
+            formatStyle: "allWindows",
+          },
+        },
+      }),
+      "utf8",
+    );
+    writeFileSync(quotaConfigPath, "[]", "utf8");
+
+    const meta = createLoadConfigMeta();
+    const config = await loadConfig(
+      {
+        config: {
+          get: async () => ({
+            data: {
+              experimental: {
+                quotaToast: {
+                  enabled: false,
+                  enabledProviders: ["nano-gpt"],
+                  formatStyle: "allWindows",
+                },
+              },
+            },
+          }),
+        },
+      },
+      meta,
+      { cwd: isolatedCwd },
+    );
+
+    expect(config.enabled).toBe(true);
+    expect(config.enabledProviders).toBe("auto");
+    expect(config.formatStyle).toBe("singleWindow");
+    expect(meta.source).toBe("files");
+    expect(meta.paths).toEqual([quotaConfigSource]);
+    expect(meta.settingSources).toEqual({});
+    expect(meta.configIssues).toEqual([
+      {
+        path: quotaConfigSource,
+        key: "$root",
+        message: "expected readable JSON object",
+      },
+    ]);
+  });
+
+  it("falls back to split legacy json/jsonc settings using validated layer semantics", async () => {
     const jsonPath = join(isolatedCwd, "opencode.json");
     const jsoncPath = join(isolatedCwd, "opencode.jsonc");
     const quotaConfigPath = join(isolatedCwd, "opencode-quota", "quota-toast.json");
@@ -266,13 +297,13 @@ describe("loadConfig", () => {
     expect(config.enabledProviders).toEqual(["openai"]);
     expect(config.pricingSnapshot).toEqual({ source: "bundled", autoRefresh: 2 });
     expect(config.layout).toEqual({ maxWidth: 64, narrowAt: 36, tinyAt: 32 });
-    expect(JSON.parse(readFileSync(quotaConfigPath, "utf8"))).toMatchObject({
-      enabledProviders: ["openai"],
-      pricingSnapshot: { source: "bundled", autoRefresh: 2 },
-      layout: { maxWidth: 64, narrowAt: 36 },
-    });
+    expect(existsSync(quotaConfigPath)).toBe(false);
+    expect(meta.paths).toEqual([
+      `${jsonPath} (experimental.quotaToast)`,
+      `${jsoncPath} (experimental.quotaToast)`,
+    ]);
     expect(meta.settingSources.enabledProviders).toBe(
-      `${quotaConfigPath} (opencode-quota/quota-toast.json)`,
+      `${jsonPath} (experimental.quotaToast)`,
     );
     expect(meta.configIssues).toEqual([
       {
@@ -426,7 +457,8 @@ describe("loadConfig", () => {
     expect(config.formatStyle).toBe("singleWindow");
     expect(meta.source).toBe("files");
     const quotaConfigPath = join(isolatedCwd, "opencode-quota", "quota-toast.json");
-    const quotaConfigSource = quotaConfigPath + " (opencode-quota/quota-toast.json)";
+    const quotaConfigSource = workspaceConfigPath + " (experimental.quotaToast)";
+    expect(existsSync(quotaConfigPath)).toBe(false);
     expect(meta.paths).toEqual([quotaConfigSource]);
     expect(meta.workspaceConfigPaths).toEqual(meta.paths);
     expect(meta.globalConfigPaths).toEqual([]);
