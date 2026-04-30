@@ -397,13 +397,16 @@ describe("buildQuotaStatusReport", () => {
 
     const report = await buildQuotaStatusReport({
       configSource: "files",
-      configPaths: ["/tmp/project/opencode.json (experimental.quotaToast)"],
+      configPaths: [
+        "/tmp/project/opencode-quota/quota-toast.json (opencode-quota/quota-toast.json)",
+      ],
       settingSources: {
-        enabledProviders: "/tmp/project/opencode.json (experimental.quotaToast)",
+        enabledProviders:
+          "/tmp/project/opencode-quota/quota-toast.json (opencode-quota/quota-toast.json)",
       },
       configIssues: [
         {
-          path: "/tmp/project/opencode.json (experimental.quotaToast)",
+          path: "/tmp/project/opencode-quota/quota-toast.json (opencode-quota/quota-toast.json)",
           key: "enabledProviders",
           message: "unknown provider id(s): opnai",
         },
@@ -420,7 +423,7 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- enabledProviders: (none)");
     expect(report).toContain("- config_errors:");
     expect(report).toContain(
-      "  - /tmp/project/opencode.json (experimental.quotaToast) enabledProviders: unknown provider id(s): opnai",
+      "  - /tmp/project/opencode-quota/quota-toast.json (opencode-quota/quota-toast.json) enabledProviders: unknown provider id(s): opnai",
     );
     expect(geminiCliMocks.inspectGeminiCliAuthPresence).toHaveBeenCalledWith(geminiCliClient);
   });

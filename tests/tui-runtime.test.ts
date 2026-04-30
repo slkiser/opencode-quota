@@ -380,6 +380,61 @@ describe("tui runtime helpers", () => {
     expect(buildSidebarQuotaPanelLines).toHaveBeenCalledOnce();
   });
 
+  it("shows sidebar loading instead of bare unavailable while onlyCurrentModel waits for session metadata", async () => {
+    writeFileSync(
+      join(worktreeDir, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            enabled: true,
+            enabledProviders: ["copilot"],
+            onlyCurrentModel: true,
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    collectQuotaRenderData.mockResolvedValue({
+      selection: {
+        waitingForCurrentSelection: true,
+      },
+      data: null,
+    });
+    buildSidebarQuotaPanelLines.mockReturnValue(["Quota line"]);
+
+    const panel = await loadSidebarPanel({
+      api: {
+        state: {
+          provider: [],
+          path: {
+            worktree: worktreeDir,
+            directory: nestedDir,
+          },
+          session: {
+            messages: () => [],
+          },
+        },
+        client: {
+          session: {
+            get: vi.fn().mockResolvedValue({ data: {} }),
+          },
+        },
+      } as any,
+      sessionID: "fresh-session",
+    });
+
+    expect(panel).toEqual({ status: "loading", lines: [] });
+    expect(collectQuotaRenderData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request: expect.objectContaining({
+          sessionMeta: {},
+        }),
+      }),
+    );
+    expect(buildSidebarQuotaPanelLines).not.toHaveBeenCalled();
+  });
+
   it("preserves canonical all-window formatStyle through sidebar runtime collection and formatting", async () => {
     writeFileSync(
       join(worktreeDir, "opencode.json"),

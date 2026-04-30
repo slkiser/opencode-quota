@@ -21,6 +21,10 @@ import {
 } from "../src/lib/quota-runtime-context.js";
 import { resolveRuntimeContextRoots } from "../src/lib/config-file-utils.js";
 
+function quotaConfigSource(dir: string): string {
+  return join(dir, "opencode-quota", "quota-toast.json") + " (opencode-quota/quota-toast.json)";
+}
+
 describe("quota runtime context", () => {
   const originalEnv = process.env;
   const originalCwd = process.cwd();
@@ -118,8 +122,8 @@ describe("quota runtime context", () => {
       providers: [],
     });
 
-    const worktreeConfigPath = join(worktreeDir, "opencode.json") + " (experimental.quotaToast)";
-    const nestedConfigPath = join(nestedDir, "opencode.json") + " (experimental.quotaToast)";
+    const worktreeConfigPath = quotaConfigSource(worktreeDir);
+    const nestedConfigPath = quotaConfigSource(nestedDir);
 
     expect(runtime.roots).toEqual({
       workspaceRoot: worktreeDir,

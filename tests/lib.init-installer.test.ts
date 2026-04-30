@@ -70,7 +70,7 @@ describe("init installer planning and merge behavior", () => {
     });
 
     expect(plan.baseDir).toBe(projectDir);
-    expect(plan.edits).toHaveLength(1);
+    expect(plan.edits.map((edit) => edit.kind)).toEqual(["opencode", "quota"]);
     expect(plan.quickSetupNotes).toEqual([
       {
         providerId: "anthropic",
@@ -80,21 +80,25 @@ describe("init installer planning and merge behavior", () => {
     ]);
 
     const result = await applyInitInstallerPlan(plan);
-    expect(result.writtenPaths).toEqual([join(projectDir, "opencode.json")]);
+    expect(result.writtenPaths).toEqual([
+      join(projectDir, "opencode.json"),
+      join(projectDir, "opencode-quota", "quota-toast.json"),
+    ]);
 
     const config = readJson(join(projectDir, "opencode.json"));
     expect(config).toMatchObject({
       $schema: "https://opencode.ai/config.json",
       plugin: ["@slkiser/opencode-quota"],
-      experimental: {
-        quotaToast: {
-          enableToast: true,
-          enabledProviders: ["openai", "anthropic"],
-          formatStyle: "allWindows",
-          percentDisplayMode: "used",
-          showSessionTokens: false,
-        },
-      },
+    });
+    expect(config.experimental).toBeUndefined();
+
+    const quotaConfig = readJson(join(projectDir, "opencode-quota", "quota-toast.json"));
+    expect(quotaConfig).toMatchObject({
+      enableToast: true,
+      enabledProviders: ["openai", "anthropic"],
+      formatStyle: "allWindows",
+      percentDisplayMode: "used",
+      showSessionTokens: false,
     });
   });
 
@@ -157,17 +161,26 @@ describe("init installer planning and merge behavior", () => {
     );
     expect(opencodeEdit?.addedPlugins).toEqual([]);
     expect(opencodeEdit?.addedKeys).toEqual(
-      expect.arrayContaining([
-        "experimental.quotaToast.formatStyle",
-        "experimental.quotaToast.percentDisplayMode",
-      ]),
+      [],
     );
     expect(opencodeEdit?.skippedValues).toEqual(
       expect.arrayContaining([
         "plugin already includes @slkiser/opencode-quota",
-        "experimental.quotaToast.enableToast preserved existing value",
-        "experimental.quotaToast.showSessionTokens preserved existing value",
-        "experimental.quotaToast.enabledProviders preserved existing value",
+      ]),
+    );
+    const quotaEdit = plan.edits.find((edit) => edit.kind === "quota");
+    expect(quotaEdit?.addedKeys).toEqual(
+      expect.arrayContaining([
+        "opencode-quota/quota-toast.json (migrated experimental.quotaToast)",
+        "quotaToast.formatStyle",
+        "quotaToast.percentDisplayMode",
+      ]),
+    );
+    expect(quotaEdit?.skippedValues).toEqual(
+      expect.arrayContaining([
+        "quotaToast.enableToast preserved existing value",
+        "quotaToast.showSessionTokens preserved existing value",
+        "quotaToast.enabledProviders preserved existing value",
       ]),
     );
     expect(tuiEdit?.addedPlugins).toEqual([]);
@@ -179,6 +192,14 @@ describe("init installer planning and merge behavior", () => {
     expect(opencode.other).toEqual({ keep: true });
     expect(opencode.plugin).toHaveLength(1);
     expect(opencode.experimental.quotaToast).toMatchObject({
+      toastStyle: "grouped",
+      enableToast: true,
+      showSessionTokens: true,
+      enabledProviders: ["openai"],
+    });
+    expect(opencode.experimental.quotaToast.formatStyle).toBeUndefined();
+    const quotaConfig = readJson(join(projectDir, "opencode-quota", "quota-toast.json"));
+    expect(quotaConfig).toMatchObject({
       toastStyle: "grouped",
       formatStyle: "allWindows",
       percentDisplayMode: "remaining",
@@ -285,7 +306,7 @@ describe("init installer planning and merge behavior", () => {
       },
     });
 
-    expect(plan.edits.map((edit) => edit.kind)).toEqual(["opencode", "tui"]);
+    expect(plan.edits.map((edit) => edit.kind)).toEqual(["opencode", "quota", "tui"]);
 
     await applyInitInstallerPlan(plan);
 
@@ -293,7 +314,9 @@ describe("init installer planning and merge behavior", () => {
     const tui = readJson(join(projectDir, "tui.json"));
 
     expect(opencode.plugin).toEqual(["@slkiser/opencode-quota"]);
-    expect(opencode.experimental.quotaToast).toMatchObject({
+    expect(opencode.experimental).toBeUndefined();
+    const quotaConfig = readJson(join(projectDir, "opencode-quota", "quota-toast.json"));
+    expect(quotaConfig).toMatchObject({
       enableToast: false,
       enabledProviders: "auto",
       formatStyle: "singleWindow",
@@ -326,7 +349,7 @@ describe("init installer planning and merge behavior", () => {
     expect(plan.summaryLines).toContain("Quota UI: Toast + Sidebar");
     expect(plan.summaryLines).toContain("Quota display style: Single window");
     expect(plan.summaryLines).toContain("Percent display (toast/sidebar): Remaining");
-    expect(plan.edits.map((edit) => edit.kind)).toEqual(["opencode", "tui"]);
+    expect(plan.edits.map((edit) => edit.kind)).toEqual(["opencode", "quota", "tui"]);
 
     await applyInitInstallerPlan(plan);
 
@@ -334,7 +357,9 @@ describe("init installer planning and merge behavior", () => {
     const tui = readJson(join(projectDir, "tui.json"));
 
     expect(opencode.plugin).toEqual(["@slkiser/opencode-quota"]);
-    expect(opencode.experimental.quotaToast).toMatchObject({
+    expect(opencode.experimental).toBeUndefined();
+    const quotaConfig = readJson(join(projectDir, "opencode-quota", "quota-toast.json"));
+    expect(quotaConfig).toMatchObject({
       enableToast: true,
       enabledProviders: "auto",
       formatStyle: "singleWindow",
@@ -364,13 +389,15 @@ describe("init installer planning and merge behavior", () => {
       },
     });
 
-    expect(plan.edits).toHaveLength(1);
+    expect(plan.edits.map((edit) => edit.kind)).toEqual(["opencode", "quota"]);
 
     await applyInitInstallerPlan(plan);
 
     expect(existsSync(join(projectDir, "tui.json"))).toBe(false);
     const opencode = readJson(join(projectDir, "opencode.json"));
-    expect(opencode.experimental.quotaToast.enableToast).toBe(false);
+    expect(opencode.experimental).toBeUndefined();
+    const quotaConfig = readJson(join(projectDir, "opencode-quota", "quota-toast.json"));
+    expect(quotaConfig.enableToast).toBe(false);
   });
 
   it("returns zero when the user cancels before applying changes", async () => {

@@ -48,6 +48,7 @@ export type QuotaRenderSelection = {
   currentModel?: string;
   currentProviderID?: string;
   filteringByCurrentSelection: boolean;
+  waitingForCurrentSelection: boolean;
 };
 
 export type QuotaAvailability = {
@@ -119,13 +120,25 @@ export function matchesQuotaProviderCurrentSelection(params: {
   currentModel?: string;
   currentProviderID?: string;
 }): boolean {
-  if (params.provider.id === "cursor" && isCursorProviderId(params.currentProviderID)) {
-    return true;
+  if (!params.currentModel && params.currentProviderID) {
+    if (params.provider.id === params.currentProviderID) {
+      return true;
+    }
+    if (params.provider.id === "cursor" && isCursorProviderId(params.currentProviderID)) {
+      return true;
+    }
   }
   if (!params.currentModel) return false;
   return params.provider.matchesCurrentModel
     ? params.provider.matchesCurrentModel(params.currentModel)
     : true;
+}
+
+function hasCurrentQuotaSelection(params: {
+  currentModel?: string;
+  currentProviderID?: string;
+}): boolean {
+  return Boolean(params.currentModel || params.currentProviderID);
 }
 
 export async function resolveQuotaRenderSelection(params: {
@@ -158,8 +171,9 @@ export async function resolveQuotaRenderSelection(params: {
     currentProviderID,
   });
 
-  const filteringByCurrentSelection =
-    config.onlyCurrentModel && Boolean(currentModel || isCursorProviderId(currentProviderID));
+  const hasCurrentSelection = hasCurrentQuotaSelection({ currentModel, currentProviderID });
+  const filteringByCurrentSelection = config.onlyCurrentModel && hasCurrentSelection;
+  const waitingForCurrentSelection = config.onlyCurrentModel && !hasCurrentSelection;
   const filtered = filteringByCurrentSelection
     ? providers.filter((provider) =>
         matchesQuotaProviderCurrentSelection({ provider, currentModel, currentProviderID }),
@@ -174,6 +188,7 @@ export async function resolveQuotaRenderSelection(params: {
     currentModel,
     currentProviderID,
     filteringByCurrentSelection,
+    waitingForCurrentSelection,
   };
 }
 
@@ -444,6 +459,17 @@ export async function collectQuotaRenderData(params: {
   if (!selection) {
     return {
       selection: null,
+      availability: [],
+      active: [],
+      attemptedAny: false,
+      hasExplicitProviderIssues: false,
+      data: null,
+    };
+  }
+
+  if (selection.waitingForCurrentSelection) {
+    return {
+      selection,
       availability: [],
       active: [],
       attemptedAny: false,

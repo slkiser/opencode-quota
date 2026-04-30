@@ -67,7 +67,7 @@ If you also want the sidebar, add the same package to the `tui.json` or `tui.jso
 }
 ```
 
-All quota settings live in `opencode.json` or `opencode.jsonc`, not `tui.json`.
+Quota settings live in `opencode-quota/quota-toast.json` next to the OpenCode config file chosen by the installer (project or global). Existing `experimental.quotaToast` settings in `opencode.json` / `opencode.jsonc` still work and are copied into the plugin-owned file when possible; if both exist, `opencode-quota/quota-toast.json` wins. Quota settings do not live in `tui.json`.
 
 ### What plugin adds
 
@@ -118,12 +118,9 @@ For companion auth providers, put the companion plugin first and `@slkiser/openc
 Providers are auto-detected by default. To choose providers explicitly:
 
 ```jsonc
+// opencode-quota/quota-toast.json
 {
-  "experimental": {
-    "quotaToast": {
-      "enabledProviders": ["copilot", "openai", "google-gemini-cli"],
-    },
-  },
+  "enabledProviders": ["copilot", "openai", "google-gemini-cli"],
 }
 ```
 
@@ -132,48 +129,36 @@ Providers are auto-detected by default. To choose providers explicitly:
 Show every quota window instead of the default most-constrained window:
 
 ```jsonc
+// opencode-quota/quota-toast.json
 {
-  "experimental": {
-    "quotaToast": {
-      "formatStyle": "allWindows",
-    },
-  },
+  "formatStyle": "allWindows",
 }
 ```
 
 Choose which OpenCode Go usage windows to display (default is all three; `rolling` displays as `5h`):
 
 ```jsonc
+// opencode-quota/quota-toast.json
 {
-  "experimental": {
-    "quotaToast": {
-      "opencodeGoWindows": ["rolling", "weekly", "monthly"],
-    },
-  },
+  "opencodeGoWindows": ["rolling", "weekly", "monthly"],
 }
 ```
 
 Show percentages as used instead of remaining in toasts and the sidebar:
 
 ```jsonc
+// opencode-quota/quota-toast.json
 {
-  "experimental": {
-    "quotaToast": {
-      "percentDisplayMode": "used",
-    },
-  },
+  "percentDisplayMode": "used",
 }
 ```
 
 Turn off popup toasts while keeping `/quota` and the sidebar:
 
 ```jsonc
+// opencode-quota/quota-toast.json
 {
-  "experimental": {
-    "quotaToast": {
-      "enableToast": false,
-    },
-  },
+  "enableToast": false,
 }
 ```
 
@@ -205,7 +190,7 @@ claude auth login
 claude auth status
 ```
 
-If Claude lives at a custom path, set `experimental.quotaToast.anthropicBinaryPath` in `opencode.json`.
+If Claude lives at a custom path, set `anthropicBinaryPath` in `opencode-quota/quota-toast.json`.
 
 ### Companion providers
 
@@ -273,17 +258,20 @@ Add both plugins to `opencode.json`, with the Antigravity auth plugin first:
 
 Companion plugin: [`opencode-gemini-auth`](https://github.com/jenslys/opencode-gemini-auth#readme)
 
-Add both plugins to `opencode.json`, with the Gemini auth plugin first. If you manually choose providers, include `google-gemini-cli`:
+Add both plugins to `opencode.json`, with the Gemini auth plugin first. If you manually choose providers, include `google-gemini-cli` in `opencode-quota/quota-toast.json`:
 
 ```jsonc
+// opencode.json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-gemini-auth", "@slkiser/opencode-quota"],
-  "experimental": {
-    "quotaToast": {
-      "enabledProviders": ["google-gemini-cli"]
-    }
-  }
+  "plugin": ["opencode-gemini-auth", "@slkiser/opencode-quota"]
+}
+```
+
+```jsonc
+// opencode-quota/quota-toast.json
+{
+  "enabledProviders": ["google-gemini-cli"]
 }
 ```
 
@@ -304,7 +292,7 @@ export OPENCODE_GO_WORKSPACE_ID="your-workspace-id"
 export OPENCODE_GO_AUTH_COOKIE="your-auth-cookie"
 ```
 
-The provider can report three usage windows — **5h** rolling, **Weekly**, and **Monthly** — and emits whichever dashboard windows are available in that order. Filter displayed windows with `experimental.quotaToast.opencodeGoWindows` (`rolling`, `weekly`, `monthly`); non-default subsets report missing selected dashboard fields, while default/all-windows mode shows available windows and diagnostics indicate what was found.
+The provider can report three usage windows — **5h** rolling, **Weekly**, and **Monthly** — and emits whichever dashboard windows are available in that order. Filter displayed windows with `opencodeGoWindows` in `opencode-quota/quota-toast.json` (`rolling`, `weekly`, `monthly`); non-default subsets report missing selected dashboard fields, while default/all-windows mode shows available windows and diagnostics indicate what was found.
 
 Environment variables take precedence over the optional `opencode-go.json` config file. Run `/quota_status` to see the exact paths checked on your machine.
 
@@ -328,7 +316,7 @@ Run `/quota_status` and check the Anthropic section.
 | Symptom | Fix |
 | --- | --- |
 | `claude` not found | Install Claude Code and make sure `claude` is on your `PATH`. |
-| Claude is installed at a custom path | Set `experimental.quotaToast.anthropicBinaryPath` in `opencode.json`. |
+| Claude is installed at a custom path | Set `anthropicBinaryPath` in `opencode-quota/quota-toast.json`. |
 | Not authenticated | Run `claude auth login`, then confirm `claude auth status` works. |
 | Auth works but no quota rows appear | Check `quota_source` and `message` in `/quota_status`; re-authenticate Claude if the OAuth credential fallback is missing or stale. |
 | Provider not detected | Confirm OpenCode is configured to use the `anthropic` provider. |
@@ -373,8 +361,8 @@ Run `/quota_status` and check the Cursor section.
 | --- | --- |
 | Cursor not detected | Put `@playwo/opencode-cursor-oauth` before `@slkiser/opencode-quota` in `opencode.json`. |
 | Cursor auth missing | Run `opencode auth login --provider cursor`. |
-| Quota appears but no remaining percentage | Set `experimental.quotaToast.cursorPlan` or `experimental.quotaToast.cursorIncludedApiUsd`. |
-| Billing cycle looks wrong | Set `experimental.quotaToast.cursorBillingCycleStartDay` to your local billing anchor day. |
+| Quota appears but no remaining percentage | Set `cursorPlan` or `cursorIncludedApiUsd` in `opencode-quota/quota-toast.json`. |
+| Billing cycle looks wrong | Set `cursorBillingCycleStartDay` in `opencode-quota/quota-toast.json` to your local billing anchor day. |
 | Unknown Cursor pricing | Run `/pricing_refresh`; if still unknown, check `/quota_status` for unknown model ids. |
 
 </details>
@@ -401,7 +389,7 @@ Run `/quota_status` and check the Alibaba auth, resolved tier, state-file path, 
 | Symptom | Fix |
 | --- | --- |
 | API key not detected | Use `ALIBABA_CODING_PLAN_API_KEY`, `ALIBABA_API_KEY`, trusted user/global OpenCode config, or OpenCode auth. Repo-local provider secrets are ignored. |
-| Wrong tier | Set `experimental.quotaToast.alibabaCodingPlanTier` to `lite` or `pro`. |
+| Wrong tier | Set `alibabaCodingPlanTier` to `lite` or `pro` in `opencode-quota/quota-toast.json`. |
 | Counters do not move | Confirm the current model is `alibaba/*` or `alibaba-cn/*`. |
 | Quota seems stale | Check the state-file path shown in `/quota_status`. |
 
@@ -447,7 +435,7 @@ Run `/quota_status` and check the Gemini CLI live probe rows.
 | Symptom | Fix |
 | --- | --- |
 | Companion missing | Put `opencode-gemini-auth` before `@slkiser/opencode-quota` in `opencode.json`. |
-| Provider not enabled in manual mode | Include `google-gemini-cli` in `experimental.quotaToast.enabledProviders`. |
+| Provider not enabled in manual mode | Include `google-gemini-cli` in `enabledProviders` in `opencode-quota/quota-toast.json`. |
 | Auth missing | Run `opencode auth login --provider google`. |
 | Project missing | Set `provider.google.options.projectId`, `OPENCODE_GEMINI_PROJECT_ID`, `GOOGLE_CLOUD_PROJECT`, or `GOOGLE_CLOUD_PROJECT_ID`. |
 
@@ -463,7 +451,7 @@ Run `/quota_status` and check the `opencode_go` section.
 | Config not detected | Set both `OPENCODE_GO_WORKSPACE_ID` and `OPENCODE_GO_AUTH_COOKIE`, then rerun `/quota_status`. |
 | Incomplete config | `workspaceId` and `authCookie` must come from the same source. |
 | Scrape returns no data | Refresh the browser `auth` cookie from `opencode.ai`. |
-| Selected window missing | Check `/quota_status` for `selected_windows` and `live_fetch_error`; remove unavailable windows from `experimental.quotaToast.opencodeGoWindows` or refresh the dashboard cookie. |
+| Selected window missing | Check `/quota_status` for `selected_windows` and `live_fetch_error`; remove unavailable windows from `opencodeGoWindows` in `opencode-quota/quota-toast.json` or refresh the dashboard cookie. |
 | Dashboard format changed | This integration scrapes the dashboard, so it can break if the dashboard markup changes. |
 
 </details>
@@ -477,7 +465,7 @@ Run `/quota_status` and check pricing snapshot health plus OpenCode database pat
 | --- | --- |
 | `/tokens_*` is empty | Start OpenCode once so it creates `opencode.db`, then run a session with model usage. |
 | Pricing looks stale | Run `/pricing_refresh`. |
-| Runtime pricing does not change output | Check `experimental.quotaToast.pricingSnapshot.source`; `bundled` keeps packaged pricing active. |
+| Runtime pricing does not change output | Check `pricingSnapshot.source` in `opencode-quota/quota-toast.json`; `bundled` keeps packaged pricing active. |
 | Cursor model has unknown pricing | Run `/pricing_refresh`; Cursor `auto` and `composer*` use bundled deterministic pricing. |
 
 </details>

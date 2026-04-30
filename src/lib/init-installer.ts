@@ -1,3 +1,4 @@
+import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { basename } from "path";
 
@@ -24,6 +25,7 @@ import {
   resolveQuotaFormatStyle,
   type CanonicalQuotaFormatStyle,
 } from "./quota-format-style.js";
+import { getQuotaToastConfigPath, QUOTA_TOAST_CONFIG_RELATIVE_PATH } from "./config.js";
 import type { QuotaToastConfig } from "./types.js";
 
 const QUOTA_PLUGIN_SPEC = "@slkiser/opencode-quota";
@@ -51,7 +53,7 @@ export interface InitInstallerQuickSetupNote {
 }
 
 export interface PlannedConfigEdit {
-  kind: "opencode" | "tui";
+  kind: "opencode" | "tui" | "quota";
   path: string;
   existed: boolean;
   format: ConfigFileFormat;
@@ -188,32 +190,6 @@ function pushSkippedIfChanged(
   if (!jsonEqual(existingValue, desiredValue)) {
     edit.skippedValues.push(`${pathLabel} preserved existing value`);
   }
-}
-
-function ensureJsonObject(
-  parent: JsonObject,
-  key: string,
-  pathLabel: string,
-  edit: PlannedConfigEdit,
-): JsonObject {
-  if (!hasOwnKey(parent, key) || parent[key] === undefined) {
-    const next: JsonObject = {};
-    parent[key] = next;
-    edit.changed = true;
-    return next;
-  }
-
-  const existing = parent[key];
-  if (!isPlainObject(existing)) {
-    throw new InitInstallerError(
-      `Cannot update ${edit.kind} config because ${pathLabel} is not an object.`,
-      {
-        path: edit.path,
-      },
-    );
-  }
-
-  return existing;
 }
 
 function ensureSchema(root: JsonObject, schemaUrl: string, edit: PlannedConfigEdit): void {
@@ -353,6 +329,24 @@ async function readExistingConfig(params: {
   }
 }
 
+function cloneJsonObject(value: JsonObject): JsonObject {
+  return JSON.parse(JSON.stringify(value)) as JsonObject;
+}
+
+async function readLegacyQuotaToastSeed(baseDir: string): Promise<JsonObject | null> {
+  const target = resolveEditableConfigPath({ dir: baseDir, kind: "opencode" });
+  if (!target.existed) {
+    return null;
+  }
+
+  const root = await readExistingConfig(target);
+  const experimental = isPlainObject(root.experimental) ? root.experimental : null;
+  const quotaToast = experimental && isPlainObject(experimental.quotaToast)
+    ? experimental.quotaToast
+    : null;
+  return quotaToast ? cloneJsonObject(quotaToast) : null;
+}
+
 function buildQuickSetupNotes(selections: InitInstallerSelections): InitInstallerQuickSetupNote[] {
   if (selections.providerMode !== "manual") {
     return [];
@@ -407,28 +401,66 @@ async function planOpencodeEdit(params: {
     edit,
   });
 
-  const experimental = ensureJsonObject(root, "experimental", "experimental", edit);
-  const quotaToast = ensureJsonObject(experimental, "quotaToast", "experimental.quotaToast", edit);
+  if (edit.changed) {
+    edit.nextData = root;
+  }
+
+  return edit;
+}
+
+async function planQuotaConfigEdit(params: {
+  selections: InitInstallerSelections;
+  baseDir: string;
+}): Promise<PlannedConfigEdit> {
+  const path = getQuotaToastConfigPath(params.baseDir);
+  const existed = existsSync(path);
+  const edit: PlannedConfigEdit = {
+    kind: "quota",
+    path,
+    existed,
+    format: "json",
+    changed: false,
+    addedPlugins: [],
+    addedKeys: [],
+    skippedValues: [],
+    warnings: [],
+  };
+
+  const legacyQuotaToast = existed ? null : await readLegacyQuotaToastSeed(params.baseDir);
+  const quotaToast = existed
+    ? await readExistingConfig({ path, format: "json" })
+    : legacyQuotaToast
+      ? cloneJsonObject(legacyQuotaToast)
+      : {};
+
+  if (!existed) {
+    edit.changed = true;
+    edit.addedKeys.push(
+      legacyQuotaToast
+        ? `${QUOTA_TOAST_CONFIG_RELATIVE_PATH} (migrated experimental.quotaToast)`
+        : QUOTA_TOAST_CONFIG_RELATIVE_PATH,
+    );
+  }
 
   addSettingIfMissing(
     quotaToast,
     "enableToast",
     getDesiredEnableToast(params.selections.quotaUi),
-    "experimental.quotaToast.enableToast",
+    "quotaToast.enableToast",
     edit,
   );
   addSettingIfMissing(
     quotaToast,
     "showSessionTokens",
     params.selections.showSessionTokens,
-    "experimental.quotaToast.showSessionTokens",
+    "quotaToast.showSessionTokens",
     edit,
   );
   addSettingIfMissing(
     quotaToast,
     "enabledProviders",
     resolveRequestedProviders(params.selections),
-    "experimental.quotaToast.enabledProviders",
+    "quotaToast.enabledProviders",
     edit,
   );
   addSettingIfMissing(
@@ -438,19 +470,19 @@ async function planOpencodeEdit(params: {
       quotaToast,
       selectedFormatStyle: params.selections.formatStyle,
     }),
-    "experimental.quotaToast.formatStyle",
+    "quotaToast.formatStyle",
     edit,
   );
   addSettingIfMissing(
     quotaToast,
     "percentDisplayMode",
     params.selections.percentDisplayMode,
-    "experimental.quotaToast.percentDisplayMode",
+    "quotaToast.percentDisplayMode",
     edit,
   );
 
   if (edit.changed) {
-    edit.nextData = root;
+    edit.nextData = quotaToast;
   }
 
   return edit;
@@ -598,7 +630,10 @@ export async function planInitInstaller(params: {
     env: params.env,
     homeDir: params.homeDir,
   });
-  const edits = [await planOpencodeEdit({ selections, baseDir })];
+  const edits = [
+    await planOpencodeEdit({ selections, baseDir }),
+    await planQuotaConfigEdit({ selections, baseDir }),
+  ];
   if (shouldInstallTuiPlugin(selections.quotaUi)) {
     edits.push(await planTuiEdit({ selections, baseDir }));
   }

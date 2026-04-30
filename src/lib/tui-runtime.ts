@@ -9,6 +9,7 @@ import {
 } from "./config-file-utils.js";
 import { createQuotaRuntimeRequestContext, resolveQuotaRuntimeContext } from "./quota-runtime-context.js";
 import { collectQuotaRenderData } from "./quota-render-data.js";
+import { resolveQuotaFormatStyle } from "./quota-format-style.js";
 import { buildSidebarQuotaPanelLines } from "./tui-sidebar-format.js";
 
 function getTuiRuntimeRootHints(api: TuiPluginApi): RuntimeContextRootHints {
@@ -122,19 +123,30 @@ export async function loadSidebarPanel(params: {
   }
 
   const request = createQuotaRuntimeRequestContext(runtime);
+  const formatStyle = resolveQuotaFormatStyle(runtime.config.formatStyle);
   const result = await collectQuotaRenderData({
     client: runtime.client,
     config: runtime.config,
     request,
     surfaceExplicitProviderIssues: true,
-    formatStyle: runtime.config.formatStyle,
+    formatStyle,
     providers: runtime.providers,
   });
+
+  if (result.selection?.waitingForCurrentSelection) {
+    return {
+      status: "loading",
+      lines: [],
+    };
+  }
 
   return {
     status: "ready",
     lines: result.data
-      ? buildSidebarQuotaPanelLines({ data: result.data, config: runtime.config })
+      ? buildSidebarQuotaPanelLines({
+          data: result.data,
+          config: { ...runtime.config, formatStyle },
+        })
       : [],
   };
 }

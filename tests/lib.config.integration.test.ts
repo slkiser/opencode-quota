@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { dirname, join, normalize } from "path";
+import { join } from "path";
 
 const mockedHomeDir = vi.hoisted(() => ({
   value: "",
@@ -17,6 +17,10 @@ vi.mock("os", async (importOriginal) => {
 
 import { createLoadConfigMeta, loadConfig } from "../src/lib/config.js";
 import { getOpencodeRuntimeDirCandidates } from "../src/lib/opencode-runtime-paths.js";
+
+function quotaConfigSource(dir: string): string {
+  return join(dir, "opencode-quota", "quota-toast.json") + " (opencode-quota/quota-toast.json)";
+}
 
 describe("loadConfig integration runtime-path resolution", () => {
   const originalEnv = process.env;
@@ -125,43 +129,35 @@ describe("loadConfig integration runtime-path resolution", () => {
     expect(cfg.onlyCurrentModel).toBe(true);
 
     expect(meta.source).toBe("files");
-    expect(
-      meta.paths.some((path) =>
-        configDirs.includes(
-          normalize(dirname(path.replace(/ \(experimental\.quotaToast\)$/, ""))),
-        ),
-      ),
-    ).toBe(true);
-    expect(meta.paths).toContain(join(workspaceDir, "opencode.json") + " (experimental.quotaToast)");
-    expect(meta.paths).not.toContain(join(nestedDir, "opencode.json") + " (experimental.quotaToast)");
-    expect(meta.workspaceConfigPaths).toEqual([
-      join(workspaceDir, "opencode.json") + " (experimental.quotaToast)",
-    ]);
+    expect(meta.paths.some((path) => configDirs.some((dir) => path === quotaConfigSource(dir)))).toBe(
+      true,
+    );
+    expect(meta.paths).toContain(quotaConfigSource(workspaceDir));
+    expect(meta.paths).not.toContain(quotaConfigSource(nestedDir));
+    expect(meta.workspaceConfigPaths).toEqual([quotaConfigSource(workspaceDir)]);
     expect(
       meta.globalConfigPaths.some((path) =>
-        configDirs.includes(
-          normalize(dirname(path.replace(/ \(experimental\.quotaToast\)$/, ""))),
-        ),
+        configDirs.some((dir) => path === quotaConfigSource(dir)),
       ),
     ).toBe(true);
     expect(meta.settingSources.enabled).toBe(
-      join(workspaceDir, "opencode.json") + " (experimental.quotaToast)",
+      quotaConfigSource(workspaceDir),
     );
     expect(meta.settingSources.enabledProviders).toBe(
-      join(workspaceDir, "opencode.json") + " (experimental.quotaToast)",
+      quotaConfigSource(workspaceDir),
     );
     expect(
       configDirs.some(
         (dir) =>
           meta.settingSources["pricingSnapshot.source"] ===
-          join(dir, "opencode.json") + " (experimental.quotaToast)",
+          quotaConfigSource(dir),
       ),
     ).toBe(true);
     expect(
       configDirs.some(
         (dir) =>
           meta.settingSources["pricingSnapshot.autoRefresh"] ===
-          join(dir, "opencode.json") + " (experimental.quotaToast)",
+          quotaConfigSource(dir),
       ),
     ).toBe(true);
   });
@@ -188,15 +184,13 @@ describe("loadConfig integration runtime-path resolution", () => {
     expect(cfg.enabled).toBe(false);
     expect(cfg.minIntervalMs).toBe(12_345);
     expect(meta.globalConfigPaths).toEqual([]);
-    expect(meta.workspaceConfigPaths).toEqual([
-      join(overlappingRoot, "opencode.json") + " (experimental.quotaToast)",
-    ]);
+    expect(meta.workspaceConfigPaths).toEqual([quotaConfigSource(overlappingRoot)]);
     expect(meta.paths).toEqual(meta.workspaceConfigPaths);
     expect(meta.settingSources.enabled).toBe(
-      join(overlappingRoot, "opencode.json") + " (experimental.quotaToast)",
+      quotaConfigSource(overlappingRoot),
     );
     expect(meta.settingSources.minIntervalMs).toBe(
-      join(overlappingRoot, "opencode.json") + " (experimental.quotaToast)",
+      quotaConfigSource(overlappingRoot),
     );
   });
 
@@ -280,34 +274,26 @@ describe("loadConfig integration runtime-path resolution", () => {
     expect(workspaceCfg.onlyCurrentModel).toBe(true);
     expect(nestedCfg.onlyCurrentModel).toBe(false);
 
-    expect(workspaceMeta.workspaceConfigPaths).toEqual([
-      join(workspaceDir, "opencode.json") + " (experimental.quotaToast)",
-    ]);
-    expect(nestedMeta.workspaceConfigPaths).toEqual([
-      join(nestedDir, "opencode.json") + " (experimental.quotaToast)",
-    ]);
+    expect(workspaceMeta.workspaceConfigPaths).toEqual([quotaConfigSource(workspaceDir)]);
+    expect(nestedMeta.workspaceConfigPaths).toEqual([quotaConfigSource(nestedDir)]);
     expect(
       configDirs.some(
         (dir) =>
-          workspaceMeta.globalConfigPaths.includes(
-            join(dir, "opencode.json") + " (experimental.quotaToast)",
-          ) &&
-          nestedMeta.globalConfigPaths.includes(
-            join(dir, "opencode.json") + " (experimental.quotaToast)",
-          ),
+          workspaceMeta.globalConfigPaths.includes(quotaConfigSource(dir)) &&
+          nestedMeta.globalConfigPaths.includes(quotaConfigSource(dir)),
       ),
     ).toBe(true);
     expect(workspaceMeta.settingSources.enabled).toBe(
-      join(workspaceDir, "opencode.json") + " (experimental.quotaToast)",
+      quotaConfigSource(workspaceDir),
     );
     expect(nestedMeta.settingSources.enabled).toBe(
-      join(nestedDir, "opencode.json") + " (experimental.quotaToast)",
+      quotaConfigSource(nestedDir),
     );
     expect(workspaceMeta.settingSources.minIntervalMs).toBe(
-      join(workspaceDir, "opencode.json") + " (experimental.quotaToast)",
+      quotaConfigSource(workspaceDir),
     );
     expect(nestedMeta.settingSources.minIntervalMs).toBe(
-      join(nestedDir, "opencode.json") + " (experimental.quotaToast)",
+      quotaConfigSource(nestedDir),
     );
   });
 });

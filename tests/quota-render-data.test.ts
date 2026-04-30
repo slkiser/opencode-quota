@@ -199,6 +199,86 @@ describe("collectQuotaRenderData shared quota state", () => {
     expect(result.data).toBeNull();
   });
 
+  it("waits for current model metadata before probing providers under onlyCurrentModel", async () => {
+    const provider = {
+      id: "copilot",
+      isAvailable: vi.fn().mockResolvedValue(false),
+      fetch: vi.fn(),
+    };
+
+    mockProviders.push(provider);
+
+    const result = await collectQuotaRenderData({
+      client: TEST_CLIENT,
+      config: {
+        ...DEFAULT_CONFIG,
+        enabledProviders: ["copilot"],
+        onlyCurrentModel: true,
+        showSessionTokens: false,
+      },
+      request: {
+        sessionID: "fresh-session",
+        sessionMeta: {},
+      },
+      surfaceExplicitProviderIssues: true,
+      formatStyle: "allWindows",
+    });
+
+    expect(result.selection?.waitingForCurrentSelection).toBe(true);
+    expect(result.selection?.filteringByCurrentSelection).toBe(false);
+    expect(provider.isAvailable).not.toHaveBeenCalled();
+    expect(provider.fetch).not.toHaveBeenCalled();
+    expect(result.availability).toEqual([]);
+    expect(result.active).toEqual([]);
+    expect(result.attemptedAny).toBe(false);
+    expect(result.hasExplicitProviderIssues).toBe(false);
+    expect(result.data).toBeNull();
+  });
+
+  it("uses provider-only session metadata for onlyCurrentModel filtering", async () => {
+    const openaiProvider = {
+      id: "openai",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [{ name: "OpenAI Weekly", percentRemaining: 55 }],
+        errors: [],
+      }),
+    };
+    const copilotProvider = {
+      id: "copilot",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn(),
+    };
+
+    mockProviders.push(openaiProvider, copilotProvider);
+
+    const result = await collectQuotaRenderData({
+      client: TEST_CLIENT,
+      config: {
+        ...DEFAULT_CONFIG,
+        enabledProviders: ["openai", "copilot"],
+        onlyCurrentModel: true,
+        showSessionTokens: false,
+      },
+      request: {
+        sessionID: "provider-only-session",
+        sessionMeta: { providerID: "openai" },
+      },
+      surfaceExplicitProviderIssues: true,
+      formatStyle: "allWindows",
+    });
+
+    expect(result.selection?.waitingForCurrentSelection).toBe(false);
+    expect(result.selection?.filteringByCurrentSelection).toBe(true);
+    expect(result.selection?.filtered).toEqual([openaiProvider]);
+    expect(openaiProvider.isAvailable).toHaveBeenCalledOnce();
+    expect(openaiProvider.fetch).toHaveBeenCalledOnce();
+    expect(copilotProvider.isAvailable).not.toHaveBeenCalled();
+    expect(copilotProvider.fetch).not.toHaveBeenCalled();
+    expect(result.data?.entries).toEqual([{ name: "OpenAI Weekly", percentRemaining: 55 }]);
+  });
+
   it("reuses one canonical provider snapshot across single-window and all-window renders without mutation bleed", async () => {
     const syntheticProvider = {
       id: "synthetic",

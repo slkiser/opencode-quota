@@ -18,6 +18,10 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
 
 import { createLoadConfigMeta, loadConfig } from "../src/lib/config.js";
 
+function quotaConfigSource(dir: string): string {
+  return join(dir, "opencode-quota", "quota-toast.json") + " (opencode-quota/quota-toast.json)";
+}
+
 describe("loadConfig layered precedence", () => {
   const originalEnv = process.env;
   const originalCwd = process.cwd();
@@ -158,18 +162,16 @@ describe("loadConfig layered precedence", () => {
     expect(cfg.onlyCurrentModel).toBe(true);
     expect(meta.source).toBe("files");
     expect(meta.globalConfigPaths).toEqual([]);
-    expect(meta.workspaceConfigPaths).toEqual([
-      join(altWorkspaceDir, "opencode.json") + " (experimental.quotaToast)",
-    ]);
+    expect(meta.workspaceConfigPaths).toEqual([quotaConfigSource(altWorkspaceDir)]);
     expect(meta.paths).toEqual(meta.workspaceConfigPaths);
     expect(meta.settingSources).toEqual({
-      enabledProviders: join(altWorkspaceDir, "opencode.json") + " (experimental.quotaToast)",
-      formatStyle: join(altWorkspaceDir, "opencode.json") + " (experimental.quotaToast)",
-      percentDisplayMode: join(altWorkspaceDir, "opencode.json") + " (experimental.quotaToast)",
-      onlyCurrentModel: join(altWorkspaceDir, "opencode.json") + " (experimental.quotaToast)",
+      enabledProviders: quotaConfigSource(altWorkspaceDir),
+      formatStyle: quotaConfigSource(altWorkspaceDir),
+      percentDisplayMode: quotaConfigSource(altWorkspaceDir),
+      onlyCurrentModel: quotaConfigSource(altWorkspaceDir),
     });
     expect(meta.networkSettingSources).toEqual({
-      enabledProviders: join(altWorkspaceDir, "opencode.json") + " (experimental.quotaToast)",
+      enabledProviders: quotaConfigSource(altWorkspaceDir),
     });
   });
 
@@ -203,10 +205,10 @@ describe("loadConfig layered precedence", () => {
 
     expect(cfg.pricingSnapshot).toEqual({ source: "bundled", autoRefresh: 2 });
     expect(meta.settingSources["pricingSnapshot.source"]).toBe(
-      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+      quotaConfigSource(join(xdgConfigHome, "opencode")),
     );
     expect(meta.settingSources["pricingSnapshot.autoRefresh"]).toBe(
-      join(workspaceDir, "opencode.json") + " (experimental.quotaToast)",
+      quotaConfigSource(workspaceDir),
     );
   });
 
@@ -240,13 +242,13 @@ describe("loadConfig layered precedence", () => {
 
     expect(cfg.layout).toEqual({ maxWidth: 72, narrowAt: 36, tinyAt: 24 });
     expect(meta.settingSources["layout.maxWidth"]).toBe(
-      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+      quotaConfigSource(join(xdgConfigHome, "opencode")),
     );
     expect(meta.settingSources["layout.narrowAt"]).toBe(
-      join(workspaceDir, "opencode.json") + " (experimental.quotaToast)",
+      quotaConfigSource(workspaceDir),
     );
     expect(meta.settingSources["layout.tinyAt"]).toBe(
-      join(workspaceDir, "opencode.json") + " (experimental.quotaToast)",
+      quotaConfigSource(workspaceDir),
     );
   });
 
@@ -300,35 +302,36 @@ describe("loadConfig layered precedence", () => {
     expect(cfg.pricingSnapshot).toEqual({ source: "bundled", autoRefresh: 30 });
     expect(cfg.formatStyle).toBe("allWindows");
     expect(cfg.layout).toEqual({ maxWidth: 64, narrowAt: 35, tinyAt: 32 });
+    const globalQuotaConfigSource = quotaConfigSource(join(xdgConfigHome, "opencode"));
     expect(meta.settingSources.enabledProviders).toBe(
-      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+      globalQuotaConfigSource,
     );
     expect(meta.settingSources.anthropicBinaryPath).toBe(
-      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+      globalQuotaConfigSource,
     );
     expect(meta.settingSources.googleModels).toBe(
-      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+      globalQuotaConfigSource,
     );
     expect(meta.settingSources.cursorIncludedApiUsd).toBe(
-      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+      globalQuotaConfigSource,
     );
     expect(meta.settingSources.cursorBillingCycleStartDay).toBe(
-      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+      globalQuotaConfigSource,
     );
     expect(meta.settingSources["pricingSnapshot.source"]).toBe(
-      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+      globalQuotaConfigSource,
     );
     expect(meta.settingSources["pricingSnapshot.autoRefresh"]).toBe(
-      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+      globalQuotaConfigSource,
     );
     expect(meta.settingSources.formatStyle).toBe(
-      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+      globalQuotaConfigSource,
     );
     expect(meta.settingSources["layout.maxWidth"]).toBe(
-      join(xdgConfigHome, "opencode", "opencode.json") + " (experimental.quotaToast)",
+      globalQuotaConfigSource,
     );
     expect(meta.settingSources["layout.narrowAt"]).toBe(
-      join(workspaceDir, "opencode.json") + " (experimental.quotaToast)",
+      quotaConfigSource(workspaceDir),
     );
   });
 

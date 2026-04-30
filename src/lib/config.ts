@@ -23,7 +23,10 @@ import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { join } from "path";
 
+import { writeJsonAtomic } from "./atomic-json.js";
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+
+export const QUOTA_TOAST_CONFIG_RELATIVE_PATH = "opencode-quota/quota-toast.json";
 
 export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "enabled",
@@ -135,6 +138,28 @@ type ValidatedQuotaToastPatch = {
 };
 
 type ConfigLayerScope = "global" | "workspace";
+type ConfigLayerKind = "legacy" | "plugin";
+
+interface ConfigLayerCandidate {
+  path: string;
+  scope: ConfigLayerScope;
+  kind: ConfigLayerKind;
+  pluginPath: string;
+}
+
+interface PendingLegacyMigration {
+  quotaToastConfig: Record<string, unknown>;
+  sourcePath: string;
+  sourcePaths: Set<string>;
+  scope: ConfigLayerScope;
+  config: QuotaToastConfig;
+  settingSources: QuotaToastSettingSources;
+  configIssues: LoadConfigIssue[];
+}
+
+export function getQuotaToastConfigPath(configRootDir: string): string {
+  return join(configRootDir, QUOTA_TOAST_CONFIG_RELATIVE_PATH);
+}
 
 function hasOwnKey<T extends object>(value: T, key: PropertyKey): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
@@ -227,15 +252,19 @@ function dedupe<T>(list: T[]): T[] {
 }
 
 function cloneDefaultConfig(): QuotaToastConfig {
+  return cloneConfig(DEFAULT_CONFIG);
+}
+
+function cloneConfig(config: QuotaToastConfig): QuotaToastConfig {
   return {
-    ...DEFAULT_CONFIG,
-    enabledProviders: Array.isArray(DEFAULT_CONFIG.enabledProviders)
-      ? [...DEFAULT_CONFIG.enabledProviders]
-      : DEFAULT_CONFIG.enabledProviders,
-    googleModels: [...DEFAULT_CONFIG.googleModels],
-    opencodeGoWindows: [...DEFAULT_CONFIG.opencodeGoWindows],
-    pricingSnapshot: { ...DEFAULT_CONFIG.pricingSnapshot },
-    layout: { ...DEFAULT_CONFIG.layout },
+    ...config,
+    enabledProviders: Array.isArray(config.enabledProviders)
+      ? [...config.enabledProviders]
+      : config.enabledProviders,
+    googleModels: [...config.googleModels],
+    opencodeGoWindows: [...config.opencodeGoWindows],
+    pricingSnapshot: { ...config.pricingSnapshot },
+    layout: { ...config.layout },
   };
 }
 
@@ -670,23 +699,126 @@ function projectNetworkSettingSources(
   return projected;
 }
 
+function buildConfigLayerCandidatesForRoot(
+  dir: string,
+  scope: ConfigLayerScope,
+): ConfigLayerCandidate[] {
+  const pluginPath = getQuotaToastConfigPath(dir);
+  return [
+    ...CONFIG_FILENAMES.map((filename) => ({
+      path: join(dir, filename),
+      scope,
+      kind: "legacy" as const,
+      pluginPath,
+    })),
+    {
+      path: pluginPath,
+      scope,
+      kind: "plugin" as const,
+      pluginPath,
+    },
+  ];
+}
+
 function buildConfigLayerCandidates(
   configDirs: string[],
   configRootDir: string,
-): Array<{ path: string; scope: ConfigLayerScope }> {
-  const workspaceCandidates = CONFIG_FILENAMES.map((filename) => ({
-    path: join(configRootDir, filename),
-    scope: "workspace" as const,
-  }));
+): ConfigLayerCandidate[] {
+  const workspaceCandidates = buildConfigLayerCandidatesForRoot(configRootDir, "workspace");
   const workspacePaths = new Set(workspaceCandidates.map((candidate) => candidate.path));
   const globalCandidates = configDirs.flatMap((dir) =>
-    CONFIG_FILENAMES.map((filename) => ({ path: join(dir, filename), scope: "global" as const })),
+    buildConfigLayerCandidatesForRoot(dir, "global"),
   );
 
   return [
     ...globalCandidates.filter((candidate) => !workspacePaths.has(candidate.path)),
     ...workspaceCandidates,
   ];
+}
+
+function getConfigLayerSourceLabel(candidate: ConfigLayerCandidate): string {
+  const suffix =
+    candidate.kind === "plugin" ? QUOTA_TOAST_CONFIG_RELATIVE_PATH : "experimental.quotaToast";
+  return `${candidate.path} (${suffix})`;
+}
+
+async function migrateLegacyQuotaToastConfig(params: {
+  pluginPath: string;
+  quotaToastConfig: Record<string, unknown>;
+}): Promise<boolean> {
+  if (existsSync(params.pluginPath)) {
+    return true;
+  }
+
+  try {
+    await writeJsonAtomic(params.pluginPath, params.quotaToastConfig, { trailingNewline: true });
+    return true;
+  } catch {
+    // Best effort only. The legacy config remains readable for backward compatibility.
+    return false;
+  }
+}
+
+function buildQuotaToastMigrationPayload(
+  config: QuotaToastConfig,
+  settingSources: QuotaToastSettingSources,
+  includeSource: (source: string) => boolean,
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  const hasSource = (key: QuotaToastSettingSourceKey): boolean => {
+    const source = settingSources[key];
+    return typeof source === "string" && includeSource(source);
+  };
+
+  if (hasSource("enabled")) payload.enabled = config.enabled;
+  if (hasSource("enableToast")) payload.enableToast = config.enableToast;
+  if (hasSource("formatStyle")) payload.formatStyle = config.formatStyle;
+  if (hasSource("percentDisplayMode")) payload.percentDisplayMode = config.percentDisplayMode;
+  if (hasSource("minIntervalMs")) payload.minIntervalMs = config.minIntervalMs;
+  if (hasSource("debug")) payload.debug = config.debug;
+  if (hasSource("enabledProviders")) {
+    payload.enabledProviders =
+      config.enabledProviders === "auto" ? "auto" : [...config.enabledProviders];
+  }
+  if (hasSource("anthropicBinaryPath")) payload.anthropicBinaryPath = config.anthropicBinaryPath;
+  if (hasSource("googleModels")) payload.googleModels = [...config.googleModels];
+  if (hasSource("alibabaCodingPlanTier")) {
+    payload.alibabaCodingPlanTier = config.alibabaCodingPlanTier;
+  }
+  if (hasSource("cursorPlan")) payload.cursorPlan = config.cursorPlan;
+  if (hasSource("cursorIncludedApiUsd")) {
+    payload.cursorIncludedApiUsd = config.cursorIncludedApiUsd;
+  }
+  if (hasSource("cursorBillingCycleStartDay")) {
+    payload.cursorBillingCycleStartDay = config.cursorBillingCycleStartDay;
+  }
+  if (hasSource("opencodeGoWindows")) payload.opencodeGoWindows = [...config.opencodeGoWindows];
+  if (hasSource("pricingSnapshot.source") || hasSource("pricingSnapshot.autoRefresh")) {
+    const pricingSnapshot: Record<string, unknown> = {};
+    if (hasSource("pricingSnapshot.source")) {
+      pricingSnapshot.source = config.pricingSnapshot.source;
+    }
+    if (hasSource("pricingSnapshot.autoRefresh")) {
+      pricingSnapshot.autoRefresh = config.pricingSnapshot.autoRefresh;
+    }
+    payload.pricingSnapshot = pricingSnapshot;
+  }
+  if (hasSource("showOnIdle")) payload.showOnIdle = config.showOnIdle;
+  if (hasSource("showOnQuestion")) payload.showOnQuestion = config.showOnQuestion;
+  if (hasSource("showOnCompact")) payload.showOnCompact = config.showOnCompact;
+  if (hasSource("showOnBothFail")) payload.showOnBothFail = config.showOnBothFail;
+  if (hasSource("toastDurationMs")) payload.toastDurationMs = config.toastDurationMs;
+  if (hasSource("onlyCurrentModel")) payload.onlyCurrentModel = config.onlyCurrentModel;
+  if (hasSource("showSessionTokens")) payload.showSessionTokens = config.showSessionTokens;
+  if (hasSource("layout.maxWidth") || hasSource("layout.narrowAt") || hasSource("layout.tinyAt")) {
+    const layout: Record<string, unknown> = {};
+    if (hasSource("layout.maxWidth")) layout.maxWidth = config.layout.maxWidth;
+    if (hasSource("layout.narrowAt")) layout.narrowAt = config.layout.narrowAt;
+    if (hasSource("layout.tinyAt")) layout.tinyAt = config.layout.tinyAt;
+    payload.layout = layout;
+  }
+
+  return payload;
 }
 
 /**
@@ -734,25 +866,87 @@ export async function loadConfig(
     const workspaceConfigPaths: string[] = [];
     const settingSources: QuotaToastSettingSources = {};
     const configIssues: LoadConfigIssue[] = [];
+    const pendingLegacyMigrations = new Map<string, PendingLegacyMigration>();
 
     for (const candidate of buildConfigLayerCandidates(configDirs, configRootDir)) {
-      if (!existsSync(candidate.path)) {
+      const pendingMigration =
+        candidate.kind === "plugin" ? pendingLegacyMigrations.get(candidate.path) : undefined;
+
+      if (candidate.kind === "plugin") {
+        if (pendingMigration && !existsSync(candidate.path)) {
+          await migrateLegacyQuotaToastConfig({
+            pluginPath: candidate.path,
+            quotaToastConfig: pendingMigration.quotaToastConfig,
+          });
+        }
+      } else if (existsSync(candidate.pluginPath)) {
         continue;
       }
 
-      const parsed = await readJson(candidate.path);
-      if (!isPlainObject(parsed) || !isPlainObject(parsed.experimental)) {
+      let rawQuotaToast: Record<string, unknown> | undefined;
+      let sourcePath = getConfigLayerSourceLabel(candidate);
+      let scope = candidate.scope;
+
+      if (existsSync(candidate.path)) {
+        const parsed = await readJson(candidate.path);
+        if (!isPlainObject(parsed)) {
+          continue;
+        }
+
+        const extractedQuotaToast =
+          candidate.kind === "plugin"
+            ? parsed
+            : isPlainObject(parsed.experimental)
+              ? parsed.experimental.quotaToast
+              : undefined;
+        if (!isPlainObject(extractedQuotaToast)) {
+          continue;
+        }
+        rawQuotaToast = extractedQuotaToast;
+      } else if (candidate.kind === "plugin" && pendingMigration) {
+        rawQuotaToast = pendingMigration.quotaToastConfig;
+        sourcePath = pendingMigration.sourcePath;
+        scope = pendingMigration.scope;
+      } else {
         continue;
       }
 
-      const rawQuotaToast = parsed.experimental.quotaToast;
-      if (!isPlainObject(rawQuotaToast)) {
+      if (candidate.kind === "legacy") {
+        const pending = pendingLegacyMigrations.get(candidate.pluginPath) ?? {
+          quotaToastConfig: {},
+          sourcePath,
+          sourcePaths: new Set<string>(),
+          scope,
+          config: cloneConfig(config),
+          settingSources: { ...settingSources },
+          configIssues: [],
+        };
+        pending.sourcePaths.add(sourcePath);
+        applyValidatedQuotaToastPatch(
+          pending.config,
+          extractValidatedQuotaToastPatch(rawQuotaToast, (key, message) => {
+            pending.configIssues.push({ path: sourcePath, key, message });
+          }),
+          sourcePath,
+          pending.settingSources,
+        );
+        pending.quotaToastConfig = buildQuotaToastMigrationPayload(
+          pending.config,
+          pending.settingSources,
+          (source) => pending.sourcePaths.has(source),
+        );
+        pending.sourcePath = sourcePath;
+        pending.scope = scope;
+        pendingLegacyMigrations.set(candidate.pluginPath, pending);
         continue;
       }
 
-      const sourcePath = `${candidate.path} (experimental.quotaToast)`;
+      if (candidate.kind === "plugin" && pendingMigration?.configIssues.length) {
+        configIssues.push(...pendingMigration.configIssues);
+      }
+
       usedPaths.push(sourcePath);
-      if (candidate.scope === "global") {
+      if (scope === "global") {
         globalConfigPaths.push(sourcePath);
       } else {
         workspaceConfigPaths.push(sourcePath);
