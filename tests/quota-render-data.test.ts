@@ -138,7 +138,7 @@ describe("collectQuotaRenderData shared quota state", () => {
     ]);
     expect(result.active).toEqual([workingProvider]);
     expect(result.data).toEqual({
-      entries: [{ name: "OpenAI (Pro)", percentRemaining: 75 }],
+      entries: [{ name: "[OpenAI] (Pro) 5h", percentRemaining: 75 }],
       errors: [{ label: "Copilot", message: "Unavailable (not detected)" }],
       sessionTokens: undefined,
     });
@@ -249,7 +249,7 @@ describe("collectQuotaRenderData shared quota state", () => {
     });
     expect(singleWindow.data?.entries).toEqual([
       {
-        name: "Synthetic Weekly",
+        name: "[Synthetic] Weekly",
         percentRemaining: 8,
         right: "$22/$24",
         resetTimeIso: "2026-01-27T18:12:03.000Z",
@@ -348,7 +348,7 @@ describe("collectQuotaRenderData shared quota state", () => {
     });
     expect(singleWindow.data?.entries).toEqual([
       {
-        name: "Gemini CLI",
+        name: "[Gemini CLI]",
         percentRemaining: 12,
         right: "20 left",
         resetTimeIso: "2026-01-01T08:00:00.000Z",
@@ -440,7 +440,7 @@ describe("collectQuotaRenderData shared quota state", () => {
     const second = await collectQuotaRenderData(params);
     expect(second.data?.entries).toEqual([
       {
-        name: "Cursor API (Pro)",
+        name: "[Cursor] (Pro)",
         percentRemaining: 75,
         resetTimeIso: "2026-03-01T00:00:00.000Z",
       },
@@ -504,7 +504,7 @@ describe("collectQuotaRenderData shared quota state", () => {
           attempted: true,
           entries: [
             {
-              name: "Synthetic Weekly",
+              name: "[Synthetic] Weekly",
               percentRemaining: 84,
               right: "$8/$50",
               resetTimeIso: "2026-04-21T18:00:00.000Z",
@@ -587,7 +587,7 @@ describe("collectQuotaRenderData shared quota state", () => {
 
     expect(alias.data?.entries).toEqual([
       {
-        name: "Synthetic",
+        name: "[Synthetic] Weekly",
         percentRemaining: 8,
         right: "$22/$24",
       },

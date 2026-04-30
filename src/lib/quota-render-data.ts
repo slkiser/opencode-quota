@@ -20,6 +20,7 @@ import {
   DEFAULT_QUOTA_FORMAT_STYLE,
   getQuotaFormatStyleDefinition,
 } from "./quota-format-style.js";
+import { formatGroupedHeader } from "./grouped-header-format.js";
 import { getProviders } from "../providers/registry.js";
 import { getAnthropicNoDataMessage } from "../providers/anthropic.js";
 
@@ -290,8 +291,41 @@ function stripSingleWindowEntryMeta(
   return { ...withoutRight };
 }
 
-function renameSingleWindowEntry(entry: QuotaToastEntry, name?: string): QuotaToastEntry {
-  return name ? { ...entry, name } : entry;
+function normalizeSingleWindowWindowLabel(value?: string): string | null {
+  const lower = value?.trim().replace(/:+$/u, "").trim().toLowerCase() ?? "";
+  if (!lower) return null;
+
+  if (/\b(?:rpm|per minute|minute|minutes)\b/u.test(lower)) return "RPM";
+  if (/\b(?:rolling|5h|5 h|5-hour|5 hour|five-hour|five hour)\b/u.test(lower)) return "5h";
+  if (/\b(?:hourly|1h|1 h|1-hour|1 hour|hour)\b/u.test(lower)) return "Hourly";
+  if (/\b(?:7d|7 d|7-day|7 day|weekly|week)\b/u.test(lower)) return "Weekly";
+  if (/\b(?:daily|1d|1 d|1-day|1 day|day)\b/u.test(lower)) return "Daily";
+  if (/\b(?:monthly|month)\b/u.test(lower)) return "Monthly";
+  if (/\b(?:yearly|annual|annually|year)\b/u.test(lower)) return "Yearly";
+  if (/\bmcp\b/u.test(lower)) return "MCP";
+
+  return null;
+}
+
+function buildSingleWindowName(params: {
+  entry: QuotaToastEntry;
+  singleWindowDisplayName?: string;
+}): string {
+  const providerText =
+    params.entry.group?.trim() ||
+    params.singleWindowDisplayName?.trim() ||
+    params.entry.name.trim() ||
+    "";
+  const provider = formatGroupedHeader(providerText);
+  const windowLabel =
+    normalizeSingleWindowWindowLabel(params.entry.label) ??
+    normalizeSingleWindowWindowLabel(params.entry.name);
+
+  return windowLabel ? `${provider} ${windowLabel}` : provider;
+}
+
+function renameSingleWindowEntry(entry: QuotaToastEntry, name: string): QuotaToastEntry {
+  return { ...entry, name };
 }
 
 type LegacyQuotaProviderPresentation = QuotaProviderPresentation & {
@@ -361,7 +395,10 @@ function projectProviderResultToStyle(
   return [
     renameSingleWindowEntry(
       stripSingleWindowEntryMeta(selectedEntry, presentation?.singleWindowShowRight ?? false),
-      presentation?.singleWindowDisplayName,
+      buildSingleWindowName({
+        entry: selectedEntry,
+        singleWindowDisplayName: presentation?.singleWindowDisplayName,
+      }),
     ),
   ];
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { formatQuotaRows } from "../src/lib/format.js";
 import { SESSION_TOKEN_SECTION_HEADING } from "../src/lib/session-tokens-format.js";
@@ -9,6 +9,10 @@ import {
 } from "../src/lib/tui-sidebar-format.js";
 
 describe("buildSidebarQuotaPanelLines", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("sanitizes structured entry, error, and session-token text before rendering", () => {
     const lines = buildSidebarQuotaPanelLines({
       config: {
@@ -128,7 +132,9 @@ describe("buildSidebarQuotaPanelLines", () => {
 
     expect(lines).toEqual(expected);
     expect(lines).toHaveLength(2);
-    expect(lines[0]).toBe("→ [Copilot] (business)");
+    expect(lines[0]).toBe("[Copilot] (business)");
+    expect(lines[1]).toContain("9 used");
+    expect(lines.join("\n")).not.toContain("→ ");
     expect(lines.every((line) => line.length <= TUI_SIDEBAR_MAX_WIDTH)).toBe(true);
   });
 
@@ -158,10 +164,10 @@ describe("buildSidebarQuotaPanelLines", () => {
       },
     });
 
-    expect(lines.findIndex((line) => line.includes("5h:"))).toBeGreaterThanOrEqual(0);
-    expect(lines.findIndex((line) => line.includes("Weekly:"))).toBeGreaterThanOrEqual(0);
-    expect(lines.findIndex((line) => line.includes("5h:"))).toBeLessThan(
-      lines.findIndex((line) => line.includes("Weekly:")),
+    expect(lines.findIndex((line) => line.includes("5h window"))).toBeGreaterThanOrEqual(0);
+    expect(lines.findIndex((line) => line.includes("Weekly window"))).toBeGreaterThanOrEqual(0);
+    expect(lines.findIndex((line) => line.includes("5h window"))).toBeLessThan(
+      lines.findIndex((line) => line.includes("Weekly window")),
     );
   });
 
@@ -213,11 +219,38 @@ describe("buildSidebarQuotaPanelLines", () => {
     });
 
     const rendered = lines.join("\n");
-    expect(rendered).toContain("→ [Synthetic]");
-    expect(rendered).toContain("Weekly: $22/$24");
+    expect(rendered).toContain("[Synthetic]");
+    expect(rendered).toContain("Weekly window");
+    expect(rendered).not.toContain("$22/$24");
     expect(rendered).toContain("92% used");
     expect(rendered).not.toContain("0/500");
     expect(rendered).not.toContain("0% used");
+  });
+
+  it("uses compact rounded reset text in sidebar rows", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
+
+    const lines = buildSidebarQuotaPanelLines({
+      config: {
+        formatStyle: "singleWindow",
+        percentDisplayMode: "remaining",
+      },
+      data: {
+        entries: [
+          {
+            name: "[Copilot] Monthly",
+            percentRemaining: 81,
+            resetTimeIso: "2026-01-15T12:14:00.000Z",
+          },
+        ],
+        errors: [],
+        sessionTokens: undefined,
+      },
+    });
+
+    expect(lines.join("\n")).toContain("2h");
+    expect(lines.join("\n")).not.toContain("2h 14m");
   });
 
   it("renders used percentages and matching bar fill in the sidebar", () => {

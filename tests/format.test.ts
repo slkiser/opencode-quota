@@ -167,6 +167,49 @@ describe("formatQuotaRows", () => {
     expect(out).not.toMatch(/\d+[dhms]/);
   });
 
+  it("uses compact rounded reset labels for single-window rows", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
+
+    const out = formatQuotaRows({
+      version: "1.0.0",
+      layout: { maxWidth: 50, narrowAt: 42, tinyAt: 32 },
+      entries: [
+        {
+          name: "[Copilot] Monthly",
+          percentRemaining: 56,
+          resetTimeIso: "2026-01-15T12:14:00.000Z",
+        },
+      ],
+    });
+
+    expect(out).toContain("2h");
+    expect(out).not.toContain("2h 14m");
+  });
+
+  it("uses compact rounded reset labels for grouped rows", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
+
+    const out = formatQuotaRows({
+      version: "1.0.0",
+      style: "allWindows",
+      layout: { maxWidth: 50, narrowAt: 42, tinyAt: 32 },
+      entries: [
+        {
+          name: "OpenAI 5h",
+          group: "OpenAI",
+          label: "5h:",
+          percentRemaining: 56,
+          resetTimeIso: "2026-01-15T10:14:00.000Z",
+        },
+      ],
+    });
+
+    expect(out).toContain("14m");
+    expect(out).not.toContain("0h 14m");
+  });
+
   it("normalizes grouped headers in all-window toast output", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));
@@ -174,7 +217,7 @@ describe("formatQuotaRows", () => {
     const out = formatQuotaRows({
       version: "1.0.0",
       style: "allWindows",
-      layout: { maxWidth: 50, narrowAt: 42, tinyAt: 32 },
+      layout: { maxWidth: 80, narrowAt: 42, tinyAt: 32 },
       entries: [
         {
           name: "Copilot",
@@ -187,7 +230,69 @@ describe("formatQuotaRows", () => {
       ],
     });
 
-    expect(out).toContain("→ [Copilot] (business)");
+    expect(out).toContain("[Copilot] (business)");
+    expect(out).not.toContain("→ ");
+  });
+
+  it("preserves grouped value-row labels and values", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));
+
+    const out = formatQuotaRows({
+      version: "1.0.0",
+      style: "allWindows",
+      layout: { maxWidth: 80, narrowAt: 42, tinyAt: 32 },
+      entries: [
+        {
+          name: "Copilot",
+          group: "Copilot (business)",
+          label: "Usage:",
+          kind: "value",
+          value: "9 used | 2026-01 | org=acme-corp",
+          resetTimeIso: "2026-01-16T00:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(out).toContain("Usage:");
+    expect(out).toContain("9 used | 2026-01 | org=acme-corp");
+    expect(out).not.toContain("Quota window");
+  });
+
+  it("renders grouped-header provider + window label in direct single-window formatter calls", () => {
+    const out = formatQuotaRows({
+      version: "1.0.0",
+      layout: { maxWidth: 50, narrowAt: 42, tinyAt: 32 },
+      entries: [
+        {
+          name: "Copilot",
+          group: "Copilot (personal)",
+          label: "Monthly:",
+          percentRemaining: 86,
+          resetTimeIso: "2099-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(out).toContain("[Copilot] (personal) Monthly");
+  });
+
+  it("does not double-append window labels when single-window names are already preformatted", () => {
+    const out = formatQuotaRows({
+      version: "1.0.0",
+      layout: { maxWidth: 50, narrowAt: 42, tinyAt: 32 },
+      entries: [
+        {
+          name: "[Copilot] (personal) Monthly",
+          label: "Monthly:",
+          percentRemaining: 86,
+          resetTimeIso: "2099-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(out).toContain("[Copilot] (personal) Monthly");
+    expect(out).not.toContain("Monthly Monthly");
   });
 
   it("renders all-window quota entries from shortest to longest within a provider group", () => {
@@ -211,9 +316,9 @@ describe("formatQuotaRows", () => {
       ],
     });
 
-    expect(out.indexOf("5h:")).toBeGreaterThanOrEqual(0);
-    expect(out.indexOf("Weekly:")).toBeGreaterThanOrEqual(0);
-    expect(out.indexOf("5h:")).toBeLessThan(out.indexOf("Weekly:"));
+    expect(out.indexOf("5h window")).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("Weekly window")).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("5h window")).toBeLessThan(out.indexOf("Weekly window"));
   });
 
   it("renders all-window percent rows as used when percentDisplayMode is used", () => {
@@ -259,7 +364,8 @@ describe("formatQuotaRows", () => {
       ],
     });
 
-    expect(out).toContain("5h: 0/135");
+    expect(out).toContain("5h window");
+    expect(out).not.toContain("0/135");
     expect(out).toContain("100% left");
   });
 
@@ -296,12 +402,12 @@ describe("formatQuotaRows", () => {
       ],
     });
 
-    expect(out.indexOf("→ [Qwen] (free)")).toBeGreaterThanOrEqual(0);
-    expect(out.indexOf("→ [OpenAI] (Pro)")).toBeGreaterThanOrEqual(0);
-    expect(out.indexOf("→ [Qwen] (free)")).toBeLessThan(out.indexOf("→ [OpenAI] (Pro)"));
+    expect(out.indexOf("[Qwen] (free)")).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("[OpenAI] (Pro)")).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("[Qwen] (free)")).toBeLessThan(out.indexOf("[OpenAI] (Pro)"));
 
-    expect(out.indexOf("RPM:")).toBeLessThan(out.indexOf("Daily:"));
-    expect(out.indexOf("5h:")).toBeLessThan(out.indexOf("Weekly:"));
+    expect(out.indexOf("RPM window")).toBeLessThan(out.indexOf("Daily window"));
+    expect(out.indexOf("5h window")).toBeLessThan(out.indexOf("Weekly window"));
   });
 
   it("groups legacy Google-style entries without duplicating the header text", () => {
@@ -321,9 +427,9 @@ describe("formatQuotaRows", () => {
       ],
     });
 
-    expect(out).toContain("→ [Google Antigravity] (acct)");
-    expect(out).toContain("Claude:");
-    expect(out).not.toContain("→ [Claude] (acct)");
+    expect(out).toContain("[Google Antigravity] (acct)");
+    expect(out).toContain("Quota window");
+    expect(out).not.toContain("[Claude] (acct)");
   });
 
   it("renders single-window session tokens as a one-line total summary", () => {

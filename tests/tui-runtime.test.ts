@@ -410,7 +410,7 @@ describe("tui runtime helpers", () => {
     };
 
     collectQuotaRenderData.mockResolvedValue({ data });
-    buildSidebarQuotaPanelLines.mockReturnValue(["→ [Copilot] (business)"]);
+    buildSidebarQuotaPanelLines.mockReturnValue(["[Copilot] (business)"]);
 
     const panel = await loadSidebarPanel({
       api: {
@@ -429,7 +429,7 @@ describe("tui runtime helpers", () => {
       sessionID: "session-grouped",
     });
 
-    expect(panel).toEqual({ status: "ready", lines: ["→ [Copilot] (business)"] });
+    expect(panel).toEqual({ status: "ready", lines: ["[Copilot] (business)"] });
     expect(collectQuotaRenderData).toHaveBeenCalledWith(
       expect.objectContaining({
         formatStyle: "allWindows",
@@ -474,7 +474,7 @@ describe("tui runtime helpers", () => {
     };
 
     collectQuotaRenderData.mockResolvedValue({ data: weeklyData });
-    buildSidebarQuotaPanelLines.mockReturnValue(["→ [Synthetic]", "  Weekly: $22/$24"]);
+    buildSidebarQuotaPanelLines.mockReturnValue(["[Synthetic]", "Weekly window"]);
 
     const panel = await loadSidebarPanel({
       api: {
@@ -493,7 +493,7 @@ describe("tui runtime helpers", () => {
       sessionID: "session-weekly-grouped",
     });
 
-    expect(panel).toEqual({ status: "ready", lines: ["→ [Synthetic]", "  Weekly: $22/$24"] });
+    expect(panel).toEqual({ status: "ready", lines: ["[Synthetic]", "Weekly window"] });
     expect(buildSidebarQuotaPanelLines).toHaveBeenCalledWith({
       data: weeklyData,
       config: expect.objectContaining({

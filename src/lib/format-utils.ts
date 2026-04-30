@@ -139,6 +139,13 @@ export interface FormatResetCountdownOptions {
    * - Grouped toast uses ""
    */
   missing?: string;
+  /**
+   * When true, rounds down to the largest active unit.
+   * - 13d 5h -> 13d
+   * - 2h 14m -> 2h
+   * - 14m -> 14m
+   */
+  compactRounded?: boolean;
 }
 
 /**
@@ -158,6 +165,12 @@ export function formatResetCountdown(iso?: string, opts?: FormatResetCountdownOp
   const days = Math.floor(diffMinutes / 1440);
   const hours = Math.floor((diffMinutes % 1440) / 60);
   const minutes = diffMinutes % 60;
+
+  if (opts?.compactRounded) {
+    if (days > 0) return `${days}d`;
+    if (hours > 0) return `${hours}h`;
+    return `${minutes}m`;
+  }
 
   if (days > 0) return `${days}d ${hours}h`;
   return `${hours}h ${minutes}m`;

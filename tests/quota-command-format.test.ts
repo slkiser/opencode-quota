@@ -157,6 +157,27 @@ describe("formatQuotaCommand", () => {
     expect(out.indexOf("5h:")).toBeLessThan(out.indexOf("Weekly:"));
   });
 
+  it("keeps /quota reset formatting independent from compact toast resets", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
+
+    const out = formatQuotaCommand({
+      entries: [
+        {
+          name: "OpenAI",
+          group: "OpenAI",
+          label: "Weekly:",
+          percentRemaining: 81,
+          resetTimeIso: "2026-01-15T12:40:00.000Z",
+        },
+      ],
+      errors: [],
+    });
+
+    // /quota keeps its own formatter (hour-rounded here), not toast compact rounding.
+    expect(out).toContain("resets in 3h");
+  });
+
   it("sizes the grouped /quota label column from the visible grouped text", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));

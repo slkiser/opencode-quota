@@ -21,6 +21,37 @@ import { formatGroupedHeader } from "./grouped-header-format.js";
 import { normalizeGroupedQuotaEntries } from "./grouped-entry-normalization.js";
 import { renderSessionTokensLines } from "./session-tokens-format.js";
 
+function normalizeLabelText(value?: string): string {
+  return value?.trim().replace(/:+$/u, "").trim() ?? "";
+}
+
+function extractWindowLabel(text: string): string | null {
+  const lower = normalizeLabelText(text).toLowerCase();
+  if (!lower) return null;
+
+  if (/\b(?:rpm|per minute|minute|minutes)\b/u.test(lower)) return "RPM";
+  if (/\b(?:rolling|5h|5 h|5-hour|5 hour|five-hour|five hour)\b/u.test(lower)) return "5h";
+  if (/\b(?:hourly|1h|1 h|1-hour|1 hour|hour)\b/u.test(lower)) return "Hourly";
+  if (/\b(?:7d|7 d|7-day|7 day|weekly|week)\b/u.test(lower)) return "Weekly";
+  if (/\b(?:daily|1d|1 d|1-day|1 day|day)\b/u.test(lower)) return "Daily";
+  if (/\b(?:monthly|month)\b/u.test(lower)) return "Monthly";
+  if (/\b(?:yearly|annual|annually|year)\b/u.test(lower)) return "Yearly";
+  if (/\bmcp\b/u.test(lower)) return "MCP";
+  if (/\bcode review\b/u.test(lower)) return "Code Review";
+
+  return null;
+}
+
+function resolveGroupedRowLabel(entry: QuotaToastEntry): string {
+  const fromLabel = extractWindowLabel(entry.label ?? "");
+  if (fromLabel) return `${fromLabel} window`;
+
+  const fromName = extractWindowLabel(entry.name);
+  if (fromName) return `${fromName} window`;
+
+  return "Quota window";
+}
+
 export function formatQuotaRowsGrouped(params: {
   layout?: {
     maxWidth: number;
@@ -68,15 +99,14 @@ export function formatQuotaRowsGrouped(params: {
     const list = groups.get(g) ?? [];
     if (gi > 0) lines.push("");
 
-    // Group header like "→ [OpenAI] (Pro)"
-    lines.push(`→ ${formatGroupedHeader(g)}`.slice(0, maxWidth));
+    lines.push(formatGroupedHeader(g).slice(0, maxWidth));
 
     for (const entry of list) {
-      const label = entry.label?.trim() || entry.name;
       const right = entry.right ? entry.right.trim() : "";
 
       if (isValueEntry(entry)) {
-        const timeStr = formatResetCountdown(entry.resetTimeIso);
+        const label = entry.label?.trim() || entry.name;
+        const timeStr = formatResetCountdown(entry.resetTimeIso, { compactRounded: true });
         const value = entry.value.trim();
 
         if (isTiny) {
@@ -114,10 +144,15 @@ export function formatQuotaRowsGrouped(params: {
         continue;
       }
 
+      const label = resolveGroupedRowLabel(entry);
+
       // Percent entries
       // Show reset countdown whenever quota is not fully available.
       // (i.e., any usage at all, or depleted)
-      const timeStr = entry.percentRemaining < 100 ? formatResetCountdown(entry.resetTimeIso) : "";
+      const timeStr =
+        entry.percentRemaining < 100
+          ? formatResetCountdown(entry.resetTimeIso, { compactRounded: true })
+          : "";
       const displayedPercent = resolveDisplayedPercent(
         entry.percentRemaining,
         params.percentDisplayMode,
@@ -133,9 +168,8 @@ export function formatQuotaRowsGrouped(params: {
           1,
           maxWidth - separator.length - timeCol - separator.length - percentCol,
         );
-        const leftText = right ? `${label} ${right}` : label;
         const line = [
-          padRight(leftText, tinyNameCol),
+          padRight(label, tinyNameCol),
           padLeft(timeStr, timeCol),
           padLeft(percentLabel, percentCol),
         ].join(separator);
@@ -146,9 +180,8 @@ export function formatQuotaRowsGrouped(params: {
       // Line 1: label + optional right + time at end
       const timeWidth = Math.max(timeStr.length, timeCol);
       const leftMax = Math.max(1, barWidth - separator.length - timeWidth);
-      const leftText = right ? `${label} ${right}` : label;
       lines.push(
-        (padRight(leftText, leftMax) + separator + padLeft(timeStr, timeWidth)).slice(0, barWidth),
+        (padRight(label, leftMax) + separator + padLeft(timeStr, timeWidth)).slice(0, barWidth),
       );
 
       // Line 2: bar + percent
