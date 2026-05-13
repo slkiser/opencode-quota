@@ -28,11 +28,13 @@
   ],
   "files": [
     "dist",
+    "scripts/shim-opentui-core.mjs",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc && node scripts/copy-data.mjs && node scripts/prepare-tui-dist.mjs",
+    "build": "tsc && node scripts/copy-data.mjs && node scripts/prepare-tui-dist.mjs && node scripts/shim-opentui-core.mjs",
+    "postinstall": "node scripts/shim-opentui-core.mjs",
     "build:check": "npm run build && npm pack --dry-run",
     "pricing:refresh": "node scripts/refresh-modelsdev-pricing.mjs",
     "pricing:refresh:if-stale": "node scripts/refresh-modelsdev-pricing-if-stale.mjs",
