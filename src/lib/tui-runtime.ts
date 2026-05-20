@@ -4,11 +4,11 @@ import type { CompactStatusState, SidebarPanelState } from "./tui-panel-state.js
 import type { CollectQuotaRenderDataResult, SessionModelMeta } from "./quota-render-data.js";
 import type { QuotaRuntimeContext } from "./quota-runtime-context.js";
 
+import { resolveRuntimeContextRoots, type RuntimeContextRootHints } from "./config-file-utils.js";
 import {
-  resolveRuntimeContextRoots,
-  type RuntimeContextRootHints,
-} from "./config-file-utils.js";
-import { createQuotaRuntimeRequestContext, resolveQuotaRuntimeContext } from "./quota-runtime-context.js";
+  createQuotaRuntimeRequestContext,
+  resolveQuotaRuntimeContext,
+} from "./quota-runtime-context.js";
 import { collectQuotaRenderData } from "./quota-render-data.js";
 import { resolveQuotaFormatStyle } from "./quota-format-style.js";
 import { buildCompactQuotaStatusLine } from "./tui-compact-format.js";
@@ -57,10 +57,7 @@ function createTuiQuotaClient(api: TuiPluginApi) {
           if (api.client.config?.get) {
             const response = await api.client.config.get();
             return {
-              data:
-                response?.data && typeof response.data === "object"
-                  ? response.data
-                  : {},
+              data: response?.data && typeof response.data === "object" ? response.data : {},
             };
           }
         } catch {
@@ -201,9 +198,12 @@ function buildSidebarPanelFromData(params: {
     });
   }
 
+  const providerCount = params.result.active.length;
+
   return {
     status: "ready",
     lines,
+    ...(providerCount > 0 ? { providerCount } : {}),
     ...(linesExpanded ? { linesExpanded } : {}),
   };
 }

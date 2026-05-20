@@ -168,6 +168,8 @@ All UI surfaces use the same quota data. Put these settings in `opencode-quota/q
 
 Selecting Compact status line in the installer enables both compact surfaces by default. To keep compact status home-only, set `tuiCompactStatus.sessionPrompt: false`.
 
+In the sidebar panel, click the `Quota` header to switch between the compact summary (`▶ Quota`) and the detailed all-windows view (`▼ Quota`). OpenCode remembers the last sidebar state for the plugin.
+
 For more examples, see [Common configuration](#common-configuration). For every option, see [Full configuration reference](#full-configuration-reference).
 
 ## Commands
@@ -369,7 +371,7 @@ Existing `experimental.quotaToast` settings still work when no sidecar file exis
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `tuiSidebarPanel.enabled` | `true` | Show the Sidebar `Quota` panel when the TUI plugin is installed. Default is `true` for backward compatibility. |
+| `tuiSidebarPanel.enabled` | `true` | Show the Sidebar `Quota` panel when the TUI plugin is installed. Click the panel header to toggle between compact summary and detailed all-windows views; OpenCode remembers the last state. |
 | `tuiCompactStatus.enabled` | `false` | Opt in to Compact status line UI surfaces. |
 | `tuiCompactStatus.homeBottom` | `true` | Show the Compact status line at the home bottom location. |
 | `tuiCompactStatus.sessionPrompt` | `true` | Show the Compact status line by wrapping the TUI session prompt. Disable this if you only want the home-bottom line. |

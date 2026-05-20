@@ -3,13 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { collectQuotaRenderData, buildCompactQuotaStatusLine, buildSidebarQuotaPanelLines } = vi.hoisted(
-  () => ({
+const { collectQuotaRenderData, buildCompactQuotaStatusLine, buildSidebarQuotaPanelLines } =
+  vi.hoisted(() => ({
     collectQuotaRenderData: vi.fn(),
     buildCompactQuotaStatusLine: vi.fn(),
     buildSidebarQuotaPanelLines: vi.fn(),
-  }),
-);
+  }));
 
 vi.mock("../src/lib/quota-render-data.js", async () => {
   const actual = await vi.importActual<typeof import("../src/lib/quota-render-data.js")>(
@@ -275,6 +274,7 @@ describe("tui runtime helpers", () => {
 
   it("preserves sdk-backed quota config fields when no config files are present", async () => {
     collectQuotaRenderData.mockResolvedValue({
+      active: [],
       data: {
         entries: [],
         errors: [],
@@ -369,6 +369,7 @@ describe("tui runtime helpers", () => {
     );
 
     collectQuotaRenderData.mockResolvedValue({
+      active: [],
       data: {
         entries: [],
         errors: [],
@@ -418,6 +419,7 @@ describe("tui runtime helpers", () => {
       selection: {
         waitingForCurrentSelection: true,
       },
+      active: [],
       data: null,
     });
     buildSidebarQuotaPanelLines.mockReturnValue(["Quota line"]);
@@ -483,7 +485,7 @@ describe("tui runtime helpers", () => {
       sessionTokens: undefined,
     };
 
-    collectQuotaRenderData.mockResolvedValue({ data });
+    collectQuotaRenderData.mockResolvedValue({ active: [], data });
     buildSidebarQuotaPanelLines.mockReturnValue(["[Copilot] (business)"]);
 
     const panel = await loadSidebarPanel({
@@ -547,7 +549,7 @@ describe("tui runtime helpers", () => {
       sessionTokens: undefined,
     };
 
-    collectQuotaRenderData.mockResolvedValue({ data: weeklyData });
+    collectQuotaRenderData.mockResolvedValue({ active: [], data: weeklyData });
     buildSidebarQuotaPanelLines.mockReturnValue(["[Synthetic]", "Weekly window"]);
 
     const panel = await loadSidebarPanel({
@@ -600,6 +602,7 @@ describe("tui runtime helpers", () => {
         data: { providers: [{ id: "copilot" }, { id: "openai" }] },
       });
       return {
+        active: [],
         data: {
           entries: [],
           errors: [],
@@ -797,7 +800,7 @@ describe("tui runtime helpers", () => {
       errors: [],
       sessionTokens: undefined,
     };
-    collectQuotaRenderData.mockResolvedValue({ data });
+    collectQuotaRenderData.mockResolvedValue({ active: [], data });
     buildSidebarQuotaPanelLines.mockReturnValue(["Sidebar quota"]);
     buildCompactQuotaStatusLine.mockReturnValue("Compact quota");
 
@@ -907,7 +910,7 @@ describe("tui runtime helpers", () => {
       errors: [],
       sessionTokens: undefined,
     };
-    collectQuotaRenderData.mockResolvedValue({ data });
+    collectQuotaRenderData.mockResolvedValue({ active: [], data });
     buildSidebarQuotaPanelLines.mockReturnValue(["Sidebar quota"]);
     buildCompactQuotaStatusLine.mockReturnValue("Compact quota");
 
@@ -988,7 +991,7 @@ describe("tui runtime helpers", () => {
       "utf8",
     );
 
-    collectQuotaRenderData.mockResolvedValue({ data: null });
+    collectQuotaRenderData.mockResolvedValue({ active: [], data: null });
 
     const surfaces = await loadTuiSessionQuotaSurfaces({
       api: {
@@ -1036,6 +1039,7 @@ describe("tui runtime helpers", () => {
       selection: {
         waitingForCurrentSelection: true,
       },
+      active: [],
       data: null,
     });
 
@@ -1090,7 +1094,7 @@ describe("tui runtime helpers", () => {
       errors: [],
       sessionTokens: undefined,
     };
-    collectQuotaRenderData.mockResolvedValue({ data });
+    collectQuotaRenderData.mockResolvedValue({ active: [], data });
     buildCompactQuotaStatusLine.mockReturnValue("");
 
     const compact = await loadTuiHomeCompactStatus({

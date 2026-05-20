@@ -10,6 +10,7 @@ export type SidebarPanelState = {
   status: PanelStatus;
   lines: string[];
   linesExpanded?: string[];
+  providerCount?: number;
 };
 
 export type CompactStatusState =

@@ -13,6 +13,7 @@ import type { CompactStatusState, SidebarPanelState } from "./lib/tui-panel-stat
 import {
   getCompactStatusText,
   getSidebarPanelLines,
+  getSidebarPanelLinesExpanded,
   shouldRenderCompactStatus,
   shouldRenderSidebarPanel,
 } from "./lib/tui-panel-state.js";
@@ -289,7 +290,10 @@ function acquireHomeCompactResource(api: TuiPluginApi): HomeCompactResource {
   return next;
 }
 
-function useSessionQuotaResource(api: TuiPluginApi, sessionID: () => string): () => SessionQuotaResource {
+function useSessionQuotaResource(
+  api: TuiPluginApi,
+  sessionID: () => string,
+): () => SessionQuotaResource {
   let current = acquireSessionQuotaResource(api, sessionID());
   const [resource, setResource] = createSignal(current);
 
@@ -310,46 +314,39 @@ function useSessionQuotaResource(api: TuiPluginApi, sessionID: () => string): ()
   return resource;
 }
 
-function SidebarContentView(props: {
-  api: TuiPluginApi;
-  sessionID: string;
-}) {
+function SidebarContentView(props: { api: TuiPluginApi; sessionID: string }) {
   const resource = useSessionQuotaResource(props.api, () => props.sessionID);
   const panel = () => resource().sidebar();
 
   const lines = () => getSidebarPanelLines(panel());
+  const hasDetailLines = () => Boolean(panel().linesExpanded?.length);
 
   const [collapsed, setCollapsed] = createSignal(
     props.api.kv?.get("quota-sidebar-collapsed", true) ?? true,
   );
 
   const toggleCollapsed = () => {
+    if (!hasDetailLines()) return;
+
     const next = !collapsed();
     setCollapsed(next);
     props.api.kv?.set("quota-sidebar-collapsed", next);
   };
 
   const displayLines = () => {
-    if (collapsed()) return lines();
-    return panel().linesExpanded ?? lines();
+    if (collapsed() || !hasDetailLines()) return lines();
+    return getSidebarPanelLinesExpanded(panel());
   };
 
-  const toggleIcon = () => collapsed() ? "▶" : "▼";
-  const providerCount = () => {
-    const currentLines = lines();
-    if (panel().status !== "ready" || currentLines.length === 0) return 0;
-    return currentLines.filter((line) => /^\[.*\]/u.test(line.trim())).length;
-  };
+  const toggleIcon = () => (collapsed() ? "▶" : "▼");
+  const providerCount = () => panel().providerCount ?? 0;
 
   return (
     <Show when={shouldRenderSidebarPanel(panel())}>
       <box gap={0}>
         <box flexDirection="row">
-          <text
-            fg={props.api.theme.current.text}
-            onMouseDown={toggleCollapsed}
-          >
-            <b>{toggleIcon()} Quota</b>
+          <text fg={props.api.theme.current.text} onMouseDown={toggleCollapsed}>
+            <b>{hasDetailLines() ? `${toggleIcon()} Quota` : "Quota"}</b>
           </text>
           <Show when={collapsed() && providerCount() > 0}>
             <text fg={props.api.theme.current.textMuted}> ({providerCount()} providers)</text>

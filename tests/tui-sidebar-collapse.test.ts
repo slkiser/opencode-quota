@@ -162,9 +162,7 @@ describe("collectQuotaRenderData allWindowsData", () => {
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
-        entries: [
-          { name: "Daily", label: "Daily:", percentRemaining: 50 },
-        ],
+        entries: [{ name: "Daily", label: "Daily:", percentRemaining: 50 }],
         errors: [],
       }),
     };
@@ -276,7 +274,11 @@ describe("tui-runtime linesExpanded", () => {
       sessionTokens: undefined,
     };
 
-    collectQuotaRenderDataMock.mockResolvedValue({ data, allWindowsData });
+    collectQuotaRenderDataMock.mockResolvedValue({
+      data,
+      allWindowsData,
+      active: [{ id: "copilot" }, { id: "openai" }],
+    });
 
     buildSidebarQuotaPanelLinesMock
       .mockReturnValueOnce(["Copilot 5h 82%"])
@@ -297,6 +299,7 @@ describe("tui-runtime linesExpanded", () => {
     expect(panel.status).toBe("ready");
     expect(panel.lines).toEqual(["Copilot 5h 82%"]);
     expect(panel.linesExpanded).toEqual(["Copilot 5h 82%", "Copilot Daily 58%"]);
+    expect(panel.providerCount).toBe(2);
 
     expect(collectQuotaRenderDataMock).toHaveBeenCalledWith(
       expect.objectContaining({ includeAllWindowsData: true }),
@@ -326,7 +329,7 @@ describe("tui-runtime linesExpanded", () => {
       "utf8",
     );
 
-    collectQuotaRenderDataMock.mockResolvedValue({ data: null, allWindowsData: null });
+    collectQuotaRenderDataMock.mockResolvedValue({ data: null, allWindowsData: null, active: [] });
 
     const panel = await loadSidebarPanel({
       api: {
