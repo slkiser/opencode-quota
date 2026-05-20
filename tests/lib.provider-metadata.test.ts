@@ -134,6 +134,13 @@ describe("provider-metadata", () => {
         quota: "remote_api",
       },
       {
+        id: "deepseek",
+        autoSetup: "yes",
+        authentication: "opencode_auth_api_key",
+        authFallbacks: ["env_api_key", "global_opencode_config"],
+        quota: "remote_api",
+      },
+      {
         id: "opencode-go",
         autoSetup: "needs_quick_setup",
         authentication: "state_only",
@@ -204,6 +211,7 @@ describe("provider-metadata", () => {
       "kimi",
       "kimi-code",
     ]);
+    expect(QUOTA_PROVIDER_RUNTIME_IDS.deepseek).toEqual(["deepseek"]);
   });
 
   it("keeps runtime ids distinct from broad normalization aliases", () => {
@@ -250,6 +258,7 @@ describe("provider-metadata", () => {
       "minimax-china",
     ]);
     expect(getQuotaProviderRuntimeIds("kimi")).toEqual(["kimi-for-coding", "kimi", "kimi-code"]);
+    expect(getQuotaProviderRuntimeIds("deep-seek")).toEqual(["deepseek"]);
     expect(getQuotaProviderRuntimeIds("not-a-provider")).toEqual([]);
   });
 
@@ -281,6 +290,13 @@ describe("provider-metadata", () => {
       quota: "remote_api",
       quickSetupAnchor: "google-gemini-cli-quick-setup",
     });
+    expect(getQuotaProviderShape("deep-seek")).toEqual({
+      id: "deepseek",
+      autoSetup: "yes",
+      authentication: "opencode_auth_api_key",
+      authFallbacks: ["env_api_key", "global_opencode_config"],
+      quota: "remote_api",
+    });
     expect(getQuotaProviderShape("not-a-provider")).toBeUndefined();
   });
 
@@ -300,6 +316,7 @@ describe("provider-metadata", () => {
     expect(getQuotaProviderDisplayLabel("minimax-cn-coding-plan")).toBe("MiniMax Coding Plan (CN)");
     expect(getQuotaProviderDisplayLabel("kimi-code")).toBe("Kimi Code");
     expect(getQuotaProviderDisplayLabel("kimi")).toBe("Kimi Code");
+    expect(getQuotaProviderDisplayLabel("deep-seek")).toBe("DeepSeek");
     expect(getQuotaProviderDisplayLabel("something-else")).toBe("something-else");
   });
 });

@@ -16,6 +16,7 @@ export type CanonicalQuotaProviderId =
   | "minimax-coding-plan"
   | "minimax-china-coding-plan"
   | "kimi-for-coding"
+  | "deepseek"
   | "opencode-go";
 
 export type QuotaProviderAutoSetup = "yes" | "usually" | "manual_env_config" | "needs_quick_setup";
@@ -69,6 +70,7 @@ export const QUOTA_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   "minimax-cn-coding-plan": "MiniMax Coding Plan (CN)",
   "kimi-for-coding": "Kimi Code",
   "kimi-code": "Kimi Code",
+  deepseek: "DeepSeek",
   "opencode-go": "OpenCode Go",
 };
 
@@ -91,6 +93,7 @@ export const QUOTA_PROVIDER_ID_SYNONYMS: Readonly<Record<string, string>> = {
   kimi: "kimi-for-coding",
   "kimi-for-code": "kimi-for-coding",
   "kimi-code": "kimi-for-coding",
+  "deep-seek": "deepseek",
   "opencode-go-subscription": "opencode-go",
   "gemini-cli": "google-gemini-cli",
   "google-gemini": "google-gemini-cli",
@@ -129,6 +132,7 @@ export const QUOTA_PROVIDER_RUNTIME_IDS: QuotaProviderRuntimeIds = {
     "minimax-china",
   ],
   "kimi-for-coding": ["kimi-for-coding", "kimi", "kimi-code"],
+  deepseek: ["deepseek"],
   "opencode-go": ["opencode-go"],
 };
 
@@ -254,6 +258,13 @@ export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
   },
   {
     id: "kimi-for-coding",
+    autoSetup: "yes",
+    authentication: "opencode_auth_api_key",
+    authFallbacks: ["env_api_key", "global_opencode_config"],
+    quota: "remote_api",
+  },
+  {
+    id: "deepseek",
     autoSetup: "yes",
     authentication: "opencode_auth_api_key",
     authFallbacks: ["env_api_key", "global_opencode_config"],

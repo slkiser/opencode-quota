@@ -212,6 +212,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | Z.ai Coding Plan | Automatic | Remote API |
 | Zhipu Coding Plan | Automatic | Remote API |
 | NanoGPT | Usually automatic | Remote API |
+| DeepSeek | Usually automatic | Remote API balance |
 | OpenCode Go | [Needs setup](#opencode-go) | Dashboard scraping |
 
 ## Common configuration
@@ -451,6 +452,34 @@ If you use manual provider selection, include `google-gemini-cli` in `enabledPro
 
 </details>
 
+<a id="deepseek"></a>
+<details>
+<summary><strong>DeepSeek</strong></summary>
+
+DeepSeek shows the current on-demand account balance from `GET https://api.deepseek.com/user/balance`.
+
+Use one of these trusted API-key sources:
+
+```bash
+export DEEPSEEK_API_KEY="your-api-key"
+```
+
+Or put the key in trusted user/global OpenCode config, not repo-local config:
+
+```jsonc
+{
+  "provider": {
+    "deepseek": {
+      "options": { "apiKey": "{env:DEEPSEEK_API_KEY}" },
+    },
+  },
+}
+```
+
+If you use manual provider selection, include `deepseek` in `enabledProviders`.
+
+</details>
+
 <a id="opencode-go"></a>
 <details>
 <summary><strong>OpenCode Go</strong></summary>
@@ -576,7 +605,7 @@ Run `/quota_status` and check the Alibaba auth, resolved tier, state-file path, 
 </details>
 
 <details>
-<summary><strong>MiniMax, Kimi, Chutes AI, Crof.ai, Synthetic, Z.ai, Zhipu, and NanoGPT</strong></summary>
+<summary><strong>MiniMax, Kimi, Chutes AI, Crof.ai, Synthetic, Z.ai, Zhipu, NanoGPT, and DeepSeek</strong></summary>
 
 These providers use trusted env vars, trusted user/global OpenCode config, or native OpenCode auth. Run `/quota_status` and check the provider-specific API-key diagnostics. Crof.ai is env/config only.
 
@@ -591,6 +620,7 @@ These providers use trusted env vars, trusted user/global OpenCode config, or na
 | Z.ai Coding Plan | Use `ZAI_API_KEY` or `ZAI_CODING_PLAN_API_KEY`; malformed fallback auth is surfaced as an auth error. |
 | Zhipu Coding Plan | Use `ZHIPU_API_KEY` or `ZHIPU_CODING_PLAN_API_KEY`; malformed fallback auth is surfaced as an auth error. |
 | NanoGPT | Use `NANOGPT_API_KEY`, `NANO_GPT_API_KEY`, trusted user/global config, or OpenCode auth. |
+| DeepSeek | Use `DEEPSEEK_API_KEY`, trusted user/global config under `provider.deepseek.options.apiKey`, or OpenCode auth. This provider shows balance only because DeepSeek does not expose a quota reset window. |
 
 For security, repo-local `opencode.json` / `opencode.jsonc` is ignored for provider secrets in these integrations. Put secrets in environment variables or trusted user/global config.
 
