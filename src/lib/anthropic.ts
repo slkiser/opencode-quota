@@ -45,10 +45,19 @@ export interface AnthropicUsageResponse {
   seven_day: AnthropicQuotaWindow;
 }
 
+export interface AnthropicExtraUsage {
+  isEnabled: boolean;
+  monthlyLimitUsd: number;
+  usedCreditsUsd: number;
+  utilization: number;
+  currency: string;
+}
+
 export interface AnthropicQuotaResult {
   success: true;
-  five_hour: { percentRemaining: number; resetTimeIso?: string };
-  seven_day: { percentRemaining: number; resetTimeIso?: string };
+  five_hour: { percentRemaining: number; resetTimeIso?: string } | null;
+  seven_day: { percentRemaining: number; resetTimeIso?: string } | null;
+  extra_usage?: AnthropicExtraUsage;
 }
 
 export interface AnthropicQuotaError {
@@ -329,12 +338,30 @@ function getUsageRoots(data: unknown): Record<string, unknown>[] {
   return roots;
 }
 
+function parseExtraUsage(root: Record<string, unknown>): AnthropicExtraUsage | undefined {
+  const raw = asRecord(root["extra_usage"] ?? root["extraUsage"]);
+  if (!raw) return undefined;
+
+  const isEnabled = raw["is_enabled"] === true;
+  const monthlyLimit = typeof raw["monthly_limit"] === "number" ? raw["monthly_limit"] : 0;
+  const usedCredits = typeof raw["used_credits"] === "number" ? raw["used_credits"] : 0;
+  const utilization = typeof raw["utilization"] === "number" ? raw["utilization"] : 0;
+  const currency = typeof raw["currency"] === "string" ? raw["currency"] : "USD";
+
+  // Only return if there's meaningful data
+  if (monthlyLimit === 0 && usedCredits === 0) return undefined;
+
+  return { isEnabled, monthlyLimitUsd: monthlyLimit, usedCreditsUsd: usedCredits, utilization, currency };
+}
+
 function parseUsageResponse(data: unknown): AnthropicQuotaResult | null {
   for (const root of getUsageRoots(data)) {
     const fiveHour = parseQuotaWindow(root["five_hour"] ?? root["fiveHour"]);
     const sevenDay = parseQuotaWindow(root["seven_day"] ?? root["sevenDay"]);
+    const extraUsage = parseExtraUsage(root);
 
-    if (!fiveHour || !sevenDay) {
+    // Require at least one of: token windows or extra_usage
+    if (!fiveHour && !sevenDay && !extraUsage) {
       continue;
     }
 
@@ -342,6 +369,7 @@ function parseUsageResponse(data: unknown): AnthropicQuotaResult | null {
       success: true,
       five_hour: fiveHour,
       seven_day: sevenDay,
+      ...(extraUsage ? { extra_usage: extraUsage } : {}),
     };
   }
 

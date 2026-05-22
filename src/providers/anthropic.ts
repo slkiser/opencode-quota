@@ -2,6 +2,8 @@
  * Anthropic Claude provider wrapper.
  *
  * Normalizes Claude CLI-exposed quota windows into generic toast entries.
+ * Also handles Enterprise usage-based plans where quota is expressed as
+ * monthly dollar spend limits (extra_usage) rather than token windows.
  */
 
 import type {
@@ -19,6 +21,10 @@ import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./res
 
 export function getAnthropicNoDataMessage(): string {
   return "Quota unavailable via local Claude CLI or Claude OAuth fallback";
+}
+
+function formatUsd(amount: number): string {
+  return `$${amount.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
 export const anthropicProvider: QuotaProvider = {
@@ -57,22 +63,49 @@ export const anthropicProvider: QuotaProvider = {
       return attemptedErrorResult("Claude", result.error);
     }
 
-    const entries: QuotaToastEntry[] = [
-      {
+    const entries: QuotaToastEntry[] = [];
+
+    // Token-window quota (personal/Pro/Team plans)
+    if (result.five_hour) {
+      entries.push({
         name: "Claude 5h",
         group: "Claude",
         label: "5h:",
         percentRemaining: result.five_hour.percentRemaining,
         resetTimeIso: result.five_hour.resetTimeIso,
-      },
-      {
+      });
+    }
+    if (result.seven_day) {
+      entries.push({
         name: "Claude Weekly",
         group: "Claude",
         label: "Weekly:",
         percentRemaining: result.seven_day.percentRemaining,
         resetTimeIso: result.seven_day.resetTimeIso,
-      },
-    ];
+      });
+    }
+
+    // Enterprise usage-based plan: monthly dollar spend limit
+    if (result.extra_usage && result.extra_usage.isEnabled) {
+      const { usedCreditsUsd, monthlyLimitUsd, utilization, currency } = result.extra_usage;
+      const percentRemaining = Math.max(0, Math.round(100 - utilization));
+      const right =
+        currency === "USD"
+          ? `${formatUsd(usedCreditsUsd)}/${formatUsd(monthlyLimitUsd)}`
+          : `${usedCreditsUsd}/${monthlyLimitUsd} ${currency}`;
+
+      entries.push({
+        name: "Claude Enterprise Monthly",
+        group: "Claude",
+        label: "Monthly:",
+        percentRemaining,
+        right,
+      });
+    }
+
+    if (entries.length === 0) {
+      return attemptedErrorResult("Claude", getAnthropicNoDataMessage());
+    }
 
     return attemptedResult(entries);
   },

@@ -106,12 +106,6 @@ import {
   DEFAULT_OPENCODE_GO_CONFIG_CACHE_MAX_AGE_MS,
 } from "./opencode-go-config.js";
 import { queryOpenCodeGoQuota } from "./opencode-go.js";
-import {
-  getAnthropicEnterpriseConfigDiagnostics,
-  resolveAnthropicEnterpriseConfigCached,
-  DEFAULT_ANTHROPIC_ENTERPRISE_CONFIG_CACHE_MAX_AGE_MS,
-} from "./anthropic-enterprise-config.js";
-import { queryAnthropicEnterpriseQuota } from "./anthropic-enterprise.js";
 
 /** Session token fetch error info for status report */
 export interface SessionTokenError {
@@ -889,14 +883,25 @@ export async function buildQuotaStatusReport(params: {
       anthropicRows.push({ key: "message", value: anthropicDiagnostics.message });
     }
     if (anthropicDiagnostics.quotaSupported && anthropicDiagnostics.quota) {
-      anthropicRows.push({
-        key: "five_hour_remaining",
-        value: `${anthropicDiagnostics.quota.five_hour.percentRemaining}% reset_at=${anthropicDiagnostics.quota.five_hour.resetTimeIso ?? "(none)"}`,
-      });
-      anthropicRows.push({
-        key: "seven_day_remaining",
-        value: `${anthropicDiagnostics.quota.seven_day.percentRemaining}% reset_at=${anthropicDiagnostics.quota.seven_day.resetTimeIso ?? "(none)"}`,
-      });
+      if (anthropicDiagnostics.quota.five_hour) {
+        anthropicRows.push({
+          key: "five_hour_remaining",
+          value: `${anthropicDiagnostics.quota.five_hour.percentRemaining}% reset_at=${anthropicDiagnostics.quota.five_hour.resetTimeIso ?? "(none)"}`,
+        });
+      }
+      if (anthropicDiagnostics.quota.seven_day) {
+        anthropicRows.push({
+          key: "seven_day_remaining",
+          value: `${anthropicDiagnostics.quota.seven_day.percentRemaining}% reset_at=${anthropicDiagnostics.quota.seven_day.resetTimeIso ?? "(none)"}`,
+        });
+      }
+      if (anthropicDiagnostics.quota.extra_usage) {
+        const eu = anthropicDiagnostics.quota.extra_usage;
+        anthropicRows.push({
+          key: "enterprise_monthly",
+          value: `${eu.usedCreditsUsd}/${eu.monthlyLimitUsd} ${eu.currency} (${eu.utilization.toFixed(1)}%)`,
+        });
+      }
     }
   } catch (err) {
     anthropicRows.push({ key: "cli_installed", value: "false" });
@@ -1227,97 +1232,7 @@ export async function buildQuotaStatusReport(params: {
   appendProviderCompactLiveProbeRows(openCodeGoRows, "opencode-go", params.providerLiveProbes);
   sections.push(createKvSection("opencode_go", "opencode_go:", openCodeGoRows));
 
-  // === anthropic_enterprise ===
-  const anthropicEnterpriseRows: ReportKvRow[] = [];
-  const anthropicEnterpriseDiag = getAnthropicEnterpriseConfigDiagnostics(
-    await resolveAnthropicEnterpriseConfigCached({
-      maxAgeMs: DEFAULT_ANTHROPIC_ENTERPRISE_CONFIG_CACHE_MAX_AGE_MS,
-    }),
-  );
-  anthropicEnterpriseRows.push({ key: "config_state", value: anthropicEnterpriseDiag.state });
-  anthropicEnterpriseRows.push({
-    key: "config_source",
-    value: anthropicEnterpriseDiag.source ?? "(none)",
-  });
-  if (anthropicEnterpriseDiag.missing) {
-    anthropicEnterpriseRows.push({
-      key: "config_missing",
-      value: anthropicEnterpriseDiag.missing,
-    });
-  }
-  if (anthropicEnterpriseDiag.error) {
-    anthropicEnterpriseRows.push({
-      key: "config_error",
-      value: sanitizeDisplayText(anthropicEnterpriseDiag.error),
-    });
-  }
-  anthropicEnterpriseRows.push({
-    key: "config_checked_paths",
-    value: joinOrNone(anthropicEnterpriseDiag.checkedPaths),
-  });
-  if (anthropicEnterpriseDiag.state === "configured") {
-    const enterpriseConfig = await resolveAnthropicEnterpriseConfigCached({
-      maxAgeMs: DEFAULT_ANTHROPIC_ENTERPRISE_CONFIG_CACHE_MAX_AGE_MS,
-    });
-    if (enterpriseConfig.state !== "configured") {
-      anthropicEnterpriseRows.push({
-        key: "live_fetch_error",
-        value: "Enterprise config became unavailable before fetch",
-      });
-    } else {
-      const enterpriseQuota = await queryAnthropicEnterpriseQuota({
-        orgId: enterpriseConfig.config.orgId,
-        sessionKey: enterpriseConfig.config.sessionKey,
-        accountId: enterpriseConfig.config.accountId,
-      });
-      if (!enterpriseQuota.success) {
-        anthropicEnterpriseRows.push({
-          key: "live_fetch_error",
-          value: enterpriseQuota.error,
-        });
-      } else {
-        if (enterpriseQuota.orgUsage) {
-          anthropicEnterpriseRows.push({
-            key: "org_usage_enabled",
-            value: String(enterpriseQuota.orgUsage.isEnabled),
-          });
-          anthropicEnterpriseRows.push({
-            key: "org_monthly_limit",
-            value: `${enterpriseQuota.orgUsage.usedCreditsUsd}/${enterpriseQuota.orgUsage.monthlyLimitUsd} ${enterpriseQuota.orgUsage.currency}`,
-          });
-          anthropicEnterpriseRows.push({
-            key: "org_utilization",
-            value: `${enterpriseQuota.orgUsage.utilization.toFixed(1)}%`,
-          });
-        } else {
-          anthropicEnterpriseRows.push({ key: "org_usage", value: "(not available)" });
-        }
-        if (enterpriseQuota.userLimit) {
-          anthropicEnterpriseRows.push({
-            key: "user_limit_enabled",
-            value: String(enterpriseQuota.userLimit.isEnabled),
-          });
-          anthropicEnterpriseRows.push({
-            key: "user_monthly_limit",
-            value: `${enterpriseQuota.userLimit.usedCreditsUsd}/${enterpriseQuota.userLimit.monthlyLimitUsd} ${enterpriseQuota.userLimit.currency}`,
-          });
-        } else {
-          anthropicEnterpriseRows.push({
-            key: "user_limit",
-            value: enterpriseConfig.config.accountId ? "(not available)" : "(accountId not set)",
-          });
-        }
-      }
-    }
-  }
-  appendProviderCompactLiveProbeRows(
-    anthropicEnterpriseRows,
-    "anthropic-enterprise",
-    params.providerLiveProbes,
-  );
-  sections.push(
-    createKvSection("anthropic_enterprise", "anthropic_enterprise:", anthropicEnterpriseRows),
-  );
+
 
   // === zai ===
   const zaiRows: ReportKvRow[] = [];

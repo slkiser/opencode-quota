@@ -140,21 +140,58 @@ describe("parseUsageResponse", () => {
   it("returns null when required quota windows are missing or invalid", () => {
     expect(parseUsageResponse(null)).toBeNull();
     expect(parseUsageResponse("bad-shape")).toBeNull();
+    // Both windows invalid — no usable data at all
     expect(
       parseUsageResponse({
         rate_limits: {
           five_hour: { used_percentage: "nope" },
-          seven_day: { utilization: 12 },
+          seven_day: { utilization: "also-nope" },
         },
       }),
     ).toBeNull();
-    expect(
-      parseUsageResponse({
-        rateLimits: {
-          fiveHour: { used_percentage: 30 },
-        },
-      }),
-    ).toBeNull();
+  });
+
+  it("returns a result with only the present window when one is missing", () => {
+    // Enterprise plans may have only extra_usage; partial token windows are also accepted
+    const result = parseUsageResponse({
+      rateLimits: {
+        fiveHour: { used_percentage: 30 },
+      },
+    });
+    expect(result).not.toBeNull();
+    expect(result?.five_hour?.percentRemaining).toBe(70);
+    expect(result?.seven_day).toBeNull();
+  });
+
+  it("parses extra_usage for Enterprise usage-based plans", () => {
+    const result = parseUsageResponse({
+      five_hour: null,
+      seven_day: null,
+      extra_usage: {
+        is_enabled: true,
+        monthly_limit: 25000,
+        used_credits: 10000,
+        utilization: 40.0,
+        currency: "USD",
+      },
+    });
+    expect(result).not.toBeNull();
+    expect(result?.five_hour).toBeNull();
+    expect(result?.seven_day).toBeNull();
+    expect(result?.extra_usage).toEqual({
+      isEnabled: true,
+      monthlyLimitUsd: 25000,
+      usedCreditsUsd: 10000,
+      utilization: 40.0,
+      currency: "USD",
+    });
+  });
+
+  it("returns null when extra_usage has zero values and no token windows", () => {
+    const result = parseUsageResponse({
+      extra_usage: { is_enabled: false, monthly_limit: 0, used_credits: 0, utilization: 0, currency: "USD" },
+    });
+    expect(result).toBeNull();
   });
 });
 
