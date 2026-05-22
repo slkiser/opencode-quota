@@ -351,7 +351,14 @@ function parseExtraUsage(root: Record<string, unknown>): AnthropicExtraUsage | u
   // Only return if there's meaningful data
   if (monthlyLimit === 0 && usedCredits === 0) return undefined;
 
-  return { isEnabled, monthlyLimitUsd: monthlyLimit, usedCreditsUsd: usedCredits, utilization, currency };
+  // API returns values in minor units (cents for USD); convert to major units
+  return {
+    isEnabled,
+    monthlyLimitUsd: monthlyLimit / 100,
+    usedCreditsUsd: usedCredits / 100,
+    utilization,
+    currency,
+  };
 }
 
 function parseUsageResponse(data: unknown): AnthropicQuotaResult | null {

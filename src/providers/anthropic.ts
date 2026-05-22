@@ -85,7 +85,7 @@ export const anthropicProvider: QuotaProvider = {
       });
     }
 
-    // Enterprise usage-based plan: monthly dollar spend limit
+    // Enterprise usage-based plan: personal/group monthly spend limit
     if (result.extra_usage && result.extra_usage.isEnabled) {
       const { usedCreditsUsd, monthlyLimitUsd, utilization, currency } = result.extra_usage;
       const percentRemaining = Math.max(0, Math.round(100 - utilization));
@@ -95,9 +95,9 @@ export const anthropicProvider: QuotaProvider = {
           : `${usedCreditsUsd}/${monthlyLimitUsd} ${currency}`;
 
       entries.push({
-        name: "Claude Enterprise Monthly",
+        name: "Claude Spend Limit",
         group: "Claude",
-        label: "Monthly:",
+        label: "Spend:",
         percentRemaining,
         right,
       });

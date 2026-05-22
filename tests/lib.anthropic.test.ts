@@ -180,8 +180,8 @@ describe("parseUsageResponse", () => {
     expect(result?.seven_day).toBeNull();
     expect(result?.extra_usage).toEqual({
       isEnabled: true,
-      monthlyLimitUsd: 25000,
-      usedCreditsUsd: 10000,
+      monthlyLimitUsd: 250,    // 25000 cents → $250.00
+      usedCreditsUsd: 100,     // 10000 cents → $100.00
       utilization: 40.0,
       currency: "USD",
     });
