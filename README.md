@@ -204,6 +204,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | Provider | Setup | Quota source |
 | --- | --- | --- |
 | Anthropic (Claude) | [Needs setup](#anthropic-claude) | Local CLI or OAuth usage |
+| Anthropic Enterprise | [Needs setup](#anthropic-enterprise) | Remote API |
 | GitHub Copilot | Usually automatic | Remote API |
 | OpenAI | Automatic | Remote API |
 | Cursor | [Needs setup](#cursor) | Local estimation |
@@ -445,6 +446,45 @@ If Claude lives at a custom path, set `anthropicBinaryPath` in `opencode-quota/q
 
 </details>
 
+<a id="anthropic-enterprise"></a>
+<details>
+<summary><strong>Anthropic Enterprise</strong></summary>
+
+For organizations on Anthropic's Enterprise usage-based plan with monthly dollar spend limits.
+
+Set these environment variables:
+
+```bash
+export ANTHROPIC_ENTERPRISE_ORG_ID="your-organization-uuid"
+export ANTHROPIC_ENTERPRISE_SESSION_KEY="your-session-key-cookie"
+export ANTHROPIC_ENTERPRISE_ACCOUNT_ID="your-account-uuid"  # optional, for per-user limits
+```
+
+Or create `opencode-quota/anthropic-enterprise.json` next to your `opencode.json`:
+
+```json
+{
+  "orgId": "your-organization-uuid",
+  "sessionKey": "your-session-key-cookie",
+  "accountId": "your-account-uuid"
+}
+```
+
+**Finding your values:**
+
+1. **Organization UUID:** Open claude.ai, go to Settings. The org UUID is in the URL: `claude.ai/settings/organization/{org-uuid}`.
+2. **Session key:** Open browser DevTools → Application → Cookies → `claude.ai` → copy the `sessionKey` value.
+3. **Account UUID (optional):** Open Settings → Usage. In DevTools Network tab, find a request to `overage_spend_limit` and note the `account_uuid` parameter.
+
+When configured, the provider shows:
+- **Org:** Organization-level monthly spend usage and limit
+- **User:** Per-user/group monthly spend allocation (when `accountId` is set)
+
+> [!NOTE]
+> The session key expires periodically. When quota stops updating, refresh it from your browser.
+
+</details>
+
 <a id="cursor"></a>
 <details>
 <summary><strong>Cursor</strong></summary>
@@ -567,6 +607,22 @@ Run `/quota_status` and check the Anthropic section.
 | Not authenticated | Run `claude auth login`, then confirm `claude auth status` works. |
 | Auth works but no quota rows appear | Check `quota_source` and `message` in `/quota_status`; re-authenticate Claude if the OAuth credential fallback is missing or stale. |
 | Provider not detected | Confirm OpenCode is configured to use the `anthropic` provider. |
+
+</details>
+
+<details>
+<summary><strong>Anthropic Enterprise</strong></summary>
+
+Run `/quota_status` and check the Anthropic Enterprise section.
+
+| Symptom | Fix |
+| --- | --- |
+| Provider not detected | Set `ANTHROPIC_ENTERPRISE_ORG_ID` and `ANTHROPIC_ENTERPRISE_SESSION_KEY`, or create `opencode-quota/anthropic-enterprise.json`. |
+| Config incomplete | Both `orgId` and `sessionKey` are required. Check which value is missing in `/quota_status`. |
+| API returns 401/403 | Session key has expired. Get a fresh one from your browser cookies. |
+| Org usage missing | Confirm your organization is on an Enterprise usage-based plan. |
+| User limit missing | Set `ANTHROPIC_ENTERPRISE_ACCOUNT_ID` (or `accountId` in config) to see per-user spend limits. |
+| No quota rows appear | Check if `extra_usage.is_enabled` is true for your org; some Enterprise orgs may not have usage limits configured. |
 
 </details>
 

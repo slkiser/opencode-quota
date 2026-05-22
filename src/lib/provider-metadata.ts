@@ -1,5 +1,6 @@
 export type CanonicalQuotaProviderId =
   | "anthropic"
+  | "anthropic-enterprise"
   | "copilot"
   | "openai"
   | "cursor"
@@ -52,6 +53,7 @@ export type QuotaProviderRuntimeIds = Readonly<Record<CanonicalQuotaProviderId, 
 
 export const QUOTA_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   anthropic: "Anthropic",
+  "anthropic-enterprise": "Claude Enterprise",
   openai: "OpenAI",
   copilot: "Copilot",
   "google-antigravity": "Google",
@@ -105,6 +107,7 @@ export const QUOTA_PROVIDER_ID_SYNONYMS: Readonly<Record<string, string>> = {
 
 export const QUOTA_PROVIDER_RUNTIME_IDS: QuotaProviderRuntimeIds = {
   anthropic: ["anthropic"],
+  "anthropic-enterprise": ["anthropic-enterprise"],
   copilot: ["copilot", "github-copilot", "copilot-chat", "github-copilot-chat"],
   openai: ["openai", "chatgpt", "codex"],
   cursor: ["cursor", "cursor-acp"],
@@ -149,6 +152,14 @@ export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
     authentication: "local_cli_auth",
     quota: "local_cli_report",
     quickSetupAnchor: "anthropic-quick-setup",
+  },
+  {
+    id: "anthropic-enterprise",
+    autoSetup: "needs_quick_setup",
+    authentication: "external_api_key",
+    quota: "remote_api",
+    quickSetupAnchor: "anthropic-enterprise-quick-setup",
+    notes: "Enterprise usage-based plan with monthly dollar spend limits",
   },
   {
     id: "copilot",
