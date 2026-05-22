@@ -21,6 +21,14 @@ describe("provider-metadata", () => {
         quickSetupAnchor: "anthropic-quick-setup",
       },
       {
+        id: "anthropic-enterprise",
+        autoSetup: "needs_quick_setup",
+        authentication: "external_api_key",
+        quota: "remote_api",
+        quickSetupAnchor: "anthropic-enterprise-quick-setup",
+        notes: "Enterprise usage-based plan with monthly dollar spend limits",
+      },
+      {
         id: "copilot",
         autoSetup: "usually",
         authentication: "github_oauth_or_pat",
