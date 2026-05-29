@@ -19,8 +19,7 @@ import {
   getMaintainerAnnouncementsSummary,
   type MaintainerAnnouncement,
 } from "./maintainer-announcements.js";
-import { resolveExportPath, buildQuotaExport, writeQuotaExport } from "./quota-export.js";
-import { createQuotaProviderRuntimeContext } from "./quota-runtime-context.js";
+import { resolveExportPath, buildQuotaExport, writeQuotaExport, createExportProviderContext } from "./quota-export.js";
 
 const COMPACT_UNAVAILABLE_TEXT = "Quota unavailable";
 
@@ -462,15 +461,7 @@ export async function writeTuiQuotaExportIfEnabled(params: {
   }
 
   const resolvedPath = resolveExportPath(runtime.config.export.path);
-  const ctx = createQuotaProviderRuntimeContext({
-    ...runtime,
-    config: {
-      ...runtime.config,
-      onlyCurrentModel: false,
-      showSessionTokens: false,
-    },
-    session: {},
-  });
+  const ctx = createExportProviderContext(runtime);
 
   const exportData = await buildQuotaExport({
     providers: runtime.providers,

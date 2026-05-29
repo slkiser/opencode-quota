@@ -7,6 +7,7 @@ import type {
   QuotaExportEntry,
   QuotaExportProvider,
 } from "./quota-export-types.js";
+import type { QuotaRuntimeContext } from "./quota-runtime-context.js";
 
 import { writeJsonAtomic } from "./atomic-json.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
@@ -14,9 +15,33 @@ import { readCachedProviderResult } from "./quota-state.js";
 import { isValueEntry } from "./entries.js";
 import { normalizeSingleWindowWindowLabel } from "./quota-render-data.js";
 import { sanitizeSingleLineDisplaySnippet } from "./display-sanitize.js";
+import { createQuotaProviderRuntimeContext } from "./quota-runtime-context.js";
 
 /** Max length for an exported provider error message after sanitization. */
 const EXPORT_ERROR_MAX_LENGTH = 240;
+
+/**
+ * Builds the provider context used to read cached quota for export.
+ *
+ * The cache key is derived from these fields, so it MUST match the one the TUI
+ * background writer used (`onlyCurrentModel: false`, no session). Otherwise a
+ * user with `onlyCurrentModel: true` would compute a different key than the one
+ * the cache was written under, turning every provider into "unavailable".
+ *
+ * Both export surfaces (CLI `show --json` and the TUI periodic writer) must go
+ * through this helper so the cache-key contract lives in one place.
+ */
+export function createExportProviderContext(runtime: QuotaRuntimeContext): QuotaProviderContext {
+  return createQuotaProviderRuntimeContext({
+    ...runtime,
+    config: {
+      ...runtime.config,
+      onlyCurrentModel: false,
+      showSessionTokens: false,
+    },
+    session: {},
+  });
+}
 
 /**
  * Resolves the export file path from a configured value.

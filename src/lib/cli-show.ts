@@ -17,9 +17,8 @@ import { sanitizeQuotaRenderData } from "./display-sanitize.js";
 import {
   createQuotaRuntimeRequestContext,
   resolveQuotaRuntimeContext,
-  createQuotaProviderRuntimeContext,
 } from "./quota-runtime-context.js";
-import { buildQuotaExport } from "./quota-export.js";
+import { buildQuotaExport, createExportProviderContext } from "./quota-export.js";
 
 export interface RunCliShowCommandOptions {
   argv?: string[];
@@ -201,15 +200,11 @@ async function runCliShowJsonOutput(params: {
     return config.enabledProviders.includes(p.id);
   });
 
-  // Normalize the cache-key inputs to match the TUI background writer
-  // (onlyCurrentModel: false, no session). Otherwise a user with
-  // onlyCurrentModel:true would compute a different key than the one the
-  // TUI wrote under, turning every provider into "unavailable".
-  const ctx = createQuotaProviderRuntimeContext({
-    ...runtime,
-    config: { ...runtime.config, onlyCurrentModel: false },
-    session: {},
-  });
+  // Read cached quota through the shared export context so the cache key
+  // matches the one the TUI background writer used. Without this, a user with
+  // onlyCurrentModel:true would compute a different key and every provider
+  // would read back as "unavailable".
+  const ctx = createExportProviderContext(runtime);
   const exportData = await buildQuotaExport({
     providers: allProviders,
     ctx,
