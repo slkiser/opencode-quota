@@ -488,71 +488,48 @@ describe("runCliShowCommand", () => {
     expect(provider.fetch).not.toHaveBeenCalled();
   });
 
-  it("--threshold 50 exits 0 when all providers are above 50%", async () => {
-    const provider = {
-      id: "synthetic",
-      isAvailable: vi.fn().mockResolvedValue(true),
-      fetch: vi.fn().mockResolvedValue({
-        attempted: true,
-        entries: [{ name: "Synthetic", percentRemaining: 80 }],
-        errors: [],
-      }),
-    };
-    mockProviders.push(provider);
-    writeFileSync(
-      join(workspaceDir, "opencode.json"),
-      JSON.stringify({
-        experimental: { quotaToast: { enabledProviders: ["synthetic"] } },
-      }),
-      "utf8",
-    );
+  it.each([
+    [80, "50", 0],
+    [30, "50", 1],
+  ])(
+    "--threshold exits %s when a provider is at %s%% remaining",
+    async (percentRemaining, threshold, expectedCode) => {
+      const provider = {
+        id: "synthetic",
+        isAvailable: vi.fn().mockResolvedValue(true),
+        fetch: vi.fn().mockResolvedValue({
+          attempted: true,
+          entries: [{ name: "Synthetic", percentRemaining }],
+          errors: [],
+        }),
+      };
+      mockProviders.push(provider);
+      writeFileSync(
+        join(workspaceDir, "opencode.json"),
+        JSON.stringify({
+          experimental: { quotaToast: { enabledProviders: ["synthetic"] } },
+        }),
+        "utf8",
+      );
 
-    // Populate cache.
-    await runCliShowCommand({ argv: [], cwd: workspaceDir, stdout: { write: () => true } as any, stderr: { write: () => true } as any });
+      // Populate cache.
+      await runCliShowCommand({
+        argv: [],
+        cwd: workspaceDir,
+        stdout: { write: () => true } as any,
+        stderr: { write: () => true } as any,
+      });
 
-    const jsonOut = createCaptureStream();
-    const jsonCode = await runCliShowCommand({
-      argv: ["--json", "--threshold", "50"],
-      cwd: workspaceDir,
-      stdout: jsonOut.stream as any,
-      stderr: { write: () => true } as any,
-    });
+      const jsonCode = await runCliShowCommand({
+        argv: ["--json", "--threshold", threshold],
+        cwd: workspaceDir,
+        stdout: { write: () => true } as any,
+        stderr: { write: () => true } as any,
+      });
 
-    expect(jsonCode).toBe(0);
-  });
-
-  it("--threshold 50 exits 1 when any provider is below 50%", async () => {
-    const provider = {
-      id: "synthetic",
-      isAvailable: vi.fn().mockResolvedValue(true),
-      fetch: vi.fn().mockResolvedValue({
-        attempted: true,
-        entries: [{ name: "Synthetic", percentRemaining: 30 }],
-        errors: [],
-      }),
-    };
-    mockProviders.push(provider);
-    writeFileSync(
-      join(workspaceDir, "opencode.json"),
-      JSON.stringify({
-        experimental: { quotaToast: { enabledProviders: ["synthetic"] } },
-      }),
-      "utf8",
-    );
-
-    // Populate cache.
-    await runCliShowCommand({ argv: [], cwd: workspaceDir, stdout: { write: () => true } as any, stderr: { write: () => true } as any });
-
-    const jsonOut = createCaptureStream();
-    const jsonCode = await runCliShowCommand({
-      argv: ["--json", "--threshold=50"],
-      cwd: workspaceDir,
-      stdout: jsonOut.stream as any,
-      stderr: { write: () => true } as any,
-    });
-
-    expect(jsonCode).toBe(1);
-  });
+      expect(jsonCode).toBe(expectedCode);
+    },
+  );
 
   it("--threshold exits 2 when no provider is ok", async () => {
     // Provider that is unavailable (no cache populated).

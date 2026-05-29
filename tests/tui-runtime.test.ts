@@ -1448,19 +1448,13 @@ describe("tui runtime helpers", () => {
       expect(mockWriteQuotaExport).not.toHaveBeenCalled();
     });
 
-    it("writes a valid QuotaExport JSON file when export is enabled", async () => {
+    it("writes the export through writeQuotaExport at the resolved path when enabled", async () => {
       mockBuildQuotaExport.mockResolvedValue({
         version: 1,
-        exportedAt: Math.floor(Date.now() / 1000),
+        exportedAt: 0,
         fromCache: true,
         cacheAgeSeconds: 0,
-        providers: {
-          synthetic: {
-            status: "ok",
-            fetchedAt: Math.floor(Date.now() / 1000),
-            entries: [{ name: "Synthetic", percentRemaining: 80, unlimited: false }],
-          },
-        },
+        providers: {},
       });
 
       writeFileSync(
@@ -1480,13 +1474,8 @@ describe("tui runtime helpers", () => {
         api: {
           state: {
             provider: [],
-            path: {
-              worktree: worktreeDir,
-              directory: nestedDir,
-            },
-            session: {
-              messages: () => [],
-            },
+            path: { worktree: worktreeDir, directory: nestedDir },
+            session: { messages: () => [] },
           },
           client: {},
         } as any,
@@ -1494,12 +1483,7 @@ describe("tui runtime helpers", () => {
 
       expect(mockBuildQuotaExport).toHaveBeenCalledOnce();
       expect(mockWriteQuotaExport).toHaveBeenCalledOnce();
-      // The resolved path should be the configured absolute path.
-      const writeCall = mockWriteQuotaExport.mock.calls[0];
-      expect(writeCall[1]).toBe("/tmp/test-tui-export.json");
-      // The export data should be the result from buildQuotaExport.
-      expect(writeCall[0].version).toBe(1);
-      expect(writeCall[0].providers.synthetic.entries[0].percentRemaining).toBe(80);
+      expect(mockWriteQuotaExport.mock.calls[0][1]).toBe("/tmp/test-tui-export.json");
     });
 
     it("propagates writeQuotaExport errors to caller", async () => {

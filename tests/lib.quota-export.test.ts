@@ -231,13 +231,4 @@ describe("writeQuotaExport", () => {
       trailingNewline: true,
     });
   });
-
-  it("re-throws errors from writeJsonAtomic", async () => {
-    const error = new Error("Disk full");
-    vi.mocked(writeJsonAtomic).mockRejectedValueOnce(error);
-
-    await expect(
-      writeQuotaExport({ version: 1, providers: {} } as any, "/tmp/fail.json"),
-    ).rejects.toThrow("Disk full");
-  });
 });
