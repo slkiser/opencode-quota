@@ -223,8 +223,11 @@ function createHomeBottomResource(api: TuiPluginApi): HomeBottomResource {
       .then((next) => {
         if (disposed || currentVersion !== loadVersion) return;
         setBottom(next);
-        // Fire-and-forget: write export file if enabled.
-        void writeTuiQuotaExportIfEnabled({ api }).catch(() => {});
+        // Fire-and-forget: write export file if enabled. A failed write must
+        // never affect TUI rendering, so log a warning and continue.
+        void writeTuiQuotaExportIfEnabled({ api }).catch((err) => {
+          console.warn(`[opencode-quota] quota export write failed: ${String(err)}`);
+        });
       })
       .catch(() => {
         if (disposed || currentVersion !== loadVersion) return;

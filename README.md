@@ -483,7 +483,7 @@ When enabled, the TUI writes a unified JSON file after each background refresh (
 }
 ```
 
-The file is written atomically. Write errors are silently ignored and never affect TUI rendering.
+The file is written atomically. Write errors are logged as a warning and never affect TUI rendering.
 
 ### JSON schema
 

@@ -128,7 +128,7 @@ export async function buildQuotaExport(params: {
 /**
  * Writes a `QuotaExport` document atomically to disk.
  *
- * Errors are re-thrown — callers are responsible for swallowing them.
+ * Errors are re-thrown — callers are responsible for catching and logging them.
  */
 export async function writeQuotaExport(
   exportData: QuotaExport,

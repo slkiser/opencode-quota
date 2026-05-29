@@ -445,7 +445,7 @@ export async function loadSidebarPanel(params: {
  *
  * Called from the TUI home bottom status refresh loop. Errors propagate to
  * the caller; the call-site in `tui.tsx` is responsible for catching and
- * swallowing them.
+ * logging them so a failed write never affects rendering.
  */
 export async function writeTuiQuotaExportIfEnabled(params: {
   api: TuiPluginApi;
