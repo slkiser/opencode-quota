@@ -132,6 +132,13 @@ export interface QuotaToastConfig {
   /** Bundled-only maintainer announcement surfaces. */
   maintainerAnnouncements: MaintainerAnnouncementsConfig;
 
+  /**
+   * Generic OpenAI-compatible gateways to poll for remaining quota/budget.
+   * Each entry names an OpenCode provider id (its baseURL + apiKey are reused)
+   * and the gateway's quota endpoint. Drives the `openai-compatible` provider.
+   */
+  openaiCompatibleGateways: OpenAiCompatibleGateway[];
+
   /** Responsive toast layout breakpoints (not used by the fixed-width TUI sidebar). */
   layout: {
     /** Default max width target for toast formatting */
@@ -191,12 +198,33 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
     enabled: true,
     home: true,
   },
+  openaiCompatibleGateways: [],
   layout: {
     maxWidth: 50,
     narrowAt: 42,
     tinyAt: 32,
   },
 };
+
+/**
+ * One OpenAI-compatible gateway that exposes a remaining-quota endpoint.
+ *
+ * `providerId` is the OpenCode provider id the gateway is registered as; its
+ * `options.baseURL`/`options.apiKey` are reused (no duplicate config). There is
+ * no standard quota endpoint, so `mapping` selects the response shape.
+ */
+export interface OpenAiCompatibleGateway {
+  /** OpenCode provider id (e.g. "apigee"); drives key/baseURL lookup + matching. */
+  providerId: string;
+  /** Override the base URL (default: provider.<id>.options.baseURL). */
+  baseURL?: string;
+  /** Quota endpoint path appended to the base URL (default "/quota"). */
+  quotaPath?: string;
+  /** Display label (default: the provider id). */
+  label?: string;
+  /** Response shape: "neutral" (default) or "openrouter". */
+  mapping?: "neutral" | "openrouter";
+}
 
 // =============================================================================
 // Auth Data Types (from ~/.local/share/opencode/auth.json)

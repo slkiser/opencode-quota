@@ -1,4 +1,4 @@
-import type { CursorQuotaPlan, OpenCodeGoWindowKey } from "./types.js";
+import type { CursorQuotaPlan, OpenAiCompatibleGateway, OpenCodeGoWindowKey } from "./types.js";
 
 /**
  * Normalized quota output model.
@@ -122,6 +122,7 @@ export interface QuotaProviderContext {
     currentModel?: string;
     currentProviderID?: string;
     enabledProviders: string[] | "auto";
+    openaiCompatibleGateways?: OpenAiCompatibleGateway[];
   };
 }
 

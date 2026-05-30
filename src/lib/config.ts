@@ -9,6 +9,7 @@
 
 import type {
   CursorQuotaPlan,
+  OpenAiCompatibleGateway,
   QuotaToastConfig,
   GoogleModelId,
   PercentDisplayMode,
@@ -61,6 +62,7 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "tuiCompactStatus.maxWidth",
   "maintainerAnnouncements.enabled",
   "maintainerAnnouncements.home",
+  "openaiCompatibleGateways",
   "layout.maxWidth",
   "layout.narrowAt",
   "layout.tinyAt",
@@ -151,6 +153,7 @@ type ValidatedQuotaToastPatch = {
   tuiSidebarPanel?: TuiSidebarPanelPatch;
   tuiCompactStatus?: TuiCompactStatusPatch;
   maintainerAnnouncements?: MaintainerAnnouncementsPatch;
+  openaiCompatibleGateways?: OpenAiCompatibleGateway[];
   layout?: LayoutPatch;
 };
 
@@ -271,6 +274,7 @@ function cloneConfig(config: QuotaToastConfig): QuotaToastConfig {
     googleModels: [...config.googleModels],
     opencodeGoWindows: [...config.opencodeGoWindows],
     pricingSnapshot: { ...config.pricingSnapshot },
+    openaiCompatibleGateways: config.openaiCompatibleGateways.map((gateway) => ({ ...gateway })),
     tuiSidebarPanel: { ...config.tuiSidebarPanel },
     tuiCompactStatus: { ...config.tuiCompactStatus },
     maintainerAnnouncements: { ...config.maintainerAnnouncements },
@@ -425,6 +429,39 @@ function extractMaintainerAnnouncementsPatch(value: unknown): MaintainerAnnounce
 
 
   return Object.keys(patch).length > 0 ? patch : undefined;
+}
+
+function extractOpenaiCompatibleGateways(value: unknown): OpenAiCompatibleGateway[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const gateways: OpenAiCompatibleGateway[] = [];
+  for (const entry of value) {
+    if (!isPlainObject(entry)) continue;
+
+    const providerId = normalizeOptionalString(entry.providerId);
+    if (!providerId) continue;
+
+    const gateway: OpenAiCompatibleGateway = { providerId };
+
+    const baseURL = normalizeOptionalString(entry.baseURL);
+    if (baseURL) gateway.baseURL = baseURL;
+
+    const quotaPath = normalizeOptionalString(entry.quotaPath);
+    if (quotaPath) gateway.quotaPath = quotaPath;
+
+    const label = normalizeOptionalString(entry.label);
+    if (label) gateway.label = label;
+
+    if (entry.mapping === "neutral" || entry.mapping === "openrouter") {
+      gateway.mapping = entry.mapping;
+    }
+
+    gateways.push(gateway);
+  }
+
+  return gateways;
 }
 
 function extractLayoutPatch(value: unknown): LayoutPatch | undefined {
@@ -628,6 +665,13 @@ function extractValidatedQuotaToastPatch(
     }
   }
 
+  if (hasOwnKey(quotaToastConfig, "openaiCompatibleGateways")) {
+    const gateways = extractOpenaiCompatibleGateways(quotaToastConfig.openaiCompatibleGateways);
+    if (gateways !== undefined) {
+      patch.openaiCompatibleGateways = gateways;
+    }
+  }
+
   if (hasOwnKey(quotaToastConfig, "layout")) {
     const layout = extractLayoutPatch(quotaToastConfig.layout);
     if (layout) {
@@ -827,6 +871,13 @@ function applyValidatedQuotaToastPatch(
       applySettingSource(settingSources, "maintainerAnnouncements.home", sourcePath);
     }
 
+  }
+
+  if (hasOwnKey(patch, "openaiCompatibleGateways")) {
+    config.openaiCompatibleGateways = patch.openaiCompatibleGateways!.map((gateway) => ({
+      ...gateway,
+    }));
+    applySettingSource(settingSources, "openaiCompatibleGateways", sourcePath);
   }
 
   if (patch.layout) {
