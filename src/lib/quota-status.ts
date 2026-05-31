@@ -13,6 +13,8 @@ import { getCrofKeyDiagnostics } from "./crof.js";
 import { getNanoGptKeyDiagnostics, queryNanoGptQuota } from "./nanogpt.js";
 import { getDeepSeekKeyDiagnostics } from "./deepseek.js";
 import { getSyntheticKeyDiagnostics } from "./synthetic.js";
+import { getGatewayKeyDiagnostics } from "./openai-compatible-config.js";
+import type { OpenAiCompatibleGateway } from "./types.js";
 import { getCopilotQuotaAuthDiagnostics } from "./copilot.js";
 import {
   computeAlibabaCodingPlanQuota,
@@ -633,6 +635,7 @@ export async function buildQuotaStatusReport(params: {
   cursorIncludedApiUsd?: number;
   cursorBillingCycleStartDay?: number;
   opencodeGoWindows?: OpenCodeGoWindowKey[];
+  openaiCompatibleGateways?: OpenAiCompatibleGateway[];
   pricingSnapshotSource: PricingSnapshotSource;
   onlyCurrentModel: boolean;
   currentModel?: string;
@@ -1359,6 +1362,26 @@ export async function buildQuotaStatusReport(params: {
   ];
   appendProviderCompactLiveProbeRows(deepSeekRows, "deepseek", params.providerLiveProbes);
   sections.push(createKvSection("deepseek", "deepseek:", deepSeekRows));
+
+  // === openai-compatible gateways (config-driven; one section per gateway) ===
+  for (const gateway of params.openaiCompatibleGateways ?? []) {
+    const diag = await getGatewayKeyDiagnostics(gateway.providerId);
+    const rows: ReportKvRow[] = [
+      { key: "provider_id", value: gateway.providerId },
+      { key: "quota_path", value: gateway.quotaPath ?? "/quota" },
+      { key: "api_key_configured", value: diag.configured ? "true" : "false" },
+      { key: "api_key_source", value: diag.source ?? "(none)" },
+      { key: "api_key_checked_paths", value: joinOrNone(diag.checkedPaths) },
+    ];
+    appendProviderCompactLiveProbeRows(rows, "openai-compatible", params.providerLiveProbes);
+    sections.push(
+      createKvSection(
+        `openai-compatible:${gateway.providerId}`,
+        `openai-compatible (${gateway.label ?? gateway.providerId}):`,
+        rows,
+      ),
+    );
+  }
 
   // === nanogpt ===
   const nanoGptDiag = await readApiKeyDiagnosticsWithAuthPaths(getNanoGptKeyDiagnostics);

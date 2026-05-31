@@ -149,6 +149,15 @@ describe("provider-metadata", () => {
         quickSetupAnchor: "opencode-go-quick-setup",
         notes: "Scrapes the OpenCode Go dashboard; requires workspaceId and authCookie",
       },
+      {
+        id: "openai-compatible",
+        autoSetup: "manual_env_config",
+        authentication: "opencode_auth_api_key",
+        authFallbacks: ["env_api_key", "global_opencode_config"],
+        quota: "remote_api",
+        notes:
+          "Generic: polls one or more configured OpenAI-compatible gateways' quota endpoints (experimental.quotaToast.openaiCompatibleGateways)",
+      },
     ]);
   });
 

@@ -222,6 +222,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | NanoGPT | Usually automatic | Remote API |
 | DeepSeek | Usually automatic | Remote API balance |
 | OpenCode Go | [Needs setup](#opencode-go) | Dashboard scraping |
+| OpenAI-Compatible Gateway | [Needs setup](#openai-compatible-gateway) | Remote API (configurable) |
 
 ## Common configuration
 
@@ -425,6 +426,7 @@ Existing `experimental.quotaToast` settings still work when no sidecar file exis
 | `cursorPlan` | `"none"` | Cursor included API budget preset: `none`, `pro`, `pro-plus`, `ultra`. |
 | `cursorIncludedApiUsd` | unset | Override Cursor monthly included API budget in USD. |
 | `cursorBillingCycleStartDay` | unset | Local billing-cycle anchor day `1..28`; when unset, Cursor usage resets on the local calendar month. |
+| `openaiCompatibleGateways` | `[]` | List of OpenAI-compatible gateways to poll for remaining quota. Each entry: `providerId` (required; the OpenCode provider id whose `options.baseURL`/`apiKey` are reused), `baseURL` (override), `quotaPath` (default `/quota`), `label`, `mapping` (`"neutral"` default, or `"openrouter"`). See [OpenAI-Compatible Gateway](#openai-compatible-gateway). |
 
 </details>
 
@@ -527,6 +529,35 @@ export OPENCODE_GO_AUTH_COOKIE="your-auth-cookie"
 ```
 
 Use `opencodeGoWindows` to choose **5h**, **Weekly**, and/or **Monthly** windows. Environment variables take precedence over the optional `opencode-go.json` file.
+
+</details>
+
+<a id="openai-compatible-gateway"></a>
+<details>
+<summary><strong>OpenAI-Compatible Gateway</strong></summary>
+
+Generic support for any self-hosted / OpenAI-compatible gateway (LiteLLM proxy, in-house or university gateway, OpenRouter-compatible endpoint, …) that exposes a remaining-quota endpoint. There is no standard quota endpoint, so this consumes a small documented JSON shape and is bound to no product.
+
+List your gateways under `openaiCompatibleGateways`. Each entry names the OpenCode provider id the gateway is already configured as for chat — its `options.baseURL` and API key are reused, so there is no duplicate config:
+
+```jsonc
+{
+  "openaiCompatibleGateways": [
+    { "providerId": "my-gateway", "quotaPath": "/quota" }
+  ]
+}
+```
+
+Per-entry fields: `providerId` (required), `baseURL` (override; default `provider.<id>.options.baseURL`), `quotaPath` (default `/quota`), `label`, and `mapping`.
+
+The API key is resolved like other key-based providers: env `<PROVIDERID>_API_KEY` (e.g. `MY_GATEWAY_API_KEY`), trusted user/global `provider.<id>.options.apiKey`, or OpenCode auth.
+
+**Response shapes (`mapping`):**
+
+- `"neutral"` (default) — `{ key, tokens:{limit,used,remaining,resets_at}, cost:{currency,limit,used,remaining} }`. Token bucket renders as a percent bar with reset; cost renders as a `$used / $limit` value row.
+- `"openrouter"` — the OpenRouter key-info shape `{ data:{ label, usage, limit, limit_remaining } }` (dollars only).
+
+If you use manual provider selection, include `openai-compatible` in `enabledProviders`.
 
 </details>
 

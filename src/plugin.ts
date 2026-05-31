@@ -1485,6 +1485,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       cursorIncludedApiUsd: runtimeConfig.cursorIncludedApiUsd,
       cursorBillingCycleStartDay: runtimeConfig.cursorBillingCycleStartDay,
       opencodeGoWindows: runtimeConfig.opencodeGoWindows,
+      openaiCompatibleGateways: runtimeConfig.openaiCompatibleGateways,
       pricingSnapshotSource: runtimeConfig.pricingSnapshot.source,
       onlyCurrentModel: runtimeConfig.onlyCurrentModel,
       currentModel,
