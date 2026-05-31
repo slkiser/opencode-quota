@@ -5,6 +5,7 @@ import { join } from "path";
 
 import {
   gatewayEnvVarName,
+  getGatewayKeyDiagnostics,
   hasGatewayApiKey,
   resolveGatewayApiKey,
   resolveGatewayBaseURL,
@@ -80,5 +81,18 @@ describe("openai-compatible gateway config", () => {
 
   it("baseURL: null when neither override nor config is present", async () => {
     await expect(resolveGatewayBaseURL("apigee")).resolves.toBeNull();
+  });
+
+  it("diagnostics: reports configured + source when a key resolves", async () => {
+    process.env.APIGEE_API_KEY = "env-key";
+    const diag = await getGatewayKeyDiagnostics("apigee");
+    expect(diag.configured).toBe(true);
+    expect(diag.source).toBe("env");
+  });
+
+  it("diagnostics: reports not-configured when no key is present", async () => {
+    const diag = await getGatewayKeyDiagnostics("apigee");
+    expect(diag.configured).toBe(false);
+    expect(diag.source).toBeNull();
   });
 });

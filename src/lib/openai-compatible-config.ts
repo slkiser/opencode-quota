@@ -66,6 +66,18 @@ export async function hasGatewayApiKey(providerId: string): Promise<boolean> {
   return createGatewayApiKeyResolver(providerId).has();
 }
 
+/** Key-resolution diagnostics for /quota_status (which sources were checked). */
+export async function getGatewayKeyDiagnostics(providerId: string): Promise<{
+  configured: boolean;
+  source: GatewayKeySource | null;
+  checkedPaths: string[];
+}> {
+  if (!providerId.trim()) {
+    return { configured: false, source: null, checkedPaths: [] };
+  }
+  return createGatewayApiKeyResolver(providerId).diagnostics();
+}
+
 /**
  * Resolve a gateway's base URL: an explicit override wins, else read
  * provider.<id>.options.baseURL from the merged OpenCode config (best-effort).
