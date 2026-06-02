@@ -279,6 +279,13 @@ export interface SyntheticAuthData {
   key: string;
 }
 
+export interface LiteLLMAuthData {
+  type: string;
+  access?: string;
+  key?: string;
+  [key: string]: unknown;
+}
+
 export interface MiniMaxAuthData {
   type: string;
   key?: string;
@@ -376,6 +383,7 @@ export interface AuthData {
   "minimax-cn-coding-plan"?: MiniMaxAuthData;
   "kimi-code"?: KimiAuthData;
   kimi?: KimiAuthData;
+  litellm?: LiteLLMAuthData;
 }
 
 // =============================================================================
