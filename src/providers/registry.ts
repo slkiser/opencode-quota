@@ -26,6 +26,7 @@ import {
 import { opencodeGoProvider } from "./opencode-go.js";
 import { kimiCodeProvider } from "./kimi-code.js";
 import { deepseekProvider } from "./deepseek.js";
+import { xiaomiProvider } from "./xiaomi.js";
 
 export function getProviders(): QuotaProvider[] {
   // Order here defines display ordering in the toast.
@@ -49,5 +50,6 @@ export function getProviders(): QuotaProvider[] {
     kimiCodeProvider,
     deepseekProvider,
     opencodeGoProvider,
+    xiaomiProvider,
   ];
 }

@@ -376,6 +376,8 @@ export interface AuthData {
   "minimax-cn-coding-plan"?: MiniMaxAuthData;
   "kimi-code"?: KimiAuthData;
   kimi?: KimiAuthData;
+  xiaomi?: XiaomiAuthData;
+  mimo?: XiaomiAuthData;
 }
 
 // =============================================================================
@@ -450,6 +452,17 @@ export interface KimiQuotaResult {
 }
 
 export type KimiResult = KimiQuotaResult | QuotaError | null;
+
+// =============================================================================
+// Xiaomi Types
+// =============================================================================
+
+/** Xiaomi auth entry in auth.json */
+export interface XiaomiAuthData {
+  type: "session";
+  cookie?: string;
+  sessionCookie?: string;
+}
 
 // =============================================================================
 // Z.ai Types

@@ -17,7 +17,8 @@ export type CanonicalQuotaProviderId =
   | "minimax-china-coding-plan"
   | "kimi-for-coding"
   | "deepseek"
-  | "opencode-go";
+  | "opencode-go"
+  | "xiaomi";
 
 export type QuotaProviderAutoSetup = "yes" | "usually" | "manual_env_config" | "needs_quick_setup";
 
@@ -72,6 +73,8 @@ export const QUOTA_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   "kimi-code": "Kimi Code",
   deepseek: "DeepSeek",
   "opencode-go": "OpenCode Go",
+  xiaomi: "Xiaomi Token Plan",
+  mimo: "Xiaomi Token Plan",
 };
 
 export const QUOTA_PROVIDER_ID_SYNONYMS: Readonly<Record<string, string>> = {
@@ -102,6 +105,8 @@ export const QUOTA_PROVIDER_ID_SYNONYMS: Readonly<Record<string, string>> = {
   "glm-coding-plan": "zhipu",
   "zhipu-coding-plan": "zhipu",
   "zhipuai-coding-plan": "zhipu",
+  "xiaomi-token-plan": "xiaomi",
+  "token-plan": "xiaomi",
 };
 
 export const QUOTA_PROVIDER_RUNTIME_IDS: QuotaProviderRuntimeIds = {
@@ -135,6 +140,7 @@ export const QUOTA_PROVIDER_RUNTIME_IDS: QuotaProviderRuntimeIds = {
   "kimi-for-coding": ["kimi-for-coding", "kimi", "kimi-code"],
   deepseek: ["deepseek"],
   "opencode-go": ["opencode-go"],
+  xiaomi: ["xiaomi", "mimo", "xiaomi-token-plan", "token-plan"],
 };
 
 const LIVE_LOCAL_USAGE_PROVIDER_ID_SET = new Set<string>([
@@ -279,6 +285,15 @@ export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
     quota: "remote_api",
     quickSetupAnchor: "opencode-go-quick-setup",
     notes: "Scrapes the OpenCode Go dashboard; requires workspaceId and authCookie",
+  },
+  {
+    id: "xiaomi",
+    autoSetup: "manual_env_config",
+    authentication: "external_api_key",
+    authFallbacks: ["env_api_key", "global_opencode_config"],
+    quota: "remote_api",
+    notes:
+      "Requires XIAOMI_COOKIE env var, trusted user/global config, or OpenCode auth with session cookie",
   },
 ];
 
