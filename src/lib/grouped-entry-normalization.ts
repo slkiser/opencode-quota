@@ -29,7 +29,7 @@ function normalizeDurationText(value?: string): string | undefined {
 
 function looksLikeGoogleModel(name: string): boolean {
   const lower = name.toLowerCase();
-  return lower === "claude" || lower === "g3pro" || lower === "g3flash" || lower === "g3image";
+  return lower === "claude" || lower === "g3pro" || lower === "g3flash" || lower === "g3image" || lower === "gpt-oss";
 }
 
 function getGoogleFallbackMeta(name: string): { group: string; label: string } | undefined {

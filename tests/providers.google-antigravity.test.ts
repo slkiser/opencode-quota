@@ -37,6 +37,8 @@ describe("google antigravity provider", () => {
     expect(out.entries).toEqual([
       {
         name: "Gemini 2.5 Pro (ali..gmail)",
+        group: "Gemini 2.5 Pro",
+        label: "Gemini 2.5 Pro:",
         percentRemaining: 64,
         resetTimeIso: "2026-01-01T00:00:00.000Z",
       },

@@ -10,7 +10,7 @@ import { DEFAULT_QUOTA_FORMAT_STYLE } from "./quota-format-style.js";
 // =============================================================================
 
 /** Google model identifiers */
-export type GoogleModelId = "G3PRO" | "G3FLASH" | "CLAUDE" | "G3IMAGE";
+export type GoogleModelId = "G3PRO" | "G3FLASH" | "CLAUDE" | "G3IMAGE" | "GPTOSS";
 export type GeminiCliAuthSourceKey =
   | "google-gemini-cli"
   | "gemini-cli"
@@ -693,14 +693,23 @@ export const GOOGLE_MODEL_KEYS: Record<
 > = {
   G3PRO: {
     key: "gemini-3.1-pro",
-    altKey: "gemini-3.1-pro-high|gemini-3.1-pro-low|gemini-3-pro-high|gemini-3-pro-low",
+    altKey: "gemini-3.1-pro-high|gemini-3.1-pro-low|gemini-3-pro-high|gemini-3-pro-low|gemini-3.5-pro-high|gemini-3.5-pro-low",
     display: "G3Pro",
   },
-  G3FLASH: { key: "gemini-3-flash", display: "G3Flash" },
+  G3FLASH: {
+    key: "gemini-3-flash",
+    altKey: "gemini-3-flash-medium|gemini-3-flash-high|gemini-3-flash-low|gemini-3-5-flash-medium|gemini-3-5-flash-high|gemini-3-5-flash-low|gemini-3.5-flash-medium|gemini-3.5-flash-high|gemini-3.5-flash-low",
+    display: "G3Flash",
+  },
   CLAUDE: {
     key: "claude-opus-4-6-thinking",
-    altKey: "claude-opus-4-5-thinking|claude-opus-4-5",
+    altKey: "claude-opus-4-5-thinking|claude-opus-4-5|claude-sonnet-4-6|claude-sonnet-4-6-thinking|claude-opus-4-6|gemini-claude-sonnet-4-6|gemini-claude-opus-4-6-thinking",
     display: "Claude",
   },
   G3IMAGE: { key: "gemini-3-pro-image", display: "G3Image" },
+  GPTOSS: {
+    key: "gpt-oss-120b-medium",
+    altKey: "gpt-oss-120b-high|gpt-oss-120b-low|gpt-oss-120b",
+    display: "GPT-OSS",
+  },
 };

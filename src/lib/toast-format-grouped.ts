@@ -51,7 +51,7 @@ function resolveGroupedRowLabel(entry: QuotaToastEntry): string {
   const fromName = extractWindowLabel(entry.name);
   if (fromName) return `${fromName} window`;
 
-  return "Quota window";
+  return normalizeLabelText(entry.group) || "Quota window";
 }
 
 export function formatQuotaRowsGrouped(params: {

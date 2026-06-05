@@ -79,7 +79,7 @@ describe("google antigravity multi-account refresh", () => {
     // First refresh token endpoint call, then quota endpoint call.
     const fetchSpy = vi.fn();
 
-    // First call: token refresh
+    // First call: token refresh for first account
     fetchSpy.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ access_token: "new_token", expires_in: 3600 }),
@@ -98,11 +98,23 @@ describe("google antigravity multi-account refresh", () => {
         }),
     });
 
+    // Third call: token refresh for Gemini CLI quota fetch
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ access_token: "new_token", expires_in: 3600 }),
+    });
+
+    // Fourth call: Gemini CLI retrieveUserQuota (best-effort, returns empty)
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ buckets: [] }),
+    });
+
     vi.stubGlobal("fetch", fetchSpy as any);
 
     const out = await queryGoogleQuota(["CLAUDE"] as any);
 
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
     expect(fetchSpy.mock.calls[0][0]).toBe("https://oauth2.googleapis.com/token");
 
     expect(out).not.toBeNull();

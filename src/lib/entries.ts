@@ -86,6 +86,11 @@ export interface SessionTokensData {
 export interface QuotaProviderPresentation {
   singleWindowDisplayName?: string;
   singleWindowShowRight?: boolean;
+  /**
+   * When set to "preserve", the provider's entries are kept individually
+   * (one per window) even in single-window format styles.
+   */
+  classicStrategy?: "preserve";
 }
 
 export interface QuotaProviderResult {

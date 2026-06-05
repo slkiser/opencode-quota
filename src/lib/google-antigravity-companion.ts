@@ -104,7 +104,12 @@ function normalizeCredential(value: unknown): string {
 }
 
 function getCompanionResolvePaths(): string[] {
-  const paths = [...getOpencodeRuntimeDirCandidates().cacheDirs];
+  const paths = [
+    ...getOpencodeRuntimeDirCandidates().cacheDirs,
+    "C:\\Users\\gsc\\AppData\\Local\\nvm\\v22.22.1\\node_modules",
+    "C:\\Users\\gsc\\AppData\\Roaming\\npm\\node_modules",
+    "C:\\nvm4w\\nodejs\\node_modules"
+  ];
   return paths;
 }
 

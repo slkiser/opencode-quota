@@ -51,6 +51,8 @@ export const googleAntigravityProvider: QuotaProvider = {
       const emailLabel = formatGoogleAccountLabel(m.accountEmail, "fixedGmailHint") || "Antigravity";
       return {
         name: `${m.displayName} (${emailLabel})`,
+        group: m.displayName,
+        label: `${m.displayName}:`,
         percentRemaining: m.percentRemaining,
         resetTimeIso: m.resetTimeIso,
       };
@@ -59,6 +61,7 @@ export const googleAntigravityProvider: QuotaProvider = {
     return attemptedResult(
       entries,
       formatGoogleAccountErrors(result.errors, "fixedGmailHint"),
+      { classicStrategy: "preserve" },
     );
   },
 };

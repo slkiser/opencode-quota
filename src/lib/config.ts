@@ -180,7 +180,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * Validates and normalizes a Google model ID
  */
 function isValidGoogleModelId(id: unknown): id is GoogleModelId {
-  return typeof id === "string" && ["G3PRO", "G3FLASH", "CLAUDE", "G3IMAGE"].includes(id);
+  return typeof id === "string" && ["G3PRO", "G3FLASH", "CLAUDE", "G3IMAGE", "GPTOSS"].includes(id);
 }
 
 function isValidCursorQuotaPlan(plan: unknown): plan is CursorQuotaPlan {

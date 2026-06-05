@@ -286,7 +286,7 @@ describe("formatQuotaRows", () => {
       entries: [{ name: "Unlabeled Provider", group: "Unlabeled Provider", percentRemaining: 75 }],
     });
 
-    expect(out).toContain("Quota window");
+    expect(out).toContain("[Unlabeled Provider]");
   });
 
   it("shares single-window provider/window display labels with classic formatting", () => {
@@ -550,7 +550,7 @@ describe("formatQuotaRows", () => {
 
     expect(out).toContain("[Google Antigravity] (acct)");
     expect(out).toContain("\nClaude ");
-    expect(out).toContain("Quota window");
+    expect(out).toContain("\nGoogle Antigravity (acct)");
     expect(out).not.toContain("[Claude] (acct)");
     expect(out).not.toContain("[G3Pro] (acct)");
   });

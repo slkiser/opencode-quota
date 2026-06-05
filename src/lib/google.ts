@@ -46,6 +46,8 @@ import {
 
 const GOOGLE_QUOTA_API_URL = "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels";
 const USER_AGENT = "antigravity/1.11.9 darwin/arm64";
+const USER_AGENT_GEMINI_CLI = "GeminiCLI/1.0.0/gemini-2.5-pro (win32; x64)";
+const GOOGLE_RETRIEVE_USER_QUOTA_URL = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota";
 
 const GOOGLE_TOKEN_REFRESH_URL = "https://oauth2.googleapis.com/token";
 
@@ -455,14 +457,31 @@ async function fetchGoogleQuota(
 }
 
 /**
+ * Map a modelId to its rate-limit family for local override lookup.
+ * Families: "claude", "gemini-flash", "gemini-pro", "gpt-oss"
+ */
+function getRateLimitFamily(
+  _modelId: GoogleModelId,
+  modelConfig: (typeof GOOGLE_MODEL_KEYS)[GoogleModelId],
+): "claude" | "gemini-flash" | "gemini-pro" | "gpt-oss" | null {
+  const key = modelConfig.key.toLowerCase();
+  if (key.includes("claude")) return "claude";
+  if (key.includes("flash")) return "gemini-flash";
+  if (key.includes("pro")) return "gemini-pro";
+  if (key.includes("gpt-oss")) return "gpt-oss";
+  return null;
+}
+
+/**
  * Extract model quotas from API response
  */
 function extractModelQuotas(
   data: GoogleQuotaResponse,
   modelIds: GoogleModelId[],
-  accountEmail?: string,
+  account: AntigravityAccount,
 ): GoogleModelQuota[] {
   const quotas: GoogleModelQuota[] = [];
+  const accountEmail = account.email || "Unknown";
 
   for (const modelId of modelIds) {
     const modelConfig = GOOGLE_MODEL_KEYS[modelId];
@@ -480,12 +499,26 @@ function extractModelQuotas(
     }
 
     if (modelInfo) {
-      const remainingFraction = modelInfo.quotaInfo?.remainingFraction ?? 0;
+      let remainingFraction = modelInfo.quotaInfo?.remainingFraction ?? 0;
+      let resetTimeIso: string | undefined = modelInfo.quotaInfo?.resetTime;
+
+      // Apply local rate limit overrides (rate-limited state from companion plugin)
+      if (account.rateLimitResetTimes) {
+        const family = getRateLimitFamily(modelId, modelConfig);
+        if (family && account.rateLimitResetTimes[family]) {
+          const resetTimestamp = account.rateLimitResetTimes[family];
+          if (resetTimestamp && resetTimestamp > Date.now()) {
+            remainingFraction = 0;
+            resetTimeIso = new Date(resetTimestamp).toISOString();
+          }
+        }
+      }
+
       quotas.push({
         modelId,
         displayName: modelConfig.display,
         percentRemaining: Math.round(remainingFraction * 100),
-        resetTimeIso: modelInfo.quotaInfo?.resetTime,
+        resetTimeIso,
         accountEmail,
       });
     }
@@ -563,7 +596,7 @@ async function fetchAccountQuotaWithAntigravityRefresh(params: {
         throw err;
       }
     }
-    const models = extractModelQuotas(data, params.modelIds, email);
+    const models = extractModelQuotas(data, params.modelIds, params.account);
 
     return { success: true, models, accountEmail: email };
   } catch (err) {
@@ -576,6 +609,129 @@ async function fetchAccountQuotaWithAntigravityRefresh(params: {
       accountEmail: email,
     };
   }
+}
+
+// =============================================================================
+// Gemini CLI Quota Merging (more accurate rate limits)
+// =============================================================================
+
+/** Bucket returned by the Gemini CLI `retrieveUserQuota` endpoint. */
+interface GeminiCliBucket {
+  modelId?: string;
+  remainingFraction?: number;
+  resetTime?: string;
+}
+
+/** Map a `GoogleModelId` to the key expected by Gemini CLI's `retrieveUserQuota`. */
+function modelIdToGemini3Key(modelId: GoogleModelId): string | null {
+  const cfg = GOOGLE_MODEL_KEYS[modelId];
+  if (!cfg) return null;
+  if (cfg.display === "G3Pro") return "gemini-3.1-pro";
+  if (cfg.display === "G3Flash") return "gemini-3-flash";
+  if (cfg.display === "Claude") return "claude-sonnet-4-6";
+  if (cfg.display === "GPT-OSS") return "gpt-oss-120b-medium";
+  return null;
+}
+
+/**
+ * Fetch the Gemini CLI user quota endpoint for the most accurate rate limit info.
+ * Best-effort: never throws, returns `{ buckets: [] }` on any error.
+ */
+async function fetchGeminiCliQuota(
+  accessToken: string,
+  projectId: string,
+): Promise<{ buckets?: GeminiCliBucket[] }> {
+  try {
+    const response = await fetchWithTimeout(
+      GOOGLE_RETRIEVE_USER_QUOTA_URL,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          "User-Agent": USER_AGENT_GEMINI_CLI,
+        },
+        body: JSON.stringify({ project: projectId }),
+      },
+      GOOGLE_QUOTA_TIMEOUT_MS,
+    );
+    if (response.ok) {
+      return (await response.json()) as { buckets?: GeminiCliBucket[] };
+    }
+    return { buckets: [] };
+  } catch {
+    return { buckets: [] };
+  }
+}
+
+/**
+ * Merge Gemini CLI quota buckets into Antigravity model data.
+ * For each Antigravity model, if the CLI reports a LOWER remaining percentage,
+ * the CLI value wins (CLI is more accurate for active rate limits).
+ */
+function mergeGeminiCliQuota(
+  cliBuckets: GeminiCliBucket[] | undefined,
+  antigravityModels: GoogleModelQuota[],
+): GoogleModelQuota[] {
+  if (!cliBuckets || cliBuckets.length === 0) return antigravityModels;
+
+  const findBucketByDisplay = (display: string): GeminiCliBucket | null => {
+    if (display === "G3Pro") {
+      for (const b of cliBuckets) {
+        if (!b.modelId) continue;
+        if (
+          b.modelId.startsWith("gemini-3.1-pro") ||
+          b.modelId.startsWith("gemini-3-pro") ||
+          b.modelId === "gemini-3.5-pro" ||
+          b.modelId.startsWith("gemini-3.5-pro")
+        ) {
+          return b;
+        }
+      }
+    }
+    if (display === "G3Flash") {
+      for (const b of cliBuckets) {
+        if (!b.modelId) continue;
+        if (
+          b.modelId.startsWith("gemini-3-flash") ||
+          b.modelId.startsWith("gemini-3.5-flash") ||
+          b.modelId.startsWith("gemini-3.1-flash")
+        ) {
+          return b;
+        }
+      }
+    }
+    if (display === "Claude") {
+      for (const b of cliBuckets) {
+        if (!b.modelId) continue;
+        if (b.modelId.startsWith("claude") || b.modelId === "claude-sonnet-4-6") {
+          return b;
+        }
+      }
+    }
+    if (display === "GPT-OSS") {
+      for (const b of cliBuckets) {
+        if (b.modelId && b.modelId.startsWith("gpt-oss")) return b;
+      }
+    }
+    return null;
+  };
+
+  return antigravityModels.map((m) => {
+    const cfg = GOOGLE_MODEL_KEYS[m.modelId];
+    if (!cfg) return m;
+    const cliBucket = findBucketByDisplay(cfg.display);
+    if (!cliBucket || typeof cliBucket.remainingFraction !== "number") return m;
+    const cliPercent = Math.round(cliBucket.remainingFraction * 100);
+    if (cliPercent < m.percentRemaining) {
+      return {
+        ...m,
+        percentRemaining: cliPercent,
+        resetTimeIso: cliBucket.resetTime || m.resetTimeIso,
+      };
+    }
+    return m;
+  });
 }
 
 // =============================================================================
@@ -630,6 +786,35 @@ export async function queryGoogleQuota(
       allModels.push(...result.models);
     } else if (!result.success && result.error && result.accountEmail) {
       errors.push({ email: result.accountEmail, error: result.error });
+    }
+  }
+
+  // Also fetch and merge Gemini CLI quota for more accurate rate limits
+  if (accounts.length > 0 && allModels.length > 0) {
+    try {
+      const firstAccount = accounts[0]!;
+      const projectId = getProjectId(firstAccount);
+      if (projectId) {
+        const tokenResult = await refreshAccessTokenWithCache({
+          refreshToken: firstAccount.refreshToken,
+          projectId,
+          email: firstAccount.email,
+          credentials,
+        });
+        if (!("error" in tokenResult)) {
+          const cliData = await fetchGeminiCliQuota(tokenResult.accessToken, projectId);
+          if (cliData && cliData.buckets) {
+            const mergedModels = mergeGeminiCliQuota(cliData.buckets, allModels);
+            return {
+              success: true,
+              models: mergedModels,
+              errors: errors.length > 0 ? errors : undefined,
+            } as GoogleQuotaResult;
+          }
+        }
+      }
+    } catch {
+      // If Gemini CLI quota fetch fails, fall through to Antigravity-only result
     }
   }
 

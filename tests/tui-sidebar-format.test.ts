@@ -187,7 +187,7 @@ describe("buildSidebarQuotaPanelLines", () => {
     const rendered = lines.join("\n");
     expect(rendered).toContain("[Google Antigravity] (acct)");
     expect(rendered).toContain("\nClaude ");
-    expect(rendered).toContain("Quota window");
+    expect(rendered).toContain("\nGoogle Antigravity (acct)");
     expect(rendered).not.toContain("[Claude] (acct)");
     expect(rendered).not.toContain("[G3Pro] (acct)");
   });
