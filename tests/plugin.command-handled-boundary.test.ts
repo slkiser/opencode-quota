@@ -79,7 +79,7 @@ describe("plugin command handled boundary", () => {
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
   });
 
-  it("does not register or handle migrated deterministic slash commands in the server plugin", async () => {
+  it("registers command.execute.before for Desktop App fallback when TUI keymap is unavailable", async () => {
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient();
     const hooks = await QuotaToastPlugin({ client } as any);
@@ -88,7 +88,7 @@ describe("plugin command handled boundary", () => {
     await hooks.config?.(cfg as any);
 
     expect(cfg.command).toBeUndefined();
-    expect(hooks["command.execute.before"]).toBeUndefined();
+    expect(hooks["command.execute.before"]).toBeDefined();
     expect(client.session.prompt).not.toHaveBeenCalled();
   });
 

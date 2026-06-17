@@ -54,6 +54,12 @@ import {
   formatMaintainerAnnouncementHomeCountLine,
   getMaintainerAnnouncementsSummary,
 } from "./lib/maintainer-announcements.js";
+import {
+  buildQuotaDialogCommandOutput,
+  isQuotaDialogCommand,
+  type QuotaDialogCommandId,
+} from "./lib/quota-dialog-commands.js";
+import { handled } from "./lib/command-handled.js";
 
 // =============================================================================
 // Types
@@ -1258,6 +1264,54 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
           cfg.default_agent = matches[0];
         }
       }
+    },
+
+    // Handle slash commands on environments without TUI keymap (e.g., Desktop App).
+    // On CLI with TUI, the keymap layer intercepts these commands first and calls
+    // handled(), so this hook is only reached when no TUI is available.
+    "command.execute.before": async (input: {
+      command: string;
+      args?: string;
+      query?: string;
+      arguments?: string;
+      sessionID?: string;
+    }) => {
+      const cmd = input.command;
+      if (!isQuotaDialogCommand(cmd)) return;
+
+      if (!configLoaded) {
+        await refreshConfig();
+      }
+
+      if (!config.enabled && cmd !== "quota_announcements") {
+        handled();
+      }
+
+      const runtime = await resolvePluginRuntimeContext({
+        sessionID: input.sessionID,
+        includeSessionMeta: true,
+      });
+
+      const commandArgs = input.arguments ?? input.args ?? input.query;
+      const result = await buildQuotaDialogCommandOutput({
+        command: cmd as QuotaDialogCommandId,
+        arguments: commandArgs,
+        client: runtime.client,
+        roots: { ...runtime.roots, fallbackDirectory: runtime.roots.workspaceRoot },
+        sessionID: input.sessionID,
+        sessionMeta: runtime.session.sessionMeta,
+        resolveSessionMeta: (sessionID) => getSessionModelMeta(sessionID),
+        lastSessionTokenError,
+        setLastSessionTokenError: (error) => {
+          lastSessionTokenError = error;
+        },
+      });
+
+      if (result.state === "output" && input.sessionID) {
+        await injectRawOutput(input.sessionID, result.output);
+      }
+
+      handled();
     },
 
     tool: {
