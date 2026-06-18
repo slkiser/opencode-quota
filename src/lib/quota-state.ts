@@ -189,8 +189,9 @@ async function readPersistedQuotaProviderCacheEntry(params: {
   packageVersion: string;
   ttlMs: number;
   now: number;
+  ignoreExpiry?: boolean;
 }): Promise<PersistedQuotaProviderCacheEntry | null> {
-  if (params.ttlMs <= 0) {
+  if (params.ttlMs <= 0 && !params.ignoreExpiry) {
     return null;
   }
 
@@ -211,7 +212,7 @@ async function readPersistedQuotaProviderCacheEntry(params: {
       return null;
     }
 
-    if (params.now - parsed.timestamp >= params.ttlMs) {
+    if (!params.ignoreExpiry && params.now - parsed.timestamp >= params.ttlMs) {
       return null;
     }
 
@@ -318,6 +319,55 @@ export async function fetchQuotaProviderResult(params: {
 
   inFlightByKey.set(key, fetchPromise);
   return cloneQuotaProviderResult(await fetchPromise);
+}
+
+export type CachedProviderRead =
+  | { hit: true; result: QuotaProviderResult; timestamp: number }
+  | { hit: false };
+
+export async function readCachedProviderResult(params: {
+  provider: QuotaProvider;
+  ctx: QuotaProviderContext;
+  ttlMs: number;
+}): Promise<CachedProviderRead> {
+  const key = buildQuotaProviderStateCacheKey(params.provider.id, params.ctx);
+  const now = Date.now();
+
+  // Check in-memory cache first.
+  const inMemory = inMemoryCache.get(key);
+  if (inMemory) {
+    return {
+      hit: true,
+      result: cloneQuotaProviderResult(inMemory.result),
+      timestamp: inMemory.timestamp,
+    };
+  }
+
+  // Fall back to disk cache with no expiry guard.
+  const packageVersion = await getQuotaProviderCachePackageVersion();
+  const persisted = await readPersistedQuotaProviderCacheEntry({
+    key,
+    providerId: params.provider.id,
+    packageVersion,
+    ttlMs: params.ttlMs,
+    now,
+    ignoreExpiry: true,
+  });
+
+  if (persisted) {
+    // Populate in-memory cache for subsequent reads.
+    inMemoryCache.set(key, {
+      ...persisted,
+      result: cloneQuotaProviderResult(persisted.result),
+    });
+    return {
+      hit: true,
+      result: cloneQuotaProviderResult(persisted.result),
+      timestamp: persisted.timestamp,
+    };
+  }
+
+  return { hit: false };
 }
 
 export function __resetQuotaStateForTests(): void {

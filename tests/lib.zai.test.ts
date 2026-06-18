@@ -50,6 +50,47 @@ describe("queryZaiQuota", () => {
     );
   });
 
+  it("returns API-level errors when a 200 response has no quota data", async () => {
+    await mockZaiAuth();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              code: 500,
+              msg: "当前用户不存在coding plan",
+              success: false,
+            }),
+            { status: 200 },
+          ),
+      ) as any,
+    );
+
+    const out = await queryZaiQuota();
+    expect(out).toEqual({ success: false, error: "当前用户不存在coding plan" });
+  });
+
+  it("returns API-level errors for numeric error codes even when success is omitted", async () => {
+    await mockZaiAuth();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              code: 401,
+              msg: "token expired",
+            }),
+            { status: 200 },
+          ),
+      ) as any,
+    );
+
+    const out = await queryZaiQuota();
+    expect(out).toEqual({ success: false, error: "token expired" });
+  });
+
   it("returns invalid quota data when limits is missing or not an array", async () => {
     await mockZaiAuth();
     vi.stubGlobal(

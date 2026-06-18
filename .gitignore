@@ -28,9 +28,13 @@ references/*
 !references/upstream-plugins/
 !references/upstream-plugins/**
 .git.backup-*/
-docs/
+docs/*
+!docs/investigations/
+docs/investigations/*
+!docs/investigations/issue-132-command-handling-opencode-1.17.7.md
 AGENTS.md
 /images
 /.agents
 /prompt-exports
 /opencode-quota
+/docs

@@ -260,6 +260,39 @@ describe("upstream-plugin-sync", () => {
     expect(geminiBundle).not.toContain("UNSAFE_CLIENT_SECRET");
   });
 
+  it("redownloads same-version plugins when tracked identity changes", async () => {
+    const cursorLatest = testState.latestByPluginId.get("opencode-cursor-oauth");
+    testState.latestByPluginId.set("opencode-cursor-oauth", { ...cursorLatest, version: "1.0.0" });
+
+    const referenceRoot = path.join(testState.repoRoot, "references", "upstream-plugins");
+    const lockPath = path.join(referenceRoot, "lock.json");
+    const lock = JSON.parse(await readFile(lockPath, "utf8"));
+    lock.plugins["opencode-cursor-oauth"] = {
+      npmUrl: "https://www.npmjs.com/package/opencode-cursor-oauth/v/1.0.0",
+      packageName: "opencode-cursor-oauth",
+      publishedAt: "2026-03-01T00:00:00.000Z",
+      referenceDir: "references/upstream-plugins/opencode-cursor-oauth",
+      repo: "ephraimduncan/opencode-cursor",
+      version: "1.0.0",
+    };
+    await writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, "utf8");
+    await writeFile(
+      path.join(referenceRoot, "opencode-cursor-oauth", "package.json"),
+      JSON.stringify({ name: "opencode-cursor-oauth", stale: true, version: "1.0.0" }),
+      "utf8",
+    );
+
+    const { syncUpstreamPluginReferences } = await import("../scripts/lib/upstream-plugin-sync.mjs");
+    await syncUpstreamPluginReferences();
+
+    const packageJson = await readFile(path.join(referenceRoot, "opencode-cursor-oauth", "package.json"), "utf8");
+    expect(packageJson).toContain("\"name\": \"@playwo/opencode-cursor-oauth\"");
+    expect(packageJson).not.toContain("\"stale\":true");
+    await expect(readFile(lockPath, "utf8")).resolves.toContain(
+      "\"packageName\": \"@playwo/opencode-cursor-oauth\"",
+    );
+  });
+
   it("leaves the committed reference tree untouched when staging fails", async () => {
     testState.failPluginId = "opencode-cursor-oauth";
 

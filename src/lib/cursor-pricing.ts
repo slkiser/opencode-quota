@@ -137,7 +137,7 @@ export function getEffectiveCursorIncludedApiUsd(params: {
   plan: CursorQuotaPlan;
   overrideUsd?: number;
 }): number | undefined {
-  if (typeof params.overrideUsd === "number" && Number.isFinite(params.overrideUsd) && params.overrideUsd > 0) {
+  if (typeof params.overrideUsd === "number" && Number.isFinite(params.overrideUsd) && params.overrideUsd >= 0) {
     return params.overrideUsd;
   }
   if (params.plan === "none") return undefined;

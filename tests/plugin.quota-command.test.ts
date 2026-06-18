@@ -1,7 +1,6 @@
 import { rm } from "fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { COMMAND_HANDLED_SENTINEL } from "../src/lib/command-handled.js";
 import { DEFAULT_CONFIG } from "../src/lib/types.js";
 import {
   createAlibabaAuthModuleMock,
@@ -13,12 +12,43 @@ import {
   createProvidersRegistryModuleMock,
   createQwenAuthModuleMock,
   createSessionTokensModuleMock,
-  getPromptText,
   getToastMessage,
   seedDefaultPluginBootstrapMocks,
 } from "./helpers/plugin-test-harness.js";
 
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-plugin-quota-command-tests";
+
+type DialogCommand = "quota" | "pricing_refresh";
+
+async function buildDialogOutput(params: {
+  command?: DialogCommand;
+  client: ReturnType<typeof createClient>;
+  sessionID: string;
+  arguments?: string;
+}) {
+  const { buildQuotaDialogCommandOutput } = await import("../src/lib/quota-dialog-commands.js");
+  const result = await buildQuotaDialogCommandOutput({
+    command: params.command ?? "quota",
+    arguments: params.arguments,
+    client: params.client,
+    roots: {
+      workspaceRoot: process.cwd(),
+      configRoot: process.cwd(),
+      fallbackDirectory: process.cwd(),
+    },
+    sessionID: params.sessionID,
+    resolveSessionMeta: async (sessionID) => {
+      const response = await params.client.session.get({ path: { id: sessionID } });
+      return {
+        modelID: response.data?.modelID,
+        providerID: response.data?.providerID,
+      };
+    },
+  });
+  expect(params.client.session.prompt).not.toHaveBeenCalled();
+  expect(result.state).toBe("output");
+  return result.state === "output" ? result.output : "";
+}
 
 const mocks = vi.hoisted(() => ({
   loadConfig: vi.fn(),
@@ -102,15 +132,9 @@ describe("/quota command behavior", () => {
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient();
 
-    const hooks = await QuotaToastPlugin({ client } as any);
+    await QuotaToastPlugin({ client } as any);
 
-    // Config is deferred — trigger a command to force the first config load.
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-init",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+    await buildDialogOutput({ client, sessionID: "session-init" });
 
     expect(mocks.loadConfig).toHaveBeenCalledWith(
       client,
@@ -119,12 +143,7 @@ describe("/quota command behavior", () => {
     );
     expect(mocks.setPricingSnapshotSelection).toHaveBeenCalledWith("bundled");
     expect(mocks.setPricingSnapshotAutoRefresh).toHaveBeenCalledWith(7);
-    expect(mocks.maybeRefreshPricingSnapshot).toHaveBeenCalledWith(
-      expect.objectContaining({
-        reason: "init",
-        snapshotSelection: "bundled",
-      }),
-    );
+    expect(mocks.maybeRefreshPricingSnapshot).not.toHaveBeenCalled();
   });
 
   it("loads config before honoring the first session.idle trigger", async () => {
@@ -285,7 +304,7 @@ describe("/quota command behavior", () => {
     expect(message).not.toContain("81% left");
   });
 
-  it("keeps /quota remaining-oriented when percentDisplayMode is used", async () => {
+  it("honors percentDisplayMode for /quota output", async () => {
     mocks.loadConfig.mockResolvedValueOnce({
       ...DEFAULT_CONFIG,
       enabled: true,
@@ -309,19 +328,14 @@ describe("/quota command behavior", () => {
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient();
-    const hooks = await QuotaToastPlugin({ client } as any);
+    await QuotaToastPlugin({ client } as any);
 
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-quota-percent-display-boundary",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
-
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    const injected = getPromptText(client);
-    expect(injected).toContain("81% left");
-    expect(injected).not.toContain("19% left");
+    const injected = await buildDialogOutput({
+      client,
+      sessionID: "session-quota-percent-display-boundary",
+    });
+    expect(injected).toContain("19% used");
+    expect(injected).not.toContain("81% left");
   });
 
   it("rewrites default_agent only when one zero-width-normalized key matches", async () => {
@@ -367,17 +381,9 @@ describe("/quota command behavior", () => {
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient();
-    const hooks = await QuotaToastPlugin({ client } as any);
+    await QuotaToastPlugin({ client } as any);
 
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-errors",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
-
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    const injected = getPromptText(client);
+    const injected = await buildDialogOutput({ client, sessionID: "session-errors" });
     expect(injected).toContain("Alibaba Coding Plan: Unsupported Alibaba Coding Plan tier: max");
     expect(injected).not.toContain("Providers detected");
   });
@@ -392,17 +398,9 @@ describe("/quota command behavior", () => {
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient({ modelID: "auto", providerID: "cursor" });
-    const hooks = await QuotaToastPlugin({ client } as any);
+    await QuotaToastPlugin({ client } as any);
 
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-fetch-failure",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
-
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    const injected = getPromptText(client);
+    const injected = await buildDialogOutput({ client, sessionID: "session-fetch-failure" });
     expect(injected).toContain("Cursor: Failed to read quota data");
     expect(injected).not.toContain("Providers detected");
   });
@@ -639,17 +637,9 @@ describe("/quota command behavior", () => {
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient({ modelID: "auto", providerID: "cursor" });
-    const hooks = await QuotaToastPlugin({ client } as any);
+    await QuotaToastPlugin({ client } as any);
 
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-cursor-empty",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
-
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    const injected = getPromptText(client);
+    const injected = await buildDialogOutput({ client, sessionID: "session-cursor-empty" });
     expect(injected).toContain("Cursor: No local usage yet");
     expect(injected).not.toContain("Cursor: Not configured");
   });
@@ -680,17 +670,9 @@ describe("/quota command behavior", () => {
       modelID: "anthropic/claude-sonnet-4-5",
       providerID: "anthropic",
     });
-    const hooks = await QuotaToastPlugin({ client } as any);
+    await QuotaToastPlugin({ client } as any);
 
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-anthropic-empty",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
-
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    const injected = getPromptText(client);
+    const injected = await buildDialogOutput({ client, sessionID: "session-anthropic-empty" });
     expect(injected).toContain(
       "Anthropic: Quota unavailable via local Claude CLI or Claude OAuth fallback",
     );
@@ -723,17 +705,9 @@ describe("/quota command behavior", () => {
       modelID: "anthropic/claude-sonnet-4-5",
       providerID: "anthropic",
     });
-    const hooks = await QuotaToastPlugin({ client } as any);
+    await QuotaToastPlugin({ client } as any);
 
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-anthropic-auto-empty",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
-
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    const injected = getPromptText(client);
+    const injected = await buildDialogOutput({ client, sessionID: "session-anthropic-auto-empty" });
     expect(injected).toContain(
       "Anthropic: Quota unavailable via local Claude CLI or Claude OAuth fallback",
     );
@@ -760,18 +734,11 @@ describe("/quota command behavior", () => {
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient({ modelID: "openai/gpt-5" });
-    const hooks = await QuotaToastPlugin({ client } as any);
+    await QuotaToastPlugin({ client } as any);
 
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-filtered-out",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+    const injected = await buildDialogOutput({ client, sessionID: "session-filtered-out" });
 
     expect(provider.fetch).not.toHaveBeenCalled();
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    const injected = getPromptText(client);
     expect(injected).toContain(
       "No enabled quota providers matched the current model: openai/gpt-5.",
     );
@@ -779,7 +746,7 @@ describe("/quota command behavior", () => {
   });
 
   it("does not reuse shared /quota output after the current model changes in the same session", async () => {
-    mocks.loadConfig.mockResolvedValueOnce({
+    mocks.loadConfig.mockResolvedValue({
       ...DEFAULT_CONFIG,
       enabled: true,
       onlyCurrentModel: true,
@@ -805,27 +772,19 @@ describe("/quota command behavior", () => {
     let currentSession = { data: { modelID: "openai/gpt-5", providerID: "openai" } };
     client.session.get = vi.fn().mockImplementation(async () => currentSession);
 
-    const hooks = await QuotaToastPlugin({ client } as any);
+    await QuotaToastPlugin({ client } as any);
 
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-model-switch",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+    const firstInjected = await buildDialogOutput({
+      client,
+      sessionID: "session-model-switch",
+    });
 
     currentSession = { data: { modelID: "openai/gpt-4.1", providerID: "openai" } };
 
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-model-switch",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
-
-    expect(client.session.prompt).toHaveBeenCalledTimes(2);
-    const firstInjected = getPromptText(client);
-    const secondInjected = getPromptText(client, 1);
+    const secondInjected = await buildDialogOutput({
+      client,
+      sessionID: "session-model-switch",
+    });
 
     expect(firstInjected).toContain("95% left");
     expect(secondInjected).toContain(
@@ -857,24 +816,108 @@ describe("/quota command behavior", () => {
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient();
-    const hooks = await QuotaToastPlugin({ client } as any);
+    await QuotaToastPlugin({ client } as any);
 
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-a",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-b",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+    const firstOutput = await buildDialogOutput({ client, sessionID: "session-a" });
+    const secondOutput = await buildDialogOutput({ client, sessionID: "session-b" });
 
     expect(provider.fetch).toHaveBeenCalledTimes(1);
-    expect(getPromptText(client, 0)).toContain("95% left");
-    expect(getPromptText(client, 1)).toContain("95% left");
+    expect(firstOutput).toContain("95% left");
+    expect(secondOutput).toContain("95% left");
+  });
+
+  it("caches rendered DeepSeek value-only toast rows", async () => {
+    mocks.loadConfig.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      enabled: true,
+      enabledProviders: ["deepseek"],
+      showOnIdle: true,
+      showOnCompact: false,
+      showOnQuestion: false,
+      showSessionTokens: false,
+      minIntervalMs: 60_000,
+    });
+
+    const provider = {
+      id: "deepseek",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [{ kind: "value", name: "DeepSeek Balance", value: "$12.34" }],
+        errors: [],
+      }),
+    };
+    mocks.getProviders.mockReturnValue([provider]);
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const client = createClient({ modelID: "deepseek-chat", providerID: "deepseek" });
+    const hooks = await QuotaToastPlugin({ client } as any);
+
+    await hooks.event?.({
+      event: {
+        type: "session.idle",
+        properties: { sessionID: "session-deepseek-value" },
+      },
+    } as any);
+    await hooks.event?.({
+      event: {
+        type: "session.idle",
+        properties: { sessionID: "session-deepseek-value" },
+      },
+    } as any);
+
+    expect(client.tui.showToast).toHaveBeenCalledTimes(2);
+    expect(getToastMessage(client, 0)).toContain("$12.34");
+    expect(getToastMessage(client, 1)).toContain("$12.34");
+    expect(provider.isAvailable).toHaveBeenCalledTimes(1);
+    expect(provider.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not cache rendered error-only toast results", async () => {
+    mocks.loadConfig.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      enabled: true,
+      enabledProviders: ["deepseek"],
+      showOnIdle: true,
+      showOnCompact: false,
+      showOnQuestion: false,
+      showOnBothFail: true,
+      showSessionTokens: false,
+      minIntervalMs: 60_000,
+    });
+
+    const provider = {
+      id: "deepseek",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [],
+        errors: [{ label: "DeepSeek", message: "Failed to read quota data" }],
+      }),
+    };
+    mocks.getProviders.mockReturnValue([provider]);
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const client = createClient({ modelID: "deepseek-chat", providerID: "deepseek" });
+    const hooks = await QuotaToastPlugin({ client } as any);
+
+    await hooks.event?.({
+      event: {
+        type: "session.idle",
+        properties: { sessionID: "session-deepseek-error" },
+      },
+    } as any);
+    await hooks.event?.({
+      event: {
+        type: "session.idle",
+        properties: { sessionID: "session-deepseek-error" },
+      },
+    } as any);
+
+    expect(client.tui.showToast).toHaveBeenCalledTimes(2);
+    expect(getToastMessage(client, 0)).toContain("DeepSeek: Failed to read quota data");
+    expect(getToastMessage(client, 1)).toContain("DeepSeek: Failed to read quota data");
+    expect(provider.isAvailable).toHaveBeenCalledTimes(2);
   });
 
   it("keys toast throttling by session render context so sessions do not share cached output", async () => {
@@ -933,7 +976,7 @@ describe("/quota command behavior", () => {
   });
 
   it("keeps concurrent /quota session-token output isolated per session", async () => {
-    mocks.loadConfig.mockResolvedValueOnce({
+    mocks.loadConfig.mockResolvedValue({
       ...DEFAULT_CONFIG,
       enabled: true,
       showOnQuestion: false,
@@ -971,16 +1014,10 @@ describe("/quota command behavior", () => {
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient({ modelID: "openai/gpt-5", providerID: "openai" });
-    const hooks = await QuotaToastPlugin({ client } as any);
+    await QuotaToastPlugin({ client } as any);
 
-    const firstRun = hooks["command.execute.before"]?.({
-      command: "quota",
-      sessionID: "session-a",
-    } as any);
-    const secondRun = hooks["command.execute.before"]?.({
-      command: "quota",
-      sessionID: "session-b",
-    } as any);
+    const firstRun = buildDialogOutput({ client, sessionID: "session-a" });
+    const secondRun = buildDialogOutput({ client, sessionID: "session-b" });
 
     for (let attempt = 0; attempt < 20; attempt++) {
       if (
@@ -1014,17 +1051,8 @@ describe("/quota command behavior", () => {
       error: undefined,
     });
 
-    await expect(secondRun).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
-    await expect(firstRun).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
-
-    const promptOutputs = client.session.prompt.mock.calls.map((call) => ({
-      sessionID: call?.[0]?.path?.id,
-      text: call?.[0]?.body?.parts?.[0]?.text ?? "",
-    }));
-    const sessionAOutput =
-      promptOutputs.find((output) => output.sessionID === "session-a")?.text ?? "";
-    const sessionBOutput =
-      promptOutputs.find((output) => output.sessionID === "session-b")?.text ?? "";
+    const sessionBOutput = await secondRun;
+    const sessionAOutput = await firstRun;
 
     expect(sessionAOutput).toContain("session-a-model");
     expect(sessionAOutput).not.toContain("session-b-model");
@@ -1057,23 +1085,12 @@ describe("/quota command behavior", () => {
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient({ modelID: "qwen-code/qwen3-coder-plus" });
-    const hooks = await QuotaToastPlugin({ client } as any);
+    await QuotaToastPlugin({ client } as any);
 
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-qwen",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-qwen",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+    await buildDialogOutput({ client, sessionID: "session-qwen" });
+    const latest = await buildDialogOutput({ client, sessionID: "session-qwen" });
 
     expect(provider.fetch).toHaveBeenCalledTimes(2);
-    const latest = getPromptText(client, 1);
     expect(latest).toContain("80% left");
   });
 
@@ -1103,23 +1120,12 @@ describe("/quota command behavior", () => {
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient({ modelID: "alibaba/qwen3-coder-plus" });
-    const hooks = await QuotaToastPlugin({ client } as any);
+    await QuotaToastPlugin({ client } as any);
 
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-alibaba",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-alibaba",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+    await buildDialogOutput({ client, sessionID: "session-alibaba" });
+    const latest = await buildDialogOutput({ client, sessionID: "session-alibaba" });
 
     expect(provider.fetch).toHaveBeenCalledTimes(2);
-    const latest = getPromptText(client, 1);
     expect(latest).toContain("60% left");
   });
 
@@ -1144,23 +1150,12 @@ describe("/quota command behavior", () => {
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient({ modelID: "auto", providerID: "cursor" });
-    const hooks = await QuotaToastPlugin({ client } as any);
+    await QuotaToastPlugin({ client } as any);
 
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-cursor",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-cursor",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+    await buildDialogOutput({ client, sessionID: "session-cursor" });
+    const latest = await buildDialogOutput({ client, sessionID: "session-cursor" });
 
     expect(provider.fetch).toHaveBeenCalledTimes(2);
-    const latest = getPromptText(client, 1);
     expect(latest).toContain("90% left");
   });
 
@@ -1186,17 +1181,16 @@ describe("/quota command behavior", () => {
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient();
-    const hooks = await QuotaToastPlugin({ client } as any);
+    await QuotaToastPlugin({ client } as any);
     await Promise.resolve();
     await Promise.resolve();
     mocks.maybeRefreshPricingSnapshot.mockClear();
 
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "pricing_refresh",
-        sessionID: "session-pricing-refresh",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+    const injected = await buildDialogOutput({
+      command: "pricing_refresh",
+      client,
+      sessionID: "session-pricing-refresh",
+    });
 
     expect(mocks.maybeRefreshPricingSnapshot).toHaveBeenCalledWith({
       reason: "manual",
@@ -1204,7 +1198,6 @@ describe("/quota command behavior", () => {
       snapshotSelection: "bundled",
       allowRefreshWhenSelectionBundled: true,
     });
-    const injected = getPromptText(client);
     expect(injected).toContain("Pricing Refresh (/pricing_refresh)");
     expect(injected).toContain("- selection: configured=bundled active=bundled");
     expect(injected).toContain(
@@ -1215,29 +1208,21 @@ describe("/quota command behavior", () => {
   it("rejects /pricing_refresh arguments", async () => {
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient();
-    const hooks = await QuotaToastPlugin({ client } as any);
+    await QuotaToastPlugin({ client } as any);
 
     // Force first config load so deferred init completes before our assertion.
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-warmup",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+    await buildDialogOutput({ client, sessionID: "session-warmup" });
     await Promise.resolve();
     mocks.maybeRefreshPricingSnapshot.mockClear();
-    client.session.prompt.mockClear();
 
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "pricing_refresh",
-        arguments: '{"force":false}',
-        sessionID: "session-pricing-refresh-invalid",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+    const injected = await buildDialogOutput({
+      command: "pricing_refresh",
+      arguments: '{"force":false}',
+      client,
+      sessionID: "session-pricing-refresh-invalid",
+    });
 
     expect(mocks.maybeRefreshPricingSnapshot).not.toHaveBeenCalled();
-    const injected = getPromptText(client);
     expect(injected).toContain("Invalid arguments for /pricing_refresh");
     expect(injected).toContain("This command does not accept arguments.");
   });

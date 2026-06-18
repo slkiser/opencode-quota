@@ -156,6 +156,27 @@ describe("cursor provider", () => {
     expect(out.errors[0]?.message).toContain("Unknown Cursor model ids");
   });
 
+  it("guards against division by zero when includedApiUsd override is zero", async () => {
+    const { getCurrentCursorUsageSummary } = await import("../src/lib/cursor-usage.js");
+    (getCurrentCursorUsageSummary as any).mockResolvedValue({
+      window: { resetTimeIso: "2026-03-01T00:00:00.000Z" },
+      api: { costUsd: 0, tokens: {}, messageCount: 1 },
+      autoComposer: { costUsd: 0, tokens: {}, messageCount: 0 },
+      total: { costUsd: 0, tokens: {}, messageCount: 1 },
+      unknownModels: [],
+    });
+
+    const out = await cursorProvider.fetch({
+      config: { cursorPlan: "pro", cursorIncludedApiUsd: 0 },
+    } as any);
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries[0]).toMatchObject({
+      right: "$0.00/$0.00",
+      percentRemaining: 0,
+    });
+  });
+
   it("treats the current Cursor provider id as an availability signal", async () => {
     const { isCanonicalProviderAvailable } = await import("../src/lib/provider-availability.js");
     const { inspectCursorOpenCodeIntegration } = await import("../src/lib/cursor-detection.js");

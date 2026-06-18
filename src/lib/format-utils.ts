@@ -120,13 +120,15 @@ export function renderCommandHeading(params: { title: string; generatedAtMs?: nu
   return `# ${params.title} ${formatLocalCallTimestamp(params.generatedAtMs)}`;
 }
 
+export function abbreviateDisplayedModelName(name: string): string {
+  return name.replace(/antigravity/gi, "agy");
+}
+
 export function shortenModelName(name: string, maxLen: number): string {
-  if (name.length <= maxLen) return name;
-  // Remove common prefixes/suffixes
-  let s = name
-    .replace(/^antigravity-/i, "")
-    .replace(/-thinking$/i, "")
-    .replace(/-preview$/i, "");
+  const abbreviated = abbreviateDisplayedModelName(name);
+  if (abbreviated.length <= maxLen) return abbreviated;
+  // Remove common suffixes before truncating.
+  const s = abbreviated.replace(/-thinking$/i, "").replace(/-preview$/i, "");
   if (s.length <= maxLen) return s;
   // Truncate with ellipsis
   return s.slice(0, maxLen - 1) + "\u2026";

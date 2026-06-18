@@ -1,6 +1,6 @@
 {
   "name": "@slkiser/opencode-quota",
-  "version": "3.8.7",
+  "version": "3.10.1",
   "packageManager": "pnpm@11.0.0",
   "description": "OpenCode quota & tokens usage with zero context window pollution. Supports GitHub Copilot, OpenAI (Plus/Pro), Qwen Code, Chutes AI, Synthetic, Google Antigravity, Z.ai coding plan and more.",
   "type": "module",
@@ -33,7 +33,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc && node scripts/copy-data.mjs && node scripts/prepare-tui-dist.mjs",
+    "build": "node scripts/clean-dist.mjs && tsc && node scripts/copy-data.mjs && node scripts/prepare-tui-dist.mjs",
     "build:check": "pnpm run build && pnpm pack --dry-run",
     "pricing:refresh": "node scripts/refresh-modelsdev-pricing.mjs",
     "pricing:refresh:if-stale": "node scripts/refresh-modelsdev-pricing-if-stale.mjs",
@@ -86,10 +86,13 @@
     "solid-js": "^1.9.12",
     "xdg-basedir": "^5.1.0"
   },
+  "optionalDependencies": {
+    "better-sqlite3": "^12.10.0"
+  },
   "peerDependencies": {
     "@opencode-ai/plugin": "^1.4.3"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   }
 }

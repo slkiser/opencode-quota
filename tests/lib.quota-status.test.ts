@@ -259,14 +259,6 @@ vi.mock("../src/lib/chutes.js", () => ({
   })),
 }));
 
-vi.mock("../src/lib/crof.js", () => ({
-  getCrofKeyDiagnostics: vi.fn(async () => ({
-    configured: false,
-    source: null,
-    checkedPaths: [],
-  })),
-}));
-
 vi.mock("../src/lib/nanogpt.js", () => ({
   getNanoGptKeyDiagnostics: nanoGptMocks.getNanoGptKeyDiagnostics,
   queryNanoGptQuota: nanoGptMocks.queryNanoGptQuota,
@@ -411,7 +403,6 @@ vi.mock("../src/providers/registry.js", () => ({
     { id: "copilot" },
     { id: "cursor" },
     { id: "synthetic" },
-    { id: "crof" },
     { id: "nanogpt" },
     { id: "deepseek" },
     { id: "kimi-for-coding" },
@@ -654,8 +645,6 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- api_key_auth_paths: /tmp/auth.json");
     expect(report).toContain("synthetic:");
     expect(report).toContain("chutes:");
-    expect(report).toContain("crof:");
-    expect(report).toContain("- crof api key: configured=false");
     expect(report).toContain("cursor:");
     expect(report).toContain("- plan: Pro");
     expect(report).toContain("- included_api_usd: $20.00");
@@ -698,9 +687,6 @@ describe("buildQuotaStatusReport", () => {
     );
     expect(report).toContain(
       "- nanogpt: pricing=no (subscription request quota + account balance (not token-priced))",
-    );
-    expect(report).toContain(
-      "- crof: pricing=no (request quota + credits (not token-priced))",
     );
     expect(report).toContain(
       "- kimi-for-coding: pricing=no (request quota via Kimi Code API (not token-priced))",
@@ -1680,7 +1666,6 @@ zai:
 zhipu:
 synthetic:
 chutes:
-crof:
 deepseek:
 litellm:
 nanogpt:

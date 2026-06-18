@@ -159,6 +159,39 @@ describe("formatQuotaCommand", () => {
     expect(out.indexOf("5h:")).toBeLessThan(out.indexOf("Weekly:"));
   });
 
+  it("honors used percent display mode in /quota percent rows", () => {
+    const out = formatQuotaCommand({
+      entries: [
+        {
+          name: "OpenAI Pro",
+          percentRemaining: 81,
+        },
+      ],
+      errors: [],
+      percentDisplayMode: "used",
+    });
+
+    expect(out).toContain("19% used");
+    expect(out).not.toContain("81% left");
+    expect(out).toContain("███░░░░░░░░░░░░░░░");
+  });
+
+  it("renders over-quota used percentages with a full /quota bar", () => {
+    const out = formatQuotaCommand({
+      entries: [
+        {
+          name: "OpenAI Pro",
+          percentRemaining: -25,
+        },
+      ],
+      errors: [],
+      percentDisplayMode: "used",
+    });
+
+    expect(out).toContain("125% used");
+    expect(out).toContain("██████████████████");
+  });
+
   it("keeps /quota reset formatting independent from compact toast resets", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));

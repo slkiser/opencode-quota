@@ -29,6 +29,8 @@ export interface PricingSnapshotConfig {
 
 export interface TuiSidebarPanelConfig {
   enabled: boolean;
+  /** Per-surface formatStyle override. Falls back to root formatStyle when absent. */
+  formatStyle?: QuotaFormatStyle;
 }
 
 export interface TuiCompactStatusConfig {
@@ -37,6 +39,19 @@ export interface TuiCompactStatusConfig {
   sessionPrompt: boolean;
   suppressWhenNativeProviderQuota: boolean;
   maxWidth: number;
+  /** Per-surface formatStyle override. Falls back to root formatStyle when absent. */
+  formatStyle?: QuotaFormatStyle;
+}
+
+export interface QuotaExportConfig {
+  /** Whether to write the export file after each background refresh. Default: false. */
+  enabled: boolean;
+  /**
+   * Absolute path or ~/… path for the export file.
+   * Empty string means use the XDG default:
+   *   $XDG_CACHE_HOME/opencode/quota-export.json
+   */
+  path: string;
 }
 
 export interface MaintainerAnnouncementsConfig {
@@ -132,6 +147,9 @@ export interface QuotaToastConfig {
   /** Bundled-only maintainer announcement surfaces. */
   maintainerAnnouncements: MaintainerAnnouncementsConfig;
 
+  /** Opt-in periodic JSON export for external tool consumption. */
+  export: QuotaExportConfig;
+
   /** Responsive toast layout breakpoints (not used by the fixed-width TUI sidebar). */
   layout: {
     /** Default max width target for toast formatting */
@@ -190,6 +208,10 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   maintainerAnnouncements: {
     enabled: true,
     home: true,
+  },
+  export: {
+    enabled: false,
+    path: "",
   },
   layout: {
     maxWidth: 50,
@@ -631,16 +653,6 @@ export type ChutesResult =
     }
   | QuotaError
   | null;
-export type CrofResult =
-  | {
-      success: true;
-      credits: number;
-      requestsPlan: number;
-      usableRequests: number;
-      percentRemaining: number;
-    }
-  | QuotaError
-  | null;
 export interface SyntheticQuotaWindow {
   limit: number;
   used: number;
@@ -654,6 +666,30 @@ export type SyntheticResult =
         fiveHour: SyntheticQuotaWindow;
         weekly: SyntheticQuotaWindow;
       };
+    }
+  | QuotaError
+  | null;
+
+/** Single usage window from Ollama Cloud settings page */
+export interface OllamaCloudWindow {
+  /** Usage percentage [0..100] */
+  usagePercent: number;
+  /** Remaining percentage [0..100] */
+  percentRemaining: number;
+  /** ISO reset timestamp */
+  resetTimeIso?: string;
+}
+
+/** Result from scraping Ollama Cloud settings page */
+export type OllamaCloudResult =
+  | {
+      success: true;
+      /** Session usage window, when present */
+      session?: OllamaCloudWindow;
+      /** Weekly usage window, when present */
+      weekly?: OllamaCloudWindow;
+      /** Plan tier (e.g. "free", "pro") */
+      planTier?: string;
     }
   | QuotaError
   | null;

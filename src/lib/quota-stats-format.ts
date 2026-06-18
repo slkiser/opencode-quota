@@ -1,4 +1,5 @@
 import type { AggregateResult, SessionTreeNode, TokenBuckets } from "./quota-stats.js";
+import { abbreviateDisplayedModelName } from "./format-utils.js";
 import type { WidthMode } from "./markdown-table.js";
 import { renderMarkdownReport, type ReportDocument, type ReportSection } from "./report-document.js";
 import { emptyTokenBuckets, totalTokenBuckets } from "./token-buckets.js";
@@ -13,6 +14,11 @@ function fmtUsd(n: number): string {
 
 type SessionReportRow = AggregateResult["bySession"][number];
 type QuotaStatsReportKind = "standard" | "session" | "session_tree";
+
+type QuotaStatsReportTableOptions = {
+  compactHeaders?: boolean;
+  modelNameMaxWidth?: number;
+};
 
 function hasRenderableSessionUsage(row: SessionReportRow): boolean {
   return totalTokenBuckets(row.tokens) > 0 || row.costUsd > 0;
@@ -99,6 +105,28 @@ function normalizeSourceModelId(modelID: string): string {
   return (modelID ?? "unknown").trim();
 }
 
+function middleEllipsize(text: string, maxWidth: number): string {
+  const safeWidth = Math.trunc(maxWidth);
+  if (!Number.isFinite(safeWidth) || safeWidth <= 0) return "";
+  if (text.length <= safeWidth) return text;
+  if (safeWidth === 1) return "…";
+
+  const keep = safeWidth - 1;
+  const head = Math.ceil(keep / 2);
+  const tail = Math.floor(keep / 2);
+  return `${text.slice(0, head)}…${tail > 0 ? text.slice(-tail) : ""}`;
+}
+
+function formatSourceModelId(modelID: string, maxWidth?: number): string {
+  const displayed = abbreviateDisplayedModelName(normalizeSourceModelId(modelID));
+  return maxWidth ? middleEllipsize(displayed, maxWidth) : displayed;
+}
+
+function formatDiagnosticSourceModelId(modelID: string, maxWidth?: number): string {
+  if (!maxWidth) return abbreviateDisplayedModelName(modelID);
+  return middleEllipsize(abbreviateDisplayedModelName(normalizeSourceModelId(modelID)), maxWidth);
+}
+
 function sourceSortKey(source: string): number {
   const s = source.toLowerCase();
   if (s === "opencode") return 1;
@@ -136,10 +164,12 @@ export function formatQuotaStatsReport(params: {
     nodes: SessionTreeNode[];
   };
   generatedAtMs?: number;
+  tableOptions?: QuotaStatsReportTableOptions;
 }): string {
   const topModels = params.topModels ?? 12;
   const topSessions = params.topSessions ?? 8;
   const r = params.result;
+  const tableOptions = params.tableOptions ?? {};
   const reportKind = params.reportKind ?? (params.sessionOnly ? "session" : "standard");
   const sessionOnly = reportKind === "session";
   const sessionTreeMode = reportKind === "session_tree";
@@ -161,7 +191,7 @@ export function formatQuotaStatsReport(params: {
       blocks: [
         {
           kind: "table",
-          headers: ["Messages", "Tokens", "Cost"],
+          headers: tableOptions.compactHeaders ? ["Msgs", "Tok", "Cost"] : ["Messages", "Tokens", "Cost"],
           aligns: ["right", "right", "right"],
           widthMode: TABLE_WIDTH_MODE,
           rows: [
@@ -180,7 +210,9 @@ export function formatQuotaStatsReport(params: {
       blocks: [
         {
           kind: "table",
-          headers: ["Messages", "Sessions", "Tokens", "Cost"],
+          headers: tableOptions.compactHeaders
+            ? ["Msgs", "Sess", "Tok", "Cost"]
+            : ["Messages", "Sessions", "Tokens", "Cost"],
           aligns: ["right", "right", "right", "right"],
           widthMode: TABLE_WIDTH_MODE,
           rows: [
@@ -200,7 +232,9 @@ export function formatQuotaStatsReport(params: {
       blocks: [
         {
           kind: "table",
-          headers: ["Window", "Messages", "Sessions", "Tokens", "Cost"],
+          headers: tableOptions.compactHeaders
+            ? ["Window", "Msgs", "Sess", "Tok", "Cost"]
+            : ["Window", "Messages", "Sessions", "Tokens", "Cost"],
           aligns: ["left", "right", "right", "right", "right"],
           widthMode: TABLE_WIDTH_MODE,
           rows: [
@@ -222,13 +256,15 @@ export function formatQuotaStatsReport(params: {
     r.totals.unknown.reasoning > 0 ||
     r.totals.unpriced.reasoning > 0;
 
-  const headers = ["Source", "Model", "Input", "Output", "C.Read", "C.Write"];
+  const headers = tableOptions.compactHeaders
+    ? ["Source", "Model", "In", "Out", "C.Rd", "C.Wr"]
+    : ["Source", "Model", "Input", "Output", "C.Read", "C.Write"];
   const aligns: Array<"left" | "right"> = ["left", "left", "right", "right", "right", "right"];
   if (hasAnyReasoning) {
-    headers.push("Reasoning");
+    headers.push(tableOptions.compactHeaders ? "Rsn" : "Reasoning");
     aligns.push("right");
   }
-  headers.push("Total", "Cost");
+  headers.push(tableOptions.compactHeaders ? "Tok" : "Total", "Cost");
   aligns.push("right", "right");
 
   const rows: string[][] = [];
@@ -256,7 +292,7 @@ export function formatQuotaStatsReport(params: {
       const t = row.tokens;
       const out: string[] = [
         src,
-        normalizeSourceModelId(row.sourceModelID),
+        formatSourceModelId(row.sourceModelID, tableOptions.modelNameMaxWidth),
         fmtCompact(t.input),
         fmtCompact(t.output),
         fmtCompact(t.cache_read),
@@ -310,7 +346,9 @@ export function formatQuotaStatsReport(params: {
       blocks: [
         {
           kind: "table",
-          headers: ["Relation", "Parent", "Session", "Cost", "Tokens", "Msgs", "Title"],
+          headers: tableOptions.compactHeaders
+            ? ["Rel", "Parent", "Session", "Cost", "Tok", "Msgs", "Title"]
+            : ["Relation", "Parent", "Session", "Cost", "Tokens", "Msgs", "Title"],
           aligns: ["left", "left", "left", "right", "right", "right", "left"],
           widthMode: TABLE_WIDTH_MODE,
           rows: sessionTreeRows,
@@ -360,7 +398,9 @@ export function formatQuotaStatsReport(params: {
           ? [
               {
                 kind: "table",
-                headers: ["Current", "Session", "Cost", "Tokens", "Msgs", "Title"],
+                headers: tableOptions.compactHeaders
+                  ? ["Cur", "Session", "Cost", "Tok", "Msgs", "Title"]
+                  : ["Current", "Session", "Cost", "Tokens", "Msgs", "Title"],
                 aligns: ["left", "left", "right", "right", "right", "left"],
                 widthMode: TABLE_WIDTH_MODE,
                 rows: sessionRows,
@@ -377,14 +417,16 @@ export function formatQuotaStatsReport(params: {
       blocks: [
         {
           kind: "table",
-          headers: ["Source", "Model", "Mapped", "Reason", "Tokens", "Msgs"],
+          headers: tableOptions.compactHeaders
+            ? ["Source", "Model", "Map", "Reason", "Tok", "Msgs"]
+            : ["Source", "Model", "Mapped", "Reason", "Tokens", "Msgs"],
           aligns: ["left", "left", "left", "left", "right", "right"],
           widthMode: TABLE_WIDTH_MODE,
           rows: r.unpriced.slice(0, 20).map((u) => {
             const mapped = `${u.key.mappedProvider}/${u.key.mappedModel}`;
             return [
               normalizeSourceName(u.key.sourceProviderID),
-              u.key.sourceModelID,
+              formatDiagnosticSourceModelId(u.key.sourceModelID, tableOptions.modelNameMaxWidth),
               mapped,
               u.key.reason,
               fmtCompact(totalTokenBuckets(u.tokens)),
@@ -403,7 +445,9 @@ export function formatQuotaStatsReport(params: {
       blocks: [
         {
           kind: "table",
-          headers: ["Source", "Model", "Mapped", "Tokens", "Msgs"],
+          headers: tableOptions.compactHeaders
+            ? ["Source", "Model", "Map", "Tok", "Msgs"]
+            : ["Source", "Model", "Mapped", "Tokens", "Msgs"],
           aligns: ["left", "left", "left", "right", "right"],
           widthMode: TABLE_WIDTH_MODE,
           rows: r.unknown.slice(0, 20).map((u) => {
@@ -423,7 +467,7 @@ export function formatQuotaStatsReport(params: {
                 : mappedBase;
             return [
               normalizeSourceName(u.key.sourceProviderID),
-              u.key.sourceModelID,
+              formatDiagnosticSourceModelId(u.key.sourceModelID, tableOptions.modelNameMaxWidth),
               mapped,
               fmtCompact(totalTokenBuckets(u.tokens)),
               fmtCompact(u.messageCount),

@@ -8,13 +8,21 @@
 import { clampPercent } from "./format-utils.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
-import type {
-  ZaiResult,
-  ZaiQuotaResponse,
-} from "./types.js";
+import type { ZaiQuotaLimit, ZaiResult } from "./types.js";
 import { resolveZaiAuthCached } from "./zai-auth.js";
 
 const ZAI_QUOTA_URL = "https://api.z.ai/api/monitor/usage/quota/limit";
+
+type ZaiQuotaApiResponse = {
+  code?: number;
+  msg?: unknown;
+  data?: {
+    limits?: ZaiQuotaLimit[] | null;
+    level?: string;
+  };
+  limits?: ZaiQuotaLimit[] | null;
+  success?: boolean;
+};
 
 export async function queryZaiQuota(options: { requestTimeoutMs?: number } = {}): Promise<ZaiResult> {
   const auth = await resolveZaiAuthCached();
@@ -39,8 +47,16 @@ export async function queryZaiQuota(options: { requestTimeoutMs?: number } = {})
       };
     }
 
-    const data = (await resp.json()) as ZaiQuotaResponse;
-    const limits = data.data.limits;
+    const data = (await resp.json()) as ZaiQuotaApiResponse;
+    if (data.success === false || (typeof data.code === "number" && data.code >= 400)) {
+      const msg = typeof data.msg === "string" ? sanitizeDisplayText(data.msg) : "";
+      return {
+        success: false,
+        error: msg || (typeof data.code === "number" ? `Z.ai API error ${data.code}` : "Z.ai API error"),
+      };
+    }
+
+    const limits = data.data?.limits ?? data.limits;
 
     if (!limits || !Array.isArray(limits)) {
       return { success: false, error: "Invalid quota data" };

@@ -22,7 +22,35 @@ jobs:
         with:
           script: |
             const issue = context.payload.issue;
-            const body = issue.body || "";
+
+            if (issue.user?.login === "slkiser") {
+              core.info("Skipping malformed issue auto-close for slkiser-authored issue.");
+              return;
+            }
+
+            if (context.payload.action === "reopened") {
+              try {
+                const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  username: context.actor,
+                });
+                if (["admin", "maintain", "write"].includes(permission.permission)) {
+                  core.info(`Skipping malformed issue auto-close for maintainer-reopened issue by ${context.actor}.`);
+                  return;
+                }
+              } catch (error) {
+                core.info(`Could not determine reopen actor permission for ${context.actor}; continuing validation. ${error}`);
+              }
+            }
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              per_page: 100,
+            });
+            const validationBodies = [issue.body || "", ...comments.map((comment) => comment.body || "")];
             const labels = (issue.labels || []).map((label) => label.name);
             const title = issue.title || "";
 
@@ -47,14 +75,129 @@ jobs:
               ]
             };
 
+            const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
             const hasHeading = (heading) => {
-              const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-              return new RegExp(`^${escaped}$`, "m").test(body);
+              const escaped = escapeRegExp(heading);
+              return validationBodies.some((body) => new RegExp(`^${escaped}$`, "m").test(body));
+            };
+
+            const getSections = (heading) => {
+              const sections = [];
+              for (const body of validationBodies) {
+                const lines = body.split(/\r?\n/);
+                const start = lines.findIndex((line) => line.trim() === heading);
+                if (start === -1) {
+                  continue;
+                }
+
+                const sectionLines = [];
+                for (const line of lines.slice(start + 1)) {
+                  if (/^###\s+/.test(line.trim())) {
+                    break;
+                  }
+                  sectionLines.push(line);
+                }
+                sections.push(sectionLines.join("\n"));
+              }
+              return sections;
+            };
+
+            const normalize = (value) => value.replace(/\r/g, "").trim();
+
+            const isBlankResponse = (value) => {
+              const normalized = normalize(value).replace(/^_+|_+$/g, "");
+              return normalized === "" || /^No response$/i.test(normalized);
+            };
+
+            const hasTextValue = (heading, placeholders = []) => {
+              if (!hasHeading(heading)) {
+                return true;
+              }
+
+              return getSections(heading).some((section) => {
+                const value = normalize(section);
+                if (isBlankResponse(value)) {
+                  return false;
+                }
+
+                return !placeholders.some((placeholder) => value === placeholder);
+              });
+            };
+
+            const hasCheckedRequiredCheckbox = (heading, label) => {
+              if (!hasHeading(heading)) {
+                return true;
+              }
+
+              const escaped = escapeRegExp(label);
+              return getSections(heading).some((section) => new RegExp(`^- \\[x\\] ${escaped}$`, "im").test(section));
+            };
+
+            const hasConcreteAcceptanceCriteria = () => {
+              const heading = "### Acceptance criteria";
+              if (!hasHeading(heading)) {
+                return true;
+              }
+
+              return getSections(heading).some((section) => {
+                const value = normalize(section);
+                if (isBlankResponse(value)) {
+                  return false;
+                }
+
+                const concreteLines = value
+                  .split("\n")
+                  .map((line) => line.trim())
+                  .filter((line) => line !== "" && !/^- \[ \] \.\.\.$/.test(line));
+
+                return concreteLines.length > 0;
+              });
             };
 
             const missingByType = {
               bug: requiredHeadingsByType.bug.filter((heading) => !hasHeading(heading)),
               feature: requiredHeadingsByType.feature.filter((heading) => !hasHeading(heading)),
+            };
+
+            const missingContentByType = {
+              bug: [
+                hasCheckedRequiredCheckbox("### Pre-flight checks", "I searched existing issues and did not find a duplicate.")
+                  ? null
+                  : "Completed pre-flight check: searched existing issues",
+                hasCheckedRequiredCheckbox("### Pre-flight checks", "I verified this on the current production released OpenCode version, or I explain why not below.")
+                  ? null
+                  : "Completed pre-flight check: verified current production OpenCode version or explained why not",
+                hasTextValue("### OpenCode version tested", ["1.2.15"])
+                  ? null
+                  : "Non-placeholder OpenCode version tested",
+                hasTextValue("### opencode-quota version tested", ["2.2.1"])
+                  ? null
+                  : "Non-placeholder opencode-quota version tested",
+                hasTextValue("### Bug summary")
+                  ? null
+                  : "Bug summary"
+              ].filter(Boolean),
+              feature: [
+                hasCheckedRequiredCheckbox("### Pre-flight checks", "I searched existing issues and did not find a duplicate request.")
+                  ? null
+                  : "Completed pre-flight check: searched existing issues",
+                hasCheckedRequiredCheckbox("### Pre-flight checks", "I reviewed current behavior on the production released OpenCode version.")
+                  ? null
+                  : "Completed pre-flight check: reviewed current production OpenCode behavior",
+                hasTextValue("### OpenCode version reviewed", ["1.2.15"])
+                  ? null
+                  : "Non-placeholder OpenCode version reviewed",
+                hasTextValue("### Problem statement")
+                  ? null
+                  : "Problem statement",
+                hasTextValue("### Proposed change")
+                  ? null
+                  : "Proposed change",
+                hasConcreteAcceptanceCriteria()
+                  ? null
+                  : "Concrete acceptance criteria"
+              ].filter(Boolean),
             };
 
             let templateType = null;
@@ -69,7 +212,7 @@ jobs:
             }
 
             const missing = templateType
-              ? missingByType[templateType]
+              ? [...missingByType[templateType], ...missingContentByType[templateType]]
               : ["A recognized Bug report or Feature request issue template"];
 
             if (missing.length === 0) {
@@ -88,12 +231,14 @@ jobs:
             const commentBody = [
               "Thanks for opening this issue.",
               "",
-              "This issue was automatically closed because it does not match the expected issue template format.",
+              "This issue was automatically closed because it does not match the expected issue template format or still contains unchanged default template content.",
               "",
-              "Missing required template sections:",
+              "Missing required template details:",
               missingList,
               "",
               guidance,
+              "",
+              "You may also add the missing details in a follow-up comment and ping @slkiser to request a manual reopen.",
               "",
               "You can open a new issue here: https://github.com/slkiser/opencode-quota/issues/new/choose"
             ].join("\n");

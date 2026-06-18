@@ -103,6 +103,26 @@ describe("upstream-plugin-issues", () => {
     expect(plan.create?.body).toContain("<!-- opencode-quota:issue-state=update_available -->");
   });
 
+  it("creates an issue when same-version npm metadata drifts", () => {
+    const sameVersionLatest = {
+      ...tracked,
+      npmUrl: "https://www.npmjs.com/package/opencode-qwencode-auth/v/1.2.0?activeTab=versions",
+      publishedAt: "2026-03-02T00:00:00.000Z",
+    };
+
+    const plan = planUpstreamPluginIssueAction({
+      existingIssues: [],
+      latest: sameVersionLatest,
+      spec,
+      tracked,
+    });
+
+    expect(plan.create).toMatchObject({
+      title: "[check] opencode-qwencode-auth had update",
+    });
+    expect(plan.create?.body).toContain("<!-- opencode-quota:issue-state=update_available -->");
+  });
+
   it("creates an issue when the tracked copy is behind and no open issue exists", () => {
     const plan = planUpstreamPluginIssueAction({
       existingIssues: [],

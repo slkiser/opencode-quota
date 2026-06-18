@@ -8,6 +8,7 @@ import type {
 } from "@opencode-ai/plugin/tui";
 import { Show, createEffect, createSignal, onCleanup } from "solid-js";
 
+import type { SessionTokenError } from "./lib/quota-status.js";
 import type { CompactStatusState, HomeBottomState, SidebarPanelState } from "./lib/tui-panel-state.js";
 
 import {
@@ -21,10 +22,20 @@ import {
 } from "./lib/tui-panel-state.js";
 import { getSidebarBodyLineColor } from "./lib/tui-line-style.js";
 import {
+  createTuiQuotaClient,
+  getTuiRuntimeRootHints,
+  getTuiSessionModelMeta,
   loadTuiHomeBottomStatus,
+  normalizeTuiSessionID,
   loadTuiSessionQuotaSurfaces,
   resolveTuiSurfaceRegistration,
+  writeTuiQuotaExportIfEnabled,
 } from "./lib/tui-runtime.js";
+import {
+  QUOTA_DIALOG_COMMANDS,
+  buildQuotaDialogCommandOutput,
+  type QuotaDialogCommandId,
+} from "./lib/quota-dialog-commands.js";
 
 const id = "@slkiser/opencode-quota";
 // Place Quota near the top so variable-height built-in sections
@@ -36,6 +47,11 @@ const EVENT_REFRESH_DELAYS_MS = [150, 600] as const;
 const MOUNT_RECOVERY_DELAYS_MS = [500, 1_500, 4_000] as const;
 
 type TuiPromptRefCallback = (ref: TuiPromptRef | undefined) => void;
+type DialogSize = "medium" | "large" | "xlarge";
+
+type QuotaDialogCommandState = {
+  lastSessionTokenError?: SessionTokenError;
+};
 
 type SessionQuotaResource = {
   sessionID: string;
@@ -222,6 +238,11 @@ function createHomeBottomResource(api: TuiPluginApi): HomeBottomResource {
       .then((next) => {
         if (disposed || currentVersion !== loadVersion) return;
         setBottom(next);
+        // Fire-and-forget: write export file if enabled. A failed write must
+        // never affect TUI rendering, so log a warning and continue.
+        void writeTuiQuotaExportIfEnabled({ api }).catch((err) => {
+          console.warn(`[opencode-quota] quota export write failed: ${String(err)}`);
+        });
       })
       .catch(() => {
         if (disposed || currentVersion !== loadVersion) return;
@@ -339,8 +360,8 @@ function SidebarContentView(props: { api: TuiPluginApi; sessionID: string }) {
   };
 
   const displayLines = () => {
-    if (collapsed() || !hasDetailLines()) return lines();
-    return getSidebarPanelLinesExpanded(panel());
+    if (!hasDetailLines()) return lines();
+    return collapsed() ? lines() : getSidebarPanelLinesExpanded(panel());
   };
 
   const toggleIcon = () => (collapsed() ? "▶" : "▼");
@@ -450,6 +471,233 @@ function HomeBottomView(props: { api: TuiPluginApi }) {
   );
 }
 
+function getActiveTuiSessionID(api: TuiPluginApi): string | undefined {
+  const route = (api as any).route?.current;
+  if (route?.name !== "session" && route?.type !== "session") return undefined;
+
+  return normalizeTuiSessionID(
+    route.params?.sessionID ?? route.params?.session_id ?? route.params?.id ?? route.sessionID,
+  );
+}
+
+function getTuiCommandArguments(input: unknown): string | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const record = input as Record<string, unknown>;
+  for (const key of ["arguments", "args", "query"] as const) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function CommandLoadingDialog(props: { api: TuiPluginApi; title: string }) {
+  return (
+    <box gap={1}>
+      <text fg={props.api.theme.current.text}>
+        <b>{props.title}</b>
+      </text>
+      <text fg={props.api.theme.current.textMuted}>Loading deterministic local output…</text>
+    </box>
+  );
+}
+
+function CommandOutputDialog(props: { api: TuiPluginApi; title: string; output: string }) {
+  const lines = () => props.output.split("\n");
+  const bodyHeight = () => Math.min(28, Math.max(6, lines().length));
+  return (
+    <box gap={1} width="100%" flexGrow={1} paddingLeft={2} paddingRight={2} paddingBottom={1}>
+      <text fg={props.api.theme.current.text}>
+        <b>{props.title}</b>
+      </text>
+      <scrollbox width="100%" flexGrow={1} minHeight={bodyHeight()} maxHeight={28}>
+        <box gap={0} width="100%" minWidth={0}>
+          {lines().map((line) => (
+            <text fg={props.api.theme.current.text} wrapMode="word" width="100%">
+              {line || " "}
+            </text>
+          ))}
+        </box>
+      </scrollbox>
+      <text fg={props.api.theme.current.textMuted}>esc closes</text>
+    </box>
+  );
+}
+
+function CommandErrorDialog(props: { api: TuiPluginApi; title: string; error: unknown }) {
+  const message = props.error instanceof Error ? props.error.message : String(props.error);
+  return (
+    <box gap={1}>
+      <text fg={props.api.theme.current.text}>
+        <b>{props.title}</b>
+      </text>
+      <text fg={props.api.theme.current.text}>OpenCode Quota command failed.</text>
+      <text fg={props.api.theme.current.textMuted} wrapMode="none">
+        {message || "Unknown error"}
+      </text>
+      <text fg={props.api.theme.current.textMuted}>esc closes</text>
+    </box>
+  );
+}
+
+function TokensBetweenPromptDialog(props: {
+  api: TuiPluginApi;
+  onConfirm: (value: string) => void;
+  onCancel: () => void;
+}) {
+  const DialogPrompt = (props.api as any).ui?.DialogPrompt;
+  if (DialogPrompt) {
+    return (
+      <DialogPrompt
+        title="OpenCode Quota Token Range"
+        placeholder="YYYY-MM-DD YYYY-MM-DD"
+        description={() => (
+          <text fg={props.api.theme.current.textMuted} wrapMode="none">
+            Enter start and end dates, for example: 2026-01-01 2026-01-15
+          </text>
+        )}
+        onConfirm={props.onConfirm}
+        onCancel={props.onCancel}
+      />
+    );
+  }
+
+  return (
+    <CommandOutputDialog
+      api={props.api}
+      title="OpenCode Quota Token Range"
+      output={
+        "Missing arguments for /tokens_between\n\nExpected: /tokens_between YYYY-MM-DD YYYY-MM-DD\nExample: /tokens_between 2026-01-01 2026-01-15"
+      }
+    />
+  );
+}
+
+function replaceDialog(api: TuiPluginApi, size: DialogSize, render: () => JSX.Element) {
+  const dialog = (api as any).ui?.dialog;
+  dialog?.replace?.(render);
+  // OpenCode's dialog.replace() resets size to medium; xlarge is the widest supported dialog.
+  dialog?.setSize?.(size);
+}
+
+function clearDialog(api: TuiPluginApi): void {
+  (api as any).ui?.dialog?.clear?.();
+}
+
+async function runQuotaDialogCommandAsync(
+  api: TuiPluginApi,
+  command: QuotaDialogCommandId,
+  rawInput?: unknown,
+  state?: QuotaDialogCommandState,
+): Promise<void> {
+  const spec = QUOTA_DIALOG_COMMANDS.find((item) => item.id === command)!;
+  const args = getTuiCommandArguments(rawInput);
+  const sessionID = getActiveTuiSessionID(api);
+
+  if (command === "tokens_between" && !args) {
+    replaceDialog(api, "medium", () => (
+      <TokensBetweenPromptDialog
+        api={api}
+        onCancel={() => clearDialog(api)}
+        onConfirm={(value) => {
+          const nextArgs = value.trim();
+          if (!nextArgs) {
+            replaceDialog(api, "large", () => (
+              <CommandOutputDialog
+                api={api}
+                title={spec.title}
+                output={
+                  "Missing arguments for /tokens_between\n\nExpected: /tokens_between YYYY-MM-DD YYYY-MM-DD\nExample: /tokens_between 2026-01-01 2026-01-15"
+                }
+              />
+            ));
+            return;
+          }
+
+          runQuotaDialogCommand(api, command, { arguments: nextArgs }, state);
+        }}
+      />
+    ));
+    return;
+  }
+
+  replaceDialog(api, spec.dialogSize, () => <CommandLoadingDialog api={api} title={spec.title} />);
+
+  try {
+    const result = await buildQuotaDialogCommandOutput({
+      command,
+      arguments: args,
+      client: createTuiQuotaClient(api),
+      roots: getTuiRuntimeRootHints(api),
+      sessionID,
+      resolveSessionMeta: (id) => getTuiSessionModelMeta(api, id),
+      lastSessionTokenError: state?.lastSessionTokenError,
+      setLastSessionTokenError: state
+        ? (error) => {
+            state.lastSessionTokenError = error;
+          }
+        : undefined,
+      log: async (message, extra) => {
+        await (api as any).client?.app?.log?.({
+          body: {
+            service: "quota-toast",
+            level: "debug",
+            message,
+            extra,
+          },
+        });
+      },
+    });
+
+    if (result.state === "noop") {
+      clearDialog(api);
+      return;
+    }
+
+    replaceDialog(api, result.dialogSize, () => (
+      <CommandOutputDialog api={api} title={result.title} output={result.output} />
+    ));
+  } catch (error) {
+    replaceDialog(api, "large", () => <CommandErrorDialog api={api} title={spec.title} error={error} />);
+    (api as any).ui?.toast?.({
+      variant: "error",
+      message: "OpenCode Quota command failed",
+    });
+  }
+}
+
+function runQuotaDialogCommand(
+  api: TuiPluginApi,
+  command: QuotaDialogCommandId,
+  rawInput?: unknown,
+  state?: QuotaDialogCommandState,
+): void {
+  void runQuotaDialogCommandAsync(api, command, rawInput, state);
+}
+
+function registerQuotaDialogCommands(api: TuiPluginApi): void {
+  const keymap = (api as any).keymap;
+  if (!keymap?.registerLayer) return;
+
+  const commandState: QuotaDialogCommandState = {};
+  const dispose = keymap.registerLayer({
+    commands: QUOTA_DIALOG_COMMANDS.map((spec) => ({
+      namespace: "palette",
+      name: `opencode-quota.${spec.id}`,
+      title: spec.title,
+      desc: spec.description,
+      category: "OpenCode Quota",
+      slashName: spec.slashName,
+      run(input?: unknown) {
+        runQuotaDialogCommand(api, spec.id, input, commandState);
+      },
+    })),
+  });
+
+  if (typeof dispose === "function") {
+    api.lifecycle.onDispose(dispose);
+  }
+}
+
 function registerSidebarSlots(api: TuiPluginApi): void {
   api.slots.register({
     order: SIDEBAR_ORDER,
@@ -462,6 +710,8 @@ function registerSidebarSlots(api: TuiPluginApi): void {
 }
 
 const tui: TuiPlugin = async (api) => {
+  registerQuotaDialogCommands(api);
+
   let surfaceRegistration;
   try {
     surfaceRegistration = await resolveTuiSurfaceRegistration(api);

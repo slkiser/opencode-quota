@@ -9,13 +9,16 @@ import { runInitInstaller } from "../lib/init-installer.js";
 const USAGE = [
   "Usage:",
   "  npx @slkiser/opencode-quota init [--sync-legacy-config]",
-  "  npx @slkiser/opencode-quota show [--provider <provider-id>]",
+  "  npx @slkiser/opencode-quota show [--provider <provider-id>] [--json] [--threshold <pct>]",
   "  npx @slkiser/opencode-quota --help",
   "",
   "Commands:",
   "  init    Run the interactive quota installer",
   "          --sync-legacy-config also writes experimental.quotaToast",
   "  show    Print a quick quota glance",
+  "          --json               Machine-readable JSON output (reads from cache)",
+  "          --threshold <pct>    With --json, exit 1 if below <pct>%, 2 if no cached quota",
+  "          --provider <id>      Filter to one provider",
 ].join("\n");
 
 function printUsage(): void {

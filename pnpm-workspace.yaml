@@ -1,8 +1,8 @@
-minimumReleaseAge: 1440
-minimumReleaseAgeStrict: true
-minimumReleaseAgeIgnoreMissingTime: false
-blockExoticSubdeps: true
-
 allowBuilds:
+  better-sqlite3: true
   esbuild: true
   msgpackr-extract: true
+blockExoticSubdeps: true
+minimumReleaseAge: 1440
+minimumReleaseAgeIgnoreMissingTime: false
+minimumReleaseAgeStrict: true

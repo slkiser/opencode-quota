@@ -54,16 +54,20 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "onlyCurrentModel",
   "showSessionTokens",
   "tuiSidebarPanel.enabled",
+  "tuiSidebarPanel.formatStyle",
   "tuiCompactStatus.enabled",
   "tuiCompactStatus.homeBottom",
   "tuiCompactStatus.sessionPrompt",
   "tuiCompactStatus.suppressWhenNativeProviderQuota",
   "tuiCompactStatus.maxWidth",
+  "tuiCompactStatus.formatStyle",
   "maintainerAnnouncements.enabled",
   "maintainerAnnouncements.home",
   "layout.maxWidth",
   "layout.narrowAt",
   "layout.tinyAt",
+  "export.enabled",
+  "export.path",
 ] as const;
 
 export type QuotaToastSettingSourceKey = (typeof QUOTA_TOAST_SETTING_SOURCE_KEYS)[number];
@@ -122,6 +126,7 @@ type TuiSidebarPanelPatch = Partial<QuotaToastConfig["tuiSidebarPanel"]>;
 type TuiCompactStatusPatch = Partial<QuotaToastConfig["tuiCompactStatus"]>;
 type MaintainerAnnouncementsPatch = Partial<QuotaToastConfig["maintainerAnnouncements"]>;
 type LayoutPatch = Partial<QuotaToastConfig["layout"]>;
+type ExportConfigPatch = Partial<QuotaToastConfig["export"]>;
 
 type ValidatedQuotaToastPatch = {
   enabled?: boolean;
@@ -152,6 +157,7 @@ type ValidatedQuotaToastPatch = {
   tuiCompactStatus?: TuiCompactStatusPatch;
   maintainerAnnouncements?: MaintainerAnnouncementsPatch;
   layout?: LayoutPatch;
+  export?: ExportConfigPatch;
 };
 
 type ConfigLayerScope = "global" | "workspace";
@@ -232,18 +238,26 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-function getConfiguredFormatStyle(
-  quotaToastConfig: Partial<QuotaToastConfig> | undefined | null,
+function getExplicitFormatStyle(
+  config: { formatStyle?: unknown } | undefined | null,
 ): QuotaToastConfig["formatStyle"] | undefined {
-  if (!quotaToastConfig) {
+  if (!config || !isQuotaFormatStyle(config.formatStyle)) {
     return undefined;
   }
 
-  if (isQuotaFormatStyle(quotaToastConfig.formatStyle)) {
-    return resolveQuotaFormatStyle(quotaToastConfig.formatStyle);
+  return resolveQuotaFormatStyle(config.formatStyle);
+}
+
+function getConfiguredFormatStyle(
+  quotaToastConfig: Partial<QuotaToastConfig> | undefined | null,
+): QuotaToastConfig["formatStyle"] | undefined {
+  const formatStyle = getExplicitFormatStyle(quotaToastConfig);
+  if (formatStyle) {
+    return formatStyle;
   }
 
-  const legacyFormatStyle = (quotaToastConfig as { toastStyle?: unknown }).toastStyle;
+  const legacyFormatStyle = (quotaToastConfig as { toastStyle?: unknown } | undefined | null)
+    ?.toastStyle;
   if (isQuotaFormatStyle(legacyFormatStyle)) {
     return resolveQuotaFormatStyle(legacyFormatStyle);
   }
@@ -275,6 +289,7 @@ function cloneConfig(config: QuotaToastConfig): QuotaToastConfig {
     tuiCompactStatus: { ...config.tuiCompactStatus },
     maintainerAnnouncements: { ...config.maintainerAnnouncements },
     layout: { ...config.layout },
+    export: { ...config.export },
   };
 }
 
@@ -372,6 +387,11 @@ function extractTuiSidebarPanelPatch(value: unknown): TuiSidebarPanelPatch | und
     patch.enabled = value.enabled;
   }
 
+  const sidebarFormatStyle = getExplicitFormatStyle(value);
+  if (sidebarFormatStyle) {
+    patch.formatStyle = sidebarFormatStyle;
+  }
+
   return Object.keys(patch).length > 0 ? patch : undefined;
 }
 
@@ -403,6 +423,11 @@ function extractTuiCompactStatusPatch(value: unknown): TuiCompactStatusPatch | u
 
   if (hasOwnKey(value, "maxWidth") && isPositiveNumber(value.maxWidth)) {
     patch.maxWidth = value.maxWidth;
+  }
+
+  const compactFormatStyle = getExplicitFormatStyle(value);
+  if (compactFormatStyle) {
+    patch.formatStyle = compactFormatStyle;
   }
 
   return Object.keys(patch).length > 0 ? patch : undefined;
@@ -444,6 +469,24 @@ function extractLayoutPatch(value: unknown): LayoutPatch | undefined {
 
   if (hasOwnKey(value, "tinyAt") && isPositiveNumber(value.tinyAt)) {
     patch.tinyAt = value.tinyAt;
+  }
+
+  return Object.keys(patch).length > 0 ? patch : undefined;
+}
+
+function extractExportConfigPatch(value: unknown): ExportConfigPatch | undefined {
+  if (!isPlainObject(value)) {
+    return undefined;
+  }
+
+  const patch: ExportConfigPatch = {};
+
+  if (hasOwnKey(value, "enabled") && typeof value.enabled === "boolean") {
+    patch.enabled = value.enabled;
+  }
+
+  if (hasOwnKey(value, "path") && typeof value.path === "string") {
+    patch.path = value.path;
   }
 
   return Object.keys(patch).length > 0 ? patch : undefined;
@@ -635,6 +678,13 @@ function extractValidatedQuotaToastPatch(
     }
   }
 
+  if (hasOwnKey(quotaToastConfig, "export")) {
+    const exportConfig = extractExportConfigPatch(quotaToastConfig.export);
+    if (exportConfig) {
+      patch.export = exportConfig;
+    }
+  }
+
   return patch;
 }
 
@@ -782,6 +832,11 @@ function applyValidatedQuotaToastPatch(
       config.tuiSidebarPanel.enabled = patch.tuiSidebarPanel.enabled!;
       applySettingSource(settingSources, "tuiSidebarPanel.enabled", sourcePath);
     }
+
+    if (hasOwnKey(patch.tuiSidebarPanel, "formatStyle")) {
+      config.tuiSidebarPanel.formatStyle = patch.tuiSidebarPanel.formatStyle!;
+      applySettingSource(settingSources, "tuiSidebarPanel.formatStyle", sourcePath);
+    }
   }
 
   if (patch.tuiCompactStatus) {
@@ -814,6 +869,11 @@ function applyValidatedQuotaToastPatch(
       config.tuiCompactStatus.maxWidth = patch.tuiCompactStatus.maxWidth!;
       applySettingSource(settingSources, "tuiCompactStatus.maxWidth", sourcePath);
     }
+
+    if (hasOwnKey(patch.tuiCompactStatus, "formatStyle")) {
+      config.tuiCompactStatus.formatStyle = patch.tuiCompactStatus.formatStyle!;
+      applySettingSource(settingSources, "tuiCompactStatus.formatStyle", sourcePath);
+    }
   }
 
   if (patch.maintainerAnnouncements) {
@@ -843,6 +903,18 @@ function applyValidatedQuotaToastPatch(
     if (hasOwnKey(patch.layout, "tinyAt")) {
       config.layout.tinyAt = patch.layout.tinyAt!;
       applySettingSource(settingSources, "layout.tinyAt", sourcePath);
+    }
+  }
+
+  if (patch.export) {
+    if (hasOwnKey(patch.export, "enabled")) {
+      config.export.enabled = patch.export.enabled!;
+      applySettingSource(settingSources, "export.enabled", sourcePath);
+    }
+
+    if (hasOwnKey(patch.export, "path")) {
+      config.export.path = patch.export.path!;
+      applySettingSource(settingSources, "export.path", sourcePath);
     }
   }
 }

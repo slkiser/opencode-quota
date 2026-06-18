@@ -76,6 +76,23 @@ async function getProviderAvailability(params: {
   }
 }
 
+export async function collectConcreteEnabledProviderIds(params: {
+  providers: QuotaProvider[];
+  ctx: QuotaProviderContext;
+  enabledProviders: string[] | "auto";
+}): Promise<string[]> {
+  const candidates =
+    params.enabledProviders === "auto"
+      ? params.providers
+      : params.providers.filter((provider) => params.enabledProviders.includes(provider.id));
+
+  const availability = await Promise.all(
+    candidates.map((provider) => getProviderAvailability({ provider, ctx: params.ctx })),
+  );
+
+  return availability.filter((item) => item.ok).map((item) => item.provider.id);
+}
+
 export type CollectQuotaRenderDataResult = {
   selection: QuotaRenderSelection | null;
   availability: QuotaAvailability[];
@@ -84,6 +101,8 @@ export type CollectQuotaRenderDataResult = {
   hasExplicitProviderIssues: boolean;
   data: QuotaRenderData | null;
   allWindowsData?: QuotaRenderData | null;
+  /** Pre-computed singleWindow-projected data. Only present when includeAllWindowsData=true and root style is allWindows. */
+  singleWindowData?: QuotaRenderData | null;
   sessionTokenError?: SessionTokenError;
 };
 
@@ -127,21 +146,21 @@ export function matchesQuotaProviderCurrentSelection(params: {
   currentProviderID?: string;
   enabledProviders?: string[] | "auto";
 }): boolean {
-  if (!params.currentModel && params.currentProviderID) {
-    const normalizedCurrentProviderID = normalizeQuotaProviderId(params.currentProviderID);
-    if (params.provider.id === normalizedCurrentProviderID) {
-      return true;
-    }
-    if (params.provider.id === "cursor" && isCursorProviderId(params.currentProviderID)) {
-      return true;
-    }
+  if (params.currentModel) {
+    return params.provider.matchesCurrentModel
+      ? params.provider.matchesCurrentModel(params.currentModel, {
+          enabledProviders: params.enabledProviders ?? "auto",
+        })
+      : true;
   }
-  if (!params.currentModel) return false;
-  return params.provider.matchesCurrentModel
-    ? params.provider.matchesCurrentModel(params.currentModel, {
-        enabledProviders: params.enabledProviders ?? "auto",
-      })
-    : true;
+
+  if (!params.currentProviderID) return false;
+
+  const normalizedCurrentProviderID = normalizeQuotaProviderId(params.currentProviderID);
+  if (params.provider.id === normalizedCurrentProviderID) {
+    return true;
+  }
+  return params.provider.id === "cursor" && isCursorProviderId(params.currentProviderID);
 }
 
 function hasCurrentQuotaSelection(params: {
@@ -325,7 +344,7 @@ function stripSingleWindowEntryMeta(
   return { ...withoutRight };
 }
 
-function normalizeSingleWindowWindowLabel(value?: string): string | null {
+export function normalizeSingleWindowWindowLabel(value?: string): string | null {
   const lower = value?.trim().replace(/:+$/u, "").trim().toLowerCase() ?? "";
   if (!lower) return null;
 
@@ -642,15 +661,26 @@ export async function collectQuotaRenderData(params: {
       : { entries, errors, sessionTokens };
 
   let allWindowsData: QuotaRenderData | null | undefined;
+  let singleWindowData: QuotaRenderData | null | undefined;
   if (params.includeAllWindowsData) {
     const allWindowsEntries = (style === "allWindows")
-      ? entries
+        ? entries
       : results.flatMap((result) =>
-          projectProviderResultToStyle(result, "allWindows"),
+            projectProviderResultToStyle(result, "allWindows"),
         ) as QuotaToastEntry[];
     allWindowsData = (allWindowsEntries.length === 0 && errors.length === 0 && !sessionTokens)
-      ? null
-      : { entries: allWindowsEntries, errors: [...errors], sessionTokens };
+        ? null
+        : { entries: allWindowsEntries, errors: [...errors], sessionTokens };
+
+    if (style === "allWindows") {
+      const singleWindowEntries = results.flatMap((result) =>
+        projectProviderResultToStyle(result, "singleWindow"),
+      ) as QuotaToastEntry[];
+      singleWindowData =
+        singleWindowEntries.length === 0 && errors.length === 0 && !sessionTokens
+          ? null
+          : { entries: singleWindowEntries, errors: [...errors], sessionTokens };
+    }
   }
 
   return {
@@ -661,6 +691,7 @@ export async function collectQuotaRenderData(params: {
     hasExplicitProviderIssues,
     data,
     allWindowsData,
+    singleWindowData,
     sessionTokenError,
   };
 }

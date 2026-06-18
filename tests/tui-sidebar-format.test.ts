@@ -151,7 +151,7 @@ describe("buildSidebarQuotaPanelLines", () => {
       data: {
         entries: [
           { name: "Copilot", group: "Copilot", label: "Quota:", percentRemaining: 75 },
-          { name: "Crof Requests", group: "Crof", label: "Requests:", percentRemaining: 50 },
+          { name: "Synthetic Requests", group: "Synthetic", label: "Requests:", percentRemaining: 50 },
           { name: "Cursor API", group: "Cursor", label: "API:", percentRemaining: 25 },
           { name: "Kimi Code Fast", group: "Kimi Code", label: "Fast:", percentRemaining: 80 },
         ],

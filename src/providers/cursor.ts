@@ -92,7 +92,7 @@ export const cursorProvider: QuotaProvider = {
               group,
               label: "API:",
               right: `${fmtUsdAmount(usage.api.costUsd)}/${fmtUsdAmount(includedApiUsd)}`,
-              percentRemaining: 100 - (usage.api.costUsd / includedApiUsd) * 100,
+              percentRemaining: includedApiUsd > 0 ? 100 - (usage.api.costUsd / includedApiUsd) * 100 : 0,
               resetTimeIso: usage.window.resetTimeIso,
             },
       );

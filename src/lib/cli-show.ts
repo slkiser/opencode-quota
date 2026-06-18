@@ -18,6 +18,7 @@ import {
   createQuotaRuntimeRequestContext,
   resolveQuotaRuntimeContext,
 } from "./quota-runtime-context.js";
+import { buildQuotaExport, createExportProviderContext } from "./quota-export.js";
 
 export interface RunCliShowCommandOptions {
   argv?: string[];
@@ -27,26 +28,58 @@ export interface RunCliShowCommandOptions {
 }
 
 type ParsedShowArgs =
-  | { ok: true; providerId?: string; help: boolean }
+  | { ok: true; providerId?: string; help: boolean; json: boolean; threshold?: number }
   | { ok: false; error: string };
 
 const SHOW_USAGE = [
   "Usage:",
-  "  npx @slkiser/opencode-quota show [--provider <provider-id>]",
+  "  npx @slkiser/opencode-quota show [--provider <provider-id>] [--json] [--threshold <pct>]",
   "",
   "Options:",
   "  --provider <provider-id>  Show quota for one provider",
+  "  --json                    Machine-readable JSON output (reads from cache)",
+  "  --threshold <pct>         With --json, exit 1 if any cached percentage is below <pct>%",
+  "                            remaining (exit 2 if no cached percentage can be compared)",
   "  --help, -h                Show help",
 ].join("\n");
 
 function parseShowArgs(argv: string[]): ParsedShowArgs {
   let providerId: string | undefined;
+  let json = false;
+  let threshold: number | undefined;
 
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
 
     if (arg === "--help" || arg === "-h") {
-      return { ok: true, help: true };
+      return { ok: true, help: true, json: false };
+    }
+
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
+
+    if (arg === "--threshold" || arg.startsWith("--threshold=")) {
+      let value: string | undefined;
+      if (arg === "--threshold") {
+        value = argv[index + 1];
+        if (!value || value.startsWith("-")) {
+          return { ok: false, error: "Missing value for --threshold." };
+        }
+        index += 1;
+      } else {
+        value = arg.slice("--threshold=".length).trim();
+        if (!value) {
+          return { ok: false, error: "Missing value for --threshold." };
+        }
+      }
+      const num = Number(value);
+      if (!Number.isFinite(num) || num <= 0) {
+        return { ok: false, error: "--threshold must be a positive finite number." };
+      }
+      threshold = num;
+      continue;
     }
 
     if (arg === "--provider") {
@@ -81,7 +114,11 @@ function parseShowArgs(argv: string[]): ParsedShowArgs {
     return { ok: false, error: `Unexpected argument: ${arg}` };
   }
 
-  return { ok: true, providerId, help: false };
+  if (threshold !== undefined && !json) {
+    return { ok: false, error: "--threshold requires --json." };
+  }
+
+  return { ok: true, providerId, help: false, json, threshold };
 }
 
 function cloneCliConfig(config: QuotaToastConfig): QuotaToastConfig {
@@ -145,6 +182,69 @@ function writeLine(stream: Pick<NodeJS.WriteStream, "write">, message: string): 
   stream.write(message.endsWith("\n") ? message : `${message}\n`);
 }
 
+async function runCliShowJsonOutput(params: {
+  runtime: Awaited<ReturnType<typeof resolveQuotaRuntimeContext>>;
+  providerId?: string;
+  threshold?: number;
+  stdout: Pick<NodeJS.WriteStream, "write">;
+}): Promise<number> {
+  const { runtime, providerId, threshold, stdout } = params;
+
+  const config = cloneCliConfig(runtime.config);
+  if (providerId) {
+    config.enabledProviders = [providerId];
+  }
+
+  const allProviders = runtime.providers.filter((p) => {
+    if (config.enabledProviders === "auto") return true;
+    return config.enabledProviders.includes(p.id);
+  });
+
+  // Read cached quota through the shared export context so the cache key
+  // matches the one the TUI background writer used. Without this, a user with
+  // onlyCurrentModel:true would compute a different key and every provider
+  // would read back as "unavailable".
+  const ctx = createExportProviderContext(runtime);
+  const exportData = await buildQuotaExport({
+    providers: allProviders,
+    ctx,
+    ttlMs: config.minIntervalMs,
+    fromCache: true,
+  });
+
+  writeLine(stdout, JSON.stringify(exportData, null, 2));
+
+  if (threshold !== undefined) {
+    const okProviders = Object.values(exportData.providers).filter(
+      (p): p is Extract<typeof p, { status: "ok" }> => p.status === "ok",
+    );
+
+    if (okProviders.length === 0) {
+      // No cached quota to compare against: distinct from "below threshold" (1).
+      return 2;
+    }
+
+    let hasComparablePercent = false;
+    for (const provider of okProviders) {
+      const percents = provider.entries
+        .map((e) => e.percentRemaining)
+        .filter((p): p is number => p !== undefined);
+      if (percents.length === 0) continue;
+      hasComparablePercent = true;
+      const minPercent = Math.min(...percents);
+      if (minPercent < threshold) {
+        return 1;
+      }
+    }
+
+    if (!hasComparablePercent) {
+      return 2;
+    }
+  }
+
+  return 0;
+}
+
 export async function runCliShowCommand(options: RunCliShowCommandOptions = {}): Promise<number> {
   const argv = options.argv ?? process.argv.slice(3);
   const stdout = options.stdout ?? process.stdout;
@@ -180,6 +280,15 @@ export async function runCliShowCommand(options: RunCliShowCommandOptions = {}):
     if (!runtime.config.enabled) {
       writeLine(stderr, "Quota disabled in config (enabled: false).");
       return 1;
+    }
+
+    if (parsed.json) {
+      return runCliShowJsonOutput({
+        runtime,
+        providerId,
+        threshold: parsed.threshold,
+        stdout,
+      });
     }
 
     const config = cloneCliConfig(runtime.config);

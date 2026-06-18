@@ -6,23 +6,25 @@ import type { QuotaRuntimeContext } from "./quota-runtime-context.js";
 
 import { resolveRuntimeContextRoots, type RuntimeContextRootHints } from "./config-file-utils.js";
 import {
+  createQuotaProviderRuntimeContext,
   createQuotaRuntimeRequestContext,
   resolveQuotaRuntimeContext,
 } from "./quota-runtime-context.js";
-import { collectQuotaRenderData } from "./quota-render-data.js";
+import { collectConcreteEnabledProviderIds, collectQuotaRenderData } from "./quota-render-data.js";
 import { resolveQuotaFormatStyle } from "./quota-format-style.js";
 import { buildCompactQuotaStatusLine } from "./tui-compact-format.js";
 import { hasNativeProviderQuotaClient } from "./tui-native-provider-quota.js";
-import { buildSidebarQuotaPanelLines } from "./tui-sidebar-format.js";
+import { buildSidebarQuotaPanelLines, TUI_SIDEBAR_MAX_WIDTH } from "./tui-sidebar-format.js";
 import {
   formatMaintainerAnnouncementHomeCountLine,
   getMaintainerAnnouncementsSummary,
   type MaintainerAnnouncement,
 } from "./maintainer-announcements.js";
+import { resolveExportPath, buildQuotaExport, writeQuotaExport, createExportProviderContext } from "./quota-export.js";
 
 const COMPACT_UNAVAILABLE_TEXT = "Quota unavailable";
 
-function getTuiRuntimeRootHints(api: TuiPluginApi): RuntimeContextRootHints {
+export function getTuiRuntimeRootHints(api: TuiPluginApi): RuntimeContextRootHints {
   return {
     worktreeRoot: api.state.path.worktree,
     activeDirectory: api.state.path.directory,
@@ -34,7 +36,7 @@ export function resolveWorkspaceDir(api: TuiPluginApi): string {
   return resolveRuntimeContextRoots(getTuiRuntimeRootHints(api)).workspaceRoot;
 }
 
-function createTuiQuotaClient(api: TuiPluginApi) {
+export function createTuiQuotaClient(api: TuiPluginApi) {
   return {
     config: {
       providers: async () => {
@@ -75,17 +77,42 @@ function createTuiQuotaClient(api: TuiPluginApi) {
   };
 }
 
+export function normalizeTuiSessionID(sessionID: unknown): string | undefined {
+  if (typeof sessionID !== "string") return undefined;
+
+  const trimmed = sessionID.trim();
+  if (!trimmed) return undefined;
+
+  let decoded = trimmed;
+  try {
+    decoded = decodeURIComponent(trimmed).trim();
+  } catch {
+    decoded = trimmed;
+  }
+
+  if (!decoded || decoded.includes("{") || decoded.includes("}")) return undefined;
+  if (decoded === "sessionID" || decoded === "session_id" || decoded === "id") return undefined;
+
+  return trimmed;
+}
+
+function extractSessionModelMeta(input: unknown): SessionModelMeta {
+  if (!input || typeof input !== "object") return {};
+  const item = input as {
+    providerID?: string;
+    modelID?: string;
+    model?: { providerID?: string; modelID?: string };
+  };
+  const providerID = item.providerID ?? item.model?.providerID;
+  const modelID = item.modelID ?? item.model?.modelID;
+  return providerID || modelID ? { providerID, modelID } : {};
+}
+
 function getMessageSessionModelMeta(api: TuiPluginApi, sessionID: string): SessionModelMeta {
   const messages = api.state.session.messages(sessionID);
   for (let index = messages.length - 1; index >= 0; index--) {
-    const message = messages[index] as
-      | { providerID?: string; modelID?: string; model?: { providerID?: string; modelID?: string } }
-      | undefined;
-    const providerID = message?.providerID ?? message?.model?.providerID;
-    const modelID = message?.modelID ?? message?.model?.modelID;
-    if (providerID || modelID) {
-      return { providerID, modelID };
-    }
+    const meta = extractSessionModelMeta(messages[index]);
+    if (meta.providerID || meta.modelID) return meta;
   }
   return {};
 }
@@ -94,19 +121,23 @@ export async function getTuiSessionModelMeta(
   api: TuiPluginApi,
   sessionID: string,
 ): Promise<SessionModelMeta> {
+  const safeSessionID = normalizeTuiSessionID(sessionID);
+  if (!safeSessionID) return {};
+
+  const stateSession = api.state.session as { get?: (sessionID: string) => unknown };
+  const stateMeta = extractSessionModelMeta(stateSession.get?.(safeSessionID));
+  if (stateMeta.providerID || stateMeta.modelID) return stateMeta;
+
   try {
-    const response = await api.client.session?.get?.({ path: { id: sessionID } });
-    if (response?.data?.providerID || response?.data?.modelID) {
-      return {
-        providerID: response.data?.providerID,
-        modelID: response.data?.modelID,
-      };
-    }
+    const sessionGet = (api.client.session as any)?.get;
+    const response = await sessionGet?.({ sessionID: safeSessionID });
+    const meta = extractSessionModelMeta(response?.data);
+    if (meta.providerID || meta.modelID) return meta;
   } catch {
     // Fall back to session message state below.
   }
 
-  return getMessageSessionModelMeta(api, sessionID);
+  return getMessageSessionModelMeta(api, safeSessionID);
 }
 
 export type TuiSidebarPanelRegistration = {
@@ -161,6 +192,7 @@ function buildCompactStatusFromData(params: {
   result: CollectQuotaRenderDataResult;
   enabled: boolean;
   maxWidth?: number;
+  formatStyle?: ReturnType<typeof resolveQuotaFormatStyle>;
 }): CompactStatusState {
   if (!params.enabled) return { status: "disabled" };
 
@@ -168,9 +200,18 @@ function buildCompactStatusFromData(params: {
     return { status: "loading" };
   }
 
-  const text = params.result.data
+  const effectiveFormatStyle =
+    params.formatStyle ?? resolveQuotaFormatStyle(params.runtime.config.formatStyle);
+  const data =
+    effectiveFormatStyle === "allWindows" && params.result.allWindowsData
+      ? params.result.allWindowsData
+      : effectiveFormatStyle === "singleWindow" && params.result.singleWindowData !== undefined
+        ? params.result.singleWindowData
+        : params.result.data;
+
+  const text = data
     ? buildCompactQuotaStatusLine({
-        data: params.result.data,
+        data,
         percentDisplayMode: params.runtime.config.percentDisplayMode,
         maxWidth: params.maxWidth ?? params.runtime.config.tuiCompactStatus.maxWidth,
       })
@@ -194,11 +235,32 @@ function buildSidebarPanelFromData(params: {
     };
   }
 
-  const lines = params.result.data
-    ? buildSidebarQuotaPanelLines({
-        data: params.result.data,
-        config: { ...params.runtime.config, formatStyle: params.formatStyle },
-      })
+  const hasExpandedDetail = Boolean(params.result.allWindowsData);
+  const compactData = params.result.singleWindowData ?? params.result.data;
+  const primaryData =
+    params.formatStyle === "allWindows" && params.result.allWindowsData
+      ? compactData
+      : params.formatStyle === "singleWindow" && params.result.singleWindowData !== undefined
+        ? params.result.singleWindowData
+        : params.result.data;
+  const primaryFormatStyle =
+    params.formatStyle === "allWindows" && params.result.allWindowsData
+      ? "singleWindow"
+      : params.formatStyle;
+
+  const lines = primaryData
+    ? hasExpandedDetail
+      ? [
+          buildCompactQuotaStatusLine({
+            data: primaryData,
+            percentDisplayMode: params.runtime.config.percentDisplayMode,
+            maxWidth: TUI_SIDEBAR_MAX_WIDTH,
+          }),
+        ].filter((line): line is string => Boolean(line))
+      : buildSidebarQuotaPanelLines({
+          data: primaryData,
+          config: { ...params.runtime.config, formatStyle: primaryFormatStyle },
+        })
     : [];
 
   let linesExpanded: string[] | undefined;
@@ -225,8 +287,16 @@ async function collectTuiQuotaRenderData(params: {
 }): Promise<{
   result: CollectQuotaRenderDataResult;
   formatStyle: ReturnType<typeof resolveQuotaFormatStyle>;
+  sidebarFormatStyle: ReturnType<typeof resolveQuotaFormatStyle>;
+  compactFormatStyle: ReturnType<typeof resolveQuotaFormatStyle>;
 }> {
   const formatStyle = resolveQuotaFormatStyle(params.runtime.config.formatStyle);
+  const sidebarFormatStyle = params.runtime.config.tuiSidebarPanel.formatStyle
+    ? resolveQuotaFormatStyle(params.runtime.config.tuiSidebarPanel.formatStyle)
+    : formatStyle;
+  const compactFormatStyle = params.runtime.config.tuiCompactStatus.formatStyle
+    ? resolveQuotaFormatStyle(params.runtime.config.tuiCompactStatus.formatStyle)
+    : formatStyle;
   const result = await collectQuotaRenderData({
     client: params.runtime.client,
     config: params.runtime.config,
@@ -238,7 +308,7 @@ async function collectTuiQuotaRenderData(params: {
     includeAllWindowsData: true,
   });
 
-  return { result, formatStyle };
+  return { result, formatStyle, sidebarFormatStyle, compactFormatStyle };
 }
 
 export async function resolveTuiSurfaceRegistration(
@@ -259,6 +329,7 @@ export async function resolveTuiSurfaceRegistration(
     runtime.config.enabled &&
     runtime.config.maintainerAnnouncements.enabled &&
     runtime.config.maintainerAnnouncements.home;
+  const exportHomeBottom = runtime.config.enabled && runtime.config.export.enabled;
   const compactHomeBottom = compactEnabled && compact.homeBottom;
 
   return {
@@ -275,7 +346,7 @@ export async function resolveTuiSurfaceRegistration(
     announcements: {
       homeBottom: announcementHomeBottom,
     },
-    homeBottom: compactHomeBottom || announcementHomeBottom,
+    homeBottom: compactHomeBottom || announcementHomeBottom || exportHomeBottom,
   };
 }
 
@@ -305,19 +376,20 @@ export async function loadTuiSessionQuotaSurfaces(params: {
     return buildDisabledSessionQuotaSurfaces();
   }
 
-  const { result, formatStyle } = await collectTuiQuotaRenderData({
+  const { result, sidebarFormatStyle, compactFormatStyle } = await collectTuiQuotaRenderData({
     runtime,
     request: createQuotaRuntimeRequestContext(runtime),
   });
 
   return {
     sidebar: sidebarEnabled
-      ? buildSidebarPanelFromData({ runtime, result, formatStyle })
+      ? buildSidebarPanelFromData({ runtime, result, formatStyle: sidebarFormatStyle })
       : { status: "disabled", lines: [] },
     compact: buildCompactStatusFromData({
       runtime,
       result,
       enabled: compactEnabled,
+      formatStyle: compactFormatStyle,
     }),
   };
 }
@@ -351,9 +423,14 @@ export async function loadTuiHomeBottomStatus(params: {
 
   let announcementText: string | undefined;
   if (announcementEnabled) {
+    const providerIds = await collectConcreteEnabledProviderIds({
+      providers: runtime.providers,
+      ctx: createQuotaProviderRuntimeContext(runtime),
+      enabledProviders: runtime.config.enabledProviders,
+    });
     const summary = getMaintainerAnnouncementsSummary({
       nowMs: params.nowMs,
-      enabledProviders: runtime.config.enabledProviders,
+      enabledProviders: providerIds,
       announcements: params.announcements,
     });
     announcementText = formatMaintainerAnnouncementHomeCountLine(summary.activeCount) || undefined;
@@ -375,7 +452,7 @@ export async function loadTuiHomeBottomStatus(params: {
     session: {},
   };
 
-  const { result } = await collectTuiQuotaRenderData({
+  const { result, compactFormatStyle } = await collectTuiQuotaRenderData({
     runtime: homeRuntime,
     request: createQuotaRuntimeRequestContext(homeRuntime),
   });
@@ -384,6 +461,7 @@ export async function loadTuiHomeBottomStatus(params: {
     runtime: homeRuntime,
     result,
     enabled: true,
+    formatStyle: compactFormatStyle,
   });
 
   return { status: "ready", announcementText, compact };
@@ -419,7 +497,7 @@ export async function loadTuiHomeCompactStatus(params: {
     session: {},
   };
 
-  const { result } = await collectTuiQuotaRenderData({
+  const { result, compactFormatStyle } = await collectTuiQuotaRenderData({
     runtime: homeRuntime,
     request: createQuotaRuntimeRequestContext(homeRuntime),
   });
@@ -428,6 +506,7 @@ export async function loadTuiHomeCompactStatus(params: {
     runtime: homeRuntime,
     result,
     enabled: true,
+    formatStyle: compactFormatStyle,
   });
 }
 
@@ -436,4 +515,37 @@ export async function loadSidebarPanel(params: {
   sessionID: string;
 }): Promise<SidebarPanelState> {
   return (await loadTuiSessionQuotaSurfaces(params)).sidebar;
+}
+
+/**
+ * Writes the quota export file if `config.export.enabled` is true.
+ *
+ * Called from the TUI home bottom status refresh loop. Errors propagate to
+ * the caller; the call-site in `tui.tsx` is responsible for catching and
+ * logging them so a failed write never affects rendering.
+ */
+export async function writeTuiQuotaExportIfEnabled(params: {
+  api: TuiPluginApi;
+}): Promise<void> {
+  const quotaClient = createTuiQuotaClient(params.api);
+  const runtime = await resolveQuotaRuntimeContext({
+    client: quotaClient,
+    roots: getTuiRuntimeRootHints(params.api),
+  });
+
+  if (!runtime.config.enabled || !runtime.config.export.enabled) {
+    return;
+  }
+
+  const resolvedPath = resolveExportPath(runtime.config.export.path);
+  const ctx = createExportProviderContext(runtime);
+
+  const exportData = await buildQuotaExport({
+    providers: runtime.providers,
+    ctx,
+    ttlMs: runtime.config.minIntervalMs,
+    fromCache: true,
+  });
+
+  await writeQuotaExport(exportData, resolvedPath);
 }

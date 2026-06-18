@@ -132,9 +132,7 @@ describe("tui-runtime linesExpanded", () => {
       active: [{ id: "copilot" }, { id: "openai" }],
     });
 
-    buildSidebarQuotaPanelLinesMock
-      .mockReturnValueOnce(["Copilot 5h 82%"])
-      .mockReturnValueOnce(["Copilot 5h 82%", "Copilot Daily 58%"]);
+    buildSidebarQuotaPanelLinesMock.mockReturnValueOnce(["Copilot 5h 82%", "Copilot Daily 58%"]);
 
     const panel = await loadSidebarPanel({
       api: {
@@ -149,7 +147,7 @@ describe("tui-runtime linesExpanded", () => {
     });
 
     expect(panel.status).toBe("ready");
-    expect(panel.lines).toEqual(["Copilot 5h 82%"]);
+    expect(panel.lines).toEqual(["Copilot 5h 18%"]);
     expect(panel.linesExpanded).toEqual(["Copilot 5h 82%", "Copilot Daily 58%"]);
     expect(panel.providerCount).toBe(2);
 
@@ -157,12 +155,78 @@ describe("tui-runtime linesExpanded", () => {
       expect.objectContaining({ includeAllWindowsData: true }),
     );
 
-    expect(buildSidebarQuotaPanelLinesMock).toHaveBeenCalledTimes(2);
+    expect(buildSidebarQuotaPanelLinesMock).toHaveBeenCalledTimes(1);
     expect(buildSidebarQuotaPanelLinesMock).toHaveBeenNthCalledWith(1, {
-      data,
-      config: expect.objectContaining({ formatStyle: "singleWindow" }),
+      data: allWindowsData,
+      config: expect.objectContaining({ formatStyle: "allWindows" }),
     });
-    expect(buildSidebarQuotaPanelLinesMock).toHaveBeenNthCalledWith(2, {
+  });
+
+  it("uses compact lines plus expanded detail when sidebar format is allWindows", async () => {
+    writeFileSync(
+      join(worktreeDir, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            enabled: true,
+            formatStyle: "allWindows",
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const data = {
+      entries: [
+        { name: "Copilot 5h", percentRemaining: 5 },
+        { name: "OpenAI 5h", percentRemaining: 81 },
+      ],
+      errors: [],
+      sessionTokens: undefined,
+    };
+    const singleWindowData = {
+      entries: [
+        { name: "Copilot", percentRemaining: 5 },
+        { name: "OpenAI", percentRemaining: 81 },
+      ],
+      errors: [],
+      sessionTokens: undefined,
+    };
+    const allWindowsData = data;
+
+    collectQuotaRenderDataMock.mockResolvedValue({
+      data,
+      singleWindowData,
+      allWindowsData,
+      active: [{ id: "copilot" }, { id: "openai" }],
+    });
+
+    buildSidebarQuotaPanelLinesMock.mockReturnValueOnce([
+      "[Copilot]",
+      "Quota 95%",
+      "[OpenAI]",
+      "5h window 19%",
+    ]);
+
+    const panel = await loadSidebarPanel({
+      api: {
+        state: {
+          provider: [],
+          path: { worktree: worktreeDir, directory: worktreeDir },
+          session: { messages: () => [] },
+        },
+        client: {},
+      } as any,
+      sessionID: "session-all-windows-collapsible",
+    });
+
+    expect(panel.status).toBe("ready");
+    expect(panel.lines).toEqual(["Copilot 5% | OpenAI 81%"]);
+    expect(panel.linesExpanded).toEqual(["[Copilot]", "Quota 95%", "[OpenAI]", "5h window 19%"]);
+    expect(panel.providerCount).toBe(2);
+
+    expect(buildSidebarQuotaPanelLinesMock).toHaveBeenCalledTimes(1);
+    expect(buildSidebarQuotaPanelLinesMock).toHaveBeenNthCalledWith(1, {
       data: allWindowsData,
       config: expect.objectContaining({ formatStyle: "allWindows" }),
     });

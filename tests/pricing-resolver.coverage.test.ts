@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   listModelsForProvider,
   listProviders,
   lookupCost,
+  setPricingSnapshotSelection,
 } from "../src/lib/modelsdev-pricing.js";
 import {
   CURSOR_OFFICIAL_MODEL_ALIASES,
@@ -54,6 +55,10 @@ function getCursorUpstreamFallbackModelIds(): string[] {
 }
 
 describe("resolvePricingKey snapshot coverage", () => {
+  beforeEach(() => {
+    setPricingSnapshotSelection("bundled");
+  });
+
   it("resolves every models.dev provider/model pair when source ids are official", () => {
     const failures: string[] = [];
     const providers = listProviders();

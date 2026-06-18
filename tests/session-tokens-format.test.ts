@@ -23,6 +23,18 @@ describe("renderSessionTokensLines", () => {
     expect(lines[1]?.length).toBe(WIDE_SESSION_TOKEN_LINE_WIDTH);
   });
 
+  it("abbreviates antigravity model names before shortening", () => {
+    const section = buildSessionTokenSectionModel({
+      models: [{ modelID: "antigravity-super-very-long-model", input: 1234, output: 567 }],
+      totalInput: 1234,
+      totalOutput: 567,
+    });
+
+    expect(section?.lines[0]).toContain("agy-super-very-long…");
+    expect(section?.lines[0]).not.toContain("antigravity");
+    expect(section?.lines[0]?.slice(2, 22).length).toBe(20);
+  });
+
   it("switches to a compact layout when maxWidth is narrow", () => {
     const lines = renderSessionTokensLines(
       {

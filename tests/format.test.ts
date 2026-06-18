@@ -267,7 +267,7 @@ describe("formatQuotaRows", () => {
       layout: { maxWidth: 80, narrowAt: 42, tinyAt: 32 },
       entries: [
         { name: "Copilot", group: "Copilot", label: "Quota:", percentRemaining: 75 },
-        { name: "Crof", group: "Crof", label: "Requests:", percentRemaining: 50 },
+        { name: "Synthetic Requests", group: "Synthetic", label: "Requests:", percentRemaining: 50 },
         { name: "Cursor API", group: "Cursor", label: "API:", percentRemaining: 25 },
       ],
     });

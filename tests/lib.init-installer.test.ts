@@ -94,7 +94,7 @@ describe("init installer planning and merge behavior", () => {
       {
         providerId: "anthropic",
         label: "Anthropic",
-        anchor: "anthropic-quick-setup",
+        anchor: "anthropic-claude",
       },
     ]);
 
@@ -579,6 +579,7 @@ describe("init installer planning and merge behavior", () => {
       },
     });
 
+    expect(plan.summaryLines).toContain("Quota UI: Terminal only");
     expect(plan.summaryLines).toContain("Maintainer announcements: Disabled");
     expect(plan.edits.map((edit) => edit.kind)).toEqual(["opencode", "quota"]);
 
@@ -931,7 +932,11 @@ describe("init installer planning and merge behavior", () => {
       { label: "Toast", value: "toast", hint: "popup quota summaries after idle/question/compact events" },
       { label: "Sidebar panel", value: "sidebar", hint: "full Quota panel in the OpenCode session sidebar" },
       { label: "Compact status line", value: "compact_status", hint: "short quota summary in the TUI status area" },
-      { label: "Terminal/slash commands only", value: "none", hint: "no toast, sidebar, or compact status UI" },
+      {
+        label: "Terminal command only",
+        value: "none",
+        hint: "no toast, sidebar, compact status, or TUI slash-command dialogs",
+      },
     ]);
     const sessionTokenCall = prompts.selectCalls.find((call) => call.message === "Session token details");
     expect(sessionTokenCall?.options).toEqual([

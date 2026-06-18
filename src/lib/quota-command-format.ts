@@ -8,8 +8,9 @@
  */
 
 import type { QuotaToastEntry, QuotaToastError, SessionTokensData } from "./entries.js";
+import type { PercentDisplayMode } from "./types.js";
 import { isValueEntry } from "./entries.js";
-import { bar, clampInt, padRight } from "./format-utils.js";
+import { bar, formatDisplayedPercentLabel, padRight, resolveDisplayedPercent } from "./format-utils.js";
 import { formatGroupedHeader } from "./grouped-header-format.js";
 import { groupQuotaEntries } from "./grouped-entry-normalization.js";
 import { renderPlainTextReport, type ReportDocument, type ReportSection } from "./report-document.js";
@@ -46,6 +47,7 @@ function buildQuotaCommandDocument(params: {
   errors: QuotaToastError[];
   sessionTokens?: SessionTokensData;
   generatedAtMs?: number;
+  percentDisplayMode?: PercentDisplayMode;
 }): ReportDocument {
   const groups = groupQuotaEntries(params.entries, "quota");
   const normalizedEntries = groups.flatMap((group) => group.entries);
@@ -71,8 +73,9 @@ function buildQuotaCommandDocument(params: {
         continue;
       }
 
-      const pct = clampInt(row.percentRemaining, 0, 100);
-      lines.push(`  ${labelCol} ${bar(pct, barWidth)}  ${pct}% left${suffix}`);
+      const pct = resolveDisplayedPercent(row.percentRemaining, params.percentDisplayMode);
+      const pctLabel = formatDisplayedPercentLabel(row.percentRemaining, params.percentDisplayMode);
+      lines.push(`  ${labelCol} ${bar(pct, barWidth)}  ${pctLabel}${suffix}`);
     }
     return {
       id: `group-${index}`,
@@ -116,6 +119,7 @@ export function formatQuotaCommand(params: {
   errors: QuotaToastError[];
   sessionTokens?: SessionTokensData;
   generatedAtMs?: number;
+  percentDisplayMode?: PercentDisplayMode;
 }): string {
   return renderPlainTextReport(buildQuotaCommandDocument(params));
 }

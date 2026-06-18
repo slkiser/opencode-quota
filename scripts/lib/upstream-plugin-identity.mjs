@@ -3,6 +3,8 @@ export function isTrackedUpstreamPluginInSync(tracked, latest) {
     tracked.version === latest.version &&
     tracked.packageName === latest.packageName &&
     tracked.repo === latest.repo &&
-    tracked.referenceDir === latest.referenceDir
+    tracked.referenceDir === latest.referenceDir &&
+    tracked.npmUrl === latest.npmUrl &&
+    tracked.publishedAt === latest.publishedAt
   );
 }

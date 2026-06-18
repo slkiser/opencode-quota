@@ -21,7 +21,7 @@ vi.mock("../src/lib/http.js", () => ({
 }));
 
 import { opencodeGoProvider } from "../src/providers/opencode-go.js";
-import { _parseWindowUsage } from "../src/lib/opencode-go.js";
+import { _parseWindowUsage, _parseDataSlotFormat } from "../src/lib/opencode-go.js";
 
 function mockConfigNone() {
   mocks.resolveOpenCodeGoConfigCached.mockResolvedValueOnce({ state: "none" });
@@ -101,6 +101,59 @@ function buildPartialDashboardHtml(
     .join("");
 
   return `<html><script>${chunks}</script></html>`;
+}
+
+/**
+ * Build HTML in the newer data-slot format (as seen in the dashboard after OpenCode UI changes).
+ */
+function buildDataSlotDashboardHtml(
+  rollingUsagePercent: number,
+  rollingResetTime: string,
+  weeklyUsagePercent: number,
+  weeklyResetTime: string,
+  monthlyUsagePercent: number,
+  monthlyResetTime: string,
+): string {
+  return `<div data-slot="usage"><!--$-->
+    <div data-slot="usage-item">
+      <div data-slot="usage-header"><span data-slot="usage-label">Rolling Usage</span><span data-slot="usage-value"><!--$-->${rollingUsagePercent}<!--/-->%</span></div>
+      <div data-slot="progress"><div data-slot="progress-bar" style="width: ${rollingUsagePercent}%;"></div></div>
+      <span data-slot="reset-time"><!--$-->Resets in<!--/--> <!--$-->${rollingResetTime}<!--/--></span>
+    </div>
+    <div data-slot="usage-item">
+      <div data-slot="usage-header"><span data-slot="usage-label">Weekly Usage</span><span data-slot="usage-value"><!--$-->${weeklyUsagePercent}<!--/-->%</span></div>
+      <div data-slot="progress"><div data-slot="progress-bar" style="width: ${weeklyUsagePercent}%;"></div></div>
+      <span data-slot="reset-time"><!--$-->Resets in<!--/--> <!--$-->${weeklyResetTime}<!--/--></span>
+    </div>
+    <div data-slot="usage-item">
+      <div data-slot="usage-header"><span data-slot="usage-label">Monthly Usage</span><span data-slot="usage-value"><!--$-->${monthlyUsagePercent}<!--/-->%</span></div>
+      <div data-slot="progress"><div data-slot="progress-bar" style="width: ${monthlyUsagePercent}%;"></div></div>
+      <span data-slot="reset-time"><!--$-->Resets in<!--/--> <!--$-->${monthlyResetTime}<!--/--></span>
+    </div>
+  </div>`;
+}
+
+/**
+ * Build HTML with only data-slot format (no SolidJS SSR variables).
+ */
+function buildDataSlotOnlyHtml(
+  windows: Partial<Record<OpenCodeGoTestWindow, [usagePercent: number, resetTime: string]>>,
+): string {
+  const items = (["rolling", "weekly", "monthly"] as const)
+    .map((window) => {
+      const usage = windows[window];
+      if (!usage) return "";
+      const [usagePercent, resetTime] = usage;
+      const label = window === "rolling" ? "Rolling Usage" : window === "weekly" ? "Weekly Usage" : "Monthly Usage";
+      return `<div data-slot="usage-item">
+        <div data-slot="usage-header"><span data-slot="usage-label">${label}</span><span data-slot="usage-value"><!--$-->${usagePercent}<!--/-->%</span></div>
+        <div data-slot="progress"><div data-slot="progress-bar" style="width: ${usagePercent}%;"></div></div>
+        <span data-slot="reset-time"><!--$-->Resets in<!--/--> <!--$-->${resetTime}<!--/--></span>
+      </div>`;
+    })
+    .join("");
+
+  return `<div data-slot="usage"><!--$-->${items}</div>`;
 }
 
 function mockDashboardSuccess(html: string) {
@@ -367,6 +420,109 @@ describe("opencode-go provider", () => {
     expectAttemptedWithErrorLabel(out, "OpenCode Go");
     expect(out.errors[0]?.message).toBe("OpenCode Go dashboard error 500: Internal Error retry");
   });
+
+  it("parses data-slot HTML format when SolidJS SSR is not present", async () => {
+    mockConfigConfigured();
+    mockDashboardSuccess(
+      buildDataSlotOnlyHtml({
+        rolling: [1, "1 hour 56 minutes"],
+        weekly: [1, "6 days 2 hours"],
+        monthly: [0, "26 days 17 hours"],
+      }),
+    );
+
+    const out = await runProviderFetch();
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries).toHaveLength(3);
+    expect(out.entries[0]).toMatchObject({
+      name: "OpenCode Go 5h",
+      group: "OpenCode Go",
+      label: "5h:",
+      percentRemaining: 99,
+    });
+    expect(out.entries[1]).toMatchObject({
+      name: "OpenCode Go Weekly",
+      group: "OpenCode Go",
+      label: "Weekly:",
+      percentRemaining: 99,
+    });
+    expect(out.entries[2]).toMatchObject({
+      name: "OpenCode Go Monthly",
+      group: "OpenCode Go",
+      label: "Monthly:",
+      percentRemaining: 100,
+    });
+  });
+
+  it("parses data-slot reset-now as a valid zero-second reset", async () => {
+    mockConfigConfigured();
+    mockDashboardSuccess(`<div data-slot="usage">
+      <div data-slot="usage-item">
+        <span data-slot="usage-label">Rolling Usage</span>
+        <span data-slot="usage-value"><!--$-->12<!--/-->%</span>
+        <span data-slot="reset-now"><!--$-->reset-now<!--/--></span>
+      </div>
+    </div>`);
+
+    const out = await runProviderFetch();
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries).toHaveLength(1);
+    expect(out.entries[0]).toMatchObject({
+      name: "OpenCode Go 5h",
+      percentRemaining: 88,
+    });
+    expect(out.entries[0]).toHaveProperty("resetTimeIso");
+  });
+
+  it("prefers SolidJS SSR format when both formats are present", async () => {
+    mockConfigConfigured();
+    // HTML with both SolidJS SSR and data-slot formats
+    const mixedHtml = `<html><script>rollingUsage:$R[10]={usagePercent:7,resetInSec:18000}weeklyUsage:$R[11]={usagePercent:2,resetInSec:540000}monthlyUsage:$R[12]={usagePercent:16,resetInSec:2480000}</script>
+    <div data-slot="usage">
+      <div data-slot="usage-item">
+        <span data-slot="usage-label">Rolling Usage</span>
+        <span data-slot="usage-value"><!--$-->99<!--/-->%</span>
+        <span data-slot="reset-time"><!--$-->Resets in<!--/--> <!--$-->1 hour<!--/--></span>
+      </div>
+    </div></html>`;
+    mockDashboardSuccess(mixedHtml);
+
+    const out = await runProviderFetch();
+
+    expectAttemptedWithNoErrors(out);
+    // Should use SolidJS SSR values (7%, 2%, 16%) not data-slot values (99%)
+    expect(out.entries[0]).toMatchObject({ percentRemaining: 93 });
+    expect(out.entries[1]).toMatchObject({ percentRemaining: 98 });
+    expect(out.entries[2]).toMatchObject({ percentRemaining: 84 });
+  });
+
+  it("parses data-slot format with partial windows", async () => {
+    mockConfigConfigured();
+    mockDashboardSuccess(
+      buildDataSlotOnlyHtml({
+        rolling: [5, "2 hours"],
+        monthly: [50, "30 days"],
+      }),
+    );
+
+    const out = await runProviderFetch();
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries).toHaveLength(2);
+    expect(out.entries[0]).toMatchObject({ name: "OpenCode Go 5h", percentRemaining: 95 });
+    expect(out.entries[1]).toMatchObject({ name: "OpenCode Go Monthly", percentRemaining: 50 });
+  });
+
+  it("returns error when neither SolidJS SSR nor data-slot format is found", async () => {
+    mockConfigConfigured();
+    mockDashboardSuccess("<html><body><div>No usage data at all</div></body></html>");
+
+    const out = await runProviderFetch();
+    expectAttemptedWithErrorLabel(out, "OpenCode Go");
+    expect(out.errors[0]?.message).toContain("Could not parse any known OpenCode Go dashboard usage windows");
+  });
 });
 
 describe("opencode-go matchesCurrentModel", () => {
@@ -433,5 +589,114 @@ describe("_parseWindowUsage", () => {
       usagePercent: 10,
       resetInSec: 500,
     });
+  });
+});
+
+describe("_parseDataSlotFormat", () => {
+  it("returns empty object for HTML without data-slot usage items", () => {
+    expect(_parseDataSlotFormat("<html><body>no usage</body></html>")).toEqual({});
+  });
+
+  it("parses all three windows from data-slot HTML", () => {
+    const html = buildDataSlotOnlyHtml({
+      rolling: [1, "1 hour 56 minutes"],
+      weekly: [10, "6 days 2 hours"],
+      monthly: [50, "26 days 17 hours"],
+    });
+
+    const result = _parseDataSlotFormat(html);
+
+    expect(result.rolling).toEqual({ usagePercent: 1, resetInSec: 6960 }); // 1h 56m = 6960s
+    expect(result.weekly).toEqual({ usagePercent: 10, resetInSec: 525600 }); // 6d 2h = 525600s
+    expect(result.monthly).toEqual({ usagePercent: 50, resetInSec: 2307600 }); // 26d 17h = 2307600s
+  });
+
+  it("parses partial windows", () => {
+    const html = buildDataSlotOnlyHtml({
+      rolling: [5, "2 hours"],
+      monthly: [80, "30 days"],
+    });
+
+    const result = _parseDataSlotFormat(html);
+
+    expect(result.rolling).toEqual({ usagePercent: 5, resetInSec: 7200 });
+    expect(result.weekly).toBeUndefined();
+    expect(result.monthly).toEqual({ usagePercent: 80, resetInSec: 2592000 });
+  });
+
+  it("handles decimal usage percentages", () => {
+    const html = buildDataSlotOnlyHtml({
+      monthly: [66.5, "26 days"],
+    });
+
+    const result = _parseDataSlotFormat(html);
+
+    expect(result.monthly).toEqual({ usagePercent: 66.5, resetInSec: 2246400 });
+  });
+
+  it("parses reset-now slots as zero seconds", () => {
+    const html = `<div data-slot="usage">
+      <div data-slot="usage-item">
+        <span data-slot="usage-label">Rolling Usage</span>
+        <span data-slot="usage-value"><!--$-->5<!--/-->%</span>
+        <span data-slot="reset-now"><!--$-->reset-now<!--/--></span>
+      </div>
+    </div>`;
+
+    expect(_parseDataSlotFormat(html).rolling).toEqual({ usagePercent: 5, resetInSec: 0 });
+  });
+
+  it("parses reset-time reset-now text as zero seconds", () => {
+    const html = `<div data-slot="usage">
+      <div data-slot="usage-item">
+        <span data-slot="usage-label">Weekly Usage</span>
+        <span data-slot="usage-value"><!--$-->10<!--/-->%</span>
+        <span data-slot="reset-time"><!--$-->reset-now<!--/--></span>
+      </div>
+    </div>`;
+
+    expect(_parseDataSlotFormat(html).weekly).toEqual({ usagePercent: 10, resetInSec: 0 });
+  });
+
+  it("handles various time formats", () => {
+    const html = `<div data-slot="usage">
+      <div data-slot="usage-item">
+        <span data-slot="usage-label">Monthly Usage</span>
+        <span data-slot="usage-value"><!--$-->10<!--/-->%</span>
+        <span data-slot="reset-time"><!--$-->Resets in<!--/--> <!--$-->5 minutes<!--/--></span>
+      </div>
+    </div>`;
+
+    const result = _parseDataSlotFormat(html);
+
+    expect(result.monthly).toEqual({ usagePercent: 10, resetInSec: 300 });
+  });
+
+  it("handles time with only days", () => {
+    const html = `<div data-slot="usage">
+      <div data-slot="usage-item">
+        <span data-slot="usage-label">Monthly Usage</span>
+        <span data-slot="usage-value"><!--$-->20<!--/-->%</span>
+        <span data-slot="reset-time"><!--$-->Resets in<!--/--> <!--$-->15 days<!--/--></span>
+      </div>
+    </div>`;
+
+    const result = _parseDataSlotFormat(html);
+
+    expect(result.monthly).toEqual({ usagePercent: 20, resetInSec: 1296000 });
+  });
+
+  it("handles time with only hours", () => {
+    const html = `<div data-slot="usage">
+      <div data-slot="usage-item">
+        <span data-slot="usage-label">Rolling Usage</span>
+        <span data-slot="usage-value"><!--$-->5<!--/-->%</span>
+        <span data-slot="reset-time"><!--$-->Resets in<!--/--> <!--$-->3 hours<!--/--></span>
+      </div>
+    </div>`;
+
+    const result = _parseDataSlotFormat(html);
+
+    expect(result.rolling).toEqual({ usagePercent: 5, resetInSec: 10800 });
   });
 });

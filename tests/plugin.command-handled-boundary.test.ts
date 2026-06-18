@@ -1,14 +1,12 @@
 import { rm } from "fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { COMMAND_HANDLED_SENTINEL } from "../src/lib/command-handled.js";
 import {
   createConfigModuleMock,
   createPluginTestClient as createClient,
   createPluginToolMockModule,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
-  getPromptText,
   makeQuotaToastTestConfig,
   seedDefaultPluginBootstrapMocks,
 } from "./helpers/plugin-test-harness.js";
@@ -46,6 +44,24 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
   }),
 }));
 
+async function buildDialogOutput(params: {
+  command: "quota" | "pricing_refresh" | "tokens_daily" | "tokens_session_all";
+  client: ReturnType<typeof createClient>;
+  sessionID?: string;
+}) {
+  const { buildQuotaDialogCommandOutput } = await import("../src/lib/quota-dialog-commands.js");
+  return buildQuotaDialogCommandOutput({
+    command: params.command,
+    client: params.client,
+    roots: {
+      workspaceRoot: process.cwd(),
+      configRoot: process.cwd(),
+      fallbackDirectory: process.cwd(),
+    },
+    sessionID: params.sessionID,
+  });
+}
+
 describe("plugin command handled boundary", () => {
   beforeEach(async () => {
     seedDefaultPluginBootstrapMocks(mocks, {
@@ -63,22 +79,20 @@ describe("plugin command handled boundary", () => {
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
   });
 
-  it("propagates command-handled sentinel errors to abort command pipeline", async () => {
+  it("does not register or handle migrated deterministic slash commands in the server plugin", async () => {
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient();
     const hooks = await QuotaToastPlugin({ client } as any);
+    const cfg: { command?: Record<string, { template: string; description: string }> } = {};
 
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-1",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+    await hooks.config?.(cfg as any);
 
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
+    expect(cfg.command).toBeUndefined();
+    expect(hooks["command.execute.before"]).toBeUndefined();
+    expect(client.session.prompt).not.toHaveBeenCalled();
   });
 
-  it("downgrades availability probe errors into handled unavailable output", async () => {
+  it("builds deterministic quota dialog output without session.prompt injection", async () => {
     mocks.getProviders.mockReturnValue([
       {
         id: "boom-provider",
@@ -87,81 +101,46 @@ describe("plugin command handled boundary", () => {
       },
     ]);
     const client = createClient();
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const hooks = await QuotaToastPlugin({ client } as any);
 
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-2",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+    const result = await buildDialogOutput({ command: "quota", client, sessionID: "session-2" });
 
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    const injected = getPromptText(client);
-    expect(injected).toContain("Quota unavailable");
-    expect(injected).toContain("No quota providers detected");
+    expect(result.state).toBe("output");
+    expect(result.state === "output" ? result.output : "").toContain("Quota unavailable");
+    expect(result.state === "output" ? result.output : "").toContain("No quota providers detected");
+    expect(client.session.prompt).not.toHaveBeenCalled();
   });
 
-  it("rethrows unexpected non-sentinel errors from handled commands", async () => {
-    const client = createClient();
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const hooks = await QuotaToastPlugin({ client } as any);
-    client.session.prompt.mockRejectedValue(new Error("inject failed"));
-    client.app.log.mockRejectedValue(new Error("log failed"));
-
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "session-inject-failure",
-      } as any),
-    ).rejects.toThrow("log failed");
-  });
-
-  it("treats handled token slash commands as strict no-op when disabled", async () => {
+  it("returns no-op dialog result for disabled deterministic commands", async () => {
     mocks.loadConfig.mockResolvedValue(makeQuotaToastTestConfig({ enabled: false }));
-
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient();
-    const hooks = await QuotaToastPlugin({ client } as any);
 
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "tokens_daily",
-        sessionID: "session-disabled",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "tokens_session_all",
-        sessionID: "session-disabled-tree",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+    const daily = await buildDialogOutput({ command: "tokens_daily", client, sessionID: "session-disabled" });
+    const tree = await buildDialogOutput({
+      command: "tokens_session_all",
+      client,
+      sessionID: "session-disabled-tree",
+    });
 
+    expect(daily).toEqual({ state: "noop", command: "tokens_daily", reason: "disabled" });
+    expect(tree).toEqual({ state: "noop", command: "tokens_session_all", reason: "disabled" });
     expect(mocks.maybeRefreshPricingSnapshot).not.toHaveBeenCalled();
     expect(client.session.prompt).not.toHaveBeenCalled();
   });
 
-  it("propagates handled sentinel for /pricing_refresh after injecting output", async () => {
+  it("builds /pricing_refresh dialog output without throwing a handled sentinel", async () => {
     mocks.maybeRefreshPricingSnapshot.mockResolvedValue({
       attempted: true,
       updated: true,
       state: { version: 1, updatedAt: Date.now(), lastResult: "success" },
     });
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient();
-    const hooks = await QuotaToastPlugin({ client } as any);
-    await Promise.resolve();
-    await Promise.resolve();
-    mocks.maybeRefreshPricingSnapshot.mockClear();
 
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "pricing_refresh",
-        sessionID: "session-pricing-refresh",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+    const result = await buildDialogOutput({
+      command: "pricing_refresh",
+      client,
+      sessionID: "session-pricing-refresh",
+    });
 
     expect(mocks.maybeRefreshPricingSnapshot).toHaveBeenCalledWith({
       reason: "manual",
@@ -169,23 +148,23 @@ describe("plugin command handled boundary", () => {
       snapshotSelection: "auto",
       allowRefreshWhenSelectionBundled: true,
     });
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
+    expect(result.state === "output" ? result.output : "").toContain(
+      "Pricing Refresh (/pricing_refresh)",
+    );
+    expect(client.session.prompt).not.toHaveBeenCalled();
   });
 
-  it("treats /pricing_refresh as a strict no-op when disabled", async () => {
+  it("treats /pricing_refresh as a dialog no-op when disabled", async () => {
     mocks.loadConfig.mockResolvedValue(makeQuotaToastTestConfig({ enabled: false }));
-
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient();
-    const hooks = await QuotaToastPlugin({ client } as any);
 
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "pricing_refresh",
-        sessionID: "session-disabled-refresh",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+    const result = await buildDialogOutput({
+      command: "pricing_refresh",
+      client,
+      sessionID: "session-disabled-refresh",
+    });
 
+    expect(result).toEqual({ state: "noop", command: "pricing_refresh", reason: "disabled" });
     expect(mocks.maybeRefreshPricingSnapshot).not.toHaveBeenCalled();
     expect(client.session.prompt).not.toHaveBeenCalled();
   });

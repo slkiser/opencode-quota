@@ -22,7 +22,7 @@ Thanks for contributing. This repo has strict local-only behavior and regression
 
 ## Development Setup
 
-- The published package runtime supports Node.js `>=18.0.0` (matches `package.json` engines).
+- The published package runtime supports Node.js `>=20.0.0` (matches `package.json` engines).
 - Repository development uses pnpm v11, which requires Node.js `>=22` for the pnpm CLI.
 - Enable the pinned package manager and install dependencies with:
 
@@ -61,9 +61,9 @@ Use `pnpm run test:watch` for local iteration. Use `pnpm run build:check` when y
 PR and `main` pushes trigger `.github/workflows/ci.yml` (`CI` workflow):
 
 - Job: `pnpm-quality` on Node `22.x`
-- Steps: `pnpm install --frozen-lockfile`, `pnpm run typecheck`, `pnpm run build`, `pnpm test`, `pnpm pack --dry-run`
-- Job: `runtime-smoke` on Node `18.x`, `20.x`, and `22.x`
-- Runtime smoke installs the packed package as a consumer with npm and verifies the exported server entrypoints plus `engines.node >=18.0.0`
+- Steps: `pnpm install --frozen-lockfile`, `pnpm run typecheck`, `pnpm run build`, `pnpm test`, then `pnpm pack --pack-destination` to upload the package tarball artifact
+- Job: `runtime-smoke` on Node `20.x` and `22.x`
+- Runtime smoke installs the packed package as a consumer with npm and verifies the default import, `./server` import, `./tui` export resolution with the packaged `dist/tui.tsx` payload, plus `engines.node >=20.0.0`
 
 Release workflow `.github/workflows/publish-npm.yml` runs on release/manual dispatch and uses pnpm for version sync, install, typecheck, build, and test before publishing. It keeps `npm publish --access public` only for the npm registry publish step.
 
@@ -75,15 +75,17 @@ Recommended settings for `main`:
 - Require branches to be up to date before merging.
 - Require status checks from workflow `CI` for `pnpm-quality` and every `runtime-smoke` matrix entry.
 - Select checks exactly as GitHub displays them in repository settings.
-- Typical names look like `pnpm-quality`, `runtime-smoke (18.x)`, `runtime-smoke (20.x)`, `runtime-smoke (22.x)` or `CI / ...` variants.
+- Typical names look like `pnpm-quality`, `runtime-smoke (20.x)`, `runtime-smoke (22.x)` or `CI / ...` variants.
 - Block direct pushes to `main` for non-admin users.
 
 ## Repo Guardrails
 
 - Never invoke an LLM/model API to compute toast/report output. Everything must remain local and deterministic.
-- Preserve slash command handled-sentinel behavior in `command.execute.before`.
-- Do not catch `isCommandHandledError(...)` and return normally.
-- Keep `tests/plugin.command-handled-boundary.test.ts` aligned with this invariant.
+- Keep deterministic slash command output on the TUI dialog/palette path, not `command.execute.before`. Returning normally from that server hook lets OpenCode continue into `prompt(...)`, while throwing from it can surface hook errors.
+- Do not use `session.prompt()` for migrated slash command outputs (`/quota`, `/quota_status`, `/quota_announcements`, `/pricing_refresh`, `/tokens_*`). They must remain local, deterministic TUI dialog output with no model call and no OpenCode session transcript write.
+- Keep `handled()` / `isCommandHandledError(...)` tests only for compatibility of the branded sentinel helper; do not reintroduce server slash command ownership for migrated dialog commands.
+- `injectRawOutput()` still uses `session.prompt({ noReply: true, ignored: true })` for the server `tool.quota_status` compatibility path. Do not reuse it for dialog slash commands.
+- Keep `tests/plugin.command-handled-boundary.test.ts`, `tests/tui-smoke.test.ts`, and `tests/command-handled.test.ts` aligned with these invariants.
 
 Additional boundary tests to keep healthy when touching plugin/provider logic:
 

@@ -52,7 +52,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [18.x, 20.x, 22.x]
+        node-version: [20.x, 22.x]
 
     steps:
       - name: Use Node.js ${{ matrix.node-version }}
@@ -81,10 +81,19 @@ jobs:
           node --input-type=module <<'EOF'
           import assert from "node:assert/strict";
           import { readFile } from "node:fs/promises";
+          import { fileURLToPath } from "node:url";
 
           await import("@slkiser/opencode-quota");
           await import("@slkiser/opencode-quota/server");
 
+          const tuiExportUrl = import.meta.resolve("@slkiser/opencode-quota/tui");
+          const tuiExportPath = fileURLToPath(tuiExportUrl);
+          assert.match(tuiExportPath, /node_modules\/\@slkiser\/opencode-quota\/dist\/tui\.tsx$/);
+          const tuiSource = await readFile(tuiExportPath, "utf8");
+          assert.ok(tuiSource.includes("@slkiser/opencode-quota"));
+          assert.ok(tuiSource.includes("const pluginModule"));
+          assert.ok(tuiSource.includes("tui"));
+
           const pkg = JSON.parse(await readFile("node_modules/@slkiser/opencode-quota/package.json", "utf8"));
-          assert.equal(pkg.engines?.node, ">=18.0.0");
+          assert.equal(pkg.engines?.node, ">=20.0.0");
           EOF

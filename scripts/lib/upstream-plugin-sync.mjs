@@ -5,6 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { replacePath, safeRm } from "./upstream-plugin-fs.mjs";
+import { isTrackedUpstreamPluginInSync } from "./upstream-plugin-identity.mjs";
 import { readUpstreamPluginLock, serializeUpstreamPluginLock } from "./upstream-plugin-lock.mjs";
 import { upstreamPluginReferenceRoot } from "./upstream-plugin-paths.mjs";
 import { downloadTarball, fetchLatestPublishedPluginVersion } from "./upstream-plugin-registry.mjs";
@@ -56,7 +57,7 @@ async function stageOnePlugin(latest, stageRoot, previousLock) {
   const destinationPath = path.join(stageRoot, latest.pluginId);
   const previousPlugin = previousLock?.plugins?.[latest.pluginId];
 
-  if (previousPlugin?.version === latest.version) {
+  if (previousPlugin && isTrackedUpstreamPluginInSync(previousPlugin, latest)) {
     await cp(path.join(upstreamPluginReferenceRoot, latest.pluginId), destinationPath, {
       force: true,
       recursive: true,

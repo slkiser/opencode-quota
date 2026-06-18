@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { COMMAND_HANDLED_SENTINEL } from "../src/lib/command-handled.js";
 import { DEFAULT_CONFIG } from "../src/lib/types.js";
 import {
   createAlibabaAuthModuleMock,
@@ -57,6 +56,7 @@ vi.mock("../src/lib/alibaba-auth.js", () =>
 );
 
 vi.mock("../src/lib/quota-render-data.js", () => ({
+  collectConcreteEnabledProviderIds: vi.fn(),
   collectQuotaRenderData: vi.fn(),
   collectQuotaStatusLiveProbes: mocks.collectQuotaStatusLiveProbes,
   matchesQuotaProviderCurrentSelection: vi.fn(() => true),
@@ -74,6 +74,33 @@ vi.mock("../src/lib/tui-config-diagnostics.js", () => ({
 vi.mock("../src/lib/google.js", () => ({
   refreshGoogleTokensForAllAccounts: mocks.refreshGoogleTokensForAllAccounts,
 }));
+
+async function buildQuotaStatusDialogOutput(params: {
+  client: ReturnType<typeof createClient>;
+  sessionID?: string;
+}) {
+  const { buildQuotaDialogCommandOutput } = await import("../src/lib/quota-dialog-commands.js");
+  const result = await buildQuotaDialogCommandOutput({
+    command: "quota_status",
+    client: params.client,
+    roots: {
+      workspaceRoot: process.cwd(),
+      configRoot: process.cwd(),
+      fallbackDirectory: process.cwd(),
+    },
+    sessionID: params.sessionID,
+    resolveSessionMeta: async (sessionID) => {
+      const response = await params.client.session.get({ path: { id: sessionID } });
+      return {
+        modelID: response.data?.modelID,
+        providerID: response.data?.providerID,
+      };
+    },
+  });
+  expect(params.client.session.prompt).not.toHaveBeenCalled();
+  expect(result.state).toBe("output");
+  return result.state === "output" ? result.output : "";
+}
 
 describe("/quota_status command behavior", () => {
   let savedConfigDir: string | undefined;
@@ -146,14 +173,12 @@ describe("/quota_status command behavior", () => {
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient({ modelID: "openai/gpt-5", providerID: "openai" });
-    const hooks = await QuotaToastPlugin({ client } as any);
+    await QuotaToastPlugin({ client } as any);
 
-    await expect(
-      hooks["command.execute.before"]?.({
-        command: "quota_status",
-        sessionID: "session-status",
-      } as any),
-    ).rejects.toThrow(COMMAND_HANDLED_SENTINEL);
+    const output = await buildQuotaStatusDialogOutput({
+      client,
+      sessionID: "session-status",
+    });
 
     expect(mocks.collectQuotaStatusLiveProbes).toHaveBeenCalledTimes(1);
     expect(mocks.inspectTuiConfig).toHaveBeenCalledWith({
@@ -197,18 +222,28 @@ describe("/quota_status command behavior", () => {
         ],
       }),
     );
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    expect(client.session.prompt).toHaveBeenCalledWith(
+    expect(output).toBe("Injected quota status");
+  });
+
+  it("reports no_session diagnostics when no active TUI session is available", async () => {
+    mocks.getProviders.mockReturnValue([]);
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const client = createClient({ modelID: "openai/gpt-5", providerID: "openai" });
+    await QuotaToastPlugin({ client } as any);
+
+    const output = await buildQuotaStatusDialogOutput({
+      client,
+      sessionID: undefined,
+    });
+
+    expect(client.session.get).not.toHaveBeenCalled();
+    expect(mocks.buildQuotaStatusReport).toHaveBeenCalledWith(
       expect.objectContaining({
-        path: { id: "session-status" },
-        body: expect.objectContaining({
-          parts: [
-            expect.objectContaining({
-              text: "Injected quota status",
-            }),
-          ],
-        }),
+        currentModel: undefined,
+        sessionModelLookup: "no_session",
       }),
     );
+    expect(output).toBe("Injected quota status");
   });
 });
