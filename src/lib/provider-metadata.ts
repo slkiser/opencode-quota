@@ -17,7 +17,7 @@ export type CanonicalQuotaProviderId =
   | "kimi-for-coding"
   | "deepseek"
   | "opencode-go"
-  | "litellm";
+  | "litellm"
   | "ollama-cloud";
 
 export type QuotaProviderAutoSetup = "yes" | "usually" | "manual_env_config" | "needs_quick_setup";
