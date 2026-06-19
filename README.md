@@ -35,7 +35,7 @@ The installer adds missing plugin/config entries and keeps your unrelated settin
 | Question | Pick this when you want... |
 | --- | --- |
 | Install scope | This repo/worktree only, or your global OpenCode config. |
-| Quota UI | Sidebar panel, toasts, compact status line, terminal command only, or a mix. The server plugin provides web/desktop slash commands; Sidebar or Compact status also installs the TUI plugin for local dialog commands. |
+| Quota UI | Sidebar panel, toasts, compact status line, no automatic UI surfaces, or a mix. The server plugin provides web/desktop slash commands in every mode; Sidebar or Compact status also installs the TUI plugin for local dialog commands. |
 | Provider mode | Auto-detect providers, or choose a provider list yourself. |
 | Quota reset periods | Show one reset period per provider, or all known reset periods. |
 | Quota percentage meaning | Show quota remaining, or quota already used. |
@@ -173,7 +173,7 @@ All UI surfaces use the same quota data. Put these settings in `opencode-quota/q
 | Maintainer announcement notice | `maintainerAnnouncements.enabled: true`, `maintainerAnnouncements.home: true` | Prefers the TUI home notice when the quota TUI plugin is configured. Without the TUI plugin, shows the same count-only notice once after the first visible quota toast. |
 | Web/desktop slash commands | Server plugin entry in `opencode.json` | `/quota`, `/quota_status`, `/quota_announcements`, `/pricing_refresh`, and `/tokens_*` show deterministic ignored/no-reply output without calling the model. |
 | Dialog slash commands | TUI plugin entry in `tui.json` | The same commands open local TUI dialogs. They do not call the model and do not write command output to the OpenCode session transcript. |
-| Terminal command only | `enableToast: false`, `tuiSidebarPanel.enabled: false`, `tuiCompactStatus.enabled: false`, `maintainerAnnouncements.enabled: false` | Keeps `opencode-quota show` terminal checks while hiding optional toast/sidebar/compact/home surfaces. Does not install TUI dialog commands. |
+| No automatic UI surfaces | `enableToast: false`, `tuiSidebarPanel.enabled: false`, `tuiCompactStatus.enabled: false` | Skips toast/sidebar/compact/TUI dialog surfaces while keeping server web/desktop slash commands and `opencode-quota show` available. Maintainer announcements use the separate installer question/config and can be opted out if desired. |
 
 Selecting Compact status line in the installer enables both compact surfaces by default. To keep compact status home-only, set `tuiCompactStatus.sessionPrompt: false`.
 

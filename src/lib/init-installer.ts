@@ -208,7 +208,7 @@ function getUiLabel(choices: readonly InitQuotaUiChoice[]): string {
     if (choice === "toast") return "Toast";
     if (choice === "sidebar") return "Sidebar";
     if (choice === "compact_status") return "Compact status";
-    return "Terminal only";
+    return "No automatic UI surfaces";
   });
   return labels.join(" + ");
 }
@@ -1024,9 +1024,9 @@ async function promptForSelections(
       { label: "Sidebar panel", value: "sidebar", hint: "full Quota panel in the OpenCode session sidebar" },
       { label: "Compact status line", value: "compact_status", hint: "short quota summary in the TUI status area" },
       {
-        label: "Terminal command only",
+        label: "No automatic UI surfaces",
         value: "none",
-        hint: "no toast, sidebar, compact status, or TUI slash-command dialogs",
+        hint: "no toast, sidebar, compact status, or TUI dialogs; server slash commands stay installed",
       },
     ],
   });

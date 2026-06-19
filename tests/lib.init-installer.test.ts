@@ -579,7 +579,7 @@ describe("init installer planning and merge behavior", () => {
       },
     });
 
-    expect(plan.summaryLines).toContain("Quota UI: Terminal only");
+    expect(plan.summaryLines).toContain("Quota UI: No automatic UI surfaces");
     expect(plan.summaryLines).toContain("Maintainer announcements: Disabled");
     expect(plan.edits.map((edit) => edit.kind)).toEqual(["opencode", "quota"]);
 
@@ -933,9 +933,9 @@ describe("init installer planning and merge behavior", () => {
       { label: "Sidebar panel", value: "sidebar", hint: "full Quota panel in the OpenCode session sidebar" },
       { label: "Compact status line", value: "compact_status", hint: "short quota summary in the TUI status area" },
       {
-        label: "Terminal command only",
+        label: "No automatic UI surfaces",
         value: "none",
-        hint: "no toast, sidebar, compact status, or TUI slash-command dialogs",
+        hint: "no toast, sidebar, compact status, or TUI dialogs; server slash commands stay installed",
       },
     ]);
     const sessionTokenCall = prompts.selectCalls.find((call) => call.message === "Session token details");
@@ -1044,6 +1044,7 @@ describe("init installer planning and merge behavior", () => {
 
     expect(existsSync(join(projectDir, "tui.json"))).toBe(false);
     const opencode = readJson(join(projectDir, "opencode.json"));
+    expect(opencode.plugin).toEqual(["@slkiser/opencode-quota"]);
     expect(opencode.experimental).toBeUndefined();
     const quotaConfig = readJson(join(projectDir, "opencode-quota", "quota-toast.json"));
     expect(quotaConfig.enableToast).toBe(false);
