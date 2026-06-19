@@ -210,6 +210,7 @@ vi.mock("../src/lib/opencode-auth.js", () => ({
   getAuthPath: () => "/tmp/auth.json",
   getAuthPaths: () => ["/tmp/auth.json"],
   readAuthFileCached: vi.fn(async () => ({})),
+  readAuthFile: vi.fn(async () => ({})),
 }));
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
@@ -1750,6 +1751,7 @@ zhipu:
 synthetic:
 chutes:
 deepseek:
+litellm:
 nanogpt:
 copilot_quota_auth:
 google_antigravity:

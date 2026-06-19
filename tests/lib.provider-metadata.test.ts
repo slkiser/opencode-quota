@@ -148,6 +148,13 @@ describe("provider-metadata", () => {
         notes: "Scrapes the OpenCode Go dashboard; requires workspaceId and authCookie",
       },
       {
+        id: "litellm",
+        autoSetup: "needs_quick_setup",
+        authentication: "companion_auth_oauth_token",
+        authFallbacks: ["env_api_key", "global_opencode_config"],
+        quota: "remote_api",
+      },
+      {
         id: "ollama-cloud",
         autoSetup: "manual_env_config",
         authentication: "state_only",

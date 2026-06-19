@@ -18,6 +18,7 @@ export type CanonicalQuotaProviderId =
   | "kimi-for-coding"
   | "deepseek"
   | "opencode-go"
+  | "litellm"
   | "ollama-cloud";
 
 export type QuotaProviderAutoSetup = "yes" | "usually" | "manual_env_config" | "needs_quick_setup";
@@ -73,6 +74,7 @@ export const QUOTA_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   "kimi-code": "Kimi Code",
   deepseek: "DeepSeek",
   "opencode-go": "OpenCode Go",
+  litellm: "LiteLLM",
   "ollama-cloud": "Ollama Cloud",
 };
 
@@ -143,6 +145,7 @@ export const QUOTA_PROVIDER_RUNTIME_IDS: QuotaProviderRuntimeIds = {
   "kimi-for-coding": ["kimi-for-coding", "kimi", "kimi-code"],
   deepseek: ["deepseek"],
   "opencode-go": ["opencode-go"],
+  litellm: ["litellm"],
   "ollama-cloud": ["ollama-cloud"],
 };
 
@@ -286,6 +289,13 @@ export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
     quota: "remote_api",
     quickSetupAnchor: "opencode-go",
     notes: "Scrapes the OpenCode Go dashboard; requires workspaceId and authCookie",
+  },
+  {
+    id: "litellm",
+    autoSetup: "needs_quick_setup",
+    authentication: "companion_auth_oauth_token",
+    authFallbacks: ["env_api_key", "global_opencode_config"],
+    quota: "remote_api",
   },
   {
     id: "ollama-cloud",

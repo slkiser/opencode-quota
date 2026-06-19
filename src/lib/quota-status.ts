@@ -13,6 +13,7 @@ import { getAnthropicDiagnostics } from "./anthropic.js";
 import { getChutesKeyDiagnostics } from "./chutes.js";
 import { getNanoGptKeyDiagnostics, queryNanoGptQuota } from "./nanogpt.js";
 import { getDeepSeekKeyDiagnostics } from "./deepseek.js";
+import { getLiteLLMKeyDiagnostics } from "./litellm.js";
 import { getSyntheticKeyDiagnostics } from "./synthetic.js";
 import { getCopilotQuotaAuthDiagnostics } from "./copilot.js";
 import {
@@ -1331,6 +1332,17 @@ export async function buildQuotaStatusReport(params: {
   ];
   appendProviderCompactLiveProbeRows(deepSeekRows, "deepseek", params.providerLiveProbes);
   sections.push(createKvSection("deepseek", "deepseek:", deepSeekRows));
+
+  // === litellm ===
+  const litellmDiag = await readApiKeyDiagnosticsWithAuthPaths(getLiteLLMKeyDiagnostics);
+  const litellmRows: ReportKvRow[] = [
+    { key: "api_key_configured", value: litellmDiag.configured ? "true" : "false" },
+    { key: "api_key_source", value: litellmDiag.source ?? "(none)" },
+    { key: "api_key_checked_paths", value: joinOrNone(litellmDiag.checkedPaths) },
+    { key: "api_key_auth_paths", value: joinOrNone(litellmDiag.authPaths) },
+  ];
+  appendProviderCompactLiveProbeRows(litellmRows, "litellm", params.providerLiveProbes);
+  sections.push(createKvSection("litellm", "litellm:", litellmRows));
 
   // === nanogpt ===
   const nanoGptDiag = await readApiKeyDiagnosticsWithAuthPaths(getNanoGptKeyDiagnostics);
