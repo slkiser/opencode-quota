@@ -604,21 +604,31 @@ export interface GeminiCliQuotaResult {
   errors?: GoogleAccountError[];
 }
 
-export interface GoogleAgyQuotaBucket {
-  modelId: string;
-  displayName: string;
-  percentRemaining: number;
-  resetTimeIso?: string;
+export interface RetrieveUserQuotaSummaryBucket {
+  bucketId: string;
+  displayName?: string;
+  description?: string;
+  window: "weekly" | "5h";
+  remainingFraction?: number;
   remainingAmount?: string;
-  tokenType?: string;
-  accountEmail?: string;
-  accountKey?: string;
-  sourceKey?: GoogleAgyAuthSourceKey;
+  disabled?: boolean;
+  resetTime?: string;
+}
+
+export interface RetrieveUserQuotaSummaryGroup {
+  displayName: string;
+  description?: string;
+  buckets: RetrieveUserQuotaSummaryBucket[];
+}
+
+export interface RetrieveUserQuotaSummaryResponse {
+  groups?: RetrieveUserQuotaSummaryGroup[];
+  description?: string;
 }
 
 export interface GoogleAgyQuotaResult {
   success: true;
-  buckets: GoogleAgyQuotaBucket[];
+  summaryGroups: RetrieveUserQuotaSummaryGroup[];
   errors?: GoogleAccountError[];
 }
 
