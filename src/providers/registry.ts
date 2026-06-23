@@ -24,6 +24,7 @@ import {
   minimaxCodingPlanProvider,
 } from "./minimax-coding-plan.js";
 import { opencodeGoProvider } from "./opencode-go.js";
+import { opencodeProvider } from "./opencode.js";
 import { kimiCodeProvider } from "./kimi-code.js";
 import { deepseekProvider } from "./deepseek.js";
 import { ollamaCloudProvider } from "./ollama-cloud.js";
@@ -50,6 +51,7 @@ export function getProviders(): QuotaProvider[] {
     kimiCodeProvider,
     deepseekProvider,
     opencodeGoProvider,
+    opencodeProvider,
     ollamaCloudProvider,
   ];
 }

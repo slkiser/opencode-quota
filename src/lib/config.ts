@@ -44,6 +44,7 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "cursorIncludedApiUsd",
   "cursorBillingCycleStartDay",
   "opencodeGoWindows",
+  "opencodeMonthlyLimit",
   "pricingSnapshot.source",
   "pricingSnapshot.autoRefresh",
   "showOnIdle",
@@ -145,6 +146,7 @@ type ValidatedQuotaToastPatch = {
   cursorIncludedApiUsd?: number;
   cursorBillingCycleStartDay?: number;
   opencodeGoWindows?: Array<"rolling" | "weekly" | "monthly">;
+  opencodeMonthlyLimit?: number;
   pricingSnapshot?: PricingSnapshotPatch;
   showOnIdle?: boolean;
   showOnQuestion?: boolean;
@@ -229,6 +231,10 @@ function isValidOpenCodeGoWindows(value: unknown): value is Array<"rolling" | "w
   return value.every((v) => typeof v === "string" && VALID_OPENCODE_GO_WINDOWS.includes(v as typeof VALID_OPENCODE_GO_WINDOWS[number]));
 }
 
+function isValidOpencodeMonthlyLimit(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
 function normalizeOptionalString(value: unknown): string | undefined {
   if (typeof value !== "string") {
     return undefined;
@@ -284,6 +290,7 @@ function cloneConfig(config: QuotaToastConfig): QuotaToastConfig {
       : config.enabledProviders,
     googleModels: [...config.googleModels],
     opencodeGoWindows: [...config.opencodeGoWindows],
+    opencodeMonthlyLimit: config.opencodeMonthlyLimit,
     pricingSnapshot: { ...config.pricingSnapshot },
     tuiSidebarPanel: { ...config.tuiSidebarPanel },
     tuiCompactStatus: { ...config.tuiCompactStatus },
@@ -595,6 +602,13 @@ function extractValidatedQuotaToastPatch(
     patch.opencodeGoWindows = quotaToastConfig.opencodeGoWindows;
   }
 
+  if (
+    hasOwnKey(quotaToastConfig, "opencodeMonthlyLimit") &&
+    isValidOpencodeMonthlyLimit(quotaToastConfig.opencodeMonthlyLimit)
+  ) {
+    patch.opencodeMonthlyLimit = quotaToastConfig.opencodeMonthlyLimit;
+  }
+
   if (hasOwnKey(quotaToastConfig, "pricingSnapshot")) {
     const pricingSnapshot = extractPricingSnapshotPatch(quotaToastConfig.pricingSnapshot);
     if (pricingSnapshot) {
@@ -778,6 +792,11 @@ function applyValidatedQuotaToastPatch(
   if (hasOwnKey(patch, "opencodeGoWindows")) {
     config.opencodeGoWindows = [...patch.opencodeGoWindows!];
     applySettingSource(settingSources, "opencodeGoWindows", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "opencodeMonthlyLimit")) {
+    config.opencodeMonthlyLimit = patch.opencodeMonthlyLimit!;
+    applySettingSource(settingSources, "opencodeMonthlyLimit", sourcePath);
   }
 
   if (patch.pricingSnapshot) {

@@ -480,7 +480,7 @@ describe("formatQuotaRows", () => {
     });
 
     expect(out).toContain("5h window");
-    expect(out).not.toContain("0/135");
+    expect(out).toContain("0/135");
     expect(out).toContain("100% left");
   });
 

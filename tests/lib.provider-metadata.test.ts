@@ -148,6 +148,14 @@ describe("provider-metadata", () => {
         notes: "Scrapes the OpenCode Go dashboard; requires workspaceId and authCookie",
       },
       {
+        id: "opencode",
+        autoSetup: "needs_quick_setup",
+        authentication: "state_only",
+        quota: "remote_api",
+        quickSetupAnchor: "opencode-zen",
+        notes: "Scrapes the OpenCode Zen billing page; requires workspaceId and authCookie",
+      },
+      {
         id: "ollama-cloud",
         autoSetup: "manual_env_config",
         authentication: "state_only",
@@ -164,6 +172,7 @@ describe("provider-metadata", () => {
 
   it("normalizes provider synonyms to canonical ids", () => {
     expect(normalizeQuotaProviderId("  openai  ")).toBe("openai");
+    expect(normalizeQuotaProviderId("opencode-zen")).toBe("opencode");
 
     for (const [alias, canonicalId] of Object.entries(QUOTA_PROVIDER_ID_SYNONYMS)) {
       expect(normalizeQuotaProviderId(alias)).toBe(canonicalId);
@@ -340,6 +349,8 @@ describe("provider-metadata", () => {
     expect(getQuotaProviderDisplayLabel("kimi-code")).toBe("Kimi Code");
     expect(getQuotaProviderDisplayLabel("kimi")).toBe("Kimi Code");
     expect(getQuotaProviderDisplayLabel("deep-seek")).toBe("DeepSeek");
+    expect(getQuotaProviderDisplayLabel("opencode-go")).toBe("OpenCode Go");
+    expect(getQuotaProviderDisplayLabel("opencode-zen")).toBe("OpenCode Zen");
     expect(getQuotaProviderDisplayLabel("something-else")).toBe("something-else");
   });
 });

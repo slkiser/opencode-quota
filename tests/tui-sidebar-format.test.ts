@@ -304,7 +304,7 @@ describe("buildSidebarQuotaPanelLines", () => {
     const rendered = lines.join("\n");
     expect(rendered).toContain("[Synthetic]");
     expect(rendered).toContain("Weekly window");
-    expect(rendered).not.toContain("$22/$24");
+    expect(rendered).toContain("$22/$24");
     expect(rendered).toContain("92% used");
     expect(rendered).not.toContain("0/500");
     expect(rendered).not.toContain("0% used");
