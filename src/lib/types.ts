@@ -121,6 +121,7 @@ export interface QuotaToastConfig {
    * Defaults to ["rolling", "weekly", "monthly"].
    */
   opencodeGoWindows: OpenCodeGoWindowKey[];
+  opencodeMonthlyLimit?: number;
   cursorIncludedApiUsd?: number;
   cursorBillingCycleStartDay?: number;
   pricingSnapshot: PricingSnapshotConfig;
@@ -187,6 +188,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   alibabaCodingPlanTier: "lite",
   cursorPlan: "none",
   opencodeGoWindows: ["rolling", "weekly", "monthly"],
+  opencodeMonthlyLimit: undefined,
   pricingSnapshot: {
     source: "auto",
     autoRefresh: 7,

@@ -30,6 +30,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | DeepSeek | API key/config | Remote API | Balance/status |
 | Ollama Cloud | [Needs setup](#ollama-cloud) | Dashboard scraping | Dashboard usage |
 | OpenCode Go | [Needs setup](#opencode-go) | Dashboard scraping | Dashboard usage |
+| OpenCode Zen | [Needs setup](#opencode-zen) | Dashboard scraping | Balance/usage |
 
 ## Provider setup notes
 
@@ -166,4 +167,37 @@ export OPENCODE_GO_AUTH_COOKIE="your-auth-cookie"
 ```
 
 Use `opencodeGoWindows` to choose **5h**, **Weekly**, and/or **Monthly** windows. Environment variables take precedence over the optional `opencode-go.json` file.
+
+<a id="opencode-zen"></a>
+### OpenCode Zen
+
+OpenCode Zen balance scrapes the billing page at `opencode.ai/workspace/{id}/billing`. Set these environment variables:
+
+```bash
+export OPENCODE_WORKSPACE_ID="your-workspace-id"
+export OPENCODE_AUTH_COOKIE="your-auth-cookie"
+```
+
+For backward compatibility with OpenCode Go credentials, `OPENCODE_GO_WORKSPACE_ID` and `OPENCODE_GO_AUTH_COOKIE` are also accepted.
+
+**To get the `auth` cookie and workspace ID:** Same as OpenCode Go — DevTools → Cookies → copy `auth` from `opencode.ai`. The workspace ID is in the URL: `opencode.ai/workspace/<WORKSPACE_ID>/...`.
+
+You can also create a config file at `{configDir}/opencode-quota/opencode.json`:
+
+```jsonc
+{
+  "workspaceId": "your-workspace-id",
+  "authCookie": "your-auth-cookie"
+}
+```
+
+**Monthly budget override:** Set `opencodeMonthlyLimit` in `opencode-quota/quota-toast.json` to override the monthly limit from the billing page:
+
+```jsonc
+{
+  "opencodeMonthlyLimit": 200
+}
+```
+
+When no monthly limit is set on the billing page or via config, only the current balance is shown.
 

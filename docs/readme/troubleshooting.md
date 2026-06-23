@@ -196,6 +196,21 @@ Run `/quota_status` and check the `opencode_go` section.
 </details>
 
 <details>
+<summary><strong>OpenCode Zen</strong></summary>
+
+Run `/quota_status` and check the `opencode_zen` section.
+
+| Symptom | Fix |
+| --- | --- |
+| Config not detected | Set both `OPENCODE_WORKSPACE_ID` and `OPENCODE_AUTH_COOKIE`, then rerun `/quota_status`. |
+| Incomplete config | `workspaceId` and `authCookie` must come from the same source. |
+| Scrape returns no data | Refresh the browser `auth` cookie from `opencode.ai`. The Zen billing page uses the same cookie domain as OpenCode Go. |
+| Balance shows $0.00 | Confirm the billing page at `opencode.ai/workspace/{id}/billing` has a positive balance. |
+| Billing page format changed | This integration scrapes the billing page, so it can break if the page markup changes. File an issue on the repo when this happens. |
+
+</details>
+
+<details>
 <summary><strong>Token reports</strong></summary>
 
 Run `/quota_status` and check pricing snapshot health plus OpenCode database paths.

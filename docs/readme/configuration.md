@@ -239,6 +239,7 @@ Existing `experimental.quotaToast` settings still work when no sidecar file exis
 | `anthropicBinaryPath` | `"claude"` | Command/path used for local Claude CLI probing. |
 | `googleModels` | `["CLAUDE"]` | Google model keys to query: `CLAUDE`, `G3PRO`, `G3FLASH`, `G3IMAGE`, `GPTOSS`. |
 | `opencodeGoWindows` | `["rolling", "weekly", "monthly"]` | OpenCode Go usage windows to display. |
+| `opencodeMonthlyLimit` | unset | Override OpenCode Zen monthly budget in USD. When set, replaces the monthly limit from the billing page. |
 | `alibabaCodingPlanTier` | `"lite"` | Fallback Alibaba Coding Plan tier when auth does not include `tier`. |
 | `cursorPlan` | `"none"` | Cursor included API budget preset: `none`, `pro`, `pro-plus`, `ultra`. |
 | `cursorIncludedApiUsd` | unset | Override Cursor monthly included API budget in USD. |
