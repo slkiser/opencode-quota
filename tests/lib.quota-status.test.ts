@@ -1745,6 +1745,7 @@ minimax:
 minimax_china:
 kimi:
 opencode_go:
+opencode_zen:
 zai:
 zhipu:
 synthetic:

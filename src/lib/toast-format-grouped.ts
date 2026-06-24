@@ -108,7 +108,9 @@ export function formatQuotaRowsGrouped(params: {
 
       if (isValueEntry(entry)) {
         const label = entry.label?.trim() || entry.name;
-        const timeStr = formatResetCountdown(entry.resetTimeIso, { compactRounded: true });
+        const timeStr = entry.resetTimeIso
+          ? formatResetCountdown(entry.resetTimeIso, { compactRounded: true })
+          : "";
         const value = entry.value.trim();
 
         if (isTiny) {
@@ -147,12 +149,13 @@ export function formatQuotaRowsGrouped(params: {
       }
 
       const label = resolveGroupedRowLabel(entry);
+      const entryRight = entry.right ? entry.right.trim() : "";
+      const labelWithRight = entryRight ? `${label} ${entryRight}` : label;
 
       // Percent entries
-      // Show reset countdown whenever quota is not fully available.
-      // (i.e., any usage at all, or depleted)
+      // Show reset countdown only when resetTimeIso is set and quota not full.
       const timeStr =
-        entry.percentRemaining < 100
+        entry.percentRemaining < 100 && entry.resetTimeIso
           ? formatResetCountdown(entry.resetTimeIso, { compactRounded: true })
           : "";
       const displayedPercent = resolveDisplayedPercent(
@@ -171,7 +174,7 @@ export function formatQuotaRowsGrouped(params: {
           maxWidth - separator.length - timeCol - separator.length - percentCol,
         );
         const line = [
-          padRight(label, tinyNameCol),
+          padRight(labelWithRight, tinyNameCol),
           padLeft(timeStr, timeCol),
           padLeft(percentLabel, percentCol),
         ].join(separator);
@@ -179,12 +182,14 @@ export function formatQuotaRowsGrouped(params: {
         continue;
       }
 
-      // Line 1: label + optional right + time at end
-      const timeWidth = Math.max(timeStr.length, timeCol);
-      const leftMax = Math.max(1, maxWidth - separator.length - timeWidth);
-      lines.push(
-        (padRight(label, leftMax) + separator + padLeft(timeStr, timeWidth)).slice(0, maxWidth),
-      );
+      // Line 1: label + right summary + time at end (skip when name is empty)
+      if (entry.name) {
+        const timeWidth = Math.max(timeStr.length, timeCol);
+        const leftMax = Math.max(1, maxWidth - separator.length - timeWidth);
+        lines.push(
+          (padRight(labelWithRight, leftMax) + separator + padLeft(timeStr, timeWidth)).slice(0, maxWidth),
+        );
+      }
 
       // Line 2: bar + percent
       const barCell = bar(displayedPercent, barWidth);

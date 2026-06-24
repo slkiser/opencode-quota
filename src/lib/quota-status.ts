@@ -107,6 +107,7 @@ import {
   DEFAULT_OPENCODE_GO_CONFIG_CACHE_MAX_AGE_MS,
 } from "./opencode-go-config.js";
 import { queryOpenCodeGoQuota } from "./opencode-go.js";
+import { getOpenCodeZenConfigDiagnostics } from "./opencode-zen-config.js";
 
 /** Session token fetch error info for status report */
 export interface SessionTokenError {
@@ -1202,6 +1203,21 @@ export async function buildQuotaStatusReport(params: {
   }
   appendProviderCompactLiveProbeRows(openCodeGoRows, "opencode-go", params.providerLiveProbes);
   sections.push(createKvSection("opencode_go", "opencode_go:", openCodeGoRows));
+
+  // === opencode_zen ===
+  const openCodeZenRows: ReportKvRow[] = [];
+  const openCodeZenDiag = await getOpenCodeZenConfigDiagnostics();
+  openCodeZenRows.push({ key: "config_state", value: openCodeZenDiag.state });
+  openCodeZenRows.push({ key: "config_source", value: openCodeZenDiag.source ?? "(none)" });
+  if (openCodeZenDiag.missing) {
+    openCodeZenRows.push({ key: "config_missing", value: openCodeZenDiag.missing });
+  }
+  if (openCodeZenDiag.error) {
+    openCodeZenRows.push({ key: "config_error", value: sanitizeDisplayText(openCodeZenDiag.error) });
+  }
+  openCodeZenRows.push({ key: "config_checked_paths", value: joinOrNone(openCodeZenDiag.checkedPaths) });
+  appendProviderCompactLiveProbeRows(openCodeZenRows, "opencode", params.providerLiveProbes);
+  sections.push(createKvSection("opencode_zen", "opencode_zen:", openCodeZenRows));
 
   // === zai ===
   const zaiRows: ReportKvRow[] = [];

@@ -232,6 +232,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | DeepSeek | API key/config | Remote API | Balance/status |
 | Ollama Cloud | [Needs setup](#ollama-cloud) | Dashboard scraping | Dashboard usage |
 | OpenCode Go | [Needs setup](#opencode-go) | Dashboard scraping | Dashboard usage |
+| OpenCode Zen | [Needs setup](#opencode-zen) | Dashboard scraping | Balance/usage |
 
 ## Common configuration
 
@@ -448,6 +449,7 @@ Existing `experimental.quotaToast` settings still work when no sidecar file exis
 | `anthropicBinaryPath` | `"claude"` | Command/path used for local Claude CLI probing. |
 | `googleModels` | `["CLAUDE"]` | Google model keys to query: `CLAUDE`, `G3PRO`, `G3FLASH`, `G3IMAGE`, `GPTOSS`. |
 | `opencodeGoWindows` | `["rolling", "weekly", "monthly"]` | OpenCode Go usage windows to display. |
+| `opencodeMonthlyLimit` | unset | Override OpenCode Zen monthly budget in USD. When set, replaces the monthly limit from the billing page. |
 | `alibabaCodingPlanTier` | `"lite"` | Fallback Alibaba Coding Plan tier when auth does not include `tier`. |
 | `cursorPlan` | `"none"` | Cursor included API budget preset: `none`, `pro`, `pro-plus`, `ultra`. |
 | `cursorIncludedApiUsd` | unset | Override Cursor monthly included API budget in USD. |
@@ -743,14 +745,55 @@ To find the cookie, open `ollama.com/settings` in your browser, open Developer T
 <details>
 <summary><strong>OpenCode Go</strong></summary>
 
-OpenCode Go quota scrapes the dashboard and needs a workspace ID plus an `auth` cookie:
+OpenCode Go quota scrapes the workspace dashboard:
 
 ```bash
 export OPENCODE_GO_WORKSPACE_ID="your-workspace-id"
 export OPENCODE_GO_AUTH_COOKIE="your-auth-cookie"
 ```
 
+**To get the `auth` cookie and workspace ID:**
+1. Open `opencode.ai` in your browser and sign in
+2. DevTools → Application/Storage → Cookies → `opencode.ai` → copy the `auth` cookie value
+3. Your workspace ID is in the URL when viewing any workspace: `opencode.ai/workspace/<WORKSPACE_ID>/...`
+
 Use `opencodeGoWindows` to choose **5h**, **Weekly**, and/or **Monthly** windows. Environment variables take precedence over the optional `opencode-go.json` file.
+
+</details>
+
+<a id="opencode-zen"></a>
+<details>
+<summary><strong>OpenCode Zen</strong></summary>
+
+OpenCode Zen balance scrapes the billing page at `opencode.ai/workspace/{id}/billing`. Set these environment variables:
+
+```bash
+export OPENCODE_WORKSPACE_ID="your-workspace-id"
+export OPENCODE_AUTH_COOKIE="your-auth-cookie"
+```
+
+For backward compatibility with OpenCode Go credentials, `OPENCODE_GO_WORKSPACE_ID` and `OPENCODE_GO_AUTH_COOKIE` are also accepted.
+
+**To get the `auth` cookie and workspace ID:** Same as OpenCode Go — DevTools → Cookies → copy `auth` from `opencode.ai`. The workspace ID is in the URL: `opencode.ai/workspace/<WORKSPACE_ID>/...`.
+
+You can also create a config file at `{configDir}/opencode-quota/opencode.json`:
+
+```jsonc
+{
+  "workspaceId": "your-workspace-id",
+  "authCookie": "your-auth-cookie"
+}
+```
+
+**Monthly budget override:** Set `opencodeMonthlyLimit` in `opencode-quota/quota-toast.json` to override the monthly limit from the billing page:
+
+```jsonc
+{
+  "opencodeMonthlyLimit": 200
+}
+```
+
+When no monthly limit is set on the billing page or via config, only the current balance is shown.
 
 </details>
 
@@ -942,6 +985,21 @@ Run `/quota_status` and check the `opencode_go` section.
 | Scrape returns no data | Refresh the browser `auth` cookie from `opencode.ai`. |
 | Selected window missing | Check `/quota_status` for `selected_windows` and `live_fetch_error`; remove unavailable windows from `opencodeGoWindows` in `opencode-quota/quota-toast.json` or refresh the dashboard cookie. |
 | Dashboard format changed | This integration scrapes the dashboard, so it can break if the dashboard markup changes. |
+
+</details>
+
+<details>
+<summary><strong>OpenCode Zen</strong></summary>
+
+Run `/quota_status` and check the `opencode_zen` section.
+
+| Symptom | Fix |
+| --- | --- |
+| Config not detected | Set both `OPENCODE_WORKSPACE_ID` and `OPENCODE_AUTH_COOKIE`, then rerun `/quota_status`. |
+| Incomplete config | `workspaceId` and `authCookie` must come from the same source. |
+| Scrape returns no data | Refresh the browser `auth` cookie from `opencode.ai`. The Zen billing page uses the same cookie domain as OpenCode Go. |
+| Balance shows $0.00 | Confirm the billing page at `opencode.ai/workspace/{id}/billing` has a positive balance. |
+| Billing page format changed | This integration scrapes the billing page, so it can break if the page markup changes. Files an issue on the repo when this happens. |
 
 </details>
 

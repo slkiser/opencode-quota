@@ -18,6 +18,7 @@ export type CanonicalQuotaProviderId =
   | "kimi-for-coding"
   | "deepseek"
   | "opencode-go"
+  | "opencode"
   | "ollama-cloud";
 
 export type QuotaProviderAutoSetup = "yes" | "usually" | "manual_env_config" | "needs_quick_setup";
@@ -73,6 +74,7 @@ export const QUOTA_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   "kimi-code": "Kimi Code",
   deepseek: "DeepSeek",
   "opencode-go": "OpenCode Go",
+  "opencode": "OpenCode Zen",
   "ollama-cloud": "Ollama Cloud",
 };
 
@@ -97,6 +99,7 @@ export const QUOTA_PROVIDER_ID_SYNONYMS: Readonly<Record<string, string>> = {
   "kimi-code": "kimi-for-coding",
   "deep-seek": "deepseek",
   "opencode-go-subscription": "opencode-go",
+  "opencode-zen": "opencode",
   "gemini-cli": "google-gemini-cli",
   "google-gemini": "google-gemini-cli",
   "opencode-gemini-auth": "google-gemini-cli",
@@ -143,6 +146,7 @@ export const QUOTA_PROVIDER_RUNTIME_IDS: QuotaProviderRuntimeIds = {
   "kimi-for-coding": ["kimi-for-coding", "kimi", "kimi-code"],
   deepseek: ["deepseek"],
   "opencode-go": ["opencode-go"],
+  "opencode": ["opencode", "opencode-zen"],
   "ollama-cloud": ["ollama-cloud"],
 };
 
@@ -286,6 +290,14 @@ export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
     quota: "remote_api",
     quickSetupAnchor: "opencode-go",
     notes: "Scrapes the OpenCode Go dashboard; requires workspaceId and authCookie",
+  },
+  {
+    id: "opencode",
+    autoSetup: "needs_quick_setup",
+    authentication: "state_only",
+    quota: "remote_api",
+    quickSetupAnchor: "opencode-zen",
+    notes: "Scrapes the OpenCode Zen billing page; requires workspaceId and authCookie",
   },
   {
     id: "ollama-cloud",

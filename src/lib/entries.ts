@@ -120,6 +120,7 @@ export interface QuotaProviderContext {
     cursorIncludedApiUsd?: number;
     cursorBillingCycleStartDay?: number;
     opencodeGoWindows?: OpenCodeGoWindowKey[];
+    opencodeMonthlyLimit?: number;
     requestTimeoutMs?: number;
     /** True when requestTimeoutMs came from user config rather than DEFAULT_CONFIG. */
     requestTimeoutMsConfigured?: boolean;

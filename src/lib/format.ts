@@ -156,7 +156,7 @@ export function formatQuotaRows(params: {
     // Show reset countdown whenever quota is not fully available.
     // (i.e., any usage at all, or depleted)
     const timeStr =
-      remaining < 100
+      remaining < 100 && resetIso
         ? formatResetCountdown(resetIso, { missing: "-", compactRounded: true })
         : "";
 
