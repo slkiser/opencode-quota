@@ -18,7 +18,8 @@ export type CanonicalQuotaProviderId =
   | "kimi-for-coding"
   | "deepseek"
   | "opencode-go"
-  | "ollama-cloud";
+  | "ollama-cloud"
+  | "neuralwatt";
 
 export type QuotaProviderAutoSetup = "yes" | "usually" | "manual_env_config" | "needs_quick_setup";
 
@@ -74,6 +75,7 @@ export const QUOTA_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   deepseek: "DeepSeek",
   "opencode-go": "OpenCode Go",
   "ollama-cloud": "Ollama Cloud",
+  neuralwatt: "Neuralwatt",
 };
 
 export const QUOTA_PROVIDER_ID_SYNONYMS: Readonly<Record<string, string>> = {
@@ -144,6 +146,7 @@ export const QUOTA_PROVIDER_RUNTIME_IDS: QuotaProviderRuntimeIds = {
   deepseek: ["deepseek"],
   "opencode-go": ["opencode-go"],
   "ollama-cloud": ["ollama-cloud"],
+  neuralwatt: ["neuralwatt"],
 };
 
 const LIVE_LOCAL_USAGE_PROVIDER_ID_SET = new Set<string>([
@@ -293,6 +296,13 @@ export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
     authentication: "state_only",
     quota: "remote_api",
     notes: "Scrapes the Ollama Cloud settings page; requires __Secure-session cookie via OLLAMA_USAGE_COOKIE env or ollama-usage config",
+  },
+  {
+    id: "neuralwatt",
+    autoSetup: "yes",
+    authentication: "opencode_auth_api_key",
+    authFallbacks: ["env_api_key", "global_opencode_config"],
+    quota: "remote_api",
   },
 ];
 

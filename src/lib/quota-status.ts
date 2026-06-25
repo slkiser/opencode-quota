@@ -12,6 +12,7 @@ import { inspectAgyAuthPresence } from "./google-agy.js";
 import { getAnthropicDiagnostics } from "./anthropic.js";
 import { getChutesKeyDiagnostics } from "./chutes.js";
 import { getNanoGptKeyDiagnostics, queryNanoGptQuota } from "./nanogpt.js";
+import { getNeuralwattKeyDiagnostics, queryNeuralwattQuota } from "./neuralwatt.js";
 import { getDeepSeekKeyDiagnostics } from "./deepseek.js";
 import { getSyntheticKeyDiagnostics } from "./synthetic.js";
 import { getCopilotQuotaAuthDiagnostics } from "./copilot.js";
@@ -516,6 +517,14 @@ function supportedProviderPricingRow(params: {
       id,
       pricing: "no",
       notes: "account balance only (not token-priced)",
+    };
+  }
+
+  if (id === "neuralwatt") {
+    return {
+      id,
+      pricing: "no",
+      notes: "subscription kWh allowance + account balance (not token-priced)",
     };
   }
 
@@ -1402,6 +1411,106 @@ export async function buildQuotaStatusReport(params: {
   }
   appendProviderCompactLiveProbeRows(nanoGptRows, "nanogpt", params.providerLiveProbes);
   sections.push(createKvSection("nanogpt", "nanogpt:", nanoGptRows));
+
+  // === neuralwatt ===
+  const neuralwattDiag = await readBasicApiKeyDiagnostics(getNeuralwattKeyDiagnostics);
+  const neuralwattRows: ReportKvRow[] = [
+    {
+      key: "neuralwatt api key",
+      value: formatInlineApiKeyDiagnosticsValue(neuralwattDiag),
+    },
+  ];
+  if (neuralwattDiag.configured) {
+    try {
+      const neuralwattQuota = await queryNeuralwattQuota();
+      if (!neuralwattQuota) {
+        neuralwattRows.push({
+          key: "live_fetch_error",
+          value: "Neuralwatt API key became unavailable before fetch",
+        });
+      } else if (!neuralwattQuota.success) {
+        neuralwattRows.push({ key: "live_fetch_error", value: neuralwattQuota.error });
+      } else {
+        if (neuralwattQuota.balance) {
+          const balance = neuralwattQuota.balance;
+          neuralwattRows.push({
+            key: "credits_remaining_usd",
+            value:
+              typeof balance.creditsRemainingUsd === "number"
+                ? fmtUsdAmount(balance.creditsRemainingUsd)
+                : "(none)",
+          });
+          neuralwattRows.push({
+            key: "total_credits_usd",
+            value:
+              typeof balance.totalCreditsUsd === "number"
+                ? fmtUsdAmount(balance.totalCreditsUsd)
+                : "(none)",
+          });
+          neuralwattRows.push({
+            key: "accounting_method",
+            value: balance.accountingMethod ?? "(none)",
+          });
+        }
+        if (neuralwattQuota.subscription) {
+          const sub = neuralwattQuota.subscription;
+          neuralwattRows.push({
+            key: "subscription_active",
+            value: sub.active ? "true" : "false",
+          });
+          neuralwattRows.push({ key: "subscription_state", value: sub.state });
+          if (sub.billingInterval) {
+            neuralwattRows.push({ key: "billing_interval", value: sub.billingInterval });
+          }
+          if (sub.kwh) {
+            neuralwattRows.push({
+              key: "kwh_usage",
+              value: `${sub.kwh.used.toFixed(4)}/${sub.kwh.limit.toFixed(4)} remaining=${sub.kwh.remaining.toFixed(
+                4,
+              )} percent_remaining=${sub.kwh.percentRemaining} reset_at=${sub.kwh.resetTimeIso ?? "(none)"}`,
+            });
+          }
+          if (sub.inOverage !== undefined) {
+            neuralwattRows.push({
+              key: "in_overage",
+              value: sub.inOverage ? "true" : "false",
+            });
+          }
+          neuralwattRows.push({
+            key: "billing_period_end",
+            value: sub.currentPeriodEndIso ?? "(none)",
+          });
+        }
+        if (neuralwattQuota.keyAllowance) {
+          const allowance = neuralwattQuota.keyAllowance;
+          neuralwattRows.push({
+            key: "key_allowance",
+            value: `${allowance.spentUsd.toFixed(2)}/${allowance.limitUsd.toFixed(
+              2,
+            )} remaining=${allowance.remainingUsd.toFixed(2)} period=${allowance.period} percent_remaining=${
+              allowance.window.percentRemaining
+            } blocked=${allowance.blocked ? "true" : "false"}`,
+          });
+        }
+        if (neuralwattQuota.currentMonthUsage) {
+          const month = neuralwattQuota.currentMonthUsage;
+          neuralwattRows.push({
+            key: "current_month_usage",
+            value: `cost_usd=${
+              typeof month.costUsd === "number" ? fmtUsdAmount(month.costUsd) : "(none)"
+            } requests=${month.requests ?? "(none)"} tokens=${month.tokens ?? "(none)"} energy_kwh=${
+              typeof month.energyKwh === "number" ? month.energyKwh.toFixed(4) : "(none)"
+            }`,
+          });
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      neuralwattRows.push({ key: "live_fetch_error", value: msg });
+    }
+  }
+  appendProviderCompactLiveProbeRows(neuralwattRows, "neuralwatt", params.providerLiveProbes);
+  sections.push(createKvSection("neuralwatt", "neuralwatt:", neuralwattRows));
 
   // === copilot auth ===
   const copilotDiag = getCopilotQuotaAuthDiagnostics(authData);

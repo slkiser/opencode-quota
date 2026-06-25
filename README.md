@@ -230,6 +230,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | Zhipu Coding Plan | OpenCode config | Remote API | Usage/quota |
 | NanoGPT | API key/config | Remote APIs | Usage + balance |
 | DeepSeek | API key/config | Remote API | Balance/status |
+| Neuralwatt | API key/config | Remote API | Subscription kWh + credits |
 | Ollama Cloud | [Needs setup](#ollama-cloud) | Dashboard scraping | Dashboard usage |
 | OpenCode Go | [Needs setup](#opencode-go) | Dashboard scraping | Dashboard usage |
 
@@ -720,6 +721,37 @@ If you use manual provider selection, include `deepseek` in `enabledProviders`.
 
 </details>
 
+<a id="neuralwatt"></a>
+<details>
+<summary><strong>Neuralwatt</strong></summary>
+
+Neuralwatt shows the subscription kWh allowance (when active) and USD credit balance from `GET https://api.neuralwatt.com/v1/quota`. Neuralwatt is an OpenAI-compatible API; set `baseURL` to `https://api.neuralwatt.com/v1`.
+
+Use one of these trusted API-key sources:
+
+```bash
+export NEURALWATT_API_KEY="sk-your-api-key"
+```
+
+Or put the key in trusted user/global OpenCode config, not repo-local config:
+
+```jsonc
+{
+  "provider": {
+    "neuralwatt": {
+      "options": {
+        "baseURL": "https://api.neuralwatt.com/v1",
+        "apiKey": "{env:NEURALWATT_API_KEY}",
+      },
+    },
+  },
+}
+```
+
+If you use manual provider selection, include `neuralwatt` in `enabledProviders`.
+
+</details>
+
 <a id="ollama-cloud"></a>
 <details>
 <summary><strong>Ollama Cloud</strong></summary>
@@ -867,7 +899,7 @@ Run `/quota_status` and check the Alibaba auth, resolved tier, state-file path, 
 </details>
 
 <details>
-<summary><strong>MiniMax, Kimi, Chutes AI, Synthetic, Z.ai, Zhipu, NanoGPT, and DeepSeek</strong></summary>
+<summary><strong>MiniMax, Kimi, Chutes AI, Synthetic, Z.ai, Zhipu, NanoGPT, DeepSeek, and Neuralwatt</strong></summary>
 
 These providers use trusted env vars, trusted user/global OpenCode config, or native OpenCode auth. Run `/quota_status` and check the provider-specific API-key diagnostics.
 
@@ -882,6 +914,7 @@ These providers use trusted env vars, trusted user/global OpenCode config, or na
 | Zhipu Coding Plan | Use `ZHIPU_API_KEY` or `ZHIPU_CODING_PLAN_API_KEY`; malformed fallback auth is surfaced as an auth error. |
 | NanoGPT | Use `NANOGPT_API_KEY`, `NANO_GPT_API_KEY`, trusted user/global config, or OpenCode auth. |
 | DeepSeek | Use `DEEPSEEK_API_KEY`, trusted user/global config under `provider.deepseek.options.apiKey`, or OpenCode auth. This provider shows balance only because DeepSeek does not expose a quota reset window. |
+| Neuralwatt | Use `NEURALWATT_API_KEY`, trusted user/global config under `provider.neuralwatt.options.apiKey` (OpenAI-compatible; set `baseURL` to `https://api.neuralwatt.com/v1`), or OpenCode auth. Shows subscription kWh allowance plus USD credit balance from `GET https://api.neuralwatt.com/v1/quota`. |
 
 For security, repo-local `opencode.json` / `opencode.jsonc` is ignored for provider secrets in these integrations. Put secrets in environment variables or trusted user/global config. OpenCode auth fallbacks for API-key providers require `{ "type": "api", "key": "..." }` entries.
 

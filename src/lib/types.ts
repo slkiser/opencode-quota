@@ -305,6 +305,11 @@ export interface SyntheticAuthData {
   key: string;
 }
 
+export interface NeuralwattAuthData {
+  type: "api";
+  key: string;
+}
+
 export interface MiniMaxAuthData {
   type: string;
   key?: string;
@@ -384,6 +389,7 @@ export interface AuthData {
   };
   nanogpt?: NanoGptAuthData;
   "nano-gpt"?: NanoGptAuthData;
+  neuralwatt?: NeuralwattAuthData;
   deepseek?: DeepSeekAuthData;
   cursor?: CursorOAuthAuthData;
   // Canonical OpenCode provider id used by the Qwen auth plugin.
