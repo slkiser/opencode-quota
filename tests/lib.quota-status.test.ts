@@ -168,6 +168,15 @@ const deepSeekMocks = vi.hoisted(() => ({
   })),
 }));
 
+const neuralwattMocks = vi.hoisted(() => ({
+  getNeuralwattKeyDiagnostics: vi.fn(async () => ({
+    configured: false,
+    source: null,
+    checkedPaths: [],
+  })),
+  queryNeuralwattQuota: vi.fn(async () => null),
+}));
+
 const syntheticMocks = vi.hoisted(() => ({
   getSyntheticKeyDiagnostics: vi.fn(async () => ({
     configured: false,
@@ -286,6 +295,11 @@ vi.mock("../src/lib/nanogpt.js", () => ({
 
 vi.mock("../src/lib/deepseek.js", () => ({
   getDeepSeekKeyDiagnostics: deepSeekMocks.getDeepSeekKeyDiagnostics,
+}));
+
+vi.mock("../src/lib/neuralwatt.js", () => ({
+  getNeuralwattKeyDiagnostics: neuralwattMocks.getNeuralwattKeyDiagnostics,
+  queryNeuralwattQuota: neuralwattMocks.queryNeuralwattQuota,
 }));
 
 vi.mock("../src/lib/copilot.js", () => ({
@@ -425,6 +439,7 @@ vi.mock("../src/providers/registry.js", () => ({
     { id: "synthetic" },
     { id: "nanogpt" },
     { id: "deepseek" },
+    { id: "neuralwatt" },
     { id: "kimi-for-coding" },
     { id: "kimi-code" },
   ],
@@ -707,6 +722,9 @@ describe("buildQuotaStatusReport", () => {
     );
     expect(report).toContain(
       "- nanogpt: pricing=no (subscription request quota + account balance (not token-priced))",
+    );
+    expect(report).toContain(
+      "- neuralwatt: pricing=no (subscription kWh allowance + account balance (not token-priced))",
     );
     expect(report).toContain(
       "- kimi-for-coding: pricing=no (request quota via Kimi Code API (not token-priced))",
@@ -1209,6 +1227,73 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- balance_usd: $129.47");
     expect(report).toContain("- balance_nano: 26.71801147");
     expect(report).toContain("- live_error_balance: NanoGPT API error 401: Unauthorized");
+  });
+
+  it("reports Neuralwatt live balance and subscription diagnostics when configured", async () => {
+    neuralwattMocks.getNeuralwattKeyDiagnostics.mockResolvedValueOnce({
+      configured: true,
+      source: "env:NEURALWATT_API_KEY",
+      checkedPaths: ["env:NEURALWATT_API_KEY"],
+    });
+    neuralwattMocks.queryNeuralwattQuota.mockResolvedValueOnce({
+      success: true,
+      balance: {
+        creditsRemainingUsd: 32.6774,
+        totalCreditsUsd: 52.34,
+        accountingMethod: "energy",
+      },
+      subscription: {
+        active: true,
+        state: "active",
+        billingInterval: "month",
+        currentPeriodEndIso: "2026-05-11T05:05:25.000Z",
+        inOverage: false,
+        kwh: {
+          used: 13.9023,
+          limit: 20.0,
+          remaining: 6.0977,
+          percentRemaining: 30,
+          resetTimeIso: "2026-05-11T05:05:25.000Z",
+        },
+      },
+      keyAllowance: {
+        limitUsd: 100,
+        spentUsd: 25,
+        remainingUsd: 75,
+        period: "monthly",
+        blocked: false,
+        window: { used: 25, limit: 100, remaining: 75, percentRemaining: 75 },
+      },
+      currentMonthUsage: {
+        costUsd: 160.1463,
+        requests: 23902,
+        tokens: 1116658995,
+        energyKwh: 9.7278,
+      },
+    });
+
+    const report = await buildProviderStatusReport("neuralwatt");
+
+    expect(report).toContain("neuralwatt:");
+    expect(report).toContain(
+      "- neuralwatt api key: configured=true source=env:NEURALWATT_API_KEY checked=env:NEURALWATT_API_KEY",
+    );
+    expect(report).toContain("- credits_remaining_usd: $32.68");
+    expect(report).toContain("- accounting_method: energy");
+    expect(report).toContain("- subscription_active: true");
+    expect(report).toContain("- subscription_state: active");
+    expect(report).toContain("- billing_interval: month");
+    expect(report).toContain(
+      "- kwh_usage: 13.9023/20.0000 remaining=6.0977 percent_remaining=30 reset_at=2026-05-11T05:05:25.000Z",
+    );
+    expect(report).toContain("- in_overage: false");
+    expect(report).toContain("- billing_period_end: 2026-05-11T05:05:25.000Z");
+    expect(report).toContain(
+      "- key_allowance: 25.00/100.00 remaining=75.00 period=monthly percent_remaining=75 blocked=false",
+    );
+    expect(report).toContain(
+      "- current_month_usage: cost_usd=$160.15 requests=23902 tokens=1116658995 energy_kwh=9.7278",
+    );
   });
 
   it("reports DeepSeek API key diagnostics", async () => {
@@ -1751,6 +1836,7 @@ synthetic:
 chutes:
 deepseek:
 nanogpt:
+neuralwatt:
 copilot_quota_auth:
 google_antigravity:
 google_gemini_cli:

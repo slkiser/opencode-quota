@@ -154,6 +154,13 @@ describe("provider-metadata", () => {
         quota: "remote_api",
         notes: "Scrapes the Ollama Cloud settings page; requires __Secure-session cookie via OLLAMA_USAGE_COOKIE env or ollama-usage config",
       },
+      {
+        id: "neuralwatt",
+        autoSetup: "yes",
+        authentication: "opencode_auth_api_key",
+        authFallbacks: ["env_api_key", "global_opencode_config"],
+        quota: "remote_api",
+      },
     ]);
   });
 
@@ -223,6 +230,7 @@ describe("provider-metadata", () => {
       "kimi-code",
     ]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS.deepseek).toEqual(["deepseek"]);
+    expect(QUOTA_PROVIDER_RUNTIME_IDS.neuralwatt).toEqual(["neuralwatt"]);
   });
 
   it("keeps runtime ids distinct from broad normalization aliases", () => {
@@ -340,6 +348,7 @@ describe("provider-metadata", () => {
     expect(getQuotaProviderDisplayLabel("kimi-code")).toBe("Kimi Code");
     expect(getQuotaProviderDisplayLabel("kimi")).toBe("Kimi Code");
     expect(getQuotaProviderDisplayLabel("deep-seek")).toBe("DeepSeek");
+    expect(getQuotaProviderDisplayLabel("neuralwatt")).toBe("Neuralwatt");
     expect(getQuotaProviderDisplayLabel("something-else")).toBe("something-else");
   });
 });
