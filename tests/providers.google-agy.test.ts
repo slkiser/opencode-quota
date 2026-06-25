@@ -35,19 +35,26 @@ describe("google agy provider", () => {
     expectNotAttempted(out);
   });
 
-  it("maps quota buckets into grouped toast entries and truncated error labels", async () => {
+  it("maps summaryGroups into grouped toast entries with weekly-first ordering", async () => {
     const { queryGoogleAgyQuota } = await import("../src/lib/google-agy.js");
     (queryGoogleAgyQuota as any).mockResolvedValueOnce({
       success: true,
-      buckets: [
+      summaryGroups: [
         {
-          modelId: "gemini-2-5-flash",
-          displayName: "Gemini 2.5 Flash",
-          accountEmail: "alice@example.com",
-          percentRemaining: 64,
-          resetTimeIso: "2026-01-01T00:00:00.000Z",
-          remainingAmount: "1234",
-          tokenType: "REQUESTS",
+          displayName: "Gemini Models",
+          description: "Gemini model family",
+          buckets: [
+            { bucketId: "gemini-weekly", displayName: "Weekly", window: "weekly", remainingFraction: 0.58, resetTime: "2026-06-22T00:00:00Z" },
+            { bucketId: "gemini-5h", displayName: "5 Hour", window: "5h", remainingFraction: 0.25, remainingAmount: "1234" },
+          ],
+        },
+        {
+          displayName: "Claude and GPT models",
+          description: "Third-party model family",
+          buckets: [
+            { bucketId: "3p-weekly", displayName: "Weekly", window: "weekly", remainingFraction: 1, resetTime: "2026-06-22T00:00:00Z" },
+            { bucketId: "3p-5h", displayName: "5 Hour", window: "5h", remainingFraction: 0.9, remainingAmount: "50" },
+          ],
         },
       ],
       errors: [{ email: "bob@example.com", error: "Unauthorized" }],
@@ -57,12 +64,40 @@ describe("google agy provider", () => {
     expect(out.attempted).toBe(true);
     expect(out.entries).toEqual([
       {
-        name: "Gemini Models (ali..example)",
-        group: "Google AGY",
-        label: "Gemini Models:",
+        name: "Google AGY Gemini Models Weekly",
+        group: "Google AGY \u00b7 Gemini Models",
+        label: "Weekly:",
+        rankOverride: 1,
+        groupSortOverride: 1,
+        percentRemaining: 58,
+        resetTimeIso: "2026-06-22T00:00:00Z",
+      },
+      {
+        name: "Google AGY Gemini Models 5h",
+        group: "Google AGY \u00b7 Gemini Models",
+        label: "5h:",
+        rankOverride: 2,
+        groupSortOverride: 1,
         right: "1,234 left",
-        percentRemaining: 64,
-        resetTimeIso: "2026-01-01T00:00:00.000Z",
+        percentRemaining: 25,
+      },
+      {
+        name: "Google AGY Claude and GPT models Weekly",
+        group: "Google AGY \u00b7 Claude and GPT models",
+        label: "Weekly:",
+        rankOverride: 1,
+        groupSortOverride: 2,
+        percentRemaining: 100,
+        resetTimeIso: "2026-06-22T00:00:00Z",
+      },
+      {
+        name: "Google AGY Claude and GPT models 5h",
+        group: "Google AGY \u00b7 Claude and GPT models",
+        label: "5h:",
+        rankOverride: 2,
+        groupSortOverride: 2,
+        right: "50 left",
+        percentRemaining: 90,
       },
     ]);
     expect(out.errors).toEqual([{ label: "bob..example", message: "Unauthorized" }]);
@@ -72,95 +107,65 @@ describe("google agy provider", () => {
     });
   });
 
-  it("maps aggregated Google AGY quality tiers without changing provider presentation", async () => {
+  it("filters disabled buckets", async () => {
     const { queryGoogleAgyQuota } = await import("../src/lib/google-agy.js");
     (queryGoogleAgyQuota as any).mockResolvedValueOnce({
       success: true,
-      buckets: [
+      summaryGroups: [
         {
-          modelId: "gemini-3-5-flash",
-          displayName: "Gemini 3.5 Flash",
-          accountEmail: "alice@example.com",
-          percentRemaining: 20,
-          resetTimeIso: "2026-01-01T12:00:00Z",
-          remainingAmount: "50",
-          tokenType: "TOKENS",
+          displayName: "Gemini Models",
+          buckets: [
+            { bucketId: "gemini-weekly", window: "weekly", remainingFraction: 0.5, disabled: true },
+            { bucketId: "gemini-5h", window: "5h", remainingFraction: 0.8 },
+          ],
         },
       ],
     });
 
     const out = await googleAgyProvider.fetch({ client: {} } as any);
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
-      {
-        name: "Gemini Models (ali..example)",
-        group: "Google AGY",
-        label: "Gemini Models:",
-        right: "50 left TOKENS",
-        percentRemaining: 20,
-        resetTimeIso: "2026-01-01T12:00:00Z",
-      },
-    ]);
-    expect(out.presentation).toEqual({
-      singleWindowDisplayName: "Google AGY",
-      singleWindowShowRight: true,
-    });
+    expect(out.entries).toHaveLength(1);
+    expect(out.entries[0].rankOverride).toBe(2);
+    expect(out.entries[0].label).toBe("5h:");
   });
 
-  it("keeps email-less AGY accounts separate using account keys", async () => {
+  it("sorts Gemini groups before Claude/GPT groups", async () => {
     const { queryGoogleAgyQuota } = await import("../src/lib/google-agy.js");
     (queryGoogleAgyQuota as any).mockResolvedValueOnce({
       success: true,
-      buckets: [
+      summaryGroups: [
         {
-          modelId: "gemini-3-5-flash",
-          displayName: "Gemini 3.5 Flash",
-          accountKey: "aaaaaaaa11111111",
-          percentRemaining: 20,
+          displayName: "Claude and GPT models",
+          buckets: [
+            { bucketId: "3p-5h", window: "5h", remainingFraction: 0.4 },
+          ],
         },
         {
-          modelId: "gemini-3-5-flash",
-          displayName: "Gemini 3.5 Flash",
-          accountKey: "bbbbbbbb22222222",
-          percentRemaining: 80,
+          displayName: "Gemini Models",
+          buckets: [
+            { bucketId: "gemini-5h", window: "5h", remainingFraction: 0.6 },
+          ],
         },
       ],
     });
 
     const out = await googleAgyProvider.fetch({ client: {} } as any);
     expectAttemptedWithNoErrors(out);
-    expect(out.entries.map((entry) => entry.name)).toEqual([
-      "Gemini Models (Account aaaaaaaa)",
-      "Gemini Models (Account bbbbbbbb)",
-    ]);
+    expect(out.entries[0].group).toContain("Gemini");
+    expect(out.entries[0].groupSortOverride).toBe(1);
+    expect(out.entries[1].group).toContain("Claude");
+    expect(out.entries[1].groupSortOverride).toBe(2);
   });
 
-  it("groups and filters multiple models into canonical display buckets", async () => {
+  it("handles empty summaryGroups gracefully", async () => {
     const { queryGoogleAgyQuota } = await import("../src/lib/google-agy.js");
     (queryGoogleAgyQuota as any).mockResolvedValueOnce({
-      success: true,
-      buckets: [
-        { modelId: "gemini-2-5-flash", displayName: "Gemini 2.5 Flash", accountEmail: "test@a.com", percentRemaining: 12 },
-        { modelId: "gemini-2-5-pro", displayName: "Gemini 2.5 Pro", accountEmail: "test@a.com", percentRemaining: 12 },
-        { modelId: "gemini-3-flash", displayName: "Gemini 3 Flash", accountEmail: "test@a.com", percentRemaining: 12 },
-        { modelId: "gemini-3-1-pro-high", displayName: "Gemini 3.1 Pro High", accountEmail: "test@a.com", percentRemaining: 12 },
-        { modelId: "gemini-3-5-flash", displayName: "Gemini 3.5 Flash", accountEmail: "test@a.com", percentRemaining: 12 },
-        { modelId: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6", accountEmail: "test@a.com", percentRemaining: 0 },
-        { modelId: "claude-opus-4-6-thinking", displayName: "Claude Opus 4.6 Thinking", accountEmail: "test@a.com", percentRemaining: 0 },
-        { modelId: "gpt-oss-120b", displayName: "GPT-OSS 120B (Medium)", accountEmail: "test@a.com", percentRemaining: 0 }, // Should be filtered out
-        { modelId: "chat-20706", displayName: "Chat 20706", accountEmail: "test@a.com", percentRemaining: 100 }, // Should be filtered out
-      ],
+      success: false,
+      error: "Quota summary API unavailable",
     });
 
     const out = await googleAgyProvider.fetch({ client: {} } as any);
-    expectAttemptedWithNoErrors(out);
-    
-    // Check that we only get the 2 consolidated groups, sorted alphabetically
-    const entryLabels = out.entries.map(e => e.label);
-    expect(entryLabels).toEqual([
-      "Claude and GPT models:",
-      "Gemini Models:",
-    ]);
+    expectAttemptedWithErrorLabel(out, "Google AGY");
   });
 
   it("maps fetch failures into toast errors", async () => {

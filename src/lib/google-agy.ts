@@ -15,10 +15,11 @@ import {
 import type {
   AuthData,
   GoogleAgyAuthSourceKey,
-  GoogleAgyQuotaBucket,
   GoogleAgyResult,
   GoogleAccountError,
   GeminiCliOAuthAuthData,
+  RetrieveUserQuotaSummaryGroup,
+  RetrieveUserQuotaSummaryResponse,
 } from "./types.js";
 
 export const DEFAULT_AGY_AUTH_CACHE_MAX_AGE_MS = 5_000;
@@ -30,12 +31,12 @@ export const AGY_AUTH_KEYS = [
 ] as const satisfies readonly GoogleAgyAuthSourceKey[];
 
 const AGY_CODE_ASSIST_ENDPOINT = "https://daily-cloudcode-pa.googleapis.com";
-const AGY_QUOTA_API_URL = `${AGY_CODE_ASSIST_ENDPOINT}/v1internal:retrieveUserQuota`;
+const AGY_QUOTA_SUMMARY_API_URL = `${AGY_CODE_ASSIST_ENDPOINT}/v1internal:retrieveUserQuotaSummary`;
 const AGY_TOKEN_REFRESH_URL = "https://oauth2.googleapis.com/token";
 const AGY_TOKEN_TIMEOUT_MS = 8_000;
 const AGY_QUOTA_TIMEOUT_MS = 6_000;
 const AGY_ACCOUNTS_CONCURRENCY = 3;
-const AGY_USER_AGENT = "antigravity/cli/1.0.3 darwin/amd64";
+const AGY_USER_AGENT = "antigravity/1.18.3 darwin/arm64";
 
 function createAgyActivityRequestId(): string {
   return crypto.randomUUID();
@@ -87,18 +88,6 @@ export type AgyAuthPresence =
       validAccountCount: number;
       error: string;
     };
-
-type RetrieveUserQuotaBucket = {
-  remainingAmount?: string;
-  remainingFraction?: number;
-  resetTime?: string;
-  tokenType?: string;
-  modelId?: string;
-};
-
-type RetrieveUserQuotaResponse = {
-  buckets?: RetrieveUserQuotaBucket[];
-};
 
 type ConfigClient = {
   config?: {
@@ -386,13 +375,13 @@ async function refreshAgyAccessTokenWithCache(params: {
   return { accessToken: refreshed.accessToken };
 }
 
-async function retrieveGoogleAgyQuota(
+async function retrieveUserQuotaSummary(
   accessToken: string,
   projectId: string,
   timeoutMs: number = AGY_QUOTA_TIMEOUT_MS,
-): Promise<RetrieveUserQuotaResponse> {
+): Promise<RetrieveUserQuotaSummaryResponse> {
   const response = await fetchWithTimeout(
-    AGY_QUOTA_API_URL,
+    AGY_QUOTA_SUMMARY_API_URL,
     {
       method: "POST",
       headers: {
@@ -413,121 +402,7 @@ async function retrieveGoogleAgyQuota(
     throw new Error(`Google AGY quota API error: ${response.status}`);
   }
 
-  return response.json() as Promise<RetrieveUserQuotaResponse>;
-}
-
-export function formatDisplayName(modelId: string): string {
-  // Replace all underscores with hyphens
-  let cleaned = modelId.replace(/_/g, "-").trim();
-
-  // Special cases for well-known prefixes
-  if (cleaned.toLowerCase().startsWith("claude-")) {
-    // Handle versions like claude-3-5-sonnet -> Claude 3.5 Sonnet
-    return cleaned
-      .split("-")
-      .map((part, i) => {
-        if (i === 0) return "Claude";
-        if (/^\d+$/.test(part) && /^\d+$/.test(cleaned.split("-")[i + 1] || "")) {
-          return part + "." + cleaned.split("-")[i + 1];
-        }
-        if (/^\d+$/.test(part) && /^\d+$/.test(cleaned.split("-")[i - 1] || "")) {
-          return ""; // Skip second part of version
-        }
-        return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
-      })
-      .filter(Boolean)
-      .join(" ");
-  }
-
-  // Replace gpt-oss (case-insensitive) with a temporary placeholder
-  cleaned = cleaned.replace(/gpt-oss/gi, "GPT_OSS");
-  // Replace digit-digit with digit.digit (e.g. 4-6 to 4.6)
-  cleaned = cleaned.replace(/(\d+)-(\d+)/g, "$1.$2");
-
-  let suffix = "";
-  if (cleaned.toLowerCase().endsWith("-medium")) {
-    suffix = " (Medium)";
-    cleaned = cleaned.slice(0, -7);
-  } else if (cleaned.toLowerCase().endsWith("-large")) {
-    suffix = " (Large)";
-    cleaned = cleaned.slice(0, -6);
-  }
-
-  const parts = cleaned.split("-").filter(Boolean);
-  const formattedParts = parts.map((part) => {
-    if (part === "GPT_OSS") {
-      return "GPT-OSS";
-    }
-    const lower = part.toLowerCase();
-    if (lower === "gpt") return "GPT";
-    if (lower === "oss") return "OSS";
-    // If it's a size like 120b, capitalize it to 120B
-    if (/^\d+[a-zA-Z]+$/.test(part)) {
-      return part.toUpperCase();
-    }
-    // If it's a version number like 3.5 or 4.6, keep as-is
-    if (/^[0-9]+(?:\.[0-9]+)*$/.test(part)) {
-      return part;
-    }
-    return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
-  });
-
-  return formattedParts.join(" ") + suffix;
-}
-
-function aggregateAgyBuckets(buckets: GoogleAgyQuotaBucket[]): GoogleAgyQuotaBucket[] {
-  const grouped = new Map<string, GoogleAgyQuotaBucket>();
-  for (const bucket of buckets) {
-    const existing = grouped.get(bucket.modelId);
-    if (!existing || bucket.percentRemaining < existing.percentRemaining) {
-      grouped.set(bucket.modelId, bucket);
-    }
-  }
-  return Array.from(grouped.values());
-}
-
-function mapQuotaBuckets(
-  buckets: RetrieveUserQuotaBucket[] | undefined,
-  account: AgyAccount,
-): GoogleAgyQuotaBucket[] {
-  if (!buckets) {
-    return [];
-  }
-
-  const normalizedBuckets = buckets
-    .filter((bucket) => normalizeString(bucket.modelId))
-    .map((bucket) => {
-      const modelId = normalizeString(bucket.modelId)!;
-      const remainingFraction = bucket.remainingFraction;
-
-      let percentRemaining: number;
-      if (typeof remainingFraction === "number" && Number.isFinite(remainingFraction)) {
-        percentRemaining = Math.round(remainingFraction * 100);
-      } else if (
-        normalizeString(bucket.remainingAmount) &&
-        bucket.remainingAmount?.toLowerCase().includes("unlimited")
-      ) {
-        percentRemaining = 100;
-      } else {
-        percentRemaining = 0;
-      }
-
-      return {
-        modelId,
-        displayName: formatDisplayName(modelId),
-        percentRemaining,
-        ...(normalizeString(bucket.resetTime) ? { resetTimeIso: bucket.resetTime!.trim() } : {}),
-        ...(normalizeString(bucket.remainingAmount)
-          ? { remainingAmount: bucket.remainingAmount!.trim() }
-          : {}),
-        ...(normalizeString(bucket.tokenType) ? { tokenType: bucket.tokenType!.trim() } : {}),
-        ...(account.email ? { accountEmail: account.email } : {}),
-        accountKey: createAgyAccountKey(account),
-        sourceKey: account.sourceKey,
-      };
-    });
-
-  return aggregateAgyBuckets(normalizedBuckets);
+  return response.json() as Promise<RetrieveUserQuotaSummaryResponse>;
 }
 
 async function fetchAccountQuota(params: {
@@ -536,7 +411,7 @@ async function fetchAccountQuota(params: {
   timeoutMs?: number;
 }): Promise<{
   success: boolean;
-  buckets?: GoogleAgyQuotaBucket[];
+  summaryGroups?: RetrieveUserQuotaSummaryGroup[];
   error?: string;
   accountEmail?: string;
 }> {
@@ -552,37 +427,41 @@ async function fetchAccountQuota(params: {
       return { success: false, error: tokenResult.error, accountEmail };
     }
 
-    let quota: RetrieveUserQuotaResponse;
-    try {
-      quota = await retrieveGoogleAgyQuota(
-        tokenResult.accessToken,
-        params.account.projectId,
-        params.timeoutMs,
-      );
-    } catch (err) {
-      if (err instanceof Error && err.message.includes("auth error")) {
-        const retryToken = await refreshAgyAccessTokenWithCache({
-          account: params.account,
-          credentials: params.credentials,
-          force: true,
-          timeoutMs: params.timeoutMs,
-        });
-        if ("error" in retryToken) {
-          return { success: false, error: retryToken.error, accountEmail };
-        }
-        quota = await retrieveGoogleAgyQuota(
-          retryToken.accessToken,
+    const summaryResult = await (async () => {
+      try {
+        return await retrieveUserQuotaSummary(
+          tokenResult.accessToken,
           params.account.projectId,
           params.timeoutMs,
         );
-      } else {
+      } catch (err) {
+        if (err instanceof Error && err.message.includes("auth error")) {
+          const retryToken = await refreshAgyAccessTokenWithCache({
+            account: params.account,
+            credentials: params.credentials,
+            force: true,
+            timeoutMs: params.timeoutMs,
+          });
+          if ("error" in retryToken) {
+            throw new Error(retryToken.error);
+          }
+          return await retrieveUserQuotaSummary(
+            retryToken.accessToken,
+            params.account.projectId,
+            params.timeoutMs,
+          );
+        }
         throw err;
       }
+    })();
+
+    if (!summaryResult.groups || summaryResult.groups.length === 0) {
+      return { success: false, error: "Quota summary API unavailable", accountEmail };
     }
 
     return {
       success: true,
-      buckets: mapQuotaBuckets(quota.buckets, params.account),
+      summaryGroups: summaryResult.groups,
       accountEmail,
     };
   } catch (err) {
@@ -595,6 +474,43 @@ async function fetchAccountQuota(params: {
       accountEmail,
     };
   }
+}
+
+function mergeSummaryGroupsAcrossAccounts(
+  groups: RetrieveUserQuotaSummaryGroup[],
+): RetrieveUserQuotaSummaryGroup[] {
+  if (groups.length === 0) return [];
+
+  const aggregated = new Map<string, RetrieveUserQuotaSummaryGroup>();
+
+  for (const group of groups) {
+    const existing = aggregated.get(group.displayName);
+    if (!existing) {
+      aggregated.set(group.displayName, {
+        displayName: group.displayName,
+        description: group.description,
+        buckets: group.buckets.map((b) => ({ ...b })),
+      });
+    } else {
+      for (const bucket of group.buckets) {
+        const existingIdx = existing.buckets.findIndex((b) => b.bucketId === bucket.bucketId);
+        if (existingIdx === -1) {
+          existing.buckets.push({ ...bucket });
+        } else {
+          const existingBucket = existing.buckets[existingIdx]!;
+          existingBucket.remainingFraction = Math.min(existingBucket.remainingFraction ?? 1, bucket.remainingFraction ?? 1);
+          if (bucket.disabled) existingBucket.disabled = true;
+          const existingTs = Date.parse(existingBucket.resetTime ?? "");
+          const bucketTs = Date.parse(bucket.resetTime ?? "");
+          if (Number.isFinite(bucketTs) && (!Number.isFinite(existingTs) || bucketTs < existingTs)) {
+            existingBucket.resetTime = bucket.resetTime;
+          }
+        }
+      }
+    }
+  }
+
+  return Array.from(aggregated.values());
 }
 
 export async function queryGoogleAgyQuota(
@@ -625,18 +541,21 @@ export async function queryGoogleAgyQuota(
       fetchAccountQuota({ account, credentials, timeoutMs: options.requestTimeoutMs }),
   });
 
-  const allBuckets: GoogleAgyQuotaBucket[] = [];
+  const allSummaryGroups: RetrieveUserQuotaSummaryGroup[] = [];
   const errors: GoogleAccountError[] = [];
 
   for (const result of results) {
-    if (result.success && result.buckets && result.buckets.length > 0) {
-      allBuckets.push(...result.buckets);
-    } else if (!result.success && result.error && result.accountEmail) {
+    if (result.success && result.summaryGroups && result.summaryGroups.length > 0) {
+      allSummaryGroups.push(...result.summaryGroups);
+    }
+    if (!result.success && result.error && result.accountEmail) {
       errors.push({ email: result.accountEmail, error: result.error });
     }
   }
 
-  if (allBuckets.length === 0 && errors.length === 0) {
+  const mergedGroups = mergeSummaryGroupsAcrossAccounts(allSummaryGroups);
+
+  if (mergedGroups.length === 0 && errors.length === 0) {
     return {
       success: false,
       error: "No Google AGY quota data available",
@@ -645,7 +564,7 @@ export async function queryGoogleAgyQuota(
 
   return {
     success: true,
-    buckets: allBuckets,
+    summaryGroups: mergedGroups,
     errors: errors.length > 0 ? errors : undefined,
   };
 }

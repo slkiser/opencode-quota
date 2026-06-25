@@ -14,6 +14,10 @@ export interface GroupedQuotaEntryMeta {
   label?: string;
   /** Optional compact right-hand summary, e.g. "42/300". */
   right?: string;
+  /** Optional sort-rank override for groupQuotaEntries intra-group ordering. Lower sorts first. */
+  rankOverride?: number;
+  /** Optional sort-rank override for inter-group ordering in groupQuotaEntries. Lower sorts first. */
+  groupSortOverride?: number;
 }
 
 export type QuotaToastEntry =

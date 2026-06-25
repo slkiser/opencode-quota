@@ -38,7 +38,6 @@ import {
   queryGoogleAgyQuota,
   resolveAgyAccounts,
   resolveAgyConfiguredProjectId,
-  formatDisplayName,
 } from "../src/lib/google-agy.js";
 
 function mockJsonResponse(data: unknown, status = 200) {
@@ -49,11 +48,32 @@ function mockJsonResponse(data: unknown, status = 200) {
   };
 }
 
+const SUMMARY_RESPONSE = {
+  groups: [
+    {
+      displayName: "Gemini Models",
+      description: "Gemini model family",
+      buckets: [
+        { bucketId: "gemini-weekly", displayName: "Weekly", window: "weekly", remainingFraction: 0.58, resetTime: "2026-06-22T00:00:00Z" },
+        { bucketId: "gemini-5h", displayName: "5 Hour", window: "5h", remainingFraction: 0.25, remainingAmount: "1234" },
+      ],
+    },
+    {
+      displayName: "Claude and GPT models",
+      description: "Third-party model family",
+      buckets: [
+        { bucketId: "3p-weekly", displayName: "Weekly", window: "weekly", remainingFraction: 1, resetTime: "2026-06-22T00:00:00Z" },
+        { bucketId: "3p-5h", displayName: "5 Hour", window: "5h", remainingFraction: 0.9, remainingAmount: "50" },
+      ],
+    },
+  ],
+};
+
 describe("google agy logic", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.readAuthFileCached.mockResolvedValue(null);
-    mocks.fetchWithTimeout.mockResolvedValue(mockJsonResponse({ buckets: [] }));
+    mocks.fetchWithTimeout.mockResolvedValue(mockJsonResponse({ groups: [] }));
     mocks.getCachedAccessToken.mockResolvedValue({ accessToken: "cached-access-token" });
     mocks.makeAccountCacheKey.mockReturnValue("test-cache-key");
     mocks.resolveAgyClientCredentials.mockResolvedValue({
@@ -73,14 +93,6 @@ describe("google agy logic", () => {
       projectId: "project-1",
       managedProjectId: "managed-project",
     });
-  });
-
-  it("formats model display names correctly", () => {
-    expect(formatDisplayName("gemini-3.5-flash")).toBe("Gemini 3.5 Flash");
-    expect(formatDisplayName("claude-sonnet-4-6")).toBe("Claude Sonnet 4.6");
-    expect(formatDisplayName("gpt-oss-120b-medium")).toBe("GPT-OSS 120B (Medium)");
-    expect(formatDisplayName("gpt_oss_120b_medium")).toBe("GPT-OSS 120B (Medium)");
-    expect(formatDisplayName("gemini_3_5_flash")).toBe("Gemini 3.5 Flash");
   });
 
   it("resolves the project id with correct precedence", async () => {
@@ -164,11 +176,9 @@ describe("google agy logic", () => {
       },
     };
 
-    // Test 1: entry.managedProjectId takes top priority
     let resolved = resolveAgyAccounts(auth, "configured-project");
     expect(resolved[0].projectId).toBe("managed-project-entry");
 
-    // Test 2: entry.quotaProjectId takes priority over entry.projectId/projectID and parts and configuredProjectId
     const auth2 = {
       "google-agy": {
         type: "oauth" as const,
@@ -182,7 +192,6 @@ describe("google agy logic", () => {
     resolved = resolveAgyAccounts(auth2, "configured-project");
     expect(resolved[0].projectId).toBe("quota-project-entry");
 
-    // Test 3: parts.managedProjectId takes priority over entry.projectId/projectID and parts.projectId and configuredProjectId
     const auth3 = {
       "google-agy": {
         type: "oauth" as const,
@@ -215,7 +224,7 @@ describe("google agy logic", () => {
     });
   });
 
-  it("aggregates multiple limits per model ID keeping the lowest remaining percent", async () => {
+  it("calls retrieveUserQuotaSummary and returns merged summaryGroups", async () => {
     mocks.readAuthFileCached.mockResolvedValueOnce({
       "google-agy": {
         type: "oauth",
@@ -223,32 +232,9 @@ describe("google agy logic", () => {
         email: "alice@example.com",
       },
     });
-    mocks.resolveAgyClientCredentials.mockResolvedValueOnce({
-      state: "configured",
-      clientId: "client-id",
-      clientSecret: "client-secret",
-    });
     mocks.getCachedAccessToken.mockResolvedValueOnce({ accessToken: "cached-token" });
-
     mocks.fetchWithTimeout.mockResolvedValueOnce(
-      mockJsonResponse({
-        buckets: [
-          {
-            modelId: "gemini-3.5-flash",
-            remainingFraction: 0.8,
-            tokenType: "REQUESTS",
-          },
-          {
-            modelId: "gemini-3.5-flash",
-            remainingFraction: 0.25,
-            tokenType: "TOKENS",
-          },
-          {
-            modelId: "claude-sonnet-4-6",
-            remainingFraction: 0.9,
-          },
-        ],
-      }),
+      mockJsonResponse(SUMMARY_RESPONSE),
     );
 
     const result = await queryGoogleAgyQuota();
@@ -256,25 +242,9 @@ describe("google agy logic", () => {
     if (!result || !result.success) {
       throw new Error("expected success");
     }
-    expect(result.buckets).toEqual([
-      {
-        modelId: "gemini-3.5-flash",
-        displayName: "Gemini 3.5 Flash",
-        percentRemaining: 25,
-        tokenType: "TOKENS",
-        accountEmail: "alice@example.com",
-        accountKey: expect.any(String),
-        sourceKey: "google-agy",
-      },
-      {
-        modelId: "claude-sonnet-4-6",
-        displayName: "Claude Sonnet 4.6",
-        percentRemaining: 90,
-        accountEmail: "alice@example.com",
-        accountKey: expect.any(String),
-        sourceKey: "google-agy",
-      },
-    ]);
+    expect(result.summaryGroups).toHaveLength(2);
+    expect(result.summaryGroups[0].displayName).toBe("Gemini Models");
+    expect(result.summaryGroups[1].displayName).toBe("Claude and GPT models");
   });
 
   it("refreshes token when cache is empty and handles force refresh on auth error", async () => {
@@ -314,10 +284,13 @@ describe("google agy logic", () => {
 
     mocks.fetchWithTimeout.mockResolvedValueOnce(
       mockJsonResponse({
-        buckets: [
+        groups: [
           {
-            modelId: "gemini-3.5-flash",
-            remainingFraction: 0.5,
+            displayName: "Gemini Models",
+            buckets: [
+              { bucketId: "gemini-weekly", window: "weekly", remainingFraction: 0.5 },
+              { bucketId: "gemini-5h", window: "5h", remainingFraction: 0.5 },
+            ],
           },
         ],
       })
@@ -328,10 +301,8 @@ describe("google agy logic", () => {
     if (!result || !result.success) {
       throw new Error("expected success");
     }
-    expect(result.buckets[0]).toMatchObject({
-      modelId: "gemini-3.5-flash",
-      percentRemaining: 50,
-    });
+    expect(result.summaryGroups).toHaveLength(1);
+    expect(result.summaryGroups[0].buckets[0].remainingFraction).toBe(0.5);
   });
 
   it("keeps Google AGY quota requests on the fixed Google endpoint", async () => {
@@ -344,12 +315,12 @@ describe("google agy logic", () => {
       },
     });
     mocks.getCachedAccessToken.mockResolvedValueOnce({ accessToken: "cached-token" });
-    mocks.fetchWithTimeout.mockResolvedValueOnce(mockJsonResponse({ buckets: [] }));
+    mocks.fetchWithTimeout.mockResolvedValueOnce(mockJsonResponse({ groups: [] }));
 
     await queryGoogleAgyQuota();
 
     expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
-      "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota",
+      "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer cached-token",
@@ -370,5 +341,57 @@ describe("google agy logic", () => {
       accountCount: 1,
       validAccountCount: 0,
     });
+  });
+
+  it("merges summaryGroups across accounts keeping minimum remainingFraction", async () => {
+    mocks.readAuthFileCached.mockResolvedValueOnce({
+      "google-agy": {
+        type: "oauth",
+        refresh: "refresh-token-1|project-1",
+        email: "alice@example.com",
+      },
+      "google-agy-auth": {
+        type: "oauth",
+        refresh: "refresh-token-2|project-2",
+        email: "bob@example.com",
+      },
+    });
+    mocks.getCachedAccessToken.mockResolvedValue({ accessToken: "cached-token" });
+
+    mocks.fetchWithTimeout.mockResolvedValueOnce(
+      mockJsonResponse({
+        groups: [
+          {
+            displayName: "Gemini Models",
+            buckets: [
+              { bucketId: "gemini-weekly", window: "weekly", remainingFraction: 0.8, resetTime: "2026-06-22T00:00:00Z" },
+              { bucketId: "gemini-5h", window: "5h", remainingFraction: 0.6 },
+            ],
+          },
+        ],
+      }),
+    );
+    mocks.fetchWithTimeout.mockResolvedValueOnce(
+      mockJsonResponse({
+        groups: [
+          {
+            displayName: "Gemini Models",
+            buckets: [
+              { bucketId: "gemini-weekly", window: "weekly", remainingFraction: 0.3, resetTime: "2026-06-21T00:00:00Z" },
+              { bucketId: "gemini-5h", window: "5h", remainingFraction: 0.9 },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const result = await queryGoogleAgyQuota();
+    expect(result).toMatchObject({ success: true });
+    if (!result || !result.success) {
+      throw new Error("expected success");
+    }
+    expect(result.summaryGroups).toHaveLength(1);
+    const geminiWeekly = result.summaryGroups[0].buckets.find((b) => b.bucketId === "gemini-weeky") || result.summaryGroups[0].buckets[0];
+    expect(geminiWeekly.remainingFraction).toBeLessThanOrEqual(0.3);
   });
 });

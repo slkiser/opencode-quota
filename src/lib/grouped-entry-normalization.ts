@@ -4,6 +4,8 @@ export type GroupedRenderTarget = "toast" | "quota";
 
 export type NormalizedGroupedQuotaEntry = QuotaToastEntry & {
   group: string;
+  rankOverride?: number;
+  groupSortOverride?: number;
 };
 
 export type QuotaEntryGroup = {
@@ -62,6 +64,7 @@ function getDurationRankFromText(value?: string): number | null {
 }
 
 function getDurationRank(entry: NormalizedGroupedQuotaEntry): number | null {
+  if (entry.rankOverride !== undefined) return entry.rankOverride;
   return entry.label ? getDurationRankFromText(entry.label) : getDurationRankFromText(entry.name);
 }
 
@@ -104,6 +107,7 @@ export function groupQuotaEntries(
 ): QuotaEntryGroup[] {
   const groupOrder: string[] = [];
   const groupedEntries = new Map<string, RankedGroupedQuotaEntry[]>();
+  const groupSortOverrides = new Map<string, number | undefined>();
 
   for (const [originalIndex, entry] of entries.entries()) {
     const normalizedEntry = normalizeGroupedQuotaEntry(entry, target);
@@ -112,17 +116,30 @@ export function groupQuotaEntries(
       originalIndex,
       rank: getDurationRank(normalizedEntry),
     };
-    const existing = groupedEntries.get(normalizedEntry.group);
+    const groupName = normalizedEntry.group;
+    const existing = groupedEntries.get(groupName);
     if (existing) {
       existing.push(rankedEntry);
       continue;
     }
 
-    groupOrder.push(normalizedEntry.group);
-    groupedEntries.set(normalizedEntry.group, [rankedEntry]);
+    groupOrder.push(groupName);
+    groupedEntries.set(groupName, [rankedEntry]);
+    groupSortOverrides.set(groupName, normalizedEntry.groupSortOverride);
   }
 
-  return groupOrder.map((group) => {
+  const sortedGroupOrder = groupOrder.slice().sort((a, b) => {
+    const aOverride = groupSortOverrides.get(a);
+    const bOverride = groupSortOverrides.get(b);
+    if (aOverride !== undefined && bOverride !== undefined && aOverride !== bOverride) {
+      return aOverride - bOverride;
+    }
+    if (aOverride !== undefined && bOverride === undefined) return -1;
+    if (aOverride === undefined && bOverride !== undefined) return 1;
+    return groupOrder.indexOf(a) - groupOrder.indexOf(b);
+  });
+
+  return sortedGroupOrder.map((group) => {
     const rankedEntries = groupedEntries.get(group) ?? [];
     const entries = rankedEntries
       .slice()

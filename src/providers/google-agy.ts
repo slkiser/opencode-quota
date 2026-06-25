@@ -1,9 +1,9 @@
 import type { QuotaProvider, QuotaProviderContext, QuotaProviderResult } from "../lib/entries.js";
+import type { RetrieveUserQuotaSummaryGroup } from "../lib/types.js";
 import { hasAgyQuotaRuntimeAvailable, queryGoogleAgyQuota } from "../lib/google-agy.js";
 import { parseProviderModelRef } from "../lib/provider-model-matching.js";
 import {
   formatGoogleAccountErrors,
-  formatGoogleAccountLabel,
 } from "./google-account-format.js";
 import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";
 
@@ -12,19 +12,29 @@ function isAgyModel(model: string): boolean {
   return ["google-agy", "opencode-agy-auth", "google-agy-auth"].includes(providerId);
 }
 
-function formatAgyAccountLabel(bucket: { accountEmail?: string; accountKey?: string }): string {
-  if (bucket.accountEmail) {
-    return formatGoogleAccountLabel(bucket.accountEmail, "domainHint");
-  }
-  return bucket.accountKey ? `Account ${bucket.accountKey.slice(0, 8)}` : "Unknown";
-}
-
 async function isAgyConfigured(ctx: QuotaProviderContext): Promise<boolean> {
   try {
     return await hasAgyQuotaRuntimeAvailable(ctx.client);
   } catch {
     return false;
   }
+}
+
+function familyGroupSortOverride(displayName: string): number {
+  if (displayName.toLowerCase().includes("gemini")) return 1;
+  return 2;
+}
+
+function windowToRankOverride(window: string): number {
+  return window === "weekly" ? 1 : 2;
+}
+
+function windowLabel(window: string): string {
+  return window === "weekly" ? "Weekly:" : "5h:";
+}
+
+function windowSuffix(window: string): string {
+  return window === "weekly" ? "Weekly" : "5h";
 }
 
 export const googleAgyProvider: QuotaProvider = {
@@ -53,55 +63,42 @@ export const googleAgyProvider: QuotaProvider = {
       return attemptedErrorResult("Google AGY", result.error);
     }
 
-    const groupedBuckets = new Map<string, typeof result.buckets[0]>();
-
-    for (const bucket of result.buckets) {
-      let groupName: string | undefined;
-      const name = bucket.displayName;
-
-      if (name.includes("Gemini")) {
-        groupName = "Gemini Models";
-      } else if (name.includes("Claude") || name.includes("GPT")) {
-        groupName = "Claude and GPT models";
-      }
-
-      if (!groupName) continue;
-
-      const accountKey = bucket.accountKey || bucket.accountEmail || "";
-      const key = `${accountKey}::${groupName}`;
-      const existing = groupedBuckets.get(key);
-
-      if (!existing || bucket.percentRemaining < existing.percentRemaining) {
-        groupedBuckets.set(key, { ...bucket, displayName: groupName });
-      }
-    }
-
-    const finalBuckets = Array.from(groupedBuckets.values()).sort((a, b) => 
-      a.displayName.localeCompare(b.displayName)
+    const sortedGroups = [...result.summaryGroups].sort(
+      (a, b) => familyGroupSortOverride(a.displayName) - familyGroupSortOverride(b.displayName),
     );
 
-    const entries = finalBuckets.map((bucket) => {
-      const emailLabel = formatAgyAccountLabel(bucket);
-      const parsedRemaining = bucket.remainingAmount
-        ? Number.parseInt(bucket.remainingAmount, 10)
-        : Number.NaN;
-      const remainingAmount = bucket.remainingAmount
-        ? `${Number.isFinite(parsedRemaining) ? parsedRemaining.toLocaleString("en-US") : bucket.remainingAmount} left`
-        : undefined;
-      const tokenType = bucket.tokenType?.trim().toUpperCase();
-      const right = [remainingAmount, tokenType && tokenType !== "REQUESTS" ? tokenType : undefined]
-        .filter(Boolean)
-        .join(" ");
+    const entries: import("../lib/entries.js").QuotaToastEntry[] = [];
 
-      return {
-        name: `${bucket.displayName} (${emailLabel})`,
-        group: "Google AGY",
-        label: `${bucket.displayName}:`,
-        ...(right ? { right } : {}),
-        percentRemaining: bucket.percentRemaining,
-        resetTimeIso: bucket.resetTimeIso,
-      };
-    });
+    for (const group of sortedGroups) {
+      const familyName = group.displayName;
+      const groupLabel = `Google AGY \u00b7 ${familyName}`;
+      const groupSort = familyGroupSortOverride(familyName);
+
+      const sortedBuckets = [...group.buckets]
+        .filter((b) => !b.disabled)
+        .sort((a, b) => windowToRankOverride(a.window) - windowToRankOverride(b.window));
+
+      for (const bucket of sortedBuckets) {
+        const parsedRemaining = bucket.remainingAmount
+          ? Number.parseInt(bucket.remainingAmount, 10)
+          : Number.NaN;
+        const remainingDisplay = bucket.remainingAmount
+          ? `${Number.isFinite(parsedRemaining) ? parsedRemaining.toLocaleString("en-US") : bucket.remainingAmount} left`
+          : undefined;
+        const right = remainingDisplay || undefined;
+
+        entries.push({
+          name: `Google AGY ${familyName} ${windowSuffix(bucket.window)}`,
+          group: groupLabel,
+          label: windowLabel(bucket.window),
+          rankOverride: windowToRankOverride(bucket.window),
+          groupSortOverride: groupSort,
+          ...(right ? { right } : {}),
+          percentRemaining: Math.round((bucket.remainingFraction ?? 1) * 100),
+          ...(bucket.resetTime ? { resetTimeIso: bucket.resetTime } : {}),
+        });
+      }
+    }
 
     return attemptedResult(entries, formatGoogleAccountErrors(result.errors, "domainHint"), {
       singleWindowDisplayName: "Google AGY",
