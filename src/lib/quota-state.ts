@@ -292,7 +292,7 @@ export async function fetchQuotaProviderResult(params: {
     const fetched = await provider.fetch(ctx);
     const snapshot = cloneQuotaProviderResult(fetched);
 
-    if (!snapshot.attempted) {
+    if (!snapshot.attempted || snapshot.entries.length === 0) {
       inMemoryCache.delete(key);
       await safeRm(getQuotaProviderStateCacheFilePath(provider.id, key));
       return snapshot;
