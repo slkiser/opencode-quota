@@ -320,6 +320,38 @@ describe("quota-state shared cache", () => {
     expect(provider.fetch).toHaveBeenCalledTimes(2);
   });
 
+  it("does not cache attempted error-only results without quota entries", async () => {
+    const { __resetQuotaStateForTests, fetchQuotaProviderResult, readCachedProviderResult } =
+      await import("../src/lib/quota-state.js");
+    __resetQuotaStateForTests();
+
+    const provider = {
+      id: "synthetic",
+      isAvailable: vi.fn(),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [],
+        errors: [{ label: "Synthetic", message: "Request timeout after 5s" }],
+      }),
+    } as any;
+
+    const ctx = createTestContext();
+
+    const first = await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+    const second = await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+    const cached = await readCachedProviderResult({ provider, ctx, ttlMs: 60_000 });
+
+    expect(first).toEqual({
+      attempted: true,
+      entries: [],
+      errors: [{ label: "Synthetic", message: "Request timeout after 5s" }],
+    });
+    expect(second).toEqual(first);
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
+    expect(cached).toEqual({ hit: false });
+    await expect(readdir(`${TEST_RUNTIME_ROOT}/cache/quota-provider-state`)).rejects.toThrow();
+  });
+
   it("bypasses persistence entirely for live-local providers", async () => {
     const { __resetQuotaStateForTests, fetchQuotaProviderResult } = await import(
       "../src/lib/quota-state.js"
