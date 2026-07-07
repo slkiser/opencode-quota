@@ -20,7 +20,7 @@
     },
     "./tui": {
       "types": "./dist/tui.d.ts",
-      "default": "./dist/tui.tsx"
+      "default": "./dist/tui.js"
     }
   },
   "oc-plugin": [
@@ -70,8 +70,11 @@
   },
   "homepage": "https://github.com/slkiser/opencode-quota#readme",
   "devDependencies": {
+    "@babel/core": "^7.28.0",
+    "@babel/preset-typescript": "^7.27.1",
     "@opencode-ai/plugin": "^1.4.3",
     "@types/node": "^22.0.0",
+    "babel-preset-solid": "^1.9.12",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
     "prettier": "^3.8.0",

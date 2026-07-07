@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { access, readFile } from "node:fs/promises";
 
-const pkg = JSON.parse(
-  await readFile(new URL("../package.json", import.meta.url), "utf8"),
-) as {
+const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
   main?: string;
   bin?: Record<string, string>;
   exports?: Record<string, { default?: string; types?: string }>;
@@ -56,7 +54,7 @@ describe("package manifest compatibility", () => {
       types: "./dist/index.d.ts",
     });
     expect(pkg.exports?.["./tui"]).toEqual({
-      default: "./dist/tui.tsx",
+      default: "./dist/tui.js",
       types: "./dist/tui.d.ts",
     });
   });
