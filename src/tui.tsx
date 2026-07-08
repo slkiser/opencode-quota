@@ -370,13 +370,18 @@ function SidebarContentView(props: { api: TuiPluginApi; sessionID: string }) {
   return (
     <Show when={shouldRenderSidebarPanel(panel())}>
       <box gap={0}>
-        <box flexDirection="row">
-          <text fg={props.api.theme.current.text} onMouseDown={toggleCollapsed}>
-            <b>{hasDetailLines() ? `${toggleIcon()} Quota` : "Quota"}</b>
-          </text>
-          <Show when={collapsed() && providerCount() > 0}>
-            <text fg={props.api.theme.current.textMuted}> ({providerCount()} providers)</text>
+        <box flexDirection="row" gap={1} onMouseDown={toggleCollapsed}>
+          <Show when={hasDetailLines()}>
+            <text fg={props.api.theme.current.text}>
+              {toggleIcon()}
+            </text>
           </Show>
+          <text fg={props.api.theme.current.text}>
+            <b>Quota</b>
+            <Show when={collapsed() && providerCount() > 0}>
+              <span style={{ fg: props.api.theme.current.textMuted }}> ({providerCount()} providers)</span>
+            </Show>
+          </text>
         </box>
         <box gap={0}>
           {displayLines().map((line) => (
