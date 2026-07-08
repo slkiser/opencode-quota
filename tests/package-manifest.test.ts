@@ -88,7 +88,7 @@ describe("package manifest compatibility", () => {
     expect(ciWorkflow).toContain("@slkiser/opencode-quota/tui");
     expect(ciWorkflow).toContain('import.meta.resolve("@slkiser/opencode-quota/tui")');
     expect(ciWorkflow).toContain('readFile(tuiExportPath, "utf8")');
-    expect(ciWorkflow).toContain("dist\\\\/tui\\\\.js");
+    expect(ciWorkflow).toContain("dist\\/tui\\.js");
     expect(ciWorkflow).not.toContain('await import("@slkiser/opencode-quota/tui")');
   });
 });

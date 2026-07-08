@@ -264,10 +264,10 @@ function buildSidebarPanelFromData(params: {
     : [];
 
   const expandedLines = params.result.allWindowsData
-    ? buildSidebarQuotaPanelLines({
+    ? (buildSidebarQuotaPanelLines({
         data: params.result.allWindowsData,
         config: { ...params.runtime.config, formatStyle: "allWindows" },
-      })
+      }) ?? [])
     : [];
   const linesExpanded =
     expandedLines.length > 0 && expandedLines.join("\n") !== lines.join("\n")
