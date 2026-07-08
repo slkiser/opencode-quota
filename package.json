@@ -83,8 +83,8 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.2.0",
-    "@opentui/core": "^0.2.7",
-    "@opentui/solid": "^0.2.7",
+    "@opentui/core": "^0.4.3",
+    "@opentui/solid": "^0.4.3",
     "comment-json": "^5.0.0",
     "solid-js": "^1.9.12",
     "xdg-basedir": "^5.1.0"
