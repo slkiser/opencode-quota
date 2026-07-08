@@ -25,6 +25,10 @@ const transformed = await babel.transformAsync(source, {
   ],
 });
 
-await fs.writeFile(distJsPath, `${transformed?.code ?? ""}\n`);
+if (!transformed?.code) {
+  throw new Error("Babel transform returned empty output");
+}
+
+await fs.writeFile(distJsPath, `${transformed.code}\n`);
 await fs.rm(distJsxPath, { force: true });
 await fs.rm(distJsxMapPath, { force: true });
