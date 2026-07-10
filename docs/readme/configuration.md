@@ -73,6 +73,21 @@ Announcements are bundled only: no remote fetches, announcement telemetry, or pe
 </details>
 
 <details>
+<summary><strong>Show finer-grained reset countdowns</strong></summary>
+
+By default the reset countdown rounds to integer days and half-hour steps (`6d`, `2h`, `1h`, `0.5h`). Set `resetTimeDecimals` to render fractional durations instead, for example `5.7d` or `1.4h`. Applies to the Sidebar panel, popup toasts, and `opencode-quota show`.
+
+```jsonc
+{
+  "resetTimeDecimals": 1,
+}
+```
+
+Allowed values are integers `0`–`4`. Unset keeps the legacy compact rounding exactly.
+
+</details>
+
+<details>
 <summary><strong>Turn off popup toasts</strong></summary>
 
 Keeps terminal checks, any enabled UI surfaces, and `/quota`/`/quota_status`.
@@ -191,6 +206,7 @@ Existing `experimental.quotaToast` settings still work when no sidecar file exis
 | `requestTimeoutMs`            | `5000`         | Remote provider request timeout in milliseconds.                                                                                                                                                                                                                                                   |
 | `formatStyle`                 | `singleWindow` | Shared quota reset-period display for popup toasts, the Sidebar panel, and Compact status line unless a TUI surface override is set: `singleWindow` shows one reset period per provider; `allWindows` shows all reset periods per provider. Legacy `classic`/`grouped` aliases are still accepted. |
 | `percentDisplayMode`          | `remaining`    | Shared quota percentage meaning for popup toasts, the Sidebar panel, and `/quota`: `remaining` shows quota left; `used` shows quota consumed.                                                                                                                                                      |
+| `resetTimeDecimals`           | unset          | Decimal places for compact reset-countdown labels. Unset keeps legacy rounding (`6d`, `2h`, `0.5h`); an integer `0`–`4` renders fractional durations like `5.7d` or `1.4h`.                                                                                                                        |
 | `onlyCurrentModel`            | `false`        | Filter quota rows to the current model/provider when that session selection can be resolved.                                                                                                                                                                                                       |
 | `showSessionTokens`           | `true`         | Show the `Session input/output tokens` section when session token data is available. When cached input is present, the section keeps the legacy `in/out` layout and appends cached input in parentheses next to the input amount.                                                                  |
 | `pricingSnapshot.source`      | `"auto"`       | Token pricing snapshot selection for `/tokens_*`: `auto`, `bundled`, or `runtime`.                                                                                                                                                                                                                 |

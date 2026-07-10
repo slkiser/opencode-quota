@@ -211,6 +211,81 @@ describe("formatQuotaRows", () => {
     expect(out).not.toContain("0h 14m");
   });
 
+  it("renders fractional reset countdowns when resetTimeDecimals is set (single-window)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
+
+    const out = formatQuotaRows({
+      version: "1.0.0",
+      layout: { maxWidth: 50, narrowAt: 42, tinyAt: 32 },
+      resetTimeDecimals: 1,
+      entries: [
+        {
+          name: "Copilot Monthly",
+          percentRemaining: 50,
+          // 5.7 days away (5d 16h 48m)
+          resetTimeIso: "2026-01-21T02:48:00.000Z",
+        },
+        {
+          name: "OpenAI 5h",
+          percentRemaining: 50,
+          // 1.4 hours away (1h 24m)
+          resetTimeIso: "2026-01-15T11:24:00.000Z",
+        },
+      ],
+    });
+
+    expect(out).toContain("5.7d");
+    expect(out).toContain("1.4h");
+    expect(out).not.toContain("0.5h");
+  });
+
+  it("renders fractional reset countdowns when resetTimeDecimals is set (grouped)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
+
+    const out = formatQuotaRows({
+      version: "1.0.0",
+      style: "allWindows",
+      layout: { maxWidth: 50, narrowAt: 42, tinyAt: 32 },
+      resetTimeDecimals: 1,
+      entries: [
+        {
+          name: "OpenAI 5h",
+          group: "OpenAI",
+          label: "5h:",
+          percentRemaining: 56,
+          // 14 minutes -> 0.2h
+          resetTimeIso: "2026-01-15T10:14:00.000Z",
+        },
+      ],
+    });
+
+    expect(out).toContain("0.2h");
+    expect(out).not.toContain("0.5h");
+  });
+
+  it("keeps legacy compact rounding when resetTimeDecimals is unset", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
+
+    const out = formatQuotaRows({
+      version: "1.0.0",
+      layout: { maxWidth: 50, narrowAt: 42, tinyAt: 32 },
+      entries: [
+        {
+          name: "Copilot Monthly",
+          percentRemaining: 50,
+          // 5.7 days away -> floored to 5d
+          resetTimeIso: "2026-01-21T02:48:00.000Z",
+        },
+      ],
+    });
+
+    expect(out).toContain("5d");
+    expect(out).not.toContain("5.7d");
+  });
+
   it("normalizes grouped headers in all-window toast output", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));

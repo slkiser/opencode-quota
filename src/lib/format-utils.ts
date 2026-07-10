@@ -148,7 +148,18 @@ export interface FormatResetCountdownOptions {
    * - 14m -> 14m
    */
   compactRounded?: boolean;
+  /**
+   * When set (with compactRounded), render the largest active unit with this
+   * many decimal places instead of the legacy integer-day / half-hour steps.
+   * - 5.7d, 1.4h, 0.2h
+   * A non-negative integer enables fractional output; otherwise the legacy
+   * compactRounded behavior is preserved exactly.
+   */
+  decimals?: number;
 }
+
+const MS_PER_DAY = 86_400_000;
+const MS_PER_HOUR = 3_600_000;
 
 /**
  * Format a reset countdown for toast display.
@@ -169,6 +180,15 @@ export function formatResetCountdown(iso?: string, opts?: FormatResetCountdownOp
   const minutes = diffMinutes % 60;
 
   if (opts?.compactRounded) {
+    const decimals = opts.decimals;
+    if (isResetTimeDecimals(decimals)) {
+      // Fine-grained: keep the legacy unit selection (days when >= 1 day,
+      // hours otherwise) but render fractional values with N decimals.
+      if (days > 0) return `${(diffMs / MS_PER_DAY).toFixed(decimals)}d`;
+      return `${(diffMs / MS_PER_HOUR).toFixed(decimals)}h`;
+    }
+
+    // Legacy default: integer days and half-hour steps for sub-day durations.
     if (days > 0) return `${days}d`;
     const halfHours = Math.ceil(diffMinutes / 30);
     const h = Math.floor(halfHours / 2);
@@ -178,4 +198,23 @@ export function formatResetCountdown(iso?: string, opts?: FormatResetCountdownOp
 
   if (days > 0) return `${days}d ${hours}h`;
   return `${hours}h ${minutes}m`;
+}
+
+/**
+ * Maximum accepted value for the resetTimeDecimals config setting.
+ * Keeps compact reset labels short in narrow surfaces like the sidebar.
+ */
+export const MAX_RESET_TIME_DECIMALS = 4;
+
+/**
+ * True when value is a valid resetTimeDecimals (non-negative integer within range).
+ * Used by formatResetCountdown and the config loader to keep validation in sync.
+ */
+export function isResetTimeDecimals(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= MAX_RESET_TIME_DECIMALS
+  );
 }

@@ -73,8 +73,7 @@ export interface QuotaToastConfig {
   /** If false, never show popup toasts (commands/tools still work). */
   enableToast: boolean;
 
-  /**
-   * Shared quota-row formatting style for popup toasts and the TUI sidebar.
+  /** Shared quota-row formatting style for popup toasts and the TUI sidebar.
    *
    * Canonical values:
    * - "singleWindow": collapse each provider to a single displayable quota window
@@ -85,6 +84,16 @@ export interface QuotaToastConfig {
   formatStyle: QuotaFormatStyle;
   /** Shared percent meaning for popup toasts and the TUI sidebar. */
   percentDisplayMode: PercentDisplayMode;
+  /**
+   * Number of decimal places for compact reset-countdown labels (e.g. the
+   * sidebar/toast "5.7d" or "1.4h" duration until a quota window resets).
+   *
+   * When unset, the legacy compact rounding is preserved exactly: integer
+   * days and half-hour steps for sub-day durations ("6d", "2h", "0.5h").
+   * When set to a non-negative integer (0..4), durations render with that
+   * many decimal places ("5.7d", "1.4h").
+   */
+  resetTimeDecimals?: number;
   minIntervalMs: number;
 
   /** Request timeout in milliseconds for remote provider API calls. */

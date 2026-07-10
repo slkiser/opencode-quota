@@ -627,6 +627,28 @@ describe("loadConfig", () => {
     expect(invalid.config.percentDisplayMode).toBe("remaining");
   });
 
+  it("defaults resetTimeDecimals to unset and accepts integer 0..4 overrides", async () => {
+    const defaults = await loadSdkConfig({});
+    expect(defaults.config.resetTimeDecimals).toBeUndefined();
+
+    const explicit = await loadSdkConfig({ resetTimeDecimals: 1 });
+    expect(explicit.config.resetTimeDecimals).toBe(1);
+    expect(explicit.meta.settingSources).toEqual({
+      resetTimeDecimals: "client.config.get",
+    });
+
+    for (const value of [0, 4]) {
+      const boundary = await loadSdkConfig({ resetTimeDecimals: value });
+      expect(boundary.config.resetTimeDecimals).toBe(value);
+    }
+
+    for (const invalid of [-1, 5, 1.5, Number.NaN, "1", null]) {
+      const rejected = await loadSdkConfig({ resetTimeDecimals: invalid });
+      expect(rejected.config.resetTimeDecimals).toBeUndefined();
+      expect(rejected.meta.settingSources).not.toHaveProperty("resetTimeDecimals");
+    }
+  });
+
   it("defaults anthropicBinaryPath and trims explicit overrides", async () => {
     const defaults = await loadSdkConfig({});
     expect(defaults.config.anthropicBinaryPath).toBe("claude");

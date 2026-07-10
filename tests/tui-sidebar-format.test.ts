@@ -336,6 +336,34 @@ describe("buildSidebarQuotaPanelLines", () => {
     expect(lines.join("\n")).not.toContain("2h 14m");
   });
 
+  it("uses fractional reset text in sidebar rows when resetTimeDecimals is set", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
+
+    const lines = buildSidebarQuotaPanelLines({
+      config: {
+        formatStyle: "singleWindow",
+        percentDisplayMode: "remaining",
+        resetTimeDecimals: 1,
+      },
+      data: {
+        entries: [
+          {
+            name: "[Copilot] Monthly",
+            percentRemaining: 81,
+            // 2.2333h away -> 2.2h
+            resetTimeIso: "2026-01-15T12:14:00.000Z",
+          },
+        ],
+        errors: [],
+        sessionTokens: undefined,
+      },
+    });
+
+    expect(lines.join("\n")).toContain("2.2h");
+    expect(lines.join("\n")).not.toContain("2.5h");
+  });
+
   it("does not cut single-window provider/account labels that fit in the sidebar", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));

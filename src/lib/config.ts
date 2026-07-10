@@ -16,6 +16,7 @@ import type {
 } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
 import { isQuotaFormatStyle, resolveQuotaFormatStyle } from "./quota-format-style.js";
+import { isResetTimeDecimals } from "./format-utils.js";
 import { parseJsonOrJsonc } from "./jsonc.js";
 import { getQuotaProviderShape, normalizeQuotaProviderId } from "./provider-metadata.js";
 
@@ -33,6 +34,7 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "enableToast",
   "formatStyle",
   "percentDisplayMode",
+  "resetTimeDecimals",
   "minIntervalMs",
   "requestTimeoutMs",
   "debug",
@@ -133,6 +135,7 @@ type ValidatedQuotaToastPatch = {
   enableToast?: boolean;
   formatStyle?: QuotaToastConfig["formatStyle"];
   percentDisplayMode?: PercentDisplayMode;
+  resetTimeDecimals?: number;
   minIntervalMs?: number;
   requestTimeoutMs?: number;
   debug?: boolean;
@@ -521,6 +524,13 @@ function extractValidatedQuotaToastPatch(
     patch.percentDisplayMode = quotaToastConfig.percentDisplayMode;
   }
 
+  if (
+    hasOwnKey(quotaToastConfig, "resetTimeDecimals") &&
+    isResetTimeDecimals(quotaToastConfig.resetTimeDecimals)
+  ) {
+    patch.resetTimeDecimals = quotaToastConfig.resetTimeDecimals;
+  }
+
   if (hasOwnKey(quotaToastConfig, "minIntervalMs") && isPositiveNumber(quotaToastConfig.minIntervalMs)) {
     patch.minIntervalMs = quotaToastConfig.minIntervalMs;
   }
@@ -720,6 +730,11 @@ function applyValidatedQuotaToastPatch(
   if (hasOwnKey(patch, "percentDisplayMode")) {
     config.percentDisplayMode = patch.percentDisplayMode!;
     applySettingSource(settingSources, "percentDisplayMode", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "resetTimeDecimals")) {
+    config.resetTimeDecimals = patch.resetTimeDecimals;
+    applySettingSource(settingSources, "resetTimeDecimals", sourcePath);
   }
 
   if (hasOwnKey(patch, "minIntervalMs")) {

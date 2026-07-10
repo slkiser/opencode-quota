@@ -98,6 +98,7 @@ export function formatQuotaRows(params: {
   errors?: QuotaToastError[];
   style?: QuotaFormatStyle;
   percentDisplayMode?: QuotaToastConfig["percentDisplayMode"];
+  resetTimeDecimals?: number;
   sessionTokens?: SessionTokensData;
 }): string {
   const styleDefinition = getQuotaFormatStyleDefinition(params.style);
@@ -108,6 +109,7 @@ export function formatQuotaRows(params: {
       entries: params.entries,
       errors: params.errors,
       percentDisplayMode: params.percentDisplayMode,
+      resetTimeDecimals: params.resetTimeDecimals,
       sessionTokens: params.sessionTokens,
     });
   }
@@ -157,7 +159,11 @@ export function formatQuotaRows(params: {
     // (i.e., any usage at all, or depleted)
     const timeStr =
       remaining < 100
-        ? formatResetCountdown(resetIso, { missing: "-", compactRounded: true })
+        ? formatResetCountdown(resetIso, {
+            missing: "-",
+            compactRounded: true,
+            decimals: params.resetTimeDecimals,
+          })
         : "";
 
     if (isTiny) {
@@ -195,7 +201,11 @@ export function formatQuotaRows(params: {
   };
 
   const addValueEntry = (name: string, resetIso: string | undefined, value: string) => {
-    const timeStr = formatResetCountdown(resetIso, { missing: "-", compactRounded: true });
+    const timeStr = formatResetCountdown(resetIso, {
+      missing: "-",
+      compactRounded: true,
+      decimals: params.resetTimeDecimals,
+    });
 
     if (isTiny) {
       // Tiny: single line without percent; keep time col alignment.

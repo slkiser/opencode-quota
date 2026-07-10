@@ -63,6 +63,7 @@ export function formatQuotaRowsGrouped(params: {
   entries?: QuotaToastEntry[];
   errors?: QuotaToastError[];
   percentDisplayMode?: QuotaToastConfig["percentDisplayMode"];
+  resetTimeDecimals?: number;
   sessionTokens?: SessionTokensData;
 }): string {
   const layout = params.layout ?? { maxWidth: 50, narrowAt: 42, tinyAt: 32 };
@@ -108,7 +109,10 @@ export function formatQuotaRowsGrouped(params: {
 
       if (isValueEntry(entry)) {
         const label = entry.label?.trim() || entry.name;
-        const timeStr = formatResetCountdown(entry.resetTimeIso, { compactRounded: true });
+        const timeStr = formatResetCountdown(entry.resetTimeIso, {
+          compactRounded: true,
+          decimals: params.resetTimeDecimals,
+        });
         const value = entry.value.trim();
 
         if (isTiny) {
@@ -153,7 +157,10 @@ export function formatQuotaRowsGrouped(params: {
       // (i.e., any usage at all, or depleted)
       const timeStr =
         entry.percentRemaining < 100
-          ? formatResetCountdown(entry.resetTimeIso, { compactRounded: true })
+          ? formatResetCountdown(entry.resetTimeIso, {
+              compactRounded: true,
+              decimals: params.resetTimeDecimals,
+            })
           : "";
       const displayedPercent = resolveDisplayedPercent(
         entry.percentRemaining,
