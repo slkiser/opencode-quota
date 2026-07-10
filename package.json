@@ -86,6 +86,7 @@
     "@opentui/core": "^0.4.3",
     "@opentui/solid": "^0.4.3",
     "comment-json": "^5.0.0",
+    "jsonc-parser": "^3.3.1",
     "solid-js": "^1.9.12",
     "xdg-basedir": "^5.1.0"
   },

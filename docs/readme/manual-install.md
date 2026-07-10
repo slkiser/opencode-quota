@@ -4,6 +4,20 @@
 
 Manual setup details for users who prefer editing OpenCode config themselves.
 
+## Update OpenCode Quota safely
+
+1. Close OpenCode.
+2. Run:
+
+   ```bash
+   npx @slkiser/opencode-quota@latest update
+   ```
+
+3. Review the exact config edits and cache directories, then confirm.
+4. Restart OpenCode.
+
+Use `--dry-run` to preview without changing anything. Use `--yes` only for explicit noninteractive confirmation. The update command changes only canonical OpenCode Quota plugin entries and removes only verified OpenCode Quota cache directories; it preserves settings, JSONC comments, tuple options, and other plugins.
+
 ## Manual Install
 
 Use the installer when possible. For manual install, use the same OpenCode config location you would pick in the installer:

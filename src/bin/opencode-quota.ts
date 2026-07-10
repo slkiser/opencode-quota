@@ -10,6 +10,7 @@ const USAGE = [
   "Usage:",
   "  npx @slkiser/opencode-quota init [--sync-legacy-config]",
   "  npx @slkiser/opencode-quota show [--provider <provider-id>] [--json] [--threshold <pct>]",
+  "  npx @slkiser/opencode-quota update [--dry-run] [--yes]",
   "  npx @slkiser/opencode-quota --help",
   "",
   "Commands:",
@@ -19,6 +20,9 @@ const USAGE = [
   "          --json               Machine-readable JSON output (reads from cache)",
   "          --threshold <pct>    With --json, exit 1 if below <pct>%, 2 if no cached quota",
   "          --provider <id>      Filter to one provider",
+  "  update  Safely refresh only OpenCode Quota config and verified cache entries",
+  "          --dry-run            Preview without changing config or cache",
+  "          --yes                Apply noninteractively after printing the preview",
 ].join("\n");
 
 function printUsage(): void {
@@ -70,6 +74,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (command === "show") {
     const { runCliShowCommand } = await import("../lib/cli-show.js");
     return await runCliShowCommand({ argv: rest });
+  }
+
+  if (command === "update") {
+    const { runScopedUpdateCommand } = await import("../lib/scoped-update.js");
+    return await runScopedUpdateCommand({ argv: rest });
   }
 
   printUsage();

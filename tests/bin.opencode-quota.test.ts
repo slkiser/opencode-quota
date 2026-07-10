@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const commandMocks = vi.hoisted(() => ({
   runInitInstaller: vi.fn(),
   runCliShowCommand: vi.fn(),
+  runScopedUpdateCommand: vi.fn(),
 }));
 
 vi.mock("../src/lib/init-installer.js", () => ({
@@ -18,11 +19,16 @@ vi.mock("../src/lib/cli-show.js", () => ({
   runCliShowCommand: commandMocks.runCliShowCommand,
 }));
 
+vi.mock("../src/lib/scoped-update.js", () => ({
+  runScopedUpdateCommand: commandMocks.runScopedUpdateCommand,
+}));
+
 describe("opencode-quota bin", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     commandMocks.runInitInstaller.mockResolvedValue(0);
     commandMocks.runCliShowCommand.mockResolvedValue(0);
+    commandMocks.runScopedUpdateCommand.mockResolvedValue(0);
   });
 
   it("dispatches init to the interactive installer", async () => {
@@ -66,6 +72,17 @@ describe("opencode-quota bin", () => {
     });
   });
 
+  it("dispatches update args to the scoped updater", async () => {
+    const { main } = await import("../src/bin/opencode-quota.js");
+
+    const code = await main(["update", "--dry-run", "--yes"]);
+
+    expect(code).toBe(0);
+    expect(commandMocks.runScopedUpdateCommand).toHaveBeenCalledWith({
+      argv: ["--dry-run", "--yes"],
+    });
+  });
+
   it("prints help and exits zero for --help", async () => {
     const { main } = await import("../src/bin/opencode-quota.js");
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -105,9 +122,7 @@ describe("opencode-quota bin", () => {
   it("treats symlinked bin paths as direct CLI execution", async () => {
     const { cliShouldRunMain } = await import("../src/bin/opencode-quota.js");
 
-    const modulePath = fileURLToPath(
-      new URL("../src/bin/opencode-quota.ts", import.meta.url),
-    );
+    const modulePath = fileURLToPath(new URL("../src/bin/opencode-quota.ts", import.meta.url));
     const tempDir = mkdtempSync(join(tmpdir(), "opencode-quota-bin-"));
     const symlinkPath = join(tempDir, "opencode-quota");
 

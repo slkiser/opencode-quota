@@ -19,11 +19,14 @@ export async function writeJsonAtomic(
   data: unknown,
   opts: WriteJsonAtomicOptions = {},
 ): Promise<void> {
+  // Use the comment-preserving stringifier here instead of JSON.stringify.
+  const content = stringifyWithComments(data) + (opts.trailingNewline ? "\n" : "");
+  await writeTextAtomic(path, content);
+}
+
+export async function writeTextAtomic(path: string, content: string): Promise<void> {
   const dir = dirname(path);
   const tmp = `${path}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
-  // Use the comment-preserving stringifier here instead of JSON.stringify
-  const content = stringifyWithComments(data) + (opts.trailingNewline ? "\n" : "");
 
   await mkdir(dir, { recursive: true });
   await writeFile(tmp, content, "utf-8");

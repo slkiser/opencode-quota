@@ -14,6 +14,20 @@ Start here when quota or token data looks wrong.
 4. If token reports are empty, start OpenCode once so it creates `opencode.db`, then run a session with model usage.
 5. Use the provider-specific table below for the failing provider.
 
+## Update OpenCode Quota safely
+
+1. Close OpenCode.
+2. Run:
+
+   ```bash
+   npx @slkiser/opencode-quota@latest update
+   ```
+
+3. Review the exact config edits and cache directories, then confirm.
+4. Restart OpenCode.
+
+Use `--dry-run` to preview without changing anything. Use `--yes` only for explicit noninteractive confirmation. The update command changes only canonical OpenCode Quota plugin entries and removes only verified OpenCode Quota cache directories; it preserves settings, JSONC comments, tuple options, and other plugins.
+
 ### Common symptoms
 
 | Symptom                                                         | Try this                                                                                                                                                                                                                                                                                                                                |

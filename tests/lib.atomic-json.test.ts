@@ -28,6 +28,20 @@ describe("atomic-json", () => {
     expect(fs.rm).not.toHaveBeenCalled();
   });
 
+  it("writes raw text without reformatting it", async () => {
+    const fs = await import("fs/promises");
+    const { writeTextAtomic } = await import("../src/lib/atomic-json.js");
+    const content = '{ // comment\n  "plugin": [],\n}\n';
+
+    await writeTextAtomic("/tmp/opencode/opencode.jsonc", content);
+
+    expect(fs.writeFile).toHaveBeenCalledWith(
+      expect.stringContaining("opencode.jsonc.tmp-"),
+      content,
+      "utf-8",
+    );
+  });
+
   it("replaces the destination when rename hits a retryable error", async () => {
     const fs = await import("fs/promises");
     const { writeJsonAtomic } = await import("../src/lib/atomic-json.js");
