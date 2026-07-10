@@ -8,6 +8,7 @@
  */
 
 import { execFile } from "child_process";
+import { createHash } from "crypto";
 import { readFile } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
@@ -18,6 +19,8 @@ import { fetchWithTimeout } from "./http.js";
 const DEFAULT_CLAUDE_BINARY = "claude";
 const CLAUDE_COMMAND_TIMEOUT_MS = 3_000;
 const ANTHROPIC_DIAGNOSTICS_TTL_MS = 5_000;
+const ANTHROPIC_OAUTH_BACKOFF_BASE_MS = 30_000;
+const ANTHROPIC_OAUTH_COOLDOWN_MAX_MS = 15 * 60_000;
 const ANTHROPIC_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const ANTHROPIC_BETA_HEADER = "oauth-2025-04-20";
 const CLAUDE_CODE_CREDENTIALS_SERVICE = "Claude Code-credentials";
@@ -115,6 +118,11 @@ type AnthropicLocalDiagnosticsCacheEntry = {
   inFlight?: Promise<AnthropicLocalDiagnostics>;
 };
 
+type AnthropicOAuthCooldown = {
+  failureCount: number;
+  blockedUntilMs: number;
+};
+
 type ClaudeCredentialsAccess =
   | {
       state: "configured";
@@ -158,6 +166,8 @@ type ParsedAuthProbe = {
 
 const diagnosticsCache = new Map<string, AnthropicDiagnosticsCacheEntry>();
 const localDiagnosticsCache = new Map<string, AnthropicLocalDiagnosticsCacheEntry>();
+const anthropicOAuthCooldowns = new Map<string, AnthropicOAuthCooldown>();
+const anthropicOAuthInFlight = new Map<string, Promise<AnthropicFallbackQuota>>();
 
 export function resolveAnthropicBinaryPath(binaryPath?: string): string {
   const trimmed = binaryPath?.trim();
@@ -580,8 +590,77 @@ async function readClaudeCredentialsAccessToken(): Promise<ClaudeCredentialsAcce
   };
 }
 
-async function queryAnthropicQuotaFromOAuthAccessToken(
+function fingerprintAccessToken(accessToken: string): string {
+  return createHash("sha256").update(accessToken).digest("hex");
+}
+
+function parseRetryAfterMs(value: string | null, nowMs: number): number | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  if (/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/u.test(trimmed)) {
+    const seconds = Number(trimmed);
+    return Number.isFinite(seconds) && seconds > 0 ? seconds * 1_000 : undefined;
+  }
+
+  const retryAtMs = Date.parse(trimmed);
+  const durationMs = retryAtMs - nowMs;
+  return Number.isFinite(durationMs) && durationMs > 0 ? durationMs : undefined;
+}
+
+function getAnthropicOAuthCooldownDurationMs(
+  failureCount: number,
+  retryAfter: string | null,
+  nowMs: number,
+): number {
+  const exponentialMs = Math.min(
+    ANTHROPIC_OAUTH_COOLDOWN_MAX_MS,
+    ANTHROPIC_OAUTH_BACKOFF_BASE_MS * 2 ** Math.min(failureCount, 30),
+  );
+  const retryAfterMs = Math.min(
+    ANTHROPIC_OAUTH_COOLDOWN_MAX_MS,
+    parseRetryAfterMs(retryAfter, nowMs) ?? 0,
+  );
+  return Math.max(exponentialMs, retryAfterMs);
+}
+
+function getAnthropicOAuthCooldownMessage(remainingMs: number): string {
+  const boundedRemainingMs = Math.min(ANTHROPIC_OAUTH_COOLDOWN_MAX_MS, Math.max(0, remainingMs));
+  return `Anthropic OAuth usage probe paused after HTTP 429; retry in ${Math.ceil(
+    boundedRemainingMs / 1_000,
+  )}s.`;
+}
+
+function retainAnthropicOAuthCooldownForToken(tokenFingerprint: string): void {
+  for (const fingerprint of anthropicOAuthCooldowns.keys()) {
+    if (fingerprint !== tokenFingerprint) {
+      anthropicOAuthCooldowns.delete(fingerprint);
+    }
+  }
+}
+
+function redactAccessTokenFromSanitizedDetail(detail: string, accessToken: string): string {
+  const sanitizedDetail = sanitizeDisplayText(detail);
+  const sanitizedAccessToken = sanitizeDisplayText(accessToken);
+  const redactedDetail = sanitizedDetail.split(accessToken).join("[redacted]");
+  return sanitizedAccessToken
+    ? redactedDetail.split(sanitizedAccessToken).join("[redacted]")
+    : redactedDetail;
+}
+
+function sanitizeAnthropicApiDetail(detail: string, accessToken: string): string {
+  return redactAccessTokenFromSanitizedDetail(detail, accessToken).slice(0, 120);
+}
+
+function sanitizeAnthropicRequestError(detail: string, accessToken: string): string {
+  return redactAccessTokenFromSanitizedDetail(detail, accessToken);
+}
+
+async function performAnthropicOAuthUsageRequest(
   accessToken: string,
+  tokenFingerprint: string,
   requestTimeoutMs?: number,
 ): Promise<AnthropicFallbackQuota> {
   let response: Response;
@@ -600,14 +679,48 @@ async function queryAnthropicQuotaFromOAuthAccessToken(
   } catch (error) {
     return {
       state: "unavailable",
-      detail: sanitizeDisplayText(error instanceof Error ? error.message : String(error)),
+      detail: sanitizeAnthropicRequestError(
+        error instanceof Error ? error.message : String(error),
+        accessToken,
+      ),
     };
   }
+
+  if (response.status === 429) {
+    let detail = "";
+    try {
+      detail = sanitizeAnthropicApiDetail(await response.text(), accessToken);
+    } catch {
+      detail = "";
+    }
+
+    const nowMs = Date.now();
+    const previousFailureCount = anthropicOAuthCooldowns.get(tokenFingerprint)?.failureCount ?? 0;
+    const durationMs = getAnthropicOAuthCooldownDurationMs(
+      previousFailureCount,
+      response.headers?.get?.("Retry-After") ?? null,
+      nowMs,
+    );
+    anthropicOAuthCooldowns.set(tokenFingerprint, {
+      failureCount: previousFailureCount + 1,
+      blockedUntilMs: nowMs + durationMs,
+    });
+
+    const errorDetail = detail
+      ? `Anthropic API error ${response.status}: ${detail}`
+      : `Anthropic API returned ${response.status}`;
+    return {
+      state: "unavailable",
+      detail: `${errorDetail} ${getAnthropicOAuthCooldownMessage(durationMs)}`,
+    };
+  }
+
+  anthropicOAuthCooldowns.delete(tokenFingerprint);
 
   if (!response.ok) {
     let detail = "";
     try {
-      detail = sanitizeDisplaySnippet(await response.text(), 120);
+      detail = sanitizeAnthropicApiDetail(await response.text(), accessToken);
     } catch {
       detail = "";
     }
@@ -642,6 +755,43 @@ async function queryAnthropicQuotaFromOAuthAccessToken(
     state: "success",
     quota,
   };
+}
+
+async function queryAnthropicQuotaFromOAuthAccessToken(
+  accessToken: string,
+  requestTimeoutMs?: number,
+): Promise<AnthropicFallbackQuota> {
+  const tokenFingerprint = fingerprintAccessToken(accessToken);
+  retainAnthropicOAuthCooldownForToken(tokenFingerprint);
+
+  const nowMs = Date.now();
+  const cooldown = anthropicOAuthCooldowns.get(tokenFingerprint);
+  if (cooldown && cooldown.blockedUntilMs > nowMs) {
+    return {
+      state: "unavailable",
+      detail: getAnthropicOAuthCooldownMessage(cooldown.blockedUntilMs - nowMs),
+    };
+  }
+
+  const existingInFlight = anthropicOAuthInFlight.get(tokenFingerprint);
+  if (existingInFlight) {
+    return await existingInFlight;
+  }
+
+  const inFlight = performAnthropicOAuthUsageRequest(
+    accessToken,
+    tokenFingerprint,
+    requestTimeoutMs,
+  );
+  anthropicOAuthInFlight.set(tokenFingerprint, inFlight);
+
+  try {
+    return await inFlight;
+  } finally {
+    if (anthropicOAuthInFlight.get(tokenFingerprint) === inFlight) {
+      anthropicOAuthInFlight.delete(tokenFingerprint);
+    }
+  }
 }
 
 function extractAuthBoolean(data: unknown): boolean | undefined {
@@ -948,6 +1098,8 @@ async function probeAnthropicLocalDiagnostics(
 export function clearAnthropicDiagnosticsCacheForTests(): void {
   diagnosticsCache.clear();
   localDiagnosticsCache.clear();
+  anthropicOAuthCooldowns.clear();
+  anthropicOAuthInFlight.clear();
 }
 
 async function getCachedAnthropicLocalDiagnostics(
