@@ -1,14 +1,30 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseJsonOrJsonc } from "../src/lib/jsonc.js";
+import * as versionModule from "../src/lib/version.js";
 
 import {
   applyInitInstallerPlan,
   planInitInstaller,
   runInitInstaller,
+  type InitInstallerSelections,
 } from "../src/lib/init-installer.js";
+
+function createSelections(
+  quotaUi: InitInstallerSelections["quotaUi"] = ["toast"],
+): InitInstallerSelections {
+  return {
+    scope: "project",
+    quotaUi,
+    providerMode: "auto",
+    manualProviders: [],
+    formatStyle: "singleWindow",
+    percentDisplayMode: "remaining",
+    showSessionTokens: true,
+  };
+}
 
 function readJson(path: string): any {
   const content = readFileSync(path, "utf8");
@@ -60,6 +76,11 @@ function createPromptStub(params: {
 
 describe("init installer planning and merge behavior", () => {
   let tempDir: string;
+  let exactPluginSpec: string;
+
+  beforeAll(async () => {
+    exactPluginSpec = `@slkiser/opencode-quota@${await versionModule.getPackageVersion()}`;
+  });
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "opencode-quota-init-"));
@@ -107,7 +128,7 @@ describe("init installer planning and merge behavior", () => {
     const config = readJson(join(projectDir, "opencode.json"));
     expect(config).toMatchObject({
       $schema: "https://opencode.ai/config.json",
-      plugin: ["@slkiser/opencode-quota"],
+      plugin: [exactPluginSpec],
     });
     expect(config.experimental).toBeUndefined();
 
@@ -216,13 +237,9 @@ describe("init installer planning and merge behavior", () => {
       "Existing JSONC comments/trailing commas will be stripped.",
     );
     expect(opencodeEdit?.addedPlugins).toEqual([]);
-    expect(opencodeEdit?.addedKeys).toEqual(
-      [],
-    );
+    expect(opencodeEdit?.addedKeys).toEqual([]);
     expect(opencodeEdit?.skippedValues).toEqual(
-      expect.arrayContaining([
-        "plugin already includes @slkiser/opencode-quota",
-      ]),
+      expect.arrayContaining(["plugin existing quota plugin spec preserved"]),
     );
     const quotaEdit = plan.edits.find((edit) => edit.kind === "quota");
     expect(quotaEdit?.addedKeys).toEqual(
@@ -240,7 +257,7 @@ describe("init installer planning and merge behavior", () => {
       ]),
     );
     expect(tuiEdit?.addedPlugins).toEqual([]);
-    expect(tuiEdit?.skippedValues).toContain("tui config already includes @slkiser/opencode-quota");
+    expect(tuiEdit?.skippedValues).toContain("tui config existing quota plugin spec preserved");
 
     await applyInitInstallerPlan(plan);
 
@@ -297,14 +314,14 @@ describe("init installer planning and merge behavior", () => {
     });
 
     const opencodeEdit = plan.edits.find((edit) => edit.kind === "opencode");
-    expect(opencodeEdit?.addedPlugins).toEqual(["plugin: @slkiser/opencode-quota"]);
+    expect(opencodeEdit?.addedPlugins).toEqual([`plugin: ${exactPluginSpec}`]);
 
     await applyInitInstallerPlan(plan);
 
     const opencode = readJson(join(projectDir, "opencode.json"));
     expect(opencode.plugin).toEqual([
       "file:///Users/test/Downloads/GitHub/opencode-quota/dist/tui.tsx",
-      "@slkiser/opencode-quota",
+      exactPluginSpec,
     ]);
   });
 
@@ -315,7 +332,7 @@ describe("init installer planning and merge behavior", () => {
     writeFileSync(
       join(projectDir, "tui.json"),
       JSON.stringify({
-        plugin: ["@slkiser/opencode-quota"],
+        plugin: [exactPluginSpec],
       }),
       "utf8",
     );
@@ -338,7 +355,7 @@ describe("init installer planning and merge behavior", () => {
     await applyInitInstallerPlan(plan);
 
     const tui = readJson(join(projectDir, "tui.json"));
-    expect(tui).toEqual({ plugin: ["@slkiser/opencode-quota"] });
+    expect(tui).toEqual({ plugin: [exactPluginSpec] });
     const quotaConfig = readJson(join(projectDir, "opencode-quota", "quota-toast.json"));
     expect(quotaConfig.tuiSidebarPanel).toEqual({ enabled: false });
   });
@@ -369,14 +386,14 @@ describe("init installer planning and merge behavior", () => {
     });
 
     const tuiEdit = plan.edits.find((edit) => edit.kind === "tui");
-    expect(tuiEdit?.addedPlugins).toEqual(["plugin: @slkiser/opencode-quota"]);
+    expect(tuiEdit?.addedPlugins).toEqual([`plugin: ${exactPluginSpec}`]);
 
     await applyInitInstallerPlan(plan);
 
     const tui = readJson(join(projectDir, "tui.json"));
     expect(tui.plugin).toEqual([
       "file:///Users/test/Downloads/GitHub/opencode-quota/dist/index.js",
-      "@slkiser/opencode-quota",
+      exactPluginSpec,
     ]);
   });
 
@@ -404,7 +421,7 @@ describe("init installer planning and merge behavior", () => {
     const opencode = readJson(join(projectDir, "opencode.json"));
     const tui = readJson(join(projectDir, "tui.json"));
 
-    expect(opencode.plugin).toEqual(["@slkiser/opencode-quota"]);
+    expect(opencode.plugin).toEqual([exactPluginSpec]);
     expect(opencode.experimental).toBeUndefined();
     const quotaConfig = readJson(join(projectDir, "opencode-quota", "quota-toast.json"));
     expect(quotaConfig).toMatchObject({
@@ -417,7 +434,7 @@ describe("init installer planning and merge behavior", () => {
     });
     expect(tui).toEqual({
       $schema: "https://opencode.ai/tui.json",
-      plugin: ["@slkiser/opencode-quota"],
+      plugin: [exactPluginSpec],
     });
   });
 
@@ -922,26 +939,44 @@ describe("init installer planning and merge behavior", () => {
 
     expect(code).toBe(0);
     expect(prompts.outroCalls).toContain(
-      "Quota init complete — if this helps, stars are appreciated: https://github.com/slkiser/opencode-quota",
+      "Quota init complete — restart OpenCode to load the pinned plugin version — if this helps, stars are appreciated: https://github.com/slkiser/opencode-quota",
     );
     expect(prompts.multiselectCalls[0]).toMatchObject({
       message: "Quota UI",
       required: true,
     });
     expect(prompts.multiselectCalls[0]?.options).toEqual([
-      { label: "Toast", value: "toast", hint: "popup quota summaries after idle/question/compact events" },
-      { label: "Sidebar panel", value: "sidebar", hint: "full Quota panel in the OpenCode session sidebar" },
-      { label: "Compact status line", value: "compact_status", hint: "short quota summary in the TUI status area" },
+      {
+        label: "Toast",
+        value: "toast",
+        hint: "popup quota summaries after idle/question/compact events",
+      },
+      {
+        label: "Sidebar panel",
+        value: "sidebar",
+        hint: "full Quota panel in the OpenCode session sidebar",
+      },
+      {
+        label: "Compact status line",
+        value: "compact_status",
+        hint: "short quota summary in the TUI status area",
+      },
       {
         label: "No automatic UI surfaces",
         value: "none",
         hint: "no toast, sidebar, compact status, or TUI dialogs; server slash commands stay installed",
       },
     ]);
-    const sessionTokenCall = prompts.selectCalls.find((call) => call.message === "Session token details");
+    const sessionTokenCall = prompts.selectCalls.find(
+      (call) => call.message === "Session token details",
+    );
     expect(sessionTokenCall?.options).toEqual([
       { label: "Hide session tokens", value: "no", hint: "keep quota output shorter" },
-      { label: "Show session tokens", value: "yes", hint: "include current session input/output token counts when available" },
+      {
+        label: "Show session tokens",
+        value: "yes",
+        hint: "include current session input/output token counts when available",
+      },
     ]);
     const messages = prompts.selectCalls.map((call) => call.message);
     expect(messages).not.toContain("Compact TUI status");
@@ -1004,7 +1039,7 @@ describe("init installer planning and merge behavior", () => {
     const opencode = readJson(join(projectDir, "opencode.json"));
     const tui = readJson(join(projectDir, "tui.json"));
 
-    expect(opencode.plugin).toEqual(["@slkiser/opencode-quota"]);
+    expect(opencode.plugin).toEqual([exactPluginSpec]);
     expect(opencode.experimental).toBeUndefined();
     const quotaConfig = readJson(join(projectDir, "opencode-quota", "quota-toast.json"));
     expect(quotaConfig).toMatchObject({
@@ -1017,7 +1052,7 @@ describe("init installer planning and merge behavior", () => {
     });
     expect(tui).toEqual({
       $schema: "https://opencode.ai/tui.json",
-      plugin: ["@slkiser/opencode-quota"],
+      plugin: [exactPluginSpec],
     });
   });
 
@@ -1044,7 +1079,7 @@ describe("init installer planning and merge behavior", () => {
 
     expect(existsSync(join(projectDir, "tui.json"))).toBe(false);
     const opencode = readJson(join(projectDir, "opencode.json"));
-    expect(opencode.plugin).toEqual(["@slkiser/opencode-quota"]);
+    expect(opencode.plugin).toEqual([exactPluginSpec]);
     expect(opencode.experimental).toBeUndefined();
     const quotaConfig = readJson(join(projectDir, "opencode-quota", "quota-toast.json"));
     expect(quotaConfig.enableToast).toBe(false);
@@ -1094,6 +1129,239 @@ describe("init installer planning and merge behavior", () => {
 
     expect(code).toBe(1);
     expect(logError).toHaveBeenCalledWith(expect.stringMatching(/plugin is not an array/i));
+  });
+
+  it("upgrades every eligible server string and tuple without changing tuple options or order", async () => {
+    const projectDir = join(tempDir, "project");
+    mkdirSync(projectDir, { recursive: true });
+    const tupleOptions = { debug: true, nested: { keep: "yes" } };
+    const newerSpec = "@slkiser/opencode-quota@999999999999999999999.0.0";
+    writeFileSync(
+      join(projectDir, "opencode.json"),
+      JSON.stringify({
+        plugin: [
+          "@slkiser/opencode-quota",
+          ["@slkiser/opencode-quota@latest", tupleOptions, "tail"],
+          "@slkiser/opencode-quota@0.0.0-0",
+          exactPluginSpec,
+          newerSpec,
+        ],
+      }),
+      "utf8",
+    );
+
+    const plan = await planInitInstaller({
+      cwd: projectDir,
+      selections: createSelections(),
+    });
+    const edit = plan.edits.find((item) => item.kind === "opencode");
+    expect(edit?.updatedKeys).toEqual([
+      "plugin[0] plugin spec",
+      "plugin[1] plugin spec",
+      "plugin[2] plugin spec",
+    ]);
+
+    await applyInitInstallerPlan(plan);
+    expect(readJson(join(projectDir, "opencode.json")).plugin).toEqual([
+      exactPluginSpec,
+      [exactPluginSpec, tupleOptions, "tail"],
+      exactPluginSpec,
+      exactPluginSpec,
+      newerSpec,
+    ]);
+  });
+
+  it("upgrades eligible TUI entries in both plugin containers", async () => {
+    const projectDir = join(tempDir, "project");
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(
+      join(projectDir, "tui.jsonc"),
+      `{
+        // both supported plugin locations remain in place
+        "plugin": ["@slkiser/opencode-quota"],
+        "tui": {
+          "plugin": [["@slkiser/opencode-quota@latest", { "panel": true }]]
+        }
+      }`,
+      "utf8",
+    );
+
+    const plan = await planInitInstaller({
+      cwd: projectDir,
+      selections: createSelections(["sidebar"]),
+    });
+    const edit = plan.edits.find((item) => item.kind === "tui");
+    expect(edit?.updatedKeys).toEqual(["plugin[0] plugin spec", "tui.plugin[0] plugin spec"]);
+
+    await applyInitInstallerPlan(plan);
+    const tui = readJson(join(projectDir, "tui.jsonc"));
+    expect(tui.plugin).toEqual([exactPluginSpec]);
+    expect(tui.tui.plugin).toEqual([[exactPluginSpec, { panel: true }]]);
+  });
+
+  it("preserves protected same-package specs and does not append a duplicate", async () => {
+    const projectDir = join(tempDir, "project");
+    mkdirSync(projectDir, { recursive: true });
+    const protectedSpecs = [
+      "./opencode-quota",
+      "/opt/opencode-quota",
+      "file:../opencode-quota",
+      "https://example.com/opencode-quota.tgz",
+      "@slkiser/opencode-quota@^3.0.0",
+      "@slkiser/opencode-quota@next",
+      "@slkiser/opencode-quota@v3.11.2",
+      "npm:@slkiser/opencode-quota@3.0.0",
+      "@slkiser/opencode-quota@999999999999999999999.0.0",
+    ];
+    writeFileSync(
+      join(projectDir, "opencode.json"),
+      JSON.stringify({ plugin: protectedSpecs }),
+      "utf8",
+    );
+
+    const plan = await planInitInstaller({
+      cwd: projectDir,
+      selections: createSelections(),
+    });
+    const edit = plan.edits.find((item) => item.kind === "opencode");
+    expect(edit?.addedPlugins).toEqual([]);
+    expect(edit?.updatedKeys).toEqual([]);
+    expect((edit?.nextData ?? readJson(join(projectDir, "opencode.json"))).plugin).toEqual(
+      protectedSpecs,
+    );
+  });
+
+  it("preserves whitespace and newline variants in strings and tuples unchanged", async () => {
+    const projectDir = join(tempDir, "project");
+    mkdirSync(projectDir, { recursive: true });
+    const pluginEntries = [
+      " @slkiser/opencode-quota@0.0.0",
+      "@slkiser/opencode-quota@0.0.0 ",
+      "@slkiser/opencode-quota@0.0.0\n",
+      "@slkiser/opencode-quota@0.0.0\\n",
+      [" @slkiser/opencode-quota@0.0.0", { keep: "leading" }],
+      ["@slkiser/opencode-quota@0.0.0 ", { keep: "trailing" }],
+      ["@slkiser/opencode-quota@0.0.0\n", { keep: "actual newline" }],
+      ["@slkiser/opencode-quota@0.0.0\\n", { keep: "escaped newline" }],
+    ];
+    writeFileSync(
+      join(projectDir, "opencode.json"),
+      JSON.stringify({ plugin: pluginEntries }),
+      "utf8",
+    );
+
+    const plan = await planInitInstaller({
+      cwd: projectDir,
+      selections: createSelections(),
+    });
+    const edit = plan.edits.find((item) => item.kind === "opencode");
+    expect(edit?.addedPlugins).toEqual([]);
+    expect(edit?.updatedKeys).toEqual([]);
+
+    await applyInitInstallerPlan(plan);
+    expect(readJson(join(projectDir, "opencode.json")).plugin).toEqual(pluginEntries);
+  });
+
+  it("preserves unrelated and bare tarball specs while appending the exact plugin", async () => {
+    const projectDir = join(tempDir, "project");
+    mkdirSync(projectDir, { recursive: true });
+    const existing = ["unrelated-plugin", "opencode-quota.tgz"];
+    writeFileSync(join(projectDir, "opencode.json"), JSON.stringify({ plugin: existing }), "utf8");
+
+    const plan = await planInitInstaller({
+      cwd: projectDir,
+      selections: createSelections(),
+    });
+    await applyInitInstallerPlan(plan);
+    expect(readJson(join(projectDir, "opencode.json")).plugin).toEqual([
+      ...existing,
+      exactPluginSpec,
+    ]);
+  });
+
+  it("is idempotent for plugin edits at the running version", async () => {
+    const projectDir = join(tempDir, "project");
+    mkdirSync(projectDir, { recursive: true });
+    const firstPlan = await planInitInstaller({
+      cwd: projectDir,
+      selections: createSelections(["sidebar"]),
+    });
+    await applyInitInstallerPlan(firstPlan);
+
+    const secondPlan = await planInitInstaller({
+      cwd: projectDir,
+      selections: createSelections(["sidebar"]),
+    });
+    for (const edit of secondPlan.edits.filter((item) => item.kind !== "quota")) {
+      expect(edit.addedPlugins).toEqual([]);
+      expect(edit.updatedKeys.filter((key) => key.includes("plugin spec"))).toEqual([]);
+    }
+  });
+
+  it("uses exact specs under the first global runtime config candidate", async () => {
+    const xdgConfigHome = join(tempDir, "xdg");
+    const plan = await planInitInstaller({
+      env: { XDG_CONFIG_HOME: xdgConfigHome },
+      homeDir: join(tempDir, "home"),
+      selections: {
+        ...createSelections(["sidebar"]),
+        scope: "global",
+      },
+    });
+
+    expect(plan.baseDir).toBe(join(xdgConfigHome, "opencode"));
+    await applyInitInstallerPlan(plan);
+    expect(readJson(join(plan.baseDir, "opencode.json")).plugin).toEqual([exactPluginSpec]);
+    expect(readJson(join(plan.baseDir, "tui.json")).plugin).toEqual([exactPluginSpec]);
+  });
+
+  it.each([undefined, "v3.11.2"])(
+    "fails before filesystem changes when the running version is %s",
+    async (runningVersion) => {
+      const projectDir = join(tempDir, "project");
+      mkdirSync(projectDir, { recursive: true });
+      const configPath = join(projectDir, "opencode.json");
+      const original = JSON.stringify({ plugin: ["keep-me"] });
+      writeFileSync(configPath, original, "utf8");
+      const versionSpy = vi
+        .spyOn(versionModule, "getPackageVersion")
+        .mockResolvedValueOnce(runningVersion);
+
+      try {
+        await expect(
+          planInitInstaller({
+            cwd: projectDir,
+            selections: createSelections(),
+          }),
+        ).rejects.toThrow(/running package version is missing or invalid/i);
+      } finally {
+        versionSpy.mockRestore();
+      }
+
+      expect(readFileSync(configPath, "utf8")).toBe(original);
+      expect(existsSync(join(projectDir, "opencode-quota"))).toBe(false);
+    },
+  );
+
+  it("includes restart guidance when an exact configuration needs no changes", async () => {
+    const selections = {
+      ...createSelections(),
+      maintainerAnnouncements: true,
+    };
+    const initialPlan = await planInitInstaller({ cwd: tempDir, selections });
+    await applyInitInstallerPlan(initialPlan);
+
+    const prompts = createPromptStub({
+      selectValues: ["project", "auto", "singleWindow", "remaining", "yes"],
+      multiselectValues: [["toast"]],
+      confirmValues: [true],
+    });
+    const code = await runInitInstaller({ cwd: tempDir, prompts: prompts as any });
+
+    expect(code).toBe(0);
+    expect(prompts.outroCalls).toContain(
+      "No changes needed — restart OpenCode to load the pinned plugin version — if this helps, stars are appreciated: https://github.com/slkiser/opencode-quota",
+    );
   });
 
   it("fails when an existing plugin container is not an array", async () => {

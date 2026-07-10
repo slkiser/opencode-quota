@@ -320,6 +320,31 @@ describe("quota-state shared cache", () => {
     expect(provider.fetch).toHaveBeenCalledTimes(2);
   });
 
+  it("does not cache attempted provider results that contain only errors", async () => {
+    const { __resetQuotaStateForTests, fetchQuotaProviderResult, readCachedProviderResult } =
+      await import("../src/lib/quota-state.js");
+    __resetQuotaStateForTests();
+
+    const provider = {
+      id: "anthropic",
+      isAvailable: vi.fn(),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [],
+        errors: [{ label: "Anthropic", message: "rate limited" }],
+      }),
+    } as any;
+    const ctx = createTestContext();
+
+    await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+    await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
+    await expect(readCachedProviderResult({ provider, ctx, ttlMs: 60_000 })).resolves.toEqual({
+      hit: false,
+    });
+  });
+
   it("bypasses persistence entirely for live-local providers", async () => {
     const { __resetQuotaStateForTests, fetchQuotaProviderResult } = await import(
       "../src/lib/quota-state.js"

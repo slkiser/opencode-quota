@@ -185,6 +185,110 @@ export function extractProviderIdsFromParsedConfig(parsed: unknown): string[] {
   return dedupeNonEmptyStrings(Object.keys(root.provider));
 }
 
+type ExactSemVer = {
+  core: [string, string, string];
+  prerelease: string[] | null;
+};
+
+export type QuotaNpmSpecDecision =
+  | { kind: "replace"; reason: "bare" | "latest" | "older" }
+  | { kind: "preserve" }
+  | { kind: "not-target" };
+
+const QUOTA_PLUGIN_PACKAGE = "@slkiser/opencode-quota";
+const EXACT_SEMVER_PATTERN =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+
+function parseExactSemVer(version: string): ExactSemVer | null {
+  const match = EXACT_SEMVER_PATTERN.exec(version);
+  if (!match || match[0] !== version) {
+    return null;
+  }
+
+  const prerelease = match[4]?.split(".") ?? null;
+  if (prerelease?.some((identifier) => /^\d+$/.test(identifier) && /^0\d+$/.test(identifier))) {
+    return null;
+  }
+
+  return {
+    core: [match[1]!, match[2]!, match[3]!],
+    prerelease,
+  };
+}
+
+function compareNumericIdentifiers(left: string, right: string): number {
+  if (left.length !== right.length) {
+    return left.length < right.length ? -1 : 1;
+  }
+  return left === right ? 0 : left < right ? -1 : 1;
+}
+
+function compareExactSemVer(left: ExactSemVer, right: ExactSemVer): number {
+  for (let index = 0; index < left.core.length; index += 1) {
+    const comparison = compareNumericIdentifiers(left.core[index]!, right.core[index]!);
+    if (comparison !== 0) {
+      return comparison;
+    }
+  }
+
+  if (left.prerelease === null || right.prerelease === null) {
+    if (left.prerelease === right.prerelease) {
+      return 0;
+    }
+    return left.prerelease === null ? 1 : -1;
+  }
+
+  const identifierCount = Math.max(left.prerelease.length, right.prerelease.length);
+  for (let index = 0; index < identifierCount; index += 1) {
+    const leftIdentifier = left.prerelease[index];
+    const rightIdentifier = right.prerelease[index];
+    if (leftIdentifier === undefined || rightIdentifier === undefined) {
+      return leftIdentifier === rightIdentifier ? 0 : leftIdentifier === undefined ? -1 : 1;
+    }
+    if (leftIdentifier === rightIdentifier) {
+      continue;
+    }
+
+    const leftNumeric = /^\d+$/.test(leftIdentifier);
+    const rightNumeric = /^\d+$/.test(rightIdentifier);
+    if (leftNumeric && rightNumeric) {
+      return compareNumericIdentifiers(leftIdentifier, rightIdentifier);
+    }
+    if (leftNumeric !== rightNumeric) {
+      return leftNumeric ? -1 : 1;
+    }
+    return leftIdentifier < rightIdentifier ? -1 : 1;
+  }
+
+  return 0;
+}
+
+export function isCanonicalExactSemVer(version: string): boolean {
+  return parseExactSemVer(version) !== null;
+}
+
+export function classifyQuotaNpmSpec(spec: string, runningVersion: string): QuotaNpmSpecDecision {
+  if (spec === QUOTA_PLUGIN_PACKAGE) {
+    return { kind: "replace", reason: "bare" };
+  }
+  if (spec === `${QUOTA_PLUGIN_PACKAGE}@latest`) {
+    return { kind: "replace", reason: "latest" };
+  }
+  if (!spec.startsWith(`${QUOTA_PLUGIN_PACKAGE}@`)) {
+    return { kind: "not-target" };
+  }
+
+  const existingVersion = parseExactSemVer(spec.slice(QUOTA_PLUGIN_PACKAGE.length + 1));
+  const desiredVersion = parseExactSemVer(runningVersion);
+  if (!existingVersion || !desiredVersion) {
+    return { kind: "preserve" };
+  }
+
+  return compareExactSemVer(existingVersion, desiredVersion) < 0
+    ? { kind: "replace", reason: "older" }
+    : { kind: "preserve" };
+}
+
 export function isQuotaPluginSpec(spec: string, kind: ConfigFileKind): boolean {
   const normalized = spec.replace(/\\/g, "/").toLowerCase();
 

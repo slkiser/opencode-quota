@@ -85,7 +85,25 @@ function mockInvalidJsonResponse(status = 200): Response {
   } as unknown as Response;
 }
 
+function mockOAuthResponse(status: number, body: string, retryAfter?: string): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: new Headers(retryAfter === undefined ? {} : { "Retry-After": retryAfter }),
+    json: vi.fn(),
+    text: vi.fn().mockResolvedValue(body),
+  } as unknown as Response;
+}
+
+function authenticatedWithoutQuotaSteps(count: number): ExecSequenceStep[] {
+  return Array.from({ length: count }, () => [
+    { stdout: "claude 1.2.3\n" },
+    { stdout: JSON.stringify({ authenticated: true }) },
+  ]).flat();
+}
+
 afterEach(() => {
+  vi.useRealTimers();
   execFileMock.mockReset();
   readFileMock.mockReset();
   fetchWithTimeoutMock.mockReset();
@@ -665,6 +683,267 @@ describe("Claude CLI diagnostics", () => {
       expect(quota.error).toContain("Anthropic API error 429: rate limited");
       expect(quota.error).not.toContain("\u001b");
     }
+  });
+
+  it("honors Retry-After delta-seconds and suppresses repeated OAuth usage requests", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-10T12:00:00.000Z"));
+    setProcessPlatform("linux");
+    mockExecSequence(authenticatedWithoutQuotaSteps(3));
+    readFileMock.mockResolvedValue(
+      JSON.stringify({ claudeAiOauth: { accessToken: "oauth-secret-token" } }),
+    );
+    fetchWithTimeoutMock
+      .mockResolvedValueOnce(
+        mockOAuthResponse(429, "rate limited oauth-\u001b[31msecret-token", "45"),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          five_hour: { utilization: 10 },
+          seven_day: { utilization: 20 },
+        }),
+      );
+
+    const first = await getAnthropicDiagnostics();
+    expect(first.message).toContain("Anthropic API error 429: rate limited [redacted]");
+    expect(first.message).toContain(
+      "Anthropic OAuth usage probe paused after HTTP 429; retry in 45s.",
+    );
+    expect(first.message).not.toContain("oauth-secret-token");
+    expect(first.message).not.toContain("\u001b");
+
+    await vi.advanceTimersByTimeAsync(5_001);
+    const suppressed = await getAnthropicDiagnostics();
+    expect(suppressed.message).toContain(
+      "Anthropic OAuth usage probe paused after HTTP 429; retry in 40s.",
+    );
+    expect(suppressed.message).not.toContain("oauth-secret-token");
+    expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(40_000);
+    const retried = await getAnthropicDiagnostics();
+    expect(retried.quotaSupported).toBe(true);
+    expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("redacts an access token reconstructed while sanitizing a request error", async () => {
+    setProcessPlatform("linux");
+    mockExecSequence(authenticatedWithoutQuotaSteps(1));
+    readFileMock.mockResolvedValue(
+      JSON.stringify({ claudeAiOauth: { accessToken: "oauth-secret-token" } }),
+    );
+    fetchWithTimeoutMock.mockRejectedValue(
+      new Error("request failed for oauth-\u001b[31msecret-token"),
+    );
+
+    const diagnostics = await getAnthropicDiagnostics();
+    expect(diagnostics.message).toContain("request failed for [redacted]");
+    expect(diagnostics.message).not.toContain("oauth-secret-token");
+    expect(diagnostics.message).not.toContain("\u001b");
+  });
+
+  it("honors future Retry-After HTTP dates", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-10T12:00:00.000Z"));
+    setProcessPlatform("linux");
+    mockExecSequence(authenticatedWithoutQuotaSteps(2));
+    readFileMock.mockResolvedValue(
+      JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
+    );
+    fetchWithTimeoutMock.mockResolvedValue(
+      mockOAuthResponse(429, "rate limited", "Fri, 10 Jul 2026 12:02:00 GMT"),
+    );
+
+    const first = await getAnthropicDiagnostics();
+    expect(first.message).toContain("retry in 120s.");
+
+    await vi.advanceTimersByTimeAsync(5_001);
+    await getAnthropicDiagnostics();
+    expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["invalid", "30junk"],
+    ["negative", "-1"],
+    ["zero", "0"],
+    ["past date", "Thu, 09 Jul 2026 12:00:00 GMT"],
+  ])("uses the safe backoff floor for %s Retry-After", async (_label, retryAfter) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-10T12:00:00.000Z"));
+    setProcessPlatform("linux");
+    mockExecSequence(authenticatedWithoutQuotaSteps(2));
+    readFileMock.mockResolvedValue(
+      JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
+    );
+    fetchWithTimeoutMock.mockResolvedValue(mockOAuthResponse(429, "rate limited", retryAfter));
+
+    const first = await getAnthropicDiagnostics();
+    expect(first.message).toContain("retry in 30s.");
+
+    await vi.advanceTimersByTimeAsync(5_001);
+    await getAnthropicDiagnostics();
+    expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("caps Retry-After cooldowns at fifteen minutes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-10T12:00:00.000Z"));
+    setProcessPlatform("linux");
+    mockExecSequence(authenticatedWithoutQuotaSteps(1));
+    readFileMock.mockResolvedValue(
+      JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
+    );
+    fetchWithTimeoutMock.mockResolvedValue(mockOAuthResponse(429, "rate limited", "3600"));
+
+    const diagnostics = await getAnthropicDiagnostics();
+    expect(diagnostics.message).toContain("retry in 900s.");
+  });
+
+  it("establishes a cooldown when the 429 response body cannot be read", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-10T12:00:00.000Z"));
+    setProcessPlatform("linux");
+    mockExecSequence(authenticatedWithoutQuotaSteps(2));
+    readFileMock.mockResolvedValue(
+      JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
+    );
+    const response = mockOAuthResponse(429, "rate limited");
+    vi.mocked(response.text).mockRejectedValue(new Error("body unavailable"));
+    fetchWithTimeoutMock.mockResolvedValue(response);
+
+    const first = await getAnthropicDiagnostics();
+    expect(first.message).toContain("Anthropic API returned 429");
+    expect(first.message).toContain("retry in 30s.");
+
+    await vi.advanceTimersByTimeAsync(5_001);
+    await getAnthropicDiagnostics();
+    expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("increases fallback backoff for consecutive 429 responses", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-10T12:00:00.000Z"));
+    setProcessPlatform("linux");
+    mockExecSequence(authenticatedWithoutQuotaSteps(4));
+    readFileMock.mockResolvedValue(
+      JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
+    );
+    fetchWithTimeoutMock
+      .mockResolvedValueOnce(mockOAuthResponse(429, "first"))
+      .mockResolvedValueOnce(mockOAuthResponse(429, "second"))
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          five_hour: { utilization: 10 },
+          seven_day: { utilization: 20 },
+        }),
+      );
+
+    const first = await getAnthropicDiagnostics();
+    expect(first.message).toContain("retry in 30s.");
+
+    await vi.advanceTimersByTimeAsync(30_001);
+    const second = await getAnthropicDiagnostics();
+    expect(second.message).toContain("retry in 60s.");
+
+    await vi.advanceTimersByTimeAsync(30_001);
+    await getAnthropicDiagnostics();
+    expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    await getAnthropicDiagnostics();
+    expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("resets the backoff sequence after a non-429 response", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-10T12:00:00.000Z"));
+    setProcessPlatform("linux");
+    mockExecSequence(authenticatedWithoutQuotaSteps(4));
+    readFileMock.mockResolvedValue(
+      JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
+    );
+    fetchWithTimeoutMock
+      .mockResolvedValueOnce(mockOAuthResponse(429, "first"))
+      .mockResolvedValueOnce(mockOAuthResponse(500, "server error"))
+      .mockResolvedValueOnce(mockOAuthResponse(429, "second"))
+      .mockResolvedValueOnce(mockOAuthResponse(500, "server error"));
+
+    await getAnthropicDiagnostics();
+    await vi.advanceTimersByTimeAsync(30_001);
+    await getAnthropicDiagnostics();
+    await vi.advanceTimersByTimeAsync(5_001);
+    const second429 = await getAnthropicDiagnostics();
+    expect(second429.message).toContain("retry in 30s.");
+
+    await vi.advanceTimersByTimeAsync(30_001);
+    await getAnthropicDiagnostics();
+    expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("deduplicates concurrent OAuth usage requests for the same observed token", async () => {
+    setProcessPlatform("linux");
+    mockExecSequence(authenticatedWithoutQuotaSteps(2));
+    readFileMock.mockResolvedValue(
+      JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
+    );
+    let resolveFetch!: (response: Response) => void;
+    fetchWithTimeoutMock.mockReturnValue(
+      new Promise<Response>((resolve) => {
+        resolveFetch = resolve;
+      }),
+    );
+
+    const first = getAnthropicDiagnostics({ binaryPath: "claude-a" });
+    const second = getAnthropicDiagnostics({ binaryPath: "claude-b" });
+    await vi.waitFor(() => expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(1));
+    resolveFetch(
+      mockJsonResponse({
+        five_hour: { utilization: 10 },
+        seven_day: { utilization: 20 },
+      }),
+    );
+
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    expect(firstResult.quotaSupported).toBe(true);
+    expect(secondResult.quotaSupported).toBe(true);
+    expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not apply an old token cooldown to a newly observed token", async () => {
+    setProcessPlatform("linux");
+    mockExecSequence(authenticatedWithoutQuotaSteps(2));
+    readFileMock
+      .mockResolvedValueOnce(JSON.stringify({ claudeAiOauth: { accessToken: "old-token" } }))
+      .mockResolvedValueOnce(JSON.stringify({ claudeAiOauth: { accessToken: "new-token" } }));
+    fetchWithTimeoutMock
+      .mockResolvedValueOnce(mockOAuthResponse(429, "rate limited", "900"))
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          five_hour: { utilization: 10 },
+          seven_day: { utilization: 20 },
+        }),
+      );
+
+    const first = await getAnthropicDiagnostics({ binaryPath: "claude-a" });
+    expect(first.quotaSupported).toBe(false);
+    const second = await getAnthropicDiagnostics({ binaryPath: "claude-b" });
+    expect(second.quotaSupported).toBe(true);
+    expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("clears OAuth cooldown state through the test reset helper", async () => {
+    setProcessPlatform("linux");
+    mockExecSequence(authenticatedWithoutQuotaSteps(2));
+    readFileMock.mockResolvedValue(
+      JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
+    );
+    fetchWithTimeoutMock.mockResolvedValue(mockOAuthResponse(429, "rate limited", "900"));
+
+    await getAnthropicDiagnostics();
+    clearAnthropicDiagnosticsCacheForTests();
+    await getAnthropicDiagnostics();
+    expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(2);
   });
 
   it("returns no quota when the Claude OAuth fallback API returns invalid JSON", async () => {
