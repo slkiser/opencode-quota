@@ -435,8 +435,9 @@ async function buildQuotaReport(params: {
   });
 }
 
-async function buildStatusReport(params: {
-  runtime: QuotaRuntimeContext;
+export type QuotaStatusReportInput = Parameters<typeof buildQuotaStatusReport>[0];
+
+export interface CollectQuotaStatusReportInputOptions {
   refreshGoogleTokens?: boolean;
   skewMs?: number;
   force?: boolean;
@@ -444,20 +445,25 @@ async function buildStatusReport(params: {
   generatedAtMs: number;
   lastSessionTokenError?: SessionTokenError;
   log?: (message: string, extra?: Record<string, unknown>) => Promise<void>;
-}): Promise<string | null> {
-  const runtimeConfig = params.runtime.config;
+}
+
+export async function collectQuotaStatusReportInput(
+  runtime: QuotaRuntimeContext,
+  options: CollectQuotaStatusReportInputOptions,
+): Promise<QuotaStatusReportInput | null> {
+  const runtimeConfig = runtime.config;
   if (!runtimeConfig.enabled) return null;
   await kickPricingRefresh({
     reason: "status",
     maxWaitMs: 750,
     snapshotSelection: runtimeConfig.pricingSnapshot.source,
-    log: params.log,
+    log: options.log,
   });
 
-  const currentSession = params.runtime.session.sessionMeta ?? {};
+  const currentSession = runtime.session.sessionMeta ?? {};
   const currentModel = currentSession.modelID;
   const currentProviderID = currentSession.providerID;
-  const sessionModelLookup: "ok" | "not_found" | "no_session" = !params.sessionID
+  const sessionModelLookup: "ok" | "not_found" | "no_session" = !options.sessionID
     ? "no_session"
     : currentModel
       ? "ok"
@@ -465,8 +471,8 @@ async function buildStatusReport(params: {
 
   const isAutoMode = runtimeConfig.enabledProviders === "auto";
 
-  const providers = params.runtime.providers;
-  const providerContext = createQuotaProviderRuntimeContext(params.runtime);
+  const providers = runtime.providers;
+  const providerContext = createQuotaProviderRuntimeContext(runtime);
   const availability = await Promise.all(
     providers.map(async (p) => {
       let ok = false;
@@ -504,26 +510,26 @@ async function buildStatusReport(params: {
   if (liveProbeProviders.length > 0) {
     try {
       providerLiveProbes = await collectQuotaStatusLiveProbes({
-        client: params.runtime.client,
+        client: runtime.client,
         config: runtimeConfig,
-        configMeta: params.runtime.configMeta,
-        request: createQuotaRuntimeRequestContext(params.runtime),
+        configMeta: runtime.configMeta,
+        request: createQuotaRuntimeRequestContext(runtime),
         formatStyle: SINGLE_WINDOW_PER_PROVIDER_FORMAT_STYLE,
         providers: liveProbeProviders,
       });
     } catch (error) {
-      await params.log?.("Failed to collect /quota_status live probes", {
+      await options.log?.("Failed to collect /quota_status live probes", {
         providers: liveProbeProviders.map((provider) => provider.id),
         error: error instanceof Error ? error.message : String(error),
       });
     }
   }
 
-  const refresh = params.refreshGoogleTokens
-    ? await refreshGoogleTokensForAllAccounts({ skewMs: params.skewMs, force: params.force })
+  const refresh = options.refreshGoogleTokens
+    ? await refreshGoogleTokensForAllAccounts({ skewMs: options.skewMs, force: options.force })
     : null;
 
-  const tuiDiagnostics = await inspectTuiConfig({ roots: params.runtime.roots });
+  const tuiDiagnostics = await inspectTuiConfig({ roots: runtime.roots });
   const announcementProviderIds = availability
     .filter((item) => item.enabled && item.available)
     .map((item) => item.id);
@@ -531,14 +537,14 @@ async function buildStatusReport(params: {
     enabledProviders: announcementProviderIds,
   });
 
-  return await buildQuotaStatusReport({
+  return {
     tuiDiagnostics,
-    configSource: params.runtime.configMeta.source,
-    configPaths: params.runtime.configMeta.paths,
-    globalConfigPaths: params.runtime.configMeta.globalConfigPaths,
-    workspaceConfigPaths: params.runtime.configMeta.workspaceConfigPaths,
-    settingSources: params.runtime.configMeta.settingSources,
-    configIssues: params.runtime.configMeta.configIssues,
+    configSource: runtime.configMeta.source,
+    configPaths: runtime.configMeta.paths,
+    globalConfigPaths: runtime.configMeta.globalConfigPaths,
+    workspaceConfigPaths: runtime.configMeta.workspaceConfigPaths,
+    settingSources: runtime.configMeta.settingSources,
+    configIssues: runtime.configMeta.configIssues,
     enabledProviders: runtimeConfig.enabledProviders,
     anthropicBinaryPath: runtimeConfig.anthropicBinaryPath,
     alibabaCodingPlanTier: runtimeConfig.alibabaCodingPlanTier,
@@ -560,14 +566,37 @@ async function buildStatusReport(params: {
           failures: refresh.failures,
         }
       : { attempted: false },
-    sessionTokenError: params.lastSessionTokenError,
+    sessionTokenError: options.lastSessionTokenError,
     maintainerAnnouncements: {
       config: runtimeConfig.maintainerAnnouncements,
       summary: maintainerAnnouncementsSummary,
     },
-    geminiCliClient: params.runtime.client,
+    geminiCliClient: runtime.client,
+    generatedAtMs: options.generatedAtMs,
+  };
+}
+
+async function buildStatusReport(params: {
+  runtime: QuotaRuntimeContext;
+  refreshGoogleTokens?: boolean;
+  skewMs?: number;
+  force?: boolean;
+  sessionID?: string;
+  generatedAtMs: number;
+  lastSessionTokenError?: SessionTokenError;
+  log?: (message: string, extra?: Record<string, unknown>) => Promise<void>;
+}): Promise<string | null> {
+  const input = await collectQuotaStatusReportInput(params.runtime, {
+    refreshGoogleTokens: params.refreshGoogleTokens,
+    skewMs: params.skewMs,
+    force: params.force,
+    sessionID: params.sessionID,
     generatedAtMs: params.generatedAtMs,
+    lastSessionTokenError: params.lastSessionTokenError,
+    log: params.log,
   });
+  if (!input) return null;
+  return await buildQuotaStatusReport(input);
 }
 
 function formatIsoTimestamp(timestampMs: number | undefined): string {
