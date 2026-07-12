@@ -117,6 +117,9 @@ The server plugin registers each command once for TUI and Desktop/server. Each c
 | `opencode-quota show --provider <id>`          | Check one provider only, such as `copilot` or `openai`                |
 | `opencode-quota show --json`                   | Print JSON for scripts, status bars, and other tools                  |
 | `opencode-quota show --json --threshold <pct>` | Fail the command when cached quota drops below your chosen percentage |
+| `opencode-quota status`                        | Diagnose setup, auth, provider detection, pricing, and config      |
+| `opencode-quota status --provider <id>`        | Diagnose one provider only                                         |
+| `opencode-quota status --json`                 | JSON diagnostics output for scripts and CI                         |
 
 ## Providers
 
@@ -151,7 +154,7 @@ Setup details live in the [Provider setup guide](docs/readme/providers.md).
 
 Start here when quota or token data looks wrong:
 
-1. Run `/quota_status`, or start with `opencode-quota show` for a terminal quota summary.
+1. Run `/quota_status` in OpenCode, or `opencode-quota status` from your terminal for diagnostics. Use `opencode-quota show` for a quick quota glance.
 2. Confirm the expected provider appears in the detected provider list.
 3. Confirm companion auth plugins are before `@slkiser/opencode-quota` in `opencode.json`.
 4. If token reports are empty, start OpenCode once so it creates `opencode.db`, then run a session with model usage.
