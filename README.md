@@ -28,11 +28,16 @@ npx @slkiser/opencode-quota init
 > [!IMPORTANT]
 > OpenCode `>= 1.4.3` and Node.js `>= 20` are required.
 
+Upgrading from v3? Read the [v4 migration guide](docs/readme/v4-migration.md).
+
 1. Restart OpenCode.
 2. Run `/quota` in OpenCode, or use `opencode-quota show` from your terminal.
 3. If you enabled the Sidebar panel, open the session sidebar and look for `Quota`.
 4. If you enabled Compact status line, look for the home-bottom quota line and the chat/session prompt quota line.
 5. If something looks wrong, run `/quota_status` in OpenCode or see [Troubleshooting](docs/readme/troubleshooting.md).
+
+> [!NOTE]
+> In OpenCode 1.17.20, `/quota` is supported in both TUI and Web, but popup quota toasts are TUI-only. After Web renders the deterministic command output, it can still show a false `Failed to send command` notification; no model is called, so do not retry automatically once output appears. This OpenCode behavior predates v4 and also occurs with v3.11.2. Safari/macOS notification permissions do not enable TUI toast events in Web.
 
 ## Update OpenCode Quota safely
 
@@ -61,7 +66,7 @@ Use `--dry-run` to preview without changing anything. Use `--yes` only for expli
   </tr>
   <tr>
     <td width="50%" align="center"><strong>Sidebar panel</strong><br />A full quota view in OpenCode's session sidebar.</td>
-    <td width="50%" align="center"><strong>Toast</strong><br />Popup quota checks after idle, question, or compact events.</td>
+    <td width="50%" align="center"><strong>TUI toast</strong><br />Popup quota checks in the TUI after idle, question, or compact events.</td>
   </tr>
   <tr>
     <td width="50%">
@@ -81,7 +86,7 @@ More ways to use it:
 
 - Terminal checks with `opencode-quota show` before or without opening OpenCode
 - JSON output for scripts, status bars, CI checks, and external tools
-- Deterministic inline slash-command output shared by TUI and Desktop/server
+- Deterministic inline slash-command output shared by TUI and Web/Desktop server
 - Provider diagnostics for auth, quota sources, pricing, and bundled maintainer announcements
 
 See [Configuration](docs/readme/configuration.md) for UI options and [Manual install](docs/readme/manual-install.md) for setup details.

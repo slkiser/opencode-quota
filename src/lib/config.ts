@@ -964,14 +964,14 @@ function buildConfigLayerCandidates(
   configRootDir: string,
 ): ConfigLayerCandidate[] {
   const workspaceCandidates = buildConfigLayerCandidatesForRoot(configRootDir, "workspace");
-  const workspacePaths = new Set(workspaceCandidates.map((candidate) => candidate.path));
   const globalCandidates = configDirs.flatMap((dir) =>
     buildConfigLayerCandidatesForRoot(dir, "global"),
   );
+  const globalPaths = new Set(globalCandidates.map((candidate) => candidate.path));
 
   return [
-    ...globalCandidates.filter((candidate) => !workspacePaths.has(candidate.path)),
-    ...workspaceCandidates,
+    ...globalCandidates,
+    ...workspaceCandidates.filter((candidate) => !globalPaths.has(candidate.path)),
   ];
 }
 

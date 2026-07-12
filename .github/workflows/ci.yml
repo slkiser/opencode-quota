@@ -98,3 +98,10 @@ jobs:
           const pkg = JSON.parse(await readFile("node_modules/@slkiser/opencode-quota/package.json", "utf8"));
           assert.equal(pkg.engines?.node, ">=20.0.0");
           EOF
+
+          CLI_OUTPUT="$(./node_modules/.bin/opencode-quota --help)"
+          printf '%s\n' "$CLI_OUTPUT"
+          printf '%s\n' "$CLI_OUTPUT" | grep -F "Usage:"
+          printf '%s\n' "$CLI_OUTPUT" | grep -F "opencode-quota init"
+          printf '%s\n' "$CLI_OUTPUT" | grep -F "opencode-quota show"
+          printf '%s\n' "$CLI_OUTPUT" | grep -F "opencode-quota update"

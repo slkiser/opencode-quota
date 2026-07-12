@@ -4,9 +4,12 @@ import {
   createConfigLoaderEnv,
   createConfigLoaderWorkspace,
   quotaConfigSource,
+  quotaSidecarConfigSource,
+  writeQuotaSidecarConfig,
   writeQuotaToastConfig,
   type ConfigLoaderWorkspace,
 } from "./helpers/config-loader-test-harness.js";
+import { VALID_CUSTOM_SOURCES } from "./fixtures/custom-sources.js";
 
 const mockedHomeDir = vi.hoisted(() => ({
   value: "",
@@ -127,27 +130,33 @@ describe("loadConfig integration runtime-path resolution", () => {
     ).toBe(true);
   });
 
-  it("treats an overlapping configRootDir as the workspace layer instead of a duplicate global path", async () => {
+  it("classifies an OPENCODE_CONFIG_DIR overlap with the canonical global sidecar as global", async () => {
     const overlappingRoot = workspace.opencodeConfigDir;
+    process.env.OPENCODE_CONFIG_DIR = overlappingRoot;
 
-    writeQuotaToastConfig(overlappingRoot, {
+    writeQuotaSidecarConfig(overlappingRoot, {
       enabled: false,
       minIntervalMs: 12_345,
+      customSources: VALID_CUSTOM_SOURCES,
     });
 
     const meta = createLoadConfigMeta();
-    const cfg = await loadConfig(undefined, meta, { configRootDir: overlappingRoot });
+    const cfg = await loadConfig(undefined, meta);
 
     expect(cfg.enabled).toBe(false);
     expect(cfg.minIntervalMs).toBe(12_345);
-    expect(meta.globalConfigPaths).toEqual([]);
-    expect(meta.workspaceConfigPaths).toEqual([quotaConfigSource(overlappingRoot)]);
-    expect(meta.paths).toEqual(meta.workspaceConfigPaths);
+    expect(cfg.customSources).toEqual(VALID_CUSTOM_SOURCES);
+    expect(meta.globalConfigPaths).toEqual([quotaSidecarConfigSource(overlappingRoot)]);
+    expect(meta.workspaceConfigPaths).toEqual([]);
+    expect(meta.paths).toEqual(meta.globalConfigPaths);
     expect(meta.settingSources.enabled).toBe(
-      quotaConfigSource(overlappingRoot),
+      quotaSidecarConfigSource(overlappingRoot),
     );
     expect(meta.settingSources.minIntervalMs).toBe(
-      quotaConfigSource(overlappingRoot),
+      quotaSidecarConfigSource(overlappingRoot),
+    );
+    expect(meta.settingSources.customSources).toBe(
+      quotaSidecarConfigSource(overlappingRoot),
     );
   });
 

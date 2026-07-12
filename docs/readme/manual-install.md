@@ -28,7 +28,7 @@ Use the installer when possible. For manual install, use the same OpenCode confi
 
 ### 1. Add the server plugin (required)
 
-This enables providers, terminal checks, popup toasts, the inline slash commands shared by TUI and Desktop/server, and the `tool.quota_status` tool. Add this to `opencode.json` or `opencode.jsonc`:
+This enables providers, terminal checks, TUI popup toasts, the inline slash commands shared by TUI and Web/Desktop server, and the `tool.quota_status` tool. Add this to `opencode.json` or `opencode.jsonc`:
 
 ```jsonc
 {
@@ -36,6 +36,9 @@ This enables providers, terminal checks, popup toasts, the inline slash commands
   "plugin": ["@slkiser/opencode-quota"],
 }
 ```
+
+> [!NOTE]
+> With OpenCode 1.17.20, Web `/quota` renders deterministic output without calling a model, but can then show a false `Failed to send command` notification. Do not retry automatically after output appears. This predates v4 and also occurs with v3.11.2. Web does not receive the TUI toast event, and Safari/macOS notification permissions do not change that.
 
 ### 2. Add the TUI plugin (for TUI surfaces)
 
@@ -85,9 +88,9 @@ All UI surfaces use the same quota data. Put these settings in `opencode-quota/q
 | I want...                                       | Enable/configure                                                                          |
 | ----------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | Full `Quota` sidebar panel                      | `tuiSidebarPanel.enabled: true`                                                           |
-| Popup quota notifications                       | `enableToast: true`                                                                       |
+| Popup quota notifications in the TUI            | `enableToast: true`                                                                       |
 | Compact status line                             | `tuiCompactStatus.enabled: true`                                                          |
-| Inline slash commands in TUI and Desktop/server | Server plugin entry in `opencode.json`                                                    |
+| Inline slash commands in TUI and Web/Desktop server | Server plugin entry in `opencode.json`                                                    |
 | Sidebar, compact status, and home notice        | TUI plugin entry in `tui.json`                                                            |
 | No automatic UI surfaces                        | `enableToast: false`, `tuiSidebarPanel.enabled: false`, `tuiCompactStatus.enabled: false` |
 

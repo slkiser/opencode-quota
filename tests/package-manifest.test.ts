@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { access, readFile } from "node:fs/promises";
 
-const pkg = JSON.parse(
-  await readFile(new URL("../package.json", import.meta.url), "utf8"),
-) as {
+const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
   main?: string;
   bin?: Record<string, string>;
   exports?: Record<string, { default?: string; types?: string }>;
   "oc-plugin"?: string[];
   dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>;
   engines?: Record<string, string>;
   packageManager?: string;
   scripts?: Record<string, string>;
@@ -16,6 +16,11 @@ const pkg = JSON.parse(
 
 const pnpmWorkspace = await readFile(new URL("../pnpm-workspace.yaml", import.meta.url), "utf8");
 const ciWorkflow = await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+const publishWorkflow = await readFile(
+  new URL("../.github/workflows/publish-npm.yml", import.meta.url),
+  "utf8",
+);
+const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
 
 describe("package manifest compatibility", () => {
   it("requires pnpm 11+ development tooling while requiring Node 20+ at runtime", () => {
@@ -24,6 +29,13 @@ describe("package manifest compatibility", () => {
     expect(packageManagerMatch).not.toBeNull();
     expect(Number(packageManagerMatch?.[1])).toBeGreaterThanOrEqual(11);
     expect(pkg.engines?.node).toBe(">=20.0.0");
+  });
+
+  it("keeps the documented OpenCode minimum aligned with the existing package surfaces", () => {
+    expect(pkg.peerDependencies?.["@opencode-ai/plugin"]).toBe("^1.4.3");
+    expect(pkg.devDependencies?.["@opencode-ai/plugin"]).toBe("^1.4.3");
+    expect(readme).toContain("OpenCode `>= 1.4.3` and Node.js `>= 20` are required.");
+    expect(pkg.engines).not.toHaveProperty("opencode");
   });
 
   it("hardens pnpm dependency resolution against fresh-package supply-chain attacks", () => {
@@ -84,11 +96,34 @@ describe("package manifest compatibility", () => {
     );
   });
 
+  it("locks packed-install smoke coverage to supported Node versions and shipped entrypoints", () => {
+    expect(ciWorkflow).toContain("node-version: [20.x, 22.x]");
+    expect(ciWorkflow).toContain('await import("@slkiser/opencode-quota");');
+    expect(ciWorkflow).toContain('await import("@slkiser/opencode-quota/server");');
+    expect(ciWorkflow).toContain("./node_modules/.bin/opencode-quota --help");
+    expect(ciWorkflow).toContain('grep -F "opencode-quota init"');
+    expect(ciWorkflow).toContain('grep -F "opencode-quota show"');
+    expect(ciWorkflow).toContain('grep -F "opencode-quota update"');
+  });
+
   it("smoke-tests the compiled TUI package export without importing the OpenTUI runtime", () => {
     expect(ciWorkflow).toContain("@slkiser/opencode-quota/tui");
     expect(ciWorkflow).toContain('import.meta.resolve("@slkiser/opencode-quota/tui")');
     expect(ciWorkflow).toContain('readFile(tuiExportPath, "utf8")');
     expect(ciWorkflow).toContain("dist\\/tui\\.js");
     expect(ciWorkflow).not.toContain('await import("@slkiser/opencode-quota/tui")');
+  });
+
+  it("preserves tag-derived release versioning and the publish validation gates", () => {
+    expect(publishWorkflow).toContain('VERSION="${TAG#v}"');
+    expect(publishWorkflow).toContain(
+      'pnpm version "$VERSION" --no-git-tag-version --allow-same-version',
+    );
+    expect(publishWorkflow).toContain("run: pnpm run verify:release-version");
+    expect(publishWorkflow).toContain("run: pnpm install --frozen-lockfile");
+    expect(publishWorkflow).toContain("run: pnpm run typecheck");
+    expect(publishWorkflow).toContain("run: pnpm run build");
+    expect(publishWorkflow).toContain("run: pnpm test");
+    expect(publishWorkflow).toContain("run: npm publish --access public");
   });
 });
