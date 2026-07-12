@@ -15,6 +15,7 @@ import type {
   PricingSnapshotSource,
 } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
+import { cloneCustomSources, validateCustomSources } from "./custom-sources.js";
 import { isQuotaFormatStyle, resolveQuotaFormatStyle } from "./quota-format-style.js";
 import { parseJsonOrJsonc } from "./jsonc.js";
 import { getQuotaProviderShape, normalizeQuotaProviderId } from "./provider-metadata.js";
@@ -37,6 +38,7 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "requestTimeoutMs",
   "debug",
   "enabledProviders",
+  "customSources",
   "anthropicBinaryPath",
   "googleModels",
   "alibabaCodingPlanTier",
@@ -111,6 +113,7 @@ const CONFIG_FILENAMES = ["opencode.json", "opencode.jsonc"] as const;
 const NETWORK_SETTING_SOURCE_KEYS = [
   "enabled",
   "enabledProviders",
+  "customSources",
   "minIntervalMs",
   "requestTimeoutMs",
   "pricingSnapshot.source",
@@ -282,6 +285,7 @@ function cloneConfig(config: QuotaToastConfig): QuotaToastConfig {
     enabledProviders: Array.isArray(config.enabledProviders)
       ? [...config.enabledProviders]
       : config.enabledProviders,
+    customSources: cloneCustomSources(config.customSources),
     googleModels: [...config.googleModels],
     opencodeGoWindows: [...config.opencodeGoWindows],
     pricingSnapshot: { ...config.pricingSnapshot },
@@ -1016,6 +1020,9 @@ export async function loadConfig(
   }> {
     const configRootDir = options?.configRootDir ?? getEffectiveConfigRoot(options?.cwd ?? process.cwd());
     const { configDirs } = getOpencodeRuntimeDirCandidates();
+    const canonicalCustomSourcesPath = configDirs[0]
+      ? getQuotaToastConfigPath(configDirs[0])
+      : undefined;
     const config = cloneDefaultConfig();
     const usedPaths: string[] = [];
     const globalConfigPaths: string[] = [];
@@ -1077,6 +1084,35 @@ export async function loadConfig(
         sourcePath,
         settingSources,
       );
+
+      if (hasOwnKey(extractedQuotaToast, "customSources")) {
+        const isCanonicalPlugin =
+          candidate.kind === "plugin" &&
+          candidate.path === canonicalCustomSourcesPath;
+        const isAlternateGlobalPlugin =
+          candidate.kind === "plugin" &&
+          candidate.scope === "global" &&
+          candidate.path !== canonicalCustomSourcesPath;
+
+        if (isCanonicalPlugin) {
+          const validation = validateCustomSources(extractedQuotaToast.customSources);
+          for (const issue of validation.issues) {
+            configIssues.push({ path: sourcePath, key: issue.key, message: issue.message });
+          }
+          if (validation.value) {
+            config.customSources = cloneCustomSources(validation.value);
+            applySettingSource(settingSources, "customSources", sourcePath);
+          }
+        } else if (!isAlternateGlobalPlugin) {
+          configIssues.push({
+            path: sourcePath,
+            key: "customSources",
+            message: canonicalCustomSourcesPath
+              ? `allowed only in canonical global config ${canonicalCustomSourcesPath}`
+              : "allowed only in the canonical global opencode-quota/quota-toast.json",
+          });
+        }
+      }
     }
 
     if (usedPaths.length === 0) {
@@ -1136,6 +1172,13 @@ export async function loadConfig(
           "client.config.get",
           settingSources,
         );
+        if (hasOwnKey(quotaToastConfig, "customSources")) {
+          configIssues.push({
+            path: "client.config.get",
+            key: "customSources",
+            message: "allowed only in the canonical global opencode-quota/quota-toast.json",
+          });
+        }
 
         if (meta) {
           meta.source = "sdk";

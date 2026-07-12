@@ -2,6 +2,7 @@
  * Type definitions for opencode-quota plugin
  */
 
+import type { CustomSourceConfig } from "./custom-sources.js";
 import type { QuotaFormatStyle } from "./quota-format-style.js";
 import { DEFAULT_QUOTA_FORMAT_STYLE } from "./quota-format-style.js";
 
@@ -110,6 +111,12 @@ export interface QuotaToastConfig {
    */
   enabledProviders: string[] | "auto";
 
+  /**
+   * User-defined accounting endpoints from the canonical global quota-toast.json only.
+   * Phase 2 validates and exposes this contract but does not execute the sources.
+   */
+  customSources: CustomSourceConfig[];
+
   /** Path or command name for the local Claude CLI used by Anthropic probing. */
   anthropicBinaryPath: string;
 
@@ -179,6 +186,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
 
   // Providers are auto-detected by default; set to explicit list to opt-in manually.
   enabledProviders: "auto" as const,
+  customSources: [],
 
   anthropicBinaryPath: "claude",
 
