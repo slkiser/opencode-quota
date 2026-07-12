@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const commandMocks = vi.hoisted(() => ({
   runInitInstaller: vi.fn(),
   runCliShowCommand: vi.fn(),
+  runCliStatusCommand: vi.fn(),
   runScopedUpdateCommand: vi.fn(),
 }));
 
@@ -19,6 +20,10 @@ vi.mock("../src/lib/cli-show.js", () => ({
   runCliShowCommand: commandMocks.runCliShowCommand,
 }));
 
+vi.mock("../src/lib/cli-status.js", () => ({
+  runCliStatusCommand: commandMocks.runCliStatusCommand,
+}));
+
 vi.mock("../src/lib/scoped-update.js", () => ({
   runScopedUpdateCommand: commandMocks.runScopedUpdateCommand,
 }));
@@ -28,6 +33,7 @@ describe("opencode-quota bin", () => {
     vi.clearAllMocks();
     commandMocks.runInitInstaller.mockResolvedValue(0);
     commandMocks.runCliShowCommand.mockResolvedValue(0);
+    commandMocks.runCliStatusCommand.mockResolvedValue(0);
     commandMocks.runScopedUpdateCommand.mockResolvedValue(0);
   });
 
@@ -116,6 +122,49 @@ describe("opencode-quota bin", () => {
     expect(code).toBe(1);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("Usage:"));
     expect(log).toHaveBeenCalledWith(expect.stringContaining("opencode-quota show"));
+    log.mockRestore();
+  });
+
+  it("dispatches status to the CLI status command", async () => {
+    const { main } = await import("../src/bin/opencode-quota.js");
+
+    const code = await main(["status"]);
+
+    expect(code).toBe(0);
+    expect(commandMocks.runCliStatusCommand).toHaveBeenCalledWith({ argv: [] });
+    expect(commandMocks.runInitInstaller).not.toHaveBeenCalled();
+  });
+
+  it("passes status provider args through to the CLI status command", async () => {
+    const { main } = await import("../src/bin/opencode-quota.js");
+
+    const code = await main(["status", "--provider", "copilot"]);
+
+    expect(code).toBe(0);
+    expect(commandMocks.runCliStatusCommand).toHaveBeenCalledWith({
+      argv: ["--provider", "copilot"],
+    });
+  });
+
+  it("passes status --json flag through to the CLI status command", async () => {
+    const { main } = await import("../src/bin/opencode-quota.js");
+
+    const code = await main(["status", "--json"]);
+
+    expect(code).toBe(0);
+    expect(commandMocks.runCliStatusCommand).toHaveBeenCalledWith({
+      argv: ["--json"],
+    });
+  });
+
+  it("prints usage containing status command for --help", async () => {
+    const { main } = await import("../src/bin/opencode-quota.js");
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const code = await main(["--help"]);
+
+    expect(code).toBe(0);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("opencode-quota status"));
     log.mockRestore();
   });
 
