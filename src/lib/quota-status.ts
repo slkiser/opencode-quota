@@ -88,7 +88,13 @@ import {
 } from "./config.js";
 import { getCursorPlanDisplayName, getEffectiveCursorIncludedApiUsd } from "./cursor-pricing.js";
 import { getQuotaProviderDisplayLabel } from "./provider-metadata.js";
-import type { QuotaProviderResult, QuotaToastEntry, QuotaToastError } from "./entries.js";
+import type {
+  QuotaProviderDiagnostic,
+  QuotaProviderResult,
+  QuotaToastEntry,
+  QuotaToastError,
+} from "./entries.js";
+import type { CustomSourceConfig } from "./custom-sources.js";
 import { isValueEntry } from "./entries.js";
 import type {
   CursorQuotaPlan,
@@ -183,7 +189,9 @@ function isDefaultOpenCodeGoStatusWindowSelection(windows: OpenCodeGoWindowKey[]
 }
 
 function formatOpenCodeGoMissingWindows(windows: OpenCodeGoWindowKey[]): string {
-  return windows.map((window) => `${window} (${OPENCODE_GO_STATUS_WINDOW_FIELDS[window]})`).join(", ");
+  return windows
+    .map((window) => `${window} (${OPENCODE_GO_STATUS_WINDOW_FIELDS[window]})`)
+    .join(", ");
 }
 
 function formatOpenCodeGoUsage(window: OpenCodeGoWindow): string {
@@ -199,7 +207,6 @@ function formatSettingSources(sources: QuotaToastSettingSources | undefined): st
 
   return parts.length > 0 ? parts.join(" | ") : "(none)";
 }
-
 
 function getConfigPrecedenceLabel(configSource: string): string {
   switch (configSource) {
@@ -299,7 +306,10 @@ function createCompactLiveProbeOnlySection(params: {
   return createKvSection(params.id, params.title, rows);
 }
 
-function getCompactLiveProbeDescriptor(providerId: string, entry: QuotaToastEntry): string | undefined {
+function getCompactLiveProbeDescriptor(
+  providerId: string,
+  entry: QuotaToastEntry,
+): string | undefined {
   const candidates = [entry.label, entry.name, entry.group];
   for (const candidate of candidates) {
     if (typeof candidate !== "string") continue;
@@ -349,6 +359,60 @@ function formatCompactLiveProbeError(providerId: string, error: QuotaToastError)
   );
 }
 
+function getCustomSourceCredentialCategory(
+  source: QuotaProviderDiagnostic["credentialSource"],
+): string {
+  switch (source) {
+    case "explicit_env":
+      return "environment";
+    case "global_opencode_json":
+    case "global_opencode_jsonc":
+      return "trusted_global_config";
+    case "auth_json":
+      return "auth_json";
+    default:
+      return "none";
+  }
+}
+
+function createCustomSourcesSection(params: {
+  sources: readonly CustomSourceConfig[];
+  probes?: ProviderLiveProbe[];
+}): ReportSection | null {
+  if (params.sources.length === 0) return null;
+
+  const diagnostics =
+    findProviderLiveProbe("custom-sources", params.probes)?.result.diagnostics ?? [];
+  const diagnosticsBySource = new Map(
+    diagnostics.map((diagnostic) => [diagnostic.sourceId, diagnostic] as const),
+  );
+  const rows: ReportKvRow[] = [];
+
+  for (const source of params.sources) {
+    const diagnostic = diagnosticsBySource.get(source.id);
+    const coverage = source.modelIds ? source.modelIds.join(",") : "all_models";
+    const checkedPaths = diagnostic
+      ? [...new Set([...diagnostic.checkedPaths, ...diagnostic.authPaths])]
+      : [];
+    rows.push({
+      key: `source_${source.id}`,
+      value: [
+        `provider_id=${source.providerId}`,
+        `preset=${source.preset}`,
+        `coverage=${coverage}`,
+        `outcome=${diagnostic?.outcome ?? "unavailable"}`,
+        `credential_category=${getCustomSourceCredentialCategory(diagnostic?.credentialSource ?? null)}`,
+        `env_name=${source.apiKeyEnv ?? "(none)"}`,
+        `checked_paths=${checkedPaths.length > 0 ? checkedPaths.join(" | ") : "(none)"}`,
+      ]
+        .map((part) => sanitizeSingleLineDisplayText(part))
+        .join(" "),
+    });
+  }
+
+  return createKvSection("custom_sources", "custom_sources:", rows);
+}
+
 function appendCompactLiveProbeRows(
   rows: ReportKvRow[],
   providerId: string,
@@ -379,7 +443,8 @@ function appendCompactLiveProbeRows(
   }
 
   const suppressedCount =
-    Math.max(0, result.entries.length - entryCount) + Math.max(0, result.errors.length - errorCount);
+    Math.max(0, result.entries.length - entryCount) +
+    Math.max(0, result.errors.length - errorCount);
   if (suppressedCount > 0) {
     rows.push({
       key: "live_more",
@@ -626,6 +691,7 @@ export async function buildQuotaStatusReport(params: {
     matchesCurrentModel?: boolean;
   }>;
   providerLiveProbes?: ProviderLiveProbe[];
+  customSources?: readonly CustomSourceConfig[];
   googleRefresh?: {
     attempted: boolean;
     total?: number;
@@ -682,11 +748,15 @@ export async function buildQuotaStatusReport(params: {
       `- inferred_selected_config_path: ${params.tuiDiagnostics.inferredSelectedPath ?? "(none)"}`,
     );
     toastLines.push(`- present_config_paths: ${joinOrNone(params.tuiDiagnostics.presentPaths)}`);
-    toastLines.push(`- candidate_config_paths: ${joinOrNone(params.tuiDiagnostics.candidatePaths)}`);
+    toastLines.push(
+      `- candidate_config_paths: ${joinOrNone(params.tuiDiagnostics.candidatePaths)}`,
+    );
     toastLines.push(
       `- quota_plugin_configured: ${params.tuiDiagnostics.quotaPluginConfigured ? "true" : "false"}`,
     );
-    toastLines.push(`- quota_plugin_paths: ${joinOrNone(params.tuiDiagnostics.quotaPluginConfigPaths)}`);
+    toastLines.push(
+      `- quota_plugin_paths: ${joinOrNone(params.tuiDiagnostics.quotaPluginConfigPaths)}`,
+    );
   }
   toastLines.push("- providers:");
   for (const p of params.providerAvailability) {
@@ -699,6 +769,14 @@ export async function buildQuotaStatusReport(params: {
     toastLines.push(`  - ${p.id}: ${bits.join(" ")}`);
   }
   sections.push(createLinesSection("toast", "toast:", toastLines));
+
+  const customSourcesSection = createCustomSourcesSection({
+    sources: params.customSources ?? [],
+    probes: params.providerLiveProbes,
+  });
+  if (customSourcesSection) {
+    sections.push(customSourcesSection);
+  }
 
   if (params.maintainerAnnouncements) {
     const announcements = params.maintainerAnnouncements;
@@ -752,7 +830,10 @@ export async function buildQuotaStatusReport(params: {
     maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
     fallbackTier: params.alibabaCodingPlanTier,
   });
-  pathsRows.push({ key: "qwen oauth auth configured", value: qwenAuthConfigured ? "true" : "false" });
+  pathsRows.push({
+    key: "qwen oauth auth configured",
+    value: qwenAuthConfigured ? "true" : "false",
+  });
   pathsRows.push({
     key: "qwen_oauth_source",
     value: qwenLocalPlan.state === "qwen_free" ? qwenLocalPlan.sourceKey : "(none)",
@@ -765,7 +846,10 @@ export async function buildQuotaStatusReport(params: {
     key: "alibaba auth configured",
     value: alibabaAuthDiagnostics.state === "none" ? "false" : "true",
   });
-  pathsRows.push({ key: "alibaba_api_key_source", value: alibabaAuthDiagnostics.source ?? "(none)" });
+  pathsRows.push({
+    key: "alibaba_api_key_source",
+    value: alibabaAuthDiagnostics.source ?? "(none)",
+  });
   pathsRows.push({
     key: "alibaba_api_key_checked_paths",
     value: joinOrNone(alibabaAuthDiagnostics.checkedPaths),
@@ -852,7 +936,8 @@ export async function buildQuotaStatusReport(params: {
     });
     anthropicRows.push({
       key: "quota_source",
-      value: anthropicDiagnostics.quotaSource === "none" ? "(none)" : anthropicDiagnostics.quotaSource,
+      value:
+        anthropicDiagnostics.quotaSource === "none" ? "(none)" : anthropicDiagnostics.quotaSource,
     });
     anthropicRows.push({
       key: "checked_commands",
@@ -880,7 +965,7 @@ export async function buildQuotaStatusReport(params: {
       key: "message",
       value: `failed to probe Claude CLI${
         err ? `: ${sanitizeDisplayText(err instanceof Error ? err.message : String(err))}` : ""
-      }`, 
+      }`,
     });
   }
   appendProviderCompactLiveProbeRows(anthropicRows, "anthropic", params.providerLiveProbes);
@@ -898,7 +983,8 @@ export async function buildQuotaStatusReport(params: {
     { key: "plan", value: cursorPlanLabel ?? "none" },
     {
       key: "included_api_usd",
-      value: typeof cursorIncludedApiUsd === "number" ? fmtUsdAmount(cursorIncludedApiUsd) : "(none)",
+      value:
+        typeof cursorIncludedApiUsd === "number" ? fmtUsdAmount(cursorIncludedApiUsd) : "(none)",
     },
     {
       key: "billing_cycle_start_day",
@@ -915,14 +1001,20 @@ export async function buildQuotaStatusReport(params: {
   if (cursorAuth.error) {
     cursorRows.push({ key: "auth_error", value: cursorAuth.error });
   }
-  cursorRows.push({ key: "plugin_enabled", value: cursorIntegration.pluginEnabled ? "true" : "false" });
+  cursorRows.push({
+    key: "plugin_enabled",
+    value: cursorIntegration.pluginEnabled ? "true" : "false",
+  });
   cursorRows.push({ key: "canonical_plugin_package", value: CURSOR_CANONICAL_PLUGIN_PACKAGE });
   cursorRows.push({
     key: "provider_configured",
     value: cursorIntegration.providerConfigured ? "true" : "false",
   });
   cursorRows.push({ key: "config_matches", value: joinOrNone(cursorIntegration.matchedPaths) });
-  cursorRows.push({ key: "config_checked_paths", value: joinOrNone(cursorIntegration.checkedPaths) });
+  cursorRows.push({
+    key: "config_checked_paths",
+    value: joinOrNone(cursorIntegration.checkedPaths),
+  });
   try {
     const cursorUsage = await getCurrentCursorUsageSummary({
       billingCycleStartDay: params.cursorBillingCycleStartDay,
@@ -941,7 +1033,10 @@ export async function buildQuotaStatusReport(params: {
       key: "total_cursor_usage",
       value: `${fmtUsdAmount(cursorUsage.total.costUsd)} across ${fmtInt(cursorUsage.total.messageCount)} messages`,
     });
-    cursorRows.push({ key: "unknown_cursor_models", value: fmtInt(cursorUsage.unknownModels.length) });
+    cursorRows.push({
+      key: "unknown_cursor_models",
+      value: fmtInt(cursorUsage.unknownModels.length),
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     cursorRows.push({ key: "usage_error", value: msg });
@@ -1152,7 +1247,10 @@ export async function buildQuotaStatusReport(params: {
   if (openCodeGoDiag.error) {
     openCodeGoRows.push({ key: "config_error", value: sanitizeDisplayText(openCodeGoDiag.error) });
   }
-  openCodeGoRows.push({ key: "config_checked_paths", value: joinOrNone(openCodeGoDiag.checkedPaths) });
+  openCodeGoRows.push({
+    key: "config_checked_paths",
+    value: joinOrNone(openCodeGoDiag.checkedPaths),
+  });
   const openCodeGoSelectedWindows = params.opencodeGoWindows ?? OPENCODE_GO_STATUS_WINDOW_ORDER;
   openCodeGoRows.push({
     key: "selected_windows",
@@ -1187,7 +1285,9 @@ export async function buildQuotaStatusReport(params: {
           });
         }
 
-        const missingSelectedWindows = openCodeGoSelectedWindows.filter((window) => !openCodeGoQuota[window]);
+        const missingSelectedWindows = openCodeGoSelectedWindows.filter(
+          (window) => !openCodeGoQuota[window],
+        );
         if (
           missingSelectedWindows.length > 0 &&
           !isDefaultOpenCodeGoStatusWindowSelection(openCodeGoSelectedWindows)
@@ -1222,7 +1322,10 @@ export async function buildQuotaStatusReport(params: {
   if (zaiAuth.state === "configured") {
     const zaiQuota = await queryZaiQuota();
     if (!zaiQuota) {
-      zaiRows.push({ key: "live_fetch_error", value: "Z.ai API key became unavailable before fetch" });
+      zaiRows.push({
+        key: "live_fetch_error",
+        value: "Z.ai API key became unavailable before fetch",
+      });
     } else if (!zaiQuota.success) {
       zaiRows.push({ key: "live_fetch_error", value: zaiQuota.error });
     } else {
@@ -1271,7 +1374,10 @@ export async function buildQuotaStatusReport(params: {
   if (zhipuAuth.state === "configured") {
     const zhipuQuota = await queryZhipuQuota();
     if (!zhipuQuota) {
-      zhipuRows.push({ key: "live_fetch_error", value: "Zhipu API key became unavailable before fetch" });
+      zhipuRows.push({
+        key: "live_fetch_error",
+        value: "Zhipu API key became unavailable before fetch",
+      });
     } else if (!zhipuQuota.success) {
       zhipuRows.push({ key: "live_fetch_error", value: zhipuQuota.error });
     } else {
@@ -1380,7 +1486,10 @@ export async function buildQuotaStatusReport(params: {
             value: nanoGptQuota.subscription.currentPeriodEndIso ?? "(none)",
           });
           if (nanoGptQuota.subscription.graceUntilIso) {
-            nanoGptRows.push({ key: "grace_until", value: nanoGptQuota.subscription.graceUntilIso });
+            nanoGptRows.push({
+              key: "grace_until",
+              value: nanoGptQuota.subscription.graceUntilIso,
+            });
           }
         }
         nanoGptRows.push({
@@ -1390,7 +1499,10 @@ export async function buildQuotaStatusReport(params: {
               ? fmtUsdAmount(nanoGptQuota.balance.usdBalance)
               : "(none)",
         });
-        nanoGptRows.push({ key: "balance_nano", value: nanoGptQuota.balance?.nanoBalanceRaw ?? "(none)" });
+        nanoGptRows.push({
+          key: "balance_nano",
+          value: nanoGptQuota.balance?.nanoBalanceRaw ?? "(none)",
+        });
         for (const entry of nanoGptQuota.endpointErrors ?? []) {
           nanoGptRows.push({ key: `live_error_${entry.endpoint}`, value: entry.message });
         }
@@ -1464,14 +1576,19 @@ export async function buildQuotaStatusReport(params: {
     copilotRows.push({ key: "billing_target_error", value: copilotDiag.billingTargetError });
   }
   if (copilotDiag.tokenCompatibilityError) {
-    copilotRows.push({ key: "token_compatibility_error", value: copilotDiag.tokenCompatibilityError });
+    copilotRows.push({
+      key: "token_compatibility_error",
+      value: copilotDiag.tokenCompatibilityError,
+    });
   }
   if (copilotDiag.pat.error) {
     copilotRows.push({ key: "pat_error", value: copilotDiag.pat.error });
   }
   copilotRows.push({
     key: "pat_checked_paths",
-    value: copilotDiag.pat.checkedPaths.length ? copilotDiag.pat.checkedPaths.join(" | ") : "(none)",
+    value: copilotDiag.pat.checkedPaths.length
+      ? copilotDiag.pat.checkedPaths.join(" | ")
+      : "(none)",
   });
   copilotRows.push({
     key: "oauth_configured",
@@ -1506,7 +1623,7 @@ export async function buildQuotaStatusReport(params: {
       key: "companion_package_path",
       value:
         googleCompanionPresence.state === "present" || googleCompanionPresence.state === "invalid"
-          ? googleCompanionPresence.resolvedPath ?? "(none)"
+          ? (googleCompanionPresence.resolvedPath ?? "(none)")
           : "(none)",
     },
   ];
@@ -1542,13 +1659,17 @@ export async function buildQuotaStatusReport(params: {
     {
       key: "companion_package_path",
       value:
-        geminiCliCompanionPresence.state === "present" || geminiCliCompanionPresence.state === "invalid"
-          ? geminiCliCompanionPresence.resolvedPath ?? "(none)"
+        geminiCliCompanionPresence.state === "present" ||
+        geminiCliCompanionPresence.state === "invalid"
+          ? (geminiCliCompanionPresence.resolvedPath ?? "(none)")
           : "(none)",
     },
   ];
   if (geminiCliAuthPresence.state === "invalid") {
-    geminiCliRows.push({ key: "auth_error", value: sanitizeDisplayText(geminiCliAuthPresence.error) });
+    geminiCliRows.push({
+      key: "auth_error",
+      value: sanitizeDisplayText(geminiCliAuthPresence.error),
+    });
   }
   if (geminiCliCompanionPresence.state !== "present") {
     geminiCliRows.push({
@@ -1572,7 +1693,7 @@ export async function buildQuotaStatusReport(params: {
       key: "companion_package_path",
       value:
         agyCompanionPresence.state === "present" || agyCompanionPresence.state === "invalid"
-          ? agyCompanionPresence.resolvedPath ?? "(none)"
+          ? (agyCompanionPresence.resolvedPath ?? "(none)")
           : "(none)",
     },
   ];
@@ -1604,7 +1725,9 @@ export async function buildQuotaStatusReport(params: {
     for (const f of params.googleRefresh.failures ?? []) {
       googleRefreshRows.push({ key: f.email ?? "Unknown", value: f.error });
     }
-    sections.push(createKvSection("google_token_refresh", "google_token_refresh:", googleRefreshRows));
+    sections.push(
+      createKvSection("google_token_refresh", "google_token_refresh:", googleRefreshRows),
+    );
   }
 
   // === session token errors ===
@@ -1614,7 +1737,10 @@ export async function buildQuotaStatusReport(params: {
       { key: "error", value: params.sessionTokenError.error },
     ];
     if (params.sessionTokenError.checkedPath) {
-      sessionTokenErrorRows.push({ key: "checked_path", value: params.sessionTokenError.checkedPath });
+      sessionTokenErrorRows.push({
+        key: "checked_path",
+        value: params.sessionTokenError.checkedPath,
+      });
     }
     sections.push(
       createKvSection("session_tokens_error", "session_tokens_error:", sessionTokenErrorRows),
@@ -1659,7 +1785,8 @@ export async function buildQuotaStatusReport(params: {
   if (params.pricingSnapshotSource === "bundled") {
     pricingRows.push({
       key: "selection_note",
-      value: "bundled config pins the packaged snapshot and ignores runtime refresh for active pricing",
+      value:
+        "bundled config pins the packaged snapshot and ignores runtime refresh for active pricing",
     });
   } else if (params.pricingSnapshotSource === "runtime" && snapshotSource !== "runtime") {
     pricingRows.push({

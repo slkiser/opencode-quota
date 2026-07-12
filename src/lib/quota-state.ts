@@ -40,6 +40,7 @@ export function cloneQuotaProviderResult(result: QuotaProviderResult): QuotaProv
       ? {
           diagnostics: result.diagnostics.map((diagnostic) => ({
             ...diagnostic,
+            modelIds: diagnostic.modelIds ? [...diagnostic.modelIds] : null,
             checkedPaths: [...diagnostic.checkedPaths],
             authPaths: [...diagnostic.authPaths],
           })),
@@ -66,7 +67,7 @@ export function buildQuotaProviderStateCacheKey(
   const customSourcesIdentity =
     providerId === "custom-sources"
       ? `|customSources=${JSON.stringify([
-          "custom-sources-cache-v1",
+          "custom-sources-cache-v2",
           (ctx.config.customSources ?? []).map((source) => [
             source.id,
             source.providerId,
@@ -117,6 +118,7 @@ function isAccountingMetadata(value: unknown): boolean {
       "acquisitionMethod",
       "ownership",
       "authority",
+      "sourceId",
       "observedAtIso",
     ]) &&
     ["quota", "rate_limit", "usage", "spend", "budget", "balance", "status"].includes(
@@ -131,6 +133,7 @@ function isAccountingMetadata(value: unknown): boolean {
     ].includes(String(accounting.acquisitionMethod)) &&
     ["maintained", "user_configured"].includes(String(accounting.ownership)) &&
     ["provider_reported", "locally_derived"].includes(String(accounting.authority)) &&
+    (accounting.sourceId === undefined || typeof accounting.sourceId === "string") &&
     isOptionalIsoTimestamp(accounting.observedAtIso)
   );
 }
@@ -191,6 +194,9 @@ function isQuotaProviderDiagnostic(value: unknown): boolean {
     hasOnlyKeys(diagnostic, [
       "sourceId",
       "providerId",
+      "preset",
+      "modelIds",
+      "apiKeyEnv",
       "selected",
       "attempted",
       "credentialSource",
@@ -202,6 +208,11 @@ function isQuotaProviderDiagnostic(value: unknown): boolean {
     ]) &&
     typeof diagnostic.sourceId === "string" &&
     typeof diagnostic.providerId === "string" &&
+    ["accounting-v1", "openrouter-key-v1"].includes(String(diagnostic.preset)) &&
+    (diagnostic.modelIds === null ||
+      (Array.isArray(diagnostic.modelIds) &&
+        diagnostic.modelIds.every((modelId) => typeof modelId === "string"))) &&
+    (diagnostic.apiKeyEnv === null || typeof diagnostic.apiKeyEnv === "string") &&
     diagnostic.selected === true &&
     typeof diagnostic.attempted === "boolean" &&
     (diagnostic.credentialSource === null ||

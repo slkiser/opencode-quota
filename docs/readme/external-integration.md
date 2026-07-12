@@ -6,12 +6,18 @@ Use this when another tool needs quota data: shell scripts, tmux, Starship, CI, 
 
 There are two ways to get the same JSON data:
 
-| Use this | When you want |
-| --- | --- |
-| `opencode-quota show --json` | A command that prints quota JSON now |
-| Export file | A file other tools can read repeatedly without running a command every time |
+| Use this                     | When you want                                                               |
+| ---------------------------- | --------------------------------------------------------------------------- |
+| `opencode-quota show --json` | A command that prints quota JSON now                                        |
+| Export file                  | A file other tools can read repeatedly without running a command every time |
 
 Both use the local provider cache. They do **not** make extra provider network requests.
+
+## JSON export v2
+
+Both surfaces emit schema `version: 2`. Provider entries stay flat. Every row includes `resultType`, `renderType`, acquisition/ownership/authority metadata, and its percent or value payload. Custom-source rows also include `sourceId`; the `custom-sources` provider adds an ordered `sources` array with coarse `ok`, `error`, or `unavailable` status.
+
+Detailed custom-source outcomes, credential category, environment name, and checked paths are intentionally excluded from public JSON. Use `/quota_status` for those live diagnostics. Export and CLI JSON remain cache-only.
 
 ## Option 1: print JSON now
 
@@ -31,11 +37,11 @@ opencode-quota show --json --threshold 5
 
 Threshold exits:
 
-| Exit | Meaning |
-| --- | --- |
-| `0` | Quota is available and above the threshold |
-| `1` | At least one comparable cached provider is below the threshold |
-| `2` | No cached percentage was available to compare |
+| Exit | Meaning                                                        |
+| ---- | -------------------------------------------------------------- |
+| `0`  | Quota is available and above the threshold                     |
+| `1`  | At least one comparable cached provider is below the threshold |
+| `2`  | No cached percentage was available to compare                  |
 
 ## Option 2: write an export file
 
@@ -46,8 +52,8 @@ Add this to `opencode-quota/quota-toast.json`:
 ```jsonc
 {
   "export": {
-    "enabled": true
-  }
+    "enabled": true,
+  },
 }
 ```
 
@@ -99,11 +105,11 @@ interval = 60
 <details>
 <summary><strong>JSON shape</strong></summary>
 
-Both `show --json` and the export file use this structure:
+Both `show --json` and the export file use this v2 structure:
 
 ```jsonc
 {
-  "version": 1,
+  "version": 2,
   "exportedAt": 1748736000,
   "fromCache": true,
   "cacheAgeSeconds": 42,
@@ -114,38 +120,80 @@ Both `show --json` and the export file use this structure:
       "entries": [
         {
           "name": "Premium Requests",
+          "resultType": "quota",
+          "acquisitionMethod": "remote_api",
+          "ownership": "maintained",
+          "authority": "provider_reported",
           "window": "Monthly",
-          "percentRemaining": 62.3,
           "resetAt": 1748908800,
-          "unlimited": false
-        }
-      ]
+          "renderType": "percent",
+          "percentRemaining": 62.3,
+        },
+      ],
+    },
+    "custom-sources": {
+      "status": "ok",
+      "fetchedAt": 1748735958,
+      "entries": [
+        {
+          "name": "OpenRouter Primary budget",
+          "resultType": "budget",
+          "acquisitionMethod": "remote_api",
+          "ownership": "user_configured",
+          "authority": "provider_reported",
+          "sourceId": "openrouter-primary",
+          "renderType": "percent",
+          "percentRemaining": 40,
+        },
+      ],
+      "sources": [
+        {
+          "id": "openrouter-primary",
+          "providerId": "openrouter",
+          "status": "ok",
+          "entryCount": 1,
+        },
+        {
+          "id": "internal-accounting",
+          "providerId": "internal_gateway",
+          "status": "error",
+          "entryCount": 0,
+        },
+        {
+          "id": "model-specific",
+          "providerId": "internal_gateway",
+          "status": "unavailable",
+          "entryCount": 0,
+        },
+      ],
     },
     "opencode-go": {
       "status": "error",
       "fetchedAt": 1748735958,
-      "error": "Request timeout after 5000ms"
+      "error": "Request timeout after 5s",
     },
     "anthropic": {
-      "status": "unavailable"
-    }
-  }
+      "status": "unavailable",
+    },
+  },
 }
 ```
 
-Provider statuses:
+Provider and source statuses:
 
-| Value | Meaning |
-| --- | --- |
-| `ok` | Cached fetch succeeded; `entries` is populated |
-| `error` | Cached fetch failed; `error` has the message |
-| `unavailable` | No cached quota is available |
+| Value         | Meaning                                                                                                                                                          |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ok`          | Cached rows exist. A custom aggregate can remain `ok` while another source has `error`.                                                                          |
+| `error`       | The cached provider/source failed and has no successful row. Provider-level errors include a sanitized message; source statuses do not expose detailed outcomes. |
+| `unavailable` | No matching cached data exists. For a custom source this also covers an exact runtime `providerId` that was unavailable when the aggregate cache was written.    |
 
-Optional fields:
+Entry fields:
 
-- `window` appears only when the provider reports a reset window.
-- `percentRemaining` is absent for value-only rows.
-- `resetAt` is absent when the provider does not report a reset time.
+- `renderType: "percent"` uses `percentRemaining`; `renderType: "value"` uses `value`.
+- `resultType` is one of `quota`, `rate_limit`, `usage`, `spend`, `budget`, `balance`, or `status`.
+- `window`, `resetAt`, and `observedAt` appear only when source data supplies them.
+- `sourceId` appears on rows stamped by an aggregate source; it is identity, not a display label.
+- `sources` preserves configured source order. Each summary is exactly `id`, `providerId`, coarse `status`, and `entryCount`; the count is the cached normalized row count for that source, and duplicate labels remain separate by `id`.
 
 </details>
 

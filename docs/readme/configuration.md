@@ -35,6 +35,44 @@ Common locations:
 
 If you are unsure, run `/quota_status` or check the install-scope paths above.
 
+### Custom accounting sources
+
+`customSources` is the exception to ordinary config layering: it is accepted only in the canonical global `<OpenCode user config dir>/opencode-quota/quota-toast.json`. The usual path is `~/.config/opencode/opencode-quota/quota-toast.json`; when `OPENCODE_CONFIG_DIR` is set, use `$OPENCODE_CONFIG_DIR/opencode-quota/quota-toast.json`. Project/workspace sidecars, `experimental.quotaToast`, SDK config, and alternate global plugin files cannot define custom sources.
+
+Copy this complete example into that canonical global file:
+
+```jsonc
+{
+  "enabledProviders": ["custom-sources"],
+  "customSources": [
+    {
+      "id": "openrouter-primary",
+      "providerId": "openrouter",
+      "label": "OpenRouter Primary",
+      "url": "https://openrouter.ai/api/v1/key",
+      "preset": "openrouter-key-v1",
+      "apiKeyEnv": "OPENROUTER_API_KEY",
+      "modelIds": ["openrouter/anthropic/claude-sonnet-4"],
+    },
+    {
+      "id": "internal-accounting",
+      "providerId": "internal_gateway",
+      "url": "https://gateway.example/accounting",
+      "preset": "accounting-v1",
+    },
+  ],
+}
+```
+
+- `id` is the stable source identity. Labels may repeat; IDs may not.
+- `providerId` must exactly match an OpenCode runtime provider ID. It also selects trusted global OpenCode config and `auth.json` lookup.
+- `modelIds` is optional and affects only `onlyCurrentModel`: omission covers every model for that `providerId`; a present list contains exact, case-sensitive full `<providerId>/<modelId>` values. It does not filter response rows or select pricing.
+- Credentials resolve as: explicit `apiKeyEnv` → trusted global `provider.<providerId>.options.apiKey` → strict `{ "type": "api", "key": "..." }` in OpenCode `auth.json`.
+- `accounting-v1` and `openrouter-key-v1` are the only presets. Add `custom-sources` to `enabledProviders` in manual mode.
+- In `singleWindow`, each source contributes its limiting percentage row, or its first value row when it has no percentage row. `allWindows` keeps all rows.
+
+See [Providers](providers.md#custom-accounting-sources) for the response contract and security limits.
+
 ### Maintainer announcements and privacy
 
 Announcements are bundled only: no remote fetches, announcement telemetry, or persisted dismiss state. Use `/quota_announcements` to read active notices and `/quota_status` for counts/diagnostics. See **Configure maintainer announcements** below for options.
@@ -186,7 +224,8 @@ Existing `experimental.quotaToast` settings still work when no sidecar file exis
 | Option                        | Default        | Meaning                                                                                                                                                                                                                                                                                            |
 | ----------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `enabled`                     | `true`         | Master switch for quota collection and handled slash commands. When `false`, `/quota`, `/quota_status`, `/pricing_refresh`, and `/tokens_*` are handled as no-ops.                                                                                                                                 |
-| `enabledProviders`            | `"auto"`       | Auto-detect providers, or set an explicit provider list.                                                                                                                                                                                                                                           |
+| `enabledProviders`            | `"auto"`       | Auto-detect providers, or set an explicit provider list. Use the aggregate ID `custom-sources` for configured accounting sources.                                                                                                                                                                  |
+| `customSources`               | `[]`           | Global-only ordered custom accounting definitions. Each source uses `id`, `providerId`, `url`, `preset`, and optional `label`, `apiKeyEnv`, `modelIds`.                                                                                                                                            |
 | `minIntervalMs`               | `300000`       | Minimum fetch interval between provider updates.                                                                                                                                                                                                                                                   |
 | `requestTimeoutMs`            | `5000`         | Remote provider request timeout in milliseconds.                                                                                                                                                                                                                                                   |
 | `formatStyle`                 | `singleWindow` | Shared quota reset-period display for popup toasts, the Sidebar panel, and Compact status line unless a TUI surface override is set: `singleWindow` shows one reset period per provider; `allWindows` shows all reset periods per provider. Legacy `classic`/`grouped` aliases are still accepted. |

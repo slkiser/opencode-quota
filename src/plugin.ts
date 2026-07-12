@@ -441,7 +441,10 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     trigger: string,
     detectedProviderIds: string[],
   ): void {
-    if (!maintainerAnnouncementToastFallback.pending || maintainerAnnouncementToastFallback.inFlight) {
+    if (
+      !maintainerAnnouncementToastFallback.pending ||
+      maintainerAnnouncementToastFallback.inFlight
+    ) {
       return;
     }
 
@@ -1096,9 +1099,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
           })();
 
       if (fetchResult) {
-        detectedProviderIdsByToastCacheKey.set(toastCacheKey, [
-          ...fetchResult.detectedProviderIds,
-        ]);
+        detectedProviderIdsByToastCacheKey.set(toastCacheKey, [...fetchResult.detectedProviderIds]);
         await reconcileDeferredQuotaRefresh({
           sessionID,
           result: fetchResult,
@@ -1138,7 +1139,9 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
         });
         triggerMaintainerAnnouncementToastFallback(
           trigger,
-          fetchResult?.detectedProviderIds ?? detectedProviderIdsByToastCacheKey.get(toastCacheKey) ?? [],
+          fetchResult?.detectedProviderIds ??
+            detectedProviderIdsByToastCacheKey.get(toastCacheKey) ??
+            [],
         );
         await log("Displayed quota toast", { message, trigger });
       } catch (err) {
@@ -1153,7 +1156,6 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       }
     }
   }
-
 
   async function buildStatusReport(params: {
     refreshGoogleTokens?: boolean;
@@ -1202,6 +1204,8 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
                   provider: p,
                   currentModel,
                   currentProviderID,
+                  enabledProviders: runtimeConfig.enabledProviders,
+                  customSources: runtimeConfig.customSources,
                 })
               : undefined,
         };
@@ -1276,6 +1280,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       sessionModelLookup,
       providerAvailability: availability,
       providerLiveProbes,
+      customSources: runtimeConfig.customSources,
       googleRefresh: refresh
         ? {
             attempted: true,
@@ -1422,7 +1427,6 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
             providerID: sessionMeta.providerID,
           });
         }
-
       }
 
       if (config.showOnQuestion) {

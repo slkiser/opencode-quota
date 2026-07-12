@@ -24,6 +24,8 @@ interface QuotaExportEntryBase {
   ownership: AccountingOwnership;
   /** Whether the value was provider-reported or locally derived. */
   authority: AccountingAuthority;
+  /** Stable configured source identity for rows from an aggregate provider. */
+  sourceId?: string;
   /** Unix seconds when the source observed the value. */
   observedAt?: number;
   /**
@@ -46,16 +48,28 @@ export type QuotaExportEntry =
       value: string;
     });
 
+/** Ordered configured-source identity and coarse cached status. */
+export type QuotaExportSource = {
+  id: string;
+  providerId: string;
+  status: "ok" | "error" | "unavailable";
+  entryCount: number;
+};
+
 /**
  * Per-provider export status.
  *
  * One of three states: ok with entries, error with a message, or unavailable
  * (provider not detected or no cache entry exists).
  */
-export type QuotaExportProvider =
+export type QuotaExportProvider = (
   | { status: "ok"; fetchedAt: number; entries: QuotaExportEntry[] }
   | { status: "error"; fetchedAt: number; error: string }
-  | { status: "unavailable" };
+  | { status: "unavailable" }
+) & {
+  /** Present for aggregate providers; preserves configured source order. */
+  sources?: QuotaExportSource[];
+};
 
 /** Top-level v2 export document assembled from all configured providers. */
 export interface QuotaExport {

@@ -144,6 +144,33 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | DeepSeek                 | API key/config                                                 | Remote API         | Balance/status  |
 | Ollama Cloud             | [Needs setup](docs/readme/providers.md#ollama-cloud)           | Dashboard scraping | Dashboard usage |
 | OpenCode Go              | [Needs setup](docs/readme/providers.md#opencode-go)            | Dashboard scraping | Dashboard usage |
+| Custom accounting sources | [Configure](docs/readme/providers.md#custom-accounting-sources) | Remote API | Quota, usage, spend, budget, balance, or status |
+
+### Custom accounting sources
+
+Add safe preset-based endpoints for gateways that OpenCode already knows. `customSources` is accepted **only** in the canonical global `<OpenCode user config dir>/opencode-quota/quota-toast.json` (usually `~/.config/opencode/opencode-quota/quota-toast.json`, or under `$OPENCODE_CONFIG_DIR`). It is rejected from project/workspace, legacy, and SDK config.
+
+```jsonc
+{
+  "enabledProviders": ["custom-sources"],
+  "customSources": [
+    {
+      "id": "openrouter-primary",
+      "providerId": "openrouter",
+      "label": "OpenRouter Primary",
+      "url": "https://openrouter.ai/api/v1/key",
+      "preset": "openrouter-key-v1",
+      "apiKeyEnv": "OPENROUTER_API_KEY"
+    }
+  ]
+}
+```
+
+```bash
+export OPENROUTER_API_KEY="your-api-key"
+```
+
+Credentials resolve in this order: the explicitly named environment variable, trusted global `provider.<providerId>.options.apiKey`, then strict `{ "type": "api", "key": "..." }` OpenCode auth. Run `/quota_status` for safe, live per-source diagnostics. See [Provider setup](docs/readme/providers.md#custom-accounting-sources), [Configuration](docs/readme/configuration.md#custom-accounting-sources), and [JSON export v2](docs/readme/external-integration.md#json-export-v2).
 
 Setup details live in the [Provider setup guide](docs/readme/providers.md).
 

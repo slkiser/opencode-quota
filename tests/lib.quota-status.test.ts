@@ -492,8 +492,78 @@ describe("buildQuotaStatusReport", () => {
     expect(geminiCliMocks.inspectGeminiCliAuthPresence).toHaveBeenCalledWith(geminiCliClient);
   });
 
+  it("renders only safe live custom-source identity and diagnostic fields", async () => {
+    const report = await buildQuotaStatusReportForTest({
+      enabledProviders: ["custom-sources"],
+      customSources: [
+        {
+          id: "first-source",
+          providerId: "internal_gateway",
+          label: "Duplicate label",
+          url: "https://private.example/secret-path",
+          preset: "accounting-v1",
+          apiKeyEnv: "INTERNAL_GATEWAY_KEY",
+          modelIds: ["internal_gateway/model-a"],
+        },
+        {
+          id: "second-source",
+          providerId: "openrouter",
+          label: "Duplicate label",
+          url: "https://openrouter.ai/api/v1/key",
+          preset: "openrouter-key-v1",
+        },
+      ],
+      providerLiveProbes: [
+        {
+          providerId: "custom-sources",
+          result: {
+            attempted: true,
+            entries: [],
+            errors: [{ label: "Duplicate label", message: "raw body secret" }],
+            diagnostics: [
+              {
+                sourceId: "first-source",
+                providerId: "internal_gateway",
+                preset: "accounting-v1",
+                modelIds: ["internal_gateway/model-a"],
+                apiKeyEnv: "INTERNAL_GATEWAY_KEY",
+                selected: true,
+                attempted: true,
+                credentialSource: "global_opencode_jsonc",
+                outcome: "http_error",
+                httpStatus: 401,
+                entryCount: 0,
+                checkedPaths: ["env:INTERNAL_GATEWAY_KEY", "/trusted/opencode.jsonc"],
+                authPaths: ["/trusted/auth.json"],
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const section = getReportSection(report, "custom_sources:");
+    expect(section).toContain("source_first-source:");
+    expect(section).toContain("provider_id=internal_gateway");
+    expect(section).toContain("preset=accounting-v1");
+    expect(section).toContain("coverage=internal_gateway/model-a");
+    expect(section).toContain("outcome=http_error");
+    expect(section).toContain("credential_category=trusted_global_config");
+    expect(section).toContain("env_name=INTERNAL_GATEWAY_KEY");
+    expect(section).toContain("/trusted/opencode.jsonc | /trusted/auth.json");
+    expect(section).toContain("source_second-source:");
+    expect(section).toContain("outcome=unavailable");
+    expect(section).not.toContain("private.example");
+    expect(section).not.toContain("openrouter.ai");
+    expect(section).not.toContain("raw body secret");
+    expect(section).not.toContain("401");
+  });
+
   const buildMiniMaxStatusReport = (overrides: Record<string, unknown> = {}) =>
-    buildProviderStatusReport(["minimax-coding-plan", "minimax-china-coding-plan"], overrides as any);
+    buildProviderStatusReport(
+      ["minimax-coding-plan", "minimax-china-coding-plan"],
+      overrides as any,
+    );
 
   const buildZaiStatusReport = (overrides: Record<string, unknown> = {}) =>
     buildProviderStatusReport("zai", overrides as any);
@@ -574,7 +644,12 @@ describe("buildQuotaStatusReport", () => {
         configured: true,
         inferredSelectedPath: "/tmp/project/tui.jsonc",
         presentPaths: ["/tmp/config/tui.json", "/tmp/project/tui.jsonc"],
-        candidatePaths: ["/tmp/config/tui.json", "/tmp/config/tui.jsonc", "/tmp/project/tui.json", "/tmp/project/tui.jsonc"],
+        candidatePaths: [
+          "/tmp/config/tui.json",
+          "/tmp/config/tui.jsonc",
+          "/tmp/project/tui.json",
+          "/tmp/project/tui.jsonc",
+        ],
         quotaPluginConfigured: true,
         quotaPluginConfigPaths: ["/tmp/project/tui.jsonc"],
       },
@@ -608,7 +683,9 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- config_root: /tmp/project");
     expect(report).toContain("- config_configured: true");
     expect(report).toContain("- inferred_selected_config_path: /tmp/project/tui.jsonc");
-    expect(report).toContain("- present_config_paths: /tmp/config/tui.json | /tmp/project/tui.jsonc");
+    expect(report).toContain(
+      "- present_config_paths: /tmp/config/tui.json | /tmp/project/tui.jsonc",
+    );
     expect(report).toContain(
       "- candidate_config_paths: /tmp/config/tui.json | /tmp/config/tui.jsonc | /tmp/project/tui.json | /tmp/project/tui.jsonc",
     );
@@ -1281,7 +1358,9 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain(
       "- monthly_usage: percent_used=64 percent_remaining=36 reset_in_sec=2480000 reset_at=2026-04-10T05:38:20.000Z",
     );
-    expect(openCodeGoMocks.resolveOpenCodeGoConfigCached).toHaveBeenCalledWith({ maxAgeMs: 30_000 });
+    expect(openCodeGoMocks.resolveOpenCodeGoConfigCached).toHaveBeenCalledWith({
+      maxAgeMs: 30_000,
+    });
     expect(openCodeGoMocks.queryOpenCodeGoQuota).toHaveBeenCalledWith("ws-123", "cookie-abc");
   });
 
@@ -1405,7 +1484,9 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain(
       "- rolling_usage: percent_used=7 percent_remaining=93 reset_in_sec=18000 reset_at=2026-03-12T17:45:00.000Z",
     );
-    expect(report).toContain("- live_fetch_error: Selected OpenCode Go dashboard window(s) missing: weekly (weeklyUsage)");
+    expect(report).toContain(
+      "- live_fetch_error: Selected OpenCode Go dashboard window(s) missing: weekly (weeklyUsage)",
+    );
   });
 
   it("reports OpenCode Go invalid config details without attempting a live fetch", async () => {

@@ -253,6 +253,154 @@ describe("buildQuotaExport", () => {
     });
   });
 
+  it("exports flat custom-source entry identity and ordered coarse source statuses", async () => {
+    const ctx = createMockContext();
+    ctx.config.customSources = [
+      {
+        id: "same-label-one",
+        providerId: "gateway-one",
+        label: "Same label",
+        url: "https://secret-one.example/accounting",
+        preset: "accounting-v1",
+        apiKeyEnv: "GATEWAY_ONE_KEY",
+      },
+      {
+        id: "same-label-two",
+        providerId: "gateway-two",
+        label: "Same label",
+        url: "https://secret-two.example/accounting",
+        preset: "accounting-v1",
+      },
+      {
+        id: "not-selected",
+        providerId: "gateway-three",
+        label: "Not selected",
+        url: "https://secret-three.example/accounting",
+        preset: "accounting-v1",
+      },
+    ];
+    mockReadCachedProviderResult.mockResolvedValue({
+      hit: true,
+      result: {
+        attempted: true,
+        entries: [
+          {
+            accounting: {
+              ...QUOTA_ACCOUNTING,
+              ownership: "user_configured",
+              sourceId: "same-label-one",
+            },
+            name: "Same label",
+            percentRemaining: 25,
+          },
+        ],
+        errors: [{ label: "Same label", message: "private raw failure" }],
+        diagnostics: [
+          {
+            sourceId: "same-label-one",
+            providerId: "gateway-one",
+            preset: "accounting-v1",
+            modelIds: null,
+            apiKeyEnv: "GATEWAY_ONE_KEY",
+            selected: true,
+            attempted: true,
+            credentialSource: "explicit_env",
+            outcome: "success",
+            entryCount: 1,
+            checkedPaths: ["env:GATEWAY_ONE_KEY"],
+            authPaths: ["/trusted/auth.json"],
+          },
+          {
+            sourceId: "same-label-two",
+            providerId: "gateway-two",
+            preset: "accounting-v1",
+            modelIds: null,
+            apiKeyEnv: null,
+            selected: true,
+            attempted: true,
+            credentialSource: "auth_json",
+            outcome: "invalid_json",
+            entryCount: 0,
+            checkedPaths: ["/trusted/opencode.json"],
+            authPaths: ["/trusted/auth.json"],
+          },
+        ],
+      },
+      timestamp: Date.now(),
+    });
+
+    const actual = await buildQuotaExport({
+      providers: [createMockProvider("custom-sources")],
+      ctx,
+      ttlMs: 60_000,
+      fromCache: true,
+    });
+
+    expect(actual.version).toBe(2);
+    expect(actual.providers["custom-sources"]).toMatchObject({
+      status: "ok",
+      entries: [expect.objectContaining({ sourceId: "same-label-one", percentRemaining: 25 })],
+      sources: [
+        { id: "same-label-one", providerId: "gateway-one", status: "ok", entryCount: 1 },
+        { id: "same-label-two", providerId: "gateway-two", status: "error", entryCount: 0 },
+        {
+          id: "not-selected",
+          providerId: "gateway-three",
+          status: "unavailable",
+          entryCount: 0,
+        },
+      ],
+    });
+    const customProvider = actual.providers["custom-sources"];
+    expect(customProvider.sources?.map((source) => Object.keys(source))).toEqual([
+      ["id", "providerId", "status", "entryCount"],
+      ["id", "providerId", "status", "entryCount"],
+      ["id", "providerId", "status", "entryCount"],
+    ]);
+    const json = JSON.stringify(actual);
+    expect(json).not.toContain("invalid_json");
+    expect(json).not.toContain("private raw failure");
+    expect(json).not.toContain("secret-one.example");
+    expect(json).not.toContain("GATEWAY_ONE_KEY");
+    expect(json).not.toContain("/trusted/auth.json");
+  });
+
+  it("returns ordered unavailable custom sources when the cache has no aggregate entry", async () => {
+    const ctx = createMockContext();
+    ctx.config.customSources = [
+      {
+        id: "first",
+        providerId: "gateway-one",
+        label: "First",
+        url: "https://one.example/accounting",
+        preset: "accounting-v1",
+      },
+      {
+        id: "second",
+        providerId: "gateway-two",
+        label: "Second",
+        url: "https://two.example/accounting",
+        preset: "accounting-v1",
+      },
+    ];
+    mockReadCachedProviderResult.mockResolvedValue({ hit: false });
+
+    const actual = await buildQuotaExport({
+      providers: [createMockProvider("custom-sources")],
+      ctx,
+      ttlMs: 60_000,
+      fromCache: true,
+    });
+
+    expect(actual.providers["custom-sources"]).toEqual({
+      status: "unavailable",
+      sources: [
+        { id: "first", providerId: "gateway-one", status: "unavailable", entryCount: 0 },
+        { id: "second", providerId: "gateway-two", status: "unavailable", entryCount: 0 },
+      ],
+    });
+  });
+
   it("returns status unavailable when provider has no cache entry", async () => {
     mockReadCachedProviderResult.mockResolvedValue({ hit: false });
 

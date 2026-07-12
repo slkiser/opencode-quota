@@ -59,13 +59,14 @@ function context(
   };
 }
 
-function successEntry(name: string) {
+function successEntry(name: string, sourceId?: string) {
   return {
     accounting: {
       resultType: "quota" as const,
       acquisitionMethod: "remote_api" as const,
       ownership: "user_configured" as const,
       authority: "provider_reported" as const,
+      ...(sourceId ? { sourceId } : {}),
     },
     name,
     percentRemaining: 50,
@@ -184,7 +185,11 @@ describe("custom-sources aggregate provider", () => {
       context(sources, ["provider-one", "provider-two", "provider-three"]),
     );
 
-    expect(result.entries.map((entry) => entry.name)).toEqual(["first", "second", "third"]);
+    expect(result.entries.map((entry) => [entry.name, entry.accounting.sourceId])).toEqual([
+      ["first", "first"],
+      ["second", "second"],
+      ["third", "third"],
+    ]);
     expect(result.errors).toEqual([]);
     expect(result.diagnostics?.map((item) => item.sourceId)).toEqual(["first", "second", "third"]);
   });
@@ -203,12 +208,15 @@ describe("custom-sources aggregate provider", () => {
 
     expect(result).toEqual({
       attempted: true,
-      entries: [successEntry("good")],
+      entries: [successEntry("good", "good")],
       errors: [{ label: "bad", message: "Invalid JSON response" }],
       diagnostics: [
         {
           sourceId: "good",
           providerId: "provider-one",
+          preset: "accounting-v1",
+          modelIds: null,
+          apiKeyEnv: null,
           selected: true,
           attempted: true,
           credentialSource: "explicit_env",
@@ -220,6 +228,9 @@ describe("custom-sources aggregate provider", () => {
         {
           sourceId: "bad",
           providerId: "provider-two",
+          preset: "accounting-v1",
+          modelIds: null,
+          apiKeyEnv: null,
           selected: true,
           attempted: true,
           credentialSource: "explicit_env",
@@ -250,6 +261,9 @@ describe("custom-sources aggregate provider", () => {
       {
         sourceId: "missing",
         providerId: "provider-one",
+        preset: "accounting-v1",
+        modelIds: null,
+        apiKeyEnv: null,
         selected: true,
         attempted: false,
         credentialSource: null,

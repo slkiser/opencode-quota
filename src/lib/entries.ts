@@ -37,6 +37,8 @@ export interface AccountingMetadata {
   ownership: AccountingOwnership;
   /** Whether the value came from the provider or was derived locally. */
   authority: AccountingAuthority;
+  /** Stable configured source identity when one aggregate provider owns multiple sources. */
+  sourceId?: string;
   /** Source observation time only; never application fetch or cache time. */
   observedAtIso?: string;
 }
@@ -130,6 +132,11 @@ export interface QuotaProviderPresentation {
 export interface QuotaProviderDiagnostic {
   sourceId: string;
   providerId: string;
+  preset: CustomSourceConfig["preset"];
+  /** Null means the source covers every model for providerId. */
+  modelIds: string[] | null;
+  /** Explicit environment-variable name only; never its value. */
+  apiKeyEnv: string | null;
   selected: true;
   attempted: boolean;
   credentialSource:

@@ -84,6 +84,7 @@ export function sanitizeQuotaProviderResult(result: QuotaProviderResult): QuotaP
       ? {
           diagnostics: result.diagnostics.map((diagnostic) => ({
             ...diagnostic,
+            modelIds: diagnostic.modelIds ? [...diagnostic.modelIds] : null,
             checkedPaths: [...diagnostic.checkedPaths],
             authPaths: [...diagnostic.authPaths],
           })),

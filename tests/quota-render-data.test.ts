@@ -889,6 +889,76 @@ describe("collectQuotaRenderData shared quota state", () => {
     expect(openaiProvider.fetch).toHaveBeenCalledTimes(2);
   });
 
+  it("selects one limiting percent or first value row per ordered source identity", async () => {
+    const accounting = (sourceId: string) => ({ ...TEST_ACCOUNTING, sourceId });
+    const provider = {
+      id: "source-aggregate",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [
+          {
+            accounting: accounting("first"),
+            name: "Shared label",
+            group: "Shared label",
+            label: "Daily:",
+            percentRemaining: 60,
+          },
+          {
+            accounting: accounting("first"),
+            name: "Shared label",
+            group: "Shared label",
+            label: "Weekly:",
+            percentRemaining: 20,
+          },
+          {
+            accounting: accounting("second"),
+            name: "Shared label",
+            group: "Shared label",
+            label: "Balance:",
+            kind: "value" as const,
+            value: "$4.00",
+          },
+          {
+            accounting: accounting("second"),
+            name: "Shared label",
+            group: "Shared label",
+            label: "Credits:",
+            kind: "value" as const,
+            value: "9 credits",
+          },
+        ],
+        errors: [],
+      }),
+    };
+
+    const result = await collectQuotaRenderData({
+      client: TEST_CLIENT,
+      config: {
+        ...DEFAULT_CONFIG,
+        enabledProviders: [provider.id],
+        showSessionTokens: false,
+      },
+      surfaceExplicitProviderIssues: true,
+      formatStyle: "singleWindow",
+      providers: [provider],
+    });
+
+    expect(result.data?.entries).toEqual([
+      {
+        accounting: accounting("first"),
+        name: "[Shared label] Weekly",
+        percentRemaining: 20,
+      },
+      {
+        accounting: accounting("second"),
+        name: "[Shared label]",
+        kind: "value",
+        value: "$4.00",
+      },
+    ]);
+  });
+
   it("keeps the classic style id aligned with current presentation fields", async () => {
     const syntheticProvider = {
       id: "synthetic",

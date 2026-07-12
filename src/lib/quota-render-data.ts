@@ -444,6 +444,25 @@ function selectSingleWindowEntry(entries: QuotaToastEntry[]): QuotaToastEntry | 
   return selectedPercentEntry ?? entries[0];
 }
 
+function selectSingleWindowEntries(entries: QuotaToastEntry[]): QuotaToastEntry[] {
+  if (!entries.some((entry) => entry.accounting.sourceId !== undefined)) {
+    const selected = selectSingleWindowEntry(entries);
+    return selected ? [selected] : [];
+  }
+
+  const entriesBySource = new Map<string | undefined, QuotaToastEntry[]>();
+  for (const entry of entries) {
+    const sourceEntries = entriesBySource.get(entry.accounting.sourceId) ?? [];
+    sourceEntries.push(entry);
+    entriesBySource.set(entry.accounting.sourceId, sourceEntries);
+  }
+
+  return [...entriesBySource.values()].flatMap((sourceEntries) => {
+    const selected = selectSingleWindowEntry(sourceEntries);
+    return selected ? [selected] : [];
+  });
+}
+
 function projectProviderResultToStyle(
   result: QuotaProviderResult,
   style: QuotaFormatStyle,
@@ -467,12 +486,7 @@ function projectProviderResultToStyle(
       );
     });
   }
-  const selectedEntry = selectSingleWindowEntry(entries);
-  if (!selectedEntry) {
-    return [];
-  }
-
-  return [
+  return selectSingleWindowEntries(entries).map((selectedEntry) =>
     renameSingleWindowEntry(
       stripSingleWindowEntryMeta(selectedEntry, presentation?.singleWindowShowRight ?? false),
       buildSingleWindowName({
@@ -480,7 +494,7 @@ function projectProviderResultToStyle(
         singleWindowDisplayName: presentation?.singleWindowDisplayName,
       }),
     ),
-  ];
+  );
 }
 
 function getExplicitNoDataMessage(provider: QuotaProvider): string {

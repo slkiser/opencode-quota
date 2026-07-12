@@ -100,6 +100,22 @@ type InstanceResult = {
   diagnostic: QuotaProviderDiagnostic;
 };
 
+function buildDiagnosticIdentity(
+  source: CustomSourceConfig,
+): Pick<
+  QuotaProviderDiagnostic,
+  "sourceId" | "providerId" | "preset" | "modelIds" | "apiKeyEnv" | "selected"
+> {
+  return {
+    sourceId: source.id,
+    providerId: source.providerId,
+    preset: source.preset,
+    modelIds: source.modelIds ? [...source.modelIds] : null,
+    apiKeyEnv: source.apiKeyEnv ?? null,
+    selected: true,
+  };
+}
+
 function mapCredentialSource(
   source: "env" | "opencode.json" | "opencode.jsonc" | "auth.json" | null,
 ): QuotaProviderDiagnostic["credentialSource"] {
@@ -142,9 +158,7 @@ async function executeSource(
       entries: [],
       errors: [{ label: source.label, message }],
       diagnostic: {
-        sourceId: source.id,
-        providerId: source.providerId,
-        selected: true,
+        ...buildDiagnosticIdentity(source),
         attempted: false,
         credentialSource: null,
         outcome: "missing_credential",
@@ -161,9 +175,7 @@ async function executeSource(
       entries: [],
       errors: [{ label: source.label, message: result.error }],
       diagnostic: {
-        sourceId: source.id,
-        providerId: source.providerId,
-        selected: true,
+        ...buildDiagnosticIdentity(source),
         attempted: true,
         credentialSource: mapCredentialSource(auth.source),
         ...classifyRuntimeError(result.error),
@@ -175,12 +187,16 @@ async function executeSource(
   }
 
   return {
-    entries: result.entries,
+    entries: result.entries.map((entry) => ({
+      ...entry,
+      accounting: {
+        ...entry.accounting,
+        sourceId: source.id,
+      },
+    })),
     errors: [],
     diagnostic: {
-      sourceId: source.id,
-      providerId: source.providerId,
-      selected: true,
+      ...buildDiagnosticIdentity(source),
       attempted: true,
       credentialSource: mapCredentialSource(auth.source),
       outcome: "success",
@@ -255,9 +271,7 @@ export const customSourcesProvider: QuotaProvider = {
           entries: [],
           errors: [{ label: source.label, message }],
           diagnostic: {
-            sourceId: source.id,
-            providerId: source.providerId,
-            selected: true,
+            ...buildDiagnosticIdentity(source),
             attempted: true,
             credentialSource: null,
             outcome: "network_error",

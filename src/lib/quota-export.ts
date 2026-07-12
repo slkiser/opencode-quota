@@ -1,8 +1,18 @@
 import { homedir } from "os";
 import { join } from "path";
 
-import type { QuotaProvider, QuotaProviderContext, QuotaToastEntry } from "./entries.js";
-import type { QuotaExport, QuotaExportEntry, QuotaExportProvider } from "./quota-export-types.js";
+import type {
+  QuotaProvider,
+  QuotaProviderContext,
+  QuotaProviderResult,
+  QuotaToastEntry,
+} from "./entries.js";
+import type {
+  QuotaExport,
+  QuotaExportEntry,
+  QuotaExportProvider,
+  QuotaExportSource,
+} from "./quota-export-types.js";
 import type { QuotaRuntimeContext } from "./quota-runtime-context.js";
 
 import { writeJsonAtomic } from "./atomic-json.js";
@@ -79,6 +89,7 @@ function toExportEntry(entry: QuotaToastEntry): QuotaExportEntry {
     acquisitionMethod: entry.accounting.acquisitionMethod,
     ownership: entry.accounting.ownership,
     authority: entry.accounting.authority,
+    ...(entry.accounting.sourceId ? { sourceId: entry.accounting.sourceId } : {}),
     ...(observedAt !== undefined ? { observedAt } : {}),
     ...(window ? { window } : {}),
     ...(resetAt !== undefined ? { resetAt } : {}),
@@ -87,6 +98,25 @@ function toExportEntry(entry: QuotaToastEntry): QuotaExportEntry {
   return isValueEntry(entry)
     ? { ...base, renderType: "value", value: entry.value }
     : { ...base, renderType: "percent", percentRemaining: entry.percentRemaining };
+}
+
+function buildCustomSourceStatuses(params: {
+  ctx: QuotaProviderContext;
+  diagnostics?: QuotaProviderResult["diagnostics"];
+}): QuotaExportSource[] {
+  const diagnosticsBySource = new Map(
+    (params.diagnostics ?? []).map((diagnostic) => [diagnostic.sourceId, diagnostic] as const),
+  );
+
+  return (params.ctx.config.customSources ?? []).map((source) => {
+    const diagnostic = diagnosticsBySource.get(source.id);
+    return {
+      id: source.id,
+      providerId: source.providerId,
+      status: !diagnostic ? "unavailable" : diagnostic.outcome === "success" ? "ok" : "error",
+      entryCount: diagnostic?.entryCount ?? 0,
+    };
+  });
 }
 
 /**
@@ -115,8 +145,17 @@ export async function buildQuotaExport(params: {
   const fetchedAtValues: number[] = [];
 
   for (const { provider, read } of reads) {
+    const sources =
+      provider.id === "custom-sources"
+        ? buildCustomSourceStatuses({
+            ctx: params.ctx,
+            ...(read.hit ? { diagnostics: read.result.diagnostics } : {}),
+          })
+        : undefined;
+    const withSources = sources ? { sources } : {};
+
     if (!read.hit) {
-      providers[provider.id] = { status: "unavailable" };
+      providers[provider.id] = { status: "unavailable", ...withSources };
       continue;
     }
 
@@ -130,6 +169,7 @@ export async function buildQuotaExport(params: {
           read.result.errors[0].message,
           EXPORT_ERROR_MAX_LENGTH,
         ),
+        ...withSources,
       };
       fetchedAtValues.push(fetchedAt);
       continue;
@@ -140,6 +180,7 @@ export async function buildQuotaExport(params: {
       status: "ok",
       fetchedAt,
       entries,
+      ...withSources,
     };
     fetchedAtValues.push(fetchedAt);
   }

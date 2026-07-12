@@ -444,6 +444,9 @@ describe("quota-state shared cache", () => {
           {
             sourceId: "custom",
             providerId: "provider-one",
+            preset: "accounting-v1",
+            modelIds: null,
+            apiKeyEnv: "EXPLICIT_KEY",
             selected: true,
             attempted: true,
             credentialSource: "explicit_env",

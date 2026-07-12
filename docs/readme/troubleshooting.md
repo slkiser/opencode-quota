@@ -42,9 +42,27 @@ Use `--dry-run` to preview without changing anything. Use `--yes` only for expli
 | Token reports are empty                                         | Start OpenCode once so `opencode.db` exists, then run a session with model usage.                                                                                                                                                                                                                                                       |
 | Pricing looks stale                                             | Run `/pricing_refresh`.                                                                                                                                                                                                                                                                                                                 |
 | `/tokens_between` needs dates                                   | Run `/tokens_between YYYY-MM-DD YYYY-MM-DD`. Missing or invalid dates produce inline usage output; no date dialog opens.                                                                                                                                                                                                                |
+| Custom source is missing or failing                             | Confirm `custom-sources` is enabled, the exact `providerId` exists at runtime, and the definition is in the canonical global file. Then inspect the live `custom_sources` section in `/quota_status`.                                                                                                                                   |
 | Desktop shows HTTP 500/error toast after correct command output | OpenCode 1.17.18 has no successful command-cancellation contract. The deterministic output was already injected as one ignored/no-reply message, and the handled sentinel prevents model continuation and context pollution. This is the accepted upstream limitation tracked by anomalyco/opencode#18554 and anomalyco/opencode#18559. |
 
 ### Provider troubleshooting
+
+<details>
+<summary><strong>Custom accounting sources</strong></summary>
+
+Run `/quota_status` and inspect `custom_sources`. Each configured source shows source/provider IDs, preset, model coverage, live outcome, credential category, explicit environment name, and checked paths. These results are fetched live for the status command; cached results are not substituted.
+
+| Symptom                                    | Fix                                                                                                                                                                                                |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Config is rejected                         | Move `customSources` to the canonical global `<OpenCode user config dir>/opencode-quota/quota-toast.json`. Remove unknown fields, duplicate IDs/request identities, or overlapping model coverage. |
+| Source is `unavailable`                    | Confirm OpenCode reports the exact configured `providerId`. With `onlyCurrentModel`, also confirm the exact full model matches `modelIds`, or omit `modelIds` for provider-wide coverage.          |
+| `missing_credential`                       | Set the explicit `apiKeyEnv`, or configure trusted global `provider.<providerId>.options.apiKey`, or a strict `{ "type": "api", "key": "..." }` auth entry.                                        |
+| `http_error`, `timeout`, or response error | Check the endpoint service and preset contract. `/quota_status` intentionally hides URLs, request/response contents, raw errors, and secret material.                                              |
+| One source fails but others render         | This is expected partial-aggregate behavior. Successful sources remain visible and the failed source stays an error/status row.                                                                    |
+| Single-window output shows fewer rows      | Each source keeps only its lowest remaining percentage, or first value row. Use `"formatStyle": "allWindows"` for every row.                                                                       |
+| CLI/export looks stale                     | `show --json` and the export file are cache-only and never fetch providers. Trigger a normal TUI/background refresh first. `/quota_status` is the live diagnostic surface.                         |
+
+</details>
 
 <details>
 <summary><strong>Anthropic (Claude)</strong></summary>

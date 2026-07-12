@@ -242,15 +242,17 @@ export const QUOTA_DIALOG_COMMANDS: readonly QuotaDialogCommandSpec[] = [
     dialogSize: "xlarge",
     acceptsArguments: true,
   },
-  ...TOKEN_REPORT_COMMANDS.map((spec): QuotaDialogCommandSpec => ({
-    id: spec.id,
-    slashName: spec.id,
-    title: spec.kind === "between" ? "OpenCode Quota Token Report" : spec.metadataTitle,
-    description: spec.description,
-    dialogSize: "xlarge",
-    requiresSession: spec.kind === "session" || spec.kind === "session_tree",
-    acceptsArguments: spec.kind === "between",
-  })),
+  ...TOKEN_REPORT_COMMANDS.map(
+    (spec): QuotaDialogCommandSpec => ({
+      id: spec.id,
+      slashName: spec.id,
+      title: spec.kind === "between" ? "OpenCode Quota Token Report" : spec.metadataTitle,
+      description: spec.description,
+      dialogSize: "xlarge",
+      requiresSession: spec.kind === "session" || spec.kind === "session_tree",
+      acceptsArguments: spec.kind === "between",
+    }),
+  ),
 ] as const;
 
 const QUOTA_DIALOG_COMMANDS_BY_ID: ReadonlyMap<QuotaDialogCommandId, QuotaDialogCommandSpec> =
@@ -485,6 +487,8 @@ async function buildStatusReport(params: {
                 provider: p,
                 currentModel,
                 currentProviderID,
+                enabledProviders: runtimeConfig.enabledProviders,
+                customSources: runtimeConfig.customSources,
               })
             : undefined,
       };
@@ -552,6 +556,7 @@ async function buildStatusReport(params: {
     sessionModelLookup,
     providerAvailability: availability,
     providerLiveProbes,
+    customSources: runtimeConfig.customSources,
     googleRefresh: refresh
       ? {
           attempted: true,
@@ -870,7 +875,9 @@ export async function buildQuotaDialogCommandOutput(params: {
       lastSessionTokenError: params.lastSessionTokenError,
       log: params.log,
     });
-    return output ? outputResult({ command: params.command, output }) : { state: "noop", command: params.command, reason: "disabled" };
+    return output
+      ? outputResult({ command: params.command, output })
+      : { state: "noop", command: params.command, reason: "disabled" };
   }
 
   if (params.command === "quota_announcements") {
