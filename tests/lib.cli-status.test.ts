@@ -5,8 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseStatusArgs, STATUS_USAGE } from "../src/lib/cli-status.js";
 
-const { mockProviders, runtimeDirs } = vi.hoisted(() => ({
+const { mockProviders, runtimeDirs, mockGetPackageVersion } = vi.hoisted(() => ({
   mockProviders: [] as any[],
+  mockGetPackageVersion: vi.fn(),
   runtimeDirs: {
     value: {
       dataDirs: [] as string[],
@@ -29,6 +30,10 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
     cacheDir: runtimeDirs.value.cacheDirs[0] ?? "/tmp/opencode-quota-cli-status-cache",
     stateDir: runtimeDirs.value.stateDirs[0] ?? "/tmp/opencode-quota-cli-status-state",
   }),
+}));
+
+vi.mock("../src/lib/version.js", () => ({
+  getPackageVersion: mockGetPackageVersion,
 }));
 
 import { runCliStatusCommand } from "../src/lib/cli-status.js";
@@ -182,6 +187,7 @@ describe("runCliStatusCommand", () => {
       stateDirs: [],
     };
     mockProviders.length = 0;
+    mockGetPackageVersion.mockResolvedValue("3.11.2");
     __resetQuotaStateForTests();
   });
 
@@ -189,6 +195,7 @@ describe("runCliStatusCommand", () => {
     if (savedConfigDir !== undefined) process.env.OPENCODE_CONFIG_DIR = savedConfigDir;
     else delete process.env.OPENCODE_CONFIG_DIR;
     mockProviders.length = 0;
+    mockGetPackageVersion.mockReset();
     __resetQuotaStateForTests();
     rmSync(tempDir, { recursive: true, force: true });
   });
@@ -220,6 +227,7 @@ describe("runCliStatusCommand", () => {
 
     expect(code).toBe(0);
     expect(stdout.output).toContain("Quota Status");
+    expect(stdout.output.endsWith("\n")).toBe(true);
     expect(stderr.output).toBe("");
   });
 
@@ -517,6 +525,36 @@ describe("runCliStatusCommand", () => {
     expect(stdout.output).toContain('  "providers"');
   });
 
+  it("shows 'unknown' version when getPackageVersion returns undefined", async () => {
+    mockGetPackageVersion.mockResolvedValueOnce(undefined);
+    const provider = {
+      id: "synthetic",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn(),
+    };
+    mockProviders.push(provider);
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({
+        experimental: { quotaToast: { enabledProviders: ["synthetic"] } },
+      }),
+      "utf8",
+    );
+
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+
+    await runCliStatusCommand({
+      argv: ["--json"],
+      cwd: workspaceDir,
+      stdout: stdout.stream as any,
+      stderr: stderr.stream as any,
+    });
+
+    const parsed = JSON.parse(stdout.output);
+    expect(parsed.version).toBe("unknown");
+  });
+
   it("returns exit 1 when quota disabled and --json requested", async () => {
     writeFileSync(
       join(workspaceDir, "opencode.json"),
@@ -625,6 +663,6 @@ describe("runCliStatusCommand", () => {
     spy.mockRestore();
 
     expect(code).toBe(1);
-    expect(stderr.output).toContain("Failed to show quota status");
+    expect(stderr.output).toContain("Failed to render quota status");
   });
 });

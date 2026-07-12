@@ -13,10 +13,7 @@ import {
 } from "./opencode-config-providers.js";
 import { getPackageVersion } from "./version.js";
 import { buildQuotaStatusReport } from "./quota-status.js";
-import {
-  createQuotaRuntimeRequestContext,
-  resolveQuotaRuntimeContext,
-} from "./quota-runtime-context.js";
+import { resolveQuotaRuntimeContext } from "./quota-runtime-context.js";
 
 export interface RunCliStatusCommandOptions {
   argv?: string[];
@@ -115,7 +112,7 @@ interface CliStatusJson {
     source: string;
   };
   liveProbes: Array<{
-    providerId: string;
+    id: string;
     ok: boolean;
   }>;
 }
@@ -143,7 +140,7 @@ export function buildCliStatusJson(input: QuotaStatusReportInput): CliStatusJson
       source: input.pricingSnapshotSource,
     },
     liveProbes: (input.providerLiveProbes ?? []).map((probe) => ({
-      providerId: probe.providerId,
+      id: probe.providerId,
       ok: probe.result.attempted && probe.result.errors.length === 0,
     })),
   };
@@ -272,7 +269,7 @@ export async function runCliStatusCommand(options: RunCliStatusCommandOptions = 
     return 0;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    writeLine(stderr, `Failed to show quota status: ${message}`);
+    writeLine(stderr, `Failed to render quota status: ${message}`);
     return 1;
   }
 }
