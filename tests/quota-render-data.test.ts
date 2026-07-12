@@ -410,6 +410,7 @@ describe("collectQuotaRenderData shared quota state", () => {
     ).toBe(false);
     expect(provider.matchesCurrentModel).toHaveBeenCalledWith("anthropic/claude-sonnet-4", {
       enabledProviders: "auto",
+      currentProviderID: "openai",
     });
   });
 
@@ -429,6 +430,63 @@ describe("collectQuotaRenderData shared quota state", () => {
     expect(provider.matchesCurrentModel).toHaveBeenCalledWith("minimax/MiniMax-M2.7", {
       enabledProviders: ["minimax-china-coding-plan"],
     });
+  });
+
+  it("selects custom sources by exact model and permits provider-only identity only for provider-wide sources", () => {
+    const customSources = [
+      {
+        id: "wide",
+        providerId: "company",
+        label: "Wide",
+        url: "https://wide.example/accounting",
+        preset: "accounting-v1" as const,
+      },
+      {
+        id: "model",
+        providerId: "company",
+        label: "Model",
+        url: "https://model.example/accounting",
+        preset: "accounting-v1" as const,
+        modelIds: ["company/model-a"],
+      },
+    ];
+    const provider = {
+      id: "custom-sources",
+      matchesCurrentModel: vi
+        .fn()
+        .mockImplementation(
+          (model: string, context: any) =>
+            context.currentProviderID === "company" &&
+            context.customSources.some(
+              (source: any) =>
+                source.providerId === "company" &&
+                (source.modelIds === undefined || source.modelIds.includes(model)),
+            ),
+        ),
+    };
+
+    expect(
+      matchesQuotaProviderCurrentSelection({
+        provider: provider as any,
+        currentModel: "company/model-a",
+        currentProviderID: "company",
+        customSources,
+      }),
+    ).toBe(true);
+    expect(
+      matchesQuotaProviderCurrentSelection({
+        provider: provider as any,
+        currentProviderID: "company",
+        customSources,
+      }),
+    ).toBe(true);
+    expect(
+      matchesQuotaProviderCurrentSelection({
+        provider: provider as any,
+        currentProviderID: "other",
+        customSources,
+      }),
+    ).toBe(false);
   });
 
   it("reuses one canonical provider snapshot across single-window and all-window renders without mutation bleed", async () => {

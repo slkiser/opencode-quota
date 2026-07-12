@@ -87,9 +87,7 @@ export async function resolveQuotaRuntimeContext(
   };
 }
 
-export function createQuotaRuntimeRequestContext(
-  runtime: Pick<QuotaRuntimeContext, "session">,
-): {
+export function createQuotaRuntimeRequestContext(runtime: Pick<QuotaRuntimeContext, "session">): {
   sessionID?: string;
   sessionMeta?: QuotaSessionModelContext;
 } {
@@ -117,9 +115,11 @@ export function createQuotaProviderRuntimeContext(
       requestTimeoutMsConfigured: Boolean(runtime.configMeta?.settingSources.requestTimeoutMs),
       onlyCurrentModel: runtime.config.onlyCurrentModel,
       enabledProviders:
-        runtime.config.enabledProviders === "auto"
-          ? "auto"
-          : [...runtime.config.enabledProviders],
+        runtime.config.enabledProviders === "auto" ? "auto" : [...runtime.config.enabledProviders],
+      customSources: runtime.config.customSources.map((source) => ({
+        ...source,
+        ...(source.modelIds ? { modelIds: [...source.modelIds] } : {}),
+      })),
       currentModel: runtime.session.sessionMeta?.modelID,
       currentProviderID: runtime.session.sessionMeta?.providerID,
     },

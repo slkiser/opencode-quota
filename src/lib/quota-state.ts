@@ -36,6 +36,15 @@ export function cloneQuotaProviderResult(result: QuotaProviderResult): QuotaProv
       accounting: { ...entry.accounting },
     })),
     errors: result.errors.map((error) => ({ ...error })),
+    ...(result.diagnostics
+      ? {
+          diagnostics: result.diagnostics.map((diagnostic) => ({
+            ...diagnostic,
+            checkedPaths: [...diagnostic.checkedPaths],
+            authPaths: [...diagnostic.authPaths],
+          })),
+        }
+      : {}),
     ...(result.presentation ? { presentation: { ...result.presentation } } : {}),
   };
 }
@@ -54,8 +63,23 @@ export function buildQuotaProviderStateCacheKey(
   const currentModel = ctx.config.currentModel ?? "";
   const currentProviderID = ctx.config.currentProviderID ?? "";
   const anthropicBinaryPath = ctx.config.anthropicBinaryPath ?? "";
+  const customSourcesIdentity =
+    providerId === "custom-sources"
+      ? `|customSources=${JSON.stringify([
+          "custom-sources-cache-v1",
+          (ctx.config.customSources ?? []).map((source) => [
+            source.id,
+            source.providerId,
+            source.label,
+            source.url,
+            source.preset,
+            source.apiKeyEnv ?? null,
+            source.modelIds ? [...source.modelIds] : null,
+          ]),
+        ])}`
+      : "";
 
-  return `${providerId}|anthropicBinaryPath=${anthropicBinaryPath}|googleModels=${googleModels}|alibabaTier=${alibabaCodingPlanTier}|cursorPlan=${cursorPlan}|cursorIncludedApiUsd=${cursorIncludedApiUsd}|cursorBillingCycleStartDay=${cursorBillingCycleStartDay}|opencodeGoWindows=${opencodeGoWindows}|onlyCurrentModel=${onlyCurrentModel}|currentModel=${currentModel}|currentProviderID=${currentProviderID}`;
+  return `${providerId}${customSourcesIdentity}|anthropicBinaryPath=${anthropicBinaryPath}|googleModels=${googleModels}|alibabaTier=${alibabaCodingPlanTier}|cursorPlan=${cursorPlan}|cursorIncludedApiUsd=${cursorIncludedApiUsd}|cursorBillingCycleStartDay=${cursorBillingCycleStartDay}|opencodeGoWindows=${opencodeGoWindows}|onlyCurrentModel=${onlyCurrentModel}|currentModel=${currentModel}|currentProviderID=${currentProviderID}`;
 }
 
 function getQuotaProviderCacheDir(): string {
@@ -160,6 +184,57 @@ function isQuotaToastError(value: unknown): boolean {
   );
 }
 
+function isQuotaProviderDiagnostic(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const diagnostic = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(diagnostic, [
+      "sourceId",
+      "providerId",
+      "selected",
+      "attempted",
+      "credentialSource",
+      "outcome",
+      "httpStatus",
+      "entryCount",
+      "checkedPaths",
+      "authPaths",
+    ]) &&
+    typeof diagnostic.sourceId === "string" &&
+    typeof diagnostic.providerId === "string" &&
+    diagnostic.selected === true &&
+    typeof diagnostic.attempted === "boolean" &&
+    (diagnostic.credentialSource === null ||
+      ["explicit_env", "global_opencode_json", "global_opencode_jsonc", "auth_json"].includes(
+        String(diagnostic.credentialSource),
+      )) &&
+    [
+      "missing_credential",
+      "success",
+      "http_error",
+      "redirect_error",
+      "timeout",
+      "body_too_large",
+      "invalid_content_type",
+      "invalid_json",
+      "invalid_response",
+      "network_error",
+    ].includes(String(diagnostic.outcome)) &&
+    (diagnostic.httpStatus === undefined ||
+      (typeof diagnostic.httpStatus === "number" &&
+        Number.isInteger(diagnostic.httpStatus) &&
+        diagnostic.httpStatus >= 100 &&
+        diagnostic.httpStatus <= 599)) &&
+    typeof diagnostic.entryCount === "number" &&
+    Number.isInteger(diagnostic.entryCount) &&
+    diagnostic.entryCount >= 0 &&
+    Array.isArray(diagnostic.checkedPaths) &&
+    diagnostic.checkedPaths.every((path) => typeof path === "string") &&
+    Array.isArray(diagnostic.authPaths) &&
+    diagnostic.authPaths.every((path) => typeof path === "string")
+  );
+}
+
 function isQuotaProviderPresentation(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
 
@@ -183,12 +258,14 @@ function isQuotaProviderResult(value: unknown): value is QuotaProviderResult {
 
   const result = value as Record<string, unknown>;
   return (
-    hasOnlyKeys(result, ["attempted", "entries", "errors", "presentation"]) &&
+    hasOnlyKeys(result, ["attempted", "entries", "errors", "diagnostics", "presentation"]) &&
     typeof result.attempted === "boolean" &&
     Array.isArray(result.entries) &&
     result.entries.every(isQuotaToastEntry) &&
     Array.isArray(result.errors) &&
     result.errors.every(isQuotaToastError) &&
+    (result.diagnostics === undefined ||
+      (Array.isArray(result.diagnostics) && result.diagnostics.every(isQuotaProviderDiagnostic))) &&
     (result.presentation === undefined || isQuotaProviderPresentation(result.presentation))
   );
 }

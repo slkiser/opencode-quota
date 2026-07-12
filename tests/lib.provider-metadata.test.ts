@@ -152,7 +152,16 @@ describe("provider-metadata", () => {
         autoSetup: "manual_env_config",
         authentication: "state_only",
         quota: "remote_api",
-        notes: "Scrapes the Ollama Cloud settings page; requires __Secure-session cookie via OLLAMA_USAGE_COOKIE env or ollama-usage config",
+        notes:
+          "Scrapes the Ollama Cloud settings page; requires __Secure-session cookie via OLLAMA_USAGE_COOKIE env or ollama-usage config",
+      },
+      {
+        id: "custom-sources",
+        autoSetup: "manual_env_config",
+        authentication: "external_api_key",
+        authFallbacks: ["env_api_key", "global_opencode_config"],
+        quota: "remote_api",
+        notes: "Aggregates exact user-configured accounting sources",
       },
     ]);
   });
@@ -223,6 +232,7 @@ describe("provider-metadata", () => {
       "kimi-code",
     ]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS.deepseek).toEqual(["deepseek"]);
+    expect(QUOTA_PROVIDER_RUNTIME_IDS["custom-sources"]).toEqual([]);
   });
 
   it("keeps runtime ids distinct from broad normalization aliases", () => {
@@ -340,6 +350,7 @@ describe("provider-metadata", () => {
     expect(getQuotaProviderDisplayLabel("kimi-code")).toBe("Kimi Code");
     expect(getQuotaProviderDisplayLabel("kimi")).toBe("Kimi Code");
     expect(getQuotaProviderDisplayLabel("deep-seek")).toBe("DeepSeek");
+    expect(getQuotaProviderDisplayLabel("custom-sources")).toBe("Custom sources");
     expect(getQuotaProviderDisplayLabel("something-else")).toBe("something-else");
   });
 });

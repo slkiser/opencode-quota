@@ -65,6 +65,69 @@ describe("quota-state shared cache", () => {
     expect(singleWindowKey).toBe(allWindowsKey);
   });
 
+  it("uses the full ordered custom-source configuration but never credentials in aggregate identity", async () => {
+    const { buildQuotaProviderStateCacheKey } = await import("../src/lib/quota-state.js");
+    const base = createTestContext();
+    const first = {
+      id: "first",
+      providerId: "provider-one",
+      label: "First",
+      url: "https://one.example/accounting",
+      preset: "accounting-v1",
+      apiKeyEnv: "EXPLICIT_KEY",
+      modelIds: ["provider-one/a", "provider-one/b"],
+    };
+    const second = {
+      id: "second",
+      providerId: "provider-two",
+      label: "Second",
+      url: "https://two.example/key",
+      preset: "openrouter-key-v1",
+    };
+    process.env.EXPLICIT_KEY = "credential-must-not-be-in-cache-key";
+    try {
+      const key = buildQuotaProviderStateCacheKey("custom-sources", {
+        ...base,
+        config: { ...base.config, customSources: [first, second] },
+      } as any);
+      const reordered = buildQuotaProviderStateCacheKey("custom-sources", {
+        ...base,
+        config: { ...base.config, customSources: [second, first] },
+      } as any);
+      const relabeled = buildQuotaProviderStateCacheKey("custom-sources", {
+        ...base,
+        config: {
+          ...base.config,
+          customSources: [{ ...first, label: "Changed" }, second],
+        },
+      } as any);
+      const modelReordered = buildQuotaProviderStateCacheKey("custom-sources", {
+        ...base,
+        config: {
+          ...base.config,
+          customSources: [{ ...first, modelIds: ["provider-one/b", "provider-one/a"] }, second],
+        },
+      } as any);
+
+      expect(key).toContain("EXPLICIT_KEY");
+      expect(key).not.toContain("credential-must-not-be-in-cache-key");
+      expect(new Set([key, reordered, relabeled, modelReordered]).size).toBe(4);
+      expect(
+        buildQuotaProviderStateCacheKey("synthetic", {
+          ...base,
+          config: { ...base.config, customSources: [first] },
+        } as any),
+      ).toBe(
+        buildQuotaProviderStateCacheKey("synthetic", {
+          ...base,
+          config: { ...base.config, customSources: [second] },
+        } as any),
+      );
+    } finally {
+      delete process.env.EXPLICIT_KEY;
+    }
+  });
+
   it("returns cache-owned clones for repeated non-live provider reads", async () => {
     const { __resetQuotaStateForTests, fetchQuotaProviderResult } =
       await import("../src/lib/quota-state.js");
@@ -354,6 +417,68 @@ describe("quota-state shared cache", () => {
     await expect(readCachedProviderResult({ provider, ctx, ttlMs: 60_000 })).resolves.toEqual({
       hit: false,
     });
+  });
+
+  it("caches entry-bearing partial aggregates including internal diagnostics", async () => {
+    const { __resetQuotaStateForTests, fetchQuotaProviderResult } =
+      await import("../src/lib/quota-state.js");
+    __resetQuotaStateForTests();
+
+    const provider = {
+      id: "custom-sources",
+      isAvailable: vi.fn(),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [
+          {
+            accounting: {
+              ...TEST_ACCOUNTING,
+              ownership: "user_configured",
+            },
+            name: "Custom",
+            percentRemaining: 50,
+          },
+        ],
+        errors: [{ label: "Other", message: "request failed" }],
+        diagnostics: [
+          {
+            sourceId: "custom",
+            providerId: "provider-one",
+            selected: true,
+            attempted: true,
+            credentialSource: "explicit_env",
+            outcome: "success",
+            entryCount: 1,
+            checkedPaths: ["env:EXPLICIT_KEY"],
+            authPaths: ["/trusted/auth.json"],
+          },
+        ],
+      }),
+    } as any;
+    const ctx = {
+      ...createTestContext(),
+      config: {
+        ...createTestContext().config,
+        customSources: [
+          {
+            id: "custom",
+            providerId: "provider-one",
+            label: "Custom",
+            url: "https://one.example/accounting",
+            preset: "accounting-v1",
+            apiKeyEnv: "EXPLICIT_KEY",
+          },
+        ],
+      },
+    };
+
+    const first = await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+    first.diagnostics![0]!.checkedPaths[0] = "mutated";
+    const second = await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+
+    expect(provider.fetch).toHaveBeenCalledTimes(1);
+    expect(second.errors).toEqual([{ label: "Other", message: "request failed" }]);
+    expect(second.diagnostics?.[0]?.checkedPaths).toEqual(["env:EXPLICIT_KEY"]);
   });
 
   it("bypasses persistence entirely for live-local providers", async () => {

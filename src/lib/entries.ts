@@ -1,4 +1,5 @@
 import type { CursorQuotaPlan, OpenCodeGoWindowKey } from "./types.js";
+import type { CustomSourceConfig } from "./custom-sources.js";
 
 /**
  * Normalized quota output model.
@@ -126,16 +127,48 @@ export interface QuotaProviderPresentation {
   classicStrategy?: "preserve";
 }
 
+export interface QuotaProviderDiagnostic {
+  sourceId: string;
+  providerId: string;
+  selected: true;
+  attempted: boolean;
+  credentialSource:
+    | "explicit_env"
+    | "global_opencode_json"
+    | "global_opencode_jsonc"
+    | "auth_json"
+    | null;
+  outcome:
+    | "missing_credential"
+    | "success"
+    | "http_error"
+    | "redirect_error"
+    | "timeout"
+    | "body_too_large"
+    | "invalid_content_type"
+    | "invalid_json"
+    | "invalid_response"
+    | "network_error";
+  httpStatus?: number;
+  entryCount: number;
+  checkedPaths: string[];
+  authPaths: string[];
+}
+
 export interface QuotaProviderResult {
   /** True when provider had enough configuration to attempt a query. */
   attempted: boolean;
   entries: QuotaToastEntry[];
   errors: QuotaToastError[];
+  /** Internal provider diagnostics; not projected into normal presentation/export surfaces. */
+  diagnostics?: QuotaProviderDiagnostic[];
   presentation?: QuotaProviderPresentation;
 }
 
 export interface QuotaProviderMatchContext {
   enabledProviders: string[] | "auto";
+  customSources?: CustomSourceConfig[];
+  currentProviderID?: string;
 }
 
 export interface QuotaProviderContext {
@@ -160,6 +193,7 @@ export interface QuotaProviderContext {
     currentModel?: string;
     currentProviderID?: string;
     enabledProviders: string[] | "auto";
+    customSources?: CustomSourceConfig[];
   };
 }
 

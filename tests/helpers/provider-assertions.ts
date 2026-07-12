@@ -199,6 +199,26 @@ export const PROVIDER_ACCOUNTING_LEDGER: Record<string, Array<QuotaToastEntry["a
       authority: "provider_reported",
     },
   ],
+  "custom-sources": [
+    {
+      resultType: "quota",
+      acquisitionMethod: "remote_api",
+      ownership: "user_configured",
+      authority: "provider_reported",
+    },
+    {
+      resultType: "budget",
+      acquisitionMethod: "remote_api",
+      ownership: "user_configured",
+      authority: "provider_reported",
+    },
+    {
+      resultType: "spend",
+      acquisitionMethod: "remote_api",
+      ownership: "user_configured",
+      authority: "provider_reported",
+    },
+  ],
 };
 
 export function visibleEntries(

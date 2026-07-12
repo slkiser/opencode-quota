@@ -17,10 +17,7 @@ import { fetchSessionTokensForDisplay } from "./session-tokens.js";
 import { getQuotaProviderDisplayLabel, normalizeQuotaProviderId } from "./provider-metadata.js";
 import { isCursorProviderId } from "./cursor-pricing.js";
 import { fetchQuotaProviderResult } from "./quota-state.js";
-import {
-  DEFAULT_QUOTA_FORMAT_STYLE,
-  getQuotaFormatStyleDefinition,
-} from "./quota-format-style.js";
+import { DEFAULT_QUOTA_FORMAT_STYLE, getQuotaFormatStyleDefinition } from "./quota-format-style.js";
 import { formatGroupedHeader } from "./grouped-header-format.js";
 import { getProviders } from "../providers/registry.js";
 import { getAnthropicNoDataMessage } from "../providers/anthropic.js";
@@ -136,6 +133,10 @@ function buildQuotaProviderContext(params: {
       currentModel,
       currentProviderID,
       enabledProviders: config.enabledProviders === "auto" ? "auto" : [...config.enabledProviders],
+      customSources: config.customSources.map((source) => ({
+        ...source,
+        ...(source.modelIds ? { modelIds: [...source.modelIds] } : {}),
+      })),
     },
   };
 }
@@ -145,16 +146,27 @@ export function matchesQuotaProviderCurrentSelection(params: {
   currentModel?: string;
   currentProviderID?: string;
   enabledProviders?: string[] | "auto";
+  customSources?: QuotaToastConfig["customSources"];
 }): boolean {
   if (params.currentModel) {
     return params.provider.matchesCurrentModel
       ? params.provider.matchesCurrentModel(params.currentModel, {
           enabledProviders: params.enabledProviders ?? "auto",
+          ...(params.customSources ? { customSources: params.customSources } : {}),
+          ...(params.currentProviderID ? { currentProviderID: params.currentProviderID } : {}),
         })
       : true;
   }
 
   if (!params.currentProviderID) return false;
+
+  if (params.provider.id === "custom-sources") {
+    return Boolean(
+      params.customSources?.some(
+        (source) => source.providerId === params.currentProviderID && source.modelIds === undefined,
+      ),
+    );
+  }
 
   const normalizedCurrentProviderID = normalizeQuotaProviderId(params.currentProviderID);
   if (params.provider.id === normalizedCurrentProviderID) {
@@ -212,6 +224,7 @@ export async function resolveQuotaRenderSelection(params: {
           currentModel,
           currentProviderID,
           enabledProviders: config.enabledProviders,
+          customSources: config.customSources,
         }),
       )
     : providers;
@@ -331,10 +344,7 @@ export async function collectQuotaStatusLiveProbes(params: {
   }));
 }
 
-function stripSingleWindowEntryMeta(
-  entry: QuotaToastEntry,
-  showRight: boolean,
-): QuotaToastEntry {
+function stripSingleWindowEntryMeta(entry: QuotaToastEntry, showRight: boolean): QuotaToastEntry {
   const { group: _group, label: _label, ...withoutGroupLabel } = entry;
   if (showRight) {
     return { ...withoutGroupLabel };
@@ -406,9 +416,10 @@ function normalizeSingleWindowPresentation(
       : typeof legacyPresentation.classicShowRight === "boolean"
         ? legacyPresentation.classicShowRight
         : false;
-  const classicStrategy = legacyPresentation.classicStrategy === "preserve"
-    ? legacyPresentation.classicStrategy
-    : undefined;
+  const classicStrategy =
+    legacyPresentation.classicStrategy === "preserve"
+      ? legacyPresentation.classicStrategy
+      : undefined;
 
   return {
     ...(singleWindowDisplayName ? { singleWindowDisplayName } : {}),
@@ -679,12 +690,14 @@ export async function collectQuotaRenderData(params: {
   let allWindowsData: QuotaRenderData | null | undefined;
   let singleWindowData: QuotaRenderData | null | undefined;
   if (params.includeAllWindowsData) {
-    const allWindowsEntries = (style === "allWindows")
+    const allWindowsEntries =
+      style === "allWindows"
         ? entries
-      : results.flatMap((result) =>
+        : (results.flatMap((result) =>
             projectProviderResultToStyle(result, "allWindows"),
-        ) as QuotaToastEntry[];
-    allWindowsData = (allWindowsEntries.length === 0 && errors.length === 0 && !sessionTokens)
+          ) as QuotaToastEntry[]);
+    allWindowsData =
+      allWindowsEntries.length === 0 && errors.length === 0 && !sessionTokens
         ? null
         : { entries: allWindowsEntries, errors: [...errors], sessionTokens };
 

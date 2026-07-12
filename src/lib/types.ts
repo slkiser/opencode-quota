@@ -113,7 +113,7 @@ export interface QuotaToastConfig {
 
   /**
    * User-defined accounting endpoints from the canonical global quota-toast.json only.
-   * Phase 2 validates and exposes this contract but does not execute the sources.
+   * Executed by the single explicit custom-sources aggregate provider.
    */
   customSources: CustomSourceConfig[];
 
