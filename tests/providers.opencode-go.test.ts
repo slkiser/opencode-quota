@@ -5,6 +5,7 @@ import {
   expectAttemptedWithNoErrors,
   expectNotAttempted,
 } from "./helpers/provider-assertions.js";
+import { visibleEntries } from "./helpers/provider-assertions.js";
 
 const mocks = vi.hoisted(() => ({
   fetchWithTimeout: vi.fn(),
@@ -144,7 +145,12 @@ function buildDataSlotOnlyHtml(
       const usage = windows[window];
       if (!usage) return "";
       const [usagePercent, resetTime] = usage;
-      const label = window === "rolling" ? "Rolling Usage" : window === "weekly" ? "Weekly Usage" : "Monthly Usage";
+      const label =
+        window === "rolling"
+          ? "Rolling Usage"
+          : window === "weekly"
+            ? "Weekly Usage"
+            : "Monthly Usage";
       return `<div data-slot="usage-item">
         <div data-slot="usage-header"><span data-slot="usage-label">${label}</span><span data-slot="usage-value"><!--$-->${usagePercent}<!--/-->%</span></div>
         <div data-slot="progress"><div data-slot="progress-bar" style="width: ${usagePercent}%;"></div></div>
@@ -289,12 +295,17 @@ describe("opencode-go provider", () => {
 
   it("defaults to available windows when opencodeGoWindows is not set", async () => {
     mockConfigConfigured();
-    mockDashboardSuccess(buildPartialDashboardHtml({ rolling: [7, 18000], monthly: [16, 2480000] }));
+    mockDashboardSuccess(
+      buildPartialDashboardHtml({ rolling: [7, 18000], monthly: [16, 2480000] }),
+    );
 
     const out = await runProviderFetch();
 
     expectAttemptedWithNoErrors(out);
-    expect(out.entries.map((entry) => entry.name)).toEqual(["OpenCode Go 5h", "OpenCode Go Monthly"]);
+    expect(out.entries.map((entry) => entry.name)).toEqual([
+      "OpenCode Go 5h",
+      "OpenCode Go Monthly",
+    ]);
   });
 
   it("succeeds when weekly is selected and only weeklyUsage is present", async () => {
@@ -315,7 +326,9 @@ describe("opencode-go provider", () => {
 
   it("returns a clear error when a selected weekly window is missing", async () => {
     mockConfigConfigured();
-    mockDashboardSuccess(buildPartialDashboardHtml({ rolling: [7, 18000], monthly: [16, 2480000] }));
+    mockDashboardSuccess(
+      buildPartialDashboardHtml({ rolling: [7, 18000], monthly: [16, 2480000] }),
+    );
 
     const out = await runProviderFetch(["weekly"]);
 
@@ -353,12 +366,17 @@ describe("opencode-go provider", () => {
 
   it("treats reordered full window selection as the default missing-window-tolerant selection", async () => {
     mockConfigConfigured();
-    mockDashboardSuccess(buildPartialDashboardHtml({ rolling: [7, 18000], monthly: [16, 2480000] }));
+    mockDashboardSuccess(
+      buildPartialDashboardHtml({ rolling: [7, 18000], monthly: [16, 2480000] }),
+    );
 
     const out = await runProviderFetch(["weekly", "monthly", "rolling"]);
 
     expectAttemptedWithNoErrors(out);
-    expect(out.entries.map((entry) => entry.name)).toEqual(["OpenCode Go 5h", "OpenCode Go Monthly"]);
+    expect(out.entries.map((entry) => entry.name)).toEqual([
+      "OpenCode Go 5h",
+      "OpenCode Go Monthly",
+    ]);
   });
 
   it("parses resetInSec-first field order", async () => {
@@ -389,7 +407,9 @@ describe("opencode-go provider", () => {
 
     const out = await runProviderFetch();
     expectAttemptedWithErrorLabel(out, "OpenCode Go");
-    expect(out.errors[0]?.message).toContain("Could not parse any known OpenCode Go dashboard usage windows");
+    expect(out.errors[0]?.message).toContain(
+      "Could not parse any known OpenCode Go dashboard usage windows",
+    );
   });
 
   it("returns error on network failure", async () => {
@@ -521,7 +541,9 @@ describe("opencode-go provider", () => {
 
     const out = await runProviderFetch();
     expectAttemptedWithErrorLabel(out, "OpenCode Go");
-    expect(out.errors[0]?.message).toContain("Could not parse any known OpenCode Go dashboard usage windows");
+    expect(out.errors[0]?.message).toContain(
+      "Could not parse any known OpenCode Go dashboard usage windows",
+    );
   });
 });
 
@@ -554,8 +576,10 @@ describe("opencode-go isAvailable", () => {
 });
 
 describe("_parseWindowUsage", () => {
-  const rollingRePctFirst = /rollingUsage:\$R\[\d+\]=\{[^}]*usagePercent:(\d+)[^}]*resetInSec:(\d+)[^}]*\}/;
-  const rollingReResetFirst = /rollingUsage:\$R\[\d+\]=\{[^}]*resetInSec:(\d+)[^}]*usagePercent:(\d+)[^}]*\}/;
+  const rollingRePctFirst =
+    /rollingUsage:\$R\[\d+\]=\{[^}]*usagePercent:(\d+)[^}]*resetInSec:(\d+)[^}]*\}/;
+  const rollingReResetFirst =
+    /rollingUsage:\$R\[\d+\]=\{[^}]*resetInSec:(\d+)[^}]*usagePercent:(\d+)[^}]*\}/;
 
   it("returns null for empty string", () => {
     expect(_parseWindowUsage("", rollingRePctFirst, rollingReResetFirst)).toBeNull();

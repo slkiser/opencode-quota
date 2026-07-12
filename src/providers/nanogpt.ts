@@ -8,7 +8,11 @@ import type {
   QuotaProviderResult,
   QuotaToastEntry,
 } from "../lib/entries.js";
-import { formatNanoGptBalanceValue, hasNanoGptApiKeyConfigured, queryNanoGptQuota } from "../lib/nanogpt.js";
+import {
+  formatNanoGptBalanceValue,
+  hasNanoGptApiKeyConfigured,
+  queryNanoGptQuota,
+} from "../lib/nanogpt.js";
 import { modelProviderMatchesRuntimeId } from "../lib/provider-model-matching.js";
 import { attemptedResult, mapNullableProviderResult } from "./result-helpers.js";
 
@@ -38,6 +42,12 @@ function mapNanoGptSuccess(result: NanoGptQuotaSuccess): QuotaProviderResult {
   const subscription = result.subscription;
   if (subscription?.daily) {
     entries.push({
+      accounting: {
+        resultType: "quota",
+        acquisitionMethod: "remote_api",
+        ownership: "maintained",
+        authority: "provider_reported",
+      },
       name: "NanoGPT Daily",
       group: "NanoGPT",
       label: "Daily:",
@@ -49,6 +59,12 @@ function mapNanoGptSuccess(result: NanoGptQuotaSuccess): QuotaProviderResult {
 
   if (subscription?.monthly) {
     entries.push({
+      accounting: {
+        resultType: "quota",
+        acquisitionMethod: "remote_api",
+        ownership: "maintained",
+        authority: "provider_reported",
+      },
       name: "NanoGPT Monthly",
       group: "NanoGPT",
       label: "Monthly:",
@@ -62,6 +78,12 @@ function mapNanoGptSuccess(result: NanoGptQuotaSuccess): QuotaProviderResult {
   if (balanceValue) {
     entries.push({
       kind: "value",
+      accounting: {
+        resultType: "balance",
+        acquisitionMethod: "remote_api",
+        ownership: "maintained",
+        authority: "provider_reported",
+      },
       name: "NanoGPT Balance",
       group: "NanoGPT",
       label: "Balance:",

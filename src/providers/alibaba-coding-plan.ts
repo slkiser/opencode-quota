@@ -55,6 +55,12 @@ export const alibabaCodingPlanProvider: QuotaProvider = {
 
     const entries: QuotaToastEntry[] = [
       {
+        accounting: {
+          resultType: "quota",
+          acquisitionMethod: "local_estimation",
+          ownership: "maintained",
+          authority: "locally_derived",
+        },
         name: `${label} 5h`,
         group: label,
         label: "5h:",
@@ -63,6 +69,12 @@ export const alibabaCodingPlanProvider: QuotaProvider = {
         resetTimeIso: quota.fiveHour.resetTimeIso,
       },
       {
+        accounting: {
+          resultType: "quota",
+          acquisitionMethod: "local_estimation",
+          ownership: "maintained",
+          authority: "locally_derived",
+        },
         name: `${label} Weekly`,
         group: label,
         label: "Weekly:",
@@ -71,6 +83,12 @@ export const alibabaCodingPlanProvider: QuotaProvider = {
         resetTimeIso: quota.weekly.resetTimeIso,
       },
       {
+        accounting: {
+          resultType: "quota",
+          acquisitionMethod: "local_estimation",
+          ownership: "maintained",
+          authority: "locally_derived",
+        },
         name: `${label} Monthly`,
         group: label,
         label: "Monthly:",

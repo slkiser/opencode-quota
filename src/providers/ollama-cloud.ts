@@ -29,6 +29,12 @@ function buildOllamaCloudEntries(
 
   if (result.session) {
     entries.push({
+      accounting: {
+        resultType: "quota",
+        acquisitionMethod: "dashboard_scrape",
+        ownership: "maintained",
+        authority: "provider_reported",
+      },
       name: `${OLLAMA_CLOUD_PROVIDER_LABEL} Session`,
       group: OLLAMA_CLOUD_PROVIDER_LABEL,
       label: "Session:",
@@ -39,6 +45,12 @@ function buildOllamaCloudEntries(
 
   if (result.weekly) {
     entries.push({
+      accounting: {
+        resultType: "quota",
+        acquisitionMethod: "dashboard_scrape",
+        ownership: "maintained",
+        authority: "provider_reported",
+      },
       name: `${OLLAMA_CLOUD_PROVIDER_LABEL} Weekly`,
       group: OLLAMA_CLOUD_PROVIDER_LABEL,
       label: "Weekly:",

@@ -2,6 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdir, readdir, rm, writeFile } from "fs/promises";
 
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-state-tests";
+const TEST_ACCOUNTING = {
+  resultType: "quota",
+  acquisitionMethod: "remote_api",
+  ownership: "maintained",
+  authority: "provider_reported",
+} as const;
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
   getOpencodeRuntimeDirs: () => ({
@@ -60,9 +66,8 @@ describe("quota-state shared cache", () => {
   });
 
   it("returns cache-owned clones for repeated non-live provider reads", async () => {
-    const { __resetQuotaStateForTests, fetchQuotaProviderResult } = await import(
-      "../src/lib/quota-state.js"
-    );
+    const { __resetQuotaStateForTests, fetchQuotaProviderResult } =
+      await import("../src/lib/quota-state.js");
     __resetQuotaStateForTests();
 
     const provider = {
@@ -72,6 +77,7 @@ describe("quota-state shared cache", () => {
         attempted: true,
         entries: [
           {
+            accounting: TEST_ACCOUNTING,
             name: "Synthetic Weekly",
             group: "Synthetic",
             label: "Weekly:",
@@ -80,11 +86,11 @@ describe("quota-state shared cache", () => {
             resetTimeIso: "2026-04-21T18:00:00.000Z",
           },
         ],
-      errors: [],
-      presentation: {
-        singleWindowShowRight: true,
-      },
-    }),
+        errors: [],
+        presentation: {
+          singleWindowShowRight: true,
+        },
+      }),
     } as any;
 
     const first = await fetchQuotaProviderResult({
@@ -95,6 +101,7 @@ describe("quota-state shared cache", () => {
     const firstEntry = first.entries[0] as any;
     firstEntry.right = "$0/$1";
     firstEntry.percentRemaining = 1;
+    firstEntry.accounting.resultType = "status";
 
     const second = await fetchQuotaProviderResult({
       provider,
@@ -106,6 +113,7 @@ describe("quota-state shared cache", () => {
       attempted: true,
       entries: [
         {
+          accounting: TEST_ACCOUNTING,
           name: "Synthetic Weekly",
           group: "Synthetic",
           label: "Weekly:",
@@ -122,7 +130,7 @@ describe("quota-state shared cache", () => {
     expect(provider.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("reuses the persisted cache across module resets", async () => {
+  it("reuses cache v2 with accounting metadata across module resets", async () => {
     const quotaStateA = await import("../src/lib/quota-state.js");
     quotaStateA.__resetQuotaStateForTests();
 
@@ -131,7 +139,7 @@ describe("quota-state shared cache", () => {
       isAvailable: vi.fn(),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
-        entries: [{ name: "Synthetic", percentRemaining: 55 }],
+        entries: [{ accounting: TEST_ACCOUNTING, name: "Synthetic", percentRemaining: 55 }],
         errors: [],
       }),
     } as any;
@@ -153,13 +161,13 @@ describe("quota-state shared cache", () => {
 
     expect(second).toEqual({
       attempted: true,
-      entries: [{ name: "Synthetic", percentRemaining: 55 }],
+      entries: [{ accounting: TEST_ACCOUNTING, name: "Synthetic", percentRemaining: 55 }],
       errors: [],
     });
     expect(provider.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("accepts persisted legacy classic presentation fields for cache compatibility", async () => {
+  it("rejects cache v1 and legacy-only presentation fields without migration", async () => {
     const quotaStateA = await import("../src/lib/quota-state.js");
     quotaStateA.__resetQuotaStateForTests();
 
@@ -168,7 +176,7 @@ describe("quota-state shared cache", () => {
       isAvailable: vi.fn(),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
-        entries: [{ name: "Synthetic", percentRemaining: 55 }],
+        entries: [{ accounting: TEST_ACCOUNTING, name: "Synthetic", percentRemaining: 55 }],
         errors: [],
       }),
     } as any;
@@ -189,7 +197,7 @@ describe("quota-state shared cache", () => {
         timestamp: Date.now(),
         result: {
           attempted: true,
-          entries: [{ name: "Synthetic", percentRemaining: 55 }],
+          entries: [{ accounting: TEST_ACCOUNTING, name: "Synthetic", percentRemaining: 55 }],
           errors: [],
           presentation: {
             classicDisplayName: "Synthetic",
@@ -207,15 +215,10 @@ describe("quota-state shared cache", () => {
 
     expect(result).toEqual({
       attempted: true,
-      entries: [{ name: "Synthetic", percentRemaining: 55 }],
+      entries: [{ accounting: TEST_ACCOUNTING, name: "Synthetic", percentRemaining: 55 }],
       errors: [],
-      presentation: {
-        classicDisplayName: "Synthetic",
-        classicShowRight: true,
-        classicStrategy: "preserve",
-      },
     });
-    expect(provider.fetch).not.toHaveBeenCalled();
+    expect(provider.fetch).toHaveBeenCalledTimes(1);
   });
 
   it("treats cache corruption as a miss and refetches live data", async () => {
@@ -227,7 +230,7 @@ describe("quota-state shared cache", () => {
       isAvailable: vi.fn(),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
-        entries: [{ name: "Synthetic", percentRemaining: 55 }],
+        entries: [{ accounting: TEST_ACCOUNTING, name: "Synthetic", percentRemaining: 55 }],
         errors: [],
       }),
     } as any;
@@ -254,7 +257,7 @@ describe("quota-state shared cache", () => {
       isAvailable: vi.fn(),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
-        entries: [{ name: "Synthetic", percentRemaining: 55 }],
+        entries: [{ accounting: TEST_ACCOUNTING, name: "Synthetic", percentRemaining: 55 }],
         errors: [],
       }),
     } as any;
@@ -271,7 +274,11 @@ describe("quota-state shared cache", () => {
         key,
         providerId: provider.id,
         timestamp: Date.now(),
-        result: { attempted: true, entries: [{ name: "Synthetic", percentRemaining: 10 }], errors: [] },
+        result: {
+          attempted: true,
+          entries: [{ accounting: TEST_ACCOUNTING, name: "Synthetic", percentRemaining: 10 }],
+          errors: [],
+        },
       }),
       "utf-8",
     );
@@ -292,7 +299,7 @@ describe("quota-state shared cache", () => {
       isAvailable: vi.fn(),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
-        entries: [{ name: "Synthetic", percentRemaining: 55 }],
+        entries: [{ accounting: TEST_ACCOUNTING, name: "Synthetic", percentRemaining: 55 }],
         errors: [],
       }),
     } as any;
@@ -308,7 +315,11 @@ describe("quota-state shared cache", () => {
         key,
         providerId: provider.id,
         timestamp: Date.now(),
-        result: { attempted: true, entries: [{ name: "Synthetic", percentRemaining: 10 }], errors: [] },
+        result: {
+          attempted: true,
+          entries: [{ accounting: TEST_ACCOUNTING, name: "Synthetic", percentRemaining: 10 }],
+          errors: [],
+        },
       }),
       "utf-8",
     );
@@ -346,9 +357,8 @@ describe("quota-state shared cache", () => {
   });
 
   it("bypasses persistence entirely for live-local providers", async () => {
-    const { __resetQuotaStateForTests, fetchQuotaProviderResult } = await import(
-      "../src/lib/quota-state.js"
-    );
+    const { __resetQuotaStateForTests, fetchQuotaProviderResult } =
+      await import("../src/lib/quota-state.js");
     __resetQuotaStateForTests();
 
     const provider = {
@@ -356,7 +366,7 @@ describe("quota-state shared cache", () => {
       isAvailable: vi.fn(),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
-        entries: [{ name: "Qwen Free Daily", percentRemaining: 99 }],
+        entries: [{ accounting: TEST_ACCOUNTING, name: "Qwen Free Daily", percentRemaining: 99 }],
         errors: [],
       }),
     } as any;
@@ -375,6 +385,130 @@ describe("quota-state shared cache", () => {
     await expect(readdir(`${TEST_RUNTIME_ROOT}/cache/quota-provider-state`)).rejects.toThrow();
     expect(provider.fetch).toHaveBeenCalledTimes(2);
   });
+
+  it("rejects the whole cache v2 result when one entry is malformed", async () => {
+    const quotaStateA = await import("../src/lib/quota-state.js");
+    quotaStateA.__resetQuotaStateForTests();
+
+    const provider = {
+      id: "synthetic",
+      isAvailable: vi.fn(),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [{ accounting: TEST_ACCOUNTING, name: "Fresh", percentRemaining: 90 }],
+        errors: [],
+      }),
+    } as any;
+    const ctx = createTestContext();
+    const key = quotaStateA.buildQuotaProviderStateCacheKey(provider.id, ctx);
+    const path = quotaStateA.getQuotaProviderStateCacheFilePath(provider.id, key);
+    const { getPackageVersion } = await import("../src/lib/version.js");
+    const packageVersion = (await getPackageVersion()) ?? "unknown";
+
+    await mkdir(`${TEST_RUNTIME_ROOT}/cache/quota-provider-state`, { recursive: true });
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 2,
+        packageVersion,
+        key,
+        providerId: provider.id,
+        timestamp: Date.now(),
+        result: {
+          attempted: true,
+          entries: [
+            { accounting: TEST_ACCOUNTING, name: "Valid", percentRemaining: 50 },
+            { name: "Missing accounting", percentRemaining: 25 },
+          ],
+          errors: [],
+        },
+      }),
+      "utf-8",
+    );
+
+    const result = await quotaStateA.fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+    expect(result.entries).toEqual([
+      { accounting: TEST_ACCOUNTING, name: "Fresh", percentRemaining: 90 },
+    ]);
+    expect(provider.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not cache a malformed live provider result", async () => {
+    const { fetchQuotaProviderResult, readCachedProviderResult } =
+      await import("../src/lib/quota-state.js");
+    const provider = {
+      id: "synthetic",
+      isAvailable: vi.fn(),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [{ name: "Missing accounting", percentRemaining: 25 }],
+        errors: [],
+      }),
+    } as any;
+    const ctx = createTestContext();
+
+    const first = await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+    const second = await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+
+    expect(first).toEqual({
+      attempted: true,
+      entries: [],
+      errors: [{ label: "Synthetic", message: "Invalid normalized provider result" }],
+    });
+    expect(second).toEqual(first);
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
+    await expect(readCachedProviderResult({ provider, ctx, ttlMs: 60_000 })).resolves.toEqual({
+      hit: false,
+    });
+  });
+
+  it("rejects cache v2 timestamps that are parseable but not ISO", async () => {
+    const quotaState = await import("../src/lib/quota-state.js");
+    quotaState.__resetQuotaStateForTests();
+    const provider = {
+      id: "synthetic",
+      isAvailable: vi.fn(),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [{ accounting: TEST_ACCOUNTING, name: "Fresh", percentRemaining: 90 }],
+        errors: [],
+      }),
+    } as any;
+    const ctx = createTestContext();
+    const key = quotaState.buildQuotaProviderStateCacheKey(provider.id, ctx);
+    const path = quotaState.getQuotaProviderStateCacheFilePath(provider.id, key);
+    const { getPackageVersion } = await import("../src/lib/version.js");
+    const packageVersion = (await getPackageVersion()) ?? "unknown";
+
+    await mkdir(`${TEST_RUNTIME_ROOT}/cache/quota-provider-state`, { recursive: true });
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 2,
+        packageVersion,
+        key,
+        providerId: provider.id,
+        timestamp: Date.now(),
+        result: {
+          attempted: true,
+          entries: [
+            {
+              accounting: { ...TEST_ACCOUNTING, observedAtIso: "07/11/2026" },
+              name: "Stale",
+              percentRemaining: 10,
+              resetTimeIso: "July 11, 2026",
+            },
+          ],
+          errors: [],
+        },
+      }),
+      "utf-8",
+    );
+
+    const result = await quotaState.fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+    expect(result.entries[0]?.name).toBe("Fresh");
+    expect(provider.fetch).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("readCachedProviderResult", () => {
@@ -391,9 +525,8 @@ describe("readCachedProviderResult", () => {
   });
 
   it("returns { hit: false } when no memory or disk cache entry exists", async () => {
-    const { __resetQuotaStateForTests, readCachedProviderResult } = await import(
-      "../src/lib/quota-state.js"
-    );
+    const { __resetQuotaStateForTests, readCachedProviderResult } =
+      await import("../src/lib/quota-state.js");
     __resetQuotaStateForTests();
 
     const provider = {
@@ -421,7 +554,7 @@ describe("readCachedProviderResult", () => {
       isAvailable: vi.fn(),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
-        entries: [{ name: "Synthetic", percentRemaining: 75 }],
+        entries: [{ accounting: TEST_ACCOUNTING, name: "Synthetic", percentRemaining: 75 }],
         errors: [],
       }),
     } as any;
@@ -442,7 +575,7 @@ describe("readCachedProviderResult", () => {
       hit: true,
       result: {
         attempted: true,
-        entries: [{ name: "Synthetic", percentRemaining: 75 }],
+        entries: [{ accounting: TEST_ACCOUNTING, name: "Synthetic", percentRemaining: 75 }],
         errors: [],
       },
     });
@@ -457,7 +590,7 @@ describe("readCachedProviderResult", () => {
       isAvailable: vi.fn(),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
-        entries: [{ name: "Synthetic", percentRemaining: 42 }],
+        entries: [{ accounting: TEST_ACCOUNTING, name: "Synthetic", percentRemaining: 42 }],
         errors: [],
       }),
     } as any;
@@ -471,14 +604,14 @@ describe("readCachedProviderResult", () => {
     await writeFile(
       path,
       JSON.stringify({
-        version: 1,
+        version: 2,
         packageVersion,
         key,
         providerId: provider.id,
         timestamp: Date.now(),
         result: {
           attempted: true,
-          entries: [{ name: "Synthetic", percentRemaining: 42 }],
+          entries: [{ accounting: TEST_ACCOUNTING, name: "Synthetic", percentRemaining: 42 }],
           errors: [],
         },
       }),
@@ -495,6 +628,7 @@ describe("readCachedProviderResult", () => {
 
     // Mutate the returned result to verify the cache stores a clone.
     (first as any).result.entries[0].percentRemaining = 999;
+    (first as any).result.entries[0].accounting.resultType = "status";
 
     // Second read: should still return the original cached value (not the mutated one).
     const second = await quotaStateA.readCachedProviderResult({
@@ -502,6 +636,9 @@ describe("readCachedProviderResult", () => {
       ctx,
       ttlMs: 60_000,
     });
-    expect(second).toMatchObject({ hit: true, result: { entries: [{ percentRemaining: 42 }] } });
+    expect(second).toMatchObject({
+      hit: true,
+      result: { entries: [{ accounting: TEST_ACCOUNTING, percentRemaining: 42 }] },
+    });
   });
 });

@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { expectAttemptedWithErrorLabel, expectNotAttempted } from "./helpers/provider-assertions.js";
+import {
+  expectAttemptedWithErrorLabel,
+  expectNotAttempted,
+} from "./helpers/provider-assertions.js";
+import { visibleEntries } from "./helpers/provider-assertions.js";
 import { googleAntigravityProvider } from "../src/providers/google-antigravity.js";
 
 vi.mock("../src/lib/google.js", () => ({
@@ -34,7 +38,7 @@ describe("google antigravity provider", () => {
 
     const out = await googleAntigravityProvider.fetch({ config: { googleModels: [] } } as any);
     expect(out.attempted).toBe(true);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "google-antigravity")).toEqual([
       {
         name: "Gemini 2.5 Pro (ali..gmail)",
         group: "Gemini 2.5 Pro",

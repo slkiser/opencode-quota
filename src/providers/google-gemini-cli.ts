@@ -1,10 +1,15 @@
-import type { QuotaProvider, QuotaProviderContext, QuotaProviderResult } from "../lib/entries.js";
-import { hasGeminiCliQuotaRuntimeAvailable, queryGeminiCliQuota } from "../lib/google-gemini-cli.js";
-import { parseProviderModelRef } from "../lib/provider-model-matching.js";
+import type {
+  QuotaProvider,
+  QuotaProviderContext,
+  QuotaProviderResult,
+  QuotaToastEntry,
+} from "../lib/entries.js";
 import {
-  formatGoogleAccountErrors,
-  formatGoogleAccountLabel,
-} from "./google-account-format.js";
+  hasGeminiCliQuotaRuntimeAvailable,
+  queryGeminiCliQuota,
+} from "../lib/google-gemini-cli.js";
+import { parseProviderModelRef } from "../lib/provider-model-matching.js";
+import { formatGoogleAccountErrors, formatGoogleAccountLabel } from "./google-account-format.js";
 import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";
 
 function isGeminiCliModel(model: string): boolean {
@@ -49,7 +54,7 @@ export const googleGeminiCliProvider: QuotaProvider = {
       return attemptedErrorResult("Gemini CLI", result.error);
     }
 
-    const entries = result.buckets.map((bucket) => {
+    const entries: QuotaToastEntry[] = result.buckets.map((bucket) => {
       const emailLabel = formatGoogleAccountLabel(bucket.accountEmail, "domainHint");
       const parsedRemaining = bucket.remainingAmount
         ? Number.parseInt(bucket.remainingAmount, 10)
@@ -63,6 +68,12 @@ export const googleGeminiCliProvider: QuotaProvider = {
         .join(" ");
 
       return {
+        accounting: {
+          resultType: "quota",
+          acquisitionMethod: "remote_api",
+          ownership: "maintained",
+          authority: "provider_reported",
+        },
         name: `${bucket.displayName} (${emailLabel})`,
         group: "Gemini CLI",
         label: `${bucket.displayName}:`,

@@ -1,3 +1,10 @@
+import type {
+  AccountingAcquisitionMethod,
+  AccountingAuthority,
+  AccountingOwnership,
+  AccountingResultType,
+} from "./entries.js";
+
 /**
  * Export types for external tool consumption.
  *
@@ -6,32 +13,38 @@
  * `show --json` CLI output.
  */
 
-/**
- * A single normalized quota row in the export document.
- *
- * Mirrors `QuotaToastEntry` after projection, with fields flattened
- * for machine-readable consumption.
- */
-export interface QuotaExportEntry {
+interface QuotaExportEntryBase {
   /** Human-readable row label (same as QuotaToastEntry.name after projection). */
   name: string;
+  /** Provider-neutral accounting meaning. */
+  resultType: AccountingResultType;
+  /** How the value was acquired. */
+  acquisitionMethod: AccountingAcquisitionMethod;
+  /** Whether the source definition is maintained or user-configured. */
+  ownership: AccountingOwnership;
+  /** Whether the value was provider-reported or locally derived. */
+  authority: AccountingAuthority;
+  /** Unix seconds when the source observed the value. */
+  observedAt?: number;
   /**
    * Normalized window label when the entry has one: "Monthly", "Weekly", "5h", "RPM", etc.
    * Absent when there is only one window for the provider.
    */
   window?: string;
-  /** Quota remaining as percentage [0..100]. Absent for value-kind entries. */
-  percentRemaining?: number;
-  /** Unix seconds of the next quota reset. Absent when not reported by the provider. */
+  /** Unix seconds of the next source-backed reset. */
   resetAt?: number;
-  /**
-   * True when the provider reported an unlimited plan.
-   * In the first iteration this is always false — the normalized QuotaToastEntry
-   * does not carry an unlimited flag. Leave the field in the schema for forward-
-   * compatibility; providers can opt-in when they propagate it.
-   */
-  unlimited: boolean;
 }
+
+/** A single normalized accounting row in the v2 export document. */
+export type QuotaExportEntry =
+  | (QuotaExportEntryBase & {
+      renderType: "percent";
+      percentRemaining: number;
+    })
+  | (QuotaExportEntryBase & {
+      renderType: "value";
+      value: string;
+    });
 
 /**
  * Per-provider export status.
@@ -42,23 +55,18 @@ export interface QuotaExportEntry {
 export type QuotaExportProvider =
   | { status: "ok"; fetchedAt: number; entries: QuotaExportEntry[] }
   | { status: "error"; fetchedAt: number; error: string }
-  | { status: "unavailable" }; // isAvailable() = false or no cache entry
+  | { status: "unavailable" };
 
-/**
- * Top-level export document assembled from all configured providers.
- *
- * Written atomically to disk when `config.export.enabled` is true,
- * and emitted by `show --json`.
- */
+/** Top-level v2 export document assembled from all configured providers. */
 export interface QuotaExport {
-  /** Schema version. Bump only on breaking changes. */
-  version: 1;
+  /** Schema version. */
+  version: 2;
   /** Unix seconds when this document was assembled. */
   exportedAt: number;
   /** True when data was read from disk cache without a live fetch. */
   fromCache: boolean;
   /** Seconds since the oldest provider cache entry was written. */
   cacheAgeSeconds: number;
-  /** Keyed by canonical provider id (e.g. "copilot", "opencode-go"). */
+  /** Keyed by canonical provider id. */
   providers: Record<string, QuotaExportProvider>;
 }

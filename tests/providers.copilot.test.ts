@@ -5,6 +5,7 @@ import {
   expectAttemptedWithNoErrors,
   expectNotAttempted,
 } from "./helpers/provider-assertions.js";
+import { visibleEntries } from "./helpers/provider-assertions.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 import { copilotProvider } from "../src/providers/copilot.js";
 
@@ -35,7 +36,7 @@ describe("copilot provider", () => {
 
     const out = await copilotProvider.fetch({} as any);
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "copilot")).toEqual([
       {
         name: "Copilot",
         group: "Copilot (personal)",
@@ -62,7 +63,7 @@ describe("copilot provider", () => {
 
     const out = await copilotProvider.fetch({} as any);
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "copilot")).toEqual([
       {
         kind: "value",
         name: "Copilot",
@@ -92,7 +93,7 @@ describe("copilot provider", () => {
 
     const out = await copilotProvider.fetch({} as any);
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "copilot")).toEqual([
       {
         kind: "value",
         name: "Copilot",
@@ -124,7 +125,7 @@ describe("copilot provider", () => {
 
     const out = await copilotProvider.fetch({} as any);
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "copilot")).toEqual([
       {
         kind: "value",
         name: "Copilot",
@@ -160,7 +161,9 @@ describe("copilot provider", () => {
       ),
     ).resolves.toBe(true);
     await expect(
-      copilotProvider.isAvailable(createProviderAvailabilityContext({ providerIds: ["copilot-chat"] })),
+      copilotProvider.isAvailable(
+        createProviderAvailabilityContext({ providerIds: ["copilot-chat"] }),
+      ),
     ).resolves.toBe(true);
     await expect(
       copilotProvider.isAvailable(

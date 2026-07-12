@@ -5,6 +5,7 @@ import {
   expectAttemptedWithNoErrors,
   expectNotAttempted,
 } from "./helpers/provider-assertions.js";
+import { visibleEntries } from "./helpers/provider-assertions.js";
 import { nanoGptProvider } from "../src/providers/nanogpt.js";
 
 vi.mock("../src/lib/nanogpt.js", () => ({
@@ -57,7 +58,7 @@ describe("nanogpt provider", () => {
 
     const out = await nanoGptProvider.fetch({ config: {} } as any);
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "nanogpt")).toEqual([
       {
         name: "NanoGPT Daily",
         group: "NanoGPT",
@@ -111,7 +112,7 @@ describe("nanogpt provider", () => {
 
     const out = await nanoGptProvider.fetch({ config: {} } as any);
     expect(out.attempted).toBe(true);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "nanogpt")).toEqual([
       {
         name: "NanoGPT Daily",
         group: "NanoGPT",
@@ -157,7 +158,7 @@ describe("nanogpt provider", () => {
 
     const out = await nanoGptProvider.fetch({ config: {} } as any);
     expectAttemptedWithErrorLabel(out, "NanoGPT");
-    expect(out.entries).toEqual([]);
+    expect(visibleEntries(out.entries, "nanogpt")).toEqual([]);
   });
 
   it("matches NanoGPT model ids", () => {

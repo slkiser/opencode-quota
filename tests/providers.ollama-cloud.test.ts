@@ -5,6 +5,7 @@ import {
   expectAttemptedWithNoErrors,
   expectNotAttempted,
 } from "./helpers/provider-assertions.js";
+import { visibleEntries } from "./helpers/provider-assertions.js";
 
 const mocks = vi.hoisted(() => ({
   queryOllamaCloudQuota: vi.fn(),
@@ -108,7 +109,7 @@ describe("ollama-cloud provider", () => {
     const out = await runProviderFetch();
 
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "ollama-cloud")).toEqual([
       {
         name: "Ollama Cloud Session",
         group: "Ollama Cloud",
@@ -140,7 +141,7 @@ describe("ollama-cloud provider", () => {
     const out = await runProviderFetch();
 
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "ollama-cloud")).toEqual([
       {
         name: "Ollama Cloud Session",
         group: "Ollama Cloud",
@@ -165,7 +166,7 @@ describe("ollama-cloud provider", () => {
     const out = await runProviderFetch();
 
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "ollama-cloud")).toEqual([
       {
         name: "Ollama Cloud Weekly",
         group: "Ollama Cloud",

@@ -34,6 +34,12 @@ export const chutesProvider: QuotaProvider = {
       onSuccess: (result) =>
         attemptedResult([
           {
+            accounting: {
+              resultType: "quota",
+              acquisitionMethod: "remote_api",
+              ownership: "maintained",
+              authority: "provider_reported",
+            },
             name: "Chutes",
             percentRemaining: result.percentRemaining,
             resetTimeIso: result.resetTimeIso,

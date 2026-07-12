@@ -2,14 +2,16 @@
  * Google Antigravity provider wrapper.
  */
 
-import type { QuotaProvider, QuotaProviderContext, QuotaProviderResult } from "../lib/entries.js";
+import type {
+  QuotaProvider,
+  QuotaProviderContext,
+  QuotaProviderResult,
+  QuotaToastEntry,
+} from "../lib/entries.js";
 import type { GoogleModelId } from "../lib/types.js";
 import { hasAntigravityQuotaRuntimeAvailable, queryGoogleQuota } from "../lib/google.js";
 import { modelProviderIncludesAny } from "../lib/provider-model-matching.js";
-import {
-  formatGoogleAccountErrors,
-  formatGoogleAccountLabel,
-} from "./google-account-format.js";
+import { formatGoogleAccountErrors, formatGoogleAccountLabel } from "./google-account-format.js";
 import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";
 
 async function isAccountsConfigured(): Promise<boolean> {
@@ -47,9 +49,16 @@ export const googleAntigravityProvider: QuotaProvider = {
       return attemptedErrorResult("Antigravity", result.error);
     }
 
-    const entries = result.models.map((m) => {
-      const emailLabel = formatGoogleAccountLabel(m.accountEmail, "fixedGmailHint") || "Antigravity";
+    const entries: QuotaToastEntry[] = result.models.map((m) => {
+      const emailLabel =
+        formatGoogleAccountLabel(m.accountEmail, "fixedGmailHint") || "Antigravity";
       return {
+        accounting: {
+          resultType: "quota",
+          acquisitionMethod: "remote_api",
+          ownership: "maintained",
+          authority: "provider_reported",
+        },
         name: `${m.displayName} (${emailLabel})`,
         group: m.displayName,
         label: `${m.displayName}:`,
@@ -58,10 +67,8 @@ export const googleAntigravityProvider: QuotaProvider = {
       };
     });
 
-    return attemptedResult(
-      entries,
-      formatGoogleAccountErrors(result.errors, "fixedGmailHint"),
-      { classicStrategy: "preserve" },
-    );
+    return attemptedResult(entries, formatGoogleAccountErrors(result.errors, "fixedGmailHint"), {
+      classicStrategy: "preserve",
+    });
   },
 };

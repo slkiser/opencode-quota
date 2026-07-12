@@ -2,11 +2,7 @@ import { homedir } from "os";
 import { join } from "path";
 
 import type { QuotaProvider, QuotaProviderContext, QuotaToastEntry } from "./entries.js";
-import type {
-  QuotaExport,
-  QuotaExportEntry,
-  QuotaExportProvider,
-} from "./quota-export-types.js";
+import type { QuotaExport, QuotaExportEntry, QuotaExportProvider } from "./quota-export-types.js";
 import type { QuotaRuntimeContext } from "./quota-runtime-context.js";
 
 import { writeJsonAtomic } from "./atomic-json.js";
@@ -63,28 +59,34 @@ export function resolveExportPath(configured: string): string {
 /**
  * Maps a `QuotaToastEntry` to a `QuotaExportEntry`.
  */
-function toExportEntry(entry: QuotaToastEntry): QuotaExportEntry {
-  const percentRemaining = isValueEntry(entry)
-    ? undefined
-    : entry.percentRemaining;
+function unixSecondsFromIso(value: string | undefined): number | undefined {
+  if (!value) return undefined;
 
+  const milliseconds = new Date(value).getTime();
+  return Number.isFinite(milliseconds) ? Math.floor(milliseconds / 1000) : undefined;
+}
+
+function toExportEntry(entry: QuotaToastEntry): QuotaExportEntry {
   // Derive the window only from the explicit row label. The entry name is a
   // human-readable display string (e.g. "Monthly Premium Requests") and must
-  // not be parsed as a machine-readable window, or single-window providers
-  // would emit a spurious `window` that consumers branch on.
+  // not be parsed as a machine-readable window.
   const window = normalizeSingleWindowWindowLabel(entry.label) ?? undefined;
-
-  const resetAt = entry.resetTimeIso
-    ? Math.floor(new Date(entry.resetTimeIso).getTime() / 1000)
-    : undefined;
-
-  return {
+  const resetAt = unixSecondsFromIso(entry.resetTimeIso);
+  const observedAt = unixSecondsFromIso(entry.accounting.observedAtIso);
+  const base = {
     name: entry.name,
+    resultType: entry.accounting.resultType,
+    acquisitionMethod: entry.accounting.acquisitionMethod,
+    ownership: entry.accounting.ownership,
+    authority: entry.accounting.authority,
+    ...(observedAt !== undefined ? { observedAt } : {}),
     ...(window ? { window } : {}),
-    ...(percentRemaining !== undefined ? { percentRemaining } : {}),
     ...(resetAt !== undefined ? { resetAt } : {}),
-    unlimited: false,
   };
+
+  return isValueEntry(entry)
+    ? { ...base, renderType: "value", value: entry.value }
+    : { ...base, renderType: "percent", percentRemaining: entry.percentRemaining };
 }
 
 /**
@@ -143,14 +145,12 @@ export async function buildQuotaExport(params: {
   }
 
   const cacheAgeSeconds =
-    fetchedAtValues.length > 0
-      ? Math.floor(Date.now() / 1000) - Math.min(...fetchedAtValues)
-      : 0;
+    fetchedAtValues.length > 0 ? Math.floor(Date.now() / 1000) - Math.min(...fetchedAtValues) : 0;
 
   const exportedAt = Math.floor(Date.now() / 1000);
 
   return {
-    version: 1,
+    version: 2,
     exportedAt,
     fromCache: params.fromCache,
     cacheAgeSeconds,

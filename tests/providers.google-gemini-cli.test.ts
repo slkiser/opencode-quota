@@ -5,6 +5,7 @@ import {
   expectAttemptedWithNoErrors,
   expectNotAttempted,
 } from "./helpers/provider-assertions.js";
+import { visibleEntries } from "./helpers/provider-assertions.js";
 import { googleGeminiCliProvider } from "../src/providers/google-gemini-cli.js";
 
 vi.mock("../src/lib/google-gemini-cli.js", () => ({
@@ -55,7 +56,7 @@ describe("google gemini cli provider", () => {
 
     const out = await googleGeminiCliProvider.fetch({ client: {} } as any);
     expect(out.attempted).toBe(true);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "google-gemini-cli")).toEqual([
       {
         name: "Gemini Pro (ali..example)",
         group: "Gemini CLI",
@@ -109,7 +110,7 @@ describe("google gemini cli provider", () => {
 
     const out = await googleGeminiCliProvider.fetch({ client: {} } as any);
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "google-gemini-cli")).toEqual([
       {
         name: "Gemini Pro (ali..example)",
         group: "Gemini CLI",

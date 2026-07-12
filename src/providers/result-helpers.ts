@@ -1,4 +1,5 @@
 import type {
+  AccountingMetadata,
   QuotaProviderPresentation,
   QuotaProviderResult,
   QuotaToastEntry,
@@ -46,6 +47,7 @@ export function mapNullableProviderResult<TSuccess extends { success: true }>(
 
 export function groupedPercentWindowEntries(params: {
   group: string;
+  accounting: AccountingMetadata;
   windows: Array<{
     window?: {
       percentRemaining: number;
@@ -62,6 +64,7 @@ export function groupedPercentWindowEntries(params: {
     if (!window) continue;
 
     entries.push({
+      accounting: { ...params.accounting },
       name: `${params.group} ${suffix}`,
       group: params.group,
       label,
@@ -71,7 +74,11 @@ export function groupedPercentWindowEntries(params: {
   }
 
   if (entries.length === 0 && params.fallbackWhenEmpty !== false) {
-    entries.push({ name: params.group, percentRemaining: 0 });
+    entries.push({
+      accounting: { ...params.accounting },
+      name: params.group,
+      percentRemaining: 0,
+    });
   }
 
   return entries;

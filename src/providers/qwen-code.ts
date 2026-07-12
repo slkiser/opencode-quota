@@ -39,6 +39,12 @@ export const qwenCodeProvider: QuotaProvider = {
     return attemptedResult(
       [
         {
+          accounting: {
+            resultType: "quota",
+            acquisitionMethod: "local_estimation",
+            ownership: "maintained",
+            authority: "locally_derived",
+          },
           name: "Qwen Free Daily",
           group: "Qwen (free)",
           label: "Daily:",
@@ -47,6 +53,12 @@ export const qwenCodeProvider: QuotaProvider = {
           resetTimeIso: quota.day.resetTimeIso,
         },
         {
+          accounting: {
+            resultType: "rate_limit",
+            acquisitionMethod: "local_estimation",
+            ownership: "maintained",
+            authority: "locally_derived",
+          },
           name: "Qwen Free RPM",
           group: "Qwen (free)",
           label: "RPM:",

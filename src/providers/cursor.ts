@@ -67,7 +67,12 @@ export const cursorProvider: QuotaProvider = {
 
     const errors =
       usage.unknownModels.length > 0
-        ? [{ label: "Cursor", message: "Unknown Cursor model ids present in local history (see /quota_status)" }]
+        ? [
+            {
+              label: "Cursor",
+              message: "Unknown Cursor model ids present in local history (see /quota_status)",
+            },
+          ]
         : [];
     const hasPartialApiCoverage = usage.unknownModels.length > 0;
     const entries: QuotaToastEntry[] = [];
@@ -77,6 +82,12 @@ export const cursorProvider: QuotaProvider = {
         hasPartialApiCoverage
           ? {
               kind: "value",
+              accounting: {
+                resultType: "budget",
+                acquisitionMethod: "local_runtime_accounting",
+                ownership: "maintained",
+                authority: "locally_derived",
+              },
               name: planLabel ? `Cursor API (${planLabel})` : "Cursor API",
               group,
               label: "API:",
@@ -88,17 +99,30 @@ export const cursorProvider: QuotaProvider = {
               resetTimeIso: usage.window.resetTimeIso,
             }
           : {
+              accounting: {
+                resultType: "budget",
+                acquisitionMethod: "local_runtime_accounting",
+                ownership: "maintained",
+                authority: "locally_derived",
+              },
               name: planLabel ? `Cursor API (${planLabel})` : "Cursor API",
               group,
               label: "API:",
               right: `${fmtUsdAmount(usage.api.costUsd)}/${fmtUsdAmount(includedApiUsd)}`,
-              percentRemaining: includedApiUsd > 0 ? 100 - (usage.api.costUsd / includedApiUsd) * 100 : 0,
+              percentRemaining:
+                includedApiUsd > 0 ? 100 - (usage.api.costUsd / includedApiUsd) * 100 : 0,
               resetTimeIso: usage.window.resetTimeIso,
             },
       );
     } else {
       entries.push({
         kind: "value",
+        accounting: {
+          resultType: "spend",
+          acquisitionMethod: "local_runtime_accounting",
+          ownership: "maintained",
+          authority: "locally_derived",
+        },
         name: "Cursor",
         group,
         label: "Usage:",
@@ -110,6 +134,12 @@ export const cursorProvider: QuotaProvider = {
     if (usage.autoComposer.messageCount > 0 || includedApiUsd !== undefined) {
       entries.push({
         kind: "value",
+        accounting: {
+          resultType: "spend",
+          acquisitionMethod: "local_runtime_accounting",
+          ownership: "maintained",
+          authority: "locally_derived",
+        },
         name: "Cursor Auto+Composer",
         group,
         label: "Auto+Composer:",

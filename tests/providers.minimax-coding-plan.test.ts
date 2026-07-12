@@ -5,6 +5,7 @@ import {
   expectAttemptedWithNoErrors,
   expectNotAttempted,
 } from "./helpers/provider-assertions.js";
+import { visibleEntries } from "./helpers/provider-assertions.js";
 
 const mocks = vi.hoisted(() => ({
   fetchWithTimeout: vi.fn(),
@@ -70,12 +71,19 @@ function mockMiniMaxAuthInvalid(error = "Invalid API key") {
   mocks.resolveMiniMaxAuthCached.mockResolvedValueOnce({ state: "invalid", error });
 }
 
-function mockMiniMaxAuthConfigured(apiKey = "test-key", endpoint: "international" | "china" = "international") {
+function mockMiniMaxAuthConfigured(
+  apiKey = "test-key",
+  endpoint: "international" | "china" = "international",
+) {
   mocks.resolveMiniMaxAuthCached.mockResolvedValueOnce({ state: "configured", apiKey, endpoint });
 }
 
 function mockMiniMaxChinaAuthConfigured(apiKey = "china-key") {
-  mocks.resolveMiniMaxChinaAuthCached.mockResolvedValueOnce({ state: "configured", apiKey, endpoint: "china" });
+  mocks.resolveMiniMaxChinaAuthCached.mockResolvedValueOnce({
+    state: "configured",
+    apiKey,
+    endpoint: "china",
+  });
 }
 
 function mockMiniMaxHttpSuccess(models: unknown[]) {
@@ -523,7 +531,9 @@ describe("minimax-coding-plan provider", () => {
 
     const statusOut = await minimaxCodingPlanProvider.fetch({ config: {} } as any);
     expectAttemptedWithErrorLabel(statusOut, "MiniMax Coding Plan");
-    expect(statusOut.errors[0]?.message).toBe(`MiniMax API error: ${`${"x".repeat(140)} retry`.slice(0, 120)}`);
+    expect(statusOut.errors[0]?.message).toBe(
+      `MiniMax API error: ${`${"x".repeat(140)} retry`.slice(0, 120)}`,
+    );
 
     mockMiniMaxAuthConfigured();
     mocks.fetchWithTimeout.mockRejectedValueOnce(new Error("network\nfailed"));
@@ -590,15 +600,22 @@ describe("minimax-coding-plan provider", () => {
     mocks.isCanonicalProviderAvailable.mockResolvedValueOnce(true);
     mocks.resolveMiniMaxAuthCached.mockResolvedValueOnce(authState);
 
-    const available = await minimaxCodingPlanProvider.isAvailable({ config: { enabledProviders: "auto" } } as any);
+    const available = await minimaxCodingPlanProvider.isAvailable({
+      config: { enabledProviders: "auto" },
+    } as any);
     expect(available).toBe(expected);
   });
 
   it("returns false when auth exists but the minimax provider is not configured", async () => {
     mocks.isCanonicalProviderAvailable.mockResolvedValueOnce(false);
-    mocks.resolveMiniMaxAuthCached.mockResolvedValueOnce({ state: "configured", apiKey: "test-key" });
+    mocks.resolveMiniMaxAuthCached.mockResolvedValueOnce({
+      state: "configured",
+      apiKey: "test-key",
+    });
 
-    const available = await minimaxCodingPlanProvider.isAvailable({ config: { enabledProviders: "auto" } } as any);
+    const available = await minimaxCodingPlanProvider.isAvailable({
+      config: { enabledProviders: "auto" },
+    } as any);
     expect(available).toBe(false);
     expect(mocks.resolveMiniMaxAuthCached).not.toHaveBeenCalled();
   });

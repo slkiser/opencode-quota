@@ -7,10 +7,7 @@
 import type { QuotaProvider, QuotaProviderContext, QuotaProviderResult } from "../lib/entries.js";
 import { hasCopilotQuotaRuntimeAvailable, queryCopilotQuota } from "../lib/copilot.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
-import {
-  modelIncludesAny,
-  modelProviderIncludesAny,
-} from "../lib/provider-model-matching.js";
+import { modelIncludesAny, modelProviderIncludesAny } from "../lib/provider-model-matching.js";
 import type { CopilotEnterpriseUsageResult, CopilotOrganizationUsageResult } from "../lib/types.js";
 import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";
 
@@ -84,6 +81,12 @@ export const copilotProvider: QuotaProvider = {
         [
           {
             kind: "value",
+            accounting: {
+              resultType: "usage",
+              acquisitionMethod: "remote_api",
+              ownership: "maintained",
+              authority: "provider_reported",
+            },
             name: "Copilot",
             group: getCopilotGroup(result.mode),
             label: "Usage:",
@@ -106,6 +109,12 @@ export const copilotProvider: QuotaProvider = {
         [
           {
             kind: "value",
+            accounting: {
+              resultType: "quota",
+              acquisitionMethod: "remote_api",
+              ownership: "maintained",
+              authority: "provider_reported",
+            },
             name: "Copilot",
             group: getCopilotGroup(result.mode),
             label: "Quota:",
@@ -120,6 +129,12 @@ export const copilotProvider: QuotaProvider = {
     return attemptedResult(
       [
         {
+          accounting: {
+            resultType: "quota",
+            acquisitionMethod: "remote_api",
+            ownership: "maintained",
+            authority: "provider_reported",
+          },
           name: "Copilot",
           group: getCopilotGroup(result.mode),
           label: "Quota:",

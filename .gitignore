@@ -30,7 +30,9 @@ references/*
 docs/*
 !docs/readme/
 !docs/readme/**
-AGENTS.md
+/docs/readme/v4-release-readiness.md
+/docs/adr/
+/AGENTS.md
 /.agents
 /prompt-exports
 /opencode-quota

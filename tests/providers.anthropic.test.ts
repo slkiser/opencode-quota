@@ -5,6 +5,7 @@ import {
   expectAttemptedWithNoErrors,
   expectNotAttempted,
 } from "./helpers/provider-assertions.js";
+import { visibleEntries } from "./helpers/provider-assertions.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 import { anthropicProvider } from "../src/providers/anthropic.js";
 
@@ -32,7 +33,7 @@ describe("anthropic provider", () => {
 
     const out = await anthropicProvider.fetch({} as any);
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "anthropic")).toEqual([
       {
         name: "Claude 5h",
         group: "Claude",
@@ -61,7 +62,7 @@ describe("anthropic provider", () => {
 
     const out = await anthropicProvider.fetch({} as any);
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "anthropic")).toEqual([
       {
         name: "Claude 5h",
         group: "Claude",
@@ -104,7 +105,9 @@ describe("anthropic provider", () => {
     (hasAnthropicCredentialsConfigured as any).mockResolvedValue(true);
 
     await expect(
-      anthropicProvider.isAvailable(createProviderAvailabilityContext({ providerIds: ["anthropic"] })),
+      anthropicProvider.isAvailable(
+        createProviderAvailabilityContext({ providerIds: ["anthropic"] }),
+      ),
     ).resolves.toBe(true);
     await expect(
       anthropicProvider.isAvailable(createProviderAvailabilityContext({ providerIds: ["claude"] })),
@@ -120,9 +123,8 @@ describe("anthropic provider", () => {
   });
 
   it("passes the configured Claude binary path through Anthropic probes", async () => {
-    const { hasAnthropicCredentialsConfigured, queryAnthropicQuota } = await import(
-      "../src/lib/anthropic.js"
-    );
+    const { hasAnthropicCredentialsConfigured, queryAnthropicQuota } =
+      await import("../src/lib/anthropic.js");
     (hasAnthropicCredentialsConfigured as any).mockResolvedValue(true);
     (queryAnthropicQuota as any).mockResolvedValueOnce(null);
 

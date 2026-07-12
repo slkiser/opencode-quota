@@ -2,6 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { rm } from "fs/promises";
 
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-render-data-tests";
+const TEST_ACCOUNTING = {
+  resultType: "quota",
+  acquisitionMethod: "remote_api",
+  ownership: "maintained",
+  authority: "provider_reported",
+} as const;
 
 const { mockProviders } = vi.hoisted(() => ({
   mockProviders: [] as any[],
@@ -58,6 +64,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         attempted: true,
         entries: [
           {
+            accounting: TEST_ACCOUNTING,
             name: "Custom Runtime Daily",
             group: "Custom Runtime",
             label: "Daily:",
@@ -85,6 +92,7 @@ describe("collectQuotaRenderData shared quota state", () => {
     expect(result.active).toEqual([runtimeProvider]);
     expect(result.data?.entries).toEqual([
       {
+        accounting: TEST_ACCOUNTING,
         name: "Custom Runtime Daily",
         group: "Custom Runtime",
         label: "Daily:",
@@ -100,8 +108,8 @@ describe("collectQuotaRenderData shared quota state", () => {
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
         entries: [
-          { name: "Daily", label: "Daily:", percentRemaining: 50 },
-          { name: "Weekly", label: "Weekly:", percentRemaining: 80 },
+          { accounting: TEST_ACCOUNTING, name: "Daily", label: "Daily:", percentRemaining: 50 },
+          { accounting: TEST_ACCOUNTING, name: "Weekly", label: "Weekly:", percentRemaining: 80 },
         ],
         errors: [],
       }),
@@ -133,7 +141,9 @@ describe("collectQuotaRenderData shared quota state", () => {
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
-        entries: [{ name: "Daily", label: "Daily:", percentRemaining: 50 }],
+        entries: [
+          { accounting: TEST_ACCOUNTING, name: "Daily", label: "Daily:", percentRemaining: 50 },
+        ],
         errors: [],
       }),
     };
@@ -161,8 +171,8 @@ describe("collectQuotaRenderData shared quota state", () => {
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
         entries: [
-          { name: "Daily", label: "Daily:", percentRemaining: 50 },
-          { name: "Weekly", label: "Weekly:", percentRemaining: 80 },
+          { accounting: TEST_ACCOUNTING, name: "Daily", label: "Daily:", percentRemaining: 50 },
+          { accounting: TEST_ACCOUNTING, name: "Weekly", label: "Weekly:", percentRemaining: 80 },
         ],
         errors: [],
       }),
@@ -199,6 +209,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         attempted: true,
         entries: [
           {
+            accounting: TEST_ACCOUNTING,
             name: "OpenAI (Pro) 5h",
             group: "OpenAI (Pro)",
             label: "5h:",
@@ -232,7 +243,7 @@ describe("collectQuotaRenderData shared quota state", () => {
     ]);
     expect(result.active).toEqual([workingProvider]);
     expect(result.data).toEqual({
-      entries: [{ name: "[OpenAI] (Pro) 5h", percentRemaining: 75 }],
+      entries: [{ accounting: TEST_ACCOUNTING, name: "[OpenAI] (Pro) 5h", percentRemaining: 75 }],
       errors: [{ label: "Copilot", message: "Unavailable (not detected)" }],
       sessionTokens: undefined,
     });
@@ -335,7 +346,7 @@ describe("collectQuotaRenderData shared quota state", () => {
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
-        entries: [{ name: "OpenAI Weekly", percentRemaining: 55 }],
+        entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI Weekly", percentRemaining: 55 }],
         errors: [],
       }),
     };
@@ -370,7 +381,9 @@ describe("collectQuotaRenderData shared quota state", () => {
     expect(openaiProvider.fetch).toHaveBeenCalledOnce();
     expect(copilotProvider.isAvailable).not.toHaveBeenCalled();
     expect(copilotProvider.fetch).not.toHaveBeenCalled();
-    expect(result.data?.entries).toEqual([{ name: "OpenAI Weekly", percentRemaining: 55 }]);
+    expect(result.data?.entries).toEqual([
+      { accounting: TEST_ACCOUNTING, name: "OpenAI Weekly", percentRemaining: 55 },
+    ]);
   });
 
   it("normalizes provider-only session metadata before matching providers", () => {
@@ -426,6 +439,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         attempted: true,
         entries: [
           {
+            accounting: TEST_ACCOUNTING,
             name: "Synthetic 5h",
             group: "Synthetic",
             label: "5h:",
@@ -434,6 +448,7 @@ describe("collectQuotaRenderData shared quota state", () => {
             resetTimeIso: "2026-01-20T18:12:03.000Z",
           },
           {
+            accounting: TEST_ACCOUNTING,
             name: "Synthetic Weekly",
             group: "Synthetic",
             label: "Weekly:",
@@ -468,6 +483,7 @@ describe("collectQuotaRenderData shared quota state", () => {
     });
     expect(singleWindow.data?.entries).toEqual([
       {
+        accounting: TEST_ACCOUNTING,
         name: "[Synthetic] Weekly",
         percentRemaining: 8,
         right: "$22/$24",
@@ -489,6 +505,7 @@ describe("collectQuotaRenderData shared quota state", () => {
 
     expect(grouped.data?.entries).toEqual([
       {
+        accounting: TEST_ACCOUNTING,
         name: "Synthetic 5h",
         group: "Synthetic",
         label: "5h:",
@@ -497,6 +514,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         resetTimeIso: "2026-01-20T18:12:03.000Z",
       },
       {
+        accounting: TEST_ACCOUNTING,
         name: "Synthetic Weekly",
         group: "Synthetic",
         label: "Weekly:",
@@ -516,6 +534,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         attempted: true,
         entries: [
           {
+            accounting: TEST_ACCOUNTING,
             name: "Claude (sha..gmail)",
             group: "Claude",
             label: "Claude:",
@@ -523,6 +542,7 @@ describe("collectQuotaRenderData shared quota state", () => {
             resetTimeIso: "2026-01-01T12:00:00.000Z",
           },
           {
+            accounting: TEST_ACCOUNTING,
             name: "G3Pro (bob..gmail)",
             group: "G3Pro",
             label: "G3Pro:",
@@ -563,6 +583,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         attempted: true,
         entries: [
           {
+            accounting: TEST_ACCOUNTING,
             name: "Gemini Pro (ali..example)",
             group: "Gemini CLI",
             label: "Gemini Pro:",
@@ -571,6 +592,7 @@ describe("collectQuotaRenderData shared quota state", () => {
             resetTimeIso: "2026-01-01T12:00:00.000Z",
           },
           {
+            accounting: TEST_ACCOUNTING,
             name: "Gemini Flash (ali..example)",
             group: "Gemini CLI",
             label: "Gemini Flash:",
@@ -579,6 +601,7 @@ describe("collectQuotaRenderData shared quota state", () => {
             resetTimeIso: "2026-01-01T08:00:00.000Z",
           },
           {
+            accounting: TEST_ACCOUNTING,
             name: "Gemini Flash Lite (ali..example)",
             group: "Gemini CLI",
             label: "Gemini Flash Lite:",
@@ -614,6 +637,7 @@ describe("collectQuotaRenderData shared quota state", () => {
     });
     expect(singleWindow.data?.entries).toEqual([
       {
+        accounting: TEST_ACCOUNTING,
         name: "[Gemini CLI]",
         percentRemaining: 12,
         right: "20 left",
@@ -627,6 +651,7 @@ describe("collectQuotaRenderData shared quota state", () => {
     });
     expect(allWindows.data?.entries).toEqual([
       {
+        accounting: TEST_ACCOUNTING,
         name: "Gemini Pro (ali..example)",
         group: "Gemini CLI",
         label: "Gemini Pro:",
@@ -635,6 +660,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         resetTimeIso: "2026-01-01T12:00:00.000Z",
       },
       {
+        accounting: TEST_ACCOUNTING,
         name: "Gemini Flash (ali..example)",
         group: "Gemini CLI",
         label: "Gemini Flash:",
@@ -643,6 +669,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         resetTimeIso: "2026-01-01T08:00:00.000Z",
       },
       {
+        accounting: TEST_ACCOUNTING,
         name: "Gemini Flash Lite (ali..example)",
         group: "Gemini CLI",
         label: "Gemini Flash Lite:",
@@ -662,6 +689,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         attempted: true,
         entries: [
           {
+            accounting: TEST_ACCOUNTING,
             name: "Cursor API (Pro)",
             group: "Cursor (Pro)",
             label: "API:",
@@ -671,6 +699,7 @@ describe("collectQuotaRenderData shared quota state", () => {
           },
           {
             kind: "value",
+            accounting: TEST_ACCOUNTING,
             name: "Cursor Auto+Composer",
             group: "Cursor (Pro)",
             label: "Auto+Composer:",
@@ -706,6 +735,7 @@ describe("collectQuotaRenderData shared quota state", () => {
     const second = await collectQuotaRenderData(params);
     expect(second.data?.entries).toEqual([
       {
+        accounting: TEST_ACCOUNTING,
         name: "[Cursor] (Pro)",
         percentRemaining: 75,
         resetTimeIso: "2026-03-01T00:00:00.000Z",
@@ -722,6 +752,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         attempted: true,
         entries: [
           {
+            accounting: TEST_ACCOUNTING,
             name: "Synthetic Weekly",
             group: "Synthetic",
             label: "Weekly:",
@@ -770,6 +801,7 @@ describe("collectQuotaRenderData shared quota state", () => {
           attempted: true,
           entries: [
             {
+              accounting: TEST_ACCOUNTING,
               name: "[Synthetic] Weekly",
               percentRemaining: 84,
               right: "$8/$50",
@@ -799,7 +831,7 @@ describe("collectQuotaRenderData shared quota state", () => {
     expect(openaiProvider.fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps legacy style ids and presentation fields working for direct render-data calls", async () => {
+  it("keeps the classic style id aligned with current presentation fields", async () => {
     const syntheticProvider = {
       id: "synthetic",
       isAvailable: vi.fn().mockResolvedValue(true),
@@ -807,6 +839,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         attempted: true,
         entries: [
           {
+            accounting: TEST_ACCOUNTING,
             name: "Synthetic 5h",
             group: "Synthetic",
             label: "5h:",
@@ -814,6 +847,7 @@ describe("collectQuotaRenderData shared quota state", () => {
             right: "26/100",
           },
           {
+            accounting: TEST_ACCOUNTING,
             name: "Synthetic Weekly",
             group: "Synthetic",
             label: "Weekly:",
@@ -823,8 +857,8 @@ describe("collectQuotaRenderData shared quota state", () => {
         ],
         errors: [],
         presentation: {
-          classicDisplayName: "Synthetic",
-          classicShowRight: true,
+          singleWindowDisplayName: "Synthetic",
+          singleWindowShowRight: true,
         },
       }),
     };
@@ -853,6 +887,7 @@ describe("collectQuotaRenderData shared quota state", () => {
 
     expect(alias.data?.entries).toEqual([
       {
+        accounting: TEST_ACCOUNTING,
         name: "[Synthetic] Weekly",
         percentRemaining: 8,
         right: "$22/$24",

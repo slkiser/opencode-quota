@@ -5,6 +5,7 @@ import {
   expectAttemptedWithNoErrors,
   expectNotAttempted,
 } from "./helpers/provider-assertions.js";
+import { visibleEntries } from "./helpers/provider-assertions.js";
 import { googleAgyProvider } from "../src/providers/google-agy.js";
 
 vi.mock("../src/lib/google-agy.js", () => ({
@@ -55,7 +56,7 @@ describe("google agy provider", () => {
 
     const out = await googleAgyProvider.fetch({ client: {} } as any);
     expect(out.attempted).toBe(true);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "google-agy")).toEqual([
       {
         name: "Gemini Models (ali..example)",
         group: "Google AGY",
@@ -91,7 +92,7 @@ describe("google agy provider", () => {
 
     const out = await googleAgyProvider.fetch({ client: {} } as any);
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "google-agy")).toEqual([
       {
         name: "Gemini Models (ali..example)",
         group: "Google AGY",
@@ -140,27 +141,69 @@ describe("google agy provider", () => {
     (queryGoogleAgyQuota as any).mockResolvedValueOnce({
       success: true,
       buckets: [
-        { modelId: "gemini-2-5-flash", displayName: "Gemini 2.5 Flash", accountEmail: "test@a.com", percentRemaining: 12 },
-        { modelId: "gemini-2-5-pro", displayName: "Gemini 2.5 Pro", accountEmail: "test@a.com", percentRemaining: 12 },
-        { modelId: "gemini-3-flash", displayName: "Gemini 3 Flash", accountEmail: "test@a.com", percentRemaining: 12 },
-        { modelId: "gemini-3-1-pro-high", displayName: "Gemini 3.1 Pro High", accountEmail: "test@a.com", percentRemaining: 12 },
-        { modelId: "gemini-3-5-flash", displayName: "Gemini 3.5 Flash", accountEmail: "test@a.com", percentRemaining: 12 },
-        { modelId: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6", accountEmail: "test@a.com", percentRemaining: 0 },
-        { modelId: "claude-opus-4-6-thinking", displayName: "Claude Opus 4.6 Thinking", accountEmail: "test@a.com", percentRemaining: 0 },
-        { modelId: "gpt-oss-120b", displayName: "GPT-OSS 120B (Medium)", accountEmail: "test@a.com", percentRemaining: 0 }, // Should be filtered out
-        { modelId: "chat-20706", displayName: "Chat 20706", accountEmail: "test@a.com", percentRemaining: 100 }, // Should be filtered out
+        {
+          modelId: "gemini-2-5-flash",
+          displayName: "Gemini 2.5 Flash",
+          accountEmail: "test@a.com",
+          percentRemaining: 12,
+        },
+        {
+          modelId: "gemini-2-5-pro",
+          displayName: "Gemini 2.5 Pro",
+          accountEmail: "test@a.com",
+          percentRemaining: 12,
+        },
+        {
+          modelId: "gemini-3-flash",
+          displayName: "Gemini 3 Flash",
+          accountEmail: "test@a.com",
+          percentRemaining: 12,
+        },
+        {
+          modelId: "gemini-3-1-pro-high",
+          displayName: "Gemini 3.1 Pro High",
+          accountEmail: "test@a.com",
+          percentRemaining: 12,
+        },
+        {
+          modelId: "gemini-3-5-flash",
+          displayName: "Gemini 3.5 Flash",
+          accountEmail: "test@a.com",
+          percentRemaining: 12,
+        },
+        {
+          modelId: "claude-sonnet-4-6",
+          displayName: "Claude Sonnet 4.6",
+          accountEmail: "test@a.com",
+          percentRemaining: 0,
+        },
+        {
+          modelId: "claude-opus-4-6-thinking",
+          displayName: "Claude Opus 4.6 Thinking",
+          accountEmail: "test@a.com",
+          percentRemaining: 0,
+        },
+        {
+          modelId: "gpt-oss-120b",
+          displayName: "GPT-OSS 120B (Medium)",
+          accountEmail: "test@a.com",
+          percentRemaining: 0,
+        }, // Should be filtered out
+        {
+          modelId: "chat-20706",
+          displayName: "Chat 20706",
+          accountEmail: "test@a.com",
+          percentRemaining: 100,
+        }, // Should be filtered out
       ],
     });
 
     const out = await googleAgyProvider.fetch({ client: {} } as any);
     expectAttemptedWithNoErrors(out);
-    
+
     // Check that we only get the 2 consolidated groups, sorted alphabetically
-    const entryLabels = out.entries.map(e => e.label);
-    expect(entryLabels).toEqual([
-      "Claude and GPT models:",
-      "Gemini Models:",
-    ]);
+    const entryLabels = out.entries.map((e) => e.label);
+    expect(entryLabels).toEqual(["Claude and GPT models:", "Gemini Models:"]);
   });
 
   it("maps fetch failures into toast errors", async () => {

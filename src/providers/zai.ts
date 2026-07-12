@@ -7,10 +7,7 @@
 import type { QuotaProvider, QuotaProviderContext, QuotaProviderResult } from "../lib/entries.js";
 import { queryZaiQuota } from "../lib/zai.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
-import {
-  DEFAULT_ZAI_AUTH_CACHE_MAX_AGE_MS,
-  resolveZaiAuthCached,
-} from "../lib/zai-auth.js";
+import { DEFAULT_ZAI_AUTH_CACHE_MAX_AGE_MS, resolveZaiAuthCached } from "../lib/zai-auth.js";
 import {
   attemptedResult,
   groupedPercentWindowEntries,
@@ -54,6 +51,12 @@ export const zaiProvider: QuotaProvider = {
         attemptedResult(
           groupedPercentWindowEntries({
             group: result.label,
+            accounting: {
+              resultType: "quota",
+              acquisitionMethod: "remote_api",
+              ownership: "maintained",
+              authority: "provider_reported",
+            },
             windows: [
               { window: result.windows.fiveHour, suffix: "5h", label: "5h:" },
               { window: result.windows.weekly, suffix: "Weekly", label: "Weekly:" },

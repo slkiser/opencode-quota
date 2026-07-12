@@ -5,6 +5,7 @@ import {
   expectAttemptedWithNoErrors,
   expectNotAttempted,
 } from "./helpers/provider-assertions.js";
+import { visibleEntries } from "./helpers/provider-assertions.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 
 const authMocks = vi.hoisted(() => ({
@@ -78,7 +79,7 @@ describe("kimi-code provider", () => {
 
     const out = await kimiCodeProvider.fetch({ config: {} } as any);
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "kimi-for-coding")).toEqual([
       {
         name: "Kimi Code Weekly limit",
         group: "Kimi Code",

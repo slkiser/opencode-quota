@@ -5,6 +5,7 @@ import {
   expectAttemptedWithNoErrors,
   expectNotAttempted,
 } from "./helpers/provider-assertions.js";
+import { visibleEntries } from "./helpers/provider-assertions.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 import { zhipuProvider } from "../src/providers/zhipu.js";
 
@@ -52,7 +53,7 @@ describe("zhipu provider", () => {
 
     const out = await zhipuProvider.fetch({} as any);
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "zhipu")).toEqual([
       {
         name: "Zhipu 5h",
         group: "Zhipu",

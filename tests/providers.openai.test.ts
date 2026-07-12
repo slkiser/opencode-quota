@@ -5,6 +5,7 @@ import {
   expectAttemptedWithNoErrors,
   expectNotAttempted,
 } from "./helpers/provider-assertions.js";
+import { visibleEntries } from "./helpers/provider-assertions.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 import { openaiProvider } from "../src/providers/openai.js";
 
@@ -41,12 +42,13 @@ describe("openai provider", () => {
         hourly: { percentRemaining: 42, resetTimeIso: "2026-01-01T00:00:00.000Z" },
         weekly: { percentRemaining: 80, resetTimeIso: "2026-01-07T00:00:00.000Z" },
         monthly: { percentRemaining: 67, resetTimeIso: "2026-02-01T00:00:00.000Z" },
+        codeReview: { percentRemaining: 55, resetTimeIso: "2026-01-02T00:00:00.000Z" },
       },
     });
 
     const out = await openaiProvider.fetch({} as any);
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "openai")).toEqual([
       {
         name: "OpenAI (Pro) 5h",
         group: "OpenAI (Pro)",
@@ -68,7 +70,15 @@ describe("openai provider", () => {
         percentRemaining: 67,
         resetTimeIso: "2026-02-01T00:00:00.000Z",
       },
+      {
+        name: "OpenAI (Pro) Code Review",
+        group: "OpenAI (Pro)",
+        label: "Code Review:",
+        percentRemaining: 55,
+        resetTimeIso: "2026-01-02T00:00:00.000Z",
+      },
     ]);
+    expect(out.entries.at(-1)?.accounting.resultType).toBe("rate_limit");
     expect(out.presentation).toEqual({
       singleWindowDisplayName: "OpenAI (Pro)",
     });

@@ -5,6 +5,7 @@ import {
   expectAttemptedWithNoErrors,
   expectNotAttempted,
 } from "./helpers/provider-assertions.js";
+import { visibleEntries } from "./helpers/provider-assertions.js";
 import { alibabaCodingPlanProvider } from "../src/providers/alibaba-coding-plan.js";
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
@@ -49,9 +50,8 @@ describe("alibaba-coding-plan provider", () => {
   it("uses env-based fallback auth with the configured fallback tier", async () => {
     process.env.ALIBABA_API_KEY = "env-key";
 
-    const { computeAlibabaCodingPlanQuota, readAlibabaCodingPlanQuotaState } = await import(
-      "../src/lib/qwen-local-quota.js"
-    );
+    const { computeAlibabaCodingPlanQuota, readAlibabaCodingPlanQuotaState } =
+      await import("../src/lib/qwen-local-quota.js");
 
     (readAlibabaCodingPlanQuotaState as any).mockResolvedValue({});
     (computeAlibabaCodingPlanQuota as any).mockReturnValue({
@@ -71,9 +71,8 @@ describe("alibaba-coding-plan provider", () => {
 
   it("supports the alibaba-coding-plan auth key and uses configured fallback tier", async () => {
     const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
-    const { computeAlibabaCodingPlanQuota, readAlibabaCodingPlanQuotaState } = await import(
-      "../src/lib/qwen-local-quota.js"
-    );
+    const { computeAlibabaCodingPlanQuota, readAlibabaCodingPlanQuotaState } =
+      await import("../src/lib/qwen-local-quota.js");
 
     (readAuthFileCached as any).mockResolvedValueOnce({
       "alibaba-coding-plan": { type: "api", key: "dashscope-key" },
@@ -106,7 +105,9 @@ describe("alibaba-coding-plan provider", () => {
     const out = await alibabaCodingPlanProvider.fetch({ config: {} } as any);
 
     expectAttemptedWithErrorLabel(out, "Alibaba Coding Plan");
-    expect(out.errors[0]?.message).toContain("Alibaba Coding Plan auth entry present but key is empty");
+    expect(out.errors[0]?.message).toContain(
+      "Alibaba Coding Plan auth entry present but key is empty",
+    );
     expect(computeAlibabaCodingPlanQuota as any).not.toHaveBeenCalled();
   });
 
@@ -123,9 +124,8 @@ describe("alibaba-coding-plan provider", () => {
 
   it("maps all rolling windows into grouped entries", async () => {
     const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
-    const { computeAlibabaCodingPlanQuota, readAlibabaCodingPlanQuotaState } = await import(
-      "../src/lib/qwen-local-quota.js"
-    );
+    const { computeAlibabaCodingPlanQuota, readAlibabaCodingPlanQuotaState } =
+      await import("../src/lib/qwen-local-quota.js");
 
     (readAuthFileCached as any).mockResolvedValue({
       alibaba: { type: "api", key: "dashscope-key", tier: "pro" },

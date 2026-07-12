@@ -62,6 +62,12 @@ export const kimiCodeProvider: QuotaProvider = {
     }
 
     const entries: QuotaToastEntry[] = result.windows.map((window) => ({
+      accounting: {
+        resultType: "quota",
+        acquisitionMethod: "remote_api",
+        ownership: "maintained",
+        authority: "provider_reported",
+      },
       name: `${result.label} ${window.label}`,
       group: result.label,
       label: `${window.label}:`,

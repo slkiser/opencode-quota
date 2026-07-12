@@ -135,7 +135,11 @@ function cloneCliConfig(config: QuotaToastConfig): QuotaToastConfig {
   };
 }
 
-function resolveCliRoots(cwd: string): { workspaceRoot: string; configRoot: string; fallbackDirectory: string } {
+function resolveCliRoots(cwd: string): {
+  workspaceRoot: string;
+  configRoot: string;
+  fallbackDirectory: string;
+} {
   const fallbackDirectory = resolve(cwd);
   const worktreeRoot = findGitWorktreeRoot(fallbackDirectory) ?? fallbackDirectory;
   const configRoot = getEffectiveConfigRoot(worktreeRoot);
@@ -227,8 +231,8 @@ async function runCliShowJsonOutput(params: {
     let hasComparablePercent = false;
     for (const provider of okProviders) {
       const percents = provider.entries
-        .map((e) => e.percentRemaining)
-        .filter((p): p is number => p !== undefined);
+        .filter((entry) => entry.renderType === "percent")
+        .map((entry) => entry.percentRemaining);
       if (percents.length === 0) continue;
       hasComparablePercent = true;
       const minPercent = Math.min(...percents);

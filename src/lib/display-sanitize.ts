@@ -47,6 +47,7 @@ export function sanitizeQuotaToastEntry(entry: QuotaToastEntry): QuotaToastEntry
   if (isValueEntry(entry)) {
     return {
       ...entry,
+      accounting: { ...entry.accounting },
       name: sanitizeDisplayText(entry.name),
       value: sanitizeDisplayText(entry.value),
       group: sanitizeOptionalDisplayText(entry.group),
@@ -58,6 +59,7 @@ export function sanitizeQuotaToastEntry(entry: QuotaToastEntry): QuotaToastEntry
 
   return {
     ...entry,
+    accounting: { ...entry.accounting },
     name: sanitizeDisplayText(entry.name),
     group: sanitizeOptionalDisplayText(entry.group),
     label: sanitizeOptionalDisplayText(entry.label),
@@ -78,12 +80,11 @@ export function sanitizeQuotaProviderResult(result: QuotaProviderResult): QuotaP
     attempted: result.attempted,
     entries: result.entries.map(sanitizeQuotaToastEntry),
     errors: result.errors.map(sanitizeQuotaToastError),
+    ...(result.presentation ? { presentation: { ...result.presentation } } : {}),
   };
 }
 
-export function sanitizeSessionTokensData(
-  data?: SessionTokensData,
-): SessionTokensData | undefined {
+export function sanitizeSessionTokensData(data?: SessionTokensData): SessionTokensData | undefined {
   if (!data) return undefined;
 
   return {

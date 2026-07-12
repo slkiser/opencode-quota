@@ -6,10 +6,10 @@ import type { QuotaProvider, QuotaProviderContext, QuotaProviderResult } from ".
 
 import { writeJsonAtomic } from "./atomic-json.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
-import { isLiveLocalUsageProviderId } from "./provider-metadata.js";
+import { getQuotaProviderDisplayLabel, isLiveLocalUsageProviderId } from "./provider-metadata.js";
 import { getPackageVersion } from "./version.js";
 
-const QUOTA_PROVIDER_CACHE_VERSION = 1 as const;
+const QUOTA_PROVIDER_CACHE_VERSION = 2 as const;
 const QUOTA_PROVIDER_CACHE_PACKAGE_VERSION_FALLBACK = "unknown";
 const QUOTA_PROVIDER_CACHE_DIRNAME = "quota-provider-state";
 const QUOTA_PROVIDER_CACHE_RETENTION_MS = 24 * 60 * 60 * 1000;
@@ -31,7 +31,10 @@ let lastPruneAtMs = 0;
 export function cloneQuotaProviderResult(result: QuotaProviderResult): QuotaProviderResult {
   return {
     attempted: result.attempted,
-    entries: result.entries.map((entry) => ({ ...entry })),
+    entries: result.entries.map((entry) => ({
+      ...entry,
+      accounting: { ...entry.accounting },
+    })),
     errors: result.errors.map((error) => ({ ...error })),
     ...(result.presentation ? { presentation: { ...result.presentation } } : {}),
   };
@@ -64,58 +67,130 @@ export function getQuotaProviderStateCacheFilePath(providerId: string, key: stri
   return join(getQuotaProviderCacheDir(), `${providerId}-${digest}.json`);
 }
 
-function isQuotaProviderPresentation(value: unknown): boolean {
-  if (!value || typeof value !== "object") {
+function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
+  const allowedKeys = new Set(allowed);
+  return Object.keys(value).every((key) => allowedKeys.has(key));
+}
+
+const ISO_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+function isOptionalIsoTimestamp(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (typeof value === "string" &&
+      ISO_TIMESTAMP_RE.test(value) &&
+      Number.isFinite(Date.parse(value)))
+  );
+}
+
+function isAccountingMetadata(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+
+  const accounting = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(accounting, [
+      "resultType",
+      "acquisitionMethod",
+      "ownership",
+      "authority",
+      "observedAtIso",
+    ]) &&
+    ["quota", "rate_limit", "usage", "spend", "budget", "balance", "status"].includes(
+      String(accounting.resultType),
+    ) &&
+    [
+      "remote_api",
+      "dashboard_scrape",
+      "local_cli",
+      "local_runtime_accounting",
+      "local_estimation",
+    ].includes(String(accounting.acquisitionMethod)) &&
+    ["maintained", "user_configured"].includes(String(accounting.ownership)) &&
+    ["provider_reported", "locally_derived"].includes(String(accounting.authority)) &&
+    isOptionalIsoTimestamp(accounting.observedAtIso)
+  );
+}
+
+function isQuotaToastEntry(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+
+  const entry = value as Record<string, unknown>;
+  if (
+    !hasOnlyKeys(entry, [
+      "accounting",
+      "kind",
+      "name",
+      "percentRemaining",
+      "value",
+      "resetTimeIso",
+      "group",
+      "label",
+      "right",
+    ]) ||
+    !isAccountingMetadata(entry.accounting) ||
+    typeof entry.name !== "string" ||
+    !isOptionalIsoTimestamp(entry.resetTimeIso) ||
+    !["group", "label", "right"].every(
+      (key) => entry[key] === undefined || typeof entry[key] === "string",
+    )
+  ) {
     return false;
   }
 
-  const presentation = value as Record<string, unknown>;
-  const hasKnownField =
-    "singleWindowDisplayName" in presentation ||
-    "singleWindowShowRight" in presentation ||
-    "classicDisplayName" in presentation ||
-    "classicShowRight" in presentation ||
-    "classicStrategy" in presentation;
-
-  if (!hasKnownField) {
-    return false;
+  if (entry.kind === "value") {
+    return typeof entry.value === "string" && entry.percentRemaining === undefined;
   }
 
   return (
+    (entry.kind === undefined || entry.kind === "percent") &&
+    typeof entry.percentRemaining === "number" &&
+    Number.isFinite(entry.percentRemaining) &&
+    entry.value === undefined
+  );
+}
+
+function isQuotaToastError(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+
+  const error = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(error, ["label", "message"]) &&
+    typeof error.label === "string" &&
+    typeof error.message === "string"
+  );
+}
+
+function isQuotaProviderPresentation(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+
+  const presentation = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(presentation, [
+      "singleWindowDisplayName",
+      "singleWindowShowRight",
+      "classicStrategy",
+    ]) &&
     (presentation.singleWindowDisplayName === undefined ||
       typeof presentation.singleWindowDisplayName === "string") &&
     (presentation.singleWindowShowRight === undefined ||
       typeof presentation.singleWindowShowRight === "boolean") &&
-    (presentation.classicDisplayName === undefined ||
-      typeof presentation.classicDisplayName === "string") &&
-    (presentation.classicShowRight === undefined ||
-      typeof presentation.classicShowRight === "boolean") &&
-    (presentation.classicStrategy === undefined ||
-      presentation.classicStrategy === "preserve" ||
-      presentation.classicStrategy === "collapse_worst" ||
-      presentation.classicStrategy === "first")
+    (presentation.classicStrategy === undefined || presentation.classicStrategy === "preserve")
   );
 }
 
 function isQuotaProviderResult(value: unknown): value is QuotaProviderResult {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
 
   const result = value as Record<string, unknown>;
-  if (typeof result.attempted !== "boolean") {
-    return false;
-  }
-
-  if (!Array.isArray(result.entries) || !Array.isArray(result.errors)) {
-    return false;
-  }
-
-  if (result.presentation !== undefined && !isQuotaProviderPresentation(result.presentation)) {
-    return false;
-  }
-
-  return true;
+  return (
+    hasOnlyKeys(result, ["attempted", "entries", "errors", "presentation"]) &&
+    typeof result.attempted === "boolean" &&
+    Array.isArray(result.entries) &&
+    result.entries.every(isQuotaToastEntry) &&
+    Array.isArray(result.errors) &&
+    result.errors.every(isQuotaToastError) &&
+    (result.presentation === undefined || isQuotaProviderPresentation(result.presentation))
+  );
 }
 
 async function getQuotaProviderCachePackageVersion(): Promise<string> {
@@ -139,6 +214,7 @@ function isPersistedQuotaProviderCacheEntry(
     entry.key === key &&
     entry.providerId === providerId &&
     typeof entry.timestamp === "number" &&
+    Number.isFinite(entry.timestamp) &&
     isQuotaProviderResult(entry.result)
   );
 }
@@ -241,6 +317,27 @@ async function writePersistedQuotaProviderCacheEntry(
   }
 }
 
+async function fetchValidatedProviderResult(
+  provider: QuotaProvider,
+  ctx: QuotaProviderContext,
+): Promise<QuotaProviderResult> {
+  const fetched = await provider.fetch(ctx);
+  if (isQuotaProviderResult(fetched)) {
+    return cloneQuotaProviderResult(fetched);
+  }
+
+  return {
+    attempted: true,
+    entries: [],
+    errors: [
+      {
+        label: getQuotaProviderDisplayLabel(provider.id),
+        message: "Invalid normalized provider result",
+      },
+    ],
+  };
+}
+
 export async function fetchQuotaProviderResult(params: {
   provider: QuotaProvider;
   ctx: QuotaProviderContext;
@@ -250,7 +347,7 @@ export async function fetchQuotaProviderResult(params: {
   const { provider, ctx, ttlMs, bypassCache = false } = params;
 
   if (bypassCache || isLiveLocalUsageProviderId(provider.id)) {
-    return cloneQuotaProviderResult(await provider.fetch(ctx));
+    return fetchValidatedProviderResult(provider, ctx);
   }
 
   const key = buildQuotaProviderStateCacheKey(provider.id, ctx);
@@ -289,8 +386,7 @@ export async function fetchQuotaProviderResult(params: {
   }
 
   const fetchPromise = (async () => {
-    const fetched = await provider.fetch(ctx);
-    const snapshot = cloneQuotaProviderResult(fetched);
+    const snapshot = await fetchValidatedProviderResult(provider, ctx);
 
     if (!snapshot.attempted || snapshot.entries.length === 0) {
       inMemoryCache.delete(key);

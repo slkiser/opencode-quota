@@ -17,6 +17,12 @@ import {
 } from "./helpers/plugin-test-harness.js";
 
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-plugin-quota-command-tests";
+const TEST_ACCOUNTING = {
+  resultType: "quota",
+  acquisitionMethod: "remote_api",
+  ownership: "maintained",
+  authority: "provider_reported",
+} as const;
 
 type DialogCommand = "quota" | "pricing_refresh";
 
@@ -277,6 +283,7 @@ describe("/quota command behavior", () => {
         attempted: true,
         entries: [
           {
+            accounting: TEST_ACCOUNTING,
             name: "Copilot",
             percentRemaining: 81,
             resetTimeIso: "2099-01-01T00:00:00.000Z",
@@ -320,7 +327,7 @@ describe("/quota command behavior", () => {
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
-        entries: [{ name: "OpenAI Pro", percentRemaining: 81 }],
+        entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI Pro", percentRemaining: 81 }],
         errors: [],
       }),
     };
@@ -427,7 +434,7 @@ describe("/quota command behavior", () => {
           .mockRejectedValueOnce(new Error("firewall warming up"))
           .mockResolvedValueOnce({
             attempted: true,
-            entries: [{ name: "OpenAI Pro", percentRemaining: 72 }],
+            entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI Pro", percentRemaining: 72 }],
             errors: [],
           }),
       };
@@ -481,7 +488,7 @@ describe("/quota command behavior", () => {
           .mockRejectedValueOnce(new Error("startup network unavailable"))
           .mockResolvedValueOnce({
             attempted: true,
-            entries: [{ name: "OpenAI Pro", percentRemaining: 61 }],
+            entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI Pro", percentRemaining: 61 }],
             errors: [],
           }),
       };
@@ -533,7 +540,7 @@ describe("/quota command behavior", () => {
           .mockResolvedValue(true),
         fetch: vi.fn().mockResolvedValue({
           attempted: true,
-          entries: [{ name: "OpenAI Pro", percentRemaining: 58 }],
+          entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI Pro", percentRemaining: 58 }],
           errors: [],
         }),
       };
@@ -586,7 +593,7 @@ describe("/quota command behavior", () => {
         .mockRejectedValueOnce(new Error("opencode unavailable"))
         .mockResolvedValueOnce({
           attempted: true,
-          entries: [{ name: "OpenAI Pro", percentRemaining: 66 }],
+          entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI Pro", percentRemaining: 66 }],
           errors: [],
         }),
     };
@@ -761,7 +768,7 @@ describe("/quota command behavior", () => {
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
-        entries: [{ name: "OpenAI Pro", percentRemaining: 95 }],
+        entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI Pro", percentRemaining: 95 }],
         errors: [],
       }),
     };
@@ -808,7 +815,7 @@ describe("/quota command behavior", () => {
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
-        entries: [{ name: "OpenAI Pro", percentRemaining: 95 }],
+        entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI Pro", percentRemaining: 95 }],
         errors: [],
       }),
     };
@@ -843,7 +850,9 @@ describe("/quota command behavior", () => {
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
-        entries: [{ kind: "value", name: "DeepSeek Balance", value: "$12.34" }],
+        entries: [
+          { kind: "value", accounting: TEST_ACCOUNTING, name: "DeepSeek Balance", value: "$12.34" },
+        ],
         errors: [],
       }),
     };
@@ -938,7 +947,13 @@ describe("/quota command behavior", () => {
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockImplementation(async ({ config }: any) => ({
         attempted: true,
-        entries: [{ name: config.currentModel ?? "unknown-model", percentRemaining: 95 }],
+        entries: [
+          {
+            accounting: TEST_ACCOUNTING,
+            name: config.currentModel ?? "unknown-model",
+            percentRemaining: 95,
+          },
+        ],
         errors: [],
       })),
     };
@@ -989,7 +1004,7 @@ describe("/quota command behavior", () => {
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
-        entries: [{ name: "OpenAI Pro", percentRemaining: 88 }],
+        entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI Pro", percentRemaining: 88 }],
         errors: [],
       }),
     };
@@ -1068,12 +1083,12 @@ describe("/quota command behavior", () => {
         .fn()
         .mockResolvedValueOnce({
           attempted: true,
-          entries: [{ name: "Qwen Free", percentRemaining: 90 }],
+          entries: [{ accounting: TEST_ACCOUNTING, name: "Qwen Free", percentRemaining: 90 }],
           errors: [],
         })
         .mockResolvedValueOnce({
           attempted: true,
-          entries: [{ name: "Qwen Free", percentRemaining: 80 }],
+          entries: [{ accounting: TEST_ACCOUNTING, name: "Qwen Free", percentRemaining: 80 }],
           errors: [],
         }),
     };
@@ -1102,12 +1117,24 @@ describe("/quota command behavior", () => {
         .fn()
         .mockResolvedValueOnce({
           attempted: true,
-          entries: [{ name: "Alibaba Coding Plan (Lite) Weekly", percentRemaining: 70 }],
+          entries: [
+            {
+              accounting: TEST_ACCOUNTING,
+              name: "Alibaba Coding Plan (Lite) Weekly",
+              percentRemaining: 70,
+            },
+          ],
           errors: [],
         })
         .mockResolvedValueOnce({
           attempted: true,
-          entries: [{ name: "Alibaba Coding Plan (Lite) Weekly", percentRemaining: 60 }],
+          entries: [
+            {
+              accounting: TEST_ACCOUNTING,
+              name: "Alibaba Coding Plan (Lite) Weekly",
+              percentRemaining: 60,
+            },
+          ],
           errors: [],
         }),
     };
@@ -1137,12 +1164,16 @@ describe("/quota command behavior", () => {
         .fn()
         .mockResolvedValueOnce({
           attempted: true,
-          entries: [{ name: "Cursor API (Pro)", percentRemaining: 95 }],
+          entries: [
+            { accounting: TEST_ACCOUNTING, name: "Cursor API (Pro)", percentRemaining: 95 },
+          ],
           errors: [],
         })
         .mockResolvedValueOnce({
           attempted: true,
-          entries: [{ name: "Cursor API (Pro)", percentRemaining: 90 }],
+          entries: [
+            { accounting: TEST_ACCOUNTING, name: "Cursor API (Pro)", percentRemaining: 90 },
+          ],
           errors: [],
         }),
     };
