@@ -144,8 +144,7 @@ describe("provider-metadata", () => {
         autoSetup: "yes",
         authentication: "opencode_auth_oauth_token",
         quota: "remote_api",
-        notes:
-          "SuperGrok OAuth via OpenCode /connect; weekly credits plus optional monthly allowance",
+        notes: "SuperGrok OAuth via OpenCode /connect; shared weekly credit meter",
       },
       {
         id: "opencode-go",
@@ -344,8 +343,7 @@ describe("provider-metadata", () => {
       autoSetup: "yes",
       authentication: "opencode_auth_oauth_token",
       quota: "remote_api",
-      notes:
-        "SuperGrok OAuth via OpenCode /connect; weekly credits plus optional monthly allowance",
+      notes: "SuperGrok OAuth via OpenCode /connect; shared weekly credit meter",
     });
     expect(getQuotaProviderShape("not-a-provider")).toBeUndefined();
   });

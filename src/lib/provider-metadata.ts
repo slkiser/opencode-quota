@@ -288,7 +288,7 @@ export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
     autoSetup: "yes",
     authentication: "opencode_auth_oauth_token",
     quota: "remote_api",
-    notes: "SuperGrok OAuth via OpenCode /connect; weekly credits plus optional monthly allowance",
+    notes: "SuperGrok OAuth via OpenCode /connect; shared weekly credit meter",
   },
   {
     id: "opencode-go",

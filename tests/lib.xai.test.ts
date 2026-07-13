@@ -1,34 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  formatXaiMonthlyValue,
-  hasXaiOAuth,
-  periodKindLabel,
-  queryXaiQuota,
-  resolveXaiOAuth,
-} from "../src/lib/xai.js";
+import { hasXaiOAuth, periodKindLabel, queryXaiQuota, resolveXaiOAuth } from "../src/lib/xai.js";
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
   readAuthFileCached: vi.fn(),
-  getAuthPaths: vi.fn(() => []),
-  clearReadAuthFileCacheForTests: vi.fn(),
-}));
-
-vi.mock("../src/lib/atomic-json.js", () => ({
-  writeJsonAtomic: vi.fn(),
 }));
 
 describe("xai auth resolution", () => {
-  it("resolves oauth access tokens from auth.json", () => {
+  it("resolves a read-only oauth access token", () => {
     expect(
       resolveXaiOAuth({
         xai: { type: "oauth", access: "token-1", refresh: "refresh-1", expires: 123 },
       }),
     ).toEqual({
       state: "configured",
-      sourceKey: "xai",
       accessToken: "token-1",
-      refreshToken: "refresh-1",
       expiresAt: 123,
     });
     expect(hasXaiOAuth({ xai: { type: "api", key: "xai-key" } as any })).toBe(false);
@@ -46,90 +32,42 @@ describe("queryXaiQuota", () => {
     vi.unstubAllGlobals();
   });
 
-  it("returns null when not configured", async () => {
+  it("returns null when oauth is not configured", async () => {
     const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
     (readAuthFileCached as any).mockResolvedValueOnce({});
+
     await expect(queryXaiQuota()).resolves.toBeNull();
   });
 
-  it("refreshes an expired access token before querying", async () => {
+  it("does not refresh or write an expired token", async () => {
     const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
     (readAuthFileCached as any).mockResolvedValueOnce({
       xai: {
         type: "oauth",
-        access: "old-token",
+        access: "expired-token",
         refresh: "refresh-1",
         expires: Date.now() - 1_000,
       },
     });
-
-    const fetchMock = vi.fn(async (url: string) => {
-      if (String(url).includes("/oauth2/token")) {
-        return new Response(
-          JSON.stringify({
-            access_token: "new-token",
-            refresh_token: "refresh-2",
-            expires_in: 3600,
-          }),
-          { status: 200 },
-        );
-      }
-      if (String(url).includes("format=credits")) {
-        return new Response(
-          JSON.stringify({
-            config: {
-              currentPeriod: {
-                type: "USAGE_PERIOD_TYPE_WEEKLY",
-                end: "2026-07-20T02:24:00.983423+00:00",
-              },
-              creditUsagePercent: 1,
-              productUsage: [],
-            },
-          }),
-          { status: 200 },
-        );
-      }
-      return new Response(JSON.stringify({ config: {} }), { status: 200 });
-    }) as any;
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-
-    const out = await queryXaiQuota();
-    expect(out && out.success ? out.windows.primary?.percentRemaining : null).toBe(99);
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://auth.x.ai/oauth2/token",
-      expect.objectContaining({ method: "POST" }),
-    );
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://cli-chat-proxy.grok.com/v1/billing?format=credits",
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          Authorization: "Bearer new-token",
-        }),
-      }),
-    );
-  });
-
-  it("returns token expired when expired and refresh is missing", async () => {
-    const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
-    (readAuthFileCached as any).mockResolvedValueOnce({
-      xai: { type: "oauth", access: "token-1", expires: Date.now() - 1_000 },
-    });
 
     await expect(queryXaiQuota()).resolves.toEqual({
       success: false,
-      error: "Token expired",
+      error: "xAI OAuth token expired; use xAI in OpenCode to refresh it or reconnect xAI",
     });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("maps weekly credits, zero-omitted product rows, monthly allowance, and subscription label", async () => {
+  it("maps the shared weekly meter with one authenticated request", async () => {
     const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
     (readAuthFileCached as any).mockResolvedValueOnce({
       xai: { type: "oauth", access: "token-1", expires: Date.now() + 60_000 },
     });
 
-    const fetchMock = vi.fn(async (url: string) => {
-      if (String(url).includes("format=credits")) {
-        return new Response(
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
           JSON.stringify({
             config: {
               currentPeriod: {
@@ -137,184 +75,118 @@ describe("queryXaiQuota", () => {
                 start: "2026-07-13T02:24:00.983423+00:00",
                 end: "2026-07-20T02:24:00.983423+00:00",
               },
-              creditUsagePercent: 1,
+              creditUsagePercent: 5,
               isUnifiedBillingUser: true,
-              productUsage: [{ product: "Api", usagePercent: 1 }, { product: "GrokChat" }],
+              productUsage: [{ product: "Api", usagePercent: 5 }, { product: "GrokChat" }],
             },
           }),
           { status: 200 },
-        );
-      }
-      if (String(url).includes("/v1/billing")) {
-        return new Response(
-          JSON.stringify({
-            config: {
-              monthlyLimit: { val: 150000 },
-              used: { val: 426 },
-              billingPeriodEnd: "2026-08-01T00:00:00+00:00",
-            },
-          }),
-          { status: 200 },
-        );
-      }
-      return new Response(
-        JSON.stringify({
-          subscriptions: [
-            {
-              tier: "SUBSCRIPTION_TIER_SUPER_GROK_PRO",
-              status: "SUBSCRIPTION_STATUS_ACTIVE",
-              google: { productId: "grok.ultra" },
-            },
-          ],
-        }),
-        { status: 200 },
-      );
-    }) as any;
+        ),
+    ) as any;
     vi.stubGlobal("fetch", fetchMock);
 
-    const out = await queryXaiQuota({ requestTimeoutMs: 3210 });
-
-    expect(out).toEqual({
+    await expect(queryXaiQuota({ requestTimeoutMs: 3210 })).resolves.toEqual({
       success: true,
       label: "xAI SuperGrok",
-      unifiedBilling: true,
-      windows: {
-        primary: {
-          percentRemaining: 99,
-          resetTimeIso: "2026-07-20T02:24:00.983Z",
-          kind: "weekly",
-        },
-        products: [
-          {
-            product: "Api",
-            window: {
-              percentRemaining: 99,
-              resetTimeIso: "2026-07-20T02:24:00.983Z",
-              kind: "weekly",
-            },
-          },
-          {
-            product: "GrokChat",
-            window: {
-              percentRemaining: 100,
-              resetTimeIso: "2026-07-20T02:24:00.983Z",
-              kind: "weekly",
-            },
-          },
-        ],
-      },
-      monthly: {
-        limitUsd: 1500,
-        usedUsd: 4.26,
-        remainingUsd: 1495.74,
-        percentRemaining: 100,
-        resetTimeIso: "2026-08-01T00:00:00.000Z",
+      window: {
+        percentRemaining: 95,
+        resetTimeIso: "2026-07-20T02:24:00.983Z",
+        kind: "weekly",
       },
     });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://cli-chat-proxy.grok.com/v1/billing?format=credits",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          Authorization: "Bearer token-1",
+          "x-grok-client-surface": "grok-build",
+        }),
+        signal: expect.any(AbortSignal),
+      }),
+    );
   });
 
-  it("treats omitted creditUsagePercent as 0% used when period exists", async () => {
+  it("treats an omitted protobuf percentage as 0% used when a period exists", async () => {
     const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
     (readAuthFileCached as any).mockResolvedValueOnce({
       xai: { type: "oauth", access: "token-1", expires: Date.now() + 60_000 },
     });
-
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (url: string) => {
-        if (String(url).includes("format=credits")) {
-          return new Response(
+      vi.fn(
+        async () =>
+          new Response(
             JSON.stringify({
               config: {
                 currentPeriod: {
                   type: "USAGE_PERIOD_TYPE_WEEKLY",
                   end: "2026-07-20T02:24:00.983423+00:00",
                 },
-                productUsage: [{ product: "Api" }],
               },
             }),
             { status: 200 },
-          );
-        }
-        return new Response(JSON.stringify({}), { status: 200 });
-      }) as any,
+          ),
+      ) as any,
     );
 
     const out = await queryXaiQuota();
-    expect(out && out.success ? out.windows.primary : null).toEqual({
-      percentRemaining: 100,
-      resetTimeIso: "2026-07-20T02:24:00.983Z",
-      kind: "weekly",
-    });
-    expect(out && out.success ? out.unifiedBilling : null).toBe(false);
-    expect(out && out.success ? out.windows.products : null).toEqual([
-      {
-        product: "Api",
-        window: {
-          percentRemaining: 100,
-          resetTimeIso: "2026-07-20T02:24:00.983Z",
-          kind: "weekly",
-        },
-      },
-    ]);
+    expect(out && out.success ? out.window.percentRemaining : null).toBe(100);
   });
 
-  it("keeps primary credits when optional endpoints fail", async () => {
+  it("rejects a present malformed percentage", async () => {
     const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
     (readAuthFileCached as any).mockResolvedValueOnce({
       xai: { type: "oauth", access: "token-1", expires: Date.now() + 60_000 },
     });
-
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (url: string) => {
-        if (String(url).includes("format=credits")) {
-          return new Response(
+      vi.fn(
+        async () =>
+          new Response(
             JSON.stringify({
               config: {
-                currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", end: "2026-07-20T00:00:00Z" },
-                creditUsagePercent: 10,
+                currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY" },
+                creditUsagePercent: "100",
               },
             }),
             { status: 200 },
-          );
-        }
-        throw new Error("network down");
-      }) as any,
+          ),
+      ) as any,
     );
 
-    const out = await queryXaiQuota();
-    expect(out).toEqual({
-      success: true,
-      label: "xAI",
-      unifiedBilling: false,
-      windows: {
-        primary: {
-          percentRemaining: 90,
-          resetTimeIso: "2026-07-20T00:00:00.000Z",
-          kind: "weekly",
-        },
-        products: [],
-      },
-      monthly: undefined,
+    await expect(queryXaiQuota()).resolves.toEqual({
+      success: false,
+      error: "xAI credits response returned an invalid usage percentage",
     });
   });
 
-  it("returns API errors from the primary credits endpoint", async () => {
+  it("reports missing period data instead of synthesizing 0% remaining", async () => {
     const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
     (readAuthFileCached as any).mockResolvedValueOnce({
       xai: { type: "oauth", access: "token-1", expires: Date.now() + 60_000 },
     });
-
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (url: string) => {
-        if (String(url).includes("format=credits")) {
-          return new Response("nope", { status: 401 });
-        }
-        return new Response("{}", { status: 200 });
-      }) as any,
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ config: { currentPeriod: {} } }), { status: 200 }),
+      ) as any,
     );
+
+    await expect(queryXaiQuota()).resolves.toEqual({
+      success: false,
+      error: "No weekly quota data",
+    });
+  });
+
+  it("returns sanitized API errors", async () => {
+    const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
+    (readAuthFileCached as any).mockResolvedValueOnce({
+      xai: { type: "oauth", access: "token-1", expires: Date.now() + 60_000 },
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("nope", { status: 401 })) as any);
 
     await expect(queryXaiQuota()).resolves.toEqual({
       success: false,
@@ -323,19 +195,8 @@ describe("queryXaiQuota", () => {
   });
 });
 
-describe("format helpers", () => {
-  it("formats remaining monthly allowance", () => {
-    expect(
-      formatXaiMonthlyValue({
-        limitUsd: 1500,
-        usedUsd: 4.26,
-        remainingUsd: 1495.74,
-        percentRemaining: 100,
-      }),
-    ).toBe("$1495.74 left ($4.26/$1500.00)");
-  });
-
-  it("labels period kinds", () => {
+describe("periodKindLabel", () => {
+  it("labels supported period kinds", () => {
     expect(periodKindLabel("weekly")).toBe("Weekly");
     expect(periodKindLabel("monthly")).toBe("Monthly");
     expect(periodKindLabel("daily")).toBe("Daily");
