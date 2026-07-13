@@ -140,6 +140,14 @@ describe("provider-metadata", () => {
         quota: "remote_api",
       },
       {
+        id: "xai",
+        autoSetup: "yes",
+        authentication: "opencode_auth_oauth_token",
+        quota: "remote_api",
+        notes:
+          "SuperGrok OAuth via OpenCode /connect; weekly credits plus optional monthly allowance",
+      },
+      {
         id: "opencode-go",
         autoSetup: "needs_quick_setup",
         authentication: "state_only",
@@ -233,6 +241,7 @@ describe("provider-metadata", () => {
     ]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS.deepseek).toEqual(["deepseek"]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS["quota-providers"]).toEqual([]);
+    expect(QUOTA_PROVIDER_RUNTIME_IDS.xai).toEqual(["xai", "grok"]);
   });
 
   it("keeps runtime ids distinct from broad normalization aliases", () => {
@@ -284,6 +293,7 @@ describe("provider-metadata", () => {
     ]);
     expect(getQuotaProviderRuntimeIds("kimi")).toEqual(["kimi-for-coding", "kimi", "kimi-code"]);
     expect(getQuotaProviderRuntimeIds("deep-seek")).toEqual(["deepseek"]);
+    expect(getQuotaProviderRuntimeIds("grok")).toEqual(["xai", "grok"]);
     expect(getQuotaProviderRuntimeIds("not-a-provider")).toEqual([]);
   });
 
@@ -329,6 +339,14 @@ describe("provider-metadata", () => {
       authFallbacks: ["env_api_key", "global_opencode_config"],
       quota: "remote_api",
     });
+    expect(getQuotaProviderShape("grok")).toEqual({
+      id: "xai",
+      autoSetup: "yes",
+      authentication: "opencode_auth_oauth_token",
+      quota: "remote_api",
+      notes:
+        "SuperGrok OAuth via OpenCode /connect; weekly credits plus optional monthly allowance",
+    });
     expect(getQuotaProviderShape("not-a-provider")).toBeUndefined();
   });
 
@@ -351,6 +369,8 @@ describe("provider-metadata", () => {
     expect(getQuotaProviderDisplayLabel("kimi")).toBe("Kimi Code");
     expect(getQuotaProviderDisplayLabel("deep-seek")).toBe("DeepSeek");
     expect(getQuotaProviderDisplayLabel("quota-providers")).toBe("Quota providers");
+    expect(getQuotaProviderDisplayLabel("xai")).toBe("xAI");
+    expect(getQuotaProviderDisplayLabel("grok")).toBe("xAI");
     expect(getQuotaProviderDisplayLabel("something-else")).toBe("something-else");
   });
 });

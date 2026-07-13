@@ -17,6 +17,7 @@ export type CanonicalQuotaProviderId =
   | "minimax-china-coding-plan"
   | "kimi-for-coding"
   | "deepseek"
+  | "xai"
   | "opencode-go"
   | "ollama-cloud"
   | "quota-providers";
@@ -73,6 +74,7 @@ export const QUOTA_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   "kimi-for-coding": "Kimi Code",
   "kimi-code": "Kimi Code",
   deepseek: "DeepSeek",
+  xai: "xAI",
   "opencode-go": "OpenCode Go",
   "ollama-cloud": "Ollama Cloud",
   "quota-providers": "Quota providers",
@@ -98,6 +100,8 @@ export const QUOTA_PROVIDER_ID_SYNONYMS: Readonly<Record<string, string>> = {
   "kimi-for-code": "kimi-for-coding",
   "kimi-code": "kimi-for-coding",
   "deep-seek": "deepseek",
+  grok: "xai",
+  "x-ai": "xai",
   "opencode-go-subscription": "opencode-go",
   "gemini-cli": "google-gemini-cli",
   "google-gemini": "google-gemini-cli",
@@ -140,6 +144,7 @@ export const QUOTA_PROVIDER_RUNTIME_IDS: QuotaProviderRuntimeIds = {
   ],
   "kimi-for-coding": ["kimi-for-coding", "kimi", "kimi-code"],
   deepseek: ["deepseek"],
+  xai: ["xai", "grok"],
   "opencode-go": ["opencode-go"],
   "ollama-cloud": ["ollama-cloud"],
   "quota-providers": [],
@@ -277,6 +282,13 @@ export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
     authentication: "opencode_auth_api_key",
     authFallbacks: ["env_api_key", "global_opencode_config"],
     quota: "remote_api",
+  },
+  {
+    id: "xai",
+    autoSetup: "yes",
+    authentication: "opencode_auth_oauth_token",
+    quota: "remote_api",
+    notes: "SuperGrok OAuth via OpenCode /connect; weekly credits plus optional monthly allowance",
   },
   {
     id: "opencode-go",

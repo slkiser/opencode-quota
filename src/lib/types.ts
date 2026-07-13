@@ -274,6 +274,14 @@ export interface OpenAIOAuthData {
   [key: string]: unknown;
 }
 
+export interface XaiOAuthData {
+  type: string;
+  access?: string;
+  refresh?: string;
+  expires?: number;
+  [key: string]: unknown;
+}
+
 export interface GeminiCliOAuthAuthData {
   type: string;
   access?: string;
@@ -418,6 +426,7 @@ export interface AuthData {
   "minimax-cn-coding-plan"?: MiniMaxAuthData;
   "kimi-code"?: KimiAuthData;
   kimi?: KimiAuthData;
+  xai?: XaiOAuthData;
 }
 
 // =============================================================================

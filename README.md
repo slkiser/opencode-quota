@@ -149,6 +149,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | Zhipu Coding Plan        | OpenCode config                                                | Remote API         | Quota              |
 | NanoGPT                  | API key/config                                                 | Remote API         | Quota and balance  |
 | DeepSeek                 | API key/config                                                 | Remote API         | Balance and status |
+| xAI SuperGrok            | OpenCode OAuth (`/connect` xAI)                                | Remote API         | Weekly quota    |
 | Ollama Cloud             | [Needs setup](docs/readme/providers.md#ollama-cloud)           | Dashboard scraping | Quota              |
 | OpenCode Go              | [Needs setup](docs/readme/providers.md#opencode-go)            | Dashboard scraping | Quota              |
 

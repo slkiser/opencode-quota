@@ -1536,6 +1536,16 @@ export async function buildQuotaStatusReport(params: {
   appendProviderCompactLiveProbeRows(deepSeekRows, "deepseek", params.providerLiveProbes);
   sections.push(createKvSection("deepseek", "deepseek:", deepSeekRows));
 
+  const xaiLiveProbeSection = createCompactLiveProbeOnlySection({
+    id: "xai",
+    title: "xai:",
+    providerId: "xai",
+    probes: params.providerLiveProbes,
+  });
+  if (xaiLiveProbeSection) {
+    sections.push(xaiLiveProbeSection);
+  }
+
   // === nanogpt ===
   const nanoGptDiag = await readApiKeyDiagnosticsWithAuthPaths(getNanoGptKeyDiagnostics);
   const nanoGptRows: ReportKvRow[] = [
