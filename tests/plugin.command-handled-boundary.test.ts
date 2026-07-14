@@ -188,7 +188,7 @@ describe("plugin command handled boundary", () => {
       }),
     );
     expect(getPromptText(client)).toContain("Quota unavailable");
-    expect(getPromptText(client)).toContain("No quota providers detected");
+    expect(getPromptText(client)).toContain("No provider data available");
   });
 
   it("handles /tokens_between arguments through one inline injection", async () => {
@@ -255,7 +255,7 @@ describe("plugin command handled boundary", () => {
 
     expect(result.state).toBe("output");
     expect(result.state === "output" ? result.output : "").toContain("Quota unavailable");
-    expect(result.state === "output" ? result.output : "").toContain("No quota providers detected");
+    expect(result.state === "output" ? result.output : "").toContain("No provider data available");
     expect(client.session.prompt).not.toHaveBeenCalled();
   });
 

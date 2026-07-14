@@ -323,14 +323,14 @@ async function buildQuotaCommandUnavailableMessage(runtime: QuotaRuntimeContext)
         })}`
       : "";
     return (
-      `Quota unavailable\n\nNo quota providers detected${scopedDetail}. ` +
+      `Quota unavailable\n\nNo provider data available${scopedDetail}. ` +
       "Make sure you are logged in to a supported provider (Copilot, OpenAI, etc.).\n\n" +
       "Run /quota_status for diagnostics."
     );
   }
 
   return (
-    `Quota unavailable\n\nProviders detected (${availableIds.join(", ")}) but returned no data. ` +
+    `Quota unavailable\n\nNo provider data available for detected providers (${availableIds.join(", ")}). ` +
     "This may be a temporary API error.\n\n" +
     "Run /quota_status for diagnostics."
   );

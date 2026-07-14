@@ -311,7 +311,7 @@ export async function runCliShowCommand(options: RunCliShowCommandOptions = {}):
     });
 
     if (!result.data) {
-      writeLine(stderr, "No quota data available.");
+      writeLine(stderr, "No provider data available.");
       return 1;
     }
 
@@ -327,7 +327,7 @@ export async function runCliShowCommand(options: RunCliShowCommandOptions = {}):
     });
 
     if (!output.trim()) {
-      writeLine(stderr, "No quota data available.");
+      writeLine(stderr, "No provider data available.");
       return 1;
     }
 
