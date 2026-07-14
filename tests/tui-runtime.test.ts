@@ -1395,6 +1395,48 @@ describe("tui runtime helpers", () => {
     expect(collectQuotaRenderData).not.toHaveBeenCalled();
   });
 
+  it("keeps the July 14 bundled Copilot announcement hidden for a nonmatching provider", async () => {
+    writeFileSync(
+      join(worktreeDir, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            enabled: true,
+            tuiCompactStatus: {
+              enabled: false,
+              homeBottom: false,
+            },
+            maintainerAnnouncements: {
+              enabled: true,
+              home: true,
+            },
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const bottom = await loadTuiHomeBottomStatus({
+      api: {
+        state: {
+          provider: [{ id: "openai" }],
+          path: {
+            worktree: worktreeDir,
+            directory: nestedDir,
+          },
+          session: {
+            messages: () => [],
+          },
+        },
+        client: {},
+      } as any,
+      nowMs: Date.parse("2026-07-14T12:00:00.000Z"),
+    });
+
+    expect(bottom).toEqual({ status: "disabled", compact: { status: "disabled" } });
+    expect(collectQuotaRenderData).not.toHaveBeenCalled();
+  });
+
   it("loads announcement and compact quota in one home bottom state", async () => {
     writeFileSync(
       join(worktreeDir, "opencode.json"),
@@ -2080,6 +2122,5 @@ describe("tui runtime helpers", () => {
         }),
       ).rejects.toThrow("write rejected");
     });
-
   });
 });

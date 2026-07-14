@@ -197,10 +197,13 @@ function acquireSessionQuotaResource(api: TuiPluginApi, sessionID: string): Sess
   return next;
 }
 
-function createHomeBottomResource(api: TuiPluginApi): HomeBottomResource {
+function createHomeBottomResource(
+  api: TuiPluginApi,
+  compactHomeBottomEnabled: boolean,
+): HomeBottomResource {
   const [bottom, setBottom] = createSignal<HomeBottomState>({
     status: "loading",
-    compact: { status: "loading" },
+    compact: compactHomeBottomEnabled ? { status: "loading" } : { status: "disabled" },
   });
 
   let refCount = 0;
@@ -295,11 +298,14 @@ function createHomeBottomResource(api: TuiPluginApi): HomeBottomResource {
   return resource;
 }
 
-function acquireHomeBottomResource(api: TuiPluginApi): HomeBottomResource {
+function acquireHomeBottomResource(
+  api: TuiPluginApi,
+  compactHomeBottomEnabled: boolean,
+): HomeBottomResource {
   const existing = homeResources.get(api);
   if (existing) return existing.retain();
 
-  const next = createHomeBottomResource(api).retain();
+  const next = createHomeBottomResource(api, compactHomeBottomEnabled).retain();
   homeResources.set(api, next);
   return next;
 }
@@ -435,27 +441,30 @@ function SessionPromptWithCompactStatus(props: {
   );
 }
 
-function HomeBottomView(props: { api: TuiPluginApi }) {
-  const resource = acquireHomeBottomResource(props.api);
+function HomeBottomView(props: { api: TuiPluginApi; compactHomeBottomEnabled: boolean }) {
+  const resource = acquireHomeBottomResource(props.api, props.compactHomeBottomEnabled);
   onCleanup(() => resource.release());
 
   const announcement = () => getHomeBottomAnnouncementText(resource.bottom());
   const compact = () => resource.bottom().compact;
+  const visible = () => shouldRenderHomeBottom(resource.bottom());
 
   return (
-    <Show when={shouldRenderHomeBottom(resource.bottom())}>
-      <box gap={0}>
+    <box gap={0}>
+      <Show when={visible()}>
         <text> </text>
-        <Show when={announcement()}>
-          <box flexDirection="row" justifyContent="center">
-            <text fg={props.api.theme.current.textMuted} wrapMode="none">
-              {announcement()}
-            </text>
-          </box>
-        </Show>
+      </Show>
+      <Show when={visible() && announcement()}>
+        <box flexDirection="row" justifyContent="center">
+          <text fg={props.api.theme.current.textMuted} wrapMode="none">
+            {announcement()}
+          </text>
+        </box>
+      </Show>
+      <Show when={visible()}>
         <CompactStatusLine api={props.api} panel={compact} justifyContent="center" />
-      </box>
-    </Show>
+      </Show>
+    </box>
   );
 }
 
@@ -511,7 +520,9 @@ const tui: TuiPlugin = async (api) => {
   }
 
   if (surfaceRegistration.homeBottom) {
-    compactSlots.home_bottom = () => <HomeBottomView api={api} />;
+    compactSlots.home_bottom = () => (
+      <HomeBottomView api={api} compactHomeBottomEnabled={surfaceRegistration.compact.homeBottom} />
+    );
   }
 
   if (Object.keys(compactSlots).length > 0) {

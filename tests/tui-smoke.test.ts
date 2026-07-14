@@ -5,17 +5,20 @@ const {
   loadTuiHomeBottomStatus,
   loadTuiSessionQuotaSurfaces,
   resolveTuiSurfaceRegistration,
+  writeTuiQuotaExportIfEnabled,
 } = vi.hoisted(() => ({
   cleanupFns: [] as Array<() => void>,
   loadTuiHomeBottomStatus: vi.fn(),
   loadTuiSessionQuotaSurfaces: vi.fn(),
   resolveTuiSurfaceRegistration: vi.fn(),
+  writeTuiQuotaExportIfEnabled: vi.fn(),
 }));
 
 vi.mock("../src/lib/tui-runtime.js", () => ({
   loadTuiHomeBottomStatus,
   loadTuiSessionQuotaSurfaces,
   resolveTuiSurfaceRegistration,
+  writeTuiQuotaExportIfEnabled,
 }));
 
 vi.mock("solid-js", () => ({
@@ -165,6 +168,8 @@ describe("tui plugin smoke", () => {
       compact: { status: "ready", text: "Session quota" },
     });
     resolveTuiSurfaceRegistration.mockReset();
+    writeTuiQuotaExportIfEnabled.mockReset();
+    writeTuiQuotaExportIfEnabled.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -425,7 +430,26 @@ describe("tui plugin smoke", () => {
     const compactRegistration = registered.find((registration) => registration.order === 90);
     expect(compactRegistration).toBeDefined();
 
-    compactRegistration!.slots.home_bottom({}, {});
+    const loading = compactRegistration!.slots.home_bottom({}, {}) as any;
+    expect(loading).toMatchObject({
+      type: "box",
+      props: {
+        children: [
+          { type: "text", props: { children: " " } },
+          null,
+          {
+            type: "box",
+            props: {
+              children: {
+                type: "text",
+                props: { children: "Quota loading…" },
+              },
+            },
+          },
+        ],
+      },
+    });
+
     await Promise.resolve();
 
     const rendered = compactRegistration!.slots.home_bottom({}, {}) as any;
@@ -457,6 +481,100 @@ describe("tui plugin smoke", () => {
         ],
       },
     });
+  });
+
+  it("keeps announcement-only home host empty until a delayed announcement populates it", async () => {
+    const plugin = await loadTuiModule();
+    const { api, registered } = createApi();
+    let resolveBottom!: (value: {
+      status: "ready";
+      announcementText: string;
+      compact: { status: "disabled" };
+    }) => void;
+    loadTuiHomeBottomStatus.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveBottom = resolve;
+      }),
+    );
+    resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      sidebar: { enabled: false },
+      compact: {
+        enabled: false,
+        homeBottom: false,
+        sessionPrompt: false,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      announcements: { homeBottom: true },
+      homeBottom: true,
+    });
+
+    await plugin.tui(api as any, undefined, {} as any);
+
+    const homeBottom = registered[0].slots.home_bottom;
+    const empty = homeBottom({}, {}) as any;
+    expect(empty).toEqual({
+      type: "box",
+      props: { gap: 0, children: [null, null, null] },
+    });
+
+    resolveBottom({
+      status: "ready",
+      announcementText: "Notice: Maintainer announcement available. Run /quota_announcements.",
+      compact: { status: "disabled" },
+    });
+    await Promise.resolve();
+
+    const populated = homeBottom({}, {}) as any;
+    expect(populated.type).toBe("box");
+    expect(populated.props.children[0]).toMatchObject({
+      type: "text",
+      props: { children: " " },
+    });
+    expect(populated.props.children[1]).toMatchObject({
+      type: "box",
+      props: {
+        children: {
+          type: "text",
+          props: {
+            children: "Notice: Maintainer announcement available. Run /quota_announcements.",
+          },
+        },
+      },
+    });
+    expect(populated.props.children[2]).toBeNull();
+  });
+
+  it("keeps export-only home host empty while still writing the export", async () => {
+    const plugin = await loadTuiModule();
+    const { api, registered } = createApi();
+    loadTuiHomeBottomStatus.mockResolvedValueOnce({
+      status: "disabled",
+      compact: { status: "disabled" },
+    });
+    resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      sidebar: { enabled: false },
+      compact: {
+        enabled: false,
+        homeBottom: false,
+        sessionPrompt: false,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      announcements: { homeBottom: false },
+      homeBottom: true,
+    });
+
+    await plugin.tui(api as any, undefined, {} as any);
+
+    const rendered = registered[0].slots.home_bottom({}, {}) as any;
+    expect(rendered).toEqual({
+      type: "box",
+      props: { gap: 0, children: [null, null, null] },
+    });
+    await Promise.resolve();
+    expect(writeTuiQuotaExportIfEnabled).toHaveBeenCalledOnce();
+    expect(writeTuiQuotaExportIfEnabled).toHaveBeenCalledWith({ api });
   });
 
   it("wraps api.ui.Prompt and forwards session prompt props and ref exactly", async () => {

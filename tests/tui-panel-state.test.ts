@@ -4,8 +4,10 @@ import {
   getCompactStatusText,
   getSidebarPanelLines,
   shouldRenderCompactStatus,
+  shouldRenderHomeBottom,
   shouldRenderSidebarPanel,
   type CompactStatusState,
+  type HomeBottomState,
   type SidebarPanelState,
 } from "../src/lib/tui-panel-state.js";
 
@@ -87,5 +89,33 @@ describe("tui panel state helpers", () => {
 
     expect(shouldRenderCompactStatus(panel)).toBe(false);
     expect(getCompactStatusText(panel)).toBe("");
+  });
+
+  it("hides home bottom when neither announcements nor compact quota are visible", () => {
+    const panel: HomeBottomState = {
+      status: "loading",
+      compact: { status: "disabled" },
+    };
+
+    expect(shouldRenderHomeBottom(panel)).toBe(false);
+  });
+
+  it("shows home bottom while enabled compact quota is loading", () => {
+    const panel: HomeBottomState = {
+      status: "loading",
+      compact: { status: "loading" },
+    };
+
+    expect(shouldRenderHomeBottom(panel)).toBe(true);
+  });
+
+  it("shows home bottom for an announcement when compact quota is disabled", () => {
+    const panel: HomeBottomState = {
+      status: "ready",
+      announcementText: "Notice available",
+      compact: { status: "disabled" },
+    };
+
+    expect(shouldRenderHomeBottom(panel)).toBe(true);
   });
 });
