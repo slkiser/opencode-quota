@@ -31,10 +31,11 @@ describe("package manifest compatibility", () => {
     expect(pkg.engines?.node).toBe(">=20.0.0");
   });
 
-  it("keeps the documented OpenCode minimum aligned with the existing package surfaces", () => {
+  it("keeps plugin SDK dependencies aligned without asserting an OpenCode engine minimum", () => {
     expect(pkg.peerDependencies?.["@opencode-ai/plugin"]).toBe("^1.4.3");
     expect(pkg.devDependencies?.["@opencode-ai/plugin"]).toBe("^1.4.3");
-    expect(readme).toContain("OpenCode `>= 1.4.3` and Node.js `>= 20` are required.");
+    expect(readme).toContain("Node.js `>= 20` is required.");
+    expect(readme).not.toContain("OpenCode `>= 1.4.3`");
     expect(pkg.engines).not.toHaveProperty("opencode");
   });
 

@@ -26,20 +26,17 @@ npx @slkiser/opencode-quota init
 ```
 
 > [!IMPORTANT]
-> OpenCode `>= 1.4.3` and Node.js `>= 20` are required.
+> Node.js `>= 20` is required.
 
 Upgrading from v3? Read the [v4 migration guide](docs/readme/v4-migration.md).
 
 1. Restart OpenCode.
-2. Run `/quota` in OpenCode, or use `opencode-quota show` from your terminal.
+2. Run Slash commands in OpenCode, or use `opencode-quota show` from your terminal.
 3. If you enabled the Sidebar panel, open the session sidebar and look for `Quota`.
 4. If you enabled Compact status line, look for the home-bottom quota line and the chat/session prompt quota line.
 5. If something looks wrong, run `/quota_status` in OpenCode or see [Troubleshooting](docs/readme/troubleshooting.md).
 
-> [!NOTE]
-> In OpenCode 1.17.20, `/quota` is supported in both TUI and Web, but popup quota toasts are TUI-only. After Web renders the deterministic command output, it can still show a false `Failed to send command` notification; no model is called, so do not retry automatically once output appears. This OpenCode behavior predates v4 and also occurs with v3.11.2. Safari/macOS notification permissions do not enable TUI toast events in Web.
-
-## Update OpenCode Quota safely
+## Updating
 
 1. Close OpenCode.
 2. Run:
@@ -51,7 +48,7 @@ Upgrading from v3? Read the [v4 migration guide](docs/readme/v4-migration.md).
 3. Review the exact config edits and cache directories, then confirm.
 4. Restart OpenCode.
 
-Use `--dry-run` to preview without changing anything. Use `--yes` only for explicit noninteractive confirmation. The update command changes only canonical OpenCode Quota plugin entries and removes only verified OpenCode Quota cache directories; it preserves settings, JSONC comments, tuple options, and other plugins.
+Use `--dry-run` to preview without changing anything. Without it, `update` prints the preview and asks for confirmation before applying changes; use `--yes` only for explicit noninteractive confirmation. The update command changes only canonical OpenCode Quota plugin entries and removes only verified OpenCode Quota cache directories; it preserves settings, JSONC comments, tuple options, and other plugins.
 
 ## What you get
 
@@ -66,7 +63,7 @@ Use `--dry-run` to preview without changing anything. Use `--yes` only for expli
   </tr>
   <tr>
     <td width="50%" align="center"><strong>Sidebar panel</strong><br />A full quota view in OpenCode's session sidebar.</td>
-    <td width="50%" align="center"><strong>TUI toast</strong><br />Popup quota checks in the TUI after idle, question, or compact events.</td>
+    <td width="50%" align="center"><strong>TUI toast</strong><br />Quota checks can pop up in the TUI after idle, question, or compact events.</td>
   </tr>
   <tr>
     <td width="50%">
@@ -114,9 +111,11 @@ The server plugin registers each command once for TUI and Desktop/server. Each c
 
 ### CLI commands
 
+Use the CLI for scripts, CI, or a quick terminal check outside OpenCode.
+
 | Command                                        | Use when                                                              |
 | ---------------------------------------------- | --------------------------------------------------------------------- |
-| `opencode-quota update`                        | Preview and confirm a scoped OpenCode Quota update                       |
+| `opencode-quota update`                        | Preview, confirm, and apply a scoped OpenCode Quota update            |
 | `opencode-quota update --dry-run`              | Preview exact config and cache targets without changing them          |
 | `opencode-quota show`                          | Check quota from your terminal                                        |
 | `opencode-quota show --provider <id>`          | Check one provider only, such as `copilot` or `openai`                |
