@@ -15,9 +15,9 @@ Both use the local provider cache. They do **not** make extra provider network r
 
 ## JSON export v2
 
-Both surfaces emit schema `version: 2`. Provider entries stay flat. Every row includes `resultType`, `renderType`, acquisition/ownership/authority metadata, and its percent or value payload. Custom-source rows also include `sourceId`; the `custom-sources` provider adds an ordered `sources` array with coarse `ok`, `error`, or `unavailable` status.
+Both surfaces emit schema `version: 2`. Provider entries stay flat. Every row includes `resultType`, `renderType`, acquisition/ownership/authority metadata, and its percent or value payload. Custom-provider rows also include `sourceId`; the `custom-sources` provider adds an ordered `sources` array with coarse `ok`, `error`, or `unavailable` status.
 
-Detailed custom-source outcomes, credential category, environment name, and checked paths are intentionally excluded from public JSON. Use `/quota_status` for those live diagnostics. Export and CLI JSON remain cache-only.
+Detailed custom-provider outcomes, credential category, environment name, and checked paths are intentionally excluded from public JSON. Use `/quota_status` for those live diagnostics. Export and CLI JSON remain cache-only.
 
 ## Option 1: print JSON now
 

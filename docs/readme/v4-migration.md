@@ -41,7 +41,9 @@ Rows now separate:
 
 `show --json` and the export file use schema `version: 2`. Every row includes the provider-neutral accounting metadata and `renderType`. Update integrations before relying on the v4 export. See [External integration](external-integration.md) for the exact shape.
 
-### Custom accounting sources
+<a id="custom-accounting-sources"></a>
+
+### Custom providers
 
 v4 adds the aggregate provider ID `custom-sources`. Definitions are read only from the canonical global file:
 

@@ -48,7 +48,7 @@ Use `--dry-run` to preview without changing anything. Use `--yes` only for expli
 ### Provider troubleshooting
 
 <details>
-<summary><strong>Custom accounting sources</strong></summary>
+<summary><strong>Custom providers</strong></summary>
 
 Run `/quota_status` and inspect `custom_sources`. Each configured source shows source/provider IDs, preset, model coverage, live outcome, credential category, explicit environment name, and checked paths. These results are fetched live for the status command; cached results are not substituted.
 

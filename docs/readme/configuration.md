@@ -37,7 +37,9 @@ Common locations:
 
 If you are unsure, run `/quota_status` or check the install-scope paths above.
 
-### Custom accounting sources
+<a id="custom-accounting-sources"></a>
+
+### Custom providers
 
 `customSources` is the exception to ordinary config layering: it is accepted only in the canonical global `<OpenCode user config dir>/opencode-quota/quota-toast.json`. The usual path is `~/.config/opencode/opencode-quota/quota-toast.json`; when `OPENCODE_CONFIG_DIR` is set, use `$OPENCODE_CONFIG_DIR/opencode-quota/quota-toast.json`. Project/workspace sidecars, `experimental.quotaToast`, SDK config, and alternate global plugin files cannot define custom sources.
 

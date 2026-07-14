@@ -75,7 +75,7 @@ export const QUOTA_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   deepseek: "DeepSeek",
   "opencode-go": "OpenCode Go",
   "ollama-cloud": "Ollama Cloud",
-  "custom-sources": "Custom sources",
+  "custom-sources": "Custom providers",
 };
 
 export const QUOTA_PROVIDER_ID_SYNONYMS: Readonly<Record<string, string>> = {

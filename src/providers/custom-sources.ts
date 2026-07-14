@@ -244,7 +244,7 @@ export const customSourcesProvider: QuotaProvider = {
         entries: [],
         errors: [
           {
-            label: "Custom sources",
+            label: "Custom providers",
             message: "Failed to read exact runtime provider identities",
           },
         ],

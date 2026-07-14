@@ -285,7 +285,7 @@ describe("custom-sources aggregate provider", () => {
       entries: [],
       errors: [
         {
-          label: "Custom sources",
+          label: "Custom providers",
           message: "Failed to read exact runtime provider identities",
         },
       ],

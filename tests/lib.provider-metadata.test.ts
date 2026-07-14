@@ -350,7 +350,7 @@ describe("provider-metadata", () => {
     expect(getQuotaProviderDisplayLabel("kimi-code")).toBe("Kimi Code");
     expect(getQuotaProviderDisplayLabel("kimi")).toBe("Kimi Code");
     expect(getQuotaProviderDisplayLabel("deep-seek")).toBe("DeepSeek");
-    expect(getQuotaProviderDisplayLabel("custom-sources")).toBe("Custom sources");
+    expect(getQuotaProviderDisplayLabel("custom-sources")).toBe("Custom providers");
     expect(getQuotaProviderDisplayLabel("something-else")).toBe("something-else");
   });
 });
