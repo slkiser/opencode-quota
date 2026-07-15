@@ -5,9 +5,9 @@ v4 is a contract release. It keeps the existing provider registry and OpenCode s
 ## Requirements
 
 - OpenCode `>= 1.4.3`
-- Node.js `>= 20`
+- Node.js `>= 22`
 
-The OpenCode minimum matches the package's existing `@opencode-ai/plugin` peer range. The Node.js minimum matches `package.json` `engines.node`.
+The OpenCode minimum matches the package's existing `@opencode-ai/plugin` peer range. The Node.js minimum matches `package.json` `engines.node`; build and publish automation use Node.js 24.
 
 ## Before you update
 

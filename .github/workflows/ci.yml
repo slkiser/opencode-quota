@@ -12,10 +12,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Use Node.js 22.x
+      - name: Use Node.js 24.x
         uses: actions/setup-node@v6
         with:
-          node-version: 22.x
+          node-version: 24.x
 
       - name: Activate pnpm
         run: |
@@ -52,7 +52,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [20.x, 22.x]
+        node-version: [22.x, 24.x]
 
     steps:
       - name: Use Node.js ${{ matrix.node-version }}
@@ -96,7 +96,7 @@ jobs:
           assert.ok(!tuiSource.includes("jsx-dev-runtime"));
 
           const pkg = JSON.parse(await readFile("node_modules/@slkiser/opencode-quota/package.json", "utf8"));
-          assert.equal(pkg.engines?.node, ">=20.0.0");
+          assert.equal(pkg.engines?.node, ">=22.0.0");
           EOF
 
           CLI_OUTPUT="$(./node_modules/.bin/opencode-quota --help)"

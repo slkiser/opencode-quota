@@ -1,11 +1,13 @@
 import { lstat, readFile, realpath, rm } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
-import { applyEdits, modify, parse, type ParseError } from "jsonc-parser";
-
 import { writeTextAtomic } from "./atomic-json.js";
-import { findGitWorktreeRoot } from "./config-file-utils.js";
+import {
+  findGitWorktreeRoot,
+  resolveExistingConfigPath,
+  type ConfigFileFormat,
+} from "./config-file-utils.js";
+import { editConfigDocumentPaths, parseConfigDocument } from "./opencode-config-editor.js";
 import {
   getOpencodeRuntimeDirCandidates,
   getOpencodeRuntimeDirs,
@@ -85,14 +87,10 @@ function effectiveGlobalConfigDir(params: { env: NodeJS.ProcessEnv; homeDir?: st
 }
 
 function selectedConfigPaths(root: string): string[] {
-  const result: string[] = [];
-  for (const kind of ["opencode", "tui"] as const) {
-    const jsonc = join(root, `${kind}.jsonc`);
-    const json = join(root, `${kind}.json`);
-    if (existsSync(jsonc)) result.push(jsonc);
-    else if (existsSync(json)) result.push(json);
-  }
-  return result;
+  return (["opencode", "tui"] as const).flatMap((kind) => {
+    const path = resolveExistingConfigPath(root, kind);
+    return path ? [path] : [];
+  });
 }
 
 async function dedupeByRealPath(paths: string[]): Promise<string[]> {
@@ -127,13 +125,15 @@ function updateConfig(
   replacements: number;
   specs: string[];
 } {
-  const errors: ParseError[] = [];
-  const parsed = parse(raw, errors, { allowTrailingComma: true, disallowComments: false });
-  if (errors.length > 0) {
+  const format: ConfigFileFormat = path.endsWith(".jsonc") ? "jsonc" : "json";
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = parseConfigDocument(raw, format, path);
+  } catch {
     throw new ScopedUpdateError(`Cannot update unparseable config: ${path}`, { path });
   }
 
-  let updated = raw;
+  const edits: Array<{ path: (string | number)[]; value: unknown }> = [];
   let replacements = 0;
   const specs: string[] = [];
   for (const array of pluginArrays(parsed)) {
@@ -150,10 +150,11 @@ function updateConfig(
       if (spec === QUOTA_LATEST_SPEC) continue;
       const targetPath =
         typeof entry === "string" ? [...array.path, index] : [...array.path, index, 0];
-      updated = applyEdits(updated, modify(updated, targetPath, QUOTA_LATEST_SPEC, {}));
+      edits.push({ path: targetPath, value: QUOTA_LATEST_SPEC });
       replacements++;
     }
   }
+  const updated = editConfigDocumentPaths({ raw, format, path, edits });
   return { updated, replacements, specs };
 }
 

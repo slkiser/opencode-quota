@@ -69,6 +69,7 @@ const mocks = vi.hoisted(() => ({
   resolveQwenLocalPlanCached: vi.fn(),
   resolveAlibabaCodingPlanAuthCached: vi.fn(),
   fetchSessionTokensForDisplay: vi.fn(),
+  reconcileDetectedProvidersInGlobalConfig: vi.fn(),
 }));
 
 vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
@@ -97,6 +98,10 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () =>
   createPluginRuntimePathsMockModule(TEST_RUNTIME_ROOT),
 );
 
+vi.mock("../src/lib/opencode-config-providers.js", () => ({
+  reconcileDetectedProvidersInGlobalConfig: mocks.reconcileDetectedProvidersInGlobalConfig,
+}));
+
 describe("/quota command behavior", () => {
   let savedConfigDir: string | undefined;
 
@@ -111,6 +116,12 @@ describe("/quota command behavior", () => {
         minIntervalMs: 60_000,
       },
       resetPluginState: true,
+    });
+    mocks.reconcileDetectedProvidersInGlobalConfig.mockResolvedValue({
+      path: `${TEST_RUNTIME_ROOT}/config/opencode.jsonc`,
+      format: "jsonc",
+      addedProviderIds: [],
+      changed: false,
     });
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
     const { __resetQuotaStateForTests } = await import("../src/lib/quota-state.js");
@@ -219,6 +230,80 @@ describe("/quota command behavior", () => {
     expect(client.tui.showToast).toHaveBeenCalledTimes(1);
     const message = getToastMessage(client);
     expect(message).toContain("Copilot: Unavailable (not detected)");
+  });
+
+  it("reconciles auth-detected providers through the global config writer in auto mode", async () => {
+    mocks.loadConfig.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      enabled: true,
+      enabledProviders: "auto",
+      showOnIdle: true,
+      showOnCompact: false,
+      showOnQuestion: false,
+      showSessionTokens: false,
+      minIntervalMs: 60_000,
+    });
+    const provider = {
+      id: "openai",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI", percentRemaining: 75 }],
+        errors: [],
+      }),
+    };
+    mocks.getProviders.mockReturnValue([provider]);
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const client = createClient();
+    const projectDirectory = `${TEST_RUNTIME_ROOT}/project`;
+    const hooks = await QuotaToastPlugin({ client, directory: projectDirectory } as any);
+
+    await hooks.event?.({
+      event: { type: "session.idle", properties: { sessionID: "session-auto-provider" } },
+    } as any);
+
+    expect(mocks.reconcileDetectedProvidersInGlobalConfig).toHaveBeenCalledWith({
+      configRootDir: projectDirectory,
+      detectedProviderIds: ["openai"],
+    });
+  });
+
+  it("keeps quota output working when automatic global config repair and logging fail", async () => {
+    mocks.loadConfig.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      enabled: true,
+      enabledProviders: "auto",
+      showOnIdle: true,
+      showOnCompact: false,
+      showOnQuestion: false,
+      showSessionTokens: false,
+      minIntervalMs: 60_000,
+    });
+    mocks.reconcileDetectedProvidersInGlobalConfig.mockRejectedValueOnce(new Error("disk full"));
+    const provider = {
+      id: "openai",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI", percentRemaining: 75 }],
+        errors: [],
+      }),
+    };
+    mocks.getProviders.mockReturnValue([provider]);
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const client = createClient();
+    client.app.log.mockRejectedValue(new Error("logging unavailable"));
+    const hooks = await QuotaToastPlugin({
+      client,
+      directory: `${TEST_RUNTIME_ROOT}/project`,
+    } as any);
+
+    await hooks.event?.({
+      event: { type: "session.idle", properties: { sessionID: "session-repair-failure" } },
+    } as any);
+
+    expect(client.tui.showToast).toHaveBeenCalledTimes(1);
+    expect(getToastMessage(client)).toContain("OpenAI");
   });
 
   it("shows explicit current-model skip errors in idle-triggered toasts", async () => {

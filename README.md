@@ -26,7 +26,11 @@ npx @slkiser/opencode-quota init
 ```
 
 > [!IMPORTANT]
-> Node.js `>= 20` is required.
+> Node.js `>= 22` is required.
+
+The installer recommends **JSONC** because comments make the generated plugin entries easier to understand; strict JSON is also available. Before writing, it previews every target. Use `npx @slkiser/opencode-quota init --dry-run` to validate and stop after that preview. If you choose JSONC for an existing `opencode.json`, it copies all settings into `opencode.jsonc`, adds only the required OpenCode Quota entries and comments, validates the result, writes it atomically, and removes the old JSON only after success. Existing JSONC comments and unrelated settings are preserved.
+
+In auto-detect mode, when OpenCode Quota finds working auth for a built-in provider but no matching OpenCode `provider` declaration, it adds an empty declaration to the selected global `opencode.jsonc` or `opencode.json`. It preserves that file's format; if the global file is new, it uses the selected project format. Project declarations are read as project-only overrides and are never automatically written.
 
 Upgrading from v3? Read the [v4 migration guide](docs/readme/v4-migration.md).
 
@@ -48,7 +52,7 @@ Upgrading from v3? Read the [v4 migration guide](docs/readme/v4-migration.md).
 3. Review the exact config edits and cache directories, then confirm.
 4. Restart OpenCode.
 
-Use `--dry-run` to preview without changing anything. Without it, `update` prints the preview and asks for confirmation before applying changes; use `--yes` only for explicit noninteractive confirmation. The update command changes only canonical OpenCode Quota plugin entries and removes only verified OpenCode Quota cache directories; it preserves settings, JSONC comments, tuple options, and other plugins.
+Use `--dry-run` to preview without changing anything. Without it, `update` prints the preview and asks for confirmation before applying changes; use `--yes` only for explicit noninteractive confirmation. The update command changes only canonical OpenCode Quota plugin entries and removes only verified OpenCode Quota cache directories; it preserves the selected existing JSON/JSONC filename, settings, JSONC comments, tuple options, and other plugins.
 
 ## What you get
 
@@ -115,6 +119,7 @@ Use the CLI for scripts, CI, or a quick terminal check outside OpenCode.
 
 | Command                                        | Use when                                                              |
 | ---------------------------------------------- | --------------------------------------------------------------------- |
+| `opencode-quota init --dry-run`                | Validate and preview installer changes without writing files          |
 | `opencode-quota update`                        | Preview, confirm, and apply a scoped OpenCode Quota update            |
 | `opencode-quota update --dry-run`              | Preview exact config and cache targets without changing them          |
 | `opencode-quota show`                          | Check quota from your terminal                                        |

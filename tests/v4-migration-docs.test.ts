@@ -25,12 +25,12 @@ const configuration = await readFile(
 
 describe("v4 migration documentation contract", () => {
   it("keeps requirements, migration link, and supported-version surfaces aligned", () => {
-    expect(packageJson.engines?.node).toBe(">=20.0.0");
+    expect(packageJson.engines?.node).toBe(">=22.0.0");
     expect(packageJson.peerDependencies?.["@opencode-ai/plugin"]).toBe("^1.4.3");
     expect(packageJson.engines).not.toHaveProperty("opencode");
 
     expect(migration).toContain("OpenCode `>= 1.4.3`");
-    expect(migration).toContain("Node.js `>= 20`");
+    expect(migration).toContain("Node.js `>= 22`");
     expect(readme).toContain("[v4 migration guide](docs/readme/v4-migration.md)");
   });
 

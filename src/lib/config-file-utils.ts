@@ -6,8 +6,10 @@ export type ConfigFileFormat = "json" | "jsonc";
 
 export interface EditableConfigPath {
   path: string;
+  sourcePath: string;
   format: ConfigFileFormat;
   existed: boolean;
+  removeSourcePath?: string;
 }
 
 export interface RuntimeContextRootHints {
@@ -98,17 +100,24 @@ export function findGitWorktreeRoot(startDir: string): string | null {
 }
 
 export function getConfigFileCandidatePaths(dir: string, kind: ConfigFileKind): string[] {
-  return [join(dir, `${kind}.json`), join(dir, `${kind}.jsonc`)];
+  return [join(dir, `${kind}.jsonc`), join(dir, `${kind}.json`)];
+}
+
+export function resolveExistingConfigPath(dir: string, kind: ConfigFileKind): string | null {
+  return getConfigFileCandidatePaths(dir, kind).find((path) => existsSync(path)) ?? null;
 }
 
 export function resolveEditableConfigPath(params: {
   dir: string;
   kind: ConfigFileKind;
+  preferredFormat?: ConfigFileFormat;
+  convertJsonToJsonc?: boolean;
 }): EditableConfigPath {
   const jsoncPath = join(params.dir, `${params.kind}.jsonc`);
   if (existsSync(jsoncPath)) {
     return {
       path: jsoncPath,
+      sourcePath: jsoncPath,
       format: "jsonc",
       existed: true,
     };
@@ -116,16 +125,30 @@ export function resolveEditableConfigPath(params: {
 
   const jsonPath = join(params.dir, `${params.kind}.json`);
   if (existsSync(jsonPath)) {
+    if (params.preferredFormat === "jsonc" && params.convertJsonToJsonc) {
+      return {
+        path: jsoncPath,
+        sourcePath: jsonPath,
+        format: "jsonc",
+        existed: true,
+        removeSourcePath: jsonPath,
+      };
+    }
+
     return {
       path: jsonPath,
+      sourcePath: jsonPath,
       format: "json",
       existed: true,
     };
   }
 
+  const format = params.preferredFormat ?? "jsonc";
+  const path = join(params.dir, `${params.kind}.${format}`);
   return {
-    path: jsonPath,
-    format: "json",
+    path,
+    sourcePath: path,
+    format,
     existed: false,
   };
 }

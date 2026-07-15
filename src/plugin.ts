@@ -49,6 +49,7 @@ import {
   type QuotaRuntimeContext,
 } from "./lib/quota-runtime-context.js";
 import { findGitWorktreeRoot, getEffectiveConfigRoot } from "./lib/config-file-utils.js";
+import { reconcileDetectedProvidersInGlobalConfig } from "./lib/opencode-config-providers.js";
 import {
   BUNDLED_MAINTAINER_ANNOUNCEMENTS,
   formatMaintainerAnnouncementHomeCountLine,
@@ -195,7 +196,7 @@ const DEFERRED_QUOTA_REFRESH_DELAYS_MS = [3_000, 15_000, 60_000, 300_000] as con
 /**
  * Main plugin export
  */
-export const QuotaToastPlugin: Plugin = async ({ client }) => {
+export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
   const typedClient = client as unknown as OpencodeClient;
   const TOOL_FAILURE_STATUSES = new Set(["error", "failed", "failure", "cancelled", "canceled"]);
   const TOOL_SUCCESS_STATUSES = new Set(["success", "ok", "completed", "complete"]);
@@ -240,6 +241,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
   let config: QuotaToastConfig = DEFAULT_CONFIG;
   let configLoaded = false;
   let configInFlight: Promise<void> | null = null;
+  let providerConfigReconcileQueue: Promise<void> = Promise.resolve();
   let configMeta: LoadConfigMeta = createLoadConfigMeta();
   let runtimeProviders = getProviders();
 
@@ -393,7 +395,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
   }
 
   function getPluginRuntimeRootHints() {
-    const cwd = process.cwd();
+    const cwd = directory || process.cwd();
     const workspaceRoot = findGitWorktreeRoot(cwd) ?? cwd;
     const configRoot = getEffectiveConfigRoot(workspaceRoot);
     return {
@@ -649,6 +651,42 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     }
   }
 
+  async function reconcileDetectedProviderConfig(providerIds: readonly string[]): Promise<void> {
+    if (!directory || providerIds.length === 0) return;
+
+    const reconcile = async () => {
+      try {
+        const result = await reconcileDetectedProvidersInGlobalConfig({
+          configRootDir: getPluginRuntimeRootHints().configRoot,
+          detectedProviderIds: providerIds,
+        });
+        if (result.changed) {
+          await log("Added detected providers to global OpenCode config", {
+            path: result.path,
+            format: result.format,
+            providers: result.addedProviderIds,
+          });
+        }
+      } catch (error) {
+        try {
+          await typedClient.app.log({
+            body: {
+              service: "quota-toast",
+              level: "warn",
+              message: "Failed to add detected providers to global OpenCode config",
+              extra: { error: error instanceof Error ? error.message : String(error) },
+            },
+          });
+        } catch {
+          // Automatic config repair is best-effort and must not break quota output.
+        }
+      }
+    };
+
+    providerConfigReconcileQueue = providerConfigReconcileQueue.then(reconcile, reconcile);
+    await providerConfigReconcileQueue;
+  }
+
   /**
    * Check if session is a subagent session
    */
@@ -835,6 +873,9 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     });
     const { selection, availability, active, attemptedAny, hasExplicitProviderIssues, data } =
       quotaResult;
+    if (selection?.isAutoMode) {
+      await reconcileDetectedProviderConfig(active.map((provider) => provider.id));
+    }
     const detectedProviderIds = active.map((provider) => provider.id);
 
     if (runtimeConfig.showSessionTokens && params.sessionID) {
@@ -1211,6 +1252,11 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
         };
       }),
     );
+    if (isAutoMode) {
+      await reconcileDetectedProviderConfig(
+        availability.filter((item) => item.available).map((item) => item.id),
+      );
+    }
 
     const providersById = new Map(providers.map((provider) => [provider.id, provider] as const));
     const liveProbeProviders = availability.flatMap((item) => {

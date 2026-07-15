@@ -4,6 +4,12 @@ import { basename } from "path";
 
 import { writeJsonAtomic } from "./atomic-json.js";
 import {
+  applyConfigDocumentEdit,
+  planConfigDocumentEdit,
+  validateConfigDocumentEdit,
+  type ConfigDocumentEdit,
+} from "./opencode-config-editor.js";
+import {
   dedupeNonEmptyStrings,
   extractPluginSpecsFromParsedConfig,
   getPluginSpecFromEntry,
@@ -55,6 +61,7 @@ export interface InitInstallerSelections {
   percentDisplayMode: QuotaToastConfig["percentDisplayMode"];
   showSessionTokens: boolean;
   maintainerAnnouncements?: boolean;
+  configFormat?: ConfigFileFormat;
 }
 
 export interface InitInstallerQuickSetupNote {
@@ -76,6 +83,7 @@ export interface PlannedConfigEdit {
   warnings: string[];
   nextData?: Record<string, unknown>;
   plannedData?: Record<string, unknown>;
+  documentEdit?: ConfigDocumentEdit;
 }
 
 export interface InitInstallerPlan {
@@ -124,7 +132,11 @@ type NormalizedQuotaUiIntent = {
 type PromptAdapter = {
   intro: (message: string) => void;
   outro: (message: string) => void;
-  select: (options: { message: string; options: PromptOption[] }) => Promise<unknown>;
+  select: (options: {
+    message: string;
+    options: PromptOption[];
+    initialValue?: string;
+  }) => Promise<unknown>;
   multiselect: (options: {
     message: string;
     required?: boolean;
@@ -562,7 +574,10 @@ async function readLegacyQuotaToastSeed(baseDir: string): Promise<JsonObject | n
     return null;
   }
 
-  const root = await readExistingConfig(target);
+  const root = await readExistingConfig({
+    path: target.sourcePath,
+    format: target.sourcePath.endsWith(".jsonc") ? "jsonc" : "json",
+  });
   const experimental = isPlainObject(root.experimental) ? root.experimental : null;
   const quotaToast =
     experimental && isPlainObject(experimental.quotaToast) ? experimental.quotaToast : null;
@@ -647,7 +662,12 @@ async function planOpencodeEdit(params: {
   baseDir: string;
   legacyQuotaToastToSync?: JsonObject;
 }): Promise<PlannedConfigEdit> {
-  const target = resolveEditableConfigPath({ dir: params.baseDir, kind: "opencode" });
+  const target = resolveEditableConfigPath({
+    dir: params.baseDir,
+    kind: "opencode",
+    preferredFormat: params.selections.configFormat ?? "jsonc",
+    convertJsonToJsonc: true,
+  });
   const edit: PlannedConfigEdit = {
     kind: "opencode",
     path: target.path,
@@ -658,15 +678,19 @@ async function planOpencodeEdit(params: {
     addedKeys: [],
     updatedKeys: [],
     skippedValues: [],
-    warnings:
-      target.format === "jsonc"
-        ? ["Existing JSONC comments/trailing commas will be stripped."]
-        : [],
+    warnings: [],
   };
 
-  const root = target.existed ? await readExistingConfig(target) : {};
+  const root = target.existed
+    ? await readExistingConfig({
+        path: target.sourcePath,
+        format: target.sourcePath.endsWith(".jsonc") ? "jsonc" : "json",
+      })
+    : {};
 
-  ensureSchema(root, OPENCODE_SCHEMA_URL, edit);
+  if (!target.existed) {
+    ensureSchema(root, OPENCODE_SCHEMA_URL, edit);
+  }
 
   const plugin = ensureTopLevelPluginArray(root, edit);
   appendQuotaPluginIfMissing({
@@ -684,9 +708,18 @@ async function planOpencodeEdit(params: {
     });
   }
 
-  if (edit.changed) {
-    edit.nextData = root;
-  }
+  const documentEdit = await planConfigDocumentEdit({
+    target,
+    desiredData: root,
+    managedComments: [
+      {
+        path: ["plugin"],
+        text: "// OpenCode Quota: loads the server plugin for slash commands and quota checks.",
+      },
+    ],
+  });
+  edit.changed = documentEdit.changed;
+  edit.documentEdit = documentEdit;
 
   return edit;
 }
@@ -793,7 +826,12 @@ async function planTuiEdit(params: {
   selections: InitInstallerSelections;
   baseDir: string;
 }): Promise<PlannedConfigEdit> {
-  const target = resolveEditableConfigPath({ dir: params.baseDir, kind: "tui" });
+  const target = resolveEditableConfigPath({
+    dir: params.baseDir,
+    kind: "tui",
+    preferredFormat: params.selections.configFormat ?? "jsonc",
+    convertJsonToJsonc: true,
+  });
   const edit: PlannedConfigEdit = {
     kind: "tui",
     path: target.path,
@@ -804,14 +842,18 @@ async function planTuiEdit(params: {
     addedKeys: [],
     updatedKeys: [],
     skippedValues: [],
-    warnings:
-      target.format === "jsonc"
-        ? ["Existing JSONC comments/trailing commas will be stripped."]
-        : [],
+    warnings: [],
   };
 
-  const root = target.existed ? await readExistingConfig(target) : {};
-  ensureSchema(root, TUI_SCHEMA_URL, edit);
+  const root = target.existed
+    ? await readExistingConfig({
+        path: target.sourcePath,
+        format: target.sourcePath.endsWith(".jsonc") ? "jsonc" : "json",
+      })
+    : {};
+  if (!target.existed) {
+    ensureSchema(root, TUI_SCHEMA_URL, edit);
+  }
 
   const existingPluginSpecs = extractPluginSpecsFromParsedConfig(root);
   if (existingPluginSpecs.some((spec) => isQuotaPluginSpec(spec, "tui"))) {
@@ -826,15 +868,28 @@ async function planTuiEdit(params: {
     });
   }
 
-  if (edit.changed) {
-    edit.nextData = root;
-  }
+  const documentEdit = await planConfigDocumentEdit({
+    target,
+    desiredData: root,
+    managedComments: [
+      {
+        path: ["plugin"],
+        text: "// OpenCode Quota: loads the TUI sidebar, compact status, and local dialogs.",
+      },
+    ],
+  });
+  edit.changed = documentEdit.changed;
+  edit.documentEdit = documentEdit;
 
   return edit;
 }
 
 function buildPlanSummary(plan: InitInstallerPlan): string[] {
   const quotaUiIntent = normalizeQuotaUiIntent(plan.selections);
+  const opencodeFormat =
+    plan.edits.find((edit) => edit.kind === "opencode")?.format ??
+    plan.selections.configFormat ??
+    "jsonc";
   const lines: string[] = [
     `Scope: ${plan.selections.scope} (${plan.baseDir})`,
     `Quota UI: ${getUiLabel(quotaUiIntent.choices)}`,
@@ -842,6 +897,7 @@ function buildPlanSummary(plan: InitInstallerPlan): string[] {
     `Quota reset periods: ${getQuotaFormatStyleLabel(plan.selections.formatStyle)}`,
     `Quota percentage meaning: ${getPercentDisplayModeLabel(plan.selections.percentDisplayMode)}`,
     `Session token details: ${plan.selections.showSessionTokens ? "Show" : "Hide"}`,
+    `OpenCode config format: ${opencodeFormat.toUpperCase()}`,
   ];
 
   if (plan.selections.maintainerAnnouncements !== undefined) {
@@ -862,8 +918,17 @@ function buildPlanSummary(plan: InitInstallerPlan): string[] {
   }
 
   for (const edit of plan.edits) {
-    const mode = !edit.existed ? "create" : edit.changed ? "update" : "unchanged";
-    lines.push(`${mode}: ${edit.path}`);
+    const convertedFrom = edit.documentEdit?.removeSourcePath;
+    const mode = convertedFrom
+      ? "convert"
+      : !edit.existed
+        ? "create"
+        : edit.changed
+          ? "update"
+          : "unchanged";
+    lines.push(
+      convertedFrom ? `${mode}: ${convertedFrom} -> ${edit.path}` : `${mode}: ${edit.path}`,
+    );
 
     for (const plugin of edit.addedPlugins) {
       lines.push(`  + plugin ${plugin}`);
@@ -937,6 +1002,7 @@ export async function planInitInstaller(params: {
   const quotaUiIntent = normalizeQuotaUiIntent(params.selections);
   const selections: InitInstallerSelections = {
     ...params.selections,
+    configFormat: params.selections.configFormat ?? "jsonc",
     quotaUi: quotaUiIntent.choices,
     maintainerAnnouncements: params.selections.maintainerAnnouncements,
     manualProviders:
@@ -984,14 +1050,35 @@ export async function applyInitInstallerPlan(
   const writtenPaths: string[] = [];
   const unchangedPaths: string[] = [];
 
+  try {
+    await Promise.all(
+      plan.edits.flatMap((edit) =>
+        edit.documentEdit ? [validateConfigDocumentEdit(edit.documentEdit)] : [],
+      ),
+    );
+  } catch (error) {
+    const path =
+      error && typeof error === "object" && "path" in error
+        ? String((error as { path?: unknown }).path ?? "")
+        : "";
+    throw new InitInstallerError(`Config changed since preview${path ? `: ${path}` : "."}`, {
+      path: path || undefined,
+      writtenPaths,
+    });
+  }
+
   for (const edit of plan.edits) {
-    if (!edit.changed || !edit.nextData) {
+    if (!edit.changed || (!edit.nextData && !edit.documentEdit)) {
       unchangedPaths.push(edit.path);
       continue;
     }
 
     try {
-      await writeJsonAtomic(edit.path, edit.nextData, { trailingNewline: true });
+      if (edit.documentEdit) {
+        await applyConfigDocumentEdit(edit.documentEdit);
+      } else {
+        await writeJsonAtomic(edit.path, edit.nextData, { trailingNewline: true });
+      }
       writtenPaths.push(edit.path);
     } catch (error) {
       throw new InitInstallerError(`Failed writing ${edit.path}.`, {
@@ -1022,6 +1109,24 @@ async function promptForSelections(
     ],
   });
   if (prompts.isCancel(scope)) return null;
+
+  const configFormat = await prompts.select({
+    message: "OpenCode config format",
+    initialValue: "jsonc",
+    options: [
+      {
+        label: "JSONC (recommended)",
+        value: "jsonc",
+        hint: "keeps helpful comments and trailing commas",
+      },
+      {
+        label: "JSON",
+        value: "json",
+        hint: "strict JSON without comments for new or existing JSON files",
+      },
+    ],
+  });
+  if (prompts.isCancel(configFormat)) return null;
 
   const quotaUi = await prompts.multiselect({
     message: "Quota UI",
@@ -1137,6 +1242,7 @@ async function promptForSelections(
     percentDisplayMode: percentDisplayMode as QuotaToastConfig["percentDisplayMode"],
     showSessionTokens: showSessionTokens === "yes",
     maintainerAnnouncements: maintainerAnnouncements !== false,
+    configFormat: configFormat as ConfigFileFormat,
   };
 }
 
@@ -1146,6 +1252,7 @@ export async function runInitInstaller(params?: {
   homeDir?: string;
   prompts?: PromptAdapter;
   syncLegacyConfig?: boolean;
+  dryRun?: boolean;
 }): Promise<number> {
   const prompts = params?.prompts ?? ((await import("@clack/prompts")) as unknown as PromptAdapter);
 
@@ -1172,6 +1279,11 @@ export async function runInitInstaller(params?: {
 
     if (!plan.edits.some((edit) => edit.changed)) {
       prompts.outro(`No changes needed — ${GITHUB_STAR_NOTE}`);
+      return 0;
+    }
+
+    if (params?.dryRun) {
+      prompts.outro("Quota init preview complete — no files changed");
       return 0;
     }
 

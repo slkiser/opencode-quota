@@ -23,18 +23,18 @@ const publishWorkflow = await readFile(
 const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
 
 describe("package manifest compatibility", () => {
-  it("requires pnpm 11+ development tooling while requiring Node 20+ at runtime", () => {
+  it("requires pnpm 11+ development tooling while requiring Node 22+ at runtime", () => {
     const packageManagerMatch = pkg.packageManager?.match(/^pnpm@(\d+)\.\d+\.\d+(?:[+-].*)?$/);
 
     expect(packageManagerMatch).not.toBeNull();
     expect(Number(packageManagerMatch?.[1])).toBeGreaterThanOrEqual(11);
-    expect(pkg.engines?.node).toBe(">=20.0.0");
+    expect(pkg.engines?.node).toBe(">=22.0.0");
   });
 
   it("keeps plugin SDK dependencies aligned without asserting an OpenCode engine minimum", () => {
     expect(pkg.peerDependencies?.["@opencode-ai/plugin"]).toBe("^1.4.3");
     expect(pkg.devDependencies?.["@opencode-ai/plugin"]).toBe("^1.4.3");
-    expect(readme).toContain("Node.js `>= 20` is required.");
+    expect(readme).toContain("Node.js `>= 22` is required.");
     expect(readme).not.toContain("OpenCode `>= 1.4.3`");
     expect(pkg.engines).not.toHaveProperty("opencode");
   });
@@ -98,7 +98,8 @@ describe("package manifest compatibility", () => {
   });
 
   it("locks packed-install smoke coverage to supported Node versions and shipped entrypoints", () => {
-    expect(ciWorkflow).toContain("node-version: [20.x, 22.x]");
+    expect(ciWorkflow).toContain("node-version: [22.x, 24.x]");
+    expect(ciWorkflow).toContain("node-version: 24.x");
     expect(ciWorkflow).toContain('await import("@slkiser/opencode-quota");');
     expect(ciWorkflow).toContain('await import("@slkiser/opencode-quota/server");');
     expect(ciWorkflow).toContain("./node_modules/.bin/opencode-quota --help");

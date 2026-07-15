@@ -8,13 +8,14 @@ import { runInitInstaller } from "../lib/init-installer.js";
 
 const USAGE = [
   "Usage:",
-  "  npx @slkiser/opencode-quota init [--sync-legacy-config]",
+  "  npx @slkiser/opencode-quota init [--dry-run] [--sync-legacy-config]",
   "  npx @slkiser/opencode-quota show [--provider <provider-id>] [--json] [--threshold <pct>]",
   "  npx @slkiser/opencode-quota update [--dry-run] [--yes]",
   "  npx @slkiser/opencode-quota --help",
   "",
   "Commands:",
   "  init    Run the interactive quota installer",
+  "          --dry-run            Preview validated changes without writing files",
   "          --sync-legacy-config also writes experimental.quotaToast",
   "  show    Print a quick quota glance",
   "          --json               Machine-readable JSON output (reads from cache)",
@@ -63,11 +64,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 
   if (command === "init") {
-    if (rest.length === 0) {
-      return await runInitInstaller();
-    }
-    if (rest.length === 1 && rest[0] === "--sync-legacy-config") {
-      return await runInitInstaller({ syncLegacyConfig: true });
+    const allowed = new Set(["--dry-run", "--sync-legacy-config"]);
+    if (rest.every((arg) => allowed.has(arg)) && new Set(rest).size === rest.length) {
+      return await runInitInstaller({
+        ...(rest.includes("--dry-run") ? { dryRun: true } : {}),
+        ...(rest.includes("--sync-legacy-config") ? { syncLegacyConfig: true } : {}),
+      });
     }
   }
 
