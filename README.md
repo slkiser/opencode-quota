@@ -157,6 +157,8 @@ The friendly `Quota` label covers quota and rate-limit windows; v4 JSON distingu
 
 Custom providers can report quota, rate limit, usage, spend, budget, balance, or status.
 
+An OpenCode `provider` block is the part of `opencode.json` that tells OpenCode which provider and models are available and how to reach them. OpenCode creates this knowledge for its built-in providers, so they do not need a provider block. When adding a provider OpenCode does not already know, you create the provider and model configuration so OpenCode can use it. `/connect` → **Other** stores the credential, but you still configure the provider and models in `opencode.json`. Write that configuration manually with the [OpenCode provider guide](https://opencode.ai/docs/providers), or use the planned guided OpenCode Quota command when it becomes available.
+
 Add safe preset-based endpoints for gateways that OpenCode already knows. `customSources` is accepted **only** in the canonical global `<OpenCode user config dir>/opencode-quota/quota-toast.json` (usually `~/.config/opencode/opencode-quota/quota-toast.json`, or under `$OPENCODE_CONFIG_DIR`). It is rejected from project/workspace, legacy, and SDK config.
 
 ```jsonc
