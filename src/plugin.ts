@@ -382,7 +382,7 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
     if (isAlibabaModelId(currentModel)) {
       const plan = await resolveAlibabaCodingPlanAuthCached({
         maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
-        fallbackTier: config.alibabaCodingPlanTier,
+        fallbackTier: "lite",
       });
       return plan.state === "configured" && isProviderEnabled("alibaba-coding-plan");
     }
@@ -777,7 +777,6 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
       `currentProviderID=${currentProviderID}`,
       `anthropicBinaryPath=${config.anthropicBinaryPath}`,
       `googleModels=${googleModels}`,
-      `alibabaTier=${config.alibabaCodingPlanTier}`,
       `cursorPlan=${config.cursorPlan}`,
       `cursorIncludedApiUsd=${config.cursorIncludedApiUsd ?? ""}`,
       `cursorBillingCycleStartDay=${config.cursorBillingCycleStartDay ?? ""}`,
@@ -1246,7 +1245,7 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
                   currentModel,
                   currentProviderID,
                   enabledProviders: runtimeConfig.enabledProviders,
-                  customSources: runtimeConfig.customSources,
+                  quotaProviders: runtimeConfig.quotaProviders,
                 })
               : undefined,
         };
@@ -1315,7 +1314,6 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
       configIssues: runtime.configMeta.configIssues,
       enabledProviders: runtimeConfig.enabledProviders,
       anthropicBinaryPath: runtimeConfig.anthropicBinaryPath,
-      alibabaCodingPlanTier: runtimeConfig.alibabaCodingPlanTier,
       cursorPlan: runtimeConfig.cursorPlan,
       cursorIncludedApiUsd: runtimeConfig.cursorIncludedApiUsd,
       cursorBillingCycleStartDay: runtimeConfig.cursorBillingCycleStartDay,
@@ -1326,7 +1324,7 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
       sessionModelLookup,
       providerAvailability: availability,
       providerLiveProbes,
-      customSources: runtimeConfig.customSources,
+      quotaProviders: runtimeConfig.quotaProviders,
       googleRefresh: refresh
         ? {
             attempted: true,
@@ -1457,7 +1455,7 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
           } else if (isAlibabaModelId(model)) {
             const plan = await resolveAlibabaCodingPlanAuthCached({
               maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
-              fallbackTier: config.alibabaCodingPlanTier,
+              fallbackTier: "lite",
             });
             if (plan.state === "configured") {
               await recordAlibabaCodingPlanCompletion();

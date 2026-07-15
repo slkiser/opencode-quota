@@ -33,22 +33,22 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 
 The friendly `Quota` label covers quota and rate-limit windows; v4 JSON distinguishes them.
 
-<a id="custom-accounting-sources"></a>
-
-## Custom providers
+### Custom providers
 
 Custom providers can report quota, rate limit, usage, spend, budget, balance, or status.
 
-Use the aggregate provider `custom-sources` for preset-based endpoints attached to exact OpenCode runtime provider IDs. Definitions preserve file order and may share display labels because `id`, not `label`, owns identity.
+`quotaProviders` is an ordered global-only array with one stable identity per definition. Run `opencode-quota provider add` to preview and maintain it in global OpenCode JSONC/JSON. Definitions run automatically with matching providers; manual provider selection uses the aggregate id `quota-providers`.
 
-Definitions belong only in the canonical global `<OpenCode user config dir>/opencode-quota/quota-toast.json`—usually `~/.config/opencode/opencode-quota/quota-toast.json`, or `$OPENCODE_CONFIG_DIR/opencode-quota/quota-toast.json`. Workspace/project, legacy `experimental.quotaToast`, SDK, and alternate global definitions are rejected.
+The definition `id` also identifies the OpenCode provider. Use `providerId` only when it differs. Project provider/model declarations remain read-only matching inputs and may override the normal global declaration for that project, but project quota endpoints, mappings, estimates, and credentials are never trusted.
 
-#### Presets
+#### Remote API mode
 
-- `openrouter-key-v1` expects OpenRouter's key response at `GET https://openrouter.ai/api/v1/key`. A positive limit becomes a budget percentage; unlimited/no-limit usage becomes a spend value.
-- `accounting-v1` expects `{ "version": "accounting-v1", "entries": [...] }`. Every entry has `kind`, `name`, and `resultType`; percent rows also have `percentRemaining`, while value rows have `value`. Optional safe display fields are `label`, `right`, `resetTimeIso`, and `observedAtIso`. Percent rows are accepted only for quota, rate-limit, or budget results.
+`mode: "remote-api"` supports two fixed safe formats:
 
-Example response:
+- `openrouter-key-v1` expects OpenRouter's key response. A positive limit becomes a budget percentage; unlimited/no-limit usage becomes a spend value.
+- `accounting-v1` expects `{ "version": "accounting-v1", "entries": [...] }`. Every entry has `kind`, `name`, and `resultType`; percent rows have `percentRemaining`, and value rows have `value`.
+
+Example `accounting-v1` response:
 
 ```json
 {
@@ -72,13 +72,27 @@ Example response:
 }
 ```
 
+The request is a fixed `GET` with bearer authentication and JSON accept headers. URLs must be absolute HTTPS, except loopback HTTP, and cannot contain embedded credentials, a query, fragment, whitespace, or control characters. Redirects are rejected. Responses require JSON content type, are limited to 256 KiB, and `accounting-v1` is limited to 100 rows.
+
+#### Local estimate mode
+
+`mode: "local-estimate"` counts matching OpenCode assistant requests from local storage. Each definition declares one to sixteen request windows:
+
+- `type: "utc-day"` resets at UTC midnight.
+- `type: "rolling"` requires `durationMinutes` and is bounded to 366 days.
+- Every window requires `requestLimit`; `usdBudget` is optional and belongs to that same window.
+
+Token pricing uses automatic models.dev matching first. `pricingModelMap` is accepted only for missing or ambiguous automatic matches and cannot override a successful match. When any request in a budget window cannot be priced, request usage remains visible and the budget row says it is unavailable.
+
+State is stored per stable definition id under `~/.local/state/opencode/opencode-quota/quota-providers/`. Updates are versioned, deduplicated, pruned, serialized, and atomic; malformed files recover without using their contents.
+
 #### Auth and security boundary
 
-The request is fixed to `GET` with `Authorization: Bearer <resolved key>` and JSON accept headers. Credentials resolve from explicit `apiKeyEnv`, then trusted global `provider.<providerId>.options.apiKey`, then strict API-key `auth.json`. Repo-local secrets are never read.
+Credentials resolve from explicit `apiKeyEnv`, trusted global `provider.<providerId>.options.apiKey`, then strict API-key OpenCode `auth.json`. Repo-local secrets are never read. User definitions cannot add methods, headers, templates, scripts, executable mappings, regular expressions, or JSONPath.
 
-URLs must be explicit absolute HTTP(S) URLs with a host and no embedded credentials, query, fragment, whitespace, or control characters. Redirects are rejected. Responses must use a JSON content type, are limited to 256 KiB, and `accounting-v1` is limited to 100 rows. User config cannot define methods, headers, templates, mappings, scripts, regular expressions, or JSONPath. Diagnostics never print URLs, keys, headers, bodies, or raw errors.
+`modelIds` controls only exact `onlyCurrentModel` inclusion. Omit it for all models under `providerId`; otherwise list exact case-sensitive model ids without the provider prefix, such as `anthropic/claude-sonnet-4`.
 
-`modelIds` controls only exact `onlyCurrentModel` inclusion. Omit it for all models under `providerId`; otherwise list exact case-sensitive full IDs such as `openrouter/anthropic/claude-sonnet-4`. It does not change the request or response mapping.
+A truly custom provider still needs its ordinary OpenCode provider/model declaration. `/connect` → **Other** stores only its credential. Maintained Qwen Code and Alibaba Coding Plan limits can instead be tuned with their reserved `quotaProviders` ids; no duplicate ordinary provider block is needed. `/quota_status` reports exact state paths and safe provenance, never URLs, keys, headers, bodies, counter contents, or raw errors.
 
 ## Provider setup notes
 

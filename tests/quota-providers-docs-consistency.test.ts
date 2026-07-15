@@ -1,22 +1,23 @@
 import { readFileSync } from "fs";
 import { describe, expect, it } from "vitest";
 
-import { validateCustomSources } from "../src/lib/custom-sources.js";
+import { validateQuotaProviders } from "../src/lib/quota-providers.js";
 
 function read(path: string): string {
   return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 }
 
-describe("custom source Phase 4 documentation consistency", () => {
+describe("quota provider Phase 7 documentation consistency", () => {
   it("keeps the documented OpenRouter example valid", () => {
     expect(
-      validateCustomSources([
+      validateQuotaProviders([
         {
           id: "openrouter-primary",
           providerId: "openrouter",
           label: "OpenRouter Primary",
+          mode: "remote-api",
           url: "https://openrouter.ai/api/v1/key",
-          preset: "openrouter-key-v1",
+          format: "openrouter-key-v1",
           apiKeyEnv: "OPENROUTER_API_KEY",
         },
       ]),
@@ -26,8 +27,9 @@ describe("custom source Phase 4 documentation consistency", () => {
           id: "openrouter-primary",
           providerId: "openrouter",
           label: "OpenRouter Primary",
+          mode: "remote-api",
           url: "https://openrouter.ai/api/v1/key",
-          preset: "openrouter-key-v1",
+          format: "openrouter-key-v1",
           apiKeyEnv: "OPENROUTER_API_KEY",
         },
       ],
@@ -35,33 +37,48 @@ describe("custom source Phase 4 documentation consistency", () => {
     });
   });
 
-  it("documents the global-only boundary, auth order, matching, diagnostics, and v2 export", () => {
+  it("documents the global-only editor, modes, auth, matching, state, and export", () => {
     const readme = read("README.md");
     const configuration = read("docs/readme/configuration.md");
     const providers = read("docs/readme/providers.md");
     const troubleshooting = read("docs/readme/troubleshooting.md");
     const external = read("docs/readme/external-integration.md");
 
-    for (const document of [readme, configuration, providers]) {
-      expect(document).toContain("<OpenCode user config dir>/opencode-quota/quota-toast.json");
-      expect(document).toContain("apiKeyEnv");
-      expect(document).toContain("provider.<providerId>.options.apiKey");
+    for (const document of [readme, configuration]) {
+      expect(document).toContain("provider add");
+      expect(document).toContain("experimental.quotaToast");
+      expect(document).toContain("quotaProviders");
+      expect(document).toContain("JSONC");
     }
 
-    expect(configuration).toContain("auth.json");
-    expect(providers).toContain("auth.json");
+    for (const document of [readme, configuration, providers]) {
+      expect(document).toContain("apiKeyEnv");
+      expect(document).toContain("provider.<providerId>.options.apiKey");
+      expect(document).toContain("auth.json");
+      expect(document).toContain("quota-providers");
+    }
+
+    expect(configuration).toContain("global-only");
     expect(configuration).toContain("affects only `onlyCurrentModel`");
+    expect(configuration).toContain("pricingModelMap");
+    expect(configuration).toContain("cannot override a successful");
+    expect(configuration).toContain("budget percentage is reported unavailable");
+    expect(configuration).toContain("~/.local/state/opencode/opencode-quota/");
     expect(providers).toContain("limited to 256 KiB");
     expect(providers).toContain("limited to 100 rows");
     expect(troubleshooting).toContain("cached results are not substituted");
     expect(troubleshooting).toContain("URLs, request/response contents, raw errors");
     expect(external).toContain('"version": 2');
+    expect(external).toContain('providers["quota-providers"]');
+    expect(external).toContain("configured `quotaProviders` definition");
+    expect(external).not.toContain("custom-sources");
+    expect(external).not.toContain("Custom-provider");
     expect(external).toContain('"sourceId": "openrouter-primary"');
     expect(external).toContain('"sources": [');
     expect(external).toContain('"id": "openrouter-primary"');
     expect(external).toContain('"entryCount": 1');
     expect(external).toContain(
-      "Each summary is exactly `id`, `providerId`, coarse `status`, and `entryCount`",
+      "Each summary is exactly `id`, effective `providerId`, coarse `status`, and `entryCount`",
     );
     expect(external).toContain("intentionally excluded from public JSON");
   });
@@ -74,7 +91,8 @@ describe("custom source Phase 4 documentation consistency", () => {
       "src/lib/tui-compact-format.ts",
     ]) {
       const formatter = read(path);
-      expect(formatter).not.toContain("custom-sources");
+      expect(formatter).not.toContain("quota-providers");
+      expect(formatter).not.toContain("quotaProviders");
       expect(formatter).not.toContain("customSources");
     }
   });

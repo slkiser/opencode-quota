@@ -199,7 +199,7 @@ export const PROVIDER_ACCOUNTING_LEDGER: Record<string, Array<QuotaToastEntry["a
       authority: "provider_reported",
     },
   ],
-  "custom-sources": [
+  "quota-providers": [
     {
       resultType: "quota",
       acquisitionMethod: "remote_api",

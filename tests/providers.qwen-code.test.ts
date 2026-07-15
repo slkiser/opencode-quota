@@ -124,6 +124,48 @@ describe("qwen-code provider", () => {
     ]);
   });
 
+  it("passes quotaProviders request-limit tuning to the maintained provider", async () => {
+    const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
+    const { computeQwenQuota, readQwenLocalQuotaState } =
+      await import("../src/lib/qwen-local-quota.js");
+    (readAuthFileCached as any).mockResolvedValue({
+      "qwen-code": { type: "oauth", access: "token" },
+    });
+    (readQwenLocalQuotaState as any).mockResolvedValue({});
+    (computeQwenQuota as any).mockReturnValue({
+      day: {
+        used: 0,
+        limit: 2000,
+        percentRemaining: 100,
+        resetTimeIso: "2026-02-25T00:00:00.000Z",
+      },
+      rpm: { used: 0, limit: 120, percentRemaining: 100 },
+    });
+
+    await qwenCodeProvider.fetch({
+      config: {
+        quotaProviders: [
+          {
+            id: "qwen-code",
+            providerId: "qwen-code",
+            label: "qwen-code",
+            mode: "local-estimate",
+            windows: [
+              { id: "daily", label: "Daily", type: "utc-day", requestLimit: 2000 },
+              { id: "rpm", label: "RPM", type: "rolling", durationMinutes: 1, requestLimit: 120 },
+            ],
+          },
+        ],
+      },
+    } as any);
+
+    expect(computeQwenQuota as any).toHaveBeenCalledWith({
+      state: {},
+      dayLimit: 2000,
+      rpmLimit: 120,
+    });
+  });
+
   it("matches qwen-code model ids", () => {
     expect(qwenCodeProvider.matchesCurrentModel?.("qwen-code/qwen3-coder-plus")).toBe(true);
     expect(qwenCodeProvider.matchesCurrentModel?.("openai/gpt-5")).toBe(false);

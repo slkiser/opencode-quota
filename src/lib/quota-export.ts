@@ -22,6 +22,7 @@ import { isValueEntry } from "./entries.js";
 import { normalizeSingleWindowWindowLabel } from "./quota-render-data.js";
 import { sanitizeSingleLineDisplaySnippet } from "./display-sanitize.js";
 import { createQuotaProviderRuntimeContext } from "./quota-runtime-context.js";
+import { MAINTAINED_LOCAL_ESTIMATE_IDS } from "./quota-providers.js";
 
 /** Max length for an exported provider error message after sanitization. */
 const EXPORT_ERROR_MAX_LENGTH = 240;
@@ -100,7 +101,7 @@ function toExportEntry(entry: QuotaToastEntry): QuotaExportEntry {
     : { ...base, renderType: "percent", percentRemaining: entry.percentRemaining };
 }
 
-function buildCustomSourceStatuses(params: {
+function buildQuotaProviderStatuses(params: {
   ctx: QuotaProviderContext;
   diagnostics?: QuotaProviderResult["diagnostics"];
 }): QuotaExportSource[] {
@@ -108,15 +109,17 @@ function buildCustomSourceStatuses(params: {
     (params.diagnostics ?? []).map((diagnostic) => [diagnostic.sourceId, diagnostic] as const),
   );
 
-  return (params.ctx.config.customSources ?? []).map((source) => {
-    const diagnostic = diagnosticsBySource.get(source.id);
-    return {
-      id: source.id,
-      providerId: source.providerId,
-      status: !diagnostic ? "unavailable" : diagnostic.outcome === "success" ? "ok" : "error",
-      entryCount: diagnostic?.entryCount ?? 0,
-    };
-  });
+  return (params.ctx.config.quotaProviders ?? [])
+    .filter((source) => !(MAINTAINED_LOCAL_ESTIMATE_IDS as readonly string[]).includes(source.id))
+    .map((source) => {
+      const diagnostic = diagnosticsBySource.get(source.id);
+      return {
+        id: source.id,
+        providerId: source.providerId,
+        status: !diagnostic ? "unavailable" : diagnostic.outcome === "success" ? "ok" : "error",
+        entryCount: diagnostic?.entryCount ?? 0,
+      };
+    });
 }
 
 /**
@@ -146,8 +149,8 @@ export async function buildQuotaExport(params: {
 
   for (const { provider, read } of reads) {
     const sources =
-      provider.id === "custom-sources"
-        ? buildCustomSourceStatuses({
+      provider.id === "quota-providers"
+        ? buildQuotaProviderStatuses({
             ctx: params.ctx,
             ...(read.hit ? { diagnostics: read.result.diagnostics } : {}),
           })

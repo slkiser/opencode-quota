@@ -43,10 +43,7 @@ describe("loadConfig", () => {
     workspace.cleanup();
   });
 
-  async function loadSdkConfig(
-    quotaToast: Record<string, unknown>,
-    meta = createLoadConfigMeta(),
-  ) {
+  async function loadSdkConfig(quotaToast: Record<string, unknown>, meta = createLoadConfigMeta()) {
     const config = await loadConfig(
       {
         config: {
@@ -69,7 +66,9 @@ describe("loadConfig", () => {
   it("defaults maintainer announcements config and accepts validated nested overrides", async () => {
     const defaults = await loadSdkConfig({});
     expect(defaults.config.maintainerAnnouncements).toEqual(DEFAULT_CONFIG.maintainerAnnouncements);
-    expect(defaults.config.maintainerAnnouncements).not.toBe(DEFAULT_CONFIG.maintainerAnnouncements);
+    expect(defaults.config.maintainerAnnouncements).not.toBe(
+      DEFAULT_CONFIG.maintainerAnnouncements,
+    );
 
     const explicit = await loadSdkConfig({
       maintainerAnnouncements: {
@@ -298,12 +297,14 @@ describe("loadConfig", () => {
     }
   });
 
-  it("defaults alibabaCodingPlanTier to lite and accepts explicit overrides", async () => {
-    const defaults = await loadSdkConfig({});
-    expect(defaults.config.alibabaCodingPlanTier).toBe("lite");
-
-    const explicit = await loadSdkConfig({ alibabaCodingPlanTier: "pro" });
-    expect(explicit.config.alibabaCodingPlanTier).toBe("pro");
+  it("rejects the removed standalone Alibaba tuning path", async () => {
+    const result = await loadSdkConfig({ alibabaCodingPlanTier: "pro" });
+    expect(result.config).not.toHaveProperty("alibabaCodingPlanTier");
+    expect(result.meta.configIssues).toContainEqual({
+      path: "client.config.get",
+      key: "alibabaCodingPlanTier",
+      message: 'removed in v4; tune Alibaba through "quotaProviders"',
+    });
   });
 
   it("normalizes cursor config fields without coercing invalid values", async () => {
@@ -421,9 +422,7 @@ describe("loadConfig", () => {
     expect(firstMeta.settingSources.enabledProviders).toBe(
       `${workspaceConfigPath} (experimental.quotaToast)`,
     );
-    expect(firstMeta.paths).toEqual([
-      `${workspaceConfigPath} (experimental.quotaToast)`,
-    ]);
+    expect(firstMeta.paths).toEqual([`${workspaceConfigPath} (experimental.quotaToast)`]);
   });
 
   it("prefers plugin-owned quota settings over legacy experimental.quotaToast", async () => {
@@ -560,9 +559,7 @@ describe("loadConfig", () => {
       `${jsonPath} (experimental.quotaToast)`,
       `${jsoncPath} (experimental.quotaToast)`,
     ]);
-    expect(meta.settingSources.enabledProviders).toBe(
-      `${jsonPath} (experimental.quotaToast)`,
-    );
+    expect(meta.settingSources.enabledProviders).toBe(`${jsonPath} (experimental.quotaToast)`);
     expect(meta.configIssues).toEqual([
       {
         path: `${jsoncPath} (experimental.quotaToast)`,

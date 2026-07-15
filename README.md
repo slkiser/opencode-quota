@@ -162,31 +162,41 @@ The friendly `Quota` label covers quota and rate-limit windows; v4 JSON distingu
 
 Custom providers can report quota, rate limit, usage, spend, budget, balance, or status.
 
-An OpenCode `provider` block is the part of `opencode.json` that tells OpenCode which provider and models are available and how to reach them. OpenCode creates this knowledge for its built-in providers, so they do not need a provider block. When adding a provider OpenCode does not already know, you create the provider and model configuration so OpenCode can use it. `/connect` → **Other** stores the credential, but you still configure the provider and models in `opencode.json`. Write that configuration manually with the [OpenCode provider guide](https://opencode.ai/docs/providers), or use the planned guided OpenCode Quota command when it becomes available.
+A **quota provider definition** tells OpenCode Quota how to obtain accounting data for an OpenCode provider. Run the guided command; it asks only structural questions, previews the exact global OpenCode config change, and asks before writing:
 
-Add safe preset-based endpoints for gateways that OpenCode already knows. `customSources` is accepted **only** in the canonical global `<OpenCode user config dir>/opencode-quota/quota-toast.json` (usually `~/.config/opencode/opencode-quota/quota-toast.json`, or under `$OPENCODE_CONFIG_DIR`). It is rejected from project/workspace, legacy, and SDK config.
+```bash
+npx @slkiser/opencode-quota@latest provider add
+```
+
+New files default to commented JSONC. Existing strict JSON stays strict JSON. The command never asks for or writes a credential.
+
+The generated definition lives in your global `opencode.jsonc` or `opencode.json`, inside the existing `experimental.quotaToast.quotaProviders` section:
 
 ```jsonc
 {
-  "enabledProviders": ["custom-sources"],
-  "customSources": [
-    {
-      "id": "openrouter-primary",
-      "providerId": "openrouter",
-      "label": "OpenRouter Primary",
-      "url": "https://openrouter.ai/api/v1/key",
-      "preset": "openrouter-key-v1",
-      "apiKeyEnv": "OPENROUTER_API_KEY",
+  "experimental": {
+    "quotaToast": {
+      "quotaProviders": [
+        {
+          "id": "openrouter-primary",
+          "providerId": "openrouter",
+          "label": "OpenRouter Primary",
+          "mode": "remote-api",
+          "url": "https://openrouter.ai/api/v1/key",
+          "format": "openrouter-key-v1",
+          "apiKeyEnv": "OPENROUTER_API_KEY",
+        },
+      ],
     },
-  ],
+  },
 }
 ```
 
-```bash
-export OPENROUTER_API_KEY="your-api-key"
-```
+Definitions are ordered and global-only. The stable `id` also names the OpenCode provider by default; set `providerId` only when it differs. Custom definitions run in auto mode. If you set `enabledProviders` explicitly, use the one aggregate identity `quota-providers`.
 
-Credentials resolve in this order: the explicitly named environment variable, trusted global `provider.<providerId>.options.apiKey`, then strict `{ "type": "api", "key": "..." }` OpenCode auth. Run `/quota_status` for safe, live per-source diagnostics. See [Provider setup](docs/readme/providers.md#custom-accounting-sources), [Configuration](docs/readme/configuration.md#custom-accounting-sources), and [JSON export v2](docs/readme/external-integration.md#json-export-v2).
+A truly custom provider still needs its normal OpenCode `provider` and model declaration. `/connect` → **Other** stores only its credential. Qwen Code and Alibaba Coding Plan are already maintained providers, so their request limits can be tuned through `quotaProviders` without a duplicate OpenCode provider block.
+
+Credentials resolve from the named environment variable, trusted global `provider.<providerId>.options.apiKey`, then strict API-key OpenCode `auth.json`. Run `/quota_status` for redacted endpoint diagnostics and exact local counter paths. See [Configuration](docs/readme/configuration.md#custom-providers), [Provider setup](docs/readme/providers.md#custom-providers), and [JSON export v2](docs/readme/external-integration.md#json-export-v2).
 
 Setup details live in the [Provider setup guide](docs/readme/providers.md).
 

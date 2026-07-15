@@ -19,7 +19,7 @@ import {
 } from "./helpers/plugin-test-harness.js";
 import {
   PHASE5_ACCOUNTING_RESPONSE,
-  PHASE5_CUSTOM_SOURCES,
+  PHASE5_QUOTA_PROVIDERS,
   PHASE5_OPENROUTER_RESPONSE,
   PHASE5_RUNTIME_PROVIDER_IDS,
   PHASE5_SECRET_CANARIES,
@@ -76,8 +76,8 @@ type PluginHooks = {
 function configFor(formatStyle: "allWindows" | "singleWindow") {
   return makeQuotaToastTestConfig({
     enabled: true,
-    enabledProviders: ["custom-sources"],
-    customSources: PHASE5_CUSTOM_SOURCES.map((source) => ({ ...source })),
+    enabledProviders: ["quota-providers"],
+    quotaProviders: PHASE5_QUOTA_PROVIDERS.map((source) => ({ ...source })),
     formatStyle,
     minIntervalMs: 60_000,
     showOnIdle: true,
@@ -153,21 +153,21 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     });
     mocks.loadConfig.mockImplementation(async () => currentConfig);
 
-    const { customSourcesProvider } = await import("../src/providers/custom-sources.js");
-    mocks.getProviders.mockReturnValue([customSourcesProvider]);
+    const { quotaProvidersProvider } = await import("../src/providers/quota-providers.js");
+    mocks.getProviders.mockReturnValue([quotaProvidersProvider]);
 
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       const authorization = new Headers(init?.headers).get("authorization");
-      if (url === PHASE5_CUSTOM_SOURCES[0].url) {
+      if (url === PHASE5_QUOTA_PROVIDERS[0].url) {
         expect(authorization).toBe(`Bearer ${PHASE5_SECRET_CANARIES.accountingKey}`);
         await new Promise((resolve) => setTimeout(resolve, 8));
         return phase5JsonResponse(PHASE5_ACCOUNTING_RESPONSE);
       }
-      if (url === PHASE5_CUSTOM_SOURCES[1].url) {
+      if (url === PHASE5_QUOTA_PROVIDERS[1].url) {
         expect(authorization).toBe(`Bearer ${PHASE5_SECRET_CANARIES.openRouterKey}`);
         return phase5JsonResponse(PHASE5_OPENROUTER_RESPONSE);
       }
-      if (url === PHASE5_CUSTOM_SOURCES[2].url) {
+      if (url === PHASE5_QUOTA_PROVIDERS[2].url) {
         expect(authorization).toBe(`Bearer ${PHASE5_SECRET_CANARIES.failingKey}`);
         await new Promise((resolve) => setTimeout(resolve, 3));
         return new Response(PHASE5_SECRET_CANARIES.failureBody, {
@@ -318,7 +318,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       singleWindow,
     });
     assertPhase5CanariesRedacted(allOutput);
-    for (const source of PHASE5_CUSTOM_SOURCES) {
+    for (const source of PHASE5_QUOTA_PROVIDERS) {
       expect(allOutput).not.toContain(source.url);
     }
   });

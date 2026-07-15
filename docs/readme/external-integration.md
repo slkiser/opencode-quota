@@ -15,9 +15,9 @@ Both use the local provider cache. They do **not** make extra provider network r
 
 ## JSON export v2
 
-Both surfaces emit schema `version: 2`. Provider entries stay flat. Every row includes `resultType`, `renderType`, acquisition/ownership/authority metadata, and its percent or value payload. Custom-provider rows also include `sourceId`; the `custom-sources` provider adds an ordered `sources` array with coarse `ok`, `error`, or `unavailable` status.
+Both surfaces emit schema `version: 2`. Provider entries stay flat. Every row includes `resultType`, `renderType`, acquisition/ownership/authority metadata, and its percent or value payload. Rows produced by a configured `quotaProviders` definition also include its stable `sourceId`; `providers["quota-providers"]` adds an ordered `sources` array with each definition's `id`, effective `providerId`, coarse `status`, and `entryCount`.
 
-Detailed custom-provider outcomes, credential category, environment name, and checked paths are intentionally excluded from public JSON. Use `/quota_status` for those live diagnostics. Export and CLI JSON remain cache-only.
+Detailed quota-provider outcomes, credential category, environment name, and checked paths are intentionally excluded from public JSON. Use `/quota_status` for those live diagnostics. Export and CLI JSON remain cache-only.
 
 ## Option 1: print JSON now
 
@@ -131,7 +131,7 @@ Both `show --json` and the export file use this v2 structure:
         },
       ],
     },
-    "custom-sources": {
+    "quota-providers": {
       "status": "ok",
       "fetchedAt": 1748735958,
       "entries": [
@@ -179,21 +179,21 @@ Both `show --json` and the export file use this v2 structure:
 }
 ```
 
-Provider and source statuses:
+Provider and quota-provider definition statuses:
 
-| Value         | Meaning                                                                                                                                                          |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ok`          | Cached rows exist. A custom aggregate can remain `ok` while another source has `error`.                                                                          |
-| `error`       | The cached provider/source failed and has no successful row. Provider-level errors include a sanitized message; source statuses do not expose detailed outcomes. |
-| `unavailable` | No matching cached data exists. For a custom source this also covers an exact runtime `providerId` that was unavailable when the aggregate cache was written.    |
+| Value         | Meaning                                                                                                                                                                      |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ok`          | Cached rows exist. A quota-provider aggregate can remain `ok` while another source has `error`.                                                                              |
+| `error`       | The cached provider or definition failed and has no successful row. Provider-level errors include a sanitized message; definition summaries do not expose detailed outcomes. |
+| `unavailable` | No matching cached data exists. For a quota-provider definition this also covers an exact runtime `providerId` that was unavailable when the aggregate cache was written.    |
 
 Entry fields:
 
 - `renderType: "percent"` uses `percentRemaining`; `renderType: "value"` uses `value`.
 - `resultType` is one of `quota`, `rate_limit`, `usage`, `spend`, `budget`, `balance`, or `status`.
-- `window`, `resetAt`, and `observedAt` appear only when source data supplies them.
-- `sourceId` appears on rows stamped by an aggregate source; it is identity, not a display label.
-- `sources` preserves configured source order. Each summary is exactly `id`, `providerId`, coarse `status`, and `entryCount`; the count is the cached normalized row count for that source, and duplicate labels remain separate by `id`.
+- `window`, `resetAt`, and `observedAt` appear only when provider accounting data supplies them.
+- `sourceId` is the stable `quotaProviders` definition id stamped onto rows from the `quota-providers` aggregate; it is identity, not a display label.
+- `sources` preserves `quotaProviders` definition order. Each summary is exactly `id`, effective `providerId`, coarse `status`, and `entryCount`; the count is the cached normalized row count for that definition, and duplicate labels remain separate by stable `id`.
 
 </details>
 

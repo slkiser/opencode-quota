@@ -64,7 +64,6 @@ function createMockContext(): any {
     config: {
       googleModels: ["CLAUDE"],
       anthropicBinaryPath: "claude",
-      alibabaCodingPlanTier: "lite",
       cursorPlan: "none",
       onlyCurrentModel: false,
     },
@@ -253,30 +252,33 @@ describe("buildQuotaExport", () => {
     });
   });
 
-  it("exports flat custom-source entry identity and ordered coarse source statuses", async () => {
+  it("exports flat quota-provider definition entry identity and ordered coarse source statuses", async () => {
     const ctx = createMockContext();
-    ctx.config.customSources = [
+    ctx.config.quotaProviders = [
       {
         id: "same-label-one",
         providerId: "gateway-one",
         label: "Same label",
+        mode: "remote-api",
         url: "https://secret-one.example/accounting",
-        preset: "accounting-v1",
+        format: "accounting-v1",
         apiKeyEnv: "GATEWAY_ONE_KEY",
       },
       {
         id: "same-label-two",
         providerId: "gateway-two",
         label: "Same label",
+        mode: "remote-api",
         url: "https://secret-two.example/accounting",
-        preset: "accounting-v1",
+        format: "accounting-v1",
       },
       {
         id: "not-selected",
         providerId: "gateway-three",
         label: "Not selected",
+        mode: "remote-api",
         url: "https://secret-three.example/accounting",
-        preset: "accounting-v1",
+        format: "accounting-v1",
       },
     ];
     mockReadCachedProviderResult.mockResolvedValue({
@@ -299,7 +301,7 @@ describe("buildQuotaExport", () => {
           {
             sourceId: "same-label-one",
             providerId: "gateway-one",
-            preset: "accounting-v1",
+            format: "accounting-v1",
             modelIds: null,
             apiKeyEnv: "GATEWAY_ONE_KEY",
             selected: true,
@@ -313,7 +315,7 @@ describe("buildQuotaExport", () => {
           {
             sourceId: "same-label-two",
             providerId: "gateway-two",
-            preset: "accounting-v1",
+            format: "accounting-v1",
             modelIds: null,
             apiKeyEnv: null,
             selected: true,
@@ -330,14 +332,14 @@ describe("buildQuotaExport", () => {
     });
 
     const actual = await buildQuotaExport({
-      providers: [createMockProvider("custom-sources")],
+      providers: [createMockProvider("quota-providers")],
       ctx,
       ttlMs: 60_000,
       fromCache: true,
     });
 
     expect(actual.version).toBe(2);
-    expect(actual.providers["custom-sources"]).toMatchObject({
+    expect(actual.providers["quota-providers"]).toMatchObject({
       status: "ok",
       entries: [expect.objectContaining({ sourceId: "same-label-one", percentRemaining: 25 })],
       sources: [
@@ -351,7 +353,7 @@ describe("buildQuotaExport", () => {
         },
       ],
     });
-    const customProvider = actual.providers["custom-sources"];
+    const customProvider = actual.providers["quota-providers"];
     expect(customProvider.sources?.map((source) => Object.keys(source))).toEqual([
       ["id", "providerId", "status", "entryCount"],
       ["id", "providerId", "status", "entryCount"],
@@ -365,34 +367,36 @@ describe("buildQuotaExport", () => {
     expect(json).not.toContain("/trusted/auth.json");
   });
 
-  it("returns ordered unavailable custom sources when the cache has no aggregate entry", async () => {
+  it("returns ordered unavailable quota-provider definitions when the cache has no aggregate entry", async () => {
     const ctx = createMockContext();
-    ctx.config.customSources = [
+    ctx.config.quotaProviders = [
       {
         id: "first",
         providerId: "gateway-one",
         label: "First",
+        mode: "remote-api",
         url: "https://one.example/accounting",
-        preset: "accounting-v1",
+        format: "accounting-v1",
       },
       {
         id: "second",
         providerId: "gateway-two",
         label: "Second",
+        mode: "remote-api",
         url: "https://two.example/accounting",
-        preset: "accounting-v1",
+        format: "accounting-v1",
       },
     ];
     mockReadCachedProviderResult.mockResolvedValue({ hit: false });
 
     const actual = await buildQuotaExport({
-      providers: [createMockProvider("custom-sources")],
+      providers: [createMockProvider("quota-providers")],
       ctx,
       ttlMs: 60_000,
       fromCache: true,
     });
 
-    expect(actual.providers["custom-sources"]).toEqual({
+    expect(actual.providers["quota-providers"]).toEqual({
       status: "unavailable",
       sources: [
         { id: "first", providerId: "gateway-one", status: "unavailable", entryCount: 0 },

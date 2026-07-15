@@ -11,6 +11,7 @@ const USAGE = [
   "  npx @slkiser/opencode-quota init [--dry-run] [--sync-legacy-config]",
   "  npx @slkiser/opencode-quota show [--provider <provider-id>] [--json] [--threshold <pct>]",
   "  npx @slkiser/opencode-quota update [--dry-run] [--yes]",
+  "  npx @slkiser/opencode-quota provider add [--dry-run]",
   "  npx @slkiser/opencode-quota --help",
   "",
   "Commands:",
@@ -24,6 +25,8 @@ const USAGE = [
   "  update  Safely refresh only OpenCode Quota config and verified cache entries",
   "          --dry-run            Preview without changing config or cache",
   "          --yes                Apply noninteractively after printing the preview",
+  "  provider add  Add or update one global quotaProviders definition",
+  "          --dry-run            Preview the exact global OpenCode config without writing",
 ].join("\n");
 
 function printUsage(): void {
@@ -81,6 +84,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (command === "update") {
     const { runScopedUpdateCommand } = await import("../lib/scoped-update.js");
     return await runScopedUpdateCommand({ argv: rest });
+  }
+
+  if (command === "provider" && rest[0] === "add") {
+    const { runProviderAddCommand } = await import("../lib/provider-add-command.js");
+    return await runProviderAddCommand({ argv: rest.slice(1) });
   }
 
   printUsage();

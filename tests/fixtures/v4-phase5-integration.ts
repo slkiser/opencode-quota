@@ -1,4 +1,4 @@
-import type { CustomSourceConfig } from "../../src/lib/custom-sources.js";
+import type { RemoteApiQuotaProviderDefinition } from "../../src/lib/quota-providers.js";
 
 export const PHASE5_SECRET_CANARIES = {
   accountingKey: "phase5-accounting-secret-canary",
@@ -7,13 +7,14 @@ export const PHASE5_SECRET_CANARIES = {
   failureBody: "phase5-private-http-body-canary",
 } as const;
 
-export const PHASE5_CUSTOM_SOURCES = [
+export const PHASE5_QUOTA_PROVIDERS = [
   {
     id: "team-accounting",
     providerId: "team-gateway",
     label: "Team Accounting",
     url: "https://team-gateway.example/accounting",
-    preset: "accounting-v1",
+    mode: "remote-api",
+    format: "accounting-v1",
     apiKeyEnv: "PHASE5_TEAM_ACCOUNTING_KEY",
   },
   {
@@ -21,7 +22,8 @@ export const PHASE5_CUSTOM_SOURCES = [
     providerId: "openrouter",
     label: "OpenRouter Primary",
     url: "https://openrouter.example/api/v1/key",
-    preset: "openrouter-key-v1",
+    mode: "remote-api",
+    format: "openrouter-key-v1",
     apiKeyEnv: "PHASE5_OPENROUTER_KEY",
   },
   {
@@ -29,10 +31,11 @@ export const PHASE5_CUSTOM_SOURCES = [
     providerId: "failing-gateway",
     label: "Failing Accounting",
     url: "https://failing-gateway.example/accounting",
-    preset: "accounting-v1",
+    mode: "remote-api",
+    format: "accounting-v1",
     apiKeyEnv: "PHASE5_FAILING_KEY",
   },
-] as const satisfies readonly CustomSourceConfig[];
+] as const satisfies readonly RemoteApiQuotaProviderDefinition[];
 
 export const PHASE5_RUNTIME_PROVIDER_IDS = [
   "team-gateway",

@@ -1,19 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { CustomSourceConfig } from "../src/lib/custom-sources.js";
+import type { RemoteApiQuotaProviderDefinition } from "../src/lib/quota-providers.js";
 import {
-  CUSTOM_SOURCE_MAX_BODY_BYTES,
-  fetchCustomSource,
+  QUOTA_PROVIDER_MAX_BODY_BYTES,
+  fetchRemoteQuotaProvider,
   mapWithConcurrency,
-} from "../src/lib/custom-sources-runtime.js";
+} from "../src/lib/quota-providers-remote.js";
 
-function source(overrides: Partial<CustomSourceConfig> = {}): CustomSourceConfig {
+function source(
+  overrides: Partial<RemoteApiQuotaProviderDefinition> = {},
+): RemoteApiQuotaProviderDefinition {
   return {
     id: "source-one",
     providerId: "provider-one",
     label: "Source One",
     url: "https://provider.example/accounting",
-    preset: "accounting-v1",
+    mode: "remote-api",
+    format: "accounting-v1",
     ...overrides,
   };
 }
@@ -29,7 +32,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("custom source HTTP runtime", () => {
+describe("quota provider remote runtime", () => {
   it("maps strict accounting-v1 percent and value rows with local metadata and grouping", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
@@ -54,7 +57,7 @@ describe("custom source HTTP runtime", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(fetchCustomSource(source(), "secret")).resolves.toEqual({
+    await expect(fetchRemoteQuotaProvider(source(), "secret")).resolves.toEqual({
       success: true,
       entries: [
         {
@@ -168,7 +171,7 @@ describe("custom source HTTP runtime", () => {
     },
   ])("rejects the complete accounting response for $name", async ({ body }) => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(body)));
-    const result = await fetchCustomSource(source(), "secret");
+    const result = await fetchRemoteQuotaProvider(source(), "secret");
     expect(result.success).toBe(false);
   });
 
@@ -188,7 +191,7 @@ describe("custom source HTTP runtime", () => {
       ),
     );
 
-    const result = await fetchCustomSource(source(), "secret");
+    const result = await fetchRemoteQuotaProvider(source(), "secret");
     expect(result.success).toBe(true);
     if (result.success) expect(result.entries).toHaveLength(100);
   });
@@ -208,7 +211,7 @@ describe("custom source HTTP runtime", () => {
       ],
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(jsonResponse(exact)));
-    const accepted = await fetchCustomSource(source(), "secret");
+    const accepted = await fetchRemoteQuotaProvider(source(), "secret");
     expect(accepted.success).toBe(true);
 
     for (const field of ["name", "value", "label", "right"] as const) {
@@ -216,7 +219,7 @@ describe("custom source HTTP runtime", () => {
       const body = structuredClone(exact);
       body.entries[0]![field] = "x".repeat(max + 1);
       vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(jsonResponse(body)));
-      const rejected = await fetchCustomSource(source(), "secret");
+      const rejected = await fetchRemoteQuotaProvider(source(), "secret");
       expect(rejected.success, field).toBe(false);
     }
   });
@@ -230,7 +233,7 @@ describe("custom source HTTP runtime", () => {
     );
 
     await expect(
-      fetchCustomSource(source({ preset: "openrouter-key-v1" }), "secret"),
+      fetchRemoteQuotaProvider(source({ format: "openrouter-key-v1" }), "secret"),
     ).resolves.toEqual({
       success: true,
       entries: [
@@ -269,7 +272,7 @@ describe("custom source HTTP runtime", () => {
         }),
       ),
     );
-    const result = await fetchCustomSource(source(), "secret");
+    const result = await fetchRemoteQuotaProvider(source(), "secret");
     expect(result.success).toBe(false);
   });
 
@@ -284,7 +287,7 @@ describe("custom source HTTP runtime", () => {
   ])("rejects OpenRouter %s", async (_name, body) => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(body)));
     await expect(
-      fetchCustomSource(source({ preset: "openrouter-key-v1" }), "secret"),
+      fetchRemoteQuotaProvider(source({ format: "openrouter-key-v1" }), "secret"),
     ).resolves.toEqual({
       success: false,
       error: "Invalid openrouter-key-v1 response",
@@ -298,7 +301,10 @@ describe("custom source HTTP runtime", () => {
     "preserves %s negative OpenRouter remaining instead of clamping over-budget state",
     async (_name, body) => {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(body)));
-      const result = await fetchCustomSource(source({ preset: "openrouter-key-v1" }), "secret");
+      const result = await fetchRemoteQuotaProvider(
+        source({ format: "openrouter-key-v1" }),
+        "secret",
+      );
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.entries[0]).toEqual(expect.objectContaining({ percentRemaining: -20 }));
@@ -314,7 +320,7 @@ describe("custom source HTTP runtime", () => {
         .mockResolvedValue(jsonResponse({ data: { usage: 0, limit: 10, limit_remaining: 11 } })),
     );
     await expect(
-      fetchCustomSource(source({ preset: "openrouter-key-v1" }), "secret"),
+      fetchRemoteQuotaProvider(source({ format: "openrouter-key-v1" }), "secret"),
     ).resolves.toEqual({
       success: false,
       error: "Invalid openrouter-key-v1 response",
@@ -324,7 +330,10 @@ describe("custom source HTTP runtime", () => {
   it.each([null, 0])("maps OpenRouter usage to a spend value when limit is %s", async (limit) => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ data: { usage: 2, limit } })));
 
-    const result = await fetchCustomSource(source({ preset: "openrouter-key-v1" }), "secret");
+    const result = await fetchRemoteQuotaProvider(
+      source({ format: "openrouter-key-v1" }),
+      "secret",
+    );
     expect(result).toEqual({
       success: true,
       entries: [
@@ -351,7 +360,7 @@ describe("custom source HTTP runtime", () => {
       vi.fn().mockResolvedValue(jsonResponse({ data: { usage: "2", limit: "10" } })),
     );
     await expect(
-      fetchCustomSource(source({ preset: "openrouter-key-v1" }), "secret"),
+      fetchRemoteQuotaProvider(source({ format: "openrouter-key-v1" }), "secret"),
     ).resolves.toEqual({
       success: false,
       error: "Invalid openrouter-key-v1 response",
@@ -385,7 +394,7 @@ describe("custom source HTTP runtime", () => {
     ],
   ])("rejects %s responses", async (_name, response, error) => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
-    await expect(fetchCustomSource(source(), "secret")).resolves.toEqual({
+    await expect(fetchRemoteQuotaProvider(source(), "secret")).resolves.toEqual({
       success: false,
       error,
     });
@@ -405,11 +414,11 @@ describe("custom source HTTP runtime", () => {
         .mockRejectedValueOnce(new Error("https://internal.example/?token=secret failed")),
     );
 
-    await expect(fetchCustomSource(source(), "secret")).resolves.toEqual({
+    await expect(fetchRemoteQuotaProvider(source(), "secret")).resolves.toEqual({
       success: false,
       error: "HTTP 401",
     });
-    await expect(fetchCustomSource(source(), "secret")).resolves.toEqual({
+    await expect(fetchRemoteQuotaProvider(source(), "secret")).resolves.toEqual({
       success: false,
       error: "Failed to read accounting data",
     });
@@ -422,12 +431,12 @@ describe("custom source HTTP runtime", () => {
         new Response("{}", {
           headers: {
             "content-type": "application/json",
-            "content-length": String(CUSTOM_SOURCE_MAX_BODY_BYTES + 1),
+            "content-length": String(QUOTA_PROVIDER_MAX_BODY_BYTES + 1),
           },
         }),
       ),
     );
-    await expect(fetchCustomSource(source(), "secret")).resolves.toEqual({
+    await expect(fetchRemoteQuotaProvider(source(), "secret")).resolves.toEqual({
       success: false,
       error: "Response exceeded 262144 bytes",
     });
@@ -447,7 +456,7 @@ describe("custom source HTTP runtime", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const pending = fetchCustomSource(source(), "secret", 10);
+    const pending = fetchRemoteQuotaProvider(source(), "secret", 10);
     await vi.advanceTimersByTimeAsync(11);
 
     await expect(pending).resolves.toEqual({
@@ -477,7 +486,7 @@ describe("custom source HTTP runtime", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const pending = fetchCustomSource(source(), "secret", 10);
+    const pending = fetchRemoteQuotaProvider(source(), "secret", 10);
     await vi.advanceTimersByTimeAsync(11);
 
     await expect(pending).resolves.toEqual({
@@ -491,12 +500,12 @@ describe("custom source HTTP runtime", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        new Response("x".repeat(CUSTOM_SOURCE_MAX_BODY_BYTES + 1), {
+        new Response("x".repeat(QUOTA_PROVIDER_MAX_BODY_BYTES + 1), {
           headers: { "content-type": "application/json" },
         }),
       ),
     );
-    await expect(fetchCustomSource(source(), "secret")).resolves.toEqual({
+    await expect(fetchRemoteQuotaProvider(source(), "secret")).resolves.toEqual({
       success: false,
       error: "Response exceeded 262144 bytes",
     });
@@ -521,7 +530,7 @@ describe("custom source HTTP runtime", () => {
         }),
       ),
     );
-    const result = await fetchCustomSource(source(), "secret");
+    const result = await fetchRemoteQuotaProvider(source(), "secret");
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.entries[0]).toEqual(

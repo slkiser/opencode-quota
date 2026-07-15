@@ -6,8 +6,8 @@ import type { AlibabaCodingPlanTier } from "./types.js";
 import { clampPercent } from "./format-utils.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 
-const QWEN_LOCAL_QUOTA_STATE_VERSION = 1 as const;
-const ALIBABA_CODING_PLAN_STATE_VERSION = 1 as const;
+export const QWEN_LOCAL_QUOTA_STATE_VERSION = 1 as const;
+export const ALIBABA_CODING_PLAN_STATE_VERSION = 1 as const;
 const QWEN_FREE_DAILY_LIMIT = 1000;
 const QWEN_FREE_RPM_LIMIT = 60;
 const RPM_WINDOW_MS = 60_000;
@@ -84,7 +84,14 @@ function utcDayKey(tsMs: number): string {
 
 function nextUtcMidnightIso(tsMs: number): string {
   const now = new Date(tsMs);
-  const nextMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0);
+  const nextMidnight = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() + 1,
+    0,
+    0,
+    0,
+  );
   return new Date(nextMidnight).toISOString();
 }
 
@@ -125,7 +132,8 @@ function normalizeQwenState(raw: unknown, nowMs: number): QwenLocalQuotaStateFil
 
   return {
     version: QWEN_LOCAL_QUOTA_STATE_VERSION,
-    utcDay: typeof obj.utcDay === "string" && obj.utcDay.length === 10 ? obj.utcDay : utcDayKey(nowMs),
+    utcDay:
+      typeof obj.utcDay === "string" && obj.utcDay.length === 10 ? obj.utcDay : utcDayKey(nowMs),
     dayCount:
       typeof obj.dayCount === "number" && Number.isFinite(obj.dayCount) && obj.dayCount >= 0
         ? Math.trunc(obj.dayCount)
@@ -154,7 +162,10 @@ function normalizeAlibabaState(raw: unknown, nowMs: number): AlibabaCodingPlanSt
   };
 }
 
-function applyUtcResetAndPrune(state: QwenLocalQuotaStateFileV1, nowMs: number): QwenLocalQuotaStateFileV1 {
+function applyUtcResetAndPrune(
+  state: QwenLocalQuotaStateFileV1,
+  nowMs: number,
+): QwenLocalQuotaStateFileV1 {
   const today = utcDayKey(nowMs);
   const recentFloor = nowMs - RPM_WINDOW_MS;
   const recent = state.recent
@@ -180,7 +191,10 @@ function applyUtcResetAndPrune(state: QwenLocalQuotaStateFileV1, nowMs: number):
   };
 }
 
-function pruneAlibabaState(state: AlibabaCodingPlanStateFileV1, nowMs: number): AlibabaCodingPlanStateFileV1 {
+function pruneAlibabaState(
+  state: AlibabaCodingPlanStateFileV1,
+  nowMs: number,
+): AlibabaCodingPlanStateFileV1 {
   const recentFloor = nowMs - MONTHLY_WINDOW_MS;
   const recent = state.recent
     .filter((ts) => ts >= recentFloor && ts <= nowMs)
@@ -199,13 +213,25 @@ function toPercentRemaining(used: number, limit: number): number {
   return clampPercent(remaining);
 }
 
-async function readJsonState<T>(path: string, fallback: T, normalize: (raw: unknown) => T): Promise<T> {
+async function readJsonState<T>(
+  path: string,
+  fallback: T,
+  normalize: (raw: unknown) => T,
+): Promise<T> {
   try {
     const raw = await readFile(path, "utf-8");
     return normalize(JSON.parse(raw));
   } catch {
     return fallback;
   }
+}
+
+function oldestTimestamp(timestamps: readonly number[]): number | undefined {
+  let oldest: number | undefined;
+  for (const timestamp of timestamps) {
+    if (oldest === undefined || timestamp < oldest) oldest = timestamp;
+  }
+  return oldest;
 }
 
 function computeRollingWindow(params: {
@@ -216,13 +242,14 @@ function computeRollingWindow(params: {
 }): RollingComputedQuotaWindow {
   const windowFloor = params.nowMs - params.windowMs;
   const matches = params.recent.filter((ts) => ts >= windowFloor && ts <= params.nowMs);
-  const oldest = matches.length > 0 ? Math.min(...matches) : undefined;
+  const oldest = oldestTimestamp(matches);
 
   return {
     used: matches.length,
     limit: params.limit,
     percentRemaining: toPercentRemaining(matches.length, params.limit),
-    resetTimeIso: typeof oldest === "number" ? new Date(oldest + params.windowMs).toISOString() : undefined,
+    resetTimeIso:
+      typeof oldest === "number" ? new Date(oldest + params.windowMs).toISOString() : undefined,
   };
 }
 
@@ -236,10 +263,14 @@ export function getAlibabaCodingPlanQuotaPath(): string {
   return join(stateDir, "opencode-quota", "alibaba-coding-plan-local-quota.json");
 }
 
-export async function readQwenLocalQuotaState(params?: { nowMs?: number }): Promise<QwenLocalQuotaStateFileV1> {
+export async function readQwenLocalQuotaState(params?: {
+  nowMs?: number;
+}): Promise<QwenLocalQuotaStateFileV1> {
   const nowMs = params?.nowMs ?? Date.now();
   const path = getQwenLocalQuotaPath();
-  const state = await readJsonState(path, defaultQwenState(nowMs), (raw) => normalizeQwenState(raw, nowMs));
+  const state = await readJsonState(path, defaultQwenState(nowMs), (raw) =>
+    normalizeQwenState(raw, nowMs),
+  );
   return applyUtcResetAndPrune(state, nowMs);
 }
 
@@ -248,14 +279,20 @@ export async function readAlibabaCodingPlanQuotaState(params?: {
 }): Promise<AlibabaCodingPlanStateFileV1> {
   const nowMs = params?.nowMs ?? Date.now();
   const path = getAlibabaCodingPlanQuotaPath();
-  const state = await readJsonState(path, defaultAlibabaState(nowMs), (raw) => normalizeAlibabaState(raw, nowMs));
+  const state = await readJsonState(path, defaultAlibabaState(nowMs), (raw) =>
+    normalizeAlibabaState(raw, nowMs),
+  );
   return pruneAlibabaState(state, nowMs);
 }
 
-export async function recordQwenCompletion(params?: { atMs?: number }): Promise<QwenLocalQuotaStateFileV1> {
+export async function recordQwenCompletion(params?: {
+  atMs?: number;
+}): Promise<QwenLocalQuotaStateFileV1> {
   const nowMs = params?.atMs ?? Date.now();
   const path = getQwenLocalQuotaPath();
-  const loaded = await readJsonState(path, defaultQwenState(nowMs), (raw) => normalizeQwenState(raw, nowMs));
+  const loaded = await readJsonState(path, defaultQwenState(nowMs), (raw) =>
+    normalizeQwenState(raw, nowMs),
+  );
   const state = applyUtcResetAndPrune(loaded, nowMs);
 
   const next: QwenLocalQuotaStateFileV1 = {
@@ -274,7 +311,9 @@ export async function recordAlibabaCodingPlanCompletion(params?: {
 }): Promise<AlibabaCodingPlanStateFileV1> {
   const nowMs = params?.atMs ?? Date.now();
   const path = getAlibabaCodingPlanQuotaPath();
-  const loaded = await readJsonState(path, defaultAlibabaState(nowMs), (raw) => normalizeAlibabaState(raw, nowMs));
+  const loaded = await readJsonState(path, defaultAlibabaState(nowMs), (raw) =>
+    normalizeAlibabaState(raw, nowMs),
+  );
   const state = pruneAlibabaState(loaded, nowMs);
 
   const next: AlibabaCodingPlanStateFileV1 = {
@@ -300,7 +339,7 @@ export function computeQwenQuota(params: {
 
   const dayUsed = Math.max(0, Math.trunc(state.dayCount));
   const rpmUsed = state.recent.length;
-  const oldestRecent = state.recent.length > 0 ? Math.min(...state.recent) : undefined;
+  const oldestRecent = oldestTimestamp(state.recent);
 
   return {
     day: {
@@ -314,7 +353,9 @@ export function computeQwenQuota(params: {
       limit: rpmLimit,
       percentRemaining: toPercentRemaining(rpmUsed, rpmLimit),
       resetTimeIso:
-        typeof oldestRecent === "number" ? new Date(oldestRecent + RPM_WINDOW_MS).toISOString() : undefined,
+        typeof oldestRecent === "number"
+          ? new Date(oldestRecent + RPM_WINDOW_MS).toISOString()
+          : undefined,
     },
   };
 }

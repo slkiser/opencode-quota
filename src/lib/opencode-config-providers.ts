@@ -161,7 +161,7 @@ export async function reconcileDetectedProvidersInGlobalConfig(
       .map((providerId) => normalizeQuotaProviderId(providerId))
       .filter((providerId) => {
         const shape = getQuotaProviderShape(providerId);
-        return Boolean(shape && shape.id !== "custom-sources");
+        return Boolean(shape && shape.id !== "quota-providers");
       }),
   );
   const { configDirs } = getOpencodeRuntimeDirCandidates();

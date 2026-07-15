@@ -15,7 +15,7 @@ import type {
   PricingSnapshotSource,
 } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
-import { cloneCustomSources, validateCustomSources } from "./custom-sources.js";
+import { cloneQuotaProviders, validateQuotaProviders } from "./quota-providers.js";
 import { isQuotaFormatStyle, resolveQuotaFormatStyle } from "./quota-format-style.js";
 import { parseJsonOrJsonc } from "./jsonc.js";
 import { getQuotaProviderShape, normalizeQuotaProviderId } from "./provider-metadata.js";
@@ -38,10 +38,9 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "requestTimeoutMs",
   "debug",
   "enabledProviders",
-  "customSources",
+  "quotaProviders",
   "anthropicBinaryPath",
   "googleModels",
-  "alibabaCodingPlanTier",
   "cursorPlan",
   "cursorIncludedApiUsd",
   "cursorBillingCycleStartDay",
@@ -113,7 +112,7 @@ const CONFIG_FILENAMES = ["opencode.json", "opencode.jsonc"] as const;
 const NETWORK_SETTING_SOURCE_KEYS = [
   "enabled",
   "enabledProviders",
-  "customSources",
+  "quotaProviders",
   "minIntervalMs",
   "requestTimeoutMs",
   "pricingSnapshot.source",
@@ -143,7 +142,6 @@ type ValidatedQuotaToastPatch = {
   enabledProvidersInvalidEmpty?: boolean;
   anthropicBinaryPath?: string;
   googleModels?: GoogleModelId[];
-  alibabaCodingPlanTier?: QuotaToastConfig["alibabaCodingPlanTier"];
   cursorPlan?: CursorQuotaPlan;
   cursorIncludedApiUsd?: number;
   cursorBillingCycleStartDay?: number;
@@ -193,9 +191,7 @@ function isValidGoogleModelId(id: unknown): id is GoogleModelId {
 }
 
 function isValidCursorQuotaPlan(plan: unknown): plan is CursorQuotaPlan {
-  return (
-    typeof plan === "string" && ["none", "pro", "pro-plus", "ultra"].includes(plan)
-  );
+  return typeof plan === "string" && ["none", "pro", "pro-plus", "ultra"].includes(plan);
 }
 
 function isValidPricingSnapshotSource(source: unknown): source is PricingSnapshotSource {
@@ -210,12 +206,6 @@ function isValidPercentDisplayMode(value: unknown): value is PercentDisplayMode 
   return value === "remaining" || value === "used";
 }
 
-function isValidAlibabaCodingPlanTier(
-  value: unknown,
-): value is QuotaToastConfig["alibabaCodingPlanTier"] {
-  return value === "lite" || value === "pro";
-}
-
 function isPositiveNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
@@ -226,10 +216,16 @@ function isValidCursorBillingCycleStartDay(value: unknown): value is number {
 
 const VALID_OPENCODE_GO_WINDOWS = ["rolling", "weekly", "monthly"] as const;
 
-function isValidOpenCodeGoWindows(value: unknown): value is Array<"rolling" | "weekly" | "monthly"> {
+function isValidOpenCodeGoWindows(
+  value: unknown,
+): value is Array<"rolling" | "weekly" | "monthly"> {
   if (!Array.isArray(value)) return false;
   if (value.length === 0) return false;
-  return value.every((v) => typeof v === "string" && VALID_OPENCODE_GO_WINDOWS.includes(v as typeof VALID_OPENCODE_GO_WINDOWS[number]));
+  return value.every(
+    (v) =>
+      typeof v === "string" &&
+      VALID_OPENCODE_GO_WINDOWS.includes(v as (typeof VALID_OPENCODE_GO_WINDOWS)[number]),
+  );
 }
 
 function normalizeOptionalString(value: unknown): string | undefined {
@@ -285,7 +281,7 @@ function cloneConfig(config: QuotaToastConfig): QuotaToastConfig {
     enabledProviders: Array.isArray(config.enabledProviders)
       ? [...config.enabledProviders]
       : config.enabledProviders,
-    customSources: cloneCustomSources(config.customSources),
+    quotaProviders: cloneQuotaProviders(config.quotaProviders),
     googleModels: [...config.googleModels],
     opencodeGoWindows: [...config.opencodeGoWindows],
     pricingSnapshot: { ...config.pricingSnapshot },
@@ -315,7 +311,7 @@ function normalizeEnabledProviders(value: unknown): NormalizedEnabledProviders {
   if (!Array.isArray(value)) {
     return {
       value: [],
-      issues: ["expected \"auto\" or an array of provider ids"],
+      issues: ['expected "auto" or an array of provider ids'],
       invalidEmpty: true,
     };
   }
@@ -437,7 +433,9 @@ function extractTuiCompactStatusPatch(value: unknown): TuiCompactStatusPatch | u
   return Object.keys(patch).length > 0 ? patch : undefined;
 }
 
-function extractMaintainerAnnouncementsPatch(value: unknown): MaintainerAnnouncementsPatch | undefined {
+function extractMaintainerAnnouncementsPatch(
+  value: unknown,
+): MaintainerAnnouncementsPatch | undefined {
   if (!isPlainObject(value)) {
     return undefined;
   }
@@ -451,7 +449,6 @@ function extractMaintainerAnnouncementsPatch(value: unknown): MaintainerAnnounce
   if (hasOwnKey(value, "home") && typeof value.home === "boolean") {
     patch.home = value.home;
   }
-
 
   return Object.keys(patch).length > 0 ? patch : undefined;
 }
@@ -525,7 +522,10 @@ function extractValidatedQuotaToastPatch(
     patch.percentDisplayMode = quotaToastConfig.percentDisplayMode;
   }
 
-  if (hasOwnKey(quotaToastConfig, "minIntervalMs") && isPositiveNumber(quotaToastConfig.minIntervalMs)) {
+  if (
+    hasOwnKey(quotaToastConfig, "minIntervalMs") &&
+    isPositiveNumber(quotaToastConfig.minIntervalMs)
+  ) {
     patch.minIntervalMs = quotaToastConfig.minIntervalMs;
   }
 
@@ -568,13 +568,9 @@ function extractValidatedQuotaToastPatch(
   }
 
   if (
-    hasOwnKey(quotaToastConfig, "alibabaCodingPlanTier") &&
-    isValidAlibabaCodingPlanTier(quotaToastConfig.alibabaCodingPlanTier)
+    hasOwnKey(quotaToastConfig, "cursorPlan") &&
+    isValidCursorQuotaPlan(quotaToastConfig.cursorPlan)
   ) {
-    patch.alibabaCodingPlanTier = quotaToastConfig.alibabaCodingPlanTier;
-  }
-
-  if (hasOwnKey(quotaToastConfig, "cursorPlan") && isValidCursorQuotaPlan(quotaToastConfig.cursorPlan)) {
     patch.cursorPlan = quotaToastConfig.cursorPlan;
   }
 
@@ -606,7 +602,10 @@ function extractValidatedQuotaToastPatch(
     }
   }
 
-  if (hasOwnKey(quotaToastConfig, "showOnIdle") && typeof quotaToastConfig.showOnIdle === "boolean") {
+  if (
+    hasOwnKey(quotaToastConfig, "showOnIdle") &&
+    typeof quotaToastConfig.showOnIdle === "boolean"
+  ) {
     patch.showOnIdle = quotaToastConfig.showOnIdle;
   }
 
@@ -759,11 +758,6 @@ function applyValidatedQuotaToastPatch(
     applySettingSource(settingSources, "googleModels", sourcePath);
   }
 
-  if (hasOwnKey(patch, "alibabaCodingPlanTier")) {
-    config.alibabaCodingPlanTier = patch.alibabaCodingPlanTier!;
-    applySettingSource(settingSources, "alibabaCodingPlanTier", sourcePath);
-  }
-
   if (hasOwnKey(patch, "cursorPlan")) {
     config.cursorPlan = patch.cursorPlan!;
     applySettingSource(settingSources, "cursorPlan", sourcePath);
@@ -890,7 +884,6 @@ function applyValidatedQuotaToastPatch(
       config.maintainerAnnouncements.home = patch.maintainerAnnouncements.home!;
       applySettingSource(settingSources, "maintainerAnnouncements.home", sourcePath);
     }
-
   }
 
   if (patch.layout) {
@@ -1018,11 +1011,9 @@ export async function loadConfig(
     networkSettingSources: Record<string, string>;
     configIssues: LoadConfigIssue[];
   }> {
-    const configRootDir = options?.configRootDir ?? getEffectiveConfigRoot(options?.cwd ?? process.cwd());
+    const configRootDir =
+      options?.configRootDir ?? getEffectiveConfigRoot(options?.cwd ?? process.cwd());
     const { configDirs } = getOpencodeRuntimeDirCandidates();
-    const canonicalCustomSourcesPath = configDirs[0]
-      ? getQuotaToastConfigPath(configDirs[0])
-      : undefined;
     const config = cloneDefaultConfig();
     const usedPaths: string[] = [];
     const globalConfigPaths: string[] = [];
@@ -1085,31 +1076,37 @@ export async function loadConfig(
         settingSources,
       );
 
-      if (hasOwnKey(extractedQuotaToast, "customSources")) {
-        const isCanonicalPlugin =
-          candidate.kind === "plugin" &&
-          candidate.path === canonicalCustomSourcesPath;
-        const isAlternateGlobalPlugin =
-          candidate.kind === "plugin" &&
-          candidate.scope === "global" &&
-          candidate.path !== canonicalCustomSourcesPath;
+      if (hasOwnKey(extractedQuotaToast, "alibabaCodingPlanTier")) {
+        configIssues.push({
+          path: sourcePath,
+          key: "alibabaCodingPlanTier",
+          message: 'removed in v4; tune Alibaba through "quotaProviders"',
+        });
+      }
 
-        if (isCanonicalPlugin) {
-          const validation = validateCustomSources(extractedQuotaToast.customSources);
+      if (hasOwnKey(extractedQuotaToast, "customSources")) {
+        configIssues.push({
+          path: sourcePath,
+          key: "customSources",
+          message: 'removed in v4; use the global-only "quotaProviders" property',
+        });
+      }
+
+      if (hasOwnKey(extractedQuotaToast, "quotaProviders")) {
+        if (candidate.scope === "global") {
+          const validation = validateQuotaProviders(extractedQuotaToast.quotaProviders);
           for (const issue of validation.issues) {
             configIssues.push({ path: sourcePath, key: issue.key, message: issue.message });
           }
           if (validation.value) {
-            config.customSources = cloneCustomSources(validation.value);
-            applySettingSource(settingSources, "customSources", sourcePath);
+            config.quotaProviders = cloneQuotaProviders(validation.value);
+            applySettingSource(settingSources, "quotaProviders", sourcePath);
           }
-        } else if (!isAlternateGlobalPlugin) {
+        } else {
           configIssues.push({
             path: sourcePath,
-            key: "customSources",
-            message: canonicalCustomSourcesPath
-              ? `allowed only in canonical global config ${canonicalCustomSourcesPath}`
-              : "allowed only in the canonical global opencode-quota/quota-toast.json",
+            key: "quotaProviders",
+            message: "allowed only in global OpenCode or global opencode-quota config",
           });
         }
       }
@@ -1172,11 +1169,25 @@ export async function loadConfig(
           "client.config.get",
           settingSources,
         );
+        if (hasOwnKey(quotaToastConfig, "alibabaCodingPlanTier")) {
+          configIssues.push({
+            path: "client.config.get",
+            key: "alibabaCodingPlanTier",
+            message: 'removed in v4; tune Alibaba through "quotaProviders"',
+          });
+        }
         if (hasOwnKey(quotaToastConfig, "customSources")) {
           configIssues.push({
             path: "client.config.get",
             key: "customSources",
-            message: "allowed only in the canonical global opencode-quota/quota-toast.json",
+            message: 'removed in v4; use the global-only "quotaProviders" property',
+          });
+        }
+        if (hasOwnKey(quotaToastConfig, "quotaProviders")) {
+          configIssues.push({
+            path: "client.config.get",
+            key: "quotaProviders",
+            message: "file provenance is required; define quotaProviders in global config",
           });
         }
 

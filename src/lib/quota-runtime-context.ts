@@ -6,6 +6,7 @@ import type { RuntimeContextRootHints, RuntimeContextRoots } from "./config-file
 import { createLoadConfigMeta, loadConfig } from "./config.js";
 import { getProviders } from "../providers/registry.js";
 import { resolveRuntimeContextRoots } from "./config-file-utils.js";
+import { cloneQuotaProviders } from "./quota-providers.js";
 
 export type QuotaRuntimeClient = NonNullable<Parameters<typeof loadConfig>[0]> &
   QuotaProviderContext["client"];
@@ -106,7 +107,6 @@ export function createQuotaProviderRuntimeContext(
     config: {
       googleModels: runtime.config.googleModels,
       anthropicBinaryPath: runtime.config.anthropicBinaryPath,
-      alibabaCodingPlanTier: runtime.config.alibabaCodingPlanTier,
       cursorPlan: runtime.config.cursorPlan,
       cursorIncludedApiUsd: runtime.config.cursorIncludedApiUsd,
       cursorBillingCycleStartDay: runtime.config.cursorBillingCycleStartDay,
@@ -116,10 +116,7 @@ export function createQuotaProviderRuntimeContext(
       onlyCurrentModel: runtime.config.onlyCurrentModel,
       enabledProviders:
         runtime.config.enabledProviders === "auto" ? "auto" : [...runtime.config.enabledProviders],
-      customSources: runtime.config.customSources.map((source) => ({
-        ...source,
-        ...(source.modelIds ? { modelIds: [...source.modelIds] } : {}),
-      })),
+      quotaProviders: cloneQuotaProviders(runtime.config.quotaProviders),
       currentModel: runtime.session.sessionMeta?.modelID,
       currentProviderID: runtime.session.sessionMeta?.providerID,
     },

@@ -488,7 +488,7 @@ async function buildStatusReport(params: {
                 currentModel,
                 currentProviderID,
                 enabledProviders: runtimeConfig.enabledProviders,
-                customSources: runtimeConfig.customSources,
+                quotaProviders: runtimeConfig.quotaProviders,
               })
             : undefined,
       };
@@ -545,7 +545,6 @@ async function buildStatusReport(params: {
     configIssues: params.runtime.configMeta.configIssues,
     enabledProviders: runtimeConfig.enabledProviders,
     anthropicBinaryPath: runtimeConfig.anthropicBinaryPath,
-    alibabaCodingPlanTier: runtimeConfig.alibabaCodingPlanTier,
     cursorPlan: runtimeConfig.cursorPlan,
     cursorIncludedApiUsd: runtimeConfig.cursorIncludedApiUsd,
     cursorBillingCycleStartDay: runtimeConfig.cursorBillingCycleStartDay,
@@ -556,7 +555,7 @@ async function buildStatusReport(params: {
     sessionModelLookup,
     providerAvailability: availability,
     providerLiveProbes,
-    customSources: runtimeConfig.customSources,
+    quotaProviders: runtimeConfig.quotaProviders,
     googleRefresh: refresh
       ? {
           attempted: true,

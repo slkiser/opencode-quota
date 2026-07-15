@@ -1,4 +1,4 @@
-import { stat } from "fs/promises";
+import { readFile, stat } from "fs/promises";
 
 import { getAuthPath, getAuthPaths, readAuthFileCached } from "./opencode-auth.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
@@ -16,12 +16,10 @@ import { getDeepSeekKeyDiagnostics } from "./deepseek.js";
 import { getSyntheticKeyDiagnostics } from "./synthetic.js";
 import { getCopilotQuotaAuthDiagnostics } from "./copilot.js";
 import {
-  computeAlibabaCodingPlanQuota,
-  computeQwenQuota,
+  ALIBABA_CODING_PLAN_STATE_VERSION,
+  QWEN_LOCAL_QUOTA_STATE_VERSION,
   getAlibabaCodingPlanQuotaPath,
   getQwenLocalQuotaPath,
-  readAlibabaCodingPlanQuotaState,
-  readQwenLocalQuotaState,
 } from "./qwen-local-quota.js";
 import {
   DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
@@ -94,7 +92,8 @@ import type {
   QuotaToastEntry,
   QuotaToastError,
 } from "./entries.js";
-import type { CustomSourceConfig } from "./custom-sources.js";
+import type { QuotaProviderDefinition } from "./quota-providers.js";
+import { inspectLocalQuotaProviderState } from "./quota-providers-local.js";
 import { isValueEntry } from "./entries.js";
 import type {
   CursorQuotaPlan,
@@ -137,6 +136,50 @@ async function pathExists(path: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function inspectGeneratedCounterFile(
+  path: string,
+  expectedVersion: number,
+): Promise<{
+  exists: boolean;
+  health: "missing" | "healthy" | "malformed" | "version_mismatch";
+  version: number | null;
+  lastUpdatedAt: number | null;
+}> {
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf8")) as unknown;
+    const record =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null;
+    const version = typeof record?.version === "number" ? record.version : null;
+    const updatedAt =
+      typeof record?.updatedAt === "number" && Number.isFinite(record.updatedAt)
+        ? record.updatedAt
+        : null;
+    return {
+      exists: true,
+      health:
+        !record || version === null || updatedAt === null
+          ? "malformed"
+          : version === expectedVersion
+            ? "healthy"
+            : "version_mismatch",
+      version,
+      lastUpdatedAt: updatedAt,
+    };
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      String((error as { code?: unknown }).code) === "ENOENT"
+    ) {
+      return { exists: false, health: "missing", version: null, lastUpdatedAt: null };
+    }
+    return { exists: true, health: "malformed", version: null, lastUpdatedAt: null };
   }
 }
 
@@ -359,7 +402,7 @@ function formatCompactLiveProbeError(providerId: string, error: QuotaToastError)
   );
 }
 
-function getCustomSourceCredentialCategory(
+function getQuotaProviderCredentialCategory(
   source: QuotaProviderDiagnostic["credentialSource"],
 ): string {
   switch (source) {
@@ -375,34 +418,56 @@ function getCustomSourceCredentialCategory(
   }
 }
 
-function createCustomSourcesSection(params: {
-  sources: readonly CustomSourceConfig[];
+async function createQuotaProvidersSection(params: {
+  definitions: readonly QuotaProviderDefinition[];
   probes?: ProviderLiveProbe[];
-}): ReportSection | null {
-  if (params.sources.length === 0) return null;
+}): Promise<ReportSection | null> {
+  if (params.definitions.length === 0) return null;
 
   const diagnostics =
-    findProviderLiveProbe("custom-sources", params.probes)?.result.diagnostics ?? [];
+    findProviderLiveProbe("quota-providers", params.probes)?.result.diagnostics ?? [];
   const diagnosticsBySource = new Map(
     diagnostics.map((diagnostic) => [diagnostic.sourceId, diagnostic] as const),
   );
   const rows: ReportKvRow[] = [];
 
-  for (const source of params.sources) {
-    const diagnostic = diagnosticsBySource.get(source.id);
-    const coverage = source.modelIds ? source.modelIds.join(",") : "all_models";
+  for (const definition of params.definitions) {
+    const diagnostic = diagnosticsBySource.get(definition.id);
+    const coverage = definition.modelIds ? definition.modelIds.join(",") : "all_models";
+    if (definition.mode === "local-estimate") {
+      const state = await inspectLocalQuotaProviderState(definition);
+      rows.push({
+        key: `provider_${definition.id}`,
+        value: [
+          `provider_id=${definition.providerId}`,
+          "mode=local-estimate",
+          `coverage=${coverage}`,
+          `outcome=${diagnostic?.outcome ?? "unavailable"}`,
+          `state_path=${state.path}`,
+          `state_exists=${state.exists ? "true" : "false"}`,
+          `state_health=${state.health}`,
+          `state_version=${state.version ?? "(none)"}`,
+          `state_last_update=${state.lastUpdatedAt === null ? "(none)" : new Date(state.lastUpdatedAt).toISOString()}`,
+        ]
+          .map((part) => sanitizeSingleLineDisplayText(part))
+          .join(" "),
+      });
+      continue;
+    }
+
     const checkedPaths = diagnostic
       ? [...new Set([...diagnostic.checkedPaths, ...diagnostic.authPaths])]
       : [];
     rows.push({
-      key: `source_${source.id}`,
+      key: `provider_${definition.id}`,
       value: [
-        `provider_id=${source.providerId}`,
-        `preset=${source.preset}`,
+        `provider_id=${definition.providerId}`,
+        "mode=remote-api",
+        `format=${definition.format}`,
         `coverage=${coverage}`,
         `outcome=${diagnostic?.outcome ?? "unavailable"}`,
-        `credential_category=${getCustomSourceCredentialCategory(diagnostic?.credentialSource ?? null)}`,
-        `env_name=${source.apiKeyEnv ?? "(none)"}`,
+        `credential_category=${getQuotaProviderCredentialCategory(diagnostic?.credentialSource ?? null)}`,
+        `env_name=${definition.apiKeyEnv ?? "(none)"}`,
         `checked_paths=${checkedPaths.length > 0 ? checkedPaths.join(" | ") : "(none)"}`,
       ]
         .map((part) => sanitizeSingleLineDisplayText(part))
@@ -410,7 +475,7 @@ function createCustomSourcesSection(params: {
     });
   }
 
-  return createKvSection("custom_sources", "custom_sources:", rows);
+  return createKvSection("quota_providers", "quota_providers:", rows);
 }
 
 function appendCompactLiveProbeRows(
@@ -674,7 +739,6 @@ export async function buildQuotaStatusReport(params: {
   };
   enabledProviders: string[] | "auto";
   anthropicBinaryPath?: string;
-  alibabaCodingPlanTier: "lite" | "pro";
   cursorPlan: CursorQuotaPlan;
   cursorIncludedApiUsd?: number;
   cursorBillingCycleStartDay?: number;
@@ -691,7 +755,7 @@ export async function buildQuotaStatusReport(params: {
     matchesCurrentModel?: boolean;
   }>;
   providerLiveProbes?: ProviderLiveProbe[];
-  customSources?: readonly CustomSourceConfig[];
+  quotaProviders?: readonly QuotaProviderDefinition[];
   googleRefresh?: {
     attempted: boolean;
     total?: number;
@@ -770,12 +834,12 @@ export async function buildQuotaStatusReport(params: {
   }
   sections.push(createLinesSection("toast", "toast:", toastLines));
 
-  const customSourcesSection = createCustomSourcesSection({
-    sources: params.customSources ?? [],
+  const quotaProvidersSection = await createQuotaProvidersSection({
+    definitions: params.quotaProviders ?? [],
     probes: params.providerLiveProbes,
   });
-  if (customSourcesSection) {
-    sections.push(customSourcesSection);
+  if (quotaProvidersSection) {
+    sections.push(quotaProvidersSection);
   }
 
   if (params.maintainerAnnouncements) {
@@ -824,11 +888,11 @@ export async function buildQuotaStatusReport(params: {
   const openaiAuth = resolveOpenAIOAuth(authData);
   const alibabaAuthDiagnostics = await getAlibabaCodingPlanAuthDiagnostics({
     maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
-    fallbackTier: params.alibabaCodingPlanTier,
+    fallbackTier: "lite",
   });
   const alibabaCodingPlanAuth = await resolveAlibabaCodingPlanAuthCached({
     maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
-    fallbackTier: params.alibabaCodingPlanTier,
+    fallbackTier: "lite",
   });
   pathsRows.push({
     key: "qwen oauth auth configured",
@@ -857,10 +921,6 @@ export async function buildQuotaStatusReport(params: {
   pathsRows.push({
     key: "alibaba_api_key_auth_paths",
     value: joinOrNone(alibabaAuthDiagnostics.authPaths),
-  });
-  pathsRows.push({
-    key: "alibaba coding plan fallback tier",
-    value: params.alibabaCodingPlanTier,
   });
   pathsRows.push({
     key: "alibaba_coding_plan",
@@ -1043,47 +1103,37 @@ export async function buildQuotaStatusReport(params: {
   }
 
   const qwenLocalQuotaPath = getQwenLocalQuotaPath();
-  const qwenLocalQuotaExists = await pathExists(qwenLocalQuotaPath);
+  const qwenCounter = await inspectGeneratedCounterFile(
+    qwenLocalQuotaPath,
+    QWEN_LOCAL_QUOTA_STATE_VERSION,
+  );
   cursorRows.push({
     key: "qwen free local quota",
-    value: `path=${qwenLocalQuotaPath} exists=${qwenLocalQuotaExists ? "true" : "false"}`,
+    value: [
+      `path=${qwenLocalQuotaPath}`,
+      `exists=${qwenCounter.exists ? "true" : "false"}`,
+      `health=${qwenCounter.health}`,
+      `version=${qwenCounter.version ?? "(none)"}`,
+      `last_update=${qwenCounter.lastUpdatedAt === null ? "(none)" : new Date(qwenCounter.lastUpdatedAt).toISOString()}`,
+    ].join(" "),
   });
-  try {
-    const qwenState = await readQwenLocalQuotaState();
-    const qwenQuota = computeQwenQuota({ state: qwenState });
-    const qwenUsageSuffix = qwenLocalQuotaExists ? "" : " (default state)";
-    cursorRows.push({
-      key: "qwen free local usage",
-      value: `daily=${qwenQuota.day.used}/${qwenQuota.day.limit} rpm=${qwenQuota.rpm.used}/${qwenQuota.rpm.limit}${qwenUsageSuffix}`,
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    cursorRows.push({ key: "qwen free local usage", value: `error (${msg})` });
-  }
 
   const alibabaLocalQuotaPath = getAlibabaCodingPlanQuotaPath();
-  const alibabaLocalQuotaExists = await pathExists(alibabaLocalQuotaPath);
+  const alibabaCounter = await inspectGeneratedCounterFile(
+    alibabaLocalQuotaPath,
+    ALIBABA_CODING_PLAN_STATE_VERSION,
+  );
   cursorRows.push({
     key: "alibaba coding plan local quota",
-    value: `path=${alibabaLocalQuotaPath} exists=${alibabaLocalQuotaExists ? "true" : "false"}`,
+    value: [
+      `path=${alibabaLocalQuotaPath}`,
+      `exists=${alibabaCounter.exists ? "true" : "false"}`,
+      `health=${alibabaCounter.health}`,
+      `version=${alibabaCounter.version ?? "(none)"}`,
+      `last_update=${alibabaCounter.lastUpdatedAt === null ? "(none)" : new Date(alibabaCounter.lastUpdatedAt).toISOString()}`,
+    ].join(" "),
   });
-  if (alibabaCodingPlanAuth.state === "configured") {
-    try {
-      const alibabaState = await readAlibabaCodingPlanQuotaState();
-      const alibabaQuota = computeAlibabaCodingPlanQuota({
-        state: alibabaState,
-        tier: alibabaCodingPlanAuth.tier,
-      });
-      const alibabaUsageSuffix = alibabaLocalQuotaExists ? "" : " (default state)";
-      cursorRows.push({
-        key: "alibaba coding plan usage",
-        value: `tier=${alibabaCodingPlanAuth.tier} 5h=${alibabaQuota.fiveHour.used}/${alibabaQuota.fiveHour.limit} weekly=${alibabaQuota.weekly.used}/${alibabaQuota.weekly.limit} monthly=${alibabaQuota.monthly.used}/${alibabaQuota.monthly.limit}${alibabaUsageSuffix}`,
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      cursorRows.push({ key: "alibaba coding plan usage", value: `error (${msg})` });
-    }
-  } else if (alibabaCodingPlanAuth.state === "invalid") {
+  if (alibabaCodingPlanAuth.state === "invalid") {
     cursorRows.push({ key: "alibaba coding plan error", value: alibabaCodingPlanAuth.error });
   }
   appendProviderCompactLiveProbeRows(cursorRows, "cursor", params.providerLiveProbes);

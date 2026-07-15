@@ -1,11 +1,6 @@
 import { homedir } from "os";
-import { join, dirname } from "path";
-import {
-  xdgCache,
-  xdgConfig,
-  xdgData,
-  xdgState,
-} from "xdg-basedir";
+import { dirname, isAbsolute, join, resolve } from "path";
+import { xdgCache, xdgConfig, xdgData, xdgState } from "xdg-basedir";
 
 export interface OpencodeRuntimeDirs {
   dataDir: string;
@@ -44,12 +39,19 @@ export function getOpencodeRuntimeDirs(params?: {
   // xdg-basedir may return undefined if env is missing; provide deterministic fallbacks.
   const dataBase = env.XDG_DATA_HOME?.trim() || xdgData || join(home, ".local", "share");
   const configBase = env.XDG_CONFIG_HOME?.trim() || xdgConfig || join(home, ".config");
+  const defaultConfigDir = join(configBase, "opencode");
+  const configuredConfigDir = env.OPENCODE_CONFIG_DIR?.trim();
+  const configDir = configuredConfigDir
+    ? isAbsolute(configuredConfigDir)
+      ? configuredConfigDir
+      : resolve(defaultConfigDir, configuredConfigDir)
+    : defaultConfigDir;
   const cacheBase = env.XDG_CACHE_HOME?.trim() || xdgCache || join(home, ".cache");
   const stateBase = env.XDG_STATE_HOME?.trim() || xdgState || join(home, ".local", "state");
 
   return {
     dataDir: join(dataBase, "opencode"),
-    configDir: join(configBase, "opencode"),
+    configDir,
     cacheDir: join(cacheBase, "opencode"),
     stateDir: join(stateBase, "opencode"),
   };

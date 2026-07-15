@@ -29,7 +29,6 @@ function createTestContext() {
     config: {
       googleModels: ["CLAUDE"],
       anthropicBinaryPath: "claude",
-      alibabaCodingPlanTier: "lite",
       cursorPlan: "none",
       onlyCurrentModel: false,
     },
@@ -65,7 +64,7 @@ describe("quota-state shared cache", () => {
     expect(singleWindowKey).toBe(allWindowsKey);
   });
 
-  it("uses the full ordered custom-source configuration but never credentials in aggregate identity", async () => {
+  it("uses the full ordered quota-provider configuration but never credentials in aggregate identity", async () => {
     const { buildQuotaProviderStateCacheKey } = await import("../src/lib/quota-state.js");
     const base = createTestContext();
     const first = {
@@ -73,7 +72,7 @@ describe("quota-state shared cache", () => {
       providerId: "provider-one",
       label: "First",
       url: "https://one.example/accounting",
-      preset: "accounting-v1",
+      format: "accounting-v1",
       apiKeyEnv: "EXPLICIT_KEY",
       modelIds: ["provider-one/a", "provider-one/b"],
     };
@@ -82,30 +81,30 @@ describe("quota-state shared cache", () => {
       providerId: "provider-two",
       label: "Second",
       url: "https://two.example/key",
-      preset: "openrouter-key-v1",
+      format: "openrouter-key-v1",
     };
     process.env.EXPLICIT_KEY = "credential-must-not-be-in-cache-key";
     try {
-      const key = buildQuotaProviderStateCacheKey("custom-sources", {
+      const key = buildQuotaProviderStateCacheKey("quota-providers", {
         ...base,
-        config: { ...base.config, customSources: [first, second] },
+        config: { ...base.config, quotaProviders: [first, second] },
       } as any);
-      const reordered = buildQuotaProviderStateCacheKey("custom-sources", {
+      const reordered = buildQuotaProviderStateCacheKey("quota-providers", {
         ...base,
-        config: { ...base.config, customSources: [second, first] },
+        config: { ...base.config, quotaProviders: [second, first] },
       } as any);
-      const relabeled = buildQuotaProviderStateCacheKey("custom-sources", {
+      const relabeled = buildQuotaProviderStateCacheKey("quota-providers", {
         ...base,
         config: {
           ...base.config,
-          customSources: [{ ...first, label: "Changed" }, second],
+          quotaProviders: [{ ...first, label: "Changed" }, second],
         },
       } as any);
-      const modelReordered = buildQuotaProviderStateCacheKey("custom-sources", {
+      const modelReordered = buildQuotaProviderStateCacheKey("quota-providers", {
         ...base,
         config: {
           ...base.config,
-          customSources: [{ ...first, modelIds: ["provider-one/b", "provider-one/a"] }, second],
+          quotaProviders: [{ ...first, modelIds: ["provider-one/b", "provider-one/a"] }, second],
         },
       } as any);
 
@@ -115,12 +114,12 @@ describe("quota-state shared cache", () => {
       expect(
         buildQuotaProviderStateCacheKey("synthetic", {
           ...base,
-          config: { ...base.config, customSources: [first] },
+          config: { ...base.config, quotaProviders: [first] },
         } as any),
       ).toBe(
         buildQuotaProviderStateCacheKey("synthetic", {
           ...base,
-          config: { ...base.config, customSources: [second] },
+          config: { ...base.config, quotaProviders: [second] },
         } as any),
       );
     } finally {
@@ -425,7 +424,7 @@ describe("quota-state shared cache", () => {
     __resetQuotaStateForTests();
 
     const provider = {
-      id: "custom-sources",
+      id: "quota-providers",
       isAvailable: vi.fn(),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
@@ -444,7 +443,8 @@ describe("quota-state shared cache", () => {
           {
             sourceId: "custom",
             providerId: "provider-one",
-            preset: "accounting-v1",
+            mode: "remote-api",
+            format: "accounting-v1",
             modelIds: null,
             apiKeyEnv: "EXPLICIT_KEY",
             selected: true,
@@ -462,13 +462,14 @@ describe("quota-state shared cache", () => {
       ...createTestContext(),
       config: {
         ...createTestContext().config,
-        customSources: [
+        quotaProviders: [
           {
             id: "custom",
             providerId: "provider-one",
             label: "Custom",
+            mode: "remote-api",
             url: "https://one.example/accounting",
-            preset: "accounting-v1",
+            format: "accounting-v1",
             apiKeyEnv: "EXPLICIT_KEY",
           },
         ],

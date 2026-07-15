@@ -55,7 +55,6 @@ export function buildQuotaProviderStateCacheKey(
   ctx: QuotaProviderContext,
 ): string {
   const googleModels = ctx.config.googleModels.join(",");
-  const alibabaCodingPlanTier = ctx.config.alibabaCodingPlanTier;
   const cursorPlan = ctx.config.cursorPlan;
   const cursorIncludedApiUsd = ctx.config.cursorIncludedApiUsd ?? "";
   const cursorBillingCycleStartDay = ctx.config.cursorBillingCycleStartDay ?? "";
@@ -64,23 +63,16 @@ export function buildQuotaProviderStateCacheKey(
   const currentModel = ctx.config.currentModel ?? "";
   const currentProviderID = ctx.config.currentProviderID ?? "";
   const anthropicBinaryPath = ctx.config.anthropicBinaryPath ?? "";
-  const customSourcesIdentity =
-    providerId === "custom-sources"
-      ? `|customSources=${JSON.stringify([
-          "custom-sources-cache-v2",
-          (ctx.config.customSources ?? []).map((source) => [
-            source.id,
-            source.providerId,
-            source.label,
-            source.url,
-            source.preset,
-            source.apiKeyEnv ?? null,
-            source.modelIds ? [...source.modelIds] : null,
-          ]),
-        ])}`
+  const relevantQuotaProviders =
+    providerId === "quota-providers"
+      ? (ctx.config.quotaProviders ?? [])
+      : (ctx.config.quotaProviders ?? []).filter((definition) => definition.id === providerId);
+  const quotaProvidersIdentity =
+    relevantQuotaProviders.length > 0
+      ? `|quotaProviders=${JSON.stringify(["quota-providers-cache-v1", relevantQuotaProviders])}`
       : "";
 
-  return `${providerId}${customSourcesIdentity}|anthropicBinaryPath=${anthropicBinaryPath}|googleModels=${googleModels}|alibabaTier=${alibabaCodingPlanTier}|cursorPlan=${cursorPlan}|cursorIncludedApiUsd=${cursorIncludedApiUsd}|cursorBillingCycleStartDay=${cursorBillingCycleStartDay}|opencodeGoWindows=${opencodeGoWindows}|onlyCurrentModel=${onlyCurrentModel}|currentModel=${currentModel}|currentProviderID=${currentProviderID}`;
+  return `${providerId}${quotaProvidersIdentity}|anthropicBinaryPath=${anthropicBinaryPath}|googleModels=${googleModels}|cursorPlan=${cursorPlan}|cursorIncludedApiUsd=${cursorIncludedApiUsd}|cursorBillingCycleStartDay=${cursorBillingCycleStartDay}|opencodeGoWindows=${opencodeGoWindows}|onlyCurrentModel=${onlyCurrentModel}|currentModel=${currentModel}|currentProviderID=${currentProviderID}`;
 }
 
 function getQuotaProviderCacheDir(): string {
@@ -194,7 +186,8 @@ function isQuotaProviderDiagnostic(value: unknown): boolean {
     hasOnlyKeys(diagnostic, [
       "sourceId",
       "providerId",
-      "preset",
+      "mode",
+      "format",
       "modelIds",
       "apiKeyEnv",
       "selected",
@@ -205,10 +198,19 @@ function isQuotaProviderDiagnostic(value: unknown): boolean {
       "entryCount",
       "checkedPaths",
       "authPaths",
+      "statePath",
+      "stateHealth",
+      "stateVersion",
+      "stateLastUpdatedAt",
     ]) &&
     typeof diagnostic.sourceId === "string" &&
     typeof diagnostic.providerId === "string" &&
-    ["accounting-v1", "openrouter-key-v1"].includes(String(diagnostic.preset)) &&
+    ["remote-api", "local-estimate"].includes(String(diagnostic.mode)) &&
+    (diagnostic.format === undefined ||
+      ["accounting-v1", "openrouter-key-v1"].includes(String(diagnostic.format))) &&
+    (diagnostic.mode === "remote-api"
+      ? diagnostic.format !== undefined
+      : diagnostic.format === undefined) &&
     (diagnostic.modelIds === null ||
       (Array.isArray(diagnostic.modelIds) &&
         diagnostic.modelIds.every((modelId) => typeof modelId === "string"))) &&
@@ -230,6 +232,7 @@ function isQuotaProviderDiagnostic(value: unknown): boolean {
       "invalid_json",
       "invalid_response",
       "network_error",
+      "local_state_error",
     ].includes(String(diagnostic.outcome)) &&
     (diagnostic.httpStatus === undefined ||
       (typeof diagnostic.httpStatus === "number" &&
@@ -242,7 +245,21 @@ function isQuotaProviderDiagnostic(value: unknown): boolean {
     Array.isArray(diagnostic.checkedPaths) &&
     diagnostic.checkedPaths.every((path) => typeof path === "string") &&
     Array.isArray(diagnostic.authPaths) &&
-    diagnostic.authPaths.every((path) => typeof path === "string")
+    diagnostic.authPaths.every((path) => typeof path === "string") &&
+    (diagnostic.statePath === undefined || typeof diagnostic.statePath === "string") &&
+    (diagnostic.stateHealth === undefined ||
+      ["missing", "healthy", "malformed", "version_mismatch"].includes(
+        String(diagnostic.stateHealth),
+      )) &&
+    (diagnostic.stateVersion === undefined ||
+      diagnostic.stateVersion === null ||
+      (typeof diagnostic.stateVersion === "number" &&
+        Number.isInteger(diagnostic.stateVersion) &&
+        diagnostic.stateVersion >= 0)) &&
+    (diagnostic.stateLastUpdatedAt === undefined ||
+      diagnostic.stateLastUpdatedAt === null ||
+      (typeof diagnostic.stateLastUpdatedAt === "number" &&
+        Number.isFinite(diagnostic.stateLastUpdatedAt)))
   );
 }
 

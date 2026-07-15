@@ -9,7 +9,7 @@ import {
   writeQuotaToastConfig,
   type ConfigLoaderWorkspace,
 } from "./helpers/config-loader-test-harness.js";
-import { VALID_CUSTOM_SOURCES } from "./fixtures/custom-sources.js";
+import { VALID_QUOTA_PROVIDER_INPUTS, VALID_QUOTA_PROVIDERS } from "./fixtures/quota-providers.js";
 
 const mockedHomeDir = vi.hoisted(() => ({
   value: "",
@@ -97,9 +97,9 @@ describe("loadConfig integration runtime-path resolution", () => {
     expect(cfg.onlyCurrentModel).toBe(true);
 
     expect(meta.source).toBe("files");
-    expect(meta.paths.some((path) => configDirs.some((dir) => path === quotaConfigSource(dir)))).toBe(
-      true,
-    );
+    expect(
+      meta.paths.some((path) => configDirs.some((dir) => path === quotaConfigSource(dir))),
+    ).toBe(true);
     expect(meta.paths).toContain(quotaConfigSource(workspaceDir));
     expect(meta.paths).not.toContain(quotaConfigSource(nestedDir));
     expect(meta.workspaceConfigPaths).toEqual([quotaConfigSource(workspaceDir)]);
@@ -108,24 +108,16 @@ describe("loadConfig integration runtime-path resolution", () => {
         configDirs.some((dir) => path === quotaConfigSource(dir)),
       ),
     ).toBe(true);
-    expect(meta.settingSources.enabled).toBe(
-      quotaConfigSource(workspaceDir),
-    );
-    expect(meta.settingSources.enabledProviders).toBe(
-      quotaConfigSource(workspaceDir),
-    );
+    expect(meta.settingSources.enabled).toBe(quotaConfigSource(workspaceDir));
+    expect(meta.settingSources.enabledProviders).toBe(quotaConfigSource(workspaceDir));
     expect(
       configDirs.some(
-        (dir) =>
-          meta.settingSources["pricingSnapshot.source"] ===
-          quotaConfigSource(dir),
+        (dir) => meta.settingSources["pricingSnapshot.source"] === quotaConfigSource(dir),
       ),
     ).toBe(true);
     expect(
       configDirs.some(
-        (dir) =>
-          meta.settingSources["pricingSnapshot.autoRefresh"] ===
-          quotaConfigSource(dir),
+        (dir) => meta.settingSources["pricingSnapshot.autoRefresh"] === quotaConfigSource(dir),
       ),
     ).toBe(true);
   });
@@ -137,7 +129,7 @@ describe("loadConfig integration runtime-path resolution", () => {
     writeQuotaSidecarConfig(overlappingRoot, {
       enabled: false,
       minIntervalMs: 12_345,
-      customSources: VALID_CUSTOM_SOURCES,
+      quotaProviders: VALID_QUOTA_PROVIDER_INPUTS,
     });
 
     const meta = createLoadConfigMeta();
@@ -145,19 +137,13 @@ describe("loadConfig integration runtime-path resolution", () => {
 
     expect(cfg.enabled).toBe(false);
     expect(cfg.minIntervalMs).toBe(12_345);
-    expect(cfg.customSources).toEqual(VALID_CUSTOM_SOURCES);
+    expect(cfg.quotaProviders).toEqual(VALID_QUOTA_PROVIDERS);
     expect(meta.globalConfigPaths).toEqual([quotaSidecarConfigSource(overlappingRoot)]);
     expect(meta.workspaceConfigPaths).toEqual([]);
     expect(meta.paths).toEqual(meta.globalConfigPaths);
-    expect(meta.settingSources.enabled).toBe(
-      quotaSidecarConfigSource(overlappingRoot),
-    );
-    expect(meta.settingSources.minIntervalMs).toBe(
-      quotaSidecarConfigSource(overlappingRoot),
-    );
-    expect(meta.settingSources.customSources).toBe(
-      quotaSidecarConfigSource(overlappingRoot),
-    );
+    expect(meta.settingSources.enabled).toBe(quotaSidecarConfigSource(overlappingRoot));
+    expect(meta.settingSources.minIntervalMs).toBe(quotaSidecarConfigSource(overlappingRoot));
+    expect(meta.settingSources.quotaProviders).toBe(quotaSidecarConfigSource(overlappingRoot));
   });
 
   it("uses the provided configRootDir to pick the workspace override layer over shared global defaults", async () => {
@@ -193,7 +179,9 @@ describe("loadConfig integration runtime-path resolution", () => {
     });
 
     const workspaceMeta = createLoadConfigMeta();
-    const workspaceCfg = await loadConfig(undefined, workspaceMeta, { configRootDir: workspaceDir });
+    const workspaceCfg = await loadConfig(undefined, workspaceMeta, {
+      configRootDir: workspaceDir,
+    });
 
     const nestedMeta = createLoadConfigMeta();
     const nestedCfg = await loadConfig(undefined, nestedMeta, { configRootDir: nestedDir });
@@ -219,17 +207,9 @@ describe("loadConfig integration runtime-path resolution", () => {
           nestedMeta.globalConfigPaths.includes(quotaConfigSource(dir)),
       ),
     ).toBe(true);
-    expect(workspaceMeta.settingSources.enabled).toBe(
-      quotaConfigSource(workspaceDir),
-    );
-    expect(nestedMeta.settingSources.enabled).toBe(
-      quotaConfigSource(nestedDir),
-    );
-    expect(workspaceMeta.settingSources.minIntervalMs).toBe(
-      quotaConfigSource(workspaceDir),
-    );
-    expect(nestedMeta.settingSources.minIntervalMs).toBe(
-      quotaConfigSource(nestedDir),
-    );
+    expect(workspaceMeta.settingSources.enabled).toBe(quotaConfigSource(workspaceDir));
+    expect(nestedMeta.settingSources.enabled).toBe(quotaConfigSource(nestedDir));
+    expect(workspaceMeta.settingSources.minIntervalMs).toBe(quotaConfigSource(workspaceDir));
+    expect(nestedMeta.settingSources.minIntervalMs).toBe(quotaConfigSource(nestedDir));
   });
 });

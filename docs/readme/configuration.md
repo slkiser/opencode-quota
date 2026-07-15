@@ -43,45 +43,102 @@ An OpenCode `provider` declaration tells OpenCode how a provider is configured; 
 
 In auto-detect mode, working auth for a built-in provider can add a missing empty declaration to the selected global OpenCode config. The write uses the existing global JSON or JSONC format; when the global file does not exist, it uses the selected project format and otherwise defaults to JSONC. Project config is never automatically written, and an existing project declaration counts as configured for that project.
 
-<a id="custom-accounting-sources"></a>
-
 ### Custom providers
 
-`customSources` is the exception to ordinary config layering: it is accepted only in the canonical global `<OpenCode user config dir>/opencode-quota/quota-toast.json`. The usual path is `~/.config/opencode/opencode-quota/quota-toast.json`; when `OPENCODE_CONFIG_DIR` is set, use `$OPENCODE_CONFIG_DIR/opencode-quota/quota-toast.json`. Project/workspace sidecars, `experimental.quotaToast`, SDK config, and alternate global plugin files cannot define custom sources.
+A **quota provider definition** is one ordered item in `quotaProviders`. OpenCode Quota creates it; OpenCode uses the matching normal provider/model declaration as a read-only input.
 
-Copy this complete example into that canonical global file:
+#### Guided setup
+
+Run:
+
+```bash
+npx @slkiser/opencode-quota@latest provider add
+```
+
+The command asks only for structure, shows the exact file and complete output, then asks before writing. It never asks for a key. New files are JSONC with explanatory comments; existing `opencode.json` files remain strict JSON. Re-running the command with the same `id` updates that item in place.
+
+The normal destination is the global `<OpenCode user config dir>/opencode.jsonc` or `opencode.json`, inside `experimental.quotaToast.quotaProviders`. Project/workspace definitions are rejected and never executed. A project OpenCode provider/model declaration may still override its global declaration for matching in that project.
+
+#### Complete example
 
 ```jsonc
 {
-  "enabledProviders": ["custom-sources"],
-  "customSources": [
-    {
-      "id": "openrouter-primary",
-      "providerId": "openrouter",
-      "label": "OpenRouter Primary",
-      "url": "https://openrouter.ai/api/v1/key",
-      "preset": "openrouter-key-v1",
-      "apiKeyEnv": "OPENROUTER_API_KEY",
-      "modelIds": ["openrouter/anthropic/claude-sonnet-4"],
+  "$schema": "https://opencode.ai/config.json",
+  "experimental": {
+    // OpenCode Quota settings. Project quota-provider definitions are never trusted.
+    "quotaToast": {
+      // Use this only when replacing auto detection with a manual list.
+      "enabledProviders": ["quota-providers"],
+
+      // Ordered global-only definitions. Stable ids control state, cache, and provenance.
+      "quotaProviders": [
+        {
+          // This id differs from the OpenCode provider, so providerId is required.
+          "id": "openrouter-primary",
+          "providerId": "openrouter",
+          "label": "OpenRouter Primary",
+          "mode": "remote-api",
+          "url": "https://openrouter.ai/api/v1/key",
+          "format": "openrouter-key-v1",
+          "apiKeyEnv": "OPENROUTER_API_KEY",
+          // Exact model ids do not include the provider prefix.
+          "modelIds": ["anthropic/claude-sonnet-4"],
+        },
+        {
+          // providerId is omitted because it defaults to id.
+          "id": "private-gateway",
+          "label": "Private Gateway Estimate",
+          "mode": "local-estimate",
+          "modelIds": ["model-a"],
+          "windows": [
+            {
+              "id": "daily",
+              "label": "Daily",
+              "type": "utc-day",
+              "requestLimit": 1000,
+              "usdBudget": 25,
+            },
+            {
+              "id": "rolling",
+              "label": "Five hour",
+              "type": "rolling",
+              "durationMinutes": 300,
+              "requestLimit": 300,
+            },
+          ],
+        },
+      ],
     },
-    {
-      "id": "internal-accounting",
-      "providerId": "internal_gateway",
-      "url": "https://gateway.example/accounting",
-      "preset": "accounting-v1",
+  },
+
+  // A truly custom provider still needs an ordinary OpenCode provider/model declaration.
+  "provider": {
+    "private-gateway": {
+      "models": {
+        "model-a": {},
+      },
     },
-  ],
+  },
 }
 ```
 
-- `id` is the stable source identity. Labels may repeat; IDs may not.
-- `providerId` must exactly match an OpenCode runtime provider ID. It also selects trusted global OpenCode config and `auth.json` lookup.
-- `modelIds` is optional and affects only `onlyCurrentModel`: omission covers every model for that `providerId`; a present list contains exact, case-sensitive full `<providerId>/<modelId>` values. It does not filter response rows or select pricing.
-- Credentials resolve as: explicit `apiKeyEnv` → trusted global `provider.<providerId>.options.apiKey` → strict `{ "type": "api", "key": "..." }` in OpenCode `auth.json`.
-- `accounting-v1` and `openrouter-key-v1` are the only presets. Add `custom-sources` to `enabledProviders` in manual mode.
-- In `singleWindow`, each source contributes its limiting percentage row, or its first value row when it has no percentage row. `allWindows` keeps all rows.
+#### Field rules
 
-See [Providers](providers.md#custom-accounting-sources) for the response contract and security limits.
+- `id` is stable identity and defaults `providerId`. Set `providerId` only when it differs.
+- Exactly two modes exist: `remote-api` and `local-estimate`.
+- `modelIds` is optional and affects only `onlyCurrentModel`; entries are exact case-sensitive model ids without the provider prefix.
+- `remote-api` performs a fixed authenticated `GET`. Only `accounting-v1` and `openrouter-key-v1` are accepted. URLs require HTTPS, except loopback HTTP.
+- `local-estimate` supports explicit UTC-day and bounded rolling windows. Every window has a request limit; `usdBudget` belongs to that declared window.
+- Automatic models.dev matching runs first. Use `pricingModelMap` only for a source model whose automatic match is missing or ambiguous; it cannot override a successful automatic match.
+- If a budget contains unpriced requests, request counts remain visible and the budget percentage is reported unavailable rather than understated.
+- Credentials resolve as `apiKeyEnv` → trusted global `provider.<providerId>.options.apiKey` → strict API-key OpenCode `auth.json`.
+- Definitions run automatically when matching providers exist. An explicit `enabledProviders` list wins through the aggregate id `quota-providers`.
+
+`/connect` → **Other** stores a credential only. For a truly custom provider, keep the ordinary OpenCode provider/model block shown above. The guided command previews that required block separately but does not pretend it was created.
+
+Qwen Code and Alibaba Coding Plan are maintained providers. Define `id: "qwen-code"` or `id: "alibaba-coding-plan"` with the exact maintained local-estimate window shapes to tune their limits; do not add duplicate normal provider blocks. Generated counters remain under `~/.local/state/opencode/opencode-quota/`; `/quota_status` shows each exact absolute path, existence, health/version, and last update without showing counter contents.
+
+See [Providers](providers.md#custom-providers) for response and security contracts.
 
 ### Maintainer announcements and privacy
 
@@ -222,9 +279,9 @@ This is only for users who intentionally want `experimental.quotaToast` mirrored
 
 ## Full configuration reference
 
-Settings go in the same `opencode-quota/quota-toast.json` sidecar described above.
+Most settings go in the same `opencode-quota/quota-toast.json` sidecar described above. `quotaProviders` is maintained in the global OpenCode `experimental.quotaToast` section by the guided editor; do not duplicate it in a second file.
 
-Existing `experimental.quotaToast` settings still work when no sidecar file exists. Quota settings do not live in `tui.json`.
+Existing `experimental.quotaToast` settings remain supported. Quota settings do not live in `tui.json`.
 
 <details>
 <summary><strong>All settings</strong></summary>
@@ -234,8 +291,8 @@ Existing `experimental.quotaToast` settings still work when no sidecar file exis
 | Option                        | Default        | Meaning                                                                                                                                                                                                                                                                                                |
 | ----------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `enabled`                     | `true`         | Master switch for quota collection and handled slash commands. When `false`, `/quota`, `/quota_status`, `/pricing_refresh`, and `/tokens_*` are handled as no-ops.                                                                                                                                     |
-| `enabledProviders`            | `"auto"`       | Auto-detect providers, or set an explicit provider list. Use the aggregate ID `custom-sources` for configured accounting sources.                                                                                                                                                                      |
-| `customSources`               | `[]`           | Global-only ordered custom accounting definitions. Each source uses `id`, `providerId`, `url`, `preset`, and optional `label`, `apiKeyEnv`, `modelIds`.                                                                                                                                                |
+| `enabledProviders`            | `"auto"`       | Auto-detect providers, or set an explicit provider list. Use the aggregate ID `quota-providers` for configured definitions.                                                                                                                                                                            |
+| `quotaProviders`              | `[]`           | Ordered global-only `remote-api` or `local-estimate` definitions maintained in global OpenCode JSONC/JSON. Each item has a stable `id`; `providerId` is only needed when different.                                                                                                                    |
 | `minIntervalMs`               | `300000`       | Minimum fetch interval between provider updates.                                                                                                                                                                                                                                                       |
 | `requestTimeoutMs`            | `5000`         | Remote provider request timeout in milliseconds.                                                                                                                                                                                                                                                       |
 | `formatStyle`                 | `singleWindow` | Shared quota reset-period display for TUI popup toasts, the Sidebar panel, and Compact status line unless a TUI surface override is set: `singleWindow` shows one reset period per provider; `allWindows` shows all reset periods per provider. Legacy `classic`/`grouped` aliases are still accepted. |
@@ -287,7 +344,6 @@ Existing `experimental.quotaToast` settings still work when no sidecar file exis
 | `anthropicBinaryPath`        | `"claude"`                         | Command/path used for local Claude CLI probing.                                                      |
 | `googleModels`               | `["CLAUDE"]`                       | Google model keys to query: `CLAUDE`, `G3PRO`, `G3FLASH`, `G3IMAGE`, `GPTOSS`.                       |
 | `opencodeGoWindows`          | `["rolling", "weekly", "monthly"]` | OpenCode Go usage windows to display.                                                                |
-| `alibabaCodingPlanTier`      | `"lite"`                           | Fallback Alibaba Coding Plan tier when auth does not include `tier`.                                 |
 | `cursorPlan`                 | `"none"`                           | Cursor included API budget preset: `none`, `pro`, `pro-plus`, `ultra`.                               |
 | `cursorIncludedApiUsd`       | unset                              | Override Cursor monthly included API budget in USD.                                                  |
 | `cursorBillingCycleStartDay` | unset                              | Local billing-cycle anchor day `1..28`; when unset, Cursor usage resets on the local calendar month. |

@@ -20,22 +20,25 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
 vi.mock("fs", () => ({ existsSync: vi.fn() }));
 vi.mock("fs/promises", () => ({ readFile: vi.fn() }));
 
-import { resolveCustomSourceApiKey } from "../src/lib/custom-sources-runtime.js";
-import type { CustomSourceConfig } from "../src/lib/custom-sources.js";
+import { resolveQuotaProviderApiKey } from "../src/lib/quota-providers-remote.js";
+import type { RemoteApiQuotaProviderDefinition } from "../src/lib/quota-providers.js";
 
-function source(overrides: Partial<CustomSourceConfig> = {}): CustomSourceConfig {
+function source(
+  overrides: Partial<RemoteApiQuotaProviderDefinition> = {},
+): RemoteApiQuotaProviderDefinition {
   return {
     id: "source-one",
     providerId: "provider-one",
     label: "Source One",
     url: "https://provider.example/accounting",
-    preset: "accounting-v1",
+    mode: "remote-api",
+    format: "accounting-v1",
     apiKeyEnv: "EXPLICIT_KEY",
     ...overrides,
   };
 }
 
-describe("custom source trusted auth binding", () => {
+describe("quota provider trusted auth binding", () => {
   const originalEnv = { ...process.env };
   const trustedJson = join(homedir(), ".config", "opencode", "opencode.json");
   const trustedJsonc = join(homedir(), ".config", "opencode", "opencode.jsonc");
@@ -75,7 +78,7 @@ describe("custom source trusted auth binding", () => {
       throw new Error("missing");
     });
 
-    const result = await resolveCustomSourceApiKey(source());
+    const result = await resolveQuotaProviderApiKey(source());
     expect(result.key).toBe("env-secret");
     expect(result.source).toBe("env");
   });
@@ -96,7 +99,7 @@ describe("custom source trusted auth binding", () => {
       throw new Error("missing");
     });
 
-    const result = await resolveCustomSourceApiKey(source());
+    const result = await resolveQuotaProviderApiKey(source());
     expect(result.key).toBe("exact-secret");
     expect(result.source).toBe("opencode.json");
   });
@@ -118,11 +121,11 @@ describe("custom source trusted auth binding", () => {
       throw new Error("missing");
     });
 
-    const result = await resolveCustomSourceApiKey(source({ apiKeyEnv: "EXPLICIT_KEY" }));
+    const result = await resolveQuotaProviderApiKey(source({ apiKeyEnv: "EXPLICIT_KEY" }));
     expect(result.key).toBe("explicit-secret");
 
     delete process.env.EXPLICIT_KEY;
-    const disallowed = await resolveCustomSourceApiKey(source({ apiKeyEnv: "EXPLICIT_KEY" }));
+    const disallowed = await resolveQuotaProviderApiKey(source({ apiKeyEnv: "EXPLICIT_KEY" }));
     expect(disallowed.key).toBeUndefined();
     expect(JSON.stringify(disallowed)).not.toContain("other-secret");
   });
@@ -139,7 +142,7 @@ describe("custom source trusted auth binding", () => {
       throw new Error("missing");
     });
 
-    const result = await resolveCustomSourceApiKey(source());
+    const result = await resolveQuotaProviderApiKey(source());
     expect(result.key).toBe("auth-secret");
     expect(result.source).toBe("auth.json");
 
@@ -151,7 +154,7 @@ describe("custom source trusted auth binding", () => {
       }
       throw new Error("missing");
     });
-    const oauth = await resolveCustomSourceApiKey(source());
+    const oauth = await resolveQuotaProviderApiKey(source());
     expect(oauth.key).toBeUndefined();
   });
 
@@ -169,7 +172,7 @@ describe("custom source trusted auth binding", () => {
       throw new Error("missing");
     });
 
-    const result = await resolveCustomSourceApiKey(source({ apiKeyEnv: undefined }));
+    const result = await resolveQuotaProviderApiKey(source({ apiKeyEnv: undefined }));
     expect(result.key).toBeUndefined();
     expect(result.checkedPaths).not.toContain(workspaceJson);
     expect(JSON.stringify(result)).not.toMatch(/workspace-secret|derived-secret/);

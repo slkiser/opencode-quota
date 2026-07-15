@@ -28,7 +28,8 @@ describe("qwen-local-quota", () => {
     const fs = await import("fs/promises");
     (fs.readFile as any).mockRejectedValueOnce(new Error("missing"));
 
-    const { computeQwenQuota, readQwenLocalQuotaState } = await import("../src/lib/qwen-local-quota.js");
+    const { computeQwenQuota, readQwenLocalQuotaState } =
+      await import("../src/lib/qwen-local-quota.js");
     const state = await readQwenLocalQuotaState();
     const quota = computeQwenQuota({ state });
 
@@ -119,7 +120,28 @@ describe("qwen-local-quota", () => {
     expect(quota.weekly.limit).toBe(9000);
     expect(quota.monthly.used).toBe(3);
     expect(quota.monthly.limit).toBe(18000);
-    expect(quota.fiveHour.resetTimeIso).toBe(new Date(now - 60 * 60 * 1000 + 5 * 60 * 60 * 1000).toISOString());
+    expect(quota.fiveHour.resetTimeIso).toBe(
+      new Date(now - 60 * 60 * 1000 + 5 * 60 * 60 * 1000).toISOString(),
+    );
+  });
+
+  it("computes a valid 90,000-request Alibaba monthly state without spreading arguments", async () => {
+    const now = Date.parse("2026-02-24T12:00:00.000Z");
+    const recent = Array.from({ length: 90_000 }, (_, index) => now - index * 1_000);
+    const { computeAlibabaCodingPlanQuota } = await import("../src/lib/qwen-local-quota.js");
+
+    const quota = computeAlibabaCodingPlanQuota({
+      nowMs: now,
+      tier: "pro",
+      state: {
+        version: 1,
+        recent,
+        updatedAt: now,
+      },
+    });
+
+    expect(quota.monthly.used).toBe(90_000);
+    expect(quota.monthly.percentRemaining).toBe(0);
   });
 
   it("records alibaba coding plan completions in a separate rolling state file", async () => {

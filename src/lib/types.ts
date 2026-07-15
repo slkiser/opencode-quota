@@ -2,7 +2,7 @@
  * Type definitions for opencode-quota plugin
  */
 
-import type { CustomSourceConfig } from "./custom-sources.js";
+import type { QuotaProviderDefinition } from "./quota-providers.js";
 import type { QuotaFormatStyle } from "./quota-format-style.js";
 import { DEFAULT_QUOTA_FORMAT_STYLE } from "./quota-format-style.js";
 
@@ -18,10 +18,7 @@ export type GeminiCliAuthSourceKey =
   | "opencode-gemini-auth"
   | "gemini"
   | "google";
-export type GoogleAgyAuthSourceKey =
-  | "google-agy"
-  | "opencode-agy-auth"
-  | "google-agy-auth";
+export type GoogleAgyAuthSourceKey = "google-agy" | "opencode-agy-auth" | "google-agy-auth";
 export type CursorQuotaPlan = "none" | "pro" | "pro-plus" | "ultra";
 export type PricingSnapshotSource = "auto" | "bundled" | "runtime";
 export type PercentDisplayMode = "remaining" | "used";
@@ -112,16 +109,15 @@ export interface QuotaToastConfig {
   enabledProviders: string[] | "auto";
 
   /**
-   * User-defined accounting endpoints from the canonical global quota-toast.json only.
-   * Executed by the single explicit custom-sources aggregate provider.
+   * Ordered global-only remote accounting and local-estimate definitions.
+   * Executed by the single explicit quota-providers aggregate provider.
    */
-  customSources: CustomSourceConfig[];
+  quotaProviders: QuotaProviderDefinition[];
 
   /** Path or command name for the local Claude CLI used by Anthropic probing. */
   anthropicBinaryPath: string;
 
   googleModels: GoogleModelId[];
-  alibabaCodingPlanTier: AlibabaCodingPlanTier;
   cursorPlan: CursorQuotaPlan;
   /**
    * Which OpenCode Go usage windows to display.
@@ -186,13 +182,12 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
 
   // Providers are auto-detected by default; set to explicit list to opt-in manually.
   enabledProviders: "auto" as const,
-  customSources: [],
+  quotaProviders: [],
 
   anthropicBinaryPath: "claude",
 
   // If Google Antigravity is enabled, default to Claude only.
   googleModels: ["CLAUDE"],
-  alibabaCodingPlanTier: "lite",
   cursorPlan: "none",
   opencodeGoWindows: ["rolling", "weekly", "monthly"],
   pricingSnapshot: {
@@ -764,17 +759,20 @@ export const GOOGLE_MODEL_KEYS: Record<
 > = {
   G3PRO: {
     key: "gemini-3.1-pro",
-    altKey: "gemini-3.1-pro-high|gemini-3.1-pro-low|gemini-3-pro-high|gemini-3-pro-low|gemini-3.5-pro-high|gemini-3.5-pro-low",
+    altKey:
+      "gemini-3.1-pro-high|gemini-3.1-pro-low|gemini-3-pro-high|gemini-3-pro-low|gemini-3.5-pro-high|gemini-3.5-pro-low",
     display: "G3Pro",
   },
   G3FLASH: {
     key: "gemini-3-flash",
-    altKey: "gemini-3-flash-medium|gemini-3-flash-high|gemini-3-flash-low|gemini-3-5-flash-medium|gemini-3-5-flash-high|gemini-3-5-flash-low|gemini-3.5-flash-medium|gemini-3.5-flash-high|gemini-3.5-flash-low",
+    altKey:
+      "gemini-3-flash-medium|gemini-3-flash-high|gemini-3-flash-low|gemini-3-5-flash-medium|gemini-3-5-flash-high|gemini-3-5-flash-low|gemini-3.5-flash-medium|gemini-3.5-flash-high|gemini-3.5-flash-low",
     display: "G3Flash",
   },
   CLAUDE: {
     key: "claude-opus-4-6-thinking",
-    altKey: "claude-opus-4-5-thinking|claude-opus-4-5|claude-sonnet-4-6|claude-sonnet-4-6-thinking|claude-opus-4-6|gemini-claude-sonnet-4-6|gemini-claude-opus-4-6-thinking",
+    altKey:
+      "claude-opus-4-5-thinking|claude-opus-4-5|claude-sonnet-4-6|claude-sonnet-4-6-thinking|claude-opus-4-6|gemini-claude-sonnet-4-6|gemini-claude-opus-4-6-thinking",
     display: "Claude",
   },
   G3IMAGE: { key: "gemini-3-pro-image", display: "G3Image" },

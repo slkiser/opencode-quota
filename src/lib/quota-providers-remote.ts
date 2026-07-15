@@ -1,5 +1,5 @@
 import type { AccountingResultType, QuotaToastEntry } from "./entries.js";
-import type { CustomSourceConfig } from "./custom-sources.js";
+import type { RemoteApiQuotaProviderDefinition } from "./quota-providers.js";
 
 import {
   createProviderApiKeyResolver,
@@ -10,9 +10,9 @@ import { sanitizeSingleLineDisplayText } from "./display-sanitize.js";
 import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
 import { REQUEST_TIMEOUT_MS } from "./types.js";
 
-export const CUSTOM_SOURCE_MAX_BODY_BYTES = 256 * 1024;
-export const CUSTOM_SOURCE_MAX_ACCOUNTING_ROWS = 100;
-export const CUSTOM_SOURCE_CONCURRENCY = 4;
+export const QUOTA_PROVIDER_MAX_BODY_BYTES = 256 * 1024;
+export const QUOTA_PROVIDER_MAX_ACCOUNTING_ROWS = 100;
+export const QUOTA_PROVIDER_CONCURRENCY = 4;
 
 const RESULT_TYPES = new Set<AccountingResultType>([
   "quota",
@@ -25,16 +25,16 @@ const RESULT_TYPES = new Set<AccountingResultType>([
 ]);
 const ISO_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
-export type CustomSourceAuthSource = "env" | "opencode.json" | "opencode.jsonc" | "auth.json";
+export type QuotaProviderAuthSource = "env" | "opencode.json" | "opencode.jsonc" | "auth.json";
 
-export interface CustomSourceAuthResolution {
+export interface QuotaProviderAuthResolution {
   key?: string;
-  source: CustomSourceAuthSource | null;
+  source: QuotaProviderAuthSource | null;
   checkedPaths: string[];
   authPaths: string[];
 }
 
-export type CustomSourceRuntimeResult =
+export type RemoteQuotaProviderResult =
   | { success: true; entries: QuotaToastEntry[] }
   | { success: false; error: string };
 
@@ -77,10 +77,10 @@ function accountingMetadata(
   };
 }
 
-export async function resolveCustomSourceApiKey(
-  source: CustomSourceConfig,
-): Promise<CustomSourceAuthResolution> {
-  const resolver = createProviderApiKeyResolver<CustomSourceAuthSource>({
+export async function resolveQuotaProviderApiKey(
+  source: RemoteApiQuotaProviderDefinition,
+): Promise<QuotaProviderAuthResolution> {
+  const resolver = createProviderApiKeyResolver<QuotaProviderAuthSource>({
     envVars: source.apiKeyEnv ? [{ name: source.apiKeyEnv, source: "env" }] : [],
     providerKeys: [source.providerId],
     allowedEnvVars: source.apiKeyEnv ? [source.apiKeyEnv] : [],
@@ -119,7 +119,7 @@ async function readBoundedJson(response: Response): Promise<unknown> {
   const contentLength = response.headers.get("content-length");
   if (contentLength) {
     const parsedLength = Number(contentLength);
-    if (Number.isFinite(parsedLength) && parsedLength > CUSTOM_SOURCE_MAX_BODY_BYTES) {
+    if (Number.isFinite(parsedLength) && parsedLength > QUOTA_PROVIDER_MAX_BODY_BYTES) {
       throw new Error("Response exceeded 262144 bytes");
     }
   }
@@ -134,7 +134,7 @@ async function readBoundedJson(response: Response): Promise<unknown> {
         const next = await reader.read();
         if (next.done) break;
         total += next.value.byteLength;
-        if (total > CUSTOM_SOURCE_MAX_BODY_BYTES) {
+        if (total > QUOTA_PROVIDER_MAX_BODY_BYTES) {
           await reader.cancel();
           throw new Error("Response exceeded 262144 bytes");
         }
@@ -151,7 +151,7 @@ async function readBoundedJson(response: Response): Promise<unknown> {
     }
   } else {
     const buffer = new Uint8Array(await response.arrayBuffer());
-    if (buffer.byteLength > CUSTOM_SOURCE_MAX_BODY_BYTES) {
+    if (buffer.byteLength > QUOTA_PROVIDER_MAX_BODY_BYTES) {
       throw new Error("Response exceeded 262144 bytes");
     }
     bytes = buffer;
@@ -164,7 +164,10 @@ async function readBoundedJson(response: Response): Promise<unknown> {
   }
 }
 
-function parseAccountingV1(source: CustomSourceConfig, body: unknown): CustomSourceRuntimeResult {
+function parseAccountingV1(
+  source: RemoteApiQuotaProviderDefinition,
+  body: unknown,
+): RemoteQuotaProviderResult {
   if (
     !isRecord(body) ||
     !hasOnlyKeys(body, ["version", "entries"]) ||
@@ -173,7 +176,7 @@ function parseAccountingV1(source: CustomSourceConfig, body: unknown): CustomSou
   ) {
     return { success: false, error: "Invalid accounting-v1 response" };
   }
-  if (body.entries.length < 1 || body.entries.length > CUSTOM_SOURCE_MAX_ACCOUNTING_ROWS) {
+  if (body.entries.length < 1 || body.entries.length > QUOTA_PROVIDER_MAX_ACCOUNTING_ROWS) {
     return { success: false, error: "Invalid accounting-v1 response" };
   }
 
@@ -261,9 +264,9 @@ function parseAccountingV1(source: CustomSourceConfig, body: unknown): CustomSou
 }
 
 function parseOpenRouterKeyV1(
-  source: CustomSourceConfig,
+  source: RemoteApiQuotaProviderDefinition,
   body: unknown,
-): CustomSourceRuntimeResult {
+): RemoteQuotaProviderResult {
   if (!isRecord(body) || !isRecord(body.data)) {
     return { success: false, error: "Invalid openrouter-key-v1 response" };
   }
@@ -322,11 +325,11 @@ function parseOpenRouterKeyV1(
   };
 }
 
-export async function fetchCustomSource(
-  source: CustomSourceConfig,
+export async function fetchRemoteQuotaProvider(
+  source: RemoteApiQuotaProviderDefinition,
   apiKey: string,
   requestTimeoutMs?: number,
-): Promise<CustomSourceRuntimeResult> {
+): Promise<RemoteQuotaProviderResult> {
   const timeoutMs = requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -350,7 +353,7 @@ export async function fetchCustomSource(
     }
 
     const body = await readBoundedJson(response);
-    return source.preset === "accounting-v1"
+    return source.format === "accounting-v1"
       ? parseAccountingV1(source, body)
       : parseOpenRouterKeyV1(source, body);
   } catch (error) {

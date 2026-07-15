@@ -293,6 +293,8 @@ vi.mock("../src/lib/copilot.js", () => ({
 }));
 
 vi.mock("../src/lib/qwen-local-quota.js", () => ({
+  QWEN_LOCAL_QUOTA_STATE_VERSION: 1,
+  ALIBABA_CODING_PLAN_STATE_VERSION: 1,
   computeQwenQuota: () => ({
     day: { used: 0, limit: 1000 },
     rpm: { used: 0, limit: 60 },
@@ -492,30 +494,32 @@ describe("buildQuotaStatusReport", () => {
     expect(geminiCliMocks.inspectGeminiCliAuthPresence).toHaveBeenCalledWith(geminiCliClient);
   });
 
-  it("renders only safe live custom-source identity and diagnostic fields", async () => {
+  it("renders only safe quota-provider identity and diagnostic fields", async () => {
     const report = await buildQuotaStatusReportForTest({
-      enabledProviders: ["custom-sources"],
-      customSources: [
+      enabledProviders: ["quota-providers"],
+      quotaProviders: [
         {
           id: "first-source",
           providerId: "internal_gateway",
           label: "Duplicate label",
+          mode: "remote-api",
           url: "https://private.example/secret-path",
-          preset: "accounting-v1",
+          format: "accounting-v1",
           apiKeyEnv: "INTERNAL_GATEWAY_KEY",
-          modelIds: ["internal_gateway/model-a"],
+          modelIds: ["model-a"],
         },
         {
           id: "second-source",
           providerId: "openrouter",
           label: "Duplicate label",
+          mode: "remote-api",
           url: "https://openrouter.ai/api/v1/key",
-          preset: "openrouter-key-v1",
+          format: "openrouter-key-v1",
         },
       ],
       providerLiveProbes: [
         {
-          providerId: "custom-sources",
+          providerId: "quota-providers",
           result: {
             attempted: true,
             entries: [],
@@ -524,8 +528,9 @@ describe("buildQuotaStatusReport", () => {
               {
                 sourceId: "first-source",
                 providerId: "internal_gateway",
-                preset: "accounting-v1",
-                modelIds: ["internal_gateway/model-a"],
+                mode: "remote-api",
+                format: "accounting-v1",
+                modelIds: ["model-a"],
                 apiKeyEnv: "INTERNAL_GATEWAY_KEY",
                 selected: true,
                 attempted: true,
@@ -542,16 +547,17 @@ describe("buildQuotaStatusReport", () => {
       ],
     });
 
-    const section = getReportSection(report, "custom_sources:");
-    expect(section).toContain("source_first-source:");
+    const section = getReportSection(report, "quota_providers:");
+    expect(section).toContain("provider_first-source:");
     expect(section).toContain("provider_id=internal_gateway");
-    expect(section).toContain("preset=accounting-v1");
-    expect(section).toContain("coverage=internal_gateway/model-a");
+    expect(section).toContain("mode=remote-api");
+    expect(section).toContain("format=accounting-v1");
+    expect(section).toContain("coverage=model-a");
     expect(section).toContain("outcome=http_error");
     expect(section).toContain("credential_category=trusted_global_config");
     expect(section).toContain("env_name=INTERNAL_GATEWAY_KEY");
     expect(section).toContain("/trusted/opencode.jsonc | /trusted/auth.json");
-    expect(section).toContain("source_second-source:");
+    expect(section).toContain("provider_second-source:");
     expect(section).toContain("outcome=unavailable");
     expect(section).not.toContain("private.example");
     expect(section).not.toContain("openrouter.ai");
@@ -715,7 +721,6 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- alibaba_api_key_source: (none)");
     expect(report).toContain("- alibaba_api_key_checked_paths: (none)");
     expect(report).toContain("- alibaba_api_key_auth_paths: /tmp/auth.json");
-    expect(report).toContain("- alibaba coding plan fallback tier: lite");
     expect(report).toContain("- alibaba_coding_plan: (none)");
     expect(report).toContain("anthropic:");
     expect(report).toContain("- cli_installed: true");
@@ -1787,7 +1792,6 @@ describe("buildQuotaStatusReport", () => {
       - alibaba_api_key_source: (none)
       - alibaba_api_key_checked_paths: (none)
       - alibaba_api_key_auth_paths: /tmp/auth.json
-      - alibaba coding plan fallback tier: lite
       - alibaba_coding_plan: (none)
 
       openai:
@@ -1809,7 +1813,8 @@ describe("buildQuotaStatusReport", () => {
 
       cursor:
       - plan: none
-      - included_api_usd: (none)"
+      - included_api_usd: (none)
+      - billing_cycle_start_day: (calendar month)"
     `);
 
     const titles = report

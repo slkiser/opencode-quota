@@ -17,6 +17,7 @@ import { fetchSessionTokensForDisplay } from "./session-tokens.js";
 import { getQuotaProviderDisplayLabel, normalizeQuotaProviderId } from "./provider-metadata.js";
 import { isCursorProviderId } from "./cursor-pricing.js";
 import { fetchQuotaProviderResult } from "./quota-state.js";
+import { cloneQuotaProviders } from "./quota-providers.js";
 import { DEFAULT_QUOTA_FORMAT_STYLE, getQuotaFormatStyleDefinition } from "./quota-format-style.js";
 import { formatGroupedHeader } from "./grouped-header-format.js";
 import { getProviders } from "../providers/registry.js";
@@ -122,7 +123,6 @@ function buildQuotaProviderContext(params: {
     config: {
       googleModels: config.googleModels,
       anthropicBinaryPath: config.anthropicBinaryPath,
-      alibabaCodingPlanTier: config.alibabaCodingPlanTier,
       cursorPlan: config.cursorPlan,
       cursorIncludedApiUsd: config.cursorIncludedApiUsd,
       cursorBillingCycleStartDay: config.cursorBillingCycleStartDay,
@@ -133,10 +133,7 @@ function buildQuotaProviderContext(params: {
       currentModel,
       currentProviderID,
       enabledProviders: config.enabledProviders === "auto" ? "auto" : [...config.enabledProviders],
-      customSources: config.customSources.map((source) => ({
-        ...source,
-        ...(source.modelIds ? { modelIds: [...source.modelIds] } : {}),
-      })),
+      quotaProviders: cloneQuotaProviders(config.quotaProviders),
     },
   };
 }
@@ -146,13 +143,13 @@ export function matchesQuotaProviderCurrentSelection(params: {
   currentModel?: string;
   currentProviderID?: string;
   enabledProviders?: string[] | "auto";
-  customSources?: QuotaToastConfig["customSources"];
+  quotaProviders?: QuotaToastConfig["quotaProviders"];
 }): boolean {
   if (params.currentModel) {
     return params.provider.matchesCurrentModel
       ? params.provider.matchesCurrentModel(params.currentModel, {
           enabledProviders: params.enabledProviders ?? "auto",
-          ...(params.customSources ? { customSources: params.customSources } : {}),
+          ...(params.quotaProviders ? { quotaProviders: params.quotaProviders } : {}),
           ...(params.currentProviderID ? { currentProviderID: params.currentProviderID } : {}),
         })
       : true;
@@ -160,9 +157,9 @@ export function matchesQuotaProviderCurrentSelection(params: {
 
   if (!params.currentProviderID) return false;
 
-  if (params.provider.id === "custom-sources") {
+  if (params.provider.id === "quota-providers") {
     return Boolean(
-      params.customSources?.some(
+      params.quotaProviders?.some(
         (source) => source.providerId === params.currentProviderID && source.modelIds === undefined,
       ),
     );
@@ -224,7 +221,7 @@ export async function resolveQuotaRenderSelection(params: {
           currentModel,
           currentProviderID,
           enabledProviders: config.enabledProviders,
-          customSources: config.customSources,
+          quotaProviders: config.quotaProviders,
         }),
       )
     : providers;

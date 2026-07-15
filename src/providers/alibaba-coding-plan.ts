@@ -14,6 +14,7 @@ import {
   resolveAlibabaCodingPlanAuthCached,
 } from "../lib/alibaba-auth.js";
 import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";
+import { findQuotaProviderDefinition } from "../lib/quota-providers.js";
 
 function tierLabel(tier: "lite" | "pro"): string {
   return tier === "pro" ? "Pro" : "Lite";
@@ -25,7 +26,7 @@ export const alibabaCodingPlanProvider: QuotaProvider = {
   async isAvailable(_ctx: QuotaProviderContext): Promise<boolean> {
     const plan = await resolveAlibabaCodingPlanAuthCached({
       maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
-      fallbackTier: _ctx.config.alibabaCodingPlanTier,
+      fallbackTier: "lite",
     });
     return plan.state === "configured" || plan.state === "invalid";
   },
@@ -37,7 +38,7 @@ export const alibabaCodingPlanProvider: QuotaProvider = {
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
     const plan = await resolveAlibabaCodingPlanAuthCached({
       maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
-      fallbackTier: ctx.config.alibabaCodingPlanTier,
+      fallbackTier: "lite",
     });
     if (plan.state === "none") {
       return notAttemptedResult();
@@ -47,9 +48,22 @@ export const alibabaCodingPlanProvider: QuotaProvider = {
       return attemptedErrorResult("Alibaba Coding Plan", plan.error);
     }
 
+    const tuning = findQuotaProviderDefinition(
+      ctx.config.quotaProviders ?? [],
+      "alibaba-coding-plan",
+    );
+    const limits =
+      tuning?.mode === "local-estimate"
+        ? {
+            fiveHour: tuning.windows.find((window) => window.id === "five-hour")!.requestLimit,
+            weekly: tuning.windows.find((window) => window.id === "weekly")!.requestLimit,
+            monthly: tuning.windows.find((window) => window.id === "monthly")!.requestLimit,
+          }
+        : undefined;
     const quota = computeAlibabaCodingPlanQuota({
       state: await readAlibabaCodingPlanQuotaState(),
       tier: plan.tier,
+      ...(limits ? { limits } : {}),
     });
     const label = `Alibaba Coding Plan (${tierLabel(plan.tier)})`;
 

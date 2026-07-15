@@ -1,5 +1,5 @@
 import type { CursorQuotaPlan, OpenCodeGoWindowKey } from "./types.js";
-import type { CustomSourceConfig } from "./custom-sources.js";
+import type { QuotaProviderDefinition } from "./quota-providers.js";
 
 /**
  * Normalized quota output model.
@@ -132,7 +132,8 @@ export interface QuotaProviderPresentation {
 export interface QuotaProviderDiagnostic {
   sourceId: string;
   providerId: string;
-  preset: CustomSourceConfig["preset"];
+  mode: QuotaProviderDefinition["mode"];
+  format?: "accounting-v1" | "openrouter-key-v1";
   /** Null means the source covers every model for providerId. */
   modelIds: string[] | null;
   /** Explicit environment-variable name only; never its value. */
@@ -155,11 +156,16 @@ export interface QuotaProviderDiagnostic {
     | "invalid_content_type"
     | "invalid_json"
     | "invalid_response"
-    | "network_error";
+    | "network_error"
+    | "local_state_error";
   httpStatus?: number;
   entryCount: number;
   checkedPaths: string[];
   authPaths: string[];
+  statePath?: string;
+  stateHealth?: "missing" | "healthy" | "malformed" | "version_mismatch";
+  stateVersion?: number | null;
+  stateLastUpdatedAt?: number | null;
 }
 
 export interface QuotaProviderResult {
@@ -174,7 +180,7 @@ export interface QuotaProviderResult {
 
 export interface QuotaProviderMatchContext {
   enabledProviders: string[] | "auto";
-  customSources?: CustomSourceConfig[];
+  quotaProviders?: QuotaProviderDefinition[];
   currentProviderID?: string;
 }
 
@@ -188,7 +194,6 @@ export interface QuotaProviderContext {
   config: {
     googleModels: string[];
     anthropicBinaryPath?: string;
-    alibabaCodingPlanTier: "lite" | "pro";
     cursorPlan: CursorQuotaPlan;
     cursorIncludedApiUsd?: number;
     cursorBillingCycleStartDay?: number;
@@ -200,7 +205,7 @@ export interface QuotaProviderContext {
     currentModel?: string;
     currentProviderID?: string;
     enabledProviders: string[] | "auto";
-    customSources?: CustomSourceConfig[];
+    quotaProviders?: QuotaProviderDefinition[];
   };
 }
 

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
-import { CUSTOM_SOURCE_PRESETS } from "../src/lib/custom-sources.js";
+import { QUOTA_PROVIDER_MODES, QUOTA_PROVIDER_REMOTE_FORMATS } from "../src/lib/quota-providers.js";
 
 const migration = await readFile(
   new URL("../docs/readme/v4-migration.md", import.meta.url),
@@ -34,26 +34,31 @@ describe("v4 migration documentation contract", () => {
     expect(readme).toContain("[v4 migration guide](docs/readme/v4-migration.md)");
   });
 
-  it("documents only the implemented custom-source and export contracts", () => {
-    for (const preset of CUSTOM_SOURCE_PRESETS) {
-      expect(migration).toContain(preset);
-    }
-    expect(migration).toContain('"enabledProviders": ["custom-sources"]');
-    expect(migration).toContain("<OpenCode user config dir>/opencode-quota/quota-toast.json");
-    expect(migration).toContain("There is no legacy custom-source reader");
-    expect(migration).toContain("workspace source definition");
+  it("documents only the implemented quota-provider and export contracts", () => {
+    for (const mode of QUOTA_PROVIDER_MODES) expect(migration).toContain(mode);
+    for (const format of QUOTA_PROVIDER_REMOTE_FORMATS) expect(migration).toContain(format);
+
+    expect(migration).toContain('"quotaProviders": [');
+    expect(migration).toContain("<OpenCode user config dir>/opencode.jsonc");
+    expect(migration).toContain("old public `customSources` property was removed and is rejected");
+    expect(migration).toContain("workspace quota-provider definition");
     expect(migration).toContain("compatibility shim");
+    expect(migration).toContain("Project OpenCode provider/model declarations remain read-only");
+    expect(migration).toContain("[Configuration](configuration.md#custom-providers)");
+    expect(migration).toContain("[Providers](providers.md#custom-providers)");
+    expect(migration).not.toContain("custom-accounting-sources");
 
     expect(exportTypes).toContain("version: 2;");
     expect(migration).toContain("schema `version: 2`");
-    expect(configuration).toContain("`customSources` is the exception to ordinary config layering");
+    expect(configuration).toContain("experimental.quotaToast.quotaProviders");
+    expect(configuration).toContain("do not duplicate it in a second file");
   });
 
   it("records concrete verification and rollback steps without claiming automatic migration", () => {
     expect(migration).toContain("## Verify every surface");
     expect(migration).toContain("## Roll back");
     expect(migration).toContain("Run `/quota`, then `/quota_status`.");
-    expect(migration).toContain("There is no legacy custom-source reader, automatic migration");
+    expect(migration).toContain("There is no compatibility reader, alias, automatic migration");
     expect(migration).not.toContain("automatically migrates");
   });
 });

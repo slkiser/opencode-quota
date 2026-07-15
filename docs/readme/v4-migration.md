@@ -14,7 +14,7 @@ The OpenCode minimum matches the package's existing `@opencode-ai/plugin` peer r
 1. Close OpenCode.
 2. Copy your OpenCode user config and `opencode-quota/quota-toast.json` to a backup location.
 3. If another tool reads `opencode-quota show --json` or `quota-export.json`, plan to update it for [JSON export v2](external-integration.md#json-export-v2).
-4. Do not move credentials into a project or workspace file. Custom-source credentials remain global or explicit environment variables.
+4. Do not move credentials into a project or workspace file. Quota-provider credentials remain trusted global, OpenCode `auth.json`, or explicit environment variables.
 
 ## Update
 
@@ -41,61 +41,69 @@ Rows now separate:
 
 `show --json` and the export file use schema `version: 2`. Every row includes the provider-neutral accounting metadata and `renderType`. Update integrations before relying on the v4 export. See [External integration](external-integration.md) for the exact shape.
 
-<a id="custom-accounting-sources"></a>
-
 ### Custom providers
 
-v4 adds the aggregate provider ID `custom-sources`. Definitions are read only from the canonical global file:
+v4 adds the ordered global `quotaProviders` array and aggregate provider ID `quota-providers`. Maintain it in the supported global OpenCode config surface:
 
 ```text
-<OpenCode user config dir>/opencode-quota/quota-toast.json
+<OpenCode user config dir>/opencode.jsonc
 ```
 
-Usually this is `~/.config/opencode/opencode-quota/quota-toast.json`. If `OPENCODE_CONFIG_DIR` is set, use that directory.
+Strict JSON `opencode.json` is also supported. The recommended guided flow is:
 
-A minimal OpenRouter example is:
+```bash
+npx @slkiser/opencode-quota@latest provider add
+```
+
+It previews the exact global file, never asks for credentials, defaults new files to commented JSONC, and preserves existing strict JSON.
+
+A minimal OpenRouter definition is:
 
 ```jsonc
 {
-  "enabledProviders": ["custom-sources"],
-  "customSources": [
-    {
-      "id": "openrouter-primary",
-      "providerId": "openrouter",
-      "label": "OpenRouter Primary",
-      "url": "https://openrouter.ai/api/v1/key",
-      "preset": "openrouter-key-v1",
-      "apiKeyEnv": "OPENROUTER_API_KEY",
+  "experimental": {
+    "quotaToast": {
+      "quotaProviders": [
+        {
+          "id": "openrouter-primary",
+          "providerId": "openrouter",
+          "label": "OpenRouter Primary",
+          "mode": "remote-api",
+          "url": "https://openrouter.ai/api/v1/key",
+          "format": "openrouter-key-v1",
+          "apiKeyEnv": "OPENROUTER_API_KEY",
+        },
+      ],
     },
-  ],
+  },
 }
 ```
 
-Only `accounting-v1` and `openrouter-key-v1` are supported presets. `providerId` must exactly match an OpenCode runtime provider ID. Definitions keep file order and partial failures do not hide successful sources.
+Exactly two modes exist: `remote-api` and `local-estimate`. Only `accounting-v1` and `openrouter-key-v1` are supported remote formats. Stable `id` defaults the matching OpenCode provider identity; use `providerId` only when it differs. Definitions keep file order and partial failures do not hide successful definitions.
 
-There is no legacy custom-source reader, automatic migration, workspace source definition, executable mapping, or compatibility shim. Invalid or overlapping definitions reject the whole `customSources` array. See [Configuration](configuration.md#custom-accounting-sources) and [Providers](providers.md#custom-accounting-sources) for the complete schema and response contracts.
+The old public `customSources` property was removed and is rejected. There is no compatibility reader, alias, automatic migration, workspace quota-provider definition, executable mapping, or compatibility shim. Project OpenCode provider/model declarations remain read-only matching inputs only. See [Configuration](configuration.md#custom-providers) and [Providers](providers.md#custom-providers).
 
 ### Existing settings
 
-v4 does not remove unrelated released configuration inputs. Existing `experimental.quotaToast` settings still work when no sidecar file exists. The custom `customSources` array is the global-only exception and is never read from the legacy block or workspace files.
+v4 keeps unrelated released configuration inputs. Existing global and project quota settings retain their normal layering, but `quotaProviders` is global-only. The standalone `alibabaCodingPlanTier` path was removed; maintained Alibaba and Qwen limits use reserved `quotaProviders` definitions.
 
 ## Verify every surface
 
 After restarting OpenCode:
 
 1. Run `/quota`; confirm percentage and value rows appear in configured order.
-2. Run `/quota_status`; confirm each custom source has the expected provider ID, preset, selection, credential category, and live outcome. URLs and credential values should not appear.
-3. Trigger a configured toast lifecycle event, such as waiting for `session.idle`; confirm successful rows remain visible if one source fails.
+2. Run `/quota_status`; confirm each definition has the expected provider ID, mode/format, state path or credential category, and live outcome. URLs, counter contents, and credential values should not appear.
+3. Trigger a configured toast lifecycle event, such as waiting for `session.idle`; confirm successful rows remain visible if one definition fails.
 4. In the TUI session sidebar, expand `Quota`; confirm the same rows and partial error appear.
 5. Confirm the compact quota text appears at home bottom and below the session prompt when both placements are enabled.
-6. If you use both styles, test `formatStyle: "allWindows"` and `formatStyle: "singleWindow"`. `allWindows` keeps all source rows; `singleWindow` keeps each source's limiting percentage or first value.
+6. If you use both styles, test `formatStyle: "allWindows"` and `formatStyle: "singleWindow"`. `allWindows` keeps all definition rows; `singleWindow` keeps each definition's limiting percentage or first value.
 
 ## Roll back
 
 1. Close OpenCode.
 2. Restore the config backup created before the update.
 3. Pin both server and TUI plugin entries to the required v3 release, for example `@slkiser/opencode-quota@3`.
-4. Remove or disable `custom-sources`; v3 does not understand v4 custom-source definitions or JSON export v2.
+4. Remove or disable `quota-providers`; v3 does not understand v4 `quotaProviders` definitions or JSON export v2.
 5. Restart OpenCode and run the v3 `/quota` and `/quota_status` checks available in that release.
 
-Do not expect v3 to read v4 cache or custom-source data. The v4 cache is version-bounded and can be regenerated after returning to v4.
+Do not expect v3 to read v4 cache or quota-provider state. The v4 cache and generated counters are version-bounded and can be regenerated after returning to v4.

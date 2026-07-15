@@ -432,32 +432,34 @@ describe("collectQuotaRenderData shared quota state", () => {
     });
   });
 
-  it("selects custom sources by exact model and permits provider-only identity only for provider-wide sources", () => {
-    const customSources = [
+  it("selects quota providers by exact model and permits provider-only identity only for provider-wide sources", () => {
+    const quotaProviders = [
       {
         id: "wide",
         providerId: "company",
         label: "Wide",
+        mode: "remote-api",
         url: "https://wide.example/accounting",
-        preset: "accounting-v1" as const,
+        format: "accounting-v1" as const,
       },
       {
         id: "model",
         providerId: "company",
         label: "Model",
+        mode: "remote-api",
         url: "https://model.example/accounting",
-        preset: "accounting-v1" as const,
+        format: "accounting-v1" as const,
         modelIds: ["company/model-a"],
       },
     ];
     const provider = {
-      id: "custom-sources",
+      id: "quota-providers",
       matchesCurrentModel: vi
         .fn()
         .mockImplementation(
           (model: string, context: any) =>
             context.currentProviderID === "company" &&
-            context.customSources.some(
+            context.quotaProviders.some(
               (source: any) =>
                 source.providerId === "company" &&
                 (source.modelIds === undefined || source.modelIds.includes(model)),
@@ -470,21 +472,21 @@ describe("collectQuotaRenderData shared quota state", () => {
         provider: provider as any,
         currentModel: "company/model-a",
         currentProviderID: "company",
-        customSources,
+        quotaProviders,
       }),
     ).toBe(true);
     expect(
       matchesQuotaProviderCurrentSelection({
         provider: provider as any,
         currentProviderID: "company",
-        customSources,
+        quotaProviders,
       }),
     ).toBe(true);
     expect(
       matchesQuotaProviderCurrentSelection({
         provider: provider as any,
         currentProviderID: "other",
-        customSources,
+        quotaProviders,
       }),
     ).toBe(false);
   });

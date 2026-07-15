@@ -40,7 +40,7 @@ const data: QuotaRenderData = {
   errors: [{ label: "Duplicate label", message: "one source unavailable" }],
 };
 
-describe("custom source four-surface-adjacent formatting", () => {
+describe("quota provider four-surface formatting", () => {
   it("keeps duplicate-label percent/value rows and partial errors in generic formatters", () => {
     const command = formatQuotaCommand({ ...data, generatedAtMs: 0 });
     const toast = formatQuotaRowsGrouped(data);
