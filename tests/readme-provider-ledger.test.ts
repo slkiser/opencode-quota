@@ -48,6 +48,7 @@ describe("README provider ledger", () => {
     const allowedReports = new Set([
       "Quota",
       "Quota and usage",
+      "Usage and budget",
       "Budget and spend",
       "Quota and balance",
       "Balance and status",

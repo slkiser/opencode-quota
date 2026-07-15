@@ -30,6 +30,12 @@ export const PROVIDER_ACCOUNTING_LEDGER: Record<string, Array<QuotaToastEntry["a
       ownership: "maintained",
       authority: "provider_reported",
     },
+    {
+      resultType: "budget",
+      acquisitionMethod: "remote_api",
+      ownership: "maintained",
+      authority: "provider_reported",
+    },
   ],
   openai: [
     {

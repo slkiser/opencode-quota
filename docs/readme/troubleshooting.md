@@ -82,14 +82,17 @@ Run `/quota_status` and check the Anthropic section.
 <details>
 <summary><strong>GitHub Copilot</strong></summary>
 
-Run `/quota_status` and check `copilot_quota_auth`, `billing_mode`, `billing_scope`, and `quota_api`.
+Run `/quota_status` and check `copilot_quota_auth`, `billing_model`, `billing_scope`, `quota_api`, `budget_api`, and `token_compatibility_error`.
 
-| Symptom                              | Fix                                                                                                                                         |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Personal quota missing               | Confirm OpenCode Copilot auth works. The plugin can read OpenCode's Copilot OAuth token.                                                    |
-| Business or Enterprise quota missing | Add `copilot-quota-token.json` in the OpenCode runtime config directory shown by `opencode debug paths`.                                    |
-| PAT config exists but quota fails    | Fix `copilot-quota-token.json`; when present, it takes precedence over OAuth and does not silently fall back.                               |
-| Enterprise usage missing             | Use a classic PAT with the required billing access. Fine-grained PATs and GitHub App tokens are not supported for Enterprise premium usage. |
+| Symptom                                              | Fix                                                                                                                                                                                                                       |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OpenCode Copilot works but no accounting row appears | Create `copilot-quota-token.json` as described in [GitHub Copilot setup](providers.md#github-copilot). Normal Copilot OAuth does not carry the documented public billing permissions.                                     |
+| Personal report is forbidden                         | Use a fine-grained PAT with **Plan: read** or a GitHub App user access token. A GitHub App installation token cannot query a personal report.                                                                             |
+| Organization report or budget is forbidden           | Use an organization admin/billing-manager credential. Fine-grained PAT and GitHub App credentials need **Organization administration: read**. Usage can still appear with a budget warning when only budget access fails. |
+| Enterprise report is forbidden                       | Use a classic PAT held by an enterprise admin or billing manager. GitHub does not support fine-grained PATs or GitHub App access tokens for enterprise billing reports.                                                   |
+| Usage appears without a percentage                   | This is expected when GitHub supplies usage but no real allowance or positive budget denominator. opencode-quota does not invent a percentage.                                                                            |
+| Legacy PRU config is rejected                        | Set `"billingModel": "legacy_premium_requests"` only for an existing annual Copilot Pro or Pro+ plan that remained on legacy billing after June 1, 2026.                                                                  |
+| Rate-limit error                                     | Wait for GitHub's REST API rate limit to reset, then run `/quota` again.                                                                                                                                                  |
 
 </details>
 

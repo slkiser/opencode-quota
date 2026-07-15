@@ -136,7 +136,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | Provider                 | Auth/setup                                                     | Data from          | Reports            |
 | ------------------------ | -------------------------------------------------------------- | ------------------ | ------------------ |
 | Anthropic (Claude)       | [Needs setup](docs/readme/providers.md#anthropic-claude)       | Local CLI/OAuth    | Quota              |
-| GitHub Copilot           | OpenCode OAuth or PAT                                          | Remote API         | Quota and usage    |
+| GitHub Copilot           | [Needs setup](docs/readme/providers.md#github-copilot)         | Remote API         | Usage and budget   |
 | OpenAI                   | Automatic                                                      | Remote API         | Quota              |
 | Cursor                   | [Needs setup](docs/readme/providers.md#cursor)                 | Local estimate     | Budget and spend   |
 | Qwen Code                | [Needs setup](docs/readme/providers.md#qwen-code)              | Local estimate     | Quota              |

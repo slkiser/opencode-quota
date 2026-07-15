@@ -38,7 +38,10 @@ const copilotMocks = vi.hoisted(() => ({
     override: "pat_overrides_oauth",
     billingMode: "organization_usage",
     billingScope: "organization",
-    quotaApi: "github_billing_api",
+    quotaApi: "github_ai_credit_api",
+    billingModel: "ai_credits",
+    budgetApi: "organization_budgets",
+    oauthAccountingState: "not_supported_by_public_billing_api",
     billingApiAccessLikely: true,
     remainingTotalsState: "not_available_from_org_usage",
     queryPeriod: {
@@ -760,7 +763,9 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("copilot_quota_auth:");
     expect(report).toContain("- billing_mode: organization_usage");
     expect(report).toContain("- billing_scope: organization");
-    expect(report).toContain("- quota_api: github_billing_api");
+    expect(report).toContain("- quota_api: github_ai_credit_api");
+    expect(report).toContain("- budget_api: organization_budgets");
+    expect(report).toContain("- oauth_accounting_state: not_supported_by_public_billing_api");
     expect(report).toContain("- billing_api_access_likely: true");
     expect(report).toContain("- remaining_totals_state: not_available_from_org_usage");
     expect(report).toContain("- billing_period: 2026-01");
@@ -779,10 +784,10 @@ describe("buildQuotaStatusReport", () => {
     );
     expect(report).toContain("- token_cache_path: /tmp/google-token-cache.json exists=false");
     expect(report).toContain(
-      "- billing_usage_note: organization premium usage for the current billing period",
+      "- billing_usage_note: organization AI Credit usage for the current UTC calendar month",
     );
     expect(report).toContain(
-      "- remaining_quota_note: valid PAT access can query billing usage, but pooled org usage does not provide a true per-user remaining quota",
+      "- remaining_quota_note: the usage report exposes included-pool consumption and billed usage, but no included-pool denominator; percentages require a real budget",
     );
     expect(report).toContain(
       "- synthetic: pricing=no (subscription request quota (not token-priced))",
@@ -1727,7 +1732,10 @@ describe("buildQuotaStatusReport", () => {
       override: "none",
       billingMode: "enterprise_usage",
       billingScope: "enterprise",
-      quotaApi: "github_billing_api",
+      quotaApi: "github_ai_credit_api",
+      billingModel: "ai_credits",
+      budgetApi: "enterprise_budgets",
+      oauthAccountingState: "not_configured",
       billingApiAccessLikely: false,
       remainingTotalsState: "not_available_from_enterprise_usage",
       queryPeriod: {
@@ -1736,7 +1744,7 @@ describe("buildQuotaStatusReport", () => {
       },
       usernameFilter: "alice",
       tokenCompatibilityError:
-        "GitHub's enterprise premium usage endpoint does not support fine-grained personal access tokens. Use a classic PAT or another supported non-fine-grained token for enterprise billing.",
+        "GitHub\'s enterprise billing reports do not support fine-grained PATs or GitHub App access tokens. Use a classic PAT held by an enterprise admin or billing manager.",
     });
 
     const report = await buildProviderStatusReport("copilot");
@@ -1744,17 +1752,18 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- pat_enterprise: acme-enterprise");
     expect(report).toContain("- billing_mode: enterprise_usage");
     expect(report).toContain("- billing_scope: enterprise");
-    expect(report).toContain("- quota_api: github_billing_api");
+    expect(report).toContain("- quota_api: github_ai_credit_api");
+    expect(report).toContain("- budget_api: enterprise_budgets");
     expect(report).toContain("- billing_api_access_likely: false");
     expect(report).toContain("- remaining_totals_state: not_available_from_enterprise_usage");
     expect(report).toContain(
-      "- billing_usage_note: enterprise premium usage for the current billing period",
+      "- billing_usage_note: enterprise AI Credit usage for the current UTC calendar month",
     );
     expect(report).toContain(
-      "- remaining_quota_note: valid enterprise billing access can query pooled enterprise usage, but it does not provide a true per-user remaining quota",
+      "- remaining_quota_note: the usage report exposes included-pool consumption and billed usage, but no included-pool denominator; percentages require a real budget",
     );
     expect(report).toContain(
-      "- token_compatibility_error: GitHub's enterprise premium usage endpoint does not support fine-grained personal access tokens.",
+      "- token_compatibility_error: GitHub\'s enterprise billing reports do not support fine-grained PATs or GitHub App access tokens.",
     );
   });
 

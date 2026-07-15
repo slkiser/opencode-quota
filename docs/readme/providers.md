@@ -11,7 +11,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | Provider                 | Auth/setup                             | Data from          | Reports            |
 | ------------------------ | -------------------------------------- | ------------------ | ------------------ |
 | Anthropic (Claude)       | [Needs setup](#anthropic-claude)       | Local CLI/OAuth    | Quota              |
-| GitHub Copilot           | OpenCode OAuth or PAT                  | Remote API         | Quota and usage    |
+| GitHub Copilot           | [Needs setup](#github-copilot)         | Remote API         | Usage and budget   |
 | OpenAI                   | Automatic                              | Remote API         | Quota              |
 | Cursor                   | [Needs setup](#cursor)                 | Local estimate     | Budget and spend   |
 | Qwen Code                | [Needs setup](#qwen-code)              | Local estimate     | Quota              |
@@ -95,6 +95,78 @@ Credentials resolve from explicit `apiKeyEnv`, trusted global `provider.<provide
 A truly custom provider still needs its ordinary OpenCode provider/model declaration. `/connect` → **Other** stores only its credential. Maintained Qwen Code and Alibaba Coding Plan limits can instead be tuned with their reserved `quotaProviders` ids; no duplicate ordinary provider block is needed. `/quota_status` reports exact state paths and safe provenance, never URLs, keys, headers, bodies, counter contents, or raw errors.
 
 ## Provider setup notes
+
+<a id="github-copilot"></a>
+
+### GitHub Copilot
+
+**`copilot-quota-token.json`** is a local billing credential file that you create. OpenCode and opencode-quota do not create it automatically. It exists because GitHub's public billing reports require billing permissions that are not part of OpenCode's normal Copilot OAuth login.
+
+Put the file in the OpenCode runtime config directory shown by:
+
+```bash
+opencode debug paths
+```
+
+For a personal Copilot Max account, use:
+
+```json
+{
+  "token": "github_pat_REPLACE_ME",
+  "tier": "max",
+  "username": "your-github-login"
+}
+```
+
+The default `billingModel` is `"ai_credits"`. Supported tiers are `free`, `student`, `pro`, `pro+`, `max`, `business`, and `enterprise`.
+
+Choose the credential and scope that match who pays for Copilot:
+
+| Billing scope | Required config                                                                  | Officially supported credential                                                                                                                                                                          |
+| ------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Personal      | `tier` plus optional `username`                                                  | Fine-grained PAT with **Plan: read**, GitHub App user access token, or a supported classic credential                                                                                                    |
+| Organization  | `"tier": "business"`, `organization`, optional `username` filter                 | Fine-grained PAT, GitHub App user token, or GitHub App installation token with **Organization administration: read**; classic credentials also work for an authorized organization admin/billing manager |
+| Enterprise    | `"tier": "enterprise"`, `enterprise`, optional `organization`/`username` filters | Classic PAT held by an enterprise admin or billing manager; GitHub does not permit fine-grained PATs or GitHub App tokens                                                                                |
+
+Organization example:
+
+```json
+{
+  "token": "github_pat_REPLACE_ME",
+  "tier": "business",
+  "organization": "your-org",
+  "username": "optional-user-filter"
+}
+```
+
+Enterprise example:
+
+```json
+{
+  "token": "ghp_REPLACE_ME",
+  "tier": "enterprise",
+  "enterprise": "your-enterprise",
+  "organization": "optional-org-filter",
+  "username": "optional-user-filter"
+}
+```
+
+opencode-quota requests the current UTC calendar month from GitHub's public AI Credit usage report. It shows total AI Credits consumed, included-pool consumption, billed credits, billed spend when supplied, and an applicable organization/enterprise AI Credit budget when the budget API exposes one.
+
+A percentage is shown only with a real denominator: GitHub's documented current Pro, Pro+, or Max personal allowance, or a positive API-reported additional-usage budget. Free and Student do not have a concrete public allowance, and organization/enterprise usage reports do not expose the included-pool total, so those rows stay value-only.
+
+Legacy premium requests are not a fallback. They are available only for Copilot Pro or Pro+ subscribers on an existing annual plan that remained on request-based billing after June 1, 2026:
+
+```json
+{
+  "token": "github_pat_REPLACE_ME",
+  "tier": "pro+",
+  "billingModel": "legacy_premium_requests",
+  "username": "your-github-login"
+}
+```
+
+Official references: [AI Credit billing reports](https://docs.github.com/en/rest/billing/usage?apiVersion=2026-03-10), [billing budgets](https://docs.github.com/en/rest/billing/budgets?apiVersion=2026-03-10), [individual AI Credit allowances](https://docs.github.com/en/copilot/concepts/billing/usage-based-billing-for-individuals), [organization and enterprise pools](https://docs.github.com/en/copilot/concepts/billing/usage-based-billing-for-organizations-and-enterprises), and [legacy annual plans](https://docs.github.com/en/copilot/reference/copilot-billing/request-based-billing-legacy/what-changed-with-billing).
 
 <a id="anthropic-claude"></a>
 

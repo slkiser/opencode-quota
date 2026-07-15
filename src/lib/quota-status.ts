@@ -1577,6 +1577,9 @@ export async function buildQuotaStatusReport(params: {
   if (copilotDiag.pat.config?.tier) {
     copilotRows.push({ key: "pat_tier", value: copilotDiag.pat.config.tier });
   }
+  if (copilotDiag.billingModel) {
+    copilotRows.push({ key: "billing_model", value: copilotDiag.billingModel });
+  }
   if (copilotDiag.pat.config?.organization) {
     copilotRows.push({ key: "pat_organization", value: copilotDiag.pat.config.organization });
   }
@@ -1586,6 +1589,7 @@ export async function buildQuotaStatusReport(params: {
   copilotRows.push({ key: "billing_mode", value: copilotDiag.billingMode });
   copilotRows.push({ key: "billing_scope", value: copilotDiag.billingScope });
   copilotRows.push({ key: "quota_api", value: copilotDiag.quotaApi });
+  copilotRows.push({ key: "budget_api", value: copilotDiag.budgetApi });
   copilotRows.push({
     key: "billing_api_access_likely",
     value: copilotDiag.billingApiAccessLikely ? "true" : "false",
@@ -1603,23 +1607,23 @@ export async function buildQuotaStatusReport(params: {
   if (copilotDiag.billingMode === "organization_usage") {
     copilotRows.push({
       key: "billing_usage_note",
-      value: "organization premium usage for the current billing period",
+      value: "organization AI Credit usage for the current UTC calendar month",
     });
     copilotRows.push({
       key: "remaining_quota_note",
       value:
-        "valid PAT access can query billing usage, but pooled org usage does not provide a true per-user remaining quota",
+        "the usage report exposes included-pool consumption and billed usage, but no included-pool denominator; percentages require a real budget",
     });
   }
   if (copilotDiag.billingMode === "enterprise_usage") {
     copilotRows.push({
       key: "billing_usage_note",
-      value: "enterprise premium usage for the current billing period",
+      value: "enterprise AI Credit usage for the current UTC calendar month",
     });
     copilotRows.push({
       key: "remaining_quota_note",
       value:
-        "valid enterprise billing access can query pooled enterprise usage, but it does not provide a true per-user remaining quota",
+        "the usage report exposes included-pool consumption and billed usage, but no included-pool denominator; percentages require a real budget",
     });
   }
   if (copilotDiag.billingTargetError) {
@@ -1645,6 +1649,7 @@ export async function buildQuotaStatusReport(params: {
     value: `${copilotDiag.oauth.configured ? "true" : "false"} key=${copilotDiag.oauth.keyName ?? "(none)"} refresh=${copilotDiag.oauth.hasRefreshToken ? "true" : "false"} access=${copilotDiag.oauth.hasAccessToken ? "true" : "false"}`,
   });
   copilotRows.push({ key: "effective_source", value: copilotDiag.effectiveSource });
+  copilotRows.push({ key: "oauth_accounting_state", value: copilotDiag.oauthAccountingState });
   copilotRows.push({ key: "override", value: copilotDiag.override });
   appendProviderCompactLiveProbeRows(copilotRows, "copilot", params.providerLiveProbes);
   sections.push(createKvSection("copilot_quota_auth", "copilot_quota_auth:", copilotRows));

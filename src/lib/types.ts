@@ -316,9 +316,11 @@ export interface MiniMaxAuthData {
 
 /**
  * Copilot subscription tier.
- * See: https://docs.github.com/en/copilot/about-github-copilot/subscription-plans-for-github-copilot
+ * See: https://docs.github.com/en/copilot/get-started/plans
  */
-export type CopilotTier = "free" | "pro" | "pro+" | "business" | "enterprise";
+export type CopilotTier = "free" | "student" | "pro" | "pro+" | "max" | "business" | "enterprise";
+
+export type CopilotBillingModel = "ai_credits" | "legacy_premium_requests";
 
 /**
  * Copilot quota token configuration.
@@ -328,32 +330,34 @@ export type CopilotTier = "free" | "pro" | "pro+" | "business" | "enterprise";
  *   `.../opencode/copilot-quota-token.json`
  *   (for example `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode`)
  *
- * Users can create a fine-grained PAT with "Plan" read permission
- * to enable quota checking via GitHub's public billing API.
+ * Credential type and permission depend on whether GitHub bills the
+ * personal account, organization, or enterprise.
  */
 export interface CopilotQuotaConfig {
-  /** Fine-grained PAT with GitHub billing-report access */
+  /** GitHub token with the billing-report permission required by the selected scope. */
   token: string;
+  /** Current AI Credits by default; legacy PRUs are limited to eligible Pro/Pro+ annual plans. */
+  billingModel?: CopilotBillingModel;
   /** Optional user login override for user-scoped reports or org user filtering */
   username?: string;
   /**
    * Optional organization slug.
    *
    * In business mode, this selects
-   * `/organizations/{org}/settings/billing/premium_request/usage`.
+   * `/organizations/{org}/settings/billing/ai_credit/usage`.
    *
    * In enterprise mode with an explicit `enterprise` slug, this becomes the
    * optional `organization` query filter on the enterprise usage report.
    */
   organization?: string;
   /**
-   * Optional enterprise slug for enterprise-scoped premium request reports.
+   * Optional enterprise slug for enterprise-scoped AI Credit reports.
    *
    * When present, the plugin queries
-   * `/enterprises/{enterprise}/settings/billing/premium_request/usage`.
+   * `/enterprises/{enterprise}/settings/billing/ai_credit/usage`.
    */
   enterprise?: string;
-  /** Copilot subscription tier (used for personal-tier fallback quota math) */
+  /** Copilot subscription tier and billing scope. */
   tier: CopilotTier;
 }
 
@@ -535,18 +539,32 @@ export interface ZaiQuotaResult {
 // Quota Result Types
 // =============================================================================
 
-/** Result from fetching per-user Copilot quota */
+export interface CopilotBudgetResult {
+  amountUsd: number;
+  spentUsd?: number;
+  scope: string;
+  percentRemaining?: number;
+}
+
+/** Result from fetching per-user Copilot accounting. */
 export interface CopilotQuotaResult {
   success: true;
   mode: "user_quota";
+  unit: "ai_credits" | "premium_requests";
   used: number;
-  total: number;
-  percentRemaining: number;
+  total?: number;
+  percentRemaining?: number;
+  includedUsed?: number;
+  billedUsed?: number;
+  billedAmountUsd?: number;
+  budget?: CopilotBudgetResult;
+  plan?: CopilotTier;
   unlimited?: boolean;
+  warnings?: string[];
   resetTimeIso?: string;
 }
 
-/** Result from fetching organization-scoped Copilot premium usage */
+/** Result from fetching organization-scoped Copilot AI Credit usage. */
 export interface CopilotOrganizationUsageResult {
   success: true;
   mode: "organization_usage";
@@ -556,11 +574,17 @@ export interface CopilotOrganizationUsageResult {
     year: number;
     month: number;
   };
+  unit: "ai_credits";
   used: number;
+  includedUsed: number;
+  billedUsed: number;
+  billedAmountUsd?: number;
+  budget?: CopilotBudgetResult;
+  warnings?: string[];
   resetTimeIso?: string;
 }
 
-/** Result from fetching enterprise-scoped Copilot premium usage */
+/** Result from fetching enterprise-scoped Copilot AI Credit usage. */
 export interface CopilotEnterpriseUsageResult {
   success: true;
   mode: "enterprise_usage";
@@ -571,7 +595,13 @@ export interface CopilotEnterpriseUsageResult {
     year: number;
     month: number;
   };
+  unit: "ai_credits";
   used: number;
+  includedUsed: number;
+  billedUsed: number;
+  billedAmountUsd?: number;
+  budget?: CopilotBudgetResult;
+  warnings?: string[];
   resetTimeIso?: string;
 }
 

@@ -79,11 +79,18 @@ The TUI updates this file after each home-bottom background refresh, about every
 npx @slkiser/opencode-quota show --json --threshold 5
 ```
 
-### Shell: branch on Copilot quota
+### Shell: branch on Copilot only when a real percentage exists
+
+Copilot Free, Student, organization, and enterprise usage can be value-only. Select a percentage row instead of assuming the first row has one:
 
 ```bash
-PCT=$(opencode-quota show --json | jq '.providers["copilot"].entries[0].percentRemaining')
-(( ${PCT%.*} < 10 )) && echo "Low quota, skipping." && exit 0
+PCT=$(opencode-quota show --json --provider copilot \
+  | jq -r '.providers.copilot.entries | map(select(.percentRemaining != null)) | first | .percentRemaining // empty')
+
+if [ -n "$PCT" ] && [ "${PCT%.*}" -lt 10 ]; then
+  echo "Low Copilot allowance or budget; skipping."
+  exit 0
+fi
 ```
 
 ### tmux: read the export file

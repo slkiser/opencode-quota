@@ -1,15 +1,33 @@
 /**
  * Copilot provider wrapper.
  *
- * Normalizes Copilot quota into generic toast entries.
+ * Normalizes GitHub AI Credit and explicitly eligible legacy PRU accounting
+ * into the shared provider/result boundary.
  */
 
-import type { QuotaProvider, QuotaProviderContext, QuotaProviderResult } from "../lib/entries.js";
+import type {
+  AccountingMetadata,
+  QuotaProvider,
+  QuotaProviderContext,
+  QuotaProviderResult,
+  QuotaToastEntry,
+} from "../lib/entries.js";
 import { hasCopilotQuotaRuntimeAvailable, queryCopilotQuota } from "../lib/copilot.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { modelIncludesAny, modelProviderIncludesAny } from "../lib/provider-model-matching.js";
-import type { CopilotEnterpriseUsageResult, CopilotOrganizationUsageResult } from "../lib/types.js";
+import type {
+  CopilotBudgetResult,
+  CopilotEnterpriseUsageResult,
+  CopilotOrganizationUsageResult,
+  CopilotQuotaResult,
+} from "../lib/types.js";
 import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";
+
+const REMOTE_MAINTAINED: Omit<AccountingMetadata, "resultType"> = {
+  acquisitionMethod: "remote_api",
+  ownership: "maintained",
+  authority: "provider_reported",
+};
 
 function formatBillingPeriod(period: { year: number; month: number }): string {
   return `${period.year}-${String(period.month).padStart(2, "0")}`;
@@ -19,20 +37,147 @@ function getCopilotGroup(mode: "user_quota" | "organization_usage" | "enterprise
   return mode === "user_quota" ? "Copilot (personal)" : "Copilot (business)";
 }
 
-function formatManagedUsageValue(
-  result: CopilotOrganizationUsageResult | CopilotEnterpriseUsageResult,
-): string {
-  const parts = [`${result.used} used`, formatBillingPeriod(result.period)];
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
+}
 
-  if (result.mode === "organization_usage") {
-    parts.push(`org=${result.organization}`);
-  } else {
-    parts.push(`enterprise=${result.enterprise}`);
-    if (result.organization) parts.push(`org=${result.organization}`);
+function formatUsd(value: number): string {
+  return `$${value.toFixed(2)}`;
+}
+
+function formatAiCreditUsageValue(
+  result: CopilotOrganizationUsageResult | CopilotEnterpriseUsageResult | CopilotQuotaResult,
+): string {
+  const parts = [`${formatNumber(result.used)} used`];
+
+  if (result.includedUsed !== undefined) {
+    parts.push(`${formatNumber(result.includedUsed)} included`);
+  }
+  if (result.billedUsed !== undefined) {
+    parts.push(`${formatNumber(result.billedUsed)} billed`);
+  }
+  if (result.billedAmountUsd !== undefined) {
+    parts.push(`${formatUsd(result.billedAmountUsd)} billed`);
   }
 
-  if (result.username) parts.push(`user=${result.username}`);
+  if (result.mode !== "user_quota") {
+    parts.push(formatBillingPeriod(result.period));
+    if (result.mode === "organization_usage") {
+      parts.push(`org=${result.organization}`);
+    } else {
+      parts.push(`enterprise=${result.enterprise}`);
+      if (result.organization) parts.push(`org=${result.organization}`);
+    }
+    if (result.username) parts.push(`user=${result.username}`);
+  } else if (result.plan) {
+    parts.push(`plan=${result.plan}`);
+  }
+
   return parts.join(" | ");
+}
+
+function makeBudgetEntry(
+  budget: CopilotBudgetResult,
+  group: string,
+  resetTimeIso?: string,
+): QuotaToastEntry {
+  const spent = budget.spentUsd;
+  if (budget.percentRemaining !== undefined && spent !== undefined && budget.amountUsd > 0) {
+    return {
+      accounting: { ...REMOTE_MAINTAINED, resultType: "budget" },
+      name: "Copilot Additional Usage",
+      group,
+      label: "Budget:",
+      right: `${formatUsd(spent)}/${formatUsd(budget.amountUsd)}`,
+      percentRemaining: budget.percentRemaining,
+      resetTimeIso,
+    };
+  }
+
+  const value =
+    spent === undefined
+      ? `${formatUsd(budget.amountUsd)} limit | scope=${budget.scope}`
+      : `${formatUsd(spent)} spent | ${formatUsd(budget.amountUsd)} budget | scope=${budget.scope}`;
+  return {
+    kind: "value",
+    accounting: { ...REMOTE_MAINTAINED, resultType: "budget" },
+    name: "Copilot Additional Usage",
+    group,
+    label: "Budget:",
+    value,
+    resetTimeIso,
+  };
+}
+
+function personalEntries(result: CopilotQuotaResult): QuotaToastEntry[] {
+  const group = getCopilotGroup(result.mode);
+  const name = result.unit === "ai_credits" ? "Copilot AI Credits" : "Copilot Premium Requests";
+
+  if (result.unlimited) {
+    return [
+      {
+        kind: "value",
+        accounting: { ...REMOTE_MAINTAINED, resultType: "quota" },
+        name,
+        group,
+        label: "Quota:",
+        value: "Unlimited",
+        resetTimeIso: result.resetTimeIso,
+      },
+    ];
+  }
+
+  const entries: QuotaToastEntry[] = [];
+  if (result.total !== undefined && result.total > 0 && result.percentRemaining !== undefined) {
+    entries.push({
+      accounting: { ...REMOTE_MAINTAINED, resultType: "quota" },
+      name,
+      group,
+      label: result.unit === "ai_credits" ? "Credits:" : "Quota:",
+      right: `${formatNumber(result.used)}/${formatNumber(result.total)}`,
+      percentRemaining: result.percentRemaining,
+      resetTimeIso: result.resetTimeIso,
+    });
+  } else {
+    entries.push({
+      kind: "value",
+      accounting: { ...REMOTE_MAINTAINED, resultType: "usage" },
+      name,
+      group,
+      label: result.unit === "ai_credits" ? "Credits:" : "Usage:",
+      value:
+        result.unit === "ai_credits"
+          ? formatAiCreditUsageValue(result)
+          : `${formatNumber(result.used)} used`,
+      resetTimeIso: result.resetTimeIso,
+    });
+  }
+
+  if (result.budget) {
+    entries.push(makeBudgetEntry(result.budget, group, result.resetTimeIso));
+  }
+  return entries;
+}
+
+function managedEntries(
+  result: CopilotOrganizationUsageResult | CopilotEnterpriseUsageResult,
+): QuotaToastEntry[] {
+  const group = getCopilotGroup(result.mode);
+  const entries: QuotaToastEntry[] = [
+    {
+      kind: "value",
+      accounting: { ...REMOTE_MAINTAINED, resultType: "usage" },
+      name: "Copilot AI Credits",
+      group,
+      label: "Credits:",
+      value: formatAiCreditUsageValue(result),
+      resetTimeIso: result.resetTimeIso,
+    },
+  ];
+  if (result.budget) {
+    entries.push(makeBudgetEntry(result.budget, group, result.resetTimeIso));
+  }
+  return entries;
 }
 
 export const copilotProvider: QuotaProvider = {
@@ -44,9 +189,7 @@ export const copilotProvider: QuotaProvider = {
       providerId: "copilot",
       fallbackOnError: false,
     });
-    if (providerAvailable) {
-      return true;
-    }
+    if (providerAvailable) return true;
 
     try {
       return await hasCopilotQuotaRuntimeAvailable();
@@ -56,94 +199,27 @@ export const copilotProvider: QuotaProvider = {
   },
 
   matchesCurrentModel(model: string): boolean {
-    // Check provider prefix (part before "/")
-    if (modelProviderIncludesAny(model, ["copilot", "github"])) {
-      return true;
-    }
-    // Also match if the full model string contains "copilot" or "github-copilot"
-    // to handle models like "github-copilot/claude-sonnet-4.5"
+    if (modelProviderIncludesAny(model, ["copilot", "github"])) return true;
     return modelIncludesAny(model, ["copilot", "github-copilot"]);
   },
 
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
     const result = await queryCopilotQuota({ requestTimeoutMs: ctx.config?.requestTimeoutMs });
+    if (!result) return notAttemptedResult();
+    if (!result.success) return attemptedErrorResult("Copilot", result.error);
 
-    if (!result) {
-      return notAttemptedResult();
-    }
+    const entries = result.mode === "user_quota" ? personalEntries(result) : managedEntries(result);
+    const errors = (result.warnings ?? []).map((message) => ({
+      label: "Copilot",
+      message,
+    }));
+    const presentation =
+      result.mode === "enterprise_usage"
+        ? { singleWindowDisplayName: `Copilot Enterprise (${result.enterprise})` }
+        : result.mode === "organization_usage"
+          ? { singleWindowDisplayName: `Copilot Org (${result.organization})` }
+          : undefined;
 
-    if (!result.success) {
-      return attemptedErrorResult("Copilot", result.error);
-    }
-
-    if (result.mode === "organization_usage" || result.mode === "enterprise_usage") {
-      return attemptedResult(
-        [
-          {
-            kind: "value",
-            accounting: {
-              resultType: "usage",
-              acquisitionMethod: "remote_api",
-              ownership: "maintained",
-              authority: "provider_reported",
-            },
-            name: "Copilot",
-            group: getCopilotGroup(result.mode),
-            label: "Usage:",
-            value: formatManagedUsageValue(result),
-            resetTimeIso: result.resetTimeIso,
-          },
-        ],
-        [],
-        {
-          singleWindowDisplayName:
-            result.mode === "enterprise_usage"
-              ? `Copilot Enterprise (${result.enterprise})`
-              : `Copilot Org (${result.organization})`,
-        },
-      );
-    }
-
-    if (result.unlimited) {
-      return attemptedResult(
-        [
-          {
-            kind: "value",
-            accounting: {
-              resultType: "quota",
-              acquisitionMethod: "remote_api",
-              ownership: "maintained",
-              authority: "provider_reported",
-            },
-            name: "Copilot",
-            group: getCopilotGroup(result.mode),
-            label: "Quota:",
-            value: "Unlimited",
-            resetTimeIso: result.resetTimeIso,
-          },
-        ],
-        [],
-      );
-    }
-
-    return attemptedResult(
-      [
-        {
-          accounting: {
-            resultType: "quota",
-            acquisitionMethod: "remote_api",
-            ownership: "maintained",
-            authority: "provider_reported",
-          },
-          name: "Copilot",
-          group: getCopilotGroup(result.mode),
-          label: "Quota:",
-          right: `${result.used}/${result.total}`,
-          percentRemaining: result.percentRemaining,
-          resetTimeIso: result.resetTimeIso,
-        },
-      ],
-      [],
-    );
+    return attemptedResult(entries, errors, presentation);
   },
 };

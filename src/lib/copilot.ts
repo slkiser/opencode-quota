@@ -1,8 +1,9 @@
 /**
- * GitHub Copilot premium request usage fetcher.
+ * GitHub Copilot accounting fetcher.
  *
- * The plugin uses GitHub billing APIs for PAT-backed usage checks and
- * `GET /copilot_internal/user` for OAuth-backed personal quota checks.
+ * Current usage is read from GitHub's public AI Credit billing reports.
+ * Legacy premium-request reports are available only when explicitly selected
+ * for an eligible Copilot Pro or Pro+ annual plan.
  */
 
 import { existsSync, readFileSync } from "fs";
@@ -11,6 +12,8 @@ import { join } from "path";
 import type {
   AuthData,
   CopilotAuthData,
+  CopilotBillingModel,
+  CopilotBudgetResult,
   CopilotEnterpriseUsageResult,
   CopilotOrganizationUsageResult,
   CopilotQuotaConfig,
@@ -25,30 +28,36 @@ import { readAuthFile } from "./opencode-auth.js";
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 
 const GITHUB_API_BASE_URL = "https://api.github.com";
-const COPILOT_INTERNAL_USER_URL = `${GITHUB_API_BASE_URL}/copilot_internal/user`;
-const GITHUB_API_VERSION = "2022-11-28";
+const GITHUB_API_VERSION = "2026-03-10";
 const COPILOT_QUOTA_CONFIG_FILENAME = "copilot-quota-token.json";
 const USER_AGENT = "opencode-quota/copilot-billing";
 
-type GitHubRestAuthScheme = "bearer" | "token";
-type CopilotAuthKeyName =
-  | "github-copilot"
-  | "copilot"
-  | "copilot-chat"
-  | "github-copilot-chat";
+type CopilotAuthKeyName = "github-copilot" | "copilot" | "copilot-chat" | "github-copilot-chat";
 type CopilotPatTokenKind = "github_pat" | "ghp" | "ghu" | "ghs" | "other";
 type EffectiveCopilotAuthSource = "pat" | "oauth" | "none";
-type CopilotQuotaApi = "github_billing_api" | "copilot_internal_user" | "none";
+type CopilotQuotaApi =
+  | "github_ai_credit_api"
+  | "github_legacy_premium_request_api"
+  | "github_billing_api"
+  | "copilot_internal_user"
+  | "none";
 type CopilotBillingMode = "user_quota" | "organization_usage" | "enterprise_usage" | "none";
 type CopilotRemainingTotalsState =
   | "available"
+  | "value_only_without_denominator"
   | "not_available_from_org_usage"
   | "not_available_from_enterprise_usage"
   | "unavailable";
 
+interface BillingPeriodQuery {
+  year: number;
+  month: number;
+}
+
 interface UserBillingTarget {
   scope: "user";
   username?: string;
+  billingPeriod: BillingPeriodQuery;
 }
 
 interface OrganizationBillingTarget {
@@ -68,7 +77,7 @@ interface EnterpriseBillingTarget {
 
 type CopilotBillingTarget = UserBillingTarget | OrganizationBillingTarget | EnterpriseBillingTarget;
 type CopilotRequestTarget =
-  | { scope: "user"; username: string }
+  | (UserBillingTarget & { username: string })
   | OrganizationBillingTarget
   | EnterpriseBillingTarget;
 
@@ -98,13 +107,13 @@ export interface CopilotQuotaAuthDiagnostics {
   billingScope: "user" | "organization" | "enterprise" | "none";
   billingApiAccessLikely: boolean;
   remainingTotalsState: CopilotRemainingTotalsState;
-  queryPeriod?: {
-    year: number;
-    month: number;
-  };
+  queryPeriod?: BillingPeriodQuery;
   usernameFilter?: string;
   billingTargetError?: string;
   tokenCompatibilityError?: string;
+  billingModel?: CopilotBillingModel;
+  budgetApi: "organization_budgets" | "enterprise_budgets" | "not_available";
+  oauthAccountingState: "not_supported_by_public_billing_api" | "not_configured";
 }
 
 interface BillingUsageItem {
@@ -115,9 +124,16 @@ interface BillingUsageItem {
   unit_type?: string;
   grossQuantity?: number;
   gross_quantity?: number;
+  grossAmount?: number;
+  gross_amount?: number;
+  discountQuantity?: number;
+  discount_quantity?: number;
+  discountAmount?: number;
+  discount_amount?: number;
   netQuantity?: number;
   net_quantity?: number;
-  limit?: number;
+  netAmount?: number;
+  net_amount?: number;
 }
 
 interface BillingUsageResponse {
@@ -130,100 +146,42 @@ interface BillingUsageResponse {
   usage_items?: BillingUsageItem[];
 }
 
+interface BillingBudget {
+  id?: string;
+  budget_type?: string;
+  budget_product_sku?: string;
+  budget_product_skus?: string[];
+  budget_scope?: string;
+  budget_entity_name?: string;
+  budget_amount?: number;
+  user?: string;
+}
+
+interface BillingBudgetsResponse {
+  budgets?: BillingBudget[];
+  has_next_page?: boolean;
+}
+
 interface GitHubViewerResponse {
   login?: string;
 }
 
-function getNestedValue(source: unknown, path: string[]): unknown {
-  let current = source;
-
-  for (const key of path) {
-    if (!current || typeof current !== "object" || !(key in current)) {
-      return undefined;
-    }
-    current = (current as Record<string, unknown>)[key];
-  }
-
-  return current;
+interface AiCreditTotals {
+  used: number;
+  includedUsed: number;
+  billedUsed: number;
+  billedAmountUsd?: number;
 }
 
-function getFirstNestedValue(source: unknown, paths: string[][]): unknown {
-  for (const path of paths) {
-    const value = getNestedValue(source, path);
-    if (value !== undefined) {
-      return value;
-    }
-  }
+const PERSONAL_AI_CREDIT_TOTALS: Partial<Record<CopilotTier, number>> = {
+  pro: 1500,
+  "pro+": 7000,
+  max: 20000,
+};
 
-  return undefined;
-}
-
-function coerceFiniteNumber(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) return undefined;
-    const parsed = Number(trimmed);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-  return undefined;
-}
-
-function coerceNonEmptyString(value: unknown): string | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  return trimmed || undefined;
-}
-
-function getFirstNestedNumber(source: unknown, paths: string[][]): number | undefined {
-  return coerceFiniteNumber(getFirstNestedValue(source, paths));
-}
-
-function getFirstNestedString(source: unknown, paths: string[][]): string | undefined {
-  return coerceNonEmptyString(getFirstNestedValue(source, paths));
-}
-
-function getFirstNestedBoolean(source: unknown, paths: string[][]): boolean | undefined {
-  const value = getFirstNestedValue(source, paths);
-  return typeof value === "boolean" ? value : undefined;
-}
-
-function normalizeExplicitPercentRemaining(value: number | undefined): number | undefined {
-  if (value === undefined || !Number.isFinite(value)) return undefined;
-  return Math.min(100, Math.floor(value));
-}
-
-function normalizeCopilotTier(value: string | undefined): CopilotTier | undefined {
-  const normalized = value?.trim().toLowerCase();
-  if (!normalized) return undefined;
-  if (normalized === "free") return "free";
-  if (normalized === "pro") return "pro";
-  if (normalized === "pro+" || normalized === "pro_plus" || normalized === "pro-plus") {
-    return "pro+";
-  }
-  if (normalized === "business") return "business";
-  if (normalized === "enterprise") return "enterprise";
-  return undefined;
-}
-
-interface BillingPeriodQuery {
-  year: number;
-  month: number;
-  day?: number;
-}
-
-const COPILOT_PLAN_LIMITS: Record<CopilotTier, number> = {
-  free: 50,
+const LEGACY_PREMIUM_REQUEST_TOTALS: Partial<Record<CopilotTier, number>> = {
   pro: 300,
   "pro+": 1500,
-  business: 300,
-  enterprise: 1000,
 };
 
 function dedupeStrings(values: Array<string | undefined | null>): string[] {
@@ -250,58 +208,25 @@ function classifyPatTokenKind(token: string): CopilotPatTokenKind {
 
 function getCurrentBillingPeriod(now: Date = new Date()): BillingPeriodQuery {
   return {
-    year: now.getFullYear(),
-    month: now.getMonth() + 1,
+    year: now.getUTCFullYear(),
+    month: now.getUTCMonth() + 1,
   };
 }
 
-function buildBillingPeriodQueryParams(
-  period: BillingPeriodQuery,
-  options?: {
-    includeDay?: boolean;
-    username?: string;
-    organization?: string;
-  },
-): URLSearchParams {
-  const searchParams = new URLSearchParams();
-  searchParams.set("year", String(period.year));
-  searchParams.set("month", String(period.month));
-
-  if (options?.includeDay && typeof period.day === "number") {
-    searchParams.set("day", String(period.day));
-  }
-
-  if (options?.organization) {
-    searchParams.set("organization", options.organization);
-  }
-
-  if (options?.username) {
-    searchParams.set("user", options.username);
-  }
-
-  return searchParams;
+function getApproxNextResetIso(nowMs: number = Date.now()): string {
+  const now = new Date(nowMs);
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString();
 }
 
-function getBillingModeForTarget(target: CopilotBillingTarget | null): CopilotBillingMode {
-  if (!target) return "none";
-  if (target.scope === "organization") return "organization_usage";
-  if (target.scope === "enterprise") return "enterprise_usage";
-  return "user_quota";
+function formatBillingPeriod(period: BillingPeriodQuery): string {
+  return `${period.year}-${String(period.month).padStart(2, "0")}`;
 }
 
-function getBillingScopeForTarget(
-  target: CopilotBillingTarget | null,
-): "user" | "organization" | "enterprise" | "none" {
-  return target?.scope ?? "none";
-}
-
-function getRemainingTotalsStateForTarget(
-  target: CopilotBillingTarget | null,
-): CopilotRemainingTotalsState {
-  if (!target) return "unavailable";
-  if (target.scope === "organization") return "not_available_from_org_usage";
-  if (target.scope === "enterprise") return "not_available_from_enterprise_usage";
-  return "available";
+function computePercentRemainingFromUsed(used: number, total: number): number | undefined {
+  if (!Number.isFinite(used) || used < 0 || !Number.isFinite(total) || total <= 0) {
+    return undefined;
+  }
+  return Math.max(0, Math.min(100, Math.floor(((total - used) * 100) / total)));
 }
 
 function resolvePatBillingTarget(config: CopilotQuotaConfig): {
@@ -310,23 +235,31 @@ function resolvePatBillingTarget(config: CopilotQuotaConfig): {
 } {
   const billingPeriod = getCurrentBillingPeriod();
 
+  if (config.billingModel === "legacy_premium_requests") {
+    if (config.tier !== "pro" && config.tier !== "pro+") {
+      return {
+        target: null,
+        error:
+          "Legacy premium-request billing is only available to Copilot Pro or Pro+ subscribers on an existing annual plan that remained on legacy billing after June 1, 2026.",
+      };
+    }
+    if (config.organization || config.enterprise) {
+      return {
+        target: null,
+        error:
+          "Legacy premium-request billing is personal-only. Remove organization and enterprise from copilot-quota-token.json.",
+      };
+    }
+  }
+
   if (config.tier === "business") {
-    if (config.enterprise) {
+    if (!config.organization || config.enterprise) {
       return {
         target: null,
         error:
-          'Copilot business usage is organization-scoped. Remove "enterprise" and keep "organization" in copilot-quota-token.json.',
+          'Copilot Business AI Credit usage requires "organization" and does not accept "enterprise" in copilot-quota-token.json.',
       };
     }
-
-    if (!config.organization) {
-      return {
-        target: null,
-        error:
-          'Copilot business usage requires an organization-scoped billing report. Add "organization": "your-org-slug" to copilot-quota-token.json.',
-      };
-    }
-
     return {
       target: {
         scope: "organization",
@@ -349,7 +282,6 @@ function resolvePatBillingTarget(config: CopilotQuotaConfig): {
         },
       };
     }
-
     if (config.organization) {
       return {
         target: {
@@ -360,19 +292,17 @@ function resolvePatBillingTarget(config: CopilotQuotaConfig): {
         },
       };
     }
-
     return {
       target: null,
       error:
-        'Copilot enterprise usage requires an enterprise- or organization-scoped billing report. Add "enterprise": "your-enterprise-slug" or "organization": "your-org-slug" to copilot-quota-token.json.',
+        'Copilot Enterprise AI Credit usage requires "enterprise" or "organization" in copilot-quota-token.json.',
     };
   }
 
   if (config.organization || config.enterprise) {
     return {
       target: null,
-      error:
-        `Copilot ${config.tier} usage is user-scoped. Remove "organization"/"enterprise" from copilot-quota-token.json or switch to a managed tier.`,
+      error: `Copilot ${config.tier} AI Credit usage is personal. Remove organization and enterprise from copilot-quota-token.json.`,
     };
   }
 
@@ -380,6 +310,7 @@ function resolvePatBillingTarget(config: CopilotQuotaConfig): {
     target: {
       scope: "user",
       username: config.username,
+      billingPeriod,
     },
   };
 }
@@ -388,20 +319,22 @@ function validatePatTargetCompatibility(
   target: CopilotBillingTarget,
   tokenKind?: CopilotPatTokenKind,
 ): string | null {
-  if (target.scope !== "enterprise" || !tokenKind) {
-    return null;
-  }
+  if (!tokenKind) return null;
 
-  if (tokenKind === "github_pat") {
+  if (target.scope === "user" && tokenKind === "ghs") {
     return (
-      "GitHub's enterprise premium usage endpoint does not support fine-grained personal access tokens. " +
-      "Use a classic PAT or another supported non-fine-grained token for enterprise billing."
+      "GitHub's personal AI Credit report supports GitHub App user access tokens, " +
+      "but not GitHub App installation access tokens. Use a GitHub App user token, fine-grained PAT with Plan (read), or supported classic credential."
     );
   }
 
-  if (tokenKind === "ghu" || tokenKind === "ghs") {
+  if (
+    target.scope === "enterprise" &&
+    (tokenKind === "github_pat" || tokenKind === "ghu" || tokenKind === "ghs")
+  ) {
     return (
-      "GitHub's enterprise premium usage endpoint does not support GitHub App user or installation access tokens."
+      "GitHub's enterprise billing reports do not support fine-grained PATs or GitHub App access tokens. " +
+      "Use a classic PAT held by an enterprise admin or billing manager."
     );
   }
 
@@ -422,56 +355,67 @@ function validateQuotaConfig(raw: unknown): { config: CopilotQuotaConfig | null;
 
   const obj = raw as Record<string, unknown>;
   const token = typeof obj.token === "string" ? obj.token.trim() : "";
-  const tier = typeof obj.tier === "string" ? obj.tier.trim() : "";
+  const tier = typeof obj.tier === "string" ? obj.tier.trim().toLowerCase() : "";
+  const billingModel =
+    obj.billingModel === undefined
+      ? "ai_credits"
+      : typeof obj.billingModel === "string"
+        ? obj.billingModel.trim()
+        : "";
 
   if (!token) {
     return { config: null, error: "Missing required string field: token" };
   }
 
-  const validTiers: CopilotTier[] = ["free", "pro", "pro+", "business", "enterprise"];
+  const validTiers: CopilotTier[] = [
+    "free",
+    "student",
+    "pro",
+    "pro+",
+    "max",
+    "business",
+    "enterprise",
+  ];
   if (!validTiers.includes(tier as CopilotTier)) {
     return {
       config: null,
-      error: "Invalid tier; expected one of: free, pro, pro+, business, enterprise",
+      error: "Invalid tier; expected one of: free, student, pro, pro+, max, business, enterprise",
     };
   }
 
-  const usernameRaw = obj.username;
-  let username: string | undefined;
-  if (usernameRaw != null) {
-    if (typeof usernameRaw !== "string" || !usernameRaw.trim()) {
-      return { config: null, error: "username must be a non-empty string when provided" };
-    }
-    username = usernameRaw.trim();
+  if (billingModel !== "ai_credits" && billingModel !== "legacy_premium_requests") {
+    return {
+      config: null,
+      error: "Invalid billingModel; expected ai_credits or legacy_premium_requests",
+    };
   }
 
-  const organizationRaw = obj.organization;
-  let organization: string | undefined;
-  if (organizationRaw != null) {
-    if (typeof organizationRaw !== "string" || !organizationRaw.trim()) {
-      return { config: null, error: "organization must be a non-empty string when provided" };
+  const readOptionalString = (key: "username" | "organization" | "enterprise") => {
+    const value = obj[key];
+    if (value == null) return undefined;
+    if (typeof value !== "string" || !value.trim()) {
+      throw new Error(`${key} must be a non-empty string when provided`);
     }
-    organization = organizationRaw.trim();
-  }
+    return value.trim();
+  };
 
-  const enterpriseRaw = obj.enterprise;
-  let enterprise: string | undefined;
-  if (enterpriseRaw != null) {
-    if (typeof enterpriseRaw !== "string" || !enterpriseRaw.trim()) {
-      return { config: null, error: "enterprise must be a non-empty string when provided" };
-    }
-    enterprise = enterpriseRaw.trim();
-  }
-
-  return {
-    config: {
+  try {
+    const config: CopilotQuotaConfig = {
       token,
       tier: tier as CopilotTier,
-      username,
-      organization,
-      enterprise,
-    },
-  };
+      billingModel,
+      username: readOptionalString("username"),
+      organization: readOptionalString("organization"),
+      enterprise: readOptionalString("enterprise"),
+    };
+    const resolved = resolvePatBillingTarget(config);
+    if (!resolved.target) {
+      return { config: null, error: resolved.error };
+    }
+    return { config };
+  } catch (error) {
+    return { config: null, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 export function readQuotaConfigWithMeta(): CopilotPatReadResult {
@@ -481,10 +425,8 @@ export function readQuotaConfigWithMeta(): CopilotPatReadResult {
     if (!existsSync(path)) continue;
 
     try {
-      const content = readFileSync(path, "utf-8");
-      const parsed = JSON.parse(content) as unknown;
+      const parsed = JSON.parse(readFileSync(path, "utf-8")) as unknown;
       const validated = validateQuotaConfig(parsed);
-
       if (!validated.config) {
         return {
           state: "invalid",
@@ -493,7 +435,6 @@ export function readQuotaConfigWithMeta(): CopilotPatReadResult {
           error: validated.error ?? "Invalid config",
         };
       }
-
       return {
         state: "valid",
         checkedPaths,
@@ -518,9 +459,7 @@ function selectCopilotAuth(authData: AuthData | null): {
   auth: CopilotAuthData | null;
   keyName: CopilotAuthKeyName | null;
 } {
-  if (!authData) {
-    return { auth: null, keyName: null };
-  }
+  if (!authData) return { auth: null, keyName: null };
 
   const candidates: Array<[CopilotAuthKeyName, CopilotAuthData | undefined]> = [
     ["github-copilot", authData["github-copilot"]],
@@ -538,37 +477,47 @@ function selectCopilotAuth(authData: AuthData | null): {
   return { auth: null, keyName: null };
 }
 
-export function getCopilotQuotaAuthDiagnostics(authData: AuthData | null): CopilotQuotaAuthDiagnostics {
+function getRemainingTotalsState(
+  target: CopilotBillingTarget | null,
+  config?: CopilotQuotaConfig,
+): CopilotRemainingTotalsState {
+  if (!target || !config) return "unavailable";
+  if (target.scope === "organization") return "not_available_from_org_usage";
+  if (target.scope === "enterprise") return "not_available_from_enterprise_usage";
+
+  const total =
+    config.billingModel === "legacy_premium_requests"
+      ? LEGACY_PREMIUM_REQUEST_TOTALS[config.tier]
+      : PERSONAL_AI_CREDIT_TOTALS[config.tier];
+  return total ? "available" : "value_only_without_denominator";
+}
+
+export function getCopilotQuotaAuthDiagnostics(
+  authData: AuthData | null,
+): CopilotQuotaAuthDiagnostics {
   const pat = readQuotaConfigWithMeta();
   const { auth, keyName } = selectCopilotAuth(authData);
-  const resolvedPatTarget =
-    pat.state === "valid" && pat.config ? resolvePatBillingTarget(pat.config) : { target: null };
-  const tokenCompatibilityError =
-    pat.state === "valid" && resolvedPatTarget.target
-      ? validatePatTargetCompatibility(resolvedPatTarget.target, pat.tokenKind)
+  const resolved =
+    pat.state === "valid" && pat.config
+      ? resolvePatBillingTarget(pat.config)
+      : { target: null as CopilotBillingTarget | null };
+  const compatibilityError =
+    resolved.target && pat.state === "valid"
+      ? validatePatTargetCompatibility(resolved.target, pat.tokenKind)
       : null;
-
   const patBlocksOAuth = pat.state !== "absent";
-  let effectiveSource: EffectiveCopilotAuthSource = "none";
-  if (patBlocksOAuth) effectiveSource = "pat";
-  else if (auth) effectiveSource = "oauth";
-
-  const billingTarget =
-    pat.state === "valid"
-      ? resolvedPatTarget.target
-      : !patBlocksOAuth && auth
-        ? ({ scope: "user" } as const)
-        : null;
-  const billingMode = getBillingModeForTarget(billingTarget);
-  const oauthHasAccessToken = Boolean(auth?.access?.trim());
+  const effectiveSource: EffectiveCopilotAuthSource = patBlocksOAuth
+    ? "pat"
+    : auth
+      ? "oauth"
+      : "none";
+  const billingModel = pat.config?.billingModel ?? "ai_credits";
   const quotaApi: CopilotQuotaApi =
-    effectiveSource === "pat"
-      ? pat.state === "valid"
-        ? "github_billing_api"
-        : "none"
-      : effectiveSource === "oauth" && oauthHasAccessToken
-        ? "copilot_internal_user"
-        : "none";
+    pat.state !== "valid"
+      ? "none"
+      : billingModel === "legacy_premium_requests"
+        ? "github_legacy_premium_request_api"
+        : "github_ai_credit_api";
 
   return {
     pat,
@@ -576,500 +525,465 @@ export function getCopilotQuotaAuthDiagnostics(authData: AuthData | null): Copil
       configured: Boolean(auth),
       keyName,
       hasRefreshToken: Boolean(auth?.refresh),
-      hasAccessToken: oauthHasAccessToken,
+      hasAccessToken: Boolean(auth?.access?.trim()),
     },
     effectiveSource,
     override: patBlocksOAuth && auth ? "pat_overrides_oauth" : "none",
     quotaApi,
-    billingMode,
-    billingScope: getBillingScopeForTarget(billingTarget),
+    billingMode:
+      resolved.target?.scope === "organization"
+        ? "organization_usage"
+        : resolved.target?.scope === "enterprise"
+          ? "enterprise_usage"
+          : resolved.target?.scope === "user"
+            ? "user_quota"
+            : "none",
+    billingScope: resolved.target?.scope ?? "none",
     billingApiAccessLikely:
-      effectiveSource === "pat"
-        ? Boolean(billingTarget) && !resolvedPatTarget.error && !tokenCompatibilityError
-        : quotaApi === "copilot_internal_user",
-    remainingTotalsState: getRemainingTotalsStateForTarget(billingTarget),
-    queryPeriod:
-      billingTarget && billingTarget.scope !== "user"
-        ? billingTarget.billingPeriod
-        : undefined,
-    usernameFilter: pat.state === "valid" ? pat.config?.username : undefined,
-    billingTargetError: pat.state === "valid" ? resolvedPatTarget.error : undefined,
-    tokenCompatibilityError: tokenCompatibilityError ?? undefined,
+      pat.state === "valid" && Boolean(resolved.target) && !resolved.error && !compatibilityError,
+    remainingTotalsState: getRemainingTotalsState(resolved.target, pat.config),
+    queryPeriod: resolved.target?.billingPeriod,
+    usernameFilter: pat.config?.username,
+    billingTargetError: resolved.error,
+    tokenCompatibilityError: compatibilityError ?? undefined,
+    billingModel,
+    budgetApi:
+      billingModel !== "ai_credits"
+        ? "not_available"
+        : resolved.target?.scope === "organization"
+          ? "organization_budgets"
+          : resolved.target?.scope === "enterprise"
+            ? "enterprise_budgets"
+            : "not_available",
+    oauthAccountingState: auth ? "not_supported_by_public_billing_api" : "not_configured",
   };
 }
 
-function buildGitHubRestHeaders(
-  token: string,
-  scheme: GitHubRestAuthScheme,
-): Record<string, string> {
+function buildGitHubRestHeaders(token: string): Record<string, string> {
   return {
     Accept: "application/vnd.github+json",
-    Authorization: scheme === "bearer" ? `Bearer ${token}` : `token ${token}`,
+    Authorization: `Bearer ${token}`,
     "X-GitHub-Api-Version": GITHUB_API_VERSION,
     "User-Agent": USER_AGENT,
   };
 }
 
-function preferredSchemesForToken(token: string): GitHubRestAuthScheme[] {
-  if (token.startsWith("ghp_")) {
-    return ["token", "bearer"];
-  }
-
-  return ["bearer", "token"];
-}
-
 async function readGitHubRestErrorMessage(response: Response): Promise<string> {
   const text = await response.text();
-
   try {
     const parsed = JSON.parse(text) as Record<string, unknown>;
     const message = typeof parsed.message === "string" ? parsed.message : null;
     const documentationUrl =
       typeof parsed.documentation_url === "string" ? parsed.documentation_url : null;
-
     if (message && documentationUrl) {
       return sanitizeDisplayText(`${message} (${documentationUrl})`);
     }
-
-    if (message) {
-      return sanitizeDisplayText(message);
-    }
+    if (message) return sanitizeDisplayText(message);
   } catch {
-    // ignore parse failures
+    // Fall through to a bounded plain-text snippet.
   }
-
   return sanitizeDisplaySnippet(text, 160);
 }
 
-async function fetchGitHubRestJsonOnce<T>(
+async function fetchGitHubRestJson<T>(
   url: string,
   token: string,
-  scheme: GitHubRestAuthScheme,
   requestTimeoutMs?: number,
-): Promise<{ ok: true; status: number; data: T } | { ok: false; status: number; message: string }> {
+): Promise<T> {
   const response = await fetchWithTimeout(
     url,
-    {
-      headers: buildGitHubRestHeaders(token, scheme),
-    },
+    { headers: buildGitHubRestHeaders(token) },
     requestTimeoutMs,
   );
 
-  if (response.ok) {
-    return { ok: true, status: response.status, data: (await response.json()) as T };
+  if (!response.ok) {
+    const message = await readGitHubRestErrorMessage(response);
+    const rateLimit =
+      response.status === 403 && response.headers.get("x-ratelimit-remaining") === "0"
+        ? " (GitHub API rate limit exhausted)"
+        : "";
+    throw new Error(`GitHub API error ${response.status}: ${message}${rateLimit}`);
   }
 
-  return {
-    ok: false,
-    status: response.status,
-    message: await readGitHubRestErrorMessage(response),
-  };
+  try {
+    return (await response.json()) as T;
+  } catch {
+    throw new Error("GitHub API returned malformed JSON");
+  }
 }
 
 async function resolveGitHubUsername(token: string, requestTimeoutMs?: number): Promise<string> {
-  const url = `${GITHUB_API_BASE_URL}/user`;
-  let unauthorized: { status: number; message: string } | null = null;
-
-  for (const scheme of preferredSchemesForToken(token)) {
-    const result = await fetchGitHubRestJsonOnce<GitHubViewerResponse>(
-      url,
-      token,
-      scheme,
-      requestTimeoutMs,
-    );
-
-    if (result.ok) {
-      const login = result.data.login?.trim();
-      if (login) return login;
-      throw new Error("GitHub /user response did not include a login");
-    }
-
-    if (result.status === 401) {
-      unauthorized = { status: result.status, message: result.message };
-      continue;
-    }
-
-    throw new Error(`GitHub API error ${result.status}: ${result.message}`);
+  const response = await fetchGitHubRestJson<GitHubViewerResponse>(
+    `${GITHUB_API_BASE_URL}/user`,
+    token,
+    requestTimeoutMs,
+  );
+  const login = response.login?.trim();
+  if (!login) {
+    throw new Error("GitHub /user response did not include a login");
   }
-
-  if (unauthorized) {
-    throw new Error(
-      `GitHub API error ${unauthorized.status}: ${unauthorized.message} (token rejected while resolving username)`,
-    );
-  }
-
-  throw new Error("Unable to resolve GitHub username for Copilot billing request");
+  return login;
 }
 
-function getBillingRequestUrl(target: CopilotRequestTarget): string {
+function buildBillingQuery(target: CopilotRequestTarget): URLSearchParams {
+  const query = new URLSearchParams({
+    year: String(target.billingPeriod.year),
+    month: String(target.billingPeriod.month),
+  });
+  if (target.scope !== "user" && target.username) query.set("user", target.username);
+  if (target.scope === "enterprise" && target.organization) {
+    query.set("organization", target.organization);
+  }
+  return query;
+}
+
+function getBillingUsageUrl(
+  target: CopilotRequestTarget,
+  billingModel: CopilotBillingModel,
+): string {
+  const report = billingModel === "legacy_premium_requests" ? "premium_request" : "ai_credit";
+  const query = buildBillingQuery(target);
+
   if (target.scope === "enterprise") {
-    const base = `${GITHUB_API_BASE_URL}/enterprises/${encodeURIComponent(target.enterprise)}/settings/billing/premium_request/usage`;
-    const searchParams = buildBillingPeriodQueryParams(target.billingPeriod, {
-      organization: target.organization,
-      username: target.username,
-    });
-    return `${base}?${searchParams.toString()}`;
+    return `${GITHUB_API_BASE_URL}/enterprises/${encodeURIComponent(target.enterprise)}/settings/billing/${report}/usage?${query}`;
   }
-
   if (target.scope === "organization") {
-    const base = `${GITHUB_API_BASE_URL}/organizations/${encodeURIComponent(target.organization)}/settings/billing/premium_request/usage`;
-    const searchParams = buildBillingPeriodQueryParams(target.billingPeriod, {
-      username: target.username,
-    });
-    return `${base}?${searchParams.toString()}`;
+    return `${GITHUB_API_BASE_URL}/organizations/${encodeURIComponent(target.organization)}/settings/billing/${report}/usage?${query}`;
   }
-
-  return `${GITHUB_API_BASE_URL}/users/${encodeURIComponent(target.username)}/settings/billing/premium_request/usage`;
+  return `${GITHUB_API_BASE_URL}/users/${encodeURIComponent(target.username)}/settings/billing/${report}/usage?${query}`;
 }
 
-async function fetchPremiumRequestUsage(params: {
+async function fetchBillingUsage(params: {
   token: string;
   target: CopilotBillingTarget;
+  billingModel: CopilotBillingModel;
   requestTimeoutMs?: number;
-}): Promise<{ response: BillingUsageResponse; billingPeriod?: BillingPeriodQuery }> {
-  const requestTarget: CopilotRequestTarget =
+}): Promise<{ response: BillingUsageResponse; target: CopilotRequestTarget }> {
+  const target: CopilotRequestTarget =
     params.target.scope === "user"
       ? {
-          scope: "user",
-          username: params.target.username ?? (await resolveGitHubUsername(params.token, params.requestTimeoutMs)),
+          ...params.target,
+          username:
+            params.target.username ??
+            (await resolveGitHubUsername(params.token, params.requestTimeoutMs)),
         }
       : params.target;
 
-  const url = getBillingRequestUrl(requestTarget);
-
-  let unauthorized: { status: number; message: string } | null = null;
-
-  for (const scheme of preferredSchemesForToken(params.token)) {
-    const result = await fetchGitHubRestJsonOnce<BillingUsageResponse>(
-      url,
+  return {
+    response: await fetchGitHubRestJson<BillingUsageResponse>(
+      getBillingUsageUrl(target, params.billingModel),
       params.token,
-      scheme,
+      params.requestTimeoutMs,
+    ),
+    target,
+  };
+}
+
+function getResponsePeriod(
+  response: BillingUsageResponse,
+  fallback: BillingPeriodQuery,
+): BillingPeriodQuery {
+  const period = response.timePeriod ?? response.time_period;
+  return {
+    year: typeof period?.year === "number" ? period.year : fallback.year,
+    month: typeof period?.month === "number" ? period.month : fallback.month,
+  };
+}
+
+function getUsageItems(response: BillingUsageResponse): BillingUsageItem[] {
+  if (Array.isArray(response.usageItems)) return response.usageItems;
+  if (Array.isArray(response.usage_items)) return response.usage_items;
+  throw new Error("GitHub billing response did not include a usageItems array");
+}
+
+function readFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function isAiCreditItem(item: BillingUsageItem): boolean {
+  const text = [item.product, item.sku, item.unitType, item.unit_type]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+  return text.includes("ai credit") || text.includes("ai-credit");
+}
+
+function isPremiumRequestItem(item: BillingUsageItem): boolean {
+  const text = [item.product, item.sku, item.unitType, item.unit_type]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+  return text.includes("premium request");
+}
+
+function parseAiCreditTotals(response: BillingUsageResponse): AiCreditTotals {
+  const items = getUsageItems(response);
+  const matches = items.filter(isAiCreditItem);
+  if (matches.length === 0 && items.length > 0) {
+    throw new Error("GitHub billing response did not contain an AI Credit usage item");
+  }
+
+  let used = 0;
+  let includedUsed = 0;
+  let billedUsed = 0;
+  let billedAmountUsd = 0;
+  let hasBilledAmount = false;
+
+  for (const item of matches) {
+    const gross = readFiniteNumber(item.grossQuantity ?? item.gross_quantity);
+    const discount = readFiniteNumber(item.discountQuantity ?? item.discount_quantity);
+    const net = readFiniteNumber(item.netQuantity ?? item.net_quantity);
+    if (gross === undefined && discount === undefined && net === undefined) {
+      throw new Error("GitHub AI Credit usage item did not include quantity fields");
+    }
+    const normalizedIncluded = Math.max(0, discount ?? 0);
+    const normalizedBilled = Math.max(0, net ?? Math.max(0, (gross ?? 0) - normalizedIncluded));
+    used += Math.max(0, gross ?? normalizedIncluded + normalizedBilled);
+    includedUsed += normalizedIncluded;
+    billedUsed += normalizedBilled;
+
+    const netAmount = readFiniteNumber(item.netAmount ?? item.net_amount);
+    if (netAmount !== undefined) {
+      billedAmountUsd += Math.max(0, netAmount);
+      hasBilledAmount = true;
+    }
+  }
+
+  return {
+    used,
+    includedUsed,
+    billedUsed,
+    billedAmountUsd: hasBilledAmount ? billedAmountUsd : undefined,
+  };
+}
+
+function parseLegacyPremiumRequestUsage(response: BillingUsageResponse): number {
+  const items = getUsageItems(response);
+  const matches = items.filter(isPremiumRequestItem);
+  if (matches.length === 0 && items.length > 0) {
+    throw new Error("GitHub billing response did not contain a premium-request usage item");
+  }
+
+  return matches.reduce((sum, item) => {
+    const gross = readFiniteNumber(item.grossQuantity ?? item.gross_quantity);
+    const net = readFiniteNumber(item.netQuantity ?? item.net_quantity);
+    if (gross === undefined && net === undefined) {
+      throw new Error("GitHub premium-request usage item did not include quantity fields");
+    }
+    return sum + Math.max(0, gross ?? net ?? 0);
+  }, 0);
+}
+
+function isAiCreditBudget(budget: BillingBudget): boolean {
+  const skus = [
+    budget.budget_product_sku,
+    ...(Array.isArray(budget.budget_product_skus) ? budget.budget_product_skus : []),
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.toLowerCase());
+  return budget.budget_type === "BundlePricing" && skus.includes("ai_credits");
+}
+
+function budgetMatchesTarget(budget: BillingBudget, target: CopilotBillingTarget): boolean {
+  const scope = budget.budget_scope;
+  const entity = budget.budget_entity_name?.toLowerCase();
+  const user = (budget.user ?? budget.budget_entity_name)?.toLowerCase();
+
+  if (target.scope === "organization") {
+    if (target.username && scope === "user") {
+      return !user || user === target.username.toLowerCase();
+    }
+    if (target.username && scope === "multi_user_customer") return true;
+    return scope === "organization";
+  }
+
+  if (target.scope === "enterprise") {
+    if (target.username && scope === "user") {
+      return !user || user === target.username.toLowerCase();
+    }
+    if (
+      target.username &&
+      (scope === "multi_user_customer" || scope === "multi_user_cost_center")
+    ) {
+      return true;
+    }
+    if (target.organization && scope === "organization") {
+      return !entity || entity === target.organization.toLowerCase();
+    }
+    return scope === "enterprise";
+  }
+
+  return false;
+}
+
+function budgetSpecificity(budget: BillingBudget): number {
+  switch (budget.budget_scope) {
+    case "user":
+      return 5;
+    case "multi_user_cost_center":
+      return 4;
+    case "multi_user_customer":
+      return 3;
+    case "organization":
+      return 2;
+    case "enterprise":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function getBudgetsUrl(
+  target: OrganizationBillingTarget | EnterpriseBillingTarget,
+  page: number,
+): string {
+  const base =
+    target.scope === "organization"
+      ? `${GITHUB_API_BASE_URL}/organizations/${encodeURIComponent(target.organization)}/settings/billing/budgets`
+      : `${GITHUB_API_BASE_URL}/enterprises/${encodeURIComponent(target.enterprise)}/settings/billing/budgets`;
+  const query = new URLSearchParams({ page: String(page), per_page: "100" });
+  if (target.username) query.set("user", target.username);
+  return `${base}?${query}`;
+}
+
+async function fetchApplicableBudget(params: {
+  token: string;
+  target: OrganizationBillingTarget | EnterpriseBillingTarget;
+  spentUsd?: number;
+  requestTimeoutMs?: number;
+}): Promise<CopilotBudgetResult | undefined> {
+  const budgets: BillingBudget[] = [];
+  for (let page = 1; page <= 100; page += 1) {
+    const response = await fetchGitHubRestJson<BillingBudgetsResponse>(
+      getBudgetsUrl(params.target, page),
+      params.token,
       params.requestTimeoutMs,
     );
-
-    if (result.ok) {
-      return {
-        response: result.data,
-        billingPeriod: requestTarget.scope === "user" ? undefined : requestTarget.billingPeriod,
-      };
+    if (!Array.isArray(response.budgets)) {
+      throw new Error("GitHub budgets response did not include a budgets array");
     }
-
-    if (result.status === 401) {
-      unauthorized = { status: result.status, message: result.message };
-      continue;
+    budgets.push(...response.budgets);
+    if (!response.has_next_page) break;
+    if (page === 100) {
+      throw new Error("GitHub budgets response exceeded 100 pages");
     }
-
-    throw new Error(`GitHub API error ${result.status}: ${result.message}`);
   }
 
-  if (unauthorized) {
-    throw new Error(
-      `GitHub API error ${unauthorized.status}: ${unauthorized.message} (token rejected for Copilot premium request usage)`,
-    );
-  }
+  const selected = budgets
+    .filter(
+      (budget) =>
+        isAiCreditBudget(budget) &&
+        budgetMatchesTarget(budget, params.target) &&
+        typeof budget.budget_amount === "number" &&
+        Number.isFinite(budget.budget_amount) &&
+        budget.budget_amount >= 0,
+    )
+    .sort((a, b) => budgetSpecificity(b) - budgetSpecificity(a))[0];
 
-  throw new Error("Unable to fetch Copilot premium request usage");
+  if (!selected || selected.budget_amount === undefined) return undefined;
+
+  const percentRemaining =
+    params.spentUsd === undefined
+      ? undefined
+      : computePercentRemainingFromUsed(params.spentUsd, selected.budget_amount);
+
+  return {
+    amountUsd: selected.budget_amount,
+    spentUsd: params.spentUsd,
+    scope: selected.budget_scope ?? "unknown",
+    percentRemaining,
+  };
 }
 
-async function fetchCopilotInternalUser(token: string, requestTimeoutMs?: number): Promise<unknown> {
-  const result = await fetchGitHubRestJsonOnce<unknown>(
-    COPILOT_INTERNAL_USER_URL,
-    token,
-    "bearer",
-    requestTimeoutMs,
-  );
-  if (result.ok) {
-    return result.data;
-  }
-
-  throw new Error(`GitHub API error ${result.status}: ${result.message}`);
+function makeBudgetWarning(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `AI Credit usage loaded, but the budget report failed: ${message}`;
 }
 
-function toUserQuotaResultFromCopilotInternal(response: unknown): CopilotQuotaResult {
-  const totalPaths = [
-    ["quota", "limit"],
-    ["quota", "total"],
-    ["monthly_quota", "limit"],
-    ["monthly_quota", "total"],
-    ["monthly_premium_requests", "limit"],
-    ["monthly_premium_requests", "total"],
-    ["premium_requests", "limit"],
-    ["premium_requests", "total"],
-    ["quota_snapshots", "premium_interactions", "entitlement"],
-    ["limit"],
-    ["total"],
-    ["quota_limit"],
-    ["monthly_limit"],
-    ["included_premium_requests"],
-    // Copilot Free tier: `monthly_quotas.chat` and `monthly_quotas.completions`
-    ["monthly_quotas", "chat"],
-    ["monthly_quotas", "completions"],
-  ];
-  const usedPaths = [
-    ["quota", "used"],
-    ["monthly_quota", "used"],
-    ["monthly_premium_requests", "used"],
-    ["premium_requests", "used"],
-    ["used"],
-    ["quota_used"],
-    ["monthly_used"],
-    ["premium_requests_used"],
-  ];
-  const remainingPaths = [
-    ["quota", "remaining"],
-    ["monthly_quota", "remaining"],
-    ["monthly_premium_requests", "remaining"],
-    ["premium_requests", "remaining"],
-    ["quota_snapshots", "premium_interactions", "remaining"],
-    ["quota_snapshots", "premium_interactions", "quota_remaining"],
-    ["remaining"],
-    ["quota_remaining"],
-    ["monthly_remaining"],
-    ["premium_requests_remaining"],
-    // Copilot Free tier: `limited_user_quotas` tracks remaining
-    ["limited_user_quotas", "chat"],
-    ["limited_user_quotas", "completions"],
-  ];
-  const resetPaths = [
-    ["quota", "reset_at"],
-    ["monthly_quota", "reset_at"],
-    ["monthly_premium_requests", "reset_at"],
-    ["premium_requests", "reset_at"],
-    ["reset_at"],
-    ["quota_reset_date_utc"],
-    ["quota_reset_date"],
-    ["quota_reset_at"],
-    // Copilot Free tier
-    ["limited_user_reset_date"],
-  ];
-  const percentRemainingPaths = [
-    ["quota", "percent_remaining"],
-    ["monthly_quota", "percent_remaining"],
-    ["monthly_premium_requests", "percent_remaining"],
-    ["premium_requests", "percent_remaining"],
-    ["quota_snapshots", "premium_interactions", "percent_remaining"],
-    ["percent_remaining"],
-  ];
-  const unlimitedPaths = [
-    ["quota", "unlimited"],
-    ["monthly_quota", "unlimited"],
-    ["monthly_premium_requests", "unlimited"],
-    ["premium_requests", "unlimited"],
-    ["quota_snapshots", "premium_interactions", "unlimited"],
-    ["unlimited"],
-  ];
-  const tierPaths = [
-    ["plan", "type"],
-    ["plan", "name"],
-    ["plan"],
-    ["copilot_plan"],
-    ["subscription_plan"],
-    ["sku"],
-  ];
+async function toAiCreditResult(params: {
+  response: BillingUsageResponse;
+  target: CopilotRequestTarget;
+  config: CopilotQuotaConfig;
+  token: string;
+  requestTimeoutMs?: number;
+}): Promise<CopilotQuotaResult | CopilotOrganizationUsageResult | CopilotEnterpriseUsageResult> {
+  const totals = parseAiCreditTotals(params.response);
+  const resetTimeIso = getApproxNextResetIso();
+  const period = getResponsePeriod(params.response, params.target.billingPeriod);
+  let budget: CopilotBudgetResult | undefined;
+  const warnings: string[] = [];
 
-  let total = getFirstNestedNumber(response, totalPaths);
-  let used = getFirstNestedNumber(response, usedPaths);
-  const remaining = getFirstNestedNumber(response, remainingPaths);
-  const unlimited = getFirstNestedBoolean(response, unlimitedPaths) === true;
-  const explicitPercentRemaining = normalizeExplicitPercentRemaining(
-    getFirstNestedNumber(response, percentRemainingPaths),
-  );
-  const resetTimeIso =
-    normalizeResetTimeIso(getFirstNestedString(response, resetPaths)) ?? getApproxNextResetIso();
-  const tier = normalizeCopilotTier(getFirstNestedString(response, tierPaths));
-
-  if (total === undefined && used !== undefined && remaining !== undefined) {
-    total = used + remaining;
-  }
-  if (used === undefined && total !== undefined && remaining !== undefined) {
-    used = Math.max(0, total - remaining);
-  }
-  if (total === undefined && tier) {
-    total = COPILOT_PLAN_LIMITS[tier];
+  if (params.target.scope !== "user") {
+    try {
+      budget = await fetchApplicableBudget({
+        token: params.token,
+        target: params.target,
+        spentUsd: totals.billedAmountUsd,
+        requestTimeoutMs: params.requestTimeoutMs,
+      });
+    } catch (error) {
+      warnings.push(makeBudgetWarning(error));
+    }
   }
 
-  if (unlimited) {
+  if (params.target.scope === "organization") {
     return {
       success: true,
-      mode: "user_quota",
-      used: Math.max(0, used ?? 0),
-      total: Math.max(1, total ?? 1),
-      percentRemaining: explicitPercentRemaining ?? 100,
-      unlimited: true,
+      mode: "organization_usage",
+      organization: params.target.organization,
+      username: params.target.username,
+      period,
+      unit: "ai_credits",
+      ...totals,
+      budget,
+      warnings: warnings.length ? warnings : undefined,
       resetTimeIso,
     };
   }
 
-  if (!Number.isFinite(total) || total === undefined || total <= 0 || used === undefined || used < 0) {
-    throw new Error(
-      "GitHub /copilot_internal/user response did not include usable personal quota fields.",
-    );
+  if (params.target.scope === "enterprise") {
+    return {
+      success: true,
+      mode: "enterprise_usage",
+      enterprise: params.target.enterprise,
+      organization: params.target.organization,
+      username: params.target.username,
+      period,
+      unit: "ai_credits",
+      ...totals,
+      budget,
+      warnings: warnings.length ? warnings : undefined,
+      resetTimeIso,
+    };
   }
 
+  const total = PERSONAL_AI_CREDIT_TOTALS[params.config.tier];
   return {
     success: true,
     mode: "user_quota",
-    used,
+    unit: "ai_credits",
+    ...totals,
     total,
-    percentRemaining: explicitPercentRemaining ?? computePercentRemainingFromUsed({ used, total }),
+    percentRemaining: total ? computePercentRemainingFromUsed(totals.used, total) : undefined,
+    plan: params.config.tier,
     resetTimeIso,
   };
 }
 
-function normalizeResetTimeIso(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    return `${trimmed}T00:00:00.000Z`;
-  }
-
-  const timestamp = Date.parse(trimmed);
-  if (Number.isNaN(timestamp)) return undefined;
-  return new Date(timestamp).toISOString();
-}
-
-function getApproxNextResetIso(nowMs: number = Date.now()): string {
-  const now = new Date(nowMs);
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString();
-}
-
-function computePercentRemainingFromUsed(params: { used: number; total: number }): number {
-  const { used, total } = params;
-  if (!Number.isFinite(total) || total <= 0) return 0;
-  if (!Number.isFinite(used) || used <= 0) return 100;
-  const normalizedUsed = Math.max(0, used);
-  const remaining = total - normalizedUsed;
-  return Math.min(100, Math.floor((remaining * 100) / total));
-}
-
-function getPremiumUsageItems(
+function toLegacyResult(
   response: BillingUsageResponse,
-  options?: { allowEmpty?: boolean },
-): BillingUsageItem[] {
-  const items = Array.isArray(response.usageItems)
-    ? response.usageItems
-    : Array.isArray(response.usage_items)
-      ? response.usage_items
-      : [];
-
-  const premiumItems = items.filter((item) => {
-    if (!item || typeof item !== "object") return false;
-    if (typeof item.sku !== "string") return false;
-    return item.sku === "Copilot Premium Request" || item.sku.includes("Premium");
-  });
-
-  if (premiumItems.length === 0 && items.length > 0) {
-    const skus = items.map((item) => (typeof item?.sku === "string" ? item.sku : "?")).join(", ");
-    throw new Error(
-      `No premium-request items found in billing response (${items.length} items, SKUs: ${skus}). Expected an item with SKU containing "Premium".`,
-    );
-  }
-
-  if (premiumItems.length === 0 && options?.allowEmpty) {
-    return [];
-  }
-
-  if (premiumItems.length === 0) {
-    throw new Error("Billing API returned empty usageItems array for Copilot premium requests.");
-  }
-
-  return premiumItems;
-}
-
-function sumUsedUnits(items: BillingUsageItem[]): number {
-  return items.reduce((sum, item) => {
-    const used =
-      item.grossQuantity ??
-      item.gross_quantity ??
-      item.netQuantity ??
-      item.net_quantity ??
-      0;
-    return sum + (typeof used === "number" ? used : 0);
-  }, 0);
-}
-
-function formatBillingPeriod(period: { year: number; month: number }): string {
-  return `${period.year}-${String(period.month).padStart(2, "0")}`;
-}
-
-function getBillingResponsePeriod(
-  response: BillingUsageResponse,
-  fallbackPeriod: BillingPeriodQuery,
-): { year: number; month: number } {
-  const timePeriod = response.timePeriod ?? response.time_period;
-  const year = typeof timePeriod?.year === "number" ? timePeriod.year : fallbackPeriod.year;
-  const month = typeof timePeriod?.month === "number" ? timePeriod.month : fallbackPeriod.month;
-  return { year, month };
-}
-
-function toUserQuotaResultFromBilling(
-  response: BillingUsageResponse,
-  fallbackTier?: CopilotTier,
+  config: CopilotQuotaConfig,
 ): CopilotQuotaResult {
-  const premiumItems = getPremiumUsageItems(response);
-  const used = sumUsedUnits(premiumItems);
-
-  const apiLimits = premiumItems
-    .map((item) => item.limit)
-    .filter((limit): limit is number => typeof limit === "number" && limit > 0);
-
-  const total = apiLimits.length > 0 ? Math.max(...apiLimits) : fallbackTier ? COPILOT_PLAN_LIMITS[fallbackTier] : undefined;
-
-  if (!total || total <= 0) {
-    throw new Error(
-      "Copilot billing response did not include a limit. Configure copilot-quota-token.json with your tier so the plugin can compute quota totals.",
-    );
-  }
-
+  const used = parseLegacyPremiumRequestUsage(response);
+  const total = LEGACY_PREMIUM_REQUEST_TOTALS[config.tier];
   return {
     success: true,
     mode: "user_quota",
+    unit: "premium_requests",
     used,
     total,
-    percentRemaining: computePercentRemainingFromUsed({ used, total }),
-    resetTimeIso: getApproxNextResetIso(),
-  };
-}
-
-function toOrganizationUsageResultFromBilling(params: {
-  response: BillingUsageResponse;
-  organization: string;
-  username?: string;
-  billingPeriod: BillingPeriodQuery;
-}): CopilotOrganizationUsageResult {
-  const premiumItems = getPremiumUsageItems(params.response, { allowEmpty: true });
-
-  return {
-    success: true,
-    mode: "organization_usage",
-    organization: params.organization,
-    username: params.username,
-    period: getBillingResponsePeriod(params.response, params.billingPeriod),
-    used: sumUsedUnits(premiumItems),
-    resetTimeIso: getApproxNextResetIso(),
-  };
-}
-
-function toEnterpriseUsageResultFromBilling(params: {
-  response: BillingUsageResponse;
-  enterprise: string;
-  organization?: string;
-  username?: string;
-  billingPeriod: BillingPeriodQuery;
-}): CopilotEnterpriseUsageResult {
-  const premiumItems = getPremiumUsageItems(params.response, { allowEmpty: true });
-
-  return {
-    success: true,
-    mode: "enterprise_usage",
-    enterprise: params.enterprise,
-    organization: params.organization,
-    username: params.username,
-    period: getBillingResponsePeriod(params.response, params.billingPeriod),
-    used: sumUsedUnits(premiumItems),
+    percentRemaining: total ? computePercentRemainingFromUsed(used, total) : undefined,
+    plan: config.tier,
     resetTimeIso: getApproxNextResetIso(),
   };
 }
@@ -1079,11 +993,15 @@ function toQuotaError(message: string): QuotaError {
 }
 
 /**
- * Query GitHub Copilot premium request usage.
+ * Query GitHub Copilot accounting.
  *
- * PAT configuration wins over OpenCode OAuth auth when both are present.
+ * A valid local billing token config is required. OpenCode OAuth remains
+ * visible in diagnostics but is not sent to GitHub's public billing API
+ * because its billing permissions are not part of the documented contract.
  */
-export async function queryCopilotQuota(options: { requestTimeoutMs?: number } = {}): Promise<CopilotResult> {
+export async function queryCopilotQuota(
+  options: { requestTimeoutMs?: number } = {},
+): Promise<CopilotResult> {
   const pat = readQuotaConfigWithMeta();
 
   if (pat.state === "invalid") {
@@ -1091,69 +1009,36 @@ export async function queryCopilotQuota(options: { requestTimeoutMs?: number } =
       `Invalid copilot-quota-token.json: ${pat.error ?? "unknown error"}${pat.selectedPath ? ` (${pat.selectedPath})` : ""}`,
     );
   }
-
-  if (pat.state === "valid" && pat.config) {
-    const resolvedTarget = resolvePatBillingTarget(pat.config);
-    if (!resolvedTarget.target) {
-      return toQuotaError(resolvedTarget.error ?? "Unable to resolve Copilot billing scope.");
-    }
-
-    const tokenCompatibilityError = validatePatTargetCompatibility(
-      resolvedTarget.target,
-      pat.tokenKind,
-    );
-    if (tokenCompatibilityError) {
-      return toQuotaError(tokenCompatibilityError);
-    }
-
-    try {
-      const { response, billingPeriod } = await fetchPremiumRequestUsage({
-        token: pat.config.token,
-        target: resolvedTarget.target,
-        requestTimeoutMs: options.requestTimeoutMs,
-      });
-
-      if (resolvedTarget.target.scope === "organization") {
-        return toOrganizationUsageResultFromBilling({
-          response,
-          organization: resolvedTarget.target.organization,
-          username: resolvedTarget.target.username,
-          billingPeriod: billingPeriod ?? resolvedTarget.target.billingPeriod,
-        });
-      }
-
-      if (resolvedTarget.target.scope === "enterprise") {
-        return toEnterpriseUsageResultFromBilling({
-          response,
-          enterprise: resolvedTarget.target.enterprise,
-          organization: resolvedTarget.target.organization,
-          username: resolvedTarget.target.username,
-          billingPeriod: billingPeriod ?? resolvedTarget.target.billingPeriod,
-        });
-      }
-
-      return toUserQuotaResultFromBilling(response, pat.config.tier);
-    } catch (error) {
-      return toQuotaError(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  const authData = await readAuthFile();
-  const { auth } = selectCopilotAuth(authData);
-  if (!auth) {
+  if (pat.state === "absent" || !pat.config) {
     return null;
   }
 
-  const accessToken = auth.access?.trim();
-  if (!accessToken) {
-    return toQuotaError(
-      "Copilot OAuth auth is configured but missing an access token required for GitHub /copilot_internal/user.",
-    );
+  const resolved = resolvePatBillingTarget(pat.config);
+  if (!resolved.target) {
+    return toQuotaError(resolved.error ?? "Unable to resolve Copilot billing scope.");
   }
 
+  const compatibilityError = validatePatTargetCompatibility(resolved.target, pat.tokenKind);
+  if (compatibilityError) return toQuotaError(compatibilityError);
+
   try {
-    const response = await fetchCopilotInternalUser(accessToken, options.requestTimeoutMs);
-    return toUserQuotaResultFromCopilotInternal(response);
+    const billingModel = pat.config.billingModel ?? "ai_credits";
+    const { response, target } = await fetchBillingUsage({
+      token: pat.config.token,
+      target: resolved.target,
+      billingModel,
+      requestTimeoutMs: options.requestTimeoutMs,
+    });
+
+    return billingModel === "legacy_premium_requests"
+      ? toLegacyResult(response, pat.config)
+      : await toAiCreditResult({
+          response,
+          target,
+          config: pat.config,
+          token: pat.config.token,
+          requestTimeoutMs: options.requestTimeoutMs,
+        });
   } catch (error) {
     return toQuotaError(error instanceof Error ? error.message : String(error));
   }
@@ -1165,33 +1050,18 @@ export async function hasCopilotQuotaRuntimeAvailable(): Promise<boolean> {
 }
 
 export function formatCopilotQuota(result: CopilotResult): string | null {
-  if (!result || !result.success) {
-    return null;
-  }
+  if (!result || !result.success) return null;
 
+  const unit = result.unit === "ai_credits" ? "AI Credits" : "Premium Requests";
   if (result.mode === "organization_usage") {
-    const details = [`${result.used} used`, formatBillingPeriod(result.period)];
-    if (result.username) {
-      details.push(`user=${result.username}`);
-    }
-    return `Copilot Org (${result.organization}) ${details.join(" | ")}`;
+    return `Copilot Org (${result.organization}) ${result.used} ${unit} | ${formatBillingPeriod(result.period)}`;
   }
-
   if (result.mode === "enterprise_usage") {
-    const details = [`${result.used} used`, formatBillingPeriod(result.period)];
-    if (result.organization) {
-      details.push(`org=${result.organization}`);
-    }
-    if (result.username) {
-      details.push(`user=${result.username}`);
-    }
-    return `Copilot Enterprise (${result.enterprise}) ${details.join(" | ")}`;
+    return `Copilot Enterprise (${result.enterprise}) ${result.used} ${unit} | ${formatBillingPeriod(result.period)}`;
   }
-
-  if (result.unlimited) {
-    return "Copilot Unlimited";
+  if (result.unlimited) return `Copilot ${unit} Unlimited`;
+  if (result.total !== undefined) {
+    return `Copilot ${unit} ${result.used}/${result.total}`;
   }
-
-  const percentUsed = 100 - result.percentRemaining;
-  return `Copilot ${result.used}/${result.total} (${percentUsed}%)`;
+  return `Copilot ${unit} ${result.used} used`;
 }

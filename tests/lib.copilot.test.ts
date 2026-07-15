@@ -32,15 +32,44 @@ vi.mock("../src/lib/opencode-auth.js", () => ({
 }));
 
 const patPath = "/home/test/.config/opencode/copilot-quota-token.json";
-const realEnv = process.env;
 
-describe("queryCopilotQuota", () => {
+function configure(value: Record<string, unknown>): void {
+  fsMocks.existsSync.mockImplementation((path) => path === patPath);
+  fsMocks.readFileSync.mockReturnValue(JSON.stringify(value));
+}
+
+function aiUsage(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    timePeriod: { year: 2026, month: 1 },
+    usageItems: [
+      {
+        product: "Copilot AI Credits",
+        sku: "AI Credit",
+        unitType: "ai-credits",
+        grossQuantity: 100,
+        discountQuantity: 80,
+        netQuantity: 20,
+        netAmount: 0.2,
+        ...overrides,
+      },
+    ],
+  };
+}
+
+function json(data: unknown, init: ResponseInit = {}): Response {
+  return new Response(JSON.stringify(data), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+    ...init,
+  });
+}
+
+describe("GitHub Copilot AI Credit accounting", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.restoreAllMocks();
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));
-    process.env = { ...realEnv };
     fsMocks.existsSync.mockReset();
     fsMocks.existsSync.mockReturnValue(false);
     fsMocks.readFileSync.mockReset();
@@ -50,338 +79,49 @@ describe("queryCopilotQuota", () => {
   });
 
   afterEach(() => {
-    process.env = realEnv;
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
-  it("returns null when no PAT config and no OpenCode Copilot auth exist", async () => {
+  it("returns null without the trusted local billing-token config", async () => {
+    authMocks.readAuthFile.mockResolvedValue({
+      "github-copilot": { type: "oauth", access: "oauth-token" },
+    });
     const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-
     await expect(queryCopilotQuota()).resolves.toBeNull();
   });
 
-  it("prefers PAT billing config over OpenCode auth when both exist", async () => {
-    fsMocks.existsSync.mockImplementation((path) => path === patPath);
-    fsMocks.readFileSync.mockReturnValue(
-      JSON.stringify({
-        token: "github_pat_123456789",
-        tier: "pro",
-        username: "alice",
-      }),
-    );
-    authMocks.readAuthFile.mockResolvedValueOnce({
-      "github-copilot": { type: "oauth", access: "oauth_access_token" },
+  it("keeps the trusted billing token authoritative when OpenCode OAuth is also configured", async () => {
+    configure({
+      token: "github_pat_personal",
+      tier: "pro",
+      username: "alice",
     });
-
-    const fetchMock = vi.fn(async (url: unknown) => {
-      const target = String(url);
-
-      if (target.includes("/users/alice/settings/billing/premium_request/usage")) {
-        return new Response(
-          JSON.stringify({
-            usageItems: [
-              {
-                sku: "Copilot Premium Request",
-                grossQuantity: 42,
-                limit: 300,
-              },
-            ],
-          }),
-          { status: 200 },
-        );
-      }
-
-      return new Response("not found", { status: 404 });
+    authMocks.readAuthFile.mockResolvedValue({
+      "github-copilot": { type: "oauth", access: "oauth-token" },
     });
-
+    const fetchMock = vi.fn(async () => json(aiUsage()));
     vi.stubGlobal("fetch", fetchMock as any);
 
     const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    const result = await queryCopilotQuota();
-
-    expect(result).toEqual({
+    await expect(queryCopilotQuota()).resolves.toMatchObject({
       success: true,
       mode: "user_quota",
-      used: 42,
-      total: 300,
-      percentRemaining: 86,
-      resetTimeIso: "2026-02-01T00:00:00.000Z",
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
-      "/users/alice/settings/billing/premium_request/usage",
-    );
-  });
-
-  it("uses /copilot_internal/user when OAuth is present and PAT is absent", async () => {
-    authMocks.readAuthFile.mockResolvedValueOnce({
-      "github-copilot-chat": { type: "oauth", access: "oauth_access_token", refresh: "refresh" },
+      unit: "ai_credits",
     });
 
-    const fetchMock = vi.fn(async (url: unknown, init?: RequestInit) => {
-      const target = String(url);
-
-      if (target === "https://api.github.com/copilot_internal/user") {
-        expect(init?.headers).toMatchObject({
-          Authorization: "Bearer oauth_access_token",
-        });
-        return new Response(
-          JSON.stringify({
-            quota: {
-              used: 12,
-              limit: 300,
-              reset_at: "2026-02-01T00:00:00.000Z",
-            },
-          }),
-          { status: 200 },
-        );
-      }
-
-      return new Response("not found", { status: 404 });
-    });
-
-    vi.stubGlobal("fetch", fetchMock as any);
-
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    const result = await queryCopilotQuota();
-
-    expect(result).toEqual({
-      success: true,
-      mode: "user_quota",
-      used: 12,
-      total: 300,
-      percentRemaining: 96,
-      resetTimeIso: "2026-02-01T00:00:00.000Z",
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://api.github.com/copilot_internal/user");
-  });
-
-  it("allows negative percentRemaining when /copilot_internal/user reports usage above the quota total", async () => {
-    authMocks.readAuthFile.mockResolvedValueOnce({
-      "github-copilot-chat": { type: "oauth", access: "oauth_access_token", refresh: "refresh" },
-    });
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            quota: {
-              used: 360,
-              limit: 300,
-              reset_at: "2026-02-01T00:00:00.000Z",
-            },
-          }),
-          { status: 200 },
-        ),
-      ) as any,
-    );
-
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    const result = await queryCopilotQuota();
-
-    expect(result).toEqual({
-      success: true,
-      mode: "user_quota",
-      used: 360,
-      total: 300,
-      percentRemaining: -20,
-      resetTimeIso: "2026-02-01T00:00:00.000Z",
+    expect(authMocks.readAuthFile).not.toHaveBeenCalled();
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.headers).toMatchObject({
+      Authorization: "Bearer github_pat_personal",
     });
   });
 
-  it("parses premium_interactions from /copilot_internal/user quota_snapshots", async () => {
-    authMocks.readAuthFile.mockResolvedValueOnce({
-      "github-copilot": { type: "oauth", access: "oauth_access_token", refresh: "refresh" },
+  it("does not fall back to OpenCode OAuth when the trusted billing config is invalid", async () => {
+    configure({ token: "github_pat_invalid" });
+    authMocks.readAuthFile.mockResolvedValue({
+      "github-copilot": { type: "oauth", access: "oauth-token" },
     });
-
-    const fetchMock = vi.fn(async (url: unknown, init?: RequestInit) => {
-      const target = String(url);
-
-      if (target === "https://api.github.com/copilot_internal/user") {
-        expect(init?.headers).toMatchObject({
-          Authorization: "Bearer oauth_access_token",
-        });
-        return new Response(
-          JSON.stringify({
-            login: "slkiser",
-            access_type_sku: "free_educational_quota",
-            copilot_plan: "individual",
-            quota_reset_date: "2026-04-01",
-            quota_reset_date_utc: "2026-04-01T00:00:00.000Z",
-            quota_snapshots: {
-              premium_interactions: {
-                entitlement: 300,
-                quota_remaining: 230,
-                remaining: 230,
-                unlimited: false,
-              },
-            },
-          }),
-          { status: 200 },
-        );
-      }
-
-      return new Response("not found", { status: 404 });
-    });
-
-    vi.stubGlobal("fetch", fetchMock as any);
-
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    const result = await queryCopilotQuota();
-
-    expect(result).toEqual({
-      success: true,
-      mode: "user_quota",
-      used: 70,
-      total: 300,
-      percentRemaining: 76,
-      resetTimeIso: "2026-04-01T00:00:00.000Z",
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://api.github.com/copilot_internal/user");
-  });
-
-  it("uses explicit percent_remaining from /copilot_internal/user when present", async () => {
-    authMocks.readAuthFile.mockResolvedValueOnce({
-      "github-copilot": { type: "oauth", access: "oauth_access_token", refresh: "refresh" },
-    });
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            quota_reset_date_utc: "2026-05-01T00:00:00.000Z",
-            quota_snapshots: {
-              premium_interactions: {
-                entitlement: 1500,
-                remaining: 401,
-                percent_remaining: 26.7,
-                unlimited: false,
-              },
-            },
-          }),
-          { status: 200 },
-        ),
-      ) as any,
-    );
-
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    const result = await queryCopilotQuota();
-
-    expect(result).toEqual({
-      success: true,
-      mode: "user_quota",
-      used: 1099,
-      total: 1500,
-      percentRemaining: 26,
-      resetTimeIso: "2026-05-01T00:00:00.000Z",
-    });
-  });
-
-  it("preserves explicit negative percent_remaining for over-quota responses", async () => {
-    authMocks.readAuthFile.mockResolvedValueOnce({
-      "github-copilot": { type: "oauth", access: "oauth_access_token", refresh: "refresh" },
-    });
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            quota_reset_date_utc: "2026-05-01T00:00:00.000Z",
-            quota_snapshots: {
-              premium_interactions: {
-                entitlement: 300,
-                remaining: -60,
-                percent_remaining: -20,
-                unlimited: false,
-              },
-            },
-          }),
-          { status: 200 },
-        ),
-      ) as any,
-    );
-
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    const result = await queryCopilotQuota();
-
-    expect(result).toEqual({
-      success: true,
-      mode: "user_quota",
-      used: 360,
-      total: 300,
-      percentRemaining: -20,
-      resetTimeIso: "2026-05-01T00:00:00.000Z",
-    });
-  });
-
-  it("treats explicit unlimited premium_interactions as unlimited", async () => {
-    authMocks.readAuthFile.mockResolvedValueOnce({
-      "github-copilot": { type: "oauth", access: "oauth_access_token", refresh: "refresh" },
-    });
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            quota_reset_date_utc: "2026-04-01T00:00:00.000Z",
-            quota_snapshots: {
-              premium_interactions: {
-                entitlement: 1,
-                remaining: 1,
-                percent_remaining: 100,
-                unlimited: true,
-              },
-            },
-          }),
-          { status: 200 },
-        ),
-      ) as any,
-    );
-
-    const { formatCopilotQuota, queryCopilotQuota } = await import("../src/lib/copilot.js");
-    const result = await queryCopilotQuota();
-
-    expect(result).toEqual({
-      success: true,
-      mode: "user_quota",
-      used: 0,
-      total: 1,
-      percentRemaining: 100,
-      unlimited: true,
-      resetTimeIso: "2026-04-01T00:00:00.000Z",
-    });
-    expect(formatCopilotQuota(result)).toBe("Copilot Unlimited");
-  });
-
-  it("returns a clear error when OAuth auth exists without an access token", async () => {
-    authMocks.readAuthFile.mockResolvedValueOnce({
-      "github-copilot": { type: "oauth", refresh: "refresh_only" },
-    });
-
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    const result = await queryCopilotQuota();
-
-    expect(result).toEqual({
-      success: false,
-      error:
-        "Copilot OAuth auth is configured but missing an access token required for GitHub /copilot_internal/user.",
-    });
-  });
-
-  it("does not fall back to OpenCode auth when PAT config is invalid", async () => {
-    fsMocks.existsSync.mockImplementation((path) => path === patPath);
-    fsMocks.readFileSync.mockReturnValue(JSON.stringify({ token: "github_pat_123456789" }));
-    authMocks.readAuthFile.mockResolvedValueOnce({
-      "github-copilot": { type: "oauth", access: "oauth_access_token" },
-    });
-
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock as any);
 
@@ -391,331 +131,105 @@ describe("queryCopilotQuota", () => {
     expect(result && !result.success ? result.error : "").toContain(
       "Invalid copilot-quota-token.json",
     );
+    expect(authMocks.readAuthFile).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("errors when business tier config omits organization", async () => {
-    fsMocks.existsSync.mockImplementation((path) => path === patPath);
-    fsMocks.readFileSync.mockReturnValue(
-      JSON.stringify({
-        token: "github_pat_123456789",
-        tier: "business",
-      }),
-    );
-
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    const result = await queryCopilotQuota();
-
-    expect(result && !result.success ? result.error : "").toContain(
-      'Add "organization": "your-org-slug"',
-    );
-  });
-
-  it("uses the documented organization billing endpoint with current billing period params when organization is configured", async () => {
-    fsMocks.existsSync.mockImplementation((path) => path === patPath);
-    fsMocks.readFileSync.mockReturnValue(
-      JSON.stringify({
-        token: "github_pat_123456789",
-        tier: "business",
-        organization: "acme-corp",
-        username: "alice",
-      }),
-    );
-
-    const fetchMock = vi.fn(async (url: unknown) => {
-      const target = new URL(String(url));
-
-      if (
-        target.pathname ===
-        "/organizations/acme-corp/settings/billing/premium_request/usage" &&
-        target.searchParams.get("year") === "2026" &&
-        target.searchParams.get("month") === "1" &&
-        target.searchParams.get("user") === "alice" &&
-        target.searchParams.get("day") === null
-      ) {
-        return new Response(
-          JSON.stringify({
-            organization: "acme-corp",
-            usageItems: [
-              {
-                sku: "Copilot Premium Request",
-                grossQuantity: 9,
-              },
-            ],
-          }),
-          { status: 200 },
-        );
-      }
-
-      return new Response("not found", { status: 404 });
-    });
-
-    vi.stubGlobal("fetch", fetchMock as any);
-
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    const result = await queryCopilotQuota();
-
-    expect(result).toEqual({
-      success: true,
-      mode: "organization_usage",
-      organization: "acme-corp",
+  it("uses the personal AI Credit endpoint and required 2026-03-10 headers", async () => {
+    configure({
+      token: "github_pat_personal",
+      tier: "max",
       username: "alice",
-      period: {
-        year: 2026,
-        month: 1,
-      },
-      used: 9,
+    });
+    const fetchMock = vi.fn(async () => json(aiUsage()));
+    vi.stubGlobal("fetch", fetchMock as any);
+
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    await expect(queryCopilotQuota()).resolves.toEqual({
+      success: true,
+      mode: "user_quota",
+      unit: "ai_credits",
+      used: 100,
+      includedUsed: 80,
+      billedUsed: 20,
+      billedAmountUsd: 0.2,
+      total: 20000,
+      percentRemaining: 99,
+      plan: "max",
       resetTimeIso: "2026-02-01T00:00:00.000Z",
     });
-    const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
-    expect(requestUrl.pathname).toBe(
-      "/organizations/acme-corp/settings/billing/premium_request/usage",
-    );
-    expect(requestUrl.searchParams.get("year")).toBe("2026");
-    expect(requestUrl.searchParams.get("month")).toBe("1");
-    expect(requestUrl.searchParams.get("user")).toBe("alice");
-    expect(requestUrl.searchParams.get("day")).toBeNull();
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const target = new URL(String(url));
+    expect(target.pathname).toBe("/users/alice/settings/billing/ai_credit/usage");
+    expect(target.searchParams.get("year")).toBe("2026");
+    expect(target.searchParams.get("month")).toBe("1");
+    expect(target.searchParams.get("product")).toBeNull();
+    expect(init.headers).toMatchObject({
+      Accept: "application/vnd.github+json",
+      Authorization: "Bearer github_pat_personal",
+      "X-GitHub-Api-Version": "2026-03-10",
+    });
   });
 
-  it("treats organization business usage as usage-only when no real limit is available", async () => {
-    fsMocks.existsSync.mockImplementation((path) => path === patPath);
-    fsMocks.readFileSync.mockReturnValue(
-      JSON.stringify({
-        token: "github_pat_123456789",
-        tier: "business",
-        organization: "acme-corp",
-      }),
-    );
-
+  it("resolves the personal username with the same versioned public REST contract", async () => {
+    configure({ token: "ghp_classic", tier: "pro" });
     const fetchMock = vi.fn(async (url: unknown) => {
-      const target = new URL(String(url));
-
-      if (
-        target.pathname ===
-        "/organizations/acme-corp/settings/billing/premium_request/usage" &&
-        target.searchParams.get("year") === "2026" &&
-        target.searchParams.get("month") === "1" &&
-        target.searchParams.get("user") === null
-      ) {
-        return new Response(
-          JSON.stringify({
-            organization: "acme-corp",
-            usageItems: [
-              {
-                sku: "Copilot Premium Request",
-                grossQuantity: 27,
-              },
-            ],
-          }),
-          { status: 200 },
-        );
-      }
-
+      const path = new URL(String(url)).pathname;
+      if (path === "/user") return json({ login: "alice" });
+      if (path === "/users/alice/settings/billing/ai_credit/usage") return json(aiUsage());
       return new Response("not found", { status: 404 });
     });
-
     vi.stubGlobal("fetch", fetchMock as any);
 
     const { queryCopilotQuota } = await import("../src/lib/copilot.js");
     const result = await queryCopilotQuota();
-
-    expect(result).toEqual({
-      success: true,
-      mode: "organization_usage",
-      organization: "acme-corp",
-      username: undefined,
-      period: {
-        year: 2026,
-        month: 1,
-      },
-      used: 27,
-      resetTimeIso: "2026-02-01T00:00:00.000Z",
-    });
-    expect(result && result.success && "total" in result).toBe(false);
-    expect(result && result.success && "percentRemaining" in result).toBe(false);
+    expect(result && result.success && result.mode === "user_quota" ? result.total : null).toBe(
+      1500,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("treats empty organization usageItems as zero usage instead of an error", async () => {
-    fsMocks.existsSync.mockImplementation((path) => path === patPath);
-    fsMocks.readFileSync.mockReturnValue(
-      JSON.stringify({
-        token: "github_pat_123456789",
-        tier: "business",
-        organization: "acme-corp",
-      }),
-    );
-
-    const fetchMock = vi.fn(async (url: unknown) => {
-      const target = new URL(String(url));
-
-      if (
-        target.pathname ===
-          "/organizations/acme-corp/settings/billing/premium_request/usage" &&
-        target.searchParams.get("year") === "2026" &&
-        target.searchParams.get("month") === "1"
-      ) {
-        return new Response(
-          JSON.stringify({
-            organization: "acme-corp",
-            usageItems: [],
-          }),
-          { status: 200 },
-        );
-      }
-
-      return new Response("not found", { status: 404 });
-    });
-
-    vi.stubGlobal("fetch", fetchMock as any);
+  it("keeps Student value-only because GitHub documents no concrete Student allowance", async () => {
+    configure({ token: "github_pat_student", tier: "student", username: "student" });
+    vi.stubGlobal("fetch", vi.fn(async () => json(aiUsage())) as any);
 
     const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    const result = await queryCopilotQuota();
-
-    expect(result).toEqual({
+    await expect(queryCopilotQuota()).resolves.toEqual({
       success: true,
-      mode: "organization_usage",
-      organization: "acme-corp",
-      username: undefined,
-      period: {
-        year: 2026,
-        month: 1,
-      },
-      used: 0,
+      mode: "user_quota",
+      unit: "ai_credits",
+      used: 100,
+      includedUsed: 80,
+      billedUsed: 20,
+      billedAmountUsd: 0.2,
+      total: undefined,
+      percentRemaining: undefined,
+      plan: "student",
       resetTimeIso: "2026-02-01T00:00:00.000Z",
     });
   });
 
-  it("uses the documented enterprise billing endpoint with optional organization and user filters", async () => {
-    fsMocks.existsSync.mockImplementation((path) => path === patPath);
-    fsMocks.readFileSync.mockReturnValue(
-      JSON.stringify({
-        token: "ghp_classic_pat",
-        tier: "enterprise",
-        enterprise: "acme-enterprise",
-        organization: "acme-corp",
-        username: "alice",
-      }),
-    );
-
-    const fetchMock = vi.fn(async (url: unknown) => {
-      const target = new URL(String(url));
-
-      if (
-        target.pathname ===
-          "/enterprises/acme-enterprise/settings/billing/premium_request/usage" &&
-        target.searchParams.get("year") === "2026" &&
-        target.searchParams.get("month") === "1" &&
-        target.searchParams.get("organization") === "acme-corp" &&
-        target.searchParams.get("user") === "alice" &&
-        target.searchParams.get("day") === null
-      ) {
-        return new Response(
-          JSON.stringify({
-            enterprise: "acme-enterprise",
-            usageItems: [
-              {
-                sku: "Copilot Premium Request",
-                grossQuantity: 13,
-              },
-            ],
-          }),
-          { status: 200 },
-        );
-      }
-
-      return new Response("not found", { status: 404 });
-    });
-
+  it("supports GitHub App user tokens for personal reports but rejects installation tokens", async () => {
+    configure({ token: "ghu_user_token", tier: "pro", username: "alice" });
+    const fetchMock = vi.fn(async () => json(aiUsage()));
     vi.stubGlobal("fetch", fetchMock as any);
 
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    const result = await queryCopilotQuota();
+    let module = await import("../src/lib/copilot.js");
+    await expect(module.queryCopilotQuota()).resolves.toMatchObject({ success: true });
+    expect(fetchMock).toHaveBeenCalledOnce();
 
-    expect(result).toEqual({
-      success: true,
-      mode: "enterprise_usage",
-      enterprise: "acme-enterprise",
-      organization: "acme-corp",
-      username: "alice",
-      period: {
-        year: 2026,
-        month: 1,
-      },
-      used: 13,
-      resetTimeIso: "2026-02-01T00:00:00.000Z",
-    });
-    const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
-    expect(requestUrl.pathname).toBe(
-      "/enterprises/acme-enterprise/settings/billing/premium_request/usage",
+    vi.resetModules();
+    configure({ token: "ghs_installation_token", tier: "pro", username: "alice" });
+    module = await import("../src/lib/copilot.js");
+    const rejected = await module.queryCopilotQuota();
+    expect(rejected && !rejected.success ? rejected.error : "").toContain(
+      "not GitHub App installation access tokens",
     );
-    expect(requestUrl.searchParams.get("year")).toBe("2026");
-    expect(requestUrl.searchParams.get("month")).toBe("1");
-    expect(requestUrl.searchParams.get("organization")).toBe("acme-corp");
-    expect(requestUrl.searchParams.get("user")).toBe("alice");
-    expect(requestUrl.searchParams.get("day")).toBeNull();
   });
 
-  it("treats empty enterprise usageItems as zero usage instead of an error", async () => {
-    fsMocks.existsSync.mockImplementation((path) => path === patPath);
-    fsMocks.readFileSync.mockReturnValue(
-      JSON.stringify({
-        token: "ghp_classic_pat",
-        tier: "enterprise",
-        enterprise: "acme-enterprise",
-      }),
-    );
-
-    const fetchMock = vi.fn(async (url: unknown) => {
-      const target = new URL(String(url));
-
-      if (
-        target.pathname ===
-          "/enterprises/acme-enterprise/settings/billing/premium_request/usage" &&
-        target.searchParams.get("year") === "2026" &&
-        target.searchParams.get("month") === "1"
-      ) {
-        return new Response(
-          JSON.stringify({
-            enterprise: "acme-enterprise",
-            usageItems: [],
-          }),
-          { status: 200 },
-        );
-      }
-
-      return new Response("not found", { status: 404 });
-    });
-
-    vi.stubGlobal("fetch", fetchMock as any);
-
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    const result = await queryCopilotQuota();
-
-    expect(result).toEqual({
-      success: true,
-      mode: "enterprise_usage",
-      enterprise: "acme-enterprise",
-      organization: undefined,
-      username: undefined,
-      period: {
-        year: 2026,
-        month: 1,
-      },
-      used: 0,
-      resetTimeIso: "2026-02-01T00:00:00.000Z",
-    });
-  });
-
-  it("rejects fine-grained PATs for enterprise billing before making a request", async () => {
-    fsMocks.existsSync.mockImplementation((path) => path === patPath);
-    fsMocks.readFileSync.mockReturnValue(
-      JSON.stringify({
-        token: "github_pat_123456789",
-        tier: "enterprise",
-        enterprise: "acme-enterprise",
-      }),
-    );
-
+  it("rejects Business accounting without the required organization scope", async () => {
+    configure({ token: "github_pat_business", tier: "business" });
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock as any);
 
@@ -723,223 +237,401 @@ describe("queryCopilotQuota", () => {
     const result = await queryCopilotQuota();
 
     expect(result && !result.success ? result.error : "").toContain(
-      "does not support fine-grained personal access tokens",
+      'Copilot Business AI Credit usage requires "organization"',
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("handles snake_case billing response fields", async () => {
-    fsMocks.existsSync.mockImplementation((path) => path === patPath);
-    fsMocks.readFileSync.mockReturnValue(
-      JSON.stringify({
-        token: "github_pat_123456789",
-        tier: "pro",
+  it("uses organization AI Credit and budget endpoints for fine-grained PATs and App installations", async () => {
+    for (const token of ["github_pat_org", "ghs_installation"]) {
+      vi.resetModules();
+      configure({
+        token,
+        tier: "business",
+        organization: "acme",
         username: "alice",
-      }),
-    );
-
-    const fetchMock = vi.fn(async (url: unknown) => {
-      const target = String(url);
-
-      if (target.includes("/users/alice/settings/billing/premium_request/usage")) {
-        return new Response(
-          JSON.stringify({
-            usage_items: [
+      });
+      const fetchMock = vi.fn(async (url: unknown) => {
+        const target = new URL(String(url));
+        if (target.pathname === "/organizations/acme/settings/billing/ai_credit/usage") {
+          return json({ ...aiUsage(), organization: "acme" });
+        }
+        if (target.pathname === "/organizations/acme/settings/billing/budgets") {
+          return json({
+            budgets: [
               {
-                sku: "Copilot Premium Request",
-                gross_quantity: 9,
-                limit: 300,
+                id: "budget-1",
+                budget_type: "BundlePricing",
+                budget_product_skus: ["ai_credits"],
+                budget_scope: "user",
+                budget_entity_name: "alice",
+                budget_amount: 1,
               },
             ],
-          }),
-          { status: 200 },
-        );
-      }
+            has_next_page: false,
+          });
+        }
+        return new Response("not found", { status: 404 });
+      });
+      vi.stubGlobal("fetch", fetchMock as any);
 
-      return new Response("not found", { status: 404 });
-    });
+      const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+      await expect(queryCopilotQuota()).resolves.toEqual({
+        success: true,
+        mode: "organization_usage",
+        organization: "acme",
+        username: "alice",
+        period: { year: 2026, month: 1 },
+        unit: "ai_credits",
+        used: 100,
+        includedUsed: 80,
+        billedUsed: 20,
+        billedAmountUsd: 0.2,
+        budget: {
+          amountUsd: 1,
+          spentUsd: 0.2,
+          scope: "user",
+          percentRemaining: 80,
+        },
+        warnings: undefined,
+        resetTimeIso: "2026-02-01T00:00:00.000Z",
+      });
 
-    vi.stubGlobal("fetch", fetchMock as any);
-
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    const result = await queryCopilotQuota();
-
-    expect(result).toEqual({
-      success: true,
-      mode: "user_quota",
-      used: 9,
-      total: 300,
-      percentRemaining: 97,
-      resetTimeIso: "2026-02-01T00:00:00.000Z",
-    });
+      const usageUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+      expect(usageUrl.searchParams.get("user")).toBe("alice");
+      const budgetUrl = new URL(String(fetchMock.mock.calls[1]?.[0]));
+      expect(budgetUrl.searchParams.get("user")).toBe("alice");
+      expect(budgetUrl.searchParams.get("per_page")).toBe("100");
+    }
   });
 
-  it("uses net_quantity when gross_quantity is absent", async () => {
-    fsMocks.existsSync.mockImplementation((path) => path === patPath);
-    fsMocks.readFileSync.mockReturnValue(
-      JSON.stringify({
-        token: "github_pat_123456789",
-        tier: "business",
-        organization: "acme-corp",
-      }),
+  it("treats empty organization AI Credit usage as zero instead of an error", async () => {
+    configure({ token: "github_pat_org", tier: "business", organization: "acme" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown) => {
+        const path = new URL(String(url)).pathname;
+        if (path.endsWith("/ai_credit/usage")) {
+          return json({
+            timePeriod: { year: 2026, month: 1 },
+            organization: "acme",
+            usageItems: [],
+          });
+        }
+        return json({ budgets: [], has_next_page: false });
+      }) as any,
     );
 
-    const fetchMock = vi.fn(async (url: unknown) => {
-      const target = String(url);
-
-      if (target.includes("/organizations/acme-corp/settings/billing/premium_request/usage")) {
-        return new Response(
-          JSON.stringify({
-            usage_items: [
-              {
-                sku: "Copilot Premium Request",
-                net_quantity: 11,
-              },
-            ],
-          }),
-          { status: 200 },
-        );
-      }
-
-      return new Response("not found", { status: 404 });
-    });
-
-    vi.stubGlobal("fetch", fetchMock as any);
-
     const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    const result = await queryCopilotQuota();
-
-    expect(result).toEqual({
+    await expect(queryCopilotQuota()).resolves.toMatchObject({
       success: true,
       mode: "organization_usage",
-      organization: "acme-corp",
-      username: undefined,
-      period: {
-        year: 2026,
-        month: 1,
-      },
-      used: 11,
-      resetTimeIso: "2026-02-01T00:00:00.000Z",
+      organization: "acme",
+      unit: "ai_credits",
+      used: 0,
+      includedUsed: 0,
+      billedUsed: 0,
     });
   });
 
-  it("errors when billing response contains no premium request SKU", async () => {
-    fsMocks.existsSync.mockImplementation((path) => path === patPath);
-    fsMocks.readFileSync.mockReturnValue(
-      JSON.stringify({
-        token: "github_pat_123456789",
-        tier: "pro",
-        username: "alice",
-      }),
+  it("keeps a zero-dollar budget value-only instead of inventing a percentage", async () => {
+    configure({ token: "github_pat_org", tier: "business", organization: "acme" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown) => {
+        const path = new URL(String(url)).pathname;
+        if (path.endsWith("/ai_credit/usage")) return json(aiUsage());
+        return json({
+          budgets: [
+            {
+              budget_type: "BundlePricing",
+              budget_product_skus: ["ai_credits"],
+              budget_scope: "organization",
+              budget_amount: 0,
+            },
+          ],
+          has_next_page: false,
+        });
+      }) as any,
     );
 
-    const fetchMock = vi.fn(async (url: unknown) => {
-      const target = String(url);
-
-      if (target.includes("/users/alice/settings/billing/premium_request/usage")) {
-        return new Response(
-          JSON.stringify({
-            usageItems: [
-              {
-                sku: "Some Other SKU",
-                grossQuantity: 5,
-              },
-            ],
-          }),
-          { status: 200 },
-        );
-      }
-
-      return new Response("not found", { status: 404 });
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    const result = await queryCopilotQuota();
+    expect(
+      result && result.success && result.mode === "organization_usage" ? result.budget : null,
+    ).toEqual({
+      amountUsd: 0,
+      spentUsd: 0.2,
+      scope: "organization",
+      percentRemaining: undefined,
     });
+  });
 
+  it("uses the enterprise AI Credit path with optional organization and user filters for classic PATs", async () => {
+    configure({
+      token: "ghp_classic",
+      tier: "enterprise",
+      enterprise: "octo",
+      organization: "acme",
+      username: "alice",
+    });
+    const fetchMock = vi.fn(async (url: unknown) => {
+      const path = new URL(String(url)).pathname;
+      if (path.endsWith("/ai_credit/usage")) return json(aiUsage());
+      return json({
+        budgets: [
+          {
+            budget_type: "BundlePricing",
+            budget_product_skus: ["ai_credits"],
+            budget_scope: "enterprise",
+            budget_amount: 5,
+          },
+        ],
+        has_next_page: false,
+      });
+    });
     vi.stubGlobal("fetch", fetchMock as any);
 
     const { queryCopilotQuota } = await import("../src/lib/copilot.js");
     const result = await queryCopilotQuota();
-
-    expect(result && !result.success ? result.error : "").toContain(
-      "No premium-request items found",
-    );
+    expect(result).toMatchObject({
+      success: true,
+      mode: "enterprise_usage",
+      enterprise: "octo",
+      organization: "acme",
+      username: "alice",
+      budget: { amountUsd: 5, spentUsd: 0.2, percentRemaining: 96 },
+    });
+    const usageUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(usageUrl.pathname).toBe("/enterprises/octo/settings/billing/ai_credit/usage");
+    expect(usageUrl.searchParams.get("organization")).toBe("acme");
+    expect(usageUrl.searchParams.get("user")).toBe("alice");
   });
 
-  it("surfaces PAT precedence and organization details in diagnostics", async () => {
-    fsMocks.existsSync.mockImplementation((path) => path === patPath);
-    fsMocks.readFileSync.mockReturnValue(
-      JSON.stringify({
-        token: "github_pat_123456789",
-        tier: "business",
-        organization: "acme-corp",
+  it("treats empty enterprise AI Credit usage as zero instead of an error", async () => {
+    configure({ token: "ghp_classic", tier: "enterprise", enterprise: "octo" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown) => {
+        const path = new URL(String(url)).pathname;
+        if (path.endsWith("/ai_credit/usage")) {
+          return json({
+            timePeriod: { year: 2026, month: 1 },
+            enterprise: "octo",
+            usageItems: [],
+          });
+        }
+        return json({ budgets: [], has_next_page: false });
+      }) as any,
+    );
+
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    await expect(queryCopilotQuota()).resolves.toMatchObject({
+      success: true,
+      mode: "enterprise_usage",
+      enterprise: "octo",
+      unit: "ai_credits",
+      used: 0,
+      includedUsed: 0,
+      billedUsed: 0,
+    });
+  });
+
+  it.each(["github_pat_enterprise", "ghu_enterprise", "ghs_enterprise"])(
+    "rejects unsupported fine-grained/App token type %s for enterprise reports",
+    async (token) => {
+      configure({ token, tier: "enterprise", enterprise: "octo" });
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock as any);
+
+      const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+      const result = await queryCopilotQuota();
+      expect(result && !result.success ? result.error : "").toContain(
+        "do not support fine-grained PATs or GitHub App access tokens",
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("allows legacy PRUs only for explicitly selected Pro/Pro+ annual-plan eligibility", async () => {
+    configure({
+      token: "github_pat_legacy",
+      tier: "pro+",
+      billingModel: "legacy_premium_requests",
+      username: "alice",
+    });
+    const fetchMock = vi.fn(async () =>
+      json({
+        usageItems: [
+          {
+            product: "Copilot",
+            sku: "Copilot Premium Request",
+            unitType: "requests",
+            grossQuantity: 150,
+          },
+        ],
       }),
     );
+    vi.stubGlobal("fetch", fetchMock as any);
 
-    const { getCopilotQuotaAuthDiagnostics } = await import("../src/lib/copilot.js");
-    const diagnostics = getCopilotQuotaAuthDiagnostics({
-      "github-copilot": { type: "oauth", access: "oauth_access_token" },
+    let module = await import("../src/lib/copilot.js");
+    await expect(module.queryCopilotQuota()).resolves.toEqual({
+      success: true,
+      mode: "user_quota",
+      unit: "premium_requests",
+      used: 150,
+      total: 1500,
+      percentRemaining: 90,
+      plan: "pro+",
+      resetTimeIso: "2026-02-01T00:00:00.000Z",
     });
+    expect(new URL(String(fetchMock.mock.calls[0]?.[0])).pathname).toBe(
+      "/users/alice/settings/billing/premium_request/usage",
+    );
 
-    expect(diagnostics.pat.state).toBe("valid");
-    expect(diagnostics.pat.config?.organization).toBe("acme-corp");
-    expect(diagnostics.oauth.configured).toBe(true);
-    expect(diagnostics.effectiveSource).toBe("pat");
-    expect(diagnostics.override).toBe("pat_overrides_oauth");
-    expect(diagnostics.quotaApi).toBe("github_billing_api");
-    expect(diagnostics.billingMode).toBe("organization_usage");
-    expect(diagnostics.billingScope).toBe("organization");
-    expect(diagnostics.billingApiAccessLikely).toBe(true);
-    expect(diagnostics.remainingTotalsState).toBe("not_available_from_org_usage");
-    expect(diagnostics.queryPeriod).toEqual({ year: 2026, month: 1 });
+    vi.resetModules();
+    configure({
+      token: "github_pat_legacy",
+      tier: "max",
+      billingModel: "legacy_premium_requests",
+      username: "alice",
+    });
+    module = await import("../src/lib/copilot.js");
+    const rejected = await module.queryCopilotQuota();
+    expect(rejected && !rejected.success ? rejected.error : "").toContain(
+      "only available to Copilot Pro or Pro+",
+    );
   });
 
-  it("treats an invalid PAT as blocking even when OAuth auth is configured", async () => {
-    fsMocks.existsSync.mockImplementation((path) => path === patPath);
-    fsMocks.readFileSync.mockReturnValue(JSON.stringify({ token: "github_pat_123456789" }));
+  it("keeps successful AI Credit usage when the optional budget response is forbidden", async () => {
+    configure({ token: "github_pat_org", tier: "business", organization: "acme" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown) => {
+        const path = new URL(String(url)).pathname;
+        if (path.endsWith("/ai_credit/usage")) return json(aiUsage());
+        return json(
+          { message: "Resource not accessible by personal access token" },
+          { status: 403 },
+        );
+      }) as any,
+    );
 
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    const result = await queryCopilotQuota();
+    expect(result).toMatchObject({
+      success: true,
+      mode: "organization_usage",
+      used: 100,
+      budget: undefined,
+    });
+    expect(
+      result && result.success && result.mode === "organization_usage" ? result.warnings?.[0] : "",
+    ).toContain("usage loaded, but the budget report failed");
+  });
+
+  it("surfaces auth, permission, rate-limit, and malformed-response failures explicitly", async () => {
+    configure({ token: "github_pat_personal", tier: "pro", username: "alice" });
+    const scenarios = [
+      {
+        response: json({ message: "Bad credentials" }, { status: 401 }),
+        expected: "GitHub API error 401: Bad credentials",
+      },
+      {
+        response: json(
+          { message: "API rate limit exceeded" },
+          { status: 403, headers: { "x-ratelimit-remaining": "0" } },
+        ),
+        expected: "GitHub API rate limit exhausted",
+      },
+      {
+        response: json({ message: "Resource not accessible" }, { status: 403 }),
+        expected: "GitHub API error 403: Resource not accessible",
+      },
+      {
+        response: new Response("{", { status: 200 }),
+        expected: "malformed JSON",
+      },
+    ];
+
+    for (const scenario of scenarios) {
+      vi.resetModules();
+      vi.stubGlobal("fetch", vi.fn(async () => scenario.response) as any);
+      const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+      const result = await queryCopilotQuota();
+      expect(result && !result.success ? result.error : "").toContain(scenario.expected);
+    }
+  });
+
+  it("rejects malformed and wrong-SKU usage responses", async () => {
+    configure({ token: "github_pat_personal", tier: "pro", username: "alice" });
+
+    vi.stubGlobal("fetch", vi.fn(async () => json({ usageItems: {} })) as any);
+    let module = await import("../src/lib/copilot.js");
+    let result = await module.queryCopilotQuota();
+    expect(result && !result.success ? result.error : "").toContain("usageItems array");
+
+    vi.resetModules();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        json({ usageItems: [{ product: "Actions", sku: "Actions Linux", grossQuantity: 1 }] }),
+      ) as any,
+    );
+    module = await import("../src/lib/copilot.js");
+    result = await module.queryCopilotQuota();
+    expect(result && !result.success ? result.error : "").toContain(
+      "did not contain an AI Credit usage item",
+    );
+  });
+
+  it("keeps invalid trusted billing config blocking in diagnostics when OAuth exists", async () => {
+    configure({ token: "github_pat_invalid" });
     const { getCopilotQuotaAuthDiagnostics } = await import("../src/lib/copilot.js");
     const diagnostics = getCopilotQuotaAuthDiagnostics({
-      "github-copilot": { type: "oauth", access: "oauth_access_token" },
+      "github-copilot": { type: "oauth", access: "oauth-token" },
     });
 
-    expect(diagnostics.pat.state).toBe("invalid");
-    expect(diagnostics.oauth.configured).toBe(true);
-    expect(diagnostics.effectiveSource).toBe("pat");
-    expect(diagnostics.override).toBe("pat_overrides_oauth");
-    expect(diagnostics.quotaApi).toBe("none");
-    expect(diagnostics.billingMode).toBe("none");
-    expect(diagnostics.billingScope).toBe("none");
-    expect(diagnostics.billingApiAccessLikely).toBe(false);
-    expect(diagnostics.remainingTotalsState).toBe("unavailable");
+    expect(diagnostics).toMatchObject({
+      pat: { state: "invalid" },
+      oauth: { configured: true, hasAccessToken: true },
+      effectiveSource: "pat",
+      override: "pat_overrides_oauth",
+      quotaApi: "none",
+      billingMode: "none",
+      billingScope: "none",
+      billingApiAccessLikely: false,
+      remainingTotalsState: "unavailable",
+      oauthAccountingState: "not_supported_by_public_billing_api",
+    });
     expect(diagnostics.queryPeriod).toBeUndefined();
   });
 
-  it("surfaces enterprise billing scope and compatibility errors in diagnostics", async () => {
-    fsMocks.existsSync.mockImplementation((path) => path === patPath);
-    fsMocks.readFileSync.mockReturnValue(
-      JSON.stringify({
-        token: "github_pat_123456789",
-        tier: "enterprise",
-        enterprise: "acme-enterprise",
-        organization: "acme-corp",
-        username: "alice",
-      }),
-    );
-
+  it("reports current scope, API, token compatibility, denominator, budget, and OAuth state", async () => {
+    configure({
+      token: "github_pat_org",
+      tier: "business",
+      organization: "acme",
+      username: "alice",
+    });
     const { getCopilotQuotaAuthDiagnostics } = await import("../src/lib/copilot.js");
-    const diagnostics = getCopilotQuotaAuthDiagnostics(null);
+    const diagnostics = getCopilotQuotaAuthDiagnostics({
+      "github-copilot": { type: "oauth", access: "oauth-token" },
+    });
 
-    expect(diagnostics.pat.state).toBe("valid");
-    expect(diagnostics.pat.config?.enterprise).toBe("acme-enterprise");
-    expect(diagnostics.billingMode).toBe("enterprise_usage");
-    expect(diagnostics.billingScope).toBe("enterprise");
-    expect(diagnostics.quotaApi).toBe("github_billing_api");
-    expect(diagnostics.billingApiAccessLikely).toBe(false);
-    expect(diagnostics.remainingTotalsState).toBe(
-      "not_available_from_enterprise_usage",
-    );
+    expect(diagnostics).toMatchObject({
+      effectiveSource: "pat",
+      override: "pat_overrides_oauth",
+      quotaApi: "github_ai_credit_api",
+      billingModel: "ai_credits",
+      billingMode: "organization_usage",
+      billingScope: "organization",
+      billingApiAccessLikely: true,
+      remainingTotalsState: "not_available_from_org_usage",
+      budgetApi: "organization_budgets",
+      oauthAccountingState: "not_supported_by_public_billing_api",
+      usernameFilter: "alice",
+    });
     expect(diagnostics.queryPeriod).toEqual({ year: 2026, month: 1 });
-    expect(diagnostics.usernameFilter).toBe("alice");
-    expect(diagnostics.tokenCompatibilityError).toContain(
-      "does not support fine-grained personal access tokens",
-    );
   });
 });
