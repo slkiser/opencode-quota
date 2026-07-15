@@ -21,6 +21,10 @@ const publishWorkflow = await readFile(
   "utf8",
 );
 const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
+const packedSmoke = await readFile(
+  new URL("../scripts/smoke-packed-package.mjs", import.meta.url),
+  "utf8",
+);
 
 describe("package manifest compatibility", () => {
   it("requires pnpm 11+ development tooling while requiring Node 22+ at runtime", () => {
@@ -29,6 +33,7 @@ describe("package manifest compatibility", () => {
     expect(packageManagerMatch).not.toBeNull();
     expect(Number(packageManagerMatch?.[1])).toBeGreaterThanOrEqual(11);
     expect(pkg.engines?.node).toBe(">=22.0.0");
+    expect(pkg.devDependencies?.typescript).toBe("^5.9.3");
   });
 
   it("keeps plugin SDK dependencies aligned without asserting an OpenCode engine minimum", () => {
@@ -97,23 +102,37 @@ describe("package manifest compatibility", () => {
     );
   });
 
-  it("locks packed-install smoke coverage to supported Node versions and shipped entrypoints", () => {
+  it("locks the complete release matrix to Node 24 build/package and Node 22/24 runtime smoke", () => {
+    expect(ciWorkflow).toContain("fetch-depth: 0");
     expect(ciWorkflow).toContain("node-version: [22.x, 24.x]");
     expect(ciWorkflow).toContain("node-version: 24.x");
-    expect(ciWorkflow).toContain('await import("@slkiser/opencode-quota");');
-    expect(ciWorkflow).toContain('await import("@slkiser/opencode-quota/server");');
-    expect(ciWorkflow).toContain("./node_modules/.bin/opencode-quota --help");
-    expect(ciWorkflow).toContain('grep -F "opencode-quota init"');
-    expect(ciWorkflow).toContain('grep -F "opencode-quota show"');
-    expect(ciWorkflow).toContain('grep -F "opencode-quota update"');
+    expect(ciWorkflow).toContain("run: pnpm run format:check");
+    expect(ciWorkflow).toContain("run: pnpm run verify:typescript-version");
+    expect(ciWorkflow).toContain("run: pnpm run verify:v4-history");
+    expect(ciWorkflow).toContain("run: pnpm run test:four-surfaces");
+    expect(ciWorkflow).toContain("node scripts/verify-package-contents.mjs");
+    expect(ciWorkflow).toContain("run: node scripts/smoke-packed-package.mjs package-artifacts");
+    expect(packedSmoke).toContain('await import("@slkiser/opencode-quota");');
+    expect(packedSmoke).toContain('await import("@slkiser/opencode-quota/server");');
+    expect(packedSmoke).toContain('"opencode-quota init"');
+    expect(packedSmoke).toContain('"opencode-quota show"');
+    expect(packedSmoke).toContain('"opencode-quota update"');
+  });
+
+  it("keeps npm publication on a strict root allowlist", () => {
+    expect((pkg as { files?: string[] }).files).toEqual(["dist", "README.md", "LICENSE"]);
+    expect(pkg.scripts?.["verify:package-contents"]).toBe(
+      "node scripts/verify-package-contents.mjs",
+    );
+    expect(pkg.scripts?.["verify:release-package"]).toBe("node scripts/verify-release-package.mjs");
   });
 
   it("smoke-tests the compiled TUI package export without importing the OpenTUI runtime", () => {
-    expect(ciWorkflow).toContain("@slkiser/opencode-quota/tui");
-    expect(ciWorkflow).toContain('import.meta.resolve("@slkiser/opencode-quota/tui")');
-    expect(ciWorkflow).toContain('readFile(tuiExportPath, "utf8")');
-    expect(ciWorkflow).toContain("dist\\/tui\\.js");
-    expect(ciWorkflow).not.toContain('await import("@slkiser/opencode-quota/tui")');
+    expect(packedSmoke).toContain("@slkiser/opencode-quota/tui");
+    expect(packedSmoke).toContain('import.meta.resolve("@slkiser/opencode-quota/tui")');
+    expect(packedSmoke).toContain('readFile(tuiExportPath, "utf8")');
+    expect(packedSmoke).toContain("dist\\\\/tui\\\\.js");
+    expect(packedSmoke).not.toContain('await import("@slkiser/opencode-quota/tui")');
   });
 
   it("preserves tag-derived release versioning and the publish validation gates", () => {
@@ -123,9 +142,14 @@ describe("package manifest compatibility", () => {
     );
     expect(publishWorkflow).toContain("run: pnpm run verify:release-version");
     expect(publishWorkflow).toContain("run: pnpm install --frozen-lockfile");
+    expect(publishWorkflow).toContain("run: pnpm run format:check");
+    expect(publishWorkflow).toContain("run: pnpm run verify:typescript-version");
+    expect(publishWorkflow).toContain("run: pnpm run verify:v4-history");
     expect(publishWorkflow).toContain("run: pnpm run typecheck");
     expect(publishWorkflow).toContain("run: pnpm run build");
     expect(publishWorkflow).toContain("run: pnpm test");
+    expect(publishWorkflow).toContain("run: pnpm run test:four-surfaces");
+    expect(publishWorkflow).toContain("run: pnpm run verify:release-package");
     expect(publishWorkflow).toContain("run: npm publish --access public");
   });
 });

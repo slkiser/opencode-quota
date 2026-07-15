@@ -55,14 +55,29 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check formatting
+        run: pnpm run format:check
+
+      - name: Verify TypeScript version
+        run: pnpm run verify:typescript-version
+
+      - name: Verify v4 history privacy
+        run: pnpm run verify:v4-history
+
       - name: Typecheck
         run: pnpm run typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Verify four-surface parity
+        run: pnpm run test:four-surfaces
 
       - name: Build
         run: pnpm run build
 
-      - name: Test
-        run: pnpm test
+      - name: Pack, audit, and smoke release package
+        run: pnpm run verify:release-package
 
       - name: Publish
         run: npm publish --access public

@@ -109,10 +109,7 @@ export function quotaSidecarConfigSource(dir: string): string {
   return join(dir, "opencode-quota", "quota-toast.json") + " (opencode-quota/quota-toast.json)";
 }
 
-export function writeQuotaSidecarConfig(
-  dir: string,
-  quotaToast: Record<string, unknown>,
-): string {
+export function writeQuotaSidecarConfig(dir: string, quotaToast: Record<string, unknown>): string {
   const configDir = join(dir, "opencode-quota");
   const path = join(configDir, "quota-toast.json");
   mkdirSync(configDir, { recursive: true });
@@ -120,10 +117,7 @@ export function writeQuotaSidecarConfig(
   return path;
 }
 
-export function writeQuotaToastConfig(
-  dir: string,
-  quotaToast: Record<string, unknown>,
-): string {
+export function writeQuotaToastConfig(dir: string, quotaToast: Record<string, unknown>): string {
   const path = join(dir, "opencode.json");
   writeFileSync(
     path,
