@@ -10,11 +10,15 @@
 import type { QuotaToastEntry, QuotaToastError, SessionTokensData } from "./entries.js";
 import type { PercentDisplayMode } from "./types.js";
 import { isValueEntry } from "./entries.js";
-import { bar, formatDisplayedPercentLabel, padRight, resolveDisplayedPercent } from "./format-utils.js";
+import { formatDisplayedPercentLabel, formatTokenCount } from "./format-utils.js";
 import { formatGroupedHeader } from "./grouped-header-format.js";
 import { groupQuotaEntries } from "./grouped-entry-normalization.js";
-import { renderPlainTextReport, type ReportDocument, type ReportSection } from "./report-document.js";
-import { buildSessionTokenSectionModel } from "./session-tokens-format.js";
+import {
+  renderPlainTextReport,
+  type ReportDocument,
+  type ReportSection,
+} from "./report-document.js";
+import { SESSION_TOKEN_SECTION_HEADING } from "./session-tokens-format.js";
 
 /**
  * Format reset time in compact form (different from toast countdown).
@@ -33,7 +37,7 @@ function formatResetsIn(iso?: string): string {
   const t = new Date(iso).getTime();
   if (!Number.isFinite(t)) return "";
   const diffSeconds = (t - Date.now()) / 1000;
-  return ` (resets in ${formatResetTimeSeconds(diffSeconds)})`;
+  return ` · resets in ${formatResetTimeSeconds(diffSeconds)}`;
 }
 
 function getGroupedLeftText(entry: QuotaToastEntry): string {
@@ -50,32 +54,21 @@ function buildQuotaCommandDocument(params: {
   percentDisplayMode?: PercentDisplayMode;
 }): ReportDocument {
   const groups = groupQuotaEntries(params.entries, "quota");
-  const normalizedEntries = groups.flatMap((group) => group.entries);
-
-  const barWidth = 18;
-  const leftCol = Math.max(
-    16,
-    Math.min(
-      30,
-      normalizedEntries.reduce((max, entry) => Math.max(max, getGroupedLeftText(entry).length), 0),
-    ),
-  );
 
   const sections: ReportSection[] = groups.map((group, index) => {
     const lines: string[] = [];
     for (const row of group.entries) {
       const leftText = getGroupedLeftText(row);
-      const labelCol = padRight(leftText, leftCol);
       const suffix = formatResetsIn(row.resetTimeIso);
 
       if (isValueEntry(row)) {
-        lines.push(`  ${labelCol} ${row.value}${suffix}`);
+        lines.push(`  ${leftText} ${row.value}${suffix}`);
         continue;
       }
 
-      const pct = resolveDisplayedPercent(row.percentRemaining, params.percentDisplayMode);
       const pctLabel = formatDisplayedPercentLabel(row.percentRemaining, params.percentDisplayMode);
-      lines.push(`  ${labelCol} ${bar(pct, barWidth)}  ${pctLabel}${suffix}`);
+      const metricSeparator = row.right?.trim() ? " · " : " ";
+      lines.push(`  ${leftText}${metricSeparator}${pctLabel}${suffix}`);
     }
     return {
       id: `group-${index}`,
@@ -84,22 +77,34 @@ function buildQuotaCommandDocument(params: {
     };
   });
 
-  const tokenSection = buildSessionTokenSectionModel(params.sessionTokens);
-  if (tokenSection) {
+  if (params.sessionTokens && params.sessionTokens.models.length > 0) {
     sections.push({
       id: "session-tokens",
-      title: tokenSection.heading,
-      blocks: [{ kind: "lines", lines: tokenSection.lines }],
+      title: SESSION_TOKEN_SECTION_HEADING,
+      blocks: [
+        {
+          kind: "lines",
+          lines: params.sessionTokens.models.map((model) => {
+            const metrics = [`${formatTokenCount(model.input)} in`];
+            if ((model.cachedInput ?? 0) > 0) {
+              metrics.push(`${formatTokenCount(model.cachedInput ?? 0)} cached`);
+            }
+            metrics.push(`${formatTokenCount(model.output)} out`);
+            return `  ${model.modelID}: ${metrics.join(" · ")}`;
+          }),
+        },
+      ],
     });
   }
 
   if (params.errors.length > 0) {
     sections.push({
       id: "errors",
+      title: "Partial failures",
       blocks: [
         {
           kind: "lines",
-          lines: params.errors.map((err) => `${err.label}: ${err.message}`),
+          lines: params.errors.map((err) => `  ${err.label}: ${err.message}`),
         },
       ],
     });

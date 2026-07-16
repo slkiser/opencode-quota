@@ -21,6 +21,7 @@ const data: QuotaRenderData = {
       group: "Duplicate label",
       label: "Weekly:",
       percentRemaining: 10,
+      resetTimeIso: "2099-08-01T00:00:00.000Z",
     },
     {
       accounting: {
@@ -53,6 +54,13 @@ describe("quota provider four-surface formatting", () => {
       percentDisplayMode: "remaining",
       maxWidth: 200,
     });
+
+    expect(command).toMatch(/^# Quota \(\/quota\)/);
+    expect(command).not.toContain("```");
+    expect(command).not.toMatch(/[█░]/);
+    expect(command).not.toMatch(/ {3,}/);
+    expect(command).toMatch(/Weekly: 10% left · resets in /);
+    expect(command).toContain("Balance: $4.00");
 
     for (const output of [command, toast, sidebar, compact]) {
       expect(output).toContain("10%");

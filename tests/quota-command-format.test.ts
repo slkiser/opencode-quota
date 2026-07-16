@@ -65,25 +65,29 @@ describe("formatQuotaCommand", () => {
     const lines = out.split("\n");
     expect(lines[0]).toMatch(/^# Quota \(\/quota\) \d{2}:\d{2} \d{2}\/\d{2}\/\d{4}$/);
     expect(lines[1]).toBe("");
+    expect(out).not.toContain("```");
+    expect(out).not.toMatch(/[█░]/);
+    expect(out).not.toMatch(/ {3,}/);
     expect(lines.slice(2).join("\n")).toMatchInlineSnapshot(`
       "→ [Copilot] (personal)
-        Quota: 42/300    ███████████████░░░  86% left (resets in 12h)
+        Quota: 42/300 · 86% left · resets in 12h
 
       → [Copilot] (business)
-        Usage:           9 used | 2026-01 | org=acme-corp | user=alice (resets in 17d)
+        Usage: 9 used | 2026-01 | org=acme-corp | user=alice · resets in 17d
 
       → [OpenAI] (Pro)
-        5h:              ████████░░░░░░░░░░  42% left (resets in 2h)
-        Weekly:          ███████████████░░░  81% left (resets in 3d)
+        5h: 42% left · resets in 2h
+        Weekly: 81% left · resets in 3d
 
       → [Google Antigravity] (acct)
-        Claude:          ████████████░░░░░░  67% left (resets in 3h)
+        Claude: 67% left · resets in 3h
 
       Session input/output tokens
-        openai/gpt-5          1.2K (456) in     567 out
-        github-copilot/clau…     987 in     654 out
+        openai/gpt-5: 1.2K in · 456 cached · 567 out
+        github-copilot/claude-sonnet-4.5: 987 in · 654 out
 
-      Z.ai: Authentication expired"
+      Partial failures
+        Z.ai: Authentication expired"
     `);
   });
 
@@ -171,12 +175,12 @@ describe("formatQuotaCommand", () => {
       percentDisplayMode: "used",
     });
 
-    expect(out).toContain("19% used");
+    expect(out).toContain("Status: 19% used");
     expect(out).not.toContain("81% left");
-    expect(out).toContain("███░░░░░░░░░░░░░░░");
+    expect(out).not.toMatch(/[█░]/);
   });
 
-  it("renders over-quota used percentages with a full /quota bar", () => {
+  it("renders over-quota used percentages without a progress bar", () => {
     const out = formatQuotaCommand({
       entries: [
         {
@@ -188,8 +192,8 @@ describe("formatQuotaCommand", () => {
       percentDisplayMode: "used",
     });
 
-    expect(out).toContain("125% used");
-    expect(out).toContain("██████████████████");
+    expect(out).toContain("Status: 125% used");
+    expect(out).not.toMatch(/[█░]/);
   });
 
   it("keeps /quota reset formatting independent from compact toast resets", () => {
@@ -213,7 +217,7 @@ describe("formatQuotaCommand", () => {
     expect(out).toContain("resets in 3h");
   });
 
-  it("sizes the grouped /quota label column from the visible grouped text", () => {
+  it("keeps long grouped /quota metrics on one unpadded line", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));
 
@@ -231,6 +235,8 @@ describe("formatQuotaCommand", () => {
       errors: [],
     });
 
-    expect(out).toContain("Quota: 12345678901234567890");
+    expect(out).toContain("Quota: 12345678901234567890 · 86% left · resets in 12h");
+    expect(out).not.toMatch(/ {3,}/);
+    expect(out).not.toMatch(/[█░]/);
   });
 });
