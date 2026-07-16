@@ -81,7 +81,7 @@
   "devDependencies": {
     "@babel/core": "^7.28.0",
     "@babel/preset-typescript": "^7.27.1",
-    "@opencode-ai/plugin": "^1.4.3",
+    "@opencode-ai/plugin": "1.18.1",
     "@types/node": "^22.0.0",
     "babel-preset-solid": "^1.9.12",
     "husky": "^9.1.7",

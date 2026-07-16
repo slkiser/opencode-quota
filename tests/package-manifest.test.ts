@@ -72,9 +72,9 @@ describe("package manifest compatibility", () => {
     expect(pkg.devDependencies?.yaml).toBe("^2.8.3");
   });
 
-  it("keeps plugin SDK dependencies aligned without asserting an OpenCode engine minimum", () => {
+  it("keeps the public plugin peer broad and the development type target exact", () => {
     expect(pkg.peerDependencies?.["@opencode-ai/plugin"]).toBe("^1.4.3");
-    expect(pkg.devDependencies?.["@opencode-ai/plugin"]).toBe("^1.4.3");
+    expect(pkg.devDependencies?.["@opencode-ai/plugin"]).toBe("1.18.1");
     expect(readme).toContain("Node.js `>= 22` is required.");
     expect(readme).not.toContain("OpenCode `>= 1.4.3`");
     expect(pkg.engines).not.toHaveProperty("opencode");
