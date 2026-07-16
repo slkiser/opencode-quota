@@ -4,7 +4,9 @@ import path from "node:path";
 
 const V4_BASE_COMMIT = process.env.V4_HISTORY_BASE ?? "0bfd899";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(scriptDir, "..");
+const repoRoot = process.env.V4_HISTORY_REPO
+  ? path.resolve(process.env.V4_HISTORY_REPO)
+  : path.resolve(scriptDir, "..");
 
 function git(args) {
   const result = spawnSync("git", args, {
@@ -22,13 +24,42 @@ function git(args) {
   return result.stdout.trim();
 }
 
+function isWithin(file, directory) {
+  return file === directory || file.startsWith(`${directory}/`);
+}
+
 function isForbidden(file) {
-  return (
+  const basename = path.posix.basename(file);
+  if (
     file === "AGENTS.md" ||
-    file.startsWith("docs/adr/") ||
-    file === "docs/readme/v4-release-readiness.md" ||
-    file.startsWith("references/local/")
-  );
+    basename === ".npmrc" ||
+    basename === "opencode.json" ||
+    basename === "tui.json" ||
+    basename === ".env" ||
+    basename.startsWith(".env.")
+  ) {
+    return true;
+  }
+
+  if (
+    isWithin(file, ".agents") ||
+    isWithin(file, ".codex") ||
+    isWithin(file, "prompt-exports") ||
+    isWithin(file, "opencode-quota") ||
+    isWithin(file, "images")
+  ) {
+    return true;
+  }
+
+  if (isWithin(file, "docs")) {
+    return !file.startsWith("docs/readme/") || file === "docs/readme/v4-release-readiness.md";
+  }
+
+  if (isWithin(file, "references")) {
+    return !file.startsWith("references/upstream-plugins/");
+  }
+
+  return false;
 }
 
 git(["cat-file", "-e", `${V4_BASE_COMMIT}^{commit}`]);

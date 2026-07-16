@@ -1,7 +1,9 @@
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+
+import { verifyReleaseArtifact } from "./lib/release-artifact.mjs";
 
 const inputPath = path.resolve(process.argv[2] ?? "package-artifacts");
 const nodeMajor = Number(process.versions.node.split(".")[0]);
@@ -11,21 +13,6 @@ if (nodeMajor !== 22 && nodeMajor !== 24) {
     `Packed runtime smoke requires Node 22 or 24; received Node ${process.versions.node}.`,
   );
   process.exit(1);
-}
-
-async function resolveTarball(input) {
-  const inputStat = await stat(input);
-  if (inputStat.isFile()) return input;
-
-  const tarballs = (await readdir(input))
-    .filter((file) => file.endsWith(".tgz"))
-    .map((file) => path.join(input, file))
-    .sort();
-
-  if (tarballs.length !== 1) {
-    throw new Error(`Expected exactly one .tgz in ${input}; found ${tarballs.length}.`);
-  }
-  return tarballs[0];
 }
 
 function run(command, args, cwd, options = {}) {
@@ -52,7 +39,8 @@ function run(command, args, cwd, options = {}) {
   return result.stdout;
 }
 
-const tarball = await resolveTarball(inputPath);
+const artifact = await verifyReleaseArtifact(inputPath);
+const tarball = artifact.tarballPath;
 const workdir = await mkdtemp(path.join(tmpdir(), "opencode-quota-package-smoke-"));
 
 try {
@@ -105,7 +93,9 @@ try {
     }
   }
 
-  console.log(`Packed package smoke passed on Node ${process.versions.node}.`);
+  console.log(
+    `Packed package smoke passed for ${artifact.filename} on Node ${process.versions.node} (sha256 ${artifact.sha256}).`,
+  );
 } finally {
   await rm(workdir, { recursive: true, force: true });
 }

@@ -35,6 +35,7 @@
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc && node scripts/copy-data.mjs && node scripts/prepare-tui-dist.mjs",
     "build:check": "pnpm run build && pnpm pack --dry-run",
+    "pack:release-package": "node scripts/pack-release-package.mjs",
     "format:check": "node scripts/verify-v4-formatting.mjs",
     "pricing:refresh": "node scripts/refresh-modelsdev-pricing.mjs",
     "pricing:refresh:if-stale": "node scripts/refresh-modelsdev-pricing-if-stale.mjs",
@@ -87,7 +88,8 @@
     "lint-staged": "^16.2.7",
     "prettier": "^3.8.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.17"
+    "vitest": "^4.0.17",
+    "yaml": "^2.8.3"
   },
   "dependencies": {
     "@clack/prompts": "^1.2.0",

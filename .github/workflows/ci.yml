@@ -48,18 +48,14 @@ jobs:
       - name: Build
         run: pnpm run build
 
-      - name: Pack and audit npm contents
-        run: |
-          rm -rf package-artifacts
-          mkdir -p package-artifacts
-          HUSKY=0 pnpm pack --json --pack-destination package-artifacts > /tmp/opencode-quota-pack-manifest.json
-          node scripts/verify-package-contents.mjs /tmp/opencode-quota-pack-manifest.json
+      - name: Pack and audit exact npm artifact once
+        run: pnpm run pack:release-package package-artifacts
 
-      - name: Upload package tarball
+      - name: Upload exact npm artifact
         uses: actions/upload-artifact@v7
         with:
           name: package-tarball
-          path: package-artifacts/*.tgz
+          path: package-artifacts/*
           if-no-files-found: error
 
   runtime-smoke:
@@ -78,11 +74,11 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
-      - name: Download package tarball
+      - name: Download exact npm artifact
         uses: actions/download-artifact@v8
         with:
           name: package-tarball
           path: package-artifacts
 
-      - name: Smoke test published package on Node ${{ matrix.node-version }}
+      - name: Smoke exact npm artifact on Node ${{ matrix.node-version }}
         run: node scripts/smoke-packed-package.mjs package-artifacts
