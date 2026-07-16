@@ -45,6 +45,7 @@ declare module "solid-js" {
 }
 
 declare module "@opencode-ai/plugin/tui" {
+  import type { OpencodeClient } from "@opencode-ai/sdk/v2";
   import type { JSX, SolidPlugin } from "@opentui/solid";
 
   export type TuiPromptInfo = {
@@ -176,17 +177,7 @@ declare module "@opencode-ai/plugin/tui" {
         }>;
       };
       session: {
-        prompt: (params: {
-          path: { id: string };
-          body: {
-            noReply: boolean;
-            parts: Array<{
-              type: "text";
-              text: string;
-              ignored: boolean;
-            }>;
-          };
-        }) => Promise<unknown>;
+        prompt: OpencodeClient["session"]["prompt"];
         get?: (params: { path: { id: string } }) => Promise<{
           data?: {
             model?: {

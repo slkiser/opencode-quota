@@ -324,17 +324,15 @@ describe("tui plugin smoke", () => {
     );
     expect(api.client.session.prompt).toHaveBeenCalledOnce();
     expect(api.client.session.prompt).toHaveBeenCalledWith({
-      path: { id: "session-route" },
-      body: {
-        noReply: true,
-        parts: [
-          {
-            type: "text",
-            text: "Quota line 1\n\nQuota line 3",
-            ignored: true,
-          },
-        ],
-      },
+      sessionID: "session-route",
+      noReply: true,
+      parts: [
+        {
+          type: "text",
+          text: "Quota line 1\n\nQuota line 3",
+          ignored: true,
+        },
+      ],
     });
     expect(dialog.replace).not.toHaveBeenCalled();
     expect(api.client.session.command).not.toHaveBeenCalled();

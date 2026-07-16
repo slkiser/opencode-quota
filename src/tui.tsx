@@ -662,11 +662,9 @@ async function runQuotaDialogCommandAsync(
         throw new Error("Native TUI /quota inline display requires an active session.");
       }
       await api.client.session.prompt({
-        path: { id: sessionID },
-        body: {
-          noReply: true,
-          parts: [{ type: "text", text: result.output, ignored: true }],
-        },
+        sessionID,
+        noReply: true,
+        parts: [{ type: "text", text: result.output, ignored: true }],
       });
       return;
     }
