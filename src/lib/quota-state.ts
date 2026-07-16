@@ -7,6 +7,11 @@ import type { QuotaProvider, QuotaProviderContext, QuotaProviderResult } from ".
 import { writeJsonAtomic } from "./atomic-json.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import { getQuotaProviderDisplayLabel, isLiveLocalUsageProviderId } from "./provider-metadata.js";
+import type { QuotaProviderDefinition } from "./quota-providers.js";
+import {
+  QUOTA_PROVIDERS_AGGREGATE_ID,
+  selectEligibleQuotaProviderDefinitions,
+} from "./quota-providers.js";
 import { getPackageVersion } from "./version.js";
 
 const QUOTA_PROVIDER_CACHE_VERSION = 2 as const;
@@ -53,6 +58,7 @@ export function cloneQuotaProviderResult(result: QuotaProviderResult): QuotaProv
 export function buildQuotaProviderStateCacheKey(
   providerId: string,
   ctx: QuotaProviderContext,
+  options: { runtimeEligibleQuotaProviders?: readonly QuotaProviderDefinition[] } = {},
 ): string {
   const googleModels = ctx.config.googleModels.join(",");
   const cursorPlan = ctx.config.cursorPlan;
@@ -63,16 +69,24 @@ export function buildQuotaProviderStateCacheKey(
   const currentModel = ctx.config.currentModel ?? "";
   const currentProviderID = ctx.config.currentProviderID ?? "";
   const anthropicBinaryPath = ctx.config.anthropicBinaryPath ?? "";
-  const relevantQuotaProviders =
-    providerId === "quota-providers"
-      ? (ctx.config.quotaProviders ?? [])
-      : (ctx.config.quotaProviders ?? []).filter((definition) => definition.id === providerId);
+  const isAggregateCache =
+    providerId === QUOTA_PROVIDERS_AGGREGATE_ID ||
+    providerId.startsWith(`${QUOTA_PROVIDERS_AGGREGATE_ID}:`);
+  const relevantQuotaProviders = isAggregateCache
+    ? (ctx.config.quotaProviders ?? [])
+    : (ctx.config.quotaProviders ?? []).filter((definition) => definition.id === providerId);
   const quotaProvidersIdentity =
     relevantQuotaProviders.length > 0
       ? `|quotaProviders=${JSON.stringify(["quota-providers-cache-v1", relevantQuotaProviders])}`
       : "";
+  const runtimeEligibleIdentity = isAggregateCache
+    ? `|runtimeEligibleQuotaProviders=${JSON.stringify([
+        "quota-providers-runtime-eligible-v1",
+        options.runtimeEligibleQuotaProviders ?? [],
+      ])}`
+    : "";
 
-  return `${providerId}${quotaProvidersIdentity}|anthropicBinaryPath=${anthropicBinaryPath}|googleModels=${googleModels}|cursorPlan=${cursorPlan}|cursorIncludedApiUsd=${cursorIncludedApiUsd}|cursorBillingCycleStartDay=${cursorBillingCycleStartDay}|opencodeGoWindows=${opencodeGoWindows}|onlyCurrentModel=${onlyCurrentModel}|currentModel=${currentModel}|currentProviderID=${currentProviderID}`;
+  return `${providerId}${quotaProvidersIdentity}${runtimeEligibleIdentity}|anthropicBinaryPath=${anthropicBinaryPath}|googleModels=${googleModels}|cursorPlan=${cursorPlan}|cursorIncludedApiUsd=${cursorIncludedApiUsd}|cursorBillingCycleStartDay=${cursorBillingCycleStartDay}|opencodeGoWindows=${opencodeGoWindows}|onlyCurrentModel=${onlyCurrentModel}|currentModel=${currentModel}|currentProviderID=${currentProviderID}`;
 }
 
 function getQuotaProviderCacheDir(): string {
@@ -443,6 +457,31 @@ async function fetchValidatedProviderResult(
   };
 }
 
+async function resolveRuntimeEligibleQuotaProviders(
+  providerId: string,
+  ctx: QuotaProviderContext,
+): Promise<QuotaProviderDefinition[] | null | undefined> {
+  if (providerId !== QUOTA_PROVIDERS_AGGREGATE_ID) {
+    return undefined;
+  }
+
+  try {
+    const response = await ctx.client.config.providers();
+    const availableProviderIds = new Set(
+      (response.data?.providers ?? []).map((provider) => provider.id),
+    );
+    return selectEligibleQuotaProviderDefinitions({
+      definitions: ctx.config.quotaProviders ?? [],
+      availableProviderIds,
+      onlyCurrentModel: ctx.config.onlyCurrentModel,
+      currentModel: ctx.config.currentModel,
+      currentProviderID: ctx.config.currentProviderID,
+    });
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchQuotaProviderResult(params: {
   provider: QuotaProvider;
   ctx: QuotaProviderContext;
@@ -455,12 +494,25 @@ export async function fetchQuotaProviderResult(params: {
     return fetchValidatedProviderResult(provider, ctx);
   }
 
-  const key = buildQuotaProviderStateCacheKey(provider.id, ctx);
+  const runtimeEligibleQuotaProviders = await resolveRuntimeEligibleQuotaProviders(
+    provider.id,
+    ctx,
+  );
+  if (runtimeEligibleQuotaProviders === null) {
+    return fetchValidatedProviderResult(provider, ctx);
+  }
+  const forceAggregateRefresh =
+    provider.id === QUOTA_PROVIDERS_AGGREGATE_ID &&
+    runtimeEligibleQuotaProviders?.some((definition) => definition.mode === "local-estimate") ===
+      true;
+  const key = buildQuotaProviderStateCacheKey(provider.id, ctx, {
+    runtimeEligibleQuotaProviders,
+  });
   const now = Date.now();
   const packageVersion = await getQuotaProviderCachePackageVersion();
   await maybePrunePersistedQuotaProviderCache(now);
 
-  const inMemory = inMemoryCache.get(key);
+  const inMemory = forceAggregateRefresh ? undefined : inMemoryCache.get(key);
   if (
     inMemory &&
     inMemory.packageVersion === packageVersion &&
@@ -475,13 +527,15 @@ export async function fetchQuotaProviderResult(params: {
     return cloneQuotaProviderResult(await inFlight);
   }
 
-  const persisted = await readPersistedQuotaProviderCacheEntry({
-    key,
-    providerId: provider.id,
-    packageVersion,
-    ttlMs,
-    now,
-  });
+  const persisted = forceAggregateRefresh
+    ? null
+    : await readPersistedQuotaProviderCacheEntry({
+        key,
+        providerId: provider.id,
+        packageVersion,
+        ttlMs,
+        now,
+      });
   if (persisted) {
     inMemoryCache.set(key, {
       ...persisted,
@@ -531,7 +585,16 @@ export async function readCachedProviderResult(params: {
   ctx: QuotaProviderContext;
   ttlMs: number;
 }): Promise<CachedProviderRead> {
-  const key = buildQuotaProviderStateCacheKey(params.provider.id, params.ctx);
+  const runtimeEligibleQuotaProviders = await resolveRuntimeEligibleQuotaProviders(
+    params.provider.id,
+    params.ctx,
+  );
+  if (runtimeEligibleQuotaProviders === null) {
+    return { hit: false };
+  }
+  const key = buildQuotaProviderStateCacheKey(params.provider.id, params.ctx, {
+    runtimeEligibleQuotaProviders,
+  });
   const now = Date.now();
 
   // Check in-memory cache first.

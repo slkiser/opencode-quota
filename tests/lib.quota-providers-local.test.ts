@@ -133,16 +133,64 @@ describe("local quota provider state", () => {
     expect(state.messages[0]?.atMs).toBe(NOW - 500);
   });
 
-  it("serializes concurrent updates so distinct completions are not lost", async () => {
+  it("never counts an unfinished assistant row", async () => {
+    const dirs = await runtimeDirs();
+    const state = await syncLocalQuotaProviderState(definition(), {
+      nowMs: NOW,
+      runtimeDirs: dirs,
+      readMessages: async () => [
+        message("complete", NOW - 1_000),
+        message("unfinished", NOW - 500, { time: { created: NOW - 500 } }),
+      ],
+    });
+
+    expect(state.messages.map((item) => item.id)).toEqual(["complete"]);
+  });
+
+  it("uses completion time for UTC and rolling windows across creation cutoffs", async () => {
+    const dirs = await runtimeDirs();
+    const utcStart = Date.UTC(2026, 6, 16);
+    let requestedSince = 0;
+    const state = await syncLocalQuotaProviderState(definition(), {
+      nowMs: NOW,
+      runtimeDirs: dirs,
+      readMessages: async ({ completedSinceMs }) => {
+        requestedSince = completedSinceMs;
+        return [
+          message("cross-cutoff", utcStart - 60_000, {
+            time: { created: utcStart - 60_000, completed: NOW - 30_000 },
+          }),
+          message("completed-before-cutoff", NOW - 10_000, {
+            time: { created: NOW - 10_000, completed: utcStart - 1 },
+          }),
+        ];
+      },
+    });
+
+    expect(requestedSince).toBe(utcStart);
+    expect(state.messages.map((item) => item.id)).toEqual(["cross-cutoff"]);
+    const result = computeLocalQuotaProviderEstimate({
+      definition: definition(),
+      state,
+      nowMs: NOW,
+    });
+    expect(result.entries.filter((entry) => entry.accounting.resultType === "rate_limit")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "Daily:", right: "1/10" }),
+        expect.objectContaining({ label: "Rolling:", right: "1/5" }),
+      ]),
+    );
+  });
+
+  it("derives concurrent-session completions from the authoritative storage snapshot", async () => {
     const dirs = await runtimeDirs();
     const def = definition();
-    let call = 0;
-    const readMessages = async () => {
-      call += 1;
-      return [message("msg_" + call, NOW - call)];
-    };
+    const readMessages = async () => [
+      message("msg_1", NOW - 2, { sessionID: "ses_one" }),
+      message("msg_2", NOW - 1, { sessionID: "ses_two" }),
+    ];
 
-    await Promise.all([
+    const states = await Promise.all([
       syncLocalQuotaProviderState(def, {
         nowMs: NOW,
         runtimeDirs: dirs,
@@ -155,6 +203,10 @@ describe("local quota provider state", () => {
       }),
     ]);
 
+    expect(states.map((state) => state.messages.map((item) => item.id))).toEqual([
+      ["msg_1", "msg_2"],
+      ["msg_1", "msg_2"],
+    ]);
     const raw = JSON.parse(await readFile(getLocalQuotaProviderStatePath(def.id, dirs), "utf8"));
     expect(raw.messages.map((item: { id: string }) => item.id).sort()).toEqual(["msg_1", "msg_2"]);
   });

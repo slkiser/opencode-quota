@@ -10,6 +10,67 @@ export const QUOTA_PROVIDER_WINDOW_TYPES = ["utc-day", "rolling"] as const;
 export const QUOTA_PROVIDERS_AGGREGATE_ID = "quota-providers";
 export const MAINTAINED_LOCAL_ESTIMATE_IDS = ["qwen-code", "alibaba-coding-plan"] as const;
 
+export function isMaintainedQuotaProviderTuning(definition: QuotaProviderDefinition): boolean {
+  return (MAINTAINED_LOCAL_ESTIMATE_IDS as readonly string[]).includes(definition.id);
+}
+
+export function customQuotaProviderDefinitions(
+  definitions: readonly QuotaProviderDefinition[],
+): QuotaProviderDefinition[] {
+  return definitions.filter((definition) => !isMaintainedQuotaProviderTuning(definition));
+}
+
+export function resolveQuotaProviderSessionModelIdentity(params: {
+  currentModel: string;
+  currentProviderID?: string;
+}): { providerId: string; modelId: string } | null {
+  if (params.currentProviderID) {
+    return params.currentModel.length > 0
+      ? { providerId: params.currentProviderID, modelId: params.currentModel }
+      : null;
+  }
+
+  const slashIndex = params.currentModel.indexOf("/");
+  if (slashIndex <= 0 || slashIndex === params.currentModel.length - 1) return null;
+  return {
+    providerId: params.currentModel.slice(0, slashIndex),
+    modelId: params.currentModel.slice(slashIndex + 1),
+  };
+}
+
+export function selectEligibleQuotaProviderDefinitions(params: {
+  definitions: readonly QuotaProviderDefinition[];
+  availableProviderIds: ReadonlySet<string>;
+  onlyCurrentModel?: boolean;
+  currentModel?: string;
+  currentProviderID?: string;
+}): QuotaProviderDefinition[] {
+  const runtimeEligible = customQuotaProviderDefinitions(params.definitions).filter((definition) =>
+    params.availableProviderIds.has(definition.providerId),
+  );
+  if (!params.onlyCurrentModel) return runtimeEligible;
+
+  if (!params.currentModel) {
+    if (!params.currentProviderID) return [];
+    return runtimeEligible.filter(
+      (definition) =>
+        definition.providerId === params.currentProviderID && definition.modelIds === undefined,
+    );
+  }
+
+  const identity = resolveQuotaProviderSessionModelIdentity({
+    currentModel: params.currentModel,
+    currentProviderID: params.currentProviderID,
+  });
+  if (!identity) return [];
+
+  return runtimeEligible.filter(
+    (definition) =>
+      definition.providerId === identity.providerId &&
+      (definition.modelIds === undefined || definition.modelIds.includes(identity.modelId)),
+  );
+}
+
 export type QuotaProviderRemoteFormat = (typeof QUOTA_PROVIDER_REMOTE_FORMATS)[number];
 export type QuotaProviderMode = (typeof QUOTA_PROVIDER_MODES)[number];
 export type QuotaProviderWindowType = (typeof QUOTA_PROVIDER_WINDOW_TYPES)[number];

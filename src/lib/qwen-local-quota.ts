@@ -1,7 +1,8 @@
-import { readFile } from "fs/promises";
 import { join } from "path";
 
 import { writeJsonAtomic } from "./atomic-json.js";
+import type { OpenCodeMessage } from "./opencode-storage.js";
+import { iterCompletedAssistantMessages } from "./opencode-storage.js";
 import type { AlibabaCodingPlanTier } from "./types.js";
 import { clampPercent } from "./format-utils.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
@@ -113,55 +114,6 @@ function defaultAlibabaState(nowMs: number): AlibabaCodingPlanStateFileV1 {
   };
 }
 
-function normalizeRecent(raw: unknown): number[] {
-  if (!Array.isArray(raw)) {
-    return [];
-  }
-
-  return raw
-    .filter((x): x is number => typeof x === "number" && Number.isFinite(x) && x > 0)
-    .map((x) => Math.trunc(x));
-}
-
-function normalizeQwenState(raw: unknown, nowMs: number): QwenLocalQuotaStateFileV1 {
-  if (!raw || typeof raw !== "object") {
-    return defaultQwenState(nowMs);
-  }
-
-  const obj = raw as Partial<QwenLocalQuotaStateFileV1>;
-
-  return {
-    version: QWEN_LOCAL_QUOTA_STATE_VERSION,
-    utcDay:
-      typeof obj.utcDay === "string" && obj.utcDay.length === 10 ? obj.utcDay : utcDayKey(nowMs),
-    dayCount:
-      typeof obj.dayCount === "number" && Number.isFinite(obj.dayCount) && obj.dayCount >= 0
-        ? Math.trunc(obj.dayCount)
-        : 0,
-    recent: normalizeRecent(obj.recent),
-    updatedAt:
-      typeof obj.updatedAt === "number" && Number.isFinite(obj.updatedAt) && obj.updatedAt > 0
-        ? Math.trunc(obj.updatedAt)
-        : nowMs,
-  };
-}
-
-function normalizeAlibabaState(raw: unknown, nowMs: number): AlibabaCodingPlanStateFileV1 {
-  if (!raw || typeof raw !== "object") {
-    return defaultAlibabaState(nowMs);
-  }
-
-  const obj = raw as Partial<AlibabaCodingPlanStateFileV1>;
-  return {
-    version: ALIBABA_CODING_PLAN_STATE_VERSION,
-    recent: normalizeRecent(obj.recent),
-    updatedAt:
-      typeof obj.updatedAt === "number" && Number.isFinite(obj.updatedAt) && obj.updatedAt > 0
-        ? Math.trunc(obj.updatedAt)
-        : nowMs,
-  };
-}
-
 function applyUtcResetAndPrune(
   state: QwenLocalQuotaStateFileV1,
   nowMs: number,
@@ -213,19 +165,6 @@ function toPercentRemaining(used: number, limit: number): number {
   return clampPercent(remaining);
 }
 
-async function readJsonState<T>(
-  path: string,
-  fallback: T,
-  normalize: (raw: unknown) => T,
-): Promise<T> {
-  try {
-    const raw = await readFile(path, "utf-8");
-    return normalize(JSON.parse(raw));
-  } catch {
-    return fallback;
-  }
-}
-
 function oldestTimestamp(timestamps: readonly number[]): number | undefined {
   let oldest: number | undefined;
   for (const timestamp of timestamps) {
@@ -263,67 +202,118 @@ export function getAlibabaCodingPlanQuotaPath(): string {
   return join(stateDir, "opencode-quota", "alibaba-coding-plan-local-quota.json");
 }
 
-export async function readQwenLocalQuotaState(params?: {
+interface MaintainedLocalQuotaDependencies {
   nowMs?: number;
-}): Promise<QwenLocalQuotaStateFileV1> {
-  const nowMs = params?.nowMs ?? Date.now();
-  const path = getQwenLocalQuotaPath();
-  const state = await readJsonState(path, defaultQwenState(nowMs), (raw) =>
-    normalizeQwenState(raw, nowMs),
-  );
-  return applyUtcResetAndPrune(state, nowMs);
+  readMessages?: (params: {
+    completedSinceMs: number;
+    completedUntilMs: number;
+  }) => Promise<OpenCodeMessage[]>;
+  writeState?: (
+    path: string,
+    state: QwenLocalQuotaStateFileV1 | AlibabaCodingPlanStateFileV1,
+  ) => Promise<void>;
 }
 
-export async function readAlibabaCodingPlanQuotaState(params?: {
-  nowMs?: number;
-}): Promise<AlibabaCodingPlanStateFileV1> {
-  const nowMs = params?.nowMs ?? Date.now();
-  const path = getAlibabaCodingPlanQuotaPath();
-  const state = await readJsonState(path, defaultAlibabaState(nowMs), (raw) =>
-    normalizeAlibabaState(raw, nowMs),
-  );
-  return pruneAlibabaState(state, nowMs);
+function completedTimestamp(message: OpenCodeMessage): number | null {
+  const value = message.time?.completed;
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.trunc(value)
+    : null;
 }
 
-export async function recordQwenCompletion(params?: {
-  atMs?: number;
-}): Promise<QwenLocalQuotaStateFileV1> {
-  const nowMs = params?.atMs ?? Date.now();
-  const path = getQwenLocalQuotaPath();
-  const loaded = await readJsonState(path, defaultQwenState(nowMs), (raw) =>
-    normalizeQwenState(raw, nowMs),
-  );
-  const state = applyUtcResetAndPrune(loaded, nowMs);
+function completedTimestamps(params: {
+  messages: readonly OpenCodeMessage[];
+  providerIds: readonly string[];
+  sinceMs: number;
+  untilMs: number;
+}): number[] {
+  const byId = new Map<string, number>();
+  for (const message of params.messages) {
+    if (
+      message.role !== "assistant" ||
+      !message.providerID ||
+      !params.providerIds.includes(message.providerID) ||
+      !message.id
+    ) {
+      continue;
+    }
+    const atMs = completedTimestamp(message);
+    if (atMs === null || atMs < params.sinceMs || atMs > params.untilMs) continue;
+    byId.set(message.id, atMs);
+  }
+  return [...byId.entries()]
+    .sort((left, right) => left[1] - right[1] || left[0].localeCompare(right[0]))
+    .map(([, atMs]) => atMs);
+}
 
-  const next: QwenLocalQuotaStateFileV1 = {
-    ...state,
-    dayCount: state.dayCount + 1,
-    recent: [...state.recent, nowMs].slice(-MAX_QWEN_RECENT_TIMESTAMPS),
-    updatedAt: nowMs,
+async function readCompletedMessages(
+  dependencies: MaintainedLocalQuotaDependencies,
+  completedSinceMs: number,
+  completedUntilMs: number,
+): Promise<OpenCodeMessage[]> {
+  const readMessages =
+    dependencies.readMessages ??
+    ((params) =>
+      iterCompletedAssistantMessages({
+        completedSinceMs: params.completedSinceMs,
+        completedUntilMs: params.completedUntilMs,
+      }));
+  return readMessages({ completedSinceMs, completedUntilMs });
+}
+
+async function writeDerivedState(
+  path: string,
+  state: QwenLocalQuotaStateFileV1 | AlibabaCodingPlanStateFileV1,
+  dependencies: MaintainedLocalQuotaDependencies,
+): Promise<void> {
+  const writeState =
+    dependencies.writeState ??
+    ((target, value) => writeJsonAtomic(target, value, { trailingNewline: true }));
+  await writeState(path, state);
+}
+
+export async function readQwenLocalQuotaState(
+  dependencies: MaintainedLocalQuotaDependencies = {},
+): Promise<QwenLocalQuotaStateFileV1> {
+  const nowMs = dependencies.nowMs ?? Date.now();
+  const sinceMs = Date.UTC(
+    new Date(nowMs).getUTCFullYear(),
+    new Date(nowMs).getUTCMonth(),
+    new Date(nowMs).getUTCDate(),
+  );
+  const timestamps = completedTimestamps({
+    messages: await readCompletedMessages(dependencies, sinceMs, nowMs),
+    providerIds: ["qwen-code"],
+    sinceMs,
+    untilMs: nowMs,
+  });
+  const state: QwenLocalQuotaStateFileV1 = {
+    ...defaultQwenState(nowMs),
+    dayCount: timestamps.length,
+    recent: timestamps
+      .filter((timestamp) => timestamp >= nowMs - RPM_WINDOW_MS)
+      .slice(-MAX_QWEN_RECENT_TIMESTAMPS),
   };
-
-  await writeJsonAtomic(path, next);
-  return next;
+  await writeDerivedState(getQwenLocalQuotaPath(), state, dependencies);
+  return state;
 }
 
-export async function recordAlibabaCodingPlanCompletion(params?: {
-  atMs?: number;
-}): Promise<AlibabaCodingPlanStateFileV1> {
-  const nowMs = params?.atMs ?? Date.now();
-  const path = getAlibabaCodingPlanQuotaPath();
-  const loaded = await readJsonState(path, defaultAlibabaState(nowMs), (raw) =>
-    normalizeAlibabaState(raw, nowMs),
-  );
-  const state = pruneAlibabaState(loaded, nowMs);
-
-  const next: AlibabaCodingPlanStateFileV1 = {
-    ...state,
-    recent: [...state.recent, nowMs].slice(-MAX_ALIBABA_MONTHLY_LIMIT),
-    updatedAt: nowMs,
+export async function readAlibabaCodingPlanQuotaState(
+  dependencies: MaintainedLocalQuotaDependencies = {},
+): Promise<AlibabaCodingPlanStateFileV1> {
+  const nowMs = dependencies.nowMs ?? Date.now();
+  const sinceMs = nowMs - MONTHLY_WINDOW_MS;
+  const state: AlibabaCodingPlanStateFileV1 = {
+    ...defaultAlibabaState(nowMs),
+    recent: completedTimestamps({
+      messages: await readCompletedMessages(dependencies, sinceMs, nowMs),
+      providerIds: ["alibaba-coding-plan", "alibaba"],
+      sinceMs,
+      untilMs: nowMs,
+    }).slice(-MAX_ALIBABA_MONTHLY_LIMIT),
   };
-
-  await writeJsonAtomic(path, next);
-  return next;
+  await writeDerivedState(getAlibabaCodingPlanQuotaPath(), state, dependencies);
+  return state;
 }
 
 export function computeQwenQuota(params: {

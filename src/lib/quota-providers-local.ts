@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import type { QuotaToastEntry } from "./entries.js";
 import type { OpenCodeMessage } from "./opencode-storage.js";
-import { iterAssistantMessages } from "./opencode-storage.js";
+import { iterCompletedAssistantMessages } from "./opencode-storage.js";
 import type {
   LocalEstimateQuotaProviderDefinition,
   LocalEstimateWindow,
@@ -59,12 +59,13 @@ export interface LocalEstimateResult {
 interface LocalStateDependencies {
   nowMs?: number;
   runtimeDirs?: OpencodeRuntimeDirs;
-  readMessages?: (params: { sinceMs: number; untilMs: number }) => Promise<OpenCodeMessage[]>;
+  readMessages?: (params: {
+    completedSinceMs: number;
+    completedUntilMs: number;
+  }) => Promise<OpenCodeMessage[]>;
   readText?: (path: string) => Promise<string>;
   writeState?: (path: string, state: LocalQuotaProviderStateV1) => Promise<void>;
 }
-
-const stateMutationByPath = new Map<string, Promise<void>>();
 
 function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
   const allowedSet = new Set(allowed);
@@ -193,7 +194,7 @@ function retentionStart(definition: LocalEstimateQuotaProviderDefinition, nowMs:
 }
 
 function messageTimestamp(message: OpenCodeMessage): number | null {
-  const value = message.time?.completed ?? message.time?.created;
+  const value = message.time?.completed;
   return typeof value === "number" && Number.isFinite(value) && value > 0
     ? Math.trunc(value)
     : null;
@@ -223,86 +224,46 @@ function toStateMessage(message: OpenCodeMessage): LocalQuotaProviderMessage | n
   };
 }
 
-async function withStateMutation<T>(path: string, operation: () => Promise<T>): Promise<T> {
-  const previous = stateMutationByPath.get(path) ?? Promise.resolve();
-  let release: () => void = () => undefined;
-  const current = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const queued = previous.then(() => current);
-  stateMutationByPath.set(path, queued);
-  await previous;
-  try {
-    return await operation();
-  } finally {
-    release();
-    if (stateMutationByPath.get(path) === queued) stateMutationByPath.delete(path);
-  }
-}
-
-async function readState(
-  path: string,
-  definition: LocalEstimateQuotaProviderDefinition,
-  readText: (path: string) => Promise<string>,
-): Promise<{ state: LocalQuotaProviderStateV1; health: LocalQuotaProviderStateHealth }> {
-  try {
-    return normalizeState(JSON.parse(await readText(path)) as unknown, definition);
-  } catch (error) {
-    if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      String((error as { code?: unknown }).code) === "ENOENT"
-    ) {
-      return { state: emptyState(definition, 0), health: "missing" };
-    }
-    return { state: emptyState(definition, 0), health: "malformed" };
-  }
-}
-
 export async function syncLocalQuotaProviderState(
   definition: LocalEstimateQuotaProviderDefinition,
   dependencies: LocalStateDependencies = {},
 ): Promise<LocalQuotaProviderStateV1> {
   const nowMs = dependencies.nowMs ?? Date.now();
   const path = getLocalQuotaProviderStatePath(definition.id, dependencies.runtimeDirs);
-  const readText = dependencies.readText ?? ((target) => readFile(target, "utf8"));
   const readMessages =
     dependencies.readMessages ??
-    ((params) => iterAssistantMessages({ sinceMs: params.sinceMs, untilMs: params.untilMs }));
+    ((params) =>
+      iterCompletedAssistantMessages({
+        completedSinceMs: params.completedSinceMs,
+        completedUntilMs: params.completedUntilMs,
+      }));
   const writeState =
     dependencies.writeState ??
     ((target, state) => writeJsonAtomic(target, state, { trailingNewline: true }));
 
-  return withStateMutation(path, async () => {
-    const { state } = await readState(path, definition, readText);
-    const sinceMs = retentionStart(definition, nowMs);
-    const fresh = await readMessages({ sinceMs, untilMs: nowMs });
+  const completedSinceMs = retentionStart(definition, nowMs);
+  const fresh = await readMessages({ completedSinceMs, completedUntilMs: nowMs });
 
-    const byId = new Map<string, LocalQuotaProviderMessage>();
-    for (const message of state.messages) {
-      if (message.atMs >= sinceMs && message.atMs <= nowMs) byId.set(message.id, message);
+  const byId = new Map<string, LocalQuotaProviderMessage>();
+  for (const raw of fresh) {
+    if (!matchesDefinition(definition, raw)) continue;
+    const message = toStateMessage(raw);
+    if (message && message.atMs >= completedSinceMs && message.atMs <= nowMs) {
+      byId.set(message.id, message);
     }
-    for (const raw of fresh) {
-      if (!matchesDefinition(definition, raw)) continue;
-      const message = toStateMessage(raw);
-      if (message && message.atMs >= sinceMs && message.atMs <= nowMs) {
-        byId.set(message.id, message);
-      }
-    }
+  }
 
-    const next: LocalQuotaProviderStateV1 = {
-      version: QUOTA_PROVIDER_LOCAL_STATE_VERSION,
-      definitionId: definition.id,
-      providerId: definition.providerId,
-      updatedAt: nowMs,
-      messages: [...byId.values()].sort(
-        (left, right) => left.atMs - right.atMs || left.id.localeCompare(right.id),
-      ),
-    };
-    await writeState(path, next);
-    return next;
-  });
+  const next: LocalQuotaProviderStateV1 = {
+    version: QUOTA_PROVIDER_LOCAL_STATE_VERSION,
+    definitionId: definition.id,
+    providerId: definition.providerId,
+    updatedAt: nowMs,
+    messages: [...byId.values()].sort(
+      (left, right) => left.atMs - right.atMs || left.id.localeCompare(right.id),
+    ),
+  };
+  await writeState(path, next);
+  return next;
 }
 
 function resolveMessageCost(
@@ -478,5 +439,5 @@ export async function inspectLocalQuotaProviderState(
 }
 
 export function __resetLocalQuotaProviderStateForTests(): void {
-  stateMutationByPath.clear();
+  // Local state is derived from authoritative OpenCode storage; no mutation queue exists.
 }

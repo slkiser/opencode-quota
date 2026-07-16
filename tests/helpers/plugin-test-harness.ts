@@ -146,8 +146,7 @@ export function createAlibabaAuthModuleMock(resolveAlibabaCodingPlanAuthCached: 
     DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS: 5000,
     isAlibabaModelId: (model?: string) =>
       typeof model === "string" &&
-      (model.toLowerCase().startsWith("alibaba/") ||
-        model.toLowerCase().startsWith("alibaba-cn/")),
+      (model.toLowerCase().startsWith("alibaba/") || model.toLowerCase().startsWith("alibaba-cn/")),
     resolveAlibabaCodingPlanAuthCached,
   };
 }
@@ -313,8 +312,14 @@ export function createPluginTestClient({
   sessionData?: Record<string, unknown>;
 } = {}) {
   const data = {
-    ...(modelID === undefined ? {} : { modelID }),
-    ...(providerID === undefined ? {} : { providerID }),
+    ...(modelID === undefined && providerID === undefined
+      ? {}
+      : {
+          model: {
+            ...(modelID === undefined ? {} : { id: modelID }),
+            ...(providerID === undefined ? {} : { providerID }),
+          },
+        }),
     ...(sessionData ?? {}),
   };
 

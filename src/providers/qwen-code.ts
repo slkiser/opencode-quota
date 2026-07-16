@@ -23,8 +23,10 @@ export const qwenCodeProvider: QuotaProvider = {
     return plan.state === "qwen_free";
   },
 
-  matchesCurrentModel(model: string): boolean {
-    return isQwenCodeModelId(model);
+  matchesCurrentModel(model: string, context): boolean {
+    return context?.currentProviderID
+      ? context.currentProviderID === "qwen-code"
+      : isQwenCodeModelId(model);
   },
 
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {

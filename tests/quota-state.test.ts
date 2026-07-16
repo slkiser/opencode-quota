@@ -127,6 +127,250 @@ describe("quota-state shared cache", () => {
     }
   });
 
+  it("isolates aggregate cache entries for disjoint project provider catalogs", async () => {
+    const { __resetQuotaStateForTests, fetchQuotaProviderResult } =
+      await import("../src/lib/quota-state.js");
+    __resetQuotaStateForTests();
+
+    const definitions = [
+      {
+        id: "project-a-source",
+        providerId: "project-a",
+        label: "Project A",
+        mode: "remote-api",
+        url: "https://a.example/accounting",
+        format: "accounting-v1",
+      },
+      {
+        id: "project-b-source",
+        providerId: "project-b",
+        label: "Project B",
+        mode: "remote-api",
+        url: "https://b.example/accounting",
+        format: "accounting-v1",
+      },
+    ];
+    const provider = {
+      id: "quota-providers",
+      isAvailable: vi.fn(),
+      fetch: vi.fn(async (ctx: any) => {
+        const catalog = await ctx.client.config.providers();
+        const name = catalog.data.providers[0].id;
+        return {
+          attempted: true,
+          entries: [
+            {
+              accounting: {
+                ...TEST_ACCOUNTING,
+                ownership: "user_configured",
+              },
+              name,
+              percentRemaining: 50,
+            },
+          ],
+          errors: [],
+        };
+      }),
+    } as any;
+    const contextFor = (providerId: string) => ({
+      ...createTestContext(),
+      client: {
+        config: {
+          providers: async () => ({ data: { providers: [{ id: providerId }] } }),
+          get: async () => ({ data: {} }),
+        },
+      },
+      config: {
+        ...createTestContext().config,
+        enabledProviders: "auto",
+        quotaProviders: definitions,
+      },
+    });
+
+    const projectA = await fetchQuotaProviderResult({
+      provider,
+      ctx: contextFor("project-a") as any,
+      ttlMs: 60_000,
+    });
+    const projectB = await fetchQuotaProviderResult({
+      provider,
+      ctx: contextFor("project-b") as any,
+      ttlMs: 60_000,
+    });
+    const projectAAgain = await fetchQuotaProviderResult({
+      provider,
+      ctx: contextFor("project-a") as any,
+      ttlMs: 60_000,
+    });
+
+    expect(projectA.entries[0]?.name).toBe("project-a");
+    expect(projectB.entries[0]?.name).toBe("project-b");
+    expect(projectAAgain.entries[0]?.name).toBe("project-a");
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not share aggregate cache state when the runtime provider catalog is unavailable", async () => {
+    const { __resetQuotaStateForTests, fetchQuotaProviderResult } =
+      await import("../src/lib/quota-state.js");
+    __resetQuotaStateForTests();
+
+    let fetchCount = 0;
+    const provider = {
+      id: "quota-providers",
+      isAvailable: vi.fn(),
+      fetch: vi.fn(async () => ({
+        attempted: true,
+        entries: [
+          {
+            accounting: { ...TEST_ACCOUNTING, ownership: "user_configured" },
+            name: `fresh-${++fetchCount}`,
+            percentRemaining: 50,
+          },
+        ],
+        errors: [],
+      })),
+    } as any;
+    const ctx = {
+      ...createTestContext(),
+      client: {
+        config: {
+          providers: async () => {
+            throw new Error("catalog unavailable");
+          },
+          get: async () => ({ data: {} }),
+        },
+      },
+      config: {
+        ...createTestContext().config,
+        quotaProviders: [
+          {
+            id: "remote-project",
+            providerId: "remote-project",
+            label: "Remote",
+            mode: "remote-api",
+            url: "https://remote.example/accounting",
+            format: "accounting-v1",
+          },
+        ],
+      },
+    } as any;
+
+    const first = await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+    const second = await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+
+    expect(first.entries[0]?.name).toBe("fresh-1");
+    expect(second.entries[0]?.name).toBe("fresh-2");
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("retains remote child TTL caching without another runtime catalog lookup", async () => {
+    const { __resetQuotaStateForTests, fetchQuotaProviderResult } =
+      await import("../src/lib/quota-state.js");
+    __resetQuotaStateForTests();
+
+    const provider = {
+      id: "quota-providers:remote-project",
+      isAvailable: vi.fn(),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [
+          {
+            accounting: { ...TEST_ACCOUNTING, ownership: "user_configured" },
+            name: "Remote project",
+            percentRemaining: 50,
+          },
+        ],
+        errors: [],
+      }),
+    } as any;
+    const providers = vi.fn(async () => {
+      throw new Error("child cache must not resolve the runtime catalog");
+    });
+    const ctx = {
+      ...createTestContext(),
+      client: { config: { providers, get: async () => ({ data: {} }) } },
+      config: {
+        ...createTestContext().config,
+        quotaProviders: [
+          {
+            id: "remote-project",
+            providerId: "remote-project",
+            label: "Remote",
+            mode: "remote-api",
+            url: "https://remote.example/accounting",
+            format: "accounting-v1",
+          },
+        ],
+      },
+    } as any;
+
+    await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+    await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+
+    expect(providers).not.toHaveBeenCalled();
+    expect(provider.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes aggregates that have a runtime-eligible local definition", async () => {
+    const { __resetQuotaStateForTests, fetchQuotaProviderResult } =
+      await import("../src/lib/quota-state.js");
+    __resetQuotaStateForTests();
+
+    let fetchCount = 0;
+    const provider = {
+      id: "quota-providers",
+      isAvailable: vi.fn(),
+      fetch: vi.fn(async () => {
+        fetchCount += 1;
+        return {
+          attempted: true,
+          entries: [
+            {
+              accounting: {
+                resultType: "rate_limit",
+                acquisitionMethod: "local_estimation",
+                ownership: "user_configured",
+                authority: "locally_derived",
+              },
+              name: "Local",
+              percentRemaining: 100 - fetchCount,
+            },
+          ],
+          errors: [],
+        };
+      }),
+    } as any;
+    const ctx = {
+      ...createTestContext(),
+      client: {
+        config: {
+          providers: async () => ({ data: { providers: [{ id: "local-project" }] } }),
+          get: async () => ({ data: {} }),
+        },
+      },
+      config: {
+        ...createTestContext().config,
+        enabledProviders: "auto",
+        quotaProviders: [
+          {
+            id: "local-project",
+            providerId: "local-project",
+            label: "Local",
+            mode: "local-estimate",
+            windows: [{ id: "day", label: "Day", type: "utc-day", requestLimit: 10 }],
+          },
+        ],
+      },
+    } as any;
+
+    const first = await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+    const second = await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
+    expect(first.entries[0]?.percentRemaining).toBe(99);
+    expect(second.entries[0]?.percentRemaining).toBe(98);
+  });
+
   it("returns cache-owned clones for repeated non-live provider reads", async () => {
     const { __resetQuotaStateForTests, fetchQuotaProviderResult } =
       await import("../src/lib/quota-state.js");

@@ -10,9 +10,12 @@ import type {
   RemoteApiQuotaProviderDefinition,
 } from "../lib/quota-providers.js";
 import {
-  MAINTAINED_LOCAL_ESTIMATE_IDS,
   QUOTA_PROVIDERS_AGGREGATE_ID,
+  customQuotaProviderDefinitions,
+  resolveQuotaProviderSessionModelIdentity,
+  selectEligibleQuotaProviderDefinitions,
 } from "../lib/quota-providers.js";
+import { fetchQuotaProviderResult } from "../lib/quota-state.js";
 import {
   QUOTA_PROVIDER_CONCURRENCY,
   fetchRemoteQuotaProvider,
@@ -25,76 +28,19 @@ import {
 } from "../lib/quota-providers-local.js";
 
 export const QUOTA_PROVIDERS_PROVIDER_ID = QUOTA_PROVIDERS_AGGREGATE_ID;
-
-function isMaintainedTuning(definition: QuotaProviderDefinition): boolean {
-  return (MAINTAINED_LOCAL_ESTIMATE_IDS as readonly string[]).includes(definition.id);
-}
-
-function customDefinitions(
-  definitions: readonly QuotaProviderDefinition[],
-): QuotaProviderDefinition[] {
-  return definitions.filter((definition) => !isMaintainedTuning(definition));
-}
-
-function resolveSessionModelIdentity(params: {
-  currentModel: string;
-  currentProviderID?: string;
-}): { providerId: string; modelId: string } | null {
-  const slashIndex = params.currentModel.indexOf("/");
-  if (slashIndex === -1) {
-    if (!params.currentProviderID || params.currentModel.length === 0) return null;
-    return { providerId: params.currentProviderID, modelId: params.currentModel };
-  }
-  if (slashIndex === 0 || slashIndex === params.currentModel.length - 1) return null;
-  const providerId = params.currentModel.slice(0, slashIndex);
-  if (params.currentProviderID && params.currentProviderID !== providerId) return null;
-  return { providerId, modelId: params.currentModel.slice(slashIndex + 1) };
-}
-
-export function selectEligibleQuotaProviders(params: {
-  definitions: readonly QuotaProviderDefinition[];
-  availableProviderIds: ReadonlySet<string>;
-  onlyCurrentModel?: boolean;
-  currentModel?: string;
-  currentProviderID?: string;
-}): QuotaProviderDefinition[] {
-  const runtimeEligible = customDefinitions(params.definitions).filter((definition) =>
-    params.availableProviderIds.has(definition.providerId),
-  );
-  if (!params.onlyCurrentModel) return runtimeEligible;
-
-  if (!params.currentModel) {
-    if (!params.currentProviderID) return [];
-    return runtimeEligible.filter(
-      (definition) =>
-        definition.providerId === params.currentProviderID && definition.modelIds === undefined,
-    );
-  }
-
-  const identity = resolveSessionModelIdentity({
-    currentModel: params.currentModel,
-    currentProviderID: params.currentProviderID,
-  });
-  if (!identity) return [];
-
-  return runtimeEligible.filter(
-    (definition) =>
-      definition.providerId === identity.providerId &&
-      (definition.modelIds === undefined || definition.modelIds.includes(identity.modelId)),
-  );
-}
+export const selectEligibleQuotaProviders = selectEligibleQuotaProviderDefinitions;
 
 function matchesConfiguredCurrentSelection(
   model: string,
   context?: QuotaProviderMatchContext,
 ): boolean {
-  const identity = resolveSessionModelIdentity({
+  const identity = resolveQuotaProviderSessionModelIdentity({
     currentModel: model,
     currentProviderID: context?.currentProviderID,
   });
   if (!identity) return false;
   return Boolean(
-    customDefinitions(context?.quotaProviders ?? []).some(
+    customQuotaProviderDefinitions(context?.quotaProviders ?? []).some(
       (definition) =>
         definition.providerId === identity.providerId &&
         (definition.modelIds === undefined || definition.modelIds.includes(identity.modelId)),
@@ -217,12 +163,55 @@ async function executeRemote(
   };
 }
 
+async function executeRemoteWithCache(
+  definition: RemoteApiQuotaProviderDefinition,
+  ctx: QuotaProviderContext,
+): Promise<InstanceResult> {
+  const remoteProvider: QuotaProvider = {
+    id: `${QUOTA_PROVIDERS_PROVIDER_ID}:${definition.id}`,
+    isAvailable: async () => true,
+    fetch: async () => {
+      const result = await executeRemote(definition, ctx.config.requestTimeoutMs);
+      return {
+        attempted: result.diagnostic.attempted,
+        entries: result.entries,
+        errors: result.errors,
+        diagnostics: [result.diagnostic],
+      };
+    },
+  };
+  const result = await fetchQuotaProviderResult({
+    provider: remoteProvider,
+    ctx: {
+      ...ctx,
+      config: {
+        ...ctx.config,
+        quotaProviders: [definition],
+      },
+    },
+    ttlMs: ctx.config.providerCacheTtlMs ?? 0,
+  });
+  return {
+    entries: result.entries,
+    errors: result.errors,
+    diagnostic: result.diagnostics?.[0] ?? {
+      ...buildDiagnosticIdentity(definition),
+      attempted: true,
+      credentialSource: null,
+      outcome: "network_error",
+      entryCount: 0,
+      checkedPaths: [],
+      authPaths: [],
+    },
+  };
+}
+
 async function executeDefinition(
   definition: QuotaProviderDefinition,
-  requestTimeoutMs?: number,
+  ctx: QuotaProviderContext,
 ): Promise<InstanceResult> {
   if (definition.mode === "remote-api") {
-    return executeRemote(definition, requestTimeoutMs);
+    return executeRemoteWithCache(definition, ctx);
   }
 
   try {
@@ -272,7 +261,7 @@ export const quotaProvidersProvider: QuotaProvider = {
 
   async isAvailable(ctx): Promise<boolean> {
     const definitions = ctx.config.quotaProviders ?? [];
-    if (customDefinitions(definitions).length === 0) return false;
+    if (customQuotaProviderDefinitions(definitions).length === 0) return false;
     const availableProviderIds = await getAvailableProviderIds(ctx);
     return (
       selectEligibleQuotaProviders({
@@ -291,7 +280,7 @@ export const quotaProvidersProvider: QuotaProvider = {
 
   async fetch(ctx): Promise<QuotaProviderResult> {
     const definitions = ctx.config.quotaProviders ?? [];
-    if (customDefinitions(definitions).length === 0) {
+    if (customQuotaProviderDefinitions(definitions).length === 0) {
       return { attempted: false, entries: [], errors: [] };
     }
 
@@ -327,7 +316,7 @@ export const quotaProvidersProvider: QuotaProvider = {
       QUOTA_PROVIDER_CONCURRENCY,
       async (definition) => {
         try {
-          return await executeDefinition(definition, ctx.config.requestTimeoutMs);
+          return await executeDefinition(definition, ctx);
         } catch {
           return {
             entries: [],

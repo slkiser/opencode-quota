@@ -128,6 +128,7 @@ function buildQuotaProviderContext(params: {
       cursorBillingCycleStartDay: config.cursorBillingCycleStartDay,
       opencodeGoWindows: config.opencodeGoWindows,
       requestTimeoutMs: config.requestTimeoutMs,
+      providerCacheTtlMs: config.minIntervalMs,
       requestTimeoutMsConfigured: Boolean(configMeta?.settingSources.requestTimeoutMs),
       onlyCurrentModel: config.onlyCurrentModel,
       currentModel,

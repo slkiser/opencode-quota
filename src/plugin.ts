@@ -10,7 +10,7 @@ import type { Plugin } from "@opencode-ai/plugin";
 import type { QuotaToastConfig } from "./lib/types.js";
 import { DEFAULT_CONFIG } from "./lib/types.js";
 import { createLoadConfigMeta, type LoadConfigMeta } from "./lib/config.js";
-import { clearCache, getOrFetchWithCacheControl } from "./lib/cache.js";
+import { getOrFetchWithCacheControl } from "./lib/cache.js";
 import { formatQuotaRows } from "./lib/format.js";
 import { getProviders } from "./providers/registry.js";
 import { tool } from "@opencode-ai/plugin";
@@ -28,7 +28,6 @@ import {
   resolveAlibabaCodingPlanAuthCached,
 } from "./lib/alibaba-auth.js";
 import { isQwenCodeModelId, resolveQwenLocalPlanCached } from "./lib/qwen-auth.js";
-import { recordAlibabaCodingPlanCompletion, recordQwenCompletion } from "./lib/qwen-local-quota.js";
 import { isCursorModelId, isCursorProviderId } from "./lib/cursor-pricing.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
 import {
@@ -56,6 +55,10 @@ import {
   getMaintainerAnnouncementsSummary,
 } from "./lib/maintainer-announcements.js";
 import { handled } from "./lib/command-handled.js";
+import {
+  QUOTA_PROVIDERS_AGGREGATE_ID,
+  customQuotaProviderDefinitions,
+} from "./lib/quota-providers.js";
 import {
   QUOTA_DIALOG_COMMANDS,
   buildQuotaDialogCommandOutput,
@@ -88,8 +91,10 @@ interface OpencodeClient {
     get: (params: { path: { id: string } }) => Promise<{
       data?: {
         parentID?: string;
-        modelID?: string;
-        providerID?: string;
+        model?: {
+          id?: string;
+          providerID?: string;
+        };
       };
     }>;
     prompt: (params: {
@@ -198,8 +203,6 @@ const DEFERRED_QUOTA_REFRESH_DELAYS_MS = [3_000, 15_000, 60_000, 300_000] as con
  */
 export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
   const typedClient = client as unknown as OpencodeClient;
-  const TOOL_FAILURE_STATUSES = new Set(["error", "failed", "failure", "cancelled", "canceled"]);
-  const TOOL_SUCCESS_STATUSES = new Set(["success", "ok", "completed", "complete"]);
 
   /**
    * Inject tool output directly into the session without triggering an LLM response.
@@ -319,67 +322,35 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
     await showQuotaToast(sessionID, "deferred.retry", { deferredRetry: true });
   }
 
-  function asRecord(value: unknown): Record<string, unknown> | null {
-    return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
-  }
-
-  function evaluateToolOutcome(candidate: Record<string, unknown>): boolean | null {
-    if (typeof candidate.ok === "boolean") return candidate.ok;
-    if (typeof candidate.success === "boolean") return candidate.success;
-
-    const statusRaw = candidate.status;
-    if (typeof statusRaw === "string") {
-      const status = statusRaw.toLowerCase();
-      if (TOOL_FAILURE_STATUSES.has(status)) return false;
-      if (TOOL_SUCCESS_STATUSES.has(status)) return true;
-    }
-
-    if (candidate.error !== undefined && candidate.error !== null) return false;
-
-    const exitCode = candidate.exitCode;
-    if (typeof exitCode === "number" && Number.isFinite(exitCode)) {
-      return exitCode === 0;
-    }
-
-    return null;
-  }
-
-  function isSuccessfulQuestionExecution(output: ToolExecuteAfterOutput): boolean {
-    const metadata = asRecord(output.metadata);
-    const metadataOutcome = metadata ? evaluateToolOutcome(metadata) : null;
-    if (metadataOutcome !== null) return metadataOutcome;
-
-    const result = metadata ? asRecord(metadata.result) : null;
-    const resultOutcome = result ? evaluateToolOutcome(result) : null;
-    if (resultOutcome !== null) return resultOutcome;
-
-    // Fallback: keep behavior permissive if runtime omits explicit success state.
-    const title = output.title.trim().toLowerCase();
-    if (title.startsWith("error") || title.includes("failed")) return false;
-
-    return true;
-  }
-
   function isProviderEnabled(providerId: string): boolean {
     return config.enabledProviders === "auto" || config.enabledProviders.includes(providerId);
   }
 
   async function shouldBypassToastCacheForLiveLocalUsage(params: {
-    trigger: string;
     sessionID: string;
     sessionMeta?: SessionModelMeta;
   }): Promise<boolean> {
-    const { trigger, sessionID } = params;
-    if (trigger !== "question") return false;
+    if (
+      isProviderEnabled(QUOTA_PROVIDERS_AGGREGATE_ID) &&
+      customQuotaProviderDefinitions(config.quotaProviders).some(
+        (definition) => definition.mode === "local-estimate",
+      )
+    ) {
+      return true;
+    }
 
-    const currentSession = params.sessionMeta ?? (await getSessionModelMeta(sessionID));
+    const currentSession = params.sessionMeta ?? (await getSessionModelMeta(params.sessionID));
     const currentModel = currentSession.modelID;
-    if (isQwenCodeModelId(currentModel)) {
+    if (currentSession.providerID === "qwen-code" || isQwenCodeModelId(currentModel)) {
       const plan = await resolveQwenLocalPlanCached();
       return plan.state === "qwen_free" && isProviderEnabled("qwen-code");
     }
 
-    if (isAlibabaModelId(currentModel)) {
+    if (
+      currentSession.providerID === "alibaba-coding-plan" ||
+      currentSession.providerID === "alibaba" ||
+      isAlibabaModelId(currentModel)
+    ) {
       const plan = await resolveAlibabaCodingPlanAuthCached({
         maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
         fallbackTier: "lite",
@@ -713,8 +684,8 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
     try {
       const sessionResp = await typedClient.session.get({ path: { id: sessionID } });
       return {
-        modelID: sessionResp.data?.modelID,
-        providerID: sessionResp.data?.providerID,
+        modelID: sessionResp.data?.model?.id,
+        providerID: sessionResp.data?.model?.providerID,
       };
     } catch {
       return {};
@@ -781,13 +752,6 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
       `cursorIncludedApiUsd=${config.cursorIncludedApiUsd ?? ""}`,
       `cursorBillingCycleStartDay=${config.cursorBillingCycleStartDay ?? ""}`,
     ].join("|");
-  }
-
-  function clearToastCacheForSession(params: {
-    sessionID: string;
-    sessionMeta?: SessionModelMeta;
-  }): void {
-    clearCache(buildToastCacheKey(params));
   }
 
   function isProviderFetchFailureOnly(errors: Array<{ message: string }>): boolean {
@@ -1098,7 +1062,6 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
       // If debug is enabled, bypass caching so the toast reflects current state.
       const sessionMeta = await getSessionModelMeta(sessionID);
       const bypassForLiveLocalUsage = await shouldBypassToastCacheForLiveLocalUsage({
-        trigger,
         sessionID,
         sessionMeta,
       });
@@ -1430,7 +1393,7 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
     },
 
     // Tool execute hook for question tool
-    "tool.execute.after": async (input: ToolExecuteAfterInput, output: ToolExecuteAfterOutput) => {
+    "tool.execute.after": async (input: ToolExecuteAfterInput, _output: ToolExecuteAfterOutput) => {
       if (input.tool !== "question") return;
 
       if (!configLoaded) {
@@ -1440,37 +1403,6 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
       if (!config.enabled) {
         clearDeferredQuotaRefresh(input.sessionID);
         return;
-      }
-
-      if (isSuccessfulQuestionExecution(output)) {
-        const sessionMeta = await getSessionModelMeta(input.sessionID);
-        const model = sessionMeta.modelID;
-        try {
-          if (isQwenCodeModelId(model)) {
-            const plan = await resolveQwenLocalPlanCached();
-            if (plan.state === "qwen_free") {
-              await recordQwenCompletion();
-              clearToastCacheForSession({ sessionID: input.sessionID, sessionMeta });
-            }
-          } else if (isAlibabaModelId(model)) {
-            const plan = await resolveAlibabaCodingPlanAuthCached({
-              maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
-              fallbackTier: "lite",
-            });
-            if (plan.state === "configured") {
-              await recordAlibabaCodingPlanCompletion();
-              clearToastCacheForSession({ sessionID: input.sessionID, sessionMeta });
-            }
-          } else if (isCursorProviderId(sessionMeta.providerID) || isCursorModelId(model)) {
-            clearToastCacheForSession({ sessionID: input.sessionID, sessionMeta });
-          }
-        } catch (err) {
-          await log("Failed to record local request-plan quota completion", {
-            error: err instanceof Error ? err.message : String(err),
-            model,
-            providerID: sessionMeta.providerID,
-          });
-        }
       }
 
       if (config.showOnQuestion) {

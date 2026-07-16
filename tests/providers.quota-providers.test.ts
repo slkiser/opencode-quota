@@ -171,6 +171,28 @@ describe("quota-providers aggregate provider", () => {
     ).toEqual(["stable-one"]);
   });
 
+  it("treats slash-containing currentModel as an opaque model id when provider is supplied", () => {
+    const definitions = [remote("openrouter-usage", "openrouter", ["openai/gpt-4o"])];
+
+    expect(
+      selectEligibleQuotaProviders({
+        definitions,
+        availableProviderIds: new Set(["openrouter"]),
+        onlyCurrentModel: true,
+        currentProviderID: "openrouter",
+        currentModel: "openai/gpt-4o",
+      }).map((definition) => definition.id),
+    ).toEqual(["openrouter-usage"]);
+
+    expect(
+      quotaProvidersProvider.matchesCurrentModel?.("openai/gpt-4o", {
+        enabledProviders: "auto",
+        currentProviderID: "openrouter",
+        quotaProviders: definitions,
+      }),
+    ).toBe(true);
+  });
+
   it("skips maintained Qwen and Alibaba tuning in the aggregate", () => {
     const definitions: QuotaProviderDefinition[] = [
       {
@@ -228,6 +250,72 @@ describe("quota-providers aggregate provider", () => {
       "first",
       "second",
     ]);
+  });
+
+  it("refreshes mixed local data while retaining remote definition caching", async () => {
+    const definitions: QuotaProviderDefinition[] = [
+      remote("mixed-remote"),
+      {
+        id: "mixed-local",
+        providerId: "mixed-local",
+        label: "Mixed Local",
+        mode: "local-estimate",
+        windows: [{ id: "daily", label: "Daily", type: "utc-day", requestLimit: 10 }],
+      },
+    ];
+    runtimeMocks.fetchRemoteQuotaProvider.mockResolvedValue({
+      success: true,
+      entries: [
+        {
+          accounting: {
+            resultType: "balance",
+            acquisitionMethod: "remote_api",
+            ownership: "user_configured",
+            authority: "provider_reported",
+          },
+          kind: "value",
+          name: "Remote",
+          value: "$5.00",
+        },
+      ],
+    });
+    let localCall = 0;
+    runtimeMocks.collectLocalQuotaProviderEstimate.mockImplementation(async () => {
+      localCall += 1;
+      return {
+        entries: [
+          {
+            accounting: {
+              resultType: "rate_limit",
+              acquisitionMethod: "local_estimation",
+              ownership: "user_configured",
+              authority: "locally_derived",
+            },
+            name: "Local",
+            percentRemaining: 100 - localCall,
+          },
+        ],
+        state: {
+          version: 1,
+          definitionId: "mixed-local",
+          providerId: "mixed-local",
+          updatedAt: localCall,
+          messages: [],
+        },
+        unpricedMessageCount: 0,
+      };
+    });
+    const ctx = context(definitions, ["mixed-remote", "mixed-local"], {
+      providerCacheTtlMs: 60_000,
+    });
+
+    const first = await quotaProvidersProvider.fetch(ctx);
+    const second = await quotaProvidersProvider.fetch(ctx);
+
+    expect(runtimeMocks.fetchRemoteQuotaProvider).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.collectLocalQuotaProviderEstimate).toHaveBeenCalledTimes(2);
+    expect(first.entries.map((entry) => entry.name)).toEqual(["Remote", "Local"]);
+    expect(second.entries.find((entry) => entry.name === "Local")?.percentRemaining).toBe(98);
   });
 
   it("preserves successful entries when another definition fails", async () => {

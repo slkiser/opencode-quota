@@ -333,8 +333,7 @@ describe("tui runtime helpers", () => {
           session: {
             get: vi.fn().mockResolvedValue({
               data: {
-                providerID: "copilot",
-                modelID: "gpt-4.1",
+                model: { providerID: "copilot", id: "gpt-4.1" },
               },
             }),
           },
@@ -665,9 +664,11 @@ describe("tui runtime helpers", () => {
 
   it("uses the TUI session.get parameter shape for session model metadata", async () => {
     const sessionGet = vi.fn().mockResolvedValue({
-      data: { providerID: "openai", modelID: "gpt-5" },
+      data: { model: { providerID: "openai", id: "gpt-5" } },
     });
-    const messages = vi.fn(() => [{ providerID: "cursor", modelID: "claude-3.7-sonnet" }]);
+    const messages = vi.fn(() => [
+      { role: "assistant", providerID: "cursor", modelID: "claude-3.7-sonnet" },
+    ]);
 
     const meta = await getTuiSessionModelMeta(
       {
@@ -691,6 +692,48 @@ describe("tui runtime helpers", () => {
       providerID: "openai",
       modelID: "gpt-5",
     });
+  });
+
+  it("falls back to the client lookup when the TUI state accessor throws", async () => {
+    const stateGet = vi.fn(() => {
+      throw new Error("state is not hydrated");
+    });
+    const sessionGet = vi.fn().mockResolvedValue({
+      data: { model: { providerID: "qwen-code", id: "qwen3-coder-plus" } },
+    });
+    const messages = vi.fn(() => []);
+
+    const meta = await getTuiSessionModelMeta(
+      {
+        client: { session: { get: sessionGet } },
+        state: { session: { get: stateGet, messages } },
+      } as any,
+      "session-throwing-state",
+    );
+
+    expect(stateGet).toHaveBeenCalledWith("session-throwing-state");
+    expect(sessionGet).toHaveBeenCalledWith({ sessionID: "session-throwing-state" });
+    expect(messages).not.toHaveBeenCalled();
+    expect(meta).toEqual({
+      providerID: "qwen-code",
+      modelID: "qwen3-coder-plus",
+    });
+  });
+
+  it("does not read obsolete top-level session model fields", async () => {
+    const sessionGet = vi.fn().mockResolvedValue({
+      data: { providerID: "legacy-provider", modelID: "legacy-model" },
+    });
+
+    const meta = await getTuiSessionModelMeta(
+      {
+        client: { session: { get: sessionGet } },
+        state: { session: { messages: () => [] } },
+      } as any,
+      "session-legacy",
+    );
+
+    expect(meta).toEqual({});
   });
 
   it("does not call session APIs for placeholder TUI session IDs", async () => {
@@ -736,8 +779,11 @@ describe("tui runtime helpers", () => {
         state: {
           session: {
             messages: () => [
-              { providerID: "openai", modelID: "gpt-4.1" },
-              { model: { providerID: "cursor", modelID: "claude-3.7-sonnet" } },
+              { role: "assistant", providerID: "openai", modelID: "gpt-4.1" },
+              {
+                role: "user",
+                model: { providerID: "cursor", modelID: "claude-3.7-sonnet" },
+              },
             ],
           },
         },
@@ -1050,8 +1096,7 @@ describe("tui runtime helpers", () => {
           session: {
             get: vi.fn().mockResolvedValue({
               data: {
-                providerID: "copilot",
-                modelID: "gpt-4.1",
+                model: { providerID: "copilot", id: "gpt-4.1" },
               },
             }),
           },

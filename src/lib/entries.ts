@@ -199,6 +199,8 @@ export interface QuotaProviderContext {
     cursorBillingCycleStartDay?: number;
     opencodeGoWindows?: OpenCodeGoWindowKey[];
     requestTimeoutMs?: number;
+    /** Provider-result cache TTL used by aggregate remote definitions. */
+    providerCacheTtlMs?: number;
     /** True when requestTimeoutMs came from user config rather than DEFAULT_CONFIG. */
     requestTimeoutMsConfigured?: boolean;
     onlyCurrentModel?: boolean;

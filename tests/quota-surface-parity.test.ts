@@ -102,8 +102,8 @@ async function buildQuotaDialogOutputText(params: {
     resolveSessionMeta: async (sessionID) => {
       const response = await params.client.session.get({ path: { id: sessionID } });
       return {
-        modelID: response.data?.modelID,
-        providerID: response.data?.providerID,
+        modelID: response.data?.model?.id,
+        providerID: response.data?.model?.providerID,
       };
     },
   });

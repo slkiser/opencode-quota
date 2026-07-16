@@ -46,8 +46,8 @@ async function buildDialogOutput(params: {
     resolveSessionMeta: async (sessionID) => {
       const response = await params.client.session.get({ path: { id: sessionID } });
       return {
-        modelID: response.data?.modelID,
-        providerID: response.data?.providerID,
+        modelID: response.data?.model?.id,
+        providerID: response.data?.model?.providerID,
       };
     },
   });
@@ -706,6 +706,58 @@ describe("/quota command behavior", () => {
     expect(getToastMessage(client, 1)).toContain("66% left");
   });
 
+  it("refreshes configured local-estimate toast rows across repeated session.idle events", async () => {
+    mocks.loadConfig.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      enabled: true,
+      enabledProviders: ["quota-providers"],
+      quotaProviders: [
+        {
+          id: "local-project",
+          providerId: "local-project",
+          label: "Local project",
+          mode: "local-estimate",
+          windows: [{ id: "day", label: "Day", type: "utc-day", requestLimit: 10 }],
+        },
+      ],
+      showOnQuestion: false,
+      showSessionTokens: false,
+      minIntervalMs: 60_000,
+    });
+
+    const provider = {
+      id: "quota-providers",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi
+        .fn()
+        .mockResolvedValueOnce({
+          attempted: true,
+          entries: [{ accounting: TEST_ACCOUNTING, name: "Local project", percentRemaining: 90 }],
+          errors: [],
+        })
+        .mockResolvedValueOnce({
+          attempted: true,
+          entries: [{ accounting: TEST_ACCOUNTING, name: "Local project", percentRemaining: 80 }],
+          errors: [],
+        }),
+    };
+    mocks.getProviders.mockReturnValue([provider]);
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const client = createClient({ modelID: "local-model", providerID: "local-project" });
+    const hooks = await QuotaToastPlugin({ client } as any);
+    const event = {
+      event: { type: "session.idle", properties: { sessionID: "session-local-estimate" } },
+    } as any;
+
+    await hooks.event?.(event);
+    await hooks.event?.(event);
+
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
+    expect(getToastMessage(client, 0)).toContain("90% left");
+    expect(getToastMessage(client, 1)).toContain("80% left");
+  });
+
   it("reports explicit cursor providers with no local history as no local usage yet", async () => {
     mocks.loadConfig.mockResolvedValueOnce({
       ...DEFAULT_CONFIG,
@@ -861,7 +913,9 @@ describe("/quota command behavior", () => {
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient({ modelID: "openai/gpt-5", providerID: "openai" });
-    let currentSession = { data: { modelID: "openai/gpt-5", providerID: "openai" } };
+    let currentSession = {
+      data: { model: { id: "openai/gpt-5", providerID: "openai" } },
+    };
     client.session.get = vi.fn().mockImplementation(async () => currentSession);
 
     await QuotaToastPlugin({ client } as any);
@@ -871,7 +925,9 @@ describe("/quota command behavior", () => {
       sessionID: "session-model-switch",
     });
 
-    currentSession = { data: { modelID: "openai/gpt-4.1", providerID: "openai" } };
+    currentSession = {
+      data: { model: { id: "openai/gpt-4.1", providerID: "openai" } },
+    };
 
     const secondInjected = await buildDialogOutput({
       client,
@@ -1048,9 +1104,9 @@ describe("/quota command behavior", () => {
     const client = createClient();
     client.session.get = vi.fn().mockImplementation(async ({ path }: any) => {
       if (path.id === "session-a") {
-        return { data: { modelID: "openai/gpt-5", providerID: "openai" } };
+        return { data: { model: { id: "openai/gpt-5", providerID: "openai" } } };
       }
-      return { data: { modelID: "openai/gpt-4.1", providerID: "openai" } };
+      return { data: { model: { id: "openai/gpt-4.1", providerID: "openai" } } };
     });
 
     const hooks = await QuotaToastPlugin({ client } as any);

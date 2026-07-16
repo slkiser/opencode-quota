@@ -31,8 +31,11 @@ export const alibabaCodingPlanProvider: QuotaProvider = {
     return plan.state === "configured" || plan.state === "invalid";
   },
 
-  matchesCurrentModel(model: string): boolean {
-    return isAlibabaModelId(model);
+  matchesCurrentModel(model: string, context): boolean {
+    return context?.currentProviderID
+      ? context.currentProviderID === "alibaba-coding-plan" ||
+          context.currentProviderID === "alibaba"
+      : isAlibabaModelId(model);
   },
 
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
