@@ -81,21 +81,32 @@ describe("formatQuotaCommand", () => {
     const lines = out.split("\n");
     expect(lines[0]).toMatch(/^# Quota \(\/quota\) \d{2}:\d{2} \d{2}\/\d{2}\/\d{4}$/);
     expect(lines[1]).toBe("");
+    const providerHeaderIndexes = lines.flatMap((line, index) =>
+      line.startsWith("→ ") ? [index] : [],
+    );
+    for (const index of providerHeaderIndexes) {
+      expect(lines[index + 1]).toBe("");
+      expect(lines[index + 2]).toMatch(/^ {4}\S/u);
+    }
     expect(out).not.toContain("```");
     expect(out.match(/[█░]{10}/gu)).toHaveLength(4);
     expect(lines.slice(2).join("\n")).toMatchInlineSnapshot(`
       "→ [Copilot] (personal)
-        Quota         █████████░   86% left · 42/300 · reset 12h
+
+          Quota         █████████░   86% left · 42/300 · reset 12h
 
       → [Copilot] (business)
-        Usage         9 used | 2026-01 | org=acme-corp | user=alice · reset 17d
+
+          Usage         9 used | 2026-01 | org=acme-corp | user=alice · reset 17d
 
       → [OpenAI] (Pro)
-        5h quota      ████░░░░░░   42% left · reset 2h
-        Week quota    ████████░░   81% left · reset 3d
+
+          5h quota      ████░░░░░░   42% left · reset 2h
+          Week quota    ████████░░   81% left · reset 3d
 
       → [Google Antigravity] (acct)
-        Quota         ███████░░░   67% left · reset 3h
+
+          Quota         ███████░░░   67% left · reset 3h
 
       Session input/output tokens
         openai/gpt-5: 1.2K in · 456 cached · 567 out
@@ -209,7 +220,7 @@ describe("formatQuotaCommand", () => {
     expect(out).toContain("Status        ██████████  125% used");
   });
 
-  it("uses fixed semantic labels and an aligned 10-cell monospaced bar contract", () => {
+  it("uses four-space code rows with fixed labels and aligned equal-width bars", () => {
     const out = formatQuotaCommand({
       entries: [
         {
@@ -250,7 +261,8 @@ describe("formatQuotaCommand", () => {
       QUOTA_COMMAND_BAR_WIDTH,
       QUOTA_COMMAND_BAR_WIDTH,
     ]);
-    expect(percentLines.map((line) => line.search(/[█░]/u))).toEqual([16, 16]);
+    expect(percentLines.every((line) => /^ {4}\S/u.test(line))).toBe(true);
+    expect(percentLines.map((line) => line.search(/[█░]/u))).toEqual([18, 18]);
     expect(Math.max(...percentLines.map((line) => Array.from(line).length))).toBeLessThanOrEqual(
       64,
     );
@@ -309,6 +321,7 @@ describe("formatQuotaCommand", () => {
     expect(metricLines).toHaveLength(2);
     expect(metricLines[0]).toContain(" · 2/5  · reset 5h");
     expect(metricLines[1]).toContain(" · 2/10 · reset 11h");
+    expect(metricLines[0]!.indexOf("2/5")).toBe(metricLines[1]!.indexOf("2/10"));
     expect(metricLines.map((line) => line.indexOf("reset"))).toEqual([
       metricLines[0]!.indexOf("reset"),
       metricLines[0]!.indexOf("reset"),
@@ -338,6 +351,8 @@ describe("formatQuotaCommand", () => {
     expect(metric).toContain(
       "Quota         █████████░   86% left · 12345678901234567890 · reset 12h",
     );
-    expect(Array.from(metric).length).toBeLessThanOrEqual(76);
+    expect(metric).toMatch(/^ {4}\S/u);
+    expect(metric).not.toContain("```");
+    expect(Array.from(metric).length).toBeLessThanOrEqual(78);
   });
 });

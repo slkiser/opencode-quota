@@ -117,7 +117,7 @@ function buildQuotaCommandDocument(params: {
       const details = formatCommandDetails(row, rightWidth);
 
       if (isValueEntry(row)) {
-        lines.push(`  ${label}  ${row.value}${details}`);
+        lines.push(`    ${label}  ${row.value}${details}`);
         continue;
       }
 
@@ -127,13 +127,13 @@ function buildQuotaCommandDocument(params: {
         params.percentDisplayMode,
       );
       lines.push(
-        `  ${label}  ${bar(displayedPercent, QUOTA_COMMAND_BAR_WIDTH)}  ${padLeft(pctLabel, 9)}${details}`,
+        `    ${label}  ${bar(displayedPercent, QUOTA_COMMAND_BAR_WIDTH)}  ${padLeft(pctLabel, 9)}${details}`,
       );
     }
     return {
       id: `group-${index}`,
       title: `→ ${formatGroupedHeader(group.group)}`,
-      blocks: [{ kind: "lines", lines }],
+      blocks: [{ kind: "lines", lines: ["", ...lines] }],
     };
   });
 
