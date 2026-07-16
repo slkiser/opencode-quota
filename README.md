@@ -168,7 +168,7 @@ Setup details live in the [Provider setup guide](docs/readme/providers.md#custom
 
 If quota or token data looks wrong:
 
-1. Run `/quota_status`, or start with `opencode-quota show` for a terminal quota summary.
+1. Run `/quota_status`, or run `opencode-quota status` from your terminal for the same diagnostics without launching OpenCode.
 2. Confirm the expected provider appears in the detected provider list.
 3. Confirm companion auth plugins are before `@slkiser/opencode-quota` in `opencode.json`.
 4. If token reports are empty, start OpenCode once so it creates `opencode.db`, then run a session with model usage.

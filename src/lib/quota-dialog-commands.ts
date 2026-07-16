@@ -56,6 +56,7 @@ import {
   BUNDLED_MAINTAINER_ANNOUNCEMENTS,
   getMaintainerAnnouncementsSummary,
 } from "./maintainer-announcements.js";
+import { getPackageVersion } from "./version.js";
 
 export type QuotaDialogCommandId =
   | "quota"
@@ -437,7 +438,48 @@ async function buildQuotaReport(params: {
   });
 }
 
-async function buildStatusReport(params: {
+export interface QuotaStatusReportConfigPayload {
+  configSource: string;
+  configPaths: string[];
+  globalConfigPaths?: string[];
+  workspaceConfigPaths?: string[];
+  enabledProviders: string[] | "auto";
+  onlyCurrentModel: boolean;
+  pricingSnapshotSource: PricingSnapshotSource;
+}
+
+export interface QuotaStatusReportPricingPayload {
+  selection: PricingSnapshotSource;
+  activeSource: string;
+  snapshot: {
+    source: string;
+    generatedAt: string | null;
+    units: string;
+  };
+  snapshotPath: string;
+  refreshStatePath: string;
+}
+
+export interface QuotaStatusReportPayload {
+  version: string;
+  generatedAt: string;
+  config: QuotaStatusReportConfigPayload;
+  providers: Array<{
+    id: string;
+    enabled: boolean;
+    available: boolean;
+    matchesCurrentModel?: boolean;
+  }>;
+  pricing: QuotaStatusReportPricingPayload;
+  liveProbes: QuotaStatusLiveProbe[];
+}
+
+export interface QuotaStatusReportData {
+  output: string | null;
+  payload: QuotaStatusReportPayload | null;
+}
+
+export async function buildStatusReportData(params: {
   runtime: QuotaRuntimeContext;
   refreshGoogleTokens?: boolean;
   skewMs?: number;
@@ -446,9 +488,13 @@ async function buildStatusReport(params: {
   generatedAtMs: number;
   lastSessionTokenError?: SessionTokenError;
   log?: (message: string, extra?: Record<string, unknown>) => Promise<void>;
-}): Promise<string | null> {
+  /** When set, restrict provider availability and live probes to this provider id. */
+  providerFilterId?: string;
+}): Promise<QuotaStatusReportData> {
   const runtimeConfig = params.runtime.config;
-  if (!runtimeConfig.enabled) return null;
+  if (!runtimeConfig.enabled) {
+    return { output: null, payload: null };
+  }
   await kickPricingRefresh({
     reason: "status",
     maxWaitMs: 750,
@@ -469,7 +515,7 @@ async function buildStatusReport(params: {
 
   const providers = params.runtime.providers;
   const providerContext = createQuotaProviderRuntimeContext(params.runtime);
-  const availability = await Promise.all(
+  let availability = await Promise.all(
     providers.map(async (p) => {
       let ok = false;
       try {
@@ -496,13 +542,20 @@ async function buildStatusReport(params: {
   );
 
   const providersById = new Map(providers.map((provider) => [provider.id, provider] as const));
-  const liveProbeProviders = availability.flatMap((item) => {
+  let liveProbeProviders = availability.flatMap((item) => {
     if (!item.enabled || !item.available) {
       return [];
     }
     const provider = providersById.get(item.id);
     return provider ? [provider] : [];
   });
+
+  if (params.providerFilterId) {
+    availability = availability.filter((item) => item.id === params.providerFilterId);
+    liveProbeProviders = liveProbeProviders.filter(
+      (provider) => provider.id === params.providerFilterId,
+    );
+  }
 
   let providerLiveProbes: QuotaStatusLiveProbe[] = [];
   if (liveProbeProviders.length > 0) {
@@ -535,7 +588,7 @@ async function buildStatusReport(params: {
     enabledProviders: announcementProviderIds,
   });
 
-  return await buildQuotaStatusReport({
+  const output = await buildQuotaStatusReport({
     tuiDiagnostics,
     configSource: params.runtime.configMeta.source,
     configPaths: params.runtime.configMeta.paths,
@@ -572,6 +625,52 @@ async function buildStatusReport(params: {
     geminiCliClient: params.runtime.client,
     generatedAtMs: params.generatedAtMs,
   });
+
+  const version = (await getPackageVersion()) ?? "unknown";
+  const pricingMeta = getPricingSnapshotMeta();
+  const activePricingSource = getPricingSnapshotSource();
+  const payload: QuotaStatusReportPayload = {
+    version,
+    generatedAt: new Date(params.generatedAtMs).toISOString(),
+    config: {
+      configSource: params.runtime.configMeta.source,
+      configPaths: params.runtime.configMeta.paths,
+      globalConfigPaths: params.runtime.configMeta.globalConfigPaths,
+      workspaceConfigPaths: params.runtime.configMeta.workspaceConfigPaths,
+      enabledProviders: runtimeConfig.enabledProviders,
+      onlyCurrentModel: runtimeConfig.onlyCurrentModel,
+      pricingSnapshotSource: runtimeConfig.pricingSnapshot.source,
+    },
+    providers: availability,
+    pricing: {
+      selection: runtimeConfig.pricingSnapshot.source,
+      activeSource: activePricingSource,
+      snapshot: {
+        source: pricingMeta.source,
+        generatedAt:
+          pricingMeta.generatedAt > 0 ? new Date(pricingMeta.generatedAt).toISOString() : null,
+        units: pricingMeta.units,
+      },
+      snapshotPath: getRuntimePricingSnapshotPath(),
+      refreshStatePath: getRuntimePricingRefreshStatePath(),
+    },
+    liveProbes: providerLiveProbes,
+  };
+
+  return { output, payload };
+}
+
+async function buildStatusReport(params: {
+  runtime: QuotaRuntimeContext;
+  refreshGoogleTokens?: boolean;
+  skewMs?: number;
+  force?: boolean;
+  sessionID?: string;
+  generatedAtMs: number;
+  lastSessionTokenError?: SessionTokenError;
+  log?: (message: string, extra?: Record<string, unknown>) => Promise<void>;
+}): Promise<string | null> {
+  return (await buildStatusReportData(params)).output;
 }
 
 function formatIsoTimestamp(timestampMs: number | undefined): string {

@@ -10,6 +10,7 @@ const USAGE = [
   "Usage:",
   "  npx @slkiser/opencode-quota init [--dry-run] [--sync-legacy-config]",
   "  npx @slkiser/opencode-quota show [--provider <provider-id>] [--json] [--threshold <pct>]",
+  "  npx @slkiser/opencode-quota status [--provider <provider-id>] [--json]",
   "  npx @slkiser/opencode-quota update [--dry-run] [--yes]",
   "  npx @slkiser/opencode-quota provider add [--dry-run]",
   "  npx @slkiser/opencode-quota --help",
@@ -21,6 +22,9 @@ const USAGE = [
   "  show    Print a quick quota glance",
   "          --json               Machine-readable JSON output (reads from cache)",
   "          --threshold <pct>    With --json, exit 1 if below <pct>%, 2 if incomplete/not comparable",
+  "          --provider <id>      Filter to one provider",
+  "  status  Print Quota Status diagnostics (same data as /quota_status)",
+  "          --json               Machine-readable JSON output",
   "          --provider <id>      Filter to one provider",
   "  update  Safely refresh only OpenCode Quota config and verified cache entries",
   "          --dry-run            Preview without changing config or cache",
@@ -79,6 +83,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (command === "show") {
     const { runCliShowCommand } = await import("../lib/cli-show.js");
     return await runCliShowCommand({ argv: rest });
+  }
+
+  if (command === "status") {
+    const { runCliStatusCommand } = await import("../lib/cli-status.js");
+    return await runCliStatusCommand({ argv: rest });
   }
 
   if (command === "update") {

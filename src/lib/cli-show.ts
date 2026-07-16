@@ -135,7 +135,7 @@ function cloneCliConfig(config: QuotaToastConfig): QuotaToastConfig {
   };
 }
 
-function resolveCliRoots(cwd: string): {
+export function resolveCliRoots(cwd: string): {
   workspaceRoot: string;
   configRoot: string;
   fallbackDirectory: string;
@@ -150,7 +150,7 @@ function resolveCliRoots(cwd: string): {
   };
 }
 
-function createCliQuotaClient(params: { configRootDir: string }): QuotaRuntimeClient {
+export function createCliQuotaClient(params: { configRootDir: string }): QuotaRuntimeClient {
   let configPromise: Promise<Record<string, unknown>> | undefined;
   let providerIdsPromise: Promise<string[]> | undefined;
 

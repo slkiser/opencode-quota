@@ -6,10 +6,11 @@ Start with `/quota_status`. It shows which config, providers, authentication, an
 
 ## First checks
 
-1. Run `/quota_status`.
-2. Find the provider or feature that is failing.
-3. Follow the matching fix below.
-4. Restart OpenCode after changing config or authentication.
+1. Run `/quota_status`, or run `opencode-quota status` from your terminal for the same diagnostics without launching OpenCode.
+2. Confirm the expected provider appears in the detected provider list.
+3. Confirm companion auth plugins are before `@slkiser/opencode-quota` in `opencode.json`.
+4. If token reports are empty, start OpenCode once so it creates `opencode.db`, then run a session with model usage.
+5. Use the provider-specific table below for the failing provider.
 
 If every provider is missing, confirm OpenCode Quota is listed in `opencode.jsonc` or `.json`. For TUI commands and displays, also confirm it is listed in `tui.jsonc` or `.json`.
 
@@ -37,7 +38,19 @@ npx @slkiser/opencode-quota@latest update --dry-run
 npx @slkiser/opencode-quota@latest update
 ```
 
-The updater preserves unrelated settings, comments, and plugins. Restart OpenCode when it finishes.
+| Symptom                                                         | Try this                                                                                                                                                                                                                                                                                                                                |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/quota` or other slash commands do not appear                  | Confirm `opencode.json` includes `@slkiser/opencode-quota`, then restart OpenCode. The server plugin registers each command once for both TUI and Desktop/server; `tui.json` only enables the visual TUI surfaces.                                                                                                                      |
+| `/quota` shows no providers                                     | Run `/quota_status` (or `opencode-quota status` in your terminal), then check provider detection and auth. You can also use `opencode-quota show` for a terminal quota summary.                                                                                                                                                                                                       |
+| Sidebar panel does not appear                                   | Confirm `tui.json` includes `@slkiser/opencode-quota`, restart OpenCode, and check `tuiSidebarPanel.enabled`.                                                                                                                                                                                                                           |
+| Compact status line does not appear anywhere                    | Confirm `tui.json` includes `@slkiser/opencode-quota`, restart OpenCode, check `tuiCompactStatus.enabled`, and check whether `tuiCompactStatus.suppressWhenNativeProviderQuota` is hiding it because OpenCode exposes native provider-quota support.                                                                                    |
+| Compact status appears on home but not in chat/session          | Check `tuiCompactStatus.sessionPrompt`; set it to `true` to show the chat/session prompt line.                                                                                                                                                                                                                                          |
+| Popup toasts do not appear                                      | Check `enableToast`, `showOnIdle`, `showOnQuestion`, and `showOnCompact`.                                                                                                                                                                                                                                                               |
+| Announcement home notice does not appear                        | Confirm `tui.json` includes `@slkiser/opencode-quota`, restart OpenCode, then check `maintainerAnnouncements.enabled`, `maintainerAnnouncements.home`, and the active count in the `maintainer_announcements` section of `/quota_status`.                                                                                               |
+| Token reports are empty                                         | Start OpenCode once so `opencode.db` exists, then run a session with model usage.                                                                                                                                                                                                                                                       |
+| Pricing looks stale                                             | Run `/pricing_refresh`.                                                                                                                                                                                                                                                                                                                 |
+| `/tokens_between` needs dates                                   | Run `/tokens_between YYYY-MM-DD YYYY-MM-DD`. Missing or invalid dates produce inline usage output; no date dialog opens.                                                                                                                                                                                                                |
+| Desktop shows HTTP 500/error toast after correct command output | OpenCode 1.17.18 has no successful command-cancellation contract. The deterministic output was already injected as one ignored/no-reply message, and the handled sentinel prevents model continuation and context pollution. This is the accepted upstream limitation tracked by anomalyco/opencode#18554 and anomalyco/opencode#18559. |
 
 ## Provider fixes
 
