@@ -616,6 +616,7 @@ async function runQuotaDialogCommandAsync(
   try {
     const result = await buildQuotaDialogCommandOutput({
       command,
+      outputFormat: "plainText",
       arguments: argumentsText,
       client: createTuiQuotaClient(api),
       roots: getTuiRuntimeRootHints(api),

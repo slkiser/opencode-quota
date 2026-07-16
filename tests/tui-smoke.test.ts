@@ -303,6 +303,7 @@ describe("tui plugin smoke", () => {
     expect(buildQuotaDialogCommandOutput).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "quota",
+        outputFormat: "plainText",
         client: { config: {} },
         sessionID: "session-route",
       }),

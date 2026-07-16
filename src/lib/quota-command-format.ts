@@ -21,8 +21,9 @@ import {
 import { formatGroupedHeader } from "./grouped-header-format.js";
 import { groupQuotaEntries } from "./grouped-entry-normalization.js";
 import {
-  renderPlainTextReport,
+  renderReport,
   type ReportDocument,
+  type ReportOutputFormat,
   type ReportSection,
 } from "./report-document.js";
 import { SESSION_TOKEN_SECTION_HEADING } from "./session-tokens-format.js";
@@ -117,7 +118,7 @@ function buildQuotaCommandDocument(params: {
       const details = formatCommandDetails(row, rightWidth);
 
       if (isValueEntry(row)) {
-        lines.push(`    ${label}  ${row.value}${details}`);
+        lines.push(`  ${label}  ${row.value}${details}`);
         continue;
       }
 
@@ -127,13 +128,13 @@ function buildQuotaCommandDocument(params: {
         params.percentDisplayMode,
       );
       lines.push(
-        `    ${label}  ${bar(displayedPercent, QUOTA_COMMAND_BAR_WIDTH)}  ${padLeft(pctLabel, 9)}${details}`,
+        `  ${label}  ${bar(displayedPercent, QUOTA_COMMAND_BAR_WIDTH)}  ${padLeft(pctLabel, 9)}${details}`,
       );
     }
     return {
       id: `group-${index}`,
       title: `→ ${formatGroupedHeader(group.group)}`,
-      blocks: [{ kind: "lines", lines: ["", ...lines] }],
+      blocks: [{ kind: "preformatted", lines }],
     };
   });
 
@@ -185,6 +186,8 @@ export function formatQuotaCommand(params: {
   sessionTokens?: SessionTokensData;
   generatedAtMs?: number;
   percentDisplayMode?: PercentDisplayMode;
+  outputFormat: ReportOutputFormat;
 }): string {
-  return renderPlainTextReport(buildQuotaCommandDocument(params));
+  const { outputFormat, ...reportParams } = params;
+  return renderReport(buildQuotaCommandDocument(reportParams), outputFormat);
 }

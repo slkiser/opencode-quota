@@ -99,6 +99,7 @@ async function buildDialogOutput(params: {
 }) {
   const { buildQuotaDialogCommandOutput } = await import("../src/lib/quota-dialog-commands.js");
   return buildQuotaDialogCommandOutput({
+    outputFormat: "plainText",
     command: params.command,
     client: params.client,
     roots: {
@@ -189,6 +190,63 @@ describe("plugin command handled boundary", () => {
     );
     expect(getPromptText(client)).toContain("Quota unavailable");
     expect(getPromptText(client)).toContain("No provider data available");
+  });
+
+  it("injects fenced Markdown with noReply/ignored when /quota has no current model", async () => {
+    mocks.loadConfig.mockResolvedValueOnce(
+      makeQuotaToastTestConfig({
+        enabled: true,
+        onlyCurrentModel: false,
+        showSessionTokens: false,
+      }),
+    );
+    const provider = {
+      id: "openai",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [
+          {
+            accounting: {
+              resultType: "quota",
+              acquisitionMethod: "remote_api",
+              ownership: "maintained",
+              authority: "provider_reported",
+            },
+            name: "OpenAI Weekly",
+            group: "OpenAI",
+            label: "Weekly:",
+            percentRemaining: 80,
+          },
+        ],
+        errors: [],
+      }),
+    };
+    mocks.getProviders.mockReturnValue([provider]);
+    const client = createClient();
+
+    await runServerCommand({
+      command: "quota",
+      sessionID: "session-zero-model",
+      client,
+    });
+
+    expect(provider.fetch).toHaveBeenCalledTimes(1);
+    expect(client.session.prompt).toHaveBeenCalledWith({
+      path: { id: "session-zero-model" },
+      body: {
+        noReply: true,
+        parts: [
+          {
+            type: "text",
+            ignored: true,
+            text: expect.stringContaining("```text\n  Week quota"),
+          },
+        ],
+      },
+    });
+    expect(getPromptText(client)).toMatch(/\n```text\n  Week quota\s+[█░]{10}\s+80% left\n```/u);
+    expect(getPromptText(client)).not.toContain("No enabled quota providers matched");
   });
 
   it("handles /tokens_between arguments through one inline injection", async () => {

@@ -80,6 +80,7 @@ async function buildTokenDialogOutput(params: {
 }) {
   const { buildQuotaDialogCommandOutput } = await import("../src/lib/quota-dialog-commands.js");
   const result = await buildQuotaDialogCommandOutput({
+    outputFormat: "plainText",
     command: params.command,
     client: params.client,
     roots: {

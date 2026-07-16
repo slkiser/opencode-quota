@@ -393,6 +393,7 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
     const command = input.command as QuotaDialogCommandId;
     const result = await buildQuotaDialogCommandOutput({
       command,
+      outputFormat: "markdown",
       arguments: input.arguments,
       client: typedClient,
       roots: getPluginRuntimeRootHints(),

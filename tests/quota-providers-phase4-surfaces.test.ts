@@ -43,7 +43,11 @@ const data: QuotaRenderData = {
 
 describe("quota provider four-surface formatting", () => {
   it("keeps duplicate-label percent/value rows and partial errors in generic formatters", () => {
-    const command = formatQuotaCommand({ ...data, generatedAtMs: 0 });
+    const command = formatQuotaCommand({
+      ...data,
+      generatedAtMs: 0,
+      outputFormat: "plainText",
+    });
     const toast = formatQuotaRowsGrouped(data);
     const sidebar = buildSidebarQuotaPanelLines({
       data,
@@ -57,12 +61,12 @@ describe("quota provider four-surface formatting", () => {
 
     expect(command).toMatch(/^# Quota \(\/quota\)/);
     expect(command).not.toContain("```");
-    expect(command).toMatch(/→ \[Duplicate label\]\n\n {4}Week quota/u);
+    expect(command).toMatch(/→ \[Duplicate label\]\n {2}Week quota/u);
     const providerRows = command
       .split("\n")
       .filter((line) => line.includes("Week quota") || line.includes("Balance"));
     expect(providerRows).toHaveLength(2);
-    expect(providerRows.every((line) => /^ {4}\S/u.test(line))).toBe(true);
+    expect(providerRows.every((line) => /^ {2}\S/u.test(line))).toBe(true);
     const bars = command.match(/[█░]+/gu) ?? [];
     expect(bars).toHaveLength(1);
     expect(Array.from(bars[0]!)).toHaveLength(10);

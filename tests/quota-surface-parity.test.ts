@@ -91,6 +91,7 @@ async function buildQuotaDialogOutputText(params: {
 }): Promise<string> {
   const { buildQuotaDialogCommandOutput } = await import("../src/lib/quota-dialog-commands.js");
   const result = await buildQuotaDialogCommandOutput({
+    outputFormat: "plainText",
     command: "quota",
     client: params.client,
     roots: params.roots ?? {

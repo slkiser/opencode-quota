@@ -23,6 +23,7 @@ describe("formatQuotaCommand", () => {
     vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));
 
     const out = formatQuotaCommand({
+      outputFormat: "plainText",
       entries: [
         {
           accounting: accounting("quota"),
@@ -85,28 +86,23 @@ describe("formatQuotaCommand", () => {
       line.startsWith("→ ") ? [index] : [],
     );
     for (const index of providerHeaderIndexes) {
-      expect(lines[index + 1]).toBe("");
-      expect(lines[index + 2]).toMatch(/^ {4}\S/u);
+      expect(lines[index + 1]).toMatch(/^ {2}\S/u);
     }
     expect(out).not.toContain("```");
     expect(out.match(/[█░]{10}/gu)).toHaveLength(4);
     expect(lines.slice(2).join("\n")).toMatchInlineSnapshot(`
       "→ [Copilot] (personal)
-
-          Quota         █████████░   86% left · 42/300 · reset 12h
+        Quota         █████████░   86% left · 42/300 · reset 12h
 
       → [Copilot] (business)
-
-          Usage         9 used | 2026-01 | org=acme-corp | user=alice · reset 17d
+        Usage         9 used | 2026-01 | org=acme-corp | user=alice · reset 17d
 
       → [OpenAI] (Pro)
-
-          5h quota      ████░░░░░░   42% left · reset 2h
-          Week quota    ████████░░   81% left · reset 3d
+        5h quota      ████░░░░░░   42% left · reset 2h
+        Week quota    ████████░░   81% left · reset 3d
 
       → [Google Antigravity] (acct)
-
-          Quota         ███████░░░   67% left · reset 3h
+        Quota         ███████░░░   67% left · reset 3h
 
       Session input/output tokens
         openai/gpt-5: 1.2K in · 456 cached · 567 out
@@ -119,6 +115,7 @@ describe("formatQuotaCommand", () => {
 
   it("renders grouped /quota windows shortest to longest within a provider group", () => {
     const out = formatQuotaCommand({
+      outputFormat: "plainText",
       entries: [
         {
           name: "OpenAI Weekly",
@@ -152,6 +149,7 @@ describe("formatQuotaCommand", () => {
 
   it("locks rendered grouped /quota ordering for Qwen and OpenAI provider groups", () => {
     const out = formatQuotaCommand({
+      outputFormat: "plainText",
       entries: [
         {
           name: "Qwen Free Daily",
@@ -191,6 +189,7 @@ describe("formatQuotaCommand", () => {
 
   it("honors used percent display mode in /quota percent rows", () => {
     const out = formatQuotaCommand({
+      outputFormat: "plainText",
       entries: [
         {
           name: "OpenAI Pro",
@@ -207,6 +206,7 @@ describe("formatQuotaCommand", () => {
 
   it("clamps the bar but preserves over-quota used percentage meaning", () => {
     const out = formatQuotaCommand({
+      outputFormat: "plainText",
       entries: [
         {
           name: "OpenAI Pro",
@@ -220,8 +220,9 @@ describe("formatQuotaCommand", () => {
     expect(out).toContain("Status        ██████████  125% used");
   });
 
-  it("uses four-space code rows with fixed labels and aligned equal-width bars", () => {
+  it("uses semantic preformatted rows with fixed labels and aligned equal-width bars", () => {
     const out = formatQuotaCommand({
+      outputFormat: "plainText",
       entries: [
         {
           accounting: accounting("quota"),
@@ -261,11 +262,74 @@ describe("formatQuotaCommand", () => {
       QUOTA_COMMAND_BAR_WIDTH,
       QUOTA_COMMAND_BAR_WIDTH,
     ]);
-    expect(percentLines.every((line) => /^ {4}\S/u.test(line))).toBe(true);
-    expect(percentLines.map((line) => line.search(/[█░]/u))).toEqual([18, 18]);
+    expect(percentLines.every((line) => /^ {2}\S/u.test(line))).toBe(true);
+    expect(percentLines.map((line) => line.search(/[█░]/u))).toEqual([16, 16]);
     expect(Math.max(...percentLines.map((line) => Array.from(line).length))).toBeLessThanOrEqual(
       64,
     );
+  });
+
+  it("keeps Markdown fences outside identical aligned metric row content", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));
+
+    const params = {
+      entries: [
+        {
+          accounting: accounting("quota"),
+          name: "Local Rolling",
+          group: "Local",
+          label: "5h:",
+          right: "2/5",
+          percentRemaining: 60,
+          resetTimeIso: "2026-01-15T17:00:00.000Z",
+        },
+        {
+          accounting: accounting("quota"),
+          name: "Local Daily",
+          group: "Local",
+          label: "Daily:",
+          right: "2/10",
+          percentRemaining: 80,
+          resetTimeIso: "2026-01-15T23:00:00.000Z",
+        },
+      ],
+      errors: [{ label: "Example", message: "secondary source failed" }],
+      sessionTokens: {
+        models: [{ modelID: "openai/gpt-5", input: 123, output: 45 }],
+        totalInput: 123,
+        totalOutput: 45,
+      },
+    };
+
+    const plainText = formatQuotaCommand({ ...params, outputFormat: "plainText" });
+    const markdown = formatQuotaCommand({ ...params, outputFormat: "markdown" });
+    const metricRows = (output: string) =>
+      output.split("\n").filter((line) => line.includes(" · reset "));
+
+    expect(metricRows(markdown)).toEqual(metricRows(plainText));
+    expect(metricRows(plainText)).toEqual([
+      "  5h quota      ██████░░░░   60% left · 2/5  · reset 5h",
+      "  Day quota     ████████░░   80% left · 2/10 · reset 11h",
+    ]);
+    expect(plainText).not.toContain("```");
+    expect(markdown).toContain(
+      "```text\n  5h quota      ██████░░░░   60% left · 2/5  · reset 5h\n  Day quota     ████████░░   80% left · 2/10 · reset 11h\n```",
+    );
+    expect(markdown.match(/^```(?:text)?$/gmu)).toHaveLength(2);
+
+    const rows = metricRows(plainText);
+    expect(rows.map((line) => line.search(/[█░]/u))).toEqual([16, 16]);
+    expect(rows.map((line) => line.indexOf("2/"))).toEqual([
+      rows[0]!.indexOf("2/"),
+      rows[0]!.indexOf("2/"),
+    ]);
+    expect(rows.map((line) => line.indexOf("reset"))).toEqual([
+      rows[0]!.indexOf("reset"),
+      rows[0]!.indexOf("reset"),
+    ]);
+    expect(markdown).toContain("openai/gpt-5: 123 in · 45 out");
+    expect(markdown).toContain("Example: secondary source failed");
   });
 
   it("keeps /quota reset formatting independent from compact toast resets", () => {
@@ -273,6 +337,7 @@ describe("formatQuotaCommand", () => {
     vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
 
     const out = formatQuotaCommand({
+      outputFormat: "plainText",
       entries: [
         {
           name: "OpenAI",
@@ -294,6 +359,7 @@ describe("formatQuotaCommand", () => {
     vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));
 
     const out = formatQuotaCommand({
+      outputFormat: "plainText",
       entries: [
         {
           accounting: accounting("quota"),
@@ -333,6 +399,7 @@ describe("formatQuotaCommand", () => {
     vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));
 
     const out = formatQuotaCommand({
+      outputFormat: "plainText",
       entries: [
         {
           accounting: accounting("quota"),
@@ -351,8 +418,8 @@ describe("formatQuotaCommand", () => {
     expect(metric).toContain(
       "Quota         █████████░   86% left · 12345678901234567890 · reset 12h",
     );
-    expect(metric).toMatch(/^ {4}\S/u);
+    expect(metric).toMatch(/^ {2}\S/u);
     expect(metric).not.toContain("```");
-    expect(Array.from(metric).length).toBeLessThanOrEqual(78);
+    expect(Array.from(metric).length).toBeLessThanOrEqual(76);
   });
 });
