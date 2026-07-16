@@ -99,7 +99,6 @@ async function buildDialogOutput(params: {
 }) {
   const { buildQuotaDialogCommandOutput } = await import("../src/lib/quota-dialog-commands.js");
   return buildQuotaDialogCommandOutput({
-    outputFormat: "plainText",
     command: params.command,
     client: params.client,
     roots: {
@@ -192,7 +191,7 @@ describe("plugin command handled boundary", () => {
     expect(getPromptText(client)).toContain("No provider data available");
   });
 
-  it("injects fenced Markdown with noReply/ignored when /quota has no current model", async () => {
+  it("injects clean plain text with noReply/ignored when /quota has no current model", async () => {
     mocks.loadConfig.mockResolvedValueOnce(
       makeQuotaToastTestConfig({
         enabled: true,
@@ -240,12 +239,15 @@ describe("plugin command handled boundary", () => {
           {
             type: "text",
             ignored: true,
-            text: expect.stringContaining("```text\n  Week quota"),
+            text: expect.stringContaining("  Week quota"),
           },
         ],
       },
     });
-    expect(getPromptText(client)).toMatch(/\n```text\n  Week quota\s+[█░]{10}\s+80% left\n```/u);
+    expect(getPromptText(client)).toMatch(/\n  Week quota\s+[█░]{10}\s+80% left/u);
+    expect(getPromptText(client)).toMatch(/^Quota \(\/quota\)/u);
+    expect(getPromptText(client)).not.toContain("```");
+    expect(getPromptText(client)).not.toMatch(/^#{1,6} /mu);
     expect(getPromptText(client)).not.toContain("No enabled quota providers matched");
   });
 

@@ -46,7 +46,6 @@ describe("quota provider four-surface formatting", () => {
     const command = formatQuotaCommand({
       ...data,
       generatedAtMs: 0,
-      outputFormat: "plainText",
     });
     const toast = formatQuotaRowsGrouped(data);
     const sidebar = buildSidebarQuotaPanelLines({
@@ -59,7 +58,7 @@ describe("quota provider four-surface formatting", () => {
       maxWidth: 200,
     });
 
-    expect(command).toMatch(/^# Quota \(\/quota\)/);
+    expect(command).toMatch(/^Quota \(\/quota\)/);
     expect(command).not.toContain("```");
     expect(command).toMatch(/→ \[Duplicate label\]\n {2}Week quota/u);
     const providerRows = command

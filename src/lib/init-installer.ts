@@ -32,13 +32,15 @@ import {
   type CanonicalQuotaFormatStyle,
 } from "./quota-format-style.js";
 import { getQuotaToastConfigPath, QUOTA_TOAST_CONFIG_RELATIVE_PATH } from "./config.js";
-import type { QuotaToastConfig } from "./types.js";
+import type { QuotaToastConfig, TuiQuotaCommandDisplay } from "./types.js";
 
 const QUOTA_PLUGIN_SPEC = "@slkiser/opencode-quota@latest";
 const OPENCODE_SCHEMA_URL = "https://opencode.ai/config.json";
 const TUI_SCHEMA_URL = "https://opencode.ai/tui.json";
 const GITHUB_REPO_URL = "https://github.com/slkiser/opencode-quota";
 const GITHUB_STAR_NOTE = `if this helps, stars are appreciated: ${GITHUB_REPO_URL}`;
+const TUI_QUOTA_COMMAND_DISPLAY_COMMENT =
+  "// OpenCode Quota: tuiQuotaCommandDisplay chooses whether native TUI /quota appears in the transcript or a popup dialog.";
 
 export type InitInstallerScope = "project" | "global";
 export type InitQuotaUiChoice = "toast" | "sidebar" | "compact_status" | "none";
@@ -60,6 +62,7 @@ export interface InitInstallerSelections {
   formatStyle: CanonicalQuotaFormatStyle;
   percentDisplayMode: QuotaToastConfig["percentDisplayMode"];
   showSessionTokens: boolean;
+  tuiQuotaCommandDisplay?: TuiQuotaCommandDisplay;
   maintainerAnnouncements?: boolean;
   configFormat?: ConfigFileFormat;
 }
@@ -714,6 +717,10 @@ async function planOpencodeEdit(params: {
     managedComments: [
       {
         path: ["plugin"],
+        text: TUI_QUOTA_COMMAND_DISPLAY_COMMENT,
+      },
+      {
+        path: ["plugin"],
         text: "// OpenCode Quota: loads the server plugin for slash commands and quota checks.",
       },
     ],
@@ -765,6 +772,13 @@ async function planQuotaConfigEdit(params: {
     "enableToast",
     params.quotaUiIntent.enableToast,
     "quotaToast.enableToast",
+    edit,
+  );
+  setInstallerOwnedSetting(
+    quotaToast,
+    "tuiQuotaCommandDisplay",
+    params.selections.tuiQuotaCommandDisplay,
+    "quotaToast.tuiQuotaCommandDisplay",
     edit,
   );
   addSettingIfMissing(
@@ -874,7 +888,11 @@ async function planTuiEdit(params: {
     managedComments: [
       {
         path: ["plugin"],
-        text: "// OpenCode Quota: loads the TUI sidebar, compact status, and local dialogs.",
+        text: TUI_QUOTA_COMMAND_DISPLAY_COMMENT,
+      },
+      {
+        path: ["plugin"],
+        text: "// OpenCode Quota: loads the TUI sidebar, compact status, and local commands.",
       },
     ],
   });
@@ -897,6 +915,7 @@ function buildPlanSummary(plan: InitInstallerPlan): string[] {
     `Quota reset periods: ${getQuotaFormatStyleLabel(plan.selections.formatStyle)}`,
     `Quota percentage meaning: ${getPercentDisplayModeLabel(plan.selections.percentDisplayMode)}`,
     `Session token details: ${plan.selections.showSessionTokens ? "Show" : "Hide"}`,
+    `Native TUI /quota display: ${plan.selections.tuiQuotaCommandDisplay === "inline" ? "Inline transcript" : "Dialog popup"}`,
     `OpenCode config format: ${opencodeFormat.toUpperCase()}`,
   ];
 
@@ -1004,6 +1023,7 @@ export async function planInitInstaller(params: {
     ...params.selections,
     configFormat: params.selections.configFormat ?? "jsonc",
     quotaUi: quotaUiIntent.choices,
+    tuiQuotaCommandDisplay: params.selections.tuiQuotaCommandDisplay ?? "inline",
     maintainerAnnouncements: params.selections.maintainerAnnouncements,
     manualProviders:
       params.selections.providerMode === "manual"
@@ -1159,6 +1179,24 @@ async function promptForSelections(
     throw new InitInstallerError("Quota UI requires selected options.");
   }
 
+  const tuiQuotaCommandDisplay = await prompts.select({
+    message: "Native TUI /quota display",
+    initialValue: "inline",
+    options: [
+      {
+        label: "Inline (recommended)",
+        value: "inline",
+        hint: "show /quota in the current session transcript",
+      },
+      {
+        label: "Dialog",
+        value: "dialog",
+        hint: "open /quota in a local popup dialog",
+      },
+    ],
+  });
+  if (prompts.isCancel(tuiQuotaCommandDisplay)) return null;
+
   const providerMode = await prompts.select({
     message: "Provider mode",
     options: [
@@ -1241,6 +1279,7 @@ async function promptForSelections(
     formatStyle: formatStyle as CanonicalQuotaFormatStyle,
     percentDisplayMode: percentDisplayMode as QuotaToastConfig["percentDisplayMode"],
     showSessionTokens: showSessionTokens === "yes",
+    tuiQuotaCommandDisplay: tuiQuotaCommandDisplay as TuiQuotaCommandDisplay,
     maintainerAnnouncements: maintainerAnnouncements !== false,
     configFormat: configFormat as ConfigFileFormat,
   };

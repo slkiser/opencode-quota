@@ -61,6 +61,8 @@ export interface MaintainerAnnouncementsConfig {
   home: boolean;
 }
 
+export type TuiQuotaCommandDisplay = "inline" | "dialog";
+
 /** Request timeout in milliseconds */
 export const REQUEST_TIMEOUT_MS = 5000;
 
@@ -70,6 +72,9 @@ export interface QuotaToastConfig {
 
   /** If false, never show popup toasts (commands/tools still work). */
   enableToast: boolean;
+
+  /** Where native TUI /quota output appears. */
+  tuiQuotaCommandDisplay: TuiQuotaCommandDisplay;
 
   /**
    * Shared quota-row formatting style for popup toasts and the TUI sidebar.
@@ -173,6 +178,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   enabled: true,
 
   enableToast: true,
+  tuiQuotaCommandDisplay: "inline",
   formatStyle: DEFAULT_QUOTA_FORMAT_STYLE,
   percentDisplayMode: "remaining",
   minIntervalMs: 300000, // 5 minutes

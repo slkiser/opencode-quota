@@ -43,39 +43,6 @@ describe("report-document", () => {
     `);
   });
 
-  it("serializes semantic preformatted lines plainly or inside one closed text fence", () => {
-    const document = {
-      sections: [
-        {
-          id: "mixed",
-          title: "Mixed",
-          blocks: [
-            { kind: "lines" as const, lines: ["intro"] },
-            {
-              kind: "preformatted" as const,
-              lines: ["  aligned one", "  literal ``` content"],
-            },
-            {
-              kind: "kv" as const,
-              rows: [{ key: "status", value: "ready" }],
-            },
-          ],
-        },
-      ],
-    };
-
-    const plainText = renderPlainTextReport(document);
-    const markdown = renderMarkdownReport(document);
-
-    expect(plainText).toBe(
-      "Mixed\nintro\n\n  aligned one\n  literal ``` content\n\n- status: ready",
-    );
-    expect(plainText).not.toContain("````");
-    expect(markdown).toBe(
-      "## Mixed\n\nintro\n\n````text\n  aligned one\n  literal ``` content\n````\n\n- status: ready",
-    );
-  });
-
   it("renders stable markdown section spacing across tables and note blocks", () => {
     const out = renderMarkdownReport({
       sections: [

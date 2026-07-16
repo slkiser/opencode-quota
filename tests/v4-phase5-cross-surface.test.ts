@@ -222,9 +222,10 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       }),
     );
     const serverOutput = getPromptText(client);
-    expect(serverOutput).toMatch(/^# Quota \(\/quota\)/);
-    expect(serverOutput).toContain("```text");
-    expect(serverOutput).toMatch(/```text\n  Month quota[\s\S]*\n```/u);
+    expect(serverOutput).toMatch(/^Quota \(\/quota\)/);
+    expect(serverOutput).not.toContain("```");
+    expect(serverOutput).not.toMatch(/^#{1,6} /mu);
+    expect(serverOutput).toMatch(/→ \[Team Accounting\]\n  Month quota/u);
     const serverBars = serverOutput.match(/[█░]+/gu) ?? [];
     expect(serverBars.length).toBeGreaterThan(0);
     expect(serverBars.every((bar) => Array.from(bar).length === 10)).toBe(true);

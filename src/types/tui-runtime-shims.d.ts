@@ -175,7 +175,18 @@ declare module "@opencode-ai/plugin/tui" {
           data?: Record<string, unknown>;
         }>;
       };
-      session?: {
+      session: {
+        prompt: (params: {
+          path: { id: string };
+          body: {
+            noReply: boolean;
+            parts: Array<{
+              type: "text";
+              text: string;
+              ignored: boolean;
+            }>;
+          };
+        }) => Promise<unknown>;
         get?: (params: { path: { id: string } }) => Promise<{
           data?: {
             model?: {

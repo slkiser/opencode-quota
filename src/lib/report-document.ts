@@ -13,11 +13,8 @@ export type ReportKvRow = {
   trailingColon?: boolean;
 };
 
-export type ReportOutputFormat = "plainText" | "markdown";
-
 export type ReportBlock =
   | { kind: "lines"; lines: string[] }
-  | { kind: "preformatted"; lines: string[] }
   | { kind: "kv"; rows: ReportKvRow[] }
   | {
       kind: "table";
@@ -41,7 +38,6 @@ export type ReportDocument = {
 function hasBlockContent(block: ReportBlock): boolean {
   switch (block.kind) {
     case "lines":
-    case "preformatted":
       return block.lines.length > 0;
     case "kv":
       return block.rows.length > 0;
@@ -65,7 +61,6 @@ function renderKvRow(row: ReportKvRow): string {
 function renderPlainTextBlock(block: ReportBlock): string[] {
   switch (block.kind) {
     case "lines":
-    case "preformatted":
       return block.lines;
     case "kv":
       return block.rows.map(renderKvRow);
@@ -81,21 +76,10 @@ function renderPlainTextBlock(block: ReportBlock): string[] {
   }
 }
 
-function renderMarkdownPreformatted(lines: string[]): string[] {
-  const longestBacktickRun = Math.max(
-    0,
-    ...lines.flatMap((line) => Array.from(line.matchAll(/`+/gu), (match) => match[0].length)),
-  );
-  const fence = "`".repeat(Math.max(3, longestBacktickRun + 1));
-  return [`${fence}text`, ...lines, fence];
-}
-
 function renderMarkdownBlock(block: ReportBlock): string[] {
   switch (block.kind) {
     case "lines":
       return block.lines;
-    case "preformatted":
-      return renderMarkdownPreformatted(block.lines);
     case "kv":
       return block.rows.map(renderKvRow);
     case "table":
@@ -173,13 +157,4 @@ export function renderMarkdownReport(document: ReportDocument): string {
   }
 
   return lines.join("\n");
-}
-
-export function renderReport(document: ReportDocument, format: ReportOutputFormat): string {
-  switch (format) {
-    case "plainText":
-      return renderPlainTextReport(document);
-    case "markdown":
-      return renderMarkdownReport(document);
-  }
 }

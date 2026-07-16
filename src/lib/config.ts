@@ -13,6 +13,7 @@ import type {
   GoogleModelId,
   PercentDisplayMode,
   PricingSnapshotSource,
+  TuiQuotaCommandDisplay,
 } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
 import { cloneQuotaProviders, validateQuotaProviders } from "./quota-providers.js";
@@ -32,6 +33,7 @@ export const QUOTA_TOAST_CONFIG_RELATIVE_PATH = "opencode-quota/quota-toast.json
 export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "enabled",
   "enableToast",
+  "tuiQuotaCommandDisplay",
   "formatStyle",
   "percentDisplayMode",
   "minIntervalMs",
@@ -133,6 +135,7 @@ type ExportConfigPatch = Partial<QuotaToastConfig["export"]>;
 type ValidatedQuotaToastPatch = {
   enabled?: boolean;
   enableToast?: boolean;
+  tuiQuotaCommandDisplay?: TuiQuotaCommandDisplay;
   formatStyle?: QuotaToastConfig["formatStyle"];
   percentDisplayMode?: PercentDisplayMode;
   minIntervalMs?: number;
@@ -204,6 +207,10 @@ function isValidPricingSnapshotAutoRefresh(value: unknown): value is number {
 
 function isValidPercentDisplayMode(value: unknown): value is PercentDisplayMode {
   return value === "remaining" || value === "used";
+}
+
+function isValidTuiQuotaCommandDisplay(value: unknown): value is TuiQuotaCommandDisplay {
+  return value === "inline" || value === "dialog";
 }
 
 function isPositiveNumber(value: unknown): value is number {
@@ -510,6 +517,14 @@ function extractValidatedQuotaToastPatch(
     patch.enableToast = quotaToastConfig.enableToast;
   }
 
+  if (hasOwnKey(quotaToastConfig, "tuiQuotaCommandDisplay")) {
+    if (isValidTuiQuotaCommandDisplay(quotaToastConfig.tuiQuotaCommandDisplay)) {
+      patch.tuiQuotaCommandDisplay = quotaToastConfig.tuiQuotaCommandDisplay;
+    } else {
+      reportIssue?.("tuiQuotaCommandDisplay", 'expected "inline" or "dialog"');
+    }
+  }
+
   const formatStyle = getConfiguredFormatStyle(quotaToastConfig as Partial<QuotaToastConfig>);
   if (formatStyle) {
     patch.formatStyle = formatStyle;
@@ -713,6 +728,11 @@ function applyValidatedQuotaToastPatch(
   if (hasOwnKey(patch, "enableToast")) {
     config.enableToast = patch.enableToast!;
     applySettingSource(settingSources, "enableToast", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "tuiQuotaCommandDisplay")) {
+    config.tuiQuotaCommandDisplay = patch.tuiQuotaCommandDisplay!;
+    applySettingSource(settingSources, "tuiQuotaCommandDisplay", sourcePath);
   }
 
   if (hasOwnKey(patch, "formatStyle")) {

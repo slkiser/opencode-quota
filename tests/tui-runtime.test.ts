@@ -852,6 +852,7 @@ describe("tui runtime helpers", () => {
         experimental: {
           quotaToast: {
             enabled: true,
+            tuiQuotaCommandDisplay: "dialog",
             tuiSidebarPanel: {
               enabled: true,
             },
@@ -886,6 +887,7 @@ describe("tui runtime helpers", () => {
     } as any);
 
     expect(registration).toEqual({
+      quotaCommandDisplay: "dialog",
       sidebar: {
         enabled: true,
       },

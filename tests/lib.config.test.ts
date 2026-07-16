@@ -63,6 +63,30 @@ describe("loadConfig", () => {
     return { config, meta };
   }
 
+  it("defaults and validates native TUI /quota display with provenance", async () => {
+    const defaults = await loadSdkConfig({});
+    expect(defaults.config.tuiQuotaCommandDisplay).toBe("inline");
+    expect(defaults.meta.settingSources).toEqual({});
+
+    const dialog = await loadSdkConfig({ tuiQuotaCommandDisplay: "dialog" });
+    expect(dialog.config.tuiQuotaCommandDisplay).toBe("dialog");
+    expect(dialog.meta.settingSources).toEqual({
+      tuiQuotaCommandDisplay: "client.config.get",
+    });
+    expect(dialog.meta.configIssues).toEqual([]);
+
+    const invalid = await loadSdkConfig({ tuiQuotaCommandDisplay: "both" });
+    expect(invalid.config.tuiQuotaCommandDisplay).toBe("inline");
+    expect(invalid.meta.settingSources).toEqual({});
+    expect(invalid.meta.configIssues).toEqual([
+      {
+        path: "client.config.get",
+        key: "tuiQuotaCommandDisplay",
+        message: 'expected "inline" or "dialog"',
+      },
+    ]);
+  });
+
   it("defaults maintainer announcements config and accepts validated nested overrides", async () => {
     const defaults = await loadSdkConfig({});
     expect(defaults.config.maintainerAnnouncements).toEqual(DEFAULT_CONFIG.maintainerAnnouncements);

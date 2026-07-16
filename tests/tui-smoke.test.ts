@@ -61,6 +61,13 @@ vi.mock("../src/lib/quota-dialog-commands.js", () => ({
       acceptsArguments: true,
     },
     {
+      id: "quota_announcements",
+      slashName: "quota_announcements",
+      title: "OpenCode Quota Announcements",
+      description: "Show quota announcements.",
+      dialogSize: "xlarge",
+    },
+    {
       id: "tokens_between",
       slashName: "tokens_between",
       title: "OpenCode Quota Token Report",
@@ -253,6 +260,7 @@ describe("tui plugin smoke", () => {
     const { api, keymapLayers, dialog } = createApi();
 
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      quotaCommandDisplay: "inline",
       sidebar: { enabled: false },
       compact: {
         enabled: false,
@@ -272,16 +280,23 @@ describe("tui plugin smoke", () => {
     expect(keymapLayers[0]?.commands.map((command) => command.slashName)).toEqual([
       "quota",
       "quota_status",
+      "quota_announcements",
       "tokens_between",
     ]);
+    for (const slashName of ["quota", "quota_status", "quota_announcements"]) {
+      expect(
+        keymapLayers[0]?.commands.filter((command) => command.slashName === slashName),
+      ).toHaveLength(1);
+    }
     expect(dialog.replace).not.toHaveBeenCalled();
   });
 
-  it("renders shared /quota output locally without transcript, server-command, or model calls", async () => {
+  it("injects native /quota inline with noReply and ignored text without a dialog or model call", async () => {
     const plugin = await loadTuiModule();
     const { api, keymapLayers, dialog } = createApi();
 
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      quotaCommandDisplay: "inline",
       sidebar: { enabled: false },
       compact: {
         enabled: false,
@@ -303,15 +318,93 @@ describe("tui plugin smoke", () => {
     expect(buildQuotaDialogCommandOutput).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "quota",
-        outputFormat: "plainText",
         client: { config: {} },
         sessionID: "session-route",
       }),
     );
+    expect(api.client.session.prompt).toHaveBeenCalledOnce();
+    expect(api.client.session.prompt).toHaveBeenCalledWith({
+      path: { id: "session-route" },
+      body: {
+        noReply: true,
+        parts: [
+          {
+            type: "text",
+            text: "Quota line 1\n\nQuota line 3",
+            ignored: true,
+          },
+        ],
+      },
+    });
+    expect(dialog.replace).not.toHaveBeenCalled();
+    expect(api.client.session.command).not.toHaveBeenCalled();
+  });
+
+  it("keeps native /quota on the existing local dialog path when configured", async () => {
+    const plugin = await loadTuiModule();
+    const { api, keymapLayers, dialog } = createApi();
+
+    resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      quotaCommandDisplay: "dialog",
+      sidebar: { enabled: false },
+      compact: {
+        enabled: false,
+        homeBottom: false,
+        sessionPrompt: false,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      announcements: { homeBottom: false },
+      homeBottom: false,
+    });
+
+    await plugin.tui(api as any, undefined, {} as any);
+    const quota = keymapLayers[0]!.commands.find((command) => command.slashName === "quota")!;
+    (quota.run as (input?: unknown) => void)();
+    await Promise.resolve();
+    await Promise.resolve();
+
     expect(dialog.replace).toHaveBeenCalledTimes(2);
     expect(dialog.setSize).toHaveBeenNthCalledWith(1, "xlarge");
     expect(dialog.setSize).toHaveBeenNthCalledWith(2, "xlarge");
     expect(api.client.session.prompt).not.toHaveBeenCalled();
+    expect(api.client.session.command).not.toHaveBeenCalled();
+  });
+
+  it("shows the command error without falling back to quota output dialog when inline injection fails", async () => {
+    const plugin = await loadTuiModule();
+    const { api, keymapLayers, dialog } = createApi();
+    api.client.session.prompt.mockRejectedValueOnce(new Error("prompt unavailable"));
+
+    resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      quotaCommandDisplay: "inline",
+      sidebar: { enabled: false },
+      compact: {
+        enabled: false,
+        homeBottom: false,
+        sessionPrompt: false,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      announcements: { homeBottom: false },
+      homeBottom: false,
+    });
+
+    await plugin.tui(api as any, undefined, {} as any);
+    const quota = keymapLayers[0]!.commands.find((command) => command.slashName === "quota")!;
+    (quota.run as (input?: unknown) => void)();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(api.client.session.prompt).toHaveBeenCalledOnce();
+    expect(dialog.replace).toHaveBeenCalledOnce();
+    const errorDialog = dialog.replace.mock.calls[0]![0]() as any;
+    expect(errorDialog.props.children).not.toContain("Quota line 1");
+    expect(api.ui.toast).toHaveBeenCalledWith({
+      variant: "error",
+      message: "OpenCode Quota command failed",
+    });
     expect(api.client.session.command).not.toHaveBeenCalled();
   });
 
@@ -320,6 +413,7 @@ describe("tui plugin smoke", () => {
     const { api, keymapLayers, dialog } = createApi();
 
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      quotaCommandDisplay: "inline",
       sidebar: { enabled: false },
       compact: {
         enabled: false,
@@ -370,6 +464,18 @@ describe("tui plugin smoke", () => {
     expect(buildQuotaDialogCommandOutput).toHaveBeenLastCalledWith(
       expect.objectContaining({ command: "quota_status", arguments: undefined }),
     );
+
+    const announcements = keymapLayers[0]!.commands.find(
+      (command) => command.slashName === "quota_announcements",
+    )!;
+    (announcements.run as (input?: unknown) => void)();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(buildQuotaDialogCommandOutput).toHaveBeenLastCalledWith(
+      expect.objectContaining({ command: "quota_announcements" }),
+    );
+    expect(api.client.session.prompt).not.toHaveBeenCalled();
+    expect(api.client.session.command).not.toHaveBeenCalled();
   });
 
   it("registers sidebar_content and compact slots independently", async () => {
@@ -377,6 +483,7 @@ describe("tui plugin smoke", () => {
     const sidebarOnly = createApi();
 
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      quotaCommandDisplay: "inline",
       sidebar: { enabled: true },
       compact: {
         enabled: false,
@@ -397,6 +504,7 @@ describe("tui plugin smoke", () => {
 
     const compactOnly = createApi();
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      quotaCommandDisplay: "inline",
       sidebar: { enabled: false },
       compact: {
         enabled: true,
@@ -417,6 +525,7 @@ describe("tui plugin smoke", () => {
 
     const enabled = createApi();
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      quotaCommandDisplay: "inline",
       sidebar: { enabled: true },
       compact: {
         enabled: true,
@@ -452,6 +561,7 @@ describe("tui plugin smoke", () => {
       compact: { status: "ready", text: "Session quota" },
     });
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      quotaCommandDisplay: "inline",
       sidebar: { enabled: true },
       compact: {
         enabled: false,
@@ -507,6 +617,7 @@ describe("tui plugin smoke", () => {
       compact: { status: "ready", text: "Session quota" },
     });
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      quotaCommandDisplay: "inline",
       sidebar: { enabled: true },
       compact: {
         enabled: false,
@@ -554,6 +665,7 @@ describe("tui plugin smoke", () => {
     const { api, registered } = createApi();
 
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      quotaCommandDisplay: "inline",
       sidebar: { enabled: true },
       compact: {
         enabled: true,
@@ -580,6 +692,7 @@ describe("tui plugin smoke", () => {
     const { api, registered } = createApi();
 
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      quotaCommandDisplay: "inline",
       sidebar: { enabled: false },
       compact: {
         enabled: true,
@@ -664,6 +777,7 @@ describe("tui plugin smoke", () => {
       }),
     );
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      quotaCommandDisplay: "inline",
       sidebar: { enabled: false },
       compact: {
         enabled: false,
@@ -720,6 +834,7 @@ describe("tui plugin smoke", () => {
       compact: { status: "disabled" },
     });
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      quotaCommandDisplay: "inline",
       sidebar: { enabled: false },
       compact: {
         enabled: false,
@@ -751,6 +866,7 @@ describe("tui plugin smoke", () => {
     const ref = vi.fn();
 
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      quotaCommandDisplay: "inline",
       sidebar: { enabled: true },
       compact: {
         enabled: true,

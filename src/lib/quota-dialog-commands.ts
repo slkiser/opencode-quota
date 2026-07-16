@@ -1,5 +1,4 @@
 import { formatQuotaCommand } from "./quota-command-format.js";
-import type { ReportOutputFormat } from "./report-document.js";
 import {
   aggregateUsage,
   resolveSessionTree,
@@ -805,7 +804,6 @@ async function buildTokenReportCommandOutput(params: {
 
 export async function buildQuotaDialogCommandOutput(params: {
   command: QuotaDialogCommandId;
-  outputFormat: ReportOutputFormat;
   arguments?: string;
   client: QuotaRuntimeClient;
   roots: RuntimeContextRootHints;
@@ -852,7 +850,6 @@ export async function buildQuotaDialogCommandOutput(params: {
         ...reportData,
         generatedAtMs,
         percentDisplayMode: runtime.config.percentDisplayMode,
-        outputFormat: params.outputFormat,
       }),
     });
   }

@@ -28,7 +28,7 @@ npx @slkiser/opencode-quota init
 > [!IMPORTANT]
 > Node.js `>= 22` is required.
 
-The installer recommends **JSONC** because comments make the generated plugin entries easier to understand; strict JSON is also available. Before writing, it previews every target. Use `npx @slkiser/opencode-quota init --dry-run` to validate and stop after that preview. If you choose JSONC for an existing `opencode.json`, it copies all settings into `opencode.jsonc`, adds only the required OpenCode Quota entries and comments, validates the result, writes it atomically, and removes the old JSON only after success. Existing JSONC comments and unrelated settings are preserved.
+The installer recommends **JSONC** because comments make the generated plugin entries easier to understand; strict JSON is also available. It also asks where native TUI `/quota` should appear: **Inline** is the recommended default for the session transcript, while **Dialog** keeps the local popup. Before writing, it previews every target. Use `npx @slkiser/opencode-quota init --dry-run` to validate and stop after that preview. If you choose JSONC for an existing `opencode.json`, it copies all settings into `opencode.jsonc`, adds only the required OpenCode Quota entries and comments, validates the result, writes it atomically, and removes the old JSON only after success. Existing JSONC comments and unrelated settings are preserved.
 
 In auto-detect mode, when OpenCode Quota finds working auth for a built-in provider but no matching OpenCode `provider` declaration, it adds an empty declaration to the selected global `opencode.jsonc` or `opencode.json`. It preserves that file's format; if the global file is new, it uses the selected project format. Project declarations are read as project-only overrides and are never automatically written.
 
@@ -87,7 +87,7 @@ More ways to use it:
 
 - Terminal checks with `opencode-quota show` before or without opening OpenCode
 - JSON output for scripts, status bars, CI checks, and external tools
-- Deterministic slash commands in TUI-local dialogs and Web/Desktop server output, built from the same content
+- Deterministic slash commands built from the same content: native TUI `/quota` is inline by default (or a configured dialog), while Web/Desktop receives clean plain text
 - Provider diagnostics for auth, quota sources, pricing, and bundled maintainer announcements
 
 See [Configuration](docs/readme/configuration.md) for UI options and [Manual install](docs/readme/manual-install.md) for setup details.
@@ -96,7 +96,7 @@ See [Configuration](docs/readme/configuration.md) for UI options and [Manual ins
 
 ### Core slash commands
 
-OpenCode 1.18.2 uses two deterministic command surfaces. The TUI plugin registers slash/palette commands locally and shows dialogs without writing to the transcript or calling a model. Web/Desktop uses the server registry and an ignored, no-reply message because OpenCode has no clean handled-command cancellation there. Both surfaces use the same command builder. In the TUI, commands with optional input open a prompt dialog; Web/Desktop accepts that input inline.
+OpenCode 1.18.2 uses two deterministic command surfaces. The TUI plugin registers each slash/palette command once. Native TUI `/quota` defaults to an ignored, no-reply transcript message; set `tuiQuotaCommandDisplay` to `"dialog"` to keep the local popup instead. `/quota_status` and `/quota_announcements` keep their current dialogs. Web/Desktop uses the server registry and injects clean plain text as an ignored, no-reply message because OpenCode has no clean handled-command cancellation there. No path calls a model or `session.command`. Commands with optional TUI input still open a prompt dialog; Web/Desktop accepts that input inline.
 
 | Command                                 | Use when                                                             |
 | --------------------------------------- | -------------------------------------------------------------------- |

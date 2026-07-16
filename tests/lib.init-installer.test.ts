@@ -118,7 +118,11 @@ describe("init installer planning and merge behavior", () => {
       formatStyle: "allWindows",
       percentDisplayMode: "used",
       showSessionTokens: false,
+      tuiQuotaCommandDisplay: "inline",
     });
+    expect(readFileSync(join(projectDir, "opencode.jsonc"), "utf8")).toContain(
+      "// OpenCode Quota: tuiQuotaCommandDisplay chooses whether native TUI /quota appears in the transcript or a popup dialog.",
+    );
   });
 
   it("creates strict comment-free JSON when JSON is selected", async () => {
@@ -145,6 +149,43 @@ describe("init installer planning and merge behavior", () => {
     expect(existsSync(join(projectDir, "opencode.jsonc"))).toBe(false);
     expect(() => JSON.parse(raw)).not.toThrow();
     expect(raw).not.toMatch(/^\s*\/\//m);
+    const quotaRaw = readFileSync(join(projectDir, "opencode-quota", "quota-toast.json"), "utf8");
+    expect(JSON.parse(quotaRaw).tuiQuotaCommandDisplay).toBe("inline");
+    expect(quotaRaw).not.toContain("//");
+  });
+
+  it("writes Dialog selection and explanatory comments only to generated JSONC host configs", async () => {
+    const projectDir = join(tempDir, "dialog-jsonc");
+    mkdirSync(projectDir, { recursive: true });
+
+    const plan = await planInitInstaller({
+      cwd: projectDir,
+      selections: {
+        scope: "project",
+        configFormat: "jsonc",
+        quotaUi: ["sidebar"],
+        providerMode: "auto",
+        manualProviders: [],
+        formatStyle: "singleWindow",
+        percentDisplayMode: "remaining",
+        showSessionTokens: true,
+        tuiQuotaCommandDisplay: "dialog",
+      },
+    });
+    await applyInitInstallerPlan(plan);
+
+    expect(plan.summaryLines).toContain("Native TUI /quota display: Dialog popup");
+    const quotaPath = join(projectDir, "opencode-quota", "quota-toast.json");
+    expect(readJson(quotaPath).tuiQuotaCommandDisplay).toBe("dialog");
+    expect(readFileSync(quotaPath, "utf8")).not.toContain("//");
+
+    for (const hostPath of [join(projectDir, "opencode.jsonc"), join(projectDir, "tui.jsonc")]) {
+      const raw = readFileSync(hostPath, "utf8");
+      expect(raw).toContain(
+        "// OpenCode Quota: tuiQuotaCommandDisplay chooses whether native TUI /quota appears in the transcript or a popup dialog.",
+      );
+      expect(() => parseJsonOrJsonc(raw, true)).not.toThrow();
+    }
   });
 
   it("writes legacy experimental.quotaToast only when explicitly requested", async () => {
@@ -936,7 +977,7 @@ describe("init installer planning and merge behavior", () => {
 
   it("prompts for quota UI as a multiselect and does not ask a separate compact status question", async () => {
     const prompts = createPromptStub({
-      selectValues: ["project", "jsonc", "auto", "singleWindow", "remaining", "yes"],
+      selectValues: ["project", "jsonc", "inline", "auto", "singleWindow", "remaining", "yes"],
       multiselectValues: [["sidebar", "compact_status"]],
       confirmValues: [true, true],
     });
@@ -993,6 +1034,24 @@ describe("init installer planning and merge behavior", () => {
         },
       ],
     });
+    const quotaDisplayCall = prompts.selectCalls.find(
+      (call) => call.message === "Native TUI /quota display",
+    );
+    expect(quotaDisplayCall).toMatchObject({
+      initialValue: "inline",
+      options: [
+        {
+          label: "Inline (recommended)",
+          value: "inline",
+          hint: "show /quota in the current session transcript",
+        },
+        {
+          label: "Dialog",
+          value: "dialog",
+          hint: "open /quota in a local popup dialog",
+        },
+      ],
+    });
     const sessionTokenCall = prompts.selectCalls.find(
       (call) => call.message === "Session token details",
     );
@@ -1022,7 +1081,7 @@ describe("init installer planning and merge behavior", () => {
 
   it("prompt No for maintainer announcements writes opt-out and does not install TUI only for notices", async () => {
     const prompts = createPromptStub({
-      selectValues: ["project", "jsonc", "auto", "singleWindow", "remaining", "yes"],
+      selectValues: ["project", "jsonc", "inline", "auto", "singleWindow", "remaining", "yes"],
       multiselectValues: [["none"]],
       confirmValues: [false, true],
     });
@@ -1114,7 +1173,7 @@ describe("init installer planning and merge behavior", () => {
 
   it("returns zero when the user cancels before applying changes", async () => {
     const prompts = createPromptStub({
-      selectValues: ["project", "jsonc", "auto", "singleWindow", "remaining", "yes"],
+      selectValues: ["project", "jsonc", "inline", "auto", "singleWindow", "remaining", "yes"],
       multiselectValues: [["toast"]],
       confirmValues: [true, false],
     });
@@ -1130,7 +1189,7 @@ describe("init installer planning and merge behavior", () => {
 
   it("validates and prints an init dry-run without writing files", async () => {
     const prompts = createPromptStub({
-      selectValues: ["project", "jsonc", "auto", "singleWindow", "remaining", "yes"],
+      selectValues: ["project", "jsonc", "inline", "auto", "singleWindow", "remaining", "yes"],
       multiselectValues: [["toast"]],
       confirmValues: [true],
     });
@@ -1162,7 +1221,7 @@ describe("init installer planning and merge behavior", () => {
 
     const logError = vi.fn();
     const prompts = createPromptStub({
-      selectValues: ["project", "jsonc", "auto", "singleWindow", "remaining", "yes"],
+      selectValues: ["project", "jsonc", "inline", "auto", "singleWindow", "remaining", "yes"],
       multiselectValues: [["toast"]],
     });
     prompts.log.error = logError;

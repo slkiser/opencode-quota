@@ -34,7 +34,6 @@ async function buildDialogOutput(params: {
 }) {
   const { buildQuotaDialogCommandOutput } = await import("../src/lib/quota-dialog-commands.js");
   const result = await buildQuotaDialogCommandOutput({
-    outputFormat: "plainText",
     command: params.command ?? "quota",
     arguments: params.arguments,
     client: params.client,

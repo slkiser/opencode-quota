@@ -145,7 +145,6 @@ async function buildAnnouncementsDialogOutput(params: {
 }) {
   const { buildQuotaDialogCommandOutput } = await import("../src/lib/quota-dialog-commands.js");
   const result = await buildQuotaDialogCommandOutput({
-    outputFormat: "plainText",
     command: "quota_announcements",
     arguments: params.arguments,
     client: params.client,
