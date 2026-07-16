@@ -1,5 +1,5 @@
 import type { TuiPluginApi } from "@opencode-ai/plugin/tui";
-import type { TuiQuotaCommandDisplay } from "./types.js";
+import type { TuiCommandDisplay } from "./types.js";
 import type { CompactStatusState, HomeBottomState, SidebarPanelState } from "./tui-panel-state.js";
 
 import type { CollectQuotaRenderDataResult, SessionModelMeta } from "./quota-render-data.js";
@@ -186,7 +186,7 @@ export type TuiMaintainerAnnouncementsRegistration = {
 };
 
 export type TuiSurfaceRegistration = {
-  quotaCommandDisplay: TuiQuotaCommandDisplay;
+  commandDisplay: TuiCommandDisplay;
   sidebar: TuiSidebarPanelRegistration;
   compact: TuiCompactStatusRegistration;
   announcements: TuiMaintainerAnnouncementsRegistration;
@@ -367,7 +367,7 @@ export async function resolveTuiSurfaceRegistration(
   const compactHomeBottom = compactEnabled && compact.homeBottom;
 
   return {
-    quotaCommandDisplay: runtime.config.tuiQuotaCommandDisplay,
+    commandDisplay: runtime.config.tuiCommandDisplay,
     sidebar: {
       enabled: runtime.config.enabled && runtime.config.tuiSidebarPanel.enabled,
     },

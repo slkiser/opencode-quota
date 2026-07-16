@@ -118,10 +118,11 @@ describe("init installer planning and merge behavior", () => {
       formatStyle: "allWindows",
       percentDisplayMode: "used",
       showSessionTokens: false,
-      tuiQuotaCommandDisplay: "inline",
+      tuiCommandDisplay: "inline",
     });
+    expect(quotaConfig).not.toHaveProperty("tuiQuotaCommandDisplay");
     expect(readFileSync(join(projectDir, "opencode.jsonc"), "utf8")).toContain(
-      "// OpenCode Quota: tuiQuotaCommandDisplay chooses whether native TUI /quota appears in the transcript or a popup dialog.",
+      "// OpenCode Quota: tuiCommandDisplay chooses whether native TUI command output appears in the session transcript or a local popup dialog.",
     );
   });
 
@@ -150,7 +151,7 @@ describe("init installer planning and merge behavior", () => {
     expect(() => JSON.parse(raw)).not.toThrow();
     expect(raw).not.toMatch(/^\s*\/\//m);
     const quotaRaw = readFileSync(join(projectDir, "opencode-quota", "quota-toast.json"), "utf8");
-    expect(JSON.parse(quotaRaw).tuiQuotaCommandDisplay).toBe("inline");
+    expect(JSON.parse(quotaRaw).tuiCommandDisplay).toBe("inline");
     expect(quotaRaw).not.toContain("//");
   });
 
@@ -169,20 +170,20 @@ describe("init installer planning and merge behavior", () => {
         formatStyle: "singleWindow",
         percentDisplayMode: "remaining",
         showSessionTokens: true,
-        tuiQuotaCommandDisplay: "dialog",
+        tuiCommandDisplay: "dialog",
       },
     });
     await applyInitInstallerPlan(plan);
 
-    expect(plan.summaryLines).toContain("Native TUI /quota display: Dialog popup");
+    expect(plan.summaryLines).toContain("Native TUI command display: Dialog popup");
     const quotaPath = join(projectDir, "opencode-quota", "quota-toast.json");
-    expect(readJson(quotaPath).tuiQuotaCommandDisplay).toBe("dialog");
+    expect(readJson(quotaPath).tuiCommandDisplay).toBe("dialog");
     expect(readFileSync(quotaPath, "utf8")).not.toContain("//");
 
     for (const hostPath of [join(projectDir, "opencode.jsonc"), join(projectDir, "tui.jsonc")]) {
       const raw = readFileSync(hostPath, "utf8");
       expect(raw).toContain(
-        "// OpenCode Quota: tuiQuotaCommandDisplay chooses whether native TUI /quota appears in the transcript or a popup dialog.",
+        "// OpenCode Quota: tuiCommandDisplay chooses whether native TUI command output appears in the session transcript or a local popup dialog.",
       );
       expect(() => parseJsonOrJsonc(raw, true)).not.toThrow();
     }
@@ -1035,7 +1036,7 @@ describe("init installer planning and merge behavior", () => {
       ],
     });
     const quotaDisplayCall = prompts.selectCalls.find(
-      (call) => call.message === "Native TUI /quota display",
+      (call) => call.message === "Native TUI command display",
     );
     expect(quotaDisplayCall).toMatchObject({
       initialValue: "inline",
@@ -1043,12 +1044,12 @@ describe("init installer planning and merge behavior", () => {
         {
           label: "Inline (recommended)",
           value: "inline",
-          hint: "show /quota in the current session transcript",
+          hint: "show command output in the active session transcript; Home uses a dialog",
         },
         {
           label: "Dialog",
           value: "dialog",
-          hint: "open /quota in a local popup dialog",
+          hint: "open command output in a local popup dialog",
         },
       ],
     });

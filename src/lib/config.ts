@@ -13,7 +13,7 @@ import type {
   GoogleModelId,
   PercentDisplayMode,
   PricingSnapshotSource,
-  TuiQuotaCommandDisplay,
+  TuiCommandDisplay,
 } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
 import { cloneQuotaProviders, validateQuotaProviders } from "./quota-providers.js";
@@ -33,7 +33,7 @@ export const QUOTA_TOAST_CONFIG_RELATIVE_PATH = "opencode-quota/quota-toast.json
 export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "enabled",
   "enableToast",
-  "tuiQuotaCommandDisplay",
+  "tuiCommandDisplay",
   "formatStyle",
   "percentDisplayMode",
   "minIntervalMs",
@@ -135,7 +135,7 @@ type ExportConfigPatch = Partial<QuotaToastConfig["export"]>;
 type ValidatedQuotaToastPatch = {
   enabled?: boolean;
   enableToast?: boolean;
-  tuiQuotaCommandDisplay?: TuiQuotaCommandDisplay;
+  tuiCommandDisplay?: TuiCommandDisplay;
   formatStyle?: QuotaToastConfig["formatStyle"];
   percentDisplayMode?: PercentDisplayMode;
   minIntervalMs?: number;
@@ -209,7 +209,7 @@ function isValidPercentDisplayMode(value: unknown): value is PercentDisplayMode 
   return value === "remaining" || value === "used";
 }
 
-function isValidTuiQuotaCommandDisplay(value: unknown): value is TuiQuotaCommandDisplay {
+function isValidTuiCommandDisplay(value: unknown): value is TuiCommandDisplay {
   return value === "inline" || value === "dialog";
 }
 
@@ -517,11 +517,11 @@ function extractValidatedQuotaToastPatch(
     patch.enableToast = quotaToastConfig.enableToast;
   }
 
-  if (hasOwnKey(quotaToastConfig, "tuiQuotaCommandDisplay")) {
-    if (isValidTuiQuotaCommandDisplay(quotaToastConfig.tuiQuotaCommandDisplay)) {
-      patch.tuiQuotaCommandDisplay = quotaToastConfig.tuiQuotaCommandDisplay;
+  if (hasOwnKey(quotaToastConfig, "tuiCommandDisplay")) {
+    if (isValidTuiCommandDisplay(quotaToastConfig.tuiCommandDisplay)) {
+      patch.tuiCommandDisplay = quotaToastConfig.tuiCommandDisplay;
     } else {
-      reportIssue?.("tuiQuotaCommandDisplay", 'expected "inline" or "dialog"');
+      reportIssue?.("tuiCommandDisplay", 'expected "inline" or "dialog"');
     }
   }
 
@@ -730,9 +730,9 @@ function applyValidatedQuotaToastPatch(
     applySettingSource(settingSources, "enableToast", sourcePath);
   }
 
-  if (hasOwnKey(patch, "tuiQuotaCommandDisplay")) {
-    config.tuiQuotaCommandDisplay = patch.tuiQuotaCommandDisplay!;
-    applySettingSource(settingSources, "tuiQuotaCommandDisplay", sourcePath);
+  if (hasOwnKey(patch, "tuiCommandDisplay")) {
+    config.tuiCommandDisplay = patch.tuiCommandDisplay!;
+    applySettingSource(settingSources, "tuiCommandDisplay", sourcePath);
   }
 
   if (hasOwnKey(patch, "formatStyle")) {

@@ -9,7 +9,7 @@ import type {
 import { Show, createEffect, createSignal, onCleanup } from "solid-js";
 
 import type { SessionTokenError } from "./lib/quota-status.js";
-import type { TuiQuotaCommandDisplay } from "./lib/types.js";
+import type { TuiCommandDisplay } from "./lib/types.js";
 import type {
   CompactStatusState,
   HomeBottomState,
@@ -585,7 +585,7 @@ function replaceDialog(api: TuiPluginApi, size: DialogSize, render: () => JSX.El
 async function runQuotaDialogCommandAsync(
   api: TuiPluginApi,
   command: QuotaDialogCommandId,
-  quotaCommandDisplay: TuiQuotaCommandDisplay,
+  commandDisplay: TuiCommandDisplay,
   rawInput?: unknown,
   state?: QuotaDialogCommandState,
 ): Promise<void> {
@@ -609,7 +609,7 @@ async function runQuotaDialogCommandAsync(
           void runQuotaDialogCommandAsync(
             api,
             command,
-            quotaCommandDisplay,
+            commandDisplay,
             { arguments: value.trim() },
             state,
           );
@@ -619,8 +619,11 @@ async function runQuotaDialogCommandAsync(
     return;
   }
 
-  const renderInline = command === "quota" && quotaCommandDisplay === "inline";
-  if (!renderInline) {
+  const destination =
+    commandDisplay === "inline" && sessionID
+      ? { type: "inline" as const, sessionID }
+      : { type: "dialog" as const };
+  if (destination.type === "dialog") {
     replaceDialog(api, spec.dialogSize, () => (
       <CommandLoadingDialog api={api} title={spec.title} />
     ));
@@ -653,16 +656,13 @@ async function runQuotaDialogCommandAsync(
     });
 
     if (result.state === "noop") {
-      if (!renderInline) api.ui.dialog.clear();
+      if (destination.type === "dialog") api.ui.dialog.clear();
       return;
     }
 
-    if (renderInline) {
-      if (!sessionID) {
-        throw new Error("Native TUI /quota inline display requires an active session.");
-      }
+    if (destination.type === "inline") {
       await api.client.session.prompt({
-        sessionID,
+        sessionID: destination.sessionID,
         noReply: true,
         parts: [{ type: "text", text: result.output, ignored: true }],
       });
@@ -683,10 +683,7 @@ async function runQuotaDialogCommandAsync(
   }
 }
 
-function registerQuotaDialogCommands(
-  api: TuiPluginApi,
-  quotaCommandDisplay: TuiQuotaCommandDisplay,
-): void {
+function registerQuotaDialogCommands(api: TuiPluginApi, commandDisplay: TuiCommandDisplay): void {
   const commandState: QuotaDialogCommandState = {};
   const dispose = api.keymap.registerLayer({
     commands: QUOTA_DIALOG_COMMANDS.map((spec) => ({
@@ -697,7 +694,7 @@ function registerQuotaDialogCommands(
       category: "OpenCode Quota",
       slashName: spec.slashName,
       run(input?: unknown) {
-        void runQuotaDialogCommandAsync(api, spec.id, quotaCommandDisplay, input, commandState);
+        void runQuotaDialogCommandAsync(api, spec.id, commandDisplay, input, commandState);
       },
     })),
     bindings: [],
@@ -727,7 +724,7 @@ const tui: TuiPlugin = async (api) => {
     return;
   }
 
-  registerQuotaDialogCommands(api, surfaceRegistration.quotaCommandDisplay);
+  registerQuotaDialogCommands(api, surfaceRegistration.commandDisplay);
 
   if (surfaceRegistration.sidebar.enabled) {
     registerSidebarSlots(api);

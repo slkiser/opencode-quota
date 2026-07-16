@@ -197,6 +197,7 @@ describe("plugin command handled boundary", () => {
         enabled: true,
         onlyCurrentModel: false,
         showSessionTokens: false,
+        tuiCommandDisplay: "dialog",
       }),
     );
     const provider = {

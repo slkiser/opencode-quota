@@ -63,28 +63,33 @@ describe("loadConfig", () => {
     return { config, meta };
   }
 
-  it("defaults and validates native TUI /quota display with provenance", async () => {
+  it("defaults and validates native TUI command display with provenance", async () => {
     const defaults = await loadSdkConfig({});
-    expect(defaults.config.tuiQuotaCommandDisplay).toBe("inline");
+    expect(defaults.config.tuiCommandDisplay).toBe("inline");
     expect(defaults.meta.settingSources).toEqual({});
 
-    const dialog = await loadSdkConfig({ tuiQuotaCommandDisplay: "dialog" });
-    expect(dialog.config.tuiQuotaCommandDisplay).toBe("dialog");
+    const dialog = await loadSdkConfig({ tuiCommandDisplay: "dialog" });
+    expect(dialog.config.tuiCommandDisplay).toBe("dialog");
     expect(dialog.meta.settingSources).toEqual({
-      tuiQuotaCommandDisplay: "client.config.get",
+      tuiCommandDisplay: "client.config.get",
     });
     expect(dialog.meta.configIssues).toEqual([]);
 
-    const invalid = await loadSdkConfig({ tuiQuotaCommandDisplay: "both" });
-    expect(invalid.config.tuiQuotaCommandDisplay).toBe("inline");
+    const invalid = await loadSdkConfig({ tuiCommandDisplay: "both" });
+    expect(invalid.config.tuiCommandDisplay).toBe("inline");
     expect(invalid.meta.settingSources).toEqual({});
     expect(invalid.meta.configIssues).toEqual([
       {
         path: "client.config.get",
-        key: "tuiQuotaCommandDisplay",
+        key: "tuiCommandDisplay",
         message: 'expected "inline" or "dialog"',
       },
     ]);
+
+    const removedKey = await loadSdkConfig({ tuiQuotaCommandDisplay: "dialog" });
+    expect(removedKey.config.tuiCommandDisplay).toBe("inline");
+    expect(removedKey.meta.settingSources).toEqual({});
+    expect(removedKey.meta.configIssues).toEqual([]);
   });
 
   it("defaults maintainer announcements config and accepts validated nested overrides", async () => {

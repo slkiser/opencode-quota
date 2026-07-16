@@ -46,7 +46,7 @@ This enables providers, terminal checks, TUI popup toasts, deterministic Web/Des
 
 ### 2. Add the TUI plugin (for TUI surfaces)
 
-Add this to `tui.json` or `tui.jsonc` for the Sidebar panel, Compact status line, maintainer announcement home notices, and local slash/palette commands. In OpenCode 1.18.2, native TUI `/quota` is an ignored/no-reply transcript message by default; `tuiQuotaCommandDisplay: "dialog"` keeps the local popup. `/quota_status` and `/quota_announcements` remain dialogs. The server plugin keeps deterministic plain-text output for Web/Desktop, and none of these paths calls a model:
+Add this to `tui.json` or `tui.jsonc` for the Sidebar panel, Compact status line, maintainer announcement home notices, and local slash/palette commands. In OpenCode 1.18.2, deterministic native TUI command output is an ignored/no-reply active-session transcript message by default; `tuiCommandDisplay: "dialog"` keeps output in the local popup. Inline mode also uses the popup on Home because no transcript exists there. Argument input remains a dialog, then final output follows the setting. The server plugin keeps deterministic plain-text output for Web/Desktop, and none of these paths calls a model:
 
 ```jsonc
 {
@@ -69,7 +69,7 @@ Start with this, then adjust the UI choices in the next section:
 {
   "enabledProviders": "auto",
   "enableToast": true,
-  "tuiQuotaCommandDisplay": "inline",
+  "tuiCommandDisplay": "inline",
   "tuiSidebarPanel": {
     "enabled": true,
   },
@@ -95,9 +95,9 @@ All UI surfaces use the same quota data. Put these settings in `opencode-quota/q
 | Full `Quota` sidebar panel                             | `tuiSidebarPanel.enabled: true`                                                           |
 | Popup quota notifications in the TUI                   | `enableToast: true`                                                                       |
 | Compact status line                                    | `tuiCompactStatus.enabled: true`                                                          |
-| Inline native TUI `/quota` (recommended/default)       | `tuiQuotaCommandDisplay: "inline"`                                                        |
-| Popup native TUI `/quota`                              | `tuiQuotaCommandDisplay: "dialog"`                                                        |
-| TUI `/quota_status` and `/quota_announcements` dialogs | TUI plugin in `tui.json`                                                                  |
+| Inline native TUI command output (recommended/default) | `tuiCommandDisplay: "inline"`                                                             |
+| Popup native TUI command output                        | `tuiCommandDisplay: "dialog"`                                                             |
+| TUI slash and palette commands                         | TUI plugin in `tui.json`                                                                  |
 | Plain-text Web/Desktop commands                        | Server plugin in `opencode.json`                                                          |
 | Sidebar, compact status, and home notice               | TUI plugin entry in `tui.json`                                                            |
 | No automatic UI surfaces                               | `enableToast: false`, `tuiSidebarPanel.enabled: false`, `tuiCompactStatus.enabled: false` |
