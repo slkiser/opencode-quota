@@ -9,13 +9,13 @@ describe("deterministic command surfaces", () => {
     );
   });
 
-  it("keeps server slash commands out of the in-process mini TUI", () => {
+  it("registers server slash commands for mini mode", () => {
     expect(
       shouldRegisterServerSlashCommands({ isMainThread: true, argv: ["opencode", "--mini"] }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldRegisterServerSlashCommands({ isMainThread: true, argv: ["opencode", "--mini=true"] }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("registers slash commands on web and server hosts", () => {

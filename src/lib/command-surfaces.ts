@@ -1,11 +1,11 @@
 /**
- * The embedded and mini TUI already expose local dialog commands.
+ * The embedded TUI worker already exposes local dialog commands.
  * Registering the server copies there creates duplicate slash rows.
+ * Main-thread hosts, including mini, rely on the server catalog.
  */
 export function shouldRegisterServerSlashCommands(params: {
   isMainThread: boolean;
   argv: readonly string[];
 }): boolean {
-  if (!params.isMainThread) return false;
-  return !params.argv.some((arg) => arg === "--mini" || arg.startsWith("--mini="));
+  return params.isMainThread;
 }
