@@ -327,4 +327,53 @@ describe("local quota provider state", () => {
     });
     expect(result.unpricedMessageCount).toBe(1);
   });
+
+  it("bounds over-limit request and budget percentages at zero", () => {
+    const def = definition({
+      pricingModelMap: { "private-model": "openai/gpt-4o" },
+      windows: [
+        {
+          id: "daily",
+          label: "Daily",
+          type: "utc-day",
+          requestLimit: 1,
+          usdBudget: 0.000001,
+        },
+      ],
+    });
+    const state = {
+      version: QUOTA_PROVIDER_LOCAL_STATE_VERSION,
+      definitionId: def.id,
+      providerId: def.providerId,
+      updatedAt: NOW,
+      messages: ["one", "two"].map((id, index) => ({
+        id,
+        atMs: NOW - (2 - index) * 1_000,
+        providerId: def.providerId,
+        modelId: "private-model",
+        tokens: {
+          input: 1_000,
+          output: 1_000,
+          reasoning: 0,
+          cache_read: 0,
+          cache_write: 0,
+        },
+      })),
+    };
+
+    const result = computeLocalQuotaProviderEstimate({ definition: def, state, nowMs: NOW });
+    expect(result.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          accounting: expect.objectContaining({ resultType: "rate_limit" }),
+          right: "2/1",
+          percentRemaining: 0,
+        }),
+        expect.objectContaining({
+          accounting: expect.objectContaining({ resultType: "budget" }),
+          percentRemaining: 0,
+        }),
+      ]),
+    );
+  });
 });

@@ -305,7 +305,7 @@ function formatUsd(value: number): string {
 }
 
 function percentRemaining(used: number, limit: number): number {
-  return ((limit - used) / limit) * 100;
+  return Math.max(0, Math.min(100, ((limit - used) / limit) * 100));
 }
 
 export function computeLocalQuotaProviderEstimate(params: {

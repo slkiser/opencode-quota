@@ -7,6 +7,7 @@
  */
 
 import type { Plugin } from "@opencode-ai/plugin";
+import { isMainThread } from "node:worker_threads";
 import type { QuotaToastConfig } from "./lib/types.js";
 import { DEFAULT_CONFIG } from "./lib/types.js";
 import { createLoadConfigMeta, type LoadConfigMeta } from "./lib/config.js";
@@ -55,6 +56,7 @@ import {
   getMaintainerAnnouncementsSummary,
 } from "./lib/maintainer-announcements.js";
 import { handled } from "./lib/command-handled.js";
+import { shouldRegisterServerSlashCommands } from "./lib/command-surfaces.js";
 import {
   QUOTA_PROVIDERS_AGGREGATE_ID,
   customQuotaProviderDefinitions,
@@ -1310,7 +1312,9 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
   return {
     config: async (input: unknown) => {
       const cfg = input as PluginConfigInput;
-      registerDeterministicSlashCommands(cfg);
+      if (shouldRegisterServerSlashCommands({ isMainThread, argv: process.argv })) {
+        registerDeterministicSlashCommands(cfg);
+      }
 
       // Fix zero-width space mismatch between default_agent and agent keys.
       // Some plugins remap agent keys with invisible Unicode prefixes for sort

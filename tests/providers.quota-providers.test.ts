@@ -306,10 +306,11 @@ describe("quota-providers aggregate provider", () => {
       };
     });
     const ctx = context(definitions, ["mixed-remote", "mixed-local"], {
-      providerCacheTtlMs: 60_000,
+      providerCacheTtlMs: 0,
     });
 
     const first = await quotaProvidersProvider.fetch(ctx);
+    ctx.config.providerCacheTtlMs = 60_000;
     const second = await quotaProvidersProvider.fetch(ctx);
 
     expect(runtimeMocks.fetchRemoteQuotaProvider).toHaveBeenCalledTimes(1);

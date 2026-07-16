@@ -277,6 +277,44 @@ describe("formatQuotaCommand", () => {
     expect(out).toContain("reset 3h");
   });
 
+  it("aligns reset columns when usage values have different widths", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));
+
+    const out = formatQuotaCommand({
+      entries: [
+        {
+          accounting: accounting("quota"),
+          name: "Local Rolling",
+          group: "Local",
+          label: "5h:",
+          right: "2/5",
+          percentRemaining: 60,
+          resetTimeIso: "2026-01-15T17:00:00.000Z",
+        },
+        {
+          accounting: accounting("quota"),
+          name: "Local Daily",
+          group: "Local",
+          label: "Daily:",
+          right: "2/10",
+          percentRemaining: 80,
+          resetTimeIso: "2026-01-15T23:00:00.000Z",
+        },
+      ],
+      errors: [],
+    });
+
+    const metricLines = out.split("\n").filter((line) => line.includes(" · reset "));
+    expect(metricLines).toHaveLength(2);
+    expect(metricLines[0]).toContain(" · 2/5  · reset 5h");
+    expect(metricLines[1]).toContain(" · 2/10 · reset 11h");
+    expect(metricLines.map((line) => line.indexOf("reset"))).toEqual([
+      metricLines[0]!.indexOf("reset"),
+      metricLines[0]!.indexOf("reset"),
+    ]);
+  });
+
   it("keeps a representative long /quota metric on one viewport-safe line", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));

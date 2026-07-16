@@ -91,13 +91,13 @@ function getCommandMetricLabel(entry: QuotaToastEntry): string {
   return explicit || (isValueEntry(entry) ? "Value" : "Quota");
 }
 
-function formatCommandDetails(entry: QuotaToastEntry): string {
-  const details: string[] = [];
+function formatCommandDetails(entry: QuotaToastEntry, rightWidth: number): string {
   const right = entry.right?.trim();
-  if (right) details.push(right);
   const reset = formatResetsIn(entry.resetTimeIso).replace(/^ · resets in /u, "reset ");
-  if (reset) details.push(reset);
-  return details.length > 0 ? ` · ${details.join(" · ")}` : "";
+  if (right && reset) return ` · ${padRight(right, rightWidth)} · ${reset}`;
+  if (right) return ` · ${right}`;
+  if (reset) return ` · ${reset}`;
+  return "";
 }
 
 function buildQuotaCommandDocument(params: {
@@ -111,9 +111,10 @@ function buildQuotaCommandDocument(params: {
 
   const sections: ReportSection[] = groups.map((group, index) => {
     const lines: string[] = [];
+    const rightWidth = Math.max(0, ...group.entries.map((row) => row.right?.trim().length ?? 0));
     for (const row of group.entries) {
       const label = padRight(getCommandMetricLabel(row), QUOTA_COMMAND_LABEL_WIDTH);
-      const details = formatCommandDetails(row);
+      const details = formatCommandDetails(row, rightWidth);
 
       if (isValueEntry(row)) {
         lines.push(`  ${label}  ${row.value}${details}`);
