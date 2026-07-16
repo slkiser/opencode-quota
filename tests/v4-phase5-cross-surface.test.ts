@@ -224,10 +224,11 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     const serverOutput = getPromptText(client);
     expect(serverOutput).toMatch(/^# Quota \(\/quota\)/);
     expect(serverOutput).not.toContain("```");
-    expect(serverOutput).not.toMatch(/[█░]/);
-    expect(serverOutput).not.toMatch(/ {3,}/);
-    expect(serverOutput).toMatch(/Monthly: 64\/100 · 64% left · resets in /);
-    expect(serverOutput).toContain("Balance: $12.34");
+    const serverBars = serverOutput.match(/[█░]+/gu) ?? [];
+    expect(serverBars.length).toBeGreaterThan(0);
+    expect(serverBars.every((bar) => Array.from(bar).length === 10)).toBe(true);
+    expect(serverOutput).toMatch(/Month quota\s+[█░]{10}\s+64% left · 64\/100 · reset /);
+    expect(serverOutput).toMatch(/Balance\s+\$12\.34/);
     assertFixtureContent(serverOutput);
 
     await hooks.event?.({

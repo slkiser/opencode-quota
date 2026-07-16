@@ -49,6 +49,11 @@ export type QuotaExportEntry =
     });
 
 /** Ordered configured-source identity and coarse cached status. */
+export type QuotaExportError = {
+  label: string;
+  message: string;
+};
+
 export type QuotaExportSource = {
   id: string;
   providerId: string;
@@ -64,6 +69,12 @@ export type QuotaExportSource = {
  */
 export type QuotaExportProvider = (
   | { status: "ok"; fetchedAt: number; entries: QuotaExportEntry[] }
+  | {
+      status: "partial";
+      fetchedAt: number;
+      entries: QuotaExportEntry[];
+      errors: QuotaExportError[];
+    }
   | { status: "error"; fetchedAt: number; error: string }
   | { status: "unavailable" }
 ) & {

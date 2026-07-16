@@ -32,7 +32,7 @@ When JSONC is selected and an existing JSON file is present, the installer previ
 
 ### 1. Add the server plugin (required)
 
-This enables providers, terminal checks, TUI popup toasts, the inline slash commands shared by TUI and Web/Desktop server, and the `tool.quota_status` tool. Add this to `opencode.json` or `opencode.jsonc`:
+This enables providers, terminal checks, TUI popup toasts, deterministic Web/Desktop slash commands, and the `tool.quota_status` tool. Add this to `opencode.json` or `opencode.jsonc`:
 
 ```jsonc
 {
@@ -42,11 +42,11 @@ This enables providers, terminal checks, TUI popup toasts, the inline slash comm
 ```
 
 > [!NOTE]
-> With OpenCode 1.17.20, Web `/quota` renders deterministic output without calling a model, but can then show a false `Failed to send command` notification. Do not retry automatically after output appears. This predates v4 and also occurs with v3.11.2. Web does not receive the TUI toast event, and Safari/macOS notification permissions do not change that.
+> With OpenCode 1.18.2, Web `/quota` renders deterministic output without calling a model, but can then show a false `Failed to send command` notification. Do not retry automatically after output appears. Web does not receive the TUI toast event, and Safari/macOS notification permissions do not change that.
 
 ### 2. Add the TUI plugin (for TUI surfaces)
 
-Add this to `tui.json` or `tui.jsonc` for the Sidebar panel, Compact status line, and maintainer announcement home notices. Slash commands remain owned by the server plugin and render deterministic inline output; the TUI plugin does not register command popups:
+Add this to `tui.json` or `tui.jsonc` for the Sidebar panel, Compact status line, maintainer announcement home notices, and local slash/palette dialogs. In OpenCode 1.18.2, the TUI plugin registers `/quota` and `/quota_status` locally: they open dialogs without writing to the transcript or calling a model. The server plugin keeps deterministic inline output for Web/Desktop:
 
 ```jsonc
 {
@@ -89,13 +89,13 @@ Start with this, then adjust the UI choices in the next section:
 
 All UI surfaces use the same quota data. Put these settings in `opencode-quota/quota-toast.json`, not `tui.json`.
 
-| I want...                                           | Enable/configure                                                                          |
-| --------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Full `Quota` sidebar panel                          | `tuiSidebarPanel.enabled: true`                                                           |
-| Popup quota notifications in the TUI                | `enableToast: true`                                                                       |
-| Compact status line                                 | `tuiCompactStatus.enabled: true`                                                          |
-| Inline slash commands in TUI and Web/Desktop server | Server plugin entry in `opencode.json`                                                    |
-| Sidebar, compact status, and home notice            | TUI plugin entry in `tui.json`                                                            |
-| No automatic UI surfaces                            | `enableToast: false`, `tuiSidebarPanel.enabled: false`, `tuiCompactStatus.enabled: false` |
+| I want...                                         | Enable/configure                                                                          |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Full `Quota` sidebar panel                        | `tuiSidebarPanel.enabled: true`                                                           |
+| Popup quota notifications in the TUI              | `enableToast: true`                                                                       |
+| Compact status line                               | `tuiCompactStatus.enabled: true`                                                          |
+| Local TUI dialogs and inline Web/Desktop commands | TUI plugin in `tui.json`; server plugin in `opencode.json`                                |
+| Sidebar, compact status, and home notice          | TUI plugin entry in `tui.json`                                                            |
+| No automatic UI surfaces                          | `enableToast: false`, `tuiSidebarPanel.enabled: false`, `tuiCompactStatus.enabled: false` |
 
 For every option and more recipes, see [Configuration](configuration.md).

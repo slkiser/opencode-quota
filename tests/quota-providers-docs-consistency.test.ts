@@ -80,7 +80,17 @@ describe("quota provider Phase 7 documentation consistency", () => {
     expect(external).toContain(
       "Each summary is exactly `id`, effective `providerId`, coarse `status`, and `entryCount`",
     );
-    expect(external).toContain("intentionally excluded from public JSON");
+    expect(external).toContain("raw provider responses remain excluded from public JSON");
+  });
+
+  it("keeps copy-paste integrations independent of entry order", () => {
+    const external = read("docs/readme/external-integration.md");
+
+    expect(external).not.toContain("entries[0].percentRemaining");
+    expect(external).toContain('select(.renderType == "percent"');
+    expect(external.match(/renderType/g)?.length).toBeGreaterThanOrEqual(5);
+    expect(external).toContain('status: "partial"');
+    expect(external).toContain("Results were incomplete");
   });
 
   it("keeps surface formatters generic", () => {

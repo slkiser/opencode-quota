@@ -34,9 +34,7 @@ declare module "@opentui/solid/jsx-runtime" {
 }
 
 declare module "solid-js" {
-  export function createSignal<T>(
-    value: T,
-  ): [() => T, (value: T | ((prev: T) => T)) => T];
+  export function createSignal<T>(value: T): [() => T, (value: T | ((prev: T) => T)) => T];
   export function createEffect(fn: () => void): void;
   export function onCleanup(fn: () => void): void;
   export function Show<T>(props: {
@@ -97,8 +95,35 @@ declare module "@opencode-ai/plugin/tui" {
         textMuted: unknown;
       };
     };
+    route: {
+      readonly current:
+        | { name: "home" }
+        | { name: "session"; params: { sessionID: string } }
+        | { name: string; params?: Record<string, unknown> };
+    };
     ui: {
       Prompt: (props: TuiPromptProps) => JSX.Element;
+      DialogPrompt: (props: {
+        title: string;
+        description?: () => JSX.Element;
+        placeholder?: string;
+        value?: string;
+        busy?: boolean;
+        busyText?: string;
+        onConfirm?: (value: string) => void;
+        onCancel?: () => void;
+      }) => JSX.Element;
+      toast: (input: {
+        variant?: "info" | "success" | "warning" | "error";
+        title?: string;
+        message: string;
+        duration?: number;
+      }) => void;
+      dialog: {
+        replace: (render: () => JSX.Element, onClose?: () => void) => void;
+        clear: () => void;
+        setSize: (size: "medium" | "large" | "xlarge") => void;
+      };
     };
     event: {
       on: (type: string, handler: (event: any) => void) => () => void;
@@ -115,7 +140,31 @@ declare module "@opencode-ai/plugin/tui" {
     lifecycle: {
       onDispose: (fn: () => void | Promise<void>) => () => void;
     };
+    keymap: {
+      registerLayer: (layer: {
+        commands: Array<{
+          namespace: string;
+          name: string;
+          title: string;
+          desc?: string;
+          category?: string;
+          slashName?: string;
+          run: (input?: unknown) => void | Promise<void>;
+        }>;
+        bindings?: unknown[];
+      }) => () => void;
+    };
     client: {
+      app: {
+        log: (params: {
+          body: {
+            service: string;
+            level: "debug" | "info" | "warn" | "error";
+            message: string;
+            extra?: Record<string, unknown>;
+          };
+        }) => Promise<unknown>;
+      };
       config?: {
         providers?: () => Promise<{
           data?: {
@@ -129,8 +178,10 @@ declare module "@opencode-ai/plugin/tui" {
       session?: {
         get?: (params: { path: { id: string } }) => Promise<{
           data?: {
-            modelID?: string;
-            providerID?: string;
+            model?: {
+              id?: string;
+              providerID?: string;
+            };
           };
         }>;
       };

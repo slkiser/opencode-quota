@@ -10,6 +10,7 @@ import type {
 import type {
   QuotaExport,
   QuotaExportEntry,
+  QuotaExportError,
   QuotaExportProvider,
   QuotaExportSource,
 } from "./quota-export-types.js";
@@ -75,6 +76,13 @@ function unixSecondsFromIso(value: string | undefined): number | undefined {
 
   const milliseconds = new Date(value).getTime();
   return Number.isFinite(milliseconds) ? Math.floor(milliseconds / 1000) : undefined;
+}
+
+function toExportError(error: { label: string; message: string }): QuotaExportError {
+  return {
+    label: sanitizeSingleLineDisplaySnippet(error.label, EXPORT_ERROR_MAX_LENGTH),
+    message: sanitizeSingleLineDisplaySnippet(error.message, EXPORT_ERROR_MAX_LENGTH),
+  };
 }
 
 function toExportEntry(entry: QuotaToastEntry): QuotaExportEntry {
@@ -163,6 +171,18 @@ export async function buildQuotaExport(params: {
     }
 
     const fetchedAt = Math.floor(read.timestamp / 1000);
+
+    if (read.result.entries.length > 0 && read.result.errors.length > 0) {
+      providers[provider.id] = {
+        status: "partial",
+        fetchedAt,
+        entries: read.result.entries.map(toExportEntry),
+        errors: read.result.errors.map(toExportError),
+        ...withSources,
+      };
+      fetchedAtValues.push(fetchedAt);
+      continue;
+    }
 
     if (read.result.errors.length > 0 && read.result.entries.length === 0) {
       providers[provider.id] = {

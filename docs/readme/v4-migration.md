@@ -39,7 +39,7 @@ Rows now separate:
 - acquisition method; and
 - maintained versus user-configured ownership.
 
-`show --json` and the export file use schema `version: 2`. Every row includes the provider-neutral accounting metadata and `renderType`. Update integrations before relying on the v4 export. See [External integration](external-integration.md) for the exact shape.
+`show --json` and the export file use schema `version: 2`. Every row includes the provider-neutral accounting metadata and `renderType`. Results with both rows and errors use explicit provider status `partial`; threshold checks return exit 2 rather than making a decision from incomplete data. Update integrations before relying on the v4 export. See [External integration](external-integration.md) for the exact shape.
 
 ### Custom providers
 
@@ -91,7 +91,7 @@ v4 keeps unrelated released configuration inputs. Existing global and project qu
 
 After restarting OpenCode:
 
-1. Run `/quota`; confirm percentage and value rows appear in configured order.
+1. Run `/quota`; confirm semantic labels such as `Day quota`, `5h quota`, `Day budget`, or `Balance`, with every percentage bar exactly 10 characters.
 2. Run `/quota_status`; confirm each definition has the expected provider ID, mode/format, state path or credential category, and live outcome. URLs, counter contents, and credential values should not appear.
 3. Trigger a configured toast lifecycle event, such as waiting for `session.idle`; confirm successful rows remain visible if one definition fails.
 4. In the TUI session sidebar, expand `Quota`; confirm the same rows and partial error appear.

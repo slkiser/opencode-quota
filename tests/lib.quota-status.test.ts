@@ -8,6 +8,13 @@ import {
   makeProviderAvailability,
 } from "./helpers/quota-status-test-harness.js";
 
+const QUOTA_ACCOUNTING = {
+  resultType: "quota",
+  acquisitionMethod: "local_estimation",
+  ownership: "maintained",
+  authority: "locally_derived",
+} as const;
+
 const fsPromiseMocks = vi.hoisted(() => ({
   stat: vi.fn(async () => {
     throw new Error("missing");
@@ -566,6 +573,77 @@ describe("buildQuotaStatusReport", () => {
     expect(section).not.toContain("openrouter.ai");
     expect(section).not.toContain("raw body secret");
     expect(section).not.toContain("401");
+  });
+
+  it("uses maintained Qwen and Alibaba probes and state paths for tuning diagnostics", async () => {
+    const report = await buildQuotaStatusReportForTest({
+      enabledProviders: ["qwen-code", "alibaba-coding-plan"],
+      quotaProviders: [
+        {
+          id: "qwen-code",
+          providerId: "qwen-code",
+          mode: "local-estimate",
+          windows: [
+            { id: "daily", type: "utc-day", requestLimit: 900 },
+            { id: "rpm", type: "rolling", durationMinutes: 1, requestLimit: 50 },
+          ],
+        },
+        {
+          id: "alibaba-coding-plan",
+          providerId: "alibaba-coding-plan",
+          mode: "local-estimate",
+          windows: [
+            { id: "five-hour", type: "rolling", durationMinutes: 300, requestLimit: 1000 },
+            { id: "weekly", type: "rolling", durationMinutes: 10080, requestLimit: 8000 },
+            { id: "monthly", type: "rolling", durationMinutes: 43200, requestLimit: 16000 },
+          ],
+        },
+      ],
+      providerLiveProbes: [
+        {
+          providerId: "qwen-code",
+          result: {
+            attempted: true,
+            entries: [
+              {
+                accounting: QUOTA_ACCOUNTING,
+                name: "Qwen Free Daily",
+                percentRemaining: 90,
+              },
+            ],
+            errors: [{ label: "Qwen", message: "one local row failed" }],
+          },
+        },
+        {
+          providerId: "alibaba-coding-plan",
+          result: {
+            attempted: true,
+            entries: [
+              {
+                accounting: QUOTA_ACCOUNTING,
+                name: "Alibaba 5h",
+                percentRemaining: 80,
+              },
+            ],
+            errors: [],
+          },
+        },
+      ],
+    });
+
+    const section = getReportSection(report, "quota_providers:");
+    expect(section).toContain(
+      "provider_qwen-code: provider_id=qwen-code mode=local-estimate coverage=all_models outcome=partial",
+    );
+    expect(section).toContain("limits=daily:900,rpm:50");
+    expect(section).toContain("state_path=/tmp/qwen-state.json");
+    expect(section).toContain(
+      "provider_alibaba-coding-plan: provider_id=alibaba-coding-plan mode=local-estimate coverage=all_models outcome=success",
+    );
+    expect(section).toContain("limits=five-hour:1000,weekly:8000,monthly:16000");
+    expect(section).toContain("state_path=/tmp/alibaba-state.json");
+    expect(section).not.toContain("quota-providers/qwen-code.json");
+    expect(section).not.toContain("quota-providers/alibaba-coding-plan.json");
   });
 
   const buildMiniMaxStatusReport = (overrides: Record<string, unknown> = {}) =>
@@ -1153,7 +1231,7 @@ describe("buildQuotaStatusReport", () => {
     expect(agySection).toContain(
       "- companion_package_path: /tmp/node_modules/@anthonyhaussman/opencode-agy-auth/dist/src/constants.js",
     );
-    expect(agySection).toContain("- live_probe: success");
+    expect(agySection).toContain("- live_probe: partial");
     expect(agySection).toContain(
       "- live_entry_1: Gemini Models: 120 left percent_remaining=42 reset_at=2026-04-24T00:00:00.000Z",
     );

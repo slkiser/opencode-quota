@@ -10,7 +10,14 @@
 import type { QuotaToastEntry, QuotaToastError, SessionTokensData } from "./entries.js";
 import type { PercentDisplayMode } from "./types.js";
 import { isValueEntry } from "./entries.js";
-import { formatDisplayedPercentLabel, formatTokenCount } from "./format-utils.js";
+import {
+  bar,
+  formatDisplayedPercentLabel,
+  formatTokenCount,
+  padLeft,
+  padRight,
+  resolveDisplayedPercent,
+} from "./format-utils.js";
 import { formatGroupedHeader } from "./grouped-header-format.js";
 import { groupQuotaEntries } from "./grouped-entry-normalization.js";
 import {
@@ -40,10 +47,57 @@ function formatResetsIn(iso?: string): string {
   return ` · resets in ${formatResetTimeSeconds(diffSeconds)}`;
 }
 
-function getGroupedLeftText(entry: QuotaToastEntry): string {
-  const label = (entry.label ?? entry.name).trim();
+export const QUOTA_COMMAND_BAR_WIDTH = 10;
+export const QUOTA_COMMAND_LABEL_WIDTH = 12;
+
+function normalizeMetricText(value?: string): string {
+  return value?.trim().replace(/:+$/u, "").trim() ?? "";
+}
+
+function getCommandWindowLabel(entry: QuotaToastEntry): string | null {
+  const text = normalizeMetricText(entry.label || entry.name).toLowerCase();
+  if (/\b(?:rpm|per minute|minute|minutes)\b/u.test(text)) return "RPM";
+  if (/\b(?:rolling|5h|5 h|5-hour|5 hour|five-hour|five hour)\b/u.test(text)) return "5h";
+  if (/\b(?:hourly|1h|1 h|1-hour|1 hour|hour)\b/u.test(text)) return "Hour";
+  if (/\b(?:7d|7 d|7-day|7 day|weekly|week)\b/u.test(text)) return "Week";
+  if (/\b(?:daily|1d|1 d|1-day|1 day|day)\b/u.test(text)) return "Day";
+  if (/\b(?:monthly|month)\b/u.test(text)) return "Month";
+  if (/\b(?:yearly|annual|annually|year)\b/u.test(text)) return "Year";
+  return null;
+}
+
+function getCommandMetricLabel(entry: QuotaToastEntry): string {
+  const window = getCommandWindowLabel(entry);
+  const resultType = entry.accounting?.resultType;
+
+  if (resultType === "balance") return "Balance";
+  if (resultType === "status") return "Status";
+
+  const noun =
+    resultType === "budget"
+      ? "budget"
+      : resultType === "usage"
+        ? "usage"
+        : resultType === "spend"
+          ? "spend"
+          : resultType === "quota" || resultType === "rate_limit"
+            ? "quota"
+            : "";
+
+  if (noun) return window ? `${window} ${noun}` : noun[0]!.toUpperCase() + noun.slice(1);
+  if (window) return `${window} quota`;
+
+  const explicit = normalizeMetricText(entry.label);
+  return explicit || (isValueEntry(entry) ? "Value" : "Quota");
+}
+
+function formatCommandDetails(entry: QuotaToastEntry): string {
+  const details: string[] = [];
   const right = entry.right?.trim();
-  return right ? `${label} ${right}` : label;
+  if (right) details.push(right);
+  const reset = formatResetsIn(entry.resetTimeIso).replace(/^ · resets in /u, "reset ");
+  if (reset) details.push(reset);
+  return details.length > 0 ? ` · ${details.join(" · ")}` : "";
 }
 
 function buildQuotaCommandDocument(params: {
@@ -58,17 +112,22 @@ function buildQuotaCommandDocument(params: {
   const sections: ReportSection[] = groups.map((group, index) => {
     const lines: string[] = [];
     for (const row of group.entries) {
-      const leftText = getGroupedLeftText(row);
-      const suffix = formatResetsIn(row.resetTimeIso);
+      const label = padRight(getCommandMetricLabel(row), QUOTA_COMMAND_LABEL_WIDTH);
+      const details = formatCommandDetails(row);
 
       if (isValueEntry(row)) {
-        lines.push(`  ${leftText} ${row.value}${suffix}`);
+        lines.push(`  ${label}  ${row.value}${details}`);
         continue;
       }
 
       const pctLabel = formatDisplayedPercentLabel(row.percentRemaining, params.percentDisplayMode);
-      const metricSeparator = row.right?.trim() ? " · " : " ";
-      lines.push(`  ${leftText}${metricSeparator}${pctLabel}${suffix}`);
+      const displayedPercent = resolveDisplayedPercent(
+        row.percentRemaining,
+        params.percentDisplayMode,
+      );
+      lines.push(
+        `  ${label}  ${bar(displayedPercent, QUOTA_COMMAND_BAR_WIDTH)}  ${padLeft(pctLabel, 9)}${details}`,
+      );
     }
     return {
       id: `group-${index}`,

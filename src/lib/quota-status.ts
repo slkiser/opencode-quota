@@ -93,6 +93,7 @@ import type {
   QuotaToastError,
 } from "./entries.js";
 import type { QuotaProviderDefinition } from "./quota-providers.js";
+import { isMaintainedQuotaProviderTuning } from "./quota-providers.js";
 import { inspectLocalQuotaProviderState } from "./quota-providers-local.js";
 import { isValueEntry } from "./entries.js";
 import type {
@@ -325,6 +326,14 @@ function findProviderLiveProbe(
   return probes?.find((probe) => probe.providerId === providerId);
 }
 
+function getLiveProbeState(probe?: ProviderLiveProbe): string {
+  if (!probe) return "unavailable";
+  if (probe.result.entries.length > 0 && probe.result.errors.length > 0) return "partial";
+  if (probe.result.entries.length > 0) return "success";
+  if (probe.result.errors.length > 0) return "error";
+  return "no_data";
+}
+
 function appendProviderCompactLiveProbeRows(
   rows: ReportKvRow[],
   providerId: string,
@@ -434,6 +443,39 @@ async function createQuotaProvidersSection(params: {
   for (const definition of params.definitions) {
     const diagnostic = diagnosticsBySource.get(definition.id);
     const coverage = definition.modelIds ? definition.modelIds.join(",") : "all_models";
+    if (definition.mode === "local-estimate" && isMaintainedQuotaProviderTuning(definition)) {
+      const maintained =
+        definition.id === "qwen-code"
+          ? {
+              path: getQwenLocalQuotaPath(),
+              version: QWEN_LOCAL_QUOTA_STATE_VERSION,
+            }
+          : {
+              path: getAlibabaCodingPlanQuotaPath(),
+              version: ALIBABA_CODING_PLAN_STATE_VERSION,
+            };
+      const state = await inspectGeneratedCounterFile(maintained.path, maintained.version);
+      const probe = findProviderLiveProbe(definition.id, params.probes);
+      rows.push({
+        key: `provider_${definition.id}`,
+        value: [
+          `provider_id=${definition.providerId}`,
+          "mode=local-estimate",
+          `coverage=${coverage}`,
+          `outcome=${getLiveProbeState(probe)}`,
+          `limits=${definition.windows.map((window) => `${window.id}:${window.requestLimit}`).join(",")}`,
+          `state_path=${maintained.path}`,
+          `state_exists=${state.exists ? "true" : "false"}`,
+          `state_health=${state.health}`,
+          `state_version=${state.version ?? "(none)"}`,
+          `state_last_update=${state.lastUpdatedAt === null ? "(none)" : new Date(state.lastUpdatedAt).toISOString()}`,
+        ]
+          .map((part) => sanitizeSingleLineDisplayText(part))
+          .join(" "),
+      });
+      continue;
+    }
+
     if (definition.mode === "local-estimate") {
       const state = await inspectLocalQuotaProviderState(definition);
       rows.push({
@@ -489,7 +531,13 @@ function appendCompactLiveProbeRows(
   const entryCount = Math.min(result.entries.length, STATUS_LIVE_ENTRY_LIMIT);
   const errorCount = Math.min(result.errors.length, STATUS_LIVE_ERROR_LIMIT);
   const state =
-    result.entries.length > 0 ? "success" : result.errors.length > 0 ? "error" : "no_data";
+    result.entries.length > 0 && result.errors.length > 0
+      ? "partial"
+      : result.entries.length > 0
+        ? "success"
+        : result.errors.length > 0
+          ? "error"
+          : "no_data";
 
   rows.push({ key: "live_probe", value: state });
 

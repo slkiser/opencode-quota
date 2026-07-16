@@ -296,7 +296,7 @@ describe("buildQuotaExport", () => {
             percentRemaining: 25,
           },
         ],
-        errors: [{ label: "Same label", message: "private raw failure" }],
+        errors: [{ label: "Same label", message: "secondary source unavailable" }],
         diagnostics: [
           {
             sourceId: "same-label-one",
@@ -340,8 +340,9 @@ describe("buildQuotaExport", () => {
 
     expect(actual.version).toBe(2);
     expect(actual.providers["quota-providers"]).toMatchObject({
-      status: "ok",
+      status: "partial",
       entries: [expect.objectContaining({ sourceId: "same-label-one", percentRemaining: 25 })],
+      errors: [{ label: "Same label", message: "secondary source unavailable" }],
       sources: [
         { id: "same-label-one", providerId: "gateway-one", status: "ok", entryCount: 1 },
         { id: "same-label-two", providerId: "gateway-two", status: "error", entryCount: 0 },

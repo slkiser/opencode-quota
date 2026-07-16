@@ -57,10 +57,11 @@ describe("quota provider four-surface formatting", () => {
 
     expect(command).toMatch(/^# Quota \(\/quota\)/);
     expect(command).not.toContain("```");
-    expect(command).not.toMatch(/[█░]/);
-    expect(command).not.toMatch(/ {3,}/);
-    expect(command).toMatch(/Weekly: 10% left · resets in /);
-    expect(command).toContain("Balance: $4.00");
+    const bars = command.match(/[█░]+/gu) ?? [];
+    expect(bars).toHaveLength(1);
+    expect(Array.from(bars[0]!)).toHaveLength(10);
+    expect(command).toMatch(/Week quota\s+[█░]{10}\s+10% left · reset /);
+    expect(command).toMatch(/Balance\s+\$4\.00/);
 
     for (const output of [command, toast, sidebar, compact]) {
       expect(output).toContain("10%");

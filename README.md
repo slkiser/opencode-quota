@@ -87,7 +87,7 @@ More ways to use it:
 
 - Terminal checks with `opencode-quota show` before or without opening OpenCode
 - JSON output for scripts, status bars, CI checks, and external tools
-- Deterministic inline slash-command output shared by TUI and Web/Desktop server
+- Deterministic slash commands in TUI-local dialogs and Web/Desktop server output, built from the same content
 - Provider diagnostics for auth, quota sources, pricing, and bundled maintainer announcements
 
 See [Configuration](docs/readme/configuration.md) for UI options and [Manual install](docs/readme/manual-install.md) for setup details.
@@ -96,11 +96,11 @@ See [Configuration](docs/readme/configuration.md) for UI options and [Manual ins
 
 ### Core slash commands
 
-The server plugin registers each command once for TUI and Desktop/server. Each command injects one ignored, no-reply inline message, does not call the model, and does not add output to model context. `/tokens_between` requires both dates inline and does not open a prompt dialog.
+OpenCode 1.18.2 uses two deterministic command surfaces. The TUI plugin registers slash/palette commands locally and shows dialogs without writing to the transcript or calling a model. Web/Desktop uses the server registry and an ignored, no-reply message because OpenCode has no clean handled-command cancellation there. Both surfaces use the same command builder. In the TUI, commands with optional input open a prompt dialog; Web/Desktop accepts that input inline.
 
 | Command                                 | Use when                                                             |
 | --------------------------------------- | -------------------------------------------------------------------- |
-| `/quota`                                | Show your quota and usage details                                    |
+| `/quota`                                | Show compact fixed-label rows with aligned 10-character percent bars |
 | `/quota_status`                         | Diagnose setup, auth, provider detection, pricing, and announcements |
 | `/quota_announcements`                  | Read active bundled maintainer notices                               |
 | `/pricing_refresh`                      | Refresh local runtime pricing from `models.dev`                      |
@@ -117,15 +117,15 @@ The server plugin registers each command once for TUI and Desktop/server. Each c
 
 Use the CLI for scripts, CI, or a quick terminal check outside OpenCode.
 
-| Command                                        | Use when                                                              |
-| ---------------------------------------------- | --------------------------------------------------------------------- |
-| `opencode-quota init --dry-run`                | Validate and preview installer changes without writing files          |
-| `opencode-quota update`                        | Preview, confirm, and apply a scoped OpenCode Quota update            |
-| `opencode-quota update --dry-run`              | Preview exact config and cache targets without changing them          |
-| `opencode-quota show`                          | Check quota from your terminal                                        |
-| `opencode-quota show --provider <id>`          | Check one provider only, such as `copilot` or `openai`                |
-| `opencode-quota show --json`                   | Print JSON for scripts, status bars, and other tools                  |
-| `opencode-quota show --json --threshold <pct>` | Fail the command when cached quota drops below your chosen percentage |
+| Command                                        | Use when                                                     |
+| ---------------------------------------------- | ------------------------------------------------------------ |
+| `opencode-quota init --dry-run`                | Validate and preview installer changes without writing files |
+| `opencode-quota update`                        | Preview, confirm, and apply a scoped OpenCode Quota update   |
+| `opencode-quota update --dry-run`              | Preview exact config and cache targets without changing them |
+| `opencode-quota show`                          | Check quota from your terminal                               |
+| `opencode-quota show --provider <id>`          | Check one provider only, such as `copilot` or `openai`       |
+| `opencode-quota show --json`                   | Print JSON for scripts, status bars, and other tools         |
+| `opencode-quota show --json --threshold <pct>` | Fail when quota is low; return exit 2 for incomplete results |
 
 ## Providers
 
@@ -156,7 +156,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | Ollama Cloud             | [Needs setup](docs/readme/providers.md#ollama-cloud)           | Dashboard scraping | Quota              |
 | OpenCode Go              | [Needs setup](docs/readme/providers.md#opencode-go)            | Dashboard scraping | Quota              |
 
-The friendly `Quota` label covers quota and rate-limit windows; v4 JSON distinguishes them.
+The `/quota` display uses concise semantic labels such as `Day quota`, `5h quota`, `Day budget`, and `Balance`. Every percentage bar is exactly 10 characters. JSON keeps the precise provider-neutral accounting type.
 
 ### Custom providers
 

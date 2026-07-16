@@ -15,9 +15,9 @@ Both use the local provider cache. They do **not** make extra provider network r
 
 ## JSON export v2
 
-Both surfaces emit schema `version: 2`. Provider entries stay flat. Every row includes `resultType`, `renderType`, acquisition/ownership/authority metadata, and its percent or value payload. Rows produced by a configured `quotaProviders` definition also include its stable `sourceId`; `providers["quota-providers"]` adds an ordered `sources` array with each definition's `id`, effective `providerId`, coarse `status`, and `entryCount`.
+Both surfaces emit schema `version: 2`. Provider entries stay flat. Every row includes `resultType`, `renderType`, acquisition/ownership/authority metadata, and its percent or value payload. A provider with both successful rows and sanitized errors has `status: "partial"` and includes both `entries` and `errors`. Rows produced by a configured `quotaProviders` definition also include its stable `sourceId`; `providers["quota-providers"]` adds an ordered `sources` array with each definition's `id`, effective `providerId`, coarse `status`, and `entryCount`.
 
-Detailed quota-provider outcomes, credential category, environment name, and checked paths are intentionally excluded from public JSON. Use `/quota_status` for those live diagnostics. Export and CLI JSON remain cache-only.
+Credential category, environment name, checked paths, URLs, and raw provider responses remain excluded from public JSON. Use `/quota_status` for live diagnostics. Export and CLI JSON remain cache-only.
 
 ## Option 1: print JSON now
 
@@ -41,7 +41,7 @@ Threshold exits:
 | ---- | -------------------------------------------------------------- |
 | `0`  | Quota is available and above the threshold                     |
 | `1`  | At least one comparable cached provider is below the threshold |
-| `2`  | No cached percentage was available to compare                  |
+| `2`  | Results were incomplete or no cached percentage was comparable |
 
 ## Option 2: write an export file
 
@@ -85,7 +85,7 @@ Copilot Free, Student, organization, and enterprise usage can be value-only. Sel
 
 ```bash
 PCT=$(opencode-quota show --json --provider copilot \
-  | jq -r '.providers.copilot.entries | map(select(.percentRemaining != null)) | first | .percentRemaining // empty')
+  | jq -r '.providers.copilot.entries | map(select(.renderType == "percent" and .percentRemaining != null)) | first | .percentRemaining // empty')
 
 if [ -n "$PCT" ] && [ "${PCT%.*}" -lt 10 ]; then
   echo "Low Copilot allowance or budget; skipping."
@@ -97,14 +97,14 @@ fi
 
 ```bash
 set -g status-interval 30
-set -g status-right '#(jq -r "[.providers|to_entries[]|select(.value.status==\"ok\")|(.value.entries[0].percentRemaining|floor|tostring)+\"%\"]|join(\" · \")" ~/.cache/opencode/quota-export.json 2>/dev/null)'
+set -g status-right '#(jq -r "[.providers|to_entries[]|select(.value.status==\"ok\")|first(.value.entries[]?|select(.renderType==\"percent\" and .percentRemaining!=null))|(.percentRemaining|floor|tostring)+\"%\"]|join(\" · \")" ~/.cache/opencode/quota-export.json 2>/dev/null)'
 ```
 
 ### Starship: run the JSON command
 
 ```toml
 [custom.quota]
-command = "opencode-quota show --json 2>/dev/null | jq -r '[.providers|to_entries[]|select(.value.status==\"ok\")|(.value.entries[0].percentRemaining|floor|tostring)+\"%\"]|join(\" \")'"
+command = "opencode-quota show --json 2>/dev/null | jq -r '[.providers|to_entries[]|select(.value.status==\"ok\")|first(.value.entries[]?|select(.renderType==\"percent\" and .percentRemaining!=null))|(.percentRemaining|floor|tostring)+\"%\"]|join(\" \")'"
 when = "true"
 interval = 60
 ```
@@ -139,7 +139,7 @@ Both `show --json` and the export file use this v2 structure:
       ],
     },
     "quota-providers": {
-      "status": "ok",
+      "status": "partial",
       "fetchedAt": 1748735958,
       "entries": [
         {
@@ -151,6 +151,12 @@ Both `show --json` and the export file use this v2 structure:
           "sourceId": "openrouter-primary",
           "renderType": "percent",
           "percentRemaining": 40,
+        },
+      ],
+      "errors": [
+        {
+          "label": "Internal accounting",
+          "message": "HTTP 503",
         },
       ],
       "sources": [
@@ -190,7 +196,8 @@ Provider and quota-provider definition statuses:
 
 | Value         | Meaning                                                                                                                                                                      |
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ok`          | Cached rows exist. A quota-provider aggregate can remain `ok` while another source has `error`.                                                                              |
+| `ok`          | Cached rows exist and the provider result has no errors.                                                                                                                     |
+| `partial`     | Cached rows and sanitized errors both exist. Consumers may display the rows, but threshold and routing decisions should treat the result as incomplete.                      |
 | `error`       | The cached provider or definition failed and has no successful row. Provider-level errors include a sanitized message; definition summaries do not expose detailed outcomes. |
 | `unavailable` | No matching cached data exists. For a quota-provider definition this also covers an exact runtime `providerId` that was unavailable when the aggregate cache was written.    |
 
@@ -229,7 +236,8 @@ data = json.loads(subprocess.check_output(
 best = max(
     (k for k, v in data["providers"].items() if v["status"] == "ok"),
     key=lambda k: next(
-        (e.get("percentRemaining", 0) for e in data["providers"][k]["entries"]), 0
+        (e["percentRemaining"] for e in data["providers"][k]["entries"]
+         if e["renderType"] == "percent" and e.get("percentRemaining") is not None), 0
     ),
     default=None,
 )

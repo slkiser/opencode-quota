@@ -20,7 +20,7 @@ const USAGE = [
   "          --sync-legacy-config also writes experimental.quotaToast",
   "  show    Print a quick quota glance",
   "          --json               Machine-readable JSON output (reads from cache)",
-  "          --threshold <pct>    With --json, exit 1 if below <pct>%, 2 if no cached quota",
+  "          --threshold <pct>    With --json, exit 1 if below <pct>%, 2 if incomplete/not comparable",
   "          --provider <id>      Filter to one provider",
   "  update  Safely refresh only OpenCode Quota config and verified cache entries",
   "          --dry-run            Preview without changing config or cache",

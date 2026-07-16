@@ -1,6 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { formatQuotaCommand } from "../src/lib/quota-command-format.js";
+import { formatQuotaCommand, QUOTA_COMMAND_BAR_WIDTH } from "../src/lib/quota-command-format.js";
+
+function accounting(
+  resultType: "quota" | "rate_limit" | "usage" | "spend" | "budget" | "balance" | "status",
+) {
+  return {
+    resultType,
+    acquisitionMethod: "remote_api",
+    ownership: "maintained",
+    authority: "provider_reported",
+  } as const;
+}
 
 describe("formatQuotaCommand", () => {
   afterEach(() => {
@@ -14,6 +25,7 @@ describe("formatQuotaCommand", () => {
     const out = formatQuotaCommand({
       entries: [
         {
+          accounting: accounting("quota"),
           name: "Copilot",
           group: "Copilot (personal)",
           label: "Quota:",
@@ -22,6 +34,7 @@ describe("formatQuotaCommand", () => {
           resetTimeIso: "2026-01-16T00:00:00.000Z",
         },
         {
+          accounting: accounting("usage"),
           name: "Copilot",
           group: "Copilot (business)",
           label: "Usage:",
@@ -30,6 +43,7 @@ describe("formatQuotaCommand", () => {
           resetTimeIso: "2026-02-01T00:00:00.000Z",
         },
         {
+          accounting: accounting("quota"),
           name: "OpenAI (Pro) 5h",
           group: "OpenAI (Pro)",
           label: "5h:",
@@ -37,6 +51,7 @@ describe("formatQuotaCommand", () => {
           resetTimeIso: "2026-01-15T14:00:00.000Z",
         },
         {
+          accounting: accounting("quota"),
           name: "OpenAI (Pro) Weekly",
           group: "OpenAI (Pro)",
           label: "Weekly:",
@@ -44,6 +59,7 @@ describe("formatQuotaCommand", () => {
           resetTimeIso: "2026-01-18T12:00:00.000Z",
         },
         {
+          accounting: accounting("quota"),
           name: "Claude (acct)",
           percentRemaining: 67,
           resetTimeIso: "2026-01-15T15:00:00.000Z",
@@ -66,21 +82,20 @@ describe("formatQuotaCommand", () => {
     expect(lines[0]).toMatch(/^# Quota \(\/quota\) \d{2}:\d{2} \d{2}\/\d{2}\/\d{4}$/);
     expect(lines[1]).toBe("");
     expect(out).not.toContain("```");
-    expect(out).not.toMatch(/[█░]/);
-    expect(out).not.toMatch(/ {3,}/);
+    expect(out.match(/[█░]{10}/gu)).toHaveLength(4);
     expect(lines.slice(2).join("\n")).toMatchInlineSnapshot(`
       "→ [Copilot] (personal)
-        Quota: 42/300 · 86% left · resets in 12h
+        Quota         █████████░   86% left · 42/300 · reset 12h
 
       → [Copilot] (business)
-        Usage: 9 used | 2026-01 | org=acme-corp | user=alice · resets in 17d
+        Usage         9 used | 2026-01 | org=acme-corp | user=alice · reset 17d
 
       → [OpenAI] (Pro)
-        5h: 42% left · resets in 2h
-        Weekly: 81% left · resets in 3d
+        5h quota      ████░░░░░░   42% left · reset 2h
+        Week quota    ████████░░   81% left · reset 3d
 
       → [Google Antigravity] (acct)
-        Claude: 67% left · resets in 3h
+        Quota         ███████░░░   67% left · reset 3h
 
       Session input/output tokens
         openai/gpt-5: 1.2K in · 456 cached · 567 out
@@ -117,11 +132,11 @@ describe("formatQuotaCommand", () => {
       errors: [],
     });
 
-    expect(out.indexOf("5h:")).toBeGreaterThanOrEqual(0);
-    expect(out.indexOf("Weekly:")).toBeGreaterThanOrEqual(0);
-    expect(out.indexOf("Code Review:")).toBeGreaterThanOrEqual(0);
-    expect(out.indexOf("5h:")).toBeLessThan(out.indexOf("Weekly:"));
-    expect(out.indexOf("Weekly:")).toBeLessThan(out.indexOf("Code Review:"));
+    expect(out.indexOf("5h quota")).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("Week quota")).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("Code Review")).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("5h quota")).toBeLessThan(out.indexOf("Week quota"));
+    expect(out.indexOf("Week quota")).toBeLessThan(out.indexOf("Code Review"));
   });
 
   it("locks rendered grouped /quota ordering for Qwen and OpenAI provider groups", () => {
@@ -159,8 +174,8 @@ describe("formatQuotaCommand", () => {
     expect(out.indexOf("→ [OpenAI] (Pro)")).toBeGreaterThanOrEqual(0);
     expect(out.indexOf("→ [Qwen] (free)")).toBeLessThan(out.indexOf("→ [OpenAI] (Pro)"));
 
-    expect(out.indexOf("RPM:")).toBeLessThan(out.indexOf("Daily:"));
-    expect(out.indexOf("5h:")).toBeLessThan(out.indexOf("Weekly:"));
+    expect(out.indexOf("RPM quota")).toBeLessThan(out.indexOf("Day quota"));
+    expect(out.indexOf("5h quota")).toBeLessThan(out.indexOf("Week quota"));
   });
 
   it("honors used percent display mode in /quota percent rows", () => {
@@ -175,12 +190,11 @@ describe("formatQuotaCommand", () => {
       percentDisplayMode: "used",
     });
 
-    expect(out).toContain("Status: 19% used");
+    expect(out).toContain("Status        ██░░░░░░░░   19% used");
     expect(out).not.toContain("81% left");
-    expect(out).not.toMatch(/[█░]/);
   });
 
-  it("renders over-quota used percentages without a progress bar", () => {
+  it("clamps the bar but preserves over-quota used percentage meaning", () => {
     const out = formatQuotaCommand({
       entries: [
         {
@@ -192,8 +206,54 @@ describe("formatQuotaCommand", () => {
       percentDisplayMode: "used",
     });
 
-    expect(out).toContain("Status: 125% used");
-    expect(out).not.toMatch(/[█░]/);
+    expect(out).toContain("Status        ██████████  125% used");
+  });
+
+  it("uses fixed semantic labels and an aligned 10-cell monospaced bar contract", () => {
+    const out = formatQuotaCommand({
+      entries: [
+        {
+          accounting: accounting("quota"),
+          name: "Example daily quota",
+          group: "Example",
+          label: "Daily:",
+          right: "20/100",
+          percentRemaining: 80,
+        },
+        {
+          accounting: accounting("budget"),
+          name: "Example daily budget",
+          group: "Example",
+          label: "Daily:",
+          right: "$4/$20",
+          percentRemaining: 80,
+        },
+        {
+          accounting: accounting("balance"),
+          name: "Example balance",
+          group: "Example",
+          label: "Account:",
+          kind: "value",
+          value: "$42.00",
+        },
+      ],
+      errors: [],
+    });
+
+    expect(out).toContain("Day quota");
+    expect(out).toContain("Day budget");
+    expect(out).toContain("Balance");
+
+    const percentLines = out.split("\n").filter((line) => /[█░]/u.test(line));
+    const bars = percentLines.map((line) => line.match(/[█░]+/u)![0]);
+    expect(bars.map((value) => Array.from(value).length)).toEqual([
+      QUOTA_COMMAND_BAR_WIDTH,
+      QUOTA_COMMAND_BAR_WIDTH,
+    ]);
+    expect(percentLines.map((line) => line.search(/[█░]/u))).toEqual([16, 16]);
+    expect(Math.max(...percentLines.map((line) => Array.from(line).length))).toBeLessThanOrEqual(
+      64,
+    );
   });
 
   it("keeps /quota reset formatting independent from compact toast resets", () => {
@@ -214,16 +274,17 @@ describe("formatQuotaCommand", () => {
     });
 
     // /quota keeps its own formatter (hour-rounded here), not toast compact rounding.
-    expect(out).toContain("resets in 3h");
+    expect(out).toContain("reset 3h");
   });
 
-  it("keeps long grouped /quota metrics on one unpadded line", () => {
+  it("keeps a representative long /quota metric on one viewport-safe line", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));
 
     const out = formatQuotaCommand({
       entries: [
         {
+          accounting: accounting("quota"),
           name: "Copilot",
           group: "Copilot (personal)",
           label: "Quota:",
@@ -235,8 +296,10 @@ describe("formatQuotaCommand", () => {
       errors: [],
     });
 
-    expect(out).toContain("Quota: 12345678901234567890 · 86% left · resets in 12h");
-    expect(out).not.toMatch(/ {3,}/);
-    expect(out).not.toMatch(/[█░]/);
+    const metric = out.split("\n").find((line) => line.includes("12345678901234567890"))!;
+    expect(metric).toContain(
+      "Quota         █████████░   86% left · 12345678901234567890 · reset 12h",
+    );
+    expect(Array.from(metric).length).toBeLessThanOrEqual(76);
   });
 });

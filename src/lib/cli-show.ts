@@ -38,8 +38,8 @@ const SHOW_USAGE = [
   "Options:",
   "  --provider <provider-id>  Show quota for one provider",
   "  --json                    Machine-readable JSON output (reads from cache)",
-  "  --threshold <pct>         With --json, exit 1 if any cached percentage is below <pct>%",
-  "                            remaining (exit 2 if no cached percentage can be compared)",
+  "  --threshold <pct>         With --json, exit 1 if any complete cached percentage is below",
+  "                            <pct>% remaining (exit 2 if data is incomplete or not comparable)",
   "  --help, -h                Show help",
 ].join("\n");
 
@@ -219,7 +219,12 @@ async function runCliShowJsonOutput(params: {
   writeLine(stdout, JSON.stringify(exportData, null, 2));
 
   if (threshold !== undefined) {
-    const okProviders = Object.values(exportData.providers).filter(
+    const providerResults = Object.values(exportData.providers);
+    if (providerResults.some((provider) => provider.status !== "ok")) {
+      return 2;
+    }
+
+    const okProviders = providerResults.filter(
       (p): p is Extract<typeof p, { status: "ok" }> => p.status === "ok",
     );
 

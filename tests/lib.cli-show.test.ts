@@ -633,6 +633,48 @@ describe("runCliShowCommand", () => {
     expect(jsonCode).toBe(2);
   });
 
+  it("--threshold exits 2 for partial cached results instead of passing incomplete data", async () => {
+    const provider = {
+      id: "synthetic",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [{ accounting: TEST_ACCOUNTING, name: "Synthetic", percentRemaining: 80 }],
+        errors: [{ label: "Synthetic secondary", message: "quota endpoint unavailable" }],
+      }),
+    };
+    mockProviders.push(provider);
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({
+        experimental: { quotaToast: { enabledProviders: ["synthetic"] } },
+      }),
+      "utf8",
+    );
+
+    await runCliShowCommand({
+      argv: [],
+      cwd: workspaceDir,
+      stdout: { write: () => true } as any,
+      stderr: { write: () => true } as any,
+    });
+
+    const stdout = createCaptureStream();
+    const code = await runCliShowCommand({
+      argv: ["--json", "--threshold", "50"],
+      cwd: workspaceDir,
+      stdout: stdout.stream as any,
+      stderr: { write: () => true } as any,
+    });
+
+    expect(code).toBe(2);
+    expect(JSON.parse(stdout.output).providers.synthetic).toMatchObject({
+      status: "partial",
+      entries: [expect.objectContaining({ percentRemaining: 80 })],
+      errors: [{ label: "Synthetic secondary", message: "quota endpoint unavailable" }],
+    });
+  });
+
   it("--json --provider copilot only includes the copilot key", async () => {
     const copilotProvider = {
       id: "copilot",
