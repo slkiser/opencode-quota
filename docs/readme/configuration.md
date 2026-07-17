@@ -58,9 +58,11 @@ npx @slkiser/opencode-quota@latest provider add
 
 The command asks only for structure, shows the exact file and complete output, then asks before writing. It never asks for a key. New files are JSONC with explanatory comments; existing `opencode.json` files remain strict JSON. Re-running the command with the same `id` updates that item in place.
 
-The normal destination is the global `<OpenCode user config dir>/opencode.jsonc` or `opencode.json`, inside `experimental.quotaToast.quotaProviders`. Project/workspace definitions are rejected and never executed. A project OpenCode provider/model declaration may still override its global declaration for matching in that project.
+The destination is the authoritative global quota config. If `opencode-quota/quota-toast.jsonc` or `.json` exists, the command updates that sidecar directly. Otherwise it uses the global `<OpenCode user config dir>/opencode.jsonc` or `opencode.json`, inside `experimental.quotaToast.quotaProviders`. Project/workspace definitions are rejected and never executed. A project OpenCode provider/model declaration may still override its global declaration for matching in that project.
 
-#### Complete example
+#### Complete host-config fallback example
+
+When no quota sidecar exists, the guided command writes this shape to the global OpenCode config:
 
 ```jsonc
 {
@@ -280,7 +282,7 @@ This is only for users who intentionally want `experimental.quotaToast` mirrored
 
 ## Full configuration reference
 
-Most settings go in the same `opencode-quota/quota-toast.json` sidecar described above. `quotaProviders` is maintained in the global OpenCode `experimental.quotaToast` section by the guided editor; do not duplicate it in a second file.
+Most settings go in the same `opencode-quota/quota-toast.jsonc` or `.json` sidecar described above. The guided editor maintains `quotaProviders` in that authoritative sidecar when one exists; otherwise it uses the global OpenCode `experimental.quotaToast` section; do not duplicate it in a second file.
 
 Existing `experimental.quotaToast` settings remain supported. Quota settings do not live in `tui.json`.
 

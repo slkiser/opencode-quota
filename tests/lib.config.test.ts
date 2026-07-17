@@ -490,10 +490,11 @@ describe("loadConfig", () => {
     });
   });
 
-  it("does not fall through to legacy or sdk config when sidecar exists but is invalid", async () => {
+  it("falls through an invalid sidecar to valid host config without using sdk config", async () => {
     const workspaceConfigPath = join(isolatedCwd, "opencode.json");
     const quotaConfigPath = join(isolatedCwd, "opencode-quota", "quota-toast.json");
     const quotaConfigSource = quotaSidecarConfigSource(isolatedCwd);
+    const hostConfigSource = workspaceConfigPath + " (experimental.quotaToast)";
     mkdirSync(join(isolatedCwd, "opencode-quota"), { recursive: true });
     writeFileSync(
       workspaceConfigPath,
@@ -531,17 +532,21 @@ describe("loadConfig", () => {
       { cwd: isolatedCwd },
     );
 
-    expect(config.enabled).toBe(true);
-    expect(config.enabledProviders).toBe("auto");
-    expect(config.formatStyle).toBe("singleWindow");
+    expect(config.enabled).toBe(false);
+    expect(config.enabledProviders).toEqual(["openai"]);
+    expect(config.formatStyle).toBe("allWindows");
     expect(meta.source).toBe("files");
-    expect(meta.paths).toEqual([quotaConfigSource]);
-    expect(meta.settingSources).toEqual({});
+    expect(meta.paths).toEqual([quotaConfigSource, hostConfigSource]);
+    expect(meta.settingSources).toMatchObject({
+      enabled: hostConfigSource,
+      enabledProviders: hostConfigSource,
+      formatStyle: hostConfigSource,
+    });
     expect(meta.configIssues).toEqual([
       {
         path: quotaConfigSource,
         key: "$root",
-        message: "expected readable JSON object",
+        message: "expected readable JSON object; this sidecar is not authoritative",
       },
     ]);
   });

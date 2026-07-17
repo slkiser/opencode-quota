@@ -104,9 +104,68 @@ function collectValueEdits(
       }
       return;
     }
+
+    if (desired.length < current.length) {
+      let desiredIndex = 0;
+      const removedIndexes: number[] = [];
+      for (let currentIndex = 0; currentIndex < current.length; currentIndex++) {
+        if (
+          desiredIndex < desired.length &&
+          jsonEqual(current[currentIndex], desired[desiredIndex])
+        ) {
+          desiredIndex++;
+        } else {
+          removedIndexes.push(currentIndex);
+        }
+      }
+      if (desiredIndex === desired.length) {
+        for (const removedIndex of removedIndexes.reverse()) {
+          edits.push({ path: [...path, removedIndex], value: undefined });
+        }
+        return;
+      }
+    }
   }
 
   edits.push({ path, value: desired });
+}
+
+function removeArrayElementPreservingSiblings(
+  raw: string,
+  path: (string | number)[],
+): string | undefined {
+  const tree = parseTree(raw, [], {
+    allowTrailingComma: true,
+    disallowComments: false,
+  });
+  const node = tree ? findNodeAtLocation(tree, path) : undefined;
+  const parent = node?.parent;
+  if (!node || !parent || parent.type !== "array" || !parent.children) {
+    return undefined;
+  }
+
+  const index = parent.children.indexOf(node);
+  if (index < 0) return undefined;
+
+  if (parent.children.length === 1) {
+    return raw.slice(0, node.offset) + raw.slice(node.offset + node.length);
+  }
+
+  if (index < parent.children.length - 1) {
+    const next = parent.children[index + 1];
+    const between = raw.slice(node.offset + node.length, next.offset);
+    const commaOffset = between.indexOf(",");
+    if (commaOffset < 0) return undefined;
+    const removeEnd = node.offset + node.length + commaOffset + 1;
+    return raw.slice(0, node.offset) + raw.slice(removeEnd);
+  }
+
+  const previous = parent.children[index - 1];
+  const between = raw.slice(previous.offset + previous.length, node.offset);
+  const commaOffset = between.lastIndexOf(",");
+  if (commaOffset < 0) return undefined;
+  const removeStart = previous.offset + previous.length + commaOffset;
+  return raw.slice(0, removeStart) + raw.slice(node.offset + node.length);
 }
 
 function addManagedComment(raw: string, comment: ManagedConfigComment): string {
@@ -141,7 +200,11 @@ export function editConfigDocumentPaths(params: {
 }): string {
   let updated = params.raw;
   for (const edit of params.edits) {
-    updated = applyEdits(updated, modify(updated, edit.path, edit.value, {}));
+    const removed =
+      edit.value === undefined
+        ? removeArrayElementPreservingSiblings(updated, edit.path)
+        : undefined;
+    updated = removed ?? applyEdits(updated, modify(updated, edit.path, edit.value, {}));
   }
   parseConfigDocument(updated, params.format, params.path);
   return updated;
@@ -162,16 +225,22 @@ export function editConfigDocument(params: {
   const eol = params.raw.includes("\r\n") ? "\r\n" : "\n";
   let updated = params.raw;
   for (const edit of edits) {
-    updated = applyEdits(
-      updated,
-      modify(updated, edit.path, edit.value, {
-        formattingOptions: {
-          insertSpaces: true,
-          tabSize: 2,
-          eol,
-        },
-      }),
-    );
+    const removed =
+      edit.value === undefined
+        ? removeArrayElementPreservingSiblings(updated, edit.path)
+        : undefined;
+    updated =
+      removed ??
+      applyEdits(
+        updated,
+        modify(updated, edit.path, edit.value, {
+          formattingOptions: {
+            insertSpaces: true,
+            tabSize: 2,
+            eol,
+          },
+        }),
+      );
   }
 
   if (params.outputFormat === "jsonc") {
@@ -194,10 +263,12 @@ export async function planConfigDocumentEdit(params: {
   managedComments?: ManagedConfigComment[];
 }): Promise<ConfigDocumentEdit> {
   const originalBytes = params.target.existed ? await readFile(params.target.sourcePath) : null;
-  const raw = originalBytes?.toString("utf8") ?? "{}\n";
+  const originalRaw = originalBytes?.toString("utf8") ?? "{}\n";
   const sourceFormat: ConfigFileFormat = params.target.sourcePath.endsWith(".jsonc")
     ? "jsonc"
     : "json";
+  const convertingJsonToJsonc = sourceFormat === "json" && params.target.format === "jsonc";
+  const raw = convertingJsonToJsonc ? "{}\n" : originalRaw;
   const updated = editConfigDocument({
     raw,
     sourceFormat,

@@ -28,7 +28,11 @@ import { join } from "path";
 import { getEffectiveConfigRoot } from "./config-file-utils.js";
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 
-export const QUOTA_TOAST_CONFIG_RELATIVE_PATH = "opencode-quota/quota-toast.json";
+export const QUOTA_TOAST_CONFIG_RELATIVE_PATHS = [
+  "opencode-quota/quota-toast.jsonc",
+  "opencode-quota/quota-toast.json",
+] as const;
+export const QUOTA_TOAST_CONFIG_RELATIVE_PATH = QUOTA_TOAST_CONFIG_RELATIVE_PATHS[1];
 
 export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "enabled",
@@ -169,13 +173,24 @@ type ConfigLayerKind = "legacy" | "plugin";
 
 interface ConfigLayerCandidate {
   path: string;
+  rootDir: string;
   scope: ConfigLayerScope;
   kind: ConfigLayerKind;
-  pluginPath: string;
 }
 
-export function getQuotaToastConfigPath(configRootDir: string): string {
-  return join(configRootDir, QUOTA_TOAST_CONFIG_RELATIVE_PATH);
+export function getQuotaToastConfigPath(
+  configRootDir: string,
+  format: "json" | "jsonc" = "json",
+): string {
+  return join(configRootDir, `opencode-quota/quota-toast.${format}`);
+}
+
+export function resolveQuotaToastConfigPath(configRootDir: string): string {
+  return (
+    QUOTA_TOAST_CONFIG_RELATIVE_PATHS.map((relativePath) => join(configRootDir, relativePath)).find(
+      (path) => existsSync(path),
+    ) ?? getQuotaToastConfigPath(configRootDir)
+  );
 }
 
 function hasOwnKey<T extends object>(value: T, key: PropertyKey): boolean {
@@ -955,19 +970,18 @@ function buildConfigLayerCandidatesForRoot(
   dir: string,
   scope: ConfigLayerScope,
 ): ConfigLayerCandidate[] {
-  const pluginPath = getQuotaToastConfigPath(dir);
   return [
-    {
-      path: pluginPath,
+    ...QUOTA_TOAST_CONFIG_RELATIVE_PATHS.map((relativePath) => ({
+      path: join(dir, relativePath),
+      rootDir: dir,
       scope,
       kind: "plugin" as const,
-      pluginPath,
-    },
+    })),
     ...CONFIG_FILENAMES.map((filename) => ({
       path: join(dir, filename),
+      rootDir: dir,
       scope,
       kind: "legacy" as const,
-      pluginPath,
     })),
   ];
 }
@@ -990,7 +1004,11 @@ function buildConfigLayerCandidates(
 
 function getConfigLayerSourceLabel(candidate: ConfigLayerCandidate): string {
   const suffix =
-    candidate.kind === "plugin" ? QUOTA_TOAST_CONFIG_RELATIVE_PATH : "experimental.quotaToast";
+    candidate.kind === "plugin"
+      ? candidate.path.endsWith(".jsonc")
+        ? QUOTA_TOAST_CONFIG_RELATIVE_PATHS[0]
+        : QUOTA_TOAST_CONFIG_RELATIVE_PATHS[1]
+      : "experimental.quotaToast";
   return `${candidate.path} (${suffix})`;
 }
 
@@ -1040,9 +1058,14 @@ export async function loadConfig(
     const workspaceConfigPaths: string[] = [];
     const settingSources: QuotaToastSettingSources = {};
     const configIssues: LoadConfigIssue[] = [];
+    const authoritativeSidecarRoots = new Set<string>();
 
     for (const candidate of buildConfigLayerCandidates(configDirs, configRootDir)) {
-      if (candidate.kind === "legacy" && existsSync(candidate.pluginPath)) {
+      const rootKey = `${candidate.scope}:${candidate.rootDir}`;
+      if (candidate.kind === "legacy" && authoritativeSidecarRoots.has(rootKey)) {
+        continue;
+      }
+      if (candidate.kind === "plugin" && authoritativeSidecarRoots.has(rootKey)) {
         continue;
       }
 
@@ -1063,10 +1086,24 @@ export async function loadConfig(
           configIssues.push({
             path: sourcePath,
             key: "$root",
-            message: "expected readable JSON object",
+            message: "expected readable JSON object; this sidecar is not authoritative",
           });
         }
         continue;
+      }
+
+      if (candidate.kind === "plugin") {
+        authoritativeSidecarRoots.add(rootKey);
+        if (
+          candidate.path.endsWith(".jsonc") &&
+          existsSync(getQuotaToastConfigPath(candidate.rootDir, "json"))
+        ) {
+          configIssues.push({
+            path: getConfigLayerSourceLabel(candidate),
+            key: "$file",
+            message: "both quota-toast.jsonc and quota-toast.json exist; using quota-toast.jsonc",
+          });
+        }
       }
 
       const extractedQuotaToast =

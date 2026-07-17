@@ -201,6 +201,9 @@ export async function runProviderAddCommand(
   try {
     const plan = await planProviderAdd({ definition });
     prompts.log.info("Preview: " + plan.path + "\n\n" + plan.updated);
+    for (const edit of plan.additionalDocumentEdits) {
+      prompts.log.info("Preview: " + edit.path + "\n\n" + edit.updated);
+    }
     if (plan.ordinaryProviderRequired) {
       prompts.log.warn?.(
         'OpenCode provider "' +

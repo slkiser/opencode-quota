@@ -304,17 +304,67 @@ describe("scoped update application safety", () => {
     expect(result.skippedCachePaths).toEqual(expect.arrayContaining([exact, latest]));
   });
 
-  it("dry-run and declined confirmation do not change config or cache", async () => {
+  it("reports dry-run and cancellation as no-write outcomes", async () => {
     const f = fixture();
     const config = join(f.project, "opencode.json");
     const original = `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`;
     write(config, original);
-    const common = { cwd: f.project, env: f.env, homeDir: join(f.root, "home"), log: vi.fn() };
+    const log = vi.fn();
+    const common = { cwd: f.project, env: f.env, homeDir: join(f.root, "home"), log };
     expect(await runScopedUpdateCommand({ ...common, argv: ["--dry-run"] })).toBe(0);
+    expect(log).toHaveBeenCalledWith(
+      "OpenCode Quota update preview complete — no files changed. Run npx @slkiser/opencode-quota@latest update to apply.",
+    );
     expect(readFileSync(config, "utf8")).toBe(original);
+
+    log.mockClear();
     const confirm = vi.fn().mockResolvedValue(false);
     expect(await runScopedUpdateCommand({ ...common, confirm })).toBe(0);
     expect(confirm).toHaveBeenCalledOnce();
+    expect(log).toHaveBeenCalledWith("OpenCode Quota update cancelled — no files changed.");
     expect(readFileSync(config, "utf8")).toBe(original);
+  });
+
+  it("reports successful update paths, restart guidance, and the secondary star request", async () => {
+    const f = fixture();
+    const config = join(f.project, "opencode.json");
+    write(config, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
+    const log = vi.fn();
+
+    expect(
+      await runScopedUpdateCommand({
+        cwd: f.project,
+        env: f.env,
+        homeDir: join(f.root, "home"),
+        argv: ["--yes"],
+        log,
+      }),
+    ).toBe(0);
+
+    expect(log).toHaveBeenCalledWith("OpenCode Quota update complete.");
+    expect(log).toHaveBeenCalledWith(`Configured paths: ${config}`);
+    expect(log).toHaveBeenCalledWith("Restart OpenCode and run /quota.");
+    expect(log).toHaveBeenCalledWith(
+      "If OpenCode Quota helps, please consider a star: https://github.com/slkiser/opencode-quota",
+    );
+  });
+
+  it("reports update planning failures as no-write outcomes without asking for a star", async () => {
+    const f = fixture();
+    write(join(f.project, "opencode.jsonc"), "{ nope");
+    const log = vi.fn();
+
+    expect(
+      await runScopedUpdateCommand({
+        cwd: f.project,
+        env: f.env,
+        homeDir: join(f.root, "home"),
+        log,
+      }),
+    ).toBe(1);
+
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("OpenCode Quota update failed:"));
+    expect(log).toHaveBeenCalledWith("No files changed. Fix the reason above, then rerun update.");
+    expect(log.mock.calls.flat().join("\n")).not.toContain("star");
   });
 });

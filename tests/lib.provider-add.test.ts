@@ -119,6 +119,26 @@ describe("provider add global config workflow", () => {
     expect(() => JSON.parse(plan.updated)).not.toThrow();
   });
 
+  it("enables custom-provider support in a manual-mode quota sidecar", async () => {
+    const dir = await configDir();
+    const sidecarDir = join(dir, "opencode-quota");
+    await mkdir(sidecarDir, { recursive: true });
+    const sidecarPath = join(sidecarDir, "quota-toast.jsonc");
+    await writeFile(sidecarPath, '{ // preserve\n  "enabledProviders": ["openai"],\n}\n', "utf8");
+
+    const plan = await planProviderAdd({ definition: remote(), configDir: dir });
+    expect(plan.path).toBe(sidecarPath);
+    expect(plan.additionalDocumentEdits).toEqual([]);
+    await applyProviderAddPlan(plan);
+
+    const parsed = parseConfigDocument(await readFile(sidecarPath, "utf8"), "jsonc", sidecarPath);
+    expect(parsed.enabledProviders).toEqual(["openai", "quota-providers"]);
+    expect((parsed.quotaProviders as Array<Record<string, unknown>>)[0]?.id).toBe(
+      "private-gateway",
+    );
+    expect(await readFile(sidecarPath, "utf8")).toContain("// preserve");
+  });
+
   it("does not require a normal provider block for maintained Qwen tuning", async () => {
     const dir = await configDir();
     const plan = await planProviderAdd({

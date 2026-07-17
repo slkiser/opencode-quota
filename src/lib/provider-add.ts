@@ -1,9 +1,12 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import {
   applyConfigDocumentEdit,
   parseConfigDocument,
   planConfigDocumentEdit,
+  validateConfigDocumentEdit,
   type ConfigDocumentEdit,
   type ManagedConfigComment,
 } from "./opencode-config-editor.js";
@@ -11,6 +14,7 @@ import { resolveEditableConfigPath, type ConfigFileFormat } from "./config-file-
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import {
   MAINTAINED_LOCAL_ESTIMATE_IDS,
+  QUOTA_PROVIDERS_AGGREGATE_ID,
   validateQuotaProviders,
   type QuotaProviderDefinition,
 } from "./quota-providers.js";
@@ -25,6 +29,7 @@ export interface ProviderAddPlan {
   changed: boolean;
   ordinaryProviderRequired: boolean;
   documentEdit: ConfigDocumentEdit;
+  additionalDocumentEdits: ConfigDocumentEdit[];
 }
 
 export interface ProviderAddOptions {
@@ -129,6 +134,15 @@ function managedComments(
   return comments;
 }
 
+function sidecarManagedComments(
+  index: number,
+  definition: QuotaProviderDefinition,
+): ManagedConfigComment[] {
+  return managedComments(index, definition)
+    .filter((comment) => comment.path.length > 2)
+    .map((comment) => ({ ...comment, path: comment.path.slice(2) }));
+}
+
 export async function planProviderAdd(options: ProviderAddOptions): Promise<ProviderAddPlan> {
   const single = validateQuotaProviders([options.definition]);
   if (!single.value) {
@@ -136,53 +150,106 @@ export async function planProviderAdd(options: ProviderAddOptions): Promise<Prov
   }
   const definition = single.value[0]!;
   const configDir = options.configDir ?? getOpencodeRuntimeDirs().configDir;
-  const target = resolveEditableConfigPath({
+
+  const sidecarCandidates = ["quota-toast.jsonc", "quota-toast.json"].map((name) =>
+    join(configDir, "opencode-quota", name),
+  );
+  let selectedSidecar: { path: string; format: ConfigFileFormat; root: JsonObject } | undefined;
+  let malformedSidecarPath: string | undefined;
+  for (const path of sidecarCandidates) {
+    if (!existsSync(path)) continue;
+    const format: ConfigFileFormat = path.endsWith(".jsonc") ? "jsonc" : "json";
+    try {
+      selectedSidecar = {
+        path,
+        format,
+        root: parseConfigDocument(await readFile(path, "utf8"), format, path),
+      };
+      break;
+    } catch {
+      malformedSidecarPath ??= path;
+    }
+  }
+  if (!selectedSidecar && malformedSidecarPath) {
+    throw new Error("Cannot parse existing quota sidecar: " + malformedSidecarPath);
+  }
+
+  const hostTarget = resolveEditableConfigPath({
     dir: configDir,
     kind: "opencode",
     preferredFormat: options.preferredFormat ?? "jsonc",
     convertJsonToJsonc: false,
   });
-
-  const root = target.existed
+  const hostRoot = hostTarget.existed
     ? parseConfigDocument(
-        await readFile(target.sourcePath, "utf8"),
-        target.sourcePath.endsWith(".jsonc") ? "jsonc" : "json",
-        target.sourcePath,
+        await readFile(hostTarget.sourcePath, "utf8"),
+        hostTarget.sourcePath.endsWith(".jsonc") ? "jsonc" : "json",
+        hostTarget.sourcePath,
       )
-    : { $schema: "https://opencode.ai/config.json" };
-  const experimental = ensureObject(root, "experimental", "experimental");
-  const quotaToast = ensureObject(experimental, "quotaToast", "experimental.quotaToast");
-  if ("customSources" in quotaToast) {
-    throw new Error(
-      "experimental.quotaToast.customSources was removed; delete it before adding quotaProviders",
-    );
+    : {};
+  const ordinaryProviders = isPlainObject(hostRoot.provider) ? hostRoot.provider : {};
+
+  let target: {
+    path: string;
+    sourcePath: string;
+    format: ConfigFileFormat;
+    existed: boolean;
+  };
+  let root: JsonObject;
+  let quotaToast: JsonObject;
+  if (selectedSidecar) {
+    target = {
+      path: selectedSidecar.path,
+      sourcePath: selectedSidecar.path,
+      format: selectedSidecar.format,
+      existed: true,
+    };
+    root = selectedSidecar.root;
+    quotaToast = root;
+  } else {
+    target = hostTarget;
+    root = hostTarget.existed ? hostRoot : { $schema: "https://opencode.ai/config.json" };
+    const experimental = ensureObject(root, "experimental", "experimental");
+    quotaToast = ensureObject(experimental, "quotaToast", "experimental.quotaToast");
   }
 
+  if ("customSources" in quotaToast) {
+    throw new Error("customSources was removed; delete it before adding quotaProviders");
+  }
   const existing = quotaToast.quotaProviders;
   if (existing !== undefined && !Array.isArray(existing)) {
-    throw new Error("experimental.quotaToast.quotaProviders must be an array");
+    throw new Error("quotaProviders must be an array");
   }
   const definitions = (existing ? cloneJson(existing) : []) as unknown[];
-  const replacement = toPublicDefinition(definition);
+  const publicDefinition = toPublicDefinition(definition);
   const existingIndex = definitions.findIndex(
     (value) => isPlainObject(value) && value.id === definition.id,
   );
   const index = existingIndex === -1 ? definitions.length : existingIndex;
-  if (existingIndex === -1) definitions.push(replacement);
-  else definitions[existingIndex] = replacement;
+  if (existingIndex === -1) definitions.push(publicDefinition);
+  else definitions[existingIndex] = publicDefinition;
 
   const combined = validateQuotaProviders(definitions);
   if (!combined.value) {
     throw new Error(combined.issues.map((issue) => issue.key + ": " + issue.message).join("\n"));
   }
   quotaToast.quotaProviders = definitions;
+  if (Array.isArray(quotaToast.enabledProviders)) {
+    const enabledProviders = quotaToast.enabledProviders.filter(
+      (value): value is string => typeof value === "string",
+    );
+    if (!enabledProviders.includes(QUOTA_PROVIDERS_AGGREGATE_ID)) {
+      quotaToast.enabledProviders = [...enabledProviders, QUOTA_PROVIDERS_AGGREGATE_ID];
+    }
+  }
 
   const documentEdit = await planConfigDocumentEdit({
     target,
     desiredData: root,
-    managedComments: managedComments(index, definition),
+    managedComments: selectedSidecar
+      ? sidecarManagedComments(index, definition)
+      : managedComments(index, definition),
   });
-  const ordinaryProviders = isPlainObject(root.provider) ? root.provider : {};
   return {
     path: documentEdit.path,
     format: documentEdit.format,
@@ -193,9 +260,14 @@ export async function planProviderAdd(options: ProviderAddOptions): Promise<Prov
       !(MAINTAINED_LOCAL_ESTIMATE_IDS as readonly string[]).includes(definition.id) &&
       !(definition.providerId in ordinaryProviders),
     documentEdit,
+    additionalDocumentEdits: [],
   };
 }
 
 export async function applyProviderAddPlan(plan: ProviderAddPlan): Promise<void> {
-  await applyConfigDocumentEdit(plan.documentEdit);
+  const edits = [plan.documentEdit, ...plan.additionalDocumentEdits];
+  await Promise.all(edits.map((edit) => validateConfigDocumentEdit(edit)));
+  for (const edit of edits) {
+    await applyConfigDocumentEdit(edit);
+  }
 }

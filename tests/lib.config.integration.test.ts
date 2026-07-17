@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdirSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
+import { join } from "path";
 import {
   createConfigLoaderEnv,
   createConfigLoaderWorkspace,
@@ -24,6 +25,8 @@ vi.mock("os", async (importOriginal) => {
 });
 
 import { createLoadConfigMeta, loadConfig } from "../src/lib/config.js";
+import { applyInitInstallerPlan, planInitInstaller } from "../src/lib/init-installer.js";
+import { applyProviderAddPlan, planProviderAdd } from "../src/lib/provider-add.js";
 import { getOpencodeRuntimeDirCandidates } from "../src/lib/opencode-runtime-paths.js";
 
 describe("loadConfig integration runtime-path resolution", () => {
@@ -120,6 +123,116 @@ describe("loadConfig integration runtime-path resolution", () => {
         (dir) => meta.settingSources["pricingSnapshot.autoRefresh"] === quotaConfigSource(dir),
       ),
     ).toBe(true);
+  });
+
+  it("loads the recommended quota-toast.jsonc sidecar with comments", async () => {
+    const sidecarDir = join(workspaceDir, "opencode-quota");
+    mkdirSync(sidecarDir, { recursive: true });
+    const sidecarPath = join(sidecarDir, "quota-toast.jsonc");
+    writeFileSync(
+      sidecarPath,
+      '{ // recommended commented sidecar\n  "enabled": false,\n  "enabledProviders": ["openai"],\n}\n',
+      "utf8",
+    );
+
+    const meta = createLoadConfigMeta();
+    const cfg = await loadConfig(undefined, meta, { configRootDir: workspaceDir });
+
+    expect(cfg.enabled).toBe(false);
+    expect(cfg.enabledProviders).toEqual(["openai"]);
+    expect(meta.workspaceConfigPaths.some((path) => path.includes("quota-toast.jsonc"))).toBe(true);
+  });
+
+  it("loads a custom provider after init creates a manual-mode JSONC sidecar", async () => {
+    const env = process.env as NodeJS.ProcessEnv;
+    const configDir = getOpencodeRuntimeDirCandidates({ env, homeDir: tempDir }).configDirs[0]!;
+    const initPlan = await planInitInstaller({
+      env,
+      homeDir: tempDir,
+      selections: {
+        interfaces: "web",
+        scope: "global",
+        configFormat: "jsonc",
+        quotaUi: ["none"],
+        providerMode: "manual",
+        manualProviders: ["openai"],
+        formatStyle: "singleWindow",
+        percentDisplayMode: "remaining",
+        showSessionTokens: false,
+      },
+    });
+    await applyInitInstallerPlan(initPlan);
+
+    const providerPlan = await planProviderAdd({
+      configDir,
+      definition: {
+        id: "private-gateway",
+        mode: "remote-api",
+        url: "https://gateway.example/accounting",
+        format: "accounting-v1",
+        apiKeyEnv: "PRIVATE_GATEWAY_KEY",
+      },
+    });
+    expect(providerPlan.path).toBe(join(configDir, "opencode-quota", "quota-toast.jsonc"));
+    await applyProviderAddPlan(providerPlan);
+
+    const meta = createLoadConfigMeta();
+    const cfg = await loadConfig(undefined, meta, { configRootDir: workspaceDir });
+    expect(cfg.enabledProviders).toEqual(["openai", "quota-providers"]);
+    expect(cfg.quotaProviders).toEqual([
+      expect.objectContaining({ id: "private-gateway", mode: "remote-api" }),
+    ]);
+    expect(meta.settingSources.quotaProviders).toContain("quota-toast.jsonc");
+  });
+
+  it("prefers valid JSONC when both sidecars exist and reports the conflict", async () => {
+    const sidecarDir = join(workspaceDir, "opencode-quota");
+    mkdirSync(sidecarDir, { recursive: true });
+    writeFileSync(
+      join(sidecarDir, "quota-toast.jsonc"),
+      '{ // preferred\n  "enabledProviders": ["openai"],\n}\n',
+      "utf8",
+    );
+    writeFileSync(
+      join(sidecarDir, "quota-toast.json"),
+      JSON.stringify({ enabledProviders: ["chutes"] }),
+      "utf8",
+    );
+
+    const meta = createLoadConfigMeta();
+    const cfg = await loadConfig(undefined, meta, { configRootDir: workspaceDir });
+
+    expect(cfg.enabledProviders).toEqual(["openai"]);
+    expect(meta.settingSources.enabledProviders).toContain("quota-toast.jsonc");
+    expect(meta.configIssues).toContainEqual(
+      expect.objectContaining({
+        key: "$file",
+        message: "both quota-toast.jsonc and quota-toast.json exist; using quota-toast.jsonc",
+      }),
+    );
+  });
+
+  it("falls through a malformed sidecar and loads valid host quota config", async () => {
+    const sidecarDir = join(workspaceDir, "opencode-quota");
+    mkdirSync(sidecarDir, { recursive: true });
+    writeFileSync(join(sidecarDir, "quota-toast.jsonc"), '{ "enabledProviders": [', "utf8");
+    writeQuotaToastConfig(workspaceDir, {
+      enabled: false,
+      enabledProviders: ["chutes"],
+    });
+
+    const meta = createLoadConfigMeta();
+    const cfg = await loadConfig(undefined, meta, { configRootDir: workspaceDir });
+
+    expect(cfg.enabled).toBe(false);
+    expect(cfg.enabledProviders).toEqual(["chutes"]);
+    expect(meta.settingSources.enabledProviders).toBe(quotaConfigSource(workspaceDir));
+    expect(meta.configIssues).toContainEqual(
+      expect.objectContaining({
+        key: "$root",
+        message: "expected readable JSON object; this sidecar is not authoritative",
+      }),
+    );
   });
 
   it("classifies an OPENCODE_CONFIG_DIR overlap with the canonical global sidecar as global", async () => {

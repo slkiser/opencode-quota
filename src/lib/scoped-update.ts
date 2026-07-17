@@ -15,6 +15,7 @@ import {
 
 export const QUOTA_PACKAGE_NAME = "@slkiser/opencode-quota";
 export const QUOTA_LATEST_SPEC = `${QUOTA_PACKAGE_NAME}@latest`;
+const GITHUB_REPO_URL = "https://github.com/slkiser/opencode-quota";
 
 const EXACT_SEMVER =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
@@ -360,10 +361,16 @@ export async function runScopedUpdateCommand(
     }
     for (const candidate of plan.cacheCandidates) log(`  cache candidate ${candidate}`);
     if (plan.configPaths.length === 0 || !plan.authoritativeLatest) {
-      log("No authoritative OpenCode config references an updatable OpenCode Quota spec.");
+      log("OpenCode Quota update is already current. No files changed.");
+      log(`If OpenCode Quota helps, please consider a star: ${GITHUB_REPO_URL}`);
       return 0;
     }
-    if (dryRun) return 0;
+    if (dryRun) {
+      log(
+        "OpenCode Quota update preview complete — no files changed. Run npx @slkiser/opencode-quota@latest update to apply.",
+      );
+      return 0;
+    }
     if (!yes) {
       const confirm =
         params.confirm ??
@@ -375,7 +382,7 @@ export async function runScopedUpdateCommand(
       if (
         !(await confirm("Apply these config edits and delete only verified cache directories?"))
       ) {
-        log("Update cancelled.");
+        log("OpenCode Quota update cancelled — no files changed.");
         return 0;
       }
     }
@@ -383,9 +390,21 @@ export async function runScopedUpdateCommand(
     for (const path of result.writtenPaths) log(`Updated ${path}`);
     for (const path of result.removedCachePaths) log(`Removed ${path}`);
     for (const path of result.skippedCachePaths) log(`Skipped unverified cache candidate ${path}`);
+    log("OpenCode Quota update complete.");
+    log(`Configured paths: ${plan.configPaths.join(", ")}`);
+    log("Restart OpenCode and run /quota.");
+    log(`If OpenCode Quota helps, please consider a star: ${GITHUB_REPO_URL}`);
     return 0;
   } catch (error) {
-    log(error instanceof Error ? error.message : String(error));
+    const reason = error instanceof Error ? error.message : String(error);
+    log(`OpenCode Quota update failed: ${reason}`);
+    const writtenPaths =
+      error instanceof ScopedUpdateError ? (error.details?.writtenPaths ?? []) : [];
+    log(
+      writtenPaths.length > 0
+        ? `Files changed before failure: ${writtenPaths.join(", ")}. Fix the reason above, then rerun update.`
+        : "No files changed. Fix the reason above, then rerun update.",
+    );
     return 1;
   }
 }

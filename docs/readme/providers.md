@@ -37,7 +37,7 @@ The friendly `Quota` label covers quota and rate-limit windows; v4 JSON distingu
 
 Custom providers can report quota, rate limit, usage, spend, budget, balance, or status.
 
-`quotaProviders` is an ordered global-only array with one stable identity per definition. Run `opencode-quota provider add` to preview and maintain it in global OpenCode JSONC/JSON. Definitions run automatically with matching providers; manual provider selection uses the aggregate id `quota-providers`.
+`quotaProviders` is an ordered global-only array with one stable identity per definition. Run `opencode-quota provider add` to preview and maintain it in the authoritative global quota config: the selected `opencode-quota/quota-toast.jsonc` or `.json` sidecar when one exists, otherwise global OpenCode JSONC/JSON. Definitions run automatically with matching providers; manual provider selection uses the aggregate id `quota-providers`, which the command enables automatically.
 
 The definition `id` also identifies the OpenCode provider. Use `providerId` only when it differs. Project provider/model declarations remain read-only matching inputs and may override the normal global declaration for that project, but project quota endpoints, mappings, estimates, and credentials are never trusted.
 

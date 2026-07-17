@@ -28,7 +28,9 @@ npx @slkiser/opencode-quota init
 > [!IMPORTANT]
 > Node.js `>= 22` is required.
 
-The installer recommends **JSONC** because comments make the generated plugin entries easier to understand; strict JSON is also available. It also asks where deterministic native TUI command output should appear: **Inline** is the recommended default for the active session transcript, while **Dialog** uses the local popup. Inline mode uses a dialog on Home because there is no transcript there. Before writing, the installer previews every target. Use `npx @slkiser/opencode-quota init --dry-run` to validate and stop after that preview. If you choose JSONC for an existing `opencode.json`, it copies all settings into `opencode.jsonc`, adds only the required OpenCode Quota entries and comments, validates the result, writes it atomically, and removes the old JSON only after success. Existing JSONC comments and unrelated settings are preserved.
+The installer first asks whether you use **TUI**, **Web**, or **Both**, then recommends the global scope. TUI and Both install the server and TUI plugins; Web installs only the server plugin. For TUI surfaces, the Sidebar panel is selected by default; Toast, Compact status line, and exclusive Manual commands only are also available. Web slash commands stay inline because TUI surfaces and popup dialogs are unavailable.
+
+**JSONC** is the recommended format for OpenCode config and `opencode-quota/quota-toast.jsonc`; strict JSON remains supported. Existing installer-owned answers are prefilled on rerun, deliberate changes are previewed with old/new values, and unrelated settings and JSONC comments are preserved. Selecting JSONC safely validates and atomically converts an existing `quota-toast.json`, removing the old JSON only after the new file succeeds. Use `npx @slkiser/opencode-quota init --dry-run` to preview without changing files. Custom providers are configured after installation with `npx @slkiser/opencode-quota@latest provider add`.
 
 In auto-detect mode, when OpenCode Quota finds working auth for a built-in provider but no matching OpenCode `provider` declaration, it adds an empty declaration to the selected global `opencode.jsonc` or `opencode.json`. It preserves that file's format; if the global file is new, it uses the selected project format. Project declarations are read as project-only overrides and are never automatically written.
 
@@ -170,25 +172,22 @@ npx @slkiser/opencode-quota@latest provider add
 
 New files default to commented JSONC. Existing strict JSON stays strict JSON. The command never asks for or writes a credential.
 
-The generated definition lives in your global `opencode.jsonc` or `opencode.json`, inside the existing `experimental.quotaToast.quotaProviders` section:
+The generated definition goes to the authoritative global quota config. When `opencode-quota/quota-toast.jsonc` or `.json` exists, the command updates that sidecar directly; otherwise it uses `experimental.quotaToast.quotaProviders` in global `opencode.jsonc` or `.json`. In manual provider mode it also enables the `quota-providers` aggregate automatically:
 
 ```jsonc
 {
-  "experimental": {
-    "quotaToast": {
-      "quotaProviders": [
-        {
-          "id": "openrouter-primary",
-          "providerId": "openrouter",
-          "label": "OpenRouter Primary",
-          "mode": "remote-api",
-          "url": "https://openrouter.ai/api/v1/key",
-          "format": "openrouter-key-v1",
-          "apiKeyEnv": "OPENROUTER_API_KEY",
-        },
-      ],
+  "enabledProviders": ["openai", "quota-providers"],
+  "quotaProviders": [
+    {
+      "id": "openrouter-primary",
+      "providerId": "openrouter",
+      "label": "OpenRouter Primary",
+      "mode": "remote-api",
+      "url": "https://openrouter.ai/api/v1/key",
+      "format": "openrouter-key-v1",
+      "apiKeyEnv": "OPENROUTER_API_KEY",
     },
-  },
+  ],
 }
 ```
 
