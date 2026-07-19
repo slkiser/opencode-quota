@@ -16,10 +16,7 @@ import {
   resolveMiniMaxChinaAuthCached,
   type ResolvedMiniMaxAuth,
 } from "../lib/minimax-auth.js";
-import {
-  getMiniMaxQuotaEndpoint,
-  type MiniMaxQuotaEndpointId,
-} from "../lib/minimax-endpoints.js";
+import { getMiniMaxQuotaEndpoint, type MiniMaxQuotaEndpointId } from "../lib/minimax-endpoints.js";
 import { sanitizeDisplayText } from "../lib/display-sanitize.js";
 import { fetchWithTimeout } from "../lib/http.js";
 import {
@@ -36,14 +33,19 @@ const USER_AGENT = "OpenCode-Quota-Toast/1.0";
 
 interface MiniMaxModelRemain {
   model_name: string;
-  current_interval_total_count: number;
+  current_interval_total_count?: number;
   /** Endpoint-specific raw count: international reports remaining, China reports used. */
-  current_interval_usage_count: number;
+  current_interval_usage_count?: number;
   remains_time: number;
   current_weekly_total_count?: number;
   /** Endpoint-specific raw count: international reports remaining, China reports used. */
   current_weekly_usage_count?: number;
   weekly_remains_time?: number;
+  /** Percent remaining for the 5h window (0-100). Reported by some accounts when counts are zeroed. */
+  current_interval_remaining_percent?: number;
+  current_interval_status?: number;
+  current_weekly_remaining_percent?: number;
+  current_weekly_status?: number;
 }
 
 interface MiniMaxApiResponse {
@@ -68,6 +70,7 @@ interface MiniMaxWindowSpec {
   getTotal(model: MiniMaxModelRemain): number | undefined;
   getCount(model: MiniMaxModelRemain): number | undefined;
   getResetOffsetMs(model: MiniMaxModelRemain): number | undefined;
+  getPercentRemaining(model: MiniMaxModelRemain): number | undefined;
 }
 
 const MINIMAX_WINDOW_SPECS: readonly MiniMaxWindowSpec[] = [
@@ -78,6 +81,7 @@ const MINIMAX_WINDOW_SPECS: readonly MiniMaxWindowSpec[] = [
     getTotal: (model) => model.current_interval_total_count,
     getCount: (model) => model.current_interval_usage_count,
     getResetOffsetMs: (model) => model.remains_time,
+    getPercentRemaining: (model) => model.current_interval_remaining_percent,
   },
   {
     window: "weekly",
@@ -86,6 +90,7 @@ const MINIMAX_WINDOW_SPECS: readonly MiniMaxWindowSpec[] = [
     getTotal: (model) => model.current_weekly_total_count,
     getCount: (model) => model.current_weekly_usage_count,
     getResetOffsetMs: (model) => model.weekly_remains_time,
+    getPercentRemaining: (model) => model.current_weekly_remaining_percent,
   },
 ];
 
@@ -96,18 +101,21 @@ function isFiniteNumber(value: unknown): value is number {
 /**
  * Type guard that validates a value is a well-formed MiniMax model record.
  *
- * Checks for `model_name` (string) and the 5-hour/request quota numeric fields
- * to prevent `NaN` arithmetic when the API response shape is unexpected.
+ * Accepts either a count-based record (with `current_interval_total_count` and
+ * `current_interval_usage_count`) or a percent-based record (with
+ * `current_interval_remaining_percent`). `remains_time` is always required so
+ * the entry has a valid reset offset.
  */
 function isMiniMaxModelRecord(value: unknown): value is MiniMaxModelRemain {
   if (value === null || typeof value !== "object" || !("model_name" in value)) return false;
   const v = value as Record<string, unknown>;
-  return (
-    typeof v.model_name === "string" &&
+  if (typeof v.model_name !== "string" || !isFiniteNumber(v.remains_time)) return false;
+
+  const hasCounts =
     isFiniteNumber(v.current_interval_total_count) &&
-    isFiniteNumber(v.current_interval_usage_count) &&
-    isFiniteNumber(v.remains_time)
-  );
+    isFiniteNumber(v.current_interval_usage_count);
+  const hasPercent = isFiniteNumber(v.current_interval_remaining_percent);
+  return hasCounts || hasPercent;
 }
 
 function roundPercent(value: number): number {
@@ -158,19 +166,33 @@ function buildMiniMaxEntry(
   const total = spec.getTotal(model);
   const rawCount = spec.getCount(model);
   const resetOffsetMs = spec.getResetOffsetMs(model);
-  if (!isFiniteNumber(total) || !isFiniteNumber(rawCount) || !isFiniteNumber(resetOffsetMs)) {
-    return null;
+  if (!isFiniteNumber(resetOffsetMs)) return null;
+
+  if (isFiniteNumber(total) && isFiniteNumber(rawCount) && total > 0) {
+    const { used, remaining } = normalizeMiniMaxCounts(total, rawCount, countSemantics);
+    const percentRemaining = roundPercent((remaining / total) * 100);
+
+    return {
+      window: spec.window,
+      name: spec.name.replace(MINIMAX_PROVIDER_LABEL, providerLabel),
+      group: providerLabel,
+      label: spec.label,
+      right: `${used}/${total}`,
+      percentRemaining,
+      resetTimeIso: new Date(Date.now() + Math.max(0, resetOffsetMs)).toISOString(),
+    };
   }
-  if (total <= 0) return null;
-  const { used, remaining } = normalizeMiniMaxCounts(total, rawCount, countSemantics);
-  const percentRemaining = roundPercent((remaining / total) * 100);
+
+  const percentRaw = spec.getPercentRemaining(model);
+  if (!isFiniteNumber(percentRaw)) return null;
+  const percentRemaining = roundPercent(percentRaw);
 
   return {
     window: spec.window,
     name: spec.name.replace(MINIMAX_PROVIDER_LABEL, providerLabel),
     group: providerLabel,
     label: spec.label,
-    right: `${used}/${total}`,
+    right: `${100 - percentRemaining}%`,
     percentRemaining,
     resetTimeIso: new Date(Date.now() + Math.max(0, resetOffsetMs)).toISOString(),
   };
@@ -206,12 +228,14 @@ function selectCanonicalMiniMaxModel(
     return wildcardModel;
   }
 
-  return [...models].sort((left, right) => {
-    const percentDiff =
-      getWorstPercent(left, countSemantics) - getWorstPercent(right, countSemantics);
-    if (percentDiff !== 0) return percentDiff;
-    return left.model_name.localeCompare(right.model_name);
-  })[0] ?? null;
+  return (
+    [...models].sort((left, right) => {
+      const percentDiff =
+        getWorstPercent(left, countSemantics) - getWorstPercent(right, countSemantics);
+      if (percentDiff !== 0) return percentDiff;
+      return left.model_name.localeCompare(right.model_name);
+    })[0] ?? null
+  );
 }
 
 /**
