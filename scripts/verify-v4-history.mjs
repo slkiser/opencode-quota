@@ -31,7 +31,7 @@ function isWithin(file, directory) {
 function isForbidden(file) {
   const basename = path.posix.basename(file);
   if (
-    file === "AGENTS.md" ||
+    basename === "AGENTS.md" ||
     basename === ".npmrc" ||
     basename === "opencode.json" ||
     basename === "tui.json" ||

@@ -126,6 +126,8 @@ describe("v4 release gates", () => {
     const base = await createHistoryRepo(historyRepo);
     const forbidden = [
       "AGENTS.md",
+      "src/AGENTS.md",
+      "src/lib/AGENTS.md",
       ".env.local",
       ".npmrc",
       "nested/.env",
