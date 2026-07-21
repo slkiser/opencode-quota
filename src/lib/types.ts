@@ -408,6 +408,13 @@ export interface AuthData {
 }
 
 // =============================================================================
+// Google AGY Quota Window Types
+// =============================================================================
+
+/** Quota window type for Google Antigravity quota buckets */
+export type GoogleAgyQuotaWindow = "daily" | "weekly" | "monthly" | "session" | "unknown";
+
+// =============================================================================
 // Antigravity Account Types (from ~/.config/opencode/antigravity-accounts.json)
 // =============================================================================
 
@@ -614,6 +621,8 @@ export interface GoogleAgyQuotaBucket {
   accountEmail?: string;
   accountKey?: string;
   sourceKey?: GoogleAgyAuthSourceKey;
+  /** Quota window type: daily, weekly, monthly, session. Inferred from tokenType or resetTime window when available. */
+  window?: GoogleAgyQuotaWindow;
 }
 
 export interface GoogleAgyQuotaResult {

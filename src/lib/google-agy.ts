@@ -16,6 +16,7 @@ import type {
   AuthData,
   GoogleAgyAuthSourceKey,
   GoogleAgyQuotaBucket,
+  GoogleAgyQuotaWindow,
   GoogleAgyResult,
   GoogleAccountError,
   GeminiCliOAuthAuthData,
@@ -475,12 +476,33 @@ export function formatDisplayName(modelId: string): string {
   return formattedParts.join(" ") + suffix;
 }
 
+/**
+ * Infer the quota window type from a bucket's tokenType field.
+ *
+ * The Antigravity API can return multiple buckets for the same modelId
+ * with different tokenType values representing distinct quota windows
+ * (e.g. "weekly", "monthly", "daily", "session").
+ *
+ * When tokenType does not match a known window, fall back to "unknown"
+ * so the bucket is still displayed but grouped separately.
+ */
+export function detectQuotaWindow(tokenType: string | undefined | null): GoogleAgyQuotaWindow {
+  const type = (tokenType ?? "").toLowerCase().trim();
+  if (type === "daily" || type === "weekly" || type === "monthly" || type === "session") {
+    return type;
+  }
+  return "unknown";
+}
+
 function aggregateAgyBuckets(buckets: GoogleAgyQuotaBucket[]): GoogleAgyQuotaBucket[] {
+  // Group by composite key (modelId + window) so the same model with different
+  // quota windows (e.g. Claude weekly + Claude monthly) produces separate entries.
   const grouped = new Map<string, GoogleAgyQuotaBucket>();
   for (const bucket of buckets) {
-    const existing = grouped.get(bucket.modelId);
+    const compositeKey = `${bucket.modelId}::${bucket.window ?? "unknown"}`;
+    const existing = grouped.get(compositeKey);
     if (!existing || bucket.percentRemaining < existing.percentRemaining) {
-      grouped.set(bucket.modelId, bucket);
+      grouped.set(compositeKey, bucket);
     }
   }
   return Array.from(grouped.values());
@@ -512,6 +534,9 @@ function mapQuotaBuckets(
         percentRemaining = 0;
       }
 
+      const tokenType = normalizeString(bucket.tokenType);
+      const window = detectQuotaWindow(tokenType);
+
       return {
         modelId,
         displayName: formatDisplayName(modelId),
@@ -520,7 +545,8 @@ function mapQuotaBuckets(
         ...(normalizeString(bucket.remainingAmount)
           ? { remainingAmount: bucket.remainingAmount!.trim() }
           : {}),
-        ...(normalizeString(bucket.tokenType) ? { tokenType: bucket.tokenType!.trim() } : {}),
+        ...(tokenType ? { tokenType } : {}),
+        window,
         ...(account.email ? { accountEmail: account.email } : {}),
         accountKey: createAgyAccountKey(account),
         sourceKey: account.sourceKey,

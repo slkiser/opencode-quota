@@ -39,6 +39,7 @@ import {
   resolveAgyAccounts,
   resolveAgyConfiguredProjectId,
   formatDisplayName,
+  detectQuotaWindow,
 } from "../src/lib/google-agy.js";
 
 function mockJsonResponse(data: unknown, status = 200) {
@@ -262,6 +263,7 @@ describe("google agy logic", () => {
         displayName: "Gemini 3.5 Flash",
         percentRemaining: 25,
         tokenType: "TOKENS",
+        window: "unknown",
         accountEmail: "alice@example.com",
         accountKey: expect.any(String),
         sourceKey: "google-agy",
@@ -270,6 +272,7 @@ describe("google agy logic", () => {
         modelId: "claude-sonnet-4-6",
         displayName: "Claude Sonnet 4.6",
         percentRemaining: 90,
+        window: "unknown",
         accountEmail: "alice@example.com",
         accountKey: expect.any(String),
         sourceKey: "google-agy",
@@ -369,6 +372,25 @@ describe("google agy logic", () => {
       sourceKey: "google-agy",
       accountCount: 1,
       validAccountCount: 0,
+    });
+  });
+
+  describe("detectQuotaWindow", () => {
+    it.each([
+      ["weekly", "weekly"],
+      ["monthly", "monthly"],
+      ["daily", "daily"],
+      ["session", "session"],
+      ["WEEKLY", "weekly"],
+      ["Weekly", "weekly"],
+      [undefined, "unknown"],
+      [null, "unknown"],
+      ["", "unknown"],
+      ["TOKENS", "unknown"],
+      ["REQUESTS", "unknown"],
+      ["some-unknown-type", "unknown"],
+    ])("maps tokenType=%s to window=%s", (tokenType, expected) => {
+      expect(detectQuotaWindow(tokenType)).toBe(expected);
     });
   });
 });

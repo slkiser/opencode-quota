@@ -68,7 +68,10 @@ export const googleAgyProvider: QuotaProvider = {
       if (!groupName) continue;
 
       const accountKey = bucket.accountKey || bucket.accountEmail || "";
-      const key = `${accountKey}::${groupName}`;
+      // Include window in the grouping key so different quota windows
+      // for the same group (e.g. weekly + monthly) produce separate entries.
+      const window = bucket.window ?? "unknown";
+      const key = `${accountKey}::${groupName}::${window}`;
       const existing = groupedBuckets.get(key);
 
       if (!existing || bucket.percentRemaining < existing.percentRemaining) {
@@ -89,14 +92,20 @@ export const googleAgyProvider: QuotaProvider = {
         ? `${Number.isFinite(parsedRemaining) ? parsedRemaining.toLocaleString("en-US") : bucket.remainingAmount} left`
         : undefined;
       const tokenType = bucket.tokenType?.trim().toUpperCase();
+
+      // Include window in the label when it carries distinct quota information.
+      const windowTag = bucket.window && bucket.window !== "unknown"
+        ? ` (${bucket.window.charAt(0).toUpperCase() + bucket.window.slice(1)})`
+        : "";
+
       const right = [remainingAmount, tokenType && tokenType !== "REQUESTS" ? tokenType : undefined]
         .filter(Boolean)
         .join(" ");
 
       return {
-        name: `${bucket.displayName} (${emailLabel})`,
+        name: `${bucket.displayName}${windowTag} (${emailLabel})`,
         group: "Google AGY",
-        label: `${bucket.displayName}:`,
+        label: `${bucket.displayName}:${windowTag}`,
         ...(right ? { right } : {}),
         percentRemaining: bucket.percentRemaining,
         resetTimeIso: bucket.resetTimeIso,

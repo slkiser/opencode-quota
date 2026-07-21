@@ -163,6 +163,68 @@ describe("google agy provider", () => {
     ]);
   });
 
+  it("separates entries by quota window for the same model group", async () => {
+    const { queryGoogleAgyQuota } = await import("../src/lib/google-agy.js");
+    (queryGoogleAgyQuota as any).mockResolvedValueOnce({
+      success: true,
+      buckets: [
+        {
+          modelId: "claude-opus-4-6-thinking",
+          displayName: "Claude Opus 4.6 Thinking",
+          accountEmail: "test@example.com",
+          percentRemaining: 42,
+          resetTimeIso: "2026-07-24T10:00:00Z",
+          tokenType: "weekly",
+          window: "weekly",
+        },
+        {
+          modelId: "claude-opus-4-6-thinking",
+          displayName: "Claude Opus 4.6 Thinking",
+          accountEmail: "test@example.com",
+          percentRemaining: 78,
+          resetTimeIso: "2026-08-10T10:00:00Z",
+          tokenType: "monthly",
+          window: "monthly",
+        },
+      ],
+    });
+
+    const out = await googleAgyProvider.fetch({ client: {} } as any);
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries).toHaveLength(2);
+    expect(out.entries[0]).toMatchObject({
+      name: "Claude and GPT models (Weekly) (tes..example)",
+      label: "Claude and GPT models: (Weekly)",
+      percentRemaining: 42,
+    });
+    expect(out.entries[1]).toMatchObject({
+      name: "Claude and GPT models (Monthly) (tes..example)",
+      label: "Claude and GPT models: (Monthly)",
+      percentRemaining: 78,
+    });
+  });
+
+  it("groups buckets without window under 'unknown' without a window tag", async () => {
+    const { queryGoogleAgyQuota } = await import("../src/lib/google-agy.js");
+    (queryGoogleAgyQuota as any).mockResolvedValueOnce({
+      success: true,
+      buckets: [
+        {
+          modelId: "gemini-3-5-flash",
+          displayName: "Gemini 3.5 Flash",
+          accountEmail: "alice@example.com",
+          percentRemaining: 64,
+          resetTimeIso: "2026-01-01T00:00:00Z",
+        },
+      ],
+    });
+
+    const out = await googleAgyProvider.fetch({ client: {} } as any);
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries[0].name).toBe("Gemini Models (ali..example)");
+    expect(out.entries[0].label).toBe("Gemini Models:");
+  });
+
   it("maps fetch failures into toast errors", async () => {
     const { queryGoogleAgyQuota } = await import("../src/lib/google-agy.js");
     (queryGoogleAgyQuota as any).mockResolvedValueOnce({
