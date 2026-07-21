@@ -155,7 +155,7 @@ jobs:
             echo "Expected exactly one release tarball." >&2
             exit 1
           fi
-          npm publish "${TARBALLS[0]}" --access public --provenance --ignore-scripts
+          npm publish "./${TARBALLS[0]}" --access public --provenance --ignore-scripts
 
   backfill-version:
     runs-on: ubuntu-latest

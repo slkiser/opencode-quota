@@ -307,6 +307,9 @@ describe("package manifest compatibility", () => {
     const publishRun = namedStep(publish, "Verify and publish exact release artifact").run ?? "";
     expect(publishRun).toContain("node scripts/verify-release-artifact.mjs package-artifacts");
     expect(publishRun).toContain(
+      'npm publish "./${TARBALLS[0]}" --access public --provenance --ignore-scripts',
+    );
+    expect(publishRun).not.toContain(
       'npm publish "${TARBALLS[0]}" --access public --provenance --ignore-scripts',
     );
     expect(publishRun).not.toContain("pnpm pack");
