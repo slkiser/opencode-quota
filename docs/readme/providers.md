@@ -1,8 +1,8 @@
-# Providers
-
 [← Back to README](../../README.md)
 
-Supported providers and provider-specific setup notes.
+# Providers
+
+Find your provider in the table. Open a setup note only when the table says **Needs setup**.
 
 ## Pre-configured providers
 
@@ -33,22 +33,34 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 
 The friendly `Quota` label covers quota and rate-limit windows; v4 JSON distinguishes them.
 
-### Custom providers
+## Custom providers
 
 Custom providers can report quota, rate limit, usage, spend, budget, balance, or status.
 
-`quotaProviders` is an ordered global-only array with one stable identity per definition. Run `opencode-quota provider add` to preview and maintain it in the authoritative global quota config: the selected `opencode-quota/quota-toast.jsonc` or `.json` sidecar when one exists, otherwise global OpenCode JSONC/JSON. Definitions run automatically with matching providers; manual provider selection uses the aggregate id `quota-providers`, which the command enables automatically.
+Run the guided setup:
 
-The definition `id` also identifies the OpenCode provider. Use `providerId` only when it differs. Project provider/model declarations remain read-only matching inputs and may override the normal global declaration for that project, but project quota endpoints, mappings, estimates, and credentials are never trusted.
+```bash
+npx @slkiser/opencode-quota@latest provider add
+```
 
-#### Remote API mode
+It asks only how the provider works, previews the exact global config change, and asks before writing. It does not ask for a secret.
 
-`mode: "remote-api"` supports two fixed safe formats:
+A custom provider can use:
 
-- `openrouter-key-v1` expects OpenRouter's key response. A positive limit becomes a budget percentage; unlimited/no-limit usage becomes a spend value.
-- `accounting-v1` expects `{ "version": "accounting-v1", "entries": [...] }`. Every entry has `kind`, `name`, and `resultType`; percent rows have `percentRemaining`, and value rows have `value`.
+- **Remote API:** real quota data from a supported endpoint.
+- **Local estimate:** request counts and optional spend estimates from OpenCode's local data.
 
-Example `accounting-v1` response:
+Definitions run automatically when provider selection is set to `auto`. If you choose providers manually, the list must include `quota-providers` plus every built-in provider you still want.
+
+See [Configuration](configuration.md#custom-providers) for a complete config example.
+
+<details>
+<summary><strong>Remote API response rules</strong></summary>
+
+`mode: "remote-api"` accepts two formats:
+
+- `openrouter-key-v1` reads OpenRouter's key response.
+- `accounting-v1` reads the small JSON format below.
 
 ```json
 {
@@ -72,27 +84,46 @@ Example `accounting-v1` response:
 }
 ```
 
-The request is a fixed `GET` with bearer authentication and JSON accept headers. URLs must be absolute HTTPS, except loopback HTTP, and cannot contain embedded credentials, a query, fragment, whitespace, or control characters. Redirects are rejected. Responses require JSON content type, are limited to 256 KiB, and `accounting-v1` is limited to 100 rows.
+OpenCode Quota sends a fixed authenticated `GET`. The URL must use HTTPS, except for loopback testing. Redirects and URLs containing credentials, queries, or fragments are rejected. Responses must be JSON and are limited to 256 KiB. `accounting-v1` is limited to 100 rows.
 
-#### Local estimate mode
+</details>
 
-`mode: "local-estimate"` counts matching OpenCode assistant requests from local storage. Each definition declares one to sixteen request windows:
+<details>
+<summary><strong>Local estimate rules</strong></summary>
 
-- `type: "utc-day"` resets at UTC midnight.
-- `type: "rolling"` requires `durationMinutes` and is bounded to 366 days.
-- Every window requires `requestLimit`; `usdBudget` is optional and belongs to that same window.
+`mode: "local-estimate"` counts matching completed OpenCode assistant requests. Each definition can have 1–16 windows.
 
-Token pricing uses automatic models.dev matching first. `pricingModelMap` is accepted only for missing or ambiguous automatic matches and cannot override a successful match. When any request in a budget window cannot be priced, request usage remains visible and the budget row says it is unavailable.
+- `utc-day` resets at UTC midnight.
+- `rolling` uses `durationMinutes` and can be at most 366 days.
+- Every window needs `requestLimit`.
+- `usdBudget` is optional.
 
-State is stored per stable definition id under `~/.local/state/opencode/opencode-quota/quota-providers/`. Updates are versioned, deduplicated, pruned, serialized, and atomic; malformed files recover without using their contents.
+OpenCode Quota tries models.dev pricing first. Use `pricingModelMap` only when automatic matching cannot find one clear model. If any request cannot be priced, request counts remain visible and the budget percentage is unavailable.
 
-#### Auth and security boundary
+State files live under `~/.local/state/opencode/opencode-quota/quota-providers/`.
 
-Credentials resolve from explicit `apiKeyEnv`, trusted global `provider.<providerId>.options.apiKey`, then strict API-key OpenCode `auth.json`. Repo-local secrets are never read. User definitions cannot add methods, headers, templates, scripts, executable mappings, regular expressions, or JSONPath.
+</details>
 
-`modelIds` controls only exact `onlyCurrentModel` inclusion. Omit it for all models under `providerId`; otherwise list exact case-sensitive model ids without the provider prefix, such as `anthropic/claude-sonnet-4`.
+<details>
+<summary><strong>Credentials and safety</strong></summary>
 
-A truly custom provider still needs its ordinary OpenCode provider/model declaration. `/connect` → **Other** stores only its credential. Maintained Qwen Code and Alibaba Coding Plan limits can instead be tuned with their reserved `quotaProviders` ids; no duplicate ordinary provider block is needed. `/quota_status` reports exact state paths and safe provenance, never URLs, keys, headers, bodies, counter contents, or raw errors.
+Credentials are checked in this order:
+
+1. The environment variable named by `apiKeyEnv`.
+2. Trusted global `provider.<providerId>.options.apiKey`.
+3. An API-key entry in OpenCode `auth.json`.
+
+Project secrets are never read. Custom definitions cannot add scripts, methods, headers, templates, executable mappings, regular expressions, JSONPath, or automatic endpoint discovery.
+
+`modelIds` only filters `onlyCurrentModel`. Use exact, case-sensitive model IDs without the outer provider prefix, or omit it to cover every model for the provider.
+
+To tune Qwen Code or Alibaba Coding Plan, use its reserved `qwen-code` or `alibaba-coding-plan` ID and maintained window shape. Do not add a duplicate normal provider block.
+
+A custom model provider still needs its normal OpenCode provider/model config. `/connect` → **Other** stores its credential, not its model setup.
+
+`/quota_status` shows safe setup details and state paths without showing URLs, keys, headers, response bodies, counter contents, or raw errors.
+
+</details>
 
 ## Provider setup notes
 
@@ -100,15 +131,15 @@ A truly custom provider still needs its ordinary OpenCode provider/model declara
 
 ### GitHub Copilot
 
-**`copilot-quota-token.json`** is a local billing credential file that you create. OpenCode and opencode-quota do not create it automatically. It exists because GitHub's public billing reports require billing permissions that are not part of OpenCode's normal Copilot OAuth login.
+GitHub's billing API needs a separate token with billing access. Your normal OpenCode Copilot login does not include that permission.
 
-Put the file in the OpenCode runtime config directory shown by:
+Create `copilot-quota-token.json` in the OpenCode config directory shown by:
 
 ```bash
 opencode debug paths
 ```
 
-For a personal Copilot Max account, use:
+For a personal Copilot Max plan:
 
 ```json
 {
@@ -118,15 +149,18 @@ For a personal Copilot Max account, use:
 }
 ```
 
-The default `billingModel` is `"ai_credits"`. Supported tiers are `free`, `student`, `pro`, `pro+`, `max`, `business`, and `enterprise`.
+Use a fine-grained personal access token with **Plan: read**. Supported tiers are `free`, `student`, `pro`, `pro+`, `max`, `business`, and `enterprise`.
 
-Choose the credential and scope that match who pays for Copilot:
+<details>
+<summary><strong>Organization and enterprise setup</strong></summary>
 
-| Billing scope | Required config                                                                  | Officially supported credential                                                                                                                                                                          |
-| ------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Personal      | `tier` plus optional `username`                                                  | Fine-grained PAT with **Plan: read**, GitHub App user access token, or a supported classic credential                                                                                                    |
-| Organization  | `"tier": "business"`, `organization`, optional `username` filter                 | Fine-grained PAT, GitHub App user token, or GitHub App installation token with **Organization administration: read**; classic credentials also work for an authorized organization admin/billing manager |
-| Enterprise    | `"tier": "enterprise"`, `enterprise`, optional `organization`/`username` filters | Classic PAT held by an enterprise admin or billing manager; GitHub does not permit fine-grained PATs or GitHub App tokens                                                                                |
+Choose the setup that matches who pays for Copilot:
+
+| Billing scope | Required config                                         | Token permission                                                                        |
+| ------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Personal      | `tier` and optional `username`                          | Fine-grained PAT with **Plan: read**, GitHub App user token, or supported classic token |
+| Organization  | `tier: "business"`, `organization`, optional `username` | **Organization administration: read**; user, installation, or authorized classic token  |
+| Enterprise    | `tier: "enterprise"`, `enterprise`, optional filters    | Classic PAT held by an enterprise admin or billing manager                              |
 
 Organization example:
 
@@ -151,11 +185,23 @@ Enterprise example:
 }
 ```
 
-opencode-quota requests the current UTC calendar month from GitHub's public AI Credit usage report. It shows total AI Credits consumed, included-pool consumption, billed credits, billed spend when supplied, and an applicable organization/enterprise AI Credit budget when the budget API exposes one.
+GitHub does not allow fine-grained PATs or GitHub App tokens for enterprise billing reports.
 
-A percentage is shown only with a real denominator: GitHub's documented current Pro, Pro+, or Max personal allowance, or a positive API-reported additional-usage budget. Free and Student do not have a concrete public allowance, and organization/enterprise usage reports do not expose the included-pool total, so those rows stay value-only.
+</details>
 
-Legacy premium requests are not a fallback. They are available only for Copilot Pro or Pro+ subscribers on an existing annual plan that remained on request-based billing after June 1, 2026:
+<details>
+<summary><strong>What Copilot reports</strong></summary>
+
+OpenCode Quota reads the current UTC calendar month. It shows used AI Credits, billed credits, billed spend when available, and organization or enterprise budgets when GitHub returns them.
+
+A percentage appears only when GitHub provides a real allowance or positive budget. Otherwise the plugin shows the value without inventing a percentage.
+
+</details>
+
+<details>
+<summary><strong>Older annual Pro and Pro+ plans</strong></summary>
+
+Use legacy premium requests only if an existing annual Pro or Pro+ plan stayed on request-based billing after June 1, 2026:
 
 ```json
 {
@@ -166,8 +212,9 @@ Legacy premium requests are not a fallback. They are available only for Copilot 
 }
 ```
 
-Official references: [AI Credit billing reports](https://docs.github.com/en/rest/billing/usage?apiVersion=2026-03-10), [billing budgets](https://docs.github.com/en/rest/billing/budgets?apiVersion=2026-03-10), [individual AI Credit allowances](https://docs.github.com/en/copilot/concepts/billing/usage-based-billing-for-individuals), [organization and enterprise pools](https://docs.github.com/en/copilot/concepts/billing/usage-based-billing-for-organizations-and-enterprises), and [legacy annual plans](https://docs.github.com/en/copilot/reference/copilot-billing/request-based-billing-legacy/what-changed-with-billing).
+</details>
 
+Official references: [AI Credit billing reports](https://docs.github.com/en/rest/billing/usage?apiVersion=2026-03-10), [billing budgets](https://docs.github.com/en/rest/billing/budgets?apiVersion=2026-03-10), [individual AI Credit allowances](https://docs.github.com/en/copilot/concepts/billing/usage-based-billing-for-individuals), [organization and enterprise pools](https://docs.github.com/en/copilot/concepts/billing/usage-based-billing-for-organizations-and-enterprises), and [legacy annual plans](https://docs.github.com/en/copilot/reference/copilot-billing/request-based-billing-legacy/what-changed-with-billing).
 <a id="anthropic-claude"></a>
 
 ### Anthropic (Claude)

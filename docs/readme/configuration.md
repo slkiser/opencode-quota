@@ -1,82 +1,103 @@
-# Configuration
-
 [← Back to README](../../README.md)
 
-UI surface choices, common recipes, and the full configuration reference.
+# Configuration
 
-## Choose your UI surfaces
+Most people only need the examples on this page. The full option list is at the bottom.
 
-All UI surfaces use the same quota data. Put these settings in `opencode-quota/quota-toast.json`, not `tui.json`.
+## Where settings live
 
-| UI surface                     | Config                                                                                    | Notes                                                                                                                                                                                                                   |
-| ------------------------------ | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sidebar panel                  | `tuiSidebarPanel.enabled: true`                                                           | Full `Quota` panel in OpenCode's session sidebar. Requires the TUI plugin entry above.                                                                                                                                  |
-| TUI toast                      | `enableToast: true`                                                                       | Popup toast after idle/question/compact events in the TUI. Requires the server plugin entry above; OpenCode 1.18.2 Web does not surface the TUI toast event.                                                            |
-| Compact status line            | `tuiCompactStatus.enabled: true`                                                          | Short text-only quota line at the home bottom and chat/session prompt locations, for example `Copilot AI Credits 125 used \| OpenAI Pro 5h 100%, 7d 100%`. Requires the TUI plugin entry above.                         |
-| Maintainer announcement notice | `maintainerAnnouncements.enabled: true`, `maintainerAnnouncements.home: true`             | Prefers the TUI home notice when the quota TUI plugin is configured. Without the TUI plugin, shows the same count-only notice once after the first visible TUI quota toast.                                             |
-| Native TUI command output      | `tuiCommandDisplay: "inline"` or `"dialog"`                                               | `inline` is the default and adds ignored/no-reply plain text to the active transcript; Home uses a dialog because no transcript exists there. `dialog` keeps all output in the local popup. Neither mode calls a model. |
-| Slash and palette commands     | TUI plugin in `tui.json`; server plugin in `opencode.json`                                | OpenCode 1.18.2 registers each command once. Argument input remains a TUI dialog, then final output follows `tuiCommandDisplay`. Web/Desktop gets deterministic ignored/no-reply plain text.                            |
-| No automatic UI surfaces       | `enableToast: false`, `tuiSidebarPanel.enabled: false`, `tuiCompactStatus.enabled: false` | Skips toast/sidebar/compact surfaces while keeping inline slash commands and `opencode-quota show` available. Maintainer announcements use the separate installer question/config and can be opted out if desired.      |
+OpenCode Quota normally keeps its settings in one separate file:
 
-In OpenCode 1.18.2, all OpenCode Quota commands work in TUI and Web without calling a model. Native TUI output enters the active transcript by default with `noReply` and `ignored`; choose `"dialog"` for the existing local popup. Inline mode deliberately uses the dialog on Home, where no transcript exists. Web returns clean plain text, ignores this TUI-only setting, and can show a false `Failed to send command` notification after the deterministic output appears; do not retry automatically after output is visible. OpenCode 1.18.2 has no clean server-command cancellation API. Safari/macOS notification permissions do not add TUI toast support to Web.
+- Project install: `<your-repo>/opencode-quota/quota-toast.jsonc`
+- Global install: usually `~/.config/opencode/opencode-quota/quota-toast.jsonc`
+- Custom config directory: `$OPENCODE_CONFIG_DIR/opencode-quota/quota-toast.jsonc`
 
-Selecting Compact status line in the installer enables both compact surfaces by default. To keep compact status home-only, set `tuiCompactStatus.sessionPrompt: false`.
+Strict `.json` files also work. Run `/quota_status` if you are unsure which file is active.
 
-In the sidebar panel, click the `Quota` header to switch between the compact summary (`▶ Quota`) and the detailed all-windows view (`▼ Quota`). OpenCode remembers the last sidebar state for the plugin.
+`opencode.jsonc` loads the main plugin. `tui.jsonc` loads TUI features. Put the settings below in `quota-toast.jsonc`, not `tui.jsonc`.
 
-For more examples, see [Common configuration](#common-configuration). For every option, see [Full configuration reference](#full-configuration-reference).
+## Common changes
 
-## Common configuration
+| You want                                 | Setting                       |
+| ---------------------------------------- | ----------------------------- |
+| Find providers automatically             | `enabledProviders: "auto"`    |
+| Show every reset period                  | `formatStyle: "allWindows"`   |
+| Show one quota window per provider       | `formatStyle: "singleWindow"` |
+| Show quota used instead of left          | `percentDisplayMode: "used"`  |
+| Show slash results with messages         | `tuiCommandDisplay: "inline"` |
+| Show slash results in a TUI popup        | `tuiCommandDisplay: "dialog"` |
+| Turn the TUI sidebar on or off           | `tuiSidebarPanel.enabled`     |
+| Turn popup quota notifications on or off | `enableToast`                 |
+| Turn the compact quota line on or off    | `tuiCompactStatus.enabled`    |
+| Show or hide session input/output tokens | `showSessionTokens`           |
 
-Customize these settings in `opencode-quota/quota-toast.json`, next to the OpenCode config for your install scope.
+The installer chooses `allWindows` by default. If the setting is absent, the built-in default is `singleWindow`.
 
-Common locations:
+### Example
 
-- Project install: `<your-repo>/opencode-quota/quota-toast.json`
-- Global install: usually `~/.config/opencode/opencode-quota/quota-toast.json`
-- Custom config dir: `$OPENCODE_CONFIG_DIR/opencode-quota/quota-toast.json`
+```jsonc
+{
+  // Find providers from OpenCode configuration and authentication.
+  "enabledProviders": "auto",
 
-If you are unsure, run `/quota_status` or check the install-scope paths above.
+  // Show every quota reset period as percentage remaining.
+  "formatStyle": "allWindows",
+  "percentDisplayMode": "remaining",
 
-### OpenCode provider declaration precedence
+  // Keep TUI slash-command results with normal messages.
+  "tuiCommandDisplay": "inline",
 
-An OpenCode `provider` declaration tells OpenCode how a provider is configured; it is separate from the OpenCode Quota sidecar above. Detection reads the selected global `opencode.jsonc` or `opencode.json` first, then the selected project file. A project declaration overrides the same global provider only for that project.
+  // Show the sidebar, but not toast or compact status.
+  "tuiSidebarPanel": { "enabled": true },
+  "enableToast": false,
+  "tuiCompactStatus": { "enabled": false },
+}
+```
 
-In auto-detect mode, working auth for a built-in provider can add a missing empty declaration to the selected global OpenCode config. The write uses the existing global JSON or JSONC format; when the global file does not exist, it uses the selected project format and otherwise defaults to JSONC. Project config is never automatically written, and an existing project declaration counts as configured for that project.
+Restart OpenCode after changing the file.
 
-### Custom providers
+## Custom providers
 
-A **quota provider definition** is one ordered item in `quotaProviders`. OpenCode Quota creates it; OpenCode uses the matching normal provider/model declaration as a read-only input.
+A custom provider connects OpenCode Quota to a provider that is not built in, or lets you tune a maintained local estimate.
 
-#### Guided setup
-
-Run:
+Use the guided command:
 
 ```bash
 npx @slkiser/opencode-quota@latest provider add
 ```
 
-The command asks only for structure, shows the exact file and complete output, then asks before writing. It never asks for a key. New files are JSONC with explanatory comments; existing `opencode.json` files remain strict JSON. Re-running the command with the same `id` updates that item in place.
+It asks what kind of provider you have, previews the exact global change, and asks before writing. It never asks for a secret.
 
-The destination is the authoritative global quota config. If `opencode-quota/quota-toast.jsonc` or `.json` exists, the command updates that sidecar directly. Otherwise it uses the global `<OpenCode user config dir>/opencode.jsonc` or `opencode.json`, inside `experimental.quotaToast.quotaProviders`. Project/workspace definitions are rejected and never executed. A project OpenCode provider/model declaration may still override its global declaration for matching in that project.
+The command updates the active global quota config. If a global `quota-toast.jsonc` or `.json` exists, it uses that file. Otherwise it uses the global `opencode.jsonc` or `.json`. Project custom-provider definitions are not allowed.
 
-#### Complete host-config fallback example
+<details>
+<summary><strong>How custom providers work</strong></summary>
 
-When no quota sidecar exists, the guided command writes this shape to the global OpenCode config:
+- **Remote API:** reads real quota data from a supported HTTPS endpoint.
+- **Local estimate:** counts matching OpenCode requests and can estimate spend.
+- OpenCode Quota tries models.dev pricing automatically.
+- Add `pricingModelMap` only when automatic matching cannot find one clear model.
+- Generated counters live under `~/.local/state/opencode/opencode-quota/`.
+
+A custom model provider still needs its normal OpenCode `provider` block. That block tells OpenCode how to use the model; `quotaProviders` tells OpenCode Quota how to measure it.
+
+</details>
+
+<details>
+<summary><strong>Complete fallback example</strong></summary>
+
+When no separate quota settings file exists, the guided command uses the global OpenCode config.
+
+The command writes the `experimental.quotaToast.quotaProviders` section. Configure the normal OpenCode `provider` block separately:
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
   "experimental": {
-    // OpenCode Quota settings. Project quota-provider definitions are never trusted.
     "quotaToast": {
-      // Use this only when replacing auto detection with a manual list.
-      "enabledProviders": ["quota-providers"],
-
-      // Ordered global-only definitions. Stable ids control state, cache, and provenance.
+      "enabledProviders": "auto",
       "quotaProviders": [
         {
-          // This id differs from the OpenCode provider, so providerId is required.
           "id": "openrouter-primary",
           "providerId": "openrouter",
           "label": "OpenRouter Primary",
@@ -84,11 +105,8 @@ When no quota sidecar exists, the guided command writes this shape to the global
           "url": "https://openrouter.ai/api/v1/key",
           "format": "openrouter-key-v1",
           "apiKeyEnv": "OPENROUTER_API_KEY",
-          // Exact model ids do not include the provider prefix.
-          "modelIds": ["anthropic/claude-sonnet-4"],
         },
         {
-          // providerId is omitted because it defaults to id.
           "id": "private-gateway",
           "label": "Private Gateway Estimate",
           "mode": "local-estimate",
@@ -101,20 +119,11 @@ When no quota sidecar exists, the guided command writes this shape to the global
               "requestLimit": 1000,
               "usdBudget": 25,
             },
-            {
-              "id": "rolling",
-              "label": "Five hour",
-              "type": "rolling",
-              "durationMinutes": 300,
-              "requestLimit": 300,
-            },
           ],
         },
       ],
     },
   },
-
-  // A truly custom provider still needs an ordinary OpenCode provider/model declaration.
   "provider": {
     "private-gateway": {
       "models": {
@@ -125,45 +134,37 @@ When no quota sidecar exists, the guided command writes this shape to the global
 }
 ```
 
-#### Field rules
-
-- `id` is stable identity and defaults `providerId`. Set `providerId` only when it differs.
-- Exactly two modes exist: `remote-api` and `local-estimate`.
-- `modelIds` is optional and affects only `onlyCurrentModel`; entries are exact case-sensitive model ids without the provider prefix.
-- `remote-api` performs a fixed authenticated `GET`. Only `accounting-v1` and `openrouter-key-v1` are accepted. URLs require HTTPS, except loopback HTTP.
-- `local-estimate` supports explicit UTC-day and bounded rolling windows. Every window has a request limit; `usdBudget` belongs to that declared window.
-- Automatic models.dev matching runs first. Use `pricingModelMap` only for a source model whose automatic match is missing or ambiguous; it cannot override a successful automatic match.
-- If a budget contains unpriced requests, request counts remain visible and the budget percentage is reported unavailable rather than understated.
-- Credentials resolve as `apiKeyEnv` → trusted global `provider.<providerId>.options.apiKey` → strict API-key OpenCode `auth.json`.
-- Definitions run automatically when matching providers exist. An explicit `enabledProviders` list wins through the aggregate id `quota-providers`.
-
-`/connect` → **Other** stores a credential only. For a truly custom provider, keep the ordinary OpenCode provider/model block shown above. The guided command previews that required block separately but does not pretend it was created.
-
-Qwen Code and Alibaba Coding Plan are maintained providers. Define `id: "qwen-code"` or `id: "alibaba-coding-plan"` with the exact maintained local-estimate window shapes to tune their limits; do not add duplicate normal provider blocks. Generated counters remain under `~/.local/state/opencode/opencode-quota/`; `/quota_status` shows each exact absolute path, existence, health/version, and last update without showing counter contents.
-
-See [Providers](providers.md#custom-providers) for response and security contracts.
-
-### Maintainer announcements and privacy
-
-Announcements are bundled only: no remote fetches, announcement telemetry, or persisted dismiss state. Use `/quota_announcements` to read active notices and `/quota_status` for counts/diagnostics. See **Configure maintainer announcements** below for options.
+</details>
 
 <details>
-<summary><strong>Choose providers explicitly</strong></summary>
+<summary><strong>Custom-provider rules</strong></summary>
+
+- `quotaProviders` is global-only and keeps file order.
+- `id` is the stable identity. Add `providerId` only when it differs.
+- `modelIds` affects only `onlyCurrentModel`. Use exact, case-sensitive model IDs without the outer provider prefix, or omit it to cover every model for that provider.
+- Remote APIs use a fixed authenticated `GET`. Supported formats are `accounting-v1` and `openrouter-key-v1`.
+- Local estimates support 1–16 UTC-day or rolling request windows.
+- Automatic models.dev matching runs first. `pricingModelMap` cannot override a successful automatic match.
+- If any request cannot be priced, request counts stay visible and the budget percentage is reported unavailable.
+- Credentials resolve from `apiKeyEnv`, trusted global `provider.<providerId>.options.apiKey`, then API-key entries in OpenCode `auth.json`.
+- Definitions run automatically with `enabledProviders: "auto"`. A manual list must include `quota-providers` and every built-in provider you still want.
+- To tune maintained estimates, use the reserved `qwen-code` or `alibaba-coding-plan` ID and its maintained window shape. Do not add a duplicate normal provider block.
+- Project secrets, scripts, custom headers, executable mappings, regular expressions, and JSONPath are not accepted.
+
+Run `/quota_status` to see the exact state path and safe authentication source without exposing secrets.
+
+</details>
+
+See [Providers](providers.md#custom-providers) for response formats and setup details.
+
+## More recipes
+
+<details>
+<summary><strong>Choose providers yourself</strong></summary>
 
 ```jsonc
 {
   "enabledProviders": ["copilot", "openai", "google-gemini-cli"],
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Show all quota reset periods</strong></summary>
-
-```jsonc
-{
-  "formatStyle": "allWindows",
 }
 ```
 
@@ -181,53 +182,7 @@ Announcements are bundled only: no remote fetches, announcement telemetry, or pe
 </details>
 
 <details>
-<summary><strong>Turn off TUI popup toasts</strong></summary>
-
-Keeps terminal checks, any enabled UI surfaces, and `/quota`/`/quota_status`.
-
-```jsonc
-{
-  "enableToast": false,
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Configure maintainer announcements</strong></summary>
-
-```jsonc
-{
-  "maintainerAnnouncements": {
-    "enabled": true,
-    "home": true,
-  },
-}
-```
-
-Set `enabled: false` to disable automatic announcement surfaces. `/quota_announcements` lists active bundled notices while announcements are enabled.
-
-</details>
-
-<details>
-<summary><strong>Turn off the Sidebar panel</strong></summary>
-
-Useful when you want Compact status line only, toasts only, or inline slash commands without the Sidebar panel.
-
-```jsonc
-{
-  "tuiSidebarPanel": {
-    "enabled": false,
-  },
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Keep Compact status line on home only</strong></summary>
-
-Useful when you want the compact line on the home screen but not in the chat/session prompt area.
+<summary><strong>Keep compact status on Home only</strong></summary>
 
 ```jsonc
 {
@@ -242,7 +197,23 @@ Useful when you want the compact line on the home screen but not in the chat/ses
 </details>
 
 <details>
-<summary><strong>Increase provider request timeout</strong></summary>
+<summary><strong>Change maintainer notices</strong></summary>
+
+```jsonc
+{
+  "maintainerAnnouncements": {
+    "enabled": true,
+    "home": true,
+  },
+}
+```
+
+Set `enabled` to `false` to turn automatic notices off.
+
+</details>
+
+<details>
+<summary><strong>Allow more time for provider requests</strong></summary>
 
 ```jsonc
 {
@@ -253,9 +224,7 @@ Useful when you want the compact line on the home screen but not in the chat/ses
 </details>
 
 <details>
-<summary><strong>Write quota export file</strong></summary>
-
-Writes a JSON file after each TUI background refresh for consumption by external tools (tmux, scripts, CI). See [External integration](external-integration.md).
+<summary><strong>Write quota JSON for another tool</strong></summary>
 
 ```jsonc
 {
@@ -265,18 +234,18 @@ Writes a JSON file after each TUI background refresh for consumption by external
 }
 ```
 
+See [External integration](external-integration.md).
+
 </details>
 
 <details>
-<summary><strong>Advanced: legacy config sync</strong></summary>
-
-By default, the installer writes quota settings only to `opencode-quota/quota-toast.json`. If you also want it to write the legacy OpenCode block, run:
+<summary><strong>Advanced: also write the older OpenCode settings block</strong></summary>
 
 ```bash
 npx @slkiser/opencode-quota init --sync-legacy-config
 ```
 
-This is only for users who intentionally want `experimental.quotaToast` mirrored into `opencode.json` / `opencode.jsonc`.
+Use this only if another tool needs `experimental.quotaToast` mirrored into `opencode.jsonc` or `.json`.
 
 </details>
 

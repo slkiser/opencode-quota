@@ -1,52 +1,45 @@
-# Troubleshooting
-
 [← Back to README](../../README.md)
 
-Debug checklist, common symptoms, provider-specific fixes, and token report troubleshooting.
+# Troubleshooting
 
-## Troubleshooting
+Start with `/quota_status`. It shows which config, providers, authentication, and local files OpenCode Quota found.
 
-Start here when quota or token data looks wrong.
+## First checks
 
-1. Run `/quota_status`, or start with `opencode-quota show` for a terminal quota summary.
-2. Confirm the expected provider appears in the detected provider list.
-3. Confirm companion auth plugins are before `@slkiser/opencode-quota` in `opencode.json`.
-4. If token reports are empty, start OpenCode once so it creates `opencode.db`, then run a session with model usage.
-5. Use the provider-specific table below for the failing provider.
+1. Run `/quota_status`.
+2. Find the provider or feature that is failing.
+3. Follow the matching fix below.
+4. Restart OpenCode after changing config or authentication.
 
-## Update OpenCode Quota safely
+If every provider is missing, confirm OpenCode Quota is listed in `opencode.jsonc` or `.json`. For TUI commands and displays, also confirm it is listed in `tui.jsonc` or `.json`.
 
-1. Close OpenCode.
-2. Run:
+## Common problems
 
-   ```bash
-   npx @slkiser/opencode-quota@latest update
-   ```
+| Problem                                                 | Try this                                                                                                                                          |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Slash commands are missing                              | Check the plugin entries above, then restart OpenCode.                                                                                            |
+| TUI command results appear in the wrong place           | Use `tuiCommandDisplay: "inline"` for normal messages or `"dialog"` for a popup. Home always uses a popup because there is no session transcript. |
+| `/quota` shows no providers                             | Run `/quota_status`, then check provider detection and authentication.                                                                            |
+| Sidebar is missing                                      | Confirm the TUI plugin is installed and `tuiSidebarPanel.enabled` is `true`.                                                                      |
+| Compact line is missing                                 | Confirm the TUI plugin is installed and `tuiCompactStatus.enabled` is `true`. If needed, check `suppressWhenNativeProviderQuota`.                 |
+| Compact line appears on Home only                       | Set `tuiCompactStatus.sessionPrompt` to `true`.                                                                                                   |
+| TUI toast is missing                                    | Check `enableToast`, `showOnIdle`, `showOnQuestion`, and `showOnCompact`. Toasts are not available in Web.                                        |
+| Token reports are empty                                 | Start OpenCode once, then use a model so `opencode.db` contains usage.                                                                            |
+| Pricing looks old                                       | Run `/pricing_refresh`.                                                                                                                           |
+| Web shows `Failed to send command` after correct output | The command already worked. Do not retry. This is a known OpenCode 1.18.2 notification problem; no model was called.                              |
 
-3. Review the exact config edits and cache directories, then confirm.
-4. Restart OpenCode.
+## Update safely
 
-Use `--dry-run` to preview without changing anything. Use `--yes` only for explicit noninteractive confirmation. The update command changes only canonical OpenCode Quota plugin entries and removes only verified OpenCode Quota cache directories; it preserves settings, JSONC comments, tuple options, and other plugins.
+Close OpenCode, preview the update, then apply it:
 
-### Common symptoms
+```bash
+npx @slkiser/opencode-quota@latest update --dry-run
+npx @slkiser/opencode-quota@latest update
+```
 
-| Symptom                                                          | Try this                                                                                                                                                                                                                                                                                                      |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/quota` or other slash commands do not appear                   | For TUI slash/palette dialogs, confirm `tui.json` includes `@slkiser/opencode-quota`. For Web/Desktop output, confirm `opencode.json` includes it. Restart OpenCode after either change.                                                                                                                      |
-| Command output appears in the wrong TUI location                 | Set `tuiCommandDisplay` to `"inline"` for the active session transcript (default) or `"dialog"` for the local popup, then restart OpenCode. Inline mode uses the dialog on Home because no transcript exists there.                                                                                           |
-| `/quota` shows no providers                                      | Run `/quota_status`, then check provider detection and auth. You can also use `opencode-quota show` for a terminal quota summary.                                                                                                                                                                             |
-| Sidebar panel does not appear                                    | Confirm `tui.json` includes `@slkiser/opencode-quota`, restart OpenCode, and check `tuiSidebarPanel.enabled`.                                                                                                                                                                                                 |
-| Compact status line does not appear anywhere                     | Confirm `tui.json` includes `@slkiser/opencode-quota`, restart OpenCode, check `tuiCompactStatus.enabled`, and check whether `tuiCompactStatus.suppressWhenNativeProviderQuota` is hiding it because OpenCode exposes native provider-quota support.                                                          |
-| Compact status appears on home but not in chat/session           | Check `tuiCompactStatus.sessionPrompt`; set it to `true` to show the chat/session prompt line.                                                                                                                                                                                                                |
-| Popup toasts do not appear in the TUI                            | Check `enableToast`, `showOnIdle`, `showOnQuestion`, and `showOnCompact`. OpenCode 1.18.2 Web does not surface the TUI toast event; Safari/macOS notification permissions do not enable it.                                                                                                                   |
-| Announcement home notice does not appear                         | Confirm `tui.json` includes `@slkiser/opencode-quota`, restart OpenCode, then check `maintainerAnnouncements.enabled`, `maintainerAnnouncements.home`, and the active count in the `maintainer_announcements` section of `/quota_status`.                                                                     |
-| Token reports are empty                                          | Start OpenCode once so `opencode.db` exists, then run a session with model usage.                                                                                                                                                                                                                             |
-| Pricing looks stale                                              | Run `/pricing_refresh`.                                                                                                                                                                                                                                                                                       |
-| `/tokens_between` needs dates                                    | In TUI, choose the command and enter `YYYY-MM-DD YYYY-MM-DD` in its prompt dialog. In Web/Desktop, run `/tokens_between YYYY-MM-DD YYYY-MM-DD` inline.                                                                                                                                                        |
-| Quota provider is missing or failing                             | Confirm the exact `providerId` exists at runtime and the definition is in global OpenCode `experimental.quotaToast.quotaProviders`. With manual selection, enable `quota-providers`. Then inspect `quota_providers` in `/quota_status`.                                                                       |
-| Web shows `Failed to send command` after correct `/quota` output | In OpenCode 1.18.2 this is a false handled-command notification: the deterministic ignored/no-reply output already rendered and no model was called. Do not retry automatically after output appears. OpenCode has no clean server-command cancellation API, so this remains an accepted upstream limitation. |
+The updater preserves unrelated settings, comments, and plugins. Restart OpenCode when it finishes.
 
-### Provider troubleshooting
+## Provider fixes
 
 <details>
 <summary><strong>Custom providers</strong></summary>

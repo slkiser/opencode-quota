@@ -1,23 +1,27 @@
-# External integration
-
 [← Back to README](../../README.md)
 
-Use this when another tool needs quota data: shell scripts, tmux, Starship, CI, status bars, or routers.
+# External integration
 
-There are two ways to get the same JSON data:
+Use this page when a script, status bar, or CI job needs quota data.
 
-| Use this                     | When you want                                                               |
-| ---------------------------- | --------------------------------------------------------------------------- |
-| `opencode-quota show --json` | A command that prints quota JSON now                                        |
-| Export file                  | A file other tools can read repeatedly without running a command every time |
+Choose one source:
 
-Both use the local provider cache. They do **not** make extra provider network requests.
+| Source                       | Best for                                              |
+| ---------------------------- | ----------------------------------------------------- |
+| `opencode-quota show --json` | Reading the latest cached data from a command         |
+| Export file                  | Reading the same data often without running a command |
+
+Both read OpenCode Quota's local cache. They do not contact providers.
 
 ## JSON export v2
 
-Both surfaces emit schema `version: 2`. Provider entries stay flat. Every row includes `resultType`, `renderType`, acquisition/ownership/authority metadata, and its percent or value payload. A provider with both successful rows and sanitized errors has `status: "partial"` and includes both `entries` and `errors`. Rows produced by a configured `quotaProviders` definition also include its stable `sourceId`; `providers["quota-providers"]` adds an ordered `sources` array with each definition's `id`, effective `providerId`, coarse `status`, and `entryCount`.
+Both sources return schema `version: 2`.
 
-Credential category, environment name, checked paths, URLs, and raw provider responses remain excluded from public JSON. Use `/quota_status` for live diagnostics. Export and CLI JSON remain cache-only.
+Each provider has a status and a list of quota rows. A row says what it measures, whether it is a percentage or value, and where the data came from. `status: "partial"` means some rows worked and some failed.
+
+A row from a configured `quotaProviders` definition includes `sourceId`. `providers["quota-providers"]` also includes a `sources` list so another tool can match results to definitions.
+
+Secrets, URLs, checked paths, and raw provider responses remain excluded from public JSON. Use `/quota_status` for live checks. The command and export file only read cached data.
 
 ## Option 1: print JSON now
 

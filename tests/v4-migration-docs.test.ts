@@ -44,7 +44,8 @@ describe("v4 migration documentation contract", () => {
     expect(exportTypes).toContain("version: 2;");
     expect(migration).toContain("schema `version: 2`");
     expect(migration).toContain("[External integration](external-integration.md)");
-    expect(configuration).toContain("experimental.quotaToast.quotaProviders");
+    expect(configuration).toContain("experimental.quotaToast");
+    expect(configuration).toContain("quotaProviders");
     expect(configuration).toContain("do not duplicate it in a second file");
   });
 
