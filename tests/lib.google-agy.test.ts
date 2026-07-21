@@ -376,21 +376,47 @@ describe("google agy logic", () => {
   });
 
   describe("detectQuotaWindow", () => {
-    it.each([
-      ["weekly", "weekly"],
-      ["monthly", "monthly"],
-      ["daily", "daily"],
-      ["session", "session"],
-      ["WEEKLY", "weekly"],
-      ["Weekly", "weekly"],
-      [undefined, "unknown"],
-      [null, "unknown"],
-      ["", "unknown"],
-      ["TOKENS", "unknown"],
-      ["REQUESTS", "unknown"],
-      ["some-unknown-type", "unknown"],
-    ])("maps tokenType=%s to window=%s", (tokenType, expected) => {
-      expect(detectQuotaWindow(tokenType)).toBe(expected);
+    describe("from tokenType", () => {
+      it.each([
+        ["weekly", "weekly"],
+        ["monthly", "monthly"],
+        ["daily", "daily"],
+        ["session", "session"],
+        ["WEEKLY", "weekly"],
+        ["Weekly", "weekly"],
+        [undefined, "unknown"],
+        [null, "unknown"],
+        ["", "unknown"],
+        ["TOKENS", "unknown"],
+        ["REQUESTS", "unknown"],
+        ["WTUS", "unknown"],
+        ["some-unknown-type", "unknown"],
+      ])("maps tokenType=%s to window=%s", (tokenType, expected) => {
+        expect(detectQuotaWindow(tokenType)).toBe(expected);
+      });
+    });
+
+    describe("inference from resetTime when tokenType is opaque", () => {
+      const now = Date.now();
+      const in5hours = new Date(now + 5 * 3_600_000).toISOString();
+      const in3days = new Date(now + 3 * 24 * 3_600_000).toISOString();
+      const in20days = new Date(now + 20 * 24 * 3_600_000).toISOString();
+
+      it.each([
+        ["WTUS", "daily", in5hours],
+        ["WTUS", "weekly", in3days],
+        ["WTUS", "monthly", in20days],
+        [undefined, "daily", in5hours],
+        [undefined, "weekly", in3days],
+        [undefined, "monthly", in20days],
+      ])("tokenType=%s reset in %s => %s", (tokenType, expected, resetTimeIso) => {
+        expect(detectQuotaWindow(tokenType, resetTimeIso)).toBe(expected);
+      });
+    });
+
+    it("prefers tokenType over resetTime inference", () => {
+      const in3days = new Date(Date.now() + 3 * 24 * 3_600_000).toISOString();
+      expect(detectQuotaWindow("monthly", in3days)).toBe("monthly");
     });
   });
 });

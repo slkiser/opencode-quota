@@ -477,20 +477,43 @@ export function formatDisplayName(modelId: string): string {
 }
 
 /**
- * Infer the quota window type from a bucket's tokenType field.
+ * Infer the quota window type from a bucket's tokenType and/or resetTime.
  *
- * The Antigravity API can return multiple buckets for the same modelId
- * with different tokenType values representing distinct quota windows
- * (e.g. "weekly", "monthly", "daily", "session").
+ * Priority:
+ * 1. If tokenType explicitly names a window ("weekly", "monthly", "daily", "session"),
+ *    use that directly.
+ * 2. If the resetTime is at least 7 days from now, it is a monthly window.
+ * 3. If the resetTime is at least 24 hours from now, it is a weekly window.
+ * 4. Otherwise fall back to "unknown".
  *
- * When tokenType does not match a known window, fall back to "unknown"
- * so the bucket is still displayed but grouped separately.
+ * The Antigravity API often returns tokenType="WTUS" (weekly token usage)
+ * regardless of the actual window, so reset-time inference is the reliable path.
  */
-export function detectQuotaWindow(tokenType: string | undefined | null): GoogleAgyQuotaWindow {
+export function detectQuotaWindow(
+  tokenType: string | undefined | null,
+  resetTimeIso?: string | undefined | null,
+): GoogleAgyQuotaWindow {
   const type = (tokenType ?? "").toLowerCase().trim();
   if (type === "daily" || type === "weekly" || type === "monthly" || type === "session") {
     return type;
   }
+
+  // Infer window from reset distance when tokenType is opaque.
+  if (resetTimeIso) {
+    try {
+      const now = Date.now();
+      const reset = new Date(resetTimeIso).getTime();
+      const hoursUntilReset = (reset - now) / 3_600_000;
+      if (Number.isFinite(hoursUntilReset)) {
+        if (hoursUntilReset <= 24) return "daily";
+        if (hoursUntilReset <= 24 * 7) return "weekly";
+        return "monthly";
+      }
+    } catch {
+      // Fall through to "unknown".
+    }
+  }
+
   return "unknown";
 }
 
@@ -535,7 +558,8 @@ function mapQuotaBuckets(
       }
 
       const tokenType = normalizeString(bucket.tokenType);
-      const window = detectQuotaWindow(tokenType);
+      const resetTimeIso = normalizeString(bucket.resetTime);
+      const window = detectQuotaWindow(tokenType, resetTimeIso);
 
       return {
         modelId,
