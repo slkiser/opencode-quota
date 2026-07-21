@@ -76,9 +76,14 @@ describe("README provider ledger", () => {
     for (const document of [readme, providerGuide]) {
       expect(document).toContain("Pre-configured providers");
       expect(document).toContain("Custom providers");
-      expect(document).toContain(customReports);
       expect(document).toContain("| Data from");
       expect(document).not.toContain("| Source");
     }
+
+    expect(readme).toContain(
+      "A quota provider definition tells OpenCode Quota how to obtain accounting data",
+    );
+    expect(readme).not.toContain(customReports);
+    expect(providerGuide).toContain(customReports);
   });
 });

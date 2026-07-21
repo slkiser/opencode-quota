@@ -37,21 +37,24 @@ describe("quota provider Phase 7 documentation consistency", () => {
     });
   });
 
-  it("documents the global-only editor, modes, auth, matching, state, and export", () => {
+  it("keeps the README concise and the detailed provider guides complete", () => {
     const readme = read("README.md");
     const configuration = read("docs/readme/configuration.md");
     const providers = read("docs/readme/providers.md");
     const troubleshooting = read("docs/readme/troubleshooting.md");
     const external = read("docs/readme/external-integration.md");
 
-    for (const document of [readme, configuration]) {
-      expect(document).toContain("provider add");
-      expect(document).toContain("experimental.quotaToast");
-      expect(document).toContain("quotaProviders");
-      expect(document).toContain("JSONC");
-    }
+    expect(readme).toContain("provider add");
+    expect(readme).toContain("[Provider setup guide](docs/readme/providers.md#custom-providers)");
+    expect(readme).not.toContain("experimental.quotaToast");
+    expect(readme).not.toContain("apiKeyEnv");
 
-    for (const document of [readme, configuration, providers]) {
+    expect(configuration).toContain("provider add");
+    expect(configuration).toContain("experimental.quotaToast");
+    expect(configuration).toContain("quotaProviders");
+    expect(configuration).toContain("JSONC");
+
+    for (const document of [configuration, providers]) {
       expect(document).toContain("apiKeyEnv");
       expect(document).toContain("provider.<providerId>.options.apiKey");
       expect(document).toContain("auth.json");
@@ -81,6 +84,21 @@ describe("quota provider Phase 7 documentation consistency", () => {
       "Each summary is exactly `id`, effective `providerId`, coarse `status`, and `entryCount`",
     );
     expect(external).toContain("raw provider responses remain excluded from public JSON");
+  });
+
+  it("links to the authoritative external references used by the README", () => {
+    const readme = read("README.md");
+
+    for (const url of [
+      "https://opencode.ai/docs/",
+      "https://opencode.ai/docs/config/",
+      "https://opencode.ai/docs/plugins/",
+      "https://opencode.ai/docs/tui/",
+      "https://models.dev/",
+      "https://nodejs.org/en/download",
+    ]) {
+      expect(readme).toContain(`](${url})`);
+    }
   });
 
   it("keeps copy-paste integrations independent of entry order", () => {

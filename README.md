@@ -7,7 +7,7 @@
     </picture>
   </a>
 </p>
-<p align="center">Quota, usage, and token visibility for OpenCode and CLI.</p>
+<p align="center">Quota, usage, and token visibility in OpenCode and your terminal.</p>
 <p align="center">
   <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm" src="https://img.shields.io/npm/v/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
   <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm downloads" src="https://img.shields.io/npm/dm/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
@@ -28,18 +28,14 @@ npx @slkiser/opencode-quota init
 > [!IMPORTANT]
 > Node.js `>= 22` is required.
 
-The installer first asks whether you use **TUI**, **Web**, or **Both**, then recommends the global scope. TUI and Both install the server and TUI plugins; Web installs only the server plugin. For TUI surfaces, the Sidebar panel is selected by default; Toast, Compact status line, and exclusive Manual commands only are also available. Web slash commands stay inline because TUI surfaces and popup dialogs are unavailable.
-
-**JSONC** is the recommended format for OpenCode config and `opencode-quota/quota-toast.jsonc`; strict JSON remains supported. Existing installer-owned answers are prefilled on rerun, deliberate changes are previewed with old/new values, and unrelated settings and JSONC comments are preserved. Selecting JSONC safely validates and atomically converts an existing `quota-toast.json`, removing the old JSON only after the new file succeeds. Use `npx @slkiser/opencode-quota init --dry-run` to preview without changing files. Custom providers are configured after installation with `npx @slkiser/opencode-quota@latest provider add`.
-
-In auto-detect mode, when OpenCode Quota finds working auth for a built-in provider but no matching OpenCode `provider` declaration, it adds an empty declaration to the selected global `opencode.jsonc` or `opencode.json`. It preserves that file's format; if the global file is new, it uses the selected project format. Project declarations are read as project-only overrides and are never automatically written.
-
 Upgrading from v3? Read the [v4 migration guide](docs/readme/v4-migration.md).
 
+After installation:
+
 1. Restart OpenCode.
-2. Run Slash commands in OpenCode, or use `opencode-quota show` from your terminal.
-3. If you enabled the Sidebar panel, open the session sidebar and look for `Quota`.
-4. If you enabled Compact status line, look for the home-bottom quota line and the chat/session prompt quota line.
+2. Run a slash command in OpenCode, or use `opencode-quota show` from your terminal.
+3. If you enabled the sidebar, open the session sidebar and look for `Quota`.
+4. If you enabled the compact status line, look at the bottom of Home or below the message input.
 5. If something looks wrong, run `/quota_status` in OpenCode or see [Troubleshooting](docs/readme/troubleshooting.md).
 
 ## Updating
@@ -54,7 +50,7 @@ Upgrading from v3? Read the [v4 migration guide](docs/readme/v4-migration.md).
 3. Review the exact config edits and cache directories, then confirm.
 4. Restart OpenCode.
 
-Use `--dry-run` to preview without changing anything. Without it, `update` prints the preview and asks for confirmation before applying changes; use `--yes` only for explicit noninteractive confirmation. The update command changes only canonical OpenCode Quota plugin entries and removes only verified OpenCode Quota cache directories; it preserves the selected existing JSON/JSONC filename, settings, JSONC comments, tuple options, and other plugins.
+Use `--dry-run` to preview without changing anything. Otherwise, `update` shows the OpenCode Quota config and cache changes and asks before applying them. It leaves your other plugins and settings alone. Use `--yes` only when you intentionally need a noninteractive run.
 
 ## What you get
 
@@ -69,7 +65,7 @@ Use `--dry-run` to preview without changing anything. Without it, `update` print
   </tr>
   <tr>
     <td width="50%" align="center"><strong>Sidebar panel</strong><br />A full quota view in OpenCode's session sidebar.</td>
-    <td width="50%" align="center"><strong>TUI toast</strong><br />Quota checks can pop up in the TUI after idle, question, or compact events.</td>
+    <td width="50%" align="center"><strong>TUI toast</strong><br />Quota checks can appear automatically while you work.</td>
   </tr>
   <tr>
     <td width="50%">
@@ -80,17 +76,17 @@ Use `--dry-run` to preview without changing anything. Without it, `update` print
     </td>
   </tr>
   <tr>
-    <td width="50%" align="center"><strong>Compact status line</strong><br />Short quota text on home and chat/session prompt surfaces.</td>
+    <td width="50%" align="center"><strong>Compact status line</strong><br />Short quota text on Home and below the message input.</td>
     <td width="50%" align="center"><strong>Token reports</strong><br /><code>/tokens_today</code>, <code>/tokens_weekly</code>, session reports, and more.</td>
   </tr>
 </table>
 
 More ways to use it:
 
-- Terminal checks with `opencode-quota show` before or without opening OpenCode
-- JSON output for scripts, status bars, CI checks, and external tools
-- Deterministic slash commands built from the same content: native TUI command output is inline by default (or a configured dialog), while Web/Desktop receives clean plain text
-- Provider diagnostics for auth, quota sources, pricing, and bundled maintainer announcements
+- Check quota from a terminal with `opencode-quota show`
+- Use JSON output in scripts, status bars, CI checks, and other tools
+- Run the same slash commands in the TUI, Web, and Desktop
+- Diagnose authentication, quota sources, pricing, and maintainer notices
 
 See [Configuration](docs/readme/configuration.md) for UI options and [Manual install](docs/readme/manual-install.md) for setup details.
 
@@ -98,22 +94,20 @@ See [Configuration](docs/readme/configuration.md) for UI options and [Manual ins
 
 ### Core slash commands
 
-OpenCode 1.18.2 uses two deterministic command surfaces. The TUI plugin registers each slash/palette command once. `tuiCommandDisplay` defaults to `"inline"`, which inserts command output into the active session transcript as an ignored, no-reply message. `"dialog"` keeps output in the local popup, and Inline mode also uses that popup on Home because no transcript exists there. Commands with optional TUI input still collect it in a dialog, then send the final output to the configured destination. Web/Desktop remains clean plain text and does not read this TUI setting. No path calls a model or `session.command`.
-
-| Command                                 | Use when                                                             |
-| --------------------------------------- | -------------------------------------------------------------------- |
-| `/quota`                                | Show compact fixed-label rows with aligned 10-character percent bars |
-| `/quota_status`                         | Diagnose setup, auth, provider detection, pricing, and announcements |
-| `/quota_announcements`                  | Read active bundled maintainer notices                               |
-| `/pricing_refresh`                      | Refresh local runtime pricing from `models.dev`                      |
-| `/tokens_today`                         | Show tokens used today                                               |
-| `/tokens_daily`                         | Show tokens used in the last 24 hours                                |
-| `/tokens_weekly`                        | Show tokens used in the last 7 days                                  |
-| `/tokens_monthly`                       | Show tokens used in the last 30 days, including pricing              |
-| `/tokens_all`                           | Show tokens used across all local history                            |
-| `/tokens_session`                       | Show tokens used in the current session                              |
-| `/tokens_session_all`                   | Show current session plus descendant sessions                        |
-| `/tokens_between YYYY-MM-DD YYYY-MM-DD` | Show tokens used between two dates                                   |
+| Command                                 | Use when                                                        |
+| --------------------------------------- | --------------------------------------------------------------- |
+| `/quota`                                | Show current quota                                              |
+| `/quota_status`                         | Diagnose setup, authentication, providers, pricing, and notices |
+| `/quota_announcements`                  | Read active bundled maintainer notices                          |
+| `/pricing_refresh`                      | Refresh local runtime pricing from `models.dev`                 |
+| `/tokens_today`                         | Show tokens used today                                          |
+| `/tokens_daily`                         | Show tokens used in the last 24 hours                           |
+| `/tokens_weekly`                        | Show tokens used in the last 7 days                             |
+| `/tokens_monthly`                       | Show tokens used in the last 30 days, including pricing         |
+| `/tokens_all`                           | Show tokens used across all local history                       |
+| `/tokens_session`                       | Show tokens used in the current session                         |
+| `/tokens_session_all`                   | Show current session plus descendant sessions                   |
+| `/tokens_between YYYY-MM-DD YYYY-MM-DD` | Show tokens used between two dates                              |
 
 ### CLI commands
 
@@ -158,50 +152,21 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | Ollama Cloud             | [Needs setup](docs/readme/providers.md#ollama-cloud)           | Dashboard scraping | Quota              |
 | OpenCode Go              | [Needs setup](docs/readme/providers.md#opencode-go)            | Dashboard scraping | Quota              |
 
-The `/quota` display uses concise semantic labels such as `Day quota`, `5h quota`, `Day budget`, and `Balance`. Every percentage bar is exactly 10 characters. JSON keeps the precise provider-neutral accounting type.
+The quota view uses short labels such as `Day quota`, `5h quota`, `Day budget`, and `Balance`. Bar width varies by surface. JSON keeps the precise accounting type for scripts.
 
 ### Custom providers
 
-Custom providers can report quota, rate limit, usage, spend, budget, balance, or status.
-
-A **quota provider definition** tells OpenCode Quota how to obtain accounting data for an OpenCode provider. Run the guided command; it asks only structural questions, previews the exact global OpenCode config change, and asks before writing:
+A quota provider definition tells OpenCode Quota how to obtain accounting data for an OpenCode provider. Run the guided command. It asks only structural questions, previews the exact global OpenCode config change, and asks before writing:
 
 ```bash
 npx @slkiser/opencode-quota@latest provider add
 ```
 
-New files default to commented JSONC. Existing strict JSON stays strict JSON. The command never asks for or writes a credential.
-
-The generated definition goes to the authoritative global quota config. When `opencode-quota/quota-toast.jsonc` or `.json` exists, the command updates that sidecar directly; otherwise it uses `experimental.quotaToast.quotaProviders` in global `opencode.jsonc` or `.json`. In manual provider mode it also enables the `quota-providers` aggregate automatically:
-
-```jsonc
-{
-  "enabledProviders": ["openai", "quota-providers"],
-  "quotaProviders": [
-    {
-      "id": "openrouter-primary",
-      "providerId": "openrouter",
-      "label": "OpenRouter Primary",
-      "mode": "remote-api",
-      "url": "https://openrouter.ai/api/v1/key",
-      "format": "openrouter-key-v1",
-      "apiKeyEnv": "OPENROUTER_API_KEY",
-    },
-  ],
-}
-```
-
-Definitions are ordered and global-only. The stable `id` also names the OpenCode provider by default; set `providerId` only when it differs. Custom definitions run in auto mode. If you set `enabledProviders` explicitly, use the one aggregate identity `quota-providers`.
-
-A truly custom provider still needs its normal OpenCode `provider` and model declaration. `/connect` → **Other** stores only its credential. Qwen Code and Alibaba Coding Plan are already maintained providers, so their request limits can be tuned through `quotaProviders` without a duplicate OpenCode provider block.
-
-Credentials resolve from the named environment variable, trusted global `provider.<providerId>.options.apiKey`, then strict API-key OpenCode `auth.json`. Run `/quota_status` for redacted endpoint diagnostics and exact local counter paths. See [Configuration](docs/readme/configuration.md#custom-providers), [Provider setup](docs/readme/providers.md#custom-providers), and [JSON export v2](docs/readme/external-integration.md#json-export-v2).
-
-Setup details live in the [Provider setup guide](docs/readme/providers.md).
+Setup details live in the [Provider setup guide](docs/readme/providers.md#custom-providers).
 
 ## Troubleshooting
 
-Start here when quota or token data looks wrong:
+If quota or token data looks wrong:
 
 1. Run `/quota_status`, or start with `opencode-quota show` for a terminal quota summary.
 2. Confirm the expected provider appears in the detected provider list.
@@ -211,11 +176,22 @@ Start here when quota or token data looks wrong:
 
 ## Reference
 
+Project guides:
+
 - [Manual install](docs/readme/manual-install.md)
 - [Configuration](docs/readme/configuration.md)
 - [Providers](docs/readme/providers.md)
 - [Troubleshooting](docs/readme/troubleshooting.md)
 - [External integration](docs/readme/external-integration.md)
+
+External references:
+
+- [OpenCode docs](https://opencode.ai/docs/)
+- [OpenCode config](https://opencode.ai/docs/config/)
+- [OpenCode plugins](https://opencode.ai/docs/plugins/)
+- [OpenCode TUI](https://opencode.ai/docs/tui/)
+- [models.dev pricing data](https://models.dev/)
+- [Node.js downloads](https://nodejs.org/en/download)
 
 ## Contributors
 
