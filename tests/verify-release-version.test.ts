@@ -40,7 +40,7 @@ describe("release version verification", () => {
   });
 
   it("rejects a tag that does not match package.json", () => {
-    const result = runWithRef("refs/tags/v4.0.0");
+    const result = runWithRef(`refs/tags/v${pkg.version}-mismatch`);
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Version mismatch");
