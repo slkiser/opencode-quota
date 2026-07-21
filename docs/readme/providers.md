@@ -2,7 +2,13 @@
 
 # Providers
 
-Find your provider in the table. Open a setup note only when the table says **Needs setup**.
+## On this page
+
+| Find                                 | Go to                                                                                                                                                                                        |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Provider support                     | [Pre-configured providers](#pre-configured-providers) · [Custom providers](#custom-providers)                                                                                                |
+| Billing, API key, or dashboard setup | [GitHub Copilot](#github-copilot) · [DeepSeek](#deepseek) · [Ollama Cloud](#ollama-cloud) · [OpenCode Go](#opencode-go)                                                                      |
+| CLI or companion-plugin setup        | [Anthropic](#anthropic-claude) · [Cursor](#cursor) · [Qwen Code](#qwen-code) · [Google Antigravity](#google-antigravity) · [Google AGY](#google-agy-quick-setup) · [Gemini CLI](#gemini-cli) |
 
 ## Pre-configured providers
 
