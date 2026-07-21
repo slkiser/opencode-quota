@@ -1,8 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
-import { QUOTA_PROVIDER_MODES, QUOTA_PROVIDER_REMOTE_FORMATS } from "../src/lib/quota-providers.js";
-
 const migration = await readFile(
   new URL("../docs/readme/v4-migration.md", import.meta.url),
   "utf8",
@@ -24,41 +22,38 @@ const configuration = await readFile(
 );
 
 describe("v4 migration documentation contract", () => {
-  it("keeps requirements, migration link, and supported-version surfaces aligned", () => {
+  it("keeps requirements and navigation aligned", () => {
     expect(packageJson.engines?.node).toBe(">=22.0.0");
     expect(packageJson.peerDependencies?.["@opencode-ai/plugin"]).toBe("^1.4.3");
     expect(packageJson.engines).not.toHaveProperty("opencode");
 
-    expect(migration).toContain("OpenCode `>= 1.4.3`");
-    expect(migration).toContain("Node.js `>= 22`");
+    expect(migration).toContain("[← Back to README](../../README.md)");
+    expect(migration).toContain("OpenCode 1.4.3 or newer");
+    expect(migration).toContain("Node.js 22 or newer");
     expect(readme).toContain("[v4 migration guide](docs/readme/v4-migration.md)");
   });
 
-  it("documents only the implemented quota-provider and export contracts", () => {
-    for (const mode of QUOTA_PROVIDER_MODES) expect(migration).toContain(mode);
-    for (const format of QUOTA_PROVIDER_REMOTE_FORMATS) expect(migration).toContain(format);
-
-    expect(migration).toContain('"quotaProviders": [');
-    expect(migration).toContain("<OpenCode user config dir>/opencode.jsonc");
-    expect(migration).toContain("old public `customSources` property was removed and is rejected");
-    expect(migration).toContain("workspace quota-provider definition");
-    expect(migration).toContain("compatibility shim");
-    expect(migration).toContain("Project OpenCode provider/model declarations remain read-only");
-    expect(migration).toContain("[Configuration](configuration.md#custom-providers)");
-    expect(migration).toContain("[Providers](providers.md#custom-providers)");
+  it("explains the user-visible provider and JSON changes", () => {
+    expect(migration).toContain(
+      "v4 replaces the old `customSources` setting with `quotaProviders`",
+    );
+    expect(migration).toContain("npx @slkiser/opencode-quota@latest provider add");
+    expect(migration).toContain("[Provider setup guide](providers.md#custom-providers)");
     expect(migration).not.toContain("custom-accounting-sources");
 
     expect(exportTypes).toContain("version: 2;");
     expect(migration).toContain("schema `version: 2`");
+    expect(migration).toContain("[External integration](external-integration.md)");
     expect(configuration).toContain("experimental.quotaToast.quotaProviders");
     expect(configuration).toContain("do not duplicate it in a second file");
   });
 
-  it("records concrete verification and rollback steps without claiming automatic migration", () => {
-    expect(migration).toContain("## Verify every surface");
-    expect(migration).toContain("## Roll back");
-    expect(migration).toContain("Run `/quota`, then `/quota_status`.");
-    expect(migration).toContain("There is no compatibility reader, alias, automatic migration");
+  it("gives concrete preview, verification, and rollback steps", () => {
+    expect(migration).toContain("npx @slkiser/opencode-quota@latest update --dry-run");
+    expect(migration).toContain("## Check the update");
+    expect(migration).toContain("## Roll back to v3");
+    expect(migration).toContain("Restart OpenCode, then run `/quota` and `/quota_status`.");
+    expect(migration).toContain("The old setting is not read or converted automatically.");
     expect(migration).not.toContain("automatically migrates");
   });
 });

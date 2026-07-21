@@ -1,109 +1,79 @@
-# Migrate from v3 to v4
+[← Back to README](../../README.md)
 
-v4 is a contract release. It keeps the existing provider registry and OpenCode surfaces, but makes accounting meaning explicit and adds safe, user-configured accounting sources.
+# Move from v3 to v4
+
+v4 adds clearer quota results, guided custom-provider setup, and JSON export v2. The updater keeps unrelated OpenCode settings.
 
 ## Requirements
 
-- OpenCode `>= 1.4.3`
-- Node.js `>= 22`
-
-The OpenCode minimum matches the package's existing `@opencode-ai/plugin` peer range. The Node.js minimum matches `package.json` `engines.node`; build and publish automation use Node.js 24.
+- OpenCode 1.4.3 or newer
+- Node.js 22 or newer
 
 ## Before you update
 
 1. Close OpenCode.
-2. Copy your OpenCode user config and `opencode-quota/quota-toast.json` to a backup location.
-3. If another tool reads `opencode-quota show --json` or `quota-export.json`, plan to update it for [JSON export v2](external-integration.md#json-export-v2).
-4. Do not move credentials into a project or workspace file. Quota-provider credentials remain trusted global, OpenCode `auth.json`, or explicit environment variables.
+2. Back up the OpenCode config files you use:
+   - `opencode.json` or `opencode.jsonc`
+   - `tui.json` or `tui.jsonc`
+   - `opencode-quota/quota-toast.json` or `quota-toast.jsonc`
+3. If another app reads `opencode-quota show --json` or `quota-export.json`, review [JSON export v2](external-integration.md#json-export-v2).
+4. Keep provider credentials in OpenCode authentication, global config, or environment variables—not project quota settings.
 
 ## Update
 
-Run the scoped updater, review its preview, and then confirm:
+Preview the changes first:
+
+```bash
+npx @slkiser/opencode-quota@latest update --dry-run
+```
+
+If the preview looks right, apply them:
 
 ```bash
 npx @slkiser/opencode-quota@latest update
 ```
 
-Restart OpenCode after the update. Run `/quota`, then `/quota_status`.
+Restart OpenCode, then run `/quota` and `/quota_status`.
 
-The release workflow derives the package version from the release tag. The repository package version is not a separate compatibility switch.
-
-## What changes in v4
-
-### Accounting results and JSON
-
-Rows now separate:
-
-- accounting meaning: quota, rate limit, usage, spend, budget, balance, or status;
-- rendering: percentage or value;
-- acquisition method; and
-- maintained versus user-configured ownership.
-
-`show --json` and the export file use schema `version: 2`. Every row includes the provider-neutral accounting metadata and `renderType`. Results with both rows and errors use explicit provider status `partial`; threshold checks return exit 2 rather than making a decision from incomplete data. Update integrations before relying on the v4 export. See [External integration](external-integration.md) for the exact shape.
+## What may need your attention
 
 ### Custom providers
 
-v4 adds the ordered global `quotaProviders` array and aggregate provider ID `quota-providers`. Maintain it in the supported global OpenCode config surface:
+v4 replaces the old `customSources` setting with `quotaProviders`. The old setting is not read or converted automatically.
 
-```text
-<OpenCode user config dir>/opencode.jsonc
-```
-
-Strict JSON `opencode.json` is also supported. The recommended guided flow is:
+Use the guided command to add each custom provider:
 
 ```bash
 npx @slkiser/opencode-quota@latest provider add
 ```
 
-It previews the exact global file, never asks for credentials, defaults new files to commented JSONC, and preserves existing strict JSON.
+It previews the exact global config change and asks before writing. See the [Provider setup guide](providers.md#custom-providers) for full details.
 
-A minimal OpenRouter definition is:
+### Apps that read quota JSON
 
-```jsonc
-{
-  "experimental": {
-    "quotaToast": {
-      "quotaProviders": [
-        {
-          "id": "openrouter-primary",
-          "providerId": "openrouter",
-          "label": "OpenRouter Primary",
-          "mode": "remote-api",
-          "url": "https://openrouter.ai/api/v1/key",
-          "format": "openrouter-key-v1",
-          "apiKeyEnv": "OPENROUTER_API_KEY",
-        },
-      ],
-    },
-  },
-}
-```
+v4 JSON uses schema `version: 2`. It clearly labels quota, usage, spend, budget, balance, and partial failures.
 
-Exactly two modes exist: `remote-api` and `local-estimate`. Only `accounting-v1` and `openrouter-key-v1` are supported remote formats. Stable `id` defaults the matching OpenCode provider identity; use `providerId` only when it differs. Definitions keep file order and partial failures do not hide successful definitions.
+Update any app or script that reads the JSON before depending on v4 output. See [External integration](external-integration.md).
 
-The old public `customSources` property was removed and is rejected. There is no compatibility reader, alias, automatic migration, workspace quota-provider definition, executable mapping, or compatibility shim. Project OpenCode provider/model declarations remain read-only matching inputs only. See [Configuration](configuration.md#custom-providers) and [Providers](providers.md#custom-providers).
+### Alibaba and Qwen custom limits
 
-### Existing settings
+Built-in limits continue to work. If you changed Alibaba or Qwen limits, add those changes through `quotaProviders`. See [Custom providers](configuration.md#custom-providers).
 
-v4 keeps unrelated released configuration inputs. Existing global and project quota settings retain their normal layering, but `quotaProviders` is global-only. The standalone `alibabaCodingPlanTier` path was removed; maintained Alibaba and Qwen limits use reserved `quotaProviders` definitions.
-
-## Verify every surface
+## Check the update
 
 After restarting OpenCode:
 
-1. Run `/quota`; confirm semantic labels such as `Day quota`, `5h quota`, `Day budget`, or `Balance`, with every percentage bar exactly 10 characters.
-2. Run `/quota_status`; confirm each definition has the expected provider ID, mode/format, state path or credential category, and live outcome. URLs, counter contents, and credential values should not appear.
-3. Trigger a configured toast lifecycle event, such as waiting for `session.idle`; confirm successful rows remain visible if one definition fails.
-4. In the TUI session sidebar, expand `Quota`; confirm the same rows and partial error appear.
-5. Confirm the compact quota text appears at home bottom and below the session prompt when both placements are enabled.
-6. If you use both styles, test `formatStyle: "allWindows"` and `formatStyle: "singleWindow"`. `allWindows` keeps all definition rows; `singleWindow` keeps each definition's limiting percentage or first value.
+1. Run `/quota` and confirm your providers and values appear.
+2. Run `/quota_status` and check for setup or authentication errors.
+3. If enabled, check the TUI sidebar, toast, and compact line.
+4. If you added a custom provider, confirm its row appears. One failed provider should not hide successful providers.
 
-## Roll back
+## Roll back to v3
 
 1. Close OpenCode.
-2. Restore the config backup created before the update.
-3. Pin both server and TUI plugin entries to the required v3 release, for example `@slkiser/opencode-quota@3`.
-4. Remove or disable `quota-providers`; v3 does not understand v4 `quotaProviders` definitions or JSON export v2.
-5. Restart OpenCode and run the v3 `/quota` and `/quota_status` checks available in that release.
+2. Restore the config backup you made before updating.
+3. Pin both the server and TUI plugin entries to v3, for example `@slkiser/opencode-quota@3`.
+4. Remove v4 `quotaProviders` entries because v3 does not understand them.
+5. Restart OpenCode and run `/quota`.
 
-Do not expect v3 to read v4 cache or quota-provider state. The v4 cache and generated counters are version-bounded and can be regenerated after returning to v4.
+v3 does not read v4 cache or custom-provider state. OpenCode Quota can recreate those files if you return to v4.
