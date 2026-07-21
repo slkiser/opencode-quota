@@ -1508,7 +1508,7 @@ async function promptForSelections(
 
   const formatStyle = await prompts.select({
     message: "Quota reset periods",
-    initialValue: existing.formatStyle ?? "singleWindow",
+    initialValue: existing.formatStyle ?? "allWindows",
     options: [
       {
         label: "All reset periods",

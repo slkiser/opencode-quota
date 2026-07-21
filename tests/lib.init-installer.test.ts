@@ -1047,9 +1047,11 @@ describe("init installer planning and merge behavior", () => {
         hint: "track only the pre-configured providers you select",
       },
     ]);
-    expect(
-      prompts.selectCalls.find((call) => call.message === "Quota reset periods")?.options,
-    ).toEqual([
+    const resetPeriodsPrompt = prompts.selectCalls.find(
+      (call) => call.message === "Quota reset periods",
+    );
+    expect(resetPeriodsPrompt).toMatchObject({ initialValue: "allWindows" });
+    expect(resetPeriodsPrompt?.options).toEqual([
       {
         label: "All reset periods",
         value: "allWindows",
