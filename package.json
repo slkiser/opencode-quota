@@ -42,7 +42,7 @@
     "upstream:check": "node scripts/check-upstream-plugin-updates.mjs",
     "upstream:prepare-review": "node scripts/prepare-upstream-plugin-review.mjs",
     "upstream:sync": "node scripts/sync-upstream-plugin-references.mjs",
-    "release:check": "pnpm run format:check && pnpm run verify:typescript-version && pnpm run verify:v4-history && pnpm run typecheck && pnpm test && pnpm run test:four-surfaces && pnpm run build && pnpm run verify:release-package && pnpm run verify:release-version",
+    "release:check": "pnpm run format:check && pnpm run verify:typescript-version && pnpm run verify:v4-history && pnpm run typecheck && pnpm run build && pnpm test && pnpm run test:four-surfaces && pnpm run verify:release-package && pnpm run verify:release-version",
     "smoke:package": "node scripts/smoke-packed-package.mjs",
     "test:four-surfaces": "vitest run tests/v4-phase5-cross-surface.test.ts",
     "verify:package-contents": "node scripts/verify-package-contents.mjs",

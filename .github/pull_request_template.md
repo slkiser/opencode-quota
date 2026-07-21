@@ -15,8 +15,8 @@ If no issue exists, include a short rationale/scope summary.
 ## Quality Checklist
 
 - [ ] I ran `pnpm run typecheck`
-- [ ] I ran `pnpm test`
 - [ ] I ran `pnpm run build`
+- [ ] I ran `pnpm test`
 - [ ] This is the smallest safe root-cause fix (no unnecessary hook/output mutation logic)
 - [ ] I preserved behavioral invariants and updated/added boundary tests as needed
 - [ ] I updated docs for user-facing workflow/command/config changes (`README.md` and `CONTRIBUTING.md` when applicable)

@@ -90,8 +90,14 @@ describe("package manifest compatibility", () => {
     expect(pnpmWorkspace).toContain("msgpackr-extract: true");
   });
 
-  it("cleans generated dist output before building", () => {
+  it("builds clean dist output before artifact-dependent tests", () => {
     expect(pkg.scripts?.build).toContain("node scripts/clean-dist.mjs && tsc");
+
+    const releaseCheck = pkg.scripts?.["release:check"] ?? "";
+    expect(releaseCheck.indexOf("pnpm run build")).toBeGreaterThanOrEqual(0);
+    expect(releaseCheck.indexOf("pnpm test")).toBeGreaterThan(
+      releaseCheck.indexOf("pnpm run build"),
+    );
   });
 
   it("ships explicit server, tui, and init bin entrypoints for OpenCode", () => {
@@ -154,13 +160,18 @@ describe("package manifest compatibility", () => {
       ["Verify TypeScript version", "pnpm run verify:typescript-version"],
       ["Verify v4 history privacy", "pnpm run verify:v4-history"],
       ["Typecheck", "pnpm run typecheck"],
+      ["Build", "pnpm run build"],
       ["Test", "pnpm test"],
       ["Verify four-surface parity", "pnpm run test:four-surfaces"],
-      ["Build", "pnpm run build"],
       ["Pack and audit exact npm artifact once", "pnpm run pack:release-package package-artifacts"],
     ]) {
       expect(namedStep(quality, name).run).toBe(run);
     }
+
+    expect(stepIndex(quality, "Test")).toBeGreaterThan(stepIndex(quality, "Build"));
+    expect(stepIndex(quality, "Pack and audit exact npm artifact once")).toBeGreaterThan(
+      stepIndex(quality, "Test"),
+    );
 
     expect(namedStep(quality, "Upload exact npm artifact")).toEqual(
       expect.objectContaining({
@@ -240,6 +251,8 @@ describe("package manifest compatibility", () => {
       "Verify package version matches release tag",
       "Install dependencies",
       "Build",
+      "Test",
+      "Verify four-surface parity",
       "Pack and audit the release artifact once",
       "Upload exact release artifact",
     ];
