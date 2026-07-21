@@ -17,8 +17,7 @@ If no issue exists, include a short rationale/scope summary.
 - [ ] I ran `pnpm run typecheck`
 - [ ] I ran `pnpm run build`
 - [ ] I ran `pnpm test`
-- [ ] This is the smallest safe root-cause fix (no unnecessary hook/output mutation logic)
-- [ ] I preserved behavioral invariants and updated/added boundary tests as needed
-- [ ] I updated docs for user-facing workflow/command/config changes (`README.md` and `CONTRIBUTING.md` when applicable)
-- [ ] For new API-key/token providers, I started from `contributing/provider-template/` or explained why the template does not apply
-- [ ] For provider setup/auth wording changes, I checked the relevant dummy `.ts` template in `contributing/provider-template/` and verified `README.md` against `src/lib/provider-metadata.ts` (`authentication`/`authFallbacks`) and provider auth resolver/diagnostics behavior
+- [ ] This change is focused and avoids unrelated behavior changes
+- [ ] I updated or added tests when behavior changed
+- [ ] I updated docs when user-facing workflow, command, or config behavior changed
+- [ ] For provider changes, I followed [Provider Changes](https://github.com/slkiser/opencode-quota/blob/main/CONTRIBUTING.md#provider-changes), or this does not apply
