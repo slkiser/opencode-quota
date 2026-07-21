@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { getOpencodeRuntimeDirCandidates, getOpencodeRuntimeDirs } from "../src/lib/opencode-runtime-paths.js";
+import {
+  getOpencodeRuntimeDirCandidates,
+  getOpencodeRuntimeDirs,
+} from "../src/lib/opencode-runtime-paths.js";
 import { getOpenCodeDbPathCandidates } from "../src/lib/opencode-storage.js";
 
 describe("opencode-runtime-paths", () => {
@@ -21,6 +24,36 @@ describe("opencode-runtime-paths", () => {
     });
   });
 
+  it("uses OPENCODE_CONFIG_DIR as the primary global config directory", () => {
+    const absolute = getOpencodeRuntimeDirs({
+      env: {
+        XDG_CONFIG_HOME: "/x/config",
+        OPENCODE_CONFIG_DIR: "/custom/opencode",
+      },
+      homeDir: "/home/test",
+    });
+    expect(absolute.configDir).toBe("/custom/opencode");
+
+    const relative = getOpencodeRuntimeDirs({
+      env: {
+        XDG_CONFIG_HOME: "/x/config",
+        OPENCODE_CONFIG_DIR: "work-profile",
+      },
+      homeDir: "/home/test",
+    });
+    expect(relative.configDir).toBe("/x/config/opencode/work-profile");
+
+    const candidates = getOpencodeRuntimeDirCandidates({
+      platform: "linux",
+      env: {
+        XDG_CONFIG_HOME: "/x/config",
+        OPENCODE_CONFIG_DIR: "/custom/opencode",
+      },
+      homeDir: "/home/test",
+    });
+    expect(candidates.configDirs[0]).toBe("/custom/opencode");
+  });
+
   it("includes Windows APPDATA/LOCALAPPDATA fallbacks after primary", () => {
     const env: NodeJS.ProcessEnv = {
       XDG_DATA_HOME: "C:/Users/u.local/share",
@@ -32,7 +65,12 @@ describe("opencode-runtime-paths", () => {
     };
 
     const primary = getOpencodeRuntimeDirs({ env, homeDir: "C:/Users/u" });
-    const c = getOpencodeRuntimeDirCandidates({ platform: "win32", env, homeDir: "C:/Users/u", primary });
+    const c = getOpencodeRuntimeDirCandidates({
+      platform: "win32",
+      env,
+      homeDir: "C:/Users/u",
+      primary,
+    });
 
     expect(c.dataDirs[0]).toBe(primary.dataDir);
     expect(c.configDirs[0]).toBe(primary.configDir);
@@ -67,7 +105,11 @@ describe("opencode-runtime-paths", () => {
         XDG_STATE_HOME: "/x/state",
       };
 
-      const dirs = getOpencodeRuntimeDirCandidates({ platform: "linux", env, homeDir: "/home/test" });
+      const dirs = getOpencodeRuntimeDirCandidates({
+        platform: "linux",
+        env,
+        homeDir: "/home/test",
+      });
       const candidates = getOpenCodeDbPathCandidates();
 
       // Ensure the primary candidate matches runtime primary (order matters).

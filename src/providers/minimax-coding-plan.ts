@@ -16,10 +16,7 @@ import {
   resolveMiniMaxChinaAuthCached,
   type ResolvedMiniMaxAuth,
 } from "../lib/minimax-auth.js";
-import {
-  getMiniMaxQuotaEndpoint,
-  type MiniMaxQuotaEndpointId,
-} from "../lib/minimax-endpoints.js";
+import { getMiniMaxQuotaEndpoint, type MiniMaxQuotaEndpointId } from "../lib/minimax-endpoints.js";
 import { sanitizeDisplayText } from "../lib/display-sanitize.js";
 import { fetchWithTimeout } from "../lib/http.js";
 import {
@@ -206,12 +203,14 @@ function selectCanonicalMiniMaxModel(
     return wildcardModel;
   }
 
-  return [...models].sort((left, right) => {
-    const percentDiff =
-      getWorstPercent(left, countSemantics) - getWorstPercent(right, countSemantics);
-    if (percentDiff !== 0) return percentDiff;
-    return left.model_name.localeCompare(right.model_name);
-  })[0] ?? null;
+  return (
+    [...models].sort((left, right) => {
+      const percentDiff =
+        getWorstPercent(left, countSemantics) - getWorstPercent(right, countSemantics);
+      if (percentDiff !== 0) return percentDiff;
+      return left.model_name.localeCompare(right.model_name);
+    })[0] ?? null
+  );
 }
 
 /**
@@ -376,7 +375,17 @@ function createMiniMaxProvider(spec: MiniMaxProviderSpec): QuotaProvider {
         return attemptedErrorResult(spec.label, result.error);
       }
 
-      return attemptedResult(result.entries);
+      return attemptedResult(
+        result.entries.map((entry) => ({
+          ...entry,
+          accounting: {
+            resultType: "quota",
+            acquisitionMethod: "remote_api",
+            ownership: "maintained",
+            authority: "provider_reported",
+          },
+        })),
+      );
     },
   };
 }

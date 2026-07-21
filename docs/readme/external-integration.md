@@ -1,17 +1,27 @@
-# External integration
-
 [← Back to README](../../README.md)
 
-Use this when another tool needs quota data: shell scripts, tmux, Starship, CI, status bars, or routers.
+# External integration
 
-There are two ways to get the same JSON data:
+Use this page when a script, status bar, or CI job needs quota data.
 
-| Use this | When you want |
-| --- | --- |
-| `opencode-quota show --json` | A command that prints quota JSON now |
-| Export file | A file other tools can read repeatedly without running a command every time |
+Choose one source:
 
-Both use the local provider cache. They do **not** make extra provider network requests.
+| Source                       | Best for                                              |
+| ---------------------------- | ----------------------------------------------------- |
+| `opencode-quota show --json` | Reading the latest cached data from a command         |
+| Export file                  | Reading the same data often without running a command |
+
+Both read OpenCode Quota's local cache. They do not contact providers.
+
+## JSON export v2
+
+Both sources return schema `version: 2`.
+
+Each provider has a status and a list of quota rows. A row says what it measures, whether it is a percentage or value, and where the data came from. `status: "partial"` means some rows worked and some failed.
+
+A row from a configured `quotaProviders` definition includes `sourceId`. `providers["quota-providers"]` also includes a `sources` list so another tool can match results to definitions.
+
+Secrets, URLs, checked paths, and raw provider responses remain excluded from public JSON. Use `/quota_status` for live checks. The command and export file only read cached data.
 
 ## Option 1: print JSON now
 
@@ -31,11 +41,11 @@ opencode-quota show --json --threshold 5
 
 Threshold exits:
 
-| Exit | Meaning |
-| --- | --- |
-| `0` | Quota is available and above the threshold |
-| `1` | At least one comparable cached provider is below the threshold |
-| `2` | No cached percentage was available to compare |
+| Exit | Meaning                                                        |
+| ---- | -------------------------------------------------------------- |
+| `0`  | Quota is available and above the threshold                     |
+| `1`  | At least one comparable cached provider is below the threshold |
+| `2`  | Results were incomplete or no cached percentage was comparable |
 
 ## Option 2: write an export file
 
@@ -46,8 +56,8 @@ Add this to `opencode-quota/quota-toast.json`:
 ```jsonc
 {
   "export": {
-    "enabled": true
-  }
+    "enabled": true,
+  },
 }
 ```
 
@@ -73,25 +83,32 @@ The TUI updates this file after each home-bottom background refresh, about every
 npx @slkiser/opencode-quota show --json --threshold 5
 ```
 
-### Shell: branch on Copilot quota
+### Shell: branch on Copilot only when a real percentage exists
+
+Copilot Free, Student, organization, and enterprise usage can be value-only. Select a percentage row instead of assuming the first row has one:
 
 ```bash
-PCT=$(opencode-quota show --json | jq '.providers["copilot"].entries[0].percentRemaining')
-(( ${PCT%.*} < 10 )) && echo "Low quota, skipping." && exit 0
+PCT=$(opencode-quota show --json --provider copilot \
+  | jq -r '.providers.copilot.entries | map(select(.renderType == "percent" and .percentRemaining != null)) | first | .percentRemaining // empty')
+
+if [ -n "$PCT" ] && [ "${PCT%.*}" -lt 10 ]; then
+  echo "Low Copilot allowance or budget; skipping."
+  exit 0
+fi
 ```
 
 ### tmux: read the export file
 
 ```bash
 set -g status-interval 30
-set -g status-right '#(jq -r "[.providers|to_entries[]|select(.value.status==\"ok\")|(.value.entries[0].percentRemaining|floor|tostring)+\"%\"]|join(\" · \")" ~/.cache/opencode/quota-export.json 2>/dev/null)'
+set -g status-right '#(jq -r "[.providers|to_entries[]|select(.value.status==\"ok\")|first(.value.entries[]?|select(.renderType==\"percent\" and .percentRemaining!=null))|(.percentRemaining|floor|tostring)+\"%\"]|join(\" · \")" ~/.cache/opencode/quota-export.json 2>/dev/null)'
 ```
 
 ### Starship: run the JSON command
 
 ```toml
 [custom.quota]
-command = "opencode-quota show --json 2>/dev/null | jq -r '[.providers|to_entries[]|select(.value.status==\"ok\")|(.value.entries[0].percentRemaining|floor|tostring)+\"%\"]|join(\" \")'"
+command = "opencode-quota show --json 2>/dev/null | jq -r '[.providers|to_entries[]|select(.value.status==\"ok\")|first(.value.entries[]?|select(.renderType==\"percent\" and .percentRemaining!=null))|(.percentRemaining|floor|tostring)+\"%\"]|join(\" \")'"
 when = "true"
 interval = 60
 ```
@@ -99,11 +116,11 @@ interval = 60
 <details>
 <summary><strong>JSON shape</strong></summary>
 
-Both `show --json` and the export file use this structure:
+Both `show --json` and the export file use this v2 structure:
 
 ```jsonc
 {
-  "version": 1,
+  "version": 2,
   "exportedAt": 1748736000,
   "fromCache": true,
   "cacheAgeSeconds": 42,
@@ -114,38 +131,87 @@ Both `show --json` and the export file use this structure:
       "entries": [
         {
           "name": "Premium Requests",
+          "resultType": "quota",
+          "acquisitionMethod": "remote_api",
+          "ownership": "maintained",
+          "authority": "provider_reported",
           "window": "Monthly",
-          "percentRemaining": 62.3,
           "resetAt": 1748908800,
-          "unlimited": false
-        }
-      ]
+          "renderType": "percent",
+          "percentRemaining": 62.3,
+        },
+      ],
+    },
+    "quota-providers": {
+      "status": "partial",
+      "fetchedAt": 1748735958,
+      "entries": [
+        {
+          "name": "OpenRouter Primary budget",
+          "resultType": "budget",
+          "acquisitionMethod": "remote_api",
+          "ownership": "user_configured",
+          "authority": "provider_reported",
+          "sourceId": "openrouter-primary",
+          "renderType": "percent",
+          "percentRemaining": 40,
+        },
+      ],
+      "errors": [
+        {
+          "label": "Internal accounting",
+          "message": "HTTP 503",
+        },
+      ],
+      "sources": [
+        {
+          "id": "openrouter-primary",
+          "providerId": "openrouter",
+          "status": "ok",
+          "entryCount": 1,
+        },
+        {
+          "id": "internal-accounting",
+          "providerId": "internal_gateway",
+          "status": "error",
+          "entryCount": 0,
+        },
+        {
+          "id": "model-specific",
+          "providerId": "internal_gateway",
+          "status": "unavailable",
+          "entryCount": 0,
+        },
+      ],
     },
     "opencode-go": {
       "status": "error",
       "fetchedAt": 1748735958,
-      "error": "Request timeout after 5000ms"
+      "error": "Request timeout after 5s",
     },
     "anthropic": {
-      "status": "unavailable"
-    }
-  }
+      "status": "unavailable",
+    },
+  },
 }
 ```
 
-Provider statuses:
+Provider and quota-provider definition statuses:
 
-| Value | Meaning |
-| --- | --- |
-| `ok` | Cached fetch succeeded; `entries` is populated |
-| `error` | Cached fetch failed; `error` has the message |
-| `unavailable` | No cached quota is available |
+| Value         | Meaning                                                                                                                                                                      |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ok`          | Cached rows exist and the provider result has no errors.                                                                                                                     |
+| `partial`     | Cached rows and sanitized errors both exist. Consumers may display the rows, but threshold and routing decisions should treat the result as incomplete.                      |
+| `error`       | The cached provider or definition failed and has no successful row. Provider-level errors include a sanitized message; definition summaries do not expose detailed outcomes. |
+| `unavailable` | No matching cached data exists. For a quota-provider definition this also covers an exact runtime `providerId` that was unavailable when the aggregate cache was written.    |
 
-Optional fields:
+Entry fields:
 
-- `window` appears only when the provider reports a reset window.
-- `percentRemaining` is absent for value-only rows.
-- `resetAt` is absent when the provider does not report a reset time.
+- `renderType: "percent"` uses `percentRemaining`; `renderType: "value"` uses `value`.
+- `resultType` is one of `quota`, `rate_limit`, `usage`, `spend`, `budget`, `balance`, or `status`.
+- `window`, `resetAt`, and `observedAt` appear only when provider accounting data supplies them.
+- `sourceId` is the stable `quotaProviders` definition id stamped onto rows from the `quota-providers` aggregate; it is identity, not a display label.
+- `sources` preserves `quotaProviders` definition order. Each summary is exactly `id`, effective `providerId`, coarse `status`, and `entryCount`; the count is the cached normalized row count for that definition, and duplicate labels remain separate by stable `id`.
 
 </details>
 
@@ -174,7 +240,8 @@ data = json.loads(subprocess.check_output(
 best = max(
     (k for k, v in data["providers"].items() if v["status"] == "ok"),
     key=lambda k: next(
-        (e.get("percentRemaining", 0) for e in data["providers"][k]["entries"]), 0
+        (e["percentRemaining"] for e in data["providers"][k]["entries"]
+         if e["renderType"] == "percent" and e.get("percentRemaining") is not None), 0
     ),
     default=None,
 )

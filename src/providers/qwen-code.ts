@@ -11,6 +11,7 @@ import {
   resolveQwenLocalPlanCached,
 } from "../lib/qwen-auth.js";
 import { attemptedResult, notAttemptedResult } from "./result-helpers.js";
+import { findQuotaProviderDefinition } from "../lib/quota-providers.js";
 
 export const qwenCodeProvider: QuotaProvider = {
   id: "qwen-code",
@@ -22,8 +23,10 @@ export const qwenCodeProvider: QuotaProvider = {
     return plan.state === "qwen_free";
   },
 
-  matchesCurrentModel(model: string): boolean {
-    return isQwenCodeModelId(model);
+  matchesCurrentModel(model: string, context): boolean {
+    return context?.currentProviderID
+      ? context.currentProviderID === "qwen-code"
+      : isQwenCodeModelId(model);
   },
 
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
@@ -34,11 +37,30 @@ export const qwenCodeProvider: QuotaProvider = {
       return notAttemptedResult();
     }
 
-    const quota = computeQwenQuota({ state: await readQwenLocalQuotaState() });
+    const tuning = findQuotaProviderDefinition(ctx.config.quotaProviders ?? [], "qwen-code");
+    const daily =
+      tuning?.mode === "local-estimate"
+        ? tuning.windows.find((window) => window.id === "daily")
+        : undefined;
+    const rpm =
+      tuning?.mode === "local-estimate"
+        ? tuning.windows.find((window) => window.id === "rpm")
+        : undefined;
+    const quota = computeQwenQuota({
+      state: await readQwenLocalQuotaState(),
+      ...(daily ? { dayLimit: daily.requestLimit } : {}),
+      ...(rpm ? { rpmLimit: rpm.requestLimit } : {}),
+    });
 
     return attemptedResult(
       [
         {
+          accounting: {
+            resultType: "quota",
+            acquisitionMethod: "local_estimation",
+            ownership: "maintained",
+            authority: "locally_derived",
+          },
           name: "Qwen Free Daily",
           group: "Qwen (free)",
           label: "Daily:",
@@ -47,6 +69,12 @@ export const qwenCodeProvider: QuotaProvider = {
           resetTimeIso: quota.day.resetTimeIso,
         },
         {
+          accounting: {
+            resultType: "rate_limit",
+            acquisitionMethod: "local_estimation",
+            ownership: "maintained",
+            authority: "locally_derived",
+          },
           name: "Qwen Free RPM",
           group: "Qwen (free)",
           label: "RPM:",

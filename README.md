@@ -7,7 +7,7 @@
     </picture>
   </a>
 </p>
-<p align="center">Quota, usage, and token visibility for OpenCode and CLI.</p>
+<p align="center">Quota, usage, and token visibility in OpenCode and your terminal.</p>
 <p align="center">
   <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm" src="https://img.shields.io/npm/v/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
   <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm downloads" src="https://img.shields.io/npm/dm/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
@@ -26,15 +26,19 @@ npx @slkiser/opencode-quota init
 ```
 
 > [!IMPORTANT]
-> OpenCode `>= 1.4.3` and Node.js `>= 20` are required.
+> Node.js `>= 22` is required.
+
+Upgrading from v3? Read the [v4 migration guide](docs/readme/v4-migration.md).
+
+After installation:
 
 1. Restart OpenCode.
-2. Run `/quota` in OpenCode, or use `opencode-quota show` from your terminal.
-3. If you enabled the Sidebar panel, open the session sidebar and look for `Quota`.
-4. If you enabled Compact status line, look for the home-bottom quota line and the chat/session prompt quota line.
+2. Run a slash command in OpenCode, or use `opencode-quota show` from your terminal.
+3. If you enabled the sidebar, open the session sidebar and look for `Quota`.
+4. If you enabled the compact status line, look at the bottom of Home or below the message input.
 5. If something looks wrong, run `/quota_status` in OpenCode or see [Troubleshooting](docs/readme/troubleshooting.md).
 
-## Update OpenCode Quota safely
+## Updating
 
 1. Close OpenCode.
 2. Run:
@@ -46,7 +50,7 @@ npx @slkiser/opencode-quota init
 3. Review the exact config edits and cache directories, then confirm.
 4. Restart OpenCode.
 
-Use `--dry-run` to preview without changing anything. Use `--yes` only for explicit noninteractive confirmation. The update command changes only canonical OpenCode Quota plugin entries and removes only verified OpenCode Quota cache directories; it preserves settings, JSONC comments, tuple options, and other plugins.
+Use `--dry-run` to preview without changing anything. Otherwise, `update` shows the OpenCode Quota config and cache changes and asks before applying them. It leaves your other plugins and settings alone. Use `--yes` only when you intentionally need a noninteractive run.
 
 ## What you get
 
@@ -61,7 +65,7 @@ Use `--dry-run` to preview without changing anything. Use `--yes` only for expli
   </tr>
   <tr>
     <td width="50%" align="center"><strong>Sidebar panel</strong><br />A full quota view in OpenCode's session sidebar.</td>
-    <td width="50%" align="center"><strong>Toast</strong><br />Popup quota checks after idle, question, or compact events.</td>
+    <td width="50%" align="center"><strong>TUI toast</strong><br />Quota checks can appear automatically while you work.</td>
   </tr>
   <tr>
     <td width="50%">
@@ -72,17 +76,17 @@ Use `--dry-run` to preview without changing anything. Use `--yes` only for expli
     </td>
   </tr>
   <tr>
-    <td width="50%" align="center"><strong>Compact status line</strong><br />Short quota text on home and chat/session prompt surfaces.</td>
+    <td width="50%" align="center"><strong>Compact status line</strong><br />Short quota text on Home and below the message input.</td>
     <td width="50%" align="center"><strong>Token reports</strong><br /><code>/tokens_today</code>, <code>/tokens_weekly</code>, session reports, and more.</td>
   </tr>
 </table>
 
 More ways to use it:
 
-- Terminal checks with `opencode-quota show` before or without opening OpenCode
-- JSON output for scripts, status bars, CI checks, and external tools
-- Deterministic inline slash-command output shared by TUI and Desktop/server
-- Provider diagnostics for auth, quota sources, pricing, and bundled maintainer announcements
+- Check quota from a terminal with `opencode-quota show`
+- Use JSON output in scripts, status bars, CI checks, and other tools
+- Run the same slash commands in the TUI, Web, and Desktop
+- Diagnose authentication, quota sources, pricing, and maintainer notices
 
 See [Configuration](docs/readme/configuration.md) for UI options and [Manual install](docs/readme/manual-install.md) for setup details.
 
@@ -90,66 +94,79 @@ See [Configuration](docs/readme/configuration.md) for UI options and [Manual ins
 
 ### Core slash commands
 
-The server plugin registers each command once for TUI and Desktop/server. Each command injects one ignored, no-reply inline message, does not call the model, and does not add output to model context. `/tokens_between` requires both dates inline and does not open a prompt dialog.
-
-| Command                                 | Use when                                                             |
-| --------------------------------------- | -------------------------------------------------------------------- |
-| `/quota`                                | Show your quota and usage details                                    |
-| `/quota_status`                         | Diagnose setup, auth, provider detection, pricing, and announcements |
-| `/quota_announcements`                  | Read active bundled maintainer notices                               |
-| `/pricing_refresh`                      | Refresh local runtime pricing from `models.dev`                      |
-| `/tokens_today`                         | Show tokens used today                                               |
-| `/tokens_daily`                         | Show tokens used in the last 24 hours                                |
-| `/tokens_weekly`                        | Show tokens used in the last 7 days                                  |
-| `/tokens_monthly`                       | Show tokens used in the last 30 days, including pricing              |
-| `/tokens_all`                           | Show tokens used across all local history                            |
-| `/tokens_session`                       | Show tokens used in the current session                              |
-| `/tokens_session_all`                   | Show current session plus descendant sessions                        |
-| `/tokens_between YYYY-MM-DD YYYY-MM-DD` | Show tokens used between two dates                                   |
+| Command                                 | Use when                                                        |
+| --------------------------------------- | --------------------------------------------------------------- |
+| `/quota`                                | Show current quota                                              |
+| `/quota_status`                         | Diagnose setup, authentication, providers, pricing, and notices |
+| `/quota_announcements`                  | Read active bundled maintainer notices                          |
+| `/pricing_refresh`                      | Refresh local runtime pricing from `models.dev`                 |
+| `/tokens_today`                         | Show tokens used today                                          |
+| `/tokens_daily`                         | Show tokens used in the last 24 hours                           |
+| `/tokens_weekly`                        | Show tokens used in the last 7 days                             |
+| `/tokens_monthly`                       | Show tokens used in the last 30 days, including pricing         |
+| `/tokens_all`                           | Show tokens used across all local history                       |
+| `/tokens_session`                       | Show tokens used in the current session                         |
+| `/tokens_session_all`                   | Show current session plus descendant sessions                   |
+| `/tokens_between YYYY-MM-DD YYYY-MM-DD` | Show tokens used between two dates                              |
 
 ### CLI commands
 
-| Command                                        | Use when                                                              |
-| ---------------------------------------------- | --------------------------------------------------------------------- |
-| `opencode-quota update`                        | Preview and confirm a scoped OpenCode Quota update                       |
-| `opencode-quota update --dry-run`              | Preview exact config and cache targets without changing them          |
-| `opencode-quota show`                          | Check quota from your terminal                                        |
-| `opencode-quota show --provider <id>`          | Check one provider only, such as `copilot` or `openai`                |
-| `opencode-quota show --json`                   | Print JSON for scripts, status bars, and other tools                  |
-| `opencode-quota show --json --threshold <pct>` | Fail the command when cached quota drops below your chosen percentage |
+Use the CLI for scripts, CI, or a quick terminal check outside OpenCode.
+
+| Command                                        | Use when                                                     |
+| ---------------------------------------------- | ------------------------------------------------------------ |
+| `opencode-quota init --dry-run`                | Validate and preview installer changes without writing files |
+| `opencode-quota update`                        | Preview, confirm, and apply a scoped OpenCode Quota update   |
+| `opencode-quota update --dry-run`              | Preview exact config and cache targets without changing them |
+| `opencode-quota show`                          | Check quota from your terminal                               |
+| `opencode-quota show --provider <id>`          | Check one provider only, such as `copilot` or `openai`       |
+| `opencode-quota show --json`                   | Print JSON for scripts, status bars, and other tools         |
+| `opencode-quota show --json --threshold <pct>` | Fail when quota is low; return exit 2 for incomplete results |
 
 ## Providers
 
+### Pre-configured providers
+
 Most providers work automatically. If a provider has a “Needs setup” link, open that setup note only if you use that provider.
 
-| Provider                 | Auth/setup                                                     | Source             | Reports         |
-| ------------------------ | -------------------------------------------------------------- | ------------------ | --------------- |
-| Anthropic (Claude)       | [Needs setup](docs/readme/providers.md#anthropic-claude)       | Local CLI/OAuth    | Usage/quota     |
-| GitHub Copilot           | OpenCode OAuth or PAT                                          | Remote API         | Quota/usage     |
-| OpenAI                   | Automatic                                                      | Remote API         | Usage/quota     |
-| Cursor                   | [Needs setup](docs/readme/providers.md#cursor)                 | Local estimate     | Estimated quota |
-| Qwen Code                | [Needs setup](docs/readme/providers.md#qwen-code)              | Local estimate     | Estimated quota |
-| Alibaba Coding Plan      | OpenCode config                                                | Local estimate     | Estimated quota |
-| MiniMax Coding Plan      | OpenCode config                                                | Remote API         | Usage/quota     |
-| MiniMax Coding Plan (CN) | OpenCode config                                                | Remote API         | Usage/quota     |
-| Kimi Code                | OpenCode config                                                | Remote API         | Usage/quota     |
-| Chutes AI                | API key/config                                                 | Remote API         | Usage/quota     |
-| Synthetic                | Automatic                                                      | Remote API         | Quota           |
-| Google Antigravity       | [Needs setup](docs/readme/providers.md#google-antigravity)     | Remote API         | Usage/quota     |
-| Google AGY               | [Needs setup](docs/readme/providers.md#google-agy-quick-setup) | Remote API         | Usage/quota     |
-| Gemini CLI               | [Needs setup](docs/readme/providers.md#gemini-cli)             | Remote API         | Usage/quota     |
-| Z.ai Coding Plan         | OpenCode config                                                | Remote API         | Usage/quota     |
-| Zhipu Coding Plan        | OpenCode config                                                | Remote API         | Usage/quota     |
-| NanoGPT                  | API key/config                                                 | Remote API         | Usage + balance |
-| DeepSeek                 | API key/config                                                 | Remote API         | Balance/status  |
-| Ollama Cloud             | [Needs setup](docs/readme/providers.md#ollama-cloud)           | Dashboard scraping | Dashboard usage |
-| OpenCode Go              | [Needs setup](docs/readme/providers.md#opencode-go)            | Dashboard scraping | Dashboard usage |
+| Provider                 | Auth/setup                                                     | Data from          | Reports            |
+| ------------------------ | -------------------------------------------------------------- | ------------------ | ------------------ |
+| Anthropic (Claude)       | [Needs setup](docs/readme/providers.md#anthropic-claude)       | Local CLI/OAuth    | Quota              |
+| GitHub Copilot           | [Needs setup](docs/readme/providers.md#github-copilot)         | Remote API         | Usage and budget   |
+| OpenAI                   | Automatic                                                      | Remote API         | Quota              |
+| Cursor                   | [Needs setup](docs/readme/providers.md#cursor)                 | Local estimate     | Budget and spend   |
+| Qwen Code                | [Needs setup](docs/readme/providers.md#qwen-code)              | Local estimate     | Quota              |
+| Alibaba Coding Plan      | OpenCode config                                                | Local estimate     | Quota              |
+| MiniMax Coding Plan      | OpenCode config                                                | Remote API         | Quota              |
+| MiniMax Coding Plan (CN) | OpenCode config                                                | Remote API         | Quota              |
+| Kimi Code                | OpenCode config                                                | Remote API         | Quota              |
+| Chutes AI                | API key/config                                                 | Remote API         | Quota              |
+| Synthetic                | Automatic                                                      | Remote API         | Quota              |
+| Google Antigravity       | [Needs setup](docs/readme/providers.md#google-antigravity)     | Remote API         | Quota              |
+| Google AGY               | [Needs setup](docs/readme/providers.md#google-agy-quick-setup) | Remote API         | Quota              |
+| Gemini CLI               | [Needs setup](docs/readme/providers.md#gemini-cli)             | Remote API         | Quota              |
+| Z.ai Coding Plan         | OpenCode config                                                | Remote API         | Quota              |
+| Zhipu Coding Plan        | OpenCode config                                                | Remote API         | Quota              |
+| NanoGPT                  | API key/config                                                 | Remote API         | Quota and balance  |
+| DeepSeek                 | API key/config                                                 | Remote API         | Balance and status |
+| Ollama Cloud             | [Needs setup](docs/readme/providers.md#ollama-cloud)           | Dashboard scraping | Quota              |
+| OpenCode Go              | [Needs setup](docs/readme/providers.md#opencode-go)            | Dashboard scraping | Quota              |
 
-Setup details live in the [Provider setup guide](docs/readme/providers.md).
+The quota view uses short labels such as `Day quota`, `5h quota`, `Day budget`, and `Balance`. Bar width varies by surface. JSON keeps the precise accounting type for scripts.
+
+### Custom providers
+
+A quota provider definition tells OpenCode Quota how to obtain accounting data for an OpenCode provider. Run the guided command. It asks only structural questions, previews the exact global OpenCode config change, and asks before writing:
+
+```bash
+npx @slkiser/opencode-quota@latest provider add
+```
+
+Setup details live in the [Provider setup guide](docs/readme/providers.md#custom-providers).
 
 ## Troubleshooting
 
-Start here when quota or token data looks wrong:
+If quota or token data looks wrong:
 
 1. Run `/quota_status`, or start with `opencode-quota show` for a terminal quota summary.
 2. Confirm the expected provider appears in the detected provider list.
@@ -159,11 +176,22 @@ Start here when quota or token data looks wrong:
 
 ## Reference
 
+Project guides:
+
 - [Manual install](docs/readme/manual-install.md)
 - [Configuration](docs/readme/configuration.md)
 - [Providers](docs/readme/providers.md)
 - [Troubleshooting](docs/readme/troubleshooting.md)
 - [External integration](docs/readme/external-integration.md)
+
+External references:
+
+- [OpenCode docs](https://opencode.ai/docs/)
+- [OpenCode config](https://opencode.ai/docs/config/)
+- [OpenCode plugins](https://opencode.ai/docs/plugins/)
+- [OpenCode TUI](https://opencode.ai/docs/tui/)
+- [models.dev pricing data](https://models.dev/)
+- [Node.js downloads](https://nodejs.org/en/download)
 
 ## Contributors
 

@@ -11,11 +11,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
-      - name: Use Node.js 22.x
+      - name: Use Node.js 24.x
         uses: actions/setup-node@v6
         with:
-          node-version: 22.x
+          node-version: 24.x
 
       - name: Activate pnpm
         run: |
@@ -24,6 +26,15 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Check formatting
+        run: pnpm run format:check
+
+      - name: Verify TypeScript version
+        run: pnpm run verify:typescript-version
+
+      - name: Verify v4 history privacy
+        run: pnpm run verify:v4-history
 
       - name: Typecheck
         run: pnpm run typecheck
@@ -34,16 +45,17 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Pack
-        run: |
-          mkdir -p package-artifacts
-          pnpm pack --pack-destination package-artifacts
+      - name: Verify four-surface parity
+        run: pnpm run test:four-surfaces
 
-      - name: Upload package tarball
+      - name: Pack and audit exact npm artifact once
+        run: pnpm run pack:release-package package-artifacts
+
+      - name: Upload exact npm artifact
         uses: actions/upload-artifact@v7
         with:
           name: package-tarball
-          path: package-artifacts/*.tgz
+          path: package-artifacts/*
           if-no-files-found: error
 
   runtime-smoke:
@@ -52,49 +64,21 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [20.x, 22.x]
+        node-version: [22.x, 24.x]
 
     steps:
+      - uses: actions/checkout@v6
+
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
 
-      - name: Download package tarball
+      - name: Download exact npm artifact
         uses: actions/download-artifact@v8
         with:
           name: package-tarball
           path: package-artifacts
 
-      - name: Smoke test published package on Node ${{ matrix.node-version }}
-        run: |
-          TARBALL="$(find "$GITHUB_WORKSPACE/package-artifacts" -name '*.tgz' -print -quit)"
-          if [ -z "$TARBALL" ]; then
-            echo "Package tarball artifact not found" >&2
-            exit 1
-          fi
-
-          WORKDIR="$(mktemp -d)"
-          cd "$WORKDIR"
-          npm init -y
-          npm install --omit=dev "$TARBALL"
-          node --input-type=module <<'EOF'
-          import assert from "node:assert/strict";
-          import { readFile } from "node:fs/promises";
-          import { fileURLToPath } from "node:url";
-
-          await import("@slkiser/opencode-quota");
-          await import("@slkiser/opencode-quota/server");
-
-          const tuiExportUrl = import.meta.resolve("@slkiser/opencode-quota/tui");
-          const tuiExportPath = fileURLToPath(tuiExportUrl);
-          assert.match(tuiExportPath, /node_modules\/\@slkiser\/opencode-quota\/dist\/tui\.js$/);
-          const tuiSource = await readFile(tuiExportPath, "utf8");
-          assert.ok(tuiSource.includes("@slkiser/opencode-quota"));
-          assert.ok(tuiSource.includes("const pluginModule"));
-          assert.ok(tuiSource.includes("tui"));
-          assert.ok(!tuiSource.includes("jsx-dev-runtime"));
-
-          const pkg = JSON.parse(await readFile("node_modules/@slkiser/opencode-quota/package.json", "utf8"));
-          assert.equal(pkg.engines?.node, ">=20.0.0");
-          EOF
+      - name: Smoke exact npm artifact on Node ${{ matrix.node-version }}
+        run: node scripts/smoke-packed-package.mjs package-artifacts

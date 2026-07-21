@@ -13,8 +13,10 @@ import type {
   GoogleModelId,
   PercentDisplayMode,
   PricingSnapshotSource,
+  TuiCommandDisplay,
 } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
+import { cloneQuotaProviders, validateQuotaProviders } from "./quota-providers.js";
 import { isQuotaFormatStyle, resolveQuotaFormatStyle } from "./quota-format-style.js";
 import { parseJsonOrJsonc } from "./jsonc.js";
 import { getQuotaProviderShape, normalizeQuotaProviderId } from "./provider-metadata.js";
@@ -26,20 +28,25 @@ import { join } from "path";
 import { getEffectiveConfigRoot } from "./config-file-utils.js";
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 
-export const QUOTA_TOAST_CONFIG_RELATIVE_PATH = "opencode-quota/quota-toast.json";
+export const QUOTA_TOAST_CONFIG_RELATIVE_PATHS = [
+  "opencode-quota/quota-toast.jsonc",
+  "opencode-quota/quota-toast.json",
+] as const;
+export const QUOTA_TOAST_CONFIG_RELATIVE_PATH = QUOTA_TOAST_CONFIG_RELATIVE_PATHS[1];
 
 export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "enabled",
   "enableToast",
+  "tuiCommandDisplay",
   "formatStyle",
   "percentDisplayMode",
   "minIntervalMs",
   "requestTimeoutMs",
   "debug",
   "enabledProviders",
+  "quotaProviders",
   "anthropicBinaryPath",
   "googleModels",
-  "alibabaCodingPlanTier",
   "cursorPlan",
   "cursorIncludedApiUsd",
   "cursorBillingCycleStartDay",
@@ -111,6 +118,7 @@ const CONFIG_FILENAMES = ["opencode.json", "opencode.jsonc"] as const;
 const NETWORK_SETTING_SOURCE_KEYS = [
   "enabled",
   "enabledProviders",
+  "quotaProviders",
   "minIntervalMs",
   "requestTimeoutMs",
   "pricingSnapshot.source",
@@ -131,6 +139,7 @@ type ExportConfigPatch = Partial<QuotaToastConfig["export"]>;
 type ValidatedQuotaToastPatch = {
   enabled?: boolean;
   enableToast?: boolean;
+  tuiCommandDisplay?: TuiCommandDisplay;
   formatStyle?: QuotaToastConfig["formatStyle"];
   percentDisplayMode?: PercentDisplayMode;
   minIntervalMs?: number;
@@ -140,7 +149,6 @@ type ValidatedQuotaToastPatch = {
   enabledProvidersInvalidEmpty?: boolean;
   anthropicBinaryPath?: string;
   googleModels?: GoogleModelId[];
-  alibabaCodingPlanTier?: QuotaToastConfig["alibabaCodingPlanTier"];
   cursorPlan?: CursorQuotaPlan;
   cursorIncludedApiUsd?: number;
   cursorBillingCycleStartDay?: number;
@@ -165,13 +173,24 @@ type ConfigLayerKind = "legacy" | "plugin";
 
 interface ConfigLayerCandidate {
   path: string;
+  rootDir: string;
   scope: ConfigLayerScope;
   kind: ConfigLayerKind;
-  pluginPath: string;
 }
 
-export function getQuotaToastConfigPath(configRootDir: string): string {
-  return join(configRootDir, QUOTA_TOAST_CONFIG_RELATIVE_PATH);
+export function getQuotaToastConfigPath(
+  configRootDir: string,
+  format: "json" | "jsonc" = "json",
+): string {
+  return join(configRootDir, `opencode-quota/quota-toast.${format}`);
+}
+
+export function resolveQuotaToastConfigPath(configRootDir: string): string {
+  return (
+    QUOTA_TOAST_CONFIG_RELATIVE_PATHS.map((relativePath) => join(configRootDir, relativePath)).find(
+      (path) => existsSync(path),
+    ) ?? getQuotaToastConfigPath(configRootDir)
+  );
 }
 
 function hasOwnKey<T extends object>(value: T, key: PropertyKey): boolean {
@@ -190,9 +209,7 @@ function isValidGoogleModelId(id: unknown): id is GoogleModelId {
 }
 
 function isValidCursorQuotaPlan(plan: unknown): plan is CursorQuotaPlan {
-  return (
-    typeof plan === "string" && ["none", "pro", "pro-plus", "ultra"].includes(plan)
-  );
+  return typeof plan === "string" && ["none", "pro", "pro-plus", "ultra"].includes(plan);
 }
 
 function isValidPricingSnapshotSource(source: unknown): source is PricingSnapshotSource {
@@ -207,10 +224,8 @@ function isValidPercentDisplayMode(value: unknown): value is PercentDisplayMode 
   return value === "remaining" || value === "used";
 }
 
-function isValidAlibabaCodingPlanTier(
-  value: unknown,
-): value is QuotaToastConfig["alibabaCodingPlanTier"] {
-  return value === "lite" || value === "pro";
+function isValidTuiCommandDisplay(value: unknown): value is TuiCommandDisplay {
+  return value === "inline" || value === "dialog";
 }
 
 function isPositiveNumber(value: unknown): value is number {
@@ -223,10 +238,16 @@ function isValidCursorBillingCycleStartDay(value: unknown): value is number {
 
 const VALID_OPENCODE_GO_WINDOWS = ["rolling", "weekly", "monthly"] as const;
 
-function isValidOpenCodeGoWindows(value: unknown): value is Array<"rolling" | "weekly" | "monthly"> {
+function isValidOpenCodeGoWindows(
+  value: unknown,
+): value is Array<"rolling" | "weekly" | "monthly"> {
   if (!Array.isArray(value)) return false;
   if (value.length === 0) return false;
-  return value.every((v) => typeof v === "string" && VALID_OPENCODE_GO_WINDOWS.includes(v as typeof VALID_OPENCODE_GO_WINDOWS[number]));
+  return value.every(
+    (v) =>
+      typeof v === "string" &&
+      VALID_OPENCODE_GO_WINDOWS.includes(v as (typeof VALID_OPENCODE_GO_WINDOWS)[number]),
+  );
 }
 
 function normalizeOptionalString(value: unknown): string | undefined {
@@ -282,6 +303,7 @@ function cloneConfig(config: QuotaToastConfig): QuotaToastConfig {
     enabledProviders: Array.isArray(config.enabledProviders)
       ? [...config.enabledProviders]
       : config.enabledProviders,
+    quotaProviders: cloneQuotaProviders(config.quotaProviders),
     googleModels: [...config.googleModels],
     opencodeGoWindows: [...config.opencodeGoWindows],
     pricingSnapshot: { ...config.pricingSnapshot },
@@ -311,7 +333,7 @@ function normalizeEnabledProviders(value: unknown): NormalizedEnabledProviders {
   if (!Array.isArray(value)) {
     return {
       value: [],
-      issues: ["expected \"auto\" or an array of provider ids"],
+      issues: ['expected "auto" or an array of provider ids'],
       invalidEmpty: true,
     };
   }
@@ -433,7 +455,9 @@ function extractTuiCompactStatusPatch(value: unknown): TuiCompactStatusPatch | u
   return Object.keys(patch).length > 0 ? patch : undefined;
 }
 
-function extractMaintainerAnnouncementsPatch(value: unknown): MaintainerAnnouncementsPatch | undefined {
+function extractMaintainerAnnouncementsPatch(
+  value: unknown,
+): MaintainerAnnouncementsPatch | undefined {
   if (!isPlainObject(value)) {
     return undefined;
   }
@@ -447,7 +471,6 @@ function extractMaintainerAnnouncementsPatch(value: unknown): MaintainerAnnounce
   if (hasOwnKey(value, "home") && typeof value.home === "boolean") {
     patch.home = value.home;
   }
-
 
   return Object.keys(patch).length > 0 ? patch : undefined;
 }
@@ -509,6 +532,14 @@ function extractValidatedQuotaToastPatch(
     patch.enableToast = quotaToastConfig.enableToast;
   }
 
+  if (hasOwnKey(quotaToastConfig, "tuiCommandDisplay")) {
+    if (isValidTuiCommandDisplay(quotaToastConfig.tuiCommandDisplay)) {
+      patch.tuiCommandDisplay = quotaToastConfig.tuiCommandDisplay;
+    } else {
+      reportIssue?.("tuiCommandDisplay", 'expected "inline" or "dialog"');
+    }
+  }
+
   const formatStyle = getConfiguredFormatStyle(quotaToastConfig as Partial<QuotaToastConfig>);
   if (formatStyle) {
     patch.formatStyle = formatStyle;
@@ -521,7 +552,10 @@ function extractValidatedQuotaToastPatch(
     patch.percentDisplayMode = quotaToastConfig.percentDisplayMode;
   }
 
-  if (hasOwnKey(quotaToastConfig, "minIntervalMs") && isPositiveNumber(quotaToastConfig.minIntervalMs)) {
+  if (
+    hasOwnKey(quotaToastConfig, "minIntervalMs") &&
+    isPositiveNumber(quotaToastConfig.minIntervalMs)
+  ) {
     patch.minIntervalMs = quotaToastConfig.minIntervalMs;
   }
 
@@ -564,13 +598,9 @@ function extractValidatedQuotaToastPatch(
   }
 
   if (
-    hasOwnKey(quotaToastConfig, "alibabaCodingPlanTier") &&
-    isValidAlibabaCodingPlanTier(quotaToastConfig.alibabaCodingPlanTier)
+    hasOwnKey(quotaToastConfig, "cursorPlan") &&
+    isValidCursorQuotaPlan(quotaToastConfig.cursorPlan)
   ) {
-    patch.alibabaCodingPlanTier = quotaToastConfig.alibabaCodingPlanTier;
-  }
-
-  if (hasOwnKey(quotaToastConfig, "cursorPlan") && isValidCursorQuotaPlan(quotaToastConfig.cursorPlan)) {
     patch.cursorPlan = quotaToastConfig.cursorPlan;
   }
 
@@ -602,7 +632,10 @@ function extractValidatedQuotaToastPatch(
     }
   }
 
-  if (hasOwnKey(quotaToastConfig, "showOnIdle") && typeof quotaToastConfig.showOnIdle === "boolean") {
+  if (
+    hasOwnKey(quotaToastConfig, "showOnIdle") &&
+    typeof quotaToastConfig.showOnIdle === "boolean"
+  ) {
     patch.showOnIdle = quotaToastConfig.showOnIdle;
   }
 
@@ -712,6 +745,11 @@ function applyValidatedQuotaToastPatch(
     applySettingSource(settingSources, "enableToast", sourcePath);
   }
 
+  if (hasOwnKey(patch, "tuiCommandDisplay")) {
+    config.tuiCommandDisplay = patch.tuiCommandDisplay!;
+    applySettingSource(settingSources, "tuiCommandDisplay", sourcePath);
+  }
+
   if (hasOwnKey(patch, "formatStyle")) {
     config.formatStyle = patch.formatStyle!;
     applySettingSource(settingSources, "formatStyle", sourcePath);
@@ -753,11 +791,6 @@ function applyValidatedQuotaToastPatch(
   if (hasOwnKey(patch, "googleModels")) {
     config.googleModels = [...patch.googleModels!];
     applySettingSource(settingSources, "googleModels", sourcePath);
-  }
-
-  if (hasOwnKey(patch, "alibabaCodingPlanTier")) {
-    config.alibabaCodingPlanTier = patch.alibabaCodingPlanTier!;
-    applySettingSource(settingSources, "alibabaCodingPlanTier", sourcePath);
   }
 
   if (hasOwnKey(patch, "cursorPlan")) {
@@ -886,7 +919,6 @@ function applyValidatedQuotaToastPatch(
       config.maintainerAnnouncements.home = patch.maintainerAnnouncements.home!;
       applySettingSource(settingSources, "maintainerAnnouncements.home", sourcePath);
     }
-
   }
 
   if (patch.layout) {
@@ -938,19 +970,18 @@ function buildConfigLayerCandidatesForRoot(
   dir: string,
   scope: ConfigLayerScope,
 ): ConfigLayerCandidate[] {
-  const pluginPath = getQuotaToastConfigPath(dir);
   return [
-    {
-      path: pluginPath,
+    ...QUOTA_TOAST_CONFIG_RELATIVE_PATHS.map((relativePath) => ({
+      path: join(dir, relativePath),
+      rootDir: dir,
       scope,
       kind: "plugin" as const,
-      pluginPath,
-    },
+    })),
     ...CONFIG_FILENAMES.map((filename) => ({
       path: join(dir, filename),
+      rootDir: dir,
       scope,
       kind: "legacy" as const,
-      pluginPath,
     })),
   ];
 }
@@ -960,20 +991,24 @@ function buildConfigLayerCandidates(
   configRootDir: string,
 ): ConfigLayerCandidate[] {
   const workspaceCandidates = buildConfigLayerCandidatesForRoot(configRootDir, "workspace");
-  const workspacePaths = new Set(workspaceCandidates.map((candidate) => candidate.path));
   const globalCandidates = configDirs.flatMap((dir) =>
     buildConfigLayerCandidatesForRoot(dir, "global"),
   );
+  const globalPaths = new Set(globalCandidates.map((candidate) => candidate.path));
 
   return [
-    ...globalCandidates.filter((candidate) => !workspacePaths.has(candidate.path)),
-    ...workspaceCandidates,
+    ...globalCandidates,
+    ...workspaceCandidates.filter((candidate) => !globalPaths.has(candidate.path)),
   ];
 }
 
 function getConfigLayerSourceLabel(candidate: ConfigLayerCandidate): string {
   const suffix =
-    candidate.kind === "plugin" ? QUOTA_TOAST_CONFIG_RELATIVE_PATH : "experimental.quotaToast";
+    candidate.kind === "plugin"
+      ? candidate.path.endsWith(".jsonc")
+        ? QUOTA_TOAST_CONFIG_RELATIVE_PATHS[0]
+        : QUOTA_TOAST_CONFIG_RELATIVE_PATHS[1]
+      : "experimental.quotaToast";
   return `${candidate.path} (${suffix})`;
 }
 
@@ -1014,7 +1049,8 @@ export async function loadConfig(
     networkSettingSources: Record<string, string>;
     configIssues: LoadConfigIssue[];
   }> {
-    const configRootDir = options?.configRootDir ?? getEffectiveConfigRoot(options?.cwd ?? process.cwd());
+    const configRootDir =
+      options?.configRootDir ?? getEffectiveConfigRoot(options?.cwd ?? process.cwd());
     const { configDirs } = getOpencodeRuntimeDirCandidates();
     const config = cloneDefaultConfig();
     const usedPaths: string[] = [];
@@ -1022,9 +1058,14 @@ export async function loadConfig(
     const workspaceConfigPaths: string[] = [];
     const settingSources: QuotaToastSettingSources = {};
     const configIssues: LoadConfigIssue[] = [];
+    const authoritativeSidecarRoots = new Set<string>();
 
     for (const candidate of buildConfigLayerCandidates(configDirs, configRootDir)) {
-      if (candidate.kind === "legacy" && existsSync(candidate.pluginPath)) {
+      const rootKey = `${candidate.scope}:${candidate.rootDir}`;
+      if (candidate.kind === "legacy" && authoritativeSidecarRoots.has(rootKey)) {
+        continue;
+      }
+      if (candidate.kind === "plugin" && authoritativeSidecarRoots.has(rootKey)) {
         continue;
       }
 
@@ -1045,10 +1086,24 @@ export async function loadConfig(
           configIssues.push({
             path: sourcePath,
             key: "$root",
-            message: "expected readable JSON object",
+            message: "expected readable JSON object; this sidecar is not authoritative",
           });
         }
         continue;
+      }
+
+      if (candidate.kind === "plugin") {
+        authoritativeSidecarRoots.add(rootKey);
+        if (
+          candidate.path.endsWith(".jsonc") &&
+          existsSync(getQuotaToastConfigPath(candidate.rootDir, "json"))
+        ) {
+          configIssues.push({
+            path: getConfigLayerSourceLabel(candidate),
+            key: "$file",
+            message: "both quota-toast.jsonc and quota-toast.json exist; using quota-toast.jsonc",
+          });
+        }
       }
 
       const extractedQuotaToast =
@@ -1077,6 +1132,41 @@ export async function loadConfig(
         sourcePath,
         settingSources,
       );
+
+      if (hasOwnKey(extractedQuotaToast, "alibabaCodingPlanTier")) {
+        configIssues.push({
+          path: sourcePath,
+          key: "alibabaCodingPlanTier",
+          message: 'removed in v4; tune Alibaba through "quotaProviders"',
+        });
+      }
+
+      if (hasOwnKey(extractedQuotaToast, "customSources")) {
+        configIssues.push({
+          path: sourcePath,
+          key: "customSources",
+          message: 'removed in v4; use the global-only "quotaProviders" property',
+        });
+      }
+
+      if (hasOwnKey(extractedQuotaToast, "quotaProviders")) {
+        if (candidate.scope === "global") {
+          const validation = validateQuotaProviders(extractedQuotaToast.quotaProviders);
+          for (const issue of validation.issues) {
+            configIssues.push({ path: sourcePath, key: issue.key, message: issue.message });
+          }
+          if (validation.value) {
+            config.quotaProviders = cloneQuotaProviders(validation.value);
+            applySettingSource(settingSources, "quotaProviders", sourcePath);
+          }
+        } else {
+          configIssues.push({
+            path: sourcePath,
+            key: "quotaProviders",
+            message: "allowed only in global OpenCode or global opencode-quota config",
+          });
+        }
+      }
     }
 
     if (usedPaths.length === 0) {
@@ -1136,6 +1226,27 @@ export async function loadConfig(
           "client.config.get",
           settingSources,
         );
+        if (hasOwnKey(quotaToastConfig, "alibabaCodingPlanTier")) {
+          configIssues.push({
+            path: "client.config.get",
+            key: "alibabaCodingPlanTier",
+            message: 'removed in v4; tune Alibaba through "quotaProviders"',
+          });
+        }
+        if (hasOwnKey(quotaToastConfig, "customSources")) {
+          configIssues.push({
+            path: "client.config.get",
+            key: "customSources",
+            message: 'removed in v4; use the global-only "quotaProviders" property',
+          });
+        }
+        if (hasOwnKey(quotaToastConfig, "quotaProviders")) {
+          configIssues.push({
+            path: "client.config.get",
+            key: "quotaProviders",
+            message: "file provenance is required; define quotaProviders in global config",
+          });
+        }
 
         if (meta) {
           meta.source = "sdk";

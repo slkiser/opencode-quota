@@ -40,6 +40,56 @@ describe("opencode storage multi-session reads", () => {
     fsMocks.existsSync.mockReturnValue(true);
   });
 
+  it("queries completed assistant work by completion time across creation cutoffs", async () => {
+    const completedSinceMs = Date.parse("2026-07-16T00:00:00.000Z");
+    const completedUntilMs = Date.parse("2026-07-16T12:00:00.000Z");
+    const conn = {
+      get: vi.fn(() => ({ r: "assistant" })),
+      all: vi.fn((sql: string, params?: unknown[]) => {
+        expect(sql).toContain("json_extract(data, '$.time.completed')");
+        expect(sql).toContain("ORDER BY CAST(json_extract(data, '$.time.completed') AS REAL)");
+        expect(sql).not.toContain("time_created >=");
+        expect(params).toEqual([completedSinceMs, completedUntilMs]);
+        return [
+          {
+            id: "cross-cutoff",
+            session_id: "ses_one",
+            time_created: completedSinceMs - 60_000,
+            data: JSON.stringify({
+              role: "assistant",
+              providerID: "openai",
+              modelID: "gpt-5",
+              time: { completed: completedSinceMs + 1 },
+            }),
+          },
+          {
+            id: "unfinished",
+            session_id: "ses_two",
+            time_created: completedSinceMs + 1,
+            data: JSON.stringify({
+              role: "assistant",
+              providerID: "openai",
+              modelID: "gpt-5",
+              time: {},
+            }),
+          },
+        ];
+      }),
+      close: vi.fn(),
+    };
+    sqliteMocks.openOpenCodeSqliteReadOnly.mockResolvedValue(conn);
+
+    const { iterCompletedAssistantMessages } = await import("../src/lib/opencode-storage.js");
+    const messages = await iterCompletedAssistantMessages({
+      completedSinceMs,
+      completedUntilMs,
+    });
+
+    expect(messages.map((message) => message.id)).toEqual(["cross-cutoff"]);
+    expect(messages[0]?.time?.completed).toBe(completedSinceMs + 1);
+    expect(conn.close).toHaveBeenCalledOnce();
+  });
+
   it("chunks large session queries below the SQLite bind limit and preserves message order", async () => {
     const conn = {
       all: vi.fn((_: string, params?: unknown[]) => {
@@ -75,7 +125,10 @@ describe("opencode storage multi-session reads", () => {
     sqliteMocks.openOpenCodeSqliteReadOnly.mockResolvedValue(conn);
 
     const { iterAssistantMessagesForSessions } = await import("../src/lib/opencode-storage.js");
-    const sessionIDs = Array.from({ length: 1000 }, (_, index) => `ses_${String(index).padStart(3, "0")}`);
+    const sessionIDs = Array.from(
+      { length: 1000 },
+      (_, index) => `ses_${String(index).padStart(3, "0")}`,
+    );
 
     const messages = await iterAssistantMessagesForSessions({
       sessionIDs,

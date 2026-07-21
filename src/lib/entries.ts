@@ -1,4 +1,5 @@
 import type { CursorQuotaPlan, OpenCodeGoWindowKey } from "./types.js";
+import type { QuotaProviderDefinition } from "./quota-providers.js";
 
 /**
  * Normalized quota output model.
@@ -7,7 +8,44 @@ import type { CursorQuotaPlan, OpenCodeGoWindowKey } from "./types.js";
  * formatting and toast display stays universal across providers.
  */
 
+export type AccountingResultType =
+  | "quota"
+  | "rate_limit"
+  | "usage"
+  | "spend"
+  | "budget"
+  | "balance"
+  | "status";
+
+export type AccountingAcquisitionMethod =
+  | "remote_api"
+  | "dashboard_scrape"
+  | "local_cli"
+  | "local_runtime_accounting"
+  | "local_estimation";
+
+export type AccountingOwnership = "maintained" | "user_configured";
+
+export type AccountingAuthority = "provider_reported" | "locally_derived";
+
+export interface AccountingMetadata {
+  /** What the row represents, independent of its percent/value render shape. */
+  resultType: AccountingResultType;
+  /** How the accounting value was acquired. */
+  acquisitionMethod: AccountingAcquisitionMethod;
+  /** Whether opencode-quota or the user owns the source definition. */
+  ownership: AccountingOwnership;
+  /** Whether the value came from the provider or was derived locally. */
+  authority: AccountingAuthority;
+  /** Stable configured source identity when one aggregate provider owns multiple sources. */
+  sourceId?: string;
+  /** Source observation time only; never application fetch or cache time. */
+  observedAtIso?: string;
+}
+
 export interface GroupedQuotaEntryMeta {
+  /** Required provider-neutral accounting semantics for this row. */
+  accounting: AccountingMetadata;
   /** Optional provider/account group header for grouped toast and /quota output. */
   group?: string;
   /** Optional row label inside the group, e.g. "5h:" or "Usage:". */
@@ -20,7 +58,7 @@ export type QuotaToastEntry =
   | (GroupedQuotaEntryMeta & {
       /**
        * Percent-based entry (default).
-       * Note: kind is optional for backwards compatibility.
+       * The optional discriminant preserves the existing percent-entry shape.
        */
       kind?: "percent";
 
@@ -30,7 +68,7 @@ export type QuotaToastEntry =
       /** Remaining quota as a percentage (may be below 0 when over quota). */
       percentRemaining: number;
 
-      /** Optional ISO reset timestamp (shown when percentRemaining is < 100). */
+      /** Optional source-backed ISO reset timestamp (shown when percentRemaining is < 100). */
       resetTimeIso?: string;
     })
   | (GroupedQuotaEntryMeta & {
@@ -43,13 +81,11 @@ export type QuotaToastEntry =
       /** Human-readable value, e.g. "$42.50". */
       value: string;
 
-      /** Optional ISO reset timestamp (shown when available). */
+      /** Optional source-backed ISO reset timestamp (shown when available). */
       resetTimeIso?: string;
     });
 
-export function isValueEntry(
-  e: QuotaToastEntry,
-): e is Extract<QuotaToastEntry, { kind: "value" }> {
+export function isValueEntry(e: QuotaToastEntry): e is Extract<QuotaToastEntry, { kind: "value" }> {
   return e.kind === "value";
 }
 
@@ -93,16 +129,59 @@ export interface QuotaProviderPresentation {
   classicStrategy?: "preserve";
 }
 
+export interface QuotaProviderDiagnostic {
+  sourceId: string;
+  providerId: string;
+  mode: QuotaProviderDefinition["mode"];
+  format?: "accounting-v1" | "openrouter-key-v1";
+  /** Null means the source covers every model for providerId. */
+  modelIds: string[] | null;
+  /** Explicit environment-variable name only; never its value. */
+  apiKeyEnv: string | null;
+  selected: true;
+  attempted: boolean;
+  credentialSource:
+    | "explicit_env"
+    | "global_opencode_json"
+    | "global_opencode_jsonc"
+    | "auth_json"
+    | null;
+  outcome:
+    | "missing_credential"
+    | "success"
+    | "http_error"
+    | "redirect_error"
+    | "timeout"
+    | "body_too_large"
+    | "invalid_content_type"
+    | "invalid_json"
+    | "invalid_response"
+    | "network_error"
+    | "local_state_error";
+  httpStatus?: number;
+  entryCount: number;
+  checkedPaths: string[];
+  authPaths: string[];
+  statePath?: string;
+  stateHealth?: "missing" | "healthy" | "malformed" | "version_mismatch";
+  stateVersion?: number | null;
+  stateLastUpdatedAt?: number | null;
+}
+
 export interface QuotaProviderResult {
   /** True when provider had enough configuration to attempt a query. */
   attempted: boolean;
   entries: QuotaToastEntry[];
   errors: QuotaToastError[];
+  /** Internal provider diagnostics; not projected into normal presentation/export surfaces. */
+  diagnostics?: QuotaProviderDiagnostic[];
   presentation?: QuotaProviderPresentation;
 }
 
 export interface QuotaProviderMatchContext {
   enabledProviders: string[] | "auto";
+  quotaProviders?: QuotaProviderDefinition[];
+  currentProviderID?: string;
 }
 
 export interface QuotaProviderContext {
@@ -115,18 +194,20 @@ export interface QuotaProviderContext {
   config: {
     googleModels: string[];
     anthropicBinaryPath?: string;
-    alibabaCodingPlanTier: "lite" | "pro";
     cursorPlan: CursorQuotaPlan;
     cursorIncludedApiUsd?: number;
     cursorBillingCycleStartDay?: number;
     opencodeGoWindows?: OpenCodeGoWindowKey[];
     requestTimeoutMs?: number;
+    /** Provider-result cache TTL used by aggregate remote definitions. */
+    providerCacheTtlMs?: number;
     /** True when requestTimeoutMs came from user config rather than DEFAULT_CONFIG. */
     requestTimeoutMsConfigured?: boolean;
     onlyCurrentModel?: boolean;
     currentModel?: string;
     currentProviderID?: string;
     enabledProviders: string[] | "auto";
+    quotaProviders?: QuotaProviderDefinition[];
   };
 }
 

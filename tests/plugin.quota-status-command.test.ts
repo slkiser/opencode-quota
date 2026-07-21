@@ -92,8 +92,8 @@ async function buildQuotaStatusDialogOutput(params: {
     resolveSessionMeta: async (sessionID) => {
       const response = await params.client.session.get({ path: { id: sessionID } });
       return {
-        modelID: response.data?.modelID,
-        providerID: response.data?.providerID,
+        modelID: response.data?.model?.id,
+        providerID: response.data?.model?.providerID,
       };
     },
   });
@@ -125,7 +125,11 @@ describe("/quota_status command behavior", () => {
     mocks.collectQuotaStatusLiveProbes.mockResolvedValue([
       {
         providerId: "openai",
-        result: { attempted: true, entries: [{ name: "OpenAI", percentRemaining: 90 }], errors: [] },
+        result: {
+          attempted: true,
+          entries: [{ name: "OpenAI", percentRemaining: 90 }],
+          errors: [],
+        },
       },
       {
         providerId: "synthetic",
@@ -190,7 +194,9 @@ describe("/quota_status command behavior", () => {
     expect(mocks.collectQuotaStatusLiveProbes).toHaveBeenCalledWith(
       expect.objectContaining({
         client,
-        config: expect.objectContaining({ enabledProviders: ["openai", "synthetic", "copilot", "cursor"] }),
+        config: expect.objectContaining({
+          enabledProviders: ["openai", "synthetic", "copilot", "cursor"],
+        }),
         formatStyle: "singleWindow",
         providers: [openai, synthetic, copilot],
       }),
@@ -205,7 +211,11 @@ describe("/quota_status command behavior", () => {
         providerLiveProbes: [
           {
             providerId: "openai",
-            result: { attempted: true, entries: [{ name: "OpenAI", percentRemaining: 90 }], errors: [] },
+            result: {
+              attempted: true,
+              entries: [{ name: "OpenAI", percentRemaining: 90 }],
+              errors: [],
+            },
           },
           {
             providerId: "synthetic",

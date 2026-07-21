@@ -9,10 +9,7 @@ import type {
   QuotaToastEntry,
 } from "../lib/entries.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
-import {
-  hasSyntheticApiKeyConfigured,
-  querySyntheticQuota,
-} from "../lib/synthetic.js";
+import { hasSyntheticApiKeyConfigured, querySyntheticQuota } from "../lib/synthetic.js";
 import type { SyntheticQuotaWindow } from "../lib/types.js";
 import { modelProviderIncludesAny } from "../lib/provider-model-matching.js";
 import { attemptedResult, mapNullableProviderResult } from "./result-helpers.js";
@@ -37,6 +34,12 @@ function toSyntheticEntry(params: {
   const right = formatSyntheticSummary(params.window, params.currency);
 
   return {
+    accounting: {
+      resultType: "quota",
+      acquisitionMethod: "remote_api",
+      ownership: "maintained",
+      authority: "provider_reported",
+    },
     name: `Synthetic ${params.suffix}`,
     group: "Synthetic",
     label: params.label,

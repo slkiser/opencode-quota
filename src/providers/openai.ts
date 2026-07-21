@@ -47,6 +47,12 @@ export const openaiProvider: QuotaProvider = {
         attemptedResult(
           groupedPercentWindowEntries({
             group: result.label,
+            accounting: {
+              resultType: "rate_limit",
+              acquisitionMethod: "remote_api",
+              ownership: "maintained",
+              authority: "provider_reported",
+            },
             windows: [
               { window: result.windows.hourly, suffix: "5h", label: "5h:" },
               { window: result.windows.weekly, suffix: "Weekly", label: "Weekly:" },

@@ -52,7 +52,9 @@ function isDefaultOpenCodeGoWindowSelection(windows: OpenCodeGoWindowKey[]): boo
 }
 
 function formatMissingWindowList(windows: OpenCodeGoWindowKey[]): string {
-  return windows.map((window) => `${window} (${OPENCODE_GO_WINDOW_LABELS[window].dashboardField})`).join(", ");
+  return windows
+    .map((window) => `${window} (${OPENCODE_GO_WINDOW_LABELS[window].dashboardField})`)
+    .join(", ");
 }
 
 function buildOpenCodeGoEntries(
@@ -70,6 +72,12 @@ function buildOpenCodeGoEntries(
 
     const labels = OPENCODE_GO_WINDOW_LABELS[window];
     entries.push({
+      accounting: {
+        resultType: "quota",
+        acquisitionMethod: "dashboard_scrape",
+        ownership: "maintained",
+        authority: "provider_reported",
+      },
       name: labels.name,
       group: OPENCODE_GO_PROVIDER_LABEL,
       label: labels.label,

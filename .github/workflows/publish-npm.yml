@@ -3,57 +3,74 @@ name: Publish to npm on release
 on:
   release:
     types: [published]
-  workflow_dispatch:
 
 jobs:
-  build-and-publish:
+  release-package:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      id-token: write
+      contents: read
 
     steps:
-      - name: Checkout repo
+      - name: Checkout release tag
         uses: actions/checkout@v6
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Setup Node.js
+      - name: Setup Node.js 24
         uses: actions/setup-node@v6
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org/
 
       - name: Activate pnpm
         run: |
           corepack enable
           corepack prepare pnpm@11.0.0 --activate
 
-      - name: Sync package.json version from release tag
-        if: github.event_name == 'release'
+      - name: Assert release ref, tag, and commit match
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          TAG="${{ github.event.release.tag_name }}"
-          VERSION="${TAG#v}"
-          echo "Setting package.json version to $VERSION (from tag $TAG)"
+          if [ -z "$RELEASE_TAG" ]; then
+            echo "Release tag is empty." >&2
+            exit 1
+          fi
+          if [ "$GITHUB_REF" != "refs/tags/$RELEASE_TAG" ]; then
+            echo "Expected GITHUB_REF=refs/tags/$RELEASE_TAG, received $GITHUB_REF" >&2
+            exit 1
+          fi
+
+          CHECKED_OUT_SHA="$(git rev-parse HEAD)"
+          TAG_SHA="$(git rev-parse "$RELEASE_TAG^{commit}")"
+          if [ "$CHECKED_OUT_SHA" != "$GITHUB_SHA" ] || [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+            echo "Release tag, event SHA, and checked-out commit do not match." >&2
+            exit 1
+          fi
+
+      - name: Sync package version from release tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          echo "Setting package.json version to $VERSION (from tag $RELEASE_TAG)"
           pnpm version "$VERSION" --no-git-tag-version --allow-same-version
           pnpm install --lockfile-only
 
-      - name: Verify package.json version matches release tag
-        if: github.event_name == 'release'
+      - name: Verify package version matches release tag
         run: pnpm run verify:release-version
-
-      - name: Assert ref is a tag (release only)
-        if: github.event_name == 'release'
-        run: |
-          echo "GITHUB_REF=$GITHUB_REF"
-          case "$GITHUB_REF" in
-            refs/tags/*) echo "ok" ;;
-            *) echo "Expected refs/tags/* for release publish" >&2; exit 1 ;;
-          esac
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Check formatting
+        run: pnpm run format:check
+
+      - name: Verify TypeScript version
+        run: pnpm run verify:typescript-version
+
+      - name: Verify v4 history privacy
+        run: pnpm run verify:v4-history
 
       - name: Typecheck
         run: pnpm run typecheck
@@ -64,12 +81,122 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Publish
-        run: npm publish --access public
+      - name: Verify four-surface parity
+        run: pnpm run test:four-surfaces
+
+      - name: Pack and audit the release artifact once
+        run: pnpm run pack:release-package package-artifacts
+
+      - name: Upload exact release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-package
+          path: package-artifacts/*
+          if-no-files-found: error
+
+  runtime-smoke:
+    runs-on: ubuntu-latest
+    needs: release-package
+
+    strategy:
+      matrix:
+        node-version: [22.x, 24.x]
+
+    steps:
+      - name: Checkout smoke scripts
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Download exact release artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: release-package
+          path: package-artifacts
+
+      - name: Smoke exact release artifact on Node ${{ matrix.node-version }}
+        run: node scripts/smoke-packed-package.mjs package-artifacts
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [release-package, runtime-smoke]
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout artifact verifier
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Setup Node.js 24 for npm
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org/
+
+      - name: Download exact release artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: release-package
+          path: package-artifacts
+
+      - name: Verify and publish exact release artifact
+        run: |
+          node scripts/verify-release-artifact.mjs package-artifacts
+          TARBALLS=(package-artifacts/*.tgz)
+          if [ "${#TARBALLS[@]}" -ne 1 ]; then
+            echo "Expected exactly one release tarball." >&2
+            exit 1
+          fi
+          npm publish "${TARBALLS[0]}" --access public --provenance --ignore-scripts
+
+  backfill-version:
+    runs-on: ubuntu-latest
+    needs: publish
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.0.0 --activate
+
+      - name: Sync and verify version for repository backfill
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [ "$GITHUB_REF" != "refs/tags/$RELEASE_TAG" ]; then
+            echo "Expected GITHUB_REF=refs/tags/$RELEASE_TAG, received $GITHUB_REF" >&2
+            exit 1
+          fi
+          VERSION="${RELEASE_TAG#v}"
+          pnpm version "$VERSION" --no-git-tag-version --allow-same-version
+          pnpm install --lockfile-only
+          pnpm run verify:release-version
 
       - name: Commit synced version back to repository
-        if: github.event_name == 'release'
         env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
           TARGET_BRANCH: ${{ github.event.release.target_commitish }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
@@ -78,8 +205,7 @@ jobs:
             exit 0
           fi
 
-          TAG="${{ github.event.release.tag_name }}"
-          VERSION="${TAG#v}"
+          VERSION="${RELEASE_TAG#v}"
           BRANCH="${TARGET_BRANCH:-$DEFAULT_BRANCH}"
 
           if ! git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
@@ -99,8 +225,8 @@ jobs:
           git push origin HEAD:"$BRANCH"
 
       - name: Verify committed sync reached remote branch
-        if: github.event_name == 'release'
         env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
           TARGET_BRANCH: ${{ github.event.release.target_commitish }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
@@ -109,8 +235,7 @@ jobs:
             BRANCH="$DEFAULT_BRANCH"
           fi
 
-          TAG="${{ github.event.release.tag_name }}"
-          VERSION="${TAG#v}"
+          VERSION="${RELEASE_TAG#v}"
           git fetch origin "$BRANCH"
           REMOTE_VERSION="$(git show "origin/$BRANCH:package.json" | node -e "process.stdin.setEncoding('utf8'); let d=''; process.stdin.on('data', c => d += c); process.stdin.on('end', () => console.log(JSON.parse(d).version || ''));")"
 
@@ -119,4 +244,4 @@ jobs:
             exit 1
           fi
 
-          echo "Remote branch $BRANCH package.json version matches release tag $TAG"
+          echo "Remote branch $BRANCH package.json version matches release tag $RELEASE_TAG"

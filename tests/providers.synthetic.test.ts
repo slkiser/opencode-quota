@@ -5,6 +5,7 @@ import {
   expectAttemptedWithNoErrors,
   expectNotAttempted,
 } from "./helpers/provider-assertions.js";
+import { visibleEntries } from "./helpers/provider-assertions.js";
 import { syntheticProvider } from "../src/providers/synthetic.js";
 
 vi.mock("../src/lib/synthetic.js", () => ({
@@ -47,7 +48,7 @@ describe("synthetic provider", () => {
 
     const out = await syntheticProvider.fetch({} as any);
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "synthetic")).toEqual([
       {
         name: "Synthetic 5h",
         group: "Synthetic",
@@ -92,7 +93,7 @@ describe("synthetic provider", () => {
 
     const out = await syntheticProvider.fetch({} as any);
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "synthetic")).toEqual([
       {
         name: "Synthetic 5h",
         group: "Synthetic",

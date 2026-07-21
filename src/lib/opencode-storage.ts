@@ -154,7 +154,10 @@ function mapRowToOpenCodeMessage(row: MessageRow): OpenCodeMessage | null {
   };
 }
 
-function openDbOrNull(): { dbPath: string; open: () => ReturnType<typeof openOpenCodeSqliteReadOnly> } | null {
+function openDbOrNull(): {
+  dbPath: string;
+  open: () => ReturnType<typeof openOpenCodeSqliteReadOnly>;
+} | null {
   const dbPath = getOpenCodeDbPath();
   if (!dbPath) return null;
   if (!existsSync(dbPath)) return null;
@@ -235,7 +238,9 @@ function buildMessageQuery(params: {
   return { sql, args };
 }
 
-async function hasJsonExtract(conn: { get<T = unknown>(sql: string, params?: unknown[]): T | null }): Promise<boolean> {
+async function hasJsonExtract(conn: {
+  get<T = unknown>(sql: string, params?: unknown[]): T | null;
+}): Promise<boolean> {
   try {
     const row = conn.get<{ r: string }>(
       "SELECT json_extract('{\"role\":\"assistant\"}', '$.role') as r",
@@ -255,6 +260,54 @@ function mapAssistantMessages(rows: MessageRow[]): OpenCodeMessage[] {
     out.push(msg);
   }
   return out;
+}
+
+function completedAt(message: OpenCodeMessage): number | null {
+  const value = message.time?.completed;
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.trunc(value)
+    : null;
+}
+
+function mapCompletedAssistantMessages(rows: MessageRow[]): OpenCodeMessage[] {
+  return mapAssistantMessages(rows).filter((message) => completedAt(message) !== null);
+}
+
+function compareCompletedMessageOrder(a: OpenCodeMessage, b: OpenCodeMessage): number {
+  const aCompleted = completedAt(a) ?? Number.MAX_SAFE_INTEGER;
+  const bCompleted = completedAt(b) ?? Number.MAX_SAFE_INTEGER;
+  if (aCompleted !== bCompleted) return aCompleted - bCompleted;
+  return a.id.localeCompare(b.id);
+}
+
+function buildCompletedAssistantQuery(params: {
+  completedSinceMs?: number;
+  completedUntilMs?: number;
+}): { sql: string; args: unknown[] } {
+  const completedExpression = `CAST(json_extract(data, '$.time.completed') AS REAL)`;
+  const where = [
+    `json_extract(data, '$.role') = 'assistant'`,
+    `json_type(data, '$.time.completed') IN ('integer', 'real')`,
+    `${completedExpression} > 0`,
+  ];
+  const args: unknown[] = [];
+
+  if (typeof params.completedSinceMs === "number") {
+    where.push(`${completedExpression} >= ?`);
+    args.push(params.completedSinceMs);
+  }
+  if (typeof params.completedUntilMs === "number") {
+    where.push(`${completedExpression} <= ?`);
+    args.push(params.completedUntilMs);
+  }
+
+  return {
+    sql:
+      `SELECT id, session_id, time_created, time_updated, data FROM "message"` +
+      ` WHERE ${where.join(" AND ")}` +
+      ` ORDER BY ${completedExpression} ASC, id ASC`,
+    args,
+  };
 }
 
 function compareMessageOrder(a: OpenCodeMessage, b: OpenCodeMessage): number {
@@ -317,6 +370,47 @@ export async function iterAssistantMessages(params: {
     const q = buildMessageQuery({ sinceMs: params.sinceMs, untilMs: params.untilMs });
     const rows = conn.all<MessageRow>(q.sql, q.args);
     return mapAssistantMessages(rows);
+  } finally {
+    conn.close();
+  }
+}
+
+/**
+ * Read authoritative completed assistant/model-loop rows by completion time.
+ *
+ * This path intentionally does not share the creation-time filters used by token
+ * history. A request may be created before a window cutoff and complete inside it.
+ */
+export async function iterCompletedAssistantMessages(params: {
+  completedSinceMs?: number;
+  completedUntilMs?: number;
+}): Promise<OpenCodeMessage[]> {
+  const db = openDbOrNull();
+  if (!db) return [];
+
+  const conn = await db.open();
+  try {
+    if (await hasJsonExtract(conn)) {
+      const query = buildCompletedAssistantQuery(params);
+      return mapCompletedAssistantMessages(conn.all<MessageRow>(query.sql, query.args));
+    }
+
+    const rows = conn.all<MessageRow>(
+      `SELECT id, session_id, time_created, time_updated, data FROM "message"`,
+    );
+    return mapCompletedAssistantMessages(rows)
+      .filter((message) => {
+        const atMs = completedAt(message);
+        if (atMs === null) return false;
+        if (typeof params.completedSinceMs === "number" && atMs < params.completedSinceMs) {
+          return false;
+        }
+        if (typeof params.completedUntilMs === "number" && atMs > params.completedUntilMs) {
+          return false;
+        }
+        return true;
+      })
+      .sort(compareCompletedMessageOrder);
   } finally {
     conn.close();
   }

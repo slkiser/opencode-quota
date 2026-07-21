@@ -51,6 +51,18 @@ describe("opencode-quota bin", () => {
     expect(commandMocks.runCliShowCommand).not.toHaveBeenCalled();
   });
 
+  it("passes init dry-run and legacy sync flags in either order", async () => {
+    const { main } = await import("../src/bin/opencode-quota.js");
+
+    const code = await main(["init", "--sync-legacy-config", "--dry-run"]);
+
+    expect(code).toBe(0);
+    expect(commandMocks.runInitInstaller).toHaveBeenCalledWith({
+      dryRun: true,
+      syncLegacyConfig: true,
+    });
+  });
+
   it("dispatches show to the quota CLI command", async () => {
     const { main } = await import("../src/bin/opencode-quota.js");
 

@@ -1,11 +1,21 @@
 import { describe, expect, it } from "vitest";
 
+import { accountingContractResult } from "./fixtures/accounting-contract.js";
 import {
   groupQuotaEntries,
   normalizeGroupedQuotaEntries,
 } from "../src/lib/grouped-entry-normalization.js";
 
 describe("normalizeGroupedQuotaEntries", () => {
+  it("preserves accounting metadata while grouping and sorting", () => {
+    const entries = accountingContractResult.entries.slice(0, 2);
+    const normalized = normalizeGroupedQuotaEntries(entries, "toast");
+
+    expect(normalized.map((entry) => entry.accounting)).toEqual(
+      entries.map((entry) => entry.accounting),
+    );
+  });
+
   it("applies the Google fallback label only for /quota rendering", () => {
     const entry = {
       name: "Claude (acct)",

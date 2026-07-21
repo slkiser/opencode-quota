@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdirSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
+import { join } from "path";
 import {
   createConfigLoaderEnv,
   createConfigLoaderWorkspace,
   quotaConfigSource,
+  quotaSidecarConfigSource,
+  writeQuotaSidecarConfig,
   writeQuotaToastConfig,
   type ConfigLoaderWorkspace,
 } from "./helpers/config-loader-test-harness.js";
+import { VALID_QUOTA_PROVIDER_INPUTS, VALID_QUOTA_PROVIDERS } from "./fixtures/quota-providers.js";
 
 const mockedHomeDir = vi.hoisted(() => ({
   value: "",
@@ -21,6 +25,8 @@ vi.mock("os", async (importOriginal) => {
 });
 
 import { createLoadConfigMeta, loadConfig } from "../src/lib/config.js";
+import { applyInitInstallerPlan, planInitInstaller } from "../src/lib/init-installer.js";
+import { applyProviderAddPlan, planProviderAdd } from "../src/lib/provider-add.js";
 import { getOpencodeRuntimeDirCandidates } from "../src/lib/opencode-runtime-paths.js";
 
 describe("loadConfig integration runtime-path resolution", () => {
@@ -94,9 +100,9 @@ describe("loadConfig integration runtime-path resolution", () => {
     expect(cfg.onlyCurrentModel).toBe(true);
 
     expect(meta.source).toBe("files");
-    expect(meta.paths.some((path) => configDirs.some((dir) => path === quotaConfigSource(dir)))).toBe(
-      true,
-    );
+    expect(
+      meta.paths.some((path) => configDirs.some((dir) => path === quotaConfigSource(dir))),
+    ).toBe(true);
     expect(meta.paths).toContain(quotaConfigSource(workspaceDir));
     expect(meta.paths).not.toContain(quotaConfigSource(nestedDir));
     expect(meta.workspaceConfigPaths).toEqual([quotaConfigSource(workspaceDir)]);
@@ -105,50 +111,152 @@ describe("loadConfig integration runtime-path resolution", () => {
         configDirs.some((dir) => path === quotaConfigSource(dir)),
       ),
     ).toBe(true);
-    expect(meta.settingSources.enabled).toBe(
-      quotaConfigSource(workspaceDir),
-    );
-    expect(meta.settingSources.enabledProviders).toBe(
-      quotaConfigSource(workspaceDir),
-    );
+    expect(meta.settingSources.enabled).toBe(quotaConfigSource(workspaceDir));
+    expect(meta.settingSources.enabledProviders).toBe(quotaConfigSource(workspaceDir));
     expect(
       configDirs.some(
-        (dir) =>
-          meta.settingSources["pricingSnapshot.source"] ===
-          quotaConfigSource(dir),
+        (dir) => meta.settingSources["pricingSnapshot.source"] === quotaConfigSource(dir),
       ),
     ).toBe(true);
     expect(
       configDirs.some(
-        (dir) =>
-          meta.settingSources["pricingSnapshot.autoRefresh"] ===
-          quotaConfigSource(dir),
+        (dir) => meta.settingSources["pricingSnapshot.autoRefresh"] === quotaConfigSource(dir),
       ),
     ).toBe(true);
   });
 
-  it("treats an overlapping configRootDir as the workspace layer instead of a duplicate global path", async () => {
-    const overlappingRoot = workspace.opencodeConfigDir;
+  it("loads the recommended quota-toast.jsonc sidecar with comments", async () => {
+    const sidecarDir = join(workspaceDir, "opencode-quota");
+    mkdirSync(sidecarDir, { recursive: true });
+    const sidecarPath = join(sidecarDir, "quota-toast.jsonc");
+    writeFileSync(
+      sidecarPath,
+      '{ // recommended commented sidecar\n  "enabled": false,\n  "enabledProviders": ["openai"],\n}\n',
+      "utf8",
+    );
 
-    writeQuotaToastConfig(overlappingRoot, {
+    const meta = createLoadConfigMeta();
+    const cfg = await loadConfig(undefined, meta, { configRootDir: workspaceDir });
+
+    expect(cfg.enabled).toBe(false);
+    expect(cfg.enabledProviders).toEqual(["openai"]);
+    expect(meta.workspaceConfigPaths.some((path) => path.includes("quota-toast.jsonc"))).toBe(true);
+  });
+
+  it("loads a custom provider after init creates a manual-mode JSONC sidecar", async () => {
+    const env = process.env as NodeJS.ProcessEnv;
+    const configDir = getOpencodeRuntimeDirCandidates({ env, homeDir: tempDir }).configDirs[0]!;
+    const initPlan = await planInitInstaller({
+      env,
+      homeDir: tempDir,
+      selections: {
+        interfaces: "web",
+        scope: "global",
+        configFormat: "jsonc",
+        quotaUi: ["none"],
+        providerMode: "manual",
+        manualProviders: ["openai"],
+        formatStyle: "singleWindow",
+        percentDisplayMode: "remaining",
+        showSessionTokens: false,
+      },
+    });
+    await applyInitInstallerPlan(initPlan);
+
+    const providerPlan = await planProviderAdd({
+      configDir,
+      definition: {
+        id: "private-gateway",
+        mode: "remote-api",
+        url: "https://gateway.example/accounting",
+        format: "accounting-v1",
+        apiKeyEnv: "PRIVATE_GATEWAY_KEY",
+      },
+    });
+    expect(providerPlan.path).toBe(join(configDir, "opencode-quota", "quota-toast.jsonc"));
+    await applyProviderAddPlan(providerPlan);
+
+    const meta = createLoadConfigMeta();
+    const cfg = await loadConfig(undefined, meta, { configRootDir: workspaceDir });
+    expect(cfg.enabledProviders).toEqual(["openai", "quota-providers"]);
+    expect(cfg.quotaProviders).toEqual([
+      expect.objectContaining({ id: "private-gateway", mode: "remote-api" }),
+    ]);
+    expect(meta.settingSources.quotaProviders).toContain("quota-toast.jsonc");
+  });
+
+  it("prefers valid JSONC when both sidecars exist and reports the conflict", async () => {
+    const sidecarDir = join(workspaceDir, "opencode-quota");
+    mkdirSync(sidecarDir, { recursive: true });
+    writeFileSync(
+      join(sidecarDir, "quota-toast.jsonc"),
+      '{ // preferred\n  "enabledProviders": ["openai"],\n}\n',
+      "utf8",
+    );
+    writeFileSync(
+      join(sidecarDir, "quota-toast.json"),
+      JSON.stringify({ enabledProviders: ["chutes"] }),
+      "utf8",
+    );
+
+    const meta = createLoadConfigMeta();
+    const cfg = await loadConfig(undefined, meta, { configRootDir: workspaceDir });
+
+    expect(cfg.enabledProviders).toEqual(["openai"]);
+    expect(meta.settingSources.enabledProviders).toContain("quota-toast.jsonc");
+    expect(meta.configIssues).toContainEqual(
+      expect.objectContaining({
+        key: "$file",
+        message: "both quota-toast.jsonc and quota-toast.json exist; using quota-toast.jsonc",
+      }),
+    );
+  });
+
+  it("falls through a malformed sidecar and loads valid host quota config", async () => {
+    const sidecarDir = join(workspaceDir, "opencode-quota");
+    mkdirSync(sidecarDir, { recursive: true });
+    writeFileSync(join(sidecarDir, "quota-toast.jsonc"), '{ "enabledProviders": [', "utf8");
+    writeQuotaToastConfig(workspaceDir, {
       enabled: false,
-      minIntervalMs: 12_345,
+      enabledProviders: ["chutes"],
     });
 
     const meta = createLoadConfigMeta();
-    const cfg = await loadConfig(undefined, meta, { configRootDir: overlappingRoot });
+    const cfg = await loadConfig(undefined, meta, { configRootDir: workspaceDir });
+
+    expect(cfg.enabled).toBe(false);
+    expect(cfg.enabledProviders).toEqual(["chutes"]);
+    expect(meta.settingSources.enabledProviders).toBe(quotaConfigSource(workspaceDir));
+    expect(meta.configIssues).toContainEqual(
+      expect.objectContaining({
+        key: "$root",
+        message: "expected readable JSON object; this sidecar is not authoritative",
+      }),
+    );
+  });
+
+  it("classifies an OPENCODE_CONFIG_DIR overlap with the canonical global sidecar as global", async () => {
+    const overlappingRoot = workspace.opencodeConfigDir;
+    process.env.OPENCODE_CONFIG_DIR = overlappingRoot;
+
+    writeQuotaSidecarConfig(overlappingRoot, {
+      enabled: false,
+      minIntervalMs: 12_345,
+      quotaProviders: VALID_QUOTA_PROVIDER_INPUTS,
+    });
+
+    const meta = createLoadConfigMeta();
+    const cfg = await loadConfig(undefined, meta);
 
     expect(cfg.enabled).toBe(false);
     expect(cfg.minIntervalMs).toBe(12_345);
-    expect(meta.globalConfigPaths).toEqual([]);
-    expect(meta.workspaceConfigPaths).toEqual([quotaConfigSource(overlappingRoot)]);
-    expect(meta.paths).toEqual(meta.workspaceConfigPaths);
-    expect(meta.settingSources.enabled).toBe(
-      quotaConfigSource(overlappingRoot),
-    );
-    expect(meta.settingSources.minIntervalMs).toBe(
-      quotaConfigSource(overlappingRoot),
-    );
+    expect(cfg.quotaProviders).toEqual(VALID_QUOTA_PROVIDERS);
+    expect(meta.globalConfigPaths).toEqual([quotaSidecarConfigSource(overlappingRoot)]);
+    expect(meta.workspaceConfigPaths).toEqual([]);
+    expect(meta.paths).toEqual(meta.globalConfigPaths);
+    expect(meta.settingSources.enabled).toBe(quotaSidecarConfigSource(overlappingRoot));
+    expect(meta.settingSources.minIntervalMs).toBe(quotaSidecarConfigSource(overlappingRoot));
+    expect(meta.settingSources.quotaProviders).toBe(quotaSidecarConfigSource(overlappingRoot));
   });
 
   it("uses the provided configRootDir to pick the workspace override layer over shared global defaults", async () => {
@@ -184,7 +292,9 @@ describe("loadConfig integration runtime-path resolution", () => {
     });
 
     const workspaceMeta = createLoadConfigMeta();
-    const workspaceCfg = await loadConfig(undefined, workspaceMeta, { configRootDir: workspaceDir });
+    const workspaceCfg = await loadConfig(undefined, workspaceMeta, {
+      configRootDir: workspaceDir,
+    });
 
     const nestedMeta = createLoadConfigMeta();
     const nestedCfg = await loadConfig(undefined, nestedMeta, { configRootDir: nestedDir });
@@ -210,17 +320,9 @@ describe("loadConfig integration runtime-path resolution", () => {
           nestedMeta.globalConfigPaths.includes(quotaConfigSource(dir)),
       ),
     ).toBe(true);
-    expect(workspaceMeta.settingSources.enabled).toBe(
-      quotaConfigSource(workspaceDir),
-    );
-    expect(nestedMeta.settingSources.enabled).toBe(
-      quotaConfigSource(nestedDir),
-    );
-    expect(workspaceMeta.settingSources.minIntervalMs).toBe(
-      quotaConfigSource(workspaceDir),
-    );
-    expect(nestedMeta.settingSources.minIntervalMs).toBe(
-      quotaConfigSource(nestedDir),
-    );
+    expect(workspaceMeta.settingSources.enabled).toBe(quotaConfigSource(workspaceDir));
+    expect(nestedMeta.settingSources.enabled).toBe(quotaConfigSource(nestedDir));
+    expect(workspaceMeta.settingSources.minIntervalMs).toBe(quotaConfigSource(workspaceDir));
+    expect(nestedMeta.settingSources.minIntervalMs).toBe(quotaConfigSource(nestedDir));
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { expectAttemptedWithNoErrors, expectNotAttempted } from "./helpers/provider-assertions.js";
+import { visibleEntries } from "./helpers/provider-assertions.js";
 import { qwenCodeProvider } from "../src/providers/qwen-code.js";
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
@@ -33,7 +34,8 @@ describe("qwen-code provider", () => {
 
   it("maps qwen free local quota into canonical grouped-capable entries", async () => {
     const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
-    const { computeQwenQuota, readQwenLocalQuotaState } = await import("../src/lib/qwen-local-quota.js");
+    const { computeQwenQuota, readQwenLocalQuotaState } =
+      await import("../src/lib/qwen-local-quota.js");
 
     (readAuthFileCached as any).mockResolvedValue({
       "qwen-code": { type: "oauth", access: "token" },
@@ -77,7 +79,8 @@ describe("qwen-code provider", () => {
 
   it("falls back to the legacy qwen auth key when the canonical key is absent", async () => {
     const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
-    const { computeQwenQuota, readQwenLocalQuotaState } = await import("../src/lib/qwen-local-quota.js");
+    const { computeQwenQuota, readQwenLocalQuotaState } =
+      await import("../src/lib/qwen-local-quota.js");
 
     (readAuthFileCached as any).mockResolvedValue({
       "opencode-qwencode-auth": { type: "oauth", access: "legacy-token" },
@@ -101,7 +104,7 @@ describe("qwen-code provider", () => {
     const out = await qwenCodeProvider.fetch({ config: {} } as any);
 
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "qwen-code")).toEqual([
       {
         name: "Qwen Free Daily",
         group: "Qwen (free)",
@@ -119,6 +122,48 @@ describe("qwen-code provider", () => {
         resetTimeIso: "2026-02-24T12:00:30.000Z",
       },
     ]);
+  });
+
+  it("passes quotaProviders request-limit tuning to the maintained provider", async () => {
+    const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
+    const { computeQwenQuota, readQwenLocalQuotaState } =
+      await import("../src/lib/qwen-local-quota.js");
+    (readAuthFileCached as any).mockResolvedValue({
+      "qwen-code": { type: "oauth", access: "token" },
+    });
+    (readQwenLocalQuotaState as any).mockResolvedValue({});
+    (computeQwenQuota as any).mockReturnValue({
+      day: {
+        used: 0,
+        limit: 2000,
+        percentRemaining: 100,
+        resetTimeIso: "2026-02-25T00:00:00.000Z",
+      },
+      rpm: { used: 0, limit: 120, percentRemaining: 100 },
+    });
+
+    await qwenCodeProvider.fetch({
+      config: {
+        quotaProviders: [
+          {
+            id: "qwen-code",
+            providerId: "qwen-code",
+            label: "qwen-code",
+            mode: "local-estimate",
+            windows: [
+              { id: "daily", label: "Daily", type: "utc-day", requestLimit: 2000 },
+              { id: "rpm", label: "RPM", type: "rolling", durationMinutes: 1, requestLimit: 120 },
+            ],
+          },
+        ],
+      },
+    } as any);
+
+    expect(computeQwenQuota as any).toHaveBeenCalledWith({
+      state: {},
+      dayLimit: 2000,
+      rpmLimit: 120,
+    });
   });
 
   it("matches qwen-code model ids", () => {

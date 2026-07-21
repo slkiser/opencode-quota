@@ -2,6 +2,7 @@
  * Type definitions for opencode-quota plugin
  */
 
+import type { QuotaProviderDefinition } from "./quota-providers.js";
 import type { QuotaFormatStyle } from "./quota-format-style.js";
 import { DEFAULT_QUOTA_FORMAT_STYLE } from "./quota-format-style.js";
 
@@ -17,10 +18,7 @@ export type GeminiCliAuthSourceKey =
   | "opencode-gemini-auth"
   | "gemini"
   | "google";
-export type GoogleAgyAuthSourceKey =
-  | "google-agy"
-  | "opencode-agy-auth"
-  | "google-agy-auth";
+export type GoogleAgyAuthSourceKey = "google-agy" | "opencode-agy-auth" | "google-agy-auth";
 export type CursorQuotaPlan = "none" | "pro" | "pro-plus" | "ultra";
 export type PricingSnapshotSource = "auto" | "bundled" | "runtime";
 export type PercentDisplayMode = "remaining" | "used";
@@ -63,6 +61,8 @@ export interface MaintainerAnnouncementsConfig {
   home: boolean;
 }
 
+export type TuiCommandDisplay = "inline" | "dialog";
+
 /** Request timeout in milliseconds */
 export const REQUEST_TIMEOUT_MS = 5000;
 
@@ -72,6 +72,9 @@ export interface QuotaToastConfig {
 
   /** If false, never show popup toasts (commands/tools still work). */
   enableToast: boolean;
+
+  /** Where deterministic native TUI command output appears. */
+  tuiCommandDisplay: TuiCommandDisplay;
 
   /**
    * Shared quota-row formatting style for popup toasts and the TUI sidebar.
@@ -110,11 +113,16 @@ export interface QuotaToastConfig {
    */
   enabledProviders: string[] | "auto";
 
+  /**
+   * Ordered global-only remote accounting and local-estimate definitions.
+   * Executed by the single explicit quota-providers aggregate provider.
+   */
+  quotaProviders: QuotaProviderDefinition[];
+
   /** Path or command name for the local Claude CLI used by Anthropic probing. */
   anthropicBinaryPath: string;
 
   googleModels: GoogleModelId[];
-  alibabaCodingPlanTier: AlibabaCodingPlanTier;
   cursorPlan: CursorQuotaPlan;
   /**
    * Which OpenCode Go usage windows to display.
@@ -170,6 +178,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   enabled: true,
 
   enableToast: true,
+  tuiCommandDisplay: "inline",
   formatStyle: DEFAULT_QUOTA_FORMAT_STYLE,
   percentDisplayMode: "remaining",
   minIntervalMs: 300000, // 5 minutes
@@ -179,12 +188,12 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
 
   // Providers are auto-detected by default; set to explicit list to opt-in manually.
   enabledProviders: "auto" as const,
+  quotaProviders: [],
 
   anthropicBinaryPath: "claude",
 
   // If Google Antigravity is enabled, default to Claude only.
   googleModels: ["CLAUDE"],
-  alibabaCodingPlanTier: "lite",
   cursorPlan: "none",
   opencodeGoWindows: ["rolling", "weekly", "monthly"],
   pricingSnapshot: {
@@ -313,9 +322,11 @@ export interface MiniMaxAuthData {
 
 /**
  * Copilot subscription tier.
- * See: https://docs.github.com/en/copilot/about-github-copilot/subscription-plans-for-github-copilot
+ * See: https://docs.github.com/en/copilot/get-started/plans
  */
-export type CopilotTier = "free" | "pro" | "pro+" | "business" | "enterprise";
+export type CopilotTier = "free" | "student" | "pro" | "pro+" | "max" | "business" | "enterprise";
+
+export type CopilotBillingModel = "ai_credits" | "legacy_premium_requests";
 
 /**
  * Copilot quota token configuration.
@@ -325,32 +336,34 @@ export type CopilotTier = "free" | "pro" | "pro+" | "business" | "enterprise";
  *   `.../opencode/copilot-quota-token.json`
  *   (for example `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode`)
  *
- * Users can create a fine-grained PAT with "Plan" read permission
- * to enable quota checking via GitHub's public billing API.
+ * Credential type and permission depend on whether GitHub bills the
+ * personal account, organization, or enterprise.
  */
 export interface CopilotQuotaConfig {
-  /** Fine-grained PAT with GitHub billing-report access */
+  /** GitHub token with the billing-report permission required by the selected scope. */
   token: string;
+  /** Current AI Credits by default; legacy PRUs are limited to eligible Pro/Pro+ annual plans. */
+  billingModel?: CopilotBillingModel;
   /** Optional user login override for user-scoped reports or org user filtering */
   username?: string;
   /**
    * Optional organization slug.
    *
    * In business mode, this selects
-   * `/organizations/{org}/settings/billing/premium_request/usage`.
+   * `/organizations/{org}/settings/billing/ai_credit/usage`.
    *
    * In enterprise mode with an explicit `enterprise` slug, this becomes the
    * optional `organization` query filter on the enterprise usage report.
    */
   organization?: string;
   /**
-   * Optional enterprise slug for enterprise-scoped premium request reports.
+   * Optional enterprise slug for enterprise-scoped AI Credit reports.
    *
    * When present, the plugin queries
-   * `/enterprises/{enterprise}/settings/billing/premium_request/usage`.
+   * `/enterprises/{enterprise}/settings/billing/ai_credit/usage`.
    */
   enterprise?: string;
-  /** Copilot subscription tier (used for personal-tier fallback quota math) */
+  /** Copilot subscription tier and billing scope. */
   tier: CopilotTier;
 }
 
@@ -532,18 +545,32 @@ export interface ZaiQuotaResult {
 // Quota Result Types
 // =============================================================================
 
-/** Result from fetching per-user Copilot quota */
+export interface CopilotBudgetResult {
+  amountUsd: number;
+  spentUsd?: number;
+  scope: string;
+  percentRemaining?: number;
+}
+
+/** Result from fetching per-user Copilot accounting. */
 export interface CopilotQuotaResult {
   success: true;
   mode: "user_quota";
+  unit: "ai_credits" | "premium_requests";
   used: number;
-  total: number;
-  percentRemaining: number;
+  total?: number;
+  percentRemaining?: number;
+  includedUsed?: number;
+  billedUsed?: number;
+  billedAmountUsd?: number;
+  budget?: CopilotBudgetResult;
+  plan?: CopilotTier;
   unlimited?: boolean;
+  warnings?: string[];
   resetTimeIso?: string;
 }
 
-/** Result from fetching organization-scoped Copilot premium usage */
+/** Result from fetching organization-scoped Copilot AI Credit usage. */
 export interface CopilotOrganizationUsageResult {
   success: true;
   mode: "organization_usage";
@@ -553,11 +580,17 @@ export interface CopilotOrganizationUsageResult {
     year: number;
     month: number;
   };
+  unit: "ai_credits";
   used: number;
+  includedUsed: number;
+  billedUsed: number;
+  billedAmountUsd?: number;
+  budget?: CopilotBudgetResult;
+  warnings?: string[];
   resetTimeIso?: string;
 }
 
-/** Result from fetching enterprise-scoped Copilot premium usage */
+/** Result from fetching enterprise-scoped Copilot AI Credit usage. */
 export interface CopilotEnterpriseUsageResult {
   success: true;
   mode: "enterprise_usage";
@@ -568,7 +601,13 @@ export interface CopilotEnterpriseUsageResult {
     year: number;
     month: number;
   };
+  unit: "ai_credits";
   used: number;
+  includedUsed: number;
+  billedUsed: number;
+  billedAmountUsd?: number;
+  budget?: CopilotBudgetResult;
+  warnings?: string[];
   resetTimeIso?: string;
 }
 
@@ -756,17 +795,20 @@ export const GOOGLE_MODEL_KEYS: Record<
 > = {
   G3PRO: {
     key: "gemini-3.1-pro",
-    altKey: "gemini-3.1-pro-high|gemini-3.1-pro-low|gemini-3-pro-high|gemini-3-pro-low|gemini-3.5-pro-high|gemini-3.5-pro-low",
+    altKey:
+      "gemini-3.1-pro-high|gemini-3.1-pro-low|gemini-3-pro-high|gemini-3-pro-low|gemini-3.5-pro-high|gemini-3.5-pro-low",
     display: "G3Pro",
   },
   G3FLASH: {
     key: "gemini-3-flash",
-    altKey: "gemini-3-flash-medium|gemini-3-flash-high|gemini-3-flash-low|gemini-3-5-flash-medium|gemini-3-5-flash-high|gemini-3-5-flash-low|gemini-3.5-flash-medium|gemini-3.5-flash-high|gemini-3.5-flash-low",
+    altKey:
+      "gemini-3-flash-medium|gemini-3-flash-high|gemini-3-flash-low|gemini-3-5-flash-medium|gemini-3-5-flash-high|gemini-3-5-flash-low|gemini-3.5-flash-medium|gemini-3.5-flash-high|gemini-3.5-flash-low",
     display: "G3Flash",
   },
   CLAUDE: {
     key: "claude-opus-4-6-thinking",
-    altKey: "claude-opus-4-5-thinking|claude-opus-4-5|claude-sonnet-4-6|claude-sonnet-4-6-thinking|claude-opus-4-6|gemini-claude-sonnet-4-6|gemini-claude-opus-4-6-thinking",
+    altKey:
+      "claude-opus-4-5-thinking|claude-opus-4-5|claude-sonnet-4-6|claude-sonnet-4-6-thinking|claude-opus-4-6|gemini-claude-sonnet-4-6|gemini-claude-opus-4-6-thinking",
     display: "Claude",
   },
   G3IMAGE: { key: "gemini-3-pro-image", display: "G3Image" },

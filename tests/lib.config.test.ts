@@ -43,10 +43,7 @@ describe("loadConfig", () => {
     workspace.cleanup();
   });
 
-  async function loadSdkConfig(
-    quotaToast: Record<string, unknown>,
-    meta = createLoadConfigMeta(),
-  ) {
+  async function loadSdkConfig(quotaToast: Record<string, unknown>, meta = createLoadConfigMeta()) {
     const config = await loadConfig(
       {
         config: {
@@ -66,10 +63,41 @@ describe("loadConfig", () => {
     return { config, meta };
   }
 
+  it("defaults and validates native TUI command display with provenance", async () => {
+    const defaults = await loadSdkConfig({});
+    expect(defaults.config.tuiCommandDisplay).toBe("inline");
+    expect(defaults.meta.settingSources).toEqual({});
+
+    const dialog = await loadSdkConfig({ tuiCommandDisplay: "dialog" });
+    expect(dialog.config.tuiCommandDisplay).toBe("dialog");
+    expect(dialog.meta.settingSources).toEqual({
+      tuiCommandDisplay: "client.config.get",
+    });
+    expect(dialog.meta.configIssues).toEqual([]);
+
+    const invalid = await loadSdkConfig({ tuiCommandDisplay: "both" });
+    expect(invalid.config.tuiCommandDisplay).toBe("inline");
+    expect(invalid.meta.settingSources).toEqual({});
+    expect(invalid.meta.configIssues).toEqual([
+      {
+        path: "client.config.get",
+        key: "tuiCommandDisplay",
+        message: 'expected "inline" or "dialog"',
+      },
+    ]);
+
+    const removedKey = await loadSdkConfig({ tuiQuotaCommandDisplay: "dialog" });
+    expect(removedKey.config.tuiCommandDisplay).toBe("inline");
+    expect(removedKey.meta.settingSources).toEqual({});
+    expect(removedKey.meta.configIssues).toEqual([]);
+  });
+
   it("defaults maintainer announcements config and accepts validated nested overrides", async () => {
     const defaults = await loadSdkConfig({});
     expect(defaults.config.maintainerAnnouncements).toEqual(DEFAULT_CONFIG.maintainerAnnouncements);
-    expect(defaults.config.maintainerAnnouncements).not.toBe(DEFAULT_CONFIG.maintainerAnnouncements);
+    expect(defaults.config.maintainerAnnouncements).not.toBe(
+      DEFAULT_CONFIG.maintainerAnnouncements,
+    );
 
     const explicit = await loadSdkConfig({
       maintainerAnnouncements: {
@@ -298,12 +326,14 @@ describe("loadConfig", () => {
     }
   });
 
-  it("defaults alibabaCodingPlanTier to lite and accepts explicit overrides", async () => {
-    const defaults = await loadSdkConfig({});
-    expect(defaults.config.alibabaCodingPlanTier).toBe("lite");
-
-    const explicit = await loadSdkConfig({ alibabaCodingPlanTier: "pro" });
-    expect(explicit.config.alibabaCodingPlanTier).toBe("pro");
+  it("rejects the removed standalone Alibaba tuning path", async () => {
+    const result = await loadSdkConfig({ alibabaCodingPlanTier: "pro" });
+    expect(result.config).not.toHaveProperty("alibabaCodingPlanTier");
+    expect(result.meta.configIssues).toContainEqual({
+      path: "client.config.get",
+      key: "alibabaCodingPlanTier",
+      message: 'removed in v4; tune Alibaba through "quotaProviders"',
+    });
   });
 
   it("normalizes cursor config fields without coercing invalid values", async () => {
@@ -421,9 +451,7 @@ describe("loadConfig", () => {
     expect(firstMeta.settingSources.enabledProviders).toBe(
       `${workspaceConfigPath} (experimental.quotaToast)`,
     );
-    expect(firstMeta.paths).toEqual([
-      `${workspaceConfigPath} (experimental.quotaToast)`,
-    ]);
+    expect(firstMeta.paths).toEqual([`${workspaceConfigPath} (experimental.quotaToast)`]);
   });
 
   it("prefers plugin-owned quota settings over legacy experimental.quotaToast", async () => {
@@ -462,10 +490,11 @@ describe("loadConfig", () => {
     });
   });
 
-  it("does not fall through to legacy or sdk config when sidecar exists but is invalid", async () => {
+  it("falls through an invalid sidecar to valid host config without using sdk config", async () => {
     const workspaceConfigPath = join(isolatedCwd, "opencode.json");
     const quotaConfigPath = join(isolatedCwd, "opencode-quota", "quota-toast.json");
     const quotaConfigSource = quotaSidecarConfigSource(isolatedCwd);
+    const hostConfigSource = workspaceConfigPath + " (experimental.quotaToast)";
     mkdirSync(join(isolatedCwd, "opencode-quota"), { recursive: true });
     writeFileSync(
       workspaceConfigPath,
@@ -503,17 +532,21 @@ describe("loadConfig", () => {
       { cwd: isolatedCwd },
     );
 
-    expect(config.enabled).toBe(true);
-    expect(config.enabledProviders).toBe("auto");
-    expect(config.formatStyle).toBe("singleWindow");
+    expect(config.enabled).toBe(false);
+    expect(config.enabledProviders).toEqual(["openai"]);
+    expect(config.formatStyle).toBe("allWindows");
     expect(meta.source).toBe("files");
-    expect(meta.paths).toEqual([quotaConfigSource]);
-    expect(meta.settingSources).toEqual({});
+    expect(meta.paths).toEqual([quotaConfigSource, hostConfigSource]);
+    expect(meta.settingSources).toMatchObject({
+      enabled: hostConfigSource,
+      enabledProviders: hostConfigSource,
+      formatStyle: hostConfigSource,
+    });
     expect(meta.configIssues).toEqual([
       {
         path: quotaConfigSource,
         key: "$root",
-        message: "expected readable JSON object",
+        message: "expected readable JSON object; this sidecar is not authoritative",
       },
     ]);
   });
@@ -560,9 +593,7 @@ describe("loadConfig", () => {
       `${jsonPath} (experimental.quotaToast)`,
       `${jsoncPath} (experimental.quotaToast)`,
     ]);
-    expect(meta.settingSources.enabledProviders).toBe(
-      `${jsonPath} (experimental.quotaToast)`,
-    );
+    expect(meta.settingSources.enabledProviders).toBe(`${jsonPath} (experimental.quotaToast)`);
     expect(meta.configIssues).toEqual([
       {
         path: `${jsoncPath} (experimental.quotaToast)`,

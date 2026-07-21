@@ -1,11 +1,13 @@
 import { lstat, readFile, realpath, rm } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
-import { applyEdits, modify, parse, type ParseError } from "jsonc-parser";
-
 import { writeTextAtomic } from "./atomic-json.js";
-import { findGitWorktreeRoot } from "./config-file-utils.js";
+import {
+  findGitWorktreeRoot,
+  resolveExistingConfigPath,
+  type ConfigFileFormat,
+} from "./config-file-utils.js";
+import { editConfigDocumentPaths, parseConfigDocument } from "./opencode-config-editor.js";
 import {
   getOpencodeRuntimeDirCandidates,
   getOpencodeRuntimeDirs,
@@ -13,6 +15,7 @@ import {
 
 export const QUOTA_PACKAGE_NAME = "@slkiser/opencode-quota";
 export const QUOTA_LATEST_SPEC = `${QUOTA_PACKAGE_NAME}@latest`;
+const GITHUB_REPO_URL = "https://github.com/slkiser/opencode-quota";
 
 const EXACT_SEMVER =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
@@ -85,14 +88,10 @@ function effectiveGlobalConfigDir(params: { env: NodeJS.ProcessEnv; homeDir?: st
 }
 
 function selectedConfigPaths(root: string): string[] {
-  const result: string[] = [];
-  for (const kind of ["opencode", "tui"] as const) {
-    const jsonc = join(root, `${kind}.jsonc`);
-    const json = join(root, `${kind}.json`);
-    if (existsSync(jsonc)) result.push(jsonc);
-    else if (existsSync(json)) result.push(json);
-  }
-  return result;
+  return (["opencode", "tui"] as const).flatMap((kind) => {
+    const path = resolveExistingConfigPath(root, kind);
+    return path ? [path] : [];
+  });
 }
 
 async function dedupeByRealPath(paths: string[]): Promise<string[]> {
@@ -127,13 +126,15 @@ function updateConfig(
   replacements: number;
   specs: string[];
 } {
-  const errors: ParseError[] = [];
-  const parsed = parse(raw, errors, { allowTrailingComma: true, disallowComments: false });
-  if (errors.length > 0) {
+  const format: ConfigFileFormat = path.endsWith(".jsonc") ? "jsonc" : "json";
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = parseConfigDocument(raw, format, path);
+  } catch {
     throw new ScopedUpdateError(`Cannot update unparseable config: ${path}`, { path });
   }
 
-  let updated = raw;
+  const edits: Array<{ path: (string | number)[]; value: unknown }> = [];
   let replacements = 0;
   const specs: string[] = [];
   for (const array of pluginArrays(parsed)) {
@@ -150,10 +151,11 @@ function updateConfig(
       if (spec === QUOTA_LATEST_SPEC) continue;
       const targetPath =
         typeof entry === "string" ? [...array.path, index] : [...array.path, index, 0];
-      updated = applyEdits(updated, modify(updated, targetPath, QUOTA_LATEST_SPEC, {}));
+      edits.push({ path: targetPath, value: QUOTA_LATEST_SPEC });
       replacements++;
     }
   }
+  const updated = editConfigDocumentPaths({ raw, format, path, edits });
   return { updated, replacements, specs };
 }
 
@@ -359,10 +361,16 @@ export async function runScopedUpdateCommand(
     }
     for (const candidate of plan.cacheCandidates) log(`  cache candidate ${candidate}`);
     if (plan.configPaths.length === 0 || !plan.authoritativeLatest) {
-      log("No authoritative OpenCode config references an updatable OpenCode Quota spec.");
+      log("OpenCode Quota update is already current. No files changed.");
+      log(`If OpenCode Quota helps, please consider a star: ${GITHUB_REPO_URL}`);
       return 0;
     }
-    if (dryRun) return 0;
+    if (dryRun) {
+      log(
+        "OpenCode Quota update preview complete — no files changed. Run npx @slkiser/opencode-quota@latest update to apply.",
+      );
+      return 0;
+    }
     if (!yes) {
       const confirm =
         params.confirm ??
@@ -374,7 +382,7 @@ export async function runScopedUpdateCommand(
       if (
         !(await confirm("Apply these config edits and delete only verified cache directories?"))
       ) {
-        log("Update cancelled.");
+        log("OpenCode Quota update cancelled — no files changed.");
         return 0;
       }
     }
@@ -382,9 +390,21 @@ export async function runScopedUpdateCommand(
     for (const path of result.writtenPaths) log(`Updated ${path}`);
     for (const path of result.removedCachePaths) log(`Removed ${path}`);
     for (const path of result.skippedCachePaths) log(`Skipped unverified cache candidate ${path}`);
+    log("OpenCode Quota update complete.");
+    log(`Configured paths: ${plan.configPaths.join(", ")}`);
+    log("Restart OpenCode and run /quota.");
+    log(`If OpenCode Quota helps, please consider a star: ${GITHUB_REPO_URL}`);
     return 0;
   } catch (error) {
-    log(error instanceof Error ? error.message : String(error));
+    const reason = error instanceof Error ? error.message : String(error);
+    log(`OpenCode Quota update failed: ${reason}`);
+    const writtenPaths =
+      error instanceof ScopedUpdateError ? (error.details?.writtenPaths ?? []) : [];
+    log(
+      writtenPaths.length > 0
+        ? `Files changed before failure: ${writtenPaths.join(", ")}. Fix the reason above, then rerun update.`
+        : "No files changed. Fix the reason above, then rerun update.",
+    );
     return 1;
   }
 }

@@ -38,8 +38,8 @@ const SHOW_USAGE = [
   "Options:",
   "  --provider <provider-id>  Show quota for one provider",
   "  --json                    Machine-readable JSON output (reads from cache)",
-  "  --threshold <pct>         With --json, exit 1 if any cached percentage is below <pct>%",
-  "                            remaining (exit 2 if no cached percentage can be compared)",
+  "  --threshold <pct>         With --json, exit 1 if any complete cached percentage is below",
+  "                            <pct>% remaining (exit 2 if data is incomplete or not comparable)",
   "  --help, -h                Show help",
 ].join("\n");
 
@@ -135,7 +135,11 @@ function cloneCliConfig(config: QuotaToastConfig): QuotaToastConfig {
   };
 }
 
-function resolveCliRoots(cwd: string): { workspaceRoot: string; configRoot: string; fallbackDirectory: string } {
+function resolveCliRoots(cwd: string): {
+  workspaceRoot: string;
+  configRoot: string;
+  fallbackDirectory: string;
+} {
   const fallbackDirectory = resolve(cwd);
   const worktreeRoot = findGitWorktreeRoot(fallbackDirectory) ?? fallbackDirectory;
   const configRoot = getEffectiveConfigRoot(worktreeRoot);
@@ -215,7 +219,12 @@ async function runCliShowJsonOutput(params: {
   writeLine(stdout, JSON.stringify(exportData, null, 2));
 
   if (threshold !== undefined) {
-    const okProviders = Object.values(exportData.providers).filter(
+    const providerResults = Object.values(exportData.providers);
+    if (providerResults.some((provider) => provider.status !== "ok")) {
+      return 2;
+    }
+
+    const okProviders = providerResults.filter(
       (p): p is Extract<typeof p, { status: "ok" }> => p.status === "ok",
     );
 
@@ -227,8 +236,8 @@ async function runCliShowJsonOutput(params: {
     let hasComparablePercent = false;
     for (const provider of okProviders) {
       const percents = provider.entries
-        .map((e) => e.percentRemaining)
-        .filter((p): p is number => p !== undefined);
+        .filter((entry) => entry.renderType === "percent")
+        .map((entry) => entry.percentRemaining);
       if (percents.length === 0) continue;
       hasComparablePercent = true;
       const minPercent = Math.min(...percents);
@@ -307,7 +316,7 @@ export async function runCliShowCommand(options: RunCliShowCommandOptions = {}):
     });
 
     if (!result.data) {
-      writeLine(stderr, "No quota data available.");
+      writeLine(stderr, "No provider data available.");
       return 1;
     }
 
@@ -323,7 +332,7 @@ export async function runCliShowCommand(options: RunCliShowCommandOptions = {}):
     });
 
     if (!output.trim()) {
-      writeLine(stderr, "No quota data available.");
+      writeLine(stderr, "No provider data available.");
       return 1;
     }
 

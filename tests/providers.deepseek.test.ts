@@ -5,6 +5,7 @@ import {
   expectAttemptedWithNoErrors,
   expectNotAttempted,
 } from "./helpers/provider-assertions.js";
+import { visibleEntries } from "./helpers/provider-assertions.js";
 import { deepseekProvider } from "../src/providers/deepseek.js";
 
 vi.mock("../src/lib/deepseek.js", () => ({
@@ -53,7 +54,7 @@ describe("deepseek provider", () => {
     const out = await deepseekProvider.fetch({ config: { requestTimeoutMs: 9000 } } as any);
     expectAttemptedWithNoErrors(out);
     expect(queryDeepSeekBalance).toHaveBeenCalledWith({ requestTimeoutMs: 9000 });
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "deepseek")).toEqual([
       {
         kind: "value",
         name: "DeepSeek Balance",
@@ -81,7 +82,7 @@ describe("deepseek provider", () => {
 
     const out = await deepseekProvider.fetch({ config: {} } as any);
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "deepseek")).toEqual([
       {
         kind: "value",
         name: "DeepSeek",

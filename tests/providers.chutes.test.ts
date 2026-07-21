@@ -5,6 +5,7 @@ import {
   expectAttemptedWithNoErrors,
   expectNotAttempted,
 } from "./helpers/provider-assertions.js";
+import { visibleEntries } from "./helpers/provider-assertions.js";
 import { chutesProvider } from "../src/providers/chutes.js";
 
 vi.mock("../src/lib/chutes.js", () => ({
@@ -35,7 +36,7 @@ describe("chutes provider", () => {
 
     const out = await chutesProvider.fetch({ config: { formatStyle: "classic" } } as any);
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "chutes")).toEqual([
       {
         name: "Chutes",
         percentRemaining: 75,

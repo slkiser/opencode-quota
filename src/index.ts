@@ -29,6 +29,19 @@ export default pluginModule;
 export { QuotaToastPlugin } from "./plugin.js";
 
 // Re-export types for consumers (types are erased at runtime, so safe to export)
+export {
+  QUOTA_PROVIDER_MODES,
+  QUOTA_PROVIDER_REMOTE_FORMATS,
+  QUOTA_PROVIDER_WINDOW_TYPES,
+  validateQuotaProviders,
+} from "./lib/quota-providers.js";
+export type {
+  QuotaProviderDefinition,
+  RemoteApiQuotaProviderDefinition,
+  LocalEstimateQuotaProviderDefinition,
+  LocalEstimateWindow,
+} from "./lib/quota-providers.js";
+
 export type {
   QuotaToastConfig,
   MaintainerAnnouncementsConfig,

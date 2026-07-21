@@ -10,10 +10,7 @@ import type {
   QuotaProviderResult,
   QuotaToastEntry,
 } from "../lib/entries.js";
-import {
-  hasAnthropicCredentialsConfigured,
-  queryAnthropicQuota,
-} from "../lib/anthropic.js";
+import { hasAnthropicCredentialsConfigured, queryAnthropicQuota } from "../lib/anthropic.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";
 
@@ -59,6 +56,12 @@ export const anthropicProvider: QuotaProvider = {
 
     const entries: QuotaToastEntry[] = [
       {
+        accounting: {
+          resultType: "quota",
+          acquisitionMethod: "local_cli",
+          ownership: "maintained",
+          authority: "provider_reported",
+        },
         name: "Claude 5h",
         group: "Claude",
         label: "5h:",
@@ -66,6 +69,12 @@ export const anthropicProvider: QuotaProvider = {
         resetTimeIso: result.five_hour.resetTimeIso,
       },
       {
+        accounting: {
+          resultType: "quota",
+          acquisitionMethod: "local_cli",
+          ownership: "maintained",
+          authority: "provider_reported",
+        },
         name: "Claude Weekly",
         group: "Claude",
         label: "Weekly:",

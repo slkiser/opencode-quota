@@ -38,7 +38,6 @@ export function makeQuotaStatusReportParams(
     configSource: "test",
     configPaths: [],
     enabledProviders,
-    alibabaCodingPlanTier: "lite",
     cursorPlan: "none",
     pricingSnapshotSource: "auto",
     onlyCurrentModel: false,

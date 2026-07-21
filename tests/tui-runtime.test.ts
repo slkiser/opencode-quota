@@ -333,8 +333,7 @@ describe("tui runtime helpers", () => {
           session: {
             get: vi.fn().mockResolvedValue({
               data: {
-                providerID: "copilot",
-                modelID: "gpt-4.1",
+                model: { providerID: "copilot", id: "gpt-4.1" },
               },
             }),
           },
@@ -665,9 +664,11 @@ describe("tui runtime helpers", () => {
 
   it("uses the TUI session.get parameter shape for session model metadata", async () => {
     const sessionGet = vi.fn().mockResolvedValue({
-      data: { providerID: "openai", modelID: "gpt-5" },
+      data: { model: { providerID: "openai", id: "gpt-5" } },
     });
-    const messages = vi.fn(() => [{ providerID: "cursor", modelID: "claude-3.7-sonnet" }]);
+    const messages = vi.fn(() => [
+      { role: "assistant", providerID: "cursor", modelID: "claude-3.7-sonnet" },
+    ]);
 
     const meta = await getTuiSessionModelMeta(
       {
@@ -691,6 +692,48 @@ describe("tui runtime helpers", () => {
       providerID: "openai",
       modelID: "gpt-5",
     });
+  });
+
+  it("falls back to the client lookup when the TUI state accessor throws", async () => {
+    const stateGet = vi.fn(() => {
+      throw new Error("state is not hydrated");
+    });
+    const sessionGet = vi.fn().mockResolvedValue({
+      data: { model: { providerID: "qwen-code", id: "qwen3-coder-plus" } },
+    });
+    const messages = vi.fn(() => []);
+
+    const meta = await getTuiSessionModelMeta(
+      {
+        client: { session: { get: sessionGet } },
+        state: { session: { get: stateGet, messages } },
+      } as any,
+      "session-throwing-state",
+    );
+
+    expect(stateGet).toHaveBeenCalledWith("session-throwing-state");
+    expect(sessionGet).toHaveBeenCalledWith({ sessionID: "session-throwing-state" });
+    expect(messages).not.toHaveBeenCalled();
+    expect(meta).toEqual({
+      providerID: "qwen-code",
+      modelID: "qwen3-coder-plus",
+    });
+  });
+
+  it("does not read obsolete top-level session model fields", async () => {
+    const sessionGet = vi.fn().mockResolvedValue({
+      data: { providerID: "legacy-provider", modelID: "legacy-model" },
+    });
+
+    const meta = await getTuiSessionModelMeta(
+      {
+        client: { session: { get: sessionGet } },
+        state: { session: { messages: () => [] } },
+      } as any,
+      "session-legacy",
+    );
+
+    expect(meta).toEqual({});
   });
 
   it("does not call session APIs for placeholder TUI session IDs", async () => {
@@ -736,8 +779,11 @@ describe("tui runtime helpers", () => {
         state: {
           session: {
             messages: () => [
-              { providerID: "openai", modelID: "gpt-4.1" },
-              { model: { providerID: "cursor", modelID: "claude-3.7-sonnet" } },
+              { role: "assistant", providerID: "openai", modelID: "gpt-4.1" },
+              {
+                role: "user",
+                model: { providerID: "cursor", modelID: "claude-3.7-sonnet" },
+              },
             ],
           },
         },
@@ -806,6 +852,7 @@ describe("tui runtime helpers", () => {
         experimental: {
           quotaToast: {
             enabled: true,
+            tuiCommandDisplay: "dialog",
             tuiSidebarPanel: {
               enabled: true,
             },
@@ -840,6 +887,7 @@ describe("tui runtime helpers", () => {
     } as any);
 
     expect(registration).toEqual({
+      commandDisplay: "dialog",
       sidebar: {
         enabled: true,
       },
@@ -1050,8 +1098,7 @@ describe("tui runtime helpers", () => {
           session: {
             get: vi.fn().mockResolvedValue({
               data: {
-                providerID: "copilot",
-                modelID: "gpt-4.1",
+                model: { providerID: "copilot", id: "gpt-4.1" },
               },
             }),
           },
@@ -1389,6 +1436,48 @@ describe("tui runtime helpers", () => {
           providerIds: ["copilot"],
         },
       ],
+    });
+
+    expect(bottom).toEqual({ status: "disabled", compact: { status: "disabled" } });
+    expect(collectQuotaRenderData).not.toHaveBeenCalled();
+  });
+
+  it("keeps the July 14 bundled Copilot announcement hidden for a nonmatching provider", async () => {
+    writeFileSync(
+      join(worktreeDir, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            enabled: true,
+            tuiCompactStatus: {
+              enabled: false,
+              homeBottom: false,
+            },
+            maintainerAnnouncements: {
+              enabled: true,
+              home: true,
+            },
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const bottom = await loadTuiHomeBottomStatus({
+      api: {
+        state: {
+          provider: [{ id: "openai" }],
+          path: {
+            worktree: worktreeDir,
+            directory: nestedDir,
+          },
+          session: {
+            messages: () => [],
+          },
+        },
+        client: {},
+      } as any,
+      nowMs: Date.parse("2026-07-14T12:00:00.000Z"),
     });
 
     expect(bottom).toEqual({ status: "disabled", compact: { status: "disabled" } });
@@ -2080,6 +2169,5 @@ describe("tui runtime helpers", () => {
         }),
       ).rejects.toThrow("write rejected");
     });
-
   });
 });

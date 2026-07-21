@@ -1,11 +1,18 @@
 import { homedir } from "os";
 import { join } from "path";
 
-import type { QuotaProvider, QuotaProviderContext, QuotaToastEntry } from "./entries.js";
+import type {
+  QuotaProvider,
+  QuotaProviderContext,
+  QuotaProviderResult,
+  QuotaToastEntry,
+} from "./entries.js";
 import type {
   QuotaExport,
   QuotaExportEntry,
+  QuotaExportError,
   QuotaExportProvider,
+  QuotaExportSource,
 } from "./quota-export-types.js";
 import type { QuotaRuntimeContext } from "./quota-runtime-context.js";
 
@@ -16,6 +23,7 @@ import { isValueEntry } from "./entries.js";
 import { normalizeSingleWindowWindowLabel } from "./quota-render-data.js";
 import { sanitizeSingleLineDisplaySnippet } from "./display-sanitize.js";
 import { createQuotaProviderRuntimeContext } from "./quota-runtime-context.js";
+import { MAINTAINED_LOCAL_ESTIMATE_IDS } from "./quota-providers.js";
 
 /** Max length for an exported provider error message after sanitization. */
 const EXPORT_ERROR_MAX_LENGTH = 240;
@@ -63,28 +71,63 @@ export function resolveExportPath(configured: string): string {
 /**
  * Maps a `QuotaToastEntry` to a `QuotaExportEntry`.
  */
-function toExportEntry(entry: QuotaToastEntry): QuotaExportEntry {
-  const percentRemaining = isValueEntry(entry)
-    ? undefined
-    : entry.percentRemaining;
+function unixSecondsFromIso(value: string | undefined): number | undefined {
+  if (!value) return undefined;
 
+  const milliseconds = new Date(value).getTime();
+  return Number.isFinite(milliseconds) ? Math.floor(milliseconds / 1000) : undefined;
+}
+
+function toExportError(error: { label: string; message: string }): QuotaExportError {
+  return {
+    label: sanitizeSingleLineDisplaySnippet(error.label, EXPORT_ERROR_MAX_LENGTH),
+    message: sanitizeSingleLineDisplaySnippet(error.message, EXPORT_ERROR_MAX_LENGTH),
+  };
+}
+
+function toExportEntry(entry: QuotaToastEntry): QuotaExportEntry {
   // Derive the window only from the explicit row label. The entry name is a
   // human-readable display string (e.g. "Monthly Premium Requests") and must
-  // not be parsed as a machine-readable window, or single-window providers
-  // would emit a spurious `window` that consumers branch on.
+  // not be parsed as a machine-readable window.
   const window = normalizeSingleWindowWindowLabel(entry.label) ?? undefined;
-
-  const resetAt = entry.resetTimeIso
-    ? Math.floor(new Date(entry.resetTimeIso).getTime() / 1000)
-    : undefined;
-
-  return {
+  const resetAt = unixSecondsFromIso(entry.resetTimeIso);
+  const observedAt = unixSecondsFromIso(entry.accounting.observedAtIso);
+  const base = {
     name: entry.name,
+    resultType: entry.accounting.resultType,
+    acquisitionMethod: entry.accounting.acquisitionMethod,
+    ownership: entry.accounting.ownership,
+    authority: entry.accounting.authority,
+    ...(entry.accounting.sourceId ? { sourceId: entry.accounting.sourceId } : {}),
+    ...(observedAt !== undefined ? { observedAt } : {}),
     ...(window ? { window } : {}),
-    ...(percentRemaining !== undefined ? { percentRemaining } : {}),
     ...(resetAt !== undefined ? { resetAt } : {}),
-    unlimited: false,
   };
+
+  return isValueEntry(entry)
+    ? { ...base, renderType: "value", value: entry.value }
+    : { ...base, renderType: "percent", percentRemaining: entry.percentRemaining };
+}
+
+function buildQuotaProviderStatuses(params: {
+  ctx: QuotaProviderContext;
+  diagnostics?: QuotaProviderResult["diagnostics"];
+}): QuotaExportSource[] {
+  const diagnosticsBySource = new Map(
+    (params.diagnostics ?? []).map((diagnostic) => [diagnostic.sourceId, diagnostic] as const),
+  );
+
+  return (params.ctx.config.quotaProviders ?? [])
+    .filter((source) => !(MAINTAINED_LOCAL_ESTIMATE_IDS as readonly string[]).includes(source.id))
+    .map((source) => {
+      const diagnostic = diagnosticsBySource.get(source.id);
+      return {
+        id: source.id,
+        providerId: source.providerId,
+        status: !diagnostic ? "unavailable" : diagnostic.outcome === "success" ? "ok" : "error",
+        entryCount: diagnostic?.entryCount ?? 0,
+      };
+    });
 }
 
 /**
@@ -113,12 +156,33 @@ export async function buildQuotaExport(params: {
   const fetchedAtValues: number[] = [];
 
   for (const { provider, read } of reads) {
+    const sources =
+      provider.id === "quota-providers"
+        ? buildQuotaProviderStatuses({
+            ctx: params.ctx,
+            ...(read.hit ? { diagnostics: read.result.diagnostics } : {}),
+          })
+        : undefined;
+    const withSources = sources ? { sources } : {};
+
     if (!read.hit) {
-      providers[provider.id] = { status: "unavailable" };
+      providers[provider.id] = { status: "unavailable", ...withSources };
       continue;
     }
 
     const fetchedAt = Math.floor(read.timestamp / 1000);
+
+    if (read.result.entries.length > 0 && read.result.errors.length > 0) {
+      providers[provider.id] = {
+        status: "partial",
+        fetchedAt,
+        entries: read.result.entries.map(toExportEntry),
+        errors: read.result.errors.map(toExportError),
+        ...withSources,
+      };
+      fetchedAtValues.push(fetchedAt);
+      continue;
+    }
 
     if (read.result.errors.length > 0 && read.result.entries.length === 0) {
       providers[provider.id] = {
@@ -128,6 +192,7 @@ export async function buildQuotaExport(params: {
           read.result.errors[0].message,
           EXPORT_ERROR_MAX_LENGTH,
         ),
+        ...withSources,
       };
       fetchedAtValues.push(fetchedAt);
       continue;
@@ -138,19 +203,18 @@ export async function buildQuotaExport(params: {
       status: "ok",
       fetchedAt,
       entries,
+      ...withSources,
     };
     fetchedAtValues.push(fetchedAt);
   }
 
   const cacheAgeSeconds =
-    fetchedAtValues.length > 0
-      ? Math.floor(Date.now() / 1000) - Math.min(...fetchedAtValues)
-      : 0;
+    fetchedAtValues.length > 0 ? Math.floor(Date.now() / 1000) - Math.min(...fetchedAtValues) : 0;
 
   const exportedAt = Math.floor(Date.now() / 1000);
 
   return {
-    version: 1,
+    version: 2,
     exportedAt,
     fromCache: params.fromCache,
     cacheAgeSeconds,

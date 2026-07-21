@@ -1,10 +1,12 @@
-import type { QuotaProvider, QuotaProviderContext, QuotaProviderResult } from "../lib/entries.js";
+import type {
+  QuotaProvider,
+  QuotaProviderContext,
+  QuotaProviderResult,
+  QuotaToastEntry,
+} from "../lib/entries.js";
 import { hasAgyQuotaRuntimeAvailable, queryGoogleAgyQuota } from "../lib/google-agy.js";
 import { parseProviderModelRef } from "../lib/provider-model-matching.js";
-import {
-  formatGoogleAccountErrors,
-  formatGoogleAccountLabel,
-} from "./google-account-format.js";
+import { formatGoogleAccountErrors, formatGoogleAccountLabel } from "./google-account-format.js";
 import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";
 
 function isAgyModel(model: string): boolean {
@@ -53,7 +55,7 @@ export const googleAgyProvider: QuotaProvider = {
       return attemptedErrorResult("Google AGY", result.error);
     }
 
-    const groupedBuckets = new Map<string, typeof result.buckets[0]>();
+    const groupedBuckets = new Map<string, (typeof result.buckets)[0]>();
 
     for (const bucket of result.buckets) {
       let groupName: string | undefined;
@@ -76,11 +78,11 @@ export const googleAgyProvider: QuotaProvider = {
       }
     }
 
-    const finalBuckets = Array.from(groupedBuckets.values()).sort((a, b) => 
-      a.displayName.localeCompare(b.displayName)
+    const finalBuckets = Array.from(groupedBuckets.values()).sort((a, b) =>
+      a.displayName.localeCompare(b.displayName),
     );
 
-    const entries = finalBuckets.map((bucket) => {
+    const entries: QuotaToastEntry[] = finalBuckets.map((bucket) => {
       const emailLabel = formatAgyAccountLabel(bucket);
       const parsedRemaining = bucket.remainingAmount
         ? Number.parseInt(bucket.remainingAmount, 10)
@@ -94,6 +96,12 @@ export const googleAgyProvider: QuotaProvider = {
         .join(" ");
 
       return {
+        accounting: {
+          resultType: "quota",
+          acquisitionMethod: "remote_api",
+          ownership: "maintained",
+          authority: "provider_reported",
+        },
         name: `${bucket.displayName} (${emailLabel})`,
         group: "Google AGY",
         label: `${bucket.displayName}:`,

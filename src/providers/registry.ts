@@ -27,6 +27,7 @@ import { opencodeGoProvider } from "./opencode-go.js";
 import { kimiCodeProvider } from "./kimi-code.js";
 import { deepseekProvider } from "./deepseek.js";
 import { ollamaCloudProvider } from "./ollama-cloud.js";
+import { quotaProvidersProvider } from "./quota-providers.js";
 
 export function getProviders(): QuotaProvider[] {
   // Order here defines display ordering in the toast.
@@ -51,5 +52,6 @@ export function getProviders(): QuotaProvider[] {
     deepseekProvider,
     opencodeGoProvider,
     ollamaCloudProvider,
+    quotaProvidersProvider,
   ];
 }

@@ -8,6 +8,13 @@ import {
   makeProviderAvailability,
 } from "./helpers/quota-status-test-harness.js";
 
+const QUOTA_ACCOUNTING = {
+  resultType: "quota",
+  acquisitionMethod: "local_estimation",
+  ownership: "maintained",
+  authority: "locally_derived",
+} as const;
+
 const fsPromiseMocks = vi.hoisted(() => ({
   stat: vi.fn(async () => {
     throw new Error("missing");
@@ -38,7 +45,10 @@ const copilotMocks = vi.hoisted(() => ({
     override: "pat_overrides_oauth",
     billingMode: "organization_usage",
     billingScope: "organization",
-    quotaApi: "github_billing_api",
+    quotaApi: "github_ai_credit_api",
+    billingModel: "ai_credits",
+    budgetApi: "organization_budgets",
+    oauthAccountingState: "not_supported_by_public_billing_api",
     billingApiAccessLikely: true,
     remainingTotalsState: "not_available_from_org_usage",
     queryPeriod: {
@@ -293,6 +303,8 @@ vi.mock("../src/lib/copilot.js", () => ({
 }));
 
 vi.mock("../src/lib/qwen-local-quota.js", () => ({
+  QWEN_LOCAL_QUOTA_STATE_VERSION: 1,
+  ALIBABA_CODING_PLAN_STATE_VERSION: 1,
   computeQwenQuota: () => ({
     day: { used: 0, limit: 1000 },
     rpm: { used: 0, limit: 60 },
@@ -492,8 +504,153 @@ describe("buildQuotaStatusReport", () => {
     expect(geminiCliMocks.inspectGeminiCliAuthPresence).toHaveBeenCalledWith(geminiCliClient);
   });
 
+  it("renders only safe quota-provider identity and diagnostic fields", async () => {
+    const report = await buildQuotaStatusReportForTest({
+      enabledProviders: ["quota-providers"],
+      quotaProviders: [
+        {
+          id: "first-source",
+          providerId: "internal_gateway",
+          label: "Duplicate label",
+          mode: "remote-api",
+          url: "https://private.example/secret-path",
+          format: "accounting-v1",
+          apiKeyEnv: "INTERNAL_GATEWAY_KEY",
+          modelIds: ["model-a"],
+        },
+        {
+          id: "second-source",
+          providerId: "openrouter",
+          label: "Duplicate label",
+          mode: "remote-api",
+          url: "https://openrouter.ai/api/v1/key",
+          format: "openrouter-key-v1",
+        },
+      ],
+      providerLiveProbes: [
+        {
+          providerId: "quota-providers",
+          result: {
+            attempted: true,
+            entries: [],
+            errors: [{ label: "Duplicate label", message: "raw body secret" }],
+            diagnostics: [
+              {
+                sourceId: "first-source",
+                providerId: "internal_gateway",
+                mode: "remote-api",
+                format: "accounting-v1",
+                modelIds: ["model-a"],
+                apiKeyEnv: "INTERNAL_GATEWAY_KEY",
+                selected: true,
+                attempted: true,
+                credentialSource: "global_opencode_jsonc",
+                outcome: "http_error",
+                httpStatus: 401,
+                entryCount: 0,
+                checkedPaths: ["env:INTERNAL_GATEWAY_KEY", "/trusted/opencode.jsonc"],
+                authPaths: ["/trusted/auth.json"],
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const section = getReportSection(report, "quota_providers:");
+    expect(section).toContain("provider_first-source:");
+    expect(section).toContain("provider_id=internal_gateway");
+    expect(section).toContain("mode=remote-api");
+    expect(section).toContain("format=accounting-v1");
+    expect(section).toContain("coverage=model-a");
+    expect(section).toContain("outcome=http_error");
+    expect(section).toContain("credential_category=trusted_global_config");
+    expect(section).toContain("env_name=INTERNAL_GATEWAY_KEY");
+    expect(section).toContain("/trusted/opencode.jsonc | /trusted/auth.json");
+    expect(section).toContain("provider_second-source:");
+    expect(section).toContain("outcome=unavailable");
+    expect(section).not.toContain("private.example");
+    expect(section).not.toContain("openrouter.ai");
+    expect(section).not.toContain("raw body secret");
+    expect(section).not.toContain("401");
+  });
+
+  it("uses maintained Qwen and Alibaba probes and state paths for tuning diagnostics", async () => {
+    const report = await buildQuotaStatusReportForTest({
+      enabledProviders: ["qwen-code", "alibaba-coding-plan"],
+      quotaProviders: [
+        {
+          id: "qwen-code",
+          providerId: "qwen-code",
+          mode: "local-estimate",
+          windows: [
+            { id: "daily", type: "utc-day", requestLimit: 900 },
+            { id: "rpm", type: "rolling", durationMinutes: 1, requestLimit: 50 },
+          ],
+        },
+        {
+          id: "alibaba-coding-plan",
+          providerId: "alibaba-coding-plan",
+          mode: "local-estimate",
+          windows: [
+            { id: "five-hour", type: "rolling", durationMinutes: 300, requestLimit: 1000 },
+            { id: "weekly", type: "rolling", durationMinutes: 10080, requestLimit: 8000 },
+            { id: "monthly", type: "rolling", durationMinutes: 43200, requestLimit: 16000 },
+          ],
+        },
+      ],
+      providerLiveProbes: [
+        {
+          providerId: "qwen-code",
+          result: {
+            attempted: true,
+            entries: [
+              {
+                accounting: QUOTA_ACCOUNTING,
+                name: "Qwen Free Daily",
+                percentRemaining: 90,
+              },
+            ],
+            errors: [{ label: "Qwen", message: "one local row failed" }],
+          },
+        },
+        {
+          providerId: "alibaba-coding-plan",
+          result: {
+            attempted: true,
+            entries: [
+              {
+                accounting: QUOTA_ACCOUNTING,
+                name: "Alibaba 5h",
+                percentRemaining: 80,
+              },
+            ],
+            errors: [],
+          },
+        },
+      ],
+    });
+
+    const section = getReportSection(report, "quota_providers:");
+    expect(section).toContain(
+      "provider_qwen-code: provider_id=qwen-code mode=local-estimate coverage=all_models outcome=partial",
+    );
+    expect(section).toContain("limits=daily:900,rpm:50");
+    expect(section).toContain("state_path=/tmp/qwen-state.json");
+    expect(section).toContain(
+      "provider_alibaba-coding-plan: provider_id=alibaba-coding-plan mode=local-estimate coverage=all_models outcome=success",
+    );
+    expect(section).toContain("limits=five-hour:1000,weekly:8000,monthly:16000");
+    expect(section).toContain("state_path=/tmp/alibaba-state.json");
+    expect(section).not.toContain("quota-providers/qwen-code.json");
+    expect(section).not.toContain("quota-providers/alibaba-coding-plan.json");
+  });
+
   const buildMiniMaxStatusReport = (overrides: Record<string, unknown> = {}) =>
-    buildProviderStatusReport(["minimax-coding-plan", "minimax-china-coding-plan"], overrides as any);
+    buildProviderStatusReport(
+      ["minimax-coding-plan", "minimax-china-coding-plan"],
+      overrides as any,
+    );
 
   const buildZaiStatusReport = (overrides: Record<string, unknown> = {}) =>
     buildProviderStatusReport("zai", overrides as any);
@@ -574,7 +731,12 @@ describe("buildQuotaStatusReport", () => {
         configured: true,
         inferredSelectedPath: "/tmp/project/tui.jsonc",
         presentPaths: ["/tmp/config/tui.json", "/tmp/project/tui.jsonc"],
-        candidatePaths: ["/tmp/config/tui.json", "/tmp/config/tui.jsonc", "/tmp/project/tui.json", "/tmp/project/tui.jsonc"],
+        candidatePaths: [
+          "/tmp/config/tui.json",
+          "/tmp/config/tui.jsonc",
+          "/tmp/project/tui.json",
+          "/tmp/project/tui.jsonc",
+        ],
         quotaPluginConfigured: true,
         quotaPluginConfigPaths: ["/tmp/project/tui.jsonc"],
       },
@@ -608,7 +770,9 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- config_root: /tmp/project");
     expect(report).toContain("- config_configured: true");
     expect(report).toContain("- inferred_selected_config_path: /tmp/project/tui.jsonc");
-    expect(report).toContain("- present_config_paths: /tmp/config/tui.json | /tmp/project/tui.jsonc");
+    expect(report).toContain(
+      "- present_config_paths: /tmp/config/tui.json | /tmp/project/tui.jsonc",
+    );
     expect(report).toContain(
       "- candidate_config_paths: /tmp/config/tui.json | /tmp/config/tui.jsonc | /tmp/project/tui.json | /tmp/project/tui.jsonc",
     );
@@ -638,7 +802,6 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- alibaba_api_key_source: (none)");
     expect(report).toContain("- alibaba_api_key_checked_paths: (none)");
     expect(report).toContain("- alibaba_api_key_auth_paths: /tmp/auth.json");
-    expect(report).toContain("- alibaba coding plan fallback tier: lite");
     expect(report).toContain("- alibaba_coding_plan: (none)");
     expect(report).toContain("anthropic:");
     expect(report).toContain("- cli_installed: true");
@@ -678,7 +841,9 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("copilot_quota_auth:");
     expect(report).toContain("- billing_mode: organization_usage");
     expect(report).toContain("- billing_scope: organization");
-    expect(report).toContain("- quota_api: github_billing_api");
+    expect(report).toContain("- quota_api: github_ai_credit_api");
+    expect(report).toContain("- budget_api: organization_budgets");
+    expect(report).toContain("- oauth_accounting_state: not_supported_by_public_billing_api");
     expect(report).toContain("- billing_api_access_likely: true");
     expect(report).toContain("- remaining_totals_state: not_available_from_org_usage");
     expect(report).toContain("- billing_period: 2026-01");
@@ -697,10 +862,10 @@ describe("buildQuotaStatusReport", () => {
     );
     expect(report).toContain("- token_cache_path: /tmp/google-token-cache.json exists=false");
     expect(report).toContain(
-      "- billing_usage_note: organization premium usage for the current billing period",
+      "- billing_usage_note: organization AI Credit usage for the current UTC calendar month",
     );
     expect(report).toContain(
-      "- remaining_quota_note: valid PAT access can query billing usage, but pooled org usage does not provide a true per-user remaining quota",
+      "- remaining_quota_note: the usage report exposes included-pool consumption and billed usage, but no included-pool denominator; percentages require a real budget",
     );
     expect(report).toContain(
       "- synthetic: pricing=no (subscription request quota (not token-priced))",
@@ -1066,7 +1231,7 @@ describe("buildQuotaStatusReport", () => {
     expect(agySection).toContain(
       "- companion_package_path: /tmp/node_modules/@anthonyhaussman/opencode-agy-auth/dist/src/constants.js",
     );
-    expect(agySection).toContain("- live_probe: success");
+    expect(agySection).toContain("- live_probe: partial");
     expect(agySection).toContain(
       "- live_entry_1: Gemini Models: 120 left percent_remaining=42 reset_at=2026-04-24T00:00:00.000Z",
     );
@@ -1281,7 +1446,9 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain(
       "- monthly_usage: percent_used=64 percent_remaining=36 reset_in_sec=2480000 reset_at=2026-04-10T05:38:20.000Z",
     );
-    expect(openCodeGoMocks.resolveOpenCodeGoConfigCached).toHaveBeenCalledWith({ maxAgeMs: 30_000 });
+    expect(openCodeGoMocks.resolveOpenCodeGoConfigCached).toHaveBeenCalledWith({
+      maxAgeMs: 30_000,
+    });
     expect(openCodeGoMocks.queryOpenCodeGoQuota).toHaveBeenCalledWith("ws-123", "cookie-abc");
   });
 
@@ -1405,7 +1572,9 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain(
       "- rolling_usage: percent_used=7 percent_remaining=93 reset_in_sec=18000 reset_at=2026-03-12T17:45:00.000Z",
     );
-    expect(report).toContain("- live_fetch_error: Selected OpenCode Go dashboard window(s) missing: weekly (weeklyUsage)");
+    expect(report).toContain(
+      "- live_fetch_error: Selected OpenCode Go dashboard window(s) missing: weekly (weeklyUsage)",
+    );
   });
 
   it("reports OpenCode Go invalid config details without attempting a live fetch", async () => {
@@ -1641,7 +1810,10 @@ describe("buildQuotaStatusReport", () => {
       override: "none",
       billingMode: "enterprise_usage",
       billingScope: "enterprise",
-      quotaApi: "github_billing_api",
+      quotaApi: "github_ai_credit_api",
+      billingModel: "ai_credits",
+      budgetApi: "enterprise_budgets",
+      oauthAccountingState: "not_configured",
       billingApiAccessLikely: false,
       remainingTotalsState: "not_available_from_enterprise_usage",
       queryPeriod: {
@@ -1650,7 +1822,7 @@ describe("buildQuotaStatusReport", () => {
       },
       usernameFilter: "alice",
       tokenCompatibilityError:
-        "GitHub's enterprise premium usage endpoint does not support fine-grained personal access tokens. Use a classic PAT or another supported non-fine-grained token for enterprise billing.",
+        "GitHub\'s enterprise billing reports do not support fine-grained PATs or GitHub App access tokens. Use a classic PAT held by an enterprise admin or billing manager.",
     });
 
     const report = await buildProviderStatusReport("copilot");
@@ -1658,17 +1830,18 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- pat_enterprise: acme-enterprise");
     expect(report).toContain("- billing_mode: enterprise_usage");
     expect(report).toContain("- billing_scope: enterprise");
-    expect(report).toContain("- quota_api: github_billing_api");
+    expect(report).toContain("- quota_api: github_ai_credit_api");
+    expect(report).toContain("- budget_api: enterprise_budgets");
     expect(report).toContain("- billing_api_access_likely: false");
     expect(report).toContain("- remaining_totals_state: not_available_from_enterprise_usage");
     expect(report).toContain(
-      "- billing_usage_note: enterprise premium usage for the current billing period",
+      "- billing_usage_note: enterprise AI Credit usage for the current UTC calendar month",
     );
     expect(report).toContain(
-      "- remaining_quota_note: valid enterprise billing access can query pooled enterprise usage, but it does not provide a true per-user remaining quota",
+      "- remaining_quota_note: the usage report exposes included-pool consumption and billed usage, but no included-pool denominator; percentages require a real budget",
     );
     expect(report).toContain(
-      "- token_compatibility_error: GitHub's enterprise premium usage endpoint does not support fine-grained personal access tokens.",
+      "- token_compatibility_error: GitHub\'s enterprise billing reports do not support fine-grained PATs or GitHub App access tokens.",
     );
   });
 
@@ -1706,7 +1879,6 @@ describe("buildQuotaStatusReport", () => {
       - alibaba_api_key_source: (none)
       - alibaba_api_key_checked_paths: (none)
       - alibaba_api_key_auth_paths: /tmp/auth.json
-      - alibaba coding plan fallback tier: lite
       - alibaba_coding_plan: (none)
 
       openai:
@@ -1728,7 +1900,8 @@ describe("buildQuotaStatusReport", () => {
 
       cursor:
       - plan: none
-      - included_api_usd: (none)"
+      - included_api_usd: (none)
+      - billing_cycle_start_day: (calendar month)"
     `);
 
     const titles = report

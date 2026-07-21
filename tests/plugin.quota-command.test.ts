@@ -17,6 +17,12 @@ import {
 } from "./helpers/plugin-test-harness.js";
 
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-plugin-quota-command-tests";
+const TEST_ACCOUNTING = {
+  resultType: "quota",
+  acquisitionMethod: "remote_api",
+  ownership: "maintained",
+  authority: "provider_reported",
+} as const;
 
 type DialogCommand = "quota" | "pricing_refresh";
 
@@ -40,8 +46,8 @@ async function buildDialogOutput(params: {
     resolveSessionMeta: async (sessionID) => {
       const response = await params.client.session.get({ path: { id: sessionID } });
       return {
-        modelID: response.data?.modelID,
-        providerID: response.data?.providerID,
+        modelID: response.data?.model?.id,
+        providerID: response.data?.model?.providerID,
       };
     },
   });
@@ -63,6 +69,7 @@ const mocks = vi.hoisted(() => ({
   resolveQwenLocalPlanCached: vi.fn(),
   resolveAlibabaCodingPlanAuthCached: vi.fn(),
   fetchSessionTokensForDisplay: vi.fn(),
+  reconcileDetectedProvidersInGlobalConfig: vi.fn(),
 }));
 
 vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
@@ -91,6 +98,10 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () =>
   createPluginRuntimePathsMockModule(TEST_RUNTIME_ROOT),
 );
 
+vi.mock("../src/lib/opencode-config-providers.js", () => ({
+  reconcileDetectedProvidersInGlobalConfig: mocks.reconcileDetectedProvidersInGlobalConfig,
+}));
+
 describe("/quota command behavior", () => {
   let savedConfigDir: string | undefined;
 
@@ -105,6 +116,12 @@ describe("/quota command behavior", () => {
         minIntervalMs: 60_000,
       },
       resetPluginState: true,
+    });
+    mocks.reconcileDetectedProvidersInGlobalConfig.mockResolvedValue({
+      path: `${TEST_RUNTIME_ROOT}/config/opencode.jsonc`,
+      format: "jsonc",
+      addedProviderIds: [],
+      changed: false,
     });
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
     const { __resetQuotaStateForTests } = await import("../src/lib/quota-state.js");
@@ -215,6 +232,80 @@ describe("/quota command behavior", () => {
     expect(message).toContain("Copilot: Unavailable (not detected)");
   });
 
+  it("reconciles auth-detected providers through the global config writer in auto mode", async () => {
+    mocks.loadConfig.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      enabled: true,
+      enabledProviders: "auto",
+      showOnIdle: true,
+      showOnCompact: false,
+      showOnQuestion: false,
+      showSessionTokens: false,
+      minIntervalMs: 60_000,
+    });
+    const provider = {
+      id: "openai",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI", percentRemaining: 75 }],
+        errors: [],
+      }),
+    };
+    mocks.getProviders.mockReturnValue([provider]);
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const client = createClient();
+    const projectDirectory = `${TEST_RUNTIME_ROOT}/project`;
+    const hooks = await QuotaToastPlugin({ client, directory: projectDirectory } as any);
+
+    await hooks.event?.({
+      event: { type: "session.idle", properties: { sessionID: "session-auto-provider" } },
+    } as any);
+
+    expect(mocks.reconcileDetectedProvidersInGlobalConfig).toHaveBeenCalledWith({
+      configRootDir: projectDirectory,
+      detectedProviderIds: ["openai"],
+    });
+  });
+
+  it("keeps quota output working when automatic global config repair and logging fail", async () => {
+    mocks.loadConfig.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      enabled: true,
+      enabledProviders: "auto",
+      showOnIdle: true,
+      showOnCompact: false,
+      showOnQuestion: false,
+      showSessionTokens: false,
+      minIntervalMs: 60_000,
+    });
+    mocks.reconcileDetectedProvidersInGlobalConfig.mockRejectedValueOnce(new Error("disk full"));
+    const provider = {
+      id: "openai",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI", percentRemaining: 75 }],
+        errors: [],
+      }),
+    };
+    mocks.getProviders.mockReturnValue([provider]);
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const client = createClient();
+    client.app.log.mockRejectedValue(new Error("logging unavailable"));
+    const hooks = await QuotaToastPlugin({
+      client,
+      directory: `${TEST_RUNTIME_ROOT}/project`,
+    } as any);
+
+    await hooks.event?.({
+      event: { type: "session.idle", properties: { sessionID: "session-repair-failure" } },
+    } as any);
+
+    expect(client.tui.showToast).toHaveBeenCalledTimes(1);
+    expect(getToastMessage(client)).toContain("OpenAI");
+  });
+
   it("shows explicit current-model skip errors in idle-triggered toasts", async () => {
     mocks.loadConfig.mockResolvedValueOnce({
       ...DEFAULT_CONFIG,
@@ -277,6 +368,7 @@ describe("/quota command behavior", () => {
         attempted: true,
         entries: [
           {
+            accounting: TEST_ACCOUNTING,
             name: "Copilot",
             percentRemaining: 81,
             resetTimeIso: "2099-01-01T00:00:00.000Z",
@@ -320,7 +412,7 @@ describe("/quota command behavior", () => {
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
-        entries: [{ name: "OpenAI Pro", percentRemaining: 81 }],
+        entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI Pro", percentRemaining: 81 }],
         errors: [],
       }),
     };
@@ -427,7 +519,7 @@ describe("/quota command behavior", () => {
           .mockRejectedValueOnce(new Error("firewall warming up"))
           .mockResolvedValueOnce({
             attempted: true,
-            entries: [{ name: "OpenAI Pro", percentRemaining: 72 }],
+            entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI Pro", percentRemaining: 72 }],
             errors: [],
           }),
       };
@@ -481,7 +573,7 @@ describe("/quota command behavior", () => {
           .mockRejectedValueOnce(new Error("startup network unavailable"))
           .mockResolvedValueOnce({
             attempted: true,
-            entries: [{ name: "OpenAI Pro", percentRemaining: 61 }],
+            entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI Pro", percentRemaining: 61 }],
             errors: [],
           }),
       };
@@ -533,7 +625,7 @@ describe("/quota command behavior", () => {
           .mockResolvedValue(true),
         fetch: vi.fn().mockResolvedValue({
           attempted: true,
-          entries: [{ name: "OpenAI Pro", percentRemaining: 58 }],
+          entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI Pro", percentRemaining: 58 }],
           errors: [],
         }),
       };
@@ -586,7 +678,7 @@ describe("/quota command behavior", () => {
         .mockRejectedValueOnce(new Error("opencode unavailable"))
         .mockResolvedValueOnce({
           attempted: true,
-          entries: [{ name: "OpenAI Pro", percentRemaining: 66 }],
+          entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI Pro", percentRemaining: 66 }],
           errors: [],
         }),
     };
@@ -612,6 +704,58 @@ describe("/quota command behavior", () => {
     expect(provider.fetch).toHaveBeenCalledTimes(2);
     expect(client.tui.showToast).toHaveBeenCalledTimes(2);
     expect(getToastMessage(client, 1)).toContain("66% left");
+  });
+
+  it("refreshes configured local-estimate toast rows across repeated session.idle events", async () => {
+    mocks.loadConfig.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      enabled: true,
+      enabledProviders: ["quota-providers"],
+      quotaProviders: [
+        {
+          id: "local-project",
+          providerId: "local-project",
+          label: "Local project",
+          mode: "local-estimate",
+          windows: [{ id: "day", label: "Day", type: "utc-day", requestLimit: 10 }],
+        },
+      ],
+      showOnQuestion: false,
+      showSessionTokens: false,
+      minIntervalMs: 60_000,
+    });
+
+    const provider = {
+      id: "quota-providers",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi
+        .fn()
+        .mockResolvedValueOnce({
+          attempted: true,
+          entries: [{ accounting: TEST_ACCOUNTING, name: "Local project", percentRemaining: 90 }],
+          errors: [],
+        })
+        .mockResolvedValueOnce({
+          attempted: true,
+          entries: [{ accounting: TEST_ACCOUNTING, name: "Local project", percentRemaining: 80 }],
+          errors: [],
+        }),
+    };
+    mocks.getProviders.mockReturnValue([provider]);
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const client = createClient({ modelID: "local-model", providerID: "local-project" });
+    const hooks = await QuotaToastPlugin({ client } as any);
+    const event = {
+      event: { type: "session.idle", properties: { sessionID: "session-local-estimate" } },
+    } as any;
+
+    await hooks.event?.(event);
+    await hooks.event?.(event);
+
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
+    expect(getToastMessage(client, 0)).toContain("90% left");
+    expect(getToastMessage(client, 1)).toContain("80% left");
   });
 
   it("reports explicit cursor providers with no local history as no local usage yet", async () => {
@@ -761,7 +905,7 @@ describe("/quota command behavior", () => {
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
-        entries: [{ name: "OpenAI Pro", percentRemaining: 95 }],
+        entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI Pro", percentRemaining: 95 }],
         errors: [],
       }),
     };
@@ -769,7 +913,9 @@ describe("/quota command behavior", () => {
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient({ modelID: "openai/gpt-5", providerID: "openai" });
-    let currentSession = { data: { modelID: "openai/gpt-5", providerID: "openai" } };
+    let currentSession = {
+      data: { model: { id: "openai/gpt-5", providerID: "openai" } },
+    };
     client.session.get = vi.fn().mockImplementation(async () => currentSession);
 
     await QuotaToastPlugin({ client } as any);
@@ -779,7 +925,9 @@ describe("/quota command behavior", () => {
       sessionID: "session-model-switch",
     });
 
-    currentSession = { data: { modelID: "openai/gpt-4.1", providerID: "openai" } };
+    currentSession = {
+      data: { model: { id: "openai/gpt-4.1", providerID: "openai" } },
+    };
 
     const secondInjected = await buildDialogOutput({
       client,
@@ -808,7 +956,7 @@ describe("/quota command behavior", () => {
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
-        entries: [{ name: "OpenAI Pro", percentRemaining: 95 }],
+        entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI Pro", percentRemaining: 95 }],
         errors: [],
       }),
     };
@@ -843,7 +991,9 @@ describe("/quota command behavior", () => {
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
-        entries: [{ kind: "value", name: "DeepSeek Balance", value: "$12.34" }],
+        entries: [
+          { kind: "value", accounting: TEST_ACCOUNTING, name: "DeepSeek Balance", value: "$12.34" },
+        ],
         errors: [],
       }),
     };
@@ -938,7 +1088,13 @@ describe("/quota command behavior", () => {
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockImplementation(async ({ config }: any) => ({
         attempted: true,
-        entries: [{ name: config.currentModel ?? "unknown-model", percentRemaining: 95 }],
+        entries: [
+          {
+            accounting: TEST_ACCOUNTING,
+            name: config.currentModel ?? "unknown-model",
+            percentRemaining: 95,
+          },
+        ],
         errors: [],
       })),
     };
@@ -948,9 +1104,9 @@ describe("/quota command behavior", () => {
     const client = createClient();
     client.session.get = vi.fn().mockImplementation(async ({ path }: any) => {
       if (path.id === "session-a") {
-        return { data: { modelID: "openai/gpt-5", providerID: "openai" } };
+        return { data: { model: { id: "openai/gpt-5", providerID: "openai" } } };
       }
-      return { data: { modelID: "openai/gpt-4.1", providerID: "openai" } };
+      return { data: { model: { id: "openai/gpt-4.1", providerID: "openai" } } };
     });
 
     const hooks = await QuotaToastPlugin({ client } as any);
@@ -989,7 +1145,7 @@ describe("/quota command behavior", () => {
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
-        entries: [{ name: "OpenAI Pro", percentRemaining: 88 }],
+        entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI Pro", percentRemaining: 88 }],
         errors: [],
       }),
     };
@@ -1068,12 +1224,12 @@ describe("/quota command behavior", () => {
         .fn()
         .mockResolvedValueOnce({
           attempted: true,
-          entries: [{ name: "Qwen Free", percentRemaining: 90 }],
+          entries: [{ accounting: TEST_ACCOUNTING, name: "Qwen Free", percentRemaining: 90 }],
           errors: [],
         })
         .mockResolvedValueOnce({
           attempted: true,
-          entries: [{ name: "Qwen Free", percentRemaining: 80 }],
+          entries: [{ accounting: TEST_ACCOUNTING, name: "Qwen Free", percentRemaining: 80 }],
           errors: [],
         }),
     };
@@ -1102,12 +1258,24 @@ describe("/quota command behavior", () => {
         .fn()
         .mockResolvedValueOnce({
           attempted: true,
-          entries: [{ name: "Alibaba Coding Plan (Lite) Weekly", percentRemaining: 70 }],
+          entries: [
+            {
+              accounting: TEST_ACCOUNTING,
+              name: "Alibaba Coding Plan (Lite) Weekly",
+              percentRemaining: 70,
+            },
+          ],
           errors: [],
         })
         .mockResolvedValueOnce({
           attempted: true,
-          entries: [{ name: "Alibaba Coding Plan (Lite) Weekly", percentRemaining: 60 }],
+          entries: [
+            {
+              accounting: TEST_ACCOUNTING,
+              name: "Alibaba Coding Plan (Lite) Weekly",
+              percentRemaining: 60,
+            },
+          ],
           errors: [],
         }),
     };
@@ -1137,12 +1305,16 @@ describe("/quota command behavior", () => {
         .fn()
         .mockResolvedValueOnce({
           attempted: true,
-          entries: [{ name: "Cursor API (Pro)", percentRemaining: 95 }],
+          entries: [
+            { accounting: TEST_ACCOUNTING, name: "Cursor API (Pro)", percentRemaining: 95 },
+          ],
           errors: [],
         })
         .mockResolvedValueOnce({
           attempted: true,
-          entries: [{ name: "Cursor API (Pro)", percentRemaining: 90 }],
+          entries: [
+            { accounting: TEST_ACCOUNTING, name: "Cursor API (Pro)", percentRemaining: 90 },
+          ],
           errors: [],
         }),
     };

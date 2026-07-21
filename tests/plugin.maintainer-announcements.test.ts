@@ -238,7 +238,9 @@ describe("maintainer announcement plugin integration", () => {
     };
     mocks.getProviders.mockReturnValue([provider]);
     announcementMocks.getMaintainerAnnouncementsSummary.mockImplementation((params: any) => {
-      const enabledProviders = Array.isArray(params?.enabledProviders) ? params.enabledProviders : [];
+      const enabledProviders = Array.isArray(params?.enabledProviders)
+        ? params.enabledProviders
+        : [];
       return enabledProviders.includes("copilot")
         ? makeAnnouncementSummary()
         : makeAnnouncementSummary({ activeCount: 0, activeAnnouncements: [] });
@@ -279,10 +281,12 @@ describe("maintainer announcement plugin integration", () => {
     const client = createClient();
     await QuotaToastPlugin({ client } as any);
 
-    await expect(buildAnnouncementsDialogOutput({
-      client,
-      arguments: "show copilot-credits",
-    })).resolves.toBe(
+    await expect(
+      buildAnnouncementsDialogOutput({
+        client,
+        arguments: "show copilot-credits",
+      }),
+    ).resolves.toBe(
       "Invalid arguments for /quota_announcements\n\nThis command does not accept arguments.\n\nUsage: /quota_announcements",
     );
   });
@@ -359,7 +363,9 @@ describe("maintainer announcement plugin integration", () => {
       },
     ]);
     announcementMocks.getMaintainerAnnouncementsSummary.mockImplementation((params: any) => {
-      const enabledProviders = Array.isArray(params?.enabledProviders) ? params.enabledProviders : [];
+      const enabledProviders = Array.isArray(params?.enabledProviders)
+        ? params.enabledProviders
+        : [];
       return enabledProviders.includes("copilot")
         ? makeAnnouncementSummary()
         : makeAnnouncementSummary({ activeCount: 0, activeAnnouncements: [] });

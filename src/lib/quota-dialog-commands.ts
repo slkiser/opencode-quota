@@ -242,15 +242,17 @@ export const QUOTA_DIALOG_COMMANDS: readonly QuotaDialogCommandSpec[] = [
     dialogSize: "xlarge",
     acceptsArguments: true,
   },
-  ...TOKEN_REPORT_COMMANDS.map((spec): QuotaDialogCommandSpec => ({
-    id: spec.id,
-    slashName: spec.id,
-    title: spec.kind === "between" ? "OpenCode Quota Token Report" : spec.metadataTitle,
-    description: spec.description,
-    dialogSize: "xlarge",
-    requiresSession: spec.kind === "session" || spec.kind === "session_tree",
-    acceptsArguments: spec.kind === "between",
-  })),
+  ...TOKEN_REPORT_COMMANDS.map(
+    (spec): QuotaDialogCommandSpec => ({
+      id: spec.id,
+      slashName: spec.id,
+      title: spec.kind === "between" ? "OpenCode Quota Token Report" : spec.metadataTitle,
+      description: spec.description,
+      dialogSize: "xlarge",
+      requiresSession: spec.kind === "session" || spec.kind === "session_tree",
+      acceptsArguments: spec.kind === "between",
+    }),
+  ),
 ] as const;
 
 const QUOTA_DIALOG_COMMANDS_BY_ID: ReadonlyMap<QuotaDialogCommandId, QuotaDialogCommandSpec> =
@@ -321,14 +323,14 @@ async function buildQuotaCommandUnavailableMessage(runtime: QuotaRuntimeContext)
         })}`
       : "";
     return (
-      `Quota unavailable\n\nNo quota providers detected${scopedDetail}. ` +
+      `Quota unavailable\n\nNo provider data available${scopedDetail}. ` +
       "Make sure you are logged in to a supported provider (Copilot, OpenAI, etc.).\n\n" +
       "Run /quota_status for diagnostics."
     );
   }
 
   return (
-    `Quota unavailable\n\nProviders detected (${availableIds.join(", ")}) but returned no data. ` +
+    `Quota unavailable\n\nNo provider data available for detected providers (${availableIds.join(", ")}). ` +
     "This may be a temporary API error.\n\n" +
     "Run /quota_status for diagnostics."
   );
@@ -485,6 +487,8 @@ async function buildStatusReport(params: {
                 provider: p,
                 currentModel,
                 currentProviderID,
+                enabledProviders: runtimeConfig.enabledProviders,
+                quotaProviders: runtimeConfig.quotaProviders,
               })
             : undefined,
       };
@@ -541,7 +545,6 @@ async function buildStatusReport(params: {
     configIssues: params.runtime.configMeta.configIssues,
     enabledProviders: runtimeConfig.enabledProviders,
     anthropicBinaryPath: runtimeConfig.anthropicBinaryPath,
-    alibabaCodingPlanTier: runtimeConfig.alibabaCodingPlanTier,
     cursorPlan: runtimeConfig.cursorPlan,
     cursorIncludedApiUsd: runtimeConfig.cursorIncludedApiUsd,
     cursorBillingCycleStartDay: runtimeConfig.cursorBillingCycleStartDay,
@@ -552,6 +555,7 @@ async function buildStatusReport(params: {
     sessionModelLookup,
     providerAvailability: availability,
     providerLiveProbes,
+    quotaProviders: runtimeConfig.quotaProviders,
     googleRefresh: refresh
       ? {
           attempted: true,
@@ -870,7 +874,9 @@ export async function buildQuotaDialogCommandOutput(params: {
       lastSessionTokenError: params.lastSessionTokenError,
       log: params.log,
     });
-    return output ? outputResult({ command: params.command, output }) : { state: "noop", command: params.command, reason: "disabled" };
+    return output
+      ? outputResult({ command: params.command, output })
+      : { state: "noop", command: params.command, reason: "disabled" };
   }
 
   if (params.command === "quota_announcements") {

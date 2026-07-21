@@ -5,6 +5,7 @@ import {
   expectAttemptedWithNoErrors,
   expectNotAttempted,
 } from "./helpers/provider-assertions.js";
+import { visibleEntries } from "./helpers/provider-assertions.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 import { zaiProvider } from "../src/providers/zai.js";
 
@@ -52,7 +53,7 @@ describe("zai provider", () => {
 
     const out = await zaiProvider.fetch({} as any);
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "zai")).toEqual([
       {
         name: "Z.ai 5h",
         group: "Z.ai",
@@ -106,7 +107,9 @@ describe("zai provider", () => {
       zaiProvider.isAvailable(createProviderAvailabilityContext({ providerIds: ["glm"] })),
     ).resolves.toBe(true);
     await expect(
-      zaiProvider.isAvailable(createProviderAvailabilityContext({ providerIds: ["zai-coding-plan"] })),
+      zaiProvider.isAvailable(
+        createProviderAvailabilityContext({ providerIds: ["zai-coding-plan"] }),
+      ),
     ).resolves.toBe(true);
     await expect(
       zaiProvider.isAvailable(createProviderAvailabilityContext({ providerIds: ["openai"] })),

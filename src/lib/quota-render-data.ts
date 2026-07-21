@@ -17,10 +17,8 @@ import { fetchSessionTokensForDisplay } from "./session-tokens.js";
 import { getQuotaProviderDisplayLabel, normalizeQuotaProviderId } from "./provider-metadata.js";
 import { isCursorProviderId } from "./cursor-pricing.js";
 import { fetchQuotaProviderResult } from "./quota-state.js";
-import {
-  DEFAULT_QUOTA_FORMAT_STYLE,
-  getQuotaFormatStyleDefinition,
-} from "./quota-format-style.js";
+import { cloneQuotaProviders } from "./quota-providers.js";
+import { DEFAULT_QUOTA_FORMAT_STYLE, getQuotaFormatStyleDefinition } from "./quota-format-style.js";
 import { formatGroupedHeader } from "./grouped-header-format.js";
 import { getProviders } from "../providers/registry.js";
 import { getAnthropicNoDataMessage } from "../providers/anthropic.js";
@@ -125,17 +123,18 @@ function buildQuotaProviderContext(params: {
     config: {
       googleModels: config.googleModels,
       anthropicBinaryPath: config.anthropicBinaryPath,
-      alibabaCodingPlanTier: config.alibabaCodingPlanTier,
       cursorPlan: config.cursorPlan,
       cursorIncludedApiUsd: config.cursorIncludedApiUsd,
       cursorBillingCycleStartDay: config.cursorBillingCycleStartDay,
       opencodeGoWindows: config.opencodeGoWindows,
       requestTimeoutMs: config.requestTimeoutMs,
+      providerCacheTtlMs: config.minIntervalMs,
       requestTimeoutMsConfigured: Boolean(configMeta?.settingSources.requestTimeoutMs),
       onlyCurrentModel: config.onlyCurrentModel,
       currentModel,
       currentProviderID,
       enabledProviders: config.enabledProviders === "auto" ? "auto" : [...config.enabledProviders],
+      quotaProviders: cloneQuotaProviders(config.quotaProviders),
     },
   };
 }
@@ -145,16 +144,27 @@ export function matchesQuotaProviderCurrentSelection(params: {
   currentModel?: string;
   currentProviderID?: string;
   enabledProviders?: string[] | "auto";
+  quotaProviders?: QuotaToastConfig["quotaProviders"];
 }): boolean {
   if (params.currentModel) {
     return params.provider.matchesCurrentModel
       ? params.provider.matchesCurrentModel(params.currentModel, {
           enabledProviders: params.enabledProviders ?? "auto",
+          ...(params.quotaProviders ? { quotaProviders: params.quotaProviders } : {}),
+          ...(params.currentProviderID ? { currentProviderID: params.currentProviderID } : {}),
         })
       : true;
   }
 
   if (!params.currentProviderID) return false;
+
+  if (params.provider.id === "quota-providers") {
+    return Boolean(
+      params.quotaProviders?.some(
+        (source) => source.providerId === params.currentProviderID && source.modelIds === undefined,
+      ),
+    );
+  }
 
   const normalizedCurrentProviderID = normalizeQuotaProviderId(params.currentProviderID);
   if (params.provider.id === normalizedCurrentProviderID) {
@@ -212,6 +222,7 @@ export async function resolveQuotaRenderSelection(params: {
           currentModel,
           currentProviderID,
           enabledProviders: config.enabledProviders,
+          quotaProviders: config.quotaProviders,
         }),
       )
     : providers;
@@ -331,10 +342,7 @@ export async function collectQuotaStatusLiveProbes(params: {
   }));
 }
 
-function stripSingleWindowEntryMeta(
-  entry: QuotaToastEntry,
-  showRight: boolean,
-): QuotaToastEntry {
+function stripSingleWindowEntryMeta(entry: QuotaToastEntry, showRight: boolean): QuotaToastEntry {
   const { group: _group, label: _label, ...withoutGroupLabel } = entry;
   if (showRight) {
     return { ...withoutGroupLabel };
@@ -406,9 +414,10 @@ function normalizeSingleWindowPresentation(
       : typeof legacyPresentation.classicShowRight === "boolean"
         ? legacyPresentation.classicShowRight
         : false;
-  const classicStrategy = legacyPresentation.classicStrategy === "preserve"
-    ? legacyPresentation.classicStrategy
-    : undefined;
+  const classicStrategy =
+    legacyPresentation.classicStrategy === "preserve"
+      ? legacyPresentation.classicStrategy
+      : undefined;
 
   return {
     ...(singleWindowDisplayName ? { singleWindowDisplayName } : {}),
@@ -431,6 +440,25 @@ function selectSingleWindowEntry(entries: QuotaToastEntry[]): QuotaToastEntry | 
   }
 
   return selectedPercentEntry ?? entries[0];
+}
+
+function selectSingleWindowEntries(entries: QuotaToastEntry[]): QuotaToastEntry[] {
+  if (!entries.some((entry) => entry.accounting.sourceId !== undefined)) {
+    const selected = selectSingleWindowEntry(entries);
+    return selected ? [selected] : [];
+  }
+
+  const entriesBySource = new Map<string | undefined, QuotaToastEntry[]>();
+  for (const entry of entries) {
+    const sourceEntries = entriesBySource.get(entry.accounting.sourceId) ?? [];
+    sourceEntries.push(entry);
+    entriesBySource.set(entry.accounting.sourceId, sourceEntries);
+  }
+
+  return [...entriesBySource.values()].flatMap((sourceEntries) => {
+    const selected = selectSingleWindowEntry(sourceEntries);
+    return selected ? [selected] : [];
+  });
 }
 
 function projectProviderResultToStyle(
@@ -456,12 +484,7 @@ function projectProviderResultToStyle(
       );
     });
   }
-  const selectedEntry = selectSingleWindowEntry(entries);
-  if (!selectedEntry) {
-    return [];
-  }
-
-  return [
+  return selectSingleWindowEntries(entries).map((selectedEntry) =>
     renameSingleWindowEntry(
       stripSingleWindowEntryMeta(selectedEntry, presentation?.singleWindowShowRight ?? false),
       buildSingleWindowName({
@@ -469,7 +492,7 @@ function projectProviderResultToStyle(
         singleWindowDisplayName: presentation?.singleWindowDisplayName,
       }),
     ),
-  ];
+  );
 }
 
 function getExplicitNoDataMessage(provider: QuotaProvider): string {
@@ -679,12 +702,14 @@ export async function collectQuotaRenderData(params: {
   let allWindowsData: QuotaRenderData | null | undefined;
   let singleWindowData: QuotaRenderData | null | undefined;
   if (params.includeAllWindowsData) {
-    const allWindowsEntries = (style === "allWindows")
+    const allWindowsEntries =
+      style === "allWindows"
         ? entries
-      : results.flatMap((result) =>
+        : (results.flatMap((result) =>
             projectProviderResultToStyle(result, "allWindows"),
-        ) as QuotaToastEntry[];
-    allWindowsData = (allWindowsEntries.length === 0 && errors.length === 0 && !sessionTokens)
+          ) as QuotaToastEntry[]);
+    allWindowsData =
+      allWindowsEntries.length === 0 && errors.length === 0 && !sessionTokens
         ? null
         : { entries: allWindowsEntries, errors: [...errors], sessionTokens };
 

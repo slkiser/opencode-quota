@@ -1,34 +1,26 @@
-# Manual install
-
 [← Back to README](../../README.md)
 
-Manual setup details for users who prefer editing OpenCode config themselves.
+# Manual install
 
-## Update OpenCode Quota safely
+The guided installer is easier and safer:
 
-1. Close OpenCode.
-2. Run:
+```bash
+npx @slkiser/opencode-quota@latest init
+```
 
-   ```bash
-   npx @slkiser/opencode-quota@latest update
-   ```
+Use this guide only if you want to edit OpenCode files yourself.
 
-3. Review the exact config edits and cache directories, then confirm.
-4. Restart OpenCode.
+## Choose where to install
 
-Use `--dry-run` to preview without changing anything. Use `--yes` only for explicit noninteractive confirmation. The update command changes only canonical OpenCode Quota plugin entries and removes only verified OpenCode Quota cache directories; it preserves settings, JSONC comments, tuple options, and other plugins.
+- **Global:** works in every project. Files usually live in `~/.config/opencode`.
+- **Project:** works only in the current repo or worktree.
+- **Custom:** if `OPENCODE_CONFIG_DIR` is set, use that directory.
 
-## Manual Install
+Use `.jsonc` files if you want comments. Use `.json` files if another tool requires strict JSON.
 
-Use the installer when possible. For manual install, use the same OpenCode config location you would pick in the installer:
+## 1. Add the main plugin
 
-- **Project install:** files live in your repo/worktree.
-- **Global install:** files live in your OpenCode config directory, usually `~/.config/opencode`.
-- If you set `OPENCODE_CONFIG_DIR`, use that directory instead.
-
-### 1. Add the server plugin (required)
-
-This enables providers, terminal checks, popup toasts, the inline slash commands shared by TUI and Desktop/server, and the `tool.quota_status` tool. Add this to `opencode.json` or `opencode.jsonc`:
+Add OpenCode Quota to `opencode.jsonc` or `opencode.json`. This is required for both TUI and Web:
 
 ```jsonc
 {
@@ -37,9 +29,13 @@ This enables providers, terminal checks, popup toasts, the inline slash commands
 }
 ```
 
-### 2. Add the TUI plugin (for TUI surfaces)
+Keep any existing plugins and settings.
 
-Add this to `tui.json` or `tui.jsonc` for the Sidebar panel, Compact status line, and maintainer announcement home notices. Slash commands remain owned by the server plugin and render deterministic inline output; the TUI plugin does not register command popups:
+## 2. Add the TUI plugin
+
+Skip this step if you use Web only.
+
+Add OpenCode Quota to `tui.jsonc` or `tui.json`. This enables TUI slash commands, the sidebar, toasts, and the compact line:
 
 ```jsonc
 {
@@ -48,26 +44,32 @@ Add this to `tui.json` or `tui.jsonc` for the Sidebar panel, Compact status line
 }
 ```
 
-### 3. Add quota settings
+Keep any existing TUI plugins and settings.
 
-Create or edit `opencode-quota/quota-toast.json` **next to the `opencode.json` / `tui.json` file above**. For a project install, that means:
+## 3. Add quota settings
 
-```text
-<your-repo>/opencode-quota/quota-toast.json
-```
-
-Start with this, then adjust the UI choices in the next section:
+Create `opencode-quota/quota-toast.jsonc` beside the OpenCode config for your chosen scope:
 
 ```jsonc
 {
+  // Find providers from OpenCode configuration and authentication.
   "enabledProviders": "auto",
-  "enableToast": true,
+
+  // Show slash-command results with normal TUI messages.
+  "tuiCommandDisplay": "inline",
+
+  // Show the detailed Quota panel in the TUI sidebar.
   "tuiSidebarPanel": {
     "enabled": true,
   },
+
+  // Keep the other automatic TUI displays off.
+  "enableToast": false,
   "tuiCompactStatus": {
     "enabled": false,
   },
+
+  // Show bundled maintainer notices on TUI Home.
   "maintainerAnnouncements": {
     "enabled": true,
     "home": true,
@@ -75,20 +77,41 @@ Start with this, then adjust the UI choices in the next section:
 }
 ```
 
-> [!TIP]
-> Run `/quota_status` to see the exact config paths OpenCode Quota loaded.
+Use `quota-toast.json` instead if you need strict JSON. Remove the comments and trailing commas.
 
-## Choose your UI surfaces
+Restart OpenCode, then run:
 
-All UI surfaces use the same quota data. Put these settings in `opencode-quota/quota-toast.json`, not `tui.json`.
+```text
+/quota
+/quota_status
+```
 
-| I want...                                       | Enable/configure                                                                          |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Full `Quota` sidebar panel                      | `tuiSidebarPanel.enabled: true`                                                           |
-| Popup quota notifications                       | `enableToast: true`                                                                       |
-| Compact status line                             | `tuiCompactStatus.enabled: true`                                                          |
-| Inline slash commands in TUI and Desktop/server | Server plugin entry in `opencode.json`                                                    |
-| Sidebar, compact status, and home notice        | TUI plugin entry in `tui.json`                                                            |
-| No automatic UI surfaces                        | `enableToast: false`, `tuiSidebarPanel.enabled: false`, `tuiCompactStatus.enabled: false` |
+`/quota_status` shows the exact files OpenCode Quota loaded.
 
-For every option and more recipes, see [Configuration](configuration.md).
+## Change what appears in the TUI
+
+Put these settings in `quota-toast.jsonc`, not `tui.jsonc`.
+
+| You want                    | Setting                                  |
+| --------------------------- | ---------------------------------------- |
+| Sidebar panel               | `tuiSidebarPanel.enabled: true`          |
+| Popup quota notifications   | `enableToast: true`                      |
+| Compact quota line          | `tuiCompactStatus.enabled: true`         |
+| Slash results with messages | `tuiCommandDisplay: "inline"`            |
+| Slash results in a popup    | `tuiCommandDisplay: "dialog"`            |
+| Manual slash commands only  | Disable sidebar, toast, and compact line |
+
+Web slash commands always appear with messages. TUI popup dialogs and automatic TUI displays are not available in Web.
+
+See [Configuration](configuration.md) for more examples and every setting.
+
+## Update safely
+
+Close OpenCode, preview the update, then apply it:
+
+```bash
+npx @slkiser/opencode-quota@latest update --dry-run
+npx @slkiser/opencode-quota@latest update
+```
+
+The updater preserves unrelated settings, comments, and plugins. Restart OpenCode when it finishes.

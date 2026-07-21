@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { expectAttemptedWithNoErrors, expectNotAttempted } from "./helpers/provider-assertions.js";
+import { visibleEntries } from "./helpers/provider-assertions.js";
 import { cursorProvider } from "../src/providers/cursor.js";
 
 vi.mock("../src/lib/provider-availability.js", () => ({
@@ -99,7 +100,7 @@ describe("cursor provider", () => {
     } as any);
 
     expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "cursor")).toEqual([
       {
         kind: "value",
         name: "Cursor",
@@ -134,7 +135,7 @@ describe("cursor provider", () => {
     } as any);
 
     expect(out.attempted).toBe(true);
-    expect(out.entries).toEqual([
+    expect(visibleEntries(out.entries, "cursor")).toEqual([
       {
         kind: "value",
         name: "Cursor API (Pro)",

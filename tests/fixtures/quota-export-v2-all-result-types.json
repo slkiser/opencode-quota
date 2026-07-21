@@ -1,0 +1,100 @@
+{
+  "version": 2,
+  "exportedAt": 1783728000,
+  "fromCache": true,
+  "cacheAgeSeconds": 60,
+  "providers": {
+    "fixture": {
+      "status": "ok",
+      "fetchedAt": 1783727940,
+      "entries": [
+        {
+          "name": "Quota",
+          "resultType": "quota",
+          "acquisitionMethod": "remote_api",
+          "ownership": "maintained",
+          "authority": "provider_reported",
+          "observedAt": 1783728000,
+          "window": "Monthly",
+          "resetAt": 1785542400,
+          "renderType": "percent",
+          "percentRemaining": 75
+        },
+        {
+          "name": "Rate limit",
+          "resultType": "rate_limit",
+          "acquisitionMethod": "remote_api",
+          "ownership": "maintained",
+          "authority": "provider_reported",
+          "window": "RPM",
+          "resetAt": 1783728060,
+          "renderType": "percent",
+          "percentRemaining": 50
+        },
+        {
+          "name": "Usage",
+          "resultType": "usage",
+          "acquisitionMethod": "local_runtime_accounting",
+          "ownership": "maintained",
+          "authority": "locally_derived",
+          "renderType": "value",
+          "value": "12,345 tokens"
+        },
+        {
+          "name": "Spend",
+          "resultType": "spend",
+          "acquisitionMethod": "dashboard_scrape",
+          "ownership": "maintained",
+          "authority": "provider_reported",
+          "renderType": "value",
+          "value": "$42.50"
+        },
+        {
+          "name": "Budget",
+          "resultType": "budget",
+          "acquisitionMethod": "remote_api",
+          "ownership": "maintained",
+          "authority": "provider_reported",
+          "renderType": "percent",
+          "percentRemaining": 60
+        },
+        {
+          "name": "Balance",
+          "resultType": "balance",
+          "acquisitionMethod": "remote_api",
+          "ownership": "maintained",
+          "authority": "provider_reported",
+          "renderType": "value",
+          "value": "$10.00"
+        },
+        {
+          "name": "Status",
+          "resultType": "status",
+          "acquisitionMethod": "local_cli",
+          "ownership": "maintained",
+          "authority": "provider_reported",
+          "renderType": "value",
+          "value": "Active"
+        },
+        {
+          "name": "Configured quota",
+          "resultType": "quota",
+          "acquisitionMethod": "remote_api",
+          "ownership": "user_configured",
+          "authority": "provider_reported",
+          "renderType": "percent",
+          "percentRemaining": 80
+        },
+        {
+          "name": "Configured estimate",
+          "resultType": "usage",
+          "acquisitionMethod": "local_estimation",
+          "ownership": "user_configured",
+          "authority": "locally_derived",
+          "renderType": "value",
+          "value": "900 requests"
+        }
+      ]
+    }
+  }
+}
