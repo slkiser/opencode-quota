@@ -28,7 +28,7 @@ const OPENCODE_ZEN_BUDGET_ACCOUNTING: AccountingMetadata = {
   resultType: "budget",
   acquisitionMethod: "dashboard_scrape",
   ownership: "maintained",
-  authority: "provider_reported",
+  authority: "locally_derived",
 };
 
 export const opencodeZenProvider: QuotaProvider = {

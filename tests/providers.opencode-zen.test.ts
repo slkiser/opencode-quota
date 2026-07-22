@@ -35,6 +35,7 @@ const balanceAccounting = {
 const budgetAccounting = {
   ...balanceAccounting,
   resultType: "budget",
+  authority: "locally_derived",
 } as const;
 
 function configured(): void {

@@ -34,7 +34,7 @@ function getConfigCandidatePaths(): string[] {
 
 function getConfigFileError(error: unknown): string {
   if (error instanceof SyntaxError) {
-    return `Failed to parse JSON: ${error.message}`;
+    return "Failed to parse JSON";
   }
   if (error instanceof Error && error.message) {
     return `Failed to read config file: ${error.message}`;

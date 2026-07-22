@@ -143,6 +143,23 @@ describe("opencode-zen config resolution", () => {
     });
   });
 
+  it("does not include malformed credential text in JSON parse errors", async () => {
+    const [primary] = await createConfigDirs();
+    const path = configPath(primary);
+    await writeFile(path, '{"authCookie":super-secret}');
+    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
+      configDirs: [primary],
+    });
+
+    const { resolveOpenCodeZenConfig } = await import("../src/lib/opencode-zen-config.js");
+
+    await expect(resolveOpenCodeZenConfig()).resolves.toEqual({
+      state: "invalid",
+      source: path,
+      error: "Failed to parse JSON",
+    });
+  });
+
   it("caches the resolved credentials within the configured TTL", async () => {
     const [primary] = await createConfigDirs();
     const path = configPath(primary);

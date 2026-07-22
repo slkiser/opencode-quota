@@ -36,7 +36,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | DeepSeek                 | API key/config                         | Remote API         | Balance and status |
 | Ollama Cloud             | [Needs setup](#ollama-cloud)           | Dashboard scraping | Quota              |
 | OpenCode Go              | [Needs setup](#opencode-go)            | Dashboard scraping | Quota              |
-| OpenCode Zen             | [Needs setup](#opencode-zen)           | Dashboard scraping | Quota and balance  |
+| OpenCode Zen             | [Needs setup](#opencode-zen)           | Dashboard scraping | Budget and balance |
 
 The friendly `Quota` label covers quota and rate-limit windows; v4 JSON distinguishes them.
 

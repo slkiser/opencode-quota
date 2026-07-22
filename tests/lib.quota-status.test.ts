@@ -199,6 +199,21 @@ const openCodeGoMocks = vi.hoisted(() => ({
   queryOpenCodeGoQuota: vi.fn(async () => null),
 }));
 
+const openCodeZenMocks = vi.hoisted(() => ({
+  getOpenCodeZenConfigDiagnostics: vi.fn(async () => ({
+    state: "none" as const,
+    source: null,
+    missing: null,
+    error: null,
+    checkedPaths: [],
+  })),
+  resolveOpenCodeZenConfigCached: vi.fn(async () => ({ state: "none" as const })),
+  queryOpenCodeZenQuota: vi.fn(async () => ({
+    success: false as const,
+    error: "not configured",
+  })),
+}));
+
 const anthropicMocks = vi.hoisted(() => ({
   getAnthropicDiagnostics: vi.fn(async () => ({
     installed: true,
@@ -242,6 +257,17 @@ vi.mock("../src/lib/opencode-go-config.js", () => ({
 
 vi.mock("../src/lib/opencode-go.js", () => ({
   queryOpenCodeGoQuota: openCodeGoMocks.queryOpenCodeGoQuota,
+}));
+
+vi.mock("../src/lib/opencode-zen-config.js", () => ({
+  getOpenCodeZenConfigDiagnostics: openCodeZenMocks.getOpenCodeZenConfigDiagnostics,
+  resolveOpenCodeZenConfigCached: openCodeZenMocks.resolveOpenCodeZenConfigCached,
+  DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS: 30_000,
+}));
+
+vi.mock("../src/lib/opencode-zen.js", () => ({
+  OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR: 100_000_000,
+  queryOpenCodeZenQuota: openCodeZenMocks.queryOpenCodeZenQuota,
 }));
 
 vi.mock("../src/lib/google-token-cache.js", () => ({
@@ -673,6 +699,9 @@ describe("buildQuotaStatusReport", () => {
       providerAvailability: [makeProviderAvailability("opencode-go", { available: false })],
       ...overrides,
     } as any);
+
+  const buildOpenCodeZenStatusReport = (overrides: Record<string, unknown> = {}) =>
+    buildProviderStatusReport("opencode", overrides as any);
 
   const buildSyntheticStatusReport = (overrides: Record<string, unknown> = {}) =>
     buildProviderStatusReport("synthetic", overrides as any);
@@ -1607,6 +1636,59 @@ describe("buildQuotaStatusReport", () => {
     expect(openCodeGoMocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
   });
 
+  it("reports OpenCode Zen config and live billing details without exposing credentials", async () => {
+    openCodeZenMocks.getOpenCodeZenConfigDiagnostics.mockResolvedValueOnce({
+      state: "configured",
+      source: "env(OPENCODE_*)",
+      missing: null,
+      error: null,
+      checkedPaths: ["/tmp/config/opencode-quota/opencode.json"],
+    });
+    openCodeZenMocks.resolveOpenCodeZenConfigCached.mockResolvedValueOnce({
+      state: "configured",
+      source: "env(OPENCODE_*)",
+      config: { workspaceId: "wrk-secret", authCookie: "cookie-secret" },
+    });
+    openCodeZenMocks.queryOpenCodeZenQuota.mockResolvedValueOnce({
+      success: true,
+      data: {
+        balance: 4_250_000_000,
+        monthlyLimit: 50,
+        monthlyUsage: 750_000_000,
+        lastPayment: 20,
+      },
+    });
+
+    const report = await buildOpenCodeZenStatusReport();
+
+    expect(report).toContain("opencode_zen:");
+    expect(report).toContain("- config_state: configured");
+    expect(report).toContain("- config_source: env(OPENCODE_*)");
+    expect(report).toContain("- balance_usd: $42.50");
+    expect(report).toContain("- monthly_limit_usd: $50.00");
+    expect(report).toContain("- last_payment_usd: $20.00");
+    expect(report).not.toContain("wrk-secret");
+    expect(report).not.toContain("cookie-secret");
+  });
+
+  it("reports a fixed OpenCode Zen parse error without attempting a live fetch", async () => {
+    openCodeZenMocks.getOpenCodeZenConfigDiagnostics.mockResolvedValueOnce({
+      state: "invalid",
+      source: "/tmp/config/opencode-quota/opencode.json",
+      missing: null,
+      error: "Failed to parse JSON",
+      checkedPaths: ["/tmp/config/opencode-quota/opencode.json"],
+    });
+
+    const report = await buildOpenCodeZenStatusReport();
+
+    expect(report).toContain("opencode_zen:");
+    expect(report).toContain("- config_state: invalid");
+    expect(report).toContain("- config_error: Failed to parse JSON");
+    expect(openCodeZenMocks.resolveOpenCodeZenConfigCached).not.toHaveBeenCalled();
+    expect(openCodeZenMocks.queryOpenCodeZenQuota).not.toHaveBeenCalled();
+  });
+
   it("reports MiniMax auth diagnostics and live quota details when configured", async () => {
     minimaxMocks.getMiniMaxAuthDiagnostics.mockResolvedValueOnce({
       state: "configured",
@@ -1928,6 +2010,7 @@ minimax:
 minimax_china:
 kimi:
 opencode_go:
+opencode_zen:
 zai:
 zhipu:
 synthetic:
