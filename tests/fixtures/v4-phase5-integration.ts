@@ -14,7 +14,44 @@ export const PHASE5_QUOTA_PROVIDERS = [
     label: "Team Accounting",
     url: "https://team-gateway.example/accounting",
     mode: "remote-api",
-    format: "accounting-v1",
+    format: "json-v1",
+    adapter: {
+      mappings: [
+        {
+          resultType: "quota",
+          name: "Monthly",
+          label: "Monthly:",
+          resetTime: { path: ["quota", "resetAt"], encoding: "iso-8601" },
+          observedTime: { path: ["quota", "observedAt"], encoding: "iso-8601" },
+          metric: {
+            type: "remaining-limit",
+            remaining: { path: ["quota", "remaining"] },
+            limit: { path: ["quota", "limit"] },
+          },
+        },
+        {
+          resultType: "balance",
+          name: "Balance",
+          label: "Balance:",
+          unit: "$",
+          unitPosition: "prefix",
+          observedTime: { path: ["balance", "observedAt"], encoding: "iso-8601" },
+          metric: {
+            type: "value",
+            valueType: "balance",
+            value: { path: ["balance", "value"] },
+          },
+        },
+        {
+          resultType: "status",
+          name: "Unavailable status",
+          metric: {
+            type: "status",
+            value: { path: ["missingStatus"] },
+          },
+        },
+      ],
+    },
     apiKeyEnv: "PHASE5_TEAM_ACCOUNTING_KEY",
   },
   {
@@ -32,7 +69,7 @@ export const PHASE5_QUOTA_PROVIDERS = [
     label: "Failing Accounting",
     url: "https://failing-gateway.example/accounting",
     mode: "remote-api",
-    format: "accounting-v1",
+    format: "quota-v1",
     apiKeyEnv: "PHASE5_FAILING_KEY",
   },
 ] as const satisfies readonly RemoteApiQuotaProviderDefinition[];
@@ -44,27 +81,16 @@ export const PHASE5_RUNTIME_PROVIDER_IDS = [
 ] as const;
 
 export const PHASE5_ACCOUNTING_RESPONSE = {
-  version: "accounting-v1",
-  entries: [
-    {
-      kind: "percent",
-      name: "Monthly",
-      resultType: "quota",
-      percentRemaining: 64,
-      label: "Monthly:",
-      right: "64/100",
-      resetTimeIso: "2099-08-01T00:00:00.000Z",
-      observedAtIso: "2026-07-13T08:00:00.000Z",
-    },
-    {
-      kind: "value",
-      name: "Balance",
-      resultType: "balance",
-      value: "$12.34",
-      label: "Balance:",
-      observedAtIso: "2026-07-13T08:00:00.000Z",
-    },
-  ],
+  quota: {
+    remaining: 64,
+    limit: 100,
+    resetAt: "2099-08-01T00:00:00.000Z",
+    observedAt: "2026-07-13T08:00:00.000Z",
+  },
+  balance: {
+    value: 12.34,
+    observedAt: "2026-07-13T08:00:00.000Z",
+  },
 } as const;
 
 export const PHASE5_OPENROUTER_RESPONSE = {

@@ -128,6 +128,7 @@ function assertFixtureContent(output: string): void {
   expect(output).toContain("64%");
   expect(output).toContain("$12.34");
   expect(output).toContain("80%");
+  expect(output).toContain("adapter.mappings[2]");
   expect(output).toContain("HTTP 503");
   assertPhase5FixtureOrder(output);
   assertPhase5CanariesRedacted(output);

@@ -21,6 +21,10 @@ import {
 
 type JsonObject = Record<string, unknown>;
 
+const LEGACY_REMOTE_FORMAT_COMMENT =
+  "// Safe response contract: accounting-v1 or openrouter-key-v1.";
+const CANONICAL_REMOTE_FORMAT_COMMENT =
+  "// Safe response contract: quota-v1, json-v1, or openrouter-key-v1.";
 export interface ProviderAddPlan {
   path: string;
   format: ConfigFileFormat;
@@ -110,7 +114,7 @@ function managedComments(
       },
       {
         path: [...base, "format"],
-        text: "// Safe response contract: accounting-v1 or openrouter-key-v1.",
+        text: CANONICAL_REMOTE_FORMAT_COMMENT,
       },
     );
     if (definition.apiKeyEnv) {
@@ -233,7 +237,8 @@ export async function planProviderAdd(options: ProviderAddOptions): Promise<Prov
   if (!combined.value) {
     throw new Error(combined.issues.map((issue) => issue.key + ": " + issue.message).join("\n"));
   }
-  quotaToast.quotaProviders = definitions;
+  const canonicalDefinitions = combined.value;
+  quotaToast.quotaProviders = canonicalDefinitions.map(toPublicDefinition);
   if (Array.isArray(quotaToast.enabledProviders)) {
     const enabledProviders = quotaToast.enabledProviders.filter(
       (value): value is string => typeof value === "string",
@@ -249,6 +254,12 @@ export async function planProviderAdd(options: ProviderAddOptions): Promise<Prov
     managedComments: selectedSidecar
       ? sidecarManagedComments(index, definition)
       : managedComments(index, definition),
+    managedCommentReplacements: [
+      {
+        from: LEGACY_REMOTE_FORMAT_COMMENT,
+        to: CANONICAL_REMOTE_FORMAT_COMMENT,
+      },
+    ],
   });
   return {
     path: documentEdit.path,

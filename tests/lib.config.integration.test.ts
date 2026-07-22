@@ -169,7 +169,7 @@ describe("loadConfig integration runtime-path resolution", () => {
         id: "private-gateway",
         mode: "remote-api",
         url: "https://gateway.example/accounting",
-        format: "accounting-v1",
+        format: "quota-v1",
         apiKeyEnv: "PRIVATE_GATEWAY_KEY",
       },
     });

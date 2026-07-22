@@ -440,7 +440,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         label: "Wide",
         mode: "remote-api",
         url: "https://wide.example/accounting",
-        format: "accounting-v1" as const,
+        format: "quota-v1" as const,
       },
       {
         id: "model",
@@ -448,7 +448,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         label: "Model",
         mode: "remote-api",
         url: "https://model.example/accounting",
-        format: "accounting-v1" as const,
+        format: "quota-v1" as const,
         modelIds: ["company/model-a"],
       },
     ];

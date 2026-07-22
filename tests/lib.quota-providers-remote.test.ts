@@ -6,6 +6,10 @@ import {
   fetchRemoteQuotaProvider,
   mapWithConcurrency,
 } from "../src/lib/quota-providers-remote.js";
+import {
+  NEURALWATT_LIKE_ADAPTER,
+  NEURALWATT_LIKE_RESPONSE,
+} from "./fixtures/quota-provider-json-v1.js";
 
 function source(
   overrides: Partial<RemoteApiQuotaProviderDefinition> = {},
@@ -16,8 +20,22 @@ function source(
     label: "Source One",
     url: "https://provider.example/accounting",
     mode: "remote-api",
-    format: "accounting-v1",
+    format: "quota-v1",
     ...overrides,
+  };
+}
+
+function jsonSource(
+  adapter = NEURALWATT_LIKE_ADAPTER,
+): Extract<RemoteApiQuotaProviderDefinition, { format: "json-v1" }> {
+  return {
+    id: "json-source",
+    providerId: "provider-one",
+    label: "JSON Source",
+    url: "https://provider.example/quota",
+    mode: "remote-api",
+    format: "json-v1",
+    adapter,
   };
 }
 
@@ -33,10 +51,10 @@ afterEach(() => {
 });
 
 describe("quota provider remote runtime", () => {
-  it("maps strict accounting-v1 percent and value rows with local metadata and grouping", async () => {
+  it("maps strict quota-v1 percent and value rows with local metadata and grouping", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
-        version: "accounting-v1",
+        version: "quota-v1",
         entries: [
           {
             kind: "percent",
@@ -105,12 +123,12 @@ describe("quota provider remote runtime", () => {
   it.each([
     {
       name: "unknown envelope fields",
-      body: { version: "accounting-v1", entries: [], extra: true },
+      body: { version: "quota-v1", entries: [], extra: true },
     },
     {
       name: "unknown row fields",
       body: {
-        version: "accounting-v1",
+        version: "quota-v1",
         entries: [
           {
             kind: "percent",
@@ -125,7 +143,7 @@ describe("quota provider remote runtime", () => {
     {
       name: "numeric strings",
       body: {
-        version: "accounting-v1",
+        version: "quota-v1",
         entries: [
           {
             kind: "percent",
@@ -139,14 +157,14 @@ describe("quota provider remote runtime", () => {
     {
       name: "empty rows",
       body: {
-        version: "accounting-v1",
+        version: "quota-v1",
         entries: [],
       },
     },
     {
       name: "percent above 100",
       body: {
-        version: "accounting-v1",
+        version: "quota-v1",
         entries: [
           {
             kind: "percent",
@@ -160,7 +178,7 @@ describe("quota provider remote runtime", () => {
     {
       name: "too many rows",
       body: {
-        version: "accounting-v1",
+        version: "quota-v1",
         entries: Array.from({ length: 101 }, () => ({
           kind: "value",
           name: "Usage",
@@ -180,7 +198,7 @@ describe("quota provider remote runtime", () => {
       "fetch",
       vi.fn().mockResolvedValue(
         jsonResponse({
-          version: "accounting-v1",
+          version: "quota-v1",
           entries: Array.from({ length: 100 }, (_, index) => ({
             kind: "value",
             name: `Usage ${index}`,
@@ -198,7 +216,7 @@ describe("quota provider remote runtime", () => {
 
   it("accepts exact display bounds and rejects overlong name, value, label, and right", async () => {
     const exact = {
-      version: "accounting-v1",
+      version: "quota-v1",
       entries: [
         {
           kind: "value",
@@ -260,7 +278,7 @@ describe("quota provider remote runtime", () => {
       "fetch",
       vi.fn().mockResolvedValue(
         jsonResponse({
-          version: "accounting-v1",
+          version: "quota-v1",
           entries: [
             {
               kind: "percent",
@@ -516,7 +534,7 @@ describe("quota provider remote runtime", () => {
       "fetch",
       vi.fn().mockResolvedValue(
         jsonResponse({
-          version: "accounting-v1",
+          version: "quota-v1",
           entries: [
             {
               kind: "value",
@@ -542,6 +560,327 @@ describe("quota provider remote runtime", () => {
         }),
       );
     }
+  });
+
+  it("maps the sanitized Neuralwatt-like fixture with zero, units, timestamps, and partial errors", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(NEURALWATT_LIKE_RESPONSE)));
+
+    const result = await fetchRemoteQuotaProvider(jsonSource(), "secret");
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+
+    expect(result.entries).toHaveLength(21);
+    expect(result.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "JSON Source Tokens",
+          percentRemaining: 100,
+          right: "0/10 tokens",
+          resetTimeIso: "2026-07-31T22:00:00.000Z",
+          accounting: expect.objectContaining({
+            observedAtIso: new Date(1_784_678_400_000).toISOString(),
+          }),
+        }),
+        expect.objectContaining({
+          name: "JSON Source Used percent",
+          percentRemaining: -25,
+        }),
+        expect.objectContaining({
+          name: "JSON Source Spend budget",
+          percentRemaining: -20,
+          right: "$30/$25",
+        }),
+        expect.objectContaining({
+          name: "JSON Source Balance",
+          value: "$-3.5",
+        }),
+        expect.objectContaining({
+          name: "JSON Source Status",
+          value: "Ready",
+        }),
+      ]),
+    );
+    expect(result.rowErrors).toHaveLength(15);
+    expect(result.rowErrors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("did not resolve to a valid timestamp at row 2"),
+        expect.stringContaining("was null at row 2"),
+        expect.stringContaining("was missing at row 2"),
+        expect.stringContaining("had wrong type at row 2"),
+        expect.stringContaining("requires an object row at row 3"),
+      ]),
+    );
+  });
+
+  it("supports object and array roots, literals, and all numeric value variants", async () => {
+    const adapter = {
+      mappings: [
+        {
+          resultType: "usage",
+          name: "Used",
+          metric: { type: "value", valueType: "used", value: { path: ["used"] } },
+        },
+        {
+          resultType: "quota",
+          name: "Limit",
+          metric: { type: "value", valueType: "limit", value: { path: ["limit"] } },
+        },
+        {
+          resultType: "quota",
+          name: "Remaining",
+          metric: {
+            type: "value",
+            valueType: "remaining",
+            value: { path: ["remaining"] },
+          },
+        },
+        {
+          resultType: "quota",
+          name: "Literal percent",
+          resetTime: { literal: 0, encoding: "unix-milliseconds" },
+          metric: {
+            type: "percentage",
+            percentage: { literal: -5 },
+            meaning: "remaining",
+          },
+        },
+        {
+          resultType: "status",
+          name: "Literal status",
+          metric: { type: "status", value: { literal: "Ready" } },
+        },
+      ],
+    } as const;
+
+    for (const body of [
+      { used: 0, limit: 10, remaining: -2 },
+      [
+        { used: 0, limit: 10, remaining: -2 },
+        { used: 2, limit: 10, remaining: 8 },
+      ],
+    ]) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(body)));
+      const result = await fetchRemoteQuotaProvider(jsonSource(adapter), "secret");
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.entries.slice(0, 5)).toEqual([
+          expect.objectContaining({ value: "0" }),
+          expect.objectContaining({ value: "10" }),
+          expect.objectContaining({ value: "-2" }),
+          expect.objectContaining({
+            percentRemaining: -5,
+            resetTimeIso: "1970-01-01T00:00:00.000Z",
+          }),
+          expect.objectContaining({ value: "Ready" }),
+        ]);
+      }
+    }
+  });
+
+  it("fails safely when no json-v1 candidate succeeds without exposing response data", async () => {
+    const body = { value: "SUPER_SECRET_BODY_VALUE" };
+    const adapter = {
+      mappings: [
+        {
+          resultType: "usage",
+          name: "Usage",
+          metric: { type: "value", valueType: "used", value: { path: ["value"] } },
+        },
+      ],
+    } as const;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(body)));
+
+    const result = await fetchRemoteQuotaProvider(jsonSource(adapter), "secret-key");
+    expect(result).toEqual({
+      success: false,
+      error: "Invalid json-v1 response: adapter.mappings[0].metric.value had wrong type at row 0",
+    });
+    expect(JSON.stringify(result)).not.toContain("SUPER_SECRET_BODY_VALUE");
+    expect(JSON.stringify(result)).not.toContain("secret-key");
+    expect(JSON.stringify(result)).not.toContain("provider.example");
+  });
+
+  it("caps detailed partial errors and adds one fixed omission summary", async () => {
+    const adapter = {
+      mappings: [
+        {
+          resultType: "usage",
+          name: "Usage",
+          metric: { type: "value", valueType: "used", value: { path: ["used"] } },
+        },
+      ],
+    } as const;
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(jsonResponse([{ used: 0 }, ...Array.from({ length: 99 }, () => null)])),
+    );
+
+    const result = await fetchRemoteQuotaProvider(jsonSource(adapter), "secret");
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.entries).toHaveLength(1);
+      expect(result.rowErrors).toHaveLength(17);
+      expect(result.rowErrors?.at(-1)).toBe("Additional json-v1 mapping errors omitted");
+    }
+  });
+
+  it("accepts exactly 100 successful json-v1 entries", async () => {
+    const adapter = {
+      mappings: [
+        {
+          resultType: "usage",
+          name: "Used",
+          metric: { type: "value", valueType: "used", value: { path: ["used"] } },
+        },
+      ],
+    } as const;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse(Array.from({ length: 100 }, (_, used) => ({ used })))),
+    );
+
+    const result = await fetchRemoteQuotaProvider(jsonSource(adapter), "secret");
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.entries).toHaveLength(100);
+  });
+
+  it.each([
+    { name: "empty", rows: [] },
+    { name: "101-element", rows: Array.from({ length: 101 }, () => ({ used: 0 })) },
+  ])("rejects a $name selected json-v1 row array", async ({ rows }) => {
+    const adapter = {
+      rowsPath: ["data", "rows"],
+      mappings: [
+        {
+          resultType: "usage",
+          name: "Used",
+          metric: { type: "value", valueType: "used", value: { path: ["used"] } },
+        },
+      ],
+    } as const;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ data: { rows } })));
+
+    await expect(fetchRemoteQuotaProvider(jsonSource(adapter), "secret")).resolves.toEqual({
+      success: false,
+      error: "Invalid json-v1 response: selected rows must contain 1-100 elements",
+    });
+  });
+
+  it("rejects a 101st successful json-v1 entry instead of truncating", async () => {
+    const adapter = {
+      mappings: [
+        {
+          resultType: "usage",
+          name: "Used",
+          metric: { type: "value", valueType: "used", value: { path: ["used"] } },
+        },
+        {
+          resultType: "quota",
+          name: "Limit",
+          metric: { type: "value", valueType: "limit", value: { path: ["limit"] } },
+        },
+      ],
+    } as const;
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse(Array.from({ length: 51 }, () => ({ used: 0, limit: 10 }))),
+        ),
+    );
+
+    await expect(fetchRemoteQuotaProvider(jsonSource(adapter), "secret")).resolves.toEqual({
+      success: false,
+      error: "Invalid json-v1 response: more than 100 entries were produced",
+    });
+  });
+
+  it("rejects non-finite percentages derived from finite operands", async () => {
+    const adapter = {
+      mappings: [
+        {
+          resultType: "quota",
+          name: "Quota",
+          metric: {
+            type: "used-limit",
+            used: { literal: 1 },
+            limit: { literal: Number.MIN_VALUE },
+          },
+        },
+      ],
+    } as const;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({})));
+
+    await expect(fetchRemoteQuotaProvider(jsonSource(adapter), "secret")).resolves.toEqual({
+      success: false,
+      error:
+        "Invalid json-v1 response: adapter.mappings[0].metric.limit produced a non-finite percentage at row 0",
+    });
+  });
+
+  it("rejects finite derived percentages beyond the numeric magnitude limit", async () => {
+    const adapter = {
+      mappings: [
+        {
+          resultType: "budget",
+          name: "Budget",
+          metric: {
+            type: "spend-budget",
+            spend: { literal: 1e15 },
+            budget: { literal: 1e-10 },
+          },
+        },
+      ],
+    } as const;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({})));
+
+    await expect(fetchRemoteQuotaProvider(jsonSource(adapter), "secret")).resolves.toEqual({
+      success: false,
+      error:
+        "Invalid json-v1 response: adapter.mappings[0].metric.budget produced a percentage beyond the numeric magnitude limit at row 0",
+    });
+  });
+
+  it("accepts json-v1 responses at exactly 32 container levels", async () => {
+    let body: unknown = { used: 1 };
+    for (let index = 0; index < 31; index += 1) body = { nested: body };
+    const adapter = {
+      mappings: [
+        {
+          resultType: "usage",
+          name: "Usage",
+          metric: { type: "value", valueType: "used", value: { literal: 1 } },
+        },
+      ],
+    } as const;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(body)));
+
+    const result = await fetchRemoteQuotaProvider(jsonSource(adapter), "secret");
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.entries).toHaveLength(1);
+  });
+
+  it("rejects json-v1 response nesting beyond 32 container levels", async () => {
+    let body: unknown = { used: 1 };
+    for (let index = 0; index < 32; index += 1) body = { nested: body };
+    const adapter = {
+      mappings: [
+        {
+          resultType: "usage",
+          name: "Usage",
+          metric: { type: "value", valueType: "used", value: { literal: 1 } },
+        },
+      ],
+    } as const;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(body)));
+
+    await expect(fetchRemoteQuotaProvider(jsonSource(adapter), "secret")).resolves.toEqual({
+      success: false,
+      error: "Invalid json-v1 response: nesting depth exceeded 32",
+    });
   });
 
   it("limits independent work to four concurrent instances and preserves order", async () => {

@@ -221,7 +221,7 @@ function isQuotaProviderDiagnostic(value: unknown): boolean {
     typeof diagnostic.providerId === "string" &&
     ["remote-api", "local-estimate"].includes(String(diagnostic.mode)) &&
     (diagnostic.format === undefined ||
-      ["accounting-v1", "openrouter-key-v1"].includes(String(diagnostic.format))) &&
+      ["quota-v1", "openrouter-key-v1", "json-v1"].includes(String(diagnostic.format))) &&
     (diagnostic.mode === "remote-api"
       ? diagnostic.format !== undefined
       : diagnostic.format === undefined) &&

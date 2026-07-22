@@ -3,6 +3,7 @@ import { readFile, rm } from "node:fs/promises";
 
 import {
   applyEdits,
+  createScanner,
   findNodeAtLocation,
   modify,
   parse,
@@ -16,6 +17,11 @@ import type { ConfigFileFormat, EditableConfigPath } from "./config-file-utils.j
 export interface ManagedConfigComment {
   path: (string | number)[];
   text: string;
+}
+
+export interface ManagedConfigCommentReplacement {
+  from: string;
+  to: string;
 }
 
 export interface ConfigDocumentEdit {
@@ -105,6 +111,34 @@ function collectValueEdits(
       return;
     }
 
+    const keyedObjectPrefixMatches =
+      desired.length >= current.length &&
+      current.every((value, index) => {
+        const desiredValue = desired[index];
+        return (
+          isPlainObject(value) &&
+          isPlainObject(desiredValue) &&
+          typeof value.id === "string" &&
+          value.id === desiredValue.id
+        );
+      });
+    if (keyedObjectPrefixMatches) {
+      for (let index = 0; index < current.length; index++) {
+        const currentValue = current[index] as Record<string, unknown>;
+        const desiredValue = desired[index] as Record<string, unknown>;
+        for (const key of Object.keys(currentValue)) {
+          if (!Object.prototype.hasOwnProperty.call(desiredValue, key)) {
+            edits.push({ path: [...path, index, key], value: undefined });
+          }
+        }
+        collectValueEdits(currentValue, desiredValue, [...path, index], edits);
+      }
+      for (let index = current.length; index < desired.length; index++) {
+        edits.push({ path: [...path, -1], value: desired[index] });
+      }
+      return;
+    }
+
     if (desired.length < current.length) {
       let desiredIndex = 0;
       const removedIndexes: number[] = [];
@@ -168,6 +202,27 @@ function removeArrayElementPreservingSiblings(
   return raw.slice(0, removeStart) + raw.slice(node.offset + node.length);
 }
 
+function replaceManagedComments(raw: string, replacement: ManagedConfigCommentReplacement): string {
+  const scanner = createScanner(raw, false);
+  const offsets: number[] = [];
+
+  while (scanner.getPosition() < raw.length) {
+    scanner.scan();
+    const offset = scanner.getTokenOffset();
+    const token = raw.slice(offset, offset + scanner.getTokenLength());
+    if (token === replacement.from) {
+      offsets.push(offset);
+    }
+  }
+
+  let updated = raw;
+  for (const offset of offsets.reverse()) {
+    updated =
+      updated.slice(0, offset) + replacement.to + updated.slice(offset + replacement.from.length);
+  }
+  return updated;
+}
+
 function addManagedComment(raw: string, comment: ManagedConfigComment): string {
   if (raw.includes(comment.text)) {
     return raw;
@@ -217,6 +272,7 @@ export function editConfigDocument(params: {
   path: string;
   desiredData: Record<string, unknown>;
   managedComments?: ManagedConfigComment[];
+  managedCommentReplacements?: ManagedConfigCommentReplacement[];
 }): string {
   const current = parseConfigDocument(params.raw, params.sourceFormat, params.path);
   const edits: Array<{ path: (string | number)[]; value: unknown }> = [];
@@ -244,6 +300,9 @@ export function editConfigDocument(params: {
   }
 
   if (params.outputFormat === "jsonc") {
+    for (const replacement of params.managedCommentReplacements ?? []) {
+      updated = replaceManagedComments(updated, replacement);
+    }
     for (const comment of params.managedComments ?? []) {
       updated = addManagedComment(updated, comment);
     }
@@ -261,6 +320,7 @@ export async function planConfigDocumentEdit(params: {
   target: EditableConfigPath;
   desiredData: Record<string, unknown>;
   managedComments?: ManagedConfigComment[];
+  managedCommentReplacements?: ManagedConfigCommentReplacement[];
 }): Promise<ConfigDocumentEdit> {
   const originalBytes = params.target.existed ? await readFile(params.target.sourcePath) : null;
   const originalRaw = originalBytes?.toString("utf8") ?? "{}\n";
@@ -276,6 +336,7 @@ export async function planConfigDocumentEdit(params: {
     path: params.target.path,
     desiredData: params.desiredData,
     managedComments: params.managedComments,
+    managedCommentReplacements: params.managedCommentReplacements,
   });
   const targetOriginalBytes =
     params.target.path === params.target.sourcePath

@@ -1,5 +1,7 @@
 import { applyProviderAddPlan, planProviderAdd } from "./provider-add.js";
 
+const INVALID_JSON_V1_ADAPTER_MESSAGE = "Invalid json-v1 adapter JSON.";
+
 type PromptAdapter = {
   intro: (message: string) => void;
   outro: (message: string) => void;
@@ -179,11 +181,30 @@ export async function runProviderAddCommand(
     const format = await prompts.select({
       message: "Safe response format",
       options: [
-        { label: "accounting-v1", value: "accounting-v1" },
+        { label: "quota-v1", value: "quota-v1" },
+        { label: "json-v1", value: "json-v1" },
         { label: "openrouter-key-v1", value: "openrouter-key-v1" },
       ],
     });
     if (prompts.isCancel(format)) return 1;
+    let adapter: unknown;
+    if (format === "json-v1") {
+      const adapterText = await prompts.text({
+        message: "Paste one strict JSON adapter object",
+        placeholder:
+          '{"mappings":[{"resultType":"status","name":"Status","metric":{"type":"status","value":{"path":["status"]}}}]}',
+      });
+      if (prompts.isCancel(adapterText) || typeof adapterText !== "string") {
+        prompts.log.error(INVALID_JSON_V1_ADAPTER_MESSAGE);
+        return 1;
+      }
+      try {
+        adapter = JSON.parse(adapterText);
+      } catch {
+        prompts.log.error(INVALID_JSON_V1_ADAPTER_MESSAGE);
+        return 1;
+      }
+    }
     const apiKeyEnv = optionalText(
       await prompts.text({
         message: "API key environment variable name (optional; never the secret)",
@@ -191,7 +212,14 @@ export async function runProviderAddCommand(
       prompts,
     );
     if (apiKeyEnv === null) return 1;
-    definition = { ...base, mode, url, format, ...(apiKeyEnv ? { apiKeyEnv } : {}) };
+    definition = {
+      ...base,
+      mode,
+      url,
+      format,
+      ...(format === "json-v1" ? { adapter } : {}),
+      ...(apiKeyEnv ? { apiKeyEnv } : {}),
+    };
   } else {
     const windows = await promptWindows(prompts);
     if (!windows) return 1;

@@ -162,6 +162,8 @@ A quota provider definition tells OpenCode Quota how to obtain accounting data f
 npx @slkiser/opencode-quota@latest provider add
 ```
 
+For remote APIs, choose `quota-v1` for the standard envelope, `json-v1` to map a strict JSON response, or `openrouter-key-v1` for OpenRouter's key endpoint. The command previews the complete canonical merged config before it writes anything.
+
 Setup details live in the [Provider setup guide](docs/readme/providers.md#custom-providers).
 
 ## Troubleshooting

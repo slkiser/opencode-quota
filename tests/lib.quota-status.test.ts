@@ -514,7 +514,16 @@ describe("buildQuotaStatusReport", () => {
           label: "Duplicate label",
           mode: "remote-api",
           url: "https://private.example/secret-path",
-          format: "accounting-v1",
+          format: "json-v1",
+          adapter: {
+            mappings: [
+              {
+                resultType: "status",
+                name: "Private status",
+                metric: { type: "status", value: { literal: "private-adapter-literal" } },
+              },
+            ],
+          },
           apiKeyEnv: "INTERNAL_GATEWAY_KEY",
           modelIds: ["model-a"],
         },
@@ -539,7 +548,7 @@ describe("buildQuotaStatusReport", () => {
                 sourceId: "first-source",
                 providerId: "internal_gateway",
                 mode: "remote-api",
-                format: "accounting-v1",
+                format: "json-v1",
                 modelIds: ["model-a"],
                 apiKeyEnv: "INTERNAL_GATEWAY_KEY",
                 selected: true,
@@ -561,7 +570,7 @@ describe("buildQuotaStatusReport", () => {
     expect(section).toContain("provider_first-source:");
     expect(section).toContain("provider_id=internal_gateway");
     expect(section).toContain("mode=remote-api");
-    expect(section).toContain("format=accounting-v1");
+    expect(section).toContain("format=json-v1");
     expect(section).toContain("coverage=model-a");
     expect(section).toContain("outcome=http_error");
     expect(section).toContain("credential_category=trusted_global_config");
@@ -572,6 +581,7 @@ describe("buildQuotaStatusReport", () => {
     expect(section).not.toContain("private.example");
     expect(section).not.toContain("openrouter.ai");
     expect(section).not.toContain("raw body secret");
+    expect(section).not.toContain("private-adapter-literal");
     expect(section).not.toContain("401");
   });
 

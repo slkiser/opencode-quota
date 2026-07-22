@@ -150,7 +150,10 @@ async function executeRemote(
       ...entry,
       accounting: { ...entry.accounting, sourceId: definition.id },
     })),
-    errors: [],
+    errors: (result.rowErrors ?? []).map((message) => ({
+      label: definition.label,
+      message,
+    })),
     diagnostic: {
       ...buildDiagnosticIdentity(definition),
       attempted: true,

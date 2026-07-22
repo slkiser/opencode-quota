@@ -21,5 +21,9 @@ describe("package entrypoint", () => {
       server: pluginMocks.QuotaToastPlugin,
     });
     expect(mod.QuotaToastPlugin).toBe(pluginMocks.QuotaToastPlugin);
+    expect(mod.QUOTA_PROVIDER_REMOTE_FORMATS).toEqual(["quota-v1", "openrouter-key-v1", "json-v1"]);
+    expect(JSON.stringify(mod.QUOTA_PROVIDER_REMOTE_FORMATS)).not.toContain(
+      ["accounting", "v1"].join("-"),
+    );
   });
 });

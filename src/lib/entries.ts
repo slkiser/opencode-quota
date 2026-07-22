@@ -133,7 +133,7 @@ export interface QuotaProviderDiagnostic {
   sourceId: string;
   providerId: string;
   mode: QuotaProviderDefinition["mode"];
-  format?: "accounting-v1" | "openrouter-key-v1";
+  format?: Extract<QuotaProviderDefinition, { mode: "remote-api" }>["format"];
   /** Null means the source covers every model for providerId. */
   modelIds: string[] | null;
   /** Explicit environment-variable name only; never its value. */

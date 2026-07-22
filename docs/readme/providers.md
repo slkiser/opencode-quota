@@ -63,14 +63,17 @@ See [Configuration](configuration.md#custom-providers) for a complete config exa
 <details>
 <summary><strong>Remote API response rules</strong></summary>
 
-`mode: "remote-api"` accepts two formats:
+`mode: "remote-api"` accepts three formats:
 
+- `quota-v1` reads the standard OpenCode Quota envelope.
+- `json-v1` maps fields from a strict JSON response through a declarative adapter.
 - `openrouter-key-v1` reads OpenRouter's key response.
-- `accounting-v1` reads the small JSON format below.
+
+A `quota-v1` response looks like this:
 
 ```json
 {
-  "version": "accounting-v1",
+  "version": "quota-v1",
   "entries": [
     {
       "kind": "percent",
@@ -90,7 +93,75 @@ See [Configuration](configuration.md#custom-providers) for a complete config exa
 }
 ```
 
-OpenCode Quota sends a fixed authenticated `GET`. The URL must use HTTPS, except for loopback testing. Redirects and URLs containing credentials, queries, or fragments are rejected. Responses must be JSON and are limited to 256 KiB. `accounting-v1` is limited to 100 rows.
+For `json-v1`, the guided command asks for one strict JSON adapter object. This example maps `remaining`, `limit`, and `status` fields from one response object:
+
+```json
+{
+  "mappings": [
+    {
+      "resultType": "quota",
+      "name": "Requests",
+      "label": "Daily:",
+      "unit": "requests",
+      "unitPosition": "suffix",
+      "metric": {
+        "type": "remaining-limit",
+        "remaining": { "path": ["remaining"] },
+        "limit": { "path": ["limit"] }
+      }
+    },
+    {
+      "resultType": "status",
+      "name": "Status",
+      "metric": {
+        "type": "status",
+        "value": { "path": ["status"] }
+      }
+    }
+  ]
+}
+```
+
+Adapter rules:
+
+- An adapter has an optional `rowsPath` and 1–16 `mappings`. Without `rowsPath`, an object is one row and an array contains the rows. Selected arrays contain 1–100 rows, responses allow at most 32 container levels, and at most 1,600 row/mapping candidates are evaluated.
+- Paths contain 1–8 literal own-property segments of 1–64 Unicode code points. Dots and brackets have no special meaning; array indexes and the exact segments `__proto__`, `prototype`, and `constructor` are rejected.
+- Adapter input is limited to 8 container levels, 128 objects, 384 object properties, and 640 array elements. Static names and labels contain 1–80 code points, units 1–32, and status/display output at most 160; a provider-prefixed entry name also cannot exceed 160.
+- Metric types are `percentage`, `used-limit`, `remaining-limit`, `spend-budget`, `remaining-budget`, `value`, and `status`. Calculations are fixed; formulas and fallback parsing are not supported.
+- Numeric sources use exactly one `path` or `literal`, must be finite with absolute magnitude at most `1e15`, and distinguish zero from missing or `null`. Path sources may use `divideBy` with `100`, `1000`, or `1000000`.
+- Timestamp sources require `iso-8601`, `unix-seconds`, or `unix-milliseconds`. ISO input requires a time zone, allows 1–3 fractional digits and offsets through `±14:00`, and every normalized instant must fall within years 1970–9999. Accepted timestamps are emitted as canonical UTC ISO strings.
+- A bad mapping candidate is reported with fixed, redacted diagnostics while other valid candidates remain visible. At most 16 detailed errors plus one omission summary are retained. An adapter may produce at most 100 successful entries; producing a 101st rejects the response.
+
+Metric compatibility and fixed output:
+
+| `metric.type`      | Allowed `resultType`            | Percent or value output                                    |
+| ------------------ | ------------------------------- | ---------------------------------------------------------- |
+| `percentage`       | `quota`, `rate_limit`, `budget` | remaining: `percentage`; used: `100 - percentage`          |
+| `used-limit`       | `quota`, `rate_limit`           | `(limit - used) / limit * 100`; right side is `used/limit` |
+| `remaining-limit`  | `quota`, `rate_limit`           | `remaining / limit * 100`; right side is `remaining/limit` |
+| `spend-budget`     | `budget`                        | `(budget - spend) / budget * 100`; right is `spend/budget` |
+| `remaining-budget` | `budget`                        | `remaining / budget * 100`; right is `remaining/budget`    |
+| `value`            | Determined by `valueType`       | The selected numeric value                                 |
+| `status`           | `status`                        | The selected bounded text value                            |
+
+For `metric.type: "value"`:
+
+| `valueType` | Allowed `resultType`           | Negative values |
+| ----------- | ------------------------------ | --------------- |
+| `used`      | `quota`, `rate_limit`, `usage` | Rejected        |
+| `limit`     | `quota`, `rate_limit`          | Rejected        |
+| `remaining` | `quota`, `rate_limit`          | Allowed         |
+| `balance`   | `balance`                      | Allowed         |
+| `spend`     | `spend`                        | Rejected        |
+| `budget`    | `budget`                       | Rejected        |
+
+Pair denominators (`limit` and pair-form `budget`) must be greater than zero. Remaining values cannot exceed their denominator; used and spend may exceed it, so the calculated remaining percentage may be negative. A direct remaining percentage may be negative but cannot exceed 100; a direct used percentage must be non-negative and may exceed 100. Values are never clamped.
+
+`unit` and `unitPosition` must appear together. Units are forbidden for `percentage` and `status`; prefix units render like `$2/$10`, while suffix units render like `2/10 tokens`.
+
+**Never put secrets in adapter display configuration.** Static `name`, `label`, and `unit` fields and every `literal` can appear in the provider-add preview, written configuration, cache identity, rendered quota rows, or exports.
+
+OpenCode Quota sends a fixed authenticated `GET`. The URL must use HTTPS, except for loopback testing. Redirects and URLs containing credentials, queries, or fragments are rejected. Responses must be JSON and are limited to 256 KiB. Standard envelopes and selected `json-v1` row arrays are limited to 100 rows.
 
 </details>
 
