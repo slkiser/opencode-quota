@@ -32,7 +32,7 @@ function source(
     label: "Source One",
     url: "https://provider.example/accounting",
     mode: "remote-api",
-    format: "accounting-v1",
+    format: "quota-v1",
     apiKeyEnv: "EXPLICIT_KEY",
     ...overrides,
   };

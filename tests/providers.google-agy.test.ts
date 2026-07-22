@@ -4,8 +4,8 @@ import {
   expectAttemptedWithErrorLabel,
   expectAttemptedWithNoErrors,
   expectNotAttempted,
+  visibleEntries,
 } from "./helpers/provider-assertions.js";
-import { visibleEntries } from "./helpers/provider-assertions.js";
 import { googleAgyProvider } from "../src/providers/google-agy.js";
 
 vi.mock("../src/lib/google-agy.js", () => ({
@@ -13,8 +13,23 @@ vi.mock("../src/lib/google-agy.js", () => ({
   queryGoogleAgyQuota: vi.fn(),
 }));
 
+function bucket(overrides: Record<string, unknown> = {}) {
+  return {
+    family: "Gemini Models",
+    window: "weekly",
+    windowLabel: "Weekly",
+    bucketId: "gemini-weekly",
+    percentRemaining: 58,
+    accountEmail: "alice@example.com",
+    accountKey: "aaaaaaaa11111111",
+    accountIndex: 0,
+    sourceKey: "google-agy",
+    ...overrides,
+  };
+}
+
 describe("google agy provider", () => {
-  it("preserves the Google AGY quota timeout default unless requestTimeoutMs is user-configured", async () => {
+  it("preserves the provider timeout default unless the timeout is user-configured", async () => {
     const { queryGoogleAgyQuota } = await import("../src/lib/google-agy.js");
     (queryGoogleAgyQuota as any).mockResolvedValue(null);
 
@@ -36,20 +51,33 @@ describe("google agy provider", () => {
     expectNotAttempted(out);
   });
 
-  it("maps quota buckets into grouped toast entries and truncated error labels", async () => {
+  it("maps weekly and five-hour summary rows with fixed labels and accounting metadata", async () => {
     const { queryGoogleAgyQuota } = await import("../src/lib/google-agy.js");
     (queryGoogleAgyQuota as any).mockResolvedValueOnce({
       success: true,
       buckets: [
-        {
-          modelId: "gemini-2-5-flash",
-          displayName: "Gemini 2.5 Flash",
-          accountEmail: "alice@example.com",
-          percentRemaining: 64,
-          resetTimeIso: "2026-01-01T00:00:00.000Z",
+        bucket({
+          window: "five_hour",
+          windowLabel: "5h",
+          bucketId: "gemini-five-hour",
+          percentRemaining: 25,
           remainingAmount: "1234",
-          tokenType: "REQUESTS",
-        },
+        }),
+        bucket(),
+        bucket({
+          family: "Claude and GPT models",
+          window: "five_hour",
+          windowLabel: "5h",
+          bucketId: "third-party-five-hour",
+          percentRemaining: 90,
+          remainingAmount: "50",
+        }),
+        bucket({
+          family: "Claude and GPT models",
+          bucketId: "third-party-weekly",
+          percentRemaining: 100,
+          resetTimeIso: "2026-06-23T00:00:00.000Z",
+        }),
       ],
       errors: [{ email: "bob@example.com", error: "Unauthorized" }],
     });
@@ -59,72 +87,65 @@ describe("google agy provider", () => {
     expect(visibleEntries(out.entries, "google-agy")).toEqual([
       {
         name: "Gemini Models (ali..example)",
-        group: "Google AGY",
-        label: "Gemini Models:",
+        group: "AGY · ali..example · Gemini",
+        label: "Weekly:",
+        sortPriority: 0,
+        percentRemaining: 58,
+        resetTimeIso: undefined,
+      },
+      {
+        name: "Gemini Models (ali..example)",
+        group: "AGY · ali..example · Gemini",
+        label: "5h:",
+        sortPriority: 1,
         right: "1,234 left",
-        percentRemaining: 64,
-        resetTimeIso: "2026-01-01T00:00:00.000Z",
+        percentRemaining: 25,
+        resetTimeIso: undefined,
+      },
+      {
+        name: "Claude and GPT models (ali..example)",
+        group: "AGY · ali..example · Claude/GPT",
+        label: "Weekly:",
+        sortPriority: 0,
+        percentRemaining: 100,
+        resetTimeIso: "2026-06-23T00:00:00.000Z",
+      },
+      {
+        name: "Claude and GPT models (ali..example)",
+        group: "AGY · ali..example · Claude/GPT",
+        label: "5h:",
+        sortPriority: 1,
+        right: "50 left",
+        percentRemaining: 90,
+        resetTimeIso: undefined,
       },
     ]);
     expect(out.errors).toEqual([{ label: "bob..example", message: "Unauthorized" }]);
     expect(out.presentation).toEqual({
-      singleWindowDisplayName: "Google AGY",
       singleWindowShowRight: true,
     });
+    expect(out.entries.every((entry) => entry.accounting.sourceId === "aaaaaaaa11111111")).toBe(
+      true,
+    );
   });
 
-  it("maps aggregated Google AGY quality tiers without changing provider presentation", async () => {
+  it("keeps account order and email-less accounts distinct", async () => {
     const { queryGoogleAgyQuota } = await import("../src/lib/google-agy.js");
     (queryGoogleAgyQuota as any).mockResolvedValueOnce({
       success: true,
       buckets: [
-        {
-          modelId: "gemini-3-5-flash",
-          displayName: "Gemini 3.5 Flash",
-          accountEmail: "alice@example.com",
-          percentRemaining: 20,
-          resetTimeIso: "2026-01-01T12:00:00Z",
-          remainingAmount: "50",
-          tokenType: "TOKENS",
-        },
-      ],
-    });
-
-    const out = await googleAgyProvider.fetch({ client: {} } as any);
-    expectAttemptedWithNoErrors(out);
-    expect(visibleEntries(out.entries, "google-agy")).toEqual([
-      {
-        name: "Gemini Models (ali..example)",
-        group: "Google AGY",
-        label: "Gemini Models:",
-        right: "50 left TOKENS",
-        percentRemaining: 20,
-        resetTimeIso: "2026-01-01T12:00:00Z",
-      },
-    ]);
-    expect(out.presentation).toEqual({
-      singleWindowDisplayName: "Google AGY",
-      singleWindowShowRight: true,
-    });
-  });
-
-  it("keeps email-less AGY accounts separate using account keys", async () => {
-    const { queryGoogleAgyQuota } = await import("../src/lib/google-agy.js");
-    (queryGoogleAgyQuota as any).mockResolvedValueOnce({
-      success: true,
-      buckets: [
-        {
-          modelId: "gemini-3-5-flash",
-          displayName: "Gemini 3.5 Flash",
+        bucket({
+          accountEmail: undefined,
           accountKey: "aaaaaaaa11111111",
+          accountIndex: 0,
           percentRemaining: 20,
-        },
-        {
-          modelId: "gemini-3-5-flash",
-          displayName: "Gemini 3.5 Flash",
+        }),
+        bucket({
+          accountEmail: undefined,
           accountKey: "bbbbbbbb22222222",
+          accountIndex: 1,
           percentRemaining: 80,
-        },
+        }),
       ],
     });
 
@@ -134,83 +155,69 @@ describe("google agy provider", () => {
       "Gemini Models (Account aaaaaaaa)",
       "Gemini Models (Account bbbbbbbb)",
     ]);
+    expect(out.entries.map((entry) => entry.percentRemaining)).toEqual([20, 80]);
   });
 
-  it("groups and filters multiple models into canonical display buckets", async () => {
+  it("sorts account, family, and weekly-before-five-hour independently of input order", async () => {
     const { queryGoogleAgyQuota } = await import("../src/lib/google-agy.js");
     (queryGoogleAgyQuota as any).mockResolvedValueOnce({
       success: true,
       buckets: [
-        {
-          modelId: "gemini-2-5-flash",
-          displayName: "Gemini 2.5 Flash",
-          accountEmail: "test@a.com",
-          percentRemaining: 12,
-        },
-        {
-          modelId: "gemini-2-5-pro",
-          displayName: "Gemini 2.5 Pro",
-          accountEmail: "test@a.com",
-          percentRemaining: 12,
-        },
-        {
-          modelId: "gemini-3-flash",
-          displayName: "Gemini 3 Flash",
-          accountEmail: "test@a.com",
-          percentRemaining: 12,
-        },
-        {
-          modelId: "gemini-3-1-pro-high",
-          displayName: "Gemini 3.1 Pro High",
-          accountEmail: "test@a.com",
-          percentRemaining: 12,
-        },
-        {
-          modelId: "gemini-3-5-flash",
-          displayName: "Gemini 3.5 Flash",
-          accountEmail: "test@a.com",
-          percentRemaining: 12,
-        },
-        {
-          modelId: "claude-sonnet-4-6",
-          displayName: "Claude Sonnet 4.6",
-          accountEmail: "test@a.com",
-          percentRemaining: 0,
-        },
-        {
-          modelId: "claude-opus-4-6-thinking",
-          displayName: "Claude Opus 4.6 Thinking",
-          accountEmail: "test@a.com",
-          percentRemaining: 0,
-        },
-        {
-          modelId: "gpt-oss-120b",
-          displayName: "GPT-OSS 120B (Medium)",
-          accountEmail: "test@a.com",
-          percentRemaining: 0,
-        }, // Should be filtered out
-        {
-          modelId: "chat-20706",
-          displayName: "Chat 20706",
-          accountEmail: "test@a.com",
-          percentRemaining: 100,
-        }, // Should be filtered out
+        bucket({
+          accountIndex: 1,
+          accountEmail: "bob@example.com",
+          window: "five_hour",
+          windowLabel: "5h",
+        }),
+        bucket({
+          family: "Claude and GPT models",
+          accountIndex: 0,
+          window: "five_hour",
+          windowLabel: "5h",
+        }),
+        bucket({ accountIndex: 0 }),
+        bucket({
+          family: "Claude and GPT models",
+          accountIndex: 0,
+        }),
       ],
     });
 
     const out = await googleAgyProvider.fetch({ client: {} } as any);
     expectAttemptedWithNoErrors(out);
-
-    // Check that we only get the 2 consolidated groups, sorted alphabetically
-    const entryLabels = out.entries.map((e) => e.label);
-    expect(entryLabels).toEqual(["Claude and GPT models:", "Gemini Models:"]);
+    expect(out.entries.map((entry) => entry.group)).toEqual([
+      "AGY · ali..example · Gemini",
+      "AGY · ali..example · Claude/GPT",
+      "AGY · ali..example · Claude/GPT",
+      "AGY · bob..example · Gemini",
+    ]);
   });
 
-  it("maps fetch failures into toast errors", async () => {
+  it("preserves partial account errors when no summary rows succeed", async () => {
+    const { queryGoogleAgyQuota } = await import("../src/lib/google-agy.js");
+    (queryGoogleAgyQuota as any).mockResolvedValueOnce({
+      success: true,
+      buckets: [],
+      errors: [
+        { email: "alice@example.com", error: "API timeout" },
+        { email: "google-agy-auth", error: "Token revoked" },
+      ],
+    });
+
+    const out = await googleAgyProvider.fetch({ client: {} } as any);
+    expect(out.attempted).toBe(true);
+    expect(out.entries).toEqual([]);
+    expect(out.errors).toEqual([
+      { label: "ali..example", message: "API timeout" },
+      { label: "goo..", message: "Token revoked" },
+    ]);
+  });
+
+  it("maps fetch failures into provider errors", async () => {
     const { queryGoogleAgyQuota } = await import("../src/lib/google-agy.js");
     (queryGoogleAgyQuota as any).mockResolvedValueOnce({
       success: false,
-      error: "Token expired",
+      error: "No Google AGY quota data available",
     });
 
     const out = await googleAgyProvider.fetch({ client: {} } as any);
@@ -226,7 +233,7 @@ describe("google agy provider", () => {
     await expect(googleAgyProvider.isAvailable({ client: {} } as any)).resolves.toBe(false);
   });
 
-  it("matches Google AGY current model ids", () => {
+  it("matches the existing Google AGY runtime ids", () => {
     expect(googleAgyProvider.matchesCurrentModel?.("google-agy/gpt-4")).toBe(true);
     expect(googleAgyProvider.matchesCurrentModel?.("opencode-agy-auth/gpt-4")).toBe(true);
     expect(googleAgyProvider.matchesCurrentModel?.("google-agy-auth/gpt-4")).toBe(true);

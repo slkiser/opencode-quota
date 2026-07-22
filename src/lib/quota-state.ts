@@ -159,10 +159,13 @@ function isQuotaToastEntry(value: unknown): boolean {
       "group",
       "label",
       "right",
+      "sortPriority",
     ]) ||
     !isAccountingMetadata(entry.accounting) ||
     typeof entry.name !== "string" ||
     !isOptionalIsoTimestamp(entry.resetTimeIso) ||
+    (entry.sortPriority !== undefined &&
+      (typeof entry.sortPriority !== "number" || !Number.isFinite(entry.sortPriority))) ||
     !["group", "label", "right"].every(
       (key) => entry[key] === undefined || typeof entry[key] === "string",
     )
@@ -221,7 +224,7 @@ function isQuotaProviderDiagnostic(value: unknown): boolean {
     typeof diagnostic.providerId === "string" &&
     ["remote-api", "local-estimate"].includes(String(diagnostic.mode)) &&
     (diagnostic.format === undefined ||
-      ["accounting-v1", "openrouter-key-v1"].includes(String(diagnostic.format))) &&
+      ["quota-v1", "openrouter-key-v1", "json-v1"].includes(String(diagnostic.format))) &&
     (diagnostic.mode === "remote-api"
       ? diagnostic.format !== undefined
       : diagnostic.format === undefined) &&

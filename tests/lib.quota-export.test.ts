@@ -261,7 +261,16 @@ describe("buildQuotaExport", () => {
         label: "Same label",
         mode: "remote-api",
         url: "https://secret-one.example/accounting",
-        format: "accounting-v1",
+        format: "json-v1",
+        adapter: {
+          mappings: [
+            {
+              resultType: "status",
+              name: "Private status",
+              metric: { type: "status", value: { literal: "private-adapter-literal" } },
+            },
+          ],
+        },
         apiKeyEnv: "GATEWAY_ONE_KEY",
       },
       {
@@ -270,7 +279,7 @@ describe("buildQuotaExport", () => {
         label: "Same label",
         mode: "remote-api",
         url: "https://secret-two.example/accounting",
-        format: "accounting-v1",
+        format: "quota-v1",
       },
       {
         id: "not-selected",
@@ -278,7 +287,7 @@ describe("buildQuotaExport", () => {
         label: "Not selected",
         mode: "remote-api",
         url: "https://secret-three.example/accounting",
-        format: "accounting-v1",
+        format: "quota-v1",
       },
     ];
     mockReadCachedProviderResult.mockResolvedValue({
@@ -301,7 +310,7 @@ describe("buildQuotaExport", () => {
           {
             sourceId: "same-label-one",
             providerId: "gateway-one",
-            format: "accounting-v1",
+            format: "json-v1",
             modelIds: null,
             apiKeyEnv: "GATEWAY_ONE_KEY",
             selected: true,
@@ -315,7 +324,7 @@ describe("buildQuotaExport", () => {
           {
             sourceId: "same-label-two",
             providerId: "gateway-two",
-            format: "accounting-v1",
+            format: "quota-v1",
             modelIds: null,
             apiKeyEnv: null,
             selected: true,
@@ -365,6 +374,8 @@ describe("buildQuotaExport", () => {
     expect(json).not.toContain("private raw failure");
     expect(json).not.toContain("secret-one.example");
     expect(json).not.toContain("GATEWAY_ONE_KEY");
+    expect(json).not.toContain("private-adapter-literal");
+    expect(json).not.toContain("json-v1");
     expect(json).not.toContain("/trusted/auth.json");
   });
 
@@ -377,7 +388,7 @@ describe("buildQuotaExport", () => {
         label: "First",
         mode: "remote-api",
         url: "https://one.example/accounting",
-        format: "accounting-v1",
+        format: "quota-v1",
       },
       {
         id: "second",
@@ -385,7 +396,7 @@ describe("buildQuotaExport", () => {
         label: "Second",
         mode: "remote-api",
         url: "https://two.example/accounting",
-        format: "accounting-v1",
+        format: "quota-v1",
       },
     ];
     mockReadCachedProviderResult.mockResolvedValue({ hit: false });

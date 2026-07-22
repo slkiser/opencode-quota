@@ -440,7 +440,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         label: "Wide",
         mode: "remote-api",
         url: "https://wide.example/accounting",
-        format: "accounting-v1" as const,
+        format: "quota-v1" as const,
       },
       {
         id: "model",
@@ -448,7 +448,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         label: "Model",
         mode: "remote-api",
         url: "https://model.example/accounting",
-        format: "accounting-v1" as const,
+        format: "quota-v1" as const,
         modelIds: ["company/model-a"],
       },
     ];
@@ -958,6 +958,61 @@ describe("collectQuotaRenderData shared quota state", () => {
         kind: "value",
         value: "$4.00",
       },
+    ]);
+  });
+
+  it("keeps one labeled Google AGY result per account in single-window mode", async () => {
+    const provider = {
+      id: "google-agy",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [
+          {
+            accounting: { ...TEST_ACCOUNTING, sourceId: "account-alice" },
+            name: "Gemini Models (ali..example)",
+            group: "AGY · ali..example · Gemini",
+            label: "Weekly:",
+            sortPriority: 0,
+            percentRemaining: 58,
+          },
+          {
+            accounting: { ...TEST_ACCOUNTING, sourceId: "account-alice" },
+            name: "Gemini Models (ali..example)",
+            group: "AGY · ali..example · Gemini",
+            label: "5h:",
+            sortPriority: 1,
+            percentRemaining: 25,
+          },
+          {
+            accounting: { ...TEST_ACCOUNTING, sourceId: "account-bob" },
+            name: "Gemini Models (bob..example)",
+            group: "AGY · bob..example · Gemini",
+            label: "Weekly:",
+            sortPriority: 0,
+            percentRemaining: 80,
+          },
+        ],
+        errors: [],
+        presentation: { singleWindowShowRight: true },
+      }),
+    };
+
+    const result = await collectQuotaRenderData({
+      client: TEST_CLIENT,
+      config: {
+        ...DEFAULT_CONFIG,
+        enabledProviders: [provider.id],
+        showSessionTokens: false,
+      },
+      surfaceExplicitProviderIssues: true,
+      formatStyle: "singleWindow",
+      providers: [provider],
+    });
+
+    expect(result.data?.entries.map((entry) => entry.name)).toEqual([
+      "[AGY · ali..example · Gemini] 5h",
+      "[AGY · bob..example · Gemini] Weekly",
     ]);
   });
 

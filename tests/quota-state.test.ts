@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdir, readdir, rm, writeFile } from "fs/promises";
 
+import { validateQuotaProviders } from "../src/lib/quota-providers.js";
+
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-state-tests";
 const TEST_ACCOUNTING = {
   resultType: "quota",
@@ -64,6 +66,63 @@ describe("quota-state shared cache", () => {
     expect(singleWindowKey).toBe(allWindowsKey);
   });
 
+  it("uses identical cache identity for alias-normalized and canonical definitions", async () => {
+    const { buildQuotaProviderStateCacheKey } = await import("../src/lib/quota-state.js");
+    const base = {
+      id: "custom",
+      mode: "remote-api",
+      url: "https://provider.example/quota",
+    };
+    const alias = validateQuotaProviders([{ ...base, format: "accounting-v1" }]);
+    const canonical = validateQuotaProviders([{ ...base, format: "quota-v1" }]);
+    expect(alias.issues).toEqual([]);
+    expect(canonical.issues).toEqual([]);
+
+    const contextWith = (quotaProviders: NonNullable<typeof canonical.value>) => ({
+      ...createTestContext(),
+      config: { ...createTestContext().config, quotaProviders },
+    });
+    expect(buildQuotaProviderStateCacheKey("quota-providers", contextWith(alias.value!))).toBe(
+      buildQuotaProviderStateCacheKey("quota-providers", contextWith(canonical.value!)),
+    );
+  });
+
+  it("includes the normalized json-v1 adapter in cache identity", async () => {
+    const { buildQuotaProviderStateCacheKey } = await import("../src/lib/quota-state.js");
+    const definition = (path: string) =>
+      validateQuotaProviders([
+        {
+          id: "custom",
+          mode: "remote-api",
+          url: "https://provider.example/quota",
+          format: "json-v1",
+          adapter: {
+            mappings: [
+              {
+                resultType: "usage",
+                name: "Usage",
+                metric: {
+                  type: "value",
+                  valueType: "used",
+                  value: { path: [path] },
+                },
+              },
+            ],
+          },
+        },
+      ]).value!;
+    const contextWith = (quotaProviders: ReturnType<typeof definition>) => ({
+      ...createTestContext(),
+      config: { ...createTestContext().config, quotaProviders },
+    });
+
+    expect(
+      buildQuotaProviderStateCacheKey("quota-providers", contextWith(definition("used"))),
+    ).not.toBe(
+      buildQuotaProviderStateCacheKey("quota-providers", contextWith(definition("usage"))),
+    );
+  });
+
   it("uses the full ordered quota-provider configuration but never credentials in aggregate identity", async () => {
     const { buildQuotaProviderStateCacheKey } = await import("../src/lib/quota-state.js");
     const base = createTestContext();
@@ -72,7 +131,7 @@ describe("quota-state shared cache", () => {
       providerId: "provider-one",
       label: "First",
       url: "https://one.example/accounting",
-      format: "accounting-v1",
+      format: "quota-v1",
       apiKeyEnv: "EXPLICIT_KEY",
       modelIds: ["provider-one/a", "provider-one/b"],
     };
@@ -139,7 +198,7 @@ describe("quota-state shared cache", () => {
         label: "Project A",
         mode: "remote-api",
         url: "https://a.example/accounting",
-        format: "accounting-v1",
+        format: "quota-v1",
       },
       {
         id: "project-b-source",
@@ -147,7 +206,7 @@ describe("quota-state shared cache", () => {
         label: "Project B",
         mode: "remote-api",
         url: "https://b.example/accounting",
-        format: "accounting-v1",
+        format: "quota-v1",
       },
     ];
     const provider = {
@@ -249,7 +308,7 @@ describe("quota-state shared cache", () => {
             label: "Remote",
             mode: "remote-api",
             url: "https://remote.example/accounting",
-            format: "accounting-v1",
+            format: "quota-v1",
           },
         ],
       },
@@ -298,7 +357,7 @@ describe("quota-state shared cache", () => {
             label: "Remote",
             mode: "remote-api",
             url: "https://remote.example/accounting",
-            format: "accounting-v1",
+            format: "quota-v1",
           },
         ],
       },
@@ -688,7 +747,7 @@ describe("quota-state shared cache", () => {
             sourceId: "custom",
             providerId: "provider-one",
             mode: "remote-api",
-            format: "accounting-v1",
+            format: "quota-v1",
             modelIds: null,
             apiKeyEnv: "EXPLICIT_KEY",
             selected: true,
@@ -713,7 +772,7 @@ describe("quota-state shared cache", () => {
             label: "Custom",
             mode: "remote-api",
             url: "https://one.example/accounting",
-            format: "accounting-v1",
+            format: "quota-v1",
             apiKeyEnv: "EXPLICIT_KEY",
           },
         ],
@@ -727,6 +786,110 @@ describe("quota-state shared cache", () => {
     expect(provider.fetch).toHaveBeenCalledTimes(1);
     expect(second.errors).toEqual([{ label: "Other", message: "request failed" }]);
     expect(second.diagnostics?.[0]?.checkedPaths).toEqual(["env:EXPLICIT_KEY"]);
+  });
+
+  it("rejects persisted diagnostics that use the deprecated format name", async () => {
+    const quotaState = await import("../src/lib/quota-state.js");
+    quotaState.__resetQuotaStateForTests();
+    const definition = {
+      id: "custom",
+      providerId: "provider-one",
+      label: "Custom",
+      mode: "remote-api",
+      url: "https://one.example/accounting",
+      format: "quota-v1",
+    } as const;
+    const freshResult = {
+      attempted: true,
+      entries: [
+        {
+          accounting: {
+            ...TEST_ACCOUNTING,
+            ownership: "user_configured",
+            sourceId: "custom",
+          },
+          name: "Fresh",
+          percentRemaining: 90,
+        },
+      ],
+      errors: [],
+      diagnostics: [
+        {
+          sourceId: "custom",
+          providerId: "provider-one",
+          mode: "remote-api",
+          format: "quota-v1",
+          modelIds: null,
+          apiKeyEnv: null,
+          selected: true,
+          attempted: true,
+          credentialSource: "auth_json",
+          outcome: "success",
+          entryCount: 1,
+          checkedPaths: [],
+          authPaths: [],
+        },
+      ],
+    } as const;
+    const provider = {
+      id: "quota-providers",
+      isAvailable: vi.fn(),
+      fetch: vi.fn().mockResolvedValue(freshResult),
+    } as any;
+    const ctx = {
+      ...createTestContext(),
+      config: {
+        ...createTestContext().config,
+        quotaProviders: [definition],
+      },
+    };
+    const key = quotaState.buildQuotaProviderStateCacheKey(provider.id, ctx, {
+      runtimeEligibleQuotaProviders: [],
+    });
+    const path = quotaState.getQuotaProviderStateCacheFilePath(provider.id, key);
+    const { getPackageVersion } = await import("../src/lib/version.js");
+    const packageVersion = (await getPackageVersion()) ?? "unknown";
+
+    await mkdir(`${TEST_RUNTIME_ROOT}/cache/quota-provider-state`, { recursive: true });
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 2,
+        packageVersion,
+        key,
+        providerId: provider.id,
+        timestamp: Date.now(),
+        result: {
+          ...freshResult,
+          entries: [
+            {
+              accounting: {
+                ...TEST_ACCOUNTING,
+                ownership: "user_configured",
+                sourceId: "custom",
+              },
+              name: "Stale",
+              percentRemaining: 10,
+            },
+          ],
+          diagnostics: [
+            {
+              ...freshResult.diagnostics[0],
+              format: "accounting-v1",
+            },
+          ],
+        },
+      }),
+      "utf-8",
+    );
+
+    const result = await quotaState.fetchQuotaProviderResult({
+      provider,
+      ctx,
+      ttlMs: 60_000,
+    });
+    expect(result.entries[0]?.name).toBe("Fresh");
+    expect(provider.fetch).toHaveBeenCalledTimes(1);
   });
 
   it("bypasses persistence entirely for live-local providers", async () => {

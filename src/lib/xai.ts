@@ -1,18 +1,18 @@
 /**
  * xAI SuperGrok subscription quota fetcher.
  *
- * Uses OpenCode's read-only `xai` OAuth entry and queries the shared period
- * meter exposed by Grok Build:
+ * Uses OpenCode's read-only `xai` OAuth entry and queries the same shared
+ * period meter exposed by Grok Build:
  * GET https://cli-chat-proxy.grok.com/v1/billing?format=credits
  *
  * OpenCode remains the sole owner of OAuth refresh and auth.json persistence.
  */
 
-import type { AuthData, QuotaError } from "./types.js";
-import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
+import { sanitizeSingleLineDisplaySnippet } from "./display-sanitize.js";
 import { clampPercent } from "./format-utils.js";
 import { fetchWithTimeout } from "./http.js";
 import { readAuthFile, readAuthFileCached } from "./opencode-auth.js";
+import type { AuthData, QuotaError } from "./types.js";
 
 export const DEFAULT_XAI_AUTH_CACHE_MAX_AGE_MS = 5_000;
 
@@ -55,6 +55,7 @@ function getNonEmptyString(value: unknown): string | undefined {
 function isoOrUndefined(value: unknown): string | undefined {
   const raw = getNonEmptyString(value);
   if (!raw) return undefined;
+
   const date = new Date(raw);
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
@@ -90,7 +91,10 @@ export function resolveXaiOAuth(auth: AuthData | null | undefined): ResolvedXaiO
   return {
     state: "configured",
     accessToken,
-    expiresAt: typeof entry.expires === "number" ? entry.expires : undefined,
+    expiresAt:
+      typeof entry.expires === "number" && Number.isFinite(entry.expires)
+        ? entry.expires
+        : undefined,
   };
 }
 
@@ -130,6 +134,7 @@ function parseCreditsWindow(payload: unknown): XaiWindowValue | null {
   // Protobuf JSON omits zero-valued fields, so an absent percentage with a
   // current period means 0% used rather than missing quota.
   const usedPercent = hasUsage ? (config.creditUsagePercent as number) : 0;
+
   return {
     percentRemaining: clampPercent(100 - usedPercent),
     resetTimeIso: isoOrUndefined(period?.end) ?? isoOrUndefined(config.billingPeriodEnd),
@@ -137,16 +142,21 @@ function parseCreditsWindow(payload: unknown): XaiWindowValue | null {
   };
 }
 
+function safeErrorText(message: string, accessToken: string): string {
+  const redacted = accessToken ? message.split(accessToken).join("[redacted]") : message;
+  return sanitizeSingleLineDisplaySnippet(redacted, 160);
+}
+
 export async function queryXaiQuota(
   options: { requestTimeoutMs?: number } = {},
 ): Promise<XaiResult> {
   // OpenCode can replace this OAuth entry while servicing a model request.
-  // Read the file directly so the post-request quota toast never reuses an
-  // in-memory token snapshot from before that refresh.
+  // Read the file directly so a post-request quota fetch cannot reuse the
+  // token snapshot from before that refresh.
   const resolvedAuth = resolveXaiOAuth(await readAuthFile());
   if (resolvedAuth.state !== "configured") return null;
 
-  if (resolvedAuth.expiresAt && resolvedAuth.expiresAt < Date.now()) {
+  if (resolvedAuth.expiresAt !== undefined && resolvedAuth.expiresAt <= Date.now()) {
     return {
       success: false,
       error: "xAI OAuth token expired; use xAI in OpenCode to refresh it or reconnect xAI",
@@ -154,7 +164,7 @@ export async function queryXaiQuota(
   }
 
   try {
-    const resp = await fetchWithTimeout(
+    const response = await fetchWithTimeout(
       CREDITS_URL,
       {
         method: "GET",
@@ -169,22 +179,25 @@ export async function queryXaiQuota(
       options.requestTimeoutMs,
     );
 
-    if (!resp.ok) {
-      const text = await resp.text();
+    if (!response.ok) {
+      const body = await response.text();
       return {
         success: false,
-        error: `xAI API error ${resp.status}: ${sanitizeDisplaySnippet(text, 120)}`,
+        error: `xAI API error ${response.status}: ${safeErrorText(body, resolvedAuth.accessToken)}`,
       };
     }
 
-    const window = parseCreditsWindow(await resp.json());
+    const window = parseCreditsWindow(await response.json());
     if (!window) return { success: false, error: "No weekly quota data" };
 
     return { success: true, label: "xAI SuperGrok", window };
-  } catch (err) {
+  } catch (error) {
     return {
       success: false,
-      error: sanitizeDisplayText(err instanceof Error ? err.message : String(err)),
+      error: safeErrorText(
+        error instanceof Error ? error.message : String(error),
+        resolvedAuth.accessToken,
+      ),
     };
   }
 }

@@ -205,6 +205,20 @@ export const PROVIDER_ACCOUNTING_LEDGER: Record<string, Array<QuotaToastEntry["a
       authority: "provider_reported",
     },
   ],
+  opencode: [
+    {
+      resultType: "balance",
+      acquisitionMethod: "dashboard_scrape",
+      ownership: "maintained",
+      authority: "provider_reported",
+    },
+    {
+      resultType: "budget",
+      acquisitionMethod: "dashboard_scrape",
+      ownership: "maintained",
+      authority: "provider_reported",
+    },
+  ],
   "ollama-cloud": [
     {
       resultType: "quota",
@@ -251,7 +265,12 @@ export function visibleEntries(
       }),
     );
     if (providerId) {
-      expect(PROVIDER_ACCOUNTING_LEDGER[providerId]).toContainEqual(entry.accounting);
+      const {
+        sourceId: _sourceId,
+        observedAtIso: _observedAtIso,
+        ...ledgerAccounting
+      } = entry.accounting;
+      expect(PROVIDER_ACCOUNTING_LEDGER[providerId]).toContainEqual(ledgerAccounting);
     }
     const { accounting: _accounting, ...visible } = entry;
     return visible;

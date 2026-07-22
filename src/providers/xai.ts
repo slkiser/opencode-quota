@@ -8,20 +8,15 @@ import type {
   QuotaProviderMatchContext,
   QuotaProviderResult,
 } from "../lib/entries.js";
+import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
+import { modelProviderMatchesRuntimeId } from "../lib/provider-model-matching.js";
 import {
   DEFAULT_XAI_AUTH_CACHE_MAX_AGE_MS,
   hasXaiOAuthCached,
   periodKindLabel,
   queryXaiQuota,
 } from "../lib/xai.js";
-import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
-import { modelProviderMatchesRuntimeId } from "../lib/provider-model-matching.js";
-import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
-import {
-  attemptedResult,
-  groupedPercentWindowEntries,
-  mapNullableProviderResult,
-} from "./result-helpers.js";
+import { attemptedResult, mapNullableProviderResult } from "./result-helpers.js";
 
 export const xaiProvider: QuotaProvider = {
   id: "xai",
@@ -33,12 +28,13 @@ export const xaiProvider: QuotaProvider = {
       fallbackOnError: false,
     });
     if (providerAvailable) return hasXaiOAuthCached({ maxAgeMs: 0 });
+
     return hasXaiOAuthCached({ maxAgeMs: DEFAULT_XAI_AUTH_CACHE_MAX_AGE_MS });
   },
 
   matchesCurrentModel(model: string, context?: QuotaProviderMatchContext): boolean {
     if (context?.currentProviderID) {
-      return normalizeQuotaProviderId(context.currentProviderID) === "xai";
+      return context.currentProviderID.trim().toLowerCase() === "xai";
     }
     return modelProviderMatchesRuntimeId(model, "xai");
   },
@@ -51,16 +47,21 @@ export const xaiProvider: QuotaProvider = {
       onSuccess: (result) => {
         const period = periodKindLabel(result.window.kind);
         return attemptedResult(
-          groupedPercentWindowEntries({
-            group: result.label,
-            accounting: {
-              resultType: "quota",
-              acquisitionMethod: "remote_api",
-              ownership: "maintained",
-              authority: "provider_reported",
+          [
+            {
+              accounting: {
+                resultType: "quota",
+                acquisitionMethod: "remote_api",
+                ownership: "maintained",
+                authority: "provider_reported",
+              },
+              name: `${result.label} ${period}`,
+              group: result.label,
+              label: `${period}:`,
+              percentRemaining: result.window.percentRemaining,
+              resetTimeIso: result.window.resetTimeIso,
             },
-            windows: [{ window: result.window, suffix: period, label: `${period}:` }],
-          }),
+          ],
           [],
           { singleWindowDisplayName: result.label },
         );

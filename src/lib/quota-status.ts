@@ -113,6 +113,12 @@ import {
   DEFAULT_OPENCODE_GO_CONFIG_CACHE_MAX_AGE_MS,
 } from "./opencode-go-config.js";
 import { queryOpenCodeGoQuota } from "./opencode-go.js";
+import {
+  DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS,
+  getOpenCodeZenConfigDiagnostics,
+  resolveOpenCodeZenConfigCached,
+} from "./opencode-zen-config.js";
+import { OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR, queryOpenCodeZenQuota } from "./opencode-zen.js";
 
 /** Session token fetch error info for status report */
 export interface SessionTokenError {
@@ -1207,16 +1213,6 @@ export async function buildQuotaStatusReport(params: {
     sections.push(alibabaCodingPlanLiveProbeSection);
   }
 
-  const xaiLiveProbeSection = createCompactLiveProbeOnlySection({
-    id: "xai",
-    title: "xai:",
-    providerId: "xai",
-    probes: params.providerLiveProbes,
-  });
-  if (xaiLiveProbeSection) {
-    sections.push(xaiLiveProbeSection);
-  }
-
   async function appendMiniMaxSection(section: {
     id: string;
     title: string;
@@ -1411,6 +1407,60 @@ export async function buildQuotaStatusReport(params: {
   appendProviderCompactLiveProbeRows(openCodeGoRows, "opencode-go", params.providerLiveProbes);
   sections.push(createKvSection("opencode_go", "opencode_go:", openCodeGoRows));
 
+  // === opencode_zen ===
+  const openCodeZenRows: ReportKvRow[] = [];
+  const openCodeZenDiag = await getOpenCodeZenConfigDiagnostics();
+  openCodeZenRows.push({ key: "config_state", value: openCodeZenDiag.state });
+  openCodeZenRows.push({ key: "config_source", value: openCodeZenDiag.source ?? "(none)" });
+  if (openCodeZenDiag.missing) {
+    openCodeZenRows.push({ key: "config_missing", value: openCodeZenDiag.missing });
+  }
+  if (openCodeZenDiag.error) {
+    openCodeZenRows.push({
+      key: "config_error",
+      value: sanitizeDisplayText(openCodeZenDiag.error),
+    });
+  }
+  openCodeZenRows.push({
+    key: "config_checked_paths",
+    value: joinOrNone(openCodeZenDiag.checkedPaths),
+  });
+  if (openCodeZenDiag.state === "configured") {
+    const openCodeZenConfig = await resolveOpenCodeZenConfigCached({
+      maxAgeMs: DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS,
+    });
+    if (openCodeZenConfig.state !== "configured") {
+      openCodeZenRows.push({
+        key: "live_fetch_error",
+        value: "OpenCode Zen config became unavailable before fetch",
+      });
+    } else {
+      const openCodeZenQuota = await queryOpenCodeZenQuota(
+        openCodeZenConfig.config.workspaceId,
+        openCodeZenConfig.config.authCookie,
+      );
+      if (!openCodeZenQuota.success) {
+        openCodeZenRows.push({ key: "live_fetch_error", value: openCodeZenQuota.error });
+      } else {
+        const data = openCodeZenQuota.data;
+        openCodeZenRows.push({
+          key: "balance_usd",
+          value: `$${(data.balance / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR).toFixed(2)}`,
+        });
+        openCodeZenRows.push({
+          key: "monthly_limit_usd",
+          value: data.monthlyLimit === null ? "(none)" : `$${data.monthlyLimit.toFixed(2)}`,
+        });
+        openCodeZenRows.push({
+          key: "last_payment_usd",
+          value: data.lastPayment === null ? "(none)" : `$${data.lastPayment.toFixed(2)}`,
+        });
+      }
+    }
+  }
+  appendProviderCompactLiveProbeRows(openCodeZenRows, "opencode", params.providerLiveProbes);
+  sections.push(createKvSection("opencode_zen", "opencode_zen:", openCodeZenRows));
+
   // === zai ===
   const zaiRows: ReportKvRow[] = [];
   const zaiAuth = await getZaiAuthDiagnostics({
@@ -1545,6 +1595,11 @@ export async function buildQuotaStatusReport(params: {
   ];
   appendProviderCompactLiveProbeRows(deepSeekRows, "deepseek", params.providerLiveProbes);
   sections.push(createKvSection("deepseek", "deepseek:", deepSeekRows));
+
+  // === xai ===
+  const xaiRows: ReportKvRow[] = [];
+  appendProviderCompactLiveProbeRows(xaiRows, "xai", params.providerLiveProbes);
+  sections.push(createKvSection("xai", "xai:", xaiRows));
 
   // === nanogpt ===
   const nanoGptDiag = await readApiKeyDiagnosticsWithAuthPaths(getNanoGptKeyDiagnostics);

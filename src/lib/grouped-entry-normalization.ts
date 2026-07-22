@@ -29,7 +29,13 @@ function normalizeDurationText(value?: string): string | undefined {
 
 function looksLikeGoogleModel(name: string): boolean {
   const lower = name.toLowerCase();
-  return lower === "claude" || lower === "g3pro" || lower === "g3flash" || lower === "g3image" || lower === "gpt-oss";
+  return (
+    lower === "claude" ||
+    lower === "g3pro" ||
+    lower === "g3flash" ||
+    lower === "g3image" ||
+    lower === "gpt-oss"
+  );
 }
 
 function getGoogleFallbackMeta(name: string): { group: string; label: string } | undefined {
@@ -62,6 +68,7 @@ function getDurationRankFromText(value?: string): number | null {
 }
 
 function getDurationRank(entry: NormalizedGroupedQuotaEntry): number | null {
+  if (Number.isFinite(entry.sortPriority)) return entry.sortPriority!;
   return entry.label ? getDurationRankFromText(entry.label) : getDurationRankFromText(entry.name);
 }
 

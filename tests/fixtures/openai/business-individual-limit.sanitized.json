@@ -1,0 +1,12 @@
+{
+  "plan_type": "business",
+  "rate_limit": null,
+  "code_review_rate_limit": null,
+  "spend_control": {
+    "individual_limit": {
+      "remaining_percent": 100,
+      "reset_after_seconds": 123456,
+      "reset_at": 1785542400
+    }
+  }
+}

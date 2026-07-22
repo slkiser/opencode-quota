@@ -84,6 +84,10 @@ function configFor(formatStyle: "allWindows" | "singleWindow") {
     showOnCompact: true,
     showOnQuestion: false,
     showSessionTokens: false,
+    maintainerAnnouncements: {
+      enabled: false,
+      home: false,
+    },
     tuiCommandDisplay: "dialog",
     tuiSidebarPanel: {
       enabled: true,
@@ -128,6 +132,7 @@ function assertFixtureContent(output: string): void {
   expect(output).toContain("64%");
   expect(output).toContain("$12.34");
   expect(output).toContain("80%");
+  expect(output).toContain("adapter.mappings[2]");
   expect(output).toContain("HTTP 503");
   assertPhase5FixtureOrder(output);
   assertPhase5CanariesRedacted(output);

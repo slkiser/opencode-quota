@@ -134,7 +134,6 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | Anthropic (Claude)       | [Needs setup](docs/readme/providers.md#anthropic-claude)       | Local CLI/OAuth    | Quota              |
 | GitHub Copilot           | [Needs setup](docs/readme/providers.md#github-copilot)         | Remote API         | Usage and budget   |
 | OpenAI                   | Automatic                                                      | Remote API         | Quota              |
-| xAI SuperGrok            | OpenCode `/connect` xAI                                        | Remote API         | Quota              |
 | Cursor                   | [Needs setup](docs/readme/providers.md#cursor)                 | Local estimate     | Budget and spend   |
 | Qwen Code                | [Needs setup](docs/readme/providers.md#qwen-code)              | Local estimate     | Quota              |
 | Alibaba Coding Plan      | OpenCode config                                                | Local estimate     | Quota              |
@@ -150,8 +149,10 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | Zhipu Coding Plan        | OpenCode config                                                | Remote API         | Quota              |
 | NanoGPT                  | API key/config                                                 | Remote API         | Quota and balance  |
 | DeepSeek                 | API key/config                                                 | Remote API         | Balance and status |
+| xAI SuperGrok            | OpenCode OAuth (`/connect` xAI)                                | Remote API         | Quota              |
 | Ollama Cloud             | [Needs setup](docs/readme/providers.md#ollama-cloud)           | Dashboard scraping | Quota              |
 | OpenCode Go              | [Needs setup](docs/readme/providers.md#opencode-go)            | Dashboard scraping | Quota              |
+| OpenCode Zen             | [Needs setup](docs/readme/providers.md#opencode-zen)           | Dashboard scraping | Budget and balance |
 
 The quota view uses short labels such as `Day quota`, `5h quota`, `Day budget`, and `Balance`. Bar width varies by surface. JSON keeps the precise accounting type for scripts.
 
@@ -162,6 +163,8 @@ A quota provider definition tells OpenCode Quota how to obtain accounting data f
 ```bash
 npx @slkiser/opencode-quota@latest provider add
 ```
+
+For remote APIs, choose `quota-v1` for the standard envelope, `json-v1` to map a strict JSON response, or `openrouter-key-v1` for OpenRouter's key endpoint. The command previews the complete canonical merged config before it writes anything.
 
 Setup details live in the [Provider setup guide](docs/readme/providers.md#custom-providers).
 

@@ -68,6 +68,30 @@ describe("normalizeGroupedQuotaEntries", () => {
     ]);
   });
 
+  it("uses an explicit row priority before generic duration ordering", () => {
+    const entries = [
+      {
+        name: "Example 5h",
+        group: "Example",
+        label: "5h:",
+        sortPriority: 1,
+        percentRemaining: 80,
+      },
+      {
+        name: "Example Weekly",
+        group: "Example",
+        label: "Weekly:",
+        sortPriority: 0,
+        percentRemaining: 90,
+      },
+    ];
+
+    expect(normalizeGroupedQuotaEntries(entries, "toast").map((entry) => entry.label)).toEqual([
+      "Weekly:",
+      "5h:",
+    ]);
+  });
+
   it("sorts OpenCode Go windows as rolling, weekly, monthly", () => {
     const entries = [
       {

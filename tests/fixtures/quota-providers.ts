@@ -13,7 +13,7 @@ export const VALID_QUOTA_PROVIDER_INPUTS = [
     id: "internal-accounting",
     mode: "remote-api",
     url: "https://gateway.internal/accounting",
-    format: "accounting-v1",
+    format: "quota-v1",
   },
 ] as const;
 
@@ -35,7 +35,7 @@ export function quotaProvider(overrides: Record<string, unknown> = {}): Record<s
     label: "Provider One",
     mode: "remote-api",
     url: "https://provider.example/accounting",
-    format: "accounting-v1",
+    format: "quota-v1",
     ...overrides,
   };
 }

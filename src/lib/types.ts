@@ -129,6 +129,8 @@ export interface QuotaToastConfig {
    * Defaults to ["rolling", "weekly", "monthly"].
    */
   opencodeGoWindows: OpenCodeGoWindowKey[];
+  /** Optional OpenCode Zen monthly budget override in USD. */
+  opencodeMonthlyLimit?: number;
   cursorIncludedApiUsd?: number;
   cursorBillingCycleStartDay?: number;
   pricingSnapshot: PricingSnapshotConfig;
@@ -196,6 +198,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   googleModels: ["CLAUDE"],
   cursorPlan: "none",
   opencodeGoWindows: ["rolling", "weekly", "monthly"],
+  opencodeMonthlyLimit: undefined,
   pricingSnapshot: {
     source: "auto",
     autoRefresh: 7,
@@ -652,16 +655,44 @@ export interface GeminiCliQuotaResult {
   errors?: GoogleAccountError[];
 }
 
+export interface GoogleAgyQuotaSummaryBucket {
+  bucketId?: string;
+  displayName?: string;
+  description?: string;
+  window?: string;
+  remaining?: string;
+  remainingFraction?: number;
+  remainingAmount?: string;
+  disabled?: boolean;
+  resetTime?: string;
+}
+
+export interface GoogleAgyQuotaSummaryGroup {
+  displayName?: string;
+  description?: string;
+  buckets?: GoogleAgyQuotaSummaryBucket[];
+}
+
+export interface GoogleAgyQuotaSummaryResponse {
+  groups?: GoogleAgyQuotaSummaryGroup[];
+  buckets?: GoogleAgyQuotaSummaryBucket[];
+  description?: string;
+}
+
 export interface GoogleAgyQuotaBucket {
-  modelId: string;
-  displayName: string;
+  family: string;
+  window: "weekly" | "five_hour";
+  windowLabel: "Weekly" | "5h";
+  bucketId?: string;
+  bucketLabel?: string;
+  remainingFraction: number;
   percentRemaining: number;
   resetTimeIso?: string;
   remainingAmount?: string;
-  tokenType?: string;
   accountEmail?: string;
-  accountKey?: string;
-  sourceKey?: GoogleAgyAuthSourceKey;
+  accountKey: string;
+  accountIndex: number;
+  sourceKey: GoogleAgyAuthSourceKey;
 }
 
 export interface GoogleAgyQuotaResult {

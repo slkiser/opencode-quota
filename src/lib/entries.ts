@@ -52,6 +52,8 @@ export interface GroupedQuotaEntryMeta {
   label?: string;
   /** Optional compact right-hand summary, e.g. "42/300". */
   right?: string;
+  /** Optional stable row priority within a group; lower values render first. */
+  sortPriority?: number;
 }
 
 export type QuotaToastEntry =
@@ -133,7 +135,7 @@ export interface QuotaProviderDiagnostic {
   sourceId: string;
   providerId: string;
   mode: QuotaProviderDefinition["mode"];
-  format?: "accounting-v1" | "openrouter-key-v1";
+  format?: Extract<QuotaProviderDefinition, { mode: "remote-api" }>["format"];
   /** Null means the source covers every model for providerId. */
   modelIds: string[] | null;
   /** Explicit environment-variable name only; never its value. */
@@ -198,6 +200,7 @@ export interface QuotaProviderContext {
     cursorIncludedApiUsd?: number;
     cursorBillingCycleStartDay?: number;
     opencodeGoWindows?: OpenCodeGoWindowKey[];
+    opencodeMonthlyLimit?: number;
     requestTimeoutMs?: number;
     /** Provider-result cache TTL used by aggregate remote definitions. */
     providerCacheTtlMs?: number;

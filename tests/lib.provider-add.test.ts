@@ -22,7 +22,7 @@ function remote(overrides: Record<string, unknown> = {}) {
     id: "private-gateway",
     mode: "remote-api",
     url: "https://gateway.example/accounting",
-    format: "accounting-v1",
+    format: "quota-v1",
     apiKeyEnv: "PRIVATE_GATEWAY_KEY",
     modelIds: ["model-a"],
     ...overrides,
@@ -55,6 +55,81 @@ describe("provider add global config workflow", () => {
     expect(plan.updated).toContain('"quotaProviders"');
     expect(plan.updated).not.toContain("secret-value");
     expect(plan.ordinaryProviderRequired).toBe(true);
+  });
+
+  it("canonicalizes the complete merged provider list and migrates only the obsolete managed comment", async () => {
+    const dir = await configDir();
+    const path = join(dir, "opencode.jsonc");
+    await writeFile(
+      path,
+      `{
+  // Safe response contract: accounting-v1 or openrouter-key-v1.
+  "unrelated": "// Safe response contract: accounting-v1 or openrouter-key-v1.",
+  "experimental": {
+    "quotaToast": {
+      "quotaProviders": [
+        {
+          "id": "legacy-source",
+          "mode": "remote-api",
+          "url": "https://legacy.example/quota",
+          // Safe response contract: accounting-v1 or openrouter-key-v1.
+          "format": "accounting-v1"
+        },
+        {
+          "id": "commented-source",
+          "providerId": "commented-provider",
+          "mode": "remote-api",
+          "url": "https://commented.example/quota",
+          // Keep this user-authored provider comment.
+          "format": "quota-v1"
+        }
+      ]
+    }
+  }
+}
+`,
+      "utf8",
+    );
+
+    const plan = await planProviderAdd({
+      definition: remote({ id: "new-source" }),
+      configDir: dir,
+    });
+    const parsed = parseConfigDocument(plan.updated, "jsonc", path);
+    const definitions = (
+      (parsed.experimental as Record<string, unknown>).quotaToast as Record<string, unknown>
+    ).quotaProviders as Array<Record<string, unknown>>;
+
+    expect(definitions.map((definition) => definition.id)).toEqual([
+      "legacy-source",
+      "commented-source",
+      "new-source",
+    ]);
+    expect(definitions.map((definition) => definition.format)).toEqual([
+      "quota-v1",
+      "quota-v1",
+      "quota-v1",
+    ]);
+    expect(definitions[0]).toMatchObject({
+      id: "legacy-source",
+      label: "legacy-source",
+      format: "quota-v1",
+    });
+    expect(definitions[0]).not.toHaveProperty("providerId");
+    expect(plan.updated).toMatch(
+      /"url": "https:\/\/legacy\.example\/quota",\s*\/\/ Safe response contract: quota-v1, json-v1, or openrouter-key-v1\.\s*"format": "quota-v1"/,
+    );
+    expect(plan.updated).toContain("// Keep this user-authored provider comment.");
+    expect(
+      plan.updated.match(/Safe response contract: quota-v1, json-v1, or openrouter-key-v1\./g),
+    ).toHaveLength(2);
+    expect(
+      plan.updated.match(/Safe response contract: accounting-v1 or openrouter-key-v1\./g),
+    ).toHaveLength(1);
+    expect(parsed.unrelated).toBe("// Safe response contract: accounting-v1 or openrouter-key-v1.");
+
+    await applyProviderAddPlan(plan);
+    expect(await readFile(path, "utf8")).toBe(plan.updated);
   });
 
   it("writes the preview atomically and is idempotent on a second run", async () => {

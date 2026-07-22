@@ -10,7 +10,7 @@ import {
 } from "../src/lib/maintainer-announcements.js";
 
 const NOW_MS = Date.parse("2026-05-21T12:00:00.000Z");
-const BUNDLED_NOW_MS = Date.parse("2026-06-13T12:00:00.000Z");
+const BUNDLED_NOW_MS = Date.parse("2026-07-22T12:00:00.000Z");
 
 const BASE_ANNOUNCEMENT = {
   id: "copilot-credits",
@@ -41,7 +41,9 @@ describe("maintainer announcements", () => {
       ],
     });
 
-    expect(Object.fromEntries(evaluations.map((item) => [item.announcement.id, item.reasons]))).toMatchObject({
+    expect(
+      Object.fromEntries(evaluations.map((item) => [item.announcement.id, item.reasons])),
+    ).toMatchObject({
       "copilot-credits": [],
       future: ["not_started"],
       expired: ["ended"],
@@ -81,44 +83,27 @@ describe("maintainer announcements", () => {
     expect(active).toHaveLength(1);
   });
 
-  it("bundles current provider-scoped Gemini and Copilot announcements", () => {
-    const geminiActive = getActiveMaintainerAnnouncements({
+  it("bundles the global OpenCode ecosystem listing announcement", () => {
+    const expectedAnnouncement = {
+      id: "opencode-ecosystem-listing-support",
+      message: "Support OpenCode Quota's ecosystem listing: review the PR and add a thumbs-up.",
+      url: "https://github.com/anomalyco/opencode/pull/38283",
+      startsAt: "2026-07-22T00:00:00.000Z",
+      endsAt: "2026-08-22T00:00:00.000Z",
+    } satisfies MaintainerAnnouncement;
+    const active = getActiveMaintainerAnnouncements({
       nowMs: BUNDLED_NOW_MS,
-      enabledProviders: ["google-gemini-cli"],
-    });
-    const copilotActive = getActiveMaintainerAnnouncements({
-      nowMs: BUNDLED_NOW_MS,
-      enabledProviders: ["copilot"],
-    });
-    const openaiActive = getActiveMaintainerAnnouncements({
-      nowMs: BUNDLED_NOW_MS,
-      enabledProviders: ["openai"],
+      enabledProviders: "auto",
     });
 
-    expect(BUNDLED_MAINTAINER_ANNOUNCEMENTS).toHaveLength(2);
-    expect(geminiActive.map((item) => item.announcement.id)).toEqual([
-      "gemini-cli-antigravity-transition-feedback",
+    expect(BUNDLED_MAINTAINER_ANNOUNCEMENTS).toEqual([expectedAnnouncement]);
+    expect(active).toEqual([
+      {
+        announcement: expectedAnnouncement,
+        active: true,
+        reasons: [],
+      },
     ]);
-    expect(geminiActive[0]?.announcement).toMatchObject({
-      message:
-        "Gemini CLI transition: Google is deprecating Gemini CLI consumer/free/Pro/Ultra access on June 18, 2026. Treat Gemini CLI quota as temporary and move new Google quota setups to Antigravity.",
-      url: "https://github.com/slkiser/opencode-quota/issues/125",
-      startsAt: "2026-06-13T00:00:00.000Z",
-      endsAt: "2026-07-01T00:00:00.000Z",
-      providerIds: ["google-gemini-cli"],
-    });
-    expect(copilotActive.map((item) => item.announcement.id)).toEqual([
-      "copilot-github-ai-credits-feedback",
-    ]);
-    expect(copilotActive[0]?.announcement).toMatchObject({
-      message:
-        "Copilot billing update: usage-based billing with GitHub AI Credits is live as of June 1, 2026. Tell us what opencode-quota should track next.",
-      url: "https://github.com/slkiser/opencode-quota/issues/126",
-      startsAt: "2026-06-01T00:00:00.000Z",
-      endsAt: "2026-08-01T00:00:00.000Z",
-      providerIds: ["copilot"],
-    });
-    expect(openaiActive).toEqual([]);
   });
 
   it("sorts active announcements before inactive, then by end date and id", () => {
@@ -159,7 +144,9 @@ describe("maintainer announcements", () => {
       futureCount: 1,
       expiredCount: 1,
     });
-    expect(summary.activeAnnouncements.map((item) => item.announcement.id)).toEqual(["copilot-credits"]);
+    expect(summary.activeAnnouncements.map((item) => item.announcement.id)).toEqual([
+      "copilot-credits",
+    ]);
   });
 
   it("formats PRD-exact count-only TUI home lines", () => {

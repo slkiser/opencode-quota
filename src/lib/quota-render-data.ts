@@ -127,6 +127,7 @@ function buildQuotaProviderContext(params: {
       cursorIncludedApiUsd: config.cursorIncludedApiUsd,
       cursorBillingCycleStartDay: config.cursorBillingCycleStartDay,
       opencodeGoWindows: config.opencodeGoWindows,
+      opencodeMonthlyLimit: config.opencodeMonthlyLimit,
       requestTimeoutMs: config.requestTimeoutMs,
       providerCacheTtlMs: config.minIntervalMs,
       requestTimeoutMsConfigured: Boolean(configMeta?.settingSources.requestTimeoutMs),

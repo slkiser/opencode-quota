@@ -4,6 +4,7 @@ import type {
   QuotaProviderResult,
   QuotaToastEntry,
 } from "../lib/entries.js";
+import type { GoogleAgyQuotaBucket } from "../lib/types.js";
 import { hasAgyQuotaRuntimeAvailable, queryGoogleAgyQuota } from "../lib/google-agy.js";
 import { parseProviderModelRef } from "../lib/provider-model-matching.js";
 import { formatGoogleAccountErrors, formatGoogleAccountLabel } from "./google-account-format.js";
@@ -19,6 +20,57 @@ function formatAgyAccountLabel(bucket: { accountEmail?: string; accountKey?: str
     return formatGoogleAccountLabel(bucket.accountEmail, "domainHint");
   }
   return bucket.accountKey ? `Account ${bucket.accountKey.slice(0, 8)}` : "Unknown";
+}
+
+function familyRank(family: string): number {
+  if (family === "Gemini Models") return 0;
+  if (family === "Claude and GPT models") return 1;
+  return 2;
+}
+
+function windowRank(window: GoogleAgyQuotaBucket["window"]): number {
+  return window === "weekly" ? 0 : 1;
+}
+
+function formatAgyFamilyLabel(family: string): string {
+  if (family === "Gemini Models") return "Gemini";
+  if (family === "Claude and GPT models") return "Claude/GPT";
+  return family;
+}
+
+function compareBuckets(left: GoogleAgyQuotaBucket, right: GoogleAgyQuotaBucket): number {
+  if (left.accountIndex !== right.accountIndex) {
+    return left.accountIndex - right.accountIndex;
+  }
+
+  const rankedFamily = familyRank(left.family) - familyRank(right.family);
+  if (rankedFamily !== 0) {
+    return rankedFamily;
+  }
+
+  const familyName = left.family.localeCompare(right.family);
+  if (familyName !== 0) {
+    return familyName;
+  }
+
+  const rankedWindow = windowRank(left.window) - windowRank(right.window);
+  if (rankedWindow !== 0) {
+    return rankedWindow;
+  }
+
+  const bucketLabel = (left.bucketLabel ?? "").localeCompare(right.bucketLabel ?? "");
+  if (bucketLabel !== 0) {
+    return bucketLabel;
+  }
+  return (left.bucketId ?? "").localeCompare(right.bucketId ?? "");
+}
+
+function formatRemainingAmount(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return `${Number.isFinite(parsed) ? parsed.toLocaleString("en-US") : value} left`;
 }
 
 async function isAgyConfigured(ctx: QuotaProviderContext): Promise<boolean> {
@@ -55,45 +107,10 @@ export const googleAgyProvider: QuotaProvider = {
       return attemptedErrorResult("Google AGY", result.error);
     }
 
-    const groupedBuckets = new Map<string, (typeof result.buckets)[0]>();
-
-    for (const bucket of result.buckets) {
-      let groupName: string | undefined;
-      const name = bucket.displayName;
-
-      if (name.includes("Gemini")) {
-        groupName = "Gemini Models";
-      } else if (name.includes("Claude") || name.includes("GPT")) {
-        groupName = "Claude and GPT models";
-      }
-
-      if (!groupName) continue;
-
-      const accountKey = bucket.accountKey || bucket.accountEmail || "";
-      const key = `${accountKey}::${groupName}`;
-      const existing = groupedBuckets.get(key);
-
-      if (!existing || bucket.percentRemaining < existing.percentRemaining) {
-        groupedBuckets.set(key, { ...bucket, displayName: groupName });
-      }
-    }
-
-    const finalBuckets = Array.from(groupedBuckets.values()).sort((a, b) =>
-      a.displayName.localeCompare(b.displayName),
-    );
-
-    const entries: QuotaToastEntry[] = finalBuckets.map((bucket) => {
-      const emailLabel = formatAgyAccountLabel(bucket);
-      const parsedRemaining = bucket.remainingAmount
-        ? Number.parseInt(bucket.remainingAmount, 10)
-        : Number.NaN;
-      const remainingAmount = bucket.remainingAmount
-        ? `${Number.isFinite(parsedRemaining) ? parsedRemaining.toLocaleString("en-US") : bucket.remainingAmount} left`
-        : undefined;
-      const tokenType = bucket.tokenType?.trim().toUpperCase();
-      const right = [remainingAmount, tokenType && tokenType !== "REQUESTS" ? tokenType : undefined]
-        .filter(Boolean)
-        .join(" ");
+    const sortedBuckets = [...result.buckets].sort(compareBuckets);
+    const entries: QuotaToastEntry[] = sortedBuckets.map((bucket) => {
+      const accountLabel = formatAgyAccountLabel(bucket);
+      const right = formatRemainingAmount(bucket.remainingAmount);
 
       return {
         accounting: {
@@ -101,10 +118,12 @@ export const googleAgyProvider: QuotaProvider = {
           acquisitionMethod: "remote_api",
           ownership: "maintained",
           authority: "provider_reported",
+          sourceId: bucket.accountKey ?? bucket.accountEmail ?? `account-${bucket.accountIndex}`,
         },
-        name: `${bucket.displayName} (${emailLabel})`,
-        group: "Google AGY",
-        label: `${bucket.displayName}:`,
+        name: `${bucket.family} (${accountLabel})`,
+        group: `AGY · ${accountLabel} · ${formatAgyFamilyLabel(bucket.family)}`,
+        label: `${bucket.windowLabel}:`,
+        sortPriority: windowRank(bucket.window),
         ...(right ? { right } : {}),
         percentRemaining: bucket.percentRemaining,
         resetTimeIso: bucket.resetTimeIso,
@@ -112,7 +131,6 @@ export const googleAgyProvider: QuotaProvider = {
     });
 
     return attemptedResult(entries, formatGoogleAccountErrors(result.errors, "domainHint"), {
-      singleWindowDisplayName: "Google AGY",
       singleWindowShowRight: true,
     });
   },

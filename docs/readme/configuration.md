@@ -66,7 +66,7 @@ Use the guided command:
 npx @slkiser/opencode-quota@latest provider add
 ```
 
-It asks what kind of provider you have, previews the exact global change, and asks before writing. It never asks for a secret.
+It asks what kind of provider you have, previews the complete canonical merged global config, and asks before writing. It never asks for a secret. For `json-v1`, paste one strict JSON adapter object; the same schema validator used at startup checks it before the preview.
 
 The command updates the active global quota config. If a global `quota-toast.jsonc` or `.json` exists, it uses that file. Otherwise it uses the global `opencode.jsonc` or `.json`. Project custom-provider definitions are not allowed.
 
@@ -142,7 +142,8 @@ The command writes the `experimental.quotaToast.quotaProviders` section. Configu
 - `quotaProviders` is global-only and keeps file order.
 - `id` is the stable identity. Add `providerId` only when it differs.
 - `modelIds` affects only `onlyCurrentModel`. Use exact, case-sensitive model IDs without the outer provider prefix, or omit it to cover every model for that provider.
-- Remote APIs use a fixed authenticated `GET`. Supported formats are `accounting-v1` and `openrouter-key-v1`.
+- Remote APIs use a fixed authenticated `GET`. Supported formats are `quota-v1`, `json-v1`, and `openrouter-key-v1`.
+- `json-v1` requires an `adapter` with 1–16 mappings. Paths are literal own-property segment arrays, not JSONPath.
 - Local estimates support 1–16 UTC-day or rolling request windows.
 - Automatic models.dev matching runs first. `pricingModelMap` cannot override a successful automatic match.
 - If any request cannot be priced, request counts stay visible and the budget percentage is reported unavailable.
@@ -317,6 +318,7 @@ Existing `experimental.quotaToast` settings remain supported. Quota settings do 
 | `anthropicBinaryPath`        | `"claude"`                         | Command/path used for local Claude CLI probing.                                                      |
 | `googleModels`               | `["CLAUDE"]`                       | Google model keys to query: `CLAUDE`, `G3PRO`, `G3FLASH`, `G3IMAGE`, `GPTOSS`.                       |
 | `opencodeGoWindows`          | `["rolling", "weekly", "monthly"]` | OpenCode Go usage windows to display.                                                                |
+| `opencodeMonthlyLimit`       | unset                              | Override the OpenCode Zen monthly budget in USD.                                                     |
 | `cursorPlan`                 | `"none"`                           | Cursor included API budget preset: `none`, `pro`, `pro-plus`, `ultra`.                               |
 | `cursorIncludedApiUsd`       | unset                              | Override Cursor monthly included API budget in USD.                                                  |
 | `cursorBillingCycleStartDay` | unset                              | Local billing-cycle anchor day `1..28`; when unset, Cursor usage resets on the local calendar month. |

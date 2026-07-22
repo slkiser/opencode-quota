@@ -199,6 +199,21 @@ const openCodeGoMocks = vi.hoisted(() => ({
   queryOpenCodeGoQuota: vi.fn(async () => null),
 }));
 
+const openCodeZenMocks = vi.hoisted(() => ({
+  getOpenCodeZenConfigDiagnostics: vi.fn(async () => ({
+    state: "none" as const,
+    source: null,
+    missing: null,
+    error: null,
+    checkedPaths: [],
+  })),
+  resolveOpenCodeZenConfigCached: vi.fn(async () => ({ state: "none" as const })),
+  queryOpenCodeZenQuota: vi.fn(async () => ({
+    success: false as const,
+    error: "not configured",
+  })),
+}));
+
 const anthropicMocks = vi.hoisted(() => ({
   getAnthropicDiagnostics: vi.fn(async () => ({
     installed: true,
@@ -242,6 +257,17 @@ vi.mock("../src/lib/opencode-go-config.js", () => ({
 
 vi.mock("../src/lib/opencode-go.js", () => ({
   queryOpenCodeGoQuota: openCodeGoMocks.queryOpenCodeGoQuota,
+}));
+
+vi.mock("../src/lib/opencode-zen-config.js", () => ({
+  getOpenCodeZenConfigDiagnostics: openCodeZenMocks.getOpenCodeZenConfigDiagnostics,
+  resolveOpenCodeZenConfigCached: openCodeZenMocks.resolveOpenCodeZenConfigCached,
+  DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS: 30_000,
+}));
+
+vi.mock("../src/lib/opencode-zen.js", () => ({
+  OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR: 100_000_000,
+  queryOpenCodeZenQuota: openCodeZenMocks.queryOpenCodeZenQuota,
 }));
 
 vi.mock("../src/lib/google-token-cache.js", () => ({
@@ -514,7 +540,16 @@ describe("buildQuotaStatusReport", () => {
           label: "Duplicate label",
           mode: "remote-api",
           url: "https://private.example/secret-path",
-          format: "accounting-v1",
+          format: "json-v1",
+          adapter: {
+            mappings: [
+              {
+                resultType: "status",
+                name: "Private status",
+                metric: { type: "status", value: { literal: "private-adapter-literal" } },
+              },
+            ],
+          },
           apiKeyEnv: "INTERNAL_GATEWAY_KEY",
           modelIds: ["model-a"],
         },
@@ -539,7 +574,7 @@ describe("buildQuotaStatusReport", () => {
                 sourceId: "first-source",
                 providerId: "internal_gateway",
                 mode: "remote-api",
-                format: "accounting-v1",
+                format: "json-v1",
                 modelIds: ["model-a"],
                 apiKeyEnv: "INTERNAL_GATEWAY_KEY",
                 selected: true,
@@ -561,7 +596,7 @@ describe("buildQuotaStatusReport", () => {
     expect(section).toContain("provider_first-source:");
     expect(section).toContain("provider_id=internal_gateway");
     expect(section).toContain("mode=remote-api");
-    expect(section).toContain("format=accounting-v1");
+    expect(section).toContain("format=json-v1");
     expect(section).toContain("coverage=model-a");
     expect(section).toContain("outcome=http_error");
     expect(section).toContain("credential_category=trusted_global_config");
@@ -572,6 +607,7 @@ describe("buildQuotaStatusReport", () => {
     expect(section).not.toContain("private.example");
     expect(section).not.toContain("openrouter.ai");
     expect(section).not.toContain("raw body secret");
+    expect(section).not.toContain("private-adapter-literal");
     expect(section).not.toContain("401");
   });
 
@@ -663,6 +699,9 @@ describe("buildQuotaStatusReport", () => {
       providerAvailability: [makeProviderAvailability("opencode-go", { available: false })],
       ...overrides,
     } as any);
+
+  const buildOpenCodeZenStatusReport = (overrides: Record<string, unknown> = {}) =>
+    buildProviderStatusReport("opencode", overrides as any);
 
   const buildSyntheticStatusReport = (overrides: Record<string, unknown> = {}) =>
     buildProviderStatusReport("synthetic", overrides as any);
@@ -1394,7 +1433,7 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- deepseek: pricing=no (account balance only (not token-priced))");
   });
 
-  it("reports the xAI live weekly quota probe", async () => {
+  it("reports the xAI live quota probe", async () => {
     const report = await buildProviderStatusReport("xai", {
       providerLiveProbes: [
         {
@@ -1403,29 +1442,23 @@ describe("buildQuotaStatusReport", () => {
             attempted: true,
             entries: [
               {
-                accounting: {
-                  resultType: "quota",
-                  acquisitionMethod: "remote_api",
-                  ownership: "maintained",
-                  authority: "provider_reported",
-                },
-                name: "xAI SuperGrok Weekly",
-                group: "xAI SuperGrok",
                 label: "Weekly:",
-                percentRemaining: 84,
-                resetTimeIso: "2026-07-20T02:24:00.983Z",
+                name: "xAI SuperGrok Weekly",
+                percentRemaining: 73,
+                resetTimeIso: "2026-07-27T00:00:00.000Z",
               },
             ],
             errors: [],
           },
         },
       ],
-    });
+    } as any);
 
-    expectReportSection(report, "xai:", [
-      "- live_probe: success",
-      "- live_entry_1: Weekly: percent_remaining=84 reset_at=2026-07-20T02:24:00.983Z",
-    ]);
+    const section = getReportSection(report, "xai:");
+    expect(section).toContain("- live_probe: success");
+    expect(section).toContain(
+      "- live_entry_1: Weekly: percent_remaining=73 reset_at=2026-07-27T00:00:00.000Z",
+    );
   });
 
   it("reports OpenCode Go rolling, weekly, and monthly live usage when configured", async () => {
@@ -1629,6 +1662,59 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- config_checked_paths: /tmp/config/opencode-quota/opencode-go.json");
     expect(openCodeGoMocks.resolveOpenCodeGoConfigCached).not.toHaveBeenCalled();
     expect(openCodeGoMocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
+  });
+
+  it("reports OpenCode Zen config and live billing details without exposing credentials", async () => {
+    openCodeZenMocks.getOpenCodeZenConfigDiagnostics.mockResolvedValueOnce({
+      state: "configured",
+      source: "env(OPENCODE_*)",
+      missing: null,
+      error: null,
+      checkedPaths: ["/tmp/config/opencode-quota/opencode.json"],
+    });
+    openCodeZenMocks.resolveOpenCodeZenConfigCached.mockResolvedValueOnce({
+      state: "configured",
+      source: "env(OPENCODE_*)",
+      config: { workspaceId: "wrk-secret", authCookie: "cookie-secret" },
+    });
+    openCodeZenMocks.queryOpenCodeZenQuota.mockResolvedValueOnce({
+      success: true,
+      data: {
+        balance: 4_250_000_000,
+        monthlyLimit: 50,
+        monthlyUsage: 750_000_000,
+        lastPayment: 20,
+      },
+    });
+
+    const report = await buildOpenCodeZenStatusReport();
+
+    expect(report).toContain("opencode_zen:");
+    expect(report).toContain("- config_state: configured");
+    expect(report).toContain("- config_source: env(OPENCODE_*)");
+    expect(report).toContain("- balance_usd: $42.50");
+    expect(report).toContain("- monthly_limit_usd: $50.00");
+    expect(report).toContain("- last_payment_usd: $20.00");
+    expect(report).not.toContain("wrk-secret");
+    expect(report).not.toContain("cookie-secret");
+  });
+
+  it("reports a fixed OpenCode Zen parse error without attempting a live fetch", async () => {
+    openCodeZenMocks.getOpenCodeZenConfigDiagnostics.mockResolvedValueOnce({
+      state: "invalid",
+      source: "/tmp/config/opencode-quota/opencode.json",
+      missing: null,
+      error: "Failed to parse JSON",
+      checkedPaths: ["/tmp/config/opencode-quota/opencode.json"],
+    });
+
+    const report = await buildOpenCodeZenStatusReport();
+
+    expect(report).toContain("opencode_zen:");
+    expect(report).toContain("- config_state: invalid");
+    expect(report).toContain("- config_error: Failed to parse JSON");
+    expect(openCodeZenMocks.resolveOpenCodeZenConfigCached).not.toHaveBeenCalled();
+    expect(openCodeZenMocks.queryOpenCodeZenQuota).not.toHaveBeenCalled();
   });
 
   it("reports MiniMax auth diagnostics and live quota details when configured", async () => {
@@ -1952,11 +2038,13 @@ minimax:
 minimax_china:
 kimi:
 opencode_go:
+opencode_zen:
 zai:
 zhipu:
 synthetic:
 chutes:
 deepseek:
+xai:
 nanogpt:
 copilot_quota_auth:
 google_antigravity:

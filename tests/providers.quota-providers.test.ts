@@ -44,7 +44,7 @@ function remote(
     label: id,
     mode: "remote-api",
     url: "https://" + id + ".example/accounting",
-    format: "accounting-v1",
+    format: "quota-v1",
     ...(modelIds ? { modelIds } : {}),
   };
 }
@@ -352,6 +352,59 @@ describe("quota-providers aggregate provider", () => {
     ]);
   });
 
+  it("propagates json-v1 row errors as partial output while keeping source diagnostics successful", async () => {
+    const definition: RemoteApiQuotaProviderDefinition = {
+      id: "json-partial",
+      providerId: "json-provider",
+      label: "JSON Partial",
+      mode: "remote-api",
+      url: "https://json-provider.example/quota",
+      format: "json-v1",
+      adapter: {
+        mappings: [
+          {
+            resultType: "usage",
+            name: "Usage",
+            metric: { type: "value", valueType: "used", value: { path: ["used"] } },
+          },
+        ],
+      },
+    };
+    runtimeMocks.fetchRemoteQuotaProvider.mockResolvedValue({
+      success: true,
+      entries: [
+        {
+          accounting: {
+            resultType: "usage",
+            acquisitionMethod: "remote_api",
+            ownership: "user_configured",
+            authority: "provider_reported",
+          },
+          kind: "value",
+          name: "JSON Partial Usage",
+          value: "0",
+        },
+      ],
+      rowErrors: ["adapter.mappings[0].metric.value was null at row 1"],
+    });
+
+    const result = await quotaProvidersProvider.fetch(context([definition], ["json-provider"]));
+
+    expect(result.entries[0]?.accounting.sourceId).toBe("json-partial");
+    expect(result.errors).toEqual([
+      {
+        label: "JSON Partial",
+        message: "adapter.mappings[0].metric.value was null at row 1",
+      },
+    ]);
+    expect(result.diagnostics?.[0]).toMatchObject({
+      sourceId: "json-partial",
+      format: "json-v1",
+      outcome: "success",
+      entryCount: 1,
+    });
+  });
+
   it("reports stable cache/diagnostic identity without secret values", async () => {
     const result = await quotaProvidersProvider.fetch(
       context([remote("stable", "runtime-provider")], ["runtime-provider"]),
@@ -360,7 +413,7 @@ describe("quota-providers aggregate provider", () => {
       sourceId: "stable",
       providerId: "runtime-provider",
       mode: "remote-api",
-      format: "accounting-v1",
+      format: "quota-v1",
       credentialSource: "auth_json",
       checkedPaths: ["/trusted/opencode.json"],
       authPaths: ["/trusted/auth.json"],

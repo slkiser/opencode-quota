@@ -43,11 +43,25 @@ describe("quota provider Phase 7 documentation consistency", () => {
     const providers = read("docs/readme/providers.md");
     const troubleshooting = read("docs/readme/troubleshooting.md");
     const external = read("docs/readme/external-integration.md");
+    const manualInstall = read("docs/readme/manual-install.md");
+    const migration = read("docs/readme/v4-migration.md");
 
     expect(readme).toContain("provider add");
     expect(readme).toContain("[Provider setup guide](docs/readme/providers.md#custom-providers)");
     expect(readme).not.toContain("experimental.quotaToast");
     expect(readme).not.toContain("apiKeyEnv");
+
+    for (const document of [
+      readme,
+      configuration,
+      providers,
+      troubleshooting,
+      external,
+      manualInstall,
+      migration,
+    ]) {
+      expect(document).not.toContain("accounting-v1");
+    }
 
     expect(configuration).toContain("provider add");
     expect(configuration).toContain("experimental.quotaToast");
@@ -69,6 +83,16 @@ describe("quota provider Phase 7 documentation consistency", () => {
     expect(configuration).toContain("~/.local/state/opencode/opencode-quota/");
     expect(providers).toContain("limited to 256 KiB");
     expect(providers).toContain("limited to 100 rows");
+    expect(providers).toContain("128 objects, 384 object properties, and 640 array elements");
+    expect(providers).toContain("at most 32 container levels");
+    expect(providers).toContain("absolute magnitude at most `1e15`");
+    expect(providers).toContain("offsets through `±14:00`");
+    expect(providers).toContain("Metric compatibility and fixed output");
+    expect(providers).toContain("`used-limit`");
+    expect(providers).toContain('For `metric.type: "value"`');
+    expect(providers).toContain("Pair denominators");
+    expect(providers).toContain("Units are forbidden for `percentage` and `status`");
+    expect(providers).toContain("Never put secrets in adapter display configuration");
     expect(troubleshooting).toContain("cached results are not substituted");
     expect(troubleshooting).toContain("URLs, request/response contents, raw errors");
     expect(external).toContain('"version": 2');
@@ -82,6 +106,9 @@ describe("quota provider Phase 7 documentation consistency", () => {
     expect(external).toContain('"entryCount": 1');
     expect(external).toContain(
       "Each summary is exactly `id`, effective `providerId`, coarse `status`, and `entryCount`",
+    );
+    expect(external).toContain(
+      "failed mapping candidates can still make the aggregate provider `partial`",
     );
     expect(external).toContain("raw provider responses remain excluded from public JSON");
   });

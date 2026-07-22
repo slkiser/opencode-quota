@@ -36,10 +36,19 @@ export {
   validateQuotaProviders,
 } from "./lib/quota-providers.js";
 export type {
-  QuotaProviderDefinition,
-  RemoteApiQuotaProviderDefinition,
+  JsonV1Adapter,
+  JsonV1Mapping,
+  JsonV1Metric,
+  JsonV1NumberSource,
+  JsonV1Path,
+  JsonV1TextSource,
+  JsonV1TimestampEncoding,
+  JsonV1TimestampSource,
   LocalEstimateQuotaProviderDefinition,
   LocalEstimateWindow,
+  QuotaProviderDefinition,
+  QuotaProviderRemoteFormat,
+  RemoteApiQuotaProviderDefinition,
 } from "./lib/quota-providers.js";
 
 export type {
