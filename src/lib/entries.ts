@@ -52,6 +52,8 @@ export interface GroupedQuotaEntryMeta {
   label?: string;
   /** Optional compact right-hand summary, e.g. "42/300". */
   right?: string;
+  /** Optional stable row priority within a group; lower values render first. */
+  sortPriority?: number;
 }
 
 export type QuotaToastEntry =

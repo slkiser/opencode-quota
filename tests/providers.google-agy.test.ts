@@ -87,30 +87,34 @@ describe("google agy provider", () => {
     expect(visibleEntries(out.entries, "google-agy")).toEqual([
       {
         name: "Gemini Models (ali..example)",
-        group: "Google AGY · ali..example · Gemini Models · Weekly",
-        label: "Quota:",
+        group: "AGY · ali..example · Gemini",
+        label: "Weekly:",
+        sortPriority: 0,
         percentRemaining: 58,
         resetTimeIso: undefined,
       },
       {
         name: "Gemini Models (ali..example)",
-        group: "Google AGY · ali..example · Gemini Models · 5h",
-        label: "Quota:",
+        group: "AGY · ali..example · Gemini",
+        label: "5h:",
+        sortPriority: 1,
         right: "1,234 left",
         percentRemaining: 25,
         resetTimeIso: undefined,
       },
       {
         name: "Claude and GPT models (ali..example)",
-        group: "Google AGY · ali..example · Claude and GPT models · Weekly",
-        label: "Quota:",
+        group: "AGY · ali..example · Claude/GPT",
+        label: "Weekly:",
+        sortPriority: 0,
         percentRemaining: 100,
         resetTimeIso: "2026-06-23T00:00:00.000Z",
       },
       {
         name: "Claude and GPT models (ali..example)",
-        group: "Google AGY · ali..example · Claude and GPT models · 5h",
-        label: "Quota:",
+        group: "AGY · ali..example · Claude/GPT",
+        label: "5h:",
+        sortPriority: 1,
         right: "50 left",
         percentRemaining: 90,
         resetTimeIso: undefined,
@@ -182,10 +186,10 @@ describe("google agy provider", () => {
     const out = await googleAgyProvider.fetch({ client: {} } as any);
     expectAttemptedWithNoErrors(out);
     expect(out.entries.map((entry) => entry.group)).toEqual([
-      "Google AGY · ali..example · Gemini Models · Weekly",
-      "Google AGY · ali..example · Claude and GPT models · Weekly",
-      "Google AGY · ali..example · Claude and GPT models · 5h",
-      "Google AGY · bob..example · Gemini Models · 5h",
+      "AGY · ali..example · Gemini",
+      "AGY · ali..example · Claude/GPT",
+      "AGY · ali..example · Claude/GPT",
+      "AGY · bob..example · Gemini",
     ]);
   });
 

@@ -971,22 +971,25 @@ describe("collectQuotaRenderData shared quota state", () => {
           {
             accounting: { ...TEST_ACCOUNTING, sourceId: "account-alice" },
             name: "Gemini Models (ali..example)",
-            group: "Google AGY · ali..example · Gemini Models · Weekly",
-            label: "Quota:",
+            group: "AGY · ali..example · Gemini",
+            label: "Weekly:",
+            sortPriority: 0,
             percentRemaining: 58,
           },
           {
             accounting: { ...TEST_ACCOUNTING, sourceId: "account-alice" },
             name: "Gemini Models (ali..example)",
-            group: "Google AGY · ali..example · Gemini Models · 5h",
-            label: "Quota:",
+            group: "AGY · ali..example · Gemini",
+            label: "5h:",
+            sortPriority: 1,
             percentRemaining: 25,
           },
           {
             accounting: { ...TEST_ACCOUNTING, sourceId: "account-bob" },
             name: "Gemini Models (bob..example)",
-            group: "Google AGY · bob..example · Gemini Models · Weekly",
-            label: "Quota:",
+            group: "AGY · bob..example · Gemini",
+            label: "Weekly:",
+            sortPriority: 0,
             percentRemaining: 80,
           },
         ],
@@ -1008,8 +1011,8 @@ describe("collectQuotaRenderData shared quota state", () => {
     });
 
     expect(result.data?.entries.map((entry) => entry.name)).toEqual([
-      "[Google AGY · ali..example · Gemini Models · 5h]",
-      "[Google AGY · bob..example · Gemini Models · Weekly]",
+      "[AGY · ali..example · Gemini] 5h",
+      "[AGY · bob..example · Gemini] Weekly",
     ]);
   });
 

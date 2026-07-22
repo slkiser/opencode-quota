@@ -32,6 +32,12 @@ function windowRank(window: GoogleAgyQuotaBucket["window"]): number {
   return window === "weekly" ? 0 : 1;
 }
 
+function formatAgyFamilyLabel(family: string): string {
+  if (family === "Gemini Models") return "Gemini";
+  if (family === "Claude and GPT models") return "Claude/GPT";
+  return family;
+}
+
 function compareBuckets(left: GoogleAgyQuotaBucket, right: GoogleAgyQuotaBucket): number {
   if (left.accountIndex !== right.accountIndex) {
     return left.accountIndex - right.accountIndex;
@@ -115,8 +121,9 @@ export const googleAgyProvider: QuotaProvider = {
           sourceId: bucket.accountKey ?? bucket.accountEmail ?? `account-${bucket.accountIndex}`,
         },
         name: `${bucket.family} (${accountLabel})`,
-        group: `Google AGY · ${accountLabel} · ${bucket.family} · ${bucket.windowLabel}`,
-        label: "Quota:",
+        group: `AGY · ${accountLabel} · ${formatAgyFamilyLabel(bucket.family)}`,
+        label: `${bucket.windowLabel}:`,
+        sortPriority: windowRank(bucket.window),
         ...(right ? { right } : {}),
         percentRemaining: bucket.percentRemaining,
         resetTimeIso: bucket.resetTimeIso,

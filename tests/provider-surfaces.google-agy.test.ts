@@ -39,22 +39,42 @@ describe("Google AGY provider surfaces", () => {
           accountIndex: 0,
           sourceKey: "google-agy",
         },
+        {
+          family: "Claude and GPT models",
+          window: "five_hour",
+          windowLabel: "5h",
+          percentRemaining: 40,
+          accountEmail: "alice@example.com",
+          accountKey: "account-alice",
+          accountIndex: 0,
+          sourceKey: "google-agy",
+        },
+        {
+          family: "Claude and GPT models",
+          window: "weekly",
+          windowLabel: "Weekly",
+          percentRemaining: 75,
+          accountEmail: "alice@example.com",
+          accountKey: "account-alice",
+          accountIndex: 0,
+          sourceKey: "google-agy",
+        },
       ],
     });
 
     const result = await googleAgyProvider.fetch({ client: {} } as any);
     const entries = result.entries;
     const errors = result.errors;
-    const weeklyHeader = "[Google AGY · ali..example · Gemini Models · Weekly]";
-    const fiveHourHeader = "[Google AGY · ali..example · Gemini Models · 5h]";
+    const geminiHeader = "[AGY · ali..example · Gemini]";
+    const thirdPartyHeader = "[AGY · ali..example · Claude/GPT]";
 
     const toast = formatQuotaRowsGrouped({
-      layout: { maxWidth: 120, narrowAt: 42, tinyAt: 32 },
+      layout: { maxWidth: 50, narrowAt: 42, tinyAt: 32 },
       entries,
       errors,
     });
     const sidebar = formatQuotaRowsGrouped({
-      layout: { maxWidth: 80, narrowAt: 42, tinyAt: 32 },
+      layout: { maxWidth: 36, narrowAt: 36, tinyAt: 20 },
       entries,
       errors,
     });
@@ -64,14 +84,18 @@ describe("Google AGY provider surfaces", () => {
       maxWidth: 240,
     });
 
-    for (const output of [toast, sidebar, command]) {
-      expect(output).toContain(weeklyHeader);
-      expect(output).toContain(fiveHourHeader);
-      expect(output.indexOf(weeklyHeader)).toBeLessThan(output.indexOf(fiveHourHeader));
+    for (const output of [toast, sidebar]) {
+      expect(output).toContain(geminiHeader);
+      expect(output).toContain(thirdPartyHeader);
+      expect(output).toContain("Weekly window");
+      expect(output).toContain("5h window");
+      expect(output.indexOf("Weekly window")).toBeLessThan(output.indexOf("5h window"));
     }
-    expect(compact).toContain("Google AGY · ali..example · Gemini Models · Weekly 58%");
-    expect(compact).toContain("Google AGY · ali..example · Gemini Models · 5h 25%");
-    expect(compact.indexOf("Weekly 58%")).toBeLessThan(compact.indexOf("5h 25%"));
+    expect(command).toContain(geminiHeader);
+    expect(command).toContain(thirdPartyHeader);
+    expect(command.indexOf("Week quota")).toBeLessThan(command.indexOf("5h quota"));
+    expect(compact).toContain("AGY · ali..example · Gemini 7d 58%, 5h 25%");
+    expect(compact).toContain("AGY · ali..example · Claude/GPT 7d 75%, 5h 40%");
     expect(entries.every((entry) => entry.accounting.sourceId === "account-alice")).toBe(true);
   });
 });

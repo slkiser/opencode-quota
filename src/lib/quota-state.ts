@@ -159,10 +159,13 @@ function isQuotaToastEntry(value: unknown): boolean {
       "group",
       "label",
       "right",
+      "sortPriority",
     ]) ||
     !isAccountingMetadata(entry.accounting) ||
     typeof entry.name !== "string" ||
     !isOptionalIsoTimestamp(entry.resetTimeIso) ||
+    (entry.sortPriority !== undefined &&
+      (typeof entry.sortPriority !== "number" || !Number.isFinite(entry.sortPriority))) ||
     !["group", "label", "right"].every(
       (key) => entry[key] === undefined || typeof entry[key] === "string",
     )
