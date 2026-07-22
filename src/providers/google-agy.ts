@@ -104,7 +104,6 @@ export const googleAgyProvider: QuotaProvider = {
     const sortedBuckets = [...result.buckets].sort(compareBuckets);
     const entries: QuotaToastEntry[] = sortedBuckets.map((bucket) => {
       const accountLabel = formatAgyAccountLabel(bucket);
-      const windowName = `${bucket.family} ${bucket.windowLabel}`;
       const right = formatRemainingAmount(bucket.remainingAmount);
 
       return {
@@ -113,10 +112,11 @@ export const googleAgyProvider: QuotaProvider = {
           acquisitionMethod: "remote_api",
           ownership: "maintained",
           authority: "provider_reported",
+          sourceId: bucket.accountKey ?? bucket.accountEmail ?? `account-${bucket.accountIndex}`,
         },
-        name: `${windowName} (${accountLabel})`,
-        group: "Google AGY",
-        label: `${windowName}:`,
+        name: `${bucket.family} (${accountLabel})`,
+        group: `Google AGY · ${accountLabel} · ${bucket.family} · ${bucket.windowLabel}`,
+        label: "Quota:",
         ...(right ? { right } : {}),
         percentRemaining: bucket.percentRemaining,
         resetTimeIso: bucket.resetTimeIso,
@@ -124,7 +124,6 @@ export const googleAgyProvider: QuotaProvider = {
     });
 
     return attemptedResult(entries, formatGoogleAccountErrors(result.errors, "domainHint"), {
-      singleWindowDisplayName: "Google AGY",
       singleWindowShowRight: true,
     });
   },

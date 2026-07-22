@@ -686,11 +686,16 @@ async function fetchAccountQuota(params: {
       }
     }
 
-    return {
-      success: true,
-      buckets: mapSummaryBuckets(summary, params.account, params.accountIndex),
-      accountEmail,
-    };
+    const buckets = mapSummaryBuckets(summary, params.account, params.accountIndex);
+    if (buckets.length === 0) {
+      return {
+        success: false,
+        error: "Quota summary API unavailable",
+        accountEmail,
+      };
+    }
+
+    return { success: true, buckets, accountEmail };
   } catch (err) {
     if (err instanceof Error && err.message.includes("timeout")) {
       return { success: false, error: "API timeout", accountEmail };

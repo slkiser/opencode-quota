@@ -961,6 +961,58 @@ describe("collectQuotaRenderData shared quota state", () => {
     ]);
   });
 
+  it("keeps one labeled Google AGY result per account in single-window mode", async () => {
+    const provider = {
+      id: "google-agy",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [
+          {
+            accounting: { ...TEST_ACCOUNTING, sourceId: "account-alice" },
+            name: "Gemini Models (ali..example)",
+            group: "Google AGY · ali..example · Gemini Models · Weekly",
+            label: "Quota:",
+            percentRemaining: 58,
+          },
+          {
+            accounting: { ...TEST_ACCOUNTING, sourceId: "account-alice" },
+            name: "Gemini Models (ali..example)",
+            group: "Google AGY · ali..example · Gemini Models · 5h",
+            label: "Quota:",
+            percentRemaining: 25,
+          },
+          {
+            accounting: { ...TEST_ACCOUNTING, sourceId: "account-bob" },
+            name: "Gemini Models (bob..example)",
+            group: "Google AGY · bob..example · Gemini Models · Weekly",
+            label: "Quota:",
+            percentRemaining: 80,
+          },
+        ],
+        errors: [],
+        presentation: { singleWindowShowRight: true },
+      }),
+    };
+
+    const result = await collectQuotaRenderData({
+      client: TEST_CLIENT,
+      config: {
+        ...DEFAULT_CONFIG,
+        enabledProviders: [provider.id],
+        showSessionTokens: false,
+      },
+      surfaceExplicitProviderIssues: true,
+      formatStyle: "singleWindow",
+      providers: [provider],
+    });
+
+    expect(result.data?.entries.map((entry) => entry.name)).toEqual([
+      "[Google AGY · ali..example · Gemini Models · 5h]",
+      "[Google AGY · bob..example · Gemini Models · Weekly]",
+    ]);
+  });
+
   it("keeps the classic style id aligned with current presentation fields", async () => {
     const syntheticProvider = {
       id: "synthetic",

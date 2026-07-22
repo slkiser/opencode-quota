@@ -257,7 +257,12 @@ export function visibleEntries(
       }),
     );
     if (providerId) {
-      expect(PROVIDER_ACCOUNTING_LEDGER[providerId]).toContainEqual(entry.accounting);
+      const {
+        sourceId: _sourceId,
+        observedAtIso: _observedAtIso,
+        ...ledgerAccounting
+      } = entry.accounting;
+      expect(PROVIDER_ACCOUNTING_LEDGER[providerId]).toContainEqual(ledgerAccounting);
     }
     const { accounting: _accounting, ...visible } = entry;
     return visible;

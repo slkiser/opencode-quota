@@ -400,8 +400,9 @@ describe("google agy logic", () => {
     );
 
     await expect(queryGoogleAgyQuota()).resolves.toEqual({
-      success: false,
-      error: "No Google AGY quota data available",
+      success: true,
+      buckets: [],
+      errors: [{ email: "google-agy", error: "Quota summary API unavailable" }],
     });
   });
 
@@ -595,6 +596,27 @@ describe("google agy logic", () => {
     expect(result).toMatchObject({
       success: true,
       errors: [{ email: "bob@example.com", error: "Google AGY quota API error: 500" }],
+    });
+    if (!result || !result.success) throw new Error("expected success");
+    expect(result.buckets).toHaveLength(4);
+  });
+
+  it("reports an empty sibling summary as a partial failure", async () => {
+    mocks.readAuthFileCached.mockResolvedValueOnce({
+      "google-agy": authAccount("refresh-1", "project-1", "alice@example.com"),
+      "google-agy-auth": authAccount("refresh-2", "project-2", "bob@example.com"),
+    });
+    mocks.fetchWithTimeout.mockImplementation(async (_url: string, init: { body?: string }) => {
+      const project = JSON.parse(init.body ?? "{}").project;
+      return project === "project-1"
+        ? mockJsonResponse(summaryResponse())
+        : mockJsonResponse({ groups: [] });
+    });
+
+    const result = await queryGoogleAgyQuota();
+    expect(result).toMatchObject({
+      success: true,
+      errors: [{ email: "bob@example.com", error: "Quota summary API unavailable" }],
     });
     if (!result || !result.success) throw new Error("expected success");
     expect(result.buckets).toHaveLength(4);

@@ -86,31 +86,31 @@ describe("google agy provider", () => {
     expect(out.attempted).toBe(true);
     expect(visibleEntries(out.entries, "google-agy")).toEqual([
       {
-        name: "Gemini Models Weekly (ali..example)",
-        group: "Google AGY",
-        label: "Gemini Models Weekly:",
+        name: "Gemini Models (ali..example)",
+        group: "Google AGY · ali..example · Gemini Models · Weekly",
+        label: "Quota:",
         percentRemaining: 58,
         resetTimeIso: undefined,
       },
       {
-        name: "Gemini Models 5h (ali..example)",
-        group: "Google AGY",
-        label: "Gemini Models 5h:",
+        name: "Gemini Models (ali..example)",
+        group: "Google AGY · ali..example · Gemini Models · 5h",
+        label: "Quota:",
         right: "1,234 left",
         percentRemaining: 25,
         resetTimeIso: undefined,
       },
       {
-        name: "Claude and GPT models Weekly (ali..example)",
-        group: "Google AGY",
-        label: "Claude and GPT models Weekly:",
+        name: "Claude and GPT models (ali..example)",
+        group: "Google AGY · ali..example · Claude and GPT models · Weekly",
+        label: "Quota:",
         percentRemaining: 100,
         resetTimeIso: "2026-06-23T00:00:00.000Z",
       },
       {
-        name: "Claude and GPT models 5h (ali..example)",
-        group: "Google AGY",
-        label: "Claude and GPT models 5h:",
+        name: "Claude and GPT models (ali..example)",
+        group: "Google AGY · ali..example · Claude and GPT models · 5h",
+        label: "Quota:",
         right: "50 left",
         percentRemaining: 90,
         resetTimeIso: undefined,
@@ -118,9 +118,11 @@ describe("google agy provider", () => {
     ]);
     expect(out.errors).toEqual([{ label: "bob..example", message: "Unauthorized" }]);
     expect(out.presentation).toEqual({
-      singleWindowDisplayName: "Google AGY",
       singleWindowShowRight: true,
     });
+    expect(out.entries.every((entry) => entry.accounting.sourceId === "aaaaaaaa11111111")).toBe(
+      true,
+    );
   });
 
   it("keeps account order and email-less accounts distinct", async () => {
@@ -146,8 +148,8 @@ describe("google agy provider", () => {
     const out = await googleAgyProvider.fetch({ client: {} } as any);
     expectAttemptedWithNoErrors(out);
     expect(out.entries.map((entry) => entry.name)).toEqual([
-      "Gemini Models Weekly (Account aaaaaaaa)",
-      "Gemini Models Weekly (Account bbbbbbbb)",
+      "Gemini Models (Account aaaaaaaa)",
+      "Gemini Models (Account bbbbbbbb)",
     ]);
     expect(out.entries.map((entry) => entry.percentRemaining)).toEqual([20, 80]);
   });
@@ -179,11 +181,11 @@ describe("google agy provider", () => {
 
     const out = await googleAgyProvider.fetch({ client: {} } as any);
     expectAttemptedWithNoErrors(out);
-    expect(out.entries.map((entry) => entry.name)).toEqual([
-      "Gemini Models Weekly (ali..example)",
-      "Claude and GPT models Weekly (ali..example)",
-      "Claude and GPT models 5h (ali..example)",
-      "Gemini Models 5h (bob..example)",
+    expect(out.entries.map((entry) => entry.group)).toEqual([
+      "Google AGY · ali..example · Gemini Models · Weekly",
+      "Google AGY · ali..example · Claude and GPT models · Weekly",
+      "Google AGY · ali..example · Claude and GPT models · 5h",
+      "Google AGY · bob..example · Gemini Models · 5h",
     ]);
   });
 
