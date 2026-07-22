@@ -84,6 +84,10 @@ function configFor(formatStyle: "allWindows" | "singleWindow") {
     showOnCompact: true,
     showOnQuestion: false,
     showSessionTokens: false,
+    maintainerAnnouncements: {
+      enabled: false,
+      home: false,
+    },
     tuiCommandDisplay: "dialog",
     tuiSidebarPanel: {
       enabled: true,
