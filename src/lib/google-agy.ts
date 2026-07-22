@@ -16,6 +16,8 @@ import type {
   AuthData,
   GoogleAgyAuthSourceKey,
   GoogleAgyQuotaBucket,
+  GoogleAgyQuotaSummaryBucket,
+  GoogleAgyQuotaSummaryResponse,
   GoogleAgyResult,
   GoogleAccountError,
   GeminiCliOAuthAuthData,
@@ -30,7 +32,7 @@ export const AGY_AUTH_KEYS = [
 ] as const satisfies readonly GoogleAgyAuthSourceKey[];
 
 const AGY_CODE_ASSIST_ENDPOINT = "https://daily-cloudcode-pa.googleapis.com";
-const AGY_QUOTA_API_URL = `${AGY_CODE_ASSIST_ENDPOINT}/v1internal:retrieveUserQuota`;
+const AGY_QUOTA_SUMMARY_API_URL = `${AGY_CODE_ASSIST_ENDPOINT}/v1internal:retrieveUserQuotaSummary`;
 const AGY_TOKEN_REFRESH_URL = "https://oauth2.googleapis.com/token";
 const AGY_TOKEN_TIMEOUT_MS = 8_000;
 const AGY_QUOTA_TIMEOUT_MS = 6_000;
@@ -56,7 +58,9 @@ export type AgyAccount = {
   expiresAt?: number;
 };
 
-function createAgyAccountKey(account: Pick<AgyAccount, "sourceKey" | "refreshToken" | "projectId">): string {
+function createAgyAccountKey(
+  account: Pick<AgyAccount, "sourceKey" | "refreshToken" | "projectId">,
+): string {
   return crypto
     .createHash("sha256")
     .update(account.sourceKey)
@@ -87,18 +91,6 @@ export type AgyAuthPresence =
       validAccountCount: number;
       error: string;
     };
-
-type RetrieveUserQuotaBucket = {
-  remainingAmount?: string;
-  remainingFraction?: number;
-  resetTime?: string;
-  tokenType?: string;
-  modelId?: string;
-};
-
-type RetrieveUserQuotaResponse = {
-  buckets?: RetrieveUserQuotaBucket[];
-};
 
 type ConfigClient = {
   config?: {
@@ -193,7 +185,9 @@ export async function resolveAgyConfiguredProjectId(
   if (client?.config?.get) {
     try {
       const result = await client.config.get();
-      const data = result?.data as { provider?: Record<string, { options?: Record<string, unknown> }> };
+      const data = result?.data as {
+        provider?: Record<string, { options?: Record<string, unknown> }>;
+      };
       const configProjectId = normalizeString(data?.provider?.["google-agy"]?.options?.projectId);
       if (configProjectId) {
         return configProjectId;
@@ -230,7 +224,8 @@ export async function inspectAgyAuthPresence(client?: ConfigClient): Promise<Agy
   }
 
   const accounts = resolveAgyAccounts(auth, configuredProjectId);
-  const sourceKey = accounts[0]?.sourceKey ?? AGY_AUTH_KEYS.find((key) => auth?.[key]?.type === "oauth");
+  const sourceKey =
+    accounts[0]?.sourceKey ?? AGY_AUTH_KEYS.find((key) => auth?.[key]?.type === "oauth");
 
   if (accounts.length === 0) {
     return {
@@ -386,13 +381,13 @@ async function refreshAgyAccessTokenWithCache(params: {
   return { accessToken: refreshed.accessToken };
 }
 
-async function retrieveGoogleAgyQuota(
+async function retrieveGoogleAgyQuotaSummary(
   accessToken: string,
   projectId: string,
   timeoutMs: number = AGY_QUOTA_TIMEOUT_MS,
-): Promise<RetrieveUserQuotaResponse> {
+): Promise<GoogleAgyQuotaSummaryResponse> {
   const response = await fetchWithTimeout(
-    AGY_QUOTA_API_URL,
+    AGY_QUOTA_SUMMARY_API_URL,
     {
       method: "POST",
       headers: {
@@ -413,7 +408,7 @@ async function retrieveGoogleAgyQuota(
     throw new Error(`Google AGY quota API error: ${response.status}`);
   }
 
-  return response.json() as Promise<RetrieveUserQuotaResponse>;
+  return response.json() as Promise<GoogleAgyQuotaSummaryResponse>;
 }
 
 export function formatDisplayName(modelId: string): string {
@@ -475,63 +470,174 @@ export function formatDisplayName(modelId: string): string {
   return formattedParts.join(" ") + suffix;
 }
 
-function aggregateAgyBuckets(buckets: GoogleAgyQuotaBucket[]): GoogleAgyQuotaBucket[] {
-  const grouped = new Map<string, GoogleAgyQuotaBucket>();
-  for (const bucket of buckets) {
-    const existing = grouped.get(bucket.modelId);
-    if (!existing || bucket.percentRemaining < existing.percentRemaining) {
-      grouped.set(bucket.modelId, bucket);
-    }
+function normalizeSummaryWindow(
+  value: unknown,
+): Pick<GoogleAgyQuotaBucket, "window" | "windowLabel"> | undefined {
+  const normalized = normalizeString(value)
+    ?.toUpperCase()
+    .replace(/[\s-]+/gu, "_");
+  if (normalized === "WEEKLY") {
+    return { window: "weekly", windowLabel: "Weekly" };
   }
-  return Array.from(grouped.values());
+  if (normalized === "FIVE_HOUR" || normalized === "5H") {
+    return { window: "five_hour", windowLabel: "5h" };
+  }
+  return undefined;
 }
 
-function mapQuotaBuckets(
-  buckets: RetrieveUserQuotaBucket[] | undefined,
+function normalizeSummaryFamily(value: unknown): string | undefined {
+  const displayName = normalizeString(value);
+  if (!displayName) {
+    return undefined;
+  }
+  const normalized = displayName.toLowerCase();
+  if (normalized.includes("gemini")) {
+    return "Gemini Models";
+  }
+  if (normalized.includes("claude") || normalized.includes("gpt")) {
+    return "Claude and GPT models";
+  }
+  return displayName;
+}
+
+function normalizeResetTimeIso(value: unknown): string | undefined {
+  const raw = normalizeString(value);
+  if (!raw) return undefined;
+  const timestamp = Date.parse(raw);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : undefined;
+}
+
+function summaryFamilyRank(family: string): number {
+  if (family === "Gemini Models") return 0;
+  if (family === "Claude and GPT models") return 1;
+  return 2;
+}
+
+function summaryWindowRank(window: GoogleAgyQuotaBucket["window"]): number {
+  return window === "weekly" ? 0 : 1;
+}
+
+function compareSummaryBuckets(left: GoogleAgyQuotaBucket, right: GoogleAgyQuotaBucket): number {
+  if (left.accountIndex !== right.accountIndex) {
+    return left.accountIndex - right.accountIndex;
+  }
+
+  const familyRank = summaryFamilyRank(left.family) - summaryFamilyRank(right.family);
+  if (familyRank !== 0) {
+    return familyRank;
+  }
+
+  const familyName = left.family.localeCompare(right.family);
+  if (familyName !== 0) {
+    return familyName;
+  }
+
+  const windowRank = summaryWindowRank(left.window) - summaryWindowRank(right.window);
+  if (windowRank !== 0) {
+    return windowRank;
+  }
+
+  const bucketLabel = (left.bucketLabel ?? "").localeCompare(right.bucketLabel ?? "");
+  if (bucketLabel !== 0) {
+    return bucketLabel;
+  }
+  return (left.bucketId ?? "").localeCompare(right.bucketId ?? "");
+}
+
+function normalizeSummaryBucket(params: {
+  bucket: GoogleAgyQuotaSummaryBucket;
+  family: string;
+  account: AgyAccount;
+  accountIndex: number;
+}): GoogleAgyQuotaBucket | undefined {
+  if (params.bucket.disabled) {
+    return undefined;
+  }
+
+  const window = normalizeSummaryWindow(params.bucket.window);
+  const remainingFraction = params.bucket.remainingFraction;
+  if (!window || typeof remainingFraction !== "number" || !Number.isFinite(remainingFraction)) {
+    return undefined;
+  }
+
+  const bucketId = normalizeString(params.bucket.bucketId);
+  const bucketLabel = normalizeString(params.bucket.displayName);
+  const remainingAmount =
+    normalizeString(params.bucket.remainingAmount) ?? normalizeString(params.bucket.remaining);
+  const resetTimeIso = normalizeResetTimeIso(params.bucket.resetTime);
+
+  return {
+    family: params.family,
+    ...window,
+    ...(bucketId ? { bucketId } : {}),
+    ...(bucketLabel ? { bucketLabel } : {}),
+    remainingFraction,
+    percentRemaining: Math.round(Math.min(1, Math.max(0, remainingFraction)) * 100),
+    ...(resetTimeIso ? { resetTimeIso } : {}),
+    ...(remainingAmount ? { remainingAmount } : {}),
+    ...(params.account.email ? { accountEmail: params.account.email } : {}),
+    accountKey: createAgyAccountKey(params.account),
+    accountIndex: params.accountIndex,
+    sourceKey: params.account.sourceKey,
+  };
+}
+
+function mapSummaryBuckets(
+  response: GoogleAgyQuotaSummaryResponse,
   account: AgyAccount,
+  accountIndex: number,
 ): GoogleAgyQuotaBucket[] {
-  if (!buckets) {
+  if (!response || typeof response !== "object") {
     return [];
   }
 
-  const normalizedBuckets = buckets
-    .filter((bucket) => normalizeString(bucket.modelId))
-    .map((bucket) => {
-      const modelId = normalizeString(bucket.modelId)!;
-      const remainingFraction = bucket.remainingFraction;
+  const normalized: GoogleAgyQuotaBucket[] = [];
 
-      let percentRemaining: number;
-      if (typeof remainingFraction === "number" && Number.isFinite(remainingFraction)) {
-        percentRemaining = Math.round(remainingFraction * 100);
-      } else if (
-        normalizeString(bucket.remainingAmount) &&
-        bucket.remainingAmount?.toLowerCase().includes("unlimited")
-      ) {
-        percentRemaining = 100;
-      } else {
-        percentRemaining = 0;
+  for (const group of Array.isArray(response.groups) ? response.groups : []) {
+    const family = normalizeSummaryFamily(group?.displayName);
+    if (!family || !Array.isArray(group?.buckets)) {
+      continue;
+    }
+    for (const bucket of group.buckets) {
+      if (!bucket || typeof bucket !== "object") {
+        continue;
       }
+      const row = normalizeSummaryBucket({ bucket, family, account, accountIndex });
+      if (row) {
+        normalized.push(row);
+      }
+    }
+  }
 
-      return {
-        modelId,
-        displayName: formatDisplayName(modelId),
-        percentRemaining,
-        ...(normalizeString(bucket.resetTime) ? { resetTimeIso: bucket.resetTime!.trim() } : {}),
-        ...(normalizeString(bucket.remainingAmount)
-          ? { remainingAmount: bucket.remainingAmount!.trim() }
-          : {}),
-        ...(normalizeString(bucket.tokenType) ? { tokenType: bucket.tokenType!.trim() } : {}),
-        ...(account.email ? { accountEmail: account.email } : {}),
-        accountKey: createAgyAccountKey(account),
-        sourceKey: account.sourceKey,
-      };
-    });
+  if (normalized.length === 0 && Array.isArray(response.buckets)) {
+    const family = normalizeSummaryFamily(response.description) ?? "Quota Summary";
+    for (const bucket of response.buckets) {
+      if (!bucket || typeof bucket !== "object") {
+        continue;
+      }
+      const row = normalizeSummaryBucket({ bucket, family, account, accountIndex });
+      if (row) {
+        normalized.push(row);
+      }
+    }
+  }
 
-  return aggregateAgyBuckets(normalizedBuckets);
+  const deduplicated = new Map<string, GoogleAgyQuotaBucket>();
+  for (const bucket of normalized) {
+    const bucketIdentity = bucket.bucketId ?? bucket.bucketLabel ?? bucket.window;
+    const identity = `${bucket.family}\0${bucket.window}\0${bucketIdentity}`;
+    const existing = deduplicated.get(identity);
+    if (!existing || bucket.remainingFraction < existing.remainingFraction) {
+      deduplicated.set(identity, bucket);
+    }
+  }
+
+  return Array.from(deduplicated.values()).sort(compareSummaryBuckets);
 }
 
 async function fetchAccountQuota(params: {
   account: AgyAccount;
+  accountIndex: number;
   credentials: AgyConfiguredCredentials;
   timeoutMs?: number;
 }): Promise<{
@@ -552,9 +658,9 @@ async function fetchAccountQuota(params: {
       return { success: false, error: tokenResult.error, accountEmail };
     }
 
-    let quota: RetrieveUserQuotaResponse;
+    let summary: GoogleAgyQuotaSummaryResponse;
     try {
-      quota = await retrieveGoogleAgyQuota(
+      summary = await retrieveGoogleAgyQuotaSummary(
         tokenResult.accessToken,
         params.account.projectId,
         params.timeoutMs,
@@ -570,7 +676,7 @@ async function fetchAccountQuota(params: {
         if ("error" in retryToken) {
           return { success: false, error: retryToken.error, accountEmail };
         }
-        quota = await retrieveGoogleAgyQuota(
+        summary = await retrieveGoogleAgyQuotaSummary(
           retryToken.accessToken,
           params.account.projectId,
           params.timeoutMs,
@@ -582,7 +688,7 @@ async function fetchAccountQuota(params: {
 
     return {
       success: true,
-      buckets: mapQuotaBuckets(quota.buckets, params.account),
+      buckets: mapSummaryBuckets(summary, params.account, params.accountIndex),
       accountEmail,
     };
   } catch (err) {
@@ -621,8 +727,13 @@ export async function queryGoogleAgyQuota(
   const results = await mapWithConcurrency({
     items: accounts,
     concurrency: AGY_ACCOUNTS_CONCURRENCY,
-    fn: async (account) =>
-      fetchAccountQuota({ account, credentials, timeoutMs: options.requestTimeoutMs }),
+    fn: async (account, accountIndex) =>
+      fetchAccountQuota({
+        account,
+        accountIndex,
+        credentials,
+        timeoutMs: options.requestTimeoutMs,
+      }),
   });
 
   const allBuckets: GoogleAgyQuotaBucket[] = [];
@@ -645,7 +756,7 @@ export async function queryGoogleAgyQuota(
 
   return {
     success: true,
-    buckets: allBuckets,
+    buckets: allBuckets.sort(compareSummaryBuckets),
     errors: errors.length > 0 ? errors : undefined,
   };
 }
