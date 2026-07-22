@@ -87,7 +87,7 @@ describe("maintainer announcements", () => {
     const expectedAnnouncement = {
       id: "opencode-ecosystem-listing-support",
       message:
-        "If OpenCode Quota is useful to you, please review our OpenCode ecosystem listing PR and add a thumbs-up reaction if you support including it.",
+        "Support OpenCode Quota's ecosystem listing: review the PR and add a thumbs-up.",
       url: "https://github.com/anomalyco/opencode/pull/38283",
       startsAt: "2026-07-22T00:00:00.000Z",
       endsAt: "2026-08-22T00:00:00.000Z",
