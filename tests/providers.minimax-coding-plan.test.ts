@@ -45,6 +45,8 @@ function createCodingPlanModel(
     current_weekly_total_count: number;
     current_weekly_usage_count: number;
     weekly_remains_time: number;
+    current_interval_remaining_percent: unknown;
+    current_weekly_remaining_percent: unknown;
   }> = {},
 ) {
   return {
@@ -309,6 +311,146 @@ describe("minimax-coding-plan provider", () => {
       right: "0/3",
       percentRemaining: 100,
     });
+  });
+
+  it("falls back to provider-reported percentages for zero-count international rows", async () => {
+    mockMiniMaxAuthConfigured();
+    mockMiniMaxHttpSuccess([
+      createCodingPlanModel({
+        model_name: "general",
+        current_interval_total_count: 0,
+        current_interval_usage_count: 0,
+        current_weekly_total_count: 0,
+        current_weekly_usage_count: 0,
+        current_interval_remaining_percent: 86,
+        current_weekly_remaining_percent: 90,
+      }),
+    ]);
+
+    const out = await runProviderFetch();
+
+    expectAttemptedWithNoErrors(out);
+    expect(visibleEntries(out.entries, "minimax-coding-plan")).toMatchObject([
+      { window: "five_hour", right: "14%", percentRemaining: 86 },
+      { window: "weekly", right: "10%", percentRemaining: 90 },
+    ]);
+  });
+
+  it("falls back to provider-reported percentages when count fields are missing", async () => {
+    mockMiniMaxAuthConfigured();
+    mockMiniMaxHttpSuccess([
+      {
+        model_name: "general",
+        remains_time: 13_987_604,
+        weekly_remains_time: 564_787_604,
+        current_interval_remaining_percent: 75,
+        current_weekly_remaining_percent: 80,
+      },
+    ]);
+
+    const out = await runProviderFetch();
+
+    expectAttemptedWithNoErrors(out);
+    expect(visibleEntries(out.entries, "minimax-coding-plan")).toMatchObject([
+      { window: "five_hour", right: "25%", percentRemaining: 75 },
+      { window: "weekly", right: "20%", percentRemaining: 80 },
+    ]);
+  });
+
+  it.each([
+    { name: "zero", value: 0, right: "100%", percentRemaining: 0 },
+    { name: "negative", value: -25, right: "125%", percentRemaining: -25 },
+    { name: "above 100", value: 140, right: "0%", percentRemaining: 100 },
+  ])(
+    "preserves current percentage bounds for $name international fallback values",
+    async ({ value, right, percentRemaining }) => {
+      mockMiniMaxAuthConfigured();
+      mockMiniMaxHttpSuccess([
+        createCodingPlanModel({
+          model_name: "general",
+          current_interval_total_count: 0,
+          current_interval_usage_count: 0,
+          current_weekly_total_count: undefined,
+          current_weekly_usage_count: undefined,
+          weekly_remains_time: undefined,
+          current_interval_remaining_percent: value,
+        }),
+      ]);
+
+      const out = await runProviderFetch();
+
+      expectAttemptedWithNoErrors(out);
+      expect(visibleEntries(out.entries, "minimax-coding-plan")).toMatchObject([
+        { window: "five_hour", right, percentRemaining },
+      ]);
+    },
+  );
+
+  it.each([
+    { name: "missing", value: undefined },
+    { name: "null", value: null },
+    { name: "wrong type", value: "50" },
+    { name: "NaN", value: Number.NaN },
+    { name: "infinite", value: Number.POSITIVE_INFINITY },
+  ])("omits $name international fallback percentages", async ({ value }) => {
+    mockMiniMaxAuthConfigured();
+    mockMiniMaxHttpSuccess([
+      createCodingPlanModel({
+        model_name: "general",
+        current_interval_total_count: 0,
+        current_interval_usage_count: 0,
+        current_weekly_total_count: undefined,
+        current_weekly_usage_count: undefined,
+        weekly_remains_time: undefined,
+        current_interval_remaining_percent: value,
+      }),
+    ]);
+
+    const out = await runProviderFetch();
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries).toHaveLength(0);
+  });
+
+  it("keeps valid international counts authoritative over provider-reported percentages", async () => {
+    mockMiniMaxAuthConfigured();
+    mockMiniMaxHttpSuccess([
+      createCodingPlanModel({
+        model_name: "general",
+        current_interval_total_count: 100,
+        current_interval_usage_count: 25,
+        current_weekly_total_count: undefined,
+        current_weekly_usage_count: undefined,
+        weekly_remains_time: undefined,
+        current_interval_remaining_percent: 90,
+      }),
+    ]);
+
+    const out = await runProviderFetch();
+
+    expectAttemptedWithNoErrors(out);
+    expect(visibleEntries(out.entries, "minimax-coding-plan")).toMatchObject([
+      { window: "five_hour", right: "75/100", percentRemaining: 25 },
+    ]);
+  });
+
+  it("does not apply the international percentage fallback to China endpoint counts", async () => {
+    mockMiniMaxChinaAuthConfigured();
+    mockMiniMaxHttpSuccess([
+      createCodingPlanModel({
+        current_interval_total_count: 0,
+        current_interval_usage_count: 0,
+        current_weekly_total_count: undefined,
+        current_weekly_usage_count: undefined,
+        weekly_remains_time: undefined,
+        current_interval_remaining_percent: 80,
+      }),
+    ]);
+
+    const out = await runChinaProviderFetch();
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries).toHaveLength(0);
   });
 
   it("selects the lowest-remaining international generic row", async () => {
