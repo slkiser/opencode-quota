@@ -43,22 +43,12 @@ export interface MaintainerAnnouncementsSummary {
 
 export const BUNDLED_MAINTAINER_ANNOUNCEMENTS: readonly MaintainerAnnouncement[] = [
   {
-    id: "gemini-cli-antigravity-transition-feedback",
+    id: "opencode-ecosystem-listing-support",
     message:
-      "Gemini CLI transition: Google is deprecating Gemini CLI consumer/free/Pro/Ultra access on June 18, 2026. Treat Gemini CLI quota as temporary and move new Google quota setups to Antigravity.",
-    url: "https://github.com/slkiser/opencode-quota/issues/125",
-    startsAt: "2026-06-13T00:00:00.000Z",
-    endsAt: "2026-07-01T00:00:00.000Z",
-    providerIds: ["google-gemini-cli"],
-  },
-  {
-    id: "copilot-github-ai-credits-feedback",
-    message:
-      "Copilot billing update: usage-based billing with GitHub AI Credits is live as of June 1, 2026. Tell us what opencode-quota should track next.",
-    url: "https://github.com/slkiser/opencode-quota/issues/126",
-    startsAt: "2026-06-01T00:00:00.000Z",
-    endsAt: "2026-08-01T00:00:00.000Z",
-    providerIds: ["copilot"],
+      "If OpenCode Quota is useful to you, please review our OpenCode ecosystem listing PR and add a thumbs-up reaction if you support including it.",
+    url: "https://github.com/anomalyco/opencode/pull/38283",
+    startsAt: "2026-07-22T00:00:00.000Z",
+    endsAt: "2026-08-22T00:00:00.000Z",
   },
 ];
 
@@ -121,12 +111,15 @@ export function evaluateMaintainerAnnouncements(params?: {
 
       if (!announcement.id.trim()) reasons.push("invalid_id");
       if (!announcement.message.trim()) reasons.push("invalid_message");
-      if (announcement.url !== undefined && !isHttpsUrl(announcement.url)) reasons.push("invalid_url");
+      if (announcement.url !== undefined && !isHttpsUrl(announcement.url))
+        reasons.push("invalid_url");
 
       const startsAtMs = parseTimestamp(announcement.startsAt);
       const endsAtMs = parseTimestamp(announcement.endsAt);
-      if (announcement.startsAt !== undefined && startsAtMs === undefined) reasons.push("invalid_starts_at");
-      if (announcement.endsAt !== undefined && endsAtMs === undefined) reasons.push("invalid_ends_at");
+      if (announcement.startsAt !== undefined && startsAtMs === undefined)
+        reasons.push("invalid_starts_at");
+      if (announcement.endsAt !== undefined && endsAtMs === undefined)
+        reasons.push("invalid_ends_at");
       if (startsAtMs !== undefined && startsAtMs > nowMs) reasons.push("not_started");
       if (endsAtMs !== undefined && endsAtMs <= nowMs) reasons.push("ended");
 
@@ -177,7 +170,8 @@ export function getMaintainerAnnouncementsSummary(params?: {
     network: false,
     bundledCount: announcements.length,
     activeCount: activeAnnouncements.length,
-    futureCount: evaluations.filter((evaluation) => evaluation.reasons.includes("not_started")).length,
+    futureCount: evaluations.filter((evaluation) => evaluation.reasons.includes("not_started"))
+      .length,
     expiredCount: evaluations.filter((evaluation) => evaluation.reasons.includes("ended")).length,
     activeAnnouncements,
     evaluations,
