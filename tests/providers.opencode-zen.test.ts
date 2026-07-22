@@ -26,11 +26,15 @@ vi.mock("../src/lib/opencode-zen-config.js", () => ({
 
 import { opencodeZenProvider } from "../src/providers/opencode-zen.js";
 
-const accounting = {
+const balanceAccounting = {
   resultType: "balance",
   acquisitionMethod: "dashboard_scrape",
   ownership: "maintained",
   authority: "provider_reported",
+} as const;
+const budgetAccounting = {
+  ...balanceAccounting,
+  resultType: "budget",
 } as const;
 
 function configured(): void {
@@ -137,7 +141,7 @@ describe("opencode Zen provider", () => {
     expectAttemptedWithNoErrors(result);
     expect(result.entries).toEqual([
       {
-        accounting,
+        accounting: balanceAccounting,
         kind: "value",
         name: "",
         group: "OpenCode Zen",
@@ -156,7 +160,7 @@ describe("opencode Zen provider", () => {
     expectAttemptedWithNoErrors(result);
     expect(result.entries).toEqual([
       {
-        accounting,
+        accounting: budgetAccounting,
         name: "",
         group: "OpenCode Zen",
         percentRemaining: 42.5,

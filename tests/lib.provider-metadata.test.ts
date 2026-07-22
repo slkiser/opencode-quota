@@ -148,6 +148,14 @@ describe("provider-metadata", () => {
         notes: "Scrapes the OpenCode Go dashboard; requires workspaceId and authCookie",
       },
       {
+        id: "opencode",
+        autoSetup: "needs_quick_setup",
+        authentication: "state_only",
+        quota: "remote_api",
+        quickSetupAnchor: "opencode-zen",
+        notes: "Scrapes the OpenCode Zen billing page; requires workspaceId and authCookie",
+      },
+      {
         id: "ollama-cloud",
         autoSetup: "manual_env_config",
         authentication: "state_only",
@@ -232,6 +240,7 @@ describe("provider-metadata", () => {
       "kimi-code",
     ]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS.deepseek).toEqual(["deepseek"]);
+    expect(QUOTA_PROVIDER_RUNTIME_IDS.opencode).toEqual(["opencode", "opencode-zen"]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS["quota-providers"]).toEqual([]);
   });
 
@@ -284,6 +293,7 @@ describe("provider-metadata", () => {
     ]);
     expect(getQuotaProviderRuntimeIds("kimi")).toEqual(["kimi-for-coding", "kimi", "kimi-code"]);
     expect(getQuotaProviderRuntimeIds("deep-seek")).toEqual(["deepseek"]);
+    expect(getQuotaProviderRuntimeIds("opencode-zen")).toEqual(["opencode", "opencode-zen"]);
     expect(getQuotaProviderRuntimeIds("not-a-provider")).toEqual([]);
   });
 
@@ -329,6 +339,14 @@ describe("provider-metadata", () => {
       authFallbacks: ["env_api_key", "global_opencode_config"],
       quota: "remote_api",
     });
+    expect(getQuotaProviderShape("opencode-zen")).toEqual({
+      id: "opencode",
+      autoSetup: "needs_quick_setup",
+      authentication: "state_only",
+      quota: "remote_api",
+      quickSetupAnchor: "opencode-zen",
+      notes: "Scrapes the OpenCode Zen billing page; requires workspaceId and authCookie",
+    });
     expect(getQuotaProviderShape("not-a-provider")).toBeUndefined();
   });
 
@@ -350,6 +368,7 @@ describe("provider-metadata", () => {
     expect(getQuotaProviderDisplayLabel("kimi-code")).toBe("Kimi Code");
     expect(getQuotaProviderDisplayLabel("kimi")).toBe("Kimi Code");
     expect(getQuotaProviderDisplayLabel("deep-seek")).toBe("DeepSeek");
+    expect(getQuotaProviderDisplayLabel("opencode-zen")).toBe("OpenCode Zen");
     expect(getQuotaProviderDisplayLabel("quota-providers")).toBe("Quota providers");
     expect(getQuotaProviderDisplayLabel("something-else")).toBe("something-else");
   });

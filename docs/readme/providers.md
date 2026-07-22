@@ -7,7 +7,7 @@
 | Find                                 | Go to                                                                                                                                                                                        |
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Provider support                     | [Pre-configured providers](#pre-configured-providers) · [Custom providers](#custom-providers)                                                                                                |
-| Billing, API key, or dashboard setup | [GitHub Copilot](#github-copilot) · [DeepSeek](#deepseek) · [Ollama Cloud](#ollama-cloud) · [OpenCode Go](#opencode-go)                                                                      |
+| Billing, API key, or dashboard setup | [GitHub Copilot](#github-copilot) · [DeepSeek](#deepseek) · [Ollama Cloud](#ollama-cloud) · [OpenCode Go](#opencode-go) · [OpenCode Zen](#opencode-zen)                                      |
 | CLI or companion-plugin setup        | [Anthropic](#anthropic-claude) · [Cursor](#cursor) · [Qwen Code](#qwen-code) · [Google Antigravity](#google-antigravity) · [Google AGY](#google-agy-quick-setup) · [Gemini CLI](#gemini-cli) |
 
 ## Pre-configured providers
@@ -36,6 +36,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | DeepSeek                 | API key/config                         | Remote API         | Balance and status |
 | Ollama Cloud             | [Needs setup](#ollama-cloud)           | Dashboard scraping | Quota              |
 | OpenCode Go              | [Needs setup](#opencode-go)            | Dashboard scraping | Quota              |
+| OpenCode Zen             | [Needs setup](#opencode-zen)           | Dashboard scraping | Quota and balance  |
 
 The friendly `Quota` label covers quota and rate-limit windows; v4 JSON distinguishes them.
 
@@ -426,3 +427,27 @@ export OPENCODE_GO_AUTH_COOKIE="your-auth-cookie"
 ```
 
 Use `opencodeGoWindows` to choose **5h**, **Weekly**, and/or **Monthly** windows. Environment variables take precedence over the optional `opencode-go.json` file.
+
+<a id="opencode-zen"></a>
+
+### OpenCode Zen
+
+OpenCode Zen balance scrapes `opencode.ai/workspace/{id}/billing`. Set its own workspace ID and `auth` cookie:
+
+```bash
+export OPENCODE_WORKSPACE_ID="your-workspace-id"
+export OPENCODE_AUTH_COOKIE="your-auth-cookie"
+```
+
+Find both values in your browser: the workspace ID is in the billing-page URL, and the `auth` cookie is under Developer Tools → Storage → Cookies for `opencode.ai`.
+
+You can instead create `~/.config/opencode/opencode-quota/opencode.json`:
+
+```json
+{
+  "workspaceId": "your-workspace-id",
+  "authCookie": "your-auth-cookie"
+}
+```
+
+Set `opencodeMonthlyLimit` in `opencode-quota/quota-toast.json` to override the monthly budget from the billing page. Without a monthly limit, the provider shows the current balance only.

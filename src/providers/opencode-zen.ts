@@ -18,8 +18,14 @@ import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./res
 
 const OPENCODE_PROVIDER_LABEL = "OpenCode";
 const OPENCODE_ZEN_GROUP = "OpenCode Zen";
-const OPENCODE_ZEN_ACCOUNTING: AccountingMetadata = {
+const OPENCODE_ZEN_BALANCE_ACCOUNTING: AccountingMetadata = {
   resultType: "balance",
+  acquisitionMethod: "dashboard_scrape",
+  ownership: "maintained",
+  authority: "provider_reported",
+};
+const OPENCODE_ZEN_BUDGET_ACCOUNTING: AccountingMetadata = {
+  resultType: "budget",
   acquisitionMethod: "dashboard_scrape",
   ownership: "maintained",
   authority: "provider_reported",
@@ -90,7 +96,7 @@ export const opencodeZenProvider: QuotaProvider = {
       Number.isFinite(effectiveMonthlyLimit) &&
       effectiveMonthlyLimit > 0
         ? {
-            accounting: OPENCODE_ZEN_ACCOUNTING,
+            accounting: OPENCODE_ZEN_BUDGET_ACCOUNTING,
             name: "",
             group: OPENCODE_ZEN_GROUP,
             percentRemaining: Math.min(
@@ -99,7 +105,7 @@ export const opencodeZenProvider: QuotaProvider = {
             ),
           }
         : {
-            accounting: OPENCODE_ZEN_ACCOUNTING,
+            accounting: OPENCODE_ZEN_BALANCE_ACCOUNTING,
             kind: "value",
             name: "",
             group: OPENCODE_ZEN_GROUP,
