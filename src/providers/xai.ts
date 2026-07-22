@@ -10,7 +10,6 @@ import type {
 } from "../lib/entries.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { modelProviderMatchesRuntimeId } from "../lib/provider-model-matching.js";
-import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
 import {
   DEFAULT_XAI_AUTH_CACHE_MAX_AGE_MS,
   hasXaiOAuthCached,
@@ -35,7 +34,7 @@ export const xaiProvider: QuotaProvider = {
 
   matchesCurrentModel(model: string, context?: QuotaProviderMatchContext): boolean {
     if (context?.currentProviderID) {
-      return normalizeQuotaProviderId(context.currentProviderID) === "xai";
+      return context.currentProviderID.trim().toLowerCase() === "xai";
     }
     return modelProviderMatchesRuntimeId(model, "xai");
   },

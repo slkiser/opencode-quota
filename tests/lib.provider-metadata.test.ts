@@ -248,7 +248,7 @@ describe("provider-metadata", () => {
     ]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS.deepseek).toEqual(["deepseek"]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS.opencode).toEqual(["opencode", "opencode-zen"]);
-    expect(QUOTA_PROVIDER_RUNTIME_IDS.xai).toEqual(["xai", "grok"]);
+    expect(QUOTA_PROVIDER_RUNTIME_IDS.xai).toEqual(["xai"]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS["quota-providers"]).toEqual([]);
   });
 
@@ -302,7 +302,8 @@ describe("provider-metadata", () => {
     expect(getQuotaProviderRuntimeIds("kimi")).toEqual(["kimi-for-coding", "kimi", "kimi-code"]);
     expect(getQuotaProviderRuntimeIds("deep-seek")).toEqual(["deepseek"]);
     expect(getQuotaProviderRuntimeIds("opencode-zen")).toEqual(["opencode", "opencode-zen"]);
-    expect(getQuotaProviderRuntimeIds("grok")).toEqual(["xai", "grok"]);
+    expect(getQuotaProviderRuntimeIds("xai")).toEqual(["xai"]);
+    expect(getQuotaProviderRuntimeIds("grok")).toEqual([]);
     expect(getQuotaProviderRuntimeIds("not-a-provider")).toEqual([]);
   });
 
@@ -356,7 +357,7 @@ describe("provider-metadata", () => {
       quickSetupAnchor: "opencode-zen",
       notes: "Scrapes the OpenCode Zen billing page; requires workspaceId and authCookie",
     });
-    expect(getQuotaProviderShape("grok")).toEqual({
+    expect(getQuotaProviderShape("xai")).toEqual({
       id: "xai",
       autoSetup: "yes",
       authentication: "opencode_auth_oauth_token",
@@ -385,7 +386,8 @@ describe("provider-metadata", () => {
     expect(getQuotaProviderDisplayLabel("kimi")).toBe("Kimi Code");
     expect(getQuotaProviderDisplayLabel("deep-seek")).toBe("DeepSeek");
     expect(getQuotaProviderDisplayLabel("opencode-zen")).toBe("OpenCode Zen");
-    expect(getQuotaProviderDisplayLabel("grok")).toBe("xAI");
+    expect(getQuotaProviderDisplayLabel("xai")).toBe("xAI");
+    expect(getQuotaProviderDisplayLabel("grok")).toBe("grok");
     expect(getQuotaProviderDisplayLabel("quota-providers")).toBe("Quota providers");
     expect(getQuotaProviderDisplayLabel("something-else")).toBe("something-else");
   });

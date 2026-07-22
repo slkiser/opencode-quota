@@ -1433,6 +1433,34 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- deepseek: pricing=no (account balance only (not token-priced))");
   });
 
+  it("reports the xAI live quota probe", async () => {
+    const report = await buildProviderStatusReport("xai", {
+      providerLiveProbes: [
+        {
+          providerId: "xai",
+          result: {
+            attempted: true,
+            entries: [
+              {
+                label: "Weekly:",
+                name: "xAI SuperGrok Weekly",
+                percentRemaining: 73,
+                resetTimeIso: "2026-07-27T00:00:00.000Z",
+              },
+            ],
+            errors: [],
+          },
+        },
+      ],
+    } as any);
+
+    const section = getReportSection(report, "xai:");
+    expect(section).toContain("- live_probe: success");
+    expect(section).toContain(
+      "- live_entry_1: Weekly: percent_remaining=73 reset_at=2026-07-27T00:00:00.000Z",
+    );
+  });
+
   it("reports OpenCode Go rolling, weekly, and monthly live usage when configured", async () => {
     openCodeGoMocks.getOpenCodeGoConfigDiagnostics.mockResolvedValueOnce({
       state: "configured",
@@ -2016,6 +2044,7 @@ zhipu:
 synthetic:
 chutes:
 deepseek:
+xai:
 nanogpt:
 copilot_quota_auth:
 google_antigravity:

@@ -34,12 +34,14 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | Zhipu Coding Plan        | OpenCode config                        | Remote API         | Quota              |
 | NanoGPT                  | API key/config                         | Remote API         | Quota and balance  |
 | DeepSeek                 | API key/config                         | Remote API         | Balance and status |
-| xAI SuperGrok            | OpenCode OAuth                         | Remote API         | Quota              |
+| xAI SuperGrok            | OpenCode OAuth (`/connect` xAI)        | Remote API         | Quota              |
 | Ollama Cloud             | [Needs setup](#ollama-cloud)           | Dashboard scraping | Quota              |
 | OpenCode Go              | [Needs setup](#opencode-go)            | Dashboard scraping | Quota              |
 | OpenCode Zen             | [Needs setup](#opencode-zen)           | Dashboard scraping | Budget and balance |
 
 The friendly `Quota` label covers quota and rate-limit windows; v4 JSON distinguishes them.
+
+xAI SuperGrok reads OpenCode's existing xAI OAuth login and reports its single Weekly quota window.
 
 ## Custom providers
 

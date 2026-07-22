@@ -105,12 +105,12 @@ describe("xai provider", () => {
         enabledProviders: "auto",
         currentProviderID: "grok",
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(xaiProvider.matchesCurrentModel?.("xai/grok-4", { enabledProviders: "auto" })).toBe(
       true,
     );
     expect(xaiProvider.matchesCurrentModel?.("grok/grok-4", { enabledProviders: "auto" })).toBe(
-      true,
+      false,
     );
     expect(xaiProvider.matchesCurrentModel?.("openai/grok-4", { enabledProviders: "auto" })).toBe(
       false,
