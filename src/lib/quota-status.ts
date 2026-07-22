@@ -1207,6 +1207,16 @@ export async function buildQuotaStatusReport(params: {
     sections.push(alibabaCodingPlanLiveProbeSection);
   }
 
+  const xaiLiveProbeSection = createCompactLiveProbeOnlySection({
+    id: "xai",
+    title: "xai:",
+    providerId: "xai",
+    probes: params.providerLiveProbes,
+  });
+  if (xaiLiveProbeSection) {
+    sections.push(xaiLiveProbeSection);
+  }
+
   async function appendMiniMaxSection(section: {
     id: string;
     title: string;

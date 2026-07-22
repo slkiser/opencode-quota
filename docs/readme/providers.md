@@ -19,6 +19,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | Anthropic (Claude)       | [Needs setup](#anthropic-claude)       | Local CLI/OAuth    | Quota              |
 | GitHub Copilot           | [Needs setup](#github-copilot)         | Remote API         | Usage and budget   |
 | OpenAI                   | Automatic                              | Remote API         | Quota              |
+| xAI SuperGrok            | OpenCode `/connect` xAI                | Remote API         | Quota              |
 | Cursor                   | [Needs setup](#cursor)                 | Local estimate     | Budget and spend   |
 | Qwen Code                | [Needs setup](#qwen-code)              | Local estimate     | Quota              |
 | Alibaba Coding Plan      | OpenCode config                        | Local estimate     | Quota              |

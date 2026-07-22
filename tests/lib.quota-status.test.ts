@@ -1394,6 +1394,40 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- deepseek: pricing=no (account balance only (not token-priced))");
   });
 
+  it("reports the xAI live weekly quota probe", async () => {
+    const report = await buildProviderStatusReport("xai", {
+      providerLiveProbes: [
+        {
+          providerId: "xai",
+          result: {
+            attempted: true,
+            entries: [
+              {
+                accounting: {
+                  resultType: "quota",
+                  acquisitionMethod: "remote_api",
+                  ownership: "maintained",
+                  authority: "provider_reported",
+                },
+                name: "xAI SuperGrok Weekly",
+                group: "xAI SuperGrok",
+                label: "Weekly:",
+                percentRemaining: 84,
+                resetTimeIso: "2026-07-20T02:24:00.983Z",
+              },
+            ],
+            errors: [],
+          },
+        },
+      ],
+    });
+
+    expectReportSection(report, "xai:", [
+      "- live_probe: success",
+      "- live_entry_1: Weekly: percent_remaining=84 reset_at=2026-07-20T02:24:00.983Z",
+    ]);
+  });
+
   it("reports OpenCode Go rolling, weekly, and monthly live usage when configured", async () => {
     openCodeGoMocks.getOpenCodeGoConfigDiagnostics.mockResolvedValueOnce({
       state: "configured",
