@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import businessIndividualLimitUsage from "./fixtures/openai/business-individual-limit.sanitized.json";
 import businessTeamMonthlyUsage from "./fixtures/openai/business-team-monthly.sanitized.json";
 
 const mocks = vi.hoisted(() => ({
@@ -15,6 +16,13 @@ import {
   queryOpenAIQuota,
   resolveOpenAIOAuth,
 } from "../src/lib/openai.js";
+
+function mockOpenAIUsageResponse(usage: unknown): void {
+  mocks.readAuthFileCached.mockResolvedValueOnce({
+    openai: { type: "oauth", access: "a.b.c", expires: Date.now() + 60_000 },
+  });
+  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => usage })) as any);
+}
 
 describe("openai auth resolution", () => {
   beforeEach(() => {
@@ -153,6 +161,138 @@ describe("openai auth resolution", () => {
     );
 
     const out = await queryOpenAIQuota();
+    expect(out && out.success ? out.label : "").toBe("OpenAI (Business)");
+    expect(out && out.success ? out.windows : {}).toEqual({
+      monthly: {
+        percentRemaining: 67,
+        resetTimeIso: new Date(1_786_262_548_000).toISOString(),
+      },
+    });
+  });
+
+  it("parses the sanitized Business individual spend limit as monthly quota", async () => {
+    mockOpenAIUsageResponse(businessIndividualLimitUsage);
+
+    const out = await queryOpenAIQuota();
+
+    expect(out && out.success ? out.label : "").toBe("OpenAI (Business)");
+    expect(out && out.success ? out.windows : {}).toEqual({
+      monthly: {
+        percentRemaining: 100,
+        resetTimeIso: new Date(1_785_542_400_000).toISOString(),
+      },
+    });
+  });
+
+  it("falls back to individual-limit reset_after_seconds when reset_at is absent", async () => {
+    mockOpenAIUsageResponse({
+      ...businessIndividualLimitUsage,
+      spend_control: {
+        individual_limit: {
+          remaining_percent: 80,
+          reset_after_seconds: 60,
+        },
+      },
+    });
+
+    const out = await queryOpenAIQuota();
+
+    expect(out && out.success ? out.windows.monthly : undefined).toEqual({
+      percentRemaining: 80,
+      resetTimeIso: "2026-01-01T00:01:00.000Z",
+    });
+  });
+
+  it.each([
+    { name: "zero", value: 0, expected: 0 },
+    { name: "negative", value: -25, expected: 0 },
+    { name: "above 100", value: 140, expected: 100 },
+  ])("clamps $name Business individual-limit percentages", async ({ value, expected }) => {
+    mockOpenAIUsageResponse({
+      ...businessIndividualLimitUsage,
+      spend_control: {
+        individual_limit: {
+          ...businessIndividualLimitUsage.spend_control.individual_limit,
+          remaining_percent: value,
+        },
+      },
+    });
+
+    const out = await queryOpenAIQuota();
+
+    expect(out && out.success ? out.windows.monthly?.percentRemaining : -1).toBe(expected);
+  });
+
+  it.each([
+    { name: "missing spend control", spendControl: undefined },
+    { name: "missing value", spendControl: { individual_limit: {} } },
+    { name: "null value", spendControl: { individual_limit: { remaining_percent: null } } },
+    { name: "wrong type", spendControl: { individual_limit: { remaining_percent: "50" } } },
+    { name: "NaN", spendControl: { individual_limit: { remaining_percent: Number.NaN } } },
+    {
+      name: "infinite",
+      spendControl: { individual_limit: { remaining_percent: Number.POSITIVE_INFINITY } },
+    },
+  ])(
+    "omits $name while preserving personal, credits, and code-review paths",
+    async ({ spendControl }) => {
+      mockOpenAIUsageResponse({
+        plan_type: "plus",
+        rate_limit: {
+          primary_window: {
+            used_percent: 20,
+            limit_window_seconds: 18_000,
+            reset_after_seconds: 3_600,
+          },
+          secondary_window: null,
+        },
+        code_review_rate_limit: {
+          primary_window: {
+            used_percent: 5,
+            reset_after_seconds: 60,
+          },
+        },
+        credits: {
+          has_credits: true,
+          unlimited: false,
+          balance: "12.34",
+        },
+        ...(spendControl === undefined ? {} : { spend_control: spendControl }),
+      });
+
+      const out = await queryOpenAIQuota();
+
+      expect(out && out.success ? out.windows : {}).toEqual({
+        hourly: {
+          percentRemaining: 80,
+          resetTimeIso: "2026-01-01T01:00:00.000Z",
+        },
+        codeReview: {
+          percentRemaining: 95,
+          resetTimeIso: "2026-01-01T00:01:00.000Z",
+        },
+      });
+      expect(out && out.success ? out.credits : undefined).toEqual({
+        hasCredits: true,
+        unlimited: false,
+        balance: "12.34",
+      });
+    },
+  );
+
+  it("keeps an existing Business monthly rate-limit window authoritative", async () => {
+    mockOpenAIUsageResponse({
+      ...businessTeamMonthlyUsage,
+      spend_control: {
+        individual_limit: {
+          remaining_percent: 5,
+          reset_at: 1_800_000_000,
+        },
+      },
+    });
+
+    const out = await queryOpenAIQuota();
+
     expect(out && out.success ? out.label : "").toBe("OpenAI (Business)");
     expect(out && out.success ? out.windows : {}).toEqual({
       monthly: {

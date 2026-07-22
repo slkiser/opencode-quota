@@ -21,6 +21,9 @@ interface OpenAIUsageResponse {
   code_review_rate_limit?: {
     primary_window?: unknown;
   } | null;
+  spend_control?: {
+    individual_limit?: unknown;
+  } | null;
   credits?: {
     has_credits: boolean;
     unlimited: boolean;
@@ -106,6 +109,21 @@ function parseWindowValue(window: unknown): OpenAIWindowValue | null {
 
   return {
     percentRemaining: clampPercent(100 - value.used_percent),
+    resetTimeIso:
+      resetIsoFromResetAt(value.reset_at) ?? resetIsoFromNowSeconds(value.reset_after_seconds),
+  };
+}
+
+function parseRemainingWindowValue(window: unknown): OpenAIWindowValue | null {
+  if (!window || typeof window !== "object") return null;
+
+  const value = window as Record<string, unknown>;
+  if (typeof value.remaining_percent !== "number" || !Number.isFinite(value.remaining_percent)) {
+    return null;
+  }
+
+  return {
+    percentRemaining: clampPercent(value.remaining_percent),
     resetTimeIso:
       resetIsoFromResetAt(value.reset_at) ?? resetIsoFromNowSeconds(value.reset_after_seconds),
   };
@@ -264,6 +282,7 @@ export async function queryOpenAIQuota(
     const data = (await resp.json()) as OpenAIUsageResponse;
     const primary = parseRateLimitWindow(data.rate_limit?.primary_window);
     const secondary = parseRateLimitWindow(data.rate_limit?.secondary_window);
+    const individualLimit = parseRemainingWindowValue(data.spend_control?.individual_limit);
     const codeReview = parseWindowValue(data.code_review_rate_limit?.primary_window);
     const credits = data.credits ?? null;
     const windows: {
@@ -288,6 +307,7 @@ export async function queryOpenAIQuota(
         conflictingKinds.add(parsed.kind);
       }
     }
+    if (!windows.monthly && individualLimit) windows.monthly = individualLimit;
     if (codeReview) windows.codeReview = codeReview;
 
     if (Object.keys(windows).length === 0) {
