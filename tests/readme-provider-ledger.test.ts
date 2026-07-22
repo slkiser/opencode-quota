@@ -50,6 +50,7 @@ describe("README provider ledger", () => {
       "Quota and usage",
       "Usage and budget",
       "Budget and spend",
+      "Budget and balance",
       "Quota and balance",
       "Balance and status",
     ]);
