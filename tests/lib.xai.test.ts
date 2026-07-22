@@ -4,12 +4,13 @@ import superGrokWeeklyFixture from "./fixtures/xai/supergrok-weekly.json";
 import { hasXaiOAuth, periodKindLabel, queryXaiQuota, resolveXaiOAuth } from "../src/lib/xai.js";
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
+  readAuthFile: vi.fn(),
   readAuthFileCached: vi.fn(),
 }));
 
 async function mockConfiguredAuth(overrides: Record<string, unknown> = {}): Promise<void> {
-  const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
-  (readAuthFileCached as any).mockResolvedValueOnce({
+  const { readAuthFile } = await import("../src/lib/opencode-auth.js");
+  (readAuthFile as any).mockResolvedValueOnce({
     xai: {
       type: "oauth",
       access: "token-1",
@@ -63,8 +64,8 @@ describe("queryXaiQuota", () => {
   });
 
   it("returns null for missing, wrong-type, and incomplete auth", async () => {
-    const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
-    (readAuthFileCached as any)
+    const { readAuthFile } = await import("../src/lib/opencode-auth.js");
+    (readAuthFile as any)
       .mockResolvedValueOnce({})
       .mockResolvedValueOnce({ xai: { type: "api", key: "xai-key" } })
       .mockResolvedValueOnce({ xai: { type: "oauth", refresh: "refresh-only" } });
@@ -75,8 +76,8 @@ describe("queryXaiQuota", () => {
   });
 
   it("does not refresh, fetch, or write an expired token", async () => {
-    const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
-    (readAuthFileCached as any).mockResolvedValueOnce({
+    const { readAuthFile, readAuthFileCached } = await import("../src/lib/opencode-auth.js");
+    (readAuthFile as any).mockResolvedValueOnce({
       xai: {
         type: "oauth",
         access: "expired-token",
@@ -91,8 +92,36 @@ describe("queryXaiQuota", () => {
       success: false,
       error: "xAI OAuth token expired; use xAI in OpenCode to refresh it or reconnect xAI",
     });
-    expect(readAuthFileCached).toHaveBeenCalledOnce();
+    expect(readAuthFile).toHaveBeenCalledOnce();
+    expect(readAuthFileCached).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reads the refreshed OAuth entry instead of a stale cached token", async () => {
+    const { readAuthFile, readAuthFileCached } = await import("../src/lib/opencode-auth.js");
+    (readAuthFileCached as any).mockResolvedValueOnce({
+      xai: { type: "oauth", access: "stale-token", expires: Date.now() - 1_000 },
+    });
+    (readAuthFile as any).mockResolvedValueOnce({
+      xai: { type: "oauth", access: "fresh-token", expires: Date.now() + 60_000 },
+    });
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify(superGrokWeeklyFixture), { status: 200 }),
+    ) as any;
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(queryXaiQuota()).resolves.toMatchObject({
+      success: true,
+      window: { percentRemaining: 95, kind: "weekly" },
+    });
+    expect(readAuthFile).toHaveBeenCalledOnce();
+    expect(readAuthFileCached).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://cli-chat-proxy.grok.com/v1/billing?format=credits",
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer fresh-token" }),
+      }),
+    );
   });
 
   it("maps the exact PR fixture through one fixed authenticated GET", async () => {

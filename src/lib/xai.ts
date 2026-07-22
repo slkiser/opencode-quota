@@ -11,7 +11,7 @@
 import { sanitizeSingleLineDisplaySnippet } from "./display-sanitize.js";
 import { clampPercent } from "./format-utils.js";
 import { fetchWithTimeout } from "./http.js";
-import { readAuthFileCached } from "./opencode-auth.js";
+import { readAuthFile, readAuthFileCached } from "./opencode-auth.js";
 import type { AuthData, QuotaError } from "./types.js";
 
 export const DEFAULT_XAI_AUTH_CACHE_MAX_AGE_MS = 5_000;
@@ -150,10 +150,10 @@ function safeErrorText(message: string, accessToken: string): string {
 export async function queryXaiQuota(
   options: { requestTimeoutMs?: number } = {},
 ): Promise<XaiResult> {
-  const auth = await readAuthFileCached({
-    maxAgeMs: DEFAULT_XAI_AUTH_CACHE_MAX_AGE_MS,
-  });
-  const resolvedAuth = resolveXaiOAuth(auth);
+  // OpenCode can replace this OAuth entry while servicing a model request.
+  // Read the file directly so a post-request quota fetch cannot reuse the
+  // token snapshot from before that refresh.
+  const resolvedAuth = resolveXaiOAuth(await readAuthFile());
   if (resolvedAuth.state !== "configured") return null;
 
   if (resolvedAuth.expiresAt !== undefined && resolvedAuth.expiresAt <= Date.now()) {
