@@ -198,6 +198,7 @@ export interface QuotaProviderContext {
     cursorIncludedApiUsd?: number;
     cursorBillingCycleStartDay?: number;
     opencodeGoWindows?: OpenCodeGoWindowKey[];
+    opencodeMonthlyLimit?: number;
     requestTimeoutMs?: number;
     /** Provider-result cache TTL used by aggregate remote definitions. */
     providerCacheTtlMs?: number;

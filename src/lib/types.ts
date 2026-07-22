@@ -129,6 +129,8 @@ export interface QuotaToastConfig {
    * Defaults to ["rolling", "weekly", "monthly"].
    */
   opencodeGoWindows: OpenCodeGoWindowKey[];
+  /** Optional OpenCode Zen monthly budget override in USD. */
+  opencodeMonthlyLimit?: number;
   cursorIncludedApiUsd?: number;
   cursorBillingCycleStartDay?: number;
   pricingSnapshot: PricingSnapshotConfig;
@@ -196,6 +198,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   googleModels: ["CLAUDE"],
   cursorPlan: "none",
   opencodeGoWindows: ["rolling", "weekly", "monthly"],
+  opencodeMonthlyLimit: undefined,
   pricingSnapshot: {
     source: "auto",
     autoRefresh: 7,

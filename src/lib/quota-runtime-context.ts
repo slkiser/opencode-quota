@@ -111,6 +111,7 @@ export function createQuotaProviderRuntimeContext(
       cursorIncludedApiUsd: runtime.config.cursorIncludedApiUsd,
       cursorBillingCycleStartDay: runtime.config.cursorBillingCycleStartDay,
       opencodeGoWindows: runtime.config.opencodeGoWindows,
+      opencodeMonthlyLimit: runtime.config.opencodeMonthlyLimit,
       requestTimeoutMs: runtime.config.requestTimeoutMs,
       requestTimeoutMsConfigured: Boolean(runtime.configMeta?.settingSources.requestTimeoutMs),
       onlyCurrentModel: runtime.config.onlyCurrentModel,
