@@ -159,6 +159,17 @@ interface PluginConfigInput {
   default_agent?: string;
 }
 
+function normalizeDefaultAgent(cfg: PluginConfigInput | null | undefined): void {
+  if (!cfg?.default_agent || !cfg.agent || cfg.default_agent in cfg.agent) return;
+
+  const stripped = (value: string) => value.replace(/[\u200B\u200C\u200D\uFEFF]/g, "");
+  const target = stripped(cfg.default_agent);
+  const matches = Object.keys(cfg.agent).filter((key) => stripped(key) === target);
+  if (matches.length === 1) {
+    cfg.default_agent = matches[0];
+  }
+}
+
 /** Server command execution hook input */
 interface CommandExecuteInput {
   command: string;
@@ -205,6 +216,7 @@ const DEFERRED_QUOTA_REFRESH_DELAYS_MS = [3_000, 15_000, 60_000, 300_000] as con
  */
 export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
   const typedClient = client as unknown as OpencodeClient;
+  let opencodeConfig: PluginConfigInput | null = null;
 
   /**
    * Inject tool output directly into the session without triggering an LLM response.
@@ -215,6 +227,8 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
     output: string,
     options: { rethrow?: boolean } = {},
   ): Promise<void> {
+    normalizeDefaultAgent(opencodeConfig);
+
     try {
       await typedClient.session.prompt({
         path: { id: sessionID },
@@ -1312,22 +1326,14 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
   return {
     config: async (input: unknown) => {
       const cfg = input as PluginConfigInput;
+      opencodeConfig = cfg;
       if (shouldRegisterServerSlashCommands({ isMainThread, argv: process.argv })) {
         registerDeterministicSlashCommands(cfg);
       }
 
-      // Fix zero-width space mismatch between default_agent and agent keys.
-      // Some plugins remap agent keys with invisible Unicode prefixes for sort
-      // ordering but set default_agent without them, causing OpenCode to crash
-      // with "default agent not found". See #39.
-      if (cfg.default_agent && cfg.agent && !(cfg.default_agent in cfg.agent)) {
-        const stripped = (s: string) => s.replace(/[\u200B\u200C\u200D\uFEFF]/g, "");
-        const target = stripped(cfg.default_agent);
-        const matches = Object.keys(cfg.agent).filter((k) => stripped(k) === target);
-        if (matches.length === 1) {
-          cfg.default_agent = matches[0];
-        }
-      }
+      // Keep the config-time correction for #39. injectRawOutput repeats the
+      // same correction after later config hooks have run to handle #169.
+      normalizeDefaultAgent(cfg);
     },
 
     "command.execute.before": async (input: CommandExecuteInput) => {
