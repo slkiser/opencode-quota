@@ -15,6 +15,7 @@ describe("upstream-plugin-specs", () => {
       "opencode-cursor-oauth",
       "opencode-gemini-auth",
       "opencode-qwencode-auth",
+      "opencode-agy-auth",
     ]);
   });
 
@@ -46,6 +47,27 @@ describe("upstream-plugin-specs", () => {
       referenceDir: `${UPSTREAM_PLUGIN_REFERENCE_ROOT}/opencode-cursor-oauth`,
       repo: "PoolPirate/opencode-cursor",
     });
+  });
+
+  it("tracks the scoped Google AGY companion under a stable internal id", () => {
+    expect(getUpstreamPluginSpec("opencode-agy-auth")).toMatchObject({
+      packageName: "@anthonyhaussman/opencode-agy-auth",
+      pluginId: "opencode-agy-auth",
+      referenceDir: `${UPSTREAM_PLUGIN_REFERENCE_ROOT}/opencode-agy-auth`,
+      repo: "anthonyhaussman/opencode-agy-auth",
+    });
+    expect(getUpstreamPluginIssueTitle("opencode-agy-auth")).toBe(
+      "[check] opencode-agy-auth had update",
+    );
+  });
+
+  it("limits missing npm repository metadata to the verified AGY exception", () => {
+    expect(getUpstreamPluginSpec("opencode-agy-auth")?.allowMissingRepositoryMetadata).toBe(true);
+    expect(
+      UPSTREAM_PLUGIN_SPECS.filter((spec) => spec.allowMissingRepositoryMetadata).map(
+        (spec) => spec.pluginId,
+      ),
+    ).toEqual(["opencode-agy-auth"]);
   });
 
   it("keeps the runtime Cursor package name aligned with the upstream spec", () => {

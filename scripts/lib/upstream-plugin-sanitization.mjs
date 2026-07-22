@@ -1,8 +1,13 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const REDACTED_GOOGLE_OAUTH_CLIENT_ID = "REDACTED_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com";
+const REDACTED_GOOGLE_OAUTH_CLIENT_ID =
+  "REDACTED_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com";
 const REDACTED_GOOGLE_OAUTH_CLIENT_SECRET = "REDACTED_GOOGLE_OAUTH_CLIENT_SECRET";
+const AGY_UNREDACTED_CREDENTIAL_PATTERNS = Object.freeze([
+  /\b\d{10,}-[a-z0-9]+\.apps\.googleusercontent\.com\b/i,
+  /GOCSPX-[A-Za-z0-9_-]+/,
+]);
 const CURSOR_SAFE_MODELS_BLOCK = `export async function getCursorModels(apiKey) {
     if (cachedModels)
         return cachedModels;
@@ -73,6 +78,66 @@ const SNAPSHOT_SANITIZERS = Object.freeze({
           label: "ANTIGRAVITY_CLIENT_SECRET",
           pattern: /(export const ANTIGRAVITY_CLIENT_SECRET = )"[^"]+";/,
           replacement: `$1"${REDACTED_GOOGLE_OAUTH_CLIENT_SECRET}";`,
+        },
+      ],
+    },
+  ]),
+  "opencode-agy-auth": Object.freeze([
+    {
+      relativePath: "dist/src/constants.d.ts",
+      replacements: [
+        {
+          label: "AGY_CLIENT_ID",
+          pattern: /(export declare const AGY_CLIENT_ID = )(["'])([^"']+)\2;/,
+          replacement: `$1$2${REDACTED_GOOGLE_OAUTH_CLIENT_ID}$2;`,
+          capturedValueGroup: 3,
+          redactedValue: REDACTED_GOOGLE_OAUTH_CLIENT_ID,
+        },
+        {
+          label: "AGY_CLIENT_SECRET",
+          pattern: /(export declare const AGY_CLIENT_SECRET = )(["'])([^"']+)\2;/,
+          replacement: `$1$2${REDACTED_GOOGLE_OAUTH_CLIENT_SECRET}$2;`,
+          capturedValueGroup: 3,
+          redactedValue: REDACTED_GOOGLE_OAUTH_CLIENT_SECRET,
+        },
+      ],
+    },
+    {
+      relativePath: "dist/index.js",
+      replacements: [
+        {
+          label: "AGY_CLIENT_ID",
+          pattern: /(var AGY_CLIENT_ID = )(["'])([^"']+)\2;/,
+          replacement: `$1$2${REDACTED_GOOGLE_OAUTH_CLIENT_ID}$2;`,
+          capturedValueGroup: 3,
+          redactedValue: REDACTED_GOOGLE_OAUTH_CLIENT_ID,
+        },
+        {
+          label: "AGY_CLIENT_SECRET",
+          pattern: /(var AGY_CLIENT_SECRET = )(["'])([^"']+)\2;/,
+          replacement: `$1$2${REDACTED_GOOGLE_OAUTH_CLIENT_SECRET}$2;`,
+          capturedValueGroup: 3,
+          redactedValue: REDACTED_GOOGLE_OAUTH_CLIENT_SECRET,
+        },
+      ],
+    },
+    {
+      relativePath: "dist/index.js.map",
+      optional: true,
+      replacements: [
+        {
+          label: "AGY_CLIENT_ID_SOURCE_MAP",
+          pattern: /(export const AGY_CLIENT_ID = ')([^']+)(';)/,
+          replacement: `$1${REDACTED_GOOGLE_OAUTH_CLIENT_ID}$3`,
+          capturedValueGroup: 2,
+          redactedValue: REDACTED_GOOGLE_OAUTH_CLIENT_ID,
+        },
+        {
+          label: "AGY_CLIENT_SECRET_SOURCE_MAP",
+          pattern: /(export const AGY_CLIENT_SECRET = ')([^']+)(';)/,
+          replacement: `$1${REDACTED_GOOGLE_OAUTH_CLIENT_SECRET}$3`,
+          capturedValueGroup: 2,
+          redactedValue: REDACTED_GOOGLE_OAUTH_CLIENT_SECRET,
         },
       ],
     },
@@ -157,9 +222,45 @@ const SNAPSHOT_SANITIZERS = Object.freeze({
   ]),
 });
 
+async function listSnapshotFiles(rootPath) {
+  const files = [];
+
+  async function visit(directoryPath) {
+    for (const entry of await readdir(directoryPath, { withFileTypes: true })) {
+      const entryPath = path.join(directoryPath, entry.name);
+      if (entry.isDirectory()) {
+        await visit(entryPath);
+      } else if (entry.isFile()) {
+        files.push(entryPath);
+      }
+    }
+  }
+
+  await visit(rootPath);
+  return files;
+}
+
+async function verifyAgySnapshotSanitized(pluginRoot, capturedCredentialValues) {
+  for (const filePath of await listSnapshotFiles(pluginRoot)) {
+    const content = await readFile(filePath);
+
+    for (const value of capturedCredentialValues) {
+      if (content.includes(value)) {
+        throw new Error(`Found unsanitized AGY OAuth credential in ${filePath}.`);
+      }
+    }
+
+    const text = content.toString("utf8");
+    if (AGY_UNREDACTED_CREDENTIAL_PATTERNS.some((pattern) => pattern.test(text))) {
+      throw new Error(`Found unsanitized AGY OAuth credential in ${filePath}.`);
+    }
+  }
+}
+
 export async function sanitizeUpstreamPluginSnapshot(pluginId, pluginRoot) {
   const sanitizers = SNAPSHOT_SANITIZERS[pluginId] ?? [];
   const redactedLabels = new Set();
+  const capturedCredentialValues = new Set();
 
   for (const sanitizer of sanitizers) {
     const filePath = path.join(pluginRoot, sanitizer.relativePath);
@@ -167,7 +268,13 @@ export async function sanitizeUpstreamPluginSnapshot(pluginId, pluginRoot) {
     try {
       content = await readFile(filePath, "utf8");
     } catch (error) {
-      if (sanitizer.optional && error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      if (
+        sanitizer.optional &&
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "ENOENT"
+      ) {
         continue;
       }
       throw error;
@@ -178,10 +285,18 @@ export async function sanitizeUpstreamPluginSnapshot(pluginId, pluginRoot) {
         continue;
       }
 
-      if (!replacement.pattern.test(content)) {
+      const match = content.match(replacement.pattern);
+      if (!match) {
         throw new Error(
           `Expected ${replacement.label} in ${filePath} while sanitizing ${pluginId} snapshot.`,
         );
+      }
+
+      const capturedValue = replacement.capturedValueGroup
+        ? match[replacement.capturedValueGroup]
+        : undefined;
+      if (capturedValue && capturedValue !== replacement.redactedValue) {
+        capturedCredentialValues.add(capturedValue);
       }
 
       content = content.replace(replacement.pattern, replacement.replacement);
@@ -189,6 +304,19 @@ export async function sanitizeUpstreamPluginSnapshot(pluginId, pluginRoot) {
     }
 
     await writeFile(filePath, content, "utf8");
+  }
+
+  if (
+    pluginId === "opencode-agy-auth" &&
+    (!redactedLabels.has("AGY_CLIENT_ID") || !redactedLabels.has("AGY_CLIENT_SECRET"))
+  ) {
+    throw new Error(
+      `Expected AGY_CLIENT_ID and AGY_CLIENT_SECRET while sanitizing ${pluginId} snapshot.`,
+    );
+  }
+
+  if (pluginId === "opencode-agy-auth") {
+    await verifyAgySnapshotSanitized(pluginRoot, capturedCredentialValues);
   }
 
   if (

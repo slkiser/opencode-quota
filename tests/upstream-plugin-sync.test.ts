@@ -27,7 +27,12 @@ vi.mock("node:child_process", async () => {
         }
 
         await fs.mkdir(destinationPath, { recursive: true });
-        const fixtureRoot = pathModule.join(process.cwd(), "references", "upstream-plugins", pluginId);
+        const fixtureRoot = pathModule.join(
+          process.cwd(),
+          "references",
+          "upstream-plugins",
+          pluginId,
+        );
         await fs.cp(fixtureRoot, destinationPath, { recursive: true });
         callback(null);
       })().catch((error) => callback(error as Error));
@@ -97,6 +102,14 @@ async function seedReferenceRoot(repoRoot: string) {
             repo: "jenslys/opencode-gemini-auth",
             version: "1.0.0",
           },
+          "opencode-agy-auth": {
+            npmUrl: "https://www.npmjs.com/package/%40anthonyhaussman/opencode-agy-auth/v/1.0.0",
+            packageName: "@anthonyhaussman/opencode-agy-auth",
+            publishedAt: "2026-03-01T00:00:00.000Z",
+            referenceDir: "references/upstream-plugins/opencode-agy-auth",
+            repo: "anthonyhaussman/opencode-agy-auth",
+            version: "1.0.0",
+          },
           "opencode-qwencode-auth": {
             npmUrl: "https://www.npmjs.com/package/opencode-qwencode-auth/v/1.0.0",
             packageName: "opencode-qwencode-auth",
@@ -118,10 +131,15 @@ async function seedReferenceRoot(repoRoot: string) {
     "opencode-cursor-oauth",
     "opencode-gemini-auth",
     "opencode-qwencode-auth",
+    "opencode-agy-auth",
   ]) {
     const pluginDir = path.join(referenceRoot, pluginId);
     await mkdir(pluginDir, { recursive: true });
-    await writeFile(path.join(pluginDir, "package.json"), JSON.stringify({ pluginId, version: "1.0.0" }), "utf8");
+    await writeFile(
+      path.join(pluginDir, "package.json"),
+      JSON.stringify({ pluginId, version: "1.0.0" }),
+      "utf8",
+    );
   }
 
   const staleDir = path.join(referenceRoot, "stale-plugin");
@@ -156,7 +174,8 @@ describe("upstream-plugin-sync", () => {
           publishedAt: "2026-03-20T00:00:00.000Z",
           referenceDir: "references/upstream-plugins/opencode-cursor-oauth",
           repo: "PoolPirate/opencode-cursor",
-          tarballUrl: "https://example.test/@playwo/opencode-cursor-oauth/-/opencode-cursor-oauth-2.0.0.tgz",
+          tarballUrl:
+            "https://example.test/@playwo/opencode-cursor-oauth/-/opencode-cursor-oauth-2.0.0.tgz",
           version: "2.0.0",
         },
       ],
@@ -170,6 +189,20 @@ describe("upstream-plugin-sync", () => {
           referenceDir: "references/upstream-plugins/opencode-gemini-auth",
           repo: "jenslys/opencode-gemini-auth",
           tarballUrl: "https://example.test/opencode-gemini-auth-2.0.0.tgz",
+          version: "2.0.0",
+        },
+      ],
+      [
+        "opencode-agy-auth",
+        {
+          npmUrl: "https://www.npmjs.com/package/%40anthonyhaussman/opencode-agy-auth/v/2.0.0",
+          packageName: "@anthonyhaussman/opencode-agy-auth",
+          pluginId: "opencode-agy-auth",
+          publishedAt: "2026-03-20T00:00:00.000Z",
+          referenceDir: "references/upstream-plugins/opencode-agy-auth",
+          repo: "anthonyhaussman/opencode-agy-auth",
+          tarballUrl:
+            "https://example.test/@anthonyhaussman/opencode-agy-auth/-/opencode-agy-auth-2.0.0.tgz",
           version: "2.0.0",
         },
       ],
@@ -197,34 +230,50 @@ describe("upstream-plugin-sync", () => {
   });
 
   it("stages the full reference tree before swapping it into place", async () => {
-    const { syncUpstreamPluginReferences } = await import("../scripts/lib/upstream-plugin-sync.mjs");
+    const { syncUpstreamPluginReferences } =
+      await import("../scripts/lib/upstream-plugin-sync.mjs");
     const result = await syncUpstreamPluginReferences();
     const referenceRoot = path.join(testState.repoRoot, "references", "upstream-plugins");
 
-    expect(result.syncedPlugins).toHaveLength(4);
-    await expect(readFile(path.join(referenceRoot, "README.md"), "utf8")).resolves.toBe("reference readme\n");
-    await expect(readFile(path.join(referenceRoot, "stale-plugin", "package.json"), "utf8")).rejects.toThrow();
+    expect(result.syncedPlugins).toHaveLength(5);
+    await expect(readFile(path.join(referenceRoot, "README.md"), "utf8")).resolves.toBe(
+      "reference readme\n",
+    );
     await expect(
-      readFile(path.join(referenceRoot, "opencode-antigravity-auth", "dist", "src", "constants.js"), "utf8"),
+      readFile(path.join(referenceRoot, "stale-plugin", "package.json"), "utf8"),
+    ).rejects.toThrow();
+    await expect(
+      readFile(
+        path.join(referenceRoot, "opencode-antigravity-auth", "dist", "src", "constants.js"),
+        "utf8",
+      ),
     ).resolves.toContain("REDACTED_GOOGLE_OAUTH_CLIENT_SECRET");
-    await expect(readFile(path.join(referenceRoot, "opencode-cursor-oauth", "package.json"), "utf8")).resolves.toContain(
-      "\"name\": \"@playwo/opencode-cursor-oauth\"",
-    );
-    await expect(readFile(path.join(referenceRoot, "opencode-cursor-oauth", "dist", "models.js"), "utf8")).resolves.toContain(
-      "if (discovered && discovered.length > 0) {",
-    );
-    await expect(readFile(path.join(referenceRoot, "opencode-cursor-oauth", "dist", "proxy.js"), "utf8")).resolves.toContain(
-      "messages: normalizedMessages",
-    );
+    await expect(
+      readFile(path.join(referenceRoot, "opencode-cursor-oauth", "package.json"), "utf8"),
+    ).resolves.toContain('"name": "@playwo/opencode-cursor-oauth"');
+    await expect(
+      readFile(path.join(referenceRoot, "opencode-cursor-oauth", "dist", "models.js"), "utf8"),
+    ).resolves.toContain("if (discovered && discovered.length > 0) {");
+    await expect(
+      readFile(path.join(referenceRoot, "opencode-cursor-oauth", "dist", "proxy.js"), "utf8"),
+    ).resolves.toContain("messages: normalizedMessages");
     await expect(
       readFile(path.join(referenceRoot, "opencode-gemini-auth", "dist", "index.js"), "utf8"),
     ).resolves.toContain("REDACTED_GOOGLE_OAUTH_CLIENT_SECRET");
-    await expect(readFile(path.join(referenceRoot, "lock.json"), "utf8")).resolves.toContain("\"version\": \"2.0.0\"");
+    await expect(
+      readFile(path.join(referenceRoot, "opencode-agy-auth", "dist", "index.js"), "utf8"),
+    ).resolves.toContain("REDACTED_GOOGLE_OAUTH_CLIENT_SECRET");
+    await expect(
+      readFile(path.join(referenceRoot, "opencode-agy-auth", "package.json"), "utf8"),
+    ).resolves.toContain('"name": "@anthonyhaussman/opencode-agy-auth"');
     await expect(readFile(path.join(referenceRoot, "lock.json"), "utf8")).resolves.toContain(
-      "\"packageName\": \"@playwo/opencode-cursor-oauth\"",
+      '"version": "2.0.0"',
     );
     await expect(readFile(path.join(referenceRoot, "lock.json"), "utf8")).resolves.toContain(
-      "\"repo\": \"PoolPirate/opencode-cursor\"",
+      '"packageName": "@playwo/opencode-cursor-oauth"',
+    );
+    await expect(readFile(path.join(referenceRoot, "lock.json"), "utf8")).resolves.toContain(
+      '"repo": "PoolPirate/opencode-cursor"',
     );
   });
 
@@ -246,7 +295,8 @@ describe("upstream-plugin-sync", () => {
       "utf8",
     );
 
-    const { syncUpstreamPluginReferences } = await import("../scripts/lib/upstream-plugin-sync.mjs");
+    const { syncUpstreamPluginReferences } =
+      await import("../scripts/lib/upstream-plugin-sync.mjs");
     await syncUpstreamPluginReferences();
 
     const referenceRoot = path.join(testState.repoRoot, "references", "upstream-plugins");
@@ -282,34 +332,41 @@ describe("upstream-plugin-sync", () => {
       "utf8",
     );
 
-    const { syncUpstreamPluginReferences } = await import("../scripts/lib/upstream-plugin-sync.mjs");
+    const { syncUpstreamPluginReferences } =
+      await import("../scripts/lib/upstream-plugin-sync.mjs");
     await syncUpstreamPluginReferences();
 
-    const packageJson = await readFile(path.join(referenceRoot, "opencode-cursor-oauth", "package.json"), "utf8");
-    expect(packageJson).toContain("\"name\": \"@playwo/opencode-cursor-oauth\"");
-    expect(packageJson).not.toContain("\"stale\":true");
+    const packageJson = await readFile(
+      path.join(referenceRoot, "opencode-cursor-oauth", "package.json"),
+      "utf8",
+    );
+    expect(packageJson).toContain('"name": "@playwo/opencode-cursor-oauth"');
+    expect(packageJson).not.toContain('"stale":true');
     await expect(readFile(lockPath, "utf8")).resolves.toContain(
-      "\"packageName\": \"@playwo/opencode-cursor-oauth\"",
+      '"packageName": "@playwo/opencode-cursor-oauth"',
     );
   });
 
   it("leaves the committed reference tree untouched when staging fails", async () => {
     testState.failPluginId = "opencode-cursor-oauth";
 
-    const { syncUpstreamPluginReferences } = await import("../scripts/lib/upstream-plugin-sync.mjs");
+    const { syncUpstreamPluginReferences } =
+      await import("../scripts/lib/upstream-plugin-sync.mjs");
     const referenceRoot = path.join(testState.repoRoot, "references", "upstream-plugins");
 
-    await expect(syncUpstreamPluginReferences()).rejects.toThrow(
-      "Failed to extract",
-    );
+    await expect(syncUpstreamPluginReferences()).rejects.toThrow("Failed to extract");
 
-    await expect(readFile(path.join(referenceRoot, "README.md"), "utf8")).resolves.toBe("reference readme\n");
-    await expect(readFile(path.join(referenceRoot, "stale-plugin", "package.json"), "utf8")).resolves.toContain(
-      "\"stale\":true",
+    await expect(readFile(path.join(referenceRoot, "README.md"), "utf8")).resolves.toBe(
+      "reference readme\n",
     );
-    await expect(readFile(path.join(referenceRoot, "opencode-cursor-oauth", "package.json"), "utf8")).resolves.toContain(
-      "\"version\":\"1.0.0\"",
+    await expect(
+      readFile(path.join(referenceRoot, "stale-plugin", "package.json"), "utf8"),
+    ).resolves.toContain('"stale":true');
+    await expect(
+      readFile(path.join(referenceRoot, "opencode-cursor-oauth", "package.json"), "utf8"),
+    ).resolves.toContain('"version":"1.0.0"');
+    await expect(readFile(path.join(referenceRoot, "lock.json"), "utf8")).resolves.toContain(
+      '"version": "1.0.0"',
     );
-    await expect(readFile(path.join(referenceRoot, "lock.json"), "utf8")).resolves.toContain("\"version\": \"1.0.0\"");
   });
 });

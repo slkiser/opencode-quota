@@ -25,6 +25,13 @@ const RAW_UPSTREAM_PLUGIN_SPECS = [
     repoOwner: "gustavodiasdev",
     repoName: "opencode-qwencode-auth",
   },
+  {
+    pluginId: "opencode-agy-auth",
+    packageName: "@anthonyhaussman/opencode-agy-auth",
+    repoOwner: "anthonyhaussman",
+    repoName: "opencode-agy-auth",
+    allowMissingRepositoryMetadata: true,
+  },
 ];
 
 export const UPSTREAM_PLUGIN_SPECS = Object.freeze(
@@ -44,4 +51,3 @@ export function getUpstreamPluginSpec(pluginId) {
 export function getUpstreamPluginIssueTitle(pluginId) {
   return `[check] ${pluginId} had update`;
 }
-

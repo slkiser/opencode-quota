@@ -6,7 +6,11 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { sanitizeUpstreamPluginSnapshot } from "../scripts/lib/upstream-plugin-sanitization.mjs";
 
-async function writeAntigravityConstants(pluginRoot: string, clientId: string, clientSecret: string) {
+async function writeAntigravityConstants(
+  pluginRoot: string,
+  clientId: string,
+  clientSecret: string,
+) {
   const constantsDir = path.join(pluginRoot, "dist", "src");
   await mkdir(constantsDir, { recursive: true });
   await writeFile(
@@ -17,6 +21,31 @@ async function writeAntigravityConstants(pluginRoot: string, clientId: string, c
   await writeFile(
     path.join(constantsDir, "constants.d.ts"),
     `export declare const ANTIGRAVITY_CLIENT_ID = "${clientId}";\nexport declare const ANTIGRAVITY_CLIENT_SECRET = "${clientSecret}";\n`,
+    "utf8",
+  );
+}
+
+async function writeAgySnapshot(pluginRoot: string, clientId: string, clientSecret: string) {
+  const distDir = path.join(pluginRoot, "dist");
+  const constantsDir = path.join(distDir, "src");
+  await mkdir(constantsDir, { recursive: true });
+  await writeFile(
+    path.join(constantsDir, "constants.d.ts"),
+    `export declare const AGY_CLIENT_ID = "${clientId}";\nexport declare const AGY_CLIENT_SECRET = "${clientSecret}";\n`,
+    "utf8",
+  );
+  await writeFile(
+    path.join(distDir, "index.js"),
+    `var AGY_CLIENT_ID = "${clientId}";\nvar AGY_CLIENT_SECRET = "${clientSecret}";\n`,
+    "utf8",
+  );
+  await writeFile(
+    path.join(distDir, "index.js.map"),
+    JSON.stringify({
+      sourcesContent: [
+        `export const AGY_CLIENT_ID = '${clientId}';\nexport const AGY_CLIENT_SECRET = '${clientSecret}';\n`,
+      ],
+    }),
     "utf8",
   );
 }
@@ -182,26 +211,74 @@ describe("upstream-plugin-sanitization", () => {
   const tempRoots: string[] = [];
 
   afterEach(async () => {
-    await Promise.all(tempRoots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
+    await Promise.all(
+      tempRoots.splice(0).map((root) => rm(root, { force: true, recursive: true })),
+    );
   });
 
   it("redacts embedded Google OAuth values from antigravity snapshots", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "opencode-quota-sanitize-"));
     tempRoots.push(tempRoot);
 
-    await writeAntigravityConstants(
-      tempRoot,
-      "SAFE_TEST_CLIENT_ID",
-      "SAFE_TEST_CLIENT_SECRET",
-    );
+    await writeAntigravityConstants(tempRoot, "SAFE_TEST_CLIENT_ID", "SAFE_TEST_CLIENT_SECRET");
 
     await sanitizeUpstreamPluginSnapshot("opencode-antigravity-auth", tempRoot);
 
-    await expect(readFile(path.join(tempRoot, "dist", "src", "constants.js"), "utf8")).resolves.toContain(
-      "REDACTED_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com",
+    await expect(
+      readFile(path.join(tempRoot, "dist", "src", "constants.js"), "utf8"),
+    ).resolves.toContain("REDACTED_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com");
+    await expect(
+      readFile(path.join(tempRoot, "dist", "src", "constants.d.ts"), "utf8"),
+    ).resolves.toContain("REDACTED_GOOGLE_OAUTH_CLIENT_SECRET");
+  });
+
+  it("redacts every published AGY OAuth credential copy", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "opencode-quota-sanitize-"));
+    tempRoots.push(tempRoot);
+
+    await writeAgySnapshot(tempRoot, "SAFE_TEST_AGY_CLIENT_ID", "SAFE_TEST_AGY_CLIENT_SECRET");
+    await sanitizeUpstreamPluginSnapshot("opencode-agy-auth", tempRoot);
+    await sanitizeUpstreamPluginSnapshot("opencode-agy-auth", tempRoot);
+
+    for (const relativePath of ["dist/src/constants.d.ts", "dist/index.js", "dist/index.js.map"]) {
+      const content = await readFile(path.join(tempRoot, relativePath), "utf8");
+      expect(content).toContain("REDACTED_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com");
+      expect(content).toContain("REDACTED_GOOGLE_OAUTH_CLIENT_SECRET");
+      expect(content).not.toContain("SAFE_TEST_AGY_CLIENT_ID");
+      expect(content).not.toContain("SAFE_TEST_AGY_CLIENT_SECRET");
+    }
+  });
+
+  it("fails closed when an AGY credential remains in an unexpected published file", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "opencode-quota-sanitize-"));
+    tempRoots.push(tempRoot);
+
+    await writeAgySnapshot(tempRoot, "SAFE_TEST_AGY_CLIENT_ID", "SAFE_TEST_AGY_CLIENT_SECRET");
+    await sanitizeUpstreamPluginSnapshot("opencode-agy-auth", tempRoot);
+    await writeFile(
+      path.join(tempRoot, "unexpected.js"),
+      'const duplicate = "GOCSPX-SAFE_TEST_AGY_CLIENT_SECRET";\n',
+      "utf8",
     );
-    await expect(readFile(path.join(tempRoot, "dist", "src", "constants.d.ts"), "utf8")).resolves.toContain(
-      "REDACTED_GOOGLE_OAUTH_CLIENT_SECRET",
+
+    await expect(sanitizeUpstreamPluginSnapshot("opencode-agy-auth", tempRoot)).rejects.toThrow(
+      "Found unsanitized AGY OAuth credential",
+    );
+  });
+
+  it("fails closed when the AGY bundle assignment shape changes", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "opencode-quota-sanitize-"));
+    tempRoots.push(tempRoot);
+
+    await writeAgySnapshot(tempRoot, "SAFE_TEST_AGY_CLIENT_ID", "SAFE_TEST_AGY_CLIENT_SECRET");
+    await writeFile(
+      path.join(tempRoot, "dist", "index.js"),
+      'const renamedClient = "SAFE_TEST_AGY_CLIENT_ID";\n',
+      "utf8",
+    );
+
+    await expect(sanitizeUpstreamPluginSnapshot("opencode-agy-auth", tempRoot)).rejects.toThrow(
+      "Expected AGY_CLIENT_ID",
     );
   });
 
@@ -253,7 +330,9 @@ describe("upstream-plugin-sanitization", () => {
     await sanitizeUpstreamPluginSnapshot("opencode-gemini-auth", tempRoot);
 
     const constantsSource = await readFile(path.join(tempRoot, "src", "constants.ts"), "utf8");
-    expect(constantsSource).toContain("'REDACTED_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com'");
+    expect(constantsSource).toContain(
+      "'REDACTED_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com'",
+    );
     expect(constantsSource).toContain("'REDACTED_GOOGLE_OAUTH_CLIENT_SECRET'");
   });
 
@@ -263,12 +342,20 @@ describe("upstream-plugin-sanitization", () => {
 
     const constantsDir = path.join(tempRoot, "dist", "src");
     await mkdir(constantsDir, { recursive: true });
-    await writeFile(path.join(constantsDir, "constants.js"), "export const OTHER = \"value\";\n", "utf8");
-    await writeFile(path.join(constantsDir, "constants.d.ts"), "export declare const OTHER = \"value\";\n", "utf8");
-
-    await expect(sanitizeUpstreamPluginSnapshot("opencode-antigravity-auth", tempRoot)).rejects.toThrow(
-      "Expected ANTIGRAVITY_CLIENT_ID",
+    await writeFile(
+      path.join(constantsDir, "constants.js"),
+      'export const OTHER = "value";\n',
+      "utf8",
     );
+    await writeFile(
+      path.join(constantsDir, "constants.d.ts"),
+      'export declare const OTHER = "value";\n',
+      "utf8",
+    );
+
+    await expect(
+      sanitizeUpstreamPluginSnapshot("opencode-antigravity-auth", tempRoot),
+    ).rejects.toThrow("Expected ANTIGRAVITY_CLIENT_ID");
   });
 
   it("rewrites unsafe Cursor OAuth snapshot guards into the safe local form", async () => {
@@ -293,7 +380,9 @@ describe("upstream-plugin-sanitization", () => {
     const proxySource = await readFile(path.join(tempRoot, "dist", "proxy.js"), "utf8");
     expect(proxySource).toContain('.filter((m) => m.role !== "tool")');
     expect(proxySource).toContain("messages: normalizedMessages");
-    expect(proxySource).not.toContain('const firstUserMsg = messages.find((m) => m.role === "user");');
+    expect(proxySource).not.toContain(
+      'const firstUserMsg = messages.find((m) => m.role === "user");',
+    );
     expect(proxySource).not.toContain("firstUserText.slice(0, 200)");
   });
 

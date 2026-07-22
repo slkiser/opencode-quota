@@ -14,10 +14,16 @@ function normalizeGitHubRepositorySlug(repository) {
   if (!rawUrl) return null;
 
   if (rawUrl.startsWith("github:")) {
-    return rawUrl.slice("github:".length).replace(/\.git$/i, "").trim();
+    return rawUrl
+      .slice("github:".length)
+      .replace(/\.git$/i, "")
+      .trim();
   }
 
-  const normalizedUrl = rawUrl.replace(/^git\+/, "").replace(/\.git$/i, "").trim();
+  const normalizedUrl = rawUrl
+    .replace(/^git\+/, "")
+    .replace(/\.git$/i, "")
+    .trim();
 
   try {
     const url = new URL(normalizedUrl);
@@ -59,7 +65,10 @@ function buildNpmPackageUrl(packageName, version) {
 
 export function normalizeLatestPublishedPluginVersion(spec, packument) {
   const latestVersion =
-    packument && typeof packument === "object" && packument["dist-tags"] && typeof packument["dist-tags"] === "object"
+    packument &&
+    typeof packument === "object" &&
+    packument["dist-tags"] &&
+    typeof packument["dist-tags"] === "object"
       ? packument["dist-tags"].latest
       : "";
 
@@ -68,16 +77,23 @@ export function normalizeLatestPublishedPluginVersion(spec, packument) {
   }
 
   const versionEntry =
-    packument && typeof packument === "object" && packument.versions && typeof packument.versions === "object"
+    packument &&
+    typeof packument === "object" &&
+    packument.versions &&
+    typeof packument.versions === "object"
       ? packument.versions[latestVersion]
       : null;
 
   if (!versionEntry || typeof versionEntry !== "object") {
-    throw new Error(`Package ${spec.packageName} is missing metadata for version ${latestVersion}.`);
+    throw new Error(
+      `Package ${spec.packageName} is missing metadata for version ${latestVersion}.`,
+    );
   }
 
   const tarballUrl =
-    versionEntry.dist && typeof versionEntry.dist === "object" && typeof versionEntry.dist.tarball === "string"
+    versionEntry.dist &&
+    typeof versionEntry.dist === "object" &&
+    typeof versionEntry.dist.tarball === "string"
       ? versionEntry.dist.tarball
       : "";
 
@@ -86,7 +102,10 @@ export function normalizeLatestPublishedPluginVersion(spec, packument) {
   }
 
   const publishedAt =
-    packument && typeof packument === "object" && packument.time && typeof packument.time === "object"
+    packument &&
+    typeof packument === "object" &&
+    packument.time &&
+    typeof packument.time === "object"
       ? packument.time[latestVersion]
       : "";
 
@@ -94,12 +113,30 @@ export function normalizeLatestPublishedPluginVersion(spec, packument) {
     throw new Error(`Package ${spec.packageName}@${latestVersion} is missing a publish timestamp.`);
   }
 
-  const discoveredRepo =
-    normalizeGitHubRepositorySlug(versionEntry.repository) ?? normalizeGitHubRepositorySlug(packument.repository);
+  const repositoryMetadata = [versionEntry.repository, packument.repository].filter((repository) =>
+    typeof repository === "string"
+      ? repository.trim().length > 0
+      : repository !== null && repository !== undefined,
+  );
 
-  if (discoveredRepo && discoveredRepo !== spec.repo) {
+  for (const repository of repositoryMetadata) {
+    const discoveredRepo = normalizeGitHubRepositorySlug(repository);
+    if (!discoveredRepo) {
+      throw new Error(
+        `Package ${spec.packageName} has non-empty repository metadata that is not a GitHub repository.`,
+      );
+    }
+
+    if (discoveredRepo !== spec.repo) {
+      throw new Error(
+        `Package ${spec.packageName} points to ${discoveredRepo}, but this repo expects ${spec.repo}. Update scripts/lib/upstream-plugin-specs.mjs if the upstream repo moved.`,
+      );
+    }
+  }
+
+  if (repositoryMetadata.length === 0 && !spec.allowMissingRepositoryMetadata) {
     throw new Error(
-      `Package ${spec.packageName} points to ${discoveredRepo}, but this repo expects ${spec.repo}. Update scripts/lib/upstream-plugin-specs.mjs if the upstream repo moved.`,
+      `Package ${spec.packageName} is missing GitHub repository metadata. Set allowMissingRepositoryMetadata in scripts/lib/upstream-plugin-specs.mjs only after verifying the canonical repository from primary sources.`,
     );
   }
 
@@ -117,7 +154,9 @@ export function normalizeLatestPublishedPluginVersion(spec, packument) {
 }
 
 export async function fetchLatestPublishedPluginVersion(spec) {
-  const packument = await fetchJson(`${NPM_REGISTRY_ORIGIN}/${encodeURIComponent(spec.packageName)}`);
+  const packument = await fetchJson(
+    `${NPM_REGISTRY_ORIGIN}/${encodeURIComponent(spec.packageName)}`,
+  );
   return normalizeLatestPublishedPluginVersion(spec, packument);
 }
 
@@ -139,4 +178,3 @@ export async function downloadTarball(url, destinationPath) {
   const arrayBuffer = await response.arrayBuffer();
   await writeFile(destinationPath, Buffer.from(arrayBuffer));
 }
-

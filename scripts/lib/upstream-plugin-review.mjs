@@ -1,3 +1,5 @@
+import { getTrackedUpstreamPluginIdentityDifferences } from "./upstream-plugin-identity.mjs";
+
 const DEFAULT_PATH_LIMIT_PER_PLUGIN = 12;
 const DEFAULT_DIFF_LIMIT_PER_PLUGIN = 4;
 const DEFAULT_DIFF_LINE_LIMIT = 80;
@@ -21,20 +23,73 @@ export function groupReferenceChangesByPlugin(paths) {
 export function buildChangedPluginSummaries(previousLock, currentLock) {
   const summaries = [];
 
-  for (const pluginId of Object.keys(currentLock.plugins).sort((left, right) => left.localeCompare(right))) {
-    const previousVersion = previousLock?.plugins?.[pluginId]?.version ?? null;
-    const currentVersion = currentLock.plugins[pluginId].version;
+  for (const pluginId of Object.keys(currentLock.plugins).sort((left, right) =>
+    left.localeCompare(right),
+  )) {
+    const previous = previousLock?.plugins?.[pluginId];
+    const current = currentLock.plugins[pluginId];
+    const changedFields = getTrackedUpstreamPluginIdentityDifferences(previous, current);
 
-    if (previousVersion === currentVersion) continue;
+    if (changedFields.length === 0) continue;
 
     summaries.push({
       pluginId,
-      previousVersion,
-      currentVersion,
+      previousVersion: previous?.version ?? null,
+      currentVersion: current.version,
+      changeKind: !previous ? "added" : changedFields.includes("version") ? "version" : "metadata",
+      changedFields,
     });
   }
 
   return summaries;
+}
+
+export function includeChangedReferencePluginSummaries(
+  previousLock,
+  currentLock,
+  changedFilesByPlugin,
+  changedPlugins,
+) {
+  const summariesByPluginId = new Map(changedPlugins.map((summary) => [summary.pluginId, summary]));
+
+  for (const pluginId of [...changedFilesByPlugin.keys()].sort((left, right) =>
+    left.localeCompare(right),
+  )) {
+    if (summariesByPluginId.has(pluginId)) continue;
+
+    const previous = previousLock?.plugins?.[pluginId];
+    const current = currentLock?.plugins?.[pluginId];
+    const version = current?.version ?? previous?.version;
+    if (!version) continue;
+
+    summariesByPluginId.set(pluginId, {
+      pluginId,
+      previousVersion: previous?.version ?? null,
+      currentVersion: version,
+      changeKind: previous ? "metadata" : "added",
+      changedFields: ["reference contents"],
+    });
+  }
+
+  return [...summariesByPluginId.values()].sort((left, right) =>
+    left.pluginId.localeCompare(right.pluginId),
+  );
+}
+
+export function shouldPrepareUpstreamPluginReview(identityChangedPlugins, changedReferenceFiles) {
+  return identityChangedPlugins.length > 0 || changedReferenceFiles.length > 0;
+}
+
+export function formatChangedPluginSummary(summary) {
+  if (summary.changeKind === "added") {
+    return `${summary.pluginId}: newly tracked at ${summary.currentVersion}`;
+  }
+
+  if (summary.changeKind === "metadata") {
+    return `${summary.pluginId}: metadata changed at ${summary.currentVersion} (${summary.changedFields.join(", ")})`;
+  }
+
+  return `${summary.pluginId}: ${summary.previousVersion} -> ${summary.currentVersion}`;
 }
 
 function limitList(items, limit) {
@@ -87,8 +142,7 @@ export function buildUpstreamPluginReviewPrompt({
   ];
 
   for (const summary of changedPlugins) {
-    const previousLabel = summary.previousVersion ?? "none tracked";
-    lines.push(`- ${summary.pluginId}: ${previousLabel} -> ${summary.currentVersion}`);
+    lines.push(`- ${formatChangedPluginSummary(summary)}`);
   }
 
   lines.push("", "Changed files:");
@@ -161,4 +215,3 @@ export function buildUpstreamPluginReviewPrompt({
 
   return `${lines.join("\n").trim()}\n`;
 }
-

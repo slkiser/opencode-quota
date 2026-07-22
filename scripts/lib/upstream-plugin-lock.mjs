@@ -1,8 +1,12 @@
+import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import { replacePath, safeRm } from "./upstream-plugin-fs.mjs";
-import { upstreamPluginLockPath } from "./upstream-plugin-paths.mjs";
+import { repoRoot, upstreamPluginLockPath } from "./upstream-plugin-paths.mjs";
+
+const execFileAsync = promisify(execFile);
 
 function isLockEntry(value) {
   return (
@@ -43,11 +47,19 @@ async function writeFileAtomic(filePath, content) {
   }
 }
 
+export function parseUpstreamPluginLock(raw) {
+  const lock = JSON.parse(raw);
+  assertLockShape(lock);
+  return lock;
+}
+
 export function serializeUpstreamPluginLock(lock) {
   assertLockShape(lock);
 
   const sortedPlugins = {};
-  for (const pluginId of Object.keys(lock.plugins).sort((left, right) => left.localeCompare(right))) {
+  for (const pluginId of Object.keys(lock.plugins).sort((left, right) =>
+    left.localeCompare(right),
+  )) {
     sortedPlugins[pluginId] = lock.plugins[pluginId];
   }
 
@@ -67,9 +79,34 @@ export async function readUpstreamPluginLock() {
     throw error;
   }
 
-  const lock = JSON.parse(raw);
-  assertLockShape(lock);
-  return lock;
+  return parseUpstreamPluginLock(raw);
+}
+
+export async function readCommittedUpstreamPluginLock({
+  repositoryRoot = repoRoot,
+  lockPath = upstreamPluginLockPath,
+} = {}) {
+  const relativeLockPath = path.relative(repositoryRoot, lockPath).replaceAll(path.sep, "/");
+
+  try {
+    const { stdout } = await execFileAsync("git", ["show", `HEAD:${relativeLockPath}`], {
+      cwd: repositoryRoot,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    return parseUpstreamPluginLock(stdout);
+  } catch (error) {
+    const stderr =
+      error && typeof error === "object" && "stderr" in error && typeof error.stderr === "string"
+        ? error.stderr
+        : "";
+    if (
+      stderr.includes(`path '${relativeLockPath}' does not exist in 'HEAD'`) ||
+      stderr.includes(`path '${relativeLockPath}' exists on disk, but not in 'HEAD'`)
+    ) {
+      return { plugins: {} };
+    }
+    throw error;
+  }
 }
 
 export async function writeUpstreamPluginLock(lock) {

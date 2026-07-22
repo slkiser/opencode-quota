@@ -1,8 +1,12 @@
+import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const execFileAsync = promisify(execFile);
 
 const testState = vi.hoisted(() => ({
   repoRoot: "",
@@ -23,7 +27,9 @@ vi.mock("../scripts/lib/upstream-plugin-paths.mjs", () => ({
 describe("upstream-plugin-lock", () => {
   beforeEach(async () => {
     testState.repoRoot = await mkdtemp(path.join(os.tmpdir(), "opencode-quota-lock-test-"));
-    await mkdir(path.join(testState.repoRoot, "references", "upstream-plugins"), { recursive: true });
+    await mkdir(path.join(testState.repoRoot, "references", "upstream-plugins"), {
+      recursive: true,
+    });
     await writeFile(
       path.join(testState.repoRoot, "references", "upstream-plugins", "lock.json"),
       `${JSON.stringify(
@@ -49,6 +55,74 @@ describe("upstream-plugin-lock", () => {
 
   afterEach(async () => {
     await rm(testState.repoRoot, { force: true, recursive: true });
+  });
+
+  it("reads the committed lock when synchronized metadata remains uncommitted", async () => {
+    const lockPath = path.join(testState.repoRoot, "references", "upstream-plugins", "lock.json");
+    const previousEntry = {
+      npmUrl: "https://www.npmjs.com/package/opencode-cursor-oauth/v/0.4.3",
+      packageName: "opencode-cursor-oauth",
+      publishedAt: "2026-04-08T14:04:58.057Z",
+      referenceDir: "references/upstream-plugins/opencode-cursor-oauth",
+      repo: "old-owner/opencode-cursor",
+      version: "0.4.3",
+    };
+    await writeFile(
+      lockPath,
+      `${JSON.stringify({ plugins: { "opencode-cursor-oauth": previousEntry } }, null, 2)}\n`,
+      "utf8",
+    );
+    await execFileAsync("git", ["init"], { cwd: testState.repoRoot });
+    await execFileAsync("git", ["add", "references/upstream-plugins/lock.json"], {
+      cwd: testState.repoRoot,
+    });
+    await execFileAsync(
+      "git",
+      [
+        "-c",
+        "user.name=Upstream Test",
+        "-c",
+        "user.email=upstream@example.test",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-m",
+        "baseline",
+      ],
+      { cwd: testState.repoRoot },
+    );
+
+    const currentEntry = {
+      ...previousEntry,
+      npmUrl: "https://www.npmjs.com/package/%40playwo/opencode-cursor-oauth/v/0.4.3",
+      packageName: "@playwo/opencode-cursor-oauth",
+      repo: "PoolPirate/opencode-cursor",
+    };
+    await writeFile(
+      lockPath,
+      `${JSON.stringify({ plugins: { "opencode-cursor-oauth": currentEntry } }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const { readCommittedUpstreamPluginLock, readUpstreamPluginLock } =
+      await import("../scripts/lib/upstream-plugin-lock.mjs");
+    const { buildChangedPluginSummaries } =
+      await import("../scripts/lib/upstream-plugin-review.mjs");
+    const committedLock = await readCommittedUpstreamPluginLock({
+      repositoryRoot: testState.repoRoot,
+      lockPath,
+    });
+    const synchronizedLock = await readUpstreamPluginLock();
+
+    expect(buildChangedPluginSummaries(committedLock, synchronizedLock)).toEqual([
+      {
+        changeKind: "metadata",
+        changedFields: ["packageName", "repo", "npmUrl"],
+        currentVersion: "0.4.3",
+        pluginId: "opencode-cursor-oauth",
+        previousVersion: "0.4.3",
+      },
+    ]);
   });
 
   it("replaces an existing lock.json without leaving temp files behind", async () => {

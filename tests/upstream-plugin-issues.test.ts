@@ -67,6 +67,32 @@ describe("upstream-plugin-issues", () => {
     expect(body).toContain("- Reference path: `references/upstream-plugins/opencode-cursor-oauth`");
   });
 
+  it("uses the canonical scoped AGY package and repository in issue details", () => {
+    const agySpec = getUpstreamPluginSpec("opencode-agy-auth");
+    expect(agySpec).toBeTruthy();
+    if (!agySpec) return;
+
+    const agyTracked = {
+      npmUrl: "https://www.npmjs.com/package/%40anthonyhaussman/opencode-agy-auth/v/1.1.4",
+      packageName: "@anthonyhaussman/opencode-agy-auth",
+      publishedAt: "2026-07-18T08:36:49.202Z",
+      referenceDir: "references/upstream-plugins/opencode-agy-auth",
+      repo: "anthonyhaussman/opencode-agy-auth",
+      version: "1.1.4",
+    };
+
+    const body = buildUpstreamPluginIssueBody({
+      issueState: UPSTREAM_PLUGIN_ISSUE_STATE.UPDATE_AVAILABLE,
+      latest: agyTracked,
+      spec: agySpec,
+      tracked: agyTracked,
+    });
+
+    expect(body).toContain("- Plugin: `opencode-agy-auth`");
+    expect(body).toContain("- Package: `@anthonyhaussman/opencode-agy-auth`");
+    expect(body).toContain("- Repository: `anthonyhaussman/opencode-agy-auth`");
+  });
+
   it("treats same-version Cursor metadata drift as an available update", () => {
     const cursorSpec = getUpstreamPluginSpec("opencode-cursor-oauth");
     expect(cursorSpec).toBeTruthy();
@@ -185,7 +211,8 @@ describe("upstream-plugin-issues", () => {
     ]);
     expect(plan.close).toEqual([
       {
-        commentBody: "Closing as duplicate of #23. The tracked reference is still behind npm 1.3.0.",
+        commentBody:
+          "Closing as duplicate of #23. The tracked reference is still behind npm 1.3.0.",
         issueNumber: 31,
       },
     ]);
