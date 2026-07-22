@@ -334,6 +334,8 @@ Use companion plugin [`opencode-antigravity-auth`](https://github.com/NoeFabris/
 
 Use companion plugin [`@anthonyhaussman/opencode-agy-auth`](https://www.npmjs.com/package/@anthonyhaussman/opencode-agy-auth). Add it before `@slkiser/opencode-quota` in `opencode.json`, then authenticate Google once:
 
+Google AGY reports the companion's grouped weekly and five-hour quota windows for each account.
+
 ```bash
 opencode auth login --provider google-agy
 ```
