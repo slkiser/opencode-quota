@@ -56,6 +56,24 @@ function aiUsage(overrides: Record<string, unknown> = {}): Record<string, unknow
   };
 }
 
+function copilotUser(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    copilot_plan: "enterprise",
+    quota_reset_date_utc: "2026-02-01T00:00:00.000Z",
+    token_based_billing: true,
+    quota_snapshots: {
+      premium_interactions: {
+        entitlement: 1000,
+        remaining: 400,
+        quota_remaining: 399.5,
+        percent_remaining: 40,
+        unlimited: false,
+      },
+    },
+    ...overrides,
+  };
+}
+
 function json(data: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(data), {
     status: 200,
@@ -83,12 +101,186 @@ describe("GitHub Copilot AI Credit accounting", () => {
     vi.useRealTimers();
   });
 
-  it("returns null without the trusted local billing-token config", async () => {
+  it("returns null without trusted PAT or OpenCode OAuth auth", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock as any);
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    await expect(queryCopilotQuota()).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reuses OpenCode OAuth for GitHub.com personal quota", async () => {
     authMocks.readAuthFile.mockResolvedValue({
       "github-copilot": { type: "oauth", access: "oauth-token" },
     });
+    const fetchMock = vi.fn(async () => json(copilotUser()));
+    vi.stubGlobal("fetch", fetchMock as any);
+
     const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    await expect(queryCopilotQuota()).resolves.toBeNull();
+    await expect(queryCopilotQuota()).resolves.toEqual({
+      success: true,
+      mode: "user_quota",
+      unit: "ai_credits",
+      used: 600.5,
+      total: 1000,
+      percentRemaining: 40,
+      plan: "enterprise",
+      resetTimeIso: "2026-02-01T00:00:00.000Z",
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://api.github.com/copilot_internal/user");
+    expect(init.headers).toMatchObject({
+      Authorization: "token oauth-token",
+      Accept: "application/json",
+      "Editor-Version": "vscode/1.96.2",
+    });
+  });
+
+  it.each(["acme.ghe.com", "https://acme.ghe.com"])(
+    "routes OpenCode OAuth through a validated GHE.com host: %s",
+    async (enterpriseUrl) => {
+      authMocks.readAuthFile.mockResolvedValue({
+        "github-copilot": { type: "oauth", access: "oauth-token", enterpriseUrl },
+      });
+      const fetchMock = vi.fn(async () => json(copilotUser()));
+      vi.stubGlobal("fetch", fetchMock as any);
+
+      const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+      await expect(queryCopilotQuota()).resolves.toMatchObject({ success: true });
+      expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.acme.ghe.com/copilot_internal/user");
+    },
+  );
+
+  it("keeps token-based OAuth placeholders plan-only", async () => {
+    authMocks.readAuthFile.mockResolvedValue({
+      "github-copilot": { type: "oauth", refresh: "oauth-token" },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        json(
+          copilotUser({
+            copilot_plan: "business",
+            quota_snapshots: {
+              premium_interactions: {
+                entitlement: 0,
+                remaining: 0,
+                percent_remaining: 0,
+                unlimited: false,
+              },
+            },
+          }),
+        ),
+      ) as any,
+    );
+
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    await expect(queryCopilotQuota()).resolves.toEqual({
+      success: true,
+      mode: "user_plan",
+      plan: "business",
+      resetTimeIso: "2026-02-01T00:00:00.000Z",
+    });
+  });
+
+  it.each([
+    "http://acme.ghe.com",
+    "https://user@acme.ghe.com",
+    "https://acme.ghe.com/path",
+    "https://acme.ghe.com?token=oauth-secret",
+    "https://acme.ghe.com#fragment",
+    "https://acme.ghe.com:443",
+    "127.0.0.1",
+    "localhost",
+    "*.ghe.com",
+    "api.acme.ghe.com",
+    "github.com",
+    "acme.ghe.com.evil.example",
+    "not a host",
+  ])("rejects unsafe explicit OAuth enterprise host %s before requests", async (enterpriseUrl) => {
+    vi.resetModules();
+    authMocks.readAuthFile.mockResolvedValue({
+      "github-copilot": { type: "oauth", access: "oauth-secret", enterpriseUrl },
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock as any);
+
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    const result = await queryCopilotQuota();
+    const error = result && !result.success ? result.error : "";
+    expect(error).toContain("Invalid OpenCode Copilot enterpriseUrl");
+    expect(error).not.toContain("oauth-secret");
+    expect(error).not.toContain(enterpriseUrl);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("routes PAT username, usage, and budget requests through its own GHE.com host", async () => {
+    configure({
+      token: "github_pat_org",
+      tier: "business",
+      organization: "acme",
+      enterpriseUrl: "https://billing.ghe.com",
+    });
+    const fetchMock = vi.fn(async (url: unknown) => {
+      const path = new URL(String(url)).pathname;
+      if (path.endsWith("/ai_credit/usage")) return json(aiUsage());
+      return json({ budgets: [], has_next_page: false });
+    });
+    vi.stubGlobal("fetch", fetchMock as any);
+
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    await expect(queryCopilotQuota()).resolves.toMatchObject({
+      success: true,
+      mode: "organization_usage",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [url] of fetchMock.mock.calls) {
+      expect(new URL(String(url)).hostname).toBe("api.billing.ghe.com");
+    }
+  });
+
+  it("routes PAT username resolution and personal usage through its own GHE.com host", async () => {
+    configure({ token: "ghp_classic", tier: "pro", enterpriseUrl: "personal.ghe.com" });
+    const fetchMock = vi.fn(async (url: unknown) => {
+      const path = new URL(String(url)).pathname;
+      if (path === "/user") return json({ login: "alice" });
+      return json(aiUsage());
+    });
+    vi.stubGlobal("fetch", fetchMock as any);
+
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    await expect(queryCopilotQuota()).resolves.toMatchObject({ success: true });
+    expect(fetchMock.mock.calls.map(([url]) => new URL(String(url)).hostname)).toEqual([
+      "api.personal.ghe.com",
+      "api.personal.ghe.com",
+    ]);
+  });
+
+  it("rejects an invalid PAT enterprise host without reading or borrowing OAuth", async () => {
+    configure({
+      token: "github_pat_org",
+      tier: "business",
+      organization: "acme",
+      enterpriseUrl: "https://acme.ghe.com/path?token=pat-secret",
+    });
+    authMocks.readAuthFile.mockResolvedValue({
+      "github-copilot": {
+        type: "oauth",
+        access: "oauth-token",
+        enterpriseUrl: "oauth.ghe.com",
+      },
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock as any);
+
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    const result = await queryCopilotQuota();
+    const error = result && !result.success ? result.error : "";
+    expect(error).toContain("Invalid copilot-quota-token.json");
+    expect(error).not.toContain("pat-secret");
+    expect(authMocks.readAuthFile).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("keeps the trusted billing token authoritative when OpenCode OAuth is also configured", async () => {
@@ -98,7 +290,11 @@ describe("GitHub Copilot AI Credit accounting", () => {
       username: "alice",
     });
     authMocks.readAuthFile.mockResolvedValue({
-      "github-copilot": { type: "oauth", access: "oauth-token" },
+      "github-copilot": {
+        type: "oauth",
+        access: "oauth-token",
+        enterpriseUrl: "oauth.ghe.com",
+      },
     });
     const fetchMock = vi.fn(async () => json(aiUsage()));
     vi.stubGlobal("fetch", fetchMock as any);
@@ -111,7 +307,8 @@ describe("GitHub Copilot AI Credit accounting", () => {
     });
 
     expect(authMocks.readAuthFile).not.toHaveBeenCalled();
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(new URL(url).hostname).toBe("api.github.com");
     expect(init.headers).toMatchObject({
       Authorization: "Bearer github_pat_personal",
     });
@@ -374,6 +571,7 @@ describe("GitHub Copilot AI Credit accounting", () => {
       enterprise: "octo",
       organization: "acme",
       username: "alice",
+      enterpriseUrl: "enterprise.ghe.com",
     });
     const fetchMock = vi.fn(async (url: unknown) => {
       const path = new URL(String(url)).pathname;
@@ -403,7 +601,9 @@ describe("GitHub Copilot AI Credit accounting", () => {
       budget: { amountUsd: 5, spentUsd: 0.2, percentRemaining: 96 },
     });
     const usageUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(usageUrl.hostname).toBe("api.enterprise.ghe.com");
     expect(usageUrl.pathname).toBe("/enterprises/octo/settings/billing/ai_credit/usage");
+    expect(new URL(String(fetchMock.mock.calls[1]?.[0])).hostname).toBe("api.enterprise.ghe.com");
     expect(usageUrl.searchParams.get("organization")).toBe("acme");
     expect(usageUrl.searchParams.get("user")).toBe("alice");
   });
@@ -601,8 +801,11 @@ describe("GitHub Copilot AI Credit accounting", () => {
       billingMode: "none",
       billingScope: "none",
       billingApiAccessLikely: false,
+      deployment: "none",
+      apiHost: null,
+      enterpriseHostSource: "none",
       remainingTotalsState: "unavailable",
-      oauthAccountingState: "not_supported_by_public_billing_api",
+      oauthAccountingState: "available_via_copilot_internal_user",
     });
     expect(diagnostics.queryPeriod).toBeUndefined();
   });
@@ -622,6 +825,9 @@ describe("GitHub Copilot AI Credit accounting", () => {
     expect(diagnostics).toMatchObject({
       effectiveSource: "pat",
       override: "pat_overrides_oauth",
+      deployment: "github.com",
+      apiHost: "api.github.com",
+      enterpriseHostSource: "none",
       quotaApi: "github_ai_credit_api",
       billingModel: "ai_credits",
       billingMode: "organization_usage",
@@ -629,9 +835,59 @@ describe("GitHub Copilot AI Credit accounting", () => {
       billingApiAccessLikely: true,
       remainingTotalsState: "not_available_from_org_usage",
       budgetApi: "organization_budgets",
-      oauthAccountingState: "not_supported_by_public_billing_api",
+      oauthAccountingState: "available_via_copilot_internal_user",
       usernameFilter: "alice",
     });
     expect(diagnostics.queryPeriod).toEqual({ year: 2026, month: 1 });
+  });
+
+  it("reports bounded OAuth GHE.com deployment diagnostics without URLs or tokens", async () => {
+    const { getCopilotQuotaAuthDiagnostics } = await import("../src/lib/copilot.js");
+    const diagnostics = getCopilotQuotaAuthDiagnostics({
+      "github-copilot": {
+        type: "oauth",
+        access: "oauth-secret",
+        enterpriseUrl: "https://acme.ghe.com",
+      },
+    });
+
+    expect(diagnostics).toMatchObject({
+      effectiveSource: "oauth",
+      deployment: "ghe.com",
+      apiHost: "api.acme.ghe.com",
+      enterpriseHostSource: "oauth",
+      quotaApi: "copilot_internal_user",
+      billingMode: "user_quota",
+      billingScope: "user",
+      billingApiAccessLikely: true,
+      remainingTotalsState: "reported_by_copilot_internal_user",
+      oauthAccountingState: "available_via_copilot_internal_user",
+    });
+    expect(JSON.stringify(diagnostics)).not.toContain("oauth-secret");
+    expect(JSON.stringify(diagnostics)).not.toContain("https://");
+  });
+
+  it("reports an invalid OAuth host safely without exposing its URL or query", async () => {
+    const { getCopilotQuotaAuthDiagnostics } = await import("../src/lib/copilot.js");
+    const diagnostics = getCopilotQuotaAuthDiagnostics({
+      "github-copilot": {
+        type: "oauth",
+        access: "oauth-secret",
+        enterpriseUrl: "https://acme.ghe.com/path?token=oauth-secret",
+      },
+    });
+
+    expect(diagnostics).toMatchObject({
+      effectiveSource: "oauth",
+      deployment: "invalid",
+      apiHost: null,
+      enterpriseHostSource: "none",
+      billingApiAccessLikely: false,
+      oauthAccountingState: "invalid_enterprise_host",
+    });
+    const serialized = JSON.stringify(diagnostics);
+    expect(serialized).not.toContain("oauth-secret");
+    expect(serialized).not.toContain("https://");
+    expect(serialized).not.toContain("?token=");
   });
 });

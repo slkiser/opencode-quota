@@ -1699,6 +1699,12 @@ export async function buildQuotaStatusReport(params: {
   if (copilotDiag.pat.config?.enterprise) {
     copilotRows.push({ key: "pat_enterprise", value: copilotDiag.pat.config.enterprise });
   }
+  copilotRows.push({ key: "deployment", value: copilotDiag.deployment });
+  copilotRows.push({ key: "api_host", value: copilotDiag.apiHost ?? "(none)" });
+  copilotRows.push({ key: "enterprise_host_source", value: copilotDiag.enterpriseHostSource });
+  if (copilotDiag.enterpriseHostError) {
+    copilotRows.push({ key: "enterprise_host_error", value: copilotDiag.enterpriseHostError });
+  }
   copilotRows.push({ key: "billing_mode", value: copilotDiag.billingMode });
   copilotRows.push({ key: "billing_scope", value: copilotDiag.billingScope });
   copilotRows.push({ key: "quota_api", value: copilotDiag.quotaApi });
@@ -1759,7 +1765,7 @@ export async function buildQuotaStatusReport(params: {
   });
   copilotRows.push({
     key: "oauth_configured",
-    value: `${copilotDiag.oauth.configured ? "true" : "false"} key=${copilotDiag.oauth.keyName ?? "(none)"} refresh=${copilotDiag.oauth.hasRefreshToken ? "true" : "false"} access=${copilotDiag.oauth.hasAccessToken ? "true" : "false"}`,
+    value: `${copilotDiag.oauth.configured ? "true" : "false"} key=${copilotDiag.oauth.keyName ?? "(none)"} refresh=${copilotDiag.oauth.hasRefreshToken ? "true" : "false"} access=${copilotDiag.oauth.hasAccessToken ? "true" : "false"} enterprise_host=${copilotDiag.oauth.hasEnterpriseUrl ? "true" : "false"}`,
   });
   copilotRows.push({ key: "effective_source", value: copilotDiag.effectiveSource });
   copilotRows.push({ key: "oauth_accounting_state", value: copilotDiag.oauthAccountingState });

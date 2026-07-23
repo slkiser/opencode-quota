@@ -16,6 +16,7 @@ import type {
   CopilotBudgetResult,
   CopilotEnterpriseUsageResult,
   CopilotOrganizationUsageResult,
+  CopilotPlanResult,
   CopilotQuotaConfig,
   CopilotQuotaResult,
   CopilotResult,
@@ -31,6 +32,7 @@ const GITHUB_API_BASE_URL = "https://api.github.com";
 const GITHUB_API_VERSION = "2026-03-10";
 const COPILOT_QUOTA_CONFIG_FILENAME = "copilot-quota-token.json";
 const USER_AGENT = "opencode-quota/copilot-billing";
+const COPILOT_INTERNAL_USER_PATH = "/copilot_internal/user";
 
 type CopilotAuthKeyName = "github-copilot" | "copilot" | "copilot-chat" | "github-copilot-chat";
 type CopilotPatTokenKind = "github_pat" | "ghp" | "ghu" | "ghs" | "other";
@@ -47,7 +49,10 @@ type CopilotRemainingTotalsState =
   | "value_only_without_denominator"
   | "not_available_from_org_usage"
   | "not_available_from_enterprise_usage"
+  | "reported_by_copilot_internal_user"
   | "unavailable";
+type CopilotDeployment = "github.com" | "ghe.com" | "invalid" | "none";
+type CopilotEnterpriseHostSource = "pat" | "oauth" | "none";
 
 interface BillingPeriodQuery {
   year: number;
@@ -99,7 +104,12 @@ export interface CopilotQuotaAuthDiagnostics {
     keyName: CopilotAuthKeyName | null;
     hasRefreshToken: boolean;
     hasAccessToken: boolean;
+    hasEnterpriseUrl: boolean;
   };
+  deployment: CopilotDeployment;
+  apiHost: string | null;
+  enterpriseHostSource: CopilotEnterpriseHostSource;
+  enterpriseHostError?: string;
   effectiveSource: EffectiveCopilotAuthSource;
   override: "pat_overrides_oauth" | "none";
   quotaApi: CopilotQuotaApi;
@@ -113,7 +123,10 @@ export interface CopilotQuotaAuthDiagnostics {
   tokenCompatibilityError?: string;
   billingModel?: CopilotBillingModel;
   budgetApi: "organization_budgets" | "enterprise_budgets" | "not_available";
-  oauthAccountingState: "not_supported_by_public_billing_api" | "not_configured";
+  oauthAccountingState:
+    | "available_via_copilot_internal_user"
+    | "invalid_enterprise_host"
+    | "not_configured";
 }
 
 interface BillingUsageItem {
@@ -166,6 +179,24 @@ interface GitHubViewerResponse {
   login?: string;
 }
 
+interface CopilotInternalQuotaSnapshot {
+  entitlement?: number;
+  remaining?: number;
+  quota_remaining?: number;
+  percent_remaining?: number;
+  unlimited?: boolean;
+}
+
+interface CopilotInternalUserResponse {
+  copilot_plan?: string;
+  quota_reset_date_utc?: string;
+  quota_reset_date?: string;
+  token_based_billing?: boolean;
+  quota_snapshots?: {
+    premium_interactions?: CopilotInternalQuotaSnapshot;
+  };
+}
+
 interface AiCreditTotals {
   used: number;
   includedUsed: number;
@@ -196,6 +227,69 @@ function dedupeStrings(values: Array<string | undefined | null>): string[] {
   }
 
   return out;
+}
+
+function validateEnterpriseHost(value: unknown): { host?: string; error?: string } {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== "string" || !value.trim()) {
+    return { error: "enterpriseUrl must be a non-empty string when provided" };
+  }
+
+  const raw = value.trim();
+  const invalid = {
+    error:
+      "enterpriseUrl must be a hostname or host-only HTTPS URL ending in .ghe.com (without api. prefix, port, path, query, fragment, or userinfo)",
+  };
+  if (!/^[\x21-\x7e]+$/.test(raw) || raw.includes("*")) return invalid;
+
+  let host: string;
+  if (raw.includes("://")) {
+    const authority = raw.slice(raw.indexOf("//") + 2).split(/[/?#]/u, 1)[0] ?? "";
+    if (authority.includes(":")) return invalid;
+    let url: URL;
+    try {
+      url = new URL(raw);
+    } catch {
+      return invalid;
+    }
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.port ||
+      (url.pathname !== "" && url.pathname !== "/") ||
+      url.search ||
+      url.hash
+    ) {
+      return invalid;
+    }
+    host = url.hostname.toLowerCase();
+  } else {
+    if (/[\/:@?#]/.test(raw)) return invalid;
+    host = raw.toLowerCase();
+  }
+
+  if (host.length > 253 || host.startsWith("api.") || !host.endsWith(".ghe.com")) {
+    return invalid;
+  }
+  const labels = host.split(".");
+  if (
+    labels.some(
+      (label) =>
+        label.length === 0 || label.length > 63 || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label),
+    )
+  ) {
+    return invalid;
+  }
+  return { host };
+}
+
+function getApiBaseUrl(enterpriseHost?: string): string {
+  return enterpriseHost ? `https://api.${enterpriseHost}` : GITHUB_API_BASE_URL;
+}
+
+function getApiHost(apiBaseUrl: string): string {
+  return new URL(apiBaseUrl).hostname;
 }
 
 function classifyPatTokenKind(token: string): CopilotPatTokenKind {
@@ -400,6 +494,8 @@ function validateQuotaConfig(raw: unknown): { config: CopilotQuotaConfig | null;
   };
 
   try {
+    const enterpriseHost = validateEnterpriseHost(obj.enterpriseUrl);
+    if (enterpriseHost.error) throw new Error(enterpriseHost.error);
     const config: CopilotQuotaConfig = {
       token,
       tier: tier as CopilotTier,
@@ -407,6 +503,7 @@ function validateQuotaConfig(raw: unknown): { config: CopilotQuotaConfig | null;
       username: readOptionalString("username"),
       organization: readOptionalString("organization"),
       enterprise: readOptionalString("enterprise"),
+      enterpriseUrl: enterpriseHost.host,
     };
     const resolved = resolvePatBillingTarget(config);
     if (!resolved.target) {
@@ -455,6 +552,10 @@ export function readQuotaConfigWithMeta(): CopilotPatReadResult {
   return { state: "absent", checkedPaths };
 }
 
+function getCopilotOAuthToken(auth: CopilotAuthData | null): string | null {
+  return auth?.access?.trim() || auth?.refresh?.trim() || null;
+}
+
 function selectCopilotAuth(authData: AuthData | null): {
   auth: CopilotAuthData | null;
   keyName: CopilotAuthKeyName | null;
@@ -470,7 +571,7 @@ function selectCopilotAuth(authData: AuthData | null): {
 
   for (const [keyName, auth] of candidates) {
     if (!auth || auth.type !== "oauth") continue;
-    if (!auth.access && !auth.refresh) continue;
+    if (!getCopilotOAuthToken(auth)) continue;
     return { auth, keyName };
   }
 
@@ -497,6 +598,7 @@ export function getCopilotQuotaAuthDiagnostics(
 ): CopilotQuotaAuthDiagnostics {
   const pat = readQuotaConfigWithMeta();
   const { auth, keyName } = selectCopilotAuth(authData);
+  const oauthEnterpriseHost = validateEnterpriseHost(auth?.enterpriseUrl);
   const resolved =
     pat.state === "valid" && pat.config
       ? resolvePatBillingTarget(pat.config)
@@ -511,51 +613,98 @@ export function getCopilotQuotaAuthDiagnostics(
     : auth
       ? "oauth"
       : "none";
-  const billingModel = pat.config?.billingModel ?? "ai_credits";
-  const quotaApi: CopilotQuotaApi =
-    pat.state !== "valid"
+  const effectiveEnterpriseHost =
+    effectiveSource === "pat"
+      ? pat.config?.enterpriseUrl
+      : effectiveSource === "oauth"
+        ? oauthEnterpriseHost.host
+        : undefined;
+  const enterpriseHostError =
+    effectiveSource === "pat" && pat.error?.startsWith("enterpriseUrl")
+      ? pat.error
+      : effectiveSource === "oauth"
+        ? oauthEnterpriseHost.error
+        : undefined;
+  const deployment: CopilotDeployment =
+    effectiveSource === "none"
       ? "none"
-      : billingModel === "legacy_premium_requests"
+      : enterpriseHostError
+        ? "invalid"
+        : effectiveEnterpriseHost
+          ? "ghe.com"
+          : effectiveSource === "pat" && pat.state !== "valid"
+            ? "none"
+            : "github.com";
+  const apiBaseUrl =
+    deployment === "github.com" || deployment === "ghe.com"
+      ? getApiBaseUrl(effectiveEnterpriseHost)
+      : null;
+  const billingModel = pat.config?.billingModel ?? "ai_credits";
+  const oauthAvailable = effectiveSource === "oauth" && Boolean(auth) && !oauthEnterpriseHost.error;
+  const quotaApi: CopilotQuotaApi =
+    pat.state === "valid"
+      ? billingModel === "legacy_premium_requests"
         ? "github_legacy_premium_request_api"
-        : "github_ai_credit_api";
+        : "github_ai_credit_api"
+      : oauthAvailable
+        ? "copilot_internal_user"
+        : "none";
+  const billingMode =
+    resolved.target?.scope === "organization"
+      ? "organization_usage"
+      : resolved.target?.scope === "enterprise"
+        ? "enterprise_usage"
+        : resolved.target?.scope === "user" || oauthAvailable
+          ? "user_quota"
+          : "none";
 
   return {
     pat,
     oauth: {
       configured: Boolean(auth),
       keyName,
-      hasRefreshToken: Boolean(auth?.refresh),
+      hasRefreshToken: Boolean(auth?.refresh?.trim()),
       hasAccessToken: Boolean(auth?.access?.trim()),
+      hasEnterpriseUrl: auth?.enterpriseUrl !== undefined,
     },
+    deployment,
+    apiHost: apiBaseUrl ? getApiHost(apiBaseUrl) : null,
+    enterpriseHostSource:
+      effectiveSource === "pat" && pat.config?.enterpriseUrl
+        ? "pat"
+        : effectiveSource === "oauth" && oauthEnterpriseHost.host
+          ? "oauth"
+          : "none",
+    enterpriseHostError,
     effectiveSource,
     override: patBlocksOAuth && auth ? "pat_overrides_oauth" : "none",
     quotaApi,
-    billingMode:
-      resolved.target?.scope === "organization"
-        ? "organization_usage"
-        : resolved.target?.scope === "enterprise"
-          ? "enterprise_usage"
-          : resolved.target?.scope === "user"
-            ? "user_quota"
-            : "none",
-    billingScope: resolved.target?.scope ?? "none",
+    billingMode,
+    billingScope: resolved.target?.scope ?? (oauthAvailable ? "user" : "none"),
     billingApiAccessLikely:
-      pat.state === "valid" && Boolean(resolved.target) && !resolved.error && !compatibilityError,
-    remainingTotalsState: getRemainingTotalsState(resolved.target, pat.config),
+      oauthAvailable ||
+      (pat.state === "valid" && Boolean(resolved.target) && !resolved.error && !compatibilityError),
+    remainingTotalsState: oauthAvailable
+      ? "reported_by_copilot_internal_user"
+      : getRemainingTotalsState(resolved.target, pat.config),
     queryPeriod: resolved.target?.billingPeriod,
     usernameFilter: pat.config?.username,
     billingTargetError: resolved.error,
     tokenCompatibilityError: compatibilityError ?? undefined,
     billingModel,
     budgetApi:
-      billingModel !== "ai_credits"
+      billingModel !== "ai_credits" || oauthAvailable
         ? "not_available"
         : resolved.target?.scope === "organization"
           ? "organization_budgets"
           : resolved.target?.scope === "enterprise"
             ? "enterprise_budgets"
             : "not_available",
-    oauthAccountingState: auth ? "not_supported_by_public_billing_api" : "not_configured",
+    oauthAccountingState: !auth
+      ? "not_configured"
+      : oauthEnterpriseHost.error
+        ? "invalid_enterprise_host"
+        : "available_via_copilot_internal_user",
   };
 }
 
@@ -612,9 +761,13 @@ async function fetchGitHubRestJson<T>(
   }
 }
 
-async function resolveGitHubUsername(token: string, requestTimeoutMs?: number): Promise<string> {
+async function resolveGitHubUsername(
+  apiBaseUrl: string,
+  token: string,
+  requestTimeoutMs?: number,
+): Promise<string> {
   const response = await fetchGitHubRestJson<GitHubViewerResponse>(
-    `${GITHUB_API_BASE_URL}/user`,
+    `${apiBaseUrl}/user`,
     token,
     requestTimeoutMs,
   );
@@ -638,6 +791,7 @@ function buildBillingQuery(target: CopilotRequestTarget): URLSearchParams {
 }
 
 function getBillingUsageUrl(
+  apiBaseUrl: string,
   target: CopilotRequestTarget,
   billingModel: CopilotBillingModel,
 ): string {
@@ -645,15 +799,16 @@ function getBillingUsageUrl(
   const query = buildBillingQuery(target);
 
   if (target.scope === "enterprise") {
-    return `${GITHUB_API_BASE_URL}/enterprises/${encodeURIComponent(target.enterprise)}/settings/billing/${report}/usage?${query}`;
+    return `${apiBaseUrl}/enterprises/${encodeURIComponent(target.enterprise)}/settings/billing/${report}/usage?${query}`;
   }
   if (target.scope === "organization") {
-    return `${GITHUB_API_BASE_URL}/organizations/${encodeURIComponent(target.organization)}/settings/billing/${report}/usage?${query}`;
+    return `${apiBaseUrl}/organizations/${encodeURIComponent(target.organization)}/settings/billing/${report}/usage?${query}`;
   }
-  return `${GITHUB_API_BASE_URL}/users/${encodeURIComponent(target.username)}/settings/billing/${report}/usage?${query}`;
+  return `${apiBaseUrl}/users/${encodeURIComponent(target.username)}/settings/billing/${report}/usage?${query}`;
 }
 
 async function fetchBillingUsage(params: {
+  apiBaseUrl: string;
   token: string;
   target: CopilotBillingTarget;
   billingModel: CopilotBillingModel;
@@ -665,13 +820,13 @@ async function fetchBillingUsage(params: {
           ...params.target,
           username:
             params.target.username ??
-            (await resolveGitHubUsername(params.token, params.requestTimeoutMs)),
+            (await resolveGitHubUsername(params.apiBaseUrl, params.token, params.requestTimeoutMs)),
         }
       : params.target;
 
   return {
     response: await fetchGitHubRestJson<BillingUsageResponse>(
-      getBillingUsageUrl(target, params.billingModel),
+      getBillingUsageUrl(params.apiBaseUrl, target, params.billingModel),
       params.token,
       params.requestTimeoutMs,
     ),
@@ -834,19 +989,21 @@ function budgetSpecificity(budget: BillingBudget): number {
 }
 
 function getBudgetsUrl(
+  apiBaseUrl: string,
   target: OrganizationBillingTarget | EnterpriseBillingTarget,
   page: number,
 ): string {
   const base =
     target.scope === "organization"
-      ? `${GITHUB_API_BASE_URL}/organizations/${encodeURIComponent(target.organization)}/settings/billing/budgets`
-      : `${GITHUB_API_BASE_URL}/enterprises/${encodeURIComponent(target.enterprise)}/settings/billing/budgets`;
+      ? `${apiBaseUrl}/organizations/${encodeURIComponent(target.organization)}/settings/billing/budgets`
+      : `${apiBaseUrl}/enterprises/${encodeURIComponent(target.enterprise)}/settings/billing/budgets`;
   const query = new URLSearchParams({ page: String(page), per_page: "100" });
   if (target.username) query.set("user", target.username);
   return `${base}?${query}`;
 }
 
 async function fetchApplicableBudget(params: {
+  apiBaseUrl: string;
   token: string;
   target: OrganizationBillingTarget | EnterpriseBillingTarget;
   spentUsd?: number;
@@ -855,7 +1012,7 @@ async function fetchApplicableBudget(params: {
   const budgets: BillingBudget[] = [];
   for (let page = 1; page <= 100; page += 1) {
     const response = await fetchGitHubRestJson<BillingBudgetsResponse>(
-      getBudgetsUrl(params.target, page),
+      getBudgetsUrl(params.apiBaseUrl, params.target, page),
       params.token,
       params.requestTimeoutMs,
     );
@@ -901,6 +1058,7 @@ function makeBudgetWarning(error: unknown): string {
 }
 
 async function toAiCreditResult(params: {
+  apiBaseUrl: string;
   response: BillingUsageResponse;
   target: CopilotRequestTarget;
   config: CopilotQuotaConfig;
@@ -916,6 +1074,7 @@ async function toAiCreditResult(params: {
   if (params.target.scope !== "user") {
     try {
       budget = await fetchApplicableBudget({
+        apiBaseUrl: params.apiBaseUrl,
         token: params.token,
         target: params.target,
         spentUsd: totals.billedAmountUsd,
@@ -992,12 +1151,120 @@ function toQuotaError(message: string): QuotaError {
   return { success: false, error: message };
 }
 
+function buildCopilotInternalHeaders(token: string): Record<string, string> {
+  return {
+    Accept: "application/json",
+    Authorization: `token ${token}`,
+    "Editor-Version": "vscode/1.96.2",
+    "Editor-Plugin-Version": "copilot-chat/0.26.7",
+    "User-Agent": "GitHubCopilotChat/0.26.7",
+    "X-GitHub-Api-Version": "2025-04-01",
+  };
+}
+
+function normalizeCopilotPlan(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const plan = sanitizeDisplayText(value).replace(/\s+/gu, " ").trim().slice(0, 64);
+  return plan || undefined;
+}
+
+function normalizeResetTime(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : undefined;
+}
+
+function parseCopilotInternalUser(
+  response: CopilotInternalUserResponse,
+): CopilotQuotaResult | CopilotPlanResult {
+  const plan = normalizeCopilotPlan(response.copilot_plan);
+  const resetTimeIso = normalizeResetTime(
+    response.quota_reset_date_utc ?? response.quota_reset_date,
+  );
+  const snapshot = response.quota_snapshots?.premium_interactions;
+  const entitlement = readFiniteNumber(snapshot?.entitlement);
+  const remaining = readFiniteNumber(snapshot?.quota_remaining ?? snapshot?.remaining);
+  const percentRemaining = readFiniteNumber(snapshot?.percent_remaining);
+  const hasReportedPercent =
+    percentRemaining !== undefined && percentRemaining >= 0 && percentRemaining <= 100;
+  const isPlaceholder =
+    response.token_based_billing === true &&
+    (!snapshot ||
+      (snapshot.unlimited !== true &&
+        entitlement === 0 &&
+        remaining === 0 &&
+        (!hasReportedPercent || percentRemaining === 0)));
+
+  if (isPlaceholder) {
+    return { success: true, mode: "user_plan", plan, resetTimeIso };
+  }
+  if (snapshot?.unlimited === true) {
+    return {
+      success: true,
+      mode: "user_quota",
+      unit: "ai_credits",
+      used: 0,
+      unlimited: true,
+      plan,
+      resetTimeIso,
+    };
+  }
+  if (
+    entitlement !== undefined &&
+    entitlement > 0 &&
+    remaining !== undefined &&
+    remaining >= 0 &&
+    remaining <= entitlement
+  ) {
+    return {
+      success: true,
+      mode: "user_quota",
+      unit: "ai_credits",
+      used: entitlement - remaining,
+      total: entitlement,
+      percentRemaining: hasReportedPercent ? percentRemaining : undefined,
+      plan,
+      resetTimeIso,
+    };
+  }
+  if (response.token_based_billing === true) {
+    return { success: true, mode: "user_plan", plan, resetTimeIso };
+  }
+  throw new Error("GitHub Copilot user response did not include a usable quota snapshot");
+}
+
+async function fetchCopilotInternalUser(params: {
+  apiBaseUrl: string;
+  token: string;
+  requestTimeoutMs?: number;
+}): Promise<CopilotQuotaResult | CopilotPlanResult> {
+  const response = await fetchWithTimeout(
+    `${params.apiBaseUrl}${COPILOT_INTERNAL_USER_PATH}`,
+    { headers: buildCopilotInternalHeaders(params.token) },
+    params.requestTimeoutMs,
+  );
+  if (!response.ok) {
+    const message = await readGitHubRestErrorMessage(response);
+    throw new Error(`GitHub Copilot API error ${response.status}: ${message}`);
+  }
+
+  let parsed: CopilotInternalUserResponse;
+  try {
+    parsed = (await response.json()) as CopilotInternalUserResponse;
+  } catch {
+    throw new Error("GitHub Copilot API returned malformed JSON");
+  }
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("GitHub Copilot API returned malformed JSON");
+  }
+  return parseCopilotInternalUser(parsed);
+}
+
 /**
  * Query GitHub Copilot accounting.
  *
- * A valid local billing token config is required. OpenCode OAuth remains
- * visible in diagnostics but is not sent to GitHub's public billing API
- * because its billing permissions are not part of the documented contract.
+ * A trusted local PAT config remains authoritative. When it is absent, the
+ * OpenCode-managed Copilot OAuth token can query the per-user internal quota endpoint.
  */
 export async function queryCopilotQuota(
   options: { requestTimeoutMs?: number } = {},
@@ -1010,7 +1277,23 @@ export async function queryCopilotQuota(
     );
   }
   if (pat.state === "absent" || !pat.config) {
-    return null;
+    const { auth } = selectCopilotAuth(await readAuthFile());
+    const token = getCopilotOAuthToken(auth);
+    if (!auth || !token) return null;
+
+    const enterpriseHost = validateEnterpriseHost(auth.enterpriseUrl);
+    if (enterpriseHost.error) {
+      return toQuotaError(`Invalid OpenCode Copilot enterpriseUrl: ${enterpriseHost.error}`);
+    }
+    try {
+      return await fetchCopilotInternalUser({
+        apiBaseUrl: getApiBaseUrl(enterpriseHost.host),
+        token,
+        requestTimeoutMs: options.requestTimeoutMs,
+      });
+    } catch (error) {
+      return toQuotaError(error instanceof Error ? error.message : String(error));
+    }
   }
 
   const resolved = resolvePatBillingTarget(pat.config);
@@ -1023,7 +1306,9 @@ export async function queryCopilotQuota(
 
   try {
     const billingModel = pat.config.billingModel ?? "ai_credits";
+    const apiBaseUrl = getApiBaseUrl(pat.config.enterpriseUrl);
     const { response, target } = await fetchBillingUsage({
+      apiBaseUrl,
       token: pat.config.token,
       target: resolved.target,
       billingModel,
@@ -1033,6 +1318,7 @@ export async function queryCopilotQuota(
     return billingModel === "legacy_premium_requests"
       ? toLegacyResult(response, pat.config)
       : await toAiCreditResult({
+          apiBaseUrl,
           response,
           target,
           config: pat.config,
@@ -1052,6 +1338,9 @@ export async function hasCopilotQuotaRuntimeAvailable(): Promise<boolean> {
 export function formatCopilotQuota(result: CopilotResult): string | null {
   if (!result || !result.success) return null;
 
+  if (result.mode === "user_plan") {
+    return result.plan ? `Copilot Plan ${result.plan}` : "Copilot Plan available";
+  }
   const unit = result.unit === "ai_credits" ? "AI Credits" : "Premium Requests";
   if (result.mode === "organization_usage") {
     return `Copilot Org (${result.organization}) ${result.used} ${unit} | ${formatBillingPeriod(result.period)}`;

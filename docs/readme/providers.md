@@ -212,9 +212,9 @@ A custom model provider still needs its normal OpenCode provider/model config. `
 
 ### GitHub Copilot
 
-GitHub's billing API needs a separate token with billing access. Your normal OpenCode Copilot login does not include that permission.
+Personal quota works automatically from your OpenCode-managed Copilot OAuth login. GitHub.com uses `api.github.com`; a GHE.com login uses the trusted `enterpriseUrl` stored with that OAuth credential and calls `api.<enterprise-host>`.
 
-Create `copilot-quota-token.json` in the OpenCode config directory shown by:
+Organization and enterprise billing reports need a separate token with billing access. Create `copilot-quota-token.json` in the OpenCode config directory shown by:
 
 ```bash
 opencode debug paths
@@ -230,7 +230,7 @@ For a personal Copilot Max plan:
 }
 ```
 
-Use a fine-grained personal access token with **Plan: read**. Supported tiers are `free`, `student`, `pro`, `pro+`, `max`, `business`, and `enterprise`.
+Use a fine-grained personal access token with **Plan: read**. Supported tiers are `free`, `student`, `pro`, `pro+`, `max`, `business`, and `enterprise`. A configured PAT is authoritative and never falls back to or borrows the hostname from OpenCode OAuth.
 
 <details>
 <summary><strong>Organization and enterprise setup</strong></summary>
@@ -250,9 +250,12 @@ Organization example:
   "token": "github_pat_REPLACE_ME",
   "tier": "business",
   "organization": "your-org",
-  "username": "optional-user-filter"
+  "username": "optional-user-filter",
+  "enterpriseUrl": "your-company.ghe.com"
 }
 ```
+
+Omit `enterpriseUrl` for GitHub.com. For GHE.com, use only the enterprise hostname or a host-only HTTPS URL such as `https://your-company.ghe.com`. Paths, queries, fragments, ports, userinfo, wildcards, `api.` prefixes, IP/localhost values, HTTP URLs, and non-`.ghe.com` domains are rejected before any request.
 
 Enterprise example:
 
@@ -262,7 +265,8 @@ Enterprise example:
   "tier": "enterprise",
   "enterprise": "your-enterprise",
   "organization": "optional-org-filter",
-  "username": "optional-user-filter"
+  "username": "optional-user-filter",
+  "enterpriseUrl": "your-company.ghe.com"
 }
 ```
 
@@ -275,7 +279,7 @@ GitHub does not allow fine-grained PATs or GitHub App tokens for enterprise bill
 
 OpenCode Quota reads the current UTC calendar month. It shows used AI Credits, billed credits, billed spend when available, and organization or enterprise budgets when GitHub returns them.
 
-A percentage appears only when GitHub provides a real allowance or positive budget. Otherwise the plugin shows the value without inventing a percentage.
+A percentage appears only when GitHub provides a real allowance or positive budget. Token-based OAuth placeholder responses show the plan only; the plugin does not invent usage, a denominator, or a percentage.
 
 </details>
 
@@ -295,7 +299,7 @@ Use legacy premium requests only if an existing annual Pro or Pro+ plan stayed o
 
 </details>
 
-Official references: [AI Credit billing reports](https://docs.github.com/en/rest/billing/usage?apiVersion=2026-03-10), [billing budgets](https://docs.github.com/en/rest/billing/budgets?apiVersion=2026-03-10), [individual AI Credit allowances](https://docs.github.com/en/copilot/concepts/billing/usage-based-billing-for-individuals), [organization and enterprise pools](https://docs.github.com/en/copilot/concepts/billing/usage-based-billing-for-organizations-and-enterprises), and [legacy annual plans](https://docs.github.com/en/copilot/reference/copilot-billing/request-based-billing-legacy/what-changed-with-billing).
+Official references: [AI Credit billing reports](https://docs.github.com/en/rest/billing/usage?apiVersion=2026-03-10), [billing budgets](https://docs.github.com/en/rest/billing/budgets?apiVersion=2026-03-10), [GHE.com REST hostnames](https://docs.github.com/en/enterprise-cloud@latest/rest/meta/meta), [individual AI Credit allowances](https://docs.github.com/en/copilot/concepts/billing/usage-based-billing-for-individuals), [organization and enterprise pools](https://docs.github.com/en/copilot/concepts/billing/usage-based-billing-for-organizations-and-enterprises), and [legacy annual plans](https://docs.github.com/en/copilot/reference/copilot-billing/request-based-billing-legacy/what-changed-with-billing).
 <a id="anthropic-claude"></a>
 
 ### Anthropic (Claude)

@@ -40,7 +40,11 @@ const copilotMocks = vi.hoisted(() => ({
       keyName: "github-copilot",
       hasRefreshToken: false,
       hasAccessToken: true,
+      hasEnterpriseUrl: false,
     },
+    deployment: "github.com",
+    apiHost: "api.github.com",
+    enterpriseHostSource: "none",
     effectiveSource: "pat",
     override: "pat_overrides_oauth",
     billingMode: "organization_usage",
@@ -48,7 +52,7 @@ const copilotMocks = vi.hoisted(() => ({
     quotaApi: "github_ai_credit_api",
     billingModel: "ai_credits",
     budgetApi: "organization_budgets",
-    oauthAccountingState: "not_supported_by_public_billing_api",
+    oauthAccountingState: "available_via_copilot_internal_user",
     billingApiAccessLikely: true,
     remainingTotalsState: "not_available_from_org_usage",
     queryPeriod: {
@@ -878,15 +882,21 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- api_usage: $3.50 across 2 messages");
     expect(report).toContain("- total_cursor_usage: $4.75 across 3 messages");
     expect(report).toContain("copilot_quota_auth:");
+    expect(report).toContain("- deployment: github.com");
+    expect(report).toContain("- api_host: api.github.com");
+    expect(report).toContain("- enterprise_host_source: none");
     expect(report).toContain("- billing_mode: organization_usage");
     expect(report).toContain("- billing_scope: organization");
     expect(report).toContain("- quota_api: github_ai_credit_api");
     expect(report).toContain("- budget_api: organization_budgets");
-    expect(report).toContain("- oauth_accounting_state: not_supported_by_public_billing_api");
+    expect(report).toContain("- oauth_accounting_state: available_via_copilot_internal_user");
     expect(report).toContain("- billing_api_access_likely: true");
     expect(report).toContain("- remaining_totals_state: not_available_from_org_usage");
     expect(report).toContain("- billing_period: 2026-01");
     expect(report).toContain("- username_filter: alice");
+    expect(report).not.toContain("github_pat_123");
+    expect(report).not.toContain("https://api.github.com");
+    expect(report).not.toContain("?token=");
     expect(report).toContain("google_antigravity:");
     expect(report).toContain("- auth_state: missing");
     expect(report).toContain("- selected_accounts_path: (none)");
@@ -1925,7 +1935,11 @@ describe("buildQuotaStatusReport", () => {
         keyName: null,
         hasRefreshToken: false,
         hasAccessToken: false,
+        hasEnterpriseUrl: false,
       },
+      deployment: "github.com",
+      apiHost: "api.github.com",
+      enterpriseHostSource: "none",
       effectiveSource: "pat",
       override: "none",
       billingMode: "enterprise_usage",

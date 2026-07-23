@@ -19,6 +19,7 @@ import type {
   CopilotBudgetResult,
   CopilotEnterpriseUsageResult,
   CopilotOrganizationUsageResult,
+  CopilotPlanResult,
   CopilotQuotaResult,
 } from "../lib/types.js";
 import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";
@@ -33,8 +34,12 @@ function formatBillingPeriod(period: { year: number; month: number }): string {
   return `${period.year}-${String(period.month).padStart(2, "0")}`;
 }
 
-function getCopilotGroup(mode: "user_quota" | "organization_usage" | "enterprise_usage"): string {
-  return mode === "user_quota" ? "Copilot (personal)" : "Copilot (business)";
+function getCopilotGroup(
+  mode: "user_quota" | "user_plan" | "organization_usage" | "enterprise_usage",
+): string {
+  return mode === "organization_usage" || mode === "enterprise_usage"
+    ? "Copilot (business)"
+    : "Copilot (personal)";
 }
 
 function formatNumber(value: number): string {
@@ -107,6 +112,22 @@ function makeBudgetEntry(
     value,
     resetTimeIso,
   };
+}
+
+function planEntries(result: CopilotPlanResult): QuotaToastEntry[] {
+  return [
+    {
+      kind: "value",
+      accounting: { ...REMOTE_MAINTAINED, resultType: "quota" },
+      name: "Copilot",
+      group: getCopilotGroup(result.mode),
+      label: "Plan:",
+      value: result.plan
+        ? `${result.plan} | quota details unavailable`
+        : "Quota details unavailable",
+      resetTimeIso: result.resetTimeIso,
+    },
+  ];
 }
 
 function personalEntries(result: CopilotQuotaResult): QuotaToastEntry[] {
@@ -208,8 +229,13 @@ export const copilotProvider: QuotaProvider = {
     if (!result) return notAttemptedResult();
     if (!result.success) return attemptedErrorResult("Copilot", result.error);
 
-    const entries = result.mode === "user_quota" ? personalEntries(result) : managedEntries(result);
-    const errors = (result.warnings ?? []).map((message) => ({
+    const entries =
+      result.mode === "user_plan"
+        ? planEntries(result)
+        : result.mode === "user_quota"
+          ? personalEntries(result)
+          : managedEntries(result);
+    const errors = ("warnings" in result ? (result.warnings ?? []) : []).map((message) => ({
       label: "Copilot",
       message,
     }));

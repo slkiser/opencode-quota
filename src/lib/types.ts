@@ -251,6 +251,8 @@ export interface CopilotAuthData {
   refresh?: string;
   access?: string;
   expires?: number;
+  /** OpenCode-managed GitHub Enterprise Cloud hostname for this OAuth credential. */
+  enterpriseUrl?: string;
 }
 
 export type AlibabaCodingPlanTier = "lite" | "pro";
@@ -379,6 +381,8 @@ export interface CopilotQuotaConfig {
    * `/enterprises/{enterprise}/settings/billing/ai_credit/usage`.
    */
   enterprise?: string;
+  /** Optional GitHub Enterprise Cloud hostname or host-only HTTPS URL for this token. */
+  enterpriseUrl?: string;
   /** Copilot subscription tier and billing scope. */
   tier: CopilotTier;
 }
@@ -581,9 +585,17 @@ export interface CopilotQuotaResult {
   billedUsed?: number;
   billedAmountUsd?: number;
   budget?: CopilotBudgetResult;
-  plan?: CopilotTier;
+  plan?: string;
   unlimited?: boolean;
   warnings?: string[];
+  resetTimeIso?: string;
+}
+
+/** Plan-only result when Copilot returns token-billing placeholder quota data. */
+export interface CopilotPlanResult {
+  success: true;
+  mode: "user_plan";
+  plan?: string;
   resetTimeIso?: string;
 }
 
@@ -724,6 +736,7 @@ export interface QuotaError {
 /** Combined quota result */
 export type CopilotResult =
   | CopilotQuotaResult
+  | CopilotPlanResult
   | CopilotOrganizationUsageResult
   | CopilotEnterpriseUsageResult
   | QuotaError

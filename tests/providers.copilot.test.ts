@@ -204,6 +204,31 @@ describe("copilot provider", () => {
     ]);
   });
 
+  it("renders token-billing placeholders as plan-only without a fake percentage or denominator", async () => {
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    (queryCopilotQuota as any).mockResolvedValueOnce({
+      success: true,
+      mode: "user_plan",
+      plan: "business",
+      resetTimeIso: "2026-02-01T00:00:00.000Z",
+    });
+
+    const out = await copilotProvider.fetch({} as any);
+    expectAttemptedWithNoErrors(out);
+    expect(visibleEntries(out.entries, "copilot")).toEqual([
+      {
+        kind: "value",
+        name: "Copilot",
+        group: "Copilot (personal)",
+        label: "Plan:",
+        value: "business | quota details unavailable",
+        resetTimeIso: "2026-02-01T00:00:00.000Z",
+      },
+    ]);
+    expect(out.entries[0]).not.toHaveProperty("percentRemaining");
+    expect(out.entries[0]).not.toHaveProperty("right");
+  });
+
   it("maps explicit failures into provider errors", async () => {
     const { queryCopilotQuota } = await import("../src/lib/copilot.js");
     (queryCopilotQuota as any).mockResolvedValueOnce({
