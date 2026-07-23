@@ -690,6 +690,7 @@ export async function collectQuotaRenderData(params: {
     const sessionTokenResult = await fetchSessionTokensForDisplay({
       enabled: params.config.showSessionTokens,
       sessionID: params.request.sessionID,
+      scope: params.config.sessionTokenScope,
     });
     sessionTokens = sessionTokenResult.sessionTokens;
     sessionTokenError = sessionTokenResult.error;

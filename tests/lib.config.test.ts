@@ -92,6 +92,36 @@ describe("loadConfig", () => {
     expect(removedKey.meta.configIssues).toEqual([]);
   });
 
+  it("defaults and validates session token scope with provenance", async () => {
+    const defaults = await loadSdkConfig({});
+    expect(defaults.config.sessionTokenScope).toBe("current");
+    expect(defaults.meta.settingSources).toEqual({});
+
+    const current = await loadSdkConfig({ sessionTokenScope: "current" });
+    expect(current.config.sessionTokenScope).toBe("current");
+    expect(current.meta.settingSources).toEqual({
+      sessionTokenScope: "client.config.get",
+    });
+
+    const tree = await loadSdkConfig({ sessionTokenScope: "tree" });
+    expect(tree.config.sessionTokenScope).toBe("tree");
+    expect(tree.meta.settingSources).toEqual({
+      sessionTokenScope: "client.config.get",
+    });
+    expect(tree.meta.networkSettingSources).toEqual({});
+
+    const invalid = await loadSdkConfig({ sessionTokenScope: "all" });
+    expect(invalid.config.sessionTokenScope).toBe("current");
+    expect(invalid.meta.settingSources).toEqual({});
+    expect(invalid.meta.configIssues).toEqual([
+      {
+        path: "client.config.get",
+        key: "sessionTokenScope",
+        message: 'expected "current" or "tree"',
+      },
+    ]);
+  });
+
   it("defaults maintainer announcements config and accepts validated nested overrides", async () => {
     const defaults = await loadSdkConfig({});
     expect(defaults.config.maintainerAnnouncements).toEqual(DEFAULT_CONFIG.maintainerAnnouncements);

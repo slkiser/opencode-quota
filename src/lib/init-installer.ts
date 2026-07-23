@@ -38,7 +38,7 @@ import {
   QUOTA_TOAST_CONFIG_RELATIVE_PATH,
   QUOTA_TOAST_CONFIG_RELATIVE_PATHS,
 } from "./config.js";
-import type { QuotaToastConfig, TuiCommandDisplay } from "./types.js";
+import type { QuotaToastConfig, SessionTokenScope, TuiCommandDisplay } from "./types.js";
 
 const QUOTA_PLUGIN_SPEC = "@slkiser/opencode-quota@latest";
 const OPENCODE_SCHEMA_URL = "https://opencode.ai/config.json";
@@ -63,6 +63,7 @@ export interface InitInstallerSelections {
   formatStyle: CanonicalQuotaFormatStyle;
   percentDisplayMode: QuotaToastConfig["percentDisplayMode"];
   showSessionTokens: boolean;
+  sessionTokenScope?: SessionTokenScope;
   tuiCommandDisplay?: TuiCommandDisplay;
   maintainerAnnouncements?: boolean;
   configFormat?: ConfigFileFormat;
@@ -846,6 +847,13 @@ async function planQuotaConfigEdit(params: {
     "quotaToast.showSessionTokens",
     edit,
   );
+  setInstallerOwnedSetting(
+    quotaToast,
+    "sessionTokenScope",
+    params.selections.sessionTokenScope ?? "current",
+    "quotaToast.sessionTokenScope",
+    edit,
+  );
   const requestedProviders = resolveRequestedProviders(params.selections);
   const enabledProviders =
     requestedProviders !== "auto" &&
@@ -908,7 +916,11 @@ async function planQuotaConfigEdit(params: {
       },
       {
         path: ["showSessionTokens"],
-        text: "// Include or hide current-session input and output token totals.",
+        text: "// Include or hide session input and output token totals.",
+      },
+      {
+        path: ["sessionTokenScope"],
+        text: '// Session token totals: "current" session only, or "tree" including descendants.',
       },
       {
         path: ["tuiSidebarPanel"],
@@ -1073,6 +1085,7 @@ function buildPlanSummary(plan: InitInstallerPlan): string[] {
     `Quota reset periods: ${getQuotaFormatStyleLabel(plan.selections.formatStyle)}`,
     `Quota percentage meaning: ${getPercentDisplayModeLabel(plan.selections.percentDisplayMode)}`,
     `Session input/output tokens: ${plan.selections.showSessionTokens ? "Show" : "Hide"}`,
+    `Session token scope: ${plan.selections.sessionTokenScope === "tree" ? "Current session and descendants" : "Current session"}`,
   );
 
   if (plan.selections.maintainerAnnouncements !== undefined) {
@@ -1289,6 +1302,7 @@ type ExistingInstallerAnswers = {
   formatStyle?: CanonicalQuotaFormatStyle;
   percentDisplayMode?: QuotaToastConfig["percentDisplayMode"];
   showSessionTokens?: boolean;
+  sessionTokenScope?: SessionTokenScope;
   tuiCommandDisplay?: TuiCommandDisplay;
   maintainerAnnouncements?: boolean;
 };
@@ -1343,6 +1357,9 @@ async function readExistingInstallerAnswers(baseDir: string): Promise<ExistingIn
   }
   if (typeof quotaToast.showSessionTokens === "boolean") {
     answers.showSessionTokens = quotaToast.showSessionTokens;
+  }
+  if (quotaToast.sessionTokenScope === "current" || quotaToast.sessionTokenScope === "tree") {
+    answers.sessionTokenScope = quotaToast.sessionTokenScope;
   }
   if (quotaToast.tuiCommandDisplay === "inline" || quotaToast.tuiCommandDisplay === "dialog") {
     answers.tuiCommandDisplay = quotaToast.tuiCommandDisplay;
@@ -1548,6 +1565,24 @@ async function promptForSelections(
   });
   if (prompts.isCancel(showSessionTokens)) return null;
 
+  const sessionTokenScope = await prompts.select({
+    message: "Session token scope",
+    initialValue: existing.sessionTokenScope ?? "current",
+    options: [
+      {
+        label: "Current session",
+        value: "current",
+        hint: "preserve the existing session-only totals",
+      },
+      {
+        label: "Current session and descendants",
+        value: "tree",
+        hint: "include child and subagent sessions once",
+      },
+    ],
+  });
+  if (prompts.isCancel(sessionTokenScope)) return null;
+
   if (interfaces !== "web") {
     maintainerAnnouncements = await prompts.confirm({
       message: "Show maintainer announcements on the TUI Home screen when available?",
@@ -1567,6 +1602,7 @@ async function promptForSelections(
     formatStyle: formatStyle as CanonicalQuotaFormatStyle,
     percentDisplayMode: percentDisplayMode as QuotaToastConfig["percentDisplayMode"],
     showSessionTokens: showSessionTokens === "yes",
+    sessionTokenScope: sessionTokenScope as SessionTokenScope,
     tuiCommandDisplay: interfaces === "web" ? undefined : (tuiCommandDisplay as TuiCommandDisplay),
     maintainerAnnouncements: interfaces === "web" ? undefined : maintainerAnnouncements !== false,
     configFormat: configFormat as ConfigFileFormat,

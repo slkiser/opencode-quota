@@ -18,18 +18,19 @@ Strict `.json` files also work. Run `/quota_status` if you are unsure which file
 
 ## Common changes
 
-| You want                                 | Setting                       |
-| ---------------------------------------- | ----------------------------- |
-| Find providers automatically             | `enabledProviders: "auto"`    |
-| Show every reset period                  | `formatStyle: "allWindows"`   |
-| Show one quota window per provider       | `formatStyle: "singleWindow"` |
-| Show quota used instead of left          | `percentDisplayMode: "used"`  |
-| Show slash results with messages         | `tuiCommandDisplay: "inline"` |
-| Show slash results in a TUI popup        | `tuiCommandDisplay: "dialog"` |
-| Turn the TUI sidebar on or off           | `tuiSidebarPanel.enabled`     |
-| Turn popup quota notifications on or off | `enableToast`                 |
-| Turn the compact quota line on or off    | `tuiCompactStatus.enabled`    |
-| Show or hide session input/output tokens | `showSessionTokens`           |
+| You want                                   | Setting                       |
+| ------------------------------------------ | ----------------------------- |
+| Find providers automatically               | `enabledProviders: "auto"`    |
+| Show every reset period                    | `formatStyle: "allWindows"`   |
+| Show one quota window per provider         | `formatStyle: "singleWindow"` |
+| Show quota used instead of left            | `percentDisplayMode: "used"`  |
+| Show slash results with messages           | `tuiCommandDisplay: "inline"` |
+| Show slash results in a TUI popup          | `tuiCommandDisplay: "dialog"` |
+| Turn the TUI sidebar on or off             | `tuiSidebarPanel.enabled`     |
+| Turn popup quota notifications on or off   | `enableToast`                 |
+| Turn the compact quota line on or off      | `tuiCompactStatus.enabled`    |
+| Show or hide session input/output tokens   | `showSessionTokens`           |
+| Include descendant/subagent session tokens | `sessionTokenScope: "tree"`   |
 
 The installer chooses `allWindows` by default. If the setting is absent, the built-in default is `singleWindow`.
 
@@ -55,6 +56,19 @@ The installer chooses `allWindows` by default. If the setting is absent, the bui
 ```
 
 Restart OpenCode after changing the file.
+
+### Include subagent session tokens
+
+Session totals use only the current session by default. To include the current session and every descendant or subagent session once:
+
+```jsonc
+{
+  "showSessionTokens": true,
+  "sessionTokenScope": "tree",
+}
+```
+
+This scope applies to the embedded session-token output in `/quota` on Web and TUI, popup toasts, the TUI sidebar, and the compact line below the message input. It does not change `/tokens_session` or `/tokens_session_all`; those commands keep their explicit current-session and session-tree meanings.
 
 ## Custom providers
 
@@ -276,20 +290,21 @@ Existing `experimental.quotaToast` settings remain supported. Quota settings do 
 
 ### Core/shared settings
 
-| Option                        | Default        | Meaning                                                                                                                                                                                                                                                                                                |
-| ----------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `enabled`                     | `true`         | Master switch for quota collection and handled slash commands. When `false`, `/quota`, `/quota_status`, `/pricing_refresh`, and `/tokens_*` are handled as no-ops.                                                                                                                                     |
-| `enabledProviders`            | `"auto"`       | Auto-detect providers, or set an explicit provider list. Use the aggregate ID `quota-providers` for configured definitions.                                                                                                                                                                            |
-| `quotaProviders`              | `[]`           | Ordered global-only `remote-api` or `local-estimate` definitions maintained in global OpenCode JSONC/JSON. Each item has a stable `id`; `providerId` is only needed when different.                                                                                                                    |
-| `minIntervalMs`               | `300000`       | Minimum fetch interval between provider updates.                                                                                                                                                                                                                                                       |
-| `requestTimeoutMs`            | `5000`         | Remote provider request timeout in milliseconds.                                                                                                                                                                                                                                                       |
-| `formatStyle`                 | `singleWindow` | Shared quota reset-period display for TUI popup toasts, the Sidebar panel, and Compact status line unless a TUI surface override is set: `singleWindow` shows one reset period per provider; `allWindows` shows all reset periods per provider. Legacy `classic`/`grouped` aliases are still accepted. |
-| `percentDisplayMode`          | `remaining`    | Shared quota percentage meaning for TUI popup toasts, the Sidebar panel, and `/quota`: `remaining` shows quota left; `used` shows quota consumed.                                                                                                                                                      |
-| `resetTimeDecimals`           | unset          | Decimal places for compact reset countdowns in popup toasts, the Sidebar panel, and terminal `show`. Accepts integers `0`–`4`; unset preserves the default integer-day and half-hour-step display.                                                                                                     |
-| `onlyCurrentModel`            | `false`        | Filter quota rows to the current model/provider when that session selection can be resolved.                                                                                                                                                                                                           |
-| `showSessionTokens`           | `true`         | Show the `Session input/output tokens` section when session token data is available. When cached input is present, the section keeps the legacy `in/out` layout and appends cached input in parentheses next to the input amount.                                                                      |
-| `pricingSnapshot.source`      | `"auto"`       | Token pricing snapshot selection for `/tokens_*`: `auto`, `bundled`, or `runtime`.                                                                                                                                                                                                                     |
-| `pricingSnapshot.autoRefresh` | `7`            | Refresh stale local pricing data after this many days.                                                                                                                                                                                                                                                 |
+| Option                        | Default        | Meaning                                                                                                                                                                                                                                                                                                             |
+| ----------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`                     | `true`         | Master switch for quota collection and handled slash commands. When `false`, `/quota`, `/quota_status`, `/pricing_refresh`, and `/tokens_*` are handled as no-ops.                                                                                                                                                  |
+| `enabledProviders`            | `"auto"`       | Auto-detect providers, or set an explicit provider list. Use the aggregate ID `quota-providers` for configured definitions.                                                                                                                                                                                         |
+| `quotaProviders`              | `[]`           | Ordered global-only `remote-api` or `local-estimate` definitions maintained in global OpenCode JSONC/JSON. Each item has a stable `id`; `providerId` is only needed when different.                                                                                                                                 |
+| `minIntervalMs`               | `300000`       | Minimum fetch interval between provider updates.                                                                                                                                                                                                                                                                    |
+| `requestTimeoutMs`            | `5000`         | Remote provider request timeout in milliseconds.                                                                                                                                                                                                                                                                    |
+| `formatStyle`                 | `singleWindow` | Shared quota reset-period display for TUI popup toasts, the Sidebar panel, and Compact status line unless a TUI surface override is set: `singleWindow` shows one reset period per provider; `allWindows` shows all reset periods per provider. Legacy `classic`/`grouped` aliases are still accepted.              |
+| `percentDisplayMode`          | `remaining`    | Shared quota percentage meaning for TUI popup toasts, the Sidebar panel, and `/quota`: `remaining` shows quota left; `used` shows quota consumed.                                                                                                                                                                   |
+| `resetTimeDecimals`           | unset          | Decimal places for compact reset countdowns in popup toasts, the Sidebar panel, and terminal `show`. Accepts integers `0`–`4`; unset preserves the default integer-day and half-hour-step display.                                                                                                                  |
+| `onlyCurrentModel`            | `false`        | Filter quota rows to the current model/provider when that session selection can be resolved.                                                                                                                                                                                                                        |
+| `showSessionTokens`           | `true`         | Show the `Session input/output tokens` section when session token data is available. When cached input is present, the section keeps the legacy `in/out` layout and appends cached input in parentheses next to the input amount.                                                                                   |
+| `sessionTokenScope`           | `"current"`    | Choose `current` for the active session only or `tree` for the active session plus recursive descendants/subagents, counted once. Applies to `/quota`, popup toasts, the Sidebar panel, and the compact input line when `showSessionTokens` is enabled. Does not change `/tokens_session` or `/tokens_session_all`. |
+| `pricingSnapshot.source`      | `"auto"`       | Token pricing snapshot selection for `/tokens_*`: `auto`, `bundled`, or `runtime`.                                                                                                                                                                                                                                  |
+| `pricingSnapshot.autoRefresh` | `7`            | Refresh stale local pricing data after this many days.                                                                                                                                                                                                                                                              |
 
 ### TUI toast settings
 

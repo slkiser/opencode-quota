@@ -7,8 +7,13 @@
  */
 
 import type { SessionTokensData } from "./entries.js";
-import { getSessionTokenSummary, SessionNotFoundError } from "./quota-stats.js";
+import {
+  getSessionTokenSummary,
+  getSessionTreeTokenSummary,
+  SessionNotFoundError,
+} from "./quota-stats.js";
 import type { SessionTokenError } from "./quota-status.js";
+import type { SessionTokenScope } from "./types.js";
 
 export interface SessionTokenFetchResult {
   sessionTokens?: SessionTokensData;
@@ -25,11 +30,15 @@ export interface SessionTokenFetchResult {
 export async function fetchSessionTokensForDisplay(params: {
   enabled: boolean;
   sessionID?: string;
+  scope: SessionTokenScope;
 }): Promise<SessionTokenFetchResult> {
   if (!params.enabled || !params.sessionID) return {};
 
   try {
-    const summary = await getSessionTokenSummary(params.sessionID);
+    const summary =
+      params.scope === "tree"
+        ? await getSessionTreeTokenSummary(params.sessionID)
+        : await getSessionTokenSummary(params.sessionID);
     if (summary && summary.models.length > 0) {
       return {
         sessionTokens: {

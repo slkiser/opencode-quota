@@ -87,10 +87,12 @@ describe("init installer planning and merge behavior", () => {
         formatStyle: "allWindows",
         percentDisplayMode: "used",
         showSessionTokens: false,
+        sessionTokenScope: "tree",
       },
     });
 
     expect(plan.baseDir).toBe(projectDir);
+    expect(plan.summaryLines).toContain("Session token scope: Current session and descendants");
     expect(plan.edits.map((edit) => edit.kind)).toEqual(["opencode", "quota", "tui"]);
     expect(plan.quickSetupNotes).toEqual([
       {
@@ -121,6 +123,7 @@ describe("init installer planning and merge behavior", () => {
       formatStyle: "allWindows",
       percentDisplayMode: "used",
       showSessionTokens: false,
+      sessionTokenScope: "tree",
       tuiCommandDisplay: "inline",
     });
     expect(quotaConfig).not.toHaveProperty("tuiQuotaCommandDisplay");
@@ -156,6 +159,8 @@ describe("init installer planning and merge behavior", () => {
     expect(raw).not.toMatch(/^\s*\/\//m);
     const quotaRaw = readFileSync(join(projectDir, "opencode-quota", "quota-toast.json"), "utf8");
     expect(JSON.parse(quotaRaw).tuiCommandDisplay).toBe("inline");
+    expect(JSON.parse(quotaRaw).sessionTokenScope).toBe("current");
+    expect(plan.summaryLines).toContain("Session token scope: Current session");
     expect(quotaRaw).not.toContain("//");
   });
 
@@ -964,6 +969,7 @@ describe("init installer planning and merge behavior", () => {
         "singleWindow",
         "remaining",
         "yes",
+        "current",
       ],
       multiselectValues: [["sidebar", "compact_status"]],
       confirmValues: [true, true],
@@ -1076,11 +1082,21 @@ describe("init installer planning and merge behavior", () => {
         hint: "include current-session input and output totals",
       },
     ]);
+    expect(
+      prompts.selectCalls.find((call) => call.message === "Session token scope"),
+    ).toMatchObject({
+      initialValue: "current",
+      options: [
+        expect.objectContaining({ value: "current" }),
+        expect.objectContaining({ value: "tree" }),
+      ],
+    });
     expect(prompts.confirmCalls[0]).toEqual({
       message: "Show maintainer announcements on the TUI Home screen when available?",
       initialValue: true,
     });
     const quotaConfig = readJson(join(tempDir, "opencode-quota", "quota-toast.json"));
+    expect(quotaConfig.sessionTokenScope).toBe("current");
     expect(quotaConfig.tuiSidebarPanel).toEqual({ enabled: true });
     expect(quotaConfig.tuiCompactStatus).toMatchObject({
       enabled: true,
@@ -1101,6 +1117,7 @@ describe("init installer planning and merge behavior", () => {
         "formatStyle": "singleWindow",
         "percentDisplayMode": "remaining",
         "showSessionTokens": false,
+        "sessionTokenScope": "tree",
         "tuiCommandDisplay": "inline",
         "tuiSidebarPanel": { "enabled": true },
         "maintainerAnnouncements": { "enabled": true }
@@ -1108,7 +1125,17 @@ describe("init installer planning and merge behavior", () => {
       "utf8",
     );
     const prompts = createPromptStub({
-      selectValues: ["tui", "project", "jsonc", "dialog", "manual", "allWindows", "used", "yes"],
+      selectValues: [
+        "tui",
+        "project",
+        "jsonc",
+        "dialog",
+        "manual",
+        "allWindows",
+        "used",
+        "yes",
+        "tree",
+      ],
       multiselectValues: [["toast"], ["anthropic"]],
       confirmValues: [false, false],
     });
@@ -1131,6 +1158,9 @@ describe("init installer planning and merge behavior", () => {
     expect(
       prompts.selectCalls.find((call) => call.message === "Quota reset periods"),
     ).toMatchObject({ initialValue: "singleWindow" });
+    expect(
+      prompts.selectCalls.find((call) => call.message === "Session token scope"),
+    ).toMatchObject({ initialValue: "tree" });
     expect(prompts.outroCalls).toContain("OpenCode Quota setup cancelled — no files changed.");
   });
 
@@ -1145,6 +1175,7 @@ describe("init installer planning and merge behavior", () => {
         "singleWindow",
         "remaining",
         "yes",
+        "current",
       ],
       multiselectValues: [["none"]],
       confirmValues: [false, true],
@@ -1248,6 +1279,7 @@ describe("init installer planning and merge behavior", () => {
         "singleWindow",
         "remaining",
         "yes",
+        "current",
       ],
       multiselectValues: [["toast"]],
       confirmValues: [true, false],
@@ -1273,6 +1305,7 @@ describe("init installer planning and merge behavior", () => {
         "singleWindow",
         "remaining",
         "yes",
+        "current",
       ],
       multiselectValues: [["toast"]],
       confirmValues: [true],
@@ -1316,6 +1349,7 @@ describe("init installer planning and merge behavior", () => {
         "singleWindow",
         "remaining",
         "yes",
+        "current",
       ],
       multiselectValues: [["toast"]],
     });

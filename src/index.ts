@@ -56,6 +56,7 @@ export type {
   MaintainerAnnouncementsConfig,
   GoogleModelId,
   PricingSnapshotSource,
+  SessionTokenScope,
   CopilotEnterpriseUsageResult,
   CopilotOrganizationUsageResult,
   CopilotQuotaResult,

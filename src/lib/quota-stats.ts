@@ -22,11 +22,7 @@ import {
   resolveCursorModel,
 } from "./cursor-pricing.js";
 import { calculateUsdFromTokenBuckets } from "./token-cost.js";
-import {
-  addTokenBuckets,
-  emptyTokenBuckets,
-  tokenBucketsFromMessage,
-} from "./token-buckets.js";
+import { addTokenBuckets, emptyTokenBuckets, tokenBucketsFromMessage } from "./token-buckets.js";
 import type { TokenBuckets } from "./token-buckets.js";
 
 // Re-export for consumers
@@ -164,7 +160,10 @@ function freeSuffixCandidates(modelId: string): string[] {
   return candidates.filter((value, index, list) => list.indexOf(value) === index);
 }
 
-function pickBestModelForProvider(providerID: string, candidates: readonly string[]): string | null {
+function pickBestModelForProvider(
+  providerID: string,
+  candidates: readonly string[],
+): string | null {
   for (const candidate of candidates) {
     if (hasCost(providerID, candidate)) return candidate;
   }
@@ -270,7 +269,10 @@ function moonshotaiPricingCandidates(model: string): string[] {
 
 function resolveModelForProvider(providerID: string, normalizedModel: string): string | null {
   if (!isModelsDevProviderId(providerID)) return null;
-  const preferredDirect = pickBestModelForProvider(providerID, freeSuffixCandidates(normalizedModel));
+  const preferredDirect = pickBestModelForProvider(
+    providerID,
+    freeSuffixCandidates(normalizedModel),
+  );
   if (preferredDirect) return preferredDirect;
 
   // Some source ids include "-thinking" while snapshot keeps a base key (or vice versa).
@@ -345,11 +347,7 @@ export function resolvePricingKey(source: {
 
   const tryProvider = (
     providerID: string | undefined,
-    method:
-      | "source_provider"
-      | "model_prefix"
-      | "alias_fallback"
-      | "cursor_api_alias",
+    method: "source_provider" | "model_prefix" | "alias_fallback" | "cursor_api_alias",
     modelIDHint: string = normalizedModel,
   ): PricingResolution | null => {
     if (!providerID) return null;
@@ -635,7 +633,8 @@ export async function aggregateUsage(params: {
 
     const cacheKey = `${msg.providerID ?? ""}|||${msg.modelID ?? ""}`;
     const cached = resolutionCache.get(cacheKey);
-    const mapping = cached ?? resolvePricingKey({ providerID: msg.providerID, modelID: msg.modelID });
+    const mapping =
+      cached ?? resolvePricingKey({ providerID: msg.providerID, modelID: msg.modelID });
     if (!cached) resolutionCache.set(cacheKey, mapping);
 
     if (!mapping.ok) {
@@ -835,15 +834,16 @@ export type SessionTokenSummary = {
   totalOutput: number;
 };
 
-export async function getSessionTokenSummary(
+function summarizeSessionTokenMessages(
   sessionID: string,
-): Promise<SessionTokenSummary | null> {
-  // Use session-scoped iterator for better performance (only reads this session's directory)
-  const sessionMessages = await iterAssistantMessagesForSession({ sessionID });
-
+  sessionMessages: readonly OpenCodeMessage[],
+): SessionTokenSummary | null {
   if (sessionMessages.length === 0) return null;
 
-  const byModel = new Map<string, { input: number; cachedInput: number; totalInput: number; output: number }>();
+  const byModel = new Map<
+    string,
+    { input: number; cachedInput: number; totalInput: number; output: number }
+  >();
   let totalInput = 0;
   let totalCachedInput = 0;
   let totalCombinedInput = 0;
@@ -898,4 +898,22 @@ export async function getSessionTokenSummary(
     totalCombinedInput,
     totalOutput,
   };
+}
+
+export async function getSessionTokenSummary(
+  sessionID: string,
+): Promise<SessionTokenSummary | null> {
+  // Use session-scoped iterator for better performance (only reads this session's directory)
+  const sessionMessages = await iterAssistantMessagesForSession({ sessionID });
+  return summarizeSessionTokenMessages(sessionID, sessionMessages);
+}
+
+export async function getSessionTreeTokenSummary(
+  rootSessionID: string,
+): Promise<SessionTokenSummary | null> {
+  const sessionIDs = [
+    ...new Set((await resolveSessionTree(rootSessionID)).map((node) => node.sessionID)),
+  ];
+  const sessionMessages = await iterAssistantMessagesForSessions({ sessionIDs });
+  return summarizeSessionTokenMessages(rootSessionID, sessionMessages);
 }

@@ -13,6 +13,7 @@ import type {
   GoogleModelId,
   PercentDisplayMode,
   PricingSnapshotSource,
+  SessionTokenScope,
   TuiCommandDisplay,
 } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
@@ -63,6 +64,7 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "toastDurationMs",
   "onlyCurrentModel",
   "showSessionTokens",
+  "sessionTokenScope",
   "tuiSidebarPanel.enabled",
   "tuiSidebarPanel.formatStyle",
   "tuiCompactStatus.enabled",
@@ -166,6 +168,7 @@ type ValidatedQuotaToastPatch = {
   toastDurationMs?: number;
   onlyCurrentModel?: boolean;
   showSessionTokens?: boolean;
+  sessionTokenScope?: SessionTokenScope;
   tuiSidebarPanel?: TuiSidebarPanelPatch;
   tuiCompactStatus?: TuiCompactStatusPatch;
   maintainerAnnouncements?: MaintainerAnnouncementsPatch;
@@ -231,6 +234,10 @@ function isValidPercentDisplayMode(value: unknown): value is PercentDisplayMode 
 
 function isValidTuiCommandDisplay(value: unknown): value is TuiCommandDisplay {
   return value === "inline" || value === "dialog";
+}
+
+function isValidSessionTokenScope(value: unknown): value is SessionTokenScope {
+  return value === "current" || value === "tree";
 }
 
 function isPositiveNumber(value: unknown): value is number {
@@ -701,6 +708,14 @@ function extractValidatedQuotaToastPatch(
     patch.showSessionTokens = quotaToastConfig.showSessionTokens;
   }
 
+  if (hasOwnKey(quotaToastConfig, "sessionTokenScope")) {
+    if (isValidSessionTokenScope(quotaToastConfig.sessionTokenScope)) {
+      patch.sessionTokenScope = quotaToastConfig.sessionTokenScope;
+    } else {
+      reportIssue?.("sessionTokenScope", 'expected "current" or "tree"');
+    }
+  }
+
   if (hasOwnKey(quotaToastConfig, "tuiSidebarPanel")) {
     const tuiSidebarPanel = extractTuiSidebarPanelPatch(quotaToastConfig.tuiSidebarPanel);
     if (tuiSidebarPanel) {
@@ -888,6 +903,11 @@ function applyValidatedQuotaToastPatch(
   if (hasOwnKey(patch, "showSessionTokens")) {
     config.showSessionTokens = patch.showSessionTokens!;
     applySettingSource(settingSources, "showSessionTokens", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "sessionTokenScope")) {
+    config.sessionTokenScope = patch.sessionTokenScope!;
+    applySettingSource(settingSources, "sessionTokenScope", sourcePath);
   }
 
   if (patch.tuiSidebarPanel) {

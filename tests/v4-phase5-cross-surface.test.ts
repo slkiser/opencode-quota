@@ -83,7 +83,8 @@ function configFor(formatStyle: "allWindows" | "singleWindow") {
     showOnIdle: true,
     showOnCompact: true,
     showOnQuestion: false,
-    showSessionTokens: false,
+    showSessionTokens: true,
+    sessionTokenScope: "tree",
     maintainerAnnouncements: {
       enabled: false,
       home: false,
@@ -128,6 +129,10 @@ async function expectHandled(value: unknown): Promise<void> {
   throw new Error("Expected the ADR 0002 handled sentinel");
 }
 
+function assertTreeSessionTokenTotals(output: string): void {
+  expect(output).toMatch(/1\.2K[^\n]*300[^\n]*45/u);
+}
+
 function assertFixtureContent(output: string): void {
   expect(output).toContain("64%");
   expect(output).toContain("$12.34");
@@ -156,6 +161,23 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     seedDefaultPluginBootstrapMocks(mocks, {
       configOverrides: currentConfig,
       resetPluginState: true,
+    });
+    mocks.fetchSessionTokensForDisplay.mockResolvedValue({
+      sessionTokens: {
+        models: [
+          {
+            modelID: "tree-model",
+            input: 1200,
+            cachedInput: 300,
+            totalInput: 1500,
+            output: 45,
+          },
+        ],
+        totalInput: 1200,
+        totalCachedInput: 300,
+        totalCombinedInput: 1500,
+        totalOutput: 45,
+      },
     });
     mocks.loadConfig.mockImplementation(async () => currentConfig);
 
@@ -238,6 +260,8 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(serverOutput).toMatch(/Month quota\s+[█░]{10}\s+64% left · 64\/100 · reset /);
     expect(serverOutput).toMatch(/Balance\s+\$12\.34/);
     assertFixtureContent(serverOutput);
+    assertTreeSessionTokenTotals(serverOutput);
+    expect(serverOutput).toContain("tree-model");
 
     await hooks.event?.({
       event: {
@@ -248,6 +272,8 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(client.tui.showToast).toHaveBeenCalledTimes(1);
     const toastOutput = getToastMessage(client);
     assertFixtureContent(toastOutput);
+    assertTreeSessionTokenTotals(toastOutput);
+    expect(toastOutput).toContain("tree-model");
 
     const callsAfterFirstToast = vi.mocked(globalThis.fetch).mock.calls.length;
     await hooks.event?.({
@@ -297,18 +323,23 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       ...(allWindows.sidebar.linesExpanded ?? []),
     ].join("\n");
     assertFixtureContent(allWindowsSidebar);
+    assertTreeSessionTokenTotals(allWindowsSidebar);
+    expect(allWindowsSidebar).toContain("tree-model");
     const sessionPromptCompact =
       allWindows.compact.status === "ready" ? allWindows.compact.text : "";
     expect(sessionPromptCompact).toContain("64%");
     expect(sessionPromptCompact).toContain("$12.34");
     expect(sessionPromptCompact).toContain("80%");
     expect(sessionPromptCompact).toContain("issue");
+    expect(sessionPromptCompact).toContain("tok 1.2K (300) in / 45 out");
+    assertTreeSessionTokenTotals(sessionPromptCompact);
     assertPhase5CanariesRedacted(sessionPromptCompact);
 
     const homeBottom = await loadTuiHomeBottomStatus({ api: tuiApi });
     expect(homeBottom.status).toBe("ready");
     const homeCompact = homeBottom.compact.status === "ready" ? homeBottom.compact.text : "";
-    expect(homeCompact).toBe(sessionPromptCompact);
+    expect(homeCompact).toBe(sessionPromptCompact.replace(/ \| tok [^|]+(?= \|)/u, ""));
+    expect(homeCompact).not.toContain("tok ");
     assertPhase5CanariesRedacted(homeCompact);
 
     currentConfig = configFor("singleWindow");
@@ -324,6 +355,13 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(singleWindowSidebar).toContain("HTTP 503");
     assertPhase5FixtureOrder(singleWindowSidebar);
     assertPhase5CanariesRedacted(singleWindowSidebar);
+    assertTreeSessionTokenTotals(singleWindowSidebar);
+
+    expect(mocks.fetchSessionTokensForDisplay).toHaveBeenCalledWith({
+      enabled: true,
+      sessionID: "phase5-session",
+      scope: "tree",
+    });
 
     const allOutput = JSON.stringify({
       serverOutput,

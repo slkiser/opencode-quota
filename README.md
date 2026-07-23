@@ -87,6 +87,7 @@ More ways to use it:
 - Use JSON output in scripts, status bars, CI checks, and other tools
 - Run the same slash commands in the TUI, Web, and Desktop
 - Tune reset countdown precision without changing the default compact display
+- Choose current-session or descendant-tree token totals across `/quota`, toasts, the sidebar, and the compact input line
 - Diagnose authentication, quota sources, pricing, and maintainer notices
 
 See [Configuration](docs/readme/configuration.md) for UI options and [Manual install](docs/readme/manual-install.md) for setup details.

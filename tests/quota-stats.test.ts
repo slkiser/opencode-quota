@@ -65,6 +65,7 @@ vi.mock("../src/lib/token-cost.js", () => ({
 import {
   aggregateUsage,
   getSessionTokenSummary,
+  getSessionTreeTokenSummary,
   resolveSessionTree,
   SessionNotFoundError,
 } from "../src/lib/quota-stats.js";
@@ -150,6 +151,80 @@ describe("quota stats session tree", () => {
 describe("session token summary", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("aggregates the current session and unique descendants without pricing", async () => {
+    const storage = await import("../src/lib/opencode-storage.js");
+    (storage.readAllSessionsIndex as any).mockResolvedValue({
+      ses_root: {
+        id: "ses_root",
+        parentID: "ses_leaf",
+        title: "Root",
+        time: { created: 1 },
+      },
+      ses_child: {
+        id: "ses_child",
+        parentID: "ses_root",
+        title: "Child",
+        time: { created: 2 },
+      },
+      ses_leaf: {
+        id: "ses_leaf",
+        parentID: "ses_child",
+        title: "Leaf",
+        time: { created: 3 },
+      },
+    });
+    (storage.iterAssistantMessagesForSessions as any).mockResolvedValue([
+      {
+        sessionID: "ses_root",
+        role: "assistant",
+        modelID: "gpt-5",
+        tokens: { input: 10, output: 5, cache: { read: 4 } },
+      },
+      {
+        sessionID: "ses_child",
+        role: "assistant",
+        modelID: "gpt-5",
+        tokens: { input: 2, output: 3, cache: { read: 6 } },
+      },
+      {
+        sessionID: "ses_leaf",
+        role: "assistant",
+        modelID: "future-model",
+        tokens: { input: 1, output: 1, cache: { read: 0 } },
+      },
+    ]);
+
+    const result = await getSessionTreeTokenSummary("ses_root");
+
+    expect(storage.iterAssistantMessagesForSessions).toHaveBeenCalledWith({
+      sessionIDs: ["ses_root", "ses_child", "ses_leaf"],
+    });
+    expect(storage.iterAssistantMessagesForSession).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      sessionID: "ses_root",
+      totalInput: 13,
+      totalCachedInput: 10,
+      totalCombinedInput: 23,
+      totalOutput: 9,
+      models: [
+        {
+          modelID: "gpt-5",
+          input: 12,
+          cachedInput: 10,
+          totalInput: 22,
+          output: 8,
+        },
+        {
+          modelID: "future-model",
+          input: 1,
+          cachedInput: 0,
+          totalInput: 1,
+          output: 1,
+        },
+      ],
+    });
   });
 
   it("returns new and cached input token totals separately", async () => {

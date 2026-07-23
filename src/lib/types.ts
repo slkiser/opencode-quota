@@ -22,6 +22,7 @@ export type GoogleAgyAuthSourceKey = "google-agy" | "opencode-agy-auth" | "googl
 export type CursorQuotaPlan = "none" | "pro" | "pro-plus" | "ultra";
 export type PricingSnapshotSource = "auto" | "bundled" | "runtime";
 export type PercentDisplayMode = "remaining" | "used";
+export type SessionTokenScope = "current" | "tree";
 export type OpenCodeGoWindowKey = "rolling" | "weekly" | "monthly";
 
 export interface PricingSnapshotConfig {
@@ -157,6 +158,9 @@ export interface QuotaToastConfig {
    */
   showSessionTokens: boolean;
 
+  /** Sessions included in the displayed session input/output token totals. */
+  sessionTokenScope: SessionTokenScope;
+
   /** TUI sidebar panel visibility when the TUI plugin is installed. */
   tuiSidebarPanel: TuiSidebarPanelConfig;
 
@@ -216,6 +220,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   toastDurationMs: 9000,
   onlyCurrentModel: false,
   showSessionTokens: true,
+  sessionTokenScope: "current",
   tuiSidebarPanel: {
     enabled: true,
   },
