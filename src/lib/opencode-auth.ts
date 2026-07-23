@@ -9,7 +9,11 @@
 import { readFile } from "fs/promises";
 import { join } from "path";
 
-import { getOpencodeRuntimeDirCandidates, getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
+import { writeJsonAtomic } from "./atomic-json.js";
+import {
+  getOpencodeRuntimeDirCandidates,
+  getOpencodeRuntimeDirs,
+} from "./opencode-runtime-paths.js";
 
 import type { AuthData } from "./types.js";
 
@@ -22,6 +26,44 @@ type AuthCacheEntry = {
 };
 
 let authCache: AuthCacheEntry | null = null;
+
+type AuthFileSnapshot = {
+  path: string;
+  data: Record<string, unknown>;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function getAuthContentOverride(): Record<string, unknown> | null {
+  const content = process.env.OPENCODE_AUTH_CONTENT;
+  if (!content) return null;
+
+  try {
+    const data = JSON.parse(content);
+    return isRecord(data) ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+export function hasOpenCodeAuthContentOverride(): boolean {
+  return getAuthContentOverride() !== null;
+}
+
+async function readAuthFileSnapshot(): Promise<AuthFileSnapshot | null> {
+  for (const path of getAuthPaths()) {
+    try {
+      const data = JSON.parse(await readFile(path, "utf-8"));
+      if (isRecord(data)) return { path, data };
+    } catch {
+      // Try next path.
+    }
+  }
+
+  return null;
+}
 
 /**
  * Get candidate auth.json paths in priority order.
@@ -42,18 +84,74 @@ export function getAuthPath(): string {
 }
 
 export async function readAuthFile(): Promise<AuthData | null> {
-  const paths = getAuthPaths();
+  const overridden = getAuthContentOverride();
+  if (overridden) return overridden as AuthData;
 
-  for (const path of paths) {
-    try {
-      const content = await readFile(path, "utf-8");
-      return JSON.parse(content) as AuthData;
-    } catch {
-      // Try next path
-    }
+  const snapshot = await readAuthFileSnapshot();
+  return snapshot ? (snapshot.data as AuthData) : null;
+}
+
+/**
+ * Checks that the on-disk xAI OAuth entry still matches the token used for a
+ * refresh. OPENCODE_AUTH_CONTENT is immutable from the plugin's perspective.
+ */
+export async function isCurrentXaiOAuth(params: {
+  access: string;
+  refresh: string;
+}): Promise<boolean> {
+  if (hasOpenCodeAuthContentOverride()) return false;
+
+  const snapshot = await readAuthFileSnapshot();
+  const xai = snapshot?.data.xai;
+  return (
+    isRecord(xai) &&
+    xai.type === "oauth" &&
+    xai.access === params.access &&
+    xai.refresh === params.refresh
+  );
+}
+
+/**
+ * Atomically replaces only the xAI OAuth entry while retaining every other
+ * auth.json record, including credentials unknown to OpenCode itself.
+ */
+export async function updateCurrentXaiOAuth(params: {
+  expectedAccess: string;
+  expectedRefresh: string;
+  access: string;
+  refresh: string;
+  expires: number;
+}): Promise<boolean> {
+  if (hasOpenCodeAuthContentOverride()) return false;
+
+  const snapshot = await readAuthFileSnapshot();
+  const current = snapshot?.data.xai;
+  if (
+    !snapshot ||
+    !isRecord(current) ||
+    current.type !== "oauth" ||
+    current.access !== params.expectedAccess ||
+    current.refresh !== params.expectedRefresh
+  ) {
+    return false;
   }
 
-  return null;
+  await writeJsonAtomic(
+    snapshot.path,
+    {
+      ...snapshot.data,
+      xai: {
+        ...current,
+        type: "oauth",
+        access: params.access,
+        refresh: params.refresh,
+        expires: params.expires,
+      },
+    },
+    { trailingNewline: true, mode: 0o600, replaceOnRenameError: false },
+  );
+  authCache = null;
+  return true;
 }
 
 /**

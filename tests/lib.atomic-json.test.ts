@@ -72,4 +72,19 @@ describe("atomic-json", () => {
     expect(fs.rm).toHaveBeenCalledWith(tmpPath, { force: true });
     expect(fs.rename).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps the destination when replacement is disabled", async () => {
+    const fs = await import("fs/promises");
+    const { writeJsonAtomic } = await import("../src/lib/atomic-json.js");
+    const renameError = Object.assign(new Error("destination exists"), { code: "EPERM" });
+    (fs.rename as any).mockRejectedValueOnce(renameError);
+
+    await expect(
+      writeJsonAtomic("/tmp/opencode/auth.json", { ok: true }, { replaceOnRenameError: false }),
+    ).rejects.toThrow("destination exists");
+
+    const [tmpPath] = (fs.writeFile as any).mock.calls[0];
+    expect(fs.rm).toHaveBeenCalledWith(tmpPath, { force: true });
+    expect(fs.rm).not.toHaveBeenCalledWith("/tmp/opencode/auth.json", { force: true });
+  });
 });

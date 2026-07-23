@@ -1,23 +1,35 @@
 /**
  * xAI SuperGrok subscription quota fetcher.
  *
- * Uses OpenCode's read-only `xai` OAuth entry and queries the same shared
- * period meter exposed by Grok Build:
+ * Uses OpenCode's `xai` OAuth entry and queries the shared period meter
+ * exposed by Grok Build:
  * GET https://cli-chat-proxy.grok.com/v1/billing?format=credits
  *
- * OpenCode remains the sole owner of OAuth refresh and auth.json persistence.
+ * Expired OAuth credentials are refreshed and then atomically saved back to
+ * the matching xAI entry without changing unrelated auth.json credentials.
  */
 
 import { sanitizeSingleLineDisplaySnippet } from "./display-sanitize.js";
 import { clampPercent } from "./format-utils.js";
 import { fetchWithTimeout } from "./http.js";
-import { readAuthFile, readAuthFileCached } from "./opencode-auth.js";
+import {
+  hasOpenCodeAuthContentOverride,
+  isCurrentXaiOAuth,
+  readAuthFile,
+  readAuthFileCached,
+  updateCurrentXaiOAuth,
+} from "./opencode-auth.js";
 import type { AuthData, QuotaError } from "./types.js";
 
 export const DEFAULT_XAI_AUTH_CACHE_MAX_AGE_MS = 5_000;
+export const XAI_ACCESS_TOKEN_REFRESH_SKEW_MS = 120_000;
 
 const CREDITS_URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
+const TOKEN_URL = "https://auth.x.ai/oauth2/token";
+const XAI_CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828";
 const USER_AGENT = "OpenCode-Quota-Toast/1.0";
+const XAI_CONCURRENT_REFRESH_READ_ATTEMPTS = 3;
+const XAI_CONCURRENT_REFRESH_READ_DELAY_MS = 50;
 
 export type XaiPeriodKind = "weekly" | "monthly" | "daily" | "period";
 
@@ -41,8 +53,18 @@ export type ResolvedXaiOAuth =
   | {
       state: "configured";
       accessToken: string;
+      refreshToken?: string;
       expiresAt?: number;
     };
+
+type ConfiguredXaiOAuth = Extract<ResolvedXaiOAuth, { state: "configured" }>;
+type XaiOAuthRefreshResult = ConfiguredXaiOAuth | QuotaError;
+
+export interface QueryXaiQuotaOptions {
+  requestTimeoutMs?: number;
+}
+
+const xaiOAuthRefreshInFlight = new Map<string, Promise<XaiOAuthRefreshResult>>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -91,6 +113,7 @@ export function resolveXaiOAuth(auth: AuthData | null | undefined): ResolvedXaiO
   return {
     state: "configured",
     accessToken,
+    refreshToken: getNonEmptyString(entry.refresh),
     expiresAt:
       typeof entry.expires === "number" && Number.isFinite(entry.expires)
         ? entry.expires
@@ -107,6 +130,179 @@ export async function hasXaiOAuthCached(params?: { maxAgeMs?: number }): Promise
     maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_XAI_AUTH_CACHE_MAX_AGE_MS),
   });
   return hasXaiOAuth(auth);
+}
+
+function accessTokenIsExpiring(accessToken: string): boolean {
+  const payload = accessToken.split(".")[1];
+  if (!payload) return false;
+
+  try {
+    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
+      exp?: unknown;
+    };
+    return (
+      typeof claims.exp === "number" &&
+      Number.isFinite(claims.exp) &&
+      claims.exp * 1_000 <= Date.now() + XAI_ACCESS_TOKEN_REFRESH_SKEW_MS
+    );
+  } catch {
+    return false;
+  }
+}
+
+function needsXaiOAuthRefresh(auth: ConfiguredXaiOAuth): boolean {
+  // Preserve access-only credentials from older OpenCode/companion auth
+  // formats. Without a refresh token, querying the current bearer is safer
+  // than treating an absent stored expiry as an unrecoverable auth failure.
+  if (!auth.expiresAt && !auth.refreshToken) return false;
+
+  return (
+    !auth.expiresAt ||
+    auth.expiresAt - Date.now() <= XAI_ACCESS_TOKEN_REFRESH_SKEW_MS ||
+    accessTokenIsExpiring(auth.accessToken)
+  );
+}
+
+async function readUpdatedXaiOAuth(
+  auth: ConfiguredXaiOAuth,
+): Promise<ConfiguredXaiOAuth | undefined> {
+  for (let attempt = 0; attempt < XAI_CONCURRENT_REFRESH_READ_ATTEMPTS; attempt++) {
+    const updated = resolveXaiOAuth(await readAuthFile());
+    if (updated.state === "configured" && !needsXaiOAuthRefresh(updated)) {
+      const changed =
+        updated.accessToken !== auth.accessToken ||
+        updated.refreshToken !== auth.refreshToken ||
+        updated.expiresAt !== auth.expiresAt;
+      if (changed) return updated;
+    }
+
+    if (attempt + 1 < XAI_CONCURRENT_REFRESH_READ_ATTEMPTS) {
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, XAI_CONCURRENT_REFRESH_READ_DELAY_MS),
+      );
+    }
+  }
+
+  return undefined;
+}
+
+function refreshError(error: string): QuotaError {
+  return { success: false, error };
+}
+
+function isQuotaError(result: XaiOAuthRefreshResult): result is QuotaError {
+  return "success" in result && result.success === false;
+}
+
+async function refreshXaiOAuth(params: {
+  auth: ConfiguredXaiOAuth;
+  requestTimeoutMs?: number;
+}): Promise<XaiOAuthRefreshResult> {
+  const { auth, requestTimeoutMs } = params;
+  const refreshToken = auth.refreshToken;
+  if (!refreshToken) {
+    return refreshError("xAI OAuth token expired; reconnect xAI");
+  }
+  if (hasOpenCodeAuthContentOverride()) {
+    return refreshError("xAI OAuth token expired; update OPENCODE_AUTH_CONTENT or reconnect xAI");
+  }
+  const refreshKey = `${auth.accessToken}\u0000${refreshToken}`;
+  const existing = xaiOAuthRefreshInFlight.get(refreshKey);
+  if (existing) return existing;
+
+  const refreshPromise = (async (): Promise<XaiOAuthRefreshResult> => {
+    try {
+      if (!(await isCurrentXaiOAuth({ access: auth.accessToken, refresh: refreshToken }))) {
+        return (
+          (await readUpdatedXaiOAuth(auth)) ??
+          refreshError("xAI OAuth changed; retry or reconnect xAI")
+        );
+      }
+
+      const response = await fetchWithTimeout(
+        TOKEN_URL,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Accept: "application/json",
+            "User-Agent": USER_AGENT,
+          },
+          body: new URLSearchParams({
+            grant_type: "refresh_token",
+            refresh_token: refreshToken,
+            client_id: XAI_CLIENT_ID,
+          }).toString(),
+        },
+        requestTimeoutMs,
+      );
+      if (!response.ok) {
+        return (
+          (await readUpdatedXaiOAuth(auth)) ??
+          refreshError(`xAI OAuth refresh failed (${response.status}); reconnect xAI`)
+        );
+      }
+
+      const payload = await response.json();
+      if (!isRecord(payload)) {
+        return refreshError("xAI OAuth refresh returned invalid credentials; reconnect xAI");
+      }
+
+      const access = getNonEmptyString(payload.access_token);
+      if (!access) {
+        return refreshError("xAI OAuth refresh returned invalid credentials; reconnect xAI");
+      }
+
+      const refresh = getNonEmptyString(payload.refresh_token) ?? refreshToken;
+      const expiresIn = payload.expires_in;
+      const expiresSeconds =
+        typeof expiresIn === "number" && Number.isFinite(expiresIn) && expiresIn > 0
+          ? expiresIn
+          : 3_600;
+      const credentials = {
+        access,
+        refresh,
+        expires: Date.now() + expiresSeconds * 1_000,
+      };
+
+      const persisted = await updateCurrentXaiOAuth({
+        expectedAccess: auth.accessToken,
+        expectedRefresh: refreshToken,
+        ...credentials,
+      });
+      if (!persisted) {
+        return (
+          (await readUpdatedXaiOAuth(auth)) ??
+          refreshError("xAI OAuth changed during refresh; retry or reconnect xAI")
+        );
+      }
+
+      return {
+        state: "configured",
+        accessToken: credentials.access,
+        refreshToken: credentials.refresh,
+        expiresAt: credentials.expires,
+      };
+    } catch {
+      return (
+        (await readUpdatedXaiOAuth(auth)) ?? refreshError("xAI OAuth refresh failed; reconnect xAI")
+      );
+    }
+  })();
+
+  xaiOAuthRefreshInFlight.set(refreshKey, refreshPromise);
+  try {
+    return await refreshPromise;
+  } finally {
+    if (xaiOAuthRefreshInFlight.get(refreshKey) === refreshPromise) {
+      xaiOAuthRefreshInFlight.delete(refreshKey);
+    }
+  }
+}
+
+/** Test helper to clear an in-flight xAI OAuth refresh between test cases. */
+export function clearXaiOAuthRefreshForTests(): void {
+  xaiOAuthRefreshInFlight.clear();
 }
 
 function parseCreditsWindow(payload: unknown): XaiWindowValue | null {
@@ -147,20 +343,20 @@ function safeErrorText(message: string, accessToken: string): string {
   return sanitizeSingleLineDisplaySnippet(redacted, 160);
 }
 
-export async function queryXaiQuota(
-  options: { requestTimeoutMs?: number } = {},
-): Promise<XaiResult> {
+export async function queryXaiQuota(options: QueryXaiQuotaOptions = {}): Promise<XaiResult> {
   // OpenCode can replace this OAuth entry while servicing a model request.
   // Read the file directly so a post-request quota fetch cannot reuse the
   // token snapshot from before that refresh.
-  const resolvedAuth = resolveXaiOAuth(await readAuthFile());
+  let resolvedAuth = resolveXaiOAuth(await readAuthFile());
   if (resolvedAuth.state !== "configured") return null;
 
-  if (resolvedAuth.expiresAt !== undefined && resolvedAuth.expiresAt <= Date.now()) {
-    return {
-      success: false,
-      error: "xAI OAuth token expired; use xAI in OpenCode to refresh it or reconnect xAI",
-    };
+  if (needsXaiOAuthRefresh(resolvedAuth)) {
+    const refreshed = await refreshXaiOAuth({
+      auth: resolvedAuth,
+      requestTimeoutMs: options.requestTimeoutMs,
+    });
+    if (isQuotaError(refreshed)) return refreshed;
+    resolvedAuth = refreshed;
   }
 
   try {

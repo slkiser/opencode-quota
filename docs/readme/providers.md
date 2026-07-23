@@ -39,6 +39,8 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | OpenCode Go              | [Needs setup](#opencode-go)            | Dashboard scraping | Quota              |
 | OpenCode Zen             | [Needs setup](#opencode-zen)           | Dashboard scraping | Budget and balance |
 
+When xAI OAuth needs renewal, the plugin refreshes it before the quota request and atomically updates only the xAI record while preserving other `auth.json` credentials. This lets enabled quota panels populate on startup without sending an xAI model message.
+
 The friendly `Quota` label covers quota and rate-limit windows; v4 JSON distinguishes them.
 
 xAI SuperGrok reads OpenCode's existing xAI OAuth login and reports its single Weekly quota window.

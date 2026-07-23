@@ -154,6 +154,8 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | OpenCode Go              | [Needs setup](docs/readme/providers.md#opencode-go)            | Dashboard scraping | Quota              |
 | OpenCode Zen             | [Needs setup](docs/readme/providers.md#opencode-zen)           | Dashboard scraping | Budget and balance |
 
+When xAI OAuth needs renewal, the plugin refreshes it before the quota request and atomically updates only the xAI record while preserving other `auth.json` credentials. This lets enabled quota panels populate on startup without sending an xAI model message.
+
 The quota view uses short labels such as `Day quota`, `5h quota`, `Day budget`, and `Balance`. Bar width varies by surface. JSON keeps the precise accounting type for scripts.
 
 ### Custom providers
