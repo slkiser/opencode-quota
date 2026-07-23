@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const commandMocks = vi.hoisted(() => ({
   runInitInstaller: vi.fn(),
   runCliShowCommand: vi.fn(),
+  runCliStatusCommand: vi.fn(),
   runScopedUpdateCommand: vi.fn(),
 }));
 
@@ -19,6 +20,10 @@ vi.mock("../src/lib/cli-show.js", () => ({
   runCliShowCommand: commandMocks.runCliShowCommand,
 }));
 
+vi.mock("../src/lib/cli-status.js", () => ({
+  runCliStatusCommand: commandMocks.runCliStatusCommand,
+}));
+
 vi.mock("../src/lib/scoped-update.js", () => ({
   runScopedUpdateCommand: commandMocks.runScopedUpdateCommand,
 }));
@@ -28,6 +33,7 @@ describe("opencode-quota bin", () => {
     vi.clearAllMocks();
     commandMocks.runInitInstaller.mockResolvedValue(0);
     commandMocks.runCliShowCommand.mockResolvedValue(0);
+    commandMocks.runCliStatusCommand.mockResolvedValue(0);
     commandMocks.runScopedUpdateCommand.mockResolvedValue(0);
   });
 
@@ -95,6 +101,27 @@ describe("opencode-quota bin", () => {
     });
   });
 
+  it("dispatches status to the quota status CLI command", async () => {
+    const { main } = await import("../src/bin/opencode-quota.js");
+
+    const code = await main(["status"]);
+
+    expect(code).toBe(0);
+    expect(commandMocks.runCliStatusCommand).toHaveBeenCalledWith({ argv: [] });
+    expect(commandMocks.runCliShowCommand).not.toHaveBeenCalled();
+  });
+
+  it("passes status provider args through to the status CLI command", async () => {
+    const { main } = await import("../src/bin/opencode-quota.js");
+
+    const code = await main(["status", "--provider", "copilot", "--json"]);
+
+    expect(code).toBe(0);
+    expect(commandMocks.runCliStatusCommand).toHaveBeenCalledWith({
+      argv: ["--provider", "copilot", "--json"],
+    });
+  });
+
   it("prints help and exits zero for --help", async () => {
     const { main } = await import("../src/bin/opencode-quota.js");
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -104,6 +131,7 @@ describe("opencode-quota bin", () => {
     expect(code).toBe(0);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("Usage:"));
     expect(log).toHaveBeenCalledWith(expect.stringContaining("opencode-quota show"));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("opencode-quota status"));
     log.mockRestore();
   });
 
@@ -115,7 +143,7 @@ describe("opencode-quota bin", () => {
 
     expect(code).toBe(1);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("Usage:"));
-    expect(log).toHaveBeenCalledWith(expect.stringContaining("opencode-quota show"));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("opencode-quota status"));
     log.mockRestore();
   });
 
@@ -127,7 +155,7 @@ describe("opencode-quota bin", () => {
 
     expect(code).toBe(1);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("Usage:"));
-    expect(log).toHaveBeenCalledWith(expect.stringContaining("opencode-quota show"));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("opencode-quota status"));
     log.mockRestore();
   });
 

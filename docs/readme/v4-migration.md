@@ -49,6 +49,14 @@ npx @slkiser/opencode-quota@latest provider add
 
 It previews the exact global config change and asks before writing. See the [Provider setup guide](providers.md#custom-providers) for full details.
 
+### Gemini CLI in v4.1
+
+Existing `google-gemini-cli` configurations continue to work unchanged in v4.1. The integration is deprecated for new installs and is planned for removal in v5.0.0. OpenCode Quota does not migrate your configuration or authentication and does not silently switch providers.
+
+Google's official Antigravity CLI replaces the individual Gemini CLI experience. Google AI Studio or Vertex AI are the supported choices for third-party access. Within OpenCode Quota, `google-agy` is the suggested successor for quota reporting, but OpenCode Quota's Google integrations are independent and are not endorsed by Google.
+
+If you choose `google-agy`, configure and verify it separately before removing your existing Gemini CLI setup. See [Gemini CLI in the provider guide](providers.md#gemini-cli).
+
 ### Apps that read quota JSON
 
 v4 JSON uses schema `version: 2`. It clearly labels quota, usage, spend, budget, balance, and partial failures.

@@ -1,3 +1,4 @@
+import { promptJsonV1Adapter } from "./provider-add-json-v1-questionnaire.js";
 import { applyProviderAddPlan, planProviderAdd } from "./provider-add.js";
 
 const INVALID_JSON_V1_ADAPTER_MESSAGE = "Invalid json-v1 adapter JSON.";
@@ -189,21 +190,12 @@ export async function runProviderAddCommand(
     if (prompts.isCancel(format)) return 1;
     let adapter: unknown;
     if (format === "json-v1") {
-      const adapterText = await prompts.text({
-        message: "Paste one strict JSON adapter object",
-        placeholder:
-          '{"mappings":[{"resultType":"status","name":"Status","metric":{"type":"status","value":{"path":["status"]}}}]}',
-      });
-      if (prompts.isCancel(adapterText) || typeof adapterText !== "string") {
+      const result = await promptJsonV1Adapter(prompts);
+      if (result.state === "cancelled") {
         prompts.log.error(INVALID_JSON_V1_ADAPTER_MESSAGE);
         return 1;
       }
-      try {
-        adapter = JSON.parse(adapterText);
-      } catch {
-        prompts.log.error(INVALID_JSON_V1_ADAPTER_MESSAGE);
-        return 1;
-      }
+      adapter = result.adapter;
     }
     const apiKeyEnv = optionalText(
       await prompts.text({

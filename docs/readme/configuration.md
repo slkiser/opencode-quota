@@ -66,7 +66,7 @@ Use the guided command:
 npx @slkiser/opencode-quota@latest provider add
 ```
 
-It asks what kind of provider you have, previews the complete canonical merged global config, and asks before writing. It never asks for a secret. For `json-v1`, paste one strict JSON adapter object; the same schema validator used at startup checks it before the preview.
+It asks what kind of provider you have, previews the complete canonical merged global config, and asks before writing. It never asks for a response body, credential, or secret value. For `json-v1`, it guides you through the optional rows path and each mapping one field at a time. The same schema validator used at startup checks the constructed adapter before the preview.
 
 The command updates the active global quota config. If a global `quota-toast.jsonc` or `.json` exists, it uses that file. Otherwise it uses the global `opencode.jsonc` or `.json`. Project custom-provider definitions are not allowed.
 
@@ -165,7 +165,7 @@ See [Providers](providers.md#custom-providers) for response formats and setup de
 
 ```jsonc
 {
-  "enabledProviders": ["copilot", "openai", "google-gemini-cli"],
+  "enabledProviders": ["copilot", "openai", "google-agy"],
 }
 ```
 
@@ -194,6 +194,21 @@ See [Providers](providers.md#custom-providers) for response formats and setup de
   },
 }
 ```
+
+</details>
+
+<details>
+<summary><strong>Show finer-grained reset countdowns</strong></summary>
+
+By default, toast, Sidebar, and terminal `show` countdowns keep the compact display (`6d`, `2h`, `0.5h`). Set `resetTimeDecimals` to an integer from `0` to `4` to show fractional durations such as `5.7d` or `1.4h`.
+
+```jsonc
+{
+  "resetTimeDecimals": 1,
+}
+```
+
+Leave it unset to preserve the default display exactly.
 
 </details>
 
@@ -270,6 +285,7 @@ Existing `experimental.quotaToast` settings remain supported. Quota settings do 
 | `requestTimeoutMs`            | `5000`         | Remote provider request timeout in milliseconds.                                                                                                                                                                                                                                                       |
 | `formatStyle`                 | `singleWindow` | Shared quota reset-period display for TUI popup toasts, the Sidebar panel, and Compact status line unless a TUI surface override is set: `singleWindow` shows one reset period per provider; `allWindows` shows all reset periods per provider. Legacy `classic`/`grouped` aliases are still accepted. |
 | `percentDisplayMode`          | `remaining`    | Shared quota percentage meaning for TUI popup toasts, the Sidebar panel, and `/quota`: `remaining` shows quota left; `used` shows quota consumed.                                                                                                                                                      |
+| `resetTimeDecimals`           | unset          | Decimal places for compact reset countdowns in popup toasts, the Sidebar panel, and terminal `show`. Accepts integers `0`–`4`; unset preserves the default integer-day and half-hour-step display.                                                                                                     |
 | `onlyCurrentModel`            | `false`        | Filter quota rows to the current model/provider when that session selection can be resolved.                                                                                                                                                                                                           |
 | `showSessionTokens`           | `true`         | Show the `Session input/output tokens` section when session token data is available. When cached input is present, the section keeps the legacy `in/out` layout and appends cached input in parentheses next to the input amount.                                                                      |
 | `pricingSnapshot.source`      | `"auto"`       | Token pricing snapshot selection for `/tokens_*`: `auto`, `bundled`, or `runtime`.                                                                                                                                                                                                                     |

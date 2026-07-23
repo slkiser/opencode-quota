@@ -44,6 +44,8 @@ export type QuotaProviderQuotaSource =
 
 export interface QuotaProviderShape {
   id: CanonicalQuotaProviderId;
+  lifecycle?: "deprecated";
+  recommendedReplacementId?: CanonicalQuotaProviderId;
   autoSetup: QuotaProviderAutoSetup;
   authentication: QuotaProviderAuthentication;
   authFallbacks?: QuotaProviderAuthFallback[];
@@ -224,6 +226,8 @@ export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
   },
   {
     id: "google-gemini-cli",
+    lifecycle: "deprecated",
+    recommendedReplacementId: "google-agy",
     autoSetup: "needs_quick_setup",
     authentication: "companion_auth_oauth_token",
     quota: "remote_api",

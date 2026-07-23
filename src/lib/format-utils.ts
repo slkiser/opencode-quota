@@ -148,7 +148,15 @@ export interface FormatResetCountdownOptions {
    * - 14m -> 14m
    */
   compactRounded?: boolean;
+  /**
+   * When set with compactRounded, render the largest active unit with this
+   * many decimal places instead of the default integer-day / half-hour steps.
+   */
+  decimals?: number;
 }
+
+const MS_PER_DAY = 86_400_000;
+const MS_PER_HOUR = 3_600_000;
 
 /**
  * Format a reset countdown for toast display.
@@ -169,6 +177,14 @@ export function formatResetCountdown(iso?: string, opts?: FormatResetCountdownOp
   const minutes = diffMinutes % 60;
 
   if (opts?.compactRounded) {
+    const decimals = opts.decimals;
+    if (isResetTimeDecimals(decimals)) {
+      if (days > 0) return `${(diffMs / MS_PER_DAY).toFixed(decimals)}d`;
+      const formattedHours = (diffMs / MS_PER_HOUR).toFixed(decimals);
+      if (Number(formattedHours) > 0) return `${formattedHours}h`;
+      return `${Math.max(1, Math.ceil(diffMs / 60_000))}m`;
+    }
+
     if (days > 0) return `${days}d`;
     const halfHours = Math.ceil(diffMinutes / 30);
     const h = Math.floor(halfHours / 2);
@@ -178,4 +194,15 @@ export function formatResetCountdown(iso?: string, opts?: FormatResetCountdownOp
 
   if (days > 0) return `${days}d ${hours}h`;
   return `${hours}h ${minutes}m`;
+}
+
+export const MAX_RESET_TIME_DECIMALS = 4;
+
+export function isResetTimeDecimals(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= MAX_RESET_TIME_DECIMALS
+  );
 }

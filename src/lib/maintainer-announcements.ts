@@ -49,6 +49,12 @@ export const BUNDLED_MAINTAINER_ANNOUNCEMENTS: readonly MaintainerAnnouncement[]
     startsAt: "2026-07-22T00:00:00.000Z",
     endsAt: "2026-08-22T00:00:00.000Z",
   },
+  {
+    id: "google-gemini-cli-deprecated",
+    message:
+      "Gemini CLI quota support in OpenCode Quota is deprecated, with removal planned for v5.0.0. Existing v4 configurations continue to work. Google's official Antigravity CLI replaces the individual Gemini CLI experience. Google AI Studio or Vertex AI are the supported choices for third-party access. OpenCode Quota's Google integrations are independent and are not endorsed by Google.",
+    providerIds: ["google-gemini-cli"],
+  },
 ];
 
 function parseTimestamp(value: string | undefined): number | undefined {

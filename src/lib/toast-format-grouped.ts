@@ -13,6 +13,7 @@ import {
   DISPLAYED_PERCENT_LABEL_WIDTH,
   formatDisplayedPercentLabel,
   formatResetCountdown,
+  isResetTimeDecimals,
   padLeft,
   padRight,
   resolveDisplayedPercent,
@@ -63,6 +64,7 @@ export function formatQuotaRowsGrouped(params: {
   entries?: QuotaToastEntry[];
   errors?: QuotaToastError[];
   percentDisplayMode?: QuotaToastConfig["percentDisplayMode"];
+  resetTimeDecimals?: number;
   sessionTokens?: SessionTokensData;
 }): string {
   const layout = params.layout ?? { maxWidth: 50, narrowAt: 42, tinyAt: 32 };
@@ -75,8 +77,9 @@ export function formatQuotaRowsGrouped(params: {
     DISPLAYED_PERCENT_LABEL_WIDTH,
     ...(params.entries ?? [])
       .filter((entry) => !isValueEntry(entry))
-      .map((entry) =>
-        formatDisplayedPercentLabel(entry.percentRemaining, params.percentDisplayMode).length,
+      .map(
+        (entry) =>
+          formatDisplayedPercentLabel(entry.percentRemaining, params.percentDisplayMode).length,
       ),
   );
   const barWidth = Math.max(10, maxWidth - separator.length - percentCol);
@@ -108,20 +111,26 @@ export function formatQuotaRowsGrouped(params: {
 
       if (isValueEntry(entry)) {
         const label = entry.label?.trim() || entry.name;
-        const timeStr = formatResetCountdown(entry.resetTimeIso, { compactRounded: true });
+        const timeStr = formatResetCountdown(entry.resetTimeIso, {
+          compactRounded: true,
+          decimals: params.resetTimeDecimals,
+        });
         const value = entry.value.trim();
 
         if (isTiny) {
           // Tiny: "label  time  value"
+          const timeWidth = isResetTimeDecimals(params.resetTimeDecimals)
+            ? Math.max(timeCol, timeStr.length)
+            : timeCol;
           const valueCol = Math.min(value.length, Math.max(6, percentCol + 2));
           const tinyNameCol = Math.max(
             1,
-            maxWidth - separator.length - timeCol - separator.length - valueCol,
+            maxWidth - separator.length - timeWidth - separator.length - valueCol,
           );
           const leftText = right ? `${label} ${right}` : label;
           const line = [
             padRight(leftText, tinyNameCol),
-            padLeft(timeStr, timeCol),
+            padLeft(timeStr, timeWidth),
             padLeft(value, valueCol),
           ].join(separator);
           lines.push(line.slice(0, maxWidth));
@@ -137,11 +146,13 @@ export function formatQuotaRowsGrouped(params: {
         );
         const leftText = right ? `${label} ${right}` : label;
         lines.push(
-          (padRight(leftText, leftMax) +
+          (
+            padRight(leftText, leftMax) +
             separator +
             padLeft(value, valueWidth) +
             separator +
-            padLeft(timeStr, timeWidth)).slice(0, maxWidth),
+            padLeft(timeStr, timeWidth)
+          ).slice(0, maxWidth),
         );
         continue;
       }
@@ -153,7 +164,10 @@ export function formatQuotaRowsGrouped(params: {
       // (i.e., any usage at all, or depleted)
       const timeStr =
         entry.percentRemaining < 100
-          ? formatResetCountdown(entry.resetTimeIso, { compactRounded: true })
+          ? formatResetCountdown(entry.resetTimeIso, {
+              compactRounded: true,
+              decimals: params.resetTimeDecimals,
+            })
           : "";
       const displayedPercent = resolveDisplayedPercent(
         entry.percentRemaining,
@@ -166,13 +180,16 @@ export function formatQuotaRowsGrouped(params: {
 
       if (isTiny) {
         // Tiny: "label  time  XX%" (ignore bar)
+        const timeWidth = isResetTimeDecimals(params.resetTimeDecimals)
+          ? Math.max(timeCol, timeStr.length)
+          : timeCol;
         const tinyNameCol = Math.max(
           1,
-          maxWidth - separator.length - timeCol - separator.length - percentCol,
+          maxWidth - separator.length - timeWidth - separator.length - percentCol,
         );
         const line = [
           padRight(label, tinyNameCol),
-          padLeft(timeStr, timeCol),
+          padLeft(timeStr, timeWidth),
           padLeft(percentLabel, percentCol),
         ].join(separator);
         lines.push(line.slice(0, maxWidth));

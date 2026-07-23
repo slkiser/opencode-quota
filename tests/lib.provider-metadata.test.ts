@@ -78,6 +78,8 @@ describe("provider-metadata", () => {
       },
       {
         id: "google-gemini-cli",
+        lifecycle: "deprecated",
+        recommendedReplacementId: "google-agy",
         autoSetup: "needs_quick_setup",
         authentication: "companion_auth_oauth_token",
         quota: "remote_api",
@@ -330,6 +332,8 @@ describe("provider-metadata", () => {
     });
     expect(getQuotaProviderShape("gemini-cli")).toEqual({
       id: "google-gemini-cli",
+      lifecycle: "deprecated",
+      recommendedReplacementId: "google-agy",
       autoSetup: "needs_quick_setup",
       authentication: "companion_auth_oauth_token",
       quota: "remote_api",

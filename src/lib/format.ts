@@ -11,6 +11,7 @@ import {
   DISPLAYED_PERCENT_LABEL_WIDTH,
   formatDisplayedPercentLabel,
   formatResetCountdown,
+  isResetTimeDecimals,
   padLeft,
   padRight,
   resolveDisplayedPercent,
@@ -98,6 +99,7 @@ export function formatQuotaRows(params: {
   errors?: QuotaToastError[];
   style?: QuotaFormatStyle;
   percentDisplayMode?: QuotaToastConfig["percentDisplayMode"];
+  resetTimeDecimals?: number;
   sessionTokens?: SessionTokensData;
 }): string {
   const styleDefinition = getQuotaFormatStyleDefinition(params.style);
@@ -108,6 +110,7 @@ export function formatQuotaRows(params: {
       entries: params.entries,
       errors: params.errors,
       percentDisplayMode: params.percentDisplayMode,
+      resetTimeDecimals: params.resetTimeDecimals,
       sessionTokens: params.sessionTokens,
     });
   }
@@ -127,8 +130,9 @@ export function formatQuotaRows(params: {
     DISPLAYED_PERCENT_LABEL_WIDTH,
     ...(params.entries ?? [])
       .filter((entry) => !isValueEntry(entry))
-      .map((entry) =>
-        formatDisplayedPercentLabel(entry.percentRemaining, params.percentDisplayMode).length,
+      .map(
+        (entry) =>
+          formatDisplayedPercentLabel(entry.percentRemaining, params.percentDisplayMode).length,
       ),
   );
 
@@ -157,18 +161,25 @@ export function formatQuotaRows(params: {
     // (i.e., any usage at all, or depleted)
     const timeStr =
       remaining < 100
-        ? formatResetCountdown(resetIso, { missing: "-", compactRounded: true })
+        ? formatResetCountdown(resetIso, {
+            missing: "-",
+            compactRounded: true,
+            decimals: params.resetTimeDecimals,
+          })
         : "";
 
     if (isTiny) {
       // In tiny mode: single line with name + time + percent
+      const timeWidth = isResetTimeDecimals(params.resetTimeDecimals)
+        ? Math.max(timeCol, timeStr.length)
+        : timeCol;
       const tinyNameCol = Math.max(
         1,
-        maxWidth - separator.length - timeCol - separator.length - percentCol,
+        maxWidth - separator.length - timeWidth - separator.length - percentCol,
       );
       const line = [
         padRight(leftText, tinyNameCol),
-        padLeft(timeStr, timeCol),
+        padLeft(timeStr, timeWidth),
         padLeft(percentLabel, percentCol),
       ].join(separator);
       lines.push(line.slice(0, maxWidth));
@@ -195,17 +206,23 @@ export function formatQuotaRows(params: {
   };
 
   const addValueEntry = (name: string, resetIso: string | undefined, value: string) => {
-    const timeStr = formatResetCountdown(resetIso, { missing: "-", compactRounded: true });
+    const timeStr = formatResetCountdown(resetIso, {
+      missing: "-",
+      compactRounded: true,
+      decimals: params.resetTimeDecimals,
+    });
 
     if (isTiny) {
       // Tiny: single line without percent; keep time col alignment.
+      const timeWidth = isResetTimeDecimals(params.resetTimeDecimals)
+        ? Math.max(timeCol, timeStr.length)
+        : timeCol;
       const valueCol = Math.min(value.length, Math.max(6, percentCol + 2));
-      const tinyNameCol =
-        maxWidth - separator.length - timeCol - separator.length - valueCol;
+      const tinyNameCol = maxWidth - separator.length - timeWidth - separator.length - valueCol;
       const nameCol = Math.max(1, tinyNameCol);
       const line = [
         padRight(name, nameCol),
-        padLeft(timeStr, timeCol),
+        padLeft(timeStr, timeWidth),
         padLeft(value, valueCol),
       ].join(separator);
       lines.push(line.slice(0, maxWidth));

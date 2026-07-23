@@ -88,6 +88,11 @@ export interface QuotaToastConfig {
   formatStyle: QuotaFormatStyle;
   /** Shared percent meaning for popup toasts and the TUI sidebar. */
   percentDisplayMode: PercentDisplayMode;
+  /**
+   * Decimal places for compact reset countdown labels.
+   * Unset preserves the default integer-day and half-hour-step display.
+   */
+  resetTimeDecimals?: number;
   minIntervalMs: number;
 
   /** Request timeout in milliseconds for remote provider API calls. */

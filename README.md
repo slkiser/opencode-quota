@@ -86,6 +86,7 @@ More ways to use it:
 - Check quota from a terminal with `opencode-quota show`
 - Use JSON output in scripts, status bars, CI checks, and other tools
 - Run the same slash commands in the TUI, Web, and Desktop
+- Tune reset countdown precision without changing the default compact display
 - Diagnose authentication, quota sources, pricing, and maintainer notices
 
 See [Configuration](docs/readme/configuration.md) for UI options and [Manual install](docs/readme/manual-install.md) for setup details.
@@ -122,6 +123,9 @@ Use the CLI for scripts, CI, or a quick terminal check outside OpenCode.
 | `opencode-quota show --provider <id>`          | Check one provider only, such as `copilot` or `openai`       |
 | `opencode-quota show --json`                   | Print JSON for scripts, status bars, and other tools         |
 | `opencode-quota show --json --threshold <pct>` | Fail when quota is low; return exit 2 for incomplete results |
+| `opencode-quota status`                        | Run the same diagnostics as `/quota_status` from a terminal  |
+| `opencode-quota status --provider <id>`        | Diagnose one provider by canonical ID or synonym             |
+| `opencode-quota status --json`                 | Print secret-safe JSON diagnostics for scripts and CI        |
 
 ## Providers
 
@@ -144,7 +148,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | Synthetic                | Automatic                                                      | Remote API         | Quota              |
 | Google Antigravity       | [Needs setup](docs/readme/providers.md#google-antigravity)     | Remote API         | Quota              |
 | Google AGY               | [Needs setup](docs/readme/providers.md#google-agy-quick-setup) | Remote API         | Quota              |
-| Gemini CLI               | [Needs setup](docs/readme/providers.md#gemini-cli)             | Remote API         | Quota              |
+| Gemini CLI (deprecated)  | [Existing setups only](docs/readme/providers.md#gemini-cli)    | Remote API         | Quota              |
 | Z.ai Coding Plan         | OpenCode config                                                | Remote API         | Quota              |
 | Zhipu Coding Plan        | OpenCode config                                                | Remote API         | Quota              |
 | NanoGPT                  | API key/config                                                 | Remote API         | Quota and balance  |
@@ -153,6 +157,8 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | Ollama Cloud             | [Needs setup](docs/readme/providers.md#ollama-cloud)           | Dashboard scraping | Quota              |
 | OpenCode Go              | [Needs setup](docs/readme/providers.md#opencode-go)            | Dashboard scraping | Quota              |
 | OpenCode Zen             | [Needs setup](docs/readme/providers.md#opencode-zen)           | Dashboard scraping | Budget and balance |
+
+Gemini CLI quota support is deprecated for new installs. Existing v4 configurations still work, with removal planned for v5.0.0. See the [provider guide](docs/readme/providers.md#gemini-cli) before choosing a replacement.
 
 The quota view uses short labels such as `Day quota`, `5h quota`, `Day budget`, and `Balance`. Bar width varies by surface. JSON keeps the precise accounting type for scripts.
 
@@ -164,7 +170,7 @@ A quota provider definition tells OpenCode Quota how to obtain accounting data f
 npx @slkiser/opencode-quota@latest provider add
 ```
 
-For remote APIs, choose `quota-v1` for the standard envelope, `json-v1` to map a strict JSON response, or `openrouter-key-v1` for OpenRouter's key endpoint. The command previews the complete canonical merged config before it writes anything.
+For remote APIs, choose `quota-v1` for the standard envelope, `json-v1` to map a strict JSON response, or `openrouter-key-v1` for OpenRouter's key endpoint. For `json-v1`, the command builds the adapter with friendly field-by-field questions; it never asks for a response body, credential, or secret value. The command previews the complete canonical merged config before it writes anything.
 
 Setup details live in the [Provider setup guide](docs/readme/providers.md#custom-providers).
 
@@ -172,7 +178,7 @@ Setup details live in the [Provider setup guide](docs/readme/providers.md#custom
 
 If quota or token data looks wrong:
 
-1. Run `/quota_status`, or start with `opencode-quota show` for a terminal quota summary.
+1. Run `/quota_status` in OpenCode, or `opencode-quota status` from a terminal for the same diagnostics. Use `opencode-quota show` for a quick quota glance.
 2. Confirm the expected provider appears in the detected provider list.
 3. Confirm companion auth plugins are before `@slkiser/opencode-quota` in `opencode.json`.
 4. If token reports are empty, start OpenCode once so it creates `opencode.db`, then run a session with model usage.

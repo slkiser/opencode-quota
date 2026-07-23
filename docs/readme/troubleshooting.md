@@ -2,11 +2,11 @@
 
 # Troubleshooting
 
-Start with `/quota_status`. It shows which config, providers, authentication, and local files OpenCode Quota found.
+Start with `/quota_status` in OpenCode, or `opencode-quota status` from a terminal. Both show which config, providers, authentication, and local files OpenCode Quota found.
 
 ## First checks
 
-1. Run `/quota_status`.
+1. Run `/quota_status` in OpenCode, or `opencode-quota status` from a terminal.
 2. Find the provider or feature that is failing.
 3. Follow the matching fix below.
 4. Restart OpenCode after changing config or authentication.
@@ -19,7 +19,7 @@ If every provider is missing, confirm OpenCode Quota is listed in `opencode.json
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Slash commands are missing                              | Check the plugin entries above, then restart OpenCode.                                                                                            |
 | TUI command results appear in the wrong place           | Use `tuiCommandDisplay: "inline"` for normal messages or `"dialog"` for a popup. Home always uses a popup because there is no session transcript. |
-| `/quota` shows no providers                             | Run `/quota_status`, then check provider detection and authentication.                                                                            |
+| `/quota` shows no providers                             | Run `/quota_status` or `opencode-quota status`, then check provider detection and authentication.                                                 |
 | Sidebar is missing                                      | Confirm the TUI plugin is installed and `tuiSidebarPanel.enabled` is `true`.                                                                      |
 | Compact line is missing                                 | Confirm the TUI plugin is installed and `tuiCompactStatus.enabled` is `true`. If needed, check `suppressWhenNativeProviderQuota`.                 |
 | Compact line appears on Home only                       | Set `tuiCompactStatus.sessionPrompt` to `true`.                                                                                                   |
@@ -197,7 +197,9 @@ Run `/quota_status` and check the `google_agy` section.
 </details>
 
 <details>
-<summary><strong>Gemini CLI</strong></summary>
+<summary><strong>Gemini CLI (deprecated)</strong></summary>
+
+This section is only for repairing an existing setup. Gemini CLI quota support is deprecated in v4.1 and planned for removal in v5.0.0. Existing configuration and authentication continue to work; OpenCode Quota does not switch either one automatically. For new choices, see [Gemini CLI in the provider guide](providers.md#gemini-cli).
 
 Run `/quota_status` and check the Gemini CLI live probe rows.
 

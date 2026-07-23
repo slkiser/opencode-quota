@@ -83,27 +83,52 @@ describe("maintainer announcements", () => {
     expect(active).toHaveLength(1);
   });
 
-  it("bundles the global OpenCode ecosystem listing announcement", () => {
-    const expectedAnnouncement = {
+  it("preserves the global OpenCode ecosystem announcement beside the Gemini notice", () => {
+    const ecosystemAnnouncement = {
       id: "opencode-ecosystem-listing-support",
       message: "Support OpenCode Quota's ecosystem listing: review the PR and add a thumbs-up.",
       url: "https://github.com/anomalyco/opencode/pull/38283",
       startsAt: "2026-07-22T00:00:00.000Z",
       endsAt: "2026-08-22T00:00:00.000Z",
     } satisfies MaintainerAnnouncement;
+    const geminiAnnouncement = {
+      id: "google-gemini-cli-deprecated",
+      message:
+        "Gemini CLI quota support in OpenCode Quota is deprecated, with removal planned for v5.0.0. Existing v4 configurations continue to work. Google's official Antigravity CLI replaces the individual Gemini CLI experience. Google AI Studio or Vertex AI are the supported choices for third-party access. OpenCode Quota's Google integrations are independent and are not endorsed by Google.",
+      providerIds: ["google-gemini-cli"],
+    } satisfies MaintainerAnnouncement;
     const active = getActiveMaintainerAnnouncements({
       nowMs: BUNDLED_NOW_MS,
       enabledProviders: "auto",
     });
 
-    expect(BUNDLED_MAINTAINER_ANNOUNCEMENTS).toEqual([expectedAnnouncement]);
+    expect(BUNDLED_MAINTAINER_ANNOUNCEMENTS).toEqual([ecosystemAnnouncement, geminiAnnouncement]);
     expect(active).toEqual([
       {
-        announcement: expectedAnnouncement,
+        announcement: ecosystemAnnouncement,
         active: true,
         reasons: [],
       },
     ]);
+  });
+
+  it("targets the Gemini deprecation notice to Gemini configurations and aliases", () => {
+    const getActiveIds = (enabledProviders: string[]) =>
+      getActiveMaintainerAnnouncements({
+        nowMs: BUNDLED_NOW_MS,
+        enabledProviders,
+      }).map((item) => item.announcement.id);
+
+    expect(getActiveIds(["google-gemini-cli"])).toEqual([
+      "opencode-ecosystem-listing-support",
+      "google-gemini-cli-deprecated",
+    ]);
+    expect(getActiveIds(["gemini-cli"])).toEqual([
+      "opencode-ecosystem-listing-support",
+      "google-gemini-cli-deprecated",
+    ]);
+    expect(getActiveIds(["google-antigravity"])).toEqual(["opencode-ecosystem-listing-support"]);
+    expect(getActiveIds(["google-agy"])).toEqual(["opencode-ecosystem-listing-support"]);
   });
 
   it("sorts active announcements before inactive, then by end date and id", () => {

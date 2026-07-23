@@ -44,12 +44,34 @@ function createPrompts(params: {
   };
 }
 
+function jsonV1Plan(adapter: unknown) {
+  return {
+    path: "/trusted/opencode.jsonc",
+    format: "jsonc" as const,
+    definition: {
+      id: "private-gateway",
+      providerId: "private-gateway",
+      label: "Private Gateway",
+      mode: "remote-api" as const,
+      url: "https://gateway.example/quota",
+      format: "json-v1" as const,
+      adapter,
+    },
+    updated:
+      '{"experimental":{"quotaToast":{"quotaProviders":[{"id":"existing"},{"id":"private-gateway","format":"json-v1"}]}}}\n',
+    changed: true,
+    ordinaryProviderRequired: false,
+    documentEdit: {} as never,
+    additionalDocumentEdits: [],
+  };
+}
+
 describe("guided provider add command", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("offers only canonical formats, validates one strict JSON adapter, previews, then writes that plan", async () => {
+  it("offers only canonical formats, constructs json-v1, previews the full config, then writes", async () => {
     const adapter = {
       mappings: [
         {
@@ -63,39 +85,23 @@ describe("guided provider add command", () => {
         },
       ],
     };
-    const plan = {
-      path: "/trusted/opencode.jsonc",
-      format: "jsonc" as const,
-      definition: {
-        id: "private-gateway",
-        providerId: "private-gateway",
-        label: "Private Gateway",
-        mode: "remote-api" as const,
-        url: "https://gateway.example/quota",
-        format: "json-v1" as const,
-        adapter,
-      },
-      updated:
-        '{"experimental":{"quotaToast":{"quotaProviders":[{"id":"existing"},{"id":"private-gateway","format":"json-v1"}]}}}\n',
-      changed: true,
-      ordinaryProviderRequired: false,
-      documentEdit: {} as never,
-      additionalDocumentEdits: [],
-    };
+    const plan = jsonV1Plan(adapter);
     mockedPlanProviderAdd.mockResolvedValue(plan);
     mockedApplyProviderAddPlan.mockResolvedValue();
     const { prompts } = createPrompts({
-      selects: ["remote-api", "json-v1"],
+      selects: ["remote-api", "json-v1", "quota", "percentage", "remaining", "path", "none"],
       texts: [
         "private-gateway",
         "",
         "Private Gateway",
         "",
         "https://gateway.example/quota",
-        JSON.stringify(adapter),
+        "Requests",
+        "",
+        "remaining",
         "",
       ],
-      confirms: [true],
+      confirms: [false, false, false, false, false, true],
     });
 
     const code = await runProviderAddCommand({ prompts: prompts as never });
@@ -120,12 +126,13 @@ describe("guided provider add command", () => {
     expect(mockedApplyProviderAddPlan).toHaveBeenCalledWith(plan);
   });
 
-  it("returns the same constant redacted error when the adapter prompt is cancelled", async () => {
+  it("returns the same constant redacted error when a nested adapter prompt is cancelled", async () => {
     const cancel = Symbol("cancel");
     const { prompts } = createPrompts({
       cancel,
       selects: ["remote-api", "json-v1"],
       texts: ["private-gateway", "", "", "", "https://gateway.example/quota", cancel],
+      confirms: [true],
     });
 
     const code = await runProviderAddCommand({ prompts: prompts as never });
@@ -136,11 +143,13 @@ describe("guided provider add command", () => {
     expect(mockedApplyProviderAddPlan).not.toHaveBeenCalled();
   });
 
-  it("returns a constant redacted error when strict adapter JSON cannot be parsed", async () => {
-    const sensitiveInput = '{"mappings":[{"literal":"do-not-echo"}]';
+  it("does not echo earlier questionnaire answers when a required source is cancelled", async () => {
+    const cancel = Symbol("cancel");
     const { prompts } = createPrompts({
-      selects: ["remote-api", "json-v1"],
-      texts: ["private-gateway", "", "", "", "https://gateway.example/quota", sensitiveInput],
+      cancel,
+      selects: ["remote-api", "json-v1", "usage", cancel],
+      texts: ["private-gateway", "", "", "", "https://gateway.example/quota", "do-not-echo", ""],
+      confirms: [false],
     });
 
     const code = await runProviderAddCommand({ prompts: prompts as never });
@@ -150,5 +159,46 @@ describe("guided provider add command", () => {
     expect(JSON.stringify(prompts.log.error.mock.calls)).not.toContain("do-not-echo");
     expect(mockedPlanProviderAdd).not.toHaveBeenCalled();
     expect(mockedApplyProviderAddPlan).not.toHaveBeenCalled();
+  });
+
+  it("keeps the complete merged preview but never writes in dry-run mode", async () => {
+    const adapter = {
+      mappings: [
+        {
+          resultType: "status",
+          name: "Status",
+          metric: { type: "status", value: { literal: "Available" } },
+        },
+      ],
+    };
+    const plan = jsonV1Plan(adapter);
+    mockedPlanProviderAdd.mockResolvedValue(plan);
+    const { prompts } = createPrompts({
+      selects: ["remote-api", "json-v1", "status", "literal"],
+      texts: [
+        "private-gateway",
+        "",
+        "Private Gateway",
+        "",
+        "https://gateway.example/quota",
+        "Status",
+        "",
+        "Available",
+        "",
+      ],
+      confirms: [false, false, false, false],
+    });
+
+    const code = await runProviderAddCommand({
+      argv: ["--dry-run"],
+      prompts: prompts as never,
+    });
+
+    expect(code).toBe(0);
+    expect(prompts.log.info).toHaveBeenCalledWith(
+      "Preview: /trusted/opencode.jsonc\n\n" + plan.updated,
+    );
+    expect(mockedApplyProviderAddPlan).not.toHaveBeenCalled();
+    expect(prompts.outro).toHaveBeenCalledWith("Preview complete; no files were written.");
   });
 });

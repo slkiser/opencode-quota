@@ -132,6 +132,51 @@ describe("provider add global config workflow", () => {
     expect(await readFile(path, "utf8")).toBe(plan.updated);
   });
 
+  it("preserves the existing json-v1 adapter schema in the canonical config preview", async () => {
+    const dir = await configDir();
+    const adapter = {
+      rowsPath: ["data", "plans"],
+      mappings: [
+        {
+          resultType: "quota",
+          name: "Requests",
+          label: "Daily:",
+          unit: "requests",
+          unitPosition: "suffix",
+          resetTime: { path: ["reset_at"], encoding: "unix-seconds" },
+          observedTime: { literal: "2026-07-23T12:00:00Z", encoding: "iso-8601" },
+          metric: {
+            type: "remaining-limit",
+            remaining: { path: ["remaining"], divideBy: 1000 },
+            limit: { literal: 100 },
+          },
+        },
+        {
+          resultType: "status",
+          name: "Status",
+          metric: { type: "status", value: { path: ["status"] } },
+        },
+      ],
+    };
+    const definition = remote({ format: "json-v1", adapter });
+
+    const first = await planProviderAdd({ definition, configDir: dir });
+    const parsed = parseConfigDocument(first.updated, "jsonc", first.path);
+    const quotaToast = (parsed.experimental as Record<string, unknown>).quotaToast as Record<
+      string,
+      unknown
+    >;
+    const definitions = quotaToast.quotaProviders as Array<Record<string, unknown>>;
+
+    expect(definitions[0]?.adapter).toEqual(adapter);
+    await applyProviderAddPlan(first);
+    expect(await readFile(first.path, "utf8")).toBe(first.updated);
+
+    const second = await planProviderAdd({ definition, configDir: dir });
+    expect(second.changed).toBe(false);
+    expect(second.updated).toBe(first.updated);
+  });
+
   it("writes the preview atomically and is idempotent on a second run", async () => {
     const dir = await configDir();
     const first = await planProviderAdd({ definition: remote(), configDir: dir });

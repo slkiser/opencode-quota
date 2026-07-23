@@ -4,11 +4,11 @@
 
 ## On this page
 
-| Find                                 | Go to                                                                                                                                                                                        |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Provider support                     | [Pre-configured providers](#pre-configured-providers) · [Custom providers](#custom-providers)                                                                                                |
-| Billing, API key, or dashboard setup | [GitHub Copilot](#github-copilot) · [DeepSeek](#deepseek) · [Ollama Cloud](#ollama-cloud) · [OpenCode Go](#opencode-go) · [OpenCode Zen](#opencode-zen)                                      |
-| CLI or companion-plugin setup        | [Anthropic](#anthropic-claude) · [Cursor](#cursor) · [Qwen Code](#qwen-code) · [Google Antigravity](#google-antigravity) · [Google AGY](#google-agy-quick-setup) · [Gemini CLI](#gemini-cli) |
+| Find                                 | Go to                                                                                                                                                                                                     |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Provider support                     | [Pre-configured providers](#pre-configured-providers) · [Custom providers](#custom-providers)                                                                                                             |
+| Billing, API key, or dashboard setup | [GitHub Copilot](#github-copilot) · [DeepSeek](#deepseek) · [Ollama Cloud](#ollama-cloud) · [OpenCode Go](#opencode-go) · [OpenCode Zen](#opencode-zen)                                                   |
+| CLI or companion-plugin setup        | [Anthropic](#anthropic-claude) · [Cursor](#cursor) · [Qwen Code](#qwen-code) · [Google Antigravity](#google-antigravity) · [Google AGY](#google-agy-quick-setup) · [Gemini CLI (deprecated)](#gemini-cli) |
 
 ## Pre-configured providers
 
@@ -29,7 +29,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | Synthetic                | Automatic                              | Remote API         | Quota              |
 | Google Antigravity       | [Needs setup](#google-antigravity)     | Remote API         | Quota              |
 | Google AGY               | [Needs setup](#google-agy-quick-setup) | Remote API         | Quota              |
-| Gemini CLI               | [Needs setup](#gemini-cli)             | Remote API         | Quota              |
+| Gemini CLI (deprecated)  | [Existing setups only](#gemini-cli)    | Remote API         | Quota              |
 | Z.ai Coding Plan         | OpenCode config                        | Remote API         | Quota              |
 | Zhipu Coding Plan        | OpenCode config                        | Remote API         | Quota              |
 | NanoGPT                  | API key/config                         | Remote API         | Quota and balance  |
@@ -53,7 +53,7 @@ Run the guided setup:
 npx @slkiser/opencode-quota@latest provider add
 ```
 
-It asks only how the provider works, previews the exact global config change, and asks before writing. It does not ask for a secret.
+It asks only how the provider works, previews the exact global config change, and asks before writing. It does not ask for a response body, credential, or secret value.
 
 A custom provider can use:
 
@@ -97,7 +97,7 @@ A `quota-v1` response looks like this:
 }
 ```
 
-For `json-v1`, the guided command asks for one strict JSON adapter object. This example maps `remaining`, `limit`, and `status` fields from one response object:
+For `json-v1`, the guided command builds the existing adapter schema one field at a time. It asks for literal property segments, compatible metric sources, and optional units and timestamps. This persisted-config example maps `remaining`, `limit`, and `status` fields from one response object:
 
 ```json
 {
@@ -325,6 +325,8 @@ opencode auth login --provider cursor
 
 Use companion plugin [`opencode-qwencode-auth`](https://github.com/gustavodiasdev/opencode-qwencode-auth#readme). Add it before `@slkiser/opencode-quota` in `opencode.json`.
 
+OpenCode Quota's Google integrations use independent community companion plugins. They are not endorsed by Google.
+
 <a id="google-antigravity"></a>
 
 ### Google Antigravity
@@ -367,7 +369,13 @@ If the AGY auth entry does not include a project id, set `OPENCODE_AGY_PROJECT_I
 
 <a id="gemini-cli"></a>
 
-### Gemini CLI
+### Gemini CLI (deprecated)
+
+**Deprecated in v4.1:** Existing configurations, aliases, companion detection, authentication, and quota fetching continue to work unchanged. Do not use this provider for a new install. Removal is planned for v5.0.0, and OpenCode Quota does not switch providers or authentication automatically.
+
+Google's official Antigravity CLI replaces the individual Gemini CLI experience. Google AI Studio or Vertex AI are the supported choices for third-party access. Within OpenCode Quota, `google-agy` is the suggested successor for quota reporting; this is an OpenCode Quota recommendation, not a Google endorsement.
+
+The instructions below remain available only to maintain an existing setup.
 
 Use companion plugin [`opencode-gemini-auth`](https://github.com/jenslys/opencode-gemini-auth#readme). Add it before `@slkiser/opencode-quota` in `opencode.json`, then authenticate Google once:
 

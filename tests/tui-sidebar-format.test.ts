@@ -151,7 +151,12 @@ describe("buildSidebarQuotaPanelLines", () => {
       data: {
         entries: [
           { name: "Copilot", group: "Copilot", label: "Quota:", percentRemaining: 75 },
-          { name: "Synthetic Requests", group: "Synthetic", label: "Requests:", percentRemaining: 50 },
+          {
+            name: "Synthetic Requests",
+            group: "Synthetic",
+            label: "Requests:",
+            percentRemaining: 50,
+          },
           { name: "Cursor API", group: "Cursor", label: "API:", percentRemaining: 25 },
           { name: "Kimi Code Fast", group: "Kimi Code", label: "Fast:", percentRemaining: 80 },
         ],
@@ -201,7 +206,12 @@ describe("buildSidebarQuotaPanelLines", () => {
       data: {
         entries: [
           { name: "Gemini Pro", group: "Gemini CLI", label: "Gemini Pro:", percentRemaining: 20 },
-          { name: "Gemini Flash", group: "Gemini CLI", label: "Gemini Flash:", percentRemaining: 50 },
+          {
+            name: "Gemini Flash",
+            group: "Gemini CLI",
+            label: "Gemini Flash:",
+            percentRemaining: 50,
+          },
           {
             name: "Gemini Flash Lite",
             group: "Gemini CLI",
@@ -336,6 +346,66 @@ describe("buildSidebarQuotaPanelLines", () => {
     expect(lines.join("\n")).not.toContain("2h 14m");
   });
 
+  it("uses fractional reset text in sidebar rows when resetTimeDecimals is set", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
+
+    const lines = buildSidebarQuotaPanelLines({
+      config: {
+        formatStyle: "singleWindow",
+        percentDisplayMode: "remaining",
+        resetTimeDecimals: 1,
+      },
+      data: {
+        entries: [
+          {
+            name: "[Copilot] Monthly",
+            percentRemaining: 81,
+            resetTimeIso: "2026-01-15T12:14:00.000Z",
+          },
+        ],
+        errors: [],
+        sessionTokens: undefined,
+      },
+    });
+
+    expect(lines.join("\n")).toContain("2.2h");
+    expect(lines.join("\n")).not.toContain("2.5h");
+  });
+
+  it("preserves decimals 4 reset values in single-window and grouped sidebar rows", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
+    const data = {
+      entries: [
+        {
+          name: "[Copilot] Monthly",
+          group: "Copilot",
+          label: "Monthly:",
+          percentRemaining: 81,
+          resetTimeIso: "2026-01-15T11:24:00.000Z",
+        },
+      ],
+      errors: [],
+      sessionTokens: undefined,
+    };
+
+    for (const formatStyle of ["singleWindow", "allWindows"] as const) {
+      const lines = buildSidebarQuotaPanelLines({
+        config: {
+          formatStyle,
+          percentDisplayMode: "remaining",
+          resetTimeDecimals: 4,
+        },
+        data,
+      });
+
+      expect(lines.join("\n")).toContain("1.4000h");
+      expect(lines.join("\n")).not.toMatch(/(?:^|\s)\.4000h/u);
+      expect(lines.every((line) => line.length <= TUI_SIDEBAR_MAX_WIDTH)).toBe(true);
+    }
+  });
+
   it("does not cut single-window provider/account labels that fit in the sidebar", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
@@ -412,7 +482,7 @@ describe("buildSidebarQuotaPanelLines", () => {
     expect(barLine).not.toContain("81% left");
     expect(lines.join("\n")).not.toContain("Quota (remaining)");
     expect(lines.join("\n")).not.toContain("Quota (used)");
-    expect((barLine.match(/█/g) ?? [])).toHaveLength(5);
+    expect(barLine.match(/█/g) ?? []).toHaveLength(5);
   });
 
   it("renders over-quota used percentages above 100 in the sidebar", () => {
@@ -436,7 +506,7 @@ describe("buildSidebarQuotaPanelLines", () => {
 
     const barLine = lines[1] ?? "";
     expect(barLine).toContain("125% used");
-    expect((barLine.match(/░/g) ?? [])).toHaveLength(0);
+    expect(barLine.match(/░/g) ?? []).toHaveLength(0);
   });
 
   it("never shows negative remaining labels in the sidebar", () => {

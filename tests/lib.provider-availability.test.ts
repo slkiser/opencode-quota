@@ -78,6 +78,21 @@ describe("provider availability", () => {
         fallbackOnError: false,
       }),
     ).resolves.toBe(true);
+    for (const runtimeId of [
+      "google-gemini-cli",
+      "gemini-cli",
+      "gemini",
+      "opencode-gemini-auth",
+      "google",
+    ]) {
+      await expect(
+        isCanonicalProviderAvailable({
+          ctx: makeCtx({ ids: [runtimeId] }),
+          providerId: "google-gemini-cli",
+          fallbackOnError: false,
+        }),
+      ).resolves.toBe(true);
+    }
     await expect(
       isCanonicalProviderAvailable({
         ctx: makeCtx({ ids: ["minimax"] }),
