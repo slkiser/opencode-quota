@@ -80,26 +80,36 @@ function parseSyntheticCreditAmount(value: unknown): number | null {
   return normalizeSyntheticAmount((whole * 100 + fractional) / 100);
 }
 
-function buildRollingFiveHourWindow(payload: Record<string, unknown>): SyntheticQuotaWindow | QuotaError {
+function buildRollingFiveHourWindow(
+  payload: Record<string, unknown>,
+): SyntheticQuotaWindow | QuotaError {
   const rolling = asRecord(payload.rollingFiveHourLimit);
   if (!rolling) {
-    return invalidSyntheticResponse("Synthetic API response missing rollingFiveHourLimit quota window");
+    return invalidSyntheticResponse(
+      "Synthetic API response missing rollingFiveHourLimit quota window",
+    );
   }
 
   const max = rolling.max;
   const remaining = rolling.remaining;
 
   if (typeof max !== "number" || !Number.isFinite(max) || max <= 0) {
-    return invalidSyntheticResponse("Synthetic API response missing rollingFiveHourLimit quota window");
+    return invalidSyntheticResponse(
+      "Synthetic API response missing rollingFiveHourLimit quota window",
+    );
   }
 
   if (typeof remaining !== "number" || !Number.isFinite(remaining) || remaining < 0) {
-    return invalidSyntheticResponse("Synthetic API response missing rollingFiveHourLimit quota window");
+    return invalidSyntheticResponse(
+      "Synthetic API response missing rollingFiveHourLimit quota window",
+    );
   }
 
   const used = normalizeSyntheticAmount(max - remaining);
   if (!Number.isFinite(used) || used < 0) {
-    return invalidSyntheticResponse("Synthetic API response missing rollingFiveHourLimit quota window");
+    return invalidSyntheticResponse(
+      "Synthetic API response missing rollingFiveHourLimit quota window",
+    );
   }
 
   return {
@@ -110,7 +120,9 @@ function buildRollingFiveHourWindow(payload: Record<string, unknown>): Synthetic
   };
 }
 
-function buildWeeklyTokenWindow(payload: Record<string, unknown>): SyntheticQuotaWindow | QuotaError {
+function buildWeeklyTokenWindow(
+  payload: Record<string, unknown>,
+): SyntheticQuotaWindow | QuotaError {
   const weekly = asRecord(payload.weeklyTokenLimit);
   if (!weekly) {
     return invalidSyntheticResponse("Synthetic API response missing weeklyTokenLimit quota window");
@@ -145,54 +157,58 @@ function buildWeeklyTokenWindow(payload: Record<string, unknown>): SyntheticQuot
   };
 }
 
-export async function querySyntheticQuota(options: { requestTimeoutMs?: number } = {}): Promise<SyntheticResult> {
+export async function querySyntheticQuota(
+  options: { requestTimeoutMs?: number } = {},
+): Promise<SyntheticResult> {
   const resolved = await resolveSyntheticApiKey();
   if (!resolved) return null;
 
   try {
-    const resp = await fetchWithTimeout(
-      SYNTHETIC_QUOTA_URL,
-      {
+    return await fetchWithTimeout(SYNTHETIC_QUOTA_URL, {
+      request: {
         method: "GET",
         headers: {
           Authorization: `Bearer ${resolved.key}`,
           "User-Agent": "OpenCode-Quota-Toast/1.0",
         },
       },
-      options.requestTimeoutMs,
-    );
+      timeoutMs: options.requestTimeoutMs,
+      consume: async (resp) => {
+        if (!resp.ok) {
+          const text = await resp.text();
+          return {
+            success: false,
+            error: `Synthetic API error ${resp.status}: ${sanitizeDisplaySnippet(text, 120)}`,
+          };
+        }
 
-    if (!resp.ok) {
-      const text = await resp.text();
-      return {
-        success: false,
-        error: `Synthetic API error ${resp.status}: ${sanitizeDisplaySnippet(text, 120)}`,
-      };
-    }
+        const data = (await resp.json()) as unknown;
+        const record = asRecord(data);
+        if (!record) {
+          return invalidSyntheticResponse(
+            "Synthetic API response missing rollingFiveHourLimit quota window",
+          );
+        }
 
-    const data = (await resp.json()) as unknown;
-    const record = asRecord(data);
-    if (!record) {
-      return invalidSyntheticResponse("Synthetic API response missing rollingFiveHourLimit quota window");
-    }
+        const rollingFiveHour = buildRollingFiveHourWindow(record);
+        if (!("limit" in rollingFiveHour)) {
+          return rollingFiveHour;
+        }
 
-    const rollingFiveHour = buildRollingFiveHourWindow(record);
-    if (!("limit" in rollingFiveHour)) {
-      return rollingFiveHour;
-    }
+        const weekly = buildWeeklyTokenWindow(record);
+        if (!("limit" in weekly)) {
+          return weekly;
+        }
 
-    const weekly = buildWeeklyTokenWindow(record);
-    if (!("limit" in weekly)) {
-      return weekly;
-    }
-
-    return {
-      success: true,
-      windows: {
-        fiveHour: rollingFiveHour,
-        weekly,
+        return {
+          success: true,
+          windows: {
+            fiveHour: rollingFiveHour,
+            weekly,
+          },
+        };
       },
-    };
+    });
   } catch (err) {
     return {
       success: false,

@@ -261,14 +261,12 @@ async function mapWithConcurrency<T, R>(params: {
 /**
  * Refresh Google access token
  */
-async function refreshAccessToken(
-  params: {
-    refreshToken: string;
-    clientId: string;
-    clientSecret: string;
-    timeoutMs?: number;
-  },
-): Promise<{ accessToken: string; expiresIn: number } | { error: string }> {
+async function refreshAccessToken(params: {
+  refreshToken: string;
+  clientId: string;
+  clientSecret: string;
+  timeoutMs?: number;
+}): Promise<{ accessToken: string; expiresIn: number } | { error: string }> {
   try {
     const body = new URLSearchParams({
       client_id: params.clientId,
@@ -277,43 +275,44 @@ async function refreshAccessToken(
       grant_type: "refresh_token",
     });
 
-    const response = await fetchWithTimeout(
-      GOOGLE_TOKEN_REFRESH_URL,
-      {
+    return await fetchWithTimeout(GOOGLE_TOKEN_REFRESH_URL, {
+      request: {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body,
       },
-      params.timeoutMs ?? GOOGLE_TOKEN_TIMEOUT_MS,
-    );
-
-    if (!response.ok) {
-      // Try to extract error code from response
-      try {
-        const errorData = (await response.json()) as {
-          error?: string;
-          error_description?: string;
-        };
-        if (errorData.error === "invalid_grant") {
-          return { error: "Token revoked" };
+      timeoutMs: params.timeoutMs ?? GOOGLE_TOKEN_TIMEOUT_MS,
+      consume: async (response, timeoutSignal) => {
+        if (!response.ok) {
+          // Try to extract error code from response
+          try {
+            const errorData = (await response.json()) as {
+              error?: string;
+              error_description?: string;
+            };
+            if (errorData.error === "invalid_grant") {
+              return { error: "Token revoked" };
+            }
+            return {
+              error: errorData.error_description || `HTTP ${response.status}`,
+            };
+          } catch (error) {
+            if (timeoutSignal.aborted) throw error;
+            return { error: `HTTP ${response.status}` };
+          }
         }
-        return {
-          error: errorData.error_description || `HTTP ${response.status}`,
+
+        const data = (await response.json()) as {
+          access_token: string;
+          expires_in: number;
         };
-      } catch {
-        return { error: `HTTP ${response.status}` };
-      }
-    }
 
-    const data = (await response.json()) as {
-      access_token: string;
-      expires_in: number;
-    };
-
-    return {
-      accessToken: data.access_token,
-      expiresIn: data.expires_in,
-    };
+        return {
+          accessToken: data.access_token,
+          expiresIn: data.expires_in,
+        };
+      },
+    });
   } catch (err) {
     if (err instanceof Error && err.message.includes("timeout")) {
       return { error: "Token refresh timeout" };
@@ -430,9 +429,8 @@ async function fetchGoogleQuota(
   projectId: string,
   timeoutMs: number = GOOGLE_QUOTA_TIMEOUT_MS,
 ): Promise<GoogleQuotaResponse> {
-  const response = await fetchWithTimeout(
-    GOOGLE_QUOTA_API_URL,
-    {
+  return await fetchWithTimeout(GOOGLE_QUOTA_API_URL, {
+    request: {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -442,16 +440,17 @@ async function fetchGoogleQuota(
       body: JSON.stringify({ project: projectId }),
     },
     timeoutMs,
-  );
+    consume: async (response) => {
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          throw new Error(`Google API auth error: ${response.status}`);
+        }
+        throw new Error(`Google API error: ${response.status}`);
+      }
 
-  if (!response.ok) {
-    if (response.status === 401 || response.status === 403) {
-      throw new Error(`Google API auth error: ${response.status}`);
-    }
-    throw new Error(`Google API error: ${response.status}`);
-  }
-
-  return response.json() as Promise<GoogleQuotaResponse>;
+      return (await response.json()) as GoogleQuotaResponse;
+    },
+  });
 }
 
 type GoogleModelConfig = (typeof GOOGLE_MODEL_KEYS)[GoogleModelId];
@@ -459,7 +458,10 @@ type GoogleModelConfig = (typeof GOOGLE_MODEL_KEYS)[GoogleModelId];
 function getModelKeyAliases(modelConfig: GoogleModelConfig): string[] {
   return [
     modelConfig.key,
-    ...(modelConfig.altKey?.split("|").map((key) => key.trim()).filter(Boolean) ?? []),
+    ...(modelConfig.altKey
+      ?.split("|")
+      .map((key) => key.trim())
+      .filter(Boolean) ?? []),
   ];
 }
 
@@ -559,7 +561,12 @@ function extractModelQuotas(
  * Fetch quota for a single account
  */
 function getProjectId(account: AntigravityAccount): string | undefined {
-  return account.managedProjectId || (account as any).quotaProjectId || account.projectId || account.projectID;
+  return (
+    account.managedProjectId ||
+    (account as any).quotaProjectId ||
+    account.projectId ||
+    account.projectID
+  );
 }
 
 // NOTE: This plugin treats Google Antigravity as truly multi-account.

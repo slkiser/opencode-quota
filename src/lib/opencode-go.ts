@@ -140,7 +140,8 @@ function parseDataSlotFormat(html: string): Partial<Record<string, ScrapedWindow
 
     const resetInSec = resetMatch[1] === "reset-now" ? 0 : parseHumanReadableTime(resetContent);
 
-    if (!Number.isFinite(usagePercent) || resetInSec === null || !Number.isFinite(resetInSec)) continue;
+    if (!Number.isFinite(usagePercent) || resetInSec === null || !Number.isFinite(resetInSec))
+      continue;
 
     // Map label to window key
     let windowKey: string | null = null;
@@ -181,9 +182,8 @@ export async function queryOpenCodeGoQuota(
   try {
     const url = `${DASHBOARD_URL_PREFIX}${encodeURIComponent(workspaceId)}${DASHBOARD_URL_SUFFIX}`;
 
-    const response = await fetchWithTimeout(
-      url,
-      {
+    return await fetchWithTimeout(url, {
+      request: {
         method: "GET",
         headers: {
           "User-Agent": USER_AGENT,
@@ -191,47 +191,48 @@ export async function queryOpenCodeGoQuota(
           Cookie: `auth=${authCookie}`,
         },
       },
-      options.requestTimeoutMs ?? SCRAPE_TIMEOUT_MS,
-    );
+      timeoutMs: options.requestTimeoutMs ?? SCRAPE_TIMEOUT_MS,
+      consume: async (response) => {
+        if (!response.ok) {
+          const text = await response.text();
+          return {
+            success: false,
+            error: `OpenCode Go dashboard error ${response.status}: ${sanitizeMessage(text)}`,
+          };
+        }
 
-    if (!response.ok) {
-      const text = await response.text();
-      return {
-        success: false,
-        error: `OpenCode Go dashboard error ${response.status}: ${sanitizeMessage(text)}`,
-      };
-    }
+        const html = await response.text();
 
-    const html = await response.text();
+        // Try SolidJS SSR format first (more reliable when present)
+        let rolling = parseWindowUsage(html, RE_ROLLING_PCT_FIRST, RE_ROLLING_RESET_FIRST);
+        let weekly = parseWindowUsage(html, RE_WEEKLY_PCT_FIRST, RE_WEEKLY_RESET_FIRST);
+        let monthly = parseWindowUsage(html, RE_MONTHLY_PCT_FIRST, RE_MONTHLY_RESET_FIRST);
 
-    // Try SolidJS SSR format first (more reliable when present)
-    let rolling = parseWindowUsage(html, RE_ROLLING_PCT_FIRST, RE_ROLLING_RESET_FIRST);
-    let weekly = parseWindowUsage(html, RE_WEEKLY_PCT_FIRST, RE_WEEKLY_RESET_FIRST);
-    let monthly = parseWindowUsage(html, RE_MONTHLY_PCT_FIRST, RE_MONTHLY_RESET_FIRST);
+        // Fall back to data-slot HTML format if SSR found nothing
+        if (!rolling && !weekly && !monthly) {
+          const dataSlotResult = parseDataSlotFormat(html);
+          rolling = dataSlotResult.rolling ?? null;
+          weekly = dataSlotResult.weekly ?? null;
+          monthly = dataSlotResult.monthly ?? null;
+        }
 
-    // Fall back to data-slot HTML format if SSR found nothing
-    if (!rolling && !weekly && !monthly) {
-      const dataSlotResult = parseDataSlotFormat(html);
-      rolling = dataSlotResult.rolling ?? null;
-      weekly = dataSlotResult.weekly ?? null;
-      monthly = dataSlotResult.monthly ?? null;
-    }
+        if (!rolling && !weekly && !monthly) {
+          return {
+            success: false,
+            error:
+              "Could not parse any known OpenCode Go dashboard usage windows (rollingUsage, weeklyUsage, monthlyUsage)",
+          };
+        }
 
-    if (!rolling && !weekly && !monthly) {
-      return {
-        success: false,
-        error:
-          "Could not parse any known OpenCode Go dashboard usage windows (rollingUsage, weeklyUsage, monthlyUsage)",
-      };
-    }
-
-    const now = Date.now();
-    return {
-      success: true,
-      ...(rolling ? { rolling: normalizeWindowUsage(rolling, now) } : {}),
-      ...(weekly ? { weekly: normalizeWindowUsage(weekly, now) } : {}),
-      ...(monthly ? { monthly: normalizeWindowUsage(monthly, now) } : {}),
-    };
+        const now = Date.now();
+        return {
+          success: true,
+          ...(rolling ? { rolling: normalizeWindowUsage(rolling, now) } : {}),
+          ...(weekly ? { weekly: normalizeWindowUsage(weekly, now) } : {}),
+          ...(monthly ? { monthly: normalizeWindowUsage(monthly, now) } : {}),
+        };
+      },
+    });
   } catch (err) {
     return {
       success: false,

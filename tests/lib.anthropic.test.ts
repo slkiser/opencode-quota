@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const httpMocks = vi.hoisted(() => ({
+  fetchResponse: vi.fn(),
+}));
+
 import { execFile } from "child_process";
 import { readFile } from "fs/promises";
 
@@ -22,7 +26,17 @@ vi.mock("fs/promises", () => ({
 }));
 
 vi.mock("../src/lib/http.js", () => ({
-  fetchWithTimeout: vi.fn(),
+  fetchWithTimeout: vi.fn(
+    async (
+      _url: string,
+      options: {
+        consume: (response: Response, signal: AbortSignal) => Promise<unknown> | unknown;
+      },
+    ) => {
+      const response = await httpMocks.fetchResponse();
+      return await options.consume(response, new AbortController().signal);
+    },
+  ),
 }));
 
 type ExecSequenceStep = {
@@ -38,6 +52,7 @@ const ANTHROPIC_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const execFileMock = vi.mocked(execFile);
 const readFileMock = vi.mocked(readFile);
 const fetchWithTimeoutMock = vi.mocked(fetchWithTimeout);
+const fetchResponseMock = httpMocks.fetchResponse;
 const originalProcessPlatformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
 
 function setProcessPlatform(platform: NodeJS.Platform): void {
@@ -106,7 +121,8 @@ afterEach(() => {
   vi.useRealTimers();
   execFileMock.mockReset();
   readFileMock.mockReset();
-  fetchWithTimeoutMock.mockReset();
+  fetchWithTimeoutMock.mockClear();
+  fetchResponseMock.mockReset();
   clearAnthropicDiagnosticsCacheForTests();
   if (originalProcessPlatformDescriptor) {
     Object.defineProperty(process, "platform", originalProcessPlatformDescriptor);
@@ -190,7 +206,7 @@ describe("Claude CLI diagnostics", () => {
         "/d",
         "/s",
         "/c",
-        "\"C:\\Users\\alice\\AppData\\Roaming\\npm\\claude.cmd\" \"auth\" \"status\" \"--json\"",
+        '"C:\\Users\\alice\\AppData\\Roaming\\npm\\claude.cmd" "auth" "status" "--json"',
       ],
       display: "C:\\Users\\alice\\AppData\\Roaming\\npm\\claude.cmd auth status --json",
     });
@@ -204,7 +220,7 @@ describe("Claude CLI diagnostics", () => {
 
     expect(invocation).toEqual({
       file: "C:\\Windows\\System32\\cmd.exe",
-      args: ["/d", "/s", "/c", "\"claude.exe\" \"--version\""],
+      args: ["/d", "/s", "/c", '"claude.exe" "--version"'],
       display: "claude.exe --version",
     });
   });
@@ -302,7 +318,7 @@ describe("Claude CLI diagnostics", () => {
     });
 
     expect(diagnostics.checkedCommands).toEqual([
-      "\"/Applications/Claude Code.app/Contents/MacOS/claude\" --version",
+      '"/Applications/Claude Code.app/Contents/MacOS/claude" --version',
     ]);
     expect(diagnostics.message).toContain("/Applications/Claude Code.app/Contents/MacOS/claude");
   });
@@ -396,7 +412,7 @@ describe("Claude CLI diagnostics", () => {
         },
       }),
     );
-    fetchWithTimeoutMock.mockResolvedValue(
+    fetchResponseMock.mockResolvedValue(
       mockJsonResponse({
         oauth_usage: {
           fiveHour: {
@@ -420,16 +436,16 @@ describe("Claude CLI diagnostics", () => {
     expect(diagnostics.quota?.five_hour.resetTimeIso).toBe("2026-03-25T18:00:00.000Z");
     expect(diagnostics.quota?.seven_day.percentRemaining).toBe(85);
     expect(diagnostics.quota?.seven_day.resetTimeIso).toBe("2026-04-01T00:00:00.000Z");
-    expect(fetchWithTimeoutMock).toHaveBeenCalledWith(
-      ANTHROPIC_USAGE_URL,
-      {
+    expect(fetchWithTimeoutMock).toHaveBeenCalledWith(ANTHROPIC_USAGE_URL, {
+      request: {
         headers: {
           Authorization: "Bearer oauth-access-token",
           "anthropic-beta": "oauth-2025-04-20",
         },
       },
-      undefined,
-    );
+      timeoutMs: undefined,
+      consume: expect.any(Function),
+    });
 
     const quota = await queryAnthropicQuota();
     expect(quota?.success).toBe(true);
@@ -460,7 +476,7 @@ describe("Claude CLI diagnostics", () => {
         }),
       },
     ]);
-    fetchWithTimeoutMock.mockResolvedValue(
+    fetchResponseMock.mockResolvedValue(
       mockJsonResponse({
         oauth_usage: {
           fiveHour: {
@@ -480,16 +496,16 @@ describe("Claude CLI diagnostics", () => {
     expect(diagnostics.quotaSource).toBe("claude-credentials-oauth-api");
     expect(diagnostics.quota?.five_hour.percentRemaining).toBe(75);
     expect(diagnostics.quota?.seven_day.percentRemaining).toBe(60);
-    expect(fetchWithTimeoutMock).toHaveBeenCalledWith(
-      ANTHROPIC_USAGE_URL,
-      {
+    expect(fetchWithTimeoutMock).toHaveBeenCalledWith(ANTHROPIC_USAGE_URL, {
+      request: {
         headers: {
           Authorization: "Bearer oauth-access-token-from-keychain",
           "anthropic-beta": "oauth-2025-04-20",
         },
       },
-      undefined,
-    );
+      timeoutMs: undefined,
+      consume: expect.any(Function),
+    });
     expect(readFileMock).not.toHaveBeenCalled();
     expect(execFileMock).toHaveBeenCalledTimes(3);
   });
@@ -516,7 +532,7 @@ describe("Claude CLI diagnostics", () => {
         },
       }),
     );
-    fetchWithTimeoutMock.mockResolvedValue(
+    fetchResponseMock.mockResolvedValue(
       mockJsonResponse({
         usage: {
           five_hour: { used_percentage: 5 },
@@ -529,16 +545,16 @@ describe("Claude CLI diagnostics", () => {
     expect(diagnostics.quotaSupported).toBe(true);
     expect(diagnostics.quota?.five_hour.percentRemaining).toBe(95);
     expect(diagnostics.quota?.seven_day.percentRemaining).toBe(90);
-    expect(fetchWithTimeoutMock).toHaveBeenCalledWith(
-      ANTHROPIC_USAGE_URL,
-      {
+    expect(fetchWithTimeoutMock).toHaveBeenCalledWith(ANTHROPIC_USAGE_URL, {
+      request: {
         headers: {
           Authorization: "Bearer oauth-access-token-from-file",
           "anthropic-beta": "oauth-2025-04-20",
         },
       },
-      undefined,
-    );
+      timeoutMs: undefined,
+      consume: expect.any(Function),
+    });
     expect(readFileMock).toHaveBeenCalledTimes(1);
     expect(execFileMock).toHaveBeenCalledTimes(3);
   });
@@ -665,7 +681,7 @@ describe("Claude CLI diagnostics", () => {
         },
       }),
     );
-    fetchWithTimeoutMock.mockResolvedValue({
+    fetchResponseMock.mockResolvedValue({
       ok: false,
       status: 429,
       json: vi.fn(),
@@ -693,7 +709,7 @@ describe("Claude CLI diagnostics", () => {
     readFileMock.mockResolvedValue(
       JSON.stringify({ claudeAiOauth: { accessToken: "oauth-secret-token" } }),
     );
-    fetchWithTimeoutMock
+    fetchResponseMock
       .mockResolvedValueOnce(
         mockOAuthResponse(429, "rate limited oauth-\u001b[31msecret-token", "45"),
       )
@@ -732,7 +748,7 @@ describe("Claude CLI diagnostics", () => {
     readFileMock.mockResolvedValue(
       JSON.stringify({ claudeAiOauth: { accessToken: "oauth-secret-token" } }),
     );
-    fetchWithTimeoutMock.mockRejectedValue(
+    fetchResponseMock.mockRejectedValue(
       new Error("request failed for oauth-\u001b[31msecret-token"),
     );
 
@@ -750,7 +766,7 @@ describe("Claude CLI diagnostics", () => {
     readFileMock.mockResolvedValue(
       JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
     );
-    fetchWithTimeoutMock.mockResolvedValue(
+    fetchResponseMock.mockResolvedValue(
       mockOAuthResponse(429, "rate limited", "Fri, 10 Jul 2026 12:02:00 GMT"),
     );
 
@@ -776,7 +792,7 @@ describe("Claude CLI diagnostics", () => {
     readFileMock.mockResolvedValue(
       JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
     );
-    fetchWithTimeoutMock.mockResolvedValue(mockOAuthResponse(429, "rate limited", retryAfter));
+    fetchResponseMock.mockResolvedValue(mockOAuthResponse(429, "rate limited", retryAfter));
 
     const first = await getAnthropicDiagnostics();
     expect(first.message).toContain("retry in 30s.");
@@ -794,7 +810,7 @@ describe("Claude CLI diagnostics", () => {
     readFileMock.mockResolvedValue(
       JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
     );
-    fetchWithTimeoutMock.mockResolvedValue(mockOAuthResponse(429, "rate limited", "3600"));
+    fetchResponseMock.mockResolvedValue(mockOAuthResponse(429, "rate limited", "3600"));
 
     const diagnostics = await getAnthropicDiagnostics();
     expect(diagnostics.message).toContain("retry in 900s.");
@@ -810,7 +826,7 @@ describe("Claude CLI diagnostics", () => {
     );
     const response = mockOAuthResponse(429, "rate limited");
     vi.mocked(response.text).mockRejectedValue(new Error("body unavailable"));
-    fetchWithTimeoutMock.mockResolvedValue(response);
+    fetchResponseMock.mockResolvedValue(response);
 
     const first = await getAnthropicDiagnostics();
     expect(first.message).toContain("Anthropic API returned 429");
@@ -818,6 +834,33 @@ describe("Claude CLI diagnostics", () => {
 
     await vi.advanceTimersByTimeAsync(5_001);
     await getAnthropicDiagnostics();
+    expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("establishes a cooldown before a timed-out 429 response body finishes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-10T12:00:00.000Z"));
+    setProcessPlatform("linux");
+    mockExecSequence(authenticatedWithoutQuotaSteps(2));
+    readFileMock.mockResolvedValue(
+      JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
+    );
+    const response = mockOAuthResponse(429, "rate limited", "45");
+    vi.mocked(response.text).mockRejectedValue(new Error("body stalled"));
+    fetchWithTimeoutMock.mockImplementationOnce(async (_url, options) => {
+      const controller = new AbortController();
+      controller.abort();
+      return await options.consume(response, controller.signal);
+    });
+
+    const first = await getAnthropicDiagnostics();
+    expect(first.message).toContain("body stalled");
+
+    await vi.advanceTimersByTimeAsync(5_001);
+    const suppressed = await getAnthropicDiagnostics();
+    expect(suppressed.message).toContain(
+      "Anthropic OAuth usage probe paused after HTTP 429; retry in 40s.",
+    );
     expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
   });
 
@@ -829,7 +872,7 @@ describe("Claude CLI diagnostics", () => {
     readFileMock.mockResolvedValue(
       JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
     );
-    fetchWithTimeoutMock
+    fetchResponseMock
       .mockResolvedValueOnce(mockOAuthResponse(429, "first"))
       .mockResolvedValueOnce(mockOAuthResponse(429, "second"))
       .mockResolvedValueOnce(
@@ -863,7 +906,7 @@ describe("Claude CLI diagnostics", () => {
     readFileMock.mockResolvedValue(
       JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
     );
-    fetchWithTimeoutMock
+    fetchResponseMock
       .mockResolvedValueOnce(mockOAuthResponse(429, "first"))
       .mockResolvedValueOnce(mockOAuthResponse(500, "server error"))
       .mockResolvedValueOnce(mockOAuthResponse(429, "second"))
@@ -888,7 +931,7 @@ describe("Claude CLI diagnostics", () => {
       JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
     );
     let resolveFetch!: (response: Response) => void;
-    fetchWithTimeoutMock.mockReturnValue(
+    fetchResponseMock.mockReturnValue(
       new Promise<Response>((resolve) => {
         resolveFetch = resolve;
       }),
@@ -916,7 +959,7 @@ describe("Claude CLI diagnostics", () => {
     readFileMock
       .mockResolvedValueOnce(JSON.stringify({ claudeAiOauth: { accessToken: "old-token" } }))
       .mockResolvedValueOnce(JSON.stringify({ claudeAiOauth: { accessToken: "new-token" } }));
-    fetchWithTimeoutMock
+    fetchResponseMock
       .mockResolvedValueOnce(mockOAuthResponse(429, "rate limited", "900"))
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -938,7 +981,7 @@ describe("Claude CLI diagnostics", () => {
     readFileMock.mockResolvedValue(
       JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
     );
-    fetchWithTimeoutMock.mockResolvedValue(mockOAuthResponse(429, "rate limited", "900"));
+    fetchResponseMock.mockResolvedValue(mockOAuthResponse(429, "rate limited", "900"));
 
     await getAnthropicDiagnostics();
     clearAnthropicDiagnosticsCacheForTests();
@@ -963,7 +1006,7 @@ describe("Claude CLI diagnostics", () => {
         },
       }),
     );
-    fetchWithTimeoutMock.mockResolvedValue(mockInvalidJsonResponse());
+    fetchResponseMock.mockResolvedValue(mockInvalidJsonResponse());
 
     const diagnostics = await getAnthropicDiagnostics();
     expect(diagnostics.quotaSupported).toBe(false);
@@ -993,7 +1036,7 @@ describe("Claude CLI diagnostics", () => {
         },
       }),
     );
-    fetchWithTimeoutMock.mockResolvedValue(mockJsonResponse({ ok: true }));
+    fetchResponseMock.mockResolvedValue(mockJsonResponse({ ok: true }));
 
     const diagnostics = await getAnthropicDiagnostics();
     expect(diagnostics.quotaSupported).toBe(false);
@@ -1130,7 +1173,7 @@ describe("Claude CLI diagnostics", () => {
           claudeAiOauth: { accessToken: "oauth-access-token-2" },
         }),
       );
-    fetchWithTimeoutMock
+    fetchResponseMock
       .mockResolvedValueOnce(
         mockJsonResponse({
           usage: {

@@ -4,9 +4,23 @@ const authMocks = vi.hoisted(() => ({
   resolveKimiAuthCached: vi.fn(),
 }));
 
-const fetchMocks = vi.hoisted(() => ({
-  fetchWithTimeout: vi.fn(),
-}));
+const fetchMocks = vi.hoisted(() => {
+  const fetchResponse = vi.fn();
+  return {
+    fetchResponse,
+    fetchWithTimeout: vi.fn(
+      async (
+        _url: string,
+        options: {
+          consume: (response: Response, signal: AbortSignal) => Promise<unknown> | unknown;
+        },
+      ) => {
+        const response = await fetchResponse();
+        return await options.consume(response, new AbortController().signal);
+      },
+    ),
+  };
+});
 
 vi.mock("../src/lib/kimi-auth.js", () => ({
   resolveKimiAuthCached: authMocks.resolveKimiAuthCached,
@@ -24,14 +38,14 @@ function mockKimiAuthConfigured(apiKey = "test-key") {
 }
 
 function mockKimiHttpSuccess(payload: unknown) {
-  fetchMocks.fetchWithTimeout.mockResolvedValueOnce({
+  fetchMocks.fetchResponse.mockResolvedValueOnce({
     ok: true,
     json: async () => payload,
   });
 }
 
 function mockKimiHttpFailure(status: number, text: string) {
-  fetchMocks.fetchWithTimeout.mockResolvedValueOnce({
+  fetchMocks.fetchResponse.mockResolvedValueOnce({
     ok: false,
     status,
     text: async () => text,
@@ -170,7 +184,7 @@ describe("queryKimiQuota", () => {
 
   it("sanitizes thrown errors", async () => {
     mockKimiAuthConfigured();
-    fetchMocks.fetchWithTimeout.mockRejectedValue(new Error("network error"));
+    fetchMocks.fetchResponse.mockRejectedValue(new Error("network error"));
 
     const result = await queryKimiQuota();
 

@@ -214,28 +214,28 @@ async function fetchKimiQuotaFromUrl(
   requestTimeoutMs?: number,
 ): Promise<FetchResult> {
   try {
-    const resp = await fetchWithTimeout(
-      url,
-      {
+    return await fetchWithTimeout(url, {
+      request: {
         headers: {
           Authorization: `Bearer ${apiKey}`,
           "User-Agent": USER_AGENT,
         },
       },
-      requestTimeoutMs,
-    );
+      timeoutMs: requestTimeoutMs,
+      consume: async (resp): Promise<FetchResult> => {
+        if (!resp.ok) {
+          const text = await resp.text();
+          return {
+            ok: false,
+            error: `Kimi API error ${resp.status}: ${sanitizeDisplaySnippet(text, 120)}`,
+          };
+        }
 
-    if (!resp.ok) {
-      const text = await resp.text();
-      return {
-        ok: false,
-        error: `Kimi API error ${resp.status}: ${sanitizeDisplaySnippet(text, 120)}`,
-      };
-    }
-
-    const payload = (await resp.json()) as Record<string, unknown>;
-    const { windows, topLevelKeys } = parseKimiUsagePayload(payload);
-    return { ok: true, windows, topLevelKeys };
+        const payload = (await resp.json()) as Record<string, unknown>;
+        const { windows, topLevelKeys } = parseKimiUsagePayload(payload);
+        return { ok: true, windows, topLevelKeys };
+      },
+    });
   } catch (err) {
     return {
       ok: false,
@@ -244,7 +244,9 @@ async function fetchKimiQuotaFromUrl(
   }
 }
 
-export async function queryKimiQuota(options: { requestTimeoutMs?: number } = {}): Promise<KimiResult> {
+export async function queryKimiQuota(
+  options: { requestTimeoutMs?: number } = {},
+): Promise<KimiResult> {
   const auth = await resolveKimiAuthCached({ maxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS });
   if (auth.state === "none") return null;
   if (auth.state === "invalid") {

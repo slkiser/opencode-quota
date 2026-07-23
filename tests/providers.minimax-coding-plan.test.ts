@@ -7,13 +7,27 @@ import {
 } from "./helpers/provider-assertions.js";
 import { visibleEntries } from "./helpers/provider-assertions.js";
 
-const mocks = vi.hoisted(() => ({
-  fetchWithTimeout: vi.fn(),
-  isAnyProviderIdAvailable: vi.fn(),
-  isCanonicalProviderAvailable: vi.fn(),
-  resolveMiniMaxAuthCached: vi.fn(),
-  resolveMiniMaxChinaAuthCached: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  const fetchResponse = vi.fn();
+  return {
+    fetchResponse,
+    fetchWithTimeout: vi.fn(
+      async (
+        _url: string,
+        options: {
+          consume: (response: Response, signal: AbortSignal) => Promise<unknown> | unknown;
+        },
+      ) => {
+        const response = await fetchResponse();
+        return await options.consume(response, new AbortController().signal);
+      },
+    ),
+    isAnyProviderIdAvailable: vi.fn(),
+    isCanonicalProviderAvailable: vi.fn(),
+    resolveMiniMaxAuthCached: vi.fn(),
+    resolveMiniMaxChinaAuthCached: vi.fn(),
+  };
+});
 
 vi.mock("../src/lib/minimax-auth.js", () => ({
   resolveMiniMaxAuthCached: mocks.resolveMiniMaxAuthCached,
@@ -89,7 +103,7 @@ function mockMiniMaxChinaAuthConfigured(apiKey = "china-key") {
 }
 
 function mockMiniMaxHttpSuccess(models: unknown[]) {
-  mocks.fetchWithTimeout.mockResolvedValueOnce({
+  mocks.fetchResponse.mockResolvedValueOnce({
     ok: true,
     json: async () => ({
       model_remains: models,
@@ -99,7 +113,7 @@ function mockMiniMaxHttpSuccess(models: unknown[]) {
 }
 
 function mockMiniMaxHttpFailure(status: number, text: string) {
-  mocks.fetchWithTimeout.mockResolvedValueOnce({
+  mocks.fetchResponse.mockResolvedValueOnce({
     ok: false,
     status,
     text: async () => text,
@@ -170,10 +184,13 @@ describe("minimax-coding-plan provider", () => {
     expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
       "https://api.minimaxi.com/v1/token_plan/remains",
       expect.objectContaining({
-        method: "GET",
-        headers: expect.objectContaining({ Authorization: "Bearer china-key" }),
+        request: expect.objectContaining({
+          method: "GET",
+          headers: expect.objectContaining({ Authorization: "Bearer china-key" }),
+        }),
+        timeoutMs: undefined,
+        consume: expect.any(Function),
       }),
-      undefined,
     );
   });
 
@@ -275,9 +292,12 @@ describe("minimax-coding-plan provider", () => {
     expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
       "https://api.minimax.io/v1/api/openplatform/coding_plan/remains",
       expect.objectContaining({
-        headers: expect.objectContaining({ Authorization: "Bearer intl-key" }),
+        request: expect.objectContaining({
+          headers: expect.objectContaining({ Authorization: "Bearer intl-key" }),
+        }),
+        timeoutMs: undefined,
+        consume: expect.any(Function),
       }),
-      undefined,
     );
   });
 
@@ -645,7 +665,7 @@ describe("minimax-coding-plan provider", () => {
 
   it("returns error on non-zero status code", async () => {
     mockMiniMaxAuthConfigured();
-    mocks.fetchWithTimeout.mockResolvedValueOnce({
+    mocks.fetchResponse.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         model_remains: [],
@@ -660,7 +680,7 @@ describe("minimax-coding-plan provider", () => {
 
   it("sanitizes status messages and thrown errors", async () => {
     mockMiniMaxAuthConfigured();
-    mocks.fetchWithTimeout.mockResolvedValueOnce({
+    mocks.fetchResponse.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         model_remains: [],
@@ -678,7 +698,7 @@ describe("minimax-coding-plan provider", () => {
     );
 
     mockMiniMaxAuthConfigured();
-    mocks.fetchWithTimeout.mockRejectedValueOnce(new Error("network\nfailed"));
+    mocks.fetchResponse.mockRejectedValueOnce(new Error("network\nfailed"));
 
     const thrownOut = await minimaxCodingPlanProvider.fetch({ config: {} } as any);
     expectAttemptedWithErrorLabel(thrownOut, "MiniMax Coding Plan");

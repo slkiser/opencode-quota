@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   fetchWithTimeout: vi.fn(),
@@ -9,6 +9,7 @@ vi.mock("../src/lib/http.js", () => ({
 }));
 
 import {
+  formatMimoDashboardTimeZone,
   parseMimoBalanceResponse,
   parseMimoDetailResponse,
   parseMimoUsageResponse,
@@ -162,17 +163,54 @@ describe("MiMo response parsers", () => {
   });
 });
 
+type MockTimeoutOptions = {
+  request: RequestInit;
+  timeoutMs?: number;
+  consume: (response: Response, signal: AbortSignal) => Promise<unknown> | unknown;
+};
+
+async function consumeResponse(
+  options: MockTimeoutOptions,
+  response: Response,
+  signal = new AbortController().signal,
+): Promise<unknown> {
+  return await options.consume(response, signal);
+}
+
+function responseForUrl(url: string): Response {
+  if (url.endsWith("/tokenPlan/usage")) return jsonResponse(usagePayload());
+  if (url.endsWith("/tokenPlan/detail")) return jsonResponse(detailPayload());
+  return jsonResponse(balancePayload());
+}
+
+describe("formatMimoDashboardTimeZone", () => {
+  it.each([
+    [0, "UTC+00:00"],
+    [-60, "UTC+01:00"],
+    [300, "UTC-05:00"],
+    [-330, "UTC+05:30"],
+    [210, "UTC-03:30"],
+    [-345, "UTC+05:45"],
+    [225, "UTC-03:45"],
+  ])("formats offset %s as %s", (offset, expected) => {
+    expect(formatMimoDashboardTimeZone(offset)).toBe(expected);
+  });
+});
+
 describe("queryMimoDashboard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.fetchWithTimeout.mockImplementation((url: string, options: MockTimeoutOptions) =>
+      consumeResponse(options, responseForUrl(url)),
+    );
   });
 
-  it("uses the three fixed HTTPS GET contracts with manual redirects and fixed browser headers", async () => {
-    mocks.fetchWithTimeout.mockImplementation((url: string) => {
-      if (url.endsWith("/tokenPlan/usage")) return Promise.resolve(jsonResponse(usagePayload()));
-      if (url.endsWith("/tokenPlan/detail")) return Promise.resolve(jsonResponse(detailPayload()));
-      return Promise.resolve(jsonResponse(balancePayload()));
-    });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("uses the three HTTPS GET contracts with one request-time timezone snapshot", async () => {
+    vi.spyOn(Date.prototype, "getTimezoneOffset").mockReturnValue(-60);
 
     const result = await queryMimoDashboard(cookie, { requestTimeoutMs: 4_321 });
 
@@ -185,9 +223,12 @@ describe("queryMimoDashboard", () => {
       "https://platform.xiaomimimo.com/api/v1/balance",
     ]);
 
-    for (const [url, init, timeout] of mocks.fetchWithTimeout.mock.calls) {
+    for (const [url, options] of mocks.fetchWithTimeout.mock.calls as [
+      string,
+      MockTimeoutOptions,
+    ][]) {
       expect(url).toMatch(/^https:\/\/platform\.xiaomimimo\.com\/api\/v1\//u);
-      expect(init).toEqual({
+      expect(options.request).toEqual({
         method: "GET",
         redirect: "manual",
         headers: {
@@ -201,61 +242,86 @@ describe("queryMimoDashboard", () => {
           "x-timeZone": "UTC+01:00",
         },
       });
-      expect(init.body).toBeUndefined();
-      expect(timeout).toBe(4_321);
+      expect(options.request.body).toBeUndefined();
+      expect(options.timeoutMs).toBe(4_321);
     }
+    expect(Date.prototype.getTimezoneOffset).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps successful endpoint data when another endpoint fails", async () => {
-    mocks.fetchWithTimeout.mockImplementation((url: string) => {
-      if (url.endsWith("/tokenPlan/usage")) {
-        return Promise.resolve(new Response("private response body", { status: 503 }));
-      }
-      if (url.endsWith("/tokenPlan/detail")) return Promise.resolve(jsonResponse(detailPayload()));
-      return Promise.resolve(jsonResponse(balancePayload()));
-    });
+  it("recomputes the timezone on later dashboard calls to observe offset changes", async () => {
+    vi.spyOn(Date.prototype, "getTimezoneOffset")
+      .mockReturnValueOnce(-60)
+      .mockReturnValueOnce(-120);
+
+    await queryMimoDashboard(cookie);
+    await queryMimoDashboard(cookie);
+
+    const timeZones = mocks.fetchWithTimeout.mock.calls.map(
+      (call) => (call[1] as MockTimeoutOptions).request.headers as Record<string, string>,
+    );
+    expect(timeZones.slice(0, 3).map((headers) => headers["x-timeZone"])).toEqual([
+      "UTC+01:00",
+      "UTC+01:00",
+      "UTC+01:00",
+    ]);
+    expect(timeZones.slice(3).map((headers) => headers["x-timeZone"])).toEqual([
+      "UTC+02:00",
+      "UTC+02:00",
+      "UTC+02:00",
+    ]);
+  });
+
+  it("keeps successful endpoint data when another endpoint returns an HTTP error", async () => {
+    mocks.fetchWithTimeout.mockImplementation((url: string, options: MockTimeoutOptions) =>
+      consumeResponse(
+        options,
+        url.endsWith("/tokenPlan/usage")
+          ? new Response("private response body", { status: 503 })
+          : responseForUrl(url),
+      ),
+    );
 
     const result = await queryMimoDashboard(cookie);
 
-    expect(result).toEqual({
-      usage: {
-        state: "error",
-        error: "Xiaomi MiMo usage request failed (HTTP 503)",
-      },
-      detail: {
-        state: "success",
-        data: {
-          planName: "Standard",
-          planCode: "standard_monthly",
-          expired: false,
-        },
-      },
-      balance: {
-        state: "success",
-        data: {
-          total: 50,
-          cash: 30,
-          gift: 20,
-          currency: "USD",
-        },
-      },
+    expect(result.usage).toEqual({
+      state: "error",
+      error: "Xiaomi MiMo usage request failed (HTTP 503)",
     });
+    expect(result.detail.state).toBe("success");
+    expect(result.balance.state).toBe("success");
     expect(JSON.stringify(result)).not.toContain("private response body");
   });
 
-  it("does not follow redirects", async () => {
-    mocks.fetchWithTimeout.mockImplementation((url: string) => {
+  it("keeps successful endpoint data when another endpoint times out", async () => {
+    mocks.fetchWithTimeout.mockImplementation((url: string, options: MockTimeoutOptions) => {
       if (url.endsWith("/tokenPlan/usage")) {
-        return Promise.resolve(
-          new Response("", {
-            status: 302,
-            headers: { Location: "https://example.test/private-login" },
-          }),
-        );
+        return Promise.reject(new Error("Request timeout after 2s"));
       }
-      if (url.endsWith("/tokenPlan/detail")) return Promise.resolve(jsonResponse(detailPayload()));
-      return Promise.resolve(jsonResponse(balancePayload()));
+      return consumeResponse(options, responseForUrl(url));
     });
+
+    const result = await queryMimoDashboard(cookie, { requestTimeoutMs: 2_000 });
+
+    expect(result.usage).toEqual({
+      state: "error",
+      error: "Xiaomi MiMo usage request failed: Request timeout after 2s",
+    });
+    expect(result.detail.state).toBe("success");
+    expect(result.balance.state).toBe("success");
+  });
+
+  it("does not follow redirects", async () => {
+    mocks.fetchWithTimeout.mockImplementation((url: string, options: MockTimeoutOptions) =>
+      consumeResponse(
+        options,
+        url.endsWith("/tokenPlan/usage")
+          ? new Response("", {
+              status: 302,
+              headers: { Location: "https://example.test/private-login" },
+            })
+          : responseForUrl(url),
+      ),
+    );
 
     const result = await queryMimoDashboard(cookie);
 
@@ -266,19 +332,14 @@ describe("queryMimoDashboard", () => {
     expect(JSON.stringify(result)).not.toContain("example.test");
   });
 
-  it("uses fixed parse errors for malformed, unexpected, and oversized responses", async () => {
-    mocks.fetchWithTimeout.mockImplementation((url: string) => {
-      if (url.endsWith("/tokenPlan/usage")) {
-        return Promise.resolve(new Response("{"));
-      }
-      if (url.endsWith("/tokenPlan/detail")) {
-        return Promise.resolve(jsonResponse({ code: 0, data: { expired: "no" } }));
-      }
-      return Promise.resolve(
-        new Response("{}", {
-          headers: { "Content-Length": String(300 * 1024) },
-        }),
-      );
+  it("uses fixed errors for malformed, unexpected, and declared-oversized responses", async () => {
+    mocks.fetchWithTimeout.mockImplementation((url: string, options: MockTimeoutOptions) => {
+      const response = url.endsWith("/tokenPlan/usage")
+        ? new Response("{")
+        : url.endsWith("/tokenPlan/detail")
+          ? jsonResponse({ code: 0, data: { expired: "no" } })
+          : new Response("{}", { headers: { "Content-Length": String(300 * 1024) } });
+      return consumeResponse(options, response);
     });
 
     await expect(queryMimoDashboard(cookie)).resolves.toEqual({
@@ -297,15 +358,118 @@ describe("queryMimoDashboard", () => {
     });
   });
 
-  it("sanitizes network errors and redacts the cookie and retained values", async () => {
-    mocks.fetchWithTimeout.mockImplementation((url: string) => {
+  it("cancels and releases a streamed response that exceeds the size limit", async () => {
+    const cancel = vi.fn();
+    const releaseLock = vi.spyOn(ReadableStreamDefaultReader.prototype, "releaseLock");
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(256 * 1024 + 1));
+      },
+      cancel,
+    });
+    mocks.fetchWithTimeout.mockImplementation((url: string, options: MockTimeoutOptions) =>
+      consumeResponse(
+        options,
+        url.endsWith("/tokenPlan/usage") ? new Response(body) : responseForUrl(url),
+      ),
+    );
+
+    const result = await queryMimoDashboard(cookie);
+
+    expect(result.usage).toEqual({
+      state: "error",
+      error: "Xiaomi MiMo usage response could not be parsed",
+    });
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(releaseLock).toHaveBeenCalledTimes(3);
+  });
+
+  it("cancels and releases a response whose stream read fails", async () => {
+    const cancel = vi.spyOn(ReadableStreamDefaultReader.prototype, "cancel");
+    const releaseLock = vi.spyOn(ReadableStreamDefaultReader.prototype, "releaseLock");
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.error(new Error("private read failure"));
+      },
+    });
+    mocks.fetchWithTimeout.mockImplementation((url: string, options: MockTimeoutOptions) =>
+      consumeResponse(
+        options,
+        url.endsWith("/tokenPlan/usage") ? new Response(body) : responseForUrl(url),
+      ),
+    );
+
+    const result = await queryMimoDashboard(cookie);
+
+    expect(result.usage).toEqual({
+      state: "error",
+      error: "Xiaomi MiMo usage response could not be parsed",
+    });
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(releaseLock).toHaveBeenCalledTimes(3);
+    expect(JSON.stringify(result)).not.toContain("private read failure");
+  });
+
+  it("releases a successful stream without cancelling it", async () => {
+    const cancel = vi.fn();
+    const releaseLock = vi.spyOn(ReadableStreamDefaultReader.prototype, "releaseLock");
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(JSON.stringify(usagePayload())));
+        controller.close();
+      },
+      cancel,
+    });
+    mocks.fetchWithTimeout.mockImplementation((url: string, options: MockTimeoutOptions) =>
+      consumeResponse(
+        options,
+        url.endsWith("/tokenPlan/usage") ? new Response(body) : responseForUrl(url),
+      ),
+    );
+
+    const result = await queryMimoDashboard(cookie);
+
+    expect(result.usage.state).toBe("success");
+    expect(cancel).not.toHaveBeenCalled();
+    expect(releaseLock).toHaveBeenCalledTimes(3);
+  });
+
+  it("preserves the primary size error when reader cancellation fails", async () => {
+    const cancel = vi
+      .spyOn(ReadableStreamDefaultReader.prototype, "cancel")
+      .mockRejectedValue(new Error("private cancellation failure"));
+    const releaseLock = vi.spyOn(ReadableStreamDefaultReader.prototype, "releaseLock");
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(256 * 1024 + 1));
+      },
+    });
+    mocks.fetchWithTimeout.mockImplementation((url: string, options: MockTimeoutOptions) =>
+      consumeResponse(
+        options,
+        url.endsWith("/tokenPlan/usage") ? new Response(body) : responseForUrl(url),
+      ),
+    );
+
+    const result = await queryMimoDashboard(cookie);
+
+    expect(result.usage).toEqual({
+      state: "error",
+      error: "Xiaomi MiMo usage response could not be parsed",
+    });
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(releaseLock).toHaveBeenCalledTimes(3);
+    expect(JSON.stringify(result)).not.toContain("private cancellation failure");
+  });
+
+  it("sanitizes timeout errors and redacts the cookie and retained values", async () => {
+    mocks.fetchWithTimeout.mockImplementation((url: string, options: MockTimeoutOptions) => {
       if (url.endsWith("/tokenPlan/usage")) {
         return Promise.reject(
           new Error(`\u001b[31mtimeout for ${cookie}\nservice-secret user-secret retry\u001b[0m`),
         );
       }
-      if (url.endsWith("/tokenPlan/detail")) return Promise.resolve(jsonResponse(detailPayload()));
-      return Promise.resolve(jsonResponse(balancePayload()));
+      return consumeResponse(options, responseForUrl(url));
     });
 
     const result = await queryMimoDashboard(cookie);

@@ -108,7 +108,10 @@ export function parseGeminiCliRefreshParts(refresh: string | undefined): Refresh
   };
 }
 
-function getAuthEntry(auth: AuthData, sourceKey: GeminiCliAuthSourceKey): GeminiCliOAuthAuthData | undefined {
+function getAuthEntry(
+  auth: AuthData,
+  sourceKey: GeminiCliAuthSourceKey,
+): GeminiCliOAuthAuthData | undefined {
   return auth[sourceKey] as GeminiCliOAuthAuthData | undefined;
 }
 
@@ -194,7 +197,9 @@ function countGeminiCliAuthEntries(auth: AuthData | null | undefined): number {
   }, 0);
 }
 
-function firstGeminiCliAuthKey(auth: AuthData | null | undefined): GeminiCliAuthSourceKey | undefined {
+function firstGeminiCliAuthKey(
+  auth: AuthData | null | undefined,
+): GeminiCliAuthSourceKey | undefined {
   if (!auth) {
     return undefined;
   }
@@ -218,7 +223,9 @@ export async function resolveGeminiCliConfiguredProjectId(
   if (client?.config?.get) {
     try {
       const result = await client.config.get();
-      const data = result?.data as { provider?: Record<string, { options?: Record<string, unknown> }> };
+      const data = result?.data as {
+        provider?: Record<string, { options?: Record<string, unknown> }>;
+      };
       const configProjectId = normalizeString(data?.provider?.google?.options?.projectId);
       if (configProjectId) {
         return configProjectId;
@@ -234,7 +241,9 @@ export async function resolveGeminiCliConfiguredProjectId(
   );
 }
 
-export async function inspectGeminiCliAuthPresence(client?: ConfigClient): Promise<GeminiCliAuthPresence> {
+export async function inspectGeminiCliAuthPresence(
+  client?: ConfigClient,
+): Promise<GeminiCliAuthPresence> {
   const [auth, configuredProjectId] = await Promise.all([
     readAuthFileCached({ maxAgeMs: DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS }),
     resolveGeminiCliConfiguredProjectId(client),
@@ -305,9 +314,8 @@ async function refreshAccessToken(params: {
   timeoutMs?: number;
 }): Promise<{ accessToken: string; expiresIn: number } | { error: string }> {
   try {
-    const response = await fetchWithTimeout(
-      GEMINI_TOKEN_REFRESH_URL,
-      {
+    return await fetchWithTimeout(GEMINI_TOKEN_REFRESH_URL, {
+      request: {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
@@ -317,33 +325,35 @@ async function refreshAccessToken(params: {
           grant_type: "refresh_token",
         }),
       },
-      params.timeoutMs ?? GEMINI_TOKEN_TIMEOUT_MS,
-    );
-
-    if (!response.ok) {
-      try {
-        const errorData = (await response.json()) as {
-          error?: string;
-          error_description?: string;
-        };
-        if (errorData.error === "invalid_grant") {
-          return { error: "Token revoked" };
+      timeoutMs: params.timeoutMs ?? GEMINI_TOKEN_TIMEOUT_MS,
+      consume: async (response, timeoutSignal) => {
+        if (!response.ok) {
+          try {
+            const errorData = (await response.json()) as {
+              error?: string;
+              error_description?: string;
+            };
+            if (errorData.error === "invalid_grant") {
+              return { error: "Token revoked" };
+            }
+            return { error: errorData.error_description || `HTTP ${response.status}` };
+          } catch (error) {
+            if (timeoutSignal.aborted) throw error;
+            return { error: `HTTP ${response.status}` };
+          }
         }
-        return { error: errorData.error_description || `HTTP ${response.status}` };
-      } catch {
-        return { error: `HTTP ${response.status}` };
-      }
-    }
 
-    const data = (await response.json()) as {
-      access_token: string;
-      expires_in: number;
-    };
+        const data = (await response.json()) as {
+          access_token: string;
+          expires_in: number;
+        };
 
-    return {
-      accessToken: data.access_token,
-      expiresIn: data.expires_in,
-    };
+        return {
+          accessToken: data.access_token,
+          expiresIn: data.expires_in,
+        };
+      },
+    });
   } catch (err) {
     if (err instanceof Error && err.message.includes("timeout")) {
       return { error: "Token refresh timeout" };
@@ -405,9 +415,8 @@ async function retrieveGeminiCliQuota(
   projectId: string,
   timeoutMs: number = GEMINI_QUOTA_TIMEOUT_MS,
 ): Promise<RetrieveUserQuotaResponse> {
-  const response = await fetchWithTimeout(
-    GEMINI_QUOTA_API_URL,
-    {
+  return await fetchWithTimeout(GEMINI_QUOTA_API_URL, {
+    request: {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -417,16 +426,17 @@ async function retrieveGeminiCliQuota(
       body: JSON.stringify({ project: projectId }),
     },
     timeoutMs,
-  );
+    consume: async (response) => {
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          throw new Error(`Gemini CLI quota auth error: ${response.status}`);
+        }
+        throw new Error(`Gemini CLI quota API error: ${response.status}`);
+      }
 
-  if (!response.ok) {
-    if (response.status === 401 || response.status === 403) {
-      throw new Error(`Gemini CLI quota auth error: ${response.status}`);
-    }
-    throw new Error(`Gemini CLI quota API error: ${response.status}`);
-  }
-
-  return response.json() as Promise<RetrieveUserQuotaResponse>;
+      return (await response.json()) as RetrieveUserQuotaResponse;
+    },
+  });
 }
 
 function formatDisplayName(modelId: string): string {
@@ -477,9 +487,7 @@ function getGeminiCliQualityTier(modelId: string): GeminiCliQualityTierDefinitio
   return undefined;
 }
 
-function aggregateGeminiCliQualityTiers(
-  buckets: GeminiCliQuotaBucket[],
-): GeminiCliQuotaBucket[] {
+function aggregateGeminiCliQualityTiers(buckets: GeminiCliQuotaBucket[]): GeminiCliQuotaBucket[] {
   const groupedBuckets = new Map<GeminiCliQualityTierKey, GeminiCliQuotaBucket>();
   const unknownBuckets: GeminiCliQuotaBucket[] = [];
 

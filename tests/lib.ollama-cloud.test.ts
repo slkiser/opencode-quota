@@ -1,8 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
-  fetchWithTimeout: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  const fetchResponse = vi.fn();
+  return {
+    fetchResponse,
+    fetchWithTimeout: vi.fn(
+      async (
+        _url: string,
+        options: {
+          consume: (response: Response, signal: AbortSignal) => Promise<unknown> | unknown;
+        },
+      ) => {
+        const response = await fetchResponse();
+        return await options.consume(response, new AbortController().signal);
+      },
+    ),
+  };
+});
 
 vi.mock("../src/lib/http.js", () => ({
   fetchWithTimeout: mocks.fetchWithTimeout,
@@ -21,7 +35,7 @@ function mockResponse(params: {
   text?: string;
   headers?: Record<string, string>;
 }) {
-  mocks.fetchWithTimeout.mockResolvedValueOnce({
+  mocks.fetchResponse.mockResolvedValueOnce({
     ok: params.ok,
     status: params.status,
     headers: {
@@ -58,12 +72,15 @@ describe("queryOllamaCloudQuota", () => {
     expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
       "https://ollama.com/settings",
       expect.objectContaining({
-        headers: expect.objectContaining({
-          Cookie: "__Secure-session=raw-cookie",
+        request: expect.objectContaining({
+          headers: expect.objectContaining({
+            Cookie: "__Secure-session=raw-cookie",
+          }),
+          redirect: "manual",
         }),
-        redirect: "manual",
+        timeoutMs: 10_000,
+        consume: expect.any(Function),
       }),
-      10_000,
     );
   });
 
@@ -75,11 +92,14 @@ describe("queryOllamaCloudQuota", () => {
     expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
-        headers: expect.objectContaining({
-          Cookie: "__Secure-session=prefixed-cookie",
+        request: expect.objectContaining({
+          headers: expect.objectContaining({
+            Cookie: "__Secure-session=prefixed-cookie",
+          }),
         }),
+        timeoutMs: 1234,
+        consume: expect.any(Function),
       }),
-      1234,
     );
   });
 
@@ -234,7 +254,8 @@ describe("ollama-cloud HTML parsing helpers", () => {
   });
 
   it("extracts reset times and plan tier", () => {
-    const html = '<span class="local-time" data-time="2026-06-14T10:00:00Z"></span><span class="capitalize">free</span>';
+    const html =
+      '<span class="local-time" data-time="2026-06-14T10:00:00Z"></span><span class="capitalize">free</span>';
 
     expect(_extractResetTimes(html)).toEqual(["2026-06-14T10:00:00Z"]);
     expect(_extractPlanTier(html)).toBe("free");

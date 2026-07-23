@@ -41,7 +41,7 @@ const DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/user/balance";
 const USER_AGENT = "OpenCode-Quota-Toast/1.0";
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
-  CNY: "\u00A5",    // ¥
+  CNY: "\u00A5", // ¥
   USD: "$",
 };
 
@@ -95,35 +95,32 @@ function parseDeepSeekBalance(payload: unknown): DeepSeekBalanceResult {
 async function fetchDeepSeekBalance(
   apiKey: string,
   requestTimeoutMs?: number,
-): Promise<
-  | { success: true; data: DeepSeekBalanceResult }
-  | { success: false; message: string }
-> {
+): Promise<{ success: true; data: DeepSeekBalanceResult } | { success: false; message: string }> {
   try {
-    const response = await fetchWithTimeout(
-      DEEPSEEK_BALANCE_URL,
-      {
+    return await fetchWithTimeout(DEEPSEEK_BALANCE_URL, {
+      request: {
         method: "GET",
         headers: {
           Authorization: `Bearer ${apiKey}`,
           "User-Agent": USER_AGENT,
         },
       },
-      requestTimeoutMs,
-    );
+      timeoutMs: requestTimeoutMs,
+      consume: async (response) => {
+        if (!response.ok) {
+          const text = await response.text();
+          return {
+            success: false as const,
+            message: `DeepSeek API error ${response.status}: ${sanitizeDisplaySnippet(text, 120)}`,
+          };
+        }
 
-    if (!response.ok) {
-      const text = await response.text();
-      return {
-        success: false,
-        message: `DeepSeek API error ${response.status}: ${sanitizeDisplaySnippet(text, 120)}`,
-      };
-    }
-
-    return {
-      success: true,
-      data: parseDeepSeekBalance(await response.json()),
-    };
+        return {
+          success: true as const,
+          data: parseDeepSeekBalance(await response.json()),
+        };
+      },
+    });
   } catch (err) {
     return {
       success: false,
@@ -148,9 +145,11 @@ export function formatDeepSeekBalanceValue(balance: {
  *
  * @returns A typed result with success/error state, or null if no API key is configured.
  */
-export async function queryDeepSeekBalance(options: {
-  requestTimeoutMs?: number;
-} = {}): Promise<DeepSeekResult> {
+export async function queryDeepSeekBalance(
+  options: {
+    requestTimeoutMs?: number;
+  } = {},
+): Promise<DeepSeekResult> {
   const resolved = await resolveDeepSeekApiKey();
   if (!resolved) return null;
 

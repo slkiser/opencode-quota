@@ -179,8 +179,7 @@ function parseNanoGptUsage(payload: unknown): NanoGptSubscription {
   return {
     active: typeof data.active === "boolean" ? data.active : false,
     state: getNonEmptyString(data.state) ?? (data.active ? "active" : "unknown"),
-    enforceDailyLimit:
-      typeof data.enforceDailyLimit === "boolean" ? data.enforceDailyLimit : false,
+    enforceDailyLimit: typeof data.enforceDailyLimit === "boolean" ? data.enforceDailyLimit : false,
     daily,
     monthly,
     currentPeriodEndIso,
@@ -213,30 +212,30 @@ async function fetchNanoGptUsage(
   headers: Record<string, string>,
   requestTimeoutMs?: number,
 ): Promise<
-  | { success: true; subscription: NanoGptSubscription }
-  | { success: false; message: string }
+  { success: true; subscription: NanoGptSubscription } | { success: false; message: string }
 > {
   try {
-    const response = await fetchWithTimeout(
-      NANOGPT_USAGE_URL,
-      {
+    return await fetchWithTimeout(NANOGPT_USAGE_URL, {
+      request: {
         method: "GET",
         headers,
       },
-      requestTimeoutMs,
-    );
-    if (!response.ok) {
-      const text = await response.text();
-      return {
-        success: false,
-        message: `NanoGPT API error ${response.status}: ${sanitizeDisplaySnippet(text, 120)}`,
-      };
-    }
+      timeoutMs: requestTimeoutMs,
+      consume: async (response) => {
+        if (!response.ok) {
+          const text = await response.text();
+          return {
+            success: false as const,
+            message: `NanoGPT API error ${response.status}: ${sanitizeDisplaySnippet(text, 120)}`,
+          };
+        }
 
-    return {
-      success: true,
-      subscription: parseNanoGptUsage(await response.json()),
-    };
+        return {
+          success: true as const,
+          subscription: parseNanoGptUsage(await response.json()),
+        };
+      },
+    });
   } catch (err) {
     return {
       success: false,
@@ -248,31 +247,29 @@ async function fetchNanoGptUsage(
 async function fetchNanoGptBalance(
   headers: Record<string, string>,
   requestTimeoutMs?: number,
-): Promise<
-  | { success: true; balance: NanoGptBalance }
-  | { success: false; message: string }
-> {
+): Promise<{ success: true; balance: NanoGptBalance } | { success: false; message: string }> {
   try {
-    const response = await fetchWithTimeout(
-      NANOGPT_BALANCE_URL,
-      {
+    return await fetchWithTimeout(NANOGPT_BALANCE_URL, {
+      request: {
         method: "POST",
         headers,
       },
-      requestTimeoutMs,
-    );
-    if (!response.ok) {
-      const text = await response.text();
-      return {
-        success: false,
-        message: `NanoGPT API error ${response.status}: ${sanitizeDisplaySnippet(text, 120)}`,
-      };
-    }
+      timeoutMs: requestTimeoutMs,
+      consume: async (response) => {
+        if (!response.ok) {
+          const text = await response.text();
+          return {
+            success: false as const,
+            message: `NanoGPT API error ${response.status}: ${sanitizeDisplaySnippet(text, 120)}`,
+          };
+        }
 
-    return {
-      success: true,
-      balance: parseNanoGptBalance(await response.json()),
-    };
+        return {
+          success: true as const,
+          balance: parseNanoGptBalance(await response.json()),
+        };
+      },
+    });
   } catch (err) {
     return {
       success: false,
@@ -302,7 +299,9 @@ export function formatNanoGptBalanceValue(balance: {
   return null;
 }
 
-export async function queryNanoGptQuota(options: { requestTimeoutMs?: number } = {}): Promise<NanoGptResult> {
+export async function queryNanoGptQuota(
+  options: { requestTimeoutMs?: number } = {},
+): Promise<NanoGptResult> {
   const resolved = await resolveNanoGptApiKey();
   if (!resolved) return null;
 

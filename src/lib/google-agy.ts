@@ -286,9 +286,8 @@ async function refreshAccessToken(params: {
   timeoutMs?: number;
 }): Promise<{ accessToken: string; expiresIn: number } | { error: string }> {
   try {
-    const response = await fetchWithTimeout(
-      AGY_TOKEN_REFRESH_URL,
-      {
+    return await fetchWithTimeout(AGY_TOKEN_REFRESH_URL, {
+      request: {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
@@ -298,33 +297,35 @@ async function refreshAccessToken(params: {
           grant_type: "refresh_token",
         }),
       },
-      params.timeoutMs ?? AGY_TOKEN_TIMEOUT_MS,
-    );
-
-    if (!response.ok) {
-      try {
-        const errorData = (await response.json()) as {
-          error?: string;
-          error_description?: string;
-        };
-        if (errorData.error === "invalid_grant") {
-          return { error: "Token revoked" };
+      timeoutMs: params.timeoutMs ?? AGY_TOKEN_TIMEOUT_MS,
+      consume: async (response, timeoutSignal) => {
+        if (!response.ok) {
+          try {
+            const errorData = (await response.json()) as {
+              error?: string;
+              error_description?: string;
+            };
+            if (errorData.error === "invalid_grant") {
+              return { error: "Token revoked" };
+            }
+            return { error: errorData.error_description || `HTTP ${response.status}` };
+          } catch (error) {
+            if (timeoutSignal.aborted) throw error;
+            return { error: `HTTP ${response.status}` };
+          }
         }
-        return { error: errorData.error_description || `HTTP ${response.status}` };
-      } catch {
-        return { error: `HTTP ${response.status}` };
-      }
-    }
 
-    const data = (await response.json()) as {
-      access_token: string;
-      expires_in: number;
-    };
+        const data = (await response.json()) as {
+          access_token: string;
+          expires_in: number;
+        };
 
-    return {
-      accessToken: data.access_token,
-      expiresIn: data.expires_in,
-    };
+        return {
+          accessToken: data.access_token,
+          expiresIn: data.expires_in,
+        };
+      },
+    });
   } catch (err) {
     if (err instanceof Error && err.message.includes("timeout")) {
       return { error: "Token refresh timeout" };
@@ -386,9 +387,8 @@ async function retrieveGoogleAgyQuotaSummary(
   projectId: string,
   timeoutMs: number = AGY_QUOTA_TIMEOUT_MS,
 ): Promise<GoogleAgyQuotaSummaryResponse> {
-  const response = await fetchWithTimeout(
-    AGY_QUOTA_SUMMARY_API_URL,
-    {
+  return await fetchWithTimeout(AGY_QUOTA_SUMMARY_API_URL, {
+    request: {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -399,16 +399,17 @@ async function retrieveGoogleAgyQuotaSummary(
       body: JSON.stringify({ project: projectId }),
     },
     timeoutMs,
-  );
+    consume: async (response) => {
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          throw new Error(`Google AGY quota auth error: ${response.status}`);
+        }
+        throw new Error(`Google AGY quota API error: ${response.status}`);
+      }
 
-  if (!response.ok) {
-    if (response.status === 401 || response.status === 403) {
-      throw new Error(`Google AGY quota auth error: ${response.status}`);
-    }
-    throw new Error(`Google AGY quota API error: ${response.status}`);
-  }
-
-  return response.json() as Promise<GoogleAgyQuotaSummaryResponse>;
+      return (await response.json()) as GoogleAgyQuotaSummaryResponse;
+    },
+  });
 }
 
 export function formatDisplayName(modelId: string): string {

@@ -252,45 +252,49 @@ export async function queryMiniMaxQuota(
   const endpoint = getMiniMaxQuotaEndpoint(endpointId);
   const countSemantics = MINIMAX_COUNT_SEMANTICS_BY_ENDPOINT[endpointId];
   try {
-    const response = await fetchWithTimeout(
-      endpoint.quotaUrl,
-      {
+    return await fetchWithTimeout(endpoint.quotaUrl, {
+      request: {
         method: "GET",
         headers: {
           Authorization: `Bearer ${apiKey}`,
           "User-Agent": USER_AGENT,
         },
       },
-      options.requestTimeoutMs,
-    );
+      timeoutMs: options.requestTimeoutMs,
+      consume: async (response) => {
+        if (!response.ok) {
+          const text = await response.text();
+          return {
+            success: false,
+            error: `MiniMax API error ${response.status}: ${sanitizeMiniMaxMessage(text, 120)}`,
+          };
+        }
 
-    if (!response.ok) {
-      const text = await response.text();
-      return {
-        success: false,
-        error: `MiniMax API error ${response.status}: ${sanitizeMiniMaxMessage(text, 120)}`,
-      };
-    }
+        const payload = (await response.json()) as MiniMaxApiResponse;
 
-    const payload = (await response.json()) as MiniMaxApiResponse;
+        if (payload.base_resp?.status_code !== 0) {
+          return {
+            success: false,
+            error: `MiniMax API error: ${sanitizeMiniMaxMessage(payload.base_resp?.status_msg ?? "unknown")}`,
+          };
+        }
 
-    if (payload.base_resp?.status_code !== 0) {
-      return {
-        success: false,
-        error: `MiniMax API error: ${sanitizeMiniMaxMessage(payload.base_resp?.status_msg ?? "unknown")}`,
-      };
-    }
+        const matchingModels = (payload.model_remains ?? []).filter(
+          (model): model is MiniMaxModelRemain =>
+            isMiniMaxModelRecord(model) && isMiniMaxCodingModelName(model.model_name, endpointId),
+        );
+        const canonicalModel = selectCanonicalMiniMaxModel(matchingModels, countSemantics);
+        const entries = canonicalModel
+          ? buildMiniMaxEntries(
+              canonicalModel,
+              options.label ?? MINIMAX_PROVIDER_LABEL,
+              countSemantics,
+            )
+          : [];
 
-    const matchingModels = (payload.model_remains ?? []).filter(
-      (model): model is MiniMaxModelRemain =>
-        isMiniMaxModelRecord(model) && isMiniMaxCodingModelName(model.model_name, endpointId),
-    );
-    const canonicalModel = selectCanonicalMiniMaxModel(matchingModels, countSemantics);
-    const entries = canonicalModel
-      ? buildMiniMaxEntries(canonicalModel, options.label ?? MINIMAX_PROVIDER_LABEL, countSemantics)
-      : [];
-
-    return { success: true, entries };
+        return { success: true, entries };
+      },
+    });
   } catch (err) {
     return {
       success: false,

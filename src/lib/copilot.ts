@@ -739,26 +739,26 @@ async function fetchGitHubRestJson<T>(
   token: string,
   requestTimeoutMs?: number,
 ): Promise<T> {
-  const response = await fetchWithTimeout(
-    url,
-    { headers: buildGitHubRestHeaders(token) },
-    requestTimeoutMs,
-  );
+  return await fetchWithTimeout(url, {
+    request: { headers: buildGitHubRestHeaders(token) },
+    timeoutMs: requestTimeoutMs,
+    consume: async (response) => {
+      if (!response.ok) {
+        const message = await readGitHubRestErrorMessage(response);
+        const rateLimit =
+          response.status === 403 && response.headers.get("x-ratelimit-remaining") === "0"
+            ? " (GitHub API rate limit exhausted)"
+            : "";
+        throw new Error(`GitHub API error ${response.status}: ${message}${rateLimit}`);
+      }
 
-  if (!response.ok) {
-    const message = await readGitHubRestErrorMessage(response);
-    const rateLimit =
-      response.status === 403 && response.headers.get("x-ratelimit-remaining") === "0"
-        ? " (GitHub API rate limit exhausted)"
-        : "";
-    throw new Error(`GitHub API error ${response.status}: ${message}${rateLimit}`);
-  }
-
-  try {
-    return (await response.json()) as T;
-  } catch {
-    throw new Error("GitHub API returned malformed JSON");
-  }
+      try {
+        return (await response.json()) as T;
+      } catch {
+        throw new Error("GitHub API returned malformed JSON");
+      }
+    },
+  });
 }
 
 async function resolveGitHubUsername(
@@ -1184,16 +1184,19 @@ function parseCopilotInternalUser(
   const snapshot = response.quota_snapshots?.premium_interactions;
   const entitlement = readFiniteNumber(snapshot?.entitlement);
   const remaining = readFiniteNumber(snapshot?.quota_remaining ?? snapshot?.remaining);
-  const percentRemaining = readFiniteNumber(snapshot?.percent_remaining);
+  const reportedPercentRemaining = readFiniteNumber(snapshot?.percent_remaining);
+  const hasPercentRemaining = snapshot?.percent_remaining !== undefined;
   const hasReportedPercent =
-    percentRemaining !== undefined && percentRemaining >= 0 && percentRemaining <= 100;
+    reportedPercentRemaining !== undefined &&
+    reportedPercentRemaining >= 0 &&
+    reportedPercentRemaining <= 100;
   const isPlaceholder =
     response.token_based_billing === true &&
     (!snapshot ||
       (snapshot.unlimited !== true &&
         entitlement === 0 &&
         remaining === 0 &&
-        (!hasReportedPercent || percentRemaining === 0)));
+        (!hasReportedPercent || reportedPercentRemaining === 0)));
 
   if (isPlaceholder) {
     return { success: true, mode: "user_plan", plan, resetTimeIso };
@@ -1222,7 +1225,11 @@ function parseCopilotInternalUser(
       unit: "ai_credits",
       used: entitlement - remaining,
       total: entitlement,
-      percentRemaining: hasReportedPercent ? percentRemaining : undefined,
+      percentRemaining: hasReportedPercent
+        ? reportedPercentRemaining
+        : !hasPercentRemaining
+          ? Math.min(100, Math.max(0, (remaining / entitlement) * 100))
+          : undefined,
       plan,
       resetTimeIso,
     };
@@ -1238,26 +1245,27 @@ async function fetchCopilotInternalUser(params: {
   token: string;
   requestTimeoutMs?: number;
 }): Promise<CopilotQuotaResult | CopilotPlanResult> {
-  const response = await fetchWithTimeout(
-    `${params.apiBaseUrl}${COPILOT_INTERNAL_USER_PATH}`,
-    { headers: buildCopilotInternalHeaders(params.token) },
-    params.requestTimeoutMs,
-  );
-  if (!response.ok) {
-    const message = await readGitHubRestErrorMessage(response);
-    throw new Error(`GitHub Copilot API error ${response.status}: ${message}`);
-  }
+  return await fetchWithTimeout(`${params.apiBaseUrl}${COPILOT_INTERNAL_USER_PATH}`, {
+    request: { headers: buildCopilotInternalHeaders(params.token) },
+    timeoutMs: params.requestTimeoutMs,
+    consume: async (response) => {
+      if (!response.ok) {
+        const message = await readGitHubRestErrorMessage(response);
+        throw new Error(`GitHub Copilot API error ${response.status}: ${message}`);
+      }
 
-  let parsed: CopilotInternalUserResponse;
-  try {
-    parsed = (await response.json()) as CopilotInternalUserResponse;
-  } catch {
-    throw new Error("GitHub Copilot API returned malformed JSON");
-  }
-  if (!parsed || typeof parsed !== "object") {
-    throw new Error("GitHub Copilot API returned malformed JSON");
-  }
-  return parseCopilotInternalUser(parsed);
+      let parsed: CopilotInternalUserResponse;
+      try {
+        parsed = (await response.json()) as CopilotInternalUserResponse;
+      } catch {
+        throw new Error("GitHub Copilot API returned malformed JSON");
+      }
+      if (!parsed || typeof parsed !== "object") {
+        throw new Error("GitHub Copilot API returned malformed JSON");
+      }
+      return parseCopilotInternalUser(parsed);
+    },
+  });
 }
 
 /**

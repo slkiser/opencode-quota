@@ -1,8 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
-  fetchWithTimeout: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  const fetchResponse = vi.fn();
+  return {
+    fetchResponse,
+    fetchWithTimeout: vi.fn(
+      async (
+        _url: string,
+        options: {
+          consume: (response: Response, signal: AbortSignal) => Promise<unknown> | unknown;
+        },
+      ) => {
+        const response = await fetchResponse();
+        return await options.consume(response, new AbortController().signal);
+      },
+    ),
+  };
+});
 
 vi.mock("../src/lib/http.js", () => ({
   fetchWithTimeout: mocks.fetchWithTimeout,
@@ -102,7 +116,7 @@ describe("queryOpenCodeZenQuota", () => {
   });
 
   it("uses the exact fixed GET contract from PR #140", async () => {
-    mocks.fetchWithTimeout.mockResolvedValueOnce(response("$R[1]={billing:{balance:50000000}}"));
+    mocks.fetchResponse.mockResolvedValueOnce(response("$R[1]={billing:{balance:50000000}}"));
 
     await queryOpenCodeZenQuota("wrk /unsafe", "cookie-secret", {
       requestTimeoutMs: 4_321,
@@ -111,22 +125,25 @@ describe("queryOpenCodeZenQuota", () => {
     expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
       "https://opencode.ai/workspace/wrk%20%2Funsafe/billing",
       {
-        method: "GET",
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Gecko/20100101 Firefox/148.0",
-          Accept: "text/html",
-          Cookie: "auth=cookie-secret",
+        request: {
+          method: "GET",
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Gecko/20100101 Firefox/148.0",
+            Accept: "text/html",
+            Cookie: "auth=cookie-secret",
+          },
         },
+        timeoutMs: 4_321,
+        consume: expect.any(Function),
       },
-      4_321,
     );
-    const init = mocks.fetchWithTimeout.mock.calls[0]?.[1] as RequestInit;
-    expect(init.body).toBeUndefined();
+    const options = mocks.fetchWithTimeout.mock.calls[0]?.[1];
+    expect(options?.request.body).toBeUndefined();
   });
 
   it("returns parsed SSR data and attaches the payment fallback", async () => {
-    mocks.fetchWithTimeout.mockResolvedValueOnce(
+    mocks.fetchResponse.mockResolvedValueOnce(
       response(
         "$R[1]={billing:{balance:4250000000,monthlyLimit:100,monthlyUsage:575000000}}" +
           '$R["payment.list"]=[{"amount":2100000000}]',
@@ -145,7 +162,7 @@ describe("queryOpenCodeZenQuota", () => {
   });
 
   it("falls back to data-slot billing HTML", async () => {
-    mocks.fetchWithTimeout.mockResolvedValueOnce(response(dataSlotHtml()));
+    mocks.fetchResponse.mockResolvedValueOnce(response(dataSlotHtml()));
 
     await expect(queryOpenCodeZenQuota("wrk_abc", "cookie")).resolves.toEqual({
       success: true,
@@ -161,7 +178,7 @@ describe("queryOpenCodeZenQuota", () => {
   it.each(["", "<html><body>Nothing here</body></html>"])(
     "returns a stable parse error for malformed or empty HTML",
     async (html) => {
-      mocks.fetchWithTimeout.mockResolvedValueOnce(response(html));
+      mocks.fetchResponse.mockResolvedValueOnce(response(html));
       await expect(queryOpenCodeZenQuota("wrk_abc", "cookie")).resolves.toEqual({
         success: false,
         error: expect.stringContaining("Could not parse OpenCode Zen billing data"),
@@ -171,7 +188,7 @@ describe("queryOpenCodeZenQuota", () => {
 
   it("does not expose an HTTP response body", async () => {
     const secretBody = "private-html-body-cookie-secret";
-    mocks.fetchWithTimeout.mockResolvedValueOnce(response(secretBody, 403));
+    mocks.fetchResponse.mockResolvedValueOnce(response(secretBody, 403));
 
     const result = await queryOpenCodeZenQuota("wrk_abc", "cookie-secret");
 
@@ -184,7 +201,7 @@ describe("queryOpenCodeZenQuota", () => {
   });
 
   it("sanitizes network and timeout errors and redacts configured secrets", async () => {
-    mocks.fetchWithTimeout.mockRejectedValueOnce(
+    mocks.fetchResponse.mockRejectedValueOnce(
       new Error("\u001b[31mtimeout for wrk_secret with cookie-secret\nretry\u001b[0m"),
     );
 

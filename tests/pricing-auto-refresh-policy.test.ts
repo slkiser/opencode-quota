@@ -71,6 +71,7 @@ async function exists(path: string): Promise<boolean> {
 const tempRoots: string[] = [];
 
 afterEach(async () => {
+  vi.useRealTimers();
   for (const root of tempRoots.splice(0, tempRoots.length)) {
     await rm(root, { recursive: true, force: true });
   }
@@ -153,6 +154,7 @@ describe("pricing runtime refresh policy", () => {
     expect(result.attempted).toBe(true);
     expect(result.updated).toBe(true);
     expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(fetchFn.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
     expect(pricing.getPricingSnapshotSource()).toBe("runtime");
 
     const runtimeSnapshotPath = pricing.getRuntimePricingSnapshotPath(runtimeDirs);
@@ -458,6 +460,84 @@ describe("pricing runtime refresh policy", () => {
     expect(secondResult.attempted).toBe(false);
     expect(secondResult.reason).toBe("throttled");
     expect(throttledFetch).not.toHaveBeenCalled();
+  });
+
+  it("uses the shared timeout for an injected pre-header stall without retrying", async () => {
+    vi.useFakeTimers();
+    const pricing = await loadPricingModule();
+    const runtimeDirs = await createTempRuntimeDirs();
+    const nowMs = 1_800_000_000_000;
+    const staleGeneratedAt = nowMs - 4 * DAY_MS;
+    let receivedSignal: AbortSignal | undefined;
+    const fetchFn = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      receivedSignal = init?.signal ?? undefined;
+      return new Promise<Response>(() => undefined);
+    });
+
+    const pending = pricing.maybeRefreshPricingSnapshot({
+      nowMs,
+      runtimeDirs,
+      fetchFn,
+      timeoutMs: 1_000,
+      maxAgeMs: 3 * DAY_MS,
+      bootstrapSnapshotOverride: createBootstrapSnapshot(staleGeneratedAt),
+    });
+    await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(1_000);
+    const result = await pending;
+
+    expect(result).toMatchObject({
+      attempted: true,
+      updated: false,
+      error: "Request timeout after 1s",
+    });
+    expect(receivedSignal?.aborted).toBe(true);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(pricing.lookupCost("openai", "gpt-4o-mini")?.input).toBe(0.15);
+    const state = await pricing.readPricingRefreshState(runtimeDirs);
+    expect(state).toMatchObject({ lastResult: "failed", lastError: "Request timeout after 1s" });
+  });
+
+  it("times out an injected stalled JSON body and preserves the selected snapshot", async () => {
+    vi.useFakeTimers();
+    const pricing = await loadPricingModule();
+    const runtimeDirs = await createTempRuntimeDirs();
+    const nowMs = 1_800_000_000_000;
+    const staleGeneratedAt = nowMs - 4 * DAY_MS;
+    const fetchFn = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              init?.signal?.addEventListener("abort", () => {
+                controller.error(new Error("private body abort"));
+              });
+            },
+          }),
+        ),
+    );
+
+    const pending = pricing.maybeRefreshPricingSnapshot({
+      nowMs,
+      runtimeDirs,
+      fetchFn,
+      timeoutMs: 1_000,
+      maxAgeMs: 3 * DAY_MS,
+      bootstrapSnapshotOverride: createBootstrapSnapshot(staleGeneratedAt),
+    });
+    await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(1_000);
+    const result = await pending;
+
+    expect(result).toMatchObject({
+      attempted: true,
+      updated: false,
+      error: "Request timeout after 1s",
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(pricing.lookupCost("openai", "gpt-4o-mini")?.input).toBe(0.15);
+    const state = await pricing.readPricingRefreshState(runtimeDirs);
+    expect(state).toMatchObject({ lastResult: "failed", lastError: "Request timeout after 1s" });
   });
 
   it("dedupes concurrent attempts and only checks once per process window", async () => {

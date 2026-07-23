@@ -125,11 +125,6 @@ export function parseMimoBalanceResponse(json: unknown): MimoBalance {
 }
 
 async function readBoundedJson(response: Response): Promise<unknown> {
-  const contentLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(contentLength) && contentLength > MIMO_RESPONSE_MAX_BYTES) {
-    throw new Error("response too large");
-  }
-
   if (!response.body) throw new Error("empty response");
 
   const reader = response.body.getReader();
@@ -137,16 +132,27 @@ async function readBoundedJson(response: Response): Promise<unknown> {
   let byteLength = 0;
 
   try {
+    const contentLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(contentLength) && contentLength > MIMO_RESPONSE_MAX_BYTES) {
+      throw new Error("response too large");
+    }
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       byteLength += value.byteLength;
       if (byteLength > MIMO_RESPONSE_MAX_BYTES) {
-        await reader.cancel();
         throw new Error("response too large");
       }
       chunks.push(value);
     }
+  } catch (error) {
+    try {
+      await reader.cancel();
+    } catch {
+      // Preserve the original read or size-limit error.
+    }
+    throw error;
   } finally {
     reader.releaseLock();
   }
@@ -159,6 +165,16 @@ async function readBoundedJson(response: Response): Promise<unknown> {
   }
 
   return JSON.parse(new TextDecoder().decode(body));
+}
+
+export function formatMimoDashboardTimeZone(timezoneOffsetMinutes?: number): string {
+  const javascriptOffset = timezoneOffsetMinutes ?? new Date().getTimezoneOffset();
+  const utcOffset = -javascriptOffset;
+  const sign = utcOffset >= 0 ? "+" : "-";
+  const absoluteMinutes = Math.abs(utcOffset);
+  const hours = Math.floor(absoluteMinutes / 60);
+  const minutes = absoluteMinutes % 60;
+  return `UTC${sign}${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
 function getCookieValues(cookie: string): string[] {
@@ -181,12 +197,12 @@ async function fetchMimoEndpoint<T>(params: {
   url: string;
   cookie: string;
   requestTimeoutMs: number;
+  timeZone: string;
   parse: (json: unknown) => T;
 }): Promise<MimoEndpointResult<T>> {
   try {
-    const response = await fetchWithTimeout(
-      params.url,
-      {
+    return await fetchWithTimeout(params.url, {
+      request: {
         method: "GET",
         redirect: "manual",
         headers: {
@@ -196,40 +212,42 @@ async function fetchMimoEndpoint<T>(params: {
           Origin: "https://platform.xiaomimimo.com",
           Referer: "https://platform.xiaomimimo.com/#/console/balance",
           "User-Agent": MIMO_USER_AGENT,
-          "x-timeZone": "UTC+01:00",
+          "x-timeZone": params.timeZone,
         },
       },
-      params.requestTimeoutMs,
-    );
+      timeoutMs: params.requestTimeoutMs,
+      consume: async (response, timeoutSignal): Promise<MimoEndpointResult<T>> => {
+        if (response.status >= 300 && response.status < 400) {
+          return { state: "error", error: `Xiaomi MiMo ${params.name} request requires login` };
+        }
+        if (!response.ok) {
+          return {
+            state: "error",
+            error: `Xiaomi MiMo ${params.name} request failed (HTTP ${response.status})`,
+          };
+        }
 
-    if (response.status >= 300 && response.status < 400) {
-      return { state: "error", error: `Xiaomi MiMo ${params.name} request requires login` };
-    }
-    if (!response.ok) {
-      return {
-        state: "error",
-        error: `Xiaomi MiMo ${params.name} request failed (HTTP ${response.status})`,
-      };
-    }
+        let json: unknown;
+        try {
+          json = await readBoundedJson(response);
+        } catch (error) {
+          if (timeoutSignal.aborted) throw error;
+          return {
+            state: "error",
+            error: `Xiaomi MiMo ${params.name} response could not be parsed`,
+          };
+        }
 
-    let json: unknown;
-    try {
-      json = await readBoundedJson(response);
-    } catch {
-      return {
-        state: "error",
-        error: `Xiaomi MiMo ${params.name} response could not be parsed`,
-      };
-    }
-
-    try {
-      return { state: "success", data: params.parse(json) };
-    } catch {
-      return {
-        state: "error",
-        error: `Xiaomi MiMo ${params.name} response did not match the expected schema`,
-      };
-    }
+        try {
+          return { state: "success", data: params.parse(json) };
+        } catch {
+          return {
+            state: "error",
+            error: `Xiaomi MiMo ${params.name} response did not match the expected schema`,
+          };
+        }
+      },
+    });
   } catch (error) {
     return {
       state: "error",
@@ -243,12 +261,14 @@ export async function queryMimoDashboard(
   options: { requestTimeoutMs?: number } = {},
 ): Promise<MimoDashboardResult> {
   const requestTimeoutMs = options.requestTimeoutMs ?? MIMO_REQUEST_TIMEOUT_MS;
+  const timeZone = formatMimoDashboardTimeZone();
   const [usage, detail, balance] = await Promise.all([
     fetchMimoEndpoint({
       name: "usage",
       url: MIMO_USAGE_URL,
       cookie,
       requestTimeoutMs,
+      timeZone,
       parse: parseMimoUsageResponse,
     }),
     fetchMimoEndpoint({
@@ -256,6 +276,7 @@ export async function queryMimoDashboard(
       url: MIMO_DETAIL_URL,
       cookie,
       requestTimeoutMs,
+      timeZone,
       parse: parseMimoDetailResponse,
     }),
     fetchMimoEndpoint({
@@ -263,6 +284,7 @@ export async function queryMimoDashboard(
       url: MIMO_BALANCE_URL,
       cookie,
       requestTimeoutMs,
+      timeZone,
       parse: parseMimoBalanceResponse,
     }),
   ]);

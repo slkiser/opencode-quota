@@ -7,10 +7,24 @@ import {
 } from "./helpers/provider-assertions.js";
 import { visibleEntries } from "./helpers/provider-assertions.js";
 
-const mocks = vi.hoisted(() => ({
-  fetchWithTimeout: vi.fn(),
-  resolveOpenCodeGoConfigCached: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  const fetchResponse = vi.fn();
+  return {
+    fetchResponse,
+    fetchWithTimeout: vi.fn(
+      async (
+        _url: string,
+        options: {
+          consume: (response: Response, signal: AbortSignal) => Promise<unknown> | unknown;
+        },
+      ) => {
+        const response = await fetchResponse();
+        return await options.consume(response, new AbortController().signal);
+      },
+    ),
+    resolveOpenCodeGoConfigCached: vi.fn(),
+  };
+});
 
 vi.mock("../src/lib/opencode-go-config.js", () => ({
   resolveOpenCodeGoConfigCached: mocks.resolveOpenCodeGoConfigCached,
@@ -163,14 +177,14 @@ function buildDataSlotOnlyHtml(
 }
 
 function mockDashboardSuccess(html: string) {
-  mocks.fetchWithTimeout.mockResolvedValueOnce({
+  mocks.fetchResponse.mockResolvedValueOnce({
     ok: true,
     text: async () => html,
   });
 }
 
 function mockDashboardHttpFailure(status: number, text: string) {
-  mocks.fetchWithTimeout.mockResolvedValueOnce({
+  mocks.fetchResponse.mockResolvedValueOnce({
     ok: false,
     status,
     text: async () => text,
@@ -197,8 +211,7 @@ describe("opencode-go provider", () => {
     await runProviderFetchWithConfig({ requestTimeoutMs: 5000 });
     expect(mocks.fetchWithTimeout).toHaveBeenLastCalledWith(
       expect.any(String),
-      expect.any(Object),
-      10_000,
+      expect.objectContaining({ timeoutMs: 10_000, consume: expect.any(Function) }),
     );
 
     mockConfigConfigured();
@@ -207,8 +220,7 @@ describe("opencode-go provider", () => {
     await runProviderFetchWithConfig({ requestTimeoutMs: 12000, requestTimeoutMsConfigured: true });
     expect(mocks.fetchWithTimeout).toHaveBeenLastCalledWith(
       expect.any(String),
-      expect.any(Object),
-      12000,
+      expect.objectContaining({ timeoutMs: 12000, consume: expect.any(Function) }),
     );
   });
 
@@ -414,7 +426,7 @@ describe("opencode-go provider", () => {
 
   it("returns error on network failure", async () => {
     mockConfigConfigured();
-    mocks.fetchWithTimeout.mockRejectedValueOnce(new Error("network timeout"));
+    mocks.fetchResponse.mockRejectedValueOnce(new Error("network timeout"));
 
     const out = await runProviderFetch();
     expectAttemptedWithErrorLabel(out, "OpenCode Go");

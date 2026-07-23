@@ -270,63 +270,68 @@ export async function queryOpenAIQuota(
       headers["ChatGPT-Account-Id"] = accountId;
     }
 
-    const resp = await fetchWithTimeout(OPENAI_USAGE_URL, { headers }, options.requestTimeoutMs);
-    if (!resp.ok) {
-      const text = await resp.text();
-      return {
-        success: false,
-        error: `OpenAI API error ${resp.status}: ${sanitizeDisplaySnippet(text, 120)}`,
-      };
-    }
+    return await fetchWithTimeout(OPENAI_USAGE_URL, {
+      request: { headers },
+      timeoutMs: options.requestTimeoutMs,
+      consume: async (resp) => {
+        if (!resp.ok) {
+          const text = await resp.text();
+          return {
+            success: false,
+            error: `OpenAI API error ${resp.status}: ${sanitizeDisplaySnippet(text, 120)}`,
+          };
+        }
 
-    const data = (await resp.json()) as OpenAIUsageResponse;
-    const primary = parseRateLimitWindow(data.rate_limit?.primary_window);
-    const secondary = parseRateLimitWindow(data.rate_limit?.secondary_window);
-    const individualLimit = parseRemainingWindowValue(data.spend_control?.individual_limit);
-    const codeReview = parseWindowValue(data.code_review_rate_limit?.primary_window);
-    const credits = data.credits ?? null;
-    const windows: {
-      hourly?: OpenAIWindowValue;
-      weekly?: OpenAIWindowValue;
-      monthly?: OpenAIWindowValue;
-      codeReview?: OpenAIWindowValue;
-    } = {};
+        const data = (await resp.json()) as OpenAIUsageResponse;
+        const primary = parseRateLimitWindow(data.rate_limit?.primary_window);
+        const secondary = parseRateLimitWindow(data.rate_limit?.secondary_window);
+        const individualLimit = parseRemainingWindowValue(data.spend_control?.individual_limit);
+        const codeReview = parseWindowValue(data.code_review_rate_limit?.primary_window);
+        const credits = data.credits ?? null;
+        const windows: {
+          hourly?: OpenAIWindowValue;
+          weekly?: OpenAIWindowValue;
+          monthly?: OpenAIWindowValue;
+          codeReview?: OpenAIWindowValue;
+        } = {};
 
-    const conflictingKinds = new Set<OpenAIWindowKind>();
-    for (const parsed of [primary, secondary]) {
-      if (!parsed || conflictingKinds.has(parsed.kind)) continue;
+        const conflictingKinds = new Set<OpenAIWindowKind>();
+        for (const parsed of [primary, secondary]) {
+          if (!parsed || conflictingKinds.has(parsed.kind)) continue;
 
-      const existing = windows[parsed.kind];
-      if (!existing) {
-        windows[parsed.kind] = parsed.value;
-      } else if (
-        existing.percentRemaining !== parsed.value.percentRemaining ||
-        existing.resetTimeIso !== parsed.value.resetTimeIso
-      ) {
-        delete windows[parsed.kind];
-        conflictingKinds.add(parsed.kind);
-      }
-    }
-    if (!windows.monthly && individualLimit) windows.monthly = individualLimit;
-    if (codeReview) windows.codeReview = codeReview;
-
-    if (Object.keys(windows).length === 0) {
-      return { success: false, error: "No quota data" };
-    }
-
-    return {
-      success: true,
-      label: derivePlanLabel(data.plan_type),
-      email: resolvedAuth.email,
-      windows,
-      credits: credits
-        ? {
-            hasCredits: Boolean(credits.has_credits),
-            unlimited: Boolean(credits.unlimited),
-            balance: credits.balance ?? null,
+          const existing = windows[parsed.kind];
+          if (!existing) {
+            windows[parsed.kind] = parsed.value;
+          } else if (
+            existing.percentRemaining !== parsed.value.percentRemaining ||
+            existing.resetTimeIso !== parsed.value.resetTimeIso
+          ) {
+            delete windows[parsed.kind];
+            conflictingKinds.add(parsed.kind);
           }
-        : undefined,
-    };
+        }
+        if (!windows.monthly && individualLimit) windows.monthly = individualLimit;
+        if (codeReview) windows.codeReview = codeReview;
+
+        if (Object.keys(windows).length === 0) {
+          return { success: false, error: "No quota data" };
+        }
+
+        return {
+          success: true,
+          label: derivePlanLabel(data.plan_type),
+          email: resolvedAuth.email,
+          windows,
+          credits: credits
+            ? {
+                hasCredits: Boolean(credits.has_credits),
+                unlimited: Boolean(credits.unlimited),
+                balance: credits.balance ?? null,
+              }
+            : undefined,
+        };
+      },
+    });
   } catch (err) {
     return {
       success: false,

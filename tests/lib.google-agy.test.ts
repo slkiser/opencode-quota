@@ -1,15 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
-  readAuthFileCached: vi.fn(),
-  fetchWithTimeout: vi.fn(),
-  getCachedAccessToken: vi.fn(),
-  makeAccountCacheKey: vi.fn(),
-  setCachedAccessToken: vi.fn(),
-  inspectAgyCompanionPresence: vi.fn(),
-  resolveAgyClientCredentials: vi.fn(),
-  clearAgyCompanionCacheForTests: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  const fetchResponse = vi.fn();
+  return {
+    readAuthFileCached: vi.fn(),
+    fetchResponse,
+    fetchWithTimeout: vi.fn(
+      async (
+        url: string,
+        options: {
+          request: RequestInit;
+          timeoutMs?: number;
+          consume: (response: Response, signal: AbortSignal) => Promise<unknown> | unknown;
+        },
+      ) => {
+        const response = await fetchResponse(url, options.request, options.timeoutMs);
+        return await options.consume(response, new AbortController().signal);
+      },
+    ),
+    getCachedAccessToken: vi.fn(),
+    makeAccountCacheKey: vi.fn(),
+    setCachedAccessToken: vi.fn(),
+    inspectAgyCompanionPresence: vi.fn(),
+    resolveAgyClientCredentials: vi.fn(),
+    clearAgyCompanionCacheForTests: vi.fn(),
+  };
+});
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
   readAuthFileCached: mocks.readAuthFileCached,
@@ -119,7 +135,7 @@ describe("google agy logic", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.readAuthFileCached.mockResolvedValue(null);
-    mocks.fetchWithTimeout.mockResolvedValue(mockJsonResponse({ groups: [] }));
+    mocks.fetchResponse.mockResolvedValue(mockJsonResponse({ groups: [] }));
     mocks.getCachedAccessToken.mockResolvedValue({ accessToken: "cached-access-token" });
     mocks.makeAccountCacheKey.mockImplementation(
       ({ projectId }: { projectId: string }) => `cache-${projectId}`,
@@ -262,7 +278,7 @@ describe("google agy logic", () => {
     mocks.readAuthFileCached.mockResolvedValueOnce({
       "google-agy": authAccount("refresh-token", "project-1", "alice@example.com"),
     });
-    mocks.fetchWithTimeout.mockResolvedValueOnce(mockJsonResponse(summaryResponse()));
+    mocks.fetchResponse.mockResolvedValueOnce(mockJsonResponse(summaryResponse()));
 
     const result = await queryGoogleAgyQuota(undefined, { requestTimeoutMs: 12_345 });
     expect(result).toMatchObject({ success: true });
@@ -270,16 +286,19 @@ describe("google agy logic", () => {
     expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
       "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
       {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer cached-access-token",
-          "User-Agent": "antigravity/cli/1.0.3 darwin/amd64",
-          "x-activity-request-id": expect.any(String),
+        request: {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer cached-access-token",
+            "User-Agent": "antigravity/cli/1.0.3 darwin/amd64",
+            "x-activity-request-id": expect.any(String),
+          },
+          body: JSON.stringify({ project: "project-1" }),
         },
-        body: JSON.stringify({ project: "project-1" }),
+        timeoutMs: 12_345,
+        consume: expect.any(Function),
       },
-      12_345,
     );
   });
 
@@ -287,7 +306,7 @@ describe("google agy logic", () => {
     mocks.readAuthFileCached.mockResolvedValueOnce({
       "google-agy": authAccount("refresh-token", "project-1", "alice@example.com"),
     });
-    mocks.fetchWithTimeout.mockResolvedValueOnce(mockJsonResponse(summaryResponse()));
+    mocks.fetchResponse.mockResolvedValueOnce(mockJsonResponse(summaryResponse()));
 
     const result = await queryGoogleAgyQuota();
     expect(result).toMatchObject({ success: true });
@@ -342,7 +361,7 @@ describe("google agy logic", () => {
     mocks.readAuthFileCached.mockResolvedValueOnce({
       "google-agy": authAccount("refresh-token", "project-1"),
     });
-    mocks.fetchWithTimeout.mockResolvedValueOnce(
+    mocks.fetchResponse.mockResolvedValueOnce(
       mockJsonResponse({
         description: "Fallback family",
         groups: [{ displayName: "Gemini Models", buckets: [{ window: "DAILY" }] }],
@@ -374,7 +393,7 @@ describe("google agy logic", () => {
     mocks.readAuthFileCached.mockResolvedValueOnce({
       "google-agy": authAccount("refresh-token", "project-1"),
     });
-    mocks.fetchWithTimeout.mockResolvedValueOnce(
+    mocks.fetchResponse.mockResolvedValueOnce(
       mockJsonResponse({
         groups: [
           {
@@ -410,7 +429,7 @@ describe("google agy logic", () => {
     mocks.readAuthFileCached.mockResolvedValueOnce({
       "google-agy": authAccount("refresh-token", "project-1"),
     });
-    mocks.fetchWithTimeout.mockResolvedValueOnce(
+    mocks.fetchResponse.mockResolvedValueOnce(
       mockJsonResponse({
         groups: [
           {
@@ -453,7 +472,7 @@ describe("google agy logic", () => {
     mocks.readAuthFileCached.mockResolvedValueOnce({
       "google-agy": authAccount("refresh-token", "project-1"),
     });
-    mocks.fetchWithTimeout.mockResolvedValueOnce(
+    mocks.fetchResponse.mockResolvedValueOnce(
       mockJsonResponse({
         groups: [
           {
@@ -491,16 +510,19 @@ describe("google agy logic", () => {
       }),
     });
     mocks.getCachedAccessToken.mockResolvedValueOnce(null);
-    mocks.fetchWithTimeout.mockResolvedValueOnce(mockJsonResponse(summaryResponse()));
+    mocks.fetchResponse.mockResolvedValueOnce(mockJsonResponse(summaryResponse()));
 
     await expect(queryGoogleAgyQuota()).resolves.toMatchObject({ success: true });
     expect(mocks.fetchWithTimeout).toHaveBeenCalledTimes(1);
     expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
       expect.stringContaining("retrieveUserQuotaSummary"),
       expect.objectContaining({
-        headers: expect.objectContaining({ Authorization: "Bearer auth-entry-access" }),
+        request: expect.objectContaining({
+          headers: expect.objectContaining({ Authorization: "Bearer auth-entry-access" }),
+        }),
+        timeoutMs: expect.any(Number),
+        consume: expect.any(Function),
       }),
-      expect.any(Number),
     );
   });
 
@@ -509,7 +531,7 @@ describe("google agy logic", () => {
       "google-agy": authAccount("refresh-token", "project-1", "alice@example.com"),
     });
     mocks.getCachedAccessToken.mockResolvedValueOnce(null);
-    mocks.fetchWithTimeout
+    mocks.fetchResponse
       .mockResolvedValueOnce(
         mockJsonResponse({ access_token: "new-access-token", expires_in: 3600 }),
       )
@@ -536,7 +558,7 @@ describe("google agy logic", () => {
       "google-agy": authAccount("refresh-1", "project-1", "alice@example.com"),
       "google-agy-auth": authAccount("refresh-2", "project-2", "bob@example.com"),
     });
-    mocks.fetchWithTimeout.mockImplementation(async (_url: string, init: { body?: string }) => {
+    mocks.fetchResponse.mockImplementation(async (_url: string, init: { body?: string }) => {
       const project = JSON.parse(init.body ?? "{}").project;
       if (project === "project-1") {
         await new Promise((resolve) => setTimeout(resolve, 25));
@@ -554,7 +576,7 @@ describe("google agy logic", () => {
     ]);
     expect(result.buckets.map((bucket) => bucket.accountIndex)).toEqual([0, 0, 0, 0, 1, 1, 1, 1]);
     const activityIds = mocks.fetchWithTimeout.mock.calls.map(
-      ([, init]) => init.headers["x-activity-request-id"],
+      ([, options]) => (options.request.headers as Record<string, string>)["x-activity-request-id"],
     );
     expect(new Set(activityIds).size).toBe(2);
   });
@@ -567,7 +589,7 @@ describe("google agy logic", () => {
     });
     let inFlight = 0;
     let maxInFlight = 0;
-    mocks.fetchWithTimeout.mockImplementation(async () => {
+    mocks.fetchResponse.mockImplementation(async () => {
       inFlight += 1;
       maxInFlight = Math.max(maxInFlight, inFlight);
       await new Promise((resolve) => setTimeout(resolve, 15));
@@ -585,7 +607,7 @@ describe("google agy logic", () => {
       "google-agy": authAccount("refresh-1", "project-1", "alice@example.com"),
       "google-agy-auth": authAccount("refresh-2", "project-2", "bob@example.com"),
     });
-    mocks.fetchWithTimeout.mockImplementation(async (_url: string, init: { body?: string }) => {
+    mocks.fetchResponse.mockImplementation(async (_url: string, init: { body?: string }) => {
       const project = JSON.parse(init.body ?? "{}").project;
       return project === "project-1"
         ? mockJsonResponse(summaryResponse())
@@ -606,7 +628,7 @@ describe("google agy logic", () => {
       "google-agy": authAccount("refresh-1", "project-1", "alice@example.com"),
       "google-agy-auth": authAccount("refresh-2", "project-2", "bob@example.com"),
     });
-    mocks.fetchWithTimeout.mockImplementation(async (_url: string, init: { body?: string }) => {
+    mocks.fetchResponse.mockImplementation(async (_url: string, init: { body?: string }) => {
       const project = JSON.parse(init.body ?? "{}").project;
       return project === "project-1"
         ? mockJsonResponse(summaryResponse())
@@ -627,7 +649,7 @@ describe("google agy logic", () => {
       "google-agy": authAccount("refresh-1", "project-1", "alice@example.com"),
       "google-agy-auth": authAccount("refresh-2", "project-2", "bob@example.com"),
     });
-    mocks.fetchWithTimeout.mockResolvedValue(mockJsonResponse({}, 500));
+    mocks.fetchResponse.mockResolvedValue(mockJsonResponse({}, 500));
 
     await expect(queryGoogleAgyQuota()).resolves.toEqual({
       success: true,

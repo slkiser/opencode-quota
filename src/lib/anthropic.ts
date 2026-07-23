@@ -184,7 +184,7 @@ function formatCommandDisplay(parts: string[]): string {
 }
 
 function quoteWindowsCmdArg(value: string): string {
-  const escaped = value.replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\+)$/g, "$1$1");
+  const escaped = value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, "$1$1");
   return `"${escaped}"`;
 }
 
@@ -292,7 +292,9 @@ function getWindowResetTimeIso(window: Record<string, unknown>): string | undefi
   );
 }
 
-function parseQuotaWindow(window: unknown): { percentRemaining: number; resetTimeIso?: string } | null {
+function parseQuotaWindow(
+  window: unknown,
+): { percentRemaining: number; resetTimeIso?: string } | null {
   const record = asRecord(window);
   if (!record) {
     return null;
@@ -392,11 +394,7 @@ function extractClaudeCredentialsAccessToken(data: unknown): string {
     return "";
   }
 
-  for (const candidate of [
-    asRecord(root["claudeAiOauth"]),
-    asRecord(root["oauth"]),
-    root,
-  ]) {
+  for (const candidate of [asRecord(root["claudeAiOauth"]), asRecord(root["oauth"]), root]) {
     if (!candidate) {
       continue;
     }
@@ -663,19 +661,91 @@ async function performAnthropicOAuthUsageRequest(
   tokenFingerprint: string,
   requestTimeoutMs?: number,
 ): Promise<AnthropicFallbackQuota> {
-  let response: Response;
-
   try {
-    response = await fetchWithTimeout(
-      ANTHROPIC_USAGE_URL,
-      {
+    return await fetchWithTimeout(ANTHROPIC_USAGE_URL, {
+      request: {
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "anthropic-beta": ANTHROPIC_BETA_HEADER,
         },
       },
-      requestTimeoutMs,
-    );
+      timeoutMs: requestTimeoutMs,
+      consume: async (response, timeoutSignal): Promise<AnthropicFallbackQuota> => {
+        if (response.status === 429) {
+          const nowMs = Date.now();
+          const previousFailureCount =
+            anthropicOAuthCooldowns.get(tokenFingerprint)?.failureCount ?? 0;
+          const durationMs = getAnthropicOAuthCooldownDurationMs(
+            previousFailureCount,
+            response.headers?.get?.("Retry-After") ?? null,
+            nowMs,
+          );
+          anthropicOAuthCooldowns.set(tokenFingerprint, {
+            failureCount: previousFailureCount + 1,
+            blockedUntilMs: nowMs + durationMs,
+          });
+
+          let detail = "";
+          try {
+            detail = sanitizeAnthropicApiDetail(await response.text(), accessToken);
+          } catch (error) {
+            if (timeoutSignal.aborted) throw error;
+            detail = "";
+          }
+
+          const errorDetail = detail
+            ? `Anthropic API error ${response.status}: ${detail}`
+            : `Anthropic API returned ${response.status}`;
+          return {
+            state: "unavailable",
+            detail: `${errorDetail} ${getAnthropicOAuthCooldownMessage(durationMs)}`,
+          };
+        }
+
+        anthropicOAuthCooldowns.delete(tokenFingerprint);
+
+        if (!response.ok) {
+          let detail = "";
+          try {
+            detail = sanitizeAnthropicApiDetail(await response.text(), accessToken);
+          } catch (error) {
+            if (timeoutSignal.aborted) throw error;
+            detail = "";
+          }
+
+          return {
+            state: "unavailable",
+            detail: detail
+              ? `Anthropic API error ${response.status}: ${detail}`
+              : `Anthropic API returned ${response.status}`,
+          };
+        }
+
+        let data: unknown;
+        try {
+          data = await response.json();
+        } catch (error) {
+          if (timeoutSignal.aborted) throw error;
+          return {
+            state: "unavailable",
+            detail: "Failed to parse Anthropic quota response",
+          };
+        }
+
+        const quota = parseUsageResponse(data);
+        if (!quota) {
+          return {
+            state: "unavailable",
+            detail: "Unexpected Anthropic quota response shape",
+          };
+        }
+
+        return {
+          state: "success",
+          quota,
+        };
+      },
+    });
   } catch (error) {
     return {
       state: "unavailable",
@@ -685,76 +755,6 @@ async function performAnthropicOAuthUsageRequest(
       ),
     };
   }
-
-  if (response.status === 429) {
-    let detail = "";
-    try {
-      detail = sanitizeAnthropicApiDetail(await response.text(), accessToken);
-    } catch {
-      detail = "";
-    }
-
-    const nowMs = Date.now();
-    const previousFailureCount = anthropicOAuthCooldowns.get(tokenFingerprint)?.failureCount ?? 0;
-    const durationMs = getAnthropicOAuthCooldownDurationMs(
-      previousFailureCount,
-      response.headers?.get?.("Retry-After") ?? null,
-      nowMs,
-    );
-    anthropicOAuthCooldowns.set(tokenFingerprint, {
-      failureCount: previousFailureCount + 1,
-      blockedUntilMs: nowMs + durationMs,
-    });
-
-    const errorDetail = detail
-      ? `Anthropic API error ${response.status}: ${detail}`
-      : `Anthropic API returned ${response.status}`;
-    return {
-      state: "unavailable",
-      detail: `${errorDetail} ${getAnthropicOAuthCooldownMessage(durationMs)}`,
-    };
-  }
-
-  anthropicOAuthCooldowns.delete(tokenFingerprint);
-
-  if (!response.ok) {
-    let detail = "";
-    try {
-      detail = sanitizeAnthropicApiDetail(await response.text(), accessToken);
-    } catch {
-      detail = "";
-    }
-
-    return {
-      state: "unavailable",
-      detail: detail
-        ? `Anthropic API error ${response.status}: ${detail}`
-        : `Anthropic API returned ${response.status}`,
-    };
-  }
-
-  let data: unknown;
-  try {
-    data = await response.json();
-  } catch {
-    return {
-      state: "unavailable",
-      detail: "Failed to parse Anthropic quota response",
-    };
-  }
-
-  const quota = parseUsageResponse(data);
-  if (!quota) {
-    return {
-      state: "unavailable",
-      detail: "Unexpected Anthropic quota response shape",
-    };
-  }
-
-  return {
-    state: "success",
-    quota,
-  };
 }
 
 async function queryAnthropicQuotaFromOAuthAccessToken(
@@ -935,8 +935,7 @@ function parseClaudeAuthStatusResult(result: ClaudeCommandResult): ParsedAuthPro
     return {
       authStatus: "unknown",
       unsupportedCommand: true,
-      message:
-        "Claude CLI authentication status JSON is unavailable in this version of Claude.",
+      message: "Claude CLI authentication status JSON is unavailable in this version of Claude.",
     };
   }
 

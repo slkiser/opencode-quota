@@ -4,32 +4,51 @@
 
 import { REQUEST_TIMEOUT_MS } from "./types.js";
 
+export type FetchWithTimeoutOptions<T> = {
+  request: Omit<RequestInit, "signal">;
+  timeoutMs?: number;
+  fetchFn?: typeof fetch;
+  consume: (response: Response, timeoutSignal: AbortSignal) => Promise<T> | T;
+};
+
 /**
- * Fetch with timeout using AbortController.
+ * Fetch and consume a response within one timeout.
  *
- * @param url - The URL to fetch
- * @param options - Fetch options (headers, method, body, etc.)
- * @param timeoutMs - Timeout in milliseconds (defaults to REQUEST_TIMEOUT_MS)
- * @returns The fetch Response
- * @throws Error with message "Request timeout after Xs" if request times out
+ * The response consumer must complete all status handling, body reads, and parsing
+ * before returning so the request signal remains active for the full transaction.
+ *
+ * @throws Error with message "Request timeout after Xs" if the transaction times out
  */
-export async function fetchWithTimeout(
+export async function fetchWithTimeout<T>(
   url: string,
-  options: RequestInit,
-  timeoutMs: number = REQUEST_TIMEOUT_MS,
-): Promise<Response> {
+  options: FetchWithTimeoutOptions<T>,
+): Promise<T> {
+  const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  let timedOut = false;
+  const timeoutErrorMessage = `Request timeout after ${Math.round(timeoutMs / 1000)}s`;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+      reject(new Error(timeoutErrorMessage));
+    }, timeoutMs);
+  });
 
   try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
-    return response;
+    const transaction = (async () => {
+      const fetchFn = options.fetchFn ?? globalThis.fetch;
+      const response = await fetchFn(url, {
+        ...options.request,
+        signal: controller.signal,
+      });
+      return await options.consume(response, controller.signal);
+    })();
+    return await Promise.race([transaction, timeout]);
   } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new Error(`Request timeout after ${Math.round(timeoutMs / 1000)}s`);
+    if (timedOut) {
+      throw new Error(timeoutErrorMessage);
     }
     throw err;
   } finally {

@@ -90,9 +90,8 @@ export async function queryOllamaCloudQuota(
   }
 
   try {
-    const response = await fetchWithTimeout(
-      SETTINGS_URL,
-      {
+    return await fetchWithTimeout(SETTINGS_URL, {
+      request: {
         method: "GET",
         headers: {
           "User-Agent": USER_AGENT,
@@ -101,79 +100,80 @@ export async function queryOllamaCloudQuota(
         },
         redirect: "manual",
       },
-      options.requestTimeoutMs ?? SCRAPE_TIMEOUT_MS,
-    );
+      timeoutMs: options.requestTimeoutMs ?? SCRAPE_TIMEOUT_MS,
+      consume: async (response) => {
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.get("location") || "";
+          return {
+            success: false,
+            error: `Authentication error: redirected to ${sanitizeMessage(location, 80)} — cookie may be expired`,
+          };
+        }
 
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get("location") || "";
-      return {
-        success: false,
-        error: `Authentication error: redirected to ${sanitizeMessage(location, 80)} — cookie may be expired`,
-      };
-    }
+        if (!response.ok) {
+          const text = await response.text();
+          return {
+            success: false,
+            error: `Ollama Cloud settings error ${response.status}: ${sanitizeMessage(text)}`,
+          };
+        }
 
-    if (!response.ok) {
-      const text = await response.text();
-      return {
-        success: false,
-        error: `Ollama Cloud settings error ${response.status}: ${sanitizeMessage(text)}`,
-      };
-    }
+        const html = await response.text();
 
-    const html = await response.text();
+        const planTier = extractPlanTier(html);
 
-    const planTier = extractPlanTier(html);
+        const tracks: string[] = [];
+        let trackMatch: RegExpExecArray | null;
+        const trackRe = new RegExp(DATA_USAGE_TRACK_RE.source, DATA_USAGE_TRACK_RE.flags);
+        while ((trackMatch = trackRe.exec(html)) !== null) {
+          tracks.push(trackMatch[0]);
+        }
 
-    const tracks: string[] = [];
-    let trackMatch: RegExpExecArray | null;
-    const trackRe = new RegExp(DATA_USAGE_TRACK_RE.source, DATA_USAGE_TRACK_RE.flags);
-    while ((trackMatch = trackRe.exec(html)) !== null) {
-      tracks.push(trackMatch[0]);
-    }
+        if (tracks.length === 0) {
+          return {
+            success: false,
+            error: "Could not parse usage tracks from Ollama Cloud settings page (found 0)",
+          };
+        }
 
-    if (tracks.length === 0) {
-      return {
-        success: false,
-        error: "Could not parse usage tracks from Ollama Cloud settings page (found 0)",
-      };
-    }
+        const sessionPercent = tracks[0] ? extractUsagePercentFromTrack(tracks[0]) : null;
+        const weeklyPercent = tracks[1] ? extractUsagePercentFromTrack(tracks[1]) : null;
 
-    const sessionPercent = tracks[0] ? extractUsagePercentFromTrack(tracks[0]) : null;
-    const weeklyPercent = tracks[1] ? extractUsagePercentFromTrack(tracks[1]) : null;
+        if (sessionPercent === null && weeklyPercent === null) {
+          return {
+            success: false,
+            error: "Could not extract any usage percentages from Ollama Cloud settings page",
+          };
+        }
 
-    if (sessionPercent === null && weeklyPercent === null) {
-      return {
-        success: false,
-        error: "Could not extract any usage percentages from Ollama Cloud settings page",
-      };
-    }
+        const resetTimes = extractResetTimes(html);
+        const sessionResetsAt = resetTimes[0] || undefined;
+        const weeklyResetsAt = resetTimes[1] || undefined;
 
-    const resetTimes = extractResetTimes(html);
-    const sessionResetsAt = resetTimes[0] || undefined;
-    const weeklyResetsAt = resetTimes[1] || undefined;
-
-    return {
-      success: true,
-      ...(sessionPercent !== null
-        ? {
-            session: {
-              usagePercent: sessionPercent,
-              percentRemaining: 100 - sessionPercent,
-              resetTimeIso: sessionResetsAt,
-            },
-          }
-        : {}),
-      ...(weeklyPercent !== null
-        ? {
-            weekly: {
-              usagePercent: weeklyPercent,
-              percentRemaining: 100 - weeklyPercent,
-              resetTimeIso: weeklyResetsAt,
-            },
-          }
-        : {}),
-      ...(planTier ? { planTier } : {}),
-    };
+        return {
+          success: true,
+          ...(sessionPercent !== null
+            ? {
+                session: {
+                  usagePercent: sessionPercent,
+                  percentRemaining: 100 - sessionPercent,
+                  resetTimeIso: sessionResetsAt,
+                },
+              }
+            : {}),
+          ...(weeklyPercent !== null
+            ? {
+                weekly: {
+                  usagePercent: weeklyPercent,
+                  percentRemaining: 100 - weeklyPercent,
+                  resetTimeIso: weeklyResetsAt,
+                },
+              }
+            : {}),
+          ...(planTier ? { planTier } : {}),
+        };
+      },
+    });
   } catch (err) {
     return {
       success: false,
@@ -182,4 +182,8 @@ export async function queryOllamaCloudQuota(
   }
 }
 
-export { extractUsagePercentFromTrack as _extractUsagePercentFromTrack, extractResetTimes as _extractResetTimes, extractPlanTier as _extractPlanTier };
+export {
+  extractUsagePercentFromTrack as _extractUsagePercentFromTrack,
+  extractResetTimes as _extractResetTimes,
+  extractPlanTier as _extractPlanTier,
+};

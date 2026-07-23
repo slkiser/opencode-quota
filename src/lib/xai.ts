@@ -164,9 +164,8 @@ export async function queryXaiQuota(
   }
 
   try {
-    const response = await fetchWithTimeout(
-      CREDITS_URL,
-      {
+    return await fetchWithTimeout(CREDITS_URL, {
+      request: {
         method: "GET",
         headers: {
           Authorization: `Bearer ${resolvedAuth.accessToken}`,
@@ -176,21 +175,22 @@ export async function queryXaiQuota(
           "x-grok-client-version": "1.0.0",
         },
       },
-      options.requestTimeoutMs,
-    );
+      timeoutMs: options.requestTimeoutMs,
+      consume: async (response) => {
+        if (!response.ok) {
+          const body = await response.text();
+          return {
+            success: false,
+            error: `xAI API error ${response.status}: ${safeErrorText(body, resolvedAuth.accessToken)}`,
+          };
+        }
 
-    if (!response.ok) {
-      const body = await response.text();
-      return {
-        success: false,
-        error: `xAI API error ${response.status}: ${safeErrorText(body, resolvedAuth.accessToken)}`,
-      };
-    }
+        const window = parseCreditsWindow(await response.json());
+        if (!window) return { success: false, error: "No weekly quota data" };
 
-    const window = parseCreditsWindow(await response.json());
-    if (!window) return { success: false, error: "No weekly quota data" };
-
-    return { success: true, label: "xAI SuperGrok", window };
+        return { success: true, label: "xAI SuperGrok", window };
+      },
+    });
   } catch (error) {
     return {
       success: false,

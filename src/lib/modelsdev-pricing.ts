@@ -166,11 +166,13 @@ function normalizeSnapshot(raw: unknown): PricingSnapshot | null {
 
       if (typeof input === "number" && Number.isFinite(input)) buckets.input = input;
       if (typeof output === "number" && Number.isFinite(output)) buckets.output = output;
-      if (typeof cacheRead === "number" && Number.isFinite(cacheRead)) buckets.cache_read = cacheRead;
+      if (typeof cacheRead === "number" && Number.isFinite(cacheRead))
+        buckets.cache_read = cacheRead;
       if (typeof cacheWrite === "number" && Number.isFinite(cacheWrite)) {
         buckets.cache_write = cacheWrite;
       }
-      if (typeof reasoning === "number" && Number.isFinite(reasoning)) buckets.reasoning = reasoning;
+      if (typeof reasoning === "number" && Number.isFinite(reasoning))
+        buckets.reasoning = reasoning;
 
       if (Object.keys(buckets).length > 0) {
         models[modelId] = buckets;
@@ -328,12 +330,21 @@ function normalizeRefreshState(raw: unknown): PricingRefreshStateV1 | null {
   const lastSuccessAt = Number(obj.lastSuccessAt);
   const lastFailureAt = Number(obj.lastFailureAt);
 
-  if (Number.isFinite(lastAttemptAt) && lastAttemptAt > 0) out.lastAttemptAt = Math.trunc(lastAttemptAt);
-  if (Number.isFinite(lastSuccessAt) && lastSuccessAt > 0) out.lastSuccessAt = Math.trunc(lastSuccessAt);
-  if (Number.isFinite(lastFailureAt) && lastFailureAt > 0) out.lastFailureAt = Math.trunc(lastFailureAt);
+  if (Number.isFinite(lastAttemptAt) && lastAttemptAt > 0)
+    out.lastAttemptAt = Math.trunc(lastAttemptAt);
+  if (Number.isFinite(lastSuccessAt) && lastSuccessAt > 0)
+    out.lastSuccessAt = Math.trunc(lastSuccessAt);
+  if (Number.isFinite(lastFailureAt) && lastFailureAt > 0)
+    out.lastFailureAt = Math.trunc(lastFailureAt);
 
   if (typeof obj.lastResult === "string") {
-    const allowed = new Set(["success", "not_modified", "skipped_fresh", "skipped_throttled", "failed"]);
+    const allowed = new Set([
+      "success",
+      "not_modified",
+      "skipped_fresh",
+      "skipped_throttled",
+      "failed",
+    ]);
     if (allowed.has(obj.lastResult)) {
       out.lastResult = obj.lastResult as PricingRefreshStateV1["lastResult"];
     }
@@ -435,30 +446,53 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+type ModelsDevFetchResult =
+  | {
+      kind: "not_modified";
+      etag?: string;
+      lastModified?: string;
+    }
+  | {
+      kind: "success";
+      api: unknown;
+      etag?: string;
+      lastModified?: string;
+    };
+
 async function fetchModelsDevSnapshot(params: {
   timeoutMs: number;
   state: PricingRefreshStateV1;
   fetchFn?: typeof fetch;
-}): Promise<Response> {
+}): Promise<ModelsDevFetchResult> {
   const headers = new Headers();
   if (params.state.etag) headers.set("If-None-Match", params.state.etag);
   if (params.state.lastModified) headers.set("If-Modified-Since", params.state.lastModified);
 
-  if (!params.fetchFn) {
-    return await fetchWithTimeout(SOURCE_URL, { headers }, params.timeoutMs);
-  }
+  return await fetchWithTimeout(SOURCE_URL, {
+    request: { headers },
+    timeoutMs: params.timeoutMs,
+    fetchFn: params.fetchFn,
+    consume: async (response) => {
+      const responseMetadata = {
+        etag: response.headers.get("etag") ?? undefined,
+        lastModified: response.headers.get("last-modified") ?? undefined,
+      };
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), params.timeoutMs);
+      if (response.status === 304) {
+        return { kind: "not_modified" as const, ...responseMetadata };
+      }
 
-  try {
-    return await params.fetchFn(SOURCE_URL, {
-      headers,
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeoutId);
-  }
+      if (!response.ok) {
+        throw new Error(`Failed to fetch ${SOURCE_URL}: ${response.status} ${response.statusText}`);
+      }
+
+      return {
+        kind: "success" as const,
+        api: await response.json(),
+        ...responseMetadata,
+      };
+    },
+  });
 }
 
 export async function maybeRefreshPricingSnapshot(
@@ -539,7 +573,11 @@ export async function maybeRefreshPricingSnapshot(
       };
     }
 
-    if (!force && previousState.lastAttemptAt && nowMs - previousState.lastAttemptAt < minAttemptIntervalMs) {
+    if (
+      !force &&
+      previousState.lastAttemptAt &&
+      nowMs - previousState.lastAttemptAt < minAttemptIntervalMs
+    ) {
       return {
         attempted: false,
         updated: false,
@@ -560,13 +598,13 @@ export async function maybeRefreshPricingSnapshot(
     };
 
     try {
-      const response = await fetchModelsDevSnapshot({
+      const fetchResult = await fetchModelsDevSnapshot({
         timeoutMs,
         state: attemptingState,
         fetchFn: opts.fetchFn,
       });
 
-      if (response.status === 304) {
+      if (fetchResult.kind === "not_modified") {
         const baseSnapshot = runtimeSnapshotBeforeRefresh ?? ensureLoaded();
         const refreshedSnapshot: PricingSnapshot = {
           _meta: {
@@ -588,8 +626,8 @@ export async function maybeRefreshPricingSnapshot(
           lastSuccessAt: nowMs,
           lastResult: "not_modified",
           lastError: undefined,
-          etag: response.headers.get("etag") ?? attemptingState.etag,
-          lastModified: response.headers.get("last-modified") ?? attemptingState.lastModified,
+          etag: fetchResult.etag ?? attemptingState.etag,
+          lastModified: fetchResult.lastModified ?? attemptingState.lastModified,
         };
         try {
           await writeJsonAtomic(statePath, nextState, { trailingNewline: true });
@@ -603,13 +641,8 @@ export async function maybeRefreshPricingSnapshot(
         };
       }
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch ${SOURCE_URL}: ${response.status} ${response.statusText}`);
-      }
-
-      const api = await response.json();
       const snapshot = buildSnapshotFromApi(
-        api,
+        fetchResult.api,
         opts.providerAllowlist ?? DEFAULT_MODELSDEV_PROVIDERS,
         nowMs,
       );
@@ -630,8 +663,8 @@ export async function maybeRefreshPricingSnapshot(
         lastSuccessAt: nowMs,
         lastResult: "success",
         lastError: undefined,
-        etag: response.headers.get("etag") ?? attemptingState.etag,
-        lastModified: response.headers.get("last-modified") ?? attemptingState.lastModified,
+        etag: fetchResult.etag ?? attemptingState.etag,
+        lastModified: fetchResult.lastModified ?? attemptingState.lastModified,
       };
 
       try {

@@ -82,6 +82,19 @@ function json(data: unknown, init: ResponseInit = {}): Response {
   });
 }
 
+function stalledResponse(signal: AbortSignal | null | undefined, status = 200): Response {
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        signal?.addEventListener("abort", () => {
+          controller.error(new Error("private stalled body failure"));
+        });
+      },
+    }),
+    { status },
+  );
+}
+
 describe("GitHub Copilot AI Credit accounting", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -135,6 +148,79 @@ describe("GitHub Copilot AI Credit accounting", () => {
       Accept: "application/json",
       "Editor-Version": "vscode/1.96.2",
     });
+  });
+
+  it("derives only absent Copilot percentages and preserves reported values", async () => {
+    authMocks.readAuthFile.mockResolvedValue({
+      "github-copilot": { type: "oauth", access: "oauth-token" },
+    });
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+
+    for (const [snapshot, expected] of [
+      [{ entitlement: 1000, remaining: 250, unlimited: false }, 25],
+      [{ entitlement: 1000, remaining: 250, percent_remaining: 0, unlimited: false }, 0],
+      [{ entitlement: 1000, remaining: 250, percent_remaining: 140, unlimited: false }, undefined],
+      [{ entitlement: 1000, remaining: 250, percent_remaining: "25", unlimited: false }, undefined],
+    ] as const) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          json(
+            copilotUser({
+              quota_snapshots: { premium_interactions: snapshot },
+            }),
+          ),
+        ) as any,
+      );
+      const result = await queryCopilotQuota();
+      expect(
+        result && result.success && result.mode === "user_quota" ? result.percentRemaining : null,
+      ).toBe(expected);
+    }
+  });
+
+  it("does not derive a percentage from zero entitlement", async () => {
+    authMocks.readAuthFile.mockResolvedValue({
+      "github-copilot": { type: "oauth", access: "oauth-token" },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        json(
+          copilotUser({
+            quota_snapshots: {
+              premium_interactions: { entitlement: 0, remaining: 0, unlimited: false },
+            },
+          }),
+        ),
+      ) as any,
+    );
+
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    const result = await queryCopilotQuota();
+    expect(result).toMatchObject({ success: true, mode: "user_plan" });
+    expect(JSON.stringify(result)).not.toContain("NaN");
+  });
+
+  it("times out a stalled OAuth internal-user body without exposing its token", async () => {
+    const oauthToken = "oauth-timeout-canary";
+    authMocks.readAuthFile.mockResolvedValue({
+      "github-copilot": { type: "oauth", access: oauthToken },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: unknown, init?: RequestInit) => stalledResponse(init?.signal)) as any,
+    );
+
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    const pending = queryCopilotQuota({ requestTimeoutMs: 1_000 });
+    await vi.advanceTimersByTimeAsync(1_000);
+    const result = await pending;
+    const error = result && !result.success ? result.error : "";
+
+    expect(error).toBe("Request timeout after 1s");
+    expect(error).not.toContain(oauthToken);
+    expect(error).not.toContain("private stalled body failure");
   });
 
   it.each(["acme.ghe.com", "https://acme.ghe.com"])(
@@ -701,6 +787,61 @@ describe("GitHub Copilot AI Credit accounting", () => {
     expect(rejected && !rejected.success ? rejected.error : "").toContain(
       "only available to Copilot Pro or Pro+",
     );
+  });
+
+  it.each([
+    [200, "successful billing JSON"],
+    [503, "GitHub error body"],
+  ])("times out a stalled PAT %s without exposing its token", async (status) => {
+    const patToken = "github_pat_timeout_canary";
+    configure({ token: patToken, tier: "pro", username: "alice" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: unknown, init?: RequestInit) =>
+        stalledResponse(init?.signal, status),
+      ) as any,
+    );
+
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    const pending = queryCopilotQuota({ requestTimeoutMs: 1_000 });
+    await vi.advanceTimersByTimeAsync(1_000);
+    const result = await pending;
+    const error = result && !result.success ? result.error : "";
+
+    expect(error).toBe("Request timeout after 1s");
+    expect(error).not.toContain(patToken);
+    expect(error).not.toContain("private stalled body failure");
+  });
+
+  it("keeps successful usage and warns when the optional budget body times out", async () => {
+    const patToken = "github_pat_budget_timeout_canary";
+    configure({ token: patToken, tier: "business", organization: "acme" });
+    const fetchMock = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const path = new URL(String(url)).pathname;
+      if (path.endsWith("/ai_credit/usage")) return json(aiUsage());
+      return stalledResponse(init?.signal);
+    });
+    vi.stubGlobal("fetch", fetchMock as any);
+
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    const pending = queryCopilotQuota({ requestTimeoutMs: 1_000 });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    const result = await pending;
+    const serialized = JSON.stringify(result);
+
+    expect(result).toMatchObject({
+      success: true,
+      mode: "organization_usage",
+      used: 100,
+      budget: undefined,
+    });
+    expect(
+      result && result.success && result.mode === "organization_usage" ? result.warnings?.[0] : "",
+    ).toContain("usage loaded, but the budget report failed");
+    expect(serialized).toContain("Request timeout after 1s");
+    expect(serialized).not.toContain(patToken);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("keeps successful AI Credit usage when the optional budget response is forbidden", async () => {

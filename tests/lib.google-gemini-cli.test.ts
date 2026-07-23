@@ -1,15 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
-  readAuthFileCached: vi.fn(),
-  fetchWithTimeout: vi.fn(),
-  getCachedAccessToken: vi.fn(),
-  makeAccountCacheKey: vi.fn(),
-  setCachedAccessToken: vi.fn(),
-  inspectGeminiCliCompanionPresence: vi.fn(),
-  resolveGeminiCliClientCredentials: vi.fn(),
-  clearGeminiCliCompanionCacheForTests: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  const fetchResponse = vi.fn();
+  return {
+    readAuthFileCached: vi.fn(),
+    fetchResponse,
+    fetchWithTimeout: vi.fn(
+      async (
+        url: string,
+        options: {
+          request: RequestInit;
+          timeoutMs?: number;
+          consume: (response: Response, signal: AbortSignal) => Promise<unknown> | unknown;
+        },
+      ) => {
+        const response = await fetchResponse(url, options.request, options.timeoutMs);
+        return await options.consume(response, new AbortController().signal);
+      },
+    ),
+    getCachedAccessToken: vi.fn(),
+    makeAccountCacheKey: vi.fn(),
+    setCachedAccessToken: vi.fn(),
+    inspectGeminiCliCompanionPresence: vi.fn(),
+    resolveGeminiCliClientCredentials: vi.fn(),
+    clearGeminiCliCompanionCacheForTests: vi.fn(),
+  };
+});
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
   readAuthFileCached: mocks.readAuthFileCached,
@@ -52,7 +68,7 @@ describe("gemini cli auth resolution", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.readAuthFileCached.mockResolvedValue(null);
-    mocks.fetchWithTimeout.mockResolvedValue(mockJsonResponse({ buckets: [] }));
+    mocks.fetchResponse.mockResolvedValue(mockJsonResponse({ buckets: [] }));
     mocks.getCachedAccessToken.mockResolvedValue({ accessToken: "cached-access-token" });
     mocks.makeAccountCacheKey.mockReturnValue("test-cache-key");
     mocks.resolveGeminiCliClientCredentials.mockResolvedValue({
@@ -121,7 +137,11 @@ describe("gemini cli auth resolution", () => {
   it("deduplicates identical credentials stored under compatibility keys", () => {
     expect(
       resolveGeminiCliAccounts({
-        "gemini-cli": { type: "oauth", refresh: "refresh-token|project-1|", email: "a@example.com" },
+        "gemini-cli": {
+          type: "oauth",
+          refresh: "refresh-token|project-1|",
+          email: "a@example.com",
+        },
         google: { type: "oauth", refresh: "refresh-token|project-1|", email: "a@example.com" },
       }),
     ).toEqual([
@@ -257,7 +277,7 @@ describe("gemini cli auth resolution", () => {
         email: "alice@example.com",
       },
     });
-    mocks.fetchWithTimeout.mockResolvedValueOnce(
+    mocks.fetchResponse.mockResolvedValueOnce(
       mockJsonResponse({
         buckets: [
           {
@@ -355,7 +375,7 @@ describe("gemini cli auth resolution", () => {
         email: "bob@example.com",
       },
     });
-    mocks.fetchWithTimeout.mockImplementation(async (_url: string, options: { body?: unknown }) => {
+    mocks.fetchResponse.mockImplementation(async (_url: string, options: { body?: unknown }) => {
       const body = JSON.parse(String(options.body)) as { project: string };
       return mockJsonResponse({
         buckets: [

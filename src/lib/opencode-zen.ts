@@ -131,9 +131,8 @@ export async function queryOpenCodeZenQuota(
 ): Promise<OpenCodeZenResult> {
   try {
     const url = `${BILLING_URL_PREFIX}${encodeURIComponent(workspaceId)}${BILLING_URL_SUFFIX}`;
-    const response = await fetchWithTimeout(
-      url,
-      {
+    return await fetchWithTimeout(url, {
+      request: {
         method: "GET",
         headers: {
           "User-Agent": USER_AGENT,
@@ -141,28 +140,29 @@ export async function queryOpenCodeZenQuota(
           Cookie: `auth=${authCookie}`,
         },
       },
-      options.requestTimeoutMs ?? SCRAPE_TIMEOUT_MS,
-    );
+      timeoutMs: options.requestTimeoutMs ?? SCRAPE_TIMEOUT_MS,
+      consume: async (response) => {
+        if (!response.ok) {
+          return {
+            success: false,
+            error: `OpenCode Zen billing error ${response.status}`,
+          };
+        }
 
-    if (!response.ok) {
-      return {
-        success: false,
-        error: `OpenCode Zen billing error ${response.status}`,
-      };
-    }
+        const html = await response.text();
+        const data = parseSsrBillingData(html) ?? parseDataSlotBillingData(html);
+        if (!data) {
+          return {
+            success: false,
+            error:
+              "Could not parse OpenCode Zen billing data (balance, monthlyLimit, monthlyUsage) from the billing page",
+          };
+        }
 
-    const html = await response.text();
-    const data = parseSsrBillingData(html) ?? parseDataSlotBillingData(html);
-    if (!data) {
-      return {
-        success: false,
-        error:
-          "Could not parse OpenCode Zen billing data (balance, monthlyLimit, monthlyUsage) from the billing page",
-      };
-    }
-
-    data.lastPayment = parseSsrPaymentData(html) ?? parseDataSlotPaymentData(html);
-    return { success: true, data };
+        data.lastPayment = parseSsrPaymentData(html) ?? parseDataSlotPaymentData(html);
+        return { success: true, data };
+      },
+    });
   } catch (error) {
     return {
       success: false,
