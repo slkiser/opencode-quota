@@ -18,6 +18,7 @@ export type CanonicalQuotaProviderId =
   | "kimi-for-coding"
   | "deepseek"
   | "xai"
+  | "xiaomi"
   | "opencode-go"
   | "opencode"
   | "ollama-cloud"
@@ -78,6 +79,7 @@ export const QUOTA_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   "kimi-code": "Kimi Code",
   deepseek: "DeepSeek",
   xai: "xAI",
+  xiaomi: "Xiaomi MiMo",
   "opencode-go": "OpenCode Go",
   opencode: "OpenCode Zen",
   "ollama-cloud": "Ollama Cloud",
@@ -104,6 +106,9 @@ export const QUOTA_PROVIDER_ID_SYNONYMS: Readonly<Record<string, string>> = {
   "kimi-for-code": "kimi-for-coding",
   "kimi-code": "kimi-for-coding",
   "deep-seek": "deepseek",
+  "xiaomi-token-plan-cn": "xiaomi",
+  "xiaomi-token-plan-ams": "xiaomi",
+  "xiaomi-token-plan-sgp": "xiaomi",
   "opencode-go-subscription": "opencode-go",
   "opencode-zen": "opencode",
   "gemini-cli": "google-gemini-cli",
@@ -148,6 +153,7 @@ export const QUOTA_PROVIDER_RUNTIME_IDS: QuotaProviderRuntimeIds = {
   "kimi-for-coding": ["kimi-for-coding", "kimi", "kimi-code"],
   deepseek: ["deepseek"],
   xai: ["xai"],
+  xiaomi: ["xiaomi", "xiaomi-token-plan-cn", "xiaomi-token-plan-ams", "xiaomi-token-plan-sgp"],
   "opencode-go": ["opencode-go"],
   opencode: ["opencode", "opencode-zen"],
   "ollama-cloud": ["ollama-cloud"],
@@ -295,6 +301,14 @@ export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
     authentication: "opencode_auth_oauth_token",
     quota: "remote_api",
     notes: "SuperGrok OAuth via OpenCode /connect; shared weekly credit meter",
+  },
+  {
+    id: "xiaomi",
+    autoSetup: "needs_quick_setup",
+    authentication: "state_only",
+    quota: "remote_api",
+    quickSetupAnchor: "xiaomi-mimo",
+    notes: "Reads the Xiaomi MiMo dashboard with a filtered trusted cookie",
   },
   {
     id: "opencode-go",

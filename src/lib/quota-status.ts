@@ -119,6 +119,7 @@ import {
   resolveOpenCodeZenConfigCached,
 } from "./opencode-zen-config.js";
 import { OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR, queryOpenCodeZenQuota } from "./opencode-zen.js";
+import { getMimoConfigDiagnostics } from "./mimo-config.js";
 
 /** Session token fetch error info for status report */
 export interface SessionTokenError {
@@ -708,6 +709,14 @@ function supportedProviderPricingRow(params: {
       id,
       pricing: "no",
       notes: "subscription percentage quota via dashboard scraping (not token-priced)",
+    };
+  }
+
+  if (id === "xiaomi") {
+    return {
+      id,
+      pricing: "no",
+      notes: "dashboard monthly token quota and balances; per-key costs unsupported",
     };
   }
 
@@ -1460,6 +1469,21 @@ export async function buildQuotaStatusReport(params: {
   }
   appendProviderCompactLiveProbeRows(openCodeZenRows, "opencode", params.providerLiveProbes);
   sections.push(createKvSection("opencode_zen", "opencode_zen:", openCodeZenRows));
+
+  // === xiaomi ===
+  const xiaomiRows: ReportKvRow[] = [];
+  const xiaomiDiag = await getMimoConfigDiagnostics();
+  xiaomiRows.push({ key: "config_state", value: xiaomiDiag.state });
+  xiaomiRows.push({ key: "config_source", value: xiaomiDiag.source ?? "(none)" });
+  if (xiaomiDiag.error) {
+    xiaomiRows.push({ key: "config_error", value: sanitizeDisplayText(xiaomiDiag.error) });
+  }
+  xiaomiRows.push({
+    key: "config_checked_paths",
+    value: joinOrNone(xiaomiDiag.checkedPaths),
+  });
+  appendProviderCompactLiveProbeRows(xiaomiRows, "xiaomi", params.providerLiveProbes);
+  sections.push(createKvSection("xiaomi", "xiaomi:", xiaomiRows));
 
   // === zai ===
   const zaiRows: ReportKvRow[] = [];

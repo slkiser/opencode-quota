@@ -149,6 +149,14 @@ describe("provider-metadata", () => {
         notes: "SuperGrok OAuth via OpenCode /connect; shared weekly credit meter",
       },
       {
+        id: "xiaomi",
+        autoSetup: "needs_quick_setup",
+        authentication: "state_only",
+        quota: "remote_api",
+        quickSetupAnchor: "xiaomi-mimo",
+        notes: "Reads the Xiaomi MiMo dashboard with a filtered trusted cookie",
+      },
+      {
         id: "opencode-go",
         autoSetup: "needs_quick_setup",
         authentication: "state_only",
@@ -251,6 +259,12 @@ describe("provider-metadata", () => {
     expect(QUOTA_PROVIDER_RUNTIME_IDS.deepseek).toEqual(["deepseek"]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS.opencode).toEqual(["opencode", "opencode-zen"]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS.xai).toEqual(["xai"]);
+    expect(QUOTA_PROVIDER_RUNTIME_IDS.xiaomi).toEqual([
+      "xiaomi",
+      "xiaomi-token-plan-cn",
+      "xiaomi-token-plan-ams",
+      "xiaomi-token-plan-sgp",
+    ]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS["quota-providers"]).toEqual([]);
   });
 
@@ -305,6 +319,14 @@ describe("provider-metadata", () => {
     expect(getQuotaProviderRuntimeIds("deep-seek")).toEqual(["deepseek"]);
     expect(getQuotaProviderRuntimeIds("opencode-zen")).toEqual(["opencode", "opencode-zen"]);
     expect(getQuotaProviderRuntimeIds("xai")).toEqual(["xai"]);
+    expect(getQuotaProviderRuntimeIds("xiaomi-token-plan-cn")).toEqual([
+      "xiaomi",
+      "xiaomi-token-plan-cn",
+      "xiaomi-token-plan-ams",
+      "xiaomi-token-plan-sgp",
+    ]);
+    expect(getQuotaProviderRuntimeIds("mimo")).toEqual([]);
+    expect(getQuotaProviderRuntimeIds("xiaomi-mimo")).toEqual([]);
     expect(getQuotaProviderRuntimeIds("grok")).toEqual([]);
     expect(getQuotaProviderRuntimeIds("not-a-provider")).toEqual([]);
   });
@@ -368,6 +390,14 @@ describe("provider-metadata", () => {
       quota: "remote_api",
       notes: "SuperGrok OAuth via OpenCode /connect; shared weekly credit meter",
     });
+    expect(getQuotaProviderShape("xiaomi-token-plan-ams")).toEqual({
+      id: "xiaomi",
+      autoSetup: "needs_quick_setup",
+      authentication: "state_only",
+      quota: "remote_api",
+      quickSetupAnchor: "xiaomi-mimo",
+      notes: "Reads the Xiaomi MiMo dashboard with a filtered trusted cookie",
+    });
     expect(getQuotaProviderShape("not-a-provider")).toBeUndefined();
   });
 
@@ -391,6 +421,9 @@ describe("provider-metadata", () => {
     expect(getQuotaProviderDisplayLabel("deep-seek")).toBe("DeepSeek");
     expect(getQuotaProviderDisplayLabel("opencode-zen")).toBe("OpenCode Zen");
     expect(getQuotaProviderDisplayLabel("xai")).toBe("xAI");
+    expect(getQuotaProviderDisplayLabel("xiaomi")).toBe("Xiaomi MiMo");
+    expect(getQuotaProviderDisplayLabel("xiaomi-token-plan-sgp")).toBe("Xiaomi MiMo");
+    expect(getQuotaProviderDisplayLabel("mimo")).toBe("mimo");
     expect(getQuotaProviderDisplayLabel("grok")).toBe("grok");
     expect(getQuotaProviderDisplayLabel("quota-providers")).toBe("Quota providers");
     expect(getQuotaProviderDisplayLabel("something-else")).toBe("something-else");

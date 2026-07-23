@@ -215,6 +215,23 @@ Run `/quota_status` and check the Gemini CLI live probe rows.
 </details>
 
 <details>
+<summary><strong>Xiaomi MiMo</strong></summary>
+
+Run `/quota_status` and check the `xiaomi` section. Diagnostics show state, source, checked paths, and safe live summaries, never cookie names, cookie values, or raw responses.
+
+| Symptom                             | Fix                                                                                                                                     |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Config not detected                 | Set `MIMO_USAGE_COOKIE` or create trusted user/global `opencode-quota/mimo.json`, then rerun `/quota_status`.                           |
+| Config is invalid                   | Fix or remove the reported higher-priority source; invalid sources intentionally block fallback.                                        |
+| Provider not enabled in manual mode | Include canonical `xiaomi` in `enabledProviders`.                                                                                       |
+| Monthly quota missing               | Confirm the plan is active and check `live_error_*`; explicitly expired plans are hidden.                                               |
+| Balance or plan details missing     | Check the partial live summary. Usage, detail, and balance requests fail independently, so other available rows can still appear.       |
+| Per-key costs missing               | Per-API-key cost accounting is not supported until Xiaomi provides endpoint and schema evidence.                                        |
+| Session expired                     | Sign in again at `platform.xiaomimimo.com`, manually copy a fresh request Cookie header, and update the same trusted credential source. |
+
+</details>
+
+<details>
 <summary><strong>OpenCode Go</strong></summary>
 
 Run `/quota_status` and check the `opencode_go` section.

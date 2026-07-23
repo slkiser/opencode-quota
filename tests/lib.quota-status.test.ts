@@ -218,6 +218,15 @@ const openCodeZenMocks = vi.hoisted(() => ({
   })),
 }));
 
+const mimoMocks = vi.hoisted(() => ({
+  getMimoConfigDiagnostics: vi.fn(async () => ({
+    state: "none" as const,
+    source: null,
+    error: null,
+    checkedPaths: [],
+  })),
+}));
+
 const anthropicMocks = vi.hoisted(() => ({
   getAnthropicDiagnostics: vi.fn(async () => ({
     installed: true,
@@ -272,6 +281,10 @@ vi.mock("../src/lib/opencode-zen-config.js", () => ({
 vi.mock("../src/lib/opencode-zen.js", () => ({
   OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR: 100_000_000,
   queryOpenCodeZenQuota: openCodeZenMocks.queryOpenCodeZenQuota,
+}));
+
+vi.mock("../src/lib/mimo-config.js", () => ({
+  getMimoConfigDiagnostics: mimoMocks.getMimoConfigDiagnostics,
 }));
 
 vi.mock("../src/lib/google-token-cache.js", () => ({
@@ -467,6 +480,7 @@ vi.mock("../src/providers/registry.js", () => ({
     { id: "synthetic" },
     { id: "nanogpt" },
     { id: "deepseek" },
+    { id: "xiaomi" },
     { id: "kimi-for-coding" },
     { id: "kimi-code" },
   ],
@@ -706,6 +720,9 @@ describe("buildQuotaStatusReport", () => {
 
   const buildOpenCodeZenStatusReport = (overrides: Record<string, unknown> = {}) =>
     buildProviderStatusReport("opencode", overrides as any);
+
+  const buildXiaomiStatusReport = (overrides: Record<string, unknown> = {}) =>
+    buildProviderStatusReport("xiaomi", overrides as any);
 
   const buildSyntheticStatusReport = (overrides: Record<string, unknown> = {}) =>
     buildProviderStatusReport("synthetic", overrides as any);
@@ -1727,6 +1744,71 @@ describe("buildQuotaStatusReport", () => {
     expect(openCodeZenMocks.queryOpenCodeZenQuota).not.toHaveBeenCalled();
   });
 
+  it("reports safe Xiaomi config and partial live summaries without exposing cookie data", async () => {
+    mimoMocks.getMimoConfigDiagnostics.mockResolvedValueOnce({
+      state: "configured",
+      source: "env:MIMO_USAGE_COOKIE",
+      error: null,
+      checkedPaths: ["/tmp/config/opencode-quota/mimo.json"],
+    });
+
+    const report = await buildXiaomiStatusReport({
+      providerLiveProbes: [
+        {
+          providerId: "xiaomi",
+          result: {
+            attempted: true,
+            entries: [
+              {
+                accounting: {
+                  resultType: "quota",
+                  acquisitionMethod: "dashboard_scrape",
+                  ownership: "maintained",
+                  authority: "provider_reported",
+                },
+                name: "Xiaomi MiMo Monthly",
+                group: "Xiaomi MiMo",
+                label: "Monthly:",
+                right: "25/100",
+                percentRemaining: 75,
+              },
+              {
+                accounting: {
+                  resultType: "balance",
+                  acquisitionMethod: "dashboard_scrape",
+                  ownership: "maintained",
+                  authority: "provider_reported",
+                },
+                kind: "value",
+                name: "Xiaomi MiMo Total Balance",
+                group: "Xiaomi MiMo",
+                label: "Total:",
+                value: "$12.50",
+              },
+            ],
+            errors: [{ label: "Xiaomi MiMo", message: "detail response unavailable" }],
+          },
+        },
+      ],
+    });
+
+    const section = getReportSection(report, "xiaomi:");
+    expect(section).toContain("- config_state: configured");
+    expect(section).toContain("- config_source: env:MIMO_USAGE_COOKIE");
+    expect(section).toContain("- config_checked_paths: /tmp/config/opencode-quota/mimo.json");
+    expect(section).toContain("- live_probe: partial");
+    expect(section).toContain("percent_remaining=75");
+    expect(section).toContain("Total: value=$12.50");
+    expect(section).toContain("detail response unavailable");
+    expect(report).toContain(
+      "- xiaomi: pricing=no (dashboard monthly token quota and balances; per-key costs unsupported)",
+    );
+    expect(report).not.toContain("api-platform_serviceToken");
+    expect(report).not.toContain("userId");
+    expect(report).not.toContain("service-secret");
+    expect(report).not.toContain("user-secret");
+  });
+
   it("reports MiniMax auth diagnostics and live quota details when configured", async () => {
     minimaxMocks.getMiniMaxAuthDiagnostics.mockResolvedValueOnce({
       state: "configured",
@@ -2053,6 +2135,7 @@ minimax_china:
 kimi:
 opencode_go:
 opencode_zen:
+xiaomi:
 zai:
 zhipu:
 synthetic:

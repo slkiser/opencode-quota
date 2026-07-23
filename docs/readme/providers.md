@@ -7,7 +7,7 @@
 | Find                                 | Go to                                                                                                                                                                                                     |
 | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Provider support                     | [Pre-configured providers](#pre-configured-providers) · [Custom providers](#custom-providers)                                                                                                             |
-| Billing, API key, or dashboard setup | [GitHub Copilot](#github-copilot) · [DeepSeek](#deepseek) · [Ollama Cloud](#ollama-cloud) · [OpenCode Go](#opencode-go) · [OpenCode Zen](#opencode-zen)                                                   |
+| Billing, API key, or dashboard setup | [GitHub Copilot](#github-copilot) · [DeepSeek](#deepseek) · [Xiaomi MiMo](#xiaomi-mimo) · [Ollama Cloud](#ollama-cloud) · [OpenCode Go](#opencode-go) · [OpenCode Zen](#opencode-zen)                     |
 | CLI or companion-plugin setup        | [Anthropic](#anthropic-claude) · [Cursor](#cursor) · [Qwen Code](#qwen-code) · [Google Antigravity](#google-antigravity) · [Google AGY](#google-agy-quick-setup) · [Gemini CLI (deprecated)](#gemini-cli) |
 
 ## Pre-configured providers
@@ -35,6 +35,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | NanoGPT                  | API key/config                         | Remote API         | Quota and balance  |
 | DeepSeek                 | API key/config                         | Remote API         | Balance and status |
 | xAI SuperGrok            | OpenCode OAuth (`/connect` xAI)        | Remote API         | Quota              |
+| Xiaomi MiMo              | [Needs setup](#xiaomi-mimo)            | Dashboard API      | Quota and balance  |
 | Ollama Cloud             | [Needs setup](#ollama-cloud)           | Dashboard scraping | Quota              |
 | OpenCode Go              | [Needs setup](#opencode-go)            | Dashboard scraping | Quota              |
 | OpenCode Zen             | [Needs setup](#opencode-zen)           | Dashboard scraping | Budget and balance |
@@ -414,6 +415,43 @@ Or put the key in trusted user/global OpenCode config, not repo-local config:
 ```
 
 If you use manual provider selection, include `deepseek` in `enabledProviders`.
+
+<a id="xiaomi-mimo"></a>
+
+### Xiaomi MiMo
+
+Xiaomi MiMo reads the signed-in dashboard API for one provider-reported **Monthly** token-plan quota plus optional **Total**, **Cash**, and **Gift** balances.
+
+Use exactly one trusted credential source. The environment variable has priority:
+
+```bash
+export MIMO_USAGE_COOKIE='api-platform_serviceToken=...; userId=...'
+```
+
+Or create the trusted user/global OpenCode runtime file `opencode-quota/mimo.json` (commonly `~/.config/opencode/opencode-quota/mimo.json`):
+
+```json
+{
+  "cookie": "api-platform_serviceToken=...; userId=..."
+}
+```
+
+Do not put this credential in a repository or workspace config. A present invalid environment value or higher-priority `mimo.json` blocks lower-priority files instead of falling back.
+
+The value may start with `Cookie:`. OpenCode Quota rejects line breaks, requires `api-platform_serviceToken` and `userId`, keeps optional `api-platform_ph` and `api-platform_slh`, and removes every other cookie before requests.
+
+To copy the value manually:
+
+1. Sign in at `platform.xiaomimimo.com`.
+2. Open the browser Developer Tools, then **Network**.
+3. Refresh the dashboard and select the `/api/v1/balance` request.
+4. Copy its **Request Headers → Cookie** value into the environment variable or trusted file above.
+
+The confirmed OpenCode provider IDs are `xiaomi`, `xiaomi-token-plan-cn`, `xiaomi-token-plan-ams`, and `xiaomi-token-plan-sgp`. In manual provider mode, put canonical `xiaomi` in `enabledProviders`.
+
+Plan name/code only enrich the display. An explicitly expired plan does not appear active, and `currentPeriodEnd` is not treated as a quota reset. The three fixed dashboard requests are independent, so available quota or balance data still appears when another request fails.
+
+Per-API-key costs remain unsupported until Xiaomi exposes endpoint and schema evidence for that accounting.
 
 <a id="ollama-cloud"></a>
 

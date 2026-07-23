@@ -114,6 +114,27 @@ describe("provider availability", () => {
         fallbackOnError: false,
       }),
     ).resolves.toBe(false);
+    for (const runtimeId of [
+      "xiaomi",
+      "xiaomi-token-plan-cn",
+      "xiaomi-token-plan-ams",
+      "xiaomi-token-plan-sgp",
+    ]) {
+      await expect(
+        isCanonicalProviderAvailable({
+          ctx: makeCtx({ ids: [runtimeId] }),
+          providerId: "xiaomi",
+          fallbackOnError: false,
+        }),
+      ).resolves.toBe(true);
+    }
+    await expect(
+      isCanonicalProviderAvailable({
+        ctx: makeCtx({ ids: ["mimo"] }),
+        providerId: "xiaomi",
+        fallbackOnError: false,
+      }),
+    ).resolves.toBe(false);
   });
 
   it("does not treat broad normalization aliases as runtime provider ids", async () => {
