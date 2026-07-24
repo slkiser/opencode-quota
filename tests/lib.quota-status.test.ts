@@ -1726,6 +1726,122 @@ describe("buildQuotaStatusReport", () => {
     expect(report).not.toContain("cookie-secret");
   });
 
+  it("reuses the OpenCode Zen live probe instead of fetching billing twice", async () => {
+    openCodeZenMocks.getOpenCodeZenConfigDiagnostics.mockResolvedValueOnce({
+      state: "configured",
+      source: "env(OPENCODE_*)",
+      missing: null,
+      error: null,
+      checkedPaths: ["/tmp/config/opencode-quota/opencode.json"],
+    });
+
+    const report = await buildOpenCodeZenStatusReport({
+      providerLiveProbes: [
+        {
+          providerId: "opencode",
+          result: {
+            attempted: true,
+            entries: [
+              {
+                accounting: {
+                  resultType: "budget",
+                  acquisitionMethod: "dashboard_scrape",
+                  ownership: "maintained",
+                  authority: "locally_derived",
+                },
+                name: "",
+                group: "OpenCode Zen",
+                percentRemaining: 92.5,
+              },
+            ],
+            errors: [],
+            statusDetails: [
+              { key: "balance_usd", value: "$42.50" },
+              { key: "monthly_limit_usd", value: "$50.00" },
+              { key: "last_payment_usd", value: "$20.00" },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(report).toContain("- balance_usd: $42.50");
+    expect(report).toContain("- monthly_limit_usd: $50.00");
+    expect(report).toContain("- last_payment_usd: $20.00");
+    expect(report).toContain("- live_probe: success");
+    expect(openCodeZenMocks.resolveOpenCodeZenConfigCached).not.toHaveBeenCalled();
+    expect(openCodeZenMocks.queryOpenCodeZenQuota).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["empty", []],
+    [
+      "unrelated",
+      [
+        {
+          providerId: "synthetic",
+          result: { attempted: true, entries: [], errors: [] },
+        },
+      ],
+    ],
+  ])(
+    "fetches OpenCode Zen details once when live probes are %s",
+    async (_label, providerLiveProbes) => {
+      openCodeZenMocks.getOpenCodeZenConfigDiagnostics.mockResolvedValueOnce({
+        state: "configured",
+        source: "env(OPENCODE_*)",
+        missing: null,
+        error: null,
+        checkedPaths: ["/tmp/config/opencode-quota/opencode.json"],
+      });
+      openCodeZenMocks.resolveOpenCodeZenConfigCached.mockResolvedValueOnce({
+        state: "configured",
+        source: "env(OPENCODE_*)",
+        config: { workspaceId: "wrk", authCookie: "cookie" },
+      });
+      openCodeZenMocks.queryOpenCodeZenQuota.mockResolvedValueOnce({
+        success: true,
+        data: {
+          balance: 4_250_000_000,
+          monthlyLimit: 50,
+          monthlyUsage: 750_000_000,
+          lastPayment: 20,
+        },
+      });
+
+      const report = await buildOpenCodeZenStatusReport({ providerLiveProbes });
+
+      expect(report).toContain("- balance_usd: $42.50");
+      expect(openCodeZenMocks.queryOpenCodeZenQuota).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("does not retry a failed OpenCode Zen live probe", async () => {
+    openCodeZenMocks.getOpenCodeZenConfigDiagnostics.mockResolvedValueOnce({
+      state: "configured",
+      source: "env(OPENCODE_*)",
+      missing: null,
+      error: null,
+      checkedPaths: ["/tmp/config/opencode-quota/opencode.json"],
+    });
+
+    const report = await buildOpenCodeZenStatusReport({
+      providerLiveProbes: [
+        {
+          providerId: "opencode",
+          result: {
+            attempted: true,
+            entries: [],
+            errors: [{ label: "OpenCode", message: "Request timeout after 10s" }],
+          },
+        },
+      ],
+    });
+
+    expect(report).toContain("- live_probe: error");
+    expect(openCodeZenMocks.queryOpenCodeZenQuota).not.toHaveBeenCalled();
+  });
+
   it("reports a fixed OpenCode Zen parse error without attempting a live fetch", async () => {
     openCodeZenMocks.getOpenCodeZenConfigDiagnostics.mockResolvedValueOnce({
       state: "invalid",

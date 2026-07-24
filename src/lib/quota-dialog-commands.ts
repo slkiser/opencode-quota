@@ -458,6 +458,7 @@ export interface QuotaStatusReportPayload {
 export interface QuotaStatusReportData {
   output: string | null;
   payload: QuotaStatusReportPayload | null;
+  hasComparableProviderData: boolean;
 }
 
 export function summarizeQuotaStatusLiveProbes(
@@ -484,7 +485,7 @@ export async function buildStatusReportData(params: {
 }): Promise<QuotaStatusReportData> {
   const runtimeConfig = params.runtime.config;
   if (!runtimeConfig.enabled) {
-    return { output: null, payload: null };
+    return { output: null, payload: null, hasComparableProviderData: false };
   }
   await kickPricingRefresh({
     reason: "status",
@@ -616,6 +617,7 @@ export async function buildStatusReportData(params: {
       summary: maintainerAnnouncementsSummary,
     },
     geminiCliClient: params.runtime.client,
+    agyClient: params.runtime.client,
     generatedAtMs: params.generatedAtMs,
   });
 
@@ -650,7 +652,11 @@ export async function buildStatusReportData(params: {
     liveProbes: summarizeQuotaStatusLiveProbes(providerLiveProbes),
   };
 
-  return { output, payload };
+  return {
+    output,
+    payload,
+    hasComparableProviderData: providerLiveProbes.some((probe) => probe.result.entries.length > 0),
+  };
 }
 
 async function buildStatusReport(params: {

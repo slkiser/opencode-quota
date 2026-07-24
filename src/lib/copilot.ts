@@ -717,7 +717,23 @@ function buildGitHubRestHeaders(token: string): Record<string, string> {
   };
 }
 
-async function readGitHubRestErrorMessage(response: Response): Promise<string> {
+function redactGitHubErrorText(text: string, secrets: readonly string[]): string {
+  let sanitized = sanitizeDisplayText(text);
+  for (const secret of secrets) {
+    if (!secret) continue;
+    sanitized = sanitized.split(secret).join("[redacted]");
+    const sanitizedSecret = sanitizeDisplayText(secret);
+    if (sanitizedSecret) {
+      sanitized = sanitized.split(sanitizedSecret).join("[redacted]");
+    }
+  }
+  return sanitized;
+}
+
+async function readGitHubRestErrorMessage(
+  response: Response,
+  secrets: readonly string[],
+): Promise<string> {
   const text = await response.text();
   try {
     const parsed = JSON.parse(text) as Record<string, unknown>;
@@ -725,13 +741,13 @@ async function readGitHubRestErrorMessage(response: Response): Promise<string> {
     const documentationUrl =
       typeof parsed.documentation_url === "string" ? parsed.documentation_url : null;
     if (message && documentationUrl) {
-      return sanitizeDisplayText(`${message} (${documentationUrl})`);
+      return redactGitHubErrorText(`${message} (${documentationUrl})`, secrets);
     }
-    if (message) return sanitizeDisplayText(message);
+    if (message) return redactGitHubErrorText(message, secrets);
   } catch {
     // Fall through to a bounded plain-text snippet.
   }
-  return sanitizeDisplaySnippet(text, 160);
+  return sanitizeDisplaySnippet(redactGitHubErrorText(text, secrets), 160);
 }
 
 async function fetchGitHubRestJson<T>(
@@ -744,7 +760,7 @@ async function fetchGitHubRestJson<T>(
     timeoutMs: requestTimeoutMs,
     consume: async (response) => {
       if (!response.ok) {
-        const message = await readGitHubRestErrorMessage(response);
+        const message = await readGitHubRestErrorMessage(response, [token]);
         const rateLimit =
           response.status === 403 && response.headers.get("x-ratelimit-remaining") === "0"
             ? " (GitHub API rate limit exhausted)"
@@ -1250,7 +1266,7 @@ async function fetchCopilotInternalUser(params: {
     timeoutMs: params.requestTimeoutMs,
     consume: async (response) => {
       if (!response.ok) {
-        const message = await readGitHubRestErrorMessage(response);
+        const message = await readGitHubRestErrorMessage(response, [params.token]);
         throw new Error(`GitHub Copilot API error ${response.status}: ${message}`);
       }
 

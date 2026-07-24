@@ -222,6 +222,7 @@ describe("/quota_status command behavior", () => {
       expect.objectContaining({ id: "synthetic", enabled: true, available: true }),
     ]);
     expect(data.payload?.liveProbes).toEqual([{ id: "synthetic", ok: true }]);
+    expect(data.hasComparableProviderData).toBe(false);
     expect(openai.isAvailable).not.toHaveBeenCalled();
     expect(synthetic.isAvailable).toHaveBeenCalledOnce();
     expect(mocks.collectQuotaStatusLiveProbes).toHaveBeenCalledWith(
@@ -298,6 +299,7 @@ describe("/quota_status command behavior", () => {
         settingSources: {},
         configIssues: [],
         geminiCliClient: client,
+        agyClient: client,
         providerLiveProbes: [
           {
             providerId: "openai",

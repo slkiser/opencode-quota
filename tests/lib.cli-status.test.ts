@@ -14,7 +14,11 @@ const { mockProviders, runtimeDirs, statusData } = vi.hoisted(() => ({
     },
   },
   statusData: {
-    value: null as null | { output: string; payload: Record<string, unknown> },
+    value: null as null | {
+      output: string;
+      payload: Record<string, unknown>;
+      hasComparableProviderData?: boolean;
+    },
   },
 }));
 
@@ -40,6 +44,7 @@ vi.mock("../src/lib/quota-dialog-commands.js", () => ({
     return {
       output: statusData.value.output,
       payload: statusData.value.payload,
+      hasComparableProviderData: statusData.value.hasComparableProviderData ?? true,
     };
   }),
 }));
@@ -188,6 +193,7 @@ describe("runCliStatusCommand", () => {
     statusData.value = {
       output: "report text",
       payload: basePayload({ liveProbes: [] }),
+      hasComparableProviderData: false,
     };
     const stdout = createCaptureStream();
     const stderr = createCaptureStream();
@@ -204,6 +210,42 @@ describe("runCliStatusCommand", () => {
     // JSON still printed even on exit 2.
     const parsed = JSON.parse(stdout.output);
     expect(parsed.liveProbes).toEqual([]);
+  });
+
+  it("--json exits 2 when probes fail without producing quota entries", async () => {
+    statusData.value = {
+      output: "report text",
+      payload: basePayload({ liveProbes: [{ id: "synthetic", ok: false }] }),
+      hasComparableProviderData: false,
+    };
+    const stdout = createCaptureStream();
+
+    const code = await runCliStatusCommand({
+      argv: ["--json"],
+      cwd: workspaceDir,
+      stdout: stdout.stream as any,
+      stderr: { write: () => true } as any,
+    });
+
+    expect(code).toBe(2);
+    expect(JSON.parse(stdout.output).liveProbes).toEqual([{ id: "synthetic", ok: false }]);
+  });
+
+  it("--json succeeds when a partial probe produced quota entries", async () => {
+    statusData.value = {
+      output: "report text",
+      payload: basePayload({ liveProbes: [{ id: "synthetic", ok: false }] }),
+      hasComparableProviderData: true,
+    };
+
+    const code = await runCliStatusCommand({
+      argv: ["--json"],
+      cwd: workspaceDir,
+      stdout: { write: () => true } as any,
+      stderr: { write: () => true } as any,
+    });
+
+    expect(code).toBe(0);
   });
 
   it("--provider filters the report to one provider", async () => {

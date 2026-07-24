@@ -83,25 +83,29 @@ export const opencodeZenProvider: QuotaProvider = {
 
     const balanceUsd = result.data.balance / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
     const configuredMonthlyLimit = ctx.config?.opencodeMonthlyLimit;
-    const effectiveMonthlyLimit =
-      configuredMonthlyLimit !== undefined
-        ? configuredMonthlyLimit
-        : result.data.monthlyLimit !== null
-          ? result.data.monthlyLimit
-          : result.data.lastPayment;
+    const effectiveMonthlyLimit = configuredMonthlyLimit ?? result.data.monthlyLimit;
+    const monthlyUsageUsd =
+      result.data.monthlyUsage === null
+        ? null
+        : result.data.monthlyUsage / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
 
     const entry: QuotaToastEntry =
       effectiveMonthlyLimit !== null &&
-      effectiveMonthlyLimit !== undefined &&
       Number.isFinite(effectiveMonthlyLimit) &&
-      effectiveMonthlyLimit > 0
+      effectiveMonthlyLimit > 0 &&
+      monthlyUsageUsd !== null &&
+      Number.isFinite(monthlyUsageUsd) &&
+      monthlyUsageUsd >= 0
         ? {
             accounting: OPENCODE_ZEN_BUDGET_ACCOUNTING,
             name: "",
             group: OPENCODE_ZEN_GROUP,
             percentRemaining: Math.min(
               100,
-              Math.max(0, (balanceUsd / effectiveMonthlyLimit) * 100),
+              Math.max(
+                0,
+                ((effectiveMonthlyLimit - monthlyUsageUsd) / effectiveMonthlyLimit) * 100,
+              ),
             ),
           }
         : {
@@ -112,6 +116,23 @@ export const opencodeZenProvider: QuotaProvider = {
             value: `$${balanceUsd.toFixed(2)}`,
           };
 
-    return attemptedResult([entry]);
+    return {
+      ...attemptedResult([entry]),
+      statusDetails: [
+        { key: "balance_usd", value: `$${balanceUsd.toFixed(2)}` },
+        {
+          key: "monthly_limit_usd",
+          value:
+            result.data.monthlyLimit === null
+              ? "(none)"
+              : `$${result.data.monthlyLimit.toFixed(2)}`,
+        },
+        {
+          key: "last_payment_usd",
+          value:
+            result.data.lastPayment === null ? "(none)" : `$${result.data.lastPayment.toFixed(2)}`,
+        },
+      ],
+    };
   },
 };

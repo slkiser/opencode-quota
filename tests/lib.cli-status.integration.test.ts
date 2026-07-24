@@ -17,6 +17,8 @@ import {
 } from "./helpers/plugin-test-harness.js";
 
 const mocks = vi.hoisted(() => ({
+  anthropicConfigured: false,
+  kimiState: "none" as "none" | "configured",
   providers: [] as any[],
   runtimeDirs: {
     value: {
@@ -36,6 +38,15 @@ const mocks = vi.hoisted(() => ({
   buildQuotaStatusReport: vi.fn(),
   inspectTuiConfig: vi.fn(),
   refreshGoogleTokensForAllAccounts: vi.fn(),
+}));
+
+vi.mock("../src/lib/anthropic.js", () => ({
+  hasAnthropicCredentialsConfigured: vi.fn(async () => mocks.anthropicConfigured),
+}));
+
+vi.mock("../src/lib/kimi-auth.js", () => ({
+  DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS: 30_000,
+  resolveKimiAuthCached: vi.fn(async () => ({ state: mocks.kimiState })),
 }));
 
 vi.mock("../src/providers/registry.js", () => ({
@@ -90,6 +101,8 @@ describe("status CLI integration", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.anthropicConfigured = false;
+    mocks.kimiState = "none";
     savedConfigDir = process.env.OPENCODE_CONFIG_DIR;
     delete process.env.OPENCODE_CONFIG_DIR;
 
@@ -140,6 +153,50 @@ describe("status CLI integration", () => {
     mocks.providers.length = 0;
     rmSync(tempDir, { recursive: true, force: true });
   });
+
+  it.each(["anthropic", "kimi-for-coding"])(
+    "recognizes locally authenticated %s without an explicit provider block",
+    async (providerId) => {
+      if (providerId === "anthropic") mocks.anthropicConfigured = true;
+      if (providerId === "kimi-for-coding") mocks.kimiState = "configured";
+      writeFileSync(
+        join(workspaceDir, "opencode.json"),
+        JSON.stringify({
+          experimental: {
+            quotaToast: {
+              enabledProviders: [providerId],
+            },
+          },
+        }),
+        "utf8",
+      );
+      mocks.providers.length = 0;
+      mocks.providers.push({
+        id: providerId,
+        isAvailable: vi.fn(async (ctx: any) =>
+          (await ctx.resolveRuntimeProviderIds()).has(providerId),
+        ),
+        fetch: vi.fn().mockResolvedValue({
+          attempted: true,
+          entries: [{ accounting: TEST_ACCOUNTING, name: providerId, percentRemaining: 75 }],
+          errors: [],
+        }),
+      });
+      const stdout = createCaptureStream();
+
+      const code = await runCliStatusCommand({
+        argv: ["--json", "--provider", providerId],
+        cwd: workspaceDir,
+        stdout: stdout.stream as any,
+        stderr: { write: () => true } as any,
+      });
+
+      expect(code).toBe(0);
+      expect(JSON.parse(stdout.output).providers).toEqual([
+        expect.objectContaining({ id: providerId, enabled: true, available: true }),
+      ]);
+    },
+  );
 
   it("runs plain and JSON status through the real CLI client and status data builder", async () => {
     const plainStdout = createCaptureStream();

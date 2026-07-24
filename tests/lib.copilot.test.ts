@@ -871,6 +871,42 @@ describe("GitHub Copilot AI Credit accounting", () => {
     ).toContain("usage loaded, but the budget report failed");
   });
 
+  it("redacts a PAT echoed by a GitHub REST error", async () => {
+    const patToken = "github_pat_error_canary";
+    configure({ token: patToken, tier: "pro", username: "alice" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        json({ message: `Rejected Authorization: Bearer ${patToken}` }, { status: 401 }),
+      ) as any,
+    );
+
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    const result = await queryCopilotQuota();
+    const error = result && !result.success ? result.error : "";
+
+    expect(error).toContain("[redacted]");
+    expect(error).not.toContain(patToken);
+  });
+
+  it("redacts an OAuth token echoed by the Copilot internal API", async () => {
+    const oauthToken = "oauth-error-canary";
+    authMocks.readAuthFile.mockResolvedValue({
+      "github-copilot": { type: "oauth", access: oauthToken },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => json({ message: `Rejected token ${oauthToken}` }, { status: 401 })) as any,
+    );
+
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    const result = await queryCopilotQuota();
+    const error = result && !result.success ? result.error : "";
+
+    expect(error).toContain("[redacted]");
+    expect(error).not.toContain(oauthToken);
+  });
+
   it("surfaces auth, permission, rate-limit, and malformed-response failures explicitly", async () => {
     configure({ token: "github_pat_personal", tier: "pro", username: "alice" });
     const scenarios = [

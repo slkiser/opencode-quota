@@ -122,6 +122,11 @@ export interface SessionTokensData {
   totalOutput: number;
 }
 
+export interface QuotaProviderStatusDetail {
+  key: string;
+  value: string;
+}
+
 export interface QuotaProviderPresentation {
   singleWindowDisplayName?: string;
   singleWindowShowRight?: boolean;
@@ -178,6 +183,8 @@ export interface QuotaProviderResult {
   errors: QuotaToastError[];
   /** Internal provider diagnostics; not projected into normal presentation/export surfaces. */
   diagnostics?: QuotaProviderDiagnostic[];
+  /** Safe provider-specific details reused by diagnostic status reports. */
+  statusDetails?: QuotaProviderStatusDetail[];
   presentation?: QuotaProviderPresentation;
 }
 

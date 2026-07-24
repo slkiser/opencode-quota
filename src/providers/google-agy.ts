@@ -5,6 +5,7 @@ import type {
   QuotaToastEntry,
 } from "../lib/entries.js";
 import type { GoogleAgyQuotaBucket } from "../lib/types.js";
+import { sanitizeDisplayText } from "../lib/display-sanitize.js";
 import { hasAgyQuotaRuntimeAvailable, queryGoogleAgyQuota } from "../lib/google-agy.js";
 import { parseProviderModelRef } from "../lib/provider-model-matching.js";
 import { formatGoogleAccountErrors, formatGoogleAccountLabel } from "./google-account-format.js";
@@ -66,11 +67,15 @@ function compareBuckets(left: GoogleAgyQuotaBucket, right: GoogleAgyQuotaBucket)
 }
 
 function formatRemainingAmount(value: string | undefined): string | undefined {
-  if (!value) {
+  const normalized = value?.trim();
+  if (!normalized) {
     return undefined;
   }
-  const parsed = Number.parseInt(value, 10);
-  return `${Number.isFinite(parsed) ? parsed.toLocaleString("en-US") : value} left`;
+  const parsed = Number(normalized);
+  const display = Number.isFinite(parsed)
+    ? parsed.toLocaleString("en-US")
+    : sanitizeDisplayText(normalized);
+  return `${display} left`;
 }
 
 async function isAgyConfigured(ctx: QuotaProviderContext): Promise<boolean> {

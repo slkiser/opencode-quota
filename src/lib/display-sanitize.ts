@@ -90,6 +90,14 @@ export function sanitizeQuotaProviderResult(result: QuotaProviderResult): QuotaP
           })),
         }
       : {}),
+    ...(result.statusDetails
+      ? {
+          statusDetails: result.statusDetails.map((detail) => ({
+            key: sanitizeDisplayText(detail.key),
+            value: sanitizeDisplayText(detail.value),
+          })),
+        }
+      : {}),
     ...(result.presentation ? { presentation: { ...result.presentation } } : {}),
   };
 }

@@ -1434,7 +1434,21 @@ export async function buildQuotaStatusReport(params: {
     key: "config_checked_paths",
     value: joinOrNone(openCodeZenDiag.checkedPaths),
   });
-  if (openCodeZenDiag.state === "configured") {
+  const openCodeZenLiveProbe = findProviderLiveProbe("opencode", params.providerLiveProbes);
+  if (openCodeZenLiveProbe?.result.statusDetails) {
+    openCodeZenRows.push(
+      ...openCodeZenLiveProbe.result.statusDetails.map((detail) => ({
+        key: detail.key,
+        value: detail.value,
+      })),
+    );
+  }
+  const openCodeZenIsInScope =
+    params.providerAvailability === undefined ||
+    params.providerAvailability.some(
+      (provider) => provider.id === "opencode" && provider.enabled && provider.available,
+    );
+  if (openCodeZenDiag.state === "configured" && !openCodeZenLiveProbe && openCodeZenIsInScope) {
     const openCodeZenConfig = await resolveOpenCodeZenConfigCached({
       maxAgeMs: DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS,
     });

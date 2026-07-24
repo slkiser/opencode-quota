@@ -152,7 +152,7 @@ describe("opencode Zen provider", () => {
     expect(result.presentation).toBeUndefined();
   });
 
-  it("returns the original percentage entry when the page reports a monthly limit", async () => {
+  it("calculates monthly-limit remaining from monthly usage", async () => {
     configured();
     success({ monthlyLimit: 100, monthlyUsage: 575_000_000 });
 
@@ -164,29 +164,44 @@ describe("opencode Zen provider", () => {
         accounting: budgetAccounting,
         name: "",
         group: "OpenCode Zen",
-        percentRemaining: 42.5,
+        percentRemaining: 94.25,
       },
+    ]);
+    expect(result.statusDetails).toEqual([
+      { key: "balance_usd", value: "$42.50" },
+      { key: "monthly_limit_usd", value: "$100.00" },
+      { key: "last_payment_usd", value: "(none)" },
     ]);
   });
 
   it("prefers the positive plugin monthly-limit override", async () => {
     configured();
-    success({ monthlyLimit: 100 });
+    success({ monthlyLimit: 100, monthlyUsage: 575_000_000 });
 
     const result = await opencodeZenProvider.fetch(context({ opencodeMonthlyLimit: 200 }));
 
     expectAttemptedWithNoErrors(result);
-    expect(result.entries[0]).toMatchObject({ percentRemaining: 21.25 });
+    expect(result.entries[0]).toMatchObject({ percentRemaining: 97.125 });
   });
 
-  it("uses the last payment when neither config nor page limit is available", async () => {
+  it("does not treat the last payment as a monthly limit", async () => {
     configured();
     success({ lastPayment: 50 });
 
     const result = await opencodeZenProvider.fetch(context());
 
     expectAttemptedWithNoErrors(result);
-    expect(result.entries[0]).toMatchObject({ percentRemaining: 85 });
+    expect(result.entries[0]).toMatchObject({ kind: "value", value: "$42.50" });
+  });
+
+  it("uses value display when monthly usage is unavailable", async () => {
+    configured();
+    success({ monthlyLimit: 100, monthlyUsage: null });
+
+    const result = await opencodeZenProvider.fetch(context());
+
+    expectAttemptedWithNoErrors(result);
+    expect(result.entries[0]).toMatchObject({ kind: "value", value: "$42.50" });
   });
 
   it("uses value display for a zero page limit instead of emitting NaN", async () => {
@@ -200,14 +215,14 @@ describe("opencode Zen provider", () => {
     expect(JSON.stringify(result)).not.toContain("NaN");
   });
 
-  it("clamps balance percentages to 100", async () => {
+  it("clamps monthly usage above the limit to zero remaining", async () => {
     configured();
-    success({ balance: 20_000_000_000, monthlyLimit: 100 });
+    success({ monthlyLimit: 100, monthlyUsage: 20_000_000_000 });
 
     const result = await opencodeZenProvider.fetch(context());
 
     expectAttemptedWithNoErrors(result);
-    expect(result.entries[0]).toMatchObject({ percentRemaining: 100 });
+    expect(result.entries[0]).toMatchObject({ percentRemaining: 0 });
   });
 
   it("passes a user-configured timeout and otherwise keeps the scraper default", async () => {

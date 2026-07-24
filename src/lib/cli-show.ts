@@ -3,6 +3,7 @@ import { resolve } from "path";
 import type { QuotaRuntimeClient } from "./quota-runtime-context.js";
 import type { QuotaToastConfig } from "./types.js";
 
+import { hasAnthropicCredentialsConfigured } from "./anthropic.js";
 import { formatQuotaRows } from "./format.js";
 import { getQuotaProviderShape } from "./provider-metadata.js";
 import { findGitWorktreeRoot, getEffectiveConfigRoot } from "./config-file-utils.js";
@@ -11,6 +12,7 @@ import {
   loadConfiguredProviderIds,
 } from "./opencode-config-providers.js";
 import { resolveQuotaFormatStyle } from "./quota-format-style.js";
+import { DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS, resolveKimiAuthCached } from "./kimi-auth.js";
 import { getPackageVersion } from "./version.js";
 import { collectQuotaRenderData } from "./quota-render-data.js";
 import { sanitizeQuotaRenderData } from "./display-sanitize.js";
@@ -150,6 +152,28 @@ export function resolveCliRoots(cwd: string): {
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+async function loadCliAuthenticatedProviderIds(config: Record<string, unknown>): Promise<string[]> {
+  const experimental = isRecord(config.experimental) ? config.experimental : undefined;
+  const quotaToast = isRecord(experimental?.quotaToast) ? experimental.quotaToast : undefined;
+  const anthropicBinaryPath =
+    typeof quotaToast?.anthropicBinaryPath === "string"
+      ? quotaToast.anthropicBinaryPath
+      : undefined;
+  const [anthropicConfigured, kimiAuth] = await Promise.all([
+    hasAnthropicCredentialsConfigured({ binaryPath: anthropicBinaryPath }),
+    resolveKimiAuthCached({ maxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS }),
+  ]);
+
+  return [
+    ...(anthropicConfigured ? ["anthropic"] : []),
+    ...(kimiAuth.state === "configured" ? ["kimi-for-coding"] : []),
+  ];
+}
+
 export function createCliQuotaClient(params: { configRootDir: string }): QuotaRuntimeClient {
   let configPromise: Promise<Record<string, unknown>> | undefined;
   let providerIdsPromise: Promise<string[]> | undefined;
@@ -168,9 +192,16 @@ export function createCliQuotaClient(params: { configRootDir: string }): QuotaRu
         };
       },
       providers: async () => {
-        providerIdsPromise ??= loadConfiguredProviderIds({
-          configRootDir: params.configRootDir,
-        });
+        providerIdsPromise ??= (async () => {
+          configPromise ??= loadConfiguredOpenCodeConfig({
+            configRootDir: params.configRootDir,
+          });
+          const [configuredIds, authenticatedIds] = await Promise.all([
+            loadConfiguredProviderIds({ configRootDir: params.configRootDir }),
+            configPromise.then(loadCliAuthenticatedProviderIds),
+          ]);
+          return [...new Set([...configuredIds, ...authenticatedIds])];
+        })();
         const ids = await providerIdsPromise;
         return {
           data: {

@@ -51,6 +51,9 @@ export function cloneQuotaProviderResult(result: QuotaProviderResult): QuotaProv
           })),
         }
       : {}),
+    ...(result.statusDetails
+      ? { statusDetails: result.statusDetails.map((detail) => ({ ...detail })) }
+      : {}),
     ...(result.presentation ? { presentation: { ...result.presentation } } : {}),
   };
 }
@@ -280,6 +283,17 @@ function isQuotaProviderDiagnostic(value: unknown): boolean {
   );
 }
 
+function isQuotaProviderStatusDetail(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+
+  const detail = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(detail, ["key", "value"]) &&
+    typeof detail.key === "string" &&
+    typeof detail.value === "string"
+  );
+}
+
 function isQuotaProviderPresentation(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
 
@@ -303,7 +317,14 @@ function isQuotaProviderResult(value: unknown): value is QuotaProviderResult {
 
   const result = value as Record<string, unknown>;
   return (
-    hasOnlyKeys(result, ["attempted", "entries", "errors", "diagnostics", "presentation"]) &&
+    hasOnlyKeys(result, [
+      "attempted",
+      "entries",
+      "errors",
+      "diagnostics",
+      "statusDetails",
+      "presentation",
+    ]) &&
     typeof result.attempted === "boolean" &&
     Array.isArray(result.entries) &&
     result.entries.every(isQuotaToastEntry) &&
@@ -311,6 +332,9 @@ function isQuotaProviderResult(value: unknown): value is QuotaProviderResult {
     result.errors.every(isQuotaToastError) &&
     (result.diagnostics === undefined ||
       (Array.isArray(result.diagnostics) && result.diagnostics.every(isQuotaProviderDiagnostic))) &&
+    (result.statusDetails === undefined ||
+      (Array.isArray(result.statusDetails) &&
+        result.statusDetails.every(isQuotaProviderStatusDetail))) &&
     (result.presentation === undefined || isQuotaProviderPresentation(result.presentation))
   );
 }

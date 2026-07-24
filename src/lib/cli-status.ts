@@ -2,7 +2,7 @@ import type { QuotaRuntimeClient } from "./quota-runtime-context.js";
 
 import { getQuotaProviderShape } from "./provider-metadata.js";
 import { resolveQuotaRuntimeContext } from "./quota-runtime-context.js";
-import { buildStatusReportData, type QuotaStatusReportPayload } from "./quota-dialog-commands.js";
+import { buildStatusReportData } from "./quota-dialog-commands.js";
 import { createCliQuotaClient, resolveCliRoots } from "./cli-show.js";
 
 export interface RunCliStatusCommandOptions {
@@ -97,10 +97,6 @@ function writeLine(stream: Pick<NodeJS.WriteStream, "write">, message: string): 
   stream.write(message.endsWith("\n") ? message : `${message}\n`);
 }
 
-function hasComparableProviderData(payload: QuotaStatusReportPayload): boolean {
-  return payload.liveProbes.length > 0;
-}
-
 export async function runCliStatusCommand(
   options: RunCliStatusCommandOptions = {},
 ): Promise<number> {
@@ -153,7 +149,7 @@ export async function runCliStatusCommand(
 
     if (parsed.json) {
       writeLine(stdout, JSON.stringify(data.payload, null, 2));
-      return hasComparableProviderData(data.payload) ? 0 : 2;
+      return data.hasComparableProviderData ? 0 : 2;
     }
 
     writeLine(stdout, data.output);
