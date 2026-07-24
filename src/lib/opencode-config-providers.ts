@@ -8,8 +8,13 @@ import {
   resolveExistingConfigPath,
   type ConfigFileFormat,
 } from "./config-file-utils.js";
-import { parseJsonOrJsonc } from "./jsonc.js";
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import {
+  buildOpenCodeConfigCandidates,
+  readOpenCodeConfigCandidate,
+  selectFirstExistingOpenCodeConfigCandidate,
+  type OpenCodeConfigCandidate,
+} from "./opencode-config-read.js";
 import {
   applyConfigDocumentEdit,
   ConfigDocumentError,
@@ -44,24 +49,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function getCandidatePaths(configRootDir: string): string[] {
+function getCandidates(configRootDir: string): OpenCodeConfigCandidate[] {
   return dedupeNonEmptyStrings([
     ...getOpencodeRuntimeDirCandidates().configDirs,
     configRootDir,
-  ]).flatMap((dir) => {
-    const path = resolveExistingConfigPath(dir, "opencode");
-    return path ? [path] : [];
+  ]).flatMap((directory) => {
+    const selected = selectFirstExistingOpenCodeConfigCandidate(
+      buildOpenCodeConfigCandidates({
+        directories: [directory],
+        formatOrder: ["jsonc", "json"],
+      }),
+    );
+    return selected ? [selected] : [];
   });
 }
 
-async function readConfig(path: string): Promise<Record<string, unknown> | null> {
-  try {
-    const content = await readFile(path, "utf8");
-    const parsed = parseJsonOrJsonc(content, path.endsWith(".jsonc"));
-    return isRecord(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
+async function readConfig(
+  candidate: OpenCodeConfigCandidate,
+): Promise<Record<string, unknown> | null> {
+  const result = await readOpenCodeConfigCandidate(candidate);
+  return result.state === "parsed" && isRecord(result.value) ? result.value : null;
 }
 
 const COMPANION_PLUGIN_PROVIDER_IDS: ReadonlyArray<{
@@ -120,8 +127,8 @@ export async function loadConfiguredOpenCodeConfig(
 ): Promise<Record<string, unknown>> {
   let config: Record<string, unknown> = {};
 
-  for (const path of getCandidatePaths(options.configRootDir)) {
-    const parsed = await readConfig(path);
+  for (const candidate of getCandidates(options.configRootDir)) {
+    const parsed = await readConfig(candidate);
     if (!parsed) {
       continue;
     }

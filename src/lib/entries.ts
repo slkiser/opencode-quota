@@ -1,5 +1,6 @@
 import type { CursorQuotaPlan, OpenCodeGoWindowKey } from "./types.js";
 import type { QuotaProviderDefinition } from "./quota-providers.js";
+import type { RuntimeProviderIdResolver } from "./runtime-provider-ids.js";
 
 /**
  * Normalized quota output model.
@@ -193,6 +194,7 @@ export interface QuotaProviderContext {
       get: () => Promise<{ data?: { model?: string } }>;
     };
   };
+  resolveRuntimeProviderIds: RuntimeProviderIdResolver;
   config: {
     googleModels: string[];
     anthropicBinaryPath?: string;

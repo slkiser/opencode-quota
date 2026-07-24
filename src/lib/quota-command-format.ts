@@ -27,6 +27,7 @@ import {
   type ReportSection,
 } from "./report-document.js";
 import { SESSION_TOKEN_SECTION_HEADING } from "./session-tokens-format.js";
+import { classifyQuotaWindowText, type QuotaWindowKind } from "./quota-entry-display.js";
 
 /**
  * Format reset time in compact form (different from toast countdown).
@@ -55,16 +56,19 @@ function normalizeMetricText(value?: string): string {
   return value?.trim().replace(/:+$/u, "").trim() ?? "";
 }
 
+const COMMAND_WINDOW_LABELS: Readonly<Partial<Record<QuotaWindowKind, string>>> = {
+  rpm: "RPM",
+  five_hour: "5h",
+  hour: "Hour",
+  week: "Week",
+  day: "Day",
+  month: "Month",
+  year: "Year",
+};
+
 function getCommandWindowLabel(entry: QuotaToastEntry): string | null {
-  const text = normalizeMetricText(entry.label || entry.name).toLowerCase();
-  if (/\b(?:rpm|per minute|minute|minutes)\b/u.test(text)) return "RPM";
-  if (/\b(?:rolling|5h|5 h|5-hour|5 hour|five-hour|five hour)\b/u.test(text)) return "5h";
-  if (/\b(?:hourly|1h|1 h|1-hour|1 hour|hour)\b/u.test(text)) return "Hour";
-  if (/\b(?:7d|7 d|7-day|7 day|weekly|week)\b/u.test(text)) return "Week";
-  if (/\b(?:daily|1d|1 d|1-day|1 day|day)\b/u.test(text)) return "Day";
-  if (/\b(?:monthly|month)\b/u.test(text)) return "Month";
-  if (/\b(?:yearly|annual|annually|year)\b/u.test(text)) return "Year";
-  return null;
+  const kind = classifyQuotaWindowText(normalizeMetricText(entry.label || entry.name));
+  return kind ? (COMMAND_WINDOW_LABELS[kind] ?? null) : null;
 }
 
 function getCommandMetricLabel(entry: QuotaToastEntry): string {

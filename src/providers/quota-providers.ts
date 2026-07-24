@@ -48,9 +48,8 @@ function matchesConfiguredCurrentSelection(
   );
 }
 
-async function getAvailableProviderIds(ctx: QuotaProviderContext): Promise<Set<string>> {
-  const response = await ctx.client.config.providers();
-  return new Set((response.data?.providers ?? []).map((provider) => provider.id));
+async function getAvailableProviderIds(ctx: QuotaProviderContext): Promise<ReadonlySet<string>> {
+  return ctx.resolveRuntimeProviderIds();
 }
 
 type InstanceResult = {
@@ -287,7 +286,7 @@ export const quotaProvidersProvider: QuotaProvider = {
       return { attempted: false, entries: [], errors: [] };
     }
 
-    let availableProviderIds: Set<string>;
+    let availableProviderIds: ReadonlySet<string>;
     try {
       availableProviderIds = await getAvailableProviderIds(ctx);
     } catch {

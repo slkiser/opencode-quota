@@ -20,15 +20,17 @@ import { DEFAULT_CONFIG } from "./types.js";
 import { cloneQuotaProviders, validateQuotaProviders } from "./quota-providers.js";
 import { isQuotaFormatStyle, resolveQuotaFormatStyle } from "./quota-format-style.js";
 import { isResetTimeDecimals } from "./format-utils.js";
-import { parseJsonOrJsonc } from "./jsonc.js";
 import { getQuotaProviderShape, normalizeQuotaProviderId } from "./provider-metadata.js";
 
 import { existsSync } from "fs";
-import { readFile } from "fs/promises";
 import { join } from "path";
 
 import { getEffectiveConfigRoot } from "./config-file-utils.js";
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import {
+  buildOpenCodeConfigCandidates,
+  readOpenCodeConfigCandidate,
+} from "./opencode-config-read.js";
 
 export const QUOTA_TOAST_CONFIG_RELATIVE_PATHS = [
   "opencode-quota/quota-toast.jsonc",
@@ -119,7 +121,6 @@ export function createLoadConfigMeta(): LoadConfigMeta {
   };
 }
 
-const CONFIG_FILENAMES = ["opencode.json", "opencode.jsonc"] as const;
 const NETWORK_SETTING_SOURCE_KEYS = [
   "enabled",
   "enabledProviders",
@@ -1027,8 +1028,11 @@ function buildConfigLayerCandidatesForRoot(
       scope,
       kind: "plugin" as const,
     })),
-    ...CONFIG_FILENAMES.map((filename) => ({
-      path: join(dir, filename),
+    ...buildOpenCodeConfigCandidates({
+      directories: [dir],
+      formatOrder: ["json", "jsonc"],
+    }).map((candidate) => ({
+      path: candidate.path,
       rootDir: dir,
       scope,
       kind: "legacy" as const,
@@ -1082,12 +1086,11 @@ export async function loadConfig(
   options?: LoadConfigOptions,
 ): Promise<QuotaToastConfig> {
   async function readJson(path: string): Promise<unknown | null> {
-    try {
-      const content = await readFile(path, "utf-8");
-      return parseJsonOrJsonc(content, path.endsWith(".jsonc"));
-    } catch {
-      return null;
-    }
+    const result = await readOpenCodeConfigCandidate({
+      path,
+      format: path.endsWith(".jsonc") ? "jsonc" : "json",
+    });
+    return result.state === "parsed" ? result.value : null;
   }
 
   async function loadFromFiles(): Promise<{

@@ -37,6 +37,13 @@ vi.mock("../src/providers/registry.js", () =>
 
 vi.mock("../src/lib/modelsdev-pricing.js", () => createPricingModuleMock(mocks));
 
+async function loadSidebarPanel(
+  params: Parameters<typeof import("../src/lib/tui-runtime.js").loadTuiSessionQuotaSurfaces>[0],
+) {
+  const { loadTuiSessionQuotaSurfaces } = await import("../src/lib/tui-runtime.js");
+  return (await loadTuiSessionQuotaSurfaces(params)).sidebar;
+}
+
 function seedPricingMocks(): void {
   mocks.getPricingSnapshotMeta.mockReturnValue({
     source: "runtime",
@@ -233,7 +240,6 @@ describe("quota surface parity regressions", () => {
 
     await resetQuotaStateForTests();
 
-    const { loadSidebarPanel } = await import("../src/lib/tui-runtime.js");
     const panel = await loadSidebarPanel({
       api: {
         state: {
@@ -441,7 +447,6 @@ describe("quota surface parity regressions", () => {
 
     await resetQuotaStateForTests();
 
-    const { loadSidebarPanel } = await import("../src/lib/tui-runtime.js");
     const panel = await loadSidebarPanel({
       api: {
         state: {
@@ -533,7 +538,6 @@ describe("quota surface parity regressions", () => {
     // Force sidebar path to reuse persisted shared snapshot storage (not in-memory).
     await resetQuotaStateForTests();
 
-    const { loadSidebarPanel } = await import("../src/lib/tui-runtime.js");
     const panel = await loadSidebarPanel({
       api: {
         state: {
@@ -623,7 +627,6 @@ describe("quota surface parity regressions", () => {
     // Ensure sidebar reads from shared persisted snapshot, then projects as single-window.
     await resetQuotaStateForTests();
 
-    const { loadSidebarPanel } = await import("../src/lib/tui-runtime.js");
     const panel = await loadSidebarPanel({
       api: {
         state: {

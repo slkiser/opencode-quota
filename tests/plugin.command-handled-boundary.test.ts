@@ -384,10 +384,11 @@ describe("plugin command handled boundary", () => {
   });
 
   it("still builds deterministic quota dialog output without session.prompt injection", async () => {
+    const isAvailable = vi.fn().mockRejectedValue(new Error("boom"));
     mocks.getProviders.mockReturnValue([
       {
         id: "boom-provider",
-        isAvailable: vi.fn().mockRejectedValue(new Error("boom")),
+        isAvailable,
         fetch: vi.fn(),
       },
     ]);
@@ -398,6 +399,7 @@ describe("plugin command handled boundary", () => {
     expect(result.state).toBe("output");
     expect(result.state === "output" ? result.output : "").toContain("Quota unavailable");
     expect(result.state === "output" ? result.output : "").toContain("No provider data available");
+    expect(isAvailable).toHaveBeenCalledOnce();
     expect(client.session.prompt).not.toHaveBeenCalled();
   });
 

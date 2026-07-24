@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { QuotaProviderContext } from "../src/lib/entries.js";
+import { createRuntimeProviderIdResolver } from "../src/lib/runtime-provider-ids.js";
 import type {
   QuotaProviderDefinition,
   RemoteApiQuotaProviderDefinition,
@@ -54,15 +55,17 @@ function context(
   availableProviderIds: string[],
   overrides: Partial<QuotaProviderContext["config"]> = {},
 ): QuotaProviderContext {
-  return {
-    client: {
-      config: {
-        providers: async () => ({
-          data: { providers: availableProviderIds.map((id) => ({ id })) },
-        }),
-        get: async () => ({ data: {} }),
-      },
+  const client = {
+    config: {
+      providers: async () => ({
+        data: { providers: availableProviderIds.map((id) => ({ id })) },
+      }),
+      get: async () => ({ data: {} }),
     },
+  };
+  return {
+    client,
+    resolveRuntimeProviderIds: createRuntimeProviderIdResolver(client),
     config: {
       googleModels: [],
       anthropicBinaryPath: "claude",
@@ -110,6 +113,19 @@ describe("quota-providers aggregate provider", () => {
   it("uses one stable aggregate identity", () => {
     expect(QUOTA_PROVIDERS_PROVIDER_ID).toBe("quota-providers");
     expect(quotaProvidersProvider.id).toBe("quota-providers");
+  });
+
+  it("reuses the request-scoped runtime provider snapshot", async () => {
+    const ctx = context([remote("stable", "provider-one")], ["provider-one"]);
+    const providers = vi.spyOn(ctx.client.config, "providers");
+
+    await expect(
+      Promise.all([
+        quotaProvidersProvider.isAvailable(ctx),
+        quotaProvidersProvider.isAvailable(ctx),
+      ]),
+    ).resolves.toEqual([true, true]);
+    expect(providers).toHaveBeenCalledOnce();
   });
 
   it("requires exact runtime availability and fails closed for inconsistent session or catalog identity", async () => {

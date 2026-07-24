@@ -57,6 +57,56 @@ describe("atomic-json", () => {
     expect(fs.rename).toHaveBeenNthCalledWith(2, tmpPath, "/tmp/opencode/state.json");
   });
 
+  it("supports restrictive directory and file modes", async () => {
+    const fs = await import("fs/promises");
+    const { writeTextAtomic } = await import("../src/lib/atomic-json.js");
+
+    await writeTextAtomic("/tmp/opencode/state.json", "{}", {
+      directoryMode: 0o700,
+      fileMode: 0o600,
+    });
+
+    expect(fs.mkdir).toHaveBeenCalledWith("/tmp/opencode", {
+      recursive: true,
+      mode: 0o700,
+    });
+    expect(fs.writeFile).toHaveBeenCalledWith(expect.any(String), "{}", {
+      encoding: "utf-8",
+      mode: 0o600,
+    });
+  });
+
+  it.each(["EPERM", "EACCES"])(
+    "does not remove the destination when the temp write fails with %s",
+    async (code) => {
+      const fs = await import("fs/promises");
+      const { writeTextAtomic } = await import("../src/lib/atomic-json.js");
+      const writeError = Object.assign(new Error("temp write denied"), { code });
+      (fs.writeFile as any).mockRejectedValueOnce(writeError);
+
+      await expect(writeTextAtomic("/tmp/opencode/state.json", "{}")).rejects.toThrow(
+        "temp write denied",
+      );
+
+      const [tmpPath] = (fs.writeFile as any).mock.calls[0];
+      expect(fs.rm).toHaveBeenCalledWith(tmpPath, { force: true });
+      expect(fs.rm).not.toHaveBeenCalledWith("/tmp/opencode/state.json", { force: true });
+      expect(fs.rename).not.toHaveBeenCalled();
+    },
+  );
+
+  it("cleans up the temp file when writing fails", async () => {
+    const fs = await import("fs/promises");
+    const { writeTextAtomic } = await import("../src/lib/atomic-json.js");
+    (fs.writeFile as any).mockRejectedValueOnce(new Error("disk full"));
+
+    await expect(writeTextAtomic("/tmp/opencode/state.json", "{}")).rejects.toThrow("disk full");
+
+    const [tmpPath] = (fs.writeFile as any).mock.calls[0];
+    expect(fs.rm).toHaveBeenCalledWith(tmpPath, { force: true });
+    expect(fs.rename).not.toHaveBeenCalled();
+  });
+
   it("cleans up the temp file when rename fails with a non-retryable error", async () => {
     const fs = await import("fs/promises");
     const { writeJsonAtomic } = await import("../src/lib/atomic-json.js");

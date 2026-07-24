@@ -39,8 +39,7 @@ import {
   collectQuotaRenderData,
   collectQuotaStatusLiveProbes,
   matchesQuotaProviderCurrentSelection,
-  resolveQuotaRenderSelection,
-  type QuotaRenderData as QuotaCommandRenderData,
+  type CollectQuotaRenderDataResult,
   type QuotaStatusLiveProbe,
   type SessionModelMeta,
 } from "./quota-render-data.js";
@@ -286,13 +285,8 @@ function describeQuotaCommandCurrentSelection(params: {
   return "current session";
 }
 
-async function buildQuotaCommandUnavailableMessage(runtime: QuotaRuntimeContext): Promise<string> {
-  const selection = await resolveQuotaRenderSelection({
-    client: runtime.client,
-    config: runtime.config,
-    request: createQuotaRuntimeRequestContext(runtime),
-    providers: runtime.providers,
-  });
+function buildQuotaCommandUnavailableMessage(result: CollectQuotaRenderDataResult): string {
+  const selection = result.selection;
   if (!selection) {
     return "Quota unavailable\n\nNo enabled quota providers are configured.\n\nRun /quota_status for diagnostics.";
   }
@@ -305,16 +299,9 @@ async function buildQuotaCommandUnavailableMessage(runtime: QuotaRuntimeContext)
     return `Quota unavailable\n\nNo enabled quota providers matched the ${detail}.\n\nRun /quota_status for diagnostics.`;
   }
 
-  const avail = await Promise.all(
-    selection.filtered.map(async (p) => {
-      try {
-        return { id: p.id, ok: await p.isAvailable(selection.ctx) };
-      } catch {
-        return { id: p.id, ok: false };
-      }
-    }),
-  );
-  const availableIds = avail.filter((x) => x.ok).map((x) => x.id);
+  const availableIds = result.availability
+    .filter((item) => item.ok)
+    .map((item) => item.provider.id);
 
   if (availableIds.length === 0) {
     const scopedDetail = selection.filteringByCurrentSelection
@@ -340,11 +327,12 @@ async function buildQuotaCommandUnavailableMessage(runtime: QuotaRuntimeContext)
 async function fetchQuotaCommandData(params: {
   runtime: QuotaRuntimeContext;
   setLastSessionTokenError?: (error: SessionTokenError | undefined) => void;
-}): Promise<QuotaCommandRenderData | null> {
+}): Promise<CollectQuotaRenderDataResult> {
   const { runtime } = params;
   const request = createQuotaRuntimeRequestContext(runtime);
   const quotaResult = await collectQuotaRenderData({
     client: runtime.client,
+    resolveRuntimeProviderIds: runtime.resolveRuntimeProviderIds,
     config: runtime.config,
     configMeta: runtime.configMeta,
     request,
@@ -357,14 +345,7 @@ async function fetchQuotaCommandData(params: {
     params.setLastSessionTokenError?.(quotaResult.sessionTokenError);
   }
 
-  if (
-    quotaResult.selection?.filteringByCurrentSelection &&
-    quotaResult.selection.filtered.length === 0
-  ) {
-    return null;
-  }
-
-  return quotaResult.data;
+  return quotaResult;
 }
 
 async function kickPricingRefresh(params: {
@@ -497,6 +478,7 @@ export async function buildStatusReportData(params: {
   generatedAtMs: number;
   lastSessionTokenError?: SessionTokenError;
   log?: (message: string, extra?: Record<string, unknown>) => Promise<void>;
+  onDetectedProviderIds?: (providerIds: string[]) => Promise<void>;
   /** When set, restrict provider availability and live probes to this provider id. */
   providerFilterId?: string;
 }): Promise<QuotaStatusReportData> {
@@ -552,6 +534,12 @@ export async function buildStatusReportData(params: {
     }),
   );
 
+  if (isAutoMode) {
+    await params.onDetectedProviderIds?.(
+      availability.filter((item) => item.available).map((item) => item.id),
+    );
+  }
+
   const providersById = new Map(providers.map((provider) => [provider.id, provider] as const));
   const liveProbeProviders = availability.flatMap((item) => {
     if (!item.enabled || !item.available) {
@@ -566,6 +554,7 @@ export async function buildStatusReportData(params: {
     try {
       providerLiveProbes = await collectQuotaStatusLiveProbes({
         client: params.runtime.client,
+        resolveRuntimeProviderIds: params.runtime.resolveRuntimeProviderIds,
         config: runtimeConfig,
         configMeta: params.runtime.configMeta,
         request: createQuotaRuntimeRequestContext(params.runtime),
@@ -673,6 +662,7 @@ async function buildStatusReport(params: {
   generatedAtMs: number;
   lastSessionTokenError?: SessionTokenError;
   log?: (message: string, extra?: Record<string, unknown>) => Promise<void>;
+  onDetectedProviderIds?: (providerIds: string[]) => Promise<void>;
 }): Promise<string | null> {
   return (await buildStatusReportData(params)).output;
 }
@@ -917,6 +907,7 @@ export async function buildQuotaDialogCommandOutput(params: {
   lastSessionTokenError?: SessionTokenError;
   setLastSessionTokenError?: (error: SessionTokenError | undefined) => void;
   log?: (message: string, extra?: Record<string, unknown>) => Promise<void>;
+  onDetectedProviderIds?: (providerIds: string[]) => Promise<void>;
 }): Promise<QuotaDialogCommandOutputResult> {
   const generatedAtMs = params.generatedAtMs ?? Date.now();
   const runtime = await resolveQuotaRuntimeContext({
@@ -940,17 +931,21 @@ export async function buildQuotaDialogCommandOutput(params: {
       runtime,
       setLastSessionTokenError: params.setLastSessionTokenError,
     });
-    if (!reportData) {
+    if (
+      !reportData.data ||
+      (reportData.selection?.filteringByCurrentSelection &&
+        reportData.selection.filtered.length === 0)
+    ) {
       return outputResult({
         command: params.command,
-        output: await buildQuotaCommandUnavailableMessage(runtime),
+        output: buildQuotaCommandUnavailableMessage(reportData),
       });
     }
 
     return outputResult({
       command: params.command,
       output: formatQuotaCommand({
-        ...reportData,
+        ...reportData.data,
         generatedAtMs,
         percentDisplayMode: runtime.config.percentDisplayMode,
       }),
@@ -976,6 +971,7 @@ export async function buildQuotaDialogCommandOutput(params: {
       generatedAtMs,
       lastSessionTokenError: params.lastSessionTokenError,
       log: params.log,
+      onDetectedProviderIds: params.onDetectedProviderIds,
     });
     return output
       ? outputResult({ command: params.command, output })

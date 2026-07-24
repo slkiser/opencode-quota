@@ -6,12 +6,12 @@
  */
 
 import { existsSync } from "fs";
-import { readFile } from "fs/promises";
-import { join } from "path";
-
 import { resolveEnvTemplate } from "./env-template.js";
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
-import { parseJsonOrJsonc } from "./jsonc.js";
+import {
+  buildOpenCodeConfigCandidates,
+  readOpenCodeConfigCandidate,
+} from "./opencode-config-read.js";
 
 /** A candidate config file path with its format */
 export interface ConfigCandidate {
@@ -20,12 +20,13 @@ export interface ConfigCandidate {
 }
 
 function buildOpencodeConfigCandidates(configDirs: readonly string[]): ConfigCandidate[] {
-  const candidates: ConfigCandidate[] = [];
-  for (const dir of configDirs) {
-    candidates.push({ path: join(dir, "opencode.jsonc"), isJsonc: true });
-    candidates.push({ path: join(dir, "opencode.json"), isJsonc: false });
-  }
-  return candidates;
+  return buildOpenCodeConfigCandidates({
+    directories: configDirs,
+    formatOrder: ["jsonc", "json"],
+  }).map((candidate) => ({
+    path: candidate.path,
+    isJsonc: candidate.format === "jsonc",
+  }));
 }
 
 /**
@@ -38,11 +39,7 @@ export function getOpencodeConfigCandidatePaths(): ConfigCandidate[] {
   const cwd = process.cwd();
   const { configDirs } = getOpencodeRuntimeDirCandidates();
 
-  return [
-    { path: join(cwd, "opencode.jsonc"), isJsonc: true },
-    { path: join(cwd, "opencode.json"), isJsonc: false },
-    ...buildOpencodeConfigCandidates(configDirs),
-  ];
+  return [...buildOpencodeConfigCandidates([cwd]), ...buildOpencodeConfigCandidates(configDirs)];
 }
 
 /**
@@ -65,14 +62,11 @@ export async function readOpencodeConfig(
   filePath: string,
   isJsonc: boolean,
 ): Promise<{ config: unknown; path: string; isJsonc: boolean } | null> {
-  try {
-    if (!existsSync(filePath)) return null;
-    const content = await readFile(filePath, "utf-8");
-    const config = parseJsonOrJsonc(content, isJsonc);
-    return { config, path: filePath, isJsonc };
-  } catch {
-    return null;
-  }
+  const result = await readOpenCodeConfigCandidate({
+    path: filePath,
+    format: isJsonc ? "jsonc" : "json",
+  });
+  return result.state === "parsed" ? { config: result.value, path: filePath, isJsonc } : null;
 }
 
 /** Result of API key resolution */
@@ -91,10 +85,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }
 
-export function getFirstAuthEntryValue(
-  auth: unknown,
-  authKeys: readonly string[],
-): unknown {
+export function getFirstAuthEntryValue(auth: unknown, authKeys: readonly string[]): unknown {
   const root = asRecord(auth);
   if (!root) return undefined;
 
@@ -139,10 +130,7 @@ export function extractProviderOptionsApiKey(
   return null;
 }
 
-export function extractAuthApiKeyEntry(
-  auth: unknown,
-  authKeys: readonly string[],
-): string | null {
+export function extractAuthApiKeyEntry(auth: unknown, authKeys: readonly string[]): string | null {
   for (const authKey of authKeys) {
     const record = getFirstAuthEntryRecord(auth, [authKey]);
     const key = record?.key;
@@ -177,9 +165,9 @@ export interface ResolveEnvAndConfigApiKeyConfig<Source extends string> {
 }
 
 /** Configuration for resolving an API key from multiple sources */
-export interface ResolveApiKeyConfig<Source extends string>
-  extends ResolveEnvAndConfigApiKeyConfig<Source> {
-
+export interface ResolveApiKeyConfig<
+  Source extends string,
+> extends ResolveEnvAndConfigApiKeyConfig<Source> {
   /** Extract API key from auth.json data. Returns null if not found. */
   extractFromAuth: (auth: unknown) => string | null;
 
@@ -354,7 +342,8 @@ export async function resolveProviderApiKey<Source extends string>(
   return resolveApiKey(
     {
       ...envAndConfig,
-      extractFromAuth: (auth) => extractAuthApiKeyEntry(auth, config.auth?.authKeys ?? config.providerKeys),
+      extractFromAuth: (auth) =>
+        extractAuthApiKeyEntry(auth, config.auth?.authKeys ?? config.providerKeys),
       authSource: config.auth.authSource,
     },
     config.auth.readAuth,

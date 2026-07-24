@@ -15,14 +15,13 @@ import { getOrFetchWithCacheControl } from "./lib/cache.js";
 import { formatQuotaRows } from "./lib/format.js";
 import { getProviders } from "./providers/registry.js";
 import { tool } from "@opencode-ai/plugin";
-import { buildQuotaStatusReport, type SessionTokenError } from "./lib/quota-status.js";
+import type { SessionTokenError } from "./lib/quota-status.js";
 import { inspectTuiConfig } from "./lib/tui-config-diagnostics.js";
 import {
   maybeRefreshPricingSnapshot,
   setPricingSnapshotAutoRefresh,
   setPricingSnapshotSelection,
 } from "./lib/modelsdev-pricing.js";
-import { refreshGoogleTokensForAllAccounts } from "./lib/google.js";
 import {
   DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
   isAlibabaModelId,
@@ -31,19 +30,9 @@ import {
 import { isQwenCodeModelId, resolveQwenLocalPlanCached } from "./lib/qwen-auth.js";
 import { isCursorModelId, isCursorProviderId } from "./lib/cursor-pricing.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
+import { resolveQuotaFormatStyle } from "./lib/quota-format-style.js";
+import { collectQuotaRenderData, type SessionModelMeta } from "./lib/quota-render-data.js";
 import {
-  SINGLE_WINDOW_PER_PROVIDER_FORMAT_STYLE,
-  resolveQuotaFormatStyle,
-} from "./lib/quota-format-style.js";
-import {
-  collectQuotaRenderData,
-  collectQuotaStatusLiveProbes,
-  matchesQuotaProviderCurrentSelection,
-  type QuotaStatusLiveProbe,
-  type SessionModelMeta,
-} from "./lib/quota-render-data.js";
-import {
-  createQuotaProviderRuntimeContext,
   createQuotaRuntimeRequestContext,
   resolveQuotaRuntimeContext,
   type QuotaRuntimeContext,
@@ -842,6 +831,7 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
     const quotaRequestContext = createQuotaRuntimeRequestContext(runtime);
     const quotaResult = await collectQuotaRenderData({
       client: runtime.client,
+      resolveRuntimeProviderIds: runtime.resolveRuntimeProviderIds,
       config: runtimeConfig,
       configMeta: runtime.configMeta,
       request: quotaRequestContext,
@@ -999,16 +989,6 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
       hasQuotaRows: false,
       detectedProviderIds,
     };
-  }
-
-  async function fetchQuotaMessage(params: {
-    trigger: string;
-    sessionID?: string;
-    sessionMeta?: SessionModelMeta;
-    bypassProviderCache?: boolean;
-  }): Promise<string | null> {
-    const result = await fetchQuotaMessageResult(params);
-    return result.message;
   }
 
   async function reconcileDeferredQuotaRefresh(params: {
@@ -1177,152 +1157,6 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
     }
   }
 
-  async function buildStatusReport(params: {
-    refreshGoogleTokens?: boolean;
-    skewMs?: number;
-    force?: boolean;
-    sessionID?: string;
-    generatedAtMs: number;
-  }): Promise<string | null> {
-    const runtime = await resolvePluginRuntimeContext({
-      sessionID: params.sessionID,
-      includeSessionMeta: true,
-    });
-    const runtimeConfig = runtime.config;
-    if (!runtimeConfig.enabled) return null;
-    await kickPricingRefresh({ reason: "status", maxWaitMs: 750 });
-
-    const currentSession = runtime.session.sessionMeta ?? {};
-    const currentModel = currentSession.modelID;
-    const currentProviderID = currentSession.providerID;
-    const sessionModelLookup: "ok" | "not_found" | "no_session" = !params.sessionID
-      ? "no_session"
-      : currentModel
-        ? "ok"
-        : "not_found";
-
-    const isAutoMode = runtimeConfig.enabledProviders === "auto";
-
-    const providers = runtime.providers;
-    const providerContext = createQuotaProviderRuntimeContext(runtime);
-    const availability = await Promise.all(
-      providers.map(async (p) => {
-        let ok = false;
-        try {
-          ok = await p.isAvailable(providerContext);
-        } catch {
-          ok = false;
-        }
-        return {
-          id: p.id,
-          // In auto mode, a provider is effectively "enabled" if it's available.
-          enabled: isAutoMode ? ok : runtimeConfig.enabledProviders.includes(p.id),
-          available: ok,
-          matchesCurrentModel:
-            currentModel || isCursorProviderId(currentProviderID)
-              ? matchesQuotaProviderCurrentSelection({
-                  provider: p,
-                  currentModel,
-                  currentProviderID,
-                  enabledProviders: runtimeConfig.enabledProviders,
-                  quotaProviders: runtimeConfig.quotaProviders,
-                })
-              : undefined,
-        };
-      }),
-    );
-    if (isAutoMode) {
-      await reconcileDetectedProviderConfig(
-        availability.filter((item) => item.available).map((item) => item.id),
-      );
-    }
-
-    const providersById = new Map(providers.map((provider) => [provider.id, provider] as const));
-    const liveProbeProviders = availability.flatMap((item) => {
-      if (!item.enabled || !item.available) {
-        return [];
-      }
-      const provider = providersById.get(item.id);
-      return provider ? [provider] : [];
-    });
-
-    let providerLiveProbes: QuotaStatusLiveProbe[] = [];
-    if (liveProbeProviders.length > 0) {
-      try {
-        providerLiveProbes = await collectQuotaStatusLiveProbes({
-          client: runtime.client,
-          config: runtimeConfig,
-          configMeta: runtime.configMeta,
-          request: createQuotaRuntimeRequestContext(runtime),
-          formatStyle: SINGLE_WINDOW_PER_PROVIDER_FORMAT_STYLE,
-          providers: liveProbeProviders,
-        });
-      } catch (error) {
-        await typedClient.app.log({
-          body: {
-            service: "quota-toast",
-            level: "warn",
-            message: "Failed to collect /quota_status live probes",
-            extra: {
-              providers: liveProbeProviders.map((provider) => provider.id),
-              error: error instanceof Error ? error.message : String(error),
-            },
-          },
-        });
-      }
-    }
-
-    const refresh = params.refreshGoogleTokens
-      ? await refreshGoogleTokensForAllAccounts({ skewMs: params.skewMs, force: params.force })
-      : null;
-
-    const tuiDiagnostics = await inspectTuiConfig({ roots: runtime.roots });
-    const announcementProviderIds = availability
-      .filter((item) => item.enabled && item.available)
-      .map((item) => item.id);
-    const maintainerAnnouncementsSummary = getMaintainerAnnouncementsSummary({
-      enabledProviders: announcementProviderIds,
-    });
-
-    return await buildQuotaStatusReport({
-      tuiDiagnostics,
-      configSource: runtime.configMeta.source,
-      configPaths: runtime.configMeta.paths,
-      globalConfigPaths: runtime.configMeta.globalConfigPaths,
-      workspaceConfigPaths: runtime.configMeta.workspaceConfigPaths,
-      settingSources: runtime.configMeta.settingSources,
-      configIssues: runtime.configMeta.configIssues,
-      enabledProviders: runtimeConfig.enabledProviders,
-      anthropicBinaryPath: runtimeConfig.anthropicBinaryPath,
-      cursorPlan: runtimeConfig.cursorPlan,
-      cursorIncludedApiUsd: runtimeConfig.cursorIncludedApiUsd,
-      cursorBillingCycleStartDay: runtimeConfig.cursorBillingCycleStartDay,
-      opencodeGoWindows: runtimeConfig.opencodeGoWindows,
-      pricingSnapshotSource: runtimeConfig.pricingSnapshot.source,
-      onlyCurrentModel: runtimeConfig.onlyCurrentModel,
-      currentModel,
-      sessionModelLookup,
-      providerAvailability: availability,
-      providerLiveProbes,
-      quotaProviders: runtimeConfig.quotaProviders,
-      googleRefresh: refresh
-        ? {
-            attempted: true,
-            total: refresh.total,
-            successCount: refresh.successCount,
-            failures: refresh.failures,
-          }
-        : { attempted: false },
-      sessionTokenError: lastSessionTokenError,
-      maintainerAnnouncements: {
-        config: runtimeConfig.maintainerAnnouncements,
-        summary: maintainerAnnouncementsSummary,
-      },
-      geminiCliClient: typedClient,
-      generatedAtMs: params.generatedAtMs,
-    });
-  }
-
   // Return hook implementations
   return {
     config: async (input: unknown) => {
@@ -1363,16 +1197,24 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
             .describe("If true, refresh even if cached token looks valid"),
         },
         async execute(args, context) {
-          const out = await buildStatusReport({
-            refreshGoogleTokens: args.refreshGoogleTokens,
-            skewMs: args.skewMs,
-            force: args.force,
+          const result = await buildQuotaDialogCommandOutput({
+            command: "quota_status",
+            arguments: JSON.stringify({
+              refreshGoogleTokens: args.refreshGoogleTokens,
+              skewMs: args.skewMs,
+              force: args.force,
+            }),
+            client: typedClient,
+            roots: getPluginRuntimeRootHints(),
             sessionID: context.sessionID,
-            generatedAtMs: Date.now(),
+            resolveSessionMeta: (sessionID) => getSessionModelMeta(sessionID),
+            lastSessionTokenError,
+            log,
+            onDetectedProviderIds: reconcileDetectedProviderConfig,
           });
-          if (!out) return "";
+          if (result.state !== "output") return "";
           context.metadata({ title: "Quota Status" });
-          await injectRawOutput(context.sessionID, out);
+          await injectRawOutput(context.sessionID, result.output);
           return ""; // Empty return - output already injected with noReply
         },
       }),

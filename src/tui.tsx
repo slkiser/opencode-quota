@@ -9,6 +9,7 @@ import type {
 import { Show, createEffect, createSignal, onCleanup } from "solid-js";
 
 import type { SessionTokenError } from "./lib/quota-status.js";
+import { createTuiRefreshLifecycle } from "./lib/tui-refresh-lifecycle.js";
 import type { TuiCommandDisplay } from "./lib/types.js";
 import type {
   CompactStatusState,
@@ -91,115 +92,54 @@ function createSessionQuotaResource(api: TuiPluginApi, sessionID: string): Sessi
   });
   const [compact, setCompact] = createSignal<CompactStatusState>({ status: "loading" });
 
-  let refCount = 0;
-  let disposed = false;
-  let loadVersion = 0;
-  let inFlight = false;
-  let queued = false;
-  const timers = new Set<ReturnType<typeof setTimeout>>();
-
-  const reload = () => {
-    if (disposed) return;
-
-    if (inFlight) {
-      queued = true;
-      loadVersion += 1;
-      return;
-    }
-
-    inFlight = true;
-    const currentVersion = ++loadVersion;
-
-    void loadTuiSessionQuotaSurfaces({ api, sessionID })
-      .then((next) => {
-        if (disposed || currentVersion !== loadVersion) return;
-        setSidebar(next.sidebar);
-        setCompact(next.compact);
-      })
-      .catch(() => {
-        if (disposed || currentVersion !== loadVersion) return;
-      })
-      .finally(() => {
-        if (disposed) return;
-        inFlight = false;
-        if (queued) {
-          queued = false;
-          reload();
+  const lifecycle = createTuiRefreshLifecycle({
+    load: () => loadTuiSessionQuotaSurfaces({ api, sessionID }),
+    apply: (next) => {
+      setSidebar(next.sidebar);
+      setCompact(next.compact);
+    },
+    intervalMs: REFRESH_INTERVAL_MS,
+    eventRefreshDelaysMs: EVENT_REFRESH_DELAYS_MS,
+    // TUI/session state can hydrate asynchronously after mount or session switch,
+    // so retry a few times to recover from empty first-load reads.
+    recoveryDelaysMs: MOUNT_RECOVERY_DELAYS_MS,
+    subscribe: (scheduleRefresh) => [
+      api.event.on("session.updated", (event) => {
+        if (event.properties?.info?.id === sessionID) {
+          scheduleRefresh();
         }
-      });
-  };
-
-  const queueRefresh = (delay: number) => {
-    if (disposed) return;
-
-    const timer = setTimeout(() => {
-      timers.delete(timer);
-      reload();
-    }, delay);
-    timers.add(timer);
-  };
-
-  const scheduleRefresh = () => {
-    for (const delay of EVENT_REFRESH_DELAYS_MS) queueRefresh(delay);
-  };
-
-  // TUI/session state can hydrate asynchronously after mount or session switch,
-  // so retry a few times to recover from empty first-load reads.
-  const scheduleMountRecovery = () => {
-    for (const delay of MOUNT_RECOVERY_DELAYS_MS) queueRefresh(delay);
-  };
-
-  const interval = setInterval(reload, REFRESH_INTERVAL_MS);
-  const unsubscribers = [
-    api.event.on("session.updated", (event) => {
-      if (event.properties?.info?.id === sessionID) {
-        scheduleRefresh();
-      }
-    }),
-    api.event.on("message.updated", (event) => {
-      if (event.properties?.info?.sessionID === sessionID) {
-        scheduleRefresh();
-      }
-    }),
-    api.event.on("message.removed", (event) => {
-      if (event.properties?.sessionID === sessionID) {
-        scheduleRefresh();
-      }
-    }),
-    api.event.on("tui.session.select", (event) => {
-      if (event.properties?.sessionID === sessionID) {
-        scheduleRefresh();
-      }
-    }),
-  ];
-
-  const dispose = () => {
-    if (disposed) return;
-
-    disposed = true;
-    clearInterval(interval);
-    for (const timer of timers) clearTimeout(timer);
-    timers.clear();
-    for (const unsubscribe of unsubscribers) unsubscribe();
-    getSessionResourceMap(api).delete(sessionID);
-  };
+      }),
+      api.event.on("message.updated", (event) => {
+        if (event.properties?.info?.sessionID === sessionID) {
+          scheduleRefresh();
+        }
+      }),
+      api.event.on("message.removed", (event) => {
+        if (event.properties?.sessionID === sessionID) {
+          scheduleRefresh();
+        }
+      }),
+      api.event.on("tui.session.select", (event) => {
+        if (event.properties?.sessionID === sessionID) {
+          scheduleRefresh();
+        }
+      }),
+    ],
+    onDispose: () => {
+      getSessionResourceMap(api).delete(sessionID);
+    },
+  });
 
   const resource: SessionQuotaResource = {
     sessionID,
     sidebar,
     compact,
     retain: () => {
-      refCount += 1;
+      lifecycle.retain();
       return resource;
     },
-    release: () => {
-      refCount -= 1;
-      if (refCount <= 0) dispose();
-    },
+    release: lifecycle.release,
   };
-
-  reload();
-  scheduleMountRecovery();
 
   return resource;
 }
@@ -223,94 +163,37 @@ function createHomeBottomResource(
     compact: compactHomeBottomEnabled ? { status: "loading" } : { status: "disabled" },
   });
 
-  let refCount = 0;
-  let disposed = false;
-  let loadVersion = 0;
-  let inFlight = false;
-  let queued = false;
-  const timers = new Set<ReturnType<typeof setTimeout>>();
-
-  const reload = () => {
-    if (disposed) return;
-
-    if (inFlight) {
-      queued = true;
-      loadVersion += 1;
-      return;
-    }
-
-    inFlight = true;
-    const currentVersion = ++loadVersion;
-
-    void loadTuiHomeBottomStatus({ api })
-      .then((next) => {
-        if (disposed || currentVersion !== loadVersion) return;
-        setBottom(next);
-        // Fire-and-forget: write export file if enabled. A failed write must
-        // never affect TUI rendering, so log a warning and continue.
-        void writeTuiQuotaExportIfEnabled({ api }).catch((err) => {
-          console.warn(`[opencode-quota] quota export write failed: ${String(err)}`);
-        });
-      })
-      .catch(() => {
-        if (disposed || currentVersion !== loadVersion) return;
-      })
-      .finally(() => {
-        if (disposed) return;
-        inFlight = false;
-        if (queued) {
-          queued = false;
-          reload();
-        }
+  const lifecycle = createTuiRefreshLifecycle({
+    load: () => loadTuiHomeBottomStatus({ api }),
+    apply: setBottom,
+    afterApply: () => {
+      // Fire-and-forget: write export file if enabled. A failed write must
+      // never affect TUI rendering, so log a warning and continue.
+      void writeTuiQuotaExportIfEnabled({ api }).catch((err) => {
+        console.warn(`[opencode-quota] quota export write failed: ${String(err)}`);
       });
-  };
-
-  const queueRefresh = (delay: number) => {
-    if (disposed) return;
-
-    const timer = setTimeout(() => {
-      timers.delete(timer);
-      reload();
-    }, delay);
-    timers.add(timer);
-  };
-
-  const scheduleRefresh = () => {
-    for (const delay of EVENT_REFRESH_DELAYS_MS) queueRefresh(delay);
-  };
-
-  const interval = setInterval(reload, REFRESH_INTERVAL_MS);
-  const unsubscribers = [
-    api.event.on("session.updated", scheduleRefresh),
-    api.event.on("message.updated", scheduleRefresh),
-    api.event.on("message.removed", scheduleRefresh),
-    api.event.on("tui.session.select", scheduleRefresh),
-  ];
-
-  const dispose = () => {
-    if (disposed) return;
-
-    disposed = true;
-    clearInterval(interval);
-    for (const timer of timers) clearTimeout(timer);
-    timers.clear();
-    for (const unsubscribe of unsubscribers) unsubscribe();
-    homeResources.delete(api);
-  };
+    },
+    intervalMs: REFRESH_INTERVAL_MS,
+    eventRefreshDelaysMs: EVENT_REFRESH_DELAYS_MS,
+    subscribe: (scheduleRefresh) => [
+      api.event.on("session.updated", scheduleRefresh),
+      api.event.on("message.updated", scheduleRefresh),
+      api.event.on("message.removed", scheduleRefresh),
+      api.event.on("tui.session.select", scheduleRefresh),
+    ],
+    onDispose: () => {
+      homeResources.delete(api);
+    },
+  });
 
   const resource: HomeBottomResource = {
     bottom,
     retain: () => {
-      refCount += 1;
+      lifecycle.retain();
       return resource;
     },
-    release: () => {
-      refCount -= 1;
-      if (refCount <= 0) dispose();
-    },
+    release: lifecycle.release,
   };
-
-  reload();
 
   return resource;
 }

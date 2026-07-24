@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  QUOTA_PROVIDER_CATALOG,
   QUOTA_PROVIDER_ID_SYNONYMS,
+  QUOTA_PROVIDER_LABELS,
   QUOTA_PROVIDER_RUNTIME_IDS,
   QUOTA_PROVIDER_SHAPES,
   getQuotaProviderDisplayLabel,
@@ -189,6 +191,32 @@ describe("provider-metadata", () => {
         notes: "Aggregates exact user-configured accounting sources",
       },
     ]);
+  });
+
+  it("derives public metadata views from one canonical catalog", () => {
+    expect(Object.keys(QUOTA_PROVIDER_CATALOG)).toEqual(
+      QUOTA_PROVIDER_SHAPES.map((shape) => shape.id),
+    );
+    for (const [id, entry] of Object.entries(QUOTA_PROVIDER_CATALOG)) {
+      expect(entry.shape.id).toBe(id);
+      expect(QUOTA_PROVIDER_LABELS[id]).toBe(entry.label);
+      expect(QUOTA_PROVIDER_SHAPES.find((shape) => shape.id === id)).toBe(entry.shape);
+      expect(QUOTA_PROVIDER_RUNTIME_IDS[id as keyof typeof QUOTA_PROVIDER_RUNTIME_IDS]).toEqual(
+        entry.runtimeIds,
+      );
+      for (const synonym of entry.synonyms) {
+        expect(QUOTA_PROVIDER_ID_SYNONYMS[synonym]).toBe(id);
+      }
+    }
+  });
+
+  it("preserves direct label aliases from the authored catalog", () => {
+    expect(QUOTA_PROVIDER_LABELS["minimax-cn-coding-plan"]).toBe("MiniMax Coding Plan (CN)");
+    expect(QUOTA_PROVIDER_LABELS["kimi-code"]).toBe("Kimi Code");
+    expect(QUOTA_PROVIDER_CATALOG["minimax-china-coding-plan"].labelAliases).toContain(
+      "minimax-cn-coding-plan",
+    );
+    expect(QUOTA_PROVIDER_CATALOG["kimi-for-coding"].labelAliases).toContain("kimi-code");
   });
 
   it("keeps canonical provider setup ids unique", () => {

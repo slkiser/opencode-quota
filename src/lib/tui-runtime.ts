@@ -333,6 +333,7 @@ async function collectTuiQuotaRenderData(params: {
     : formatStyle;
   const result = await collectQuotaRenderData({
     client: params.runtime.client,
+    resolveRuntimeProviderIds: params.runtime.resolveRuntimeProviderIds,
     config: params.runtime.config,
     configMeta: params.runtime.configMeta,
     request: params.request,
@@ -383,12 +384,6 @@ export async function resolveTuiSurfaceRegistration(
     },
     homeBottom: compactHomeBottom || announcementHomeBottom || exportHomeBottom,
   };
-}
-
-export async function resolveTuiCompactStatusRegistration(
-  api: TuiPluginApi,
-): Promise<TuiCompactStatusRegistration> {
-  return (await resolveTuiSurfaceRegistration(api)).compact;
 }
 
 export async function loadTuiSessionQuotaSurfaces(params: {
@@ -545,13 +540,6 @@ export async function loadTuiHomeCompactStatus(params: {
     enabled: true,
     formatStyle: compactFormatStyle,
   });
-}
-
-export async function loadSidebarPanel(params: {
-  api: TuiPluginApi;
-  sessionID: string;
-}): Promise<SidebarPanelState> {
-  return (await loadTuiSessionQuotaSurfaces(params)).sidebar;
 }
 
 /**

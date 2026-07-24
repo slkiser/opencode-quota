@@ -118,7 +118,8 @@ function createApi() {
     order?: number;
     slots: Record<string, (ctx: unknown, props: any) => unknown>;
   }> = [];
-  const unsubscribers: Array<() => void> = [];
+  const unsubscribers: Array<ReturnType<typeof vi.fn>> = [];
+  const eventHandlers = new Map<string, Array<(event: any) => void>>();
   const kvStore = new Map<string, unknown>();
   const api = {
     route: {
@@ -150,7 +151,10 @@ function createApi() {
       toast: vi.fn(),
     },
     event: {
-      on: vi.fn(() => {
+      on: vi.fn((eventName: string, handler: (event: any) => void) => {
+        const handlers = eventHandlers.get(eventName) ?? [];
+        handlers.push(handler);
+        eventHandlers.set(eventName, handlers);
         const unsubscribe = vi.fn();
         unsubscribers.push(unsubscribe);
         return unsubscribe;
@@ -193,12 +197,36 @@ function createApi() {
     },
   };
 
-  return { api, registered, unsubscribers, kvStore, keymapLayers, dialog };
+  return {
+    api,
+    registered,
+    unsubscribers,
+    eventHandlers,
+    kvStore,
+    keymapLayers,
+    dialog,
+  };
 }
 
 async function loadTuiModule() {
   const mod = await import("../src/tui.tsx");
   return mod.default;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushPromises(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
 }
 
 describe("tui plugin smoke", () => {
@@ -787,6 +815,228 @@ describe("tui plugin smoke", () => {
     expect(slotNames).toContain("home_bottom");
     expect(slotNames).not.toContain("session_prompt_right");
     expect(slotNames).not.toContain("home_prompt_right");
+  });
+
+  it("preserves session refresh delays, event filtering, interval refresh, and mount recovery", async () => {
+    const plugin = await loadTuiModule();
+    const { api, registered, eventHandlers } = createApi();
+    resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      commandDisplay: "inline",
+      sidebar: { enabled: true },
+      compact: {
+        enabled: false,
+        homeBottom: false,
+        sessionPrompt: false,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      announcements: { homeBottom: false },
+      homeBottom: false,
+    });
+
+    await plugin.tui(api as any, undefined, {} as any);
+    registered[0]!.slots.sidebar_content({}, { session_id: "session-1" });
+    await flushPromises();
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(500);
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledTimes(4);
+
+    eventHandlers.get("session.updated")![0]!({ properties: { info: { id: "other" } } });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledTimes(4);
+
+    eventHandlers.get("session.updated")![0]!({ properties: { info: { id: "session-1" } } });
+    await vi.advanceTimersByTimeAsync(149);
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledTimes(5);
+    await vi.advanceTimersByTimeAsync(450);
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledTimes(6);
+
+    await vi.advanceTimersByTimeAsync(54_800);
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledTimes(7);
+  });
+
+  it("coalesces in-flight session refreshes and ignores the stale completion", async () => {
+    const plugin = await loadTuiModule();
+    const { api, registered } = createApi();
+    const first = deferred<{
+      sidebar: { status: "ready"; lines: string[] };
+      compact: { status: "ready"; text: string };
+    }>();
+    const second = deferred<{
+      sidebar: { status: "ready"; lines: string[] };
+      compact: { status: "ready"; text: string };
+    }>();
+    loadTuiSessionQuotaSurfaces.mockReset();
+    loadTuiSessionQuotaSurfaces
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      commandDisplay: "inline",
+      sidebar: { enabled: true },
+      compact: {
+        enabled: false,
+        homeBottom: false,
+        sessionPrompt: false,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      announcements: { homeBottom: false },
+      homeBottom: false,
+    });
+
+    await plugin.tui(api as any, undefined, {} as any);
+    const sidebar = registered[0]!.slots.sidebar_content;
+    sidebar({}, { session_id: "session-1" });
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledOnce();
+
+    first.resolve({
+      sidebar: { status: "ready", lines: ["stale"] },
+      compact: { status: "ready", text: "stale" },
+    });
+    await flushPromises();
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledTimes(2);
+
+    second.resolve({
+      sidebar: { status: "ready", lines: ["accepted"] },
+      compact: { status: "ready", text: "accepted" },
+    });
+    await flushPromises();
+    const rendered = sidebar({}, { session_id: "session-1" }) as any;
+    expect(rendered.props.children[1].props.children[0].props.children).toBe("accepted");
+  });
+
+  it("keeps shared session resources alive until the final release and then disposes them", async () => {
+    const plugin = await loadTuiModule();
+    const { api, registered, unsubscribers } = createApi();
+    resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      commandDisplay: "inline",
+      sidebar: { enabled: true },
+      compact: {
+        enabled: false,
+        homeBottom: false,
+        sessionPrompt: false,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      announcements: { homeBottom: false },
+      homeBottom: false,
+    });
+
+    await plugin.tui(api as any, undefined, {} as any);
+    const sidebar = registered[0]!.slots.sidebar_content;
+    sidebar({}, { session_id: "session-1" });
+    sidebar({}, { session_id: "session-1" });
+    await flushPromises();
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledOnce();
+
+    cleanupFns.shift()!();
+    expect(unsubscribers.every((unsubscribe) => !unsubscribe.mock.calls.length)).toBe(true);
+    cleanupFns.shift()!();
+    expect(unsubscribers).toHaveLength(4);
+    expect(unsubscribers.every((unsubscribe) => unsubscribe.mock.calls.length === 1)).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledOnce();
+  });
+
+  it("keeps home free of mount recovery and exports only accepted refreshes", async () => {
+    const plugin = await loadTuiModule();
+    const { api, registered, eventHandlers } = createApi();
+    const first = deferred<HomeBottomState>();
+    const second = deferred<HomeBottomState>();
+    loadTuiHomeBottomStatus.mockReset();
+    loadTuiHomeBottomStatus.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      commandDisplay: "inline",
+      sidebar: { enabled: false },
+      compact: {
+        enabled: true,
+        homeBottom: true,
+        sessionPrompt: false,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      announcements: { homeBottom: false },
+      homeBottom: true,
+    });
+
+    await plugin.tui(api as any, undefined, {} as any);
+    registered[0]!.slots.home_bottom({}, {});
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(loadTuiHomeBottomStatus).toHaveBeenCalledOnce();
+
+    eventHandlers.get("message.updated")![0]!({ properties: {} });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(loadTuiHomeBottomStatus).toHaveBeenCalledOnce();
+
+    first.resolve({
+      status: "ready",
+      compact: { status: "ready", text: "stale" },
+    });
+    await flushPromises();
+    expect(loadTuiHomeBottomStatus).toHaveBeenCalledTimes(2);
+    expect(writeTuiQuotaExportIfEnabled).not.toHaveBeenCalled();
+
+    second.resolve({
+      status: "ready",
+      compact: { status: "ready", text: "accepted" },
+    });
+    await flushPromises();
+    expect(writeTuiQuotaExportIfEnabled).toHaveBeenCalledOnce();
+  });
+
+  it("ignores rejected and disposed home completions without exporting", async () => {
+    const plugin = await loadTuiModule();
+    const rejected = createApi();
+    loadTuiHomeBottomStatus.mockRejectedValueOnce(new Error("unavailable"));
+    resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      commandDisplay: "inline",
+      sidebar: { enabled: false },
+      compact: {
+        enabled: false,
+        homeBottom: false,
+        sessionPrompt: false,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      announcements: { homeBottom: true },
+      homeBottom: true,
+    });
+    await plugin.tui(rejected.api as any, undefined, {} as any);
+    rejected.registered[0]!.slots.home_bottom({}, {});
+    await flushPromises();
+    expect(writeTuiQuotaExportIfEnabled).not.toHaveBeenCalled();
+
+    const disposed = createApi();
+    const pending = deferred<HomeBottomState>();
+    loadTuiHomeBottomStatus.mockReturnValueOnce(pending.promise);
+    resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      commandDisplay: "inline",
+      sidebar: { enabled: false },
+      compact: {
+        enabled: false,
+        homeBottom: false,
+        sessionPrompt: false,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      announcements: { homeBottom: true },
+      homeBottom: true,
+    });
+    await plugin.tui(disposed.api as any, undefined, {} as any);
+    disposed.registered[0]!.slots.home_bottom({}, {});
+    cleanupFns.pop()!();
+    pending.resolve({ status: "ready", compact: { status: "disabled" } });
+    await flushPromises();
+    expect(writeTuiQuotaExportIfEnabled).not.toHaveBeenCalled();
   });
 
   it("renders home compact status centered with a blank line above it", async () => {

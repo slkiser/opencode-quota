@@ -66,7 +66,11 @@ vi.mock("../src/lib/tui-sidebar-format.js", async () => {
   return { ...actual, buildSidebarQuotaPanelLines: buildSidebarQuotaPanelLinesMock };
 });
 
-import { loadSidebarPanel } from "../src/lib/tui-runtime.js";
+import { loadTuiSessionQuotaSurfaces } from "../src/lib/tui-runtime.js";
+
+async function loadSidebarPanel(params: Parameters<typeof loadTuiSessionQuotaSurfaces>[0]) {
+  return (await loadTuiSessionQuotaSurfaces(params)).sidebar;
+}
 
 describe("tui-runtime linesExpanded", () => {
   const originalEnv = { ...process.env };

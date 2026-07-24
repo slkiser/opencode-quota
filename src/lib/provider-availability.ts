@@ -1,19 +1,15 @@
 import type { QuotaProviderContext } from "./entries.js";
-import {
-  getQuotaProviderRuntimeIds,
-  type CanonicalQuotaProviderId,
-} from "./provider-metadata.js";
+import { getQuotaProviderRuntimeIds, type CanonicalQuotaProviderId } from "./provider-metadata.js";
 
 export async function isAnyProviderIdAvailable(params: {
-  ctx: Pick<QuotaProviderContext, "client">;
+  ctx: Pick<QuotaProviderContext, "resolveRuntimeProviderIds">;
   candidateIds: readonly string[];
   fallbackOnError: boolean;
 }): Promise<boolean> {
   const { ctx, candidateIds, fallbackOnError } = params;
 
   try {
-    const resp = await ctx.client.config.providers();
-    const ids = new Set((resp.data?.providers ?? []).map((p) => p.id));
+    const ids = await ctx.resolveRuntimeProviderIds();
     return candidateIds.some((id) => ids.has(id));
   } catch {
     return fallbackOnError;
@@ -21,7 +17,7 @@ export async function isAnyProviderIdAvailable(params: {
 }
 
 export async function isCanonicalProviderAvailable(params: {
-  ctx: Pick<QuotaProviderContext, "client">;
+  ctx: Pick<QuotaProviderContext, "resolveRuntimeProviderIds">;
   providerId: CanonicalQuotaProviderId;
   fallbackOnError: boolean;
 }): Promise<boolean> {

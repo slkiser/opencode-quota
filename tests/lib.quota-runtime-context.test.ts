@@ -23,6 +23,7 @@ import {
 import { resolveRuntimeContextRoots } from "../src/lib/config-file-utils.js";
 import { createLoadConfigMeta } from "../src/lib/config.js";
 import { DEFAULT_CONFIG } from "../src/lib/types.js";
+import { createRuntimeProviderIdResolver } from "../src/lib/runtime-provider-ids.js";
 
 function quotaConfigSource(dir: string): string {
   return join(dir, "opencode.json") + " (experimental.quotaToast)";
@@ -193,8 +194,10 @@ describe("quota runtime context", () => {
     const configMeta = createLoadConfigMeta();
     configMeta.settingSources.requestTimeoutMs = "test config";
 
+    const client = createClient();
     const providerContext = createQuotaProviderRuntimeContext({
-      client: createClient(),
+      client,
+      resolveRuntimeProviderIds: createRuntimeProviderIdResolver(client),
       config: {
         ...DEFAULT_CONFIG,
         requestTimeoutMs: 12000,
@@ -204,12 +207,15 @@ describe("quota runtime context", () => {
     });
 
     expect(providerContext.config?.requestTimeoutMs).toBe(12000);
+    expect(providerContext.config?.providerCacheTtlMs).toBe(DEFAULT_CONFIG.minIntervalMs);
     expect(providerContext.config?.requestTimeoutMsConfigured).toBe(true);
   });
 
   it("copies default request timeout without marking it explicitly configured", () => {
+    const client = createClient();
     const providerContext = createQuotaProviderRuntimeContext({
-      client: createClient(),
+      client,
+      resolveRuntimeProviderIds: createRuntimeProviderIdResolver(client),
       config: DEFAULT_CONFIG,
       session: {},
     });

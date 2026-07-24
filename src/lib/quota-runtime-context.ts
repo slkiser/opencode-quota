@@ -7,6 +7,10 @@ import { createLoadConfigMeta, loadConfig } from "./config.js";
 import { getProviders } from "../providers/registry.js";
 import { resolveRuntimeContextRoots } from "./config-file-utils.js";
 import { cloneQuotaProviders } from "./quota-providers.js";
+import {
+  createRuntimeProviderIdResolver,
+  type RuntimeProviderIdResolver,
+} from "./runtime-provider-ids.js";
 
 export type QuotaRuntimeClient = NonNullable<Parameters<typeof loadConfig>[0]> &
   QuotaProviderContext["client"];
@@ -34,6 +38,7 @@ export interface QuotaRuntimeContext {
   config: QuotaToastConfig;
   configMeta: LoadConfigMeta;
   providers: QuotaProvider[];
+  resolveRuntimeProviderIds: RuntimeProviderIdResolver;
   session: {
     sessionID?: string;
     sessionMeta?: QuotaSessionModelContext;
@@ -81,6 +86,7 @@ export async function resolveQuotaRuntimeContext(
     config,
     configMeta,
     providers: params.providers ?? getProviders(),
+    resolveRuntimeProviderIds: createRuntimeProviderIdResolver(params.client),
     session: {
       sessionID: params.sessionID,
       sessionMeta,
@@ -98,12 +104,16 @@ export function createQuotaRuntimeRequestContext(runtime: Pick<QuotaRuntimeConte
   };
 }
 
-export function createQuotaProviderRuntimeContext(
-  runtime: Pick<QuotaRuntimeContext, "client" | "config" | "session"> &
-    Partial<Pick<QuotaRuntimeContext, "configMeta">>,
-): QuotaProviderContext {
+export function createQuotaProviderRuntimeContext(runtime: {
+  client: QuotaRuntimeClient;
+  config: QuotaToastConfig;
+  session: QuotaRuntimeContext["session"];
+  resolveRuntimeProviderIds: RuntimeProviderIdResolver;
+  configMeta?: Pick<LoadConfigMeta, "settingSources">;
+}): QuotaProviderContext {
   return {
     client: runtime.client,
+    resolveRuntimeProviderIds: runtime.resolveRuntimeProviderIds,
     config: {
       googleModels: runtime.config.googleModels,
       anthropicBinaryPath: runtime.config.anthropicBinaryPath,
@@ -113,6 +123,7 @@ export function createQuotaProviderRuntimeContext(
       opencodeGoWindows: runtime.config.opencodeGoWindows,
       opencodeMonthlyLimit: runtime.config.opencodeMonthlyLimit,
       requestTimeoutMs: runtime.config.requestTimeoutMs,
+      providerCacheTtlMs: runtime.config.minIntervalMs,
       requestTimeoutMsConfigured: Boolean(runtime.configMeta?.settingSources.requestTimeoutMs),
       onlyCurrentModel: runtime.config.onlyCurrentModel,
       enabledProviders:

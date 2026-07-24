@@ -4,6 +4,7 @@ import {
   isAnyProviderIdAvailable,
   isCanonicalProviderAvailable,
 } from "../src/lib/provider-availability.js";
+import { createRuntimeProviderIdResolver } from "../src/lib/runtime-provider-ids.js";
 
 function makeCtx(params: { ids?: string[]; error?: Error }) {
   const providers = params.error
@@ -12,12 +13,15 @@ function makeCtx(params: { ids?: string[]; error?: Error }) {
         data: { providers: (params.ids ?? []).map((id) => ({ id })) },
       });
 
-  return {
-    client: {
-      config: {
-        providers,
-      },
+  const client = {
+    config: {
+      providers,
     },
+  } as any;
+
+  return {
+    client,
+    resolveRuntimeProviderIds: createRuntimeProviderIdResolver(client),
   } as any;
 }
 
@@ -155,6 +159,47 @@ describe("provider availability", () => {
         fallbackOnError: false,
       }),
     ).resolves.toBe(false);
+  });
+
+  it("reuses one runtime-provider snapshot across concurrent availability checks", async () => {
+    const ctx = makeCtx({ ids: ["copilot", "openai"] });
+
+    await expect(
+      Promise.all([
+        isCanonicalProviderAvailable({
+          ctx,
+          providerId: "copilot",
+          fallbackOnError: false,
+        }),
+        isCanonicalProviderAvailable({
+          ctx,
+          providerId: "openai",
+          fallbackOnError: false,
+        }),
+      ]),
+    ).resolves.toEqual([true, true]);
+
+    expect(ctx.client.config.providers).toHaveBeenCalledOnce();
+  });
+
+  it("shares a rejected lookup while preserving each caller's fallback policy", async () => {
+    const ctx = makeCtx({ error: new Error("boom") });
+
+    await expect(
+      Promise.all([
+        isCanonicalProviderAvailable({
+          ctx,
+          providerId: "copilot",
+          fallbackOnError: false,
+        }),
+        isCanonicalProviderAvailable({
+          ctx,
+          providerId: "openai",
+          fallbackOnError: true,
+        }),
+      ]),
+    ).resolves.toEqual([false, true]);
+    expect(ctx.client.config.providers).toHaveBeenCalledOnce();
   });
 
   it.each([

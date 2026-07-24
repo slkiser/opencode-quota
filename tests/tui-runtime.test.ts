@@ -59,16 +59,18 @@ vi.mock("../src/lib/quota-export.js", async () => {
 
 import {
   getTuiSessionModelMeta,
-  loadSidebarPanel,
   normalizeTuiSessionID,
   loadTuiHomeBottomStatus,
   loadTuiHomeCompactStatus,
   loadTuiSessionQuotaSurfaces,
-  resolveTuiCompactStatusRegistration,
   resolveTuiSurfaceRegistration,
   resolveWorkspaceDir,
   writeTuiQuotaExportIfEnabled,
 } from "../src/lib/tui-runtime.js";
+
+async function loadSidebarPanel(params: Parameters<typeof loadTuiSessionQuotaSurfaces>[0]) {
+  return (await loadTuiSessionQuotaSurfaces(params)).sidebar;
+}
 
 describe("tui runtime helpers", () => {
   const originalCwd = process.cwd();
@@ -817,23 +819,25 @@ describe("tui runtime helpers", () => {
       "utf8",
     );
 
-    const registration = await resolveTuiCompactStatusRegistration({
-      state: {
-        provider: [],
-        path: {
-          worktree: worktreeDir,
-          directory: nestedDir,
+    const registration = (
+      await resolveTuiSurfaceRegistration({
+        state: {
+          provider: [],
+          path: {
+            worktree: worktreeDir,
+            directory: nestedDir,
+          },
+          session: {
+            messages: () => [],
+          },
         },
-        session: {
-          messages: () => [],
+        client: {
+          experimental: {
+            providerQuota: {},
+          },
         },
-      },
-      client: {
-        experimental: {
-          providerQuota: {},
-        },
-      },
-    } as any);
+      } as any)
+    ).compact;
 
     expect(registration).toEqual({
       enabled: false,
