@@ -170,7 +170,7 @@ function createAgyActivityRequestId() {
 import os from "os";
 
 // src/sdk/agy-cli-version.ts
-var AGY_CLI_VERSION = "1.1.4";
+var AGY_CLI_VERSION = "1.1.5";
 
 // src/sdk/user-agent.ts
 var cachedUserAgent = null;
@@ -16539,10 +16539,10 @@ var models_default = {
       }
     },
     "gemini-3.5-flash-low": {
-      displayName: "Gemini 3.5 Flash (Medium)",
+      displayName: "Gemini 3.5 Flash (Low)",
       supportsImages: true,
       supportsThinking: true,
-      thinkingBudget: 4e3,
+      thinkingBudget: 1e3,
       minThinkingBudget: 32,
       recommended: true,
       maxTokens: 1048576,
@@ -16604,6 +16604,91 @@ var models_default = {
           }
         }
       }
+    },
+    "gemini-3.5-flash-medium": {
+      displayName: "Gemini 3.5 Flash (Medium)",
+      supportsImages: true,
+      supportsThinking: true,
+      thinkingBudget: 4e3,
+      minThinkingBudget: 32,
+      recommended: true,
+      maxTokens: 1048576,
+      maxOutputTokens: 65536,
+      tokenizerType: "LLAMA_WITH_SPECIAL",
+      model: "MODEL_PLACEHOLDER_M16",
+      apiProvider: "API_PROVIDER_GOOGLE_GEMINI",
+      modelProvider: "MODEL_PROVIDER_GOOGLE",
+      supportsVideo: true,
+      tagTitle: "Fast",
+      tagDescription: "Limited time"
+    },
+    "gemini-3.5-flash-high": {
+      displayName: "Gemini 3.5 Flash (High)",
+      supportsImages: true,
+      supportsThinking: true,
+      thinkingBudget: 1e4,
+      minThinkingBudget: 32,
+      recommended: true,
+      maxTokens: 1048576,
+      maxOutputTokens: 65536,
+      tokenizerType: "LLAMA_WITH_SPECIAL",
+      model: "MODEL_PLACEHOLDER_M16",
+      apiProvider: "API_PROVIDER_GOOGLE_GEMINI",
+      modelProvider: "MODEL_PROVIDER_GOOGLE",
+      supportsVideo: true,
+      tagTitle: "Fast",
+      tagDescription: "Limited time"
+    },
+    "gemini-3.6-flash-low": {
+      displayName: "Gemini 3.6 Flash (Low)",
+      supportsImages: true,
+      supportsThinking: true,
+      thinkingBudget: 1e3,
+      minThinkingBudget: 32,
+      recommended: true,
+      maxTokens: 1048576,
+      maxOutputTokens: 65536,
+      tokenizerType: "LLAMA_WITH_SPECIAL",
+      model: "MODEL_PLACEHOLDER_M16",
+      apiProvider: "API_PROVIDER_GOOGLE_GEMINI",
+      modelProvider: "MODEL_PROVIDER_GOOGLE",
+      supportsVideo: true,
+      tagTitle: "Fast",
+      tagDescription: "Limited time"
+    },
+    "gemini-3.6-flash-medium": {
+      displayName: "Gemini 3.6 Flash (Medium)",
+      supportsImages: true,
+      supportsThinking: true,
+      thinkingBudget: 4e3,
+      minThinkingBudget: 32,
+      recommended: true,
+      maxTokens: 1048576,
+      maxOutputTokens: 65536,
+      tokenizerType: "LLAMA_WITH_SPECIAL",
+      model: "MODEL_PLACEHOLDER_M16",
+      apiProvider: "API_PROVIDER_GOOGLE_GEMINI",
+      modelProvider: "MODEL_PROVIDER_GOOGLE",
+      supportsVideo: true,
+      tagTitle: "Fast",
+      tagDescription: "Limited time"
+    },
+    "gemini-3.6-flash-high": {
+      displayName: "Gemini 3.6 Flash (High)",
+      supportsImages: true,
+      supportsThinking: true,
+      thinkingBudget: 1e4,
+      minThinkingBudget: 32,
+      recommended: true,
+      maxTokens: 1048576,
+      maxOutputTokens: 65536,
+      tokenizerType: "LLAMA_WITH_SPECIAL",
+      model: "MODEL_PLACEHOLDER_M16",
+      apiProvider: "API_PROVIDER_GOOGLE_GEMINI",
+      modelProvider: "MODEL_PROVIDER_GOOGLE",
+      supportsVideo: true,
+      tagTitle: "Fast",
+      tagDescription: "Limited time"
     }
   },
   defaultAgentModelId: "gemini-3.5-flash",
@@ -17441,7 +17526,7 @@ function getImplicitThinkingConfigForModel(modelId) {
     return void 0;
   }
   return {
-    thinkingBudget: normalizedModelId.includes("extra-low") ? 1e3 : 10001,
+    thinkingBudget: normalizedModelId.endsWith("-low") ? 1e3 : 10001,
     includeThoughts: true
   };
 }
@@ -17908,6 +17993,15 @@ var latestAgyAuthResolver;
 var latestAgyConfiguredProjectId;
 var latestAgyUserAgentModel;
 var STATIC_MODELS_SIMPLE = {
+  "gemini-3.6-flash": {
+    name: "Gemini 3.6 Flash",
+    description: "Gemini 3.6 Flash base model. Select tier at runtime.",
+    maxTokens: 1048576,
+    maxOutputTokens: 65536,
+    toolCall: true,
+    reasoning: true,
+    attachment: true
+  },
   "gemini-3.5-flash": {
     name: "Gemini 3.5 Flash",
     description: "Gemini 3.5 Flash base model. Select tier at runtime.",
@@ -17955,10 +18049,15 @@ var STATIC_MODELS_SIMPLE = {
   }
 };
 var TIER_MAPPING = {
+  "gemini-3.6-flash": {
+    low: "gemini-3.6-flash-low",
+    medium: "gemini-3.6-flash-medium",
+    high: "gemini-3.6-flash-high"
+  },
   "gemini-3.5-flash": {
-    low: "gemini-3.5-flash-extra-low",
-    medium: "gemini-3.5-flash-low",
-    high: "gemini-3-flash-agent"
+    low: "gemini-3.5-flash-low",
+    medium: "gemini-3.5-flash-medium",
+    high: "gemini-3.5-flash-high"
   },
   "gemini-3.1-pro": {
     low: "gemini-3.1-pro-low",
