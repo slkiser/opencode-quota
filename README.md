@@ -179,6 +179,8 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 
 Business placement describes vendor plan availability. Except for configured Copilot organization/enterprise billing, current integrations generally report one signed-in account, seat, API key, or workspace.
 
+Gemini CLI quota support is deprecated for new installs. Existing v4 configurations still work, with removal planned for v5.0.0. See the [provider guide](docs/readme/providers.md#gemini-cli) before choosing a replacement.
+
 </details>
 
 ### Chinese providers
@@ -213,8 +215,6 @@ Business placement describes vendor plan availability. Except for configured Cop
 These vendors offer team or business plans, but the current integrations report only the configured member API key rather than organization-wide usage.
 
 </details>
-
-Gemini CLI quota support is deprecated for new installs. Existing v4 configurations still work, with removal planned for v5.0.0. See the [provider guide](docs/readme/providers.md#gemini-cli) before choosing a replacement.
 
 The quota view uses short labels such as `Day quota`, `5h quota`, `Day budget`, and `Balance`. Bar width varies by surface. JSON keeps the precise accounting type for scripts.
 
