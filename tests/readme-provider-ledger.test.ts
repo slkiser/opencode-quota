@@ -11,21 +11,38 @@ type ProviderLedgerRow = {
   reports: string;
 };
 
+function readPreConfiguredProviderSection(document: string): string {
+  const headingIndex = document.search(/^#{2,3} Pre-configured providers$/m);
+  const providerSection = document.slice(headingIndex);
+  const customProvidersOffset = providerSection.search(/^#{2,3} Custom providers$/m);
+  return providerSection.slice(0, customProvidersOffset);
+}
+
+function readPreConfiguredProviderTables(document: string): ProviderLedgerRow[][] {
+  const lines = readPreConfiguredProviderSection(document).split("\n");
+  const tables: ProviderLedgerRow[][] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!lines[index].startsWith("| Provider")) continue;
+
+    const rows: ProviderLedgerRow[] = [];
+    index += 2;
+    while (index < lines.length && lines[index].startsWith("|")) {
+      const [provider, , dataFrom, reports] = lines[index]
+        .split("|")
+        .slice(1, -1)
+        .map((cell) => cell.trim());
+      rows.push({ provider, dataFrom, reports });
+      index += 1;
+    }
+    tables.push(rows);
+  }
+
+  return tables;
+}
+
 function readPreConfiguredProviderLedger(document: string): ProviderLedgerRow[] {
-  const headingIndex = document.indexOf("Pre-configured providers");
-  const tableIndex = document.indexOf("| Provider", headingIndex);
-  const lines = document.slice(tableIndex).split("\n");
-  const tableEnd = lines.findIndex((line) => !line.startsWith("|"));
-  const table = lines.slice(2, tableEnd);
-
-  return table.map((line) => {
-    const [provider, , dataFrom, reports] = line
-      .split("|")
-      .slice(1, -1)
-      .map((cell) => cell.trim());
-
-    return { provider, dataFrom, reports };
-  });
+  return readPreConfiguredProviderTables(document).flat();
 }
 
 describe("README provider ledger", () => {
@@ -34,9 +51,78 @@ describe("README provider ledger", () => {
   const providerTemplate = read("contributing/provider-template/README.md");
 
   it("keeps the README and provider guide ledgers consistent", () => {
-    expect(readPreConfiguredProviderLedger(readme)).toEqual(
-      readPreConfiguredProviderLedger(providerGuide),
+    expect(readPreConfiguredProviderTables(readme)).toEqual(
+      readPreConfiguredProviderTables(providerGuide),
     );
+  });
+
+  it("keeps audience tables alphabetized with intentional duplicates", () => {
+    const expectedProviders = [
+      [
+        "Anthropic (Claude)",
+        "Chutes AI",
+        "Cursor",
+        "GitHub Copilot",
+        "Google AGY",
+        "Google Antigravity",
+        "NanoGPT",
+        "Ollama Cloud",
+        "OpenAI",
+        "OpenCode Go",
+        "OpenCode Zen",
+        "Synthetic",
+        "xAI SuperGrok",
+      ],
+      [
+        "Anthropic (Claude)",
+        "Chutes AI",
+        "Cursor",
+        "Gemini CLI (deprecated)",
+        "GitHub Copilot",
+        "Google AGY",
+        "Google Antigravity",
+        "NanoGPT",
+        "OpenAI",
+        "OpenCode Zen",
+        "Synthetic",
+        "xAI SuperGrok",
+      ],
+      [
+        "Alibaba Coding Plan",
+        "DeepSeek",
+        "Kimi Code",
+        "MiniMax Coding Plan",
+        "MiniMax Coding Plan (CN)",
+        "Qwen Code",
+        "Xiaomi MiMo",
+        "Z.ai Coding Plan",
+        "Zhipu Coding Plan",
+      ],
+      ["Kimi Code", "MiniMax Coding Plan", "MiniMax Coding Plan (CN)", "Zhipu Coding Plan"],
+    ];
+
+    for (const document of [readme, providerGuide]) {
+      expect(
+        readPreConfiguredProviderTables(document).map((table) => table.map((row) => row.provider)),
+      ).toEqual(expectedProviders);
+      const providerSection = readPreConfiguredProviderSection(document);
+      const chineseHeadingIndex = providerSection.indexOf("### Chinese providers");
+      const disclosures = Array.from(
+        providerSection.matchAll(
+          /<details( open)?>\s*<summary><strong>([^<]+)<\/strong><\/summary>/g,
+        ),
+      ).map((match) => ({
+        region: (match.index ?? 0) < chineseHeadingIndex ? "americas" : "chinese",
+        label: match[2],
+        open: match[1] !== undefined,
+      }));
+      expect(disclosures).toEqual([
+        { region: "americas", label: "Personal", open: true },
+        { region: "americas", label: "Business / Enterprise", open: false },
+        { region: "chinese", label: "Personal", open: true },
+        { region: "chinese", label: "Business / Team", open: false },
+      ]);
+    }
   });
 
   it("uses friendly report wording and Quota-first ordering", () => {
@@ -61,7 +147,9 @@ describe("README provider ledger", () => {
     }
 
     for (const provider of ["OpenAI", "Qwen Code"]) {
-      expect(rows.find((row) => row.provider === provider)?.reports).toBe("Quota");
+      expect(rows.filter((row) => row.provider === provider).map((row) => row.reports)).toEqual(
+        rows.filter((row) => row.provider === provider).map(() => "Quota"),
+      );
     }
   });
 
