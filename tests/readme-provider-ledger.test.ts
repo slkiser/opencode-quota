@@ -164,6 +164,8 @@ describe("README provider ledger", () => {
 
     for (const document of [readme, providerGuide]) {
       expect(document).toContain("Pre-configured providers");
+      expect(document).toMatch(/^### American providers$/m);
+      expect(document).toMatch(/^### Chinese providers$/m);
       expect(document).toContain("Custom providers");
       expect(document).toContain("| Data from");
       expect(document).not.toContain("| Source");

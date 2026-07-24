@@ -134,7 +134,7 @@ Use the CLI for scripts, CI, or a quick terminal check outside OpenCode.
 
 Most providers work automatically. If a provider has a “Needs setup” link, open that setup note only if you use that provider. Providers can appear in both audience sections when the vendor supports both.
 
-### Providers from the Americas
+### American providers
 
 <details open>
 <summary><strong>Personal</strong></summary>
