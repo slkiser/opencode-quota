@@ -52,7 +52,7 @@ After installation:
 
 Use `--dry-run` to preview without changing anything. Otherwise, `update` shows the OpenCode Quota config and cache changes and asks before applying them. It leaves your other plugins and settings alone. Use `--yes` only when you intentionally need a noninteractive run.
 
-## What you get
+## Choose your setup
 
 <table>
   <tr>
@@ -166,13 +166,13 @@ The quota view uses short labels such as `Day quota`, `5h quota`, `Day budget`, 
 
 ### Custom providers
 
-A quota provider definition tells OpenCode Quota how to obtain accounting data for an OpenCode provider. Run the guided command. It asks only structural questions, previews the exact global OpenCode config change, and asks before writing:
+You can add a provider with an HTTPS quota API, or track a local usage estimate for one that does not have one. Run the guided setup:
 
 ```bash
 npx @slkiser/opencode-quota@latest provider add
 ```
 
-For remote APIs, choose `quota-v1` for the standard envelope, `json-v1` to map a strict JSON response, or `openrouter-key-v1` for OpenRouter's key endpoint. For `json-v1`, the command builds the adapter with friendly field-by-field questions; it never asks for a response body, credential, or secret value. The command previews the complete canonical merged config before it writes anything.
+For an API, choose the response format it uses: `quota-v1` for OpenCode Quota's standard response, `json-v1` to point to each value in a JSON response, or `openrouter-key-v1` for OpenRouter's key endpoint. The setup asks one question at a time, never asks for a response body or secret, and shows the complete config before saving.
 
 Setup details live in the [Provider setup guide](docs/readme/providers.md#custom-providers).
 

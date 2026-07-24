@@ -82,7 +82,7 @@ describe("README provider ledger", () => {
     }
 
     expect(readme).toContain(
-      "A quota provider definition tells OpenCode Quota how to obtain accounting data",
+      "You can add a provider with an HTTPS quota API, or track a local usage estimate",
     );
     expect(readme).not.toContain(customReports);
     expect(providerGuide).toContain(customReports);
