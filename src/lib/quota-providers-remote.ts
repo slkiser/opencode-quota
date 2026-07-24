@@ -679,7 +679,9 @@ function parseOpenRouterKeyV1(
     typeof usage !== "number" ||
     !Number.isFinite(usage) ||
     usage < 0 ||
-    (limit !== null && (typeof limit !== "number" || !Number.isFinite(limit) || limit < 0)) ||
+    (limit !== null &&
+      limit !== undefined &&
+      (typeof limit !== "number" || !Number.isFinite(limit) || limit < 0)) ||
     (remaining !== undefined && (typeof remaining !== "number" || !Number.isFinite(remaining)))
   ) {
     return { success: false, error: "Invalid openrouter-key-v1 response" };

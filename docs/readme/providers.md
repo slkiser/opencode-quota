@@ -32,6 +32,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | OpenAI             | Automatic                              | Remote API         | Quota              |
 | OpenCode Go        | [Needs setup](#opencode-go)            | Dashboard scraping | Quota              |
 | OpenCode Zen       | [Needs setup](#opencode-zen)           | Dashboard scraping | Budget and balance |
+| OpenRouter         | Automatic                              | Remote API         | Budget and spend   |
 | Synthetic          | Automatic                              | Remote API         | Quota              |
 | xAI SuperGrok      | OpenCode OAuth (`/connect` xAI)        | Remote API         | Quota              |
 
@@ -52,6 +53,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | NanoGPT                 | API key/config                         | Remote API         | Quota and balance  |
 | OpenAI                  | Automatic                              | Remote API         | Quota              |
 | OpenCode Zen            | [Needs setup](#opencode-zen)           | Dashboard scraping | Budget and balance |
+| OpenRouter              | Automatic                              | Remote API         | Budget and spend   |
 | Synthetic               | Automatic                              | Remote API         | Quota              |
 | xAI SuperGrok           | OpenCode OAuth (`/connect` xAI)        | Remote API         | Quota              |
 
@@ -96,6 +98,8 @@ The friendly `Quota` label covers quota and rate-limit windows; v4 JSON distingu
 
 xAI SuperGrok reads OpenCode's existing xAI OAuth login and reports its single Weekly quota window.
 
+OpenRouter reads the existing OpenCode API key and calls OpenRouter's current-key endpoint. Limited keys show used budget and the remaining percentage; unlimited keys show spend. It does not invent a reset time.
+
 ## Custom providers
 
 Custom providers can report quota, rate limit, usage, spend, budget, balance, or status.
@@ -114,6 +118,8 @@ A custom provider can use:
 - **Local estimate:** request counts and optional spend estimates from OpenCode's local data.
 
 Definitions run automatically when provider selection is set to `auto`. If you choose providers manually, the list must include `quota-providers` plus every built-in provider you still want.
+
+OpenRouter is built in. A custom OpenRouter definition is still useful when you need a different endpoint or display label.
 
 See [Configuration](configuration.md#custom-providers) for a complete config example.
 

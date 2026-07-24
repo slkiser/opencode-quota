@@ -152,6 +152,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | OpenAI             | Automatic                                                                | Remote API         | Quota              |
 | OpenCode Go        | [Needs setup](docs/readme/providers.md#opencode-go)                      | Dashboard scraping | Quota              |
 | OpenCode Zen       | [Needs setup](docs/readme/providers.md#opencode-zen)                     | Dashboard scraping | Budget and balance |
+| OpenRouter         | Automatic                                                                | Remote API         | Budget and spend   |
 | Synthetic          | Automatic                                                                | Remote API         | Quota              |
 | xAI SuperGrok      | OpenCode OAuth (`/connect` xAI)                                          | Remote API         | Quota              |
 
@@ -172,6 +173,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | NanoGPT                 | API key/config                                                           | Remote API         | Quota and balance  |
 | OpenAI                  | Automatic                                                                | Remote API         | Quota              |
 | OpenCode Zen            | [Needs setup](docs/readme/providers.md#opencode-zen)                     | Dashboard scraping | Budget and balance |
+| OpenRouter              | Automatic                                                                | Remote API         | Budget and spend   |
 | Synthetic               | Automatic                                                                | Remote API         | Quota              |
 | xAI SuperGrok           | OpenCode OAuth (`/connect` xAI)                                          | Remote API         | Quota              |
 
@@ -224,7 +226,9 @@ You can add a provider with an HTTPS quota API, or track a local usage estimate 
 npx @slkiser/opencode-quota@latest provider add
 ```
 
-For an API, choose the response format it uses: `quota-v1` for OpenCode Quota's standard response, `json-v1` to point to each value in a JSON response, or `openrouter-key-v1` for OpenRouter's key endpoint. The setup asks one question at a time, never asks for a response body or secret, and shows the complete config before saving.
+OpenRouter works automatically with the API key already configured in OpenCode. A custom OpenRouter definition remains available when you need a different endpoint or label.
+
+For another API, choose the response format it uses: `quota-v1` for OpenCode Quota's standard response, `json-v1` to point to each value in a JSON response, or `openrouter-key-v1` for OpenRouter's key endpoint. The setup asks one question at a time, never asks for a response body or secret, and shows the complete config before saving.
 
 Setup details live in the [Provider setup guide](docs/readme/providers.md#custom-providers).
 

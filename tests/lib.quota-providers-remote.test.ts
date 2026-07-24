@@ -296,7 +296,6 @@ describe("quota provider remote runtime", () => {
 
   it.each([
     ["missing usage", { data: { limit: 10 } }],
-    ["missing limit", { data: { usage: 2 } }],
     ["negative usage", { data: { usage: -1, limit: null } }],
     ["negative limit", { data: { usage: 2, limit: -1 } }],
     ["numeric usage", { data: { usage: "2", limit: 10 } }],
@@ -345,32 +344,38 @@ describe("quota provider remote runtime", () => {
     });
   });
 
-  it.each([null, 0])("maps OpenRouter usage to a spend value when limit is %s", async (limit) => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ data: { usage: 2, limit } })));
+  it.each([undefined, null, 0])(
+    "maps OpenRouter usage to a spend value when limit is %s",
+    async (limit) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(jsonResponse({ data: { usage: 2, limit } })),
+      );
 
-    const result = await fetchRemoteQuotaProvider(
-      source({ format: "openrouter-key-v1" }),
-      "secret",
-    );
-    expect(result).toEqual({
-      success: true,
-      entries: [
-        {
-          accounting: {
-            resultType: "spend",
-            acquisitionMethod: "remote_api",
-            ownership: "user_configured",
-            authority: "provider_reported",
+      const result = await fetchRemoteQuotaProvider(
+        source({ format: "openrouter-key-v1" }),
+        "secret",
+      );
+      expect(result).toEqual({
+        success: true,
+        entries: [
+          {
+            accounting: {
+              resultType: "spend",
+              acquisitionMethod: "remote_api",
+              ownership: "user_configured",
+              authority: "provider_reported",
+            },
+            kind: "value",
+            name: "Source One spend",
+            group: "Source One",
+            label: "Spend:",
+            value: "$2.00",
           },
-          kind: "value",
-          name: "Source One spend",
-          group: "Source One",
-          label: "Spend:",
-          value: "$2.00",
-        },
-      ],
-    });
-  });
+        ],
+      });
+    },
+  );
 
   it("rejects numeric strings in the OpenRouter preset", async () => {
     vi.stubGlobal(

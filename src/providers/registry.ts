@@ -8,6 +8,7 @@ import type { QuotaProvider } from "../lib/entries.js";
 import { anthropicProvider } from "./anthropic.js";
 import { copilotProvider } from "./copilot.js";
 import { openaiProvider } from "./openai.js";
+import { openRouterProvider } from "./openrouter.js";
 import { cursorProvider } from "./cursor.js";
 import { googleAntigravityProvider } from "./google-antigravity.js";
 import { googleGeminiCliProvider } from "./google-gemini-cli.js";
@@ -38,6 +39,7 @@ export function getProviders(): QuotaProvider[] {
     anthropicProvider,
     copilotProvider,
     openaiProvider,
+    openRouterProvider,
     cursorProvider,
     qwenCodeProvider,
     alibabaCodingPlanProvider,
