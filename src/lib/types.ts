@@ -571,19 +571,27 @@ export interface ZaiQuotaResult {
 // Quota Result Types
 // =============================================================================
 
+export type CopilotResultAuthority = "provider_reported" | "locally_derived";
+
 export interface CopilotBudgetResult {
   amountUsd: number;
   spentUsd?: number;
   scope: string;
   percentRemaining?: number;
+  authority: CopilotResultAuthority;
 }
 
 /** Result from fetching per-user Copilot accounting. */
 export interface CopilotQuotaResult {
   success: true;
   mode: "user_quota";
-  unit: "ai_credits" | "premium_requests";
+  unit: "ai_credits" | "premium_interactions" | "premium_requests";
   used: number;
+  authority: CopilotResultAuthority;
+  period?: {
+    year: number;
+    month: number;
+  };
   total?: number;
   percentRemaining?: number;
   includedUsed?: number;
@@ -600,6 +608,7 @@ export interface CopilotQuotaResult {
 export interface CopilotPlanResult {
   success: true;
   mode: "user_plan";
+  authority: CopilotResultAuthority;
   plan?: string;
   resetTimeIso?: string;
 }
@@ -616,6 +625,7 @@ export interface CopilotOrganizationUsageResult {
   };
   unit: "ai_credits";
   used: number;
+  authority: CopilotResultAuthority;
   includedUsed: number;
   billedUsed: number;
   billedAmountUsd?: number;
@@ -637,6 +647,7 @@ export interface CopilotEnterpriseUsageResult {
   };
   unit: "ai_credits";
   used: number;
+  authority: CopilotResultAuthority;
   includedUsed: number;
   billedUsed: number;
   billedAmountUsd?: number;

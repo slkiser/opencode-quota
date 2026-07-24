@@ -202,13 +202,8 @@ interface AiCreditTotals {
   includedUsed: number;
   billedUsed: number;
   billedAmountUsd?: number;
+  authority: "provider_reported" | "locally_derived";
 }
-
-const PERSONAL_AI_CREDIT_TOTALS: Partial<Record<CopilotTier, number>> = {
-  pro: 1500,
-  "pro+": 7000,
-  max: 20000,
-};
 
 const LEGACY_PREMIUM_REQUEST_TOTALS: Partial<Record<CopilotTier, number>> = {
   pro: 300,
@@ -586,11 +581,12 @@ function getRemainingTotalsState(
   if (target.scope === "organization") return "not_available_from_org_usage";
   if (target.scope === "enterprise") return "not_available_from_enterprise_usage";
 
-  const total =
-    config.billingModel === "legacy_premium_requests"
-      ? LEGACY_PREMIUM_REQUEST_TOTALS[config.tier]
-      : PERSONAL_AI_CREDIT_TOTALS[config.tier];
-  return total ? "available" : "value_only_without_denominator";
+  if (config.billingModel !== "legacy_premium_requests") {
+    return "value_only_without_denominator";
+  }
+  return LEGACY_PREMIUM_REQUEST_TOTALS[config.tier]
+    ? "available"
+    : "value_only_without_denominator";
 }
 
 export function getCopilotQuotaAuthDiagnostics(
@@ -871,12 +867,20 @@ function readFiniteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function quantitiesDiffer(left: number, right: number): boolean {
+  return (
+    Math.abs(left - right) > Number.EPSILON * 16 * Math.max(1, Math.abs(left), Math.abs(right))
+  );
+}
+
 function isAiCreditItem(item: BillingUsageItem): boolean {
   const text = [item.product, item.sku, item.unitType, item.unit_type]
     .filter((value): value is string => typeof value === "string")
     .join(" ")
     .toLowerCase();
-  return text.includes("ai credit") || text.includes("ai-credit");
+  const identifiesCopilot = text.includes("copilot");
+  const identifiesAiCredits = text.includes("ai credit") || text.includes("ai-credit");
+  return identifiesCopilot && identifiesAiCredits;
 }
 
 function isPremiumRequestItem(item: BillingUsageItem): boolean {
@@ -891,7 +895,7 @@ function parseAiCreditTotals(response: BillingUsageResponse): AiCreditTotals {
   const items = getUsageItems(response);
   const matches = items.filter(isAiCreditItem);
   if (matches.length === 0 && items.length > 0) {
-    throw new Error("GitHub billing response did not contain an AI Credit usage item");
+    throw new Error("GitHub billing response did not contain a Copilot AI Credit usage item");
   }
 
   let used = 0;
@@ -899,23 +903,63 @@ function parseAiCreditTotals(response: BillingUsageResponse): AiCreditTotals {
   let billedUsed = 0;
   let billedAmountUsd = 0;
   let hasBilledAmount = false;
+  let authority: AiCreditTotals["authority"] = "provider_reported";
 
   for (const item of matches) {
     const gross = readFiniteNumber(item.grossQuantity ?? item.gross_quantity);
     const discount = readFiniteNumber(item.discountQuantity ?? item.discount_quantity);
     const net = readFiniteNumber(item.netQuantity ?? item.net_quantity);
-    if (gross === undefined && discount === undefined && net === undefined) {
-      throw new Error("GitHub AI Credit usage item did not include quantity fields");
+    const quantities = [gross, discount, net].filter(
+      (value): value is number => value !== undefined,
+    );
+    if (quantities.length === 0) {
+      throw new Error("GitHub Copilot AI Credit usage item did not include quantity fields");
     }
-    const normalizedIncluded = Math.max(0, discount ?? 0);
-    const normalizedBilled = Math.max(0, net ?? Math.max(0, (gross ?? 0) - normalizedIncluded));
-    used += Math.max(0, gross ?? normalizedIncluded + normalizedBilled);
+    if (quantities.some((value) => value < 0)) {
+      throw new Error("GitHub Copilot AI Credit usage item contained a negative quantity");
+    }
+    if (
+      gross !== undefined &&
+      discount !== undefined &&
+      net !== undefined &&
+      quantitiesDiffer(gross, discount + net)
+    ) {
+      throw new Error("GitHub Copilot AI Credit usage item contained inconsistent quantities");
+    }
+
+    let normalizedGross = gross;
+    let normalizedIncluded = discount;
+    let normalizedBilled = net;
+    if (gross !== undefined && discount !== undefined && net === undefined) {
+      if (discount > gross && quantitiesDiffer(gross, discount)) {
+        throw new Error("GitHub Copilot AI Credit usage item contained inconsistent quantities");
+      }
+      normalizedBilled = Math.max(0, gross - discount);
+    } else if (gross !== undefined && discount === undefined && net !== undefined) {
+      if (net > gross && quantitiesDiffer(gross, net)) {
+        throw new Error("GitHub Copilot AI Credit usage item contained inconsistent quantities");
+      }
+      normalizedIncluded = Math.max(0, gross - net);
+    } else if (gross === undefined && discount !== undefined && net !== undefined) {
+      normalizedGross = discount + net;
+    }
+    normalizedIncluded ??= 0;
+    normalizedBilled ??= Math.max(0, (normalizedGross ?? 0) - normalizedIncluded);
+    normalizedGross ??= normalizedIncluded + normalizedBilled;
+
+    used += normalizedGross;
     includedUsed += normalizedIncluded;
     billedUsed += normalizedBilled;
+    if (gross === undefined || discount === undefined || net === undefined) {
+      authority = "locally_derived";
+    }
 
     const netAmount = readFiniteNumber(item.netAmount ?? item.net_amount);
     if (netAmount !== undefined) {
-      billedAmountUsd += Math.max(0, netAmount);
+      if (netAmount < 0) {
+        throw new Error("GitHub Copilot AI Credit usage item contained a negative net amount");
+      }
+      billedAmountUsd += netAmount;
       hasBilledAmount = true;
     }
   }
@@ -925,6 +969,7 @@ function parseAiCreditTotals(response: BillingUsageResponse): AiCreditTotals {
     includedUsed,
     billedUsed,
     billedAmountUsd: hasBilledAmount ? billedAmountUsd : undefined,
+    authority,
   };
 }
 
@@ -1065,6 +1110,7 @@ async function fetchApplicableBudget(params: {
     spentUsd: params.spentUsd,
     scope: selected.budget_scope ?? "unknown",
     percentRemaining,
+    authority: percentRemaining === undefined ? "provider_reported" : "locally_derived",
   };
 }
 
@@ -1077,12 +1123,10 @@ async function toAiCreditResult(params: {
   apiBaseUrl: string;
   response: BillingUsageResponse;
   target: CopilotRequestTarget;
-  config: CopilotQuotaConfig;
   token: string;
   requestTimeoutMs?: number;
 }): Promise<CopilotQuotaResult | CopilotOrganizationUsageResult | CopilotEnterpriseUsageResult> {
   const totals = parseAiCreditTotals(params.response);
-  const resetTimeIso = getApproxNextResetIso();
   const period = getResponsePeriod(params.response, params.target.billingPeriod);
   let budget: CopilotBudgetResult | undefined;
   const warnings: string[] = [];
@@ -1112,7 +1156,6 @@ async function toAiCreditResult(params: {
       ...totals,
       budget,
       warnings: warnings.length ? warnings : undefined,
-      resetTimeIso,
     };
   }
 
@@ -1128,20 +1171,15 @@ async function toAiCreditResult(params: {
       ...totals,
       budget,
       warnings: warnings.length ? warnings : undefined,
-      resetTimeIso,
     };
   }
 
-  const total = PERSONAL_AI_CREDIT_TOTALS[params.config.tier];
   return {
     success: true,
     mode: "user_quota",
     unit: "ai_credits",
+    period,
     ...totals,
-    total,
-    percentRemaining: total ? computePercentRemainingFromUsed(totals.used, total) : undefined,
-    plan: params.config.tier,
-    resetTimeIso,
   };
 }
 
@@ -1156,6 +1194,7 @@ function toLegacyResult(
     mode: "user_quota",
     unit: "premium_requests",
     used,
+    authority: "locally_derived",
     total,
     percentRemaining: total ? computePercentRemainingFromUsed(used, total) : undefined,
     plan: config.tier,
@@ -1215,14 +1254,21 @@ function parseCopilotInternalUser(
         (!hasReportedPercent || reportedPercentRemaining === 0)));
 
   if (isPlaceholder) {
-    return { success: true, mode: "user_plan", plan, resetTimeIso };
+    return {
+      success: true,
+      mode: "user_plan",
+      authority: "provider_reported",
+      plan,
+      resetTimeIso,
+    };
   }
   if (snapshot?.unlimited === true) {
     return {
       success: true,
       mode: "user_quota",
-      unit: "ai_credits",
+      unit: "premium_interactions",
       used: 0,
+      authority: "provider_reported",
       unlimited: true,
       plan,
       resetTimeIso,
@@ -1238,8 +1284,9 @@ function parseCopilotInternalUser(
     return {
       success: true,
       mode: "user_quota",
-      unit: "ai_credits",
+      unit: "premium_interactions",
       used: entitlement - remaining,
+      authority: "locally_derived",
       total: entitlement,
       percentRemaining: hasReportedPercent
         ? reportedPercentRemaining
@@ -1251,7 +1298,13 @@ function parseCopilotInternalUser(
     };
   }
   if (response.token_based_billing === true) {
-    return { success: true, mode: "user_plan", plan, resetTimeIso };
+    return {
+      success: true,
+      mode: "user_plan",
+      authority: "provider_reported",
+      plan,
+      resetTimeIso,
+    };
   }
   throw new Error("GitHub Copilot user response did not include a usable quota snapshot");
 }
@@ -1345,7 +1398,6 @@ export async function queryCopilotQuota(
           apiBaseUrl,
           response,
           target,
-          config: pat.config,
           token: pat.config.token,
           requestTimeoutMs: options.requestTimeoutMs,
         });
@@ -1365,7 +1417,12 @@ export function formatCopilotQuota(result: CopilotResult): string | null {
   if (result.mode === "user_plan") {
     return result.plan ? `Copilot Plan ${result.plan}` : "Copilot Plan available";
   }
-  const unit = result.unit === "ai_credits" ? "AI Credits" : "Premium Requests";
+  const unit =
+    result.unit === "ai_credits"
+      ? "AI Credits"
+      : result.unit === "premium_interactions"
+        ? "Premium Interactions"
+        : "Premium Requests";
   if (result.mode === "organization_usage") {
     return `Copilot Org (${result.organization}) ${result.used} ${unit} | ${formatBillingPeriod(result.period)}`;
   }

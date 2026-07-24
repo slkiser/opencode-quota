@@ -133,8 +133,9 @@ describe("GitHub Copilot AI Credit accounting", () => {
     await expect(queryCopilotQuota()).resolves.toEqual({
       success: true,
       mode: "user_quota",
-      unit: "ai_credits",
+      unit: "premium_interactions",
       used: 600.5,
+      authority: "locally_derived",
       total: 1000,
       percentRemaining: 40,
       plan: "enterprise",
@@ -177,6 +178,33 @@ describe("GitHub Copilot AI Credit accounting", () => {
         result && result.success && result.mode === "user_quota" ? result.percentRemaining : null,
       ).toBe(expected);
     }
+  });
+
+  it("keeps unlimited OAuth premium interactions provider-reported and neutrally named", async () => {
+    authMocks.readAuthFile.mockResolvedValue({
+      "github-copilot": { type: "oauth", access: "oauth-token" },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        json(
+          copilotUser({
+            quota_snapshots: {
+              premium_interactions: { unlimited: true },
+            },
+          }),
+        ),
+      ) as any,
+    );
+
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    await expect(queryCopilotQuota()).resolves.toMatchObject({
+      success: true,
+      mode: "user_quota",
+      unit: "premium_interactions",
+      authority: "provider_reported",
+      unlimited: true,
+    });
   });
 
   it("does not derive a percentage from zero entitlement", async () => {
@@ -265,6 +293,7 @@ describe("GitHub Copilot AI Credit accounting", () => {
     await expect(queryCopilotQuota()).resolves.toEqual({
       success: true,
       mode: "user_plan",
+      authority: "provider_reported",
       plan: "business",
       resetTimeIso: "2026-02-01T00:00:00.000Z",
     });
@@ -432,14 +461,12 @@ describe("GitHub Copilot AI Credit accounting", () => {
       success: true,
       mode: "user_quota",
       unit: "ai_credits",
+      period: { year: 2026, month: 1 },
       used: 100,
       includedUsed: 80,
       billedUsed: 20,
       billedAmountUsd: 0.2,
-      total: 20000,
-      percentRemaining: 99,
-      plan: "max",
-      resetTimeIso: "2026-02-01T00:00:00.000Z",
+      authority: "provider_reported",
     });
 
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
@@ -467,13 +494,19 @@ describe("GitHub Copilot AI Credit accounting", () => {
 
     const { queryCopilotQuota } = await import("../src/lib/copilot.js");
     const result = await queryCopilotQuota();
-    expect(result && result.success && result.mode === "user_quota" ? result.total : null).toBe(
-      1500,
-    );
+    expect(result).toMatchObject({
+      success: true,
+      mode: "user_quota",
+      period: { year: 2026, month: 1 },
+      authority: "provider_reported",
+    });
+    expect(result).not.toHaveProperty("total");
+    expect(result).not.toHaveProperty("percentRemaining");
+    expect(result).not.toHaveProperty("resetTimeIso");
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps Student value-only because GitHub documents no concrete Student allowance", async () => {
+  it("keeps every personal PAT tier usage-only", async () => {
     configure({ token: "github_pat_student", tier: "student", username: "student" });
     vi.stubGlobal("fetch", vi.fn(async () => json(aiUsage())) as any);
 
@@ -482,14 +515,12 @@ describe("GitHub Copilot AI Credit accounting", () => {
       success: true,
       mode: "user_quota",
       unit: "ai_credits",
+      period: { year: 2026, month: 1 },
       used: 100,
       includedUsed: 80,
       billedUsed: 20,
       billedAmountUsd: 0.2,
-      total: undefined,
-      percentRemaining: undefined,
-      plan: "student",
-      resetTimeIso: "2026-02-01T00:00:00.000Z",
+      authority: "provider_reported",
     });
   });
 
@@ -567,6 +598,7 @@ describe("GitHub Copilot AI Credit accounting", () => {
         period: { year: 2026, month: 1 },
         unit: "ai_credits",
         used: 100,
+        authority: "provider_reported",
         includedUsed: 80,
         billedUsed: 20,
         billedAmountUsd: 0.2,
@@ -575,9 +607,9 @@ describe("GitHub Copilot AI Credit accounting", () => {
           spentUsd: 0.2,
           scope: "user",
           percentRemaining: 80,
+          authority: "locally_derived",
         },
         warnings: undefined,
-        resetTimeIso: "2026-02-01T00:00:00.000Z",
       });
 
       const usageUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
@@ -647,6 +679,7 @@ describe("GitHub Copilot AI Credit accounting", () => {
       spentUsd: 0.2,
       scope: "organization",
       percentRemaining: undefined,
+      authority: "provider_reported",
     });
   });
 
@@ -766,6 +799,7 @@ describe("GitHub Copilot AI Credit accounting", () => {
       mode: "user_quota",
       unit: "premium_requests",
       used: 150,
+      authority: "locally_derived",
       total: 1500,
       percentRemaining: 90,
       plan: "pro+",
@@ -952,14 +986,145 @@ describe("GitHub Copilot AI Credit accounting", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
-        json({ usageItems: [{ product: "Actions", sku: "Actions Linux", grossQuantity: 1 }] }),
+        json({ usageItems: [{ product: "Actions", sku: "AI Credit", grossQuantity: 1 }] }),
       ) as any,
     );
     module = await import("../src/lib/copilot.js");
     result = await module.queryCopilotQuota();
     expect(result && !result.success ? result.error : "").toContain(
-      "did not contain an AI Credit usage item",
+      "did not contain a Copilot AI Credit usage item",
     );
+  });
+
+  it("accepts documented managed fields, aggregates valid rows, and ignores other products", async () => {
+    configure({ token: "github_pat_personal", tier: "pro", username: "alice" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        json({
+          time_period: { year: 2026, month: 1 },
+          usage_items: [
+            {
+              product: "Copilot",
+              sku: "Copilot AI Credits",
+              unit_type: "credits",
+              gross_quantity: 100,
+              discount_quantity: 80,
+              net_quantity: 20,
+              net_amount: 0.2,
+            },
+            {
+              product: "Copilot AI Credits",
+              sku: "AI Credit",
+              unitType: "ai-credits",
+              grossQuantity: 50,
+              discountQuantity: 50,
+              netQuantity: 0,
+              netAmount: 0,
+            },
+            {
+              product: "Actions",
+              sku: "AI Credit",
+              unitType: "ai-credits",
+              grossQuantity: 999,
+              discountQuantity: 0,
+              netQuantity: 999,
+            },
+          ],
+        }),
+      ) as any,
+    );
+
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    await expect(queryCopilotQuota()).resolves.toMatchObject({
+      success: true,
+      mode: "user_quota",
+      period: { year: 2026, month: 1 },
+      used: 150,
+      includedUsed: 130,
+      billedUsed: 20,
+      billedAmountUsd: 0.2,
+      authority: "provider_reported",
+    });
+  });
+
+  it("marks reconstructed AI Credit quantities as locally derived", async () => {
+    configure({ token: "github_pat_personal", tier: "pro", username: "alice" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        json(
+          aiUsage({
+            discountQuantity: undefined,
+            netQuantity: undefined,
+          }),
+        ),
+      ) as any,
+    );
+
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    await expect(queryCopilotQuota()).resolves.toMatchObject({
+      success: true,
+      mode: "user_quota",
+      used: 100,
+      includedUsed: 0,
+      billedUsed: 100,
+      authority: "locally_derived",
+    });
+  });
+
+  it.each([
+    [
+      { grossQuantity: 100, discountQuantity: 80, netQuantity: undefined },
+      { used: 100, includedUsed: 80, billedUsed: 20 },
+    ],
+    [
+      { grossQuantity: 100, discountQuantity: undefined, netQuantity: 20 },
+      { used: 100, includedUsed: 80, billedUsed: 20 },
+    ],
+    [
+      { grossQuantity: undefined, discountQuantity: 80, netQuantity: 20 },
+      { used: 100, includedUsed: 80, billedUsed: 20 },
+    ],
+  ])(
+    "derives a missing AI Credit quantity from the other pair: %s",
+    async (overrides, expected) => {
+      configure({ token: "github_pat_personal", tier: "pro", username: "alice" });
+      vi.stubGlobal("fetch", vi.fn(async () => json(aiUsage(overrides))) as any);
+
+      const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+      await expect(queryCopilotQuota()).resolves.toMatchObject({
+        success: true,
+        mode: "user_quota",
+        ...expected,
+        authority: "locally_derived",
+      });
+    },
+  );
+
+  it.each([
+    { grossQuantity: 100, discountQuantity: 120, netQuantity: undefined },
+    { grossQuantity: 100, discountQuantity: undefined, netQuantity: 120 },
+  ])("rejects contradictory partial AI Credit quantities: %s", async (overrides) => {
+    configure({ token: "github_pat_personal", tier: "pro", username: "alice" });
+    vi.stubGlobal("fetch", vi.fn(async () => json(aiUsage(overrides))) as any);
+
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    const result = await queryCopilotQuota();
+    expect(result && !result.success ? result.error : "").toContain("inconsistent quantities");
+  });
+
+  it.each([
+    [{ grossQuantity: -1, discountQuantity: 0, netQuantity: 0 }, "negative quantity"],
+    [{ grossQuantity: 100, discountQuantity: 80, netQuantity: 30 }, "inconsistent quantities"],
+    [{ netAmount: -0.2 }, "negative net amount"],
+  ])("rejects malformed AI Credit arithmetic: %s", async (overrides, expected) => {
+    configure({ token: "github_pat_personal", tier: "pro", username: "alice" });
+    vi.stubGlobal("fetch", vi.fn(async () => json(aiUsage(overrides))) as any);
+
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    const result = await queryCopilotQuota();
+    expect(result && !result.success ? result.error : "").toContain(expected);
   });
 
   it("keeps invalid trusted billing config blocking in diagnostics when OAuth exists", async () => {

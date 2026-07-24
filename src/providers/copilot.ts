@@ -24,11 +24,17 @@ import type {
 } from "../lib/types.js";
 import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";
 
-const REMOTE_MAINTAINED: Omit<AccountingMetadata, "resultType"> = {
-  acquisitionMethod: "remote_api",
-  ownership: "maintained",
-  authority: "provider_reported",
-};
+function remoteAccounting(
+  resultType: AccountingMetadata["resultType"],
+  authority: AccountingMetadata["authority"],
+): AccountingMetadata {
+  return {
+    resultType,
+    acquisitionMethod: "remote_api",
+    ownership: "maintained",
+    authority,
+  };
+}
 
 function formatBillingPeriod(period: { year: number; month: number }): string {
   return `${period.year}-${String(period.month).padStart(2, "0")}`;
@@ -53,16 +59,17 @@ function formatUsd(value: number): string {
 function formatAiCreditUsageValue(
   result: CopilotOrganizationUsageResult | CopilotEnterpriseUsageResult | CopilotQuotaResult,
 ): string {
-  const parts = [`${formatNumber(result.used)} used`];
+  const parts = [`Used ${formatNumber(result.used)}`];
 
   if (result.includedUsed !== undefined) {
-    parts.push(`${formatNumber(result.includedUsed)} included`);
+    parts.push(`Included ${formatNumber(result.includedUsed)}`);
   }
   if (result.billedUsed !== undefined) {
-    parts.push(`${formatNumber(result.billedUsed)} billed`);
-  }
-  if (result.billedAmountUsd !== undefined) {
-    parts.push(`${formatUsd(result.billedAmountUsd)} billed`);
+    const billedAmount =
+      result.billedAmountUsd === undefined ? "" : ` (${formatUsd(result.billedAmountUsd)})`;
+    parts.push(`Billed ${formatNumber(result.billedUsed)}${billedAmount}`);
+  } else if (result.billedAmountUsd !== undefined) {
+    parts.push(`Billed ${formatUsd(result.billedAmountUsd)}`);
   }
 
   if (result.mode !== "user_quota") {
@@ -74,11 +81,9 @@ function formatAiCreditUsageValue(
       if (result.organization) parts.push(`org=${result.organization}`);
     }
     if (result.username) parts.push(`user=${result.username}`);
-  } else if (result.plan) {
-    parts.push(`plan=${result.plan}`);
   }
 
-  return parts.join(" | ");
+  return parts.join(" · ");
 }
 
 function makeBudgetEntry(
@@ -89,7 +94,7 @@ function makeBudgetEntry(
   const spent = budget.spentUsd;
   if (budget.percentRemaining !== undefined && spent !== undefined && budget.amountUsd > 0) {
     return {
-      accounting: { ...REMOTE_MAINTAINED, resultType: "budget" },
+      accounting: remoteAccounting("budget", budget.authority),
       name: "Copilot Additional Usage",
       group,
       label: "Budget:",
@@ -105,7 +110,7 @@ function makeBudgetEntry(
       : `${formatUsd(spent)} spent | ${formatUsd(budget.amountUsd)} budget | scope=${budget.scope}`;
   return {
     kind: "value",
-    accounting: { ...REMOTE_MAINTAINED, resultType: "budget" },
+    accounting: remoteAccounting("budget", budget.authority),
     name: "Copilot Additional Usage",
     group,
     label: "Budget:",
@@ -118,7 +123,7 @@ function planEntries(result: CopilotPlanResult): QuotaToastEntry[] {
   return [
     {
       kind: "value",
-      accounting: { ...REMOTE_MAINTAINED, resultType: "quota" },
+      accounting: remoteAccounting("quota", result.authority),
       name: "Copilot",
       group: getCopilotGroup(result.mode),
       label: "Plan:",
@@ -132,13 +137,18 @@ function planEntries(result: CopilotPlanResult): QuotaToastEntry[] {
 
 function personalEntries(result: CopilotQuotaResult): QuotaToastEntry[] {
   const group = getCopilotGroup(result.mode);
-  const name = result.unit === "ai_credits" ? "Copilot AI Credits" : "Copilot Premium Requests";
+  const name =
+    result.unit === "ai_credits"
+      ? "Copilot AI Credits"
+      : result.unit === "premium_interactions"
+        ? "Copilot Premium Interactions"
+        : "Copilot Premium Requests";
 
   if (result.unlimited) {
     return [
       {
         kind: "value",
-        accounting: { ...REMOTE_MAINTAINED, resultType: "quota" },
+        accounting: remoteAccounting("quota", result.authority),
         name,
         group,
         label: "Quota:",
@@ -151,7 +161,7 @@ function personalEntries(result: CopilotQuotaResult): QuotaToastEntry[] {
   const entries: QuotaToastEntry[] = [];
   if (result.total !== undefined && result.total > 0 && result.percentRemaining !== undefined) {
     entries.push({
-      accounting: { ...REMOTE_MAINTAINED, resultType: "quota" },
+      accounting: remoteAccounting("quota", result.authority),
       name,
       group,
       label: result.unit === "ai_credits" ? "Credits:" : "Quota:",
@@ -162,14 +172,14 @@ function personalEntries(result: CopilotQuotaResult): QuotaToastEntry[] {
   } else {
     entries.push({
       kind: "value",
-      accounting: { ...REMOTE_MAINTAINED, resultType: "usage" },
+      accounting: remoteAccounting("usage", result.authority),
       name,
       group,
       label: result.unit === "ai_credits" ? "Credits:" : "Usage:",
       value:
         result.unit === "ai_credits"
           ? formatAiCreditUsageValue(result)
-          : `${formatNumber(result.used)} used`,
+          : `Used ${formatNumber(result.used)}`,
       resetTimeIso: result.resetTimeIso,
     });
   }
@@ -187,7 +197,7 @@ function managedEntries(
   const entries: QuotaToastEntry[] = [
     {
       kind: "value",
-      accounting: { ...REMOTE_MAINTAINED, resultType: "usage" },
+      accounting: remoteAccounting("usage", result.authority),
       name: "Copilot AI Credits",
       group,
       label: "Credits:",

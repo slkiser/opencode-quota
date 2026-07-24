@@ -21,48 +21,18 @@ describe("copilot provider", () => {
     expectNotAttempted(await copilotProvider.fetch({} as any));
   });
 
-  it("renders a documented Max denominator as an AI Credit quota row", async () => {
+  it("renders personal PAT AI Credit accounting as usage-only", async () => {
     const { queryCopilotQuota } = await import("../src/lib/copilot.js");
     (queryCopilotQuota as any).mockResolvedValueOnce({
       success: true,
       mode: "user_quota",
       unit: "ai_credits",
-      used: 250,
-      total: 20000,
-      percentRemaining: 98,
-      includedUsed: 250,
-      billedUsed: 0,
-      billedAmountUsd: 0,
-      plan: "max",
-      resetTimeIso: "2026-02-01T00:00:00.000Z",
-    });
-
-    const out = await copilotProvider.fetch({} as any);
-    expectAttemptedWithNoErrors(out);
-    expect(visibleEntries(out.entries, "copilot")).toEqual([
-      {
-        name: "Copilot AI Credits",
-        group: "Copilot (personal)",
-        label: "Credits:",
-        right: "250/20,000",
-        percentRemaining: 98,
-        resetTimeIso: "2026-02-01T00:00:00.000Z",
-      },
-    ]);
-  });
-
-  it("renders Student usage without a fabricated percentage", async () => {
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    (queryCopilotQuota as any).mockResolvedValueOnce({
-      success: true,
-      mode: "user_quota",
-      unit: "ai_credits",
-      used: 12.5,
-      includedUsed: 12.5,
-      billedUsed: 0,
-      billedAmountUsd: 0,
-      plan: "student",
-      resetTimeIso: "2026-02-01T00:00:00.000Z",
+      period: { year: 2026, month: 1 },
+      used: 100,
+      includedUsed: 80,
+      billedUsed: 20,
+      billedAmountUsd: 0.2,
+      authority: "provider_reported",
     });
 
     const out = await copilotProvider.fetch({} as any);
@@ -73,11 +43,48 @@ describe("copilot provider", () => {
         name: "Copilot AI Credits",
         group: "Copilot (personal)",
         label: "Credits:",
-        value: "12.5 used | 12.5 included | 0 billed | $0.00 billed | plan=student",
+        value: "Used 100 · Included 80 · Billed 20 ($0.20)",
+        resetTimeIso: undefined,
+      },
+    ]);
+    expect(out.entries[0]).not.toHaveProperty("percentRemaining");
+    expect(out.entries[0]).not.toHaveProperty("right");
+    expect(out.entries[0]?.accounting).toMatchObject({
+      resultType: "usage",
+      authority: "provider_reported",
+    });
+  });
+
+  it("renders OAuth premium_interactions neutrally and marks local arithmetic derived", async () => {
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    (queryCopilotQuota as any).mockResolvedValueOnce({
+      success: true,
+      mode: "user_quota",
+      unit: "premium_interactions",
+      used: 600.5,
+      total: 1000,
+      percentRemaining: 40,
+      authority: "locally_derived",
+      plan: "enterprise",
+      resetTimeIso: "2026-02-01T00:00:00.000Z",
+    });
+
+    const out = await copilotProvider.fetch({} as any);
+    expectAttemptedWithNoErrors(out);
+    expect(visibleEntries(out.entries, "copilot")).toEqual([
+      {
+        name: "Copilot Premium Interactions",
+        group: "Copilot (personal)",
+        label: "Quota:",
+        right: "600.5/1,000",
+        percentRemaining: 40,
         resetTimeIso: "2026-02-01T00:00:00.000Z",
       },
     ]);
-    expect(out.entries[0]?.accounting.resultType).toBe("usage");
+    expect(out.entries[0]?.accounting).toMatchObject({
+      resultType: "quota",
+      authority: "locally_derived",
+    });
   });
 
   it("renders pooled organization credits plus a real additional-usage budget", async () => {
@@ -90,6 +97,7 @@ describe("copilot provider", () => {
       period: { year: 2026, month: 1 },
       unit: "ai_credits",
       used: 100,
+      authority: "provider_reported",
       includedUsed: 80,
       billedUsed: 20,
       billedAmountUsd: 0.2,
@@ -98,8 +106,8 @@ describe("copilot provider", () => {
         spentUsd: 0.2,
         scope: "user",
         percentRemaining: 80,
+        authority: "locally_derived",
       },
-      resetTimeIso: "2026-02-01T00:00:00.000Z",
     });
 
     const out = await copilotProvider.fetch({} as any);
@@ -110,9 +118,8 @@ describe("copilot provider", () => {
         name: "Copilot AI Credits",
         group: "Copilot (business)",
         label: "Credits:",
-        value:
-          "100 used | 80 included | 20 billed | $0.20 billed | 2026-01 | org=acme | user=alice",
-        resetTimeIso: "2026-02-01T00:00:00.000Z",
+        value: "Used 100 · Included 80 · Billed 20 ($0.20) · 2026-01 · org=acme · user=alice",
+        resetTimeIso: undefined,
       },
       {
         name: "Copilot Additional Usage",
@@ -120,7 +127,7 @@ describe("copilot provider", () => {
         label: "Budget:",
         right: "$0.20/$1.00",
         percentRemaining: 80,
-        resetTimeIso: "2026-02-01T00:00:00.000Z",
+        resetTimeIso: undefined,
       },
     ]);
     expect(out.entries.map((entry) => entry.accounting.resultType)).toEqual(["usage", "budget"]);
@@ -138,6 +145,7 @@ describe("copilot provider", () => {
       period: { year: 2026, month: 1 },
       unit: "ai_credits",
       used: 10,
+      authority: "provider_reported",
       includedUsed: 0,
       billedUsed: 10,
       billedAmountUsd: 0.1,
@@ -145,6 +153,7 @@ describe("copilot provider", () => {
         amountUsd: 0,
         spentUsd: 0.1,
         scope: "enterprise",
+        authority: "provider_reported",
       },
     });
 
@@ -168,6 +177,7 @@ describe("copilot provider", () => {
       period: { year: 2026, month: 1 },
       unit: "ai_credits",
       used: 10,
+      authority: "provider_reported",
       includedUsed: 10,
       billedUsed: 0,
       warnings: ["Budget endpoint forbidden"],
@@ -186,6 +196,7 @@ describe("copilot provider", () => {
       mode: "user_quota",
       unit: "premium_requests",
       used: 150,
+      authority: "locally_derived",
       total: 1500,
       percentRemaining: 90,
       plan: "pro+",
@@ -209,6 +220,7 @@ describe("copilot provider", () => {
     (queryCopilotQuota as any).mockResolvedValueOnce({
       success: true,
       mode: "user_plan",
+      authority: "provider_reported",
       plan: "business",
       resetTimeIso: "2026-02-01T00:00:00.000Z",
     });
