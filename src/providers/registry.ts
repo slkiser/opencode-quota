@@ -30,7 +30,6 @@ import { opencodeZenProvider } from "./opencode-zen.js";
 import { kimiCodeProvider } from "./kimi-code.js";
 import { deepseekProvider } from "./deepseek.js";
 import { xaiProvider } from "./xai.js";
-import { kiloProvider } from "./kilo.js";
 import { xiaomiProvider } from "./mimo.js";
 import { ollamaCloudProvider } from "./ollama-cloud.js";
 import { quotaProvidersProvider } from "./quota-providers.js";
@@ -59,7 +58,6 @@ export function getProviders(): QuotaProvider[] {
     kimiCodeProvider,
     deepseekProvider,
     xaiProvider,
-    kiloProvider,
     xiaomiProvider,
     opencodeGoProvider,
     opencodeZenProvider,
