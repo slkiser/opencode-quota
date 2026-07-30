@@ -44,4 +44,21 @@ describe("quota window classification", () => {
   it("leaves non-window labels unclassified", () => {
     expect(classifyQuotaWindowText("API requests")).toBeNull();
   });
+
+  it("projects custom grouped labels in single-window display", () => {
+    expect(
+      buildSingleWindowPercentEntryDisplayName({
+        name: "Kilo Credits",
+        group: "[Kilo] Starter",
+        label: "Credits:",
+        percentRemaining: 100,
+        accounting: {
+          resultType: "quota",
+          acquisitionMethod: "dashboard_scrape",
+          ownership: "maintained",
+          authority: "provider_reported",
+        },
+      }),
+    ).toBe("[Kilo] (Starter) Credits");
+  });
 });

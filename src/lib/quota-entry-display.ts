@@ -63,8 +63,12 @@ export function buildSingleWindowPercentEntryDisplayName(entry: QuotaToastEntry)
   }
 
   if (group) {
-    const provider = formatGroupedHeader(group);
-    return windowLabel ? `${provider} ${windowLabel}` : provider;
+    const groupedPlan = group.match(/^\[([^\]]+)\]\s+(.+)$/u);
+    const provider = groupedPlan ? `[${groupedPlan[1]}] (${groupedPlan[2]!.trim()})` : formatGroupedHeader(group);
+    const customLabel = classifyQuotaWindowText(entry.label ?? "")
+      ? ""
+      : normalizeSingleWindowLabelText(entry.label);
+    return windowLabel ? `${provider} ${windowLabel}` : customLabel ? `${provider} ${customLabel}` : provider;
   }
 
   return name;

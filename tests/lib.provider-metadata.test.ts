@@ -158,6 +158,14 @@ describe("provider-metadata", () => {
         notes: "SuperGrok OAuth via OpenCode /connect; shared weekly credit meter",
       },
       {
+        id: "kilo",
+        autoSetup: "needs_quick_setup",
+        authentication: "state_only",
+        quota: "remote_api",
+        quickSetupAnchor: "kilo-gateway",
+        notes: "Reads Kilo usage APIs with a filtered trusted session cookie",
+      },
+      {
         id: "xiaomi",
         autoSetup: "needs_quick_setup",
         authentication: "state_only",
@@ -294,6 +302,7 @@ describe("provider-metadata", () => {
     expect(QUOTA_PROVIDER_RUNTIME_IDS.deepseek).toEqual(["deepseek"]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS.opencode).toEqual(["opencode", "opencode-zen"]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS.xai).toEqual(["xai"]);
+    expect(QUOTA_PROVIDER_RUNTIME_IDS.kilo).toEqual(["kilo", "kilo-gateway", "kilo-code"]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS.xiaomi).toEqual([
       "xiaomi",
       "xiaomi-token-plan-cn",
@@ -354,6 +363,11 @@ describe("provider-metadata", () => {
     expect(getQuotaProviderRuntimeIds("deep-seek")).toEqual(["deepseek"]);
     expect(getQuotaProviderRuntimeIds("opencode-zen")).toEqual(["opencode", "opencode-zen"]);
     expect(getQuotaProviderRuntimeIds("xai")).toEqual(["xai"]);
+    expect(getQuotaProviderRuntimeIds("kilo-gateway")).toEqual([
+      "kilo",
+      "kilo-gateway",
+      "kilo-code",
+    ]);
     expect(getQuotaProviderRuntimeIds("xiaomi-token-plan-cn")).toEqual([
       "xiaomi",
       "xiaomi-token-plan-cn",
@@ -425,6 +439,14 @@ describe("provider-metadata", () => {
       quota: "remote_api",
       notes: "SuperGrok OAuth via OpenCode /connect; shared weekly credit meter",
     });
+    expect(getQuotaProviderShape("kilo-gateway")).toEqual({
+      id: "kilo",
+      autoSetup: "needs_quick_setup",
+      authentication: "state_only",
+      quota: "remote_api",
+      quickSetupAnchor: "kilo-gateway",
+      notes: "Reads Kilo usage APIs with a filtered trusted session cookie",
+    });
     expect(getQuotaProviderShape("xiaomi-token-plan-ams")).toEqual({
       id: "xiaomi",
       autoSetup: "needs_quick_setup",
@@ -456,6 +478,7 @@ describe("provider-metadata", () => {
     expect(getQuotaProviderDisplayLabel("deep-seek")).toBe("DeepSeek");
     expect(getQuotaProviderDisplayLabel("opencode-zen")).toBe("OpenCode Zen");
     expect(getQuotaProviderDisplayLabel("xai")).toBe("xAI");
+    expect(getQuotaProviderDisplayLabel("kilo-gateway")).toBe("Kilo Gateway");
     expect(getQuotaProviderDisplayLabel("xiaomi")).toBe("Xiaomi MiMo");
     expect(getQuotaProviderDisplayLabel("xiaomi-token-plan-sgp")).toBe("Xiaomi MiMo");
     expect(getQuotaProviderDisplayLabel("mimo")).toBe("mimo");

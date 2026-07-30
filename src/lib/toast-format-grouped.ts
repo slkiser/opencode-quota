@@ -117,6 +117,7 @@ export function formatQuotaRowsGrouped(params: {
           decimals: params.resetTimeDecimals,
         });
         const value = entry.value.trim();
+        const leftText = right ? `${label} ${right}` : label;
 
         if (isTiny) {
           // Tiny: "label  time  value"
@@ -128,7 +129,6 @@ export function formatQuotaRowsGrouped(params: {
             1,
             maxWidth - separator.length - timeWidth - separator.length - valueCol,
           );
-          const leftText = right ? `${label} ${right}` : label;
           const line = [
             padRight(leftText, tinyNameCol),
             padLeft(timeStr, timeWidth),
@@ -138,23 +138,34 @@ export function formatQuotaRowsGrouped(params: {
           continue;
         }
 
-        // Non-tiny: single line (no bar)
-        const timeWidth = Math.max(timeStr.length, timeCol);
-        const valueWidth = Math.max(value.length, 6);
-        const leftMax = Math.max(
-          1,
-          barWidth - separator.length - valueWidth - separator.length - timeWidth,
-        );
-        const leftText = right ? `${label} ${right}` : label;
-        lines.push(
-          (
-            padRight(leftText, leftMax) +
-            separator +
-            padLeft(value, valueWidth) +
-            separator +
-            padLeft(timeStr, timeWidth)
-          ).slice(0, maxWidth),
-        );
+        if (timeStr) {
+          // Non-tiny with reset time: label + value + time
+          const timeWidth = Math.max(timeStr.length, timeCol);
+          const valueWidth = Math.max(value.length, 6);
+          const leftMax = Math.max(
+            1,
+            maxWidth - separator.length - valueWidth - separator.length - timeWidth,
+          );
+          lines.push(
+            (
+              padRight(leftText, leftMax) +
+              separator +
+              padLeft(value, valueWidth) +
+              separator +
+              padLeft(timeStr, timeWidth)
+            ).slice(0, maxWidth),
+          );
+        } else {
+          // Non-tiny without reset time: no time column wasted
+          const valueWidth = Math.max(value.length, 6);
+          const leftMax = Math.max(1, maxWidth - separator.length - valueWidth);
+          lines.push(
+            (padRight(leftText, leftMax) + separator + padLeft(value, valueWidth)).slice(
+              0,
+              maxWidth,
+            ),
+          );
+        }
         continue;
       }
 

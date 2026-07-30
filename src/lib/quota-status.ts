@@ -584,6 +584,14 @@ function supportedProviderPricingRow(params: {
     };
   }
 
+  if (id === "kilo") {
+    return {
+      id,
+      pricing: "no",
+      notes: "usage API plus credit quota/balance page fallback (not token-priced)",
+    };
+  }
+
   if (id === "kimi-for-coding" || id === "kimi-code") {
     return {
       id,
@@ -741,7 +749,10 @@ export async function buildQuotaStatusReport(params: {
     );
   }
   toastLines.push("- providers:");
-  for (const p of params.providerAvailability) {
+  const sortedAvailability = [...params.providerAvailability].sort((a, b) =>
+    a.id.localeCompare(b.id),
+  );
+  for (const p of sortedAvailability) {
     const bits: string[] = [];
     bits.push(p.enabled ? "enabled" : "disabled");
     bits.push(p.available ? "available" : "unavailable");
@@ -892,6 +903,7 @@ export async function buildQuotaStatusReport(params: {
     { id: "kimi", title: "kimi:", providerId: "kimi-for-coding" },
     { id: "opencode_go", title: "opencode_go:", providerId: "opencode-go" },
     { id: "opencode_zen", title: "opencode_zen:", providerId: "opencode" },
+    { id: "kilo", title: "kilo:", providerId: "kilo" },
     { id: "xiaomi", title: "xiaomi:", providerId: "xiaomi" },
     { id: "zai", title: "zai:", providerId: "zai" },
     { id: "zhipu", title: "zhipu:", providerId: "zhipu" },

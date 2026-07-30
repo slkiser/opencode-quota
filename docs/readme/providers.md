@@ -7,7 +7,7 @@
 | Find                                 | Go to                                                                                                                                                                                                     |
 | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Provider support                     | [Pre-configured providers](#pre-configured-providers) · [Custom providers](#custom-providers)                                                                                                             |
-| Billing, API key, or dashboard setup | [GitHub Copilot](#github-copilot) · [DeepSeek](#deepseek) · [Xiaomi MiMo](#xiaomi-mimo) · [Ollama Cloud](#ollama-cloud) · [OpenCode Go](#opencode-go) · [OpenCode Zen](#opencode-zen)                     |
+| Billing, API key, or dashboard setup | [GitHub Copilot](#github-copilot) · [DeepSeek](#deepseek) · [Kilo Gateway](#kilo-gateway) · [Xiaomi MiMo](#xiaomi-mimo) · [Ollama Cloud](#ollama-cloud) · [OpenCode Go](#opencode-go) · [OpenCode Zen](#opencode-zen) |
 | CLI or companion-plugin setup        | [Anthropic](#anthropic-claude) · [Cursor](#cursor) · [Qwen Code](#qwen-code) · [Google Antigravity](#google-antigravity) · [Google AGY](#google-agy-quick-setup) · [Gemini CLI (deprecated)](#gemini-cli) |
 
 ## Pre-configured providers
@@ -27,6 +27,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | GitHub Copilot     | [Needs setup](#github-copilot)         | Remote API         | Usage and budget   |
 | Google AGY         | [Needs setup](#google-agy-quick-setup) | Remote API         | Quota              |
 | Google Antigravity | [Needs setup](#google-antigravity)     | Remote API         | Quota              |
+| Kilo Gateway       | [Needs setup](#kilo-gateway)           | Remote API + page fallback | Usage, quota, and balance |
 | NanoGPT            | API key/config                         | Remote API         | Quota and balance  |
 | Ollama Cloud       | [Needs setup](#ollama-cloud)           | Dashboard scraping | Quota              |
 | OpenAI             | Automatic                              | Remote API         | Quota              |
@@ -479,6 +480,40 @@ Or put the key in trusted user/global OpenCode config, not repo-local config:
 ```
 
 If you use manual provider selection, include `deepseek` in `enabledProviders`.
+
+<a id="xiaomi-mimo"></a>
+
+### Kilo Gateway
+
+Kilo Gateway reads the signed-in `app.kilo.ai` usage APIs and reports personal 30-day usage. If Kilo later embeds credit quota or balance data in the usage page, the provider also recognizes those page payloads as a fallback.
+
+Current authenticated web app calls observed during implementation include `usageAnalytics.getSummary` through `/api/trpc` for personal usage, plus `/api/gastown/token` before `https://gastown.kiloapps.io/trpc` for gateway features.
+
+Use exactly one trusted credential source. The environment variable has priority:
+
+```bash
+export KILO_USAGE_COOKIE='__Secure-next-auth.session-token=...'
+```
+
+Or create the trusted user/global OpenCode runtime file `opencode-quota/kilo.json` (commonly `~/.config/opencode/opencode-quota/kilo.json`):
+
+```json
+{
+  "cookie": "__Secure-next-auth.session-token=..."
+}
+```
+
+Do not put this credential in a repository or workspace config. A present invalid environment value or higher-priority `kilo.json` blocks lower-priority files instead of falling back.
+
+The value may start with `Cookie:`. OpenCode Quota rejects line breaks and keeps only `__Secure-next-auth.session-token` or `next-auth.session-token` before requests.
+
+To copy the value manually:
+
+1. Sign in at `app.kilo.ai`.
+2. Open the browser Developer Tools, then **Application/Storage → Cookies**.
+3. Copy the `__Secure-next-auth.session-token` value into the environment variable or trusted file above.
+
+The confirmed OpenCode provider IDs are `kilo`, `kilo-gateway`, and `kilo-code`. In manual provider mode, put canonical `kilo` in `enabledProviders`.
 
 <a id="xiaomi-mimo"></a>
 

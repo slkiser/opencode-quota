@@ -75,6 +75,8 @@ function getProviderName(entry: QuotaToastEntry): string {
   if (bracketedProvider) return formatCompactProviderLabel(bracketedProvider);
 
   if (entry.group?.trim()) {
+    const groupedPlan = entry.group.trim().match(/^\[([^\]]+)\]\s+(.+)$/u);
+    if (groupedPlan) return `[${groupedPlan[1]!.trim()}] (${groupedPlan[2]!.trim()})`;
     return formatCompactProviderLabel(formatGroupedHeader(entry.group));
   }
 
@@ -119,7 +121,8 @@ function formatCompactPercentGroupSegment(group: CompactPercentGroup): string | 
           .map((window) => (window.label ? `${window.label} ${window.percent}` : window.percent))
           .join(COMPACT_WINDOW_SEPARATOR);
 
-  const separator = windows.every((window) => window.label && !window.isWindow) ? ": " : " ";
+  const hasOnlyCustomLabels = windows.every((window) => window.label && !window.isWindow);
+  const separator = hasOnlyCustomLabels && !group.provider.startsWith("[") ? ": " : " ";
   return compactText(`${group.provider}${separator}${summary}`);
 }
 

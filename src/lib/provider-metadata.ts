@@ -270,6 +270,18 @@ const PROVIDER_CATALOG_SOURCE = {
       notes: "SuperGrok OAuth via OpenCode /connect; shared weekly credit meter",
     },
   },
+  kilo: {
+    label: "Kilo Gateway",
+    runtimeIds: ["kilo", "kilo-gateway", "kilo-code"],
+    synonyms: ["kilo-gateway", "kilo-code"],
+    shape: {
+      autoSetup: "needs_quick_setup",
+      authentication: "state_only",
+      quota: "remote_api",
+      quickSetupAnchor: "kilo-gateway",
+      notes: "Reads Kilo usage APIs with a filtered trusted session cookie",
+    },
+  },
   xiaomi: {
     label: "Xiaomi MiMo",
     runtimeIds: [

@@ -1338,6 +1338,7 @@ minimax_china:
 kimi:
 opencode_go:
 opencode_zen:
+kilo:
 xiaomi:
 zai:
 zhipu:

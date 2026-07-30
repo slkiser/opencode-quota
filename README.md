@@ -146,6 +146,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | GitHub Copilot     | Automatic OAuth / [billing PAT](docs/readme/providers.md#github-copilot) | Remote API         | Usage and budget   |
 | Google AGY         | [Needs setup](docs/readme/providers.md#google-agy-quick-setup)           | Remote API         | Quota              |
 | Google Antigravity | [Needs setup](docs/readme/providers.md#google-antigravity)               | Remote API         | Quota              |
+| Kilo Gateway       | [Needs setup](docs/readme/providers.md#kilo-gateway)                    | Remote API + page fallback | Usage, quota, and balance |
 | NanoGPT            | API key/config                                                           | Remote API         | Quota and balance  |
 | Ollama Cloud       | [Needs setup](docs/readme/providers.md#ollama-cloud)                     | Dashboard scraping | Quota              |
 | OpenAI             | Automatic                                                                | Remote API         | Quota              |

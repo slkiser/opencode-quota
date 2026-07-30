@@ -229,6 +229,26 @@ export const PROVIDER_ACCOUNTING_LEDGER: Record<string, Array<QuotaToastEntry["a
       authority: "provider_reported",
     },
   ],
+  kilo: [
+    {
+      resultType: "quota",
+      acquisitionMethod: "dashboard_scrape",
+      ownership: "maintained",
+      authority: "provider_reported",
+    },
+    {
+      resultType: "balance",
+      acquisitionMethod: "dashboard_scrape",
+      ownership: "maintained",
+      authority: "provider_reported",
+    },
+    {
+      resultType: "usage",
+      acquisitionMethod: "remote_api",
+      ownership: "maintained",
+      authority: "provider_reported",
+    },
+  ],
   xiaomi: [
     {
       resultType: "quota",
