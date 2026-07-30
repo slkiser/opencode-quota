@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => {
   const fetchResponse = vi.fn();
   return {
     fetchResponse,
+    resolveOllamaCloudApiKey: vi.fn(),
     fetchWithTimeout: vi.fn(
       async (
         _url: string,
@@ -22,242 +23,234 @@ vi.mock("../src/lib/http.js", () => ({
   fetchWithTimeout: mocks.fetchWithTimeout,
 }));
 
-import {
-  _extractPlanTier,
-  _extractResetTimes,
-  _extractUsagePercentFromTrack,
-  queryOllamaCloudQuota,
-} from "../src/lib/ollama-cloud.js";
+vi.mock("../src/lib/ollama-cloud-config.js", () => ({
+  resolveOllamaCloudApiKey: mocks.resolveOllamaCloudApiKey,
+}));
+
+import { _parseOllamaCloudUsage, queryOllamaCloudQuota } from "../src/lib/ollama-cloud.js";
 
 function mockResponse(params: {
   ok: boolean;
   status: number;
+  json?: unknown;
   text?: string;
-  headers?: Record<string, string>;
+  jsonError?: Error;
 }) {
   mocks.fetchResponse.mockResolvedValueOnce({
     ok: params.ok,
     status: params.status,
-    headers: {
-      get: (name: string) => params.headers?.[name.toLowerCase()] ?? null,
+    text: async () => {
+      if (params.jsonError) throw params.jsonError;
+      return params.text ?? JSON.stringify(params.json);
     },
-    text: async () => params.text ?? "",
   });
 }
 
-function buildSettingsHtml(): string {
-  return `
-    <html>
-      <body>
-        <span class="capitalize">pro</span>
-        <div data-usage-track aria-label="25% used"></div>
-        <span class="local-time" data-time="2026-06-14T10:00:00.000Z"></span>
-        <div data-usage-track aria-label="40.5% used"></div>
-        <span class="local-time" data-time="2026-06-21T10:00:00.000Z"></span>
-      </body>
-    </html>
-  `;
-}
+const usagePayload = {
+  limits: {
+    session: { usage: 0.25 },
+    weekly: { usage: 0.405 },
+  },
+  models: [
+    { model: "qwen3-coder:480b", requests: 12 },
+    { model: "deepseek-v3.1:671b", requests: 1 },
+  ],
+};
 
 describe("queryOllamaCloudQuota", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it("normalizes a bare cookie value before sending the settings request", async () => {
-    mockResponse({ ok: true, status: 200, text: buildSettingsHtml() });
-
-    await queryOllamaCloudQuota("raw-cookie");
-
-    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
-      "https://ollama.com/settings",
-      expect.objectContaining({
-        request: expect.objectContaining({
-          headers: expect.objectContaining({
-            Cookie: "__Secure-session=raw-cookie",
-          }),
-          redirect: "manual",
-        }),
-        timeoutMs: 10_000,
-        consume: expect.any(Function),
-      }),
-    );
-  });
-
-  it("does not duplicate the __Secure-session cookie prefix", async () => {
-    mockResponse({ ok: true, status: 200, text: buildSettingsHtml() });
-
-    await queryOllamaCloudQuota("__Secure-session=prefixed-cookie", { requestTimeoutMs: 1234 });
-
-    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        request: expect.objectContaining({
-          headers: expect.objectContaining({
-            Cookie: "__Secure-session=prefixed-cookie",
-          }),
-        }),
-        timeoutMs: 1234,
-        consume: expect.any(Function),
-      }),
-    );
-  });
-
-  it("rejects CRLF in cookie values before making a request", async () => {
-    const out = await queryOllamaCloudQuota("bad\r\nCookie: injected");
-
-    expect(out).toEqual({
-      success: false,
-      error: "Cookie contains invalid CRLF characters",
+    mocks.resolveOllamaCloudApiKey.mockResolvedValue({
+      key: "ollama-secret-key",
+      source: "env:OLLAMA_API_KEY",
     });
+  });
+
+  it("returns null without a configured API key", async () => {
+    mocks.resolveOllamaCloudApiKey.mockResolvedValueOnce(null);
+
+    await expect(queryOllamaCloudQuota()).resolves.toBeNull();
     expect(mocks.fetchWithTimeout).not.toHaveBeenCalled();
   });
 
-  it("returns session and weekly usage from a successful settings page scrape", async () => {
-    mockResponse({ ok: true, status: 200, text: buildSettingsHtml() });
+  it("sends the exact usage request with the raw Authorization value", async () => {
+    mockResponse({ ok: true, status: 200, json: usagePayload });
 
-    const out = await queryOllamaCloudQuota("cookie");
+    await queryOllamaCloudQuota();
 
-    expect(out).toEqual({
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
+      "https://ollama.com/api/usage",
+      expect.objectContaining({
+        request: {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            Authorization: "ollama-secret-key",
+          },
+          redirect: "manual",
+        },
+        timeoutMs: undefined,
+        consume: expect.any(Function),
+      }),
+    );
+    const request = mocks.fetchWithTimeout.mock.calls[0]?.[1]?.request;
+    expect(request.headers.Authorization).not.toContain("Bearer ");
+  });
+
+  it("passes a configured request timeout", async () => {
+    mockResponse({ ok: true, status: 200, json: usagePayload });
+
+    await queryOllamaCloudQuota({ requestTimeoutMs: 1234 });
+
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ timeoutMs: 1234 }),
+    );
+  });
+
+  it("maps usage fractions and sorts model request counts", async () => {
+    mockResponse({ ok: true, status: 200, json: usagePayload });
+
+    await expect(queryOllamaCloudQuota()).resolves.toEqual({
       success: true,
       session: {
+        usageFraction: 0.25,
         usagePercent: 25,
         percentRemaining: 75,
-        resetTimeIso: "2026-06-14T10:00:00.000Z",
       },
       weekly: {
+        usageFraction: 0.405,
         usagePercent: 40.5,
         percentRemaining: 59.5,
-        resetTimeIso: "2026-06-21T10:00:00.000Z",
       },
-      planTier: "pro",
+      models: [
+        { model: "deepseek-v3.1:671b", requests: 1 },
+        { model: "qwen3-coder:480b", requests: 12 },
+      ],
     });
   });
 
-  it("returns session usage when only one valid usage track is present", async () => {
-    mockResponse({
-      ok: true,
-      status: 200,
-      text: `<div data-usage-track aria-label="25% used"></div>
-        <span class="local-time" data-time="2026-06-14T10:00:00.000Z"></span>`,
-    });
-
-    const out = await queryOllamaCloudQuota("cookie");
-
-    expect(out).toEqual({
+  it("preserves zero and fully-used fraction boundaries", () => {
+    expect(
+      _parseOllamaCloudUsage({
+        limits: { session: { usage: 0 }, weekly: { usage: 1 } },
+        models: [],
+      }),
+    ).toEqual({
       success: true,
-      session: {
-        usagePercent: 25,
-        percentRemaining: 75,
-        resetTimeIso: "2026-06-14T10:00:00.000Z",
-      },
+      session: { usageFraction: 0, usagePercent: 0, percentRemaining: 100 },
+      weekly: { usageFraction: 1, usagePercent: 100, percentRemaining: 0 },
+      models: [],
     });
   });
 
-  it("returns weekly usage when the first usage track is invalid and the second is valid", async () => {
-    mockResponse({
-      ok: true,
-      status: 200,
-      text: `<div data-usage-track aria-label="session"></div>
-        <span class="local-time" data-time="2026-06-14T10:00:00.000Z"></span>
-        <div data-usage-track aria-label="40% used"></div>
-        <span class="local-time" data-time="2026-06-21T10:00:00.000Z"></span>`,
+  it("keeps valid rows and reports invalid independent rows", () => {
+    const out = _parseOllamaCloudUsage({
+      limits: {
+        session: { usage: 0.2 },
+        weekly: { usage: 1.5 },
+      },
+      models: [
+        { model: "valid-model", requests: 0 },
+        { model: "negative", requests: -1 },
+        { model: "decimal", requests: 1.5 },
+        { model: "valid-model", requests: 3 },
+        { model: "  unsafe\nmodel\u202e\u001b[31m  ", requests: 2 },
+        null,
+      ],
     });
 
-    const out = await queryOllamaCloudQuota("cookie");
-
-    expect(out).toEqual({
+    expect(out).toMatchObject({
       success: true,
-      weekly: {
-        usagePercent: 40,
-        percentRemaining: 60,
-        resetTimeIso: "2026-06-21T10:00:00.000Z",
-      },
+      session: { usageFraction: 0.2, usagePercent: 20, percentRemaining: 80 },
+      models: [
+        { model: "unsafe model", requests: 2 },
+        { model: "valid-model", requests: 0 },
+      ],
+    });
+    expect(out && out.success ? out.rowErrors : []).toEqual([
+      "Weekly: ignored invalid usage fraction",
+      "Models: ignored invalid request count for negative",
+      "Models: ignored invalid request count for decimal",
+      "Models: ignored duplicate model valid-model",
+      "Models: ignored an invalid row",
+    ]);
+  });
+
+  it.each([null, [], "invalid"])("rejects an invalid root payload: %j", (payload) => {
+    expect(_parseOllamaCloudUsage(payload)).toEqual({
+      success: false,
+      error: "Ollama Cloud usage API returned an unexpected response shape",
     });
   });
 
-  it("parses style-only usage tracks without aria labels", async () => {
-    mockResponse({
-      ok: true,
-      status: 200,
-      text: '<div data-usage-track style="width: 33%"></div>',
-    });
-
-    const out = await queryOllamaCloudQuota("cookie");
-
-    expect(out).toEqual({
-      success: true,
-      session: {
-        usagePercent: 33,
-        percentRemaining: 67,
-        resetTimeIso: undefined,
-      },
+  it("rejects more than 100 model rows", () => {
+    expect(
+      _parseOllamaCloudUsage({
+        limits: { session: { usage: 0.1 } },
+        models: Array.from({ length: 101 }, (_, index) => ({
+          model: `model-${index}`,
+          requests: index,
+        })),
+      }),
+    ).toEqual({
+      success: false,
+      error: "Ollama Cloud usage API returned more than 100 model rows",
     });
   });
 
-  it("reports redirects as expired or invalid cookie authentication errors", async () => {
+  it("rejects an object with no usable usage data", () => {
+    expect(
+      _parseOllamaCloudUsage({
+        limits: { session: { usage: -1 }, weekly: { usage: Number.NaN } },
+        models: [{ model: "bad", requests: -1 }],
+      }),
+    ).toEqual({
+      success: false,
+      error: "Ollama Cloud usage API returned no usable usage data",
+    });
+  });
+
+  it("reports non-success responses without leaking the API key", async () => {
     mockResponse({
       ok: false,
-      status: 302,
-      headers: { location: "https://ollama.com/signin?next=/settings" },
+      status: 401,
+      text: "Unauthorized\nollama-secret-key\u001b[31m",
     });
 
-    const out = await queryOllamaCloudQuota("cookie");
+    const out = await queryOllamaCloudQuota();
+    const error = out && !out.success ? out.error : "";
 
-    expect(out && !out.success ? out.error : "").toBe(
-      "Authentication error: redirected to https://ollama.com/signin?next=/settings — cookie may be expired",
-    );
+    expect(error).toBe("Ollama Cloud usage API error 401: Unauthorized [redacted]");
+    expect(error).not.toContain("ollama-secret-key");
+    expect(error).not.toContain("\u001b");
   });
 
-  it("reports unauthorized settings responses without leaking the cookie", async () => {
-    mockResponse({ ok: false, status: 401, text: "Unauthorized\nPlease sign in" });
-
-    const out = await queryOllamaCloudQuota("secret-cookie");
-
-    expect(out && !out.success ? out.error : "").toBe(
-      "Ollama Cloud settings error 401: Unauthorized Please sign in",
-    );
-    expect(out && !out.success ? out.error : "").not.toContain("secret-cookie");
-  });
-
-  it("returns a clear parse error for non-matching settings HTML", async () => {
-    mockResponse({ ok: true, status: 200, text: "<html><body>No usage data here</body></html>" });
-
-    const out = await queryOllamaCloudQuota("cookie");
-
-    expect(out && !out.success ? out.error : "").toBe(
-      "Could not parse usage tracks from Ollama Cloud settings page (found 0)",
-    );
-  });
-
-  it("returns a clear parse error when usage tracks do not contain percentages", async () => {
+  it("rejects an oversized response before parsing it", async () => {
     mockResponse({
       ok: true,
       status: 200,
-      text: '<div data-usage-track aria-label="session"></div><div data-usage-track aria-label="weekly"></div>',
+      text: "x".repeat(256 * 1024 + 1),
     });
 
-    const out = await queryOllamaCloudQuota("cookie");
-
+    const out = await queryOllamaCloudQuota();
     expect(out && !out.success ? out.error : "").toBe(
-      "Could not extract any usage percentages from Ollama Cloud settings page",
+      "Ollama Cloud usage API response exceeded 262144 bytes",
     );
   });
-});
 
-describe("ollama-cloud HTML parsing helpers", () => {
-  it("extracts usage percentages from aria labels and width styles", () => {
-    expect(_extractUsagePercentFromTrack('data-usage-track aria-label="12.5% used"')).toBe(12.5);
-    expect(
-      _extractUsagePercentFromTrack('data-usage-track style="width: 33%" aria-label="usage"'),
-    ).toBe(33);
-  });
+  it("sanitizes malformed JSON and transport errors without leaking the API key", async () => {
+    mockResponse({
+      ok: true,
+      status: 200,
+      jsonError: new Error("bad JSON ollama-secret-key\nnext"),
+    });
 
-  it("extracts reset times and plan tier", () => {
-    const html =
-      '<span class="local-time" data-time="2026-06-14T10:00:00Z"></span><span class="capitalize">free</span>';
+    const malformed = await queryOllamaCloudQuota();
+    expect(malformed && !malformed.success ? malformed.error : "").toBe("bad JSON [redacted] next");
 
-    expect(_extractResetTimes(html)).toEqual(["2026-06-14T10:00:00Z"]);
-    expect(_extractPlanTier(html)).toBe("free");
+    mocks.fetchWithTimeout.mockRejectedValueOnce(new Error("timeout ollama-secret-key\u001b[31m"));
+    const timedOut = await queryOllamaCloudQuota();
+    expect(timedOut && !timedOut.success ? timedOut.error : "").toBe("timeout [redacted]");
   });
 });

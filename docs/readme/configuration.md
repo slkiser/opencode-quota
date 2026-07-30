@@ -354,6 +354,10 @@ Existing `experimental.quotaToast` settings remain supported. Quota settings do 
 | `cursorIncludedApiUsd`       | unset                              | Override Cursor monthly included API budget in USD.                                                  |
 | `cursorBillingCycleStartDay` | unset                              | Local billing-cycle anchor day `1..28`; when unset, Cursor usage resets on the local calendar month. |
 
+Kilo Gateway has no `quota-toast.json` credential setting. Use `KILO_API_KEY`, trusted user/global `provider.kilo.options.apiKey`, or a strict `kilo` API-key entry in OpenCode `auth.json`; project-local OpenCode config is not read for this secret. See [Kilo Gateway setup](providers.md#kilo-gateway).
+
+Ollama Cloud has no `quota-toast.json` credential setting. Use `OLLAMA_API_KEY`, trusted user/global `provider.ollama-cloud.options.apiKey`, or a strict `ollama-cloud` API-key entry in OpenCode `auth.json`; project-local OpenCode config is not read for this secret. See [Ollama Cloud setup](providers.md#ollama-cloud).
+
 Xiaomi MiMo has no `quota-toast.json` credential or endpoint setting. Use `MIMO_USAGE_COOKIE` or trusted user/global `opencode-quota/mimo.json`; see [Xiaomi MiMo setup](providers.md#xiaomi-mimo).
 
 ### Export settings

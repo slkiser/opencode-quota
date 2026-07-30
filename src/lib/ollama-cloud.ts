@@ -1,189 +1,210 @@
 /**
- * Ollama Cloud settings page scraper.
+ * Ollama Cloud usage API client.
  *
- * Fetches the Ollama Cloud settings page and parses the HTML for session
- * and weekly usage percentages, plan tier, and reset times from the
- * `data-usage-track` aria-labels, `usage-meter__fill` style attributes,
- * and `.local-time` data-time attributes.
+ * Fetches session and weekly usage fractions plus per-model request counts
+ * from the authenticated Ollama Cloud usage endpoint.
  */
 
+import { sanitizeSingleLineDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
-import { sanitizeDisplaySnippet, sanitizeSingleLineDisplayText } from "./display-sanitize.js";
-import type { OllamaCloudResult } from "./types.js";
+import { resolveOllamaCloudApiKey } from "./ollama-cloud-config.js";
+import type { OllamaCloudModelUsage, OllamaCloudResult, OllamaCloudWindow } from "./types.js";
 
-const SETTINGS_URL = "https://ollama.com/settings";
-const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Gecko/20100101 Firefox/148.0";
+const OLLAMA_CLOUD_USAGE_URL = "https://ollama.com/api/usage";
+const MAX_RESPONSE_BYTES = 256 * 1024;
+const MAX_MODEL_ROWS = 100;
 
-const SCRAPE_TIMEOUT_MS = 10_000;
+type JsonRecord = Record<string, unknown>;
 
-const USAGE_PERCENT_RE = /(\d+(?:\.\d+)?)%\s*used/;
-const WIDTH_PERCENT_RE = /(?:^|;)\s*width\s*:\s*([0-9.]+)%/;
-const DATA_USAGE_TRACK_RE = /<[^>]*\bdata-usage-track\b[^>]*>/gs;
-const LOCAL_TIME_RE = /class="[^"]*local-time[^"]*"[^>]*data-time="([^"]*)"/gs;
-const PLAN_TIER_RE = /class="[^"]*capitalize[^"]*"[^>]*>([^<]*)</;
-
-interface ScrapedUsage {
-  usagePercent: number;
-  resetTimeIso: string;
+function isRecord(value: unknown): value is JsonRecord {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function extractUsagePercentFromTrack(trackHtml: string): number | null {
-  const ariaMatch = trackHtml.match(USAGE_PERCENT_RE);
-  if (ariaMatch) {
-    const pct = Number(ariaMatch[1]);
-    if (Number.isFinite(pct) && pct >= 0 && pct <= 100) {
-      return pct;
-    }
-  }
-
-  const styleMatch = trackHtml.match(/style="([^"]*)"/);
-  if (styleMatch) {
-    const widthMatch = styleMatch[1].match(WIDTH_PERCENT_RE);
-    if (widthMatch) {
-      const pct = Number(widthMatch[1]);
-      if (Number.isFinite(pct) && pct >= 0 && pct <= 100) {
-        return pct;
-      }
-    }
-  }
-
-  return null;
+function sanitizeRemoteSingleLineText(text: string): string {
+  return sanitizeSingleLineDisplayText(text).replace(/\p{Cf}/gu, "");
 }
 
-function extractResetTimes(html: string): string[] {
-  const times: string[] = [];
-  let match: RegExpExecArray | null;
-  const re = new RegExp(LOCAL_TIME_RE.source, LOCAL_TIME_RE.flags);
-  while ((match = re.exec(html)) !== null) {
-    times.push(match[1]);
-  }
-  return times;
-}
-
-function extractPlanTier(html: string): string | null {
-  const match = html.match(PLAN_TIER_RE);
-  return match ? match[1].trim() : null;
-}
-
-function sanitizeMessage(text: string, maxLength = 200): string {
-  const sanitized = sanitizeSingleLineDisplayText(text);
+function sanitizeMessage(text: string, secret?: string, maxLength = 200): string {
+  const redacted = secret ? text.split(secret).join("[redacted]") : text;
+  const sanitized = sanitizeRemoteSingleLineText(redacted);
   return (sanitized || "unknown").slice(0, maxLength);
 }
 
-const COOKIE_NAME_PREFIX = "__Secure-session=";
+async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
+  if (!response.body) {
+    const text = await response.text();
+    if (new TextEncoder().encode(text).byteLength > maxBytes) {
+      throw new Error(`Ollama Cloud usage API response exceeded ${maxBytes} bytes`);
+    }
+    return text;
+  }
 
-function normalizeCookie(raw: string): string {
-  let value = raw.trim();
-  if (value.startsWith(COOKIE_NAME_PREFIX)) value = value.slice(COOKIE_NAME_PREFIX.length);
-  return value;
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let byteLength = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      byteLength += value.byteLength;
+      if (byteLength > maxBytes) {
+        await reader.cancel();
+        throw new Error(`Ollama Cloud usage API response exceeded ${maxBytes} bytes`);
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function parseWindow(value: unknown): OllamaCloudWindow | undefined {
+  if (!isRecord(value)) return undefined;
+  const usageFraction = value.usage;
+  if (
+    typeof usageFraction !== "number" ||
+    !Number.isFinite(usageFraction) ||
+    usageFraction < 0 ||
+    usageFraction > 1
+  ) {
+    return undefined;
+  }
+
+  const usagePercent = usageFraction * 100;
+  return {
+    usageFraction,
+    usagePercent,
+    percentRemaining: 100 - usagePercent,
+  };
+}
+
+function parseModels(value: unknown, rowErrors: string[]): OllamaCloudModelUsage[] {
+  if (!Array.isArray(value)) {
+    rowErrors.push("Models: expected an array");
+    return [];
+  }
+
+  const models: OllamaCloudModelUsage[] = [];
+  const seenModels = new Set<string>();
+
+  for (const candidate of value) {
+    if (!isRecord(candidate)) {
+      rowErrors.push("Models: ignored an invalid row");
+      continue;
+    }
+
+    const model =
+      typeof candidate.model === "string"
+        ? sanitizeRemoteSingleLineText(candidate.model).slice(0, 160)
+        : "";
+    const requests = candidate.requests;
+
+    if (!model) {
+      rowErrors.push("Models: ignored a row without a model name");
+      continue;
+    }
+    if (typeof requests !== "number" || !Number.isSafeInteger(requests) || requests < 0) {
+      rowErrors.push(`Models: ignored invalid request count for ${model}`);
+      continue;
+    }
+    if (seenModels.has(model)) {
+      rowErrors.push(`Models: ignored duplicate model ${model}`);
+      continue;
+    }
+
+    seenModels.add(model);
+    models.push({ model, requests });
+  }
+
+  return models.sort((left, right) => left.model.localeCompare(right.model));
+}
+
+function parseOllamaCloudUsage(payload: unknown): OllamaCloudResult {
+  if (!isRecord(payload)) {
+    return {
+      success: false,
+      error: "Ollama Cloud usage API returned an unexpected response shape",
+    };
+  }
+
+  if (Array.isArray(payload.models) && payload.models.length > MAX_MODEL_ROWS) {
+    return {
+      success: false,
+      error: `Ollama Cloud usage API returned more than ${MAX_MODEL_ROWS} model rows`,
+    };
+  }
+
+  const rowErrors: string[] = [];
+  const limits = isRecord(payload.limits) ? payload.limits : undefined;
+  const session = parseWindow(limits?.session);
+  const weekly = parseWindow(limits?.weekly);
+
+  if (limits?.session !== undefined && !session) {
+    rowErrors.push("Session: ignored invalid usage fraction");
+  }
+  if (limits?.weekly !== undefined && !weekly) {
+    rowErrors.push("Weekly: ignored invalid usage fraction");
+  }
+  if (!limits) {
+    rowErrors.push("Limits: expected an object");
+  }
+
+  const models = parseModels(payload.models, rowErrors);
+  if (!session && !weekly && models.length === 0) {
+    return {
+      success: false,
+      error: "Ollama Cloud usage API returned no usable usage data",
+    };
+  }
+
+  return {
+    success: true,
+    ...(session ? { session } : {}),
+    ...(weekly ? { weekly } : {}),
+    models,
+    ...(rowErrors.length > 0 ? { rowErrors } : {}),
+  };
 }
 
 export async function queryOllamaCloudQuota(
-  cookie: string,
   options: { requestTimeoutMs?: number } = {},
 ): Promise<OllamaCloudResult> {
-  if (cookie.includes("\r") || cookie.includes("\n")) {
-    return {
-      success: false,
-      error: "Cookie contains invalid CRLF characters",
-    };
-  }
+  const resolved = await resolveOllamaCloudApiKey();
+  if (!resolved) return null;
 
   try {
-    return await fetchWithTimeout(SETTINGS_URL, {
+    return await fetchWithTimeout(OLLAMA_CLOUD_USAGE_URL, {
       request: {
         method: "GET",
         headers: {
-          "User-Agent": USER_AGENT,
-          Accept: "text/html",
-          Cookie: `${COOKIE_NAME_PREFIX}${normalizeCookie(cookie)}`,
+          Accept: "application/json",
+          Authorization: resolved.key,
         },
         redirect: "manual",
       },
-      timeoutMs: options.requestTimeoutMs ?? SCRAPE_TIMEOUT_MS,
+      timeoutMs: options.requestTimeoutMs,
       consume: async (response) => {
-        if (response.status >= 300 && response.status < 400) {
-          const location = response.headers.get("location") || "";
-          return {
-            success: false,
-            error: `Authentication error: redirected to ${sanitizeMessage(location, 80)} — cookie may be expired`,
-          };
-        }
-
+        const text = await readBoundedText(response, MAX_RESPONSE_BYTES);
         if (!response.ok) {
-          const text = await response.text();
+          const snippet = sanitizeMessage(text, resolved.key);
           return {
             success: false,
-            error: `Ollama Cloud settings error ${response.status}: ${sanitizeMessage(text)}`,
+            error: `Ollama Cloud usage API error ${response.status}: ${snippet}`,
           };
         }
 
-        const html = await response.text();
-
-        const planTier = extractPlanTier(html);
-
-        const tracks: string[] = [];
-        let trackMatch: RegExpExecArray | null;
-        const trackRe = new RegExp(DATA_USAGE_TRACK_RE.source, DATA_USAGE_TRACK_RE.flags);
-        while ((trackMatch = trackRe.exec(html)) !== null) {
-          tracks.push(trackMatch[0]);
-        }
-
-        if (tracks.length === 0) {
-          return {
-            success: false,
-            error: "Could not parse usage tracks from Ollama Cloud settings page (found 0)",
-          };
-        }
-
-        const sessionPercent = tracks[0] ? extractUsagePercentFromTrack(tracks[0]) : null;
-        const weeklyPercent = tracks[1] ? extractUsagePercentFromTrack(tracks[1]) : null;
-
-        if (sessionPercent === null && weeklyPercent === null) {
-          return {
-            success: false,
-            error: "Could not extract any usage percentages from Ollama Cloud settings page",
-          };
-        }
-
-        const resetTimes = extractResetTimes(html);
-        const sessionResetsAt = resetTimes[0] || undefined;
-        const weeklyResetsAt = resetTimes[1] || undefined;
-
-        return {
-          success: true,
-          ...(sessionPercent !== null
-            ? {
-                session: {
-                  usagePercent: sessionPercent,
-                  percentRemaining: 100 - sessionPercent,
-                  resetTimeIso: sessionResetsAt,
-                },
-              }
-            : {}),
-          ...(weeklyPercent !== null
-            ? {
-                weekly: {
-                  usagePercent: weeklyPercent,
-                  percentRemaining: 100 - weeklyPercent,
-                  resetTimeIso: weeklyResetsAt,
-                },
-              }
-            : {}),
-          ...(planTier ? { planTier } : {}),
-        };
+        return parseOllamaCloudUsage(JSON.parse(text) as unknown);
       },
     });
-  } catch (err) {
+  } catch (error) {
     return {
       success: false,
-      error: sanitizeMessage(err instanceof Error ? err.message : String(err)),
+      error: sanitizeMessage(error instanceof Error ? error.message : String(error), resolved.key),
     };
   }
 }
 
-export {
-  extractUsagePercentFromTrack as _extractUsagePercentFromTrack,
-  extractResetTimes as _extractResetTimes,
-  extractPlanTier as _extractPlanTier,
-};
+export { parseOllamaCloudUsage as _parseOllamaCloudUsage };

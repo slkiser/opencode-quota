@@ -43,6 +43,14 @@ describe("provider-metadata", () => {
         quota: "remote_api",
       },
       {
+        id: "kilo",
+        autoSetup: "usually",
+        authentication: "opencode_auth_api_key",
+        authFallbacks: ["env_api_key", "global_opencode_config"],
+        quota: "remote_api",
+        notes: "Queries the documented Kilo profile balance API; reports personal USD balance only",
+      },
+      {
         id: "cursor",
         autoSetup: "needs_quick_setup",
         authentication: "companion_auth_oauth_token",
@@ -191,11 +199,12 @@ describe("provider-metadata", () => {
       },
       {
         id: "ollama-cloud",
-        autoSetup: "manual_env_config",
-        authentication: "state_only",
+        autoSetup: "usually",
+        authentication: "opencode_auth_api_key",
+        authFallbacks: ["env_api_key", "global_opencode_config"],
         quota: "remote_api",
         notes:
-          "Scrapes the Ollama Cloud settings page; requires __Secure-session cookie via OLLAMA_USAGE_COOKIE env or ollama-usage config",
+          "Queries the Ollama Cloud usage API; reports session and weekly quota plus model request counts",
       },
       {
         id: "quota-providers",
@@ -256,6 +265,7 @@ describe("provider-metadata", () => {
     ]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS.anthropic).toEqual(["anthropic"]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS.openai).toEqual(["openai", "chatgpt", "codex"]);
+    expect(QUOTA_PROVIDER_RUNTIME_IDS.kilo).toEqual(["kilo"]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS.cursor).toEqual(["cursor", "cursor-acp"]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS.synthetic).toEqual(["synthetic"]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS.chutes).toEqual(["chutes", "chutes-ai"]);
@@ -321,6 +331,8 @@ describe("provider-metadata", () => {
     ]);
     expect(getQuotaProviderRuntimeIds("claude")).toEqual(["anthropic"]);
     expect(getQuotaProviderRuntimeIds("openai")).toEqual(["openai", "chatgpt", "codex"]);
+    expect(getQuotaProviderRuntimeIds("kilo")).toEqual(["kilo"]);
+    expect(getQuotaProviderRuntimeIds("kilo-gateway")).toEqual([]);
     expect(getQuotaProviderRuntimeIds("open-cursor")).toEqual(["cursor", "cursor-acp"]);
     expect(getQuotaProviderRuntimeIds("google-antigravity")).toEqual([
       "google-antigravity",
@@ -432,6 +444,14 @@ describe("provider-metadata", () => {
       quickSetupAnchor: "opencode-zen",
       notes: "Scrapes the OpenCode Zen billing page; requires workspaceId and authCookie",
     });
+    expect(getQuotaProviderShape("kilo")).toEqual({
+      id: "kilo",
+      autoSetup: "usually",
+      authentication: "opencode_auth_api_key",
+      authFallbacks: ["env_api_key", "global_opencode_config"],
+      quota: "remote_api",
+      notes: "Queries the documented Kilo profile balance API; reports personal USD balance only",
+    });
     expect(getQuotaProviderShape("xai")).toEqual({
       id: "xai",
       autoSetup: "yes",
@@ -477,6 +497,7 @@ describe("provider-metadata", () => {
     expect(getQuotaProviderDisplayLabel("kimi")).toBe("Kimi Code");
     expect(getQuotaProviderDisplayLabel("deep-seek")).toBe("DeepSeek");
     expect(getQuotaProviderDisplayLabel("opencode-zen")).toBe("OpenCode Zen");
+    expect(getQuotaProviderDisplayLabel("kilo")).toBe("Kilo Gateway");
     expect(getQuotaProviderDisplayLabel("xai")).toBe("xAI");
     expect(getQuotaProviderDisplayLabel("kilo-gateway")).toBe("Kilo Gateway");
     expect(getQuotaProviderDisplayLabel("xiaomi")).toBe("Xiaomi MiMo");

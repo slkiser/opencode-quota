@@ -8,6 +8,7 @@ const EXPECTED_PROVIDER_ORDER = [
   "copilot",
   "openai",
   "openrouter",
+  "kilo",
   "cursor",
   "qwen-code",
   "alibaba-coding-plan",

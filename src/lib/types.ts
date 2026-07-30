@@ -813,17 +813,23 @@ export type SyntheticResult =
   | QuotaError
   | null;
 
-/** Single usage window from Ollama Cloud settings page */
+/** Single usage window from the Ollama Cloud usage API */
 export interface OllamaCloudWindow {
+  /** Provider-reported usage fraction [0..1] */
+  usageFraction: number;
   /** Usage percentage [0..100] */
   usagePercent: number;
   /** Remaining percentage [0..100] */
   percentRemaining: number;
-  /** ISO reset timestamp */
-  resetTimeIso?: string;
 }
 
-/** Result from scraping Ollama Cloud settings page */
+/** Per-model request count from the Ollama Cloud usage API */
+export interface OllamaCloudModelUsage {
+  model: string;
+  requests: number;
+}
+
+/** Result from the Ollama Cloud usage API */
 export type OllamaCloudResult =
   | {
       success: true;
@@ -831,8 +837,10 @@ export type OllamaCloudResult =
       session?: OllamaCloudWindow;
       /** Weekly usage window, when present */
       weekly?: OllamaCloudWindow;
-      /** Plan tier (e.g. "free", "pro") */
-      planTier?: string;
+      /** Valid per-model request counts */
+      models: OllamaCloudModelUsage[];
+      /** Independent response rows that could not be used */
+      rowErrors?: string[];
     }
   | QuotaError
   | null;

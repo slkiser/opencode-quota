@@ -71,6 +71,7 @@ describe("README provider ledger", () => {
         "GitHub Copilot",
         "Google AGY",
         "Google Antigravity",
+        "Kilo Gateway",
         "NanoGPT",
         "Ollama Cloud",
         "OpenAI",
@@ -148,6 +149,7 @@ describe("README provider ledger", () => {
       "Budget and spend",
       "Budget and balance",
       "Quota and balance",
+      "Balance",
       "Balance and status",
     ]);
 

@@ -1,8 +1,8 @@
 /**
  * Ollama Cloud provider wrapper.
  *
- * Scrapes the Ollama Cloud settings page and reports session and weekly
- * usage as percentage-based quota entries.
+ * Queries the Ollama Cloud usage API and reports session/weekly quota plus
+ * provider-reported per-model request counts.
  */
 
 import type {
@@ -11,35 +11,44 @@ import type {
   QuotaProviderResult,
   QuotaToastEntry,
 } from "../lib/entries.js";
+import { getOllamaCloudKeyDiagnostics, hasOllamaCloudApiKey } from "../lib/ollama-cloud-config.js";
+import { queryOllamaCloudQuota } from "../lib/ollama-cloud.js";
+import { modelProviderMatchesRuntimeId } from "../lib/provider-model-matching.js";
 import type { OllamaCloudResult } from "../lib/types.js";
 import {
-  DEFAULT_OLLAMA_CLOUD_CONFIG_CACHE_MAX_AGE_MS,
-  resolveOllamaCloudConfigCached,
-} from "../lib/ollama-cloud-config.js";
-import { queryOllamaCloudQuota } from "../lib/ollama-cloud.js";
-import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
-import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";
+  attemptedResult,
+  mapNullableProviderResult,
+  simpleApiKeyStatusDetails,
+  statusDetailsFromRecord,
+  withStatusDetails,
+} from "./result-helpers.js";
 
 const OLLAMA_CLOUD_PROVIDER_LABEL = "Ollama Cloud";
+const REMOTE_API_ACCOUNTING = {
+  acquisitionMethod: "remote_api",
+  ownership: "maintained",
+  authority: "provider_reported",
+} as const;
 
-function buildOllamaCloudEntries(
-  result: Extract<OllamaCloudResult, { success: true }>,
-): QuotaToastEntry[] {
+type OllamaCloudSuccess = Extract<OllamaCloudResult, { success: true }>;
+
+function formatRequestCount(requests: number): string {
+  return `${requests} ${requests === 1 ? "request" : "requests"}`;
+}
+
+function mapOllamaCloudSuccess(result: OllamaCloudSuccess): QuotaProviderResult {
   const entries: QuotaToastEntry[] = [];
 
   if (result.session) {
     entries.push({
       accounting: {
         resultType: "quota",
-        acquisitionMethod: "dashboard_scrape",
-        ownership: "maintained",
-        authority: "provider_reported",
+        ...REMOTE_API_ACCOUNTING,
       },
       name: `${OLLAMA_CLOUD_PROVIDER_LABEL} Session`,
       group: OLLAMA_CLOUD_PROVIDER_LABEL,
       label: "Session:",
       percentRemaining: result.session.percentRemaining,
-      resetTimeIso: result.session.resetTimeIso,
     });
   }
 
@@ -47,85 +56,83 @@ function buildOllamaCloudEntries(
     entries.push({
       accounting: {
         resultType: "quota",
-        acquisitionMethod: "dashboard_scrape",
-        ownership: "maintained",
-        authority: "provider_reported",
+        ...REMOTE_API_ACCOUNTING,
       },
       name: `${OLLAMA_CLOUD_PROVIDER_LABEL} Weekly`,
       group: OLLAMA_CLOUD_PROVIDER_LABEL,
       label: "Weekly:",
       percentRemaining: result.weekly.percentRemaining,
-      resetTimeIso: result.weekly.resetTimeIso,
     });
   }
 
-  return entries;
+  for (const model of result.models) {
+    entries.push({
+      kind: "value",
+      accounting: {
+        resultType: "usage",
+        ...REMOTE_API_ACCOUNTING,
+      },
+      name: `${OLLAMA_CLOUD_PROVIDER_LABEL} ${model.model}`,
+      group: OLLAMA_CLOUD_PROVIDER_LABEL,
+      label: `${model.model}:`,
+      metricLabel: model.model,
+      value: formatRequestCount(model.requests),
+    });
+  }
+
+  const errors = (result.rowErrors ?? []).map((message) => ({
+    label: OLLAMA_CLOUD_PROVIDER_LABEL,
+    message,
+  }));
+  if (entries.length === 0) {
+    errors.push({
+      label: OLLAMA_CLOUD_PROVIDER_LABEL,
+      message: "No usable Ollama Cloud usage data",
+    });
+  }
+
+  return withStatusDetails(attemptedResult(entries, errors), [
+    ...statusDetailsFromRecord({
+      session_usage_fraction: result.session?.usageFraction.toString(),
+      weekly_usage_fraction: result.weekly?.usageFraction.toString(),
+      model_rows: result.models.length.toString(),
+    }),
+    ...(result.rowErrors ?? []).map((message, index) => ({
+      key: `live_error_${index + 1}`,
+      value: message,
+    })),
+  ]);
 }
 
 export const ollamaCloudProvider: QuotaProvider = {
   id: "ollama-cloud",
 
   async isAvailable(_ctx: QuotaProviderContext): Promise<boolean> {
-    const config = await resolveOllamaCloudConfigCached({
-      maxAgeMs: DEFAULT_OLLAMA_CLOUD_CONFIG_CACHE_MAX_AGE_MS,
-    });
-    return config.state === "configured";
+    return await hasOllamaCloudApiKey();
   },
 
   matchesCurrentModel(model: string): boolean {
-    const [provider] = model.toLowerCase().split("/", 2);
-    return normalizeQuotaProviderId(provider) === "ollama-cloud";
+    return modelProviderMatchesRuntimeId(model, "ollama-cloud");
   },
 
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
-    const config = await resolveOllamaCloudConfigCached({
-      maxAgeMs: DEFAULT_OLLAMA_CLOUD_CONFIG_CACHE_MAX_AGE_MS,
+    const diagnostics = await getOllamaCloudKeyDiagnostics().catch(() => ({
+      configured: false,
+      source: null,
+      checkedPaths: [],
+      authPaths: [],
+    }));
+    const result = await queryOllamaCloudQuota({
+      requestTimeoutMs: ctx.config?.requestTimeoutMs,
+    });
+    const providerResult = mapNullableProviderResult(result, {
+      errorLabel: OLLAMA_CLOUD_PROVIDER_LABEL,
+      onSuccess: mapOllamaCloudSuccess,
     });
 
-    if (config.state === "none") {
-      return notAttemptedResult();
-    }
-
-    if (config.state === "incomplete") {
-      return attemptedErrorResult(
-        OLLAMA_CLOUD_PROVIDER_LABEL,
-        `Missing ${config.missing} (source: ${config.source})`,
-      );
-    }
-
-    if (config.state === "invalid") {
-      return attemptedErrorResult(
-        OLLAMA_CLOUD_PROVIDER_LABEL,
-        `Invalid config (${config.source}): ${config.error}`,
-      );
-    }
-
-    const result = await queryOllamaCloudQuota(config.config.cookie, {
-      requestTimeoutMs: ctx.config?.requestTimeoutMsConfigured
-        ? ctx.config.requestTimeoutMs
-        : undefined,
-    });
-
-    if (!result) {
-      return attemptedErrorResult(
-        OLLAMA_CLOUD_PROVIDER_LABEL,
-        "No response from Ollama Cloud settings page",
-      );
-    }
-
-    if (!result.success) {
-      return attemptedErrorResult(OLLAMA_CLOUD_PROVIDER_LABEL, result.error);
-    }
-
-    const entries = buildOllamaCloudEntries(result);
-
-    if (entries.length === 0) {
-      return attemptedErrorResult(
-        OLLAMA_CLOUD_PROVIDER_LABEL,
-        "No usage data found on Ollama Cloud settings page",
-      );
-    }
-
-    return attemptedResult(entries);
+    return withStatusDetails(providerResult, [
+      ...simpleApiKeyStatusDetails(diagnostics),
+      ...(providerResult.statusDetails ?? []),
+    ]);
   },
 };

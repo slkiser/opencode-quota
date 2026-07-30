@@ -81,6 +81,18 @@ const PROVIDER_CATALOG_SOURCE = {
       quota: "remote_api",
     },
   },
+  kilo: {
+    label: "Kilo Gateway",
+    runtimeIds: ["kilo"],
+    synonyms: [],
+    shape: {
+      autoSetup: "usually",
+      authentication: "opencode_auth_api_key",
+      authFallbacks: ["env_api_key", "global_opencode_config"],
+      quota: "remote_api",
+      notes: "Queries the documented Kilo profile balance API; reports personal USD balance only",
+    },
+  },
   cursor: {
     label: "Cursor",
     runtimeIds: ["cursor", "cursor-acp"],
@@ -328,11 +340,12 @@ const PROVIDER_CATALOG_SOURCE = {
     runtimeIds: ["ollama-cloud"],
     synonyms: [],
     shape: {
-      autoSetup: "manual_env_config",
-      authentication: "state_only",
+      autoSetup: "usually",
+      authentication: "opencode_auth_api_key",
+      authFallbacks: ["env_api_key", "global_opencode_config"],
       quota: "remote_api",
       notes:
-        "Scrapes the Ollama Cloud settings page; requires __Secure-session cookie via OLLAMA_USAGE_COOKIE env or ollama-usage config",
+        "Queries the Ollama Cloud usage API; reports session and weekly quota plus model request counts",
     },
   },
   "quota-providers": {

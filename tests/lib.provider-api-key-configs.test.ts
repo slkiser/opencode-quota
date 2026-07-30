@@ -79,6 +79,36 @@ const providers = [
     },
   },
   {
+    name: "Ollama Cloud",
+    envVars: ["OLLAMA_API_KEY"],
+    providerKeys: ["ollama-cloud"],
+    authKeys: ["ollama-cloud"],
+    load: async () => {
+      const module = await import("../src/lib/ollama-cloud-config.js");
+      return {
+        resolve: module.resolveOllamaCloudApiKey,
+        has: module.hasOllamaCloudApiKey,
+        diagnostics: module.getOllamaCloudKeyDiagnostics,
+        getConfigCandidates: module.getOpencodeConfigCandidatePaths,
+      };
+    },
+  },
+  {
+    name: "Kilo Gateway",
+    envVars: ["KILO_API_KEY"],
+    providerKeys: ["kilo"],
+    authKeys: ["kilo"],
+    load: async () => {
+      const module = await import("../src/lib/kilo-config.js");
+      return {
+        resolve: module.resolveKiloApiKey,
+        has: module.hasKiloApiKey,
+        diagnostics: module.getKiloKeyDiagnostics,
+        getConfigCandidates: module.getOpencodeConfigCandidatePaths,
+      };
+    },
+  },
+  {
     name: "DeepSeek",
     envVars: ["DEEPSEEK_API_KEY"],
     providerKeys: ["deepseek"],
