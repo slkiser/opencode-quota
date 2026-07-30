@@ -76,7 +76,13 @@ function getProviderName(entry: QuotaToastEntry): string {
 
   if (entry.group?.trim()) {
     const groupedPlan = entry.group.trim().match(/^\[([^\]]+)\]\s+(.+)$/u);
-    if (groupedPlan) return `[${groupedPlan[1]!.trim()}] (${groupedPlan[2]!.trim()})`;
+    if (groupedPlan) {
+        const plan = groupedPlan[2]!.trim();
+        const hasParens = plan.startsWith("(") && plan.endsWith(")");
+        return hasParens
+          ? `[${groupedPlan[1]!.trim()}] ${plan}`
+          : `[${groupedPlan[1]!.trim()}] (${plan})`;
+      }
     return formatCompactProviderLabel(formatGroupedHeader(entry.group));
   }
 
