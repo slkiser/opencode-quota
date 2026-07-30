@@ -918,6 +918,36 @@ describe("collectQuotaRenderData shared quota state", () => {
     ]);
   });
 
+  it("keeps custom percent labels when projecting grouped plan names", async () => {
+    const provider = testProvider("kilo", {
+      entries: [
+        {
+          accounting: TEST_ACCOUNTING,
+          name: "Kilo Credits",
+          group: "[Kilo] Starter",
+          label: "Credits:",
+          percentRemaining: 100,
+        },
+      ],
+    });
+
+    const result = await collectQuotaRenderData({
+      client: TEST_CLIENT,
+      config: renderConfig({ enabledProviders: [provider.id] }),
+      surfaceExplicitProviderIssues: true,
+      formatStyle: "singleWindow",
+      providers: [provider],
+    });
+
+    expect(result.data?.entries).toEqual([
+      {
+        accounting: TEST_ACCOUNTING,
+        name: "[Kilo] (Starter) Credits",
+        percentRemaining: 100,
+      },
+    ]);
+  });
+
   it("keeps one labeled Google AGY result per account in single-window mode", async () => {
     const provider = testProvider("google-agy", {
       entries: [

@@ -386,12 +386,19 @@ function buildSingleWindowName(params: {
     params.singleWindowDisplayName?.trim() ||
     params.entry.name.trim() ||
     "";
-  const provider = formatGroupedHeader(providerText);
+  const groupedPlan = providerText.match(/^\[([^\]]+)\]\s+(.+)$/u);
+  const provider = groupedPlan
+    ? `[${groupedPlan[1]}] (${groupedPlan[2]!.trim()})`
+    : formatGroupedHeader(providerText);
   const windowLabel =
     normalizeSingleWindowWindowLabel(params.entry.label) ??
     normalizeSingleWindowWindowLabel(params.entry.name);
+  const customLabel =
+    groupedPlan && !classifyQuotaWindowText(params.entry.label ?? "")
+      ? (params.entry.label?.trim().replace(/:+$/u, "").trim() ?? "")
+      : "";
 
-  return windowLabel ? `${provider} ${windowLabel}` : provider;
+  return windowLabel ? `${provider} ${windowLabel}` : customLabel ? `${provider} ${customLabel}` : provider;
 }
 
 function renameSingleWindowEntry(entry: QuotaToastEntry, name: string): QuotaToastEntry {
