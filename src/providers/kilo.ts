@@ -55,7 +55,7 @@ function formatNumber(value: number): string {
 
 function getGroup(result: KiloUsageResult): string {
   const plan = result.planName ? sanitizeSingleLineDisplaySnippet(result.planName, 40) : "";
-  return plan ? `[${KILO_DISPLAY_LABEL}] ${plan}` : KILO_DISPLAY_LABEL;
+  return plan ? `[${KILO_DISPLAY_LABEL}] (${plan})` : KILO_DISPLAY_LABEL;
 }
 
 function buildEntries(result: KiloUsageResult): QuotaToastEntry[] {
@@ -63,16 +63,11 @@ function buildEntries(result: KiloUsageResult): QuotaToastEntry[] {
   const entries: QuotaToastEntry[] = [];
 
   if (result.usedMicrodollars !== null && result.limitMicrodollars !== null && result.limitMicrodollars > 0) {
-    const right =
-      result.periodBonusCreditsUsd != null && result.periodBonusCreditsUsd > 0
-        ? `${formatMicrodollars(result.usedMicrodollars)}/${formatMicrodollars(result.limitMicrodollars)} +${formatMicrodollars(result.periodBonusCreditsUsd)} bonus`
-        : `${formatMicrodollars(result.usedMicrodollars)}/${formatMicrodollars(result.limitMicrodollars)}`;
     entries.push({
       accounting: QUOTA_ACCOUNTING,
       name: `${KILO_DISPLAY_LABEL} Credits`,
       group,
       label: "Credits:",
-      right,
       percentRemaining:
         result.limitMicrodollars > 0
           ? 100 - (result.usedMicrodollars / result.limitMicrodollars) * 100

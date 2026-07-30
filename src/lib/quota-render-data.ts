@@ -388,7 +388,13 @@ function buildSingleWindowName(params: {
     "";
   const groupedPlan = providerText.match(/^\[([^\]]+)\]\s+(.+)$/u);
   const provider = groupedPlan
-    ? `[${groupedPlan[1]}] (${groupedPlan[2]!.trim()})`
+    ? (() => {
+        const plan = groupedPlan[2]!.trim();
+        const hasParens = plan.startsWith("(") && plan.endsWith(")");
+        return hasParens
+          ? `[${groupedPlan[1]}] ${plan}`
+          : `[${groupedPlan[1]}] (${plan})`;
+      })()
     : formatGroupedHeader(providerText);
   const windowLabel =
     normalizeSingleWindowWindowLabel(params.entry.label) ??
