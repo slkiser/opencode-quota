@@ -67,7 +67,7 @@ describe("OpenCode auth reader", () => {
     });
   });
 
-  it("keeps auth.json entries ahead of database credentials", async () => {
+  it("ignores legacy auth.json entries", async () => {
     const { dataDir } = await createCredentialDatabase();
     vi.stubEnv("XDG_DATA_HOME", join(dataDir, ".."));
     await writeFile(
@@ -77,7 +77,7 @@ describe("OpenCode auth reader", () => {
 
     await expect(readAuthFile()).resolves.toMatchObject({
       "github-copilot": { access: "copilot-access" },
-      openai: { access: "file-access" },
+      openai: { access: "openai-access" },
     });
   });
 });

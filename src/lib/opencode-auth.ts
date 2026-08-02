@@ -1,13 +1,11 @@
 /**
- * OpenCode auth.json reader
+ * OpenCode credential database reader
  *
- * Shared helper to read auth from ~/.local/share/opencode/auth.json
- * (or platform equivalent). Providers should prefer this to duplicating
- * file/path parsing.
+ * Shared helper to read credentials from OpenCode's SQLite database.
+ * Providers should prefer this to duplicating database/path parsing.
  */
 
 import { existsSync } from "fs";
-import { readFile } from "fs/promises";
 import { createRequire } from "module";
 import { isAbsolute, join, resolve } from "path";
 
@@ -56,25 +54,7 @@ export function getAuthPath(): string {
 
 export async function readAuthFile(): Promise<AuthData | null> {
   const { dataDirs } = getOpencodeRuntimeDirCandidates();
-  const fileAuth = await readAuthFiles(dataDirs.map((dataDir) => join(dataDir, "auth.json")));
-  const databaseAuth = readCredentialDatabases(dataDirs);
-
-  if (!fileAuth && !databaseAuth) return null;
-  // auth.json is a user-managed compatibility source, so it wins over the current database.
-  return { ...databaseAuth, ...fileAuth };
-}
-
-async function readAuthFiles(paths: string[]): Promise<AuthData | null> {
-  for (const path of paths) {
-    try {
-      const content = await readFile(path, "utf-8");
-      return JSON.parse(content) as AuthData;
-    } catch {
-      // Try next path
-    }
-  }
-
-  return null;
+  return readCredentialDatabases(dataDirs);
 }
 
 function readCredentialDatabases(dataDirs: string[]): AuthData | null {
