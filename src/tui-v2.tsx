@@ -5,6 +5,11 @@ import { Show, createSignal, onCleanup } from "solid-js";
 
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
 import { formatQuotaRows } from "./lib/format.js";
+import {
+  buildQuotaDialogCommandOutput,
+  QUOTA_DIALOG_COMMANDS,
+  type QuotaDialogCommandId,
+} from "./lib/quota-dialog-commands.js";
 import { collectQuotaRenderData } from "./lib/quota-render-data.js";
 import {
   createQuotaRuntimeRequestContext,
@@ -26,12 +31,30 @@ type Toast = {
 type TuiContext = {
   client: unknown;
   data: { on: (event: string, handler: (event: TuiEvent) => void) => () => void };
+  keymap: {
+    layer: (build: () => {
+      mode: "global";
+      commands: Array<{
+        id: string;
+        title: string;
+        group: string;
+        palette: true;
+        slash: { name: string };
+        run: (input?: unknown) => void;
+      }>;
+    }) => void;
+  };
   ui: {
     slot: {
       (name: "app", render: () => null): () => void;
       (name: "sidebar.content", render: (props: { sessionID: string }) => JSX.Element): () => void;
     };
     toast: { show: (toast: Toast) => void };
+    dialog: {
+      alert: (params: { title: string; message: string }) => Promise<unknown>;
+      prompt: (params: { title: string; placeholder?: string }) => Promise<string | undefined>;
+      set: (params: { size: "medium" | "large" | "xlarge" }) => void;
+    };
   };
 };
 
@@ -129,7 +152,75 @@ function reportFailure(error: unknown): void {
   console.warn(`[opencode-quota] failed to load quota: ${message}`);
 }
 
-function SidebarQuotaView(props: { context: TuiContext; sessionID: string }): JSX.Element {
+function getCommandArguments(input: unknown): string | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const record = input as Record<string, unknown>;
+  for (const key of ["arguments", "args", "query"] as const) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+async function runQuotaCommand(
+  context: TuiContext,
+  command: QuotaDialogCommandId,
+  sessionID: string | undefined,
+  input?: unknown,
+): Promise<void> {
+  const spec = QUOTA_DIALOG_COMMANDS.find((item) => item.id === command)!;
+  let argumentsText = getCommandArguments(input);
+  if (spec.acceptsArguments && argumentsText === undefined) {
+    const value = await context.ui.dialog.prompt({
+      title: spec.title,
+      placeholder: command === "tokens_between" ? "YYYY-MM-DD YYYY-MM-DD" : "Optional arguments",
+    });
+    if (value === undefined) return;
+    argumentsText = value.trim() || undefined;
+  }
+
+  try {
+    const result = await buildQuotaDialogCommandOutput({
+      command,
+      arguments: argumentsText,
+      client: context.client as never,
+      roots: { fallbackDirectory: process.cwd() },
+      sessionID,
+      resolveSessionMeta: (id) => getSessionModelMeta(context.client, id),
+    });
+    if (result.state === "noop") return;
+    const alert = context.ui.dialog.alert({ title: result.title, message: result.output });
+    context.ui.dialog.set({ size: result.dialogSize });
+    await alert;
+  } catch (error) {
+    context.ui.toast.show({
+      variant: "error",
+      title: "OpenCode Quota",
+      message: sanitizeDisplayText(error instanceof Error ? error.message : String(error)),
+    });
+  }
+}
+
+function registerQuotaCommands(context: TuiContext, getSessionID: () => string | undefined): void {
+  context.keymap.layer(() => ({
+    mode: "global",
+    commands: QUOTA_DIALOG_COMMANDS.map((spec) => ({
+      id: `quota.${spec.id}`,
+      title: spec.title,
+      group: "OpenCode Quota",
+      palette: true,
+      slash: { name: spec.slashName },
+      run: (input?: unknown) => void runQuotaCommand(context, spec.id, getSessionID(), input),
+    })),
+  }));
+}
+
+function SidebarQuotaView(props: {
+  context: TuiContext;
+  sessionID: string;
+  setActiveSessionID: (sessionID: string) => void;
+}): JSX.Element {
+  props.setActiveSessionID(props.sessionID);
   const [quota, setQuota] = createSignal<{ message: string; duration: number } | undefined>(
     undefined,
   );
@@ -168,11 +259,14 @@ const plugin = {
   id: "@slkiser/opencode-quota",
   setup(context: TuiContext) {
     let disposeEvents: (() => void) | undefined;
+    let activeSessionID: string | undefined;
     const disposeApp = context.ui.slot("app", () => {
       if (disposeEvents) return null;
+      registerQuotaCommands(context, () => activeSessionID);
       const trigger = (event: TuiEvent, reason: "idle" | "compacted" | "question") => {
         const sessionID = getSessionID(event);
         if (!sessionID) return;
+        activeSessionID = sessionID;
         void getQuotaMessage(context, sessionID, reason)
           .then((quota) => {
             if (!quota) return;
@@ -200,7 +294,13 @@ const plugin = {
       return null;
     });
     const disposeSidebar = context.ui.slot("sidebar.content", (props) => (
-      <SidebarQuotaView context={context} sessionID={props.sessionID} />
+      <SidebarQuotaView
+        context={context}
+        sessionID={props.sessionID}
+        setActiveSessionID={(sessionID) => {
+          activeSessionID = sessionID;
+        }}
+      />
     ));
     return () => {
       disposeEvents?.();
