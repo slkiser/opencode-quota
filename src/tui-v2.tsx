@@ -80,7 +80,7 @@ async function getQuotaMessage(
   context: TuiContext,
   sessionID: string,
   surface: "sidebar" | "idle" | "compacted" | "question",
-): Promise<{ message: string; duration: number } | undefined> {
+): Promise<{ message: string; duration: number; activeProviderCount: number } | undefined> {
   const runtime = await resolveQuotaRuntimeContext({
     client: context.client as never,
     roots: { fallbackDirectory: process.cwd() },
@@ -143,7 +143,11 @@ async function getQuotaMessage(
           ? data.errors.map((error) => `${error.label}: ${error.message}`).join("\n")
           : undefined;
   return message
-    ? { message: sanitizeDisplayText(message), duration: config.toastDurationMs }
+    ? {
+        message: sanitizeDisplayText(message),
+        duration: config.toastDurationMs,
+        activeProviderCount: result.active.length,
+      }
     : undefined;
 }
 
@@ -221,9 +225,12 @@ function SidebarQuotaView(props: {
   setActiveSessionID: (sessionID: string) => void;
 }): JSX.Element {
   props.setActiveSessionID(props.sessionID);
-  const [quota, setQuota] = createSignal<{ message: string; duration: number } | undefined>(
-    undefined,
-  );
+  const [open, setOpen] = createSignal(true);
+  const [quota, setQuota] = createSignal<
+    { message: string; duration: number; activeProviderCount: number } | undefined
+  >(undefined);
+  const lines = () => quota()?.message.split("\n") ?? [];
+  const expandable = () => lines().length > 2;
   const refresh = () => {
     void getQuotaMessage(props.context, props.sessionID, "sidebar")
       .then((result) => setQuota(result))
@@ -237,19 +244,25 @@ function SidebarQuotaView(props: {
 
   return (
     <box flexDirection="column">
-      <text fg={terminalForeground}>
-        <b>Quota</b>
-      </text>
+      <box flexDirection="row" gap={1} onMouseDown={() => expandable() && setOpen((value) => !value)}>
+        <Show when={expandable()}>
+          <text fg={terminalForeground}>{open() ? "▼" : "▶"}</text>
+        </Show>
+        <text fg={terminalForeground}>
+          <b>Quota</b>
+          <Show when={expandable() && !open() && quota()?.activeProviderCount}>
+            {(count) => ` (${count()} active)`}
+          </Show>
+        </text>
+      </box>
       <Show when={quota()} fallback={<text fg={terminalForeground}>No quota data available</text>}>
-        {(value: () => { message: string; duration: number }) =>
-          value()
-            .message.split("\n")
-            .map((line) => (
-              <text fg={terminalForeground} wrapMode="none">
-                {line || " "}
-              </text>
-            ))
-        }
+        <Show when={!expandable() || open()}>
+          {lines().map((line) => (
+            <text fg={terminalForeground} wrapMode="none">
+              {line || " "}
+            </text>
+          ))}
+        </Show>
       </Show>
     </box>
   );
