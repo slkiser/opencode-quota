@@ -251,7 +251,7 @@ function SidebarQuotaView(props: {
         <text fg={terminalForeground}>
           <b>Quota</b>
           <Show when={expandable() && !open() && quota()?.activeProviderCount}>
-            {(count) => ` (${count()} active)`}
+            {(count: () => number) => ` (${count()} active)`}
           </Show>
         </text>
       </box>
