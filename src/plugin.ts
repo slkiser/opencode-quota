@@ -6,6 +6,7 @@
  * Supports GitHub Copilot and Google (via opencode-antigravity-auth).
  */
 
+import { createHash } from "node:crypto";
 import { isMainThread } from "node:worker_threads";
 import type { Plugin } from "@opencode-ai/plugin";
 import { tool } from "@opencode-ai/plugin";
@@ -17,7 +18,11 @@ import {
 import { getOrFetchWithCacheControl } from "./lib/cache.js";
 import { handled } from "./lib/command-handled.js";
 import { shouldRegisterServerSlashCommands } from "./lib/command-surfaces.js";
-import { createLoadConfigMeta, type LoadConfigMeta } from "./lib/config.js";
+import {
+  createLoadConfigMeta,
+  type LoadConfigMeta,
+  serializeNineRouterProviderSelection,
+} from "./lib/config.js";
 import { findGitWorktreeRoot, getEffectiveConfigRoot } from "./lib/config-file-utils.js";
 import { isCursorModelId, isCursorProviderId } from "./lib/cursor-pricing.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
@@ -32,6 +37,7 @@ import {
   setPricingSnapshotAutoRefresh,
   setPricingSnapshotSelection,
 } from "./lib/modelsdev-pricing.js";
+import { resolveNineRouterConfig } from "./lib/nine-router.js";
 import { reconcileDetectedProvidersInGlobalConfig } from "./lib/opencode-config-providers.js";
 import {
   buildQuotaDialogCommandOutput,
@@ -737,6 +743,10 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
     const enabledProviders =
       config.enabledProviders === "auto" ? "auto" : config.enabledProviders.join(",");
     const googleModels = config.googleModels.join(",");
+    const nineRouter = resolveNineRouterConfig();
+    const nineRouterRoot = nineRouter.success ? nineRouter.root : "";
+    const nineRouterKey = process.env.OPENCODE_NINEROUTER_API_KEY?.trim() ?? "";
+    const hash = (value: string) => createHash("sha256").update(value).digest("hex");
     const currentModel =
       config.onlyCurrentModel && params.sessionID ? (params.sessionMeta?.modelID ?? "") : "";
     const currentProviderID =
@@ -757,6 +767,10 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
       `cursorPlan=${config.cursorPlan}`,
       `cursorIncludedApiUsd=${config.cursorIncludedApiUsd ?? ""}`,
       `cursorBillingCycleStartDay=${config.cursorBillingCycleStartDay ?? ""}`,
+      `nineRouterRootSha256=${hash(`9router:root:${nineRouterRoot}`)}`,
+      `nineRouterKeySha256=${hash(`9router:key:${nineRouterKey}`)}`,
+      `nineRouterProvidersSha256=${hash(`9router:providers:${serializeNineRouterProviderSelection(config.nineRouter.providers)}`)}`,
+      `nineRouterDisplaySha256=${hash(`9router:display:${config.nineRouter.display.toLowerCase()}`)}`,
     ].join("|");
   }
 

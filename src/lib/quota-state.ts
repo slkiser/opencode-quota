@@ -63,7 +63,10 @@ export function cloneQuotaProviderResult(result: QuotaProviderResult): QuotaProv
 export function buildQuotaProviderStateCacheKey(
   providerId: string,
   ctx: QuotaProviderContext,
-  options: { runtimeEligibleQuotaProviders?: readonly QuotaProviderDefinition[] } = {},
+  options: {
+    runtimeEligibleQuotaProviders?: readonly QuotaProviderDefinition[];
+    providerCacheIdentity?: string;
+  } = {},
 ): string {
   const googleModels = ctx.config.googleModels.join(",");
   const cursorPlan = ctx.config.cursorPlan;
@@ -91,7 +94,10 @@ export function buildQuotaProviderStateCacheKey(
       ])}`
     : "";
 
-  return `${providerId}${quotaProvidersIdentity}${runtimeEligibleIdentity}|anthropicBinaryPath=${anthropicBinaryPath}|googleModels=${googleModels}|cursorPlan=${cursorPlan}|cursorIncludedApiUsd=${cursorIncludedApiUsd}|cursorBillingCycleStartDay=${cursorBillingCycleStartDay}|opencodeGoWindows=${opencodeGoWindows}|onlyCurrentModel=${onlyCurrentModel}|currentModel=${currentModel}|currentProviderID=${currentProviderID}`;
+  const providerCacheIdentity = options.providerCacheIdentity
+    ? `|providerCacheIdentity=${options.providerCacheIdentity}`
+    : "";
+  return `${providerId}${quotaProvidersIdentity}${runtimeEligibleIdentity}${providerCacheIdentity}|anthropicBinaryPath=${anthropicBinaryPath}|googleModels=${googleModels}|cursorPlan=${cursorPlan}|cursorIncludedApiUsd=${cursorIncludedApiUsd}|cursorBillingCycleStartDay=${cursorBillingCycleStartDay}|opencodeGoWindows=${opencodeGoWindows}|onlyCurrentModel=${onlyCurrentModel}|currentModel=${currentModel}|currentProviderID=${currentProviderID}`;
 }
 
 function getQuotaProviderCacheDir(): string {
@@ -587,8 +593,10 @@ export async function fetchQuotaProviderResult(params: {
     provider.id === QUOTA_PROVIDERS_AGGREGATE_ID &&
     runtimeEligibleQuotaProviders?.some((definition) => definition.mode === "local-estimate") ===
       true;
+  const providerCacheIdentity = provider.cacheIdentity?.(ctx);
   const key = buildQuotaProviderStateCacheKey(provider.id, ctx, {
     runtimeEligibleQuotaProviders,
+    ...(providerCacheIdentity ? { providerCacheIdentity } : {}),
   });
   const now = Date.now();
   const packageVersion = await getQuotaProviderCachePackageVersion();
@@ -704,8 +712,10 @@ export async function readCachedProviderResult(params: {
   if (runtimeEligibleQuotaProviders === null) {
     return { hit: false };
   }
+  const providerCacheIdentity = params.provider.cacheIdentity?.(params.ctx);
   const key = buildQuotaProviderStateCacheKey(params.provider.id, params.ctx, {
     runtimeEligibleQuotaProviders,
+    ...(providerCacheIdentity ? { providerCacheIdentity } : {}),
   });
   const now = Date.now();
 

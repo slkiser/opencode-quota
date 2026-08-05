@@ -37,7 +37,16 @@ vi.mock("../src/lib/quota-state.js", async () => {
 // --------------- imports ---------------
 
 import { writeJsonAtomic } from "../src/lib/atomic-json.js";
-import { buildQuotaExport, resolveExportPath, writeQuotaExport } from "../src/lib/quota-export.js";
+import { createLoadConfigMeta } from "../src/lib/config.js";
+import {
+  buildQuotaExport,
+  createExportProviderContext,
+  resolveExportPath,
+  writeQuotaExport,
+} from "../src/lib/quota-export.js";
+import { createQuotaProviderRuntimeContext } from "../src/lib/quota-runtime-context.js";
+import { createRuntimeProviderIdResolver } from "../src/lib/runtime-provider-ids.js";
+import { DEFAULT_CONFIG } from "../src/lib/types.js";
 import {
   accountingContractExport,
   accountingContractResult,
@@ -88,6 +97,45 @@ describe("resolveExportPath", () => {
     );
     expect(resolveExportPath("/etc/opencode/export.json")).toBe("/etc/opencode/export.json");
     expect(resolveExportPath("relative/path/quota.json")).toBe("relative/path/quota.json");
+  });
+});
+
+describe("createExportProviderContext", () => {
+  it("retains the writer's immutable nineRouter cache identity without telemetry ownership", () => {
+    const client = createMockContext().client;
+    const config = {
+      ...DEFAULT_CONFIG,
+      onlyCurrentModel: true,
+      nineRouter: { providers: ["kiro"], display: "unified" as const },
+      telemetry: { enabled: true },
+    };
+    const runtime = {
+      client,
+      roots: { workspaceRoot: "/tmp/workspace", configRoot: "/tmp/workspace" },
+      config,
+      configMeta: createLoadConfigMeta(),
+      providers: [],
+      resolveRuntimeProviderIds: createRuntimeProviderIdResolver(client),
+      session: { sessionID: "session", sessionMeta: { providerID: "9router" } },
+    };
+
+    const context = createExportProviderContext(runtime);
+    const writerContext = createQuotaProviderRuntimeContext(runtime);
+    const provider = {
+      id: "identity-provider",
+      isAvailable: vi.fn(),
+      fetch: vi.fn(),
+      cacheIdentity: (providerContext: typeof context) =>
+        JSON.stringify(providerContext.config.nineRouter),
+    };
+    const writerIdentity = provider.cacheIdentity(writerContext);
+    const exportIdentity = provider.cacheIdentity(context);
+    config.nineRouter.providers.push("codex");
+
+    expect(exportIdentity).toBe(writerIdentity);
+    expect(context.config.nineRouter).toEqual({ providers: ["kiro"], display: "unified" });
+    expect(context.config.onlyCurrentModel).toBe(false);
+    expect(context.config.telemetryToken).toBeUndefined();
   });
 });
 

@@ -7,6 +7,7 @@ const EXPECTED_PROVIDER_ORDER = [
   "anthropic",
   "copilot",
   "openai",
+  "9router",
   "openrouter",
   "kilo",
   "cursor",

@@ -22,6 +22,7 @@ import {
   minimaxCodingPlanProvider,
 } from "./minimax-coding-plan.js";
 import { nanoGptProvider } from "./nanogpt.js";
+import { nineRouterProvider } from "./nine-router.js";
 import { ollamaCloudProvider } from "./ollama-cloud.js";
 import { openaiProvider } from "./openai.js";
 import { opencodeGoProvider } from "./opencode-go.js";
@@ -40,6 +41,7 @@ export function getProviders(): QuotaProvider[] {
     anthropicProvider,
     copilotProvider,
     openaiProvider,
+    nineRouterProvider,
     openRouterProvider,
     kiloProvider,
     cursorProvider,

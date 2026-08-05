@@ -582,6 +582,7 @@ export async function buildStatusReportData(params: {
     settingSources: params.runtime.configMeta.settingSources,
     configIssues: params.runtime.configMeta.configIssues,
     enabledProviders: runtimeConfig.enabledProviders,
+    nineRouter: runtimeConfig.nineRouter,
     googleModels: runtimeConfig.googleModels,
     anthropicBinaryPath: runtimeConfig.anthropicBinaryPath,
     cursorPlan: runtimeConfig.cursorPlan,

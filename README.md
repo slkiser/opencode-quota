@@ -137,6 +137,7 @@ Use the CLI for scripts, CI, or a quick terminal check outside OpenCode.
 
 | Provider           | Auth/setup                                                     | Data from          | Reports            |
 | ------------------ | -------------------------------------------------------------- | ------------------ | ------------------ |
+| 9Router            | [Needs setup](docs/readme/providers.md#9router)                | Remote API         | Quota              |
 | Anthropic (Claude) | [Needs setup](docs/readme/providers.md#anthropic-claude)       | Local CLI/OAuth    | Quota              |
 | Chutes AI          | Automatic                                                      | Remote API         | Quota              |
 | Cursor             | [Needs setup](docs/readme/providers.md#cursor)                 | Local estimate     | Budget and spend   |

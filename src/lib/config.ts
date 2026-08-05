@@ -22,6 +22,7 @@ import { cloneQuotaProviders, validateQuotaProviders } from "./quota-providers.j
 import type {
   CursorQuotaPlan,
   GoogleModelId,
+  NineRouterDisplay,
   PercentDisplayMode,
   PricingSnapshotSource,
   QuotaToastConfig,
@@ -81,6 +82,8 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "export.enabled",
   "export.path",
   "telemetry.enabled",
+  "nineRouter.providers",
+  "nineRouter.display",
 ] as const;
 
 export type QuotaToastSettingSourceKey = (typeof QUOTA_TOAST_SETTING_SOURCE_KEYS)[number];
@@ -132,6 +135,8 @@ const NETWORK_SETTING_SOURCE_KEYS = [
   "showOnQuestion",
   "showOnCompact",
   "showOnBothFail",
+  "nineRouter.providers",
+  "nineRouter.display",
 ] as const satisfies readonly QuotaToastSettingSourceKey[];
 
 type PricingSnapshotPatch = Partial<QuotaToastConfig["pricingSnapshot"]>;
@@ -141,6 +146,7 @@ type MaintainerAnnouncementsPatch = Partial<QuotaToastConfig["maintainerAnnounce
 type LayoutPatch = Partial<QuotaToastConfig["layout"]>;
 type ExportConfigPatch = Partial<QuotaToastConfig["export"]>;
 type TelemetryConfigPatch = Partial<QuotaToastConfig["telemetry"]>;
+type NineRouterPatch = Partial<QuotaToastConfig["nineRouter"]>;
 
 type ValidatedQuotaToastPatch = {
   enabled?: boolean;
@@ -176,6 +182,7 @@ type ValidatedQuotaToastPatch = {
   layout?: LayoutPatch;
   export?: ExportConfigPatch;
   telemetry?: TelemetryConfigPatch;
+  nineRouter?: NineRouterPatch;
 };
 
 type ConfigLayerScope = "global" | "workspace";
@@ -240,6 +247,38 @@ function isValidTuiCommandDisplay(value: unknown): value is TuiCommandDisplay {
 
 function isValidSessionTokenScope(value: unknown): value is SessionTokenScope {
   return value === "current" || value === "tree";
+}
+function isValidNineRouterDisplay(value: unknown): value is NineRouterDisplay {
+  return value === "perConnection" || value === "unified";
+}
+function hasNineRouterControlCharacter(value: string): boolean {
+  return Array.from(value).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 31 || (codePoint >= 127 && codePoint <= 159);
+  });
+}
+export function canonicalizeNineRouterProviders(value: readonly unknown[]): string[] {
+  const providers = new Set<string>();
+  let all = false;
+  for (const item of value) {
+    const provider = normalizeOptionalString(item)?.toLowerCase();
+    if (provider === "all") {
+      all = true;
+      continue;
+    }
+    if (
+      !provider ||
+      hasNineRouterControlCharacter(provider) ||
+      Array.from(provider).length > 128 ||
+      providers.size === 32
+    )
+      continue;
+    providers.add(provider);
+  }
+  return providers.size ? [...providers].sort() : all ? ["all"] : [];
+}
+export function serializeNineRouterProviderSelection(providers: readonly string[]): string {
+  return JSON.stringify(canonicalizeNineRouterProviders(providers));
 }
 
 function isPositiveNumber(value: unknown): value is number {
@@ -328,6 +367,7 @@ function cloneConfig(config: QuotaToastConfig): QuotaToastConfig {
     layout: { ...config.layout },
     export: { ...config.export },
     telemetry: { ...config.telemetry },
+    nineRouter: { ...config.nineRouter, providers: [...config.nineRouter.providers] },
   };
 }
 
@@ -540,6 +580,34 @@ function extractTelemetryConfigPatch(value: unknown): TelemetryConfigPatch | und
 
   if (hasOwnKey(value, "enabled") && typeof value.enabled === "boolean") {
     patch.enabled = value.enabled;
+  }
+
+  return Object.keys(patch).length > 0 ? patch : undefined;
+}
+function extractNineRouterPatch(
+  value: unknown,
+  reportIssue?: (key: string, message: string) => void,
+): NineRouterPatch | undefined {
+  if (!isPlainObject(value)) {
+    reportIssue?.("nineRouter", "expected an object");
+    return undefined;
+  }
+
+  const patch: NineRouterPatch = {};
+  if (hasOwnKey(value, "providers")) {
+    if (Array.isArray(value.providers)) {
+      patch.providers = canonicalizeNineRouterProviders(value.providers);
+    } else {
+      reportIssue?.("nineRouter.providers", "expected an array of provider ids");
+    }
+  }
+
+  if (hasOwnKey(value, "display")) {
+    if (isValidNineRouterDisplay(value.display)) {
+      patch.display = value.display;
+    } else {
+      reportIssue?.("nineRouter.display", 'expected "perConnection" or "unified"');
+    }
   }
 
   return Object.keys(patch).length > 0 ? patch : undefined;
@@ -775,6 +843,10 @@ function extractValidatedQuotaToastPatch(
     if (telemetry) {
       patch.telemetry = telemetry;
     }
+  }
+  if (hasOwnKey(quotaToastConfig, "nineRouter")) {
+    const nineRouter = extractNineRouterPatch(quotaToastConfig.nineRouter, reportIssue);
+    if (nineRouter) patch.nineRouter = nineRouter;
   }
 
   return patch;
@@ -1027,6 +1099,16 @@ function applyValidatedQuotaToastPatch(
   if (patch.telemetry && hasOwnKey(patch.telemetry, "enabled")) {
     config.telemetry.enabled = patch.telemetry.enabled!;
     applySettingSource(settingSources, "telemetry.enabled", sourcePath);
+  }
+  if (patch.nineRouter) {
+    if (patch.nineRouter.providers !== undefined) {
+      config.nineRouter.providers = [...patch.nineRouter.providers];
+      applySettingSource(settingSources, "nineRouter.providers", sourcePath);
+    }
+    if (patch.nineRouter.display !== undefined) {
+      config.nineRouter.display = patch.nineRouter.display;
+      applySettingSource(settingSources, "nineRouter.display", sourcePath);
+    }
   }
 }
 

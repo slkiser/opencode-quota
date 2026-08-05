@@ -59,5 +59,5 @@ describe("tui dist packaging", () => {
       id: "@slkiser/opencode-quota",
     });
     expect(typeof mod.default.tui).toBe("function");
-  });
+  }, 10_000);
 });

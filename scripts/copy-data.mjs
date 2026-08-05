@@ -1,5 +1,5 @@
-import { copyFile, mkdir } from "fs/promises";
-import { dirname, join } from "path";
+import { copyFile, mkdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 const files = [
   {

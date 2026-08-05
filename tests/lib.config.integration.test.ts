@@ -143,6 +143,46 @@ describe("loadConfig integration runtime-path resolution", () => {
     expect(meta.workspaceConfigPaths.some((path) => path.includes("quota-toast.jsonc"))).toBe(true);
   });
 
+  it("overrides lower nineRouter providers with an explicit all selection", async () => {
+    const env = process.env as NodeJS.ProcessEnv;
+    const globalDir = getOpencodeRuntimeDirCandidates({ env, homeDir: tempDir }).configDirs[0]!;
+    writeQuotaToastConfig(globalDir, { nineRouter: { providers: [" KIRO ", "codex"] } });
+    writeQuotaSidecarConfig(workspaceDir, { nineRouter: { providers: [], display: "unified" } });
+
+    const meta = createLoadConfigMeta();
+    const config = await loadConfig(undefined, meta, { configRootDir: workspaceDir });
+
+    expect(config.nineRouter).toEqual({ providers: [], display: "unified" });
+    expect(meta.settingSources["nineRouter.providers"]).toBe(
+      quotaSidecarConfigSource(workspaceDir),
+    );
+    expect(meta.settingSources["nineRouter.display"]).toBe(quotaSidecarConfigSource(workspaceDir));
+    expect(meta.networkSettingSources["nineRouter.providers"]).toBe(
+      quotaSidecarConfigSource(workspaceDir),
+    );
+    expect(meta.networkSettingSources["nineRouter.display"]).toBe(
+      quotaSidecarConfigSource(workspaceDir),
+    );
+  });
+
+  it("merges nineRouter providers and display across global and workspace sources", async () => {
+    const env = process.env as NodeJS.ProcessEnv;
+    const globalDir = getOpencodeRuntimeDirCandidates({ env, homeDir: tempDir }).configDirs[0]!;
+    writeQuotaSidecarConfig(globalDir, { nineRouter: { providers: [" KIRO ", "codex"] } });
+    writeQuotaToastConfig(workspaceDir, { nineRouter: { display: "unified" } });
+
+    const meta = createLoadConfigMeta();
+    const config = await loadConfig(undefined, meta, { configRootDir: workspaceDir });
+
+    expect(config.nineRouter).toEqual({ providers: ["codex", "kiro"], display: "unified" });
+    expect(meta.settingSources["nineRouter.providers"]).toBe(quotaSidecarConfigSource(globalDir));
+    expect(meta.settingSources["nineRouter.display"]).toBe(quotaConfigSource(workspaceDir));
+    expect(meta.networkSettingSources["nineRouter.providers"]).toBe(
+      quotaSidecarConfigSource(globalDir),
+    );
+    expect(meta.networkSettingSources["nineRouter.display"]).toBe(quotaConfigSource(workspaceDir));
+  });
+
   it("loads a custom provider after init creates a manual-mode JSONC sidecar", async () => {
     const env = process.env as NodeJS.ProcessEnv;
     const configDir = getOpencodeRuntimeDirCandidates({ env, homeDir: tempDir }).configDirs[0]!;

@@ -172,6 +172,9 @@ export async function resolveQuotaRenderSelection(params: {
     currentProviderID = request.sessionMeta.providerID;
   }
 
+  if (!config.enabled) return null;
+
+  const allProviders = params.providers ?? getProviders();
   const ctx = createQuotaProviderRuntimeContext({
     client,
     config,
@@ -184,10 +187,8 @@ export async function resolveQuotaRenderSelection(params: {
         providerID: currentProviderID,
       },
     },
+    providers: allProviders,
   });
-  if (!config.enabled) return null;
-
-  const allProviders = params.providers ?? getProviders();
   const isAutoMode = config.enabledProviders === "auto";
   const providers = isAutoMode
     ? allProviders
@@ -311,6 +312,7 @@ export async function collectQuotaStatusLiveProbes(params: {
         providerID: currentProviderID,
       },
     },
+    providers: params.providers,
   });
 
   const resultsByProviderId = new Map<string, Promise<QuotaProviderResult>>();

@@ -1023,6 +1023,57 @@ describe("/quota command behavior", () => {
     expect(provider.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("partitions rendered nineRouter toast cache by hashed management and display inputs", async () => {
+    vi.stubEnv("OPENCODE_NINEROUTER_URL", "https://router.example.test/management");
+    vi.stubEnv("OPENCODE_NINEROUTER_API_KEY", "render-cache-secret");
+    mocks.loadConfig.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      enabled: true,
+      enabledProviders: ["9router"],
+      nineRouter: { providers: ["kiro"], display: "perConnection" },
+      showOnIdle: true,
+      showOnCompact: false,
+      showOnQuestion: false,
+      showSessionTokens: false,
+      minIntervalMs: 60_000,
+    });
+
+    const provider = {
+      id: "9router",
+      cacheIdentity: () => process.env.OPENCODE_NINEROUTER_URL ?? "",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi
+        .fn()
+        .mockResolvedValueOnce({
+          attempted: true,
+          entries: [{ accounting: TEST_ACCOUNTING, name: "Kiro", percentRemaining: 80 }],
+          errors: [],
+        })
+        .mockResolvedValueOnce({
+          attempted: true,
+          entries: [{ accounting: TEST_ACCOUNTING, name: "Codex", percentRemaining: 40 }],
+          errors: [],
+        }),
+    };
+    mocks.getProviders.mockReturnValue([provider]);
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const client = createClient({ modelID: "9router/gpt-5", providerID: "9router" });
+    const hooks = await QuotaToastPlugin({ client } as any);
+    const event = { event: { type: "session.idle", properties: { sessionID: "session-9router" } } };
+
+    await hooks.event?.(event as any);
+    vi.stubEnv("OPENCODE_NINEROUTER_URL", "https://other-router.example.test/management");
+    await hooks.event?.(event as any);
+
+    expect(client.tui.showToast).toHaveBeenCalledTimes(2);
+    expect(getToastMessage(client, 0)).toContain("80% left");
+    expect(getToastMessage(client, 1)).toContain("40% left");
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(client.tui.showToast.mock.calls)).not.toContain("render-cache-secret");
+    expect(JSON.stringify(client.tui.showToast.mock.calls)).not.toContain("router.example.test");
+  });
+
   it("does not cache rendered error-only toast results", async () => {
     mocks.loadConfig.mockResolvedValueOnce({
       ...DEFAULT_CONFIG,

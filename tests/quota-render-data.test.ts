@@ -10,12 +10,13 @@ const TEST_ACCOUNTING = {
   authority: "provider_reported",
 } as const;
 
-const { mockProviders } = vi.hoisted(() => ({
+const { mockGetProviders, mockProviders } = vi.hoisted(() => ({
+  mockGetProviders: vi.fn(),
   mockProviders: [] as any[],
 }));
 
 vi.mock("../src/providers/registry.js", () => ({
-  getProviders: () => mockProviders,
+  getProviders: mockGetProviders,
 }));
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
@@ -64,6 +65,8 @@ const TEST_CLIENT = {
 describe("collectQuotaRenderData shared quota state", () => {
   beforeEach(async () => {
     mockProviders.length = 0;
+    mockGetProviders.mockReturnValue(mockProviders);
+    mockGetProviders.mockClear();
     vi.restoreAllMocks();
     __resetQuotaStateForTests();
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
@@ -109,6 +112,18 @@ describe("collectQuotaRenderData shared quota state", () => {
         percentRemaining: 42,
       },
     ]);
+  });
+
+  it("does not resolve the global provider registry when quota rendering is disabled", async () => {
+    const result = await collectQuotaRenderData({
+      client: TEST_CLIENT,
+      config: renderConfig({ enabled: false }),
+      surfaceExplicitProviderIssues: true,
+      formatStyle: "allWindows",
+    });
+
+    expect(mockGetProviders).not.toHaveBeenCalled();
+    expect(result.selection).toBeNull();
   });
 
   it("returns allWindowsData when includeAllWindowsData is true and style is singleWindow", async () => {

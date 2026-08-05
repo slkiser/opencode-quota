@@ -36,6 +36,12 @@ describe("provider-metadata", () => {
         quota: "remote_api",
       },
       {
+        id: "9router",
+        autoSetup: "manual_env_config",
+        authentication: "external_api_key",
+        quota: "remote_api",
+      },
+      {
         id: "openrouter",
         autoSetup: "yes",
         authentication: "opencode_auth_api_key",

@@ -17,6 +17,7 @@ vi.mock("os", async (importOriginal) => {
 
 import { createLoadConfigMeta } from "../src/lib/config.js";
 import { resolveRuntimeContextRoots } from "../src/lib/config-file-utils.js";
+import { resolveQuotaRenderSelection } from "../src/lib/quota-render-data.js";
 import {
   createQuotaProviderRuntimeContext,
   type QuotaRuntimeClient,
@@ -24,7 +25,7 @@ import {
 } from "../src/lib/quota-runtime-context.js";
 import { __resetQuotaTelemetryForTests } from "../src/lib/quota-telemetry.js";
 import { createRuntimeProviderIdResolver } from "../src/lib/runtime-provider-ids.js";
-import { DEFAULT_CONFIG } from "../src/lib/types.js";
+import { DEFAULT_CONFIG, type QuotaToastConfig } from "../src/lib/types.js";
 
 function quotaConfigSource(dir: string): string {
   return join(dir, "opencode.json") + " (experimental.quotaToast)";
@@ -236,6 +237,61 @@ describe("quota runtime context", () => {
     expect(createContext(true, ["openai"]).config.telemetryToken).not.toEqual(first);
     expect(client.config.get).not.toHaveBeenCalled();
     expect(client.config.providers).not.toHaveBeenCalled();
+  });
+
+  it("scopes telemetry owners to provider cache identity changes", () => {
+    const client = createClient();
+    let identity = "root_sha256=one;key_sha256=one";
+    const provider = {
+      id: "identity-provider",
+      isAvailable: vi.fn(),
+      fetch: vi.fn(),
+      cacheIdentity: vi.fn(() => identity),
+    };
+    const createContext = () =>
+      createQuotaProviderRuntimeContext({
+        client,
+        resolveRuntimeProviderIds: createRuntimeProviderIdResolver(client),
+        providers: [provider],
+        config: {
+          ...DEFAULT_CONFIG,
+          enabled: true,
+          enabledProviders: [provider.id],
+          telemetry: { enabled: true },
+        },
+        session: {},
+      });
+
+    const first = createContext().config.telemetryToken;
+    expect(createContext().config.telemetryToken).toEqual(first);
+    identity = "root_sha256=two;key_sha256=one";
+    expect(createContext().config.telemetryToken).not.toEqual(first);
+    expect(provider.cacheIdentity).toHaveBeenCalled();
+  });
+
+  it("deep-copies nineRouter providers into render and runtime provider contexts", async () => {
+    const config: QuotaToastConfig = {
+      ...DEFAULT_CONFIG,
+      nineRouter: { providers: ["kiro"], display: "unified" },
+    };
+    const client = createClient();
+    const renderSelection = await resolveQuotaRenderSelection({ client, config, providers: [] });
+    const runtimeContext = createQuotaProviderRuntimeContext({
+      client,
+      resolveRuntimeProviderIds: createRuntimeProviderIdResolver(client),
+      config,
+      session: {},
+    });
+
+    config.nineRouter.providers.push("codex");
+    renderSelection?.ctx.config.nineRouter.providers.push("gemini");
+
+    expect(renderSelection?.ctx.config.nineRouter).toEqual({
+      providers: ["kiro", "gemini"],
+      display: "unified",
+    });
+    expect(runtimeContext.config.nineRouter).toEqual({ providers: ["kiro"], display: "unified" });
+    expect(config.nineRouter).toEqual({ providers: ["kiro", "codex"], display: "unified" });
   });
 
   it("copies default request timeout without marking it explicitly configured", () => {

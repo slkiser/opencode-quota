@@ -70,6 +70,16 @@ const PROVIDER_CATALOG_SOURCE = {
       quota: "remote_api",
     },
   },
+  "9router": {
+    label: "nineRouter",
+    runtimeIds: ["9router"],
+    synonyms: [],
+    shape: {
+      autoSetup: "manual_env_config",
+      authentication: "external_api_key",
+      quota: "remote_api",
+    },
+  },
   openrouter: {
     label: "OpenRouter",
     runtimeIds: ["openrouter"],
