@@ -19,7 +19,7 @@ async function createCredentialDatabase(): Promise<{ dataDir: string; databasePa
   temporaryDirectories.push(root);
   const dataDir = join(root, "opencode");
   await mkdir(dataDir, { recursive: true });
-  const databasePath = join(dataDir, "opencode-next.db");
+  const databasePath = join(dataDir, "opencode.db");
   const database = new DatabaseSync(databasePath);
   database.exec(`CREATE TABLE credential (
     id TEXT PRIMARY KEY,
