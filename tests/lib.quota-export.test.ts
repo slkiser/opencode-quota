@@ -89,6 +89,13 @@ describe("resolveExportPath", () => {
     expect(resolveExportPath("/etc/opencode/export.json")).toBe("/etc/opencode/export.json");
     expect(resolveExportPath("relative/path/quota.json")).toBe("relative/path/quota.json");
   });
+
+  it("expands Windows-style home-relative paths", () => {
+    expect(resolveExportPath("~\\exports\\quota.json")).toBe(
+      join(homedir(), "exports", "quota.json"),
+    );
+    expect(resolveExportPath("~")).toBe(homedir());
+  });
 });
 
 describe("buildQuotaExport", () => {
