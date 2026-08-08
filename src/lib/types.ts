@@ -24,6 +24,14 @@ export type PricingSnapshotSource = "auto" | "bundled" | "runtime";
 export type PercentDisplayMode = "remaining" | "used";
 export type SessionTokenScope = "current" | "tree";
 export type OpenCodeGoWindowKey = "rolling" | "weekly" | "monthly";
+export type QuotaResetWindow = "fiveHour" | "hourly" | "daily" | "weekly" | "monthly" | "yearly";
+
+export interface QuotaResetNotificationsConfig {
+  /** Whether successful quota-window resets emit a one-shot toast. */
+  enabled: boolean;
+  /** Window classes eligible for reset notifications. */
+  windows: QuotaResetWindow[];
+}
 
 export interface PricingSnapshotConfig {
   source: PricingSnapshotSource;
@@ -78,6 +86,9 @@ export interface QuotaToastConfig {
 
   /** If false, never show popup toasts (commands/tools still work). */
   enableToast: boolean;
+
+  /** Opt-in, persisted notifications when selected quota windows reset. */
+  resetNotifications: QuotaResetNotificationsConfig;
 
   /** Where deterministic native TUI command output appears. */
   tuiCommandDisplay: TuiCommandDisplay;
@@ -197,6 +208,10 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   enabled: true,
 
   enableToast: true,
+  resetNotifications: {
+    enabled: false,
+    windows: ["weekly"],
+  },
   tuiCommandDisplay: "inline",
   formatStyle: DEFAULT_QUOTA_FORMAT_STYLE,
   percentDisplayMode: "remaining",

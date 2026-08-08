@@ -46,6 +46,10 @@ import {
 } from "./lib/quota-providers.js";
 import { collectQuotaRenderData, type SessionModelMeta } from "./lib/quota-render-data.js";
 import {
+  formatQuotaResetNotification,
+  observeQuotaResetNotifications,
+} from "./lib/quota-reset-notifications.js";
+import {
   createQuotaRuntimeRequestContext,
   type QuotaRuntimeContext,
   resolveQuotaRuntimeContext,
@@ -193,6 +197,7 @@ type QuotaMessageFetchResult = {
   retryReason?: DeferredQuotaRefreshReason;
   hasQuotaRows: boolean;
   detectedProviderIds: string[];
+  resetNotification?: string;
 };
 
 const DEFERRED_QUOTA_REFRESH_DELAYS_MS = [3_000, 15_000, 60_000, 300_000] as const;
@@ -841,8 +846,33 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
       bypassProviderCache: params.bypassProviderCache,
       providers: runtime.providers,
     });
-    const { selection, availability, active, attemptedAny, hasExplicitProviderIssues, data } =
-      quotaResult;
+    const {
+      selection,
+      availability,
+      active,
+      providerResults,
+      attemptedAny,
+      hasExplicitProviderIssues,
+      data,
+    } = quotaResult;
+    let resetNotification: string | undefined;
+    if (
+      runtimeConfig.enableToast &&
+      runtimeConfig.resetNotifications.enabled &&
+      providerResults.length > 0
+    ) {
+      try {
+        const notices = await observeQuotaResetNotifications({
+          providers: providerResults,
+          windows: runtimeConfig.resetNotifications.windows,
+        });
+        resetNotification = formatQuotaResetNotification(notices) ?? undefined;
+      } catch (error) {
+        await log("Failed to observe quota reset transitions", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     if (selection?.isAutoMode) {
       await reconcileDetectedProviderConfig(active.map((provider) => provider.id));
     }
@@ -881,6 +911,7 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
         retryReason: retryableNoProviders ? "no_available_providers" : undefined,
         hasQuotaRows: false,
         detectedProviderIds,
+        resetNotification,
       };
     }
 
@@ -906,6 +937,7 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
           retryReason: retryableMaskedProviderFailure ? "provider_fetch_failed" : undefined,
           hasQuotaRows: true,
           detectedProviderIds,
+          resetNotification,
         };
       }
 
@@ -920,6 +952,7 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
         retryReason: retryableMaskedProviderFailure ? "provider_fetch_failed" : undefined,
         hasQuotaRows: true,
         detectedProviderIds,
+        resetNotification,
       };
     }
 
@@ -961,6 +994,7 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
         retryReason,
         hasQuotaRows: false,
         detectedProviderIds,
+        resetNotification,
       };
     }
 
@@ -989,6 +1023,7 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
           : undefined,
       hasQuotaRows: false,
       detectedProviderIds,
+      resetNotification,
     };
   }
 
@@ -1145,6 +1180,20 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
             [],
         );
         await log("Displayed quota toast", { message, trigger });
+        if (fetchResult?.resetNotification) {
+          await typedClient.tui.showToast({
+            body: {
+              title: "Quota available",
+              message: sanitizeDisplayText(fetchResult.resetNotification),
+              variant: "success",
+              duration: config.toastDurationMs,
+            },
+          });
+          await log("Displayed quota reset notification", {
+            message: fetchResult.resetNotification,
+            trigger,
+          });
+        }
       } catch (err) {
         await log("Failed to show toast", {
           error: err instanceof Error ? err.message : String(err),

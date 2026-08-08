@@ -24,6 +24,7 @@ import type {
   GoogleModelId,
   PercentDisplayMode,
   PricingSnapshotSource,
+  QuotaResetWindow,
   QuotaToastConfig,
   SessionTokenScope,
   TuiCommandDisplay,
@@ -39,6 +40,8 @@ export const QUOTA_TOAST_CONFIG_RELATIVE_PATH = QUOTA_TOAST_CONFIG_RELATIVE_PATH
 export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "enabled",
   "enableToast",
+  "resetNotifications.enabled",
+  "resetNotifications.windows",
   "tuiCommandDisplay",
   "formatStyle",
   "percentDisplayMode",
@@ -135,6 +138,7 @@ const NETWORK_SETTING_SOURCE_KEYS = [
 ] as const satisfies readonly QuotaToastSettingSourceKey[];
 
 type PricingSnapshotPatch = Partial<QuotaToastConfig["pricingSnapshot"]>;
+type QuotaResetNotificationsPatch = Partial<QuotaToastConfig["resetNotifications"]>;
 type TuiSidebarPanelPatch = Partial<QuotaToastConfig["tuiSidebarPanel"]>;
 type TuiCompactStatusPatch = Partial<QuotaToastConfig["tuiCompactStatus"]>;
 type MaintainerAnnouncementsPatch = Partial<QuotaToastConfig["maintainerAnnouncements"]>;
@@ -145,6 +149,7 @@ type TelemetryConfigPatch = Partial<QuotaToastConfig["telemetry"]>;
 type ValidatedQuotaToastPatch = {
   enabled?: boolean;
   enableToast?: boolean;
+  resetNotifications?: QuotaResetNotificationsPatch;
   tuiCommandDisplay?: TuiCommandDisplay;
   formatStyle?: QuotaToastConfig["formatStyle"];
   percentDisplayMode?: PercentDisplayMode;
@@ -318,6 +323,10 @@ function cloneConfig(config: QuotaToastConfig): QuotaToastConfig {
       ? [...config.enabledProviders]
       : config.enabledProviders,
     quotaProviders: cloneQuotaProviders(config.quotaProviders),
+    resetNotifications: {
+      ...config.resetNotifications,
+      windows: [...config.resetNotifications.windows],
+    },
     googleModels: [...config.googleModels],
     opencodeGoWindows: [...config.opencodeGoWindows],
     opencodeMonthlyLimit: config.opencodeMonthlyLimit,
@@ -329,6 +338,47 @@ function cloneConfig(config: QuotaToastConfig): QuotaToastConfig {
     export: { ...config.export },
     telemetry: { ...config.telemetry },
   };
+}
+
+const QUOTA_RESET_WINDOWS: readonly QuotaResetWindow[] = [
+  "fiveHour",
+  "hourly",
+  "daily",
+  "weekly",
+  "monthly",
+  "yearly",
+];
+
+function extractQuotaResetNotificationsPatch(
+  value: unknown,
+  reportIssue?: (key: string, message: string) => void,
+): QuotaResetNotificationsPatch | undefined {
+  if (!isPlainObject(value)) return undefined;
+
+  const patch: QuotaResetNotificationsPatch = {};
+  if (hasOwnKey(value, "enabled")) {
+    if (typeof value.enabled === "boolean") patch.enabled = value.enabled;
+    else reportIssue?.("resetNotifications.enabled", "expected boolean");
+  }
+
+  if (hasOwnKey(value, "windows")) {
+    if (
+      Array.isArray(value.windows) &&
+      value.windows.length > 0 &&
+      value.windows.every((window): window is QuotaResetWindow =>
+        QUOTA_RESET_WINDOWS.includes(window as QuotaResetWindow),
+      )
+    ) {
+      patch.windows = dedupe(value.windows);
+    } else {
+      reportIssue?.(
+        "resetNotifications.windows",
+        `expected a non-empty array of: ${QUOTA_RESET_WINDOWS.join(", ")}`,
+      );
+    }
+  }
+
+  return Object.keys(patch).length > 0 ? patch : undefined;
 }
 
 type NormalizedEnabledProviders = {
@@ -560,6 +610,14 @@ function extractValidatedQuotaToastPatch(
     typeof quotaToastConfig.enableToast === "boolean"
   ) {
     patch.enableToast = quotaToastConfig.enableToast;
+  }
+
+  if (hasOwnKey(quotaToastConfig, "resetNotifications")) {
+    const resetNotifications = extractQuotaResetNotificationsPatch(
+      quotaToastConfig.resetNotifications,
+      reportIssue,
+    );
+    if (resetNotifications) patch.resetNotifications = resetNotifications;
   }
 
   if (hasOwnKey(quotaToastConfig, "tuiCommandDisplay")) {
@@ -802,6 +860,17 @@ function applyValidatedQuotaToastPatch(
   if (hasOwnKey(patch, "enableToast")) {
     config.enableToast = patch.enableToast!;
     applySettingSource(settingSources, "enableToast", sourcePath);
+  }
+
+  if (patch.resetNotifications) {
+    if (hasOwnKey(patch.resetNotifications, "enabled")) {
+      config.resetNotifications.enabled = patch.resetNotifications.enabled!;
+      applySettingSource(settingSources, "resetNotifications.enabled", sourcePath);
+    }
+    if (hasOwnKey(patch.resetNotifications, "windows")) {
+      config.resetNotifications.windows = [...patch.resetNotifications.windows!];
+      applySettingSource(settingSources, "resetNotifications.windows", sourcePath);
+    }
   }
 
   if (hasOwnKey(patch, "tuiCommandDisplay")) {

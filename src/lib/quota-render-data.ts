@@ -101,6 +101,8 @@ export type CollectQuotaRenderDataResult = {
   selection: QuotaRenderSelection | null;
   availability: QuotaAvailability[];
   active: QuotaProvider[];
+  /** Unprojected provider results for stateful observers such as reset detection. */
+  providerResults: QuotaStatusLiveProbe[];
   attemptedAny: boolean;
   hasExplicitProviderIssues: boolean;
   data: QuotaRenderData | null;
@@ -640,6 +642,7 @@ export async function collectQuotaRenderData(params: {
       selection: null,
       availability: [],
       active: [],
+      providerResults: [],
       attemptedAny: false,
       hasExplicitProviderIssues: false,
       data: null,
@@ -655,6 +658,7 @@ export async function collectQuotaRenderData(params: {
       selection,
       availability: [],
       active: [],
+      providerResults: [],
       attemptedAny: false,
       hasExplicitProviderIssues: false,
       data: null,
@@ -687,6 +691,7 @@ export async function collectQuotaRenderData(params: {
       selection,
       availability,
       active,
+      providerResults: [],
       attemptedAny: false,
       hasExplicitProviderIssues: explicitProviderIssues.length > 0,
       data: packageQuotaRenderData({ entries: [], errors: explicitProviderIssues }),
@@ -771,6 +776,10 @@ export async function collectQuotaRenderData(params: {
     selection,
     availability,
     active,
+    providerResults: active.map((provider, index) => ({
+      providerId: provider.id,
+      result: results[index]!,
+    })),
     attemptedAny,
     hasExplicitProviderIssues,
     data,

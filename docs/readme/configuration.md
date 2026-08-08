@@ -28,6 +28,7 @@ Strict `.json` files also work. Run `/quota_status` if you are unsure which file
 | Show slash results in a TUI popup          | `tuiCommandDisplay: "dialog"` |
 | Turn the TUI sidebar on or off             | `tuiSidebarPanel.enabled`     |
 | Turn popup quota notifications on or off   | `enableToast`                 |
+| Notify when weekly quota resets            | `resetNotifications.enabled`  |
 | Turn the compact quota line on or off      | `tuiCompactStatus.enabled`    |
 | Show or hide session input/output tokens   | `showSessionTokens`           |
 | Include descendant/subagent session tokens | `sessionTokenScope: "tree"`   |
@@ -51,11 +52,33 @@ The installer chooses `allWindows` by default. If the setting is absent, the bui
   // Show the sidebar, but not toast or compact status.
   "tuiSidebarPanel": { "enabled": true },
   "enableToast": false,
+  "resetNotifications": { "enabled": false, "windows": ["weekly"] },
   "tuiCompactStatus": { "enabled": false },
 }
 ```
 
 Restart OpenCode after changing the file.
+
+### Notify when quota becomes available again
+
+Reset notifications are opt-in. They reuse provider snapshots already collected by OpenCode
+Quota, so enabling them does not add provider requests.
+
+```jsonc
+{
+  "resetNotifications": {
+    "enabled": true,
+    "windows": ["weekly"],
+  },
+}
+```
+
+The first observation establishes a baseline. A success toast appears only after OpenCode Quota
+observes the advertised reset boundary, a newer reset timestamp, and an increase in remaining
+quota. A local acknowledgment prevents the same reset from being announced again after restart.
+The acknowledgment stores only a hashed account/window identity and reset metadata; account source
+identifiers and display labels are not written to the state file.
+Supported window names are `fiveHour`, `hourly`, `daily`, `weekly`, `monthly`, and `yearly`.
 
 ### Include subagent session tokens
 
@@ -293,6 +316,8 @@ Existing `experimental.quotaToast` settings remain supported. Quota settings do 
 | Option                        | Default        | Meaning                                                                                                                                                                                                                                                                                                             |
 | ----------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `enabled`                     | `true`         | Master switch for quota collection and handled slash commands. When `false`, `/quota`, `/quota_status`, `/pricing_refresh`, and `/tokens_*` are handled as no-ops.                                                                                                                                                  |
+| `resetNotifications.enabled`  | `false`        | Emit a one-shot success toast when an observed configured quota window resets. Requires popup toasts to be enabled and adds no provider requests.                                                                                                                                                                   |
+| `resetNotifications.windows`  | `["weekly"]`   | Window classes eligible for reset notifications: `fiveHour`, `hourly`, `daily`, `weekly`, `monthly`, or `yearly`.                                                                                                                                                                                                   |
 | `enabledProviders`            | `"auto"`       | Auto-detect providers, or set an explicit provider list. Use the aggregate ID `quota-providers` for configured definitions.                                                                                                                                                                                         |
 | `quotaProviders`              | `[]`           | Ordered global-only `remote-api` or `local-estimate` definitions maintained in global OpenCode JSONC/JSON. Each item has a stable `id`; `providerId` is only needed when different.                                                                                                                                 |
 | `minIntervalMs`               | `300000`       | Minimum fetch interval between provider updates.                                                                                                                                                                                                                                                                    |

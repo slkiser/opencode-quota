@@ -92,6 +92,50 @@ describe("loadConfig", () => {
     expect(removedKey.meta.configIssues).toEqual([]);
   });
 
+  it("defaults and validates quota reset notifications with provenance", async () => {
+    const defaults = await loadSdkConfig({});
+    expect(defaults.config.resetNotifications).toEqual({
+      enabled: false,
+      windows: ["weekly"],
+    });
+
+    const configured = await loadSdkConfig({
+      resetNotifications: {
+        enabled: true,
+        windows: ["weekly", "monthly", "weekly"],
+      },
+    });
+    expect(configured.config.resetNotifications).toEqual({
+      enabled: true,
+      windows: ["weekly", "monthly"],
+    });
+    expect(configured.meta.settingSources).toEqual({
+      "resetNotifications.enabled": "client.config.get",
+      "resetNotifications.windows": "client.config.get",
+    });
+    expect(configured.meta.networkSettingSources).toEqual({});
+
+    const invalid = await loadSdkConfig({
+      resetNotifications: { enabled: "yes", windows: ["rolling"] },
+    });
+    expect(invalid.config.resetNotifications).toEqual({
+      enabled: false,
+      windows: ["weekly"],
+    });
+    expect(invalid.meta.configIssues).toEqual([
+      {
+        path: "client.config.get",
+        key: "resetNotifications.enabled",
+        message: "expected boolean",
+      },
+      {
+        path: "client.config.get",
+        key: "resetNotifications.windows",
+        message: "expected a non-empty array of: fiveHour, hourly, daily, weekly, monthly, yearly",
+      },
+    ]);
+  });
+
   it("defaults and validates session token scope with provenance", async () => {
     const defaults = await loadSdkConfig({});
     expect(defaults.config.sessionTokenScope).toBe("current");

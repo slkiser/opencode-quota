@@ -70,6 +70,8 @@ const mocks = vi.hoisted(() => ({
   resolveAlibabaCodingPlanAuthCached: vi.fn(),
   fetchSessionTokensForDisplay: vi.fn(),
   reconcileDetectedProvidersInGlobalConfig: vi.fn(),
+  observeQuotaResetNotifications: vi.fn(),
+  formatQuotaResetNotification: vi.fn(),
 }));
 
 vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
@@ -102,6 +104,11 @@ vi.mock("../src/lib/opencode-config-providers.js", () => ({
   reconcileDetectedProvidersInGlobalConfig: mocks.reconcileDetectedProvidersInGlobalConfig,
 }));
 
+vi.mock("../src/lib/quota-reset-notifications.js", () => ({
+  observeQuotaResetNotifications: mocks.observeQuotaResetNotifications,
+  formatQuotaResetNotification: mocks.formatQuotaResetNotification,
+}));
+
 describe("/quota command behavior", () => {
   let savedConfigDir: string | undefined;
 
@@ -123,6 +130,8 @@ describe("/quota command behavior", () => {
       addedProviderIds: [],
       changed: false,
     });
+    mocks.observeQuotaResetNotifications.mockResolvedValue([]);
+    mocks.formatQuotaResetNotification.mockReturnValue(null);
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
     const { __resetQuotaStateForTests } = await import("../src/lib/quota-state.js");
     __resetQuotaStateForTests();
@@ -394,6 +403,64 @@ describe("/quota command behavior", () => {
     const message = getToastMessage(client);
     expect(message).toContain("19% used");
     expect(message).not.toContain("81% left");
+  });
+
+  it("shows one additional success toast when an enabled quota reset is observed", async () => {
+    mocks.loadConfig.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      enabled: true,
+      enableToast: true,
+      resetNotifications: { enabled: true, windows: ["weekly"] },
+      enabledProviders: ["openai"],
+      showOnIdle: true,
+      showSessionTokens: false,
+      minIntervalMs: 60_000,
+    });
+    const provider = {
+      id: "openai",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [
+          {
+            accounting: TEST_ACCOUNTING,
+            name: "OpenAI",
+            label: "7d",
+            percentRemaining: 100,
+            resetTimeIso: "2099-01-01T00:00:00.000Z",
+          },
+        ],
+        errors: [],
+      }),
+    };
+    mocks.getProviders.mockReturnValue([provider]);
+    mocks.observeQuotaResetNotifications.mockResolvedValue([
+      { providerId: "openai", label: "OpenAI", window: "weekly", percentRemaining: 100 },
+    ]);
+    mocks.formatQuotaResetNotification.mockReturnValue(
+      "Weekly quota reset: OpenAI is available again (100% remaining).",
+    );
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const client = createClient();
+    const hooks = await QuotaToastPlugin({ client } as any);
+    await hooks.event?.({
+      event: { type: "session.idle", properties: { sessionID: "session-reset" } },
+    } as any);
+
+    expect(mocks.observeQuotaResetNotifications).toHaveBeenCalledWith({
+      providers: [expect.objectContaining({ providerId: "openai" })],
+      windows: ["weekly"],
+    });
+    expect(client.tui.showToast).toHaveBeenCalledTimes(2);
+    expect(client.tui.showToast).toHaveBeenLastCalledWith({
+      body: {
+        title: "Quota available",
+        message: "Weekly quota reset: OpenAI is available again (100% remaining).",
+        variant: "success",
+        duration: 9000,
+      },
+    });
   });
 
   it("honors percentDisplayMode for /quota output", async () => {
