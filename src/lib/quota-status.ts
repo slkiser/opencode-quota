@@ -1,6 +1,7 @@
 import { stat } from "fs/promises";
 import { getProviders } from "../providers/registry.js";
 import {
+  canonicalizeNineRouterProviders,
   type LoadConfigIssue,
   QUOTA_TOAST_SETTING_SOURCE_KEYS,
   type QuotaToastSettingSources,
@@ -30,6 +31,7 @@ import {
   readPricingRefreshState,
   hasProvider as snapshotHasProvider,
 } from "./modelsdev-pricing.js";
+import { resolveNineRouterConfig } from "./nine-router.js";
 import { getAuthPath, getAuthPaths } from "./opencode-auth.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import {
@@ -46,6 +48,7 @@ import { totalTokenBuckets } from "./token-buckets.js";
 import type {
   CursorQuotaPlan,
   MaintainerAnnouncementsConfig,
+  NineRouterConfig,
   OpenCodeGoWindowKey,
   PricingSnapshotSource,
 } from "./types.js";
@@ -667,6 +670,7 @@ export async function buildQuotaStatusReport(params: {
     quotaPluginConfigPaths: string[];
   };
   enabledProviders: string[] | "auto";
+  nineRouter: NineRouterConfig;
   googleModels: readonly string[];
   anthropicBinaryPath?: string;
   cursorPlan: CursorQuotaPlan;
@@ -827,6 +831,48 @@ export async function buildQuotaStatusReport(params: {
     ]),
   );
   sections.push(createKvSection("paths", "paths:", pathsRows));
+
+  const nineRouterRootConfigured = Boolean(process.env.OPENCODE_NINEROUTER_URL?.trim());
+  const nineRouterKeyConfigured = Boolean(process.env.OPENCODE_NINEROUTER_API_KEY?.trim());
+  const nineRouterConfig = resolveNineRouterConfig();
+  const nineRouterRootValidation = resolveNineRouterConfig({
+    ...process.env,
+    OPENCODE_NINEROUTER_API_KEY: "status",
+  });
+  const nineRouterConfiguration = !nineRouterRootConfigured
+    ? "missing_root"
+    : !nineRouterKeyConfigured
+      ? "missing_api_key"
+      : nineRouterConfig.success
+        ? "configured"
+        : "invalid_root";
+  const nineRouterRows: ReportKvRow[] = [
+    { key: "management_root", value: nineRouterRootConfigured ? "configured" : "missing" },
+    { key: "api_key", value: nineRouterKeyConfigured ? "configured" : "missing" },
+    { key: "configuration", value: nineRouterConfiguration },
+    {
+      key: "selected_providers",
+      value: canonicalizeNineRouterProviders(params.nineRouter.providers).join(",") || "(all)",
+    },
+    { key: "display_mode", value: params.nineRouter.display },
+    {
+      key: "config_provenance",
+      value: `providers=${params.settingSources?.["nineRouter.providers"] ?? "(default)"} display=${params.settingSources?.["nineRouter.display"] ?? "(default)"}`,
+    },
+    { key: "root_valid", value: nineRouterRootValidation.success ? "true" : "false" },
+    { key: "fixed_endpoints", value: "provider_list | connection_usage" },
+    {
+      key: "probe_outcome",
+      value: getLiveProbeState(findProviderLiveProbe("9router", params.providerLiveProbes)),
+    },
+  ];
+  if (!nineRouterConfig.success) {
+    nineRouterRows.push({
+      key: "setup",
+      value: "set OPENCODE_NINEROUTER_URL and OPENCODE_NINEROUTER_API_KEY",
+    });
+  }
+  sections.push(createKvSection("9router", "9router:", nineRouterRows));
 
   for (const [id, providerId] of [
     ["openai", "openai"],

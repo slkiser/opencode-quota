@@ -1,4 +1,5 @@
-import { mkdir, readdir, rm, writeFile } from "fs/promises";
+import { createHash } from "crypto";
+import { mkdir, readdir, readFile, rm, writeFile } from "fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { validateQuotaProviders } from "../src/lib/quota-providers.js";
@@ -37,6 +38,12 @@ function createTestContext() {
   } as any;
 }
 
+function providerCacheIdentity(root: string, apiKey: string): string {
+  const rootDigest = createHash("sha256").update(`9router:root:${root}`).digest("hex");
+  const keyDigest = createHash("sha256").update(`9router:key:${apiKey}`).digest("hex");
+  return `root_sha256=${rootDigest};key_sha256=${keyDigest}`;
+}
+
 describe("quota-state shared cache", () => {
   beforeEach(async () => {
     vi.restoreAllMocks();
@@ -64,6 +71,164 @@ describe("quota-state shared cache", () => {
     } as any);
 
     expect(singleWindowKey).toBe(allWindowsKey);
+  });
+
+  it("preserves the exact legacy cache key for providers without a cache identity hook", async () => {
+    const { buildQuotaProviderStateCacheKey } = await import("../src/lib/quota-state.js");
+
+    expect(buildQuotaProviderStateCacheKey("synthetic", createTestContext())).toBe(
+      "synthetic|anthropicBinaryPath=claude|googleModels=CLAUDE|cursorPlan=none|cursorIncludedApiUsd=|cursorBillingCycleStartDay=|opencodeGoWindows=|onlyCurrentModel=no|currentModel=|currentProviderID=",
+    );
+  });
+
+  it("partitions nineRouter identity by root, key, canonical providers, and display using digests", async () => {
+    const { nineRouterProvider } = await import("../src/providers/nine-router.js");
+    const root = "https://management.example.test/api";
+    const key = "task-cache-api-key-must-not-leak";
+    vi.stubEnv("OPENCODE_NINEROUTER_URL", root);
+    vi.stubEnv("OPENCODE_NINEROUTER_API_KEY", key);
+    const contextFor = (providers: readonly string[], display: "perConnection" | "unified") => ({
+      ...createTestContext(),
+      config: { ...createTestContext().config, nineRouter: { providers, display } },
+    });
+
+    const canonical = nineRouterProvider.cacheIdentity?.(contextFor([" KIRO "], "unified"));
+    const normalized = nineRouterProvider.cacheIdentity?.(contextFor(["kiro"], "unified"));
+    const reordered = nineRouterProvider.cacheIdentity?.(contextFor(["codex", "kiro"], "unified"));
+    const duplicated = nineRouterProvider.cacheIdentity?.(
+      contextFor(["KIRO", "codex", "codex"], "unified"),
+    );
+    const perConnection = nineRouterProvider.cacheIdentity?.(contextFor(["kiro"], "perConnection"));
+    vi.stubEnv("OPENCODE_NINEROUTER_URL", "https://other.example.test/api");
+    const otherRoot = nineRouterProvider.cacheIdentity?.(contextFor(["kiro"], "unified"));
+    vi.stubEnv("OPENCODE_NINEROUTER_URL", root);
+    vi.stubEnv("OPENCODE_NINEROUTER_API_KEY", "other-task-cache-key");
+    const otherKey = nineRouterProvider.cacheIdentity?.(contextFor(["kiro"], "unified"));
+
+    expect(canonical).toBe(normalized);
+    expect(reordered).toBe(duplicated);
+    expect(canonical).not.toBe(reordered);
+    expect(canonical).not.toBe(perConnection);
+    expect(canonical).not.toBe(otherRoot);
+    expect(canonical).not.toBe(otherKey);
+    for (const identity of [canonical, reordered, perConnection, otherRoot, otherKey]) {
+      expect(identity).toMatch(
+        /^root_sha256=[a-f0-9]{64};key_sha256=[a-f0-9]{64};providers_sha256=[a-f0-9]{64};display_sha256=[a-f0-9]{64}$/,
+      );
+      expect(identity).not.toContain(root);
+      expect(identity).not.toContain(key);
+      expect(identity).not.toContain("kiro");
+      expect(identity).not.toContain("codex");
+    }
+  });
+
+  it("partitions in-memory and persisted cache entries by provider-supplied identity", async () => {
+    const { __resetQuotaStateForTests, fetchQuotaProviderResult } = await import(
+      "../src/lib/quota-state.js"
+    );
+    __resetQuotaStateForTests();
+    const identityA = providerCacheIdentity("https://management-a.example/v1", "secret-a");
+    const identityB = providerCacheIdentity("https://management-b.example/v1", "secret-a");
+    const identityC = providerCacheIdentity("https://management-a.example/v1", "secret-b");
+    let fetchCount = 0;
+    const providerFor = (cacheIdentity: string) => ({
+      id: "identity-provider",
+      isAvailable: vi.fn(),
+      cacheIdentity: () => cacheIdentity,
+      fetch: vi.fn(async () => ({
+        attempted: true,
+        entries: [
+          {
+            accounting: TEST_ACCOUNTING,
+            name: `Identity ${++fetchCount}`,
+            percentRemaining: 50,
+          },
+        ],
+        errors: [],
+      })),
+    });
+    const firstProvider = providerFor(identityA);
+    const duplicateProvider = providerFor(identityA);
+
+    const first = await fetchQuotaProviderResult({
+      provider: firstProvider,
+      ctx: createTestContext(),
+      ttlMs: 60_000,
+    });
+    const duplicate = await fetchQuotaProviderResult({
+      provider: duplicateProvider,
+      ctx: createTestContext(),
+      ttlMs: 60_000,
+    });
+    await fetchQuotaProviderResult({
+      provider: providerFor(identityB),
+      ctx: createTestContext(),
+      ttlMs: 60_000,
+    });
+    await fetchQuotaProviderResult({
+      provider: providerFor(identityC),
+      ctx: createTestContext(),
+      ttlMs: 60_000,
+    });
+    const inMemory = await fetchQuotaProviderResult({
+      provider: providerFor(identityA),
+      ctx: createTestContext(),
+      ttlMs: 60_000,
+    });
+
+    expect(first.entries[0]?.name).toBe("Identity 1");
+    expect(duplicate.entries[0]?.name).toBe("Identity 1");
+    expect(inMemory.entries[0]?.name).toBe("Identity 1");
+    expect(firstProvider.fetch).toHaveBeenCalledOnce();
+    expect(duplicateProvider.fetch).not.toHaveBeenCalled();
+    expect(fetchCount).toBe(3);
+
+    const cacheDir = `${TEST_RUNTIME_ROOT}/cache/quota-provider-state`;
+    const cacheFiles = await readdir(cacheDir);
+    const serializedEntries = await Promise.all(
+      cacheFiles.map((file) => readFile(`${cacheDir}/${file}`, "utf-8")),
+    );
+    expect(serializedEntries).toHaveLength(3);
+    expect(serializedEntries).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(identityA),
+        expect.stringContaining(identityB),
+        expect.stringContaining(identityC),
+      ]),
+    );
+    const serializedCache = JSON.stringify({ cacheFiles, serializedEntries });
+    for (const raw of [
+      "https://management-a.example/v1",
+      "https://management-b.example/v1",
+      "secret-a",
+      "secret-b",
+    ]) {
+      expect(serializedCache).not.toContain(raw);
+    }
+
+    vi.resetModules();
+    const quotaState = await import("../src/lib/quota-state.js");
+    await expect(
+      quotaState.readCachedProviderResult({
+        provider: providerFor(identityA),
+        ctx: createTestContext(),
+        ttlMs: 60_000,
+      }),
+    ).resolves.toMatchObject({ hit: true, result: { entries: [{ name: "Identity 1" }] } });
+    await expect(
+      quotaState.readCachedProviderResult({
+        provider: providerFor(identityB),
+        ctx: createTestContext(),
+        ttlMs: 60_000,
+      }),
+    ).resolves.toMatchObject({ hit: true, result: { entries: [{ name: "Identity 2" }] } });
+    await expect(
+      quotaState.readCachedProviderResult({
+        provider: providerFor(identityC),
+        ctx: createTestContext(),
+        ttlMs: 60_000,
+      }),
+    ).resolves.toMatchObject({ hit: true, result: { entries: [{ name: "Identity 3" }] } });
   });
 
   it("uses identical cache identity for alias-normalized and canonical definitions", async () => {

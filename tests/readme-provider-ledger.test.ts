@@ -75,6 +75,7 @@ describe("README provider ledger", () => {
   it("keeps audience tables alphabetized with intentional duplicates", () => {
     const expectedProviders = [
       [
+        "9Router",
         "Anthropic (Claude)",
         "Chutes AI",
         "Cursor",

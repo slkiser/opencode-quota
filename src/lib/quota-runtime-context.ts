@@ -68,6 +68,8 @@ export async function resolveQuotaRuntimeContext(
     (await loadConfig(params.client, configMeta, {
       configRootDir: roots.configRoot,
     }));
+  const providers = params.providers ?? getProviders();
+  const resolveRuntimeProviderIds = createRuntimeProviderIdResolver(params.client);
   let sessionMeta = params.sessionMeta;
   if (
     !sessionMeta &&
@@ -85,6 +87,8 @@ export async function resolveQuotaRuntimeContext(
       client: params.client,
       config,
       session: { sessionMeta },
+      providers,
+      resolveRuntimeProviderIds,
     });
   }
 
@@ -93,8 +97,8 @@ export async function resolveQuotaRuntimeContext(
     roots,
     config,
     configMeta,
-    providers: params.providers ?? getProviders(),
-    resolveRuntimeProviderIds: createRuntimeProviderIdResolver(params.client),
+    providers,
+    resolveRuntimeProviderIds,
     session: {
       sessionID: params.sessionID,
       sessionMeta,
@@ -118,12 +122,10 @@ export function createQuotaProviderRuntimeContext(runtime: {
   session: QuotaRuntimeContext["session"];
   resolveRuntimeProviderIds: RuntimeProviderIdResolver;
   configMeta?: Pick<LoadConfigMeta, "settingSources">;
+  providers?: QuotaProvider[];
   configureTelemetry?: boolean;
 }): QuotaProviderContext {
-  const telemetryToken =
-    runtime.configureTelemetry === false ? undefined : configureRuntimeTelemetry(runtime);
-
-  return {
+  const context: QuotaProviderContext = {
     client: runtime.client,
     resolveRuntimeProviderIds: runtime.resolveRuntimeProviderIds,
     config: {
@@ -141,18 +143,43 @@ export function createQuotaProviderRuntimeContext(runtime: {
       enabledProviders:
         runtime.config.enabledProviders === "auto" ? "auto" : [...runtime.config.enabledProviders],
       quotaProviders: cloneQuotaProviders(runtime.config.quotaProviders),
-      telemetryToken,
+      nineRouter: {
+        ...runtime.config.nineRouter,
+        providers: [...runtime.config.nineRouter.providers],
+      },
       currentModel: runtime.session.sessionMeta?.modelID,
       currentProviderID: runtime.session.sessionMeta?.providerID,
     },
   };
+  if (runtime.configureTelemetry !== false) {
+    context.config.telemetryToken = configureRuntimeTelemetry({
+      ...runtime,
+      providers: runtime.providers ?? getProviders(),
+      context,
+    });
+  }
+  return context;
 }
 
 function configureRuntimeTelemetry(runtime: {
   client: QuotaRuntimeClient;
   config: QuotaToastConfig;
   session: QuotaRuntimeContext["session"];
+  providers: QuotaProvider[];
+  resolveRuntimeProviderIds: RuntimeProviderIdResolver;
+  context?: QuotaProviderContext;
 }) {
+  const context =
+    runtime.context ??
+    createQuotaProviderRuntimeContext({
+      ...runtime,
+      configureTelemetry: false,
+    });
+  const enabledProviders = runtime.providers.filter(
+    (provider) =>
+      runtime.config.enabledProviders === "auto" ||
+      runtime.config.enabledProviders.includes(provider.id),
+  );
   const telemetryEnabled = runtime.config.enabled && runtime.config.telemetry?.enabled === true;
   const telemetryIdentity = createHash("sha256")
     .update(
@@ -172,6 +199,7 @@ function configureRuntimeTelemetry(runtime: {
         runtime.config.opencodeGoWindows,
         runtime.config.opencodeMonthlyLimit,
         runtime.config.onlyCurrentModel,
+        enabledProviders.map((provider) => [provider.id, provider.cacheIdentity?.(context) ?? ""]),
         runtime.session.sessionMeta?.providerID,
         runtime.session.sessionMeta?.modelID,
       ]),

@@ -24,6 +24,12 @@ export type PricingSnapshotSource = "auto" | "bundled" | "runtime";
 export type PercentDisplayMode = "remaining" | "used";
 export type SessionTokenScope = "current" | "tree";
 export type OpenCodeGoWindowKey = "rolling" | "weekly" | "monthly";
+export type NineRouterDisplay = "perConnection" | "unified";
+
+export interface NineRouterConfig {
+  providers: string[];
+  display: NineRouterDisplay;
+}
 
 export interface PricingSnapshotConfig {
   source: PricingSnapshotSource;
@@ -181,6 +187,8 @@ export interface QuotaToastConfig {
   /** Opt-in quota metrics through the host's global OpenTelemetry MeterProvider. */
   telemetry: QuotaTelemetryConfig;
 
+  nineRouter: NineRouterConfig;
+
   /** Responsive toast layout breakpoints (not used by the fixed-width TUI sidebar). */
   layout: {
     /** Default max width target for toast formatting */
@@ -249,6 +257,10 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   },
   telemetry: {
     enabled: false,
+  },
+  nineRouter: {
+    providers: [],
+    display: "perConnection",
   },
   layout: {
     maxWidth: 50,

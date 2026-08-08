@@ -101,6 +101,30 @@ export function createPluginToolMockModule() {
 export function createConfigModuleMock(loadConfig: MockFunction) {
   return {
     loadConfig,
+    serializeNineRouterProviderSelection: (providers: readonly string[]) => {
+      const canonical = new Set<string>();
+      let all = false;
+      for (const provider of providers) {
+        const normalized = provider.trim().toLowerCase();
+        if (normalized === "all") {
+          all = true;
+          continue;
+        }
+        if (
+          !normalized ||
+          Array.from(normalized).some((character) => {
+            const codePoint = character.codePointAt(0) ?? 0;
+            return codePoint <= 31 || (codePoint >= 127 && codePoint <= 159);
+          }) ||
+          Array.from(normalized).length > 128 ||
+          canonical.size === 32
+        ) {
+          continue;
+        }
+        canonical.add(normalized);
+      }
+      return JSON.stringify(canonical.size > 0 ? [...canonical].sort() : all ? ["all"] : []);
+    },
     createLoadConfigMeta: () => ({
       source: "defaults",
       paths: [],

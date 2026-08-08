@@ -1,7 +1,7 @@
 import type { QuotaProviderDefinition } from "./quota-providers.js";
 import type { QuotaTelemetryToken } from "./quota-telemetry.js";
 import type { RuntimeProviderIdResolver } from "./runtime-provider-ids.js";
-import type { CursorQuotaPlan, OpenCodeGoWindowKey } from "./types.js";
+import type { CursorQuotaPlan, NineRouterConfig, OpenCodeGoWindowKey } from "./types.js";
 
 /**
  * Normalized quota output model.
@@ -234,6 +234,7 @@ export interface QuotaProviderContext {
     enabledProviders: string[] | "auto";
     quotaProviders?: QuotaProviderDefinition[];
     telemetryToken?: QuotaTelemetryToken;
+    nineRouter: Readonly<NineRouterConfig>;
   };
 }
 
@@ -249,4 +250,6 @@ export interface QuotaProvider {
 
   /** Optional provider match for onlyCurrentModel filtering */
   matchesCurrentModel?: (model: string, context?: QuotaProviderMatchContext) => boolean;
+
+  cacheIdentity?: (ctx: QuotaProviderContext) => string;
 }

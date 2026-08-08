@@ -94,6 +94,7 @@ export function makeQuotaStatusReportParams(
     configSource: "test",
     configPaths: [],
     enabledProviders,
+    nineRouter: { providers: [], display: "perConnection" },
     googleModels: ["CLAUDE"],
     cursorPlan: "none",
     pricingSnapshotSource: "auto",

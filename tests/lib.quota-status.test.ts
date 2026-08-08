@@ -153,6 +153,8 @@ vi.mock("../src/lib/quota-stats.js", () => ({
 describe("buildQuotaStatusReport", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv("OPENCODE_NINEROUTER_URL", "");
+    vi.stubEnv("OPENCODE_NINEROUTER_API_KEY", "");
   });
 
   it("uses a Unicode ellipsis for truncated pricing diagnostic lists", async () => {
@@ -233,6 +235,73 @@ describe("buildQuotaStatusReport", () => {
     });
     expect(configuredReport).toContain("- googleModels: CLAUDE,G3PRO");
     expect(configuredReport).toContain(`- googleModels_source: configuration file (${configPath})`);
+  });
+
+  it("reports nineRouter setup, probe state, and provenance without exposing management secrets", async () => {
+    const root = "https://router.example.test/management";
+    const key = "9router-status-secret";
+    const account = "private-account-id";
+    vi.stubEnv("OPENCODE_NINEROUTER_URL", root);
+    vi.stubEnv("OPENCODE_NINEROUTER_API_KEY", key);
+
+    const report = await buildProviderStatusReport("9router", {
+      nineRouter: { providers: [" KIRO ", "codex", "kiro"], display: "unified" },
+      settingSources: {
+        "nineRouter.providers": "/tmp/project/opencode-quota/quota-toast.jsonc",
+        "nineRouter.display": "/tmp/project/opencode-quota/quota-toast.jsonc",
+      },
+      providerLiveProbes: [
+        makeProviderPartialProbe(
+          "9router",
+          {},
+          {
+            entries: [{ accounting: QUOTA_ACCOUNTING, name: account, percentRemaining: 60 }],
+            errors: [{ label: "nineRouter", message: "one connection unavailable" }],
+          },
+        ),
+      ],
+    });
+
+    expectReportSection(
+      report,
+      "9router:",
+      [
+        "- management_root: configured",
+        "- api_key: configured",
+        "- configuration: configured",
+        "- selected_providers: codex,kiro",
+        "- display_mode: unified",
+        "- config_provenance: providers=/tmp/project/opencode-quota/quota-toast.jsonc display=/tmp/project/opencode-quota/quota-toast.jsonc",
+        "- root_valid: true",
+        "- fixed_endpoints: provider_list | connection_usage",
+        "- probe_outcome: partial",
+      ],
+      [root, key, account, "Bearer"],
+    );
+  });
+
+  it("reports invalid nineRouter setup without invoking a live network probe", async () => {
+    const root = "https://user:password@router.example.test";
+    const key = "9router-invalid-secret";
+    const fetchMock = vi.fn();
+    vi.stubEnv("OPENCODE_NINEROUTER_URL", root);
+    vi.stubEnv("OPENCODE_NINEROUTER_API_KEY", key);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const report = await buildProviderStatusReport("9router");
+
+    expectReportSection(
+      report,
+      "9router:",
+      [
+        "- configuration: invalid_root",
+        "- root_valid: false",
+        "- setup: set OPENCODE_NINEROUTER_URL and OPENCODE_NINEROUTER_API_KEY",
+        "- probe_outcome: unavailable",
+      ],
+      [root, key, "Bearer"],
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("keeps the raw Antigravity family in live quota diagnostics", async () => {
@@ -1375,6 +1444,18 @@ describe("buildQuotaStatusReport", () => {
       - alibaba_api_key_auth_paths: /tmp/auth.json
       - alibaba_coding_plan: (none)
 
+      9router:
+      - management_root: missing
+      - api_key: missing
+      - configuration: missing_root
+      - selected_providers: (all)
+      - display_mode: perConnection
+      - config_provenance: providers=(default) display=(default)
+      - root_valid: false
+      - fixed_endpoints: provider_list | connection_usage
+      - probe_outcome: unavailable
+      - setup: set OPENCODE_NINEROUTER_URL and OPENCODE_NINEROUTER_API_KEY
+
       openai:
       - auth_configured: false
       - auth_source: (none)
@@ -1383,19 +1464,7 @@ describe("buildQuotaStatusReport", () => {
       - account_email: (none)
       - account_id: (none)
 
-      anthropic:
-      - cli_installed: true
-      - cli_version: 1.2.3
-      - auth_status: authenticated
-      - quota_supported: false
-      - quota_source: (none)
-      - checked_commands: claude --version | claude auth status --json
-      - message: Claude CLI auth detected, but quota was unavailable from both the local CLI and Claude OAuth fallback. Claude credentials file not found at /Users/test/.claude/.credentials.json.
-
-      cursor:
-      - plan: none
-      - included_api_usd: (none)
-      - billing_cycle_start_day: (calendar month)"
+      anthropic:"
     `);
 
     const titles = report
@@ -1405,6 +1474,7 @@ describe("buildQuotaStatusReport", () => {
     expect(titles).toMatchInlineSnapshot(`
       "toast:
 paths:
+9router:
 openai:
 anthropic:
 cursor:

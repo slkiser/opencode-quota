@@ -21,7 +21,12 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
   getOpencodeRuntimeDirCandidates: () => runtimeDirs.value,
 }));
 
-import { createLoadConfigMeta, loadConfig } from "../src/lib/config.js";
+import {
+  canonicalizeNineRouterProviders,
+  createLoadConfigMeta,
+  loadConfig,
+  serializeNineRouterProviderSelection,
+} from "../src/lib/config.js";
 import { DEFAULT_CONFIG } from "../src/lib/types.js";
 
 describe("loadConfig", () => {
@@ -120,6 +125,90 @@ describe("loadConfig", () => {
         message: 'expected "current" or "tree"',
       },
     ]);
+  });
+
+  it("uses plural nineRouter provider selections and ignores the singular legacy spelling", async () => {
+    const configured = await loadSdkConfig({
+      nineRouter: { providers: [" Codex ", "codex", "kiro"], display: "unified" },
+    });
+    expect(configured.config.nineRouter).toEqual({
+      providers: ["codex", "kiro"],
+      display: "unified",
+    });
+    expect(configured.meta.settingSources).toEqual({
+      "nineRouter.providers": "client.config.get",
+      "nineRouter.display": "client.config.get",
+    });
+    const singular = await loadSdkConfig({ nineRouter: { provider: "codex" } });
+    expect(singular.config.nineRouter).toEqual(DEFAULT_CONFIG.nineRouter);
+  });
+
+  it("reports malformed nineRouter fields without replacing valid lower-layer fields", async () => {
+    const malformed = await loadSdkConfig({ nineRouter: [] });
+    expect(malformed.meta.configIssues).toEqual([
+      {
+        path: "client.config.get",
+        key: "nineRouter",
+        message: "expected an object",
+      },
+    ]);
+
+    const sidecarPath = join(isolatedCwd, "opencode-quota", "quota-toast.json");
+    const globalDir = join(isolatedCwd, "global");
+    const globalConfigPath = join(globalDir, "opencode.json");
+    runtimeDirs.value.configDirs = [globalDir];
+    mkdirSync(globalDir, { recursive: true });
+    mkdirSync(join(isolatedCwd, "opencode-quota"), { recursive: true });
+    writeFileSync(
+      globalConfigPath,
+      JSON.stringify({
+        experimental: { quotaToast: { nineRouter: { providers: ["kiro"], display: "unified" } } },
+      }),
+      "utf8",
+    );
+    writeFileSync(
+      sidecarPath,
+      JSON.stringify({ nineRouter: { providers: "kiro", display: "perConnection" } }),
+      "utf8",
+    );
+
+    const meta = createLoadConfigMeta();
+    const config = await loadConfig(undefined, meta, { cwd: isolatedCwd });
+
+    expect(config.nineRouter).toEqual({ providers: ["kiro"], display: "perConnection" });
+    expect(meta.settingSources).toMatchObject({
+      "nineRouter.providers": `${globalConfigPath} (experimental.quotaToast)`,
+      "nineRouter.display": quotaSidecarConfigSource(isolatedCwd),
+    });
+    expect(meta.configIssues).toContainEqual({
+      path: quotaSidecarConfigSource(isolatedCwd),
+      key: "nineRouter.providers",
+      message: "expected an array of provider ids",
+    });
+  });
+
+  it("canonicalizes bounded plural nineRouter selections for stable identities", () => {
+    const overlongProvider = "a".repeat(129);
+    const providers = canonicalizeNineRouterProviders([
+      "codex\nunsafe",
+      overlongProvider,
+      " KIRO ",
+      "codex",
+      "kiro",
+      ...Array.from({ length: 40 }, (_, index) => `provider-${index.toString().padStart(2, "0")}`),
+    ]);
+
+    expect(providers).toEqual([
+      "codex",
+      "kiro",
+      ...Array.from({ length: 30 }, (_, index) => `provider-${index.toString().padStart(2, "0")}`),
+    ]);
+    expect(serializeNineRouterProviderSelection(["kiro", "codex", "KIRO"])).toBe(
+      '["codex","kiro"]',
+    );
+    expect(canonicalizeNineRouterProviders(["all", "codex"])).toEqual(["codex"]);
+    expect(canonicalizeNineRouterProviders([" ALL "])).toEqual(["all"]);
+    expect(serializeNineRouterProviderSelection([])).toBe("[]");
   });
 
   it("defaults maintainer announcements config and accepts validated nested overrides", async () => {
@@ -343,6 +432,8 @@ describe("loadConfig", () => {
     first.tuiCompactStatus.maxWidth = 1;
     first.maintainerAnnouncements.enabled = false;
     first.maintainerAnnouncements.home = false;
+    first.nineRouter.providers.push("kiro");
+    first.nineRouter.display = "unified";
 
     const second = await loadConfig(undefined, undefined, { cwd: isolatedCwd });
     expect(second.tuiSidebarPanel).toEqual(DEFAULT_CONFIG.tuiSidebarPanel);
@@ -360,6 +451,9 @@ describe("loadConfig", () => {
       enabled: true,
       home: true,
     });
+    expect(second.nineRouter).toEqual(DEFAULT_CONFIG.nineRouter);
+    expect(second.nineRouter).not.toBe(DEFAULT_CONFIG.nineRouter);
+    expect(DEFAULT_CONFIG.nineRouter).toEqual({ providers: [], display: "perConnection" });
   });
 
   it("defaults requestTimeoutMs to 5000 and accepts positive finite overrides", async () => {

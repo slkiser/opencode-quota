@@ -21,6 +21,7 @@ Most providers work automatically. `Automatic` means OpenCode Quota reuses the c
 
 | Provider           | Auth/setup                             | Data from          | Reports            |
 | ------------------ | -------------------------------------- | ------------------ | ------------------ |
+| 9Router            | [Needs setup](#9router)                 | Remote API         | Quota              |
 | Anthropic (Claude) | [Needs setup](#anthropic-claude)       | Local CLI/OAuth    | Quota              |
 | Chutes AI          | Automatic                              | Remote API         | Quota              |
 | Cursor             | [Needs setup](#cursor)                 | Local estimate     | Budget and spend   |
@@ -594,3 +595,19 @@ You can instead create `~/.config/opencode/opencode-quota/opencode.json`:
 ```
 
 Set `opencodeMonthlyLimit` in `opencode-quota/quota-toast.json` to override the monthly budget from the billing page. Without a monthly limit, the provider shows the current balance only.
+
+### 9Router
+
+Enable the canonical `9router` provider and configure the 9Router management API with environment variables:
+
+```jsonc
+{
+  "enabledProviders": ["9router"],
+  "nineRouter": {
+    "providers": ["codex", "kiro"],
+    "display": "perConnection"
+  }
+}
+```
+
+Set `OPENCODE_NINEROUTER_URL` and `OPENCODE_NINEROUTER_API_KEY`. `nineRouter.providers` is an empty array discovers all active upstream providers. Values are normalized, deduplicated, and ordered before use. `display` is `perConnection` or `unified`.
