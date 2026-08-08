@@ -6,6 +6,8 @@ export interface WriteJsonAtomicOptions {
   trailingNewline?: boolean;
   directoryMode?: number;
   fileMode?: number;
+  /** When false, do not replace an existing destination on retryable rename errors. */
+  replaceOnRenameError?: boolean;
 }
 
 async function safeRm(target: string): Promise<void> {
@@ -59,10 +61,10 @@ export async function writeTextAtomic(
       renameError && typeof renameError === "object" && "code" in renameError
         ? String((renameError as { code?: unknown }).code)
         : "";
-    const shouldRetryAsReplace =
+    const isRetryable =
       code === "EPERM" || code === "EEXIST" || code === "EACCES" || code === "ENOTEMPTY";
 
-    if (!shouldRetryAsReplace) {
+    if (!isRetryable || opts.replaceOnRenameError === false) {
       await safeRm(tmp);
       throw renameError;
     }
