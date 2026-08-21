@@ -4,7 +4,7 @@
  * Uses the local Claude CLI/runtime to detect install/auth state first. When
  * Claude auth is confirmed but local quota windows are missing, it falls back
  * to Anthropic's OAuth usage endpoint using the first usable OAuth access
- * token: OpenCode's own auth.json, then Claude OAuth credentials (macOS
+ * token: OpenCode's own opencode.db, then Claude OAuth credentials (macOS
  * Keychain first, then the local credentials file).
  */
 

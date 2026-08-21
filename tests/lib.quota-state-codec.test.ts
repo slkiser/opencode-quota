@@ -104,7 +104,7 @@ function createValidResult(): QuotaProviderResult {
         httpStatus: 200,
         entryCount: 4,
         checkedPaths: ["env:SYNTHETIC_API_KEY"],
-        authPaths: ["/tmp/auth.json"],
+        credentialDatabasePaths: ["/tmp/opencode.db"],
         statePath: "/tmp/state.json",
         stateHealth: "healthy",
         stateVersion: 2,
@@ -215,7 +215,7 @@ describe("quota-state codec", () => {
         outcome: "local_state_error",
         entryCount: 0,
         checkedPaths: [],
-        authPaths: [],
+        credentialDatabasePaths: [],
         stateHealth: "malformed",
         stateVersion: null,
         stateLastUpdatedAt: null,
@@ -393,7 +393,9 @@ describe("quota-state codec", () => {
     expect((cloned.entries[0] as any).basis.limit.quantity).not.toBe(
       (input.entries[0] as any).basis.limit.quantity,
     );
-    expect(cloned.diagnostics?.[0]?.authPaths).not.toBe(input.diagnostics?.[0]?.authPaths);
+    expect(cloned.diagnostics?.[0]?.credentialDatabasePaths).not.toBe(
+      input.diagnostics?.[0]?.credentialDatabasePaths,
+    );
   });
 
   it("encodes V2 and round-trips parsed envelopes by semantic value", () => {

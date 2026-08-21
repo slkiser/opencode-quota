@@ -82,9 +82,9 @@ describe("quota-providers aggregate provider", () => {
   beforeEach(() => {
     runtimeMocks.resolveQuotaProviderApiKey.mockReset().mockResolvedValue({
       key: "secret",
-      source: "auth.json",
+      source: "opencode.db",
       checkedPaths: ["/trusted/opencode.json"],
-      authPaths: ["/trusted/auth.json"],
+      credentialDatabasePaths: ["/trusted/opencode.db"],
     });
     runtimeMocks.fetchRemoteQuotaProvider.mockReset().mockResolvedValue({
       success: true,
@@ -431,9 +431,9 @@ describe("quota-providers aggregate provider", () => {
       providerId: "runtime-provider",
       mode: "remote-api",
       format: "quota-v1",
-      credentialSource: "auth_json",
+      credentialSource: "opencode_db",
       checkedPaths: ["/trusted/opencode.json"],
-      authPaths: ["/trusted/auth.json"],
+      credentialDatabasePaths: ["/trusted/opencode.db"],
     });
     expect(JSON.stringify(result.diagnostics)).not.toContain("secret");
   });

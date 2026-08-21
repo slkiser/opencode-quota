@@ -8,7 +8,7 @@
  * After quota succeeds, subscription metadata may refine the display label via:
  * GET https://grok.com/rest/subscriptions
  *
- * OpenCode remains the sole owner of OAuth refresh and auth.json persistence.
+ * OpenCode remains the sole owner of OAuth refresh and opencode.db persistence.
  */
 
 import { sanitizeSingleLineDisplaySnippet } from "./display-sanitize.js";

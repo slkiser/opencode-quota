@@ -55,9 +55,9 @@ function diagnostics(
 ): Record<string, unknown> {
   return {
     state,
-    source: state === "none" ? null : "auth.json",
+    source: state === "none" ? null : "opencode.db",
     checkedPaths: ["env:OPENCODE_API_KEY", "/tmp/opencode.json"],
-    authPaths: ["/tmp/auth.json"],
+    credentialDatabasePaths: ["/tmp/opencode.db"],
     ...(state === "invalid" ? { error: "OpenCode Go auth entry present but key is empty" } : {}),
   };
 }
@@ -195,7 +195,7 @@ describe("opencode-go provider", () => {
       "auth_state",
       "auth_source",
       "auth_checked_paths",
-      "auth_paths",
+      "credential_database_paths",
       "selected_windows",
       "rolling_usage",
       "weekly_usage",

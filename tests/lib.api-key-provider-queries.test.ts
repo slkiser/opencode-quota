@@ -11,7 +11,7 @@ import { querySyntheticQuota } from "../src/lib/synthetic.js";
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
   readAuthFile: vi.fn(async () => ({})),
-  getAuthPaths: vi.fn(() => []),
+  getCredentialDatabasePaths: vi.fn(() => []),
 }));
 
 vi.mock("../src/lib/nanogpt-config.js", () => ({

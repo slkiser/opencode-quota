@@ -526,7 +526,7 @@ describe("buildQuotaExport", () => {
             outcome: "success",
             entryCount: 1,
             checkedPaths: ["env:GATEWAY_ONE_KEY"],
-            authPaths: ["/trusted/auth.json"],
+            credentialDatabasePaths: ["/trusted/opencode.db"],
           },
           {
             sourceId: "same-label-two",
@@ -536,11 +536,11 @@ describe("buildQuotaExport", () => {
             apiKeyEnv: null,
             selected: true,
             attempted: true,
-            credentialSource: "auth_json",
+            credentialSource: "opencode_db",
             outcome: "invalid_json",
             entryCount: 0,
             checkedPaths: ["/trusted/opencode.json"],
-            authPaths: ["/trusted/auth.json"],
+            credentialDatabasePaths: ["/trusted/opencode.db"],
           },
         ],
       },
@@ -583,7 +583,7 @@ describe("buildQuotaExport", () => {
     expect(json).not.toContain("GATEWAY_ONE_KEY");
     expect(json).not.toContain("private-adapter-literal");
     expect(json).not.toContain("json-v1");
-    expect(json).not.toContain("/trusted/auth.json");
+    expect(json).not.toContain("/trusted/opencode.db");
   });
 
   it("returns ordered unavailable quota-provider definitions when the cache has no aggregate entry", async () => {

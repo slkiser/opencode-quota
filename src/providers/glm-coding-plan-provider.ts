@@ -35,7 +35,7 @@ export function createGlmCodingPlanProvider(params: {
     state: string;
     source: string | null;
     checkedPaths: string[];
-    authPaths: string[];
+    credentialDatabasePaths: string[];
     error?: string;
   }>;
   queryQuota: (params: {

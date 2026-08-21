@@ -1,5 +1,5 @@
 /**
- * Generic API key resolution from env vars, config files, and auth.json.
+ * Generic API key resolution from env vars, config files, and opencode.db.
  *
  * Used by provider-specific config modules (synthetic-config, chutes-config)
  * to resolve API keys with consistent priority and behavior.
@@ -168,10 +168,10 @@ export interface ResolveEnvAndConfigApiKeyConfig<Source extends string> {
 /** Configuration for resolving an API key from multiple sources */
 export interface ResolveApiKeyConfig<Source extends string>
   extends ResolveEnvAndConfigApiKeyConfig<Source> {
-  /** Extract API key from auth.json data. Returns null if not found. */
+  /** Extract API key from opencode.db data. Returns null if not found. */
   extractFromAuth: (auth: unknown) => string | null;
 
-  /** Source label for auth.json */
+  /** Source label for opencode.db */
   authSource: Source;
 }
 
@@ -188,7 +188,7 @@ export interface ResolveProviderApiKeyBaseConfig<Source extends string> {
 export interface StrictApiKeyAuthConfig<Source extends string> {
   policy?: "strict-api-key";
   readAuth: () => Promise<unknown | null>;
-  getAuthPaths?: () => string[];
+  getCredentialDatabasePaths?: () => string[];
   authKeys?: readonly string[];
   authSource: Source;
 }
@@ -196,7 +196,7 @@ export interface StrictApiKeyAuthConfig<Source extends string> {
 export interface InvalidAwareApiKeyAuthConfig<AuthSource extends string> {
   policy: "invalid-aware-api-key";
   readAuth: (maxAgeMs: number) => Promise<unknown | null>;
-  getAuthPaths: () => string[];
+  getCredentialDatabasePaths: () => string[];
   authKeys: readonly string[];
   authSource: AuthSource;
   displayName: string;
@@ -210,7 +210,7 @@ export interface ResolveProviderApiKeyConfig<Source extends string>
   auth?: StrictApiKeyAuthConfig<Source>;
 }
 
-/** Configuration for providers that surface malformed winning auth.json entries. */
+/** Configuration for providers that surface malformed winning opencode.db entries. */
 export interface ResolveInvalidAwareProviderApiKeyConfig<
   Source extends string,
   AuthSource extends Source,
@@ -228,19 +228,19 @@ export type InvalidAwareAuthDiagnostics<Source extends string, AuthSource extend
       state: "none";
       source: null;
       checkedPaths: string[];
-      authPaths: string[];
+      credentialDatabasePaths: string[];
     }
   | {
       state: "configured";
       source: Source;
       checkedPaths: string[];
-      authPaths: string[];
+      credentialDatabasePaths: string[];
     }
   | {
       state: "invalid";
       source: AuthSource;
       checkedPaths: string[];
-      authPaths: string[];
+      credentialDatabasePaths: string[];
       error: string;
     };
 
@@ -251,7 +251,7 @@ export interface ProviderApiKeyResolver<Source extends string> {
     configured: boolean;
     source: Source | null;
     checkedPaths: string[];
-    authPaths: string[];
+    credentialDatabasePaths: string[];
   }>;
 }
 
@@ -361,7 +361,7 @@ function createInvalidAwareProviderApiKeyResolver<Source extends string, AuthSou
           envVarNames: config.envVars.map((envVar) => envVar.name),
           getConfigCandidates: config.getConfigCandidates,
         }),
-        authPaths: config.auth.getAuthPaths(),
+        credentialDatabasePaths: config.auth.getCredentialDatabasePaths(),
       };
       if (auth.state === "none") return { state: "none", source: null, ...paths };
       if (auth.state === "invalid") {
@@ -409,7 +409,7 @@ export function createProviderApiKeyResolver<Source extends string, AuthSource e
         resolve,
         getConfigCandidates: simpleConfig.getConfigCandidates,
       })),
-      authPaths: simpleConfig.auth?.getAuthPaths?.() ?? [],
+      credentialDatabasePaths: simpleConfig.auth?.getCredentialDatabasePaths?.() ?? [],
     }),
   };
 }
@@ -473,7 +473,7 @@ export function getApiKeyCheckedPaths(config: ApiKeyCheckedPathsConfig): string[
  * Priority (first wins):
  * 1. Environment variables (in order specified)
  * 2. Trusted user/global opencode.json/opencode.jsonc
- * 3. auth.json
+ * 3. opencode.db
  *
  * @returns API key and source, or null if not found
  */
@@ -486,7 +486,7 @@ export async function resolveApiKey<Source extends string>(
     return resolvedFromEnvOrConfig;
   }
 
-  // 3. Fallback to auth.json
+  // 3. Fallback to opencode.db
   const auth = await readAuth();
   const key = config.extractFromAuth(auth);
   if (key) {

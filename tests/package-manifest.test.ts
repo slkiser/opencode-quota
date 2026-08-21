@@ -153,9 +153,9 @@ describe("package manifest compatibility", () => {
 
   it("keeps the public plugin peer broad and reference-compatible development targets exact", () => {
     expect(pkg.peerDependencies?.["@opencode-ai/plugin"]).toBe("^1.4.3");
-    expect(pkg.devDependencies?.["@opencode-ai/plugin"]).toBe("1.18.11");
-    expect(pkg.dependencies?.["@opentui/core"]).toBe("0.4.5");
-    expect(pkg.dependencies?.["@opentui/solid"]).toBe("0.4.5");
+    expect(pkg.devDependencies?.["@opencode-ai/plugin"]).toBe("1.18.1");
+    expect(pkg.dependencies?.["@opentui/core"]).toBe("^0.5.3");
+    expect(pkg.dependencies?.["@opentui/solid"]).toBe("^0.5.3");
     expect(readme).toContain("Node.js `>= 22` is required.");
     expect(readme).not.toContain("OpenCode `>= 1.4.3`");
     expect(pkg.engines).not.toHaveProperty("opencode");
@@ -164,8 +164,10 @@ describe("package manifest compatibility", () => {
   it("keeps the TypeScript 7 toolchain explicit without suppressing the known peer mismatch", () => {
     expect(tsconfig.compilerOptions?.types).toEqual(["node"]);
     expect(typescriptValidator).toContain('const EXPECTED_TYPESCRIPT_VERSION = "7.0.2";');
-    expect(typescriptValidator).toContain('const EXPECTED_PLUGIN_VERSION = "1.18.11";');
-    expect(typescriptValidator).toContain('const EXPECTED_OPENTUI_VERSION = "0.4.5";');
+    expect(typescriptValidator).toContain('const EXPECTED_PLUGIN_VERSION = "1.18.1";');
+    expect(typescriptValidator).toContain('const EXPECTED_OPENTUI_SPECIFIER = "^0.5.3";');
+    expect(typescriptValidator).toContain('const EXPECTED_OPENTUI_VERSION = "0.5.4";');
+    expect(typescriptValidator).toContain('const BUN_FFI_STRUCTS_VERSION = "0.3.1";');
     expect(typescriptValidator).toContain('const BUN_FFI_TYPESCRIPT_PEER = "^5";');
     expect(typescriptValidator).toContain("Known unmet peer:");
     expect(typescriptValidator).not.toMatch(/TypeScript v4 freeze|\^5\.9/);
@@ -215,7 +217,7 @@ describe("package manifest compatibility", () => {
 
     expect(lefthookConfig["pre-commit"]?.commands).toEqual({
       biome: {
-        glob: "*.{js,cjs,mjs,jsx,ts,tsx,json,jsonc,css}",
+        glob: "**/*.{js,cjs,mjs,jsx,ts,tsx,json,jsonc,css}",
         run: "pnpm exec biome check --write --no-errors-on-unmatched {staged_files}",
         stage_fixed: true,
       },

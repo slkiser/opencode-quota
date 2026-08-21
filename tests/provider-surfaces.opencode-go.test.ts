@@ -164,9 +164,9 @@ describe("OpenCode Go shared projections", () => {
     });
     mocks.getOpenCodeGoAuthDiagnostics.mockResolvedValue({
       state: "configured",
-      source: "auth.json",
+      source: "opencode.db",
       checkedPaths: ["env:OPENCODE_API_KEY"],
-      authPaths: ["/tmp/auth.json"],
+      credentialDatabasePaths: ["/tmp/opencode.db"],
     });
     mocks.queryOpenCodeGoQuota.mockResolvedValue(successfulResult());
 

@@ -30,7 +30,7 @@ vi.mock("../src/lib/zai-auth.js", () => ({
     state: "none",
     source: null,
     checkedPaths: [],
-    authPaths: [],
+    credentialDatabasePaths: [],
   })),
 }));
 vi.mock("../src/lib/zhipu-auth.js", () => ({
@@ -40,7 +40,7 @@ vi.mock("../src/lib/zhipu-auth.js", () => ({
     state: "none",
     source: null,
     checkedPaths: [],
-    authPaths: [],
+    credentialDatabasePaths: [],
   })),
 }));
 

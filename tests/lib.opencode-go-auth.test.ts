@@ -12,7 +12,7 @@ import {
 } from "./helpers/trusted-config-test-harness.js";
 
 const authMocks = vi.hoisted(() => ({
-  getAuthPaths: vi.fn(() => ["/tmp/auth.json"]),
+  getCredentialDatabasePaths: vi.fn(() => ["/tmp/opencode.db"]),
   readAuthFileCached: vi.fn(),
   queryOpenCodeGoQuota: vi.fn(),
 }));
@@ -21,7 +21,7 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => createRuntimePathsMockModu
 vi.mock("fs", () => ({ existsSync: vi.fn() }));
 vi.mock("fs/promises", () => ({ readFile: vi.fn() }));
 vi.mock("../src/lib/opencode-auth.js", () => ({
-  getAuthPaths: authMocks.getAuthPaths,
+  getCredentialDatabasePaths: authMocks.getCredentialDatabasePaths,
   readAuthFileCached: authMocks.readAuthFileCached,
 }));
 vi.mock("../src/lib/opencode-go.js", () => ({
@@ -58,7 +58,7 @@ function resetFixture(): void {
     delete process.env[name];
   }
   resetFsConfigMocks(fsMocks);
-  authMocks.getAuthPaths.mockReset().mockReturnValue(["/tmp/auth.json"]);
+  authMocks.getCredentialDatabasePaths.mockReset().mockReturnValue(["/tmp/opencode.db"]);
   authMocks.readAuthFileCached.mockReset().mockResolvedValue(null);
 }
 
@@ -108,7 +108,7 @@ describe("OpenCode Go auth resolution", () => {
     }
   });
 
-  it("accepts the opencode-go auth.json key written by `opencode auth login -p opencode-go`", () => {
+  it("accepts the opencode-go opencode.db key written by `opencode auth login -p opencode-go`", () => {
     expect(resolveOpenCodeGoAuth({ "opencode-go": { type: "api", key: "cli-key" } })).toEqual({
       state: "configured",
       apiKey: "cli-key",
@@ -120,7 +120,7 @@ describe("OpenCode Go auth resolution", () => {
     });
   });
 
-  it("prefers the opencode-go auth.json key over the legacy opencode fallback", () => {
+  it("prefers the opencode-go opencode.db key over the legacy opencode fallback", () => {
     const auth = {
       "opencode-go": { type: "api", key: "cli-key" },
       opencode: { type: "api", key: "legacy-key" },
@@ -175,7 +175,7 @@ describe("OpenCode Go auth resolution", () => {
     await expect(resolveOpenCodeGoAuthCached()).resolves.toEqual({ state: "none" });
   });
 
-  it("continues past blank env and unusable config to canonical auth.json", async () => {
+  it("continues past blank env and unusable config to canonical opencode.db", async () => {
     process.env.OPENCODE_API_KEY = " ";
     mockTrustedConfigFile(
       fsMocks,
@@ -209,9 +209,9 @@ describe("OpenCode Go auth resolution", () => {
     const diagnostics = await getOpenCodeGoAuthDiagnostics({ maxAgeMs: -1 });
     expect(diagnostics).toEqual({
       state: "invalid",
-      source: "auth.json",
+      source: "opencode.db",
       checkedPaths: expect.any(Array),
-      authPaths: ["/tmp/auth.json"],
+      credentialDatabasePaths: ["/tmp/opencode.db"],
       error: "OpenCode Go auth entry has unsupported type",
     });
     expect(JSON.stringify(diagnostics)).not.toContain(secret);
@@ -234,7 +234,7 @@ describe("OpenCode Go auth resolution", () => {
       state: "configured",
       source: "env:OPENCODE_API_KEY",
       checkedPaths: ["env:OPENCODE_API_KEY"],
-      authPaths: ["/tmp/auth.json"],
+      credentialDatabasePaths: ["/tmp/opencode.db"],
     });
     expect(getOpencodeConfigCandidatePaths()).toEqual([
       { path: trustedPaths.jsonc, isJsonc: true },

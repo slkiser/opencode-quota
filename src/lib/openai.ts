@@ -1,7 +1,7 @@
 /**
  * OpenAI (ChatGPT) quota fetcher
  *
- * Uses OpenCode's auth.json native OpenCode OAuth entries and queries:
+ * Uses OpenCode's opencode.db native OpenCode OAuth entries and queries:
  * https://chatgpt.com/backend-api/wham/usage
  */
 

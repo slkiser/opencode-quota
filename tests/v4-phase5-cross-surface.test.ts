@@ -102,7 +102,7 @@ vi.mock("../src/lib/minimax-auth.js", () => ({
     state: "none",
     source: null,
     checkedPaths: [],
-    authPaths: [],
+    credentialDatabasePaths: [],
   })),
 }));
 vi.mock("../src/lib/opencode-runtime-paths.js", () =>
@@ -282,10 +282,10 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     });
     mocks.getMiniMaxAuthDiagnostics.mockResolvedValue({
       state: "configured",
-      source: "auth.json",
+      source: "opencode.db",
       endpoint: "international",
       checkedPaths: [],
-      authPaths: [],
+      credentialDatabasePaths: [],
     });
 
     const { quotaProvidersProvider } = await import("../src/providers/quota-providers.js");

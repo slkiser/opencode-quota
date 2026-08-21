@@ -59,13 +59,13 @@ export function simpleApiKeyStatusDetails(diagnostics: {
   configured: boolean;
   source: string | null;
   checkedPaths: readonly string[];
-  authPaths: readonly string[];
+  credentialDatabasePaths: readonly string[];
 }): QuotaProviderStatusDetail[] {
   return statusDetailsFromRecord({
     api_key_configured: diagnostics.configured ? "true" : "false",
     api_key_source: diagnostics.source ?? "(none)",
     api_key_checked_paths: diagnostics.checkedPaths.join(" | ") || "(none)",
-    api_key_auth_paths: diagnostics.authPaths.join(" | ") || "(none)",
+    api_key_credential_database_paths: diagnostics.credentialDatabasePaths.join(" | ") || "(none)",
   });
 }
 
@@ -73,7 +73,7 @@ export function apiKeyStatusDetails(diagnostics: {
   state: string;
   source: string | null;
   checkedPaths: readonly string[];
-  authPaths: readonly string[];
+  credentialDatabasePaths: readonly string[];
   error?: string;
 }): QuotaProviderStatusDetail[] {
   return statusDetailsFromRecord({
@@ -81,7 +81,7 @@ export function apiKeyStatusDetails(diagnostics: {
     api_key_configured: diagnostics.state === "configured" ? "true" : "false",
     api_key_source: diagnostics.source ?? "(none)",
     api_key_checked_paths: diagnostics.checkedPaths.join(" | ") || "(none)",
-    api_key_auth_paths: diagnostics.authPaths.join(" | ") || "(none)",
+    api_key_credential_database_paths: diagnostics.credentialDatabasePaths.join(" | ") || "(none)",
     auth_error: diagnostics.error ? sanitizeDisplayText(diagnostics.error) : undefined,
   });
 }

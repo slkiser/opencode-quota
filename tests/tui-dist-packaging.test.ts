@@ -20,6 +20,8 @@ vi.mock("@opentui/solid", () => ({
   setProp: vi.fn(),
 }));
 
+vi.mock("@opentui/solid/preload", () => ({}));
+
 async function exists(url: URL): Promise<boolean> {
   try {
     await access(fileURLToPath(url));
@@ -32,12 +34,18 @@ async function exists(url: URL): Promise<boolean> {
 describe("tui dist packaging", () => {
   it("ships the precompiled TUI entry and removes stale jsx artifacts", async () => {
     const distTui = new URL("../dist/tui.js", import.meta.url);
+    const distTuiV2 = new URL("../dist/tui-v2.js", import.meta.url);
     const distJsx = new URL("../dist/tui.jsx", import.meta.url);
     const distJsxMap = new URL("../dist/tui.jsx.map", import.meta.url);
+    const distTuiV2Jsx = new URL("../dist/tui-v2.jsx", import.meta.url);
+    const distTuiV2JsxMap = new URL("../dist/tui-v2.jsx.map", import.meta.url);
 
     expect(await exists(distTui)).toBe(true);
+    expect(await exists(distTuiV2)).toBe(true);
     expect(await exists(distJsx)).toBe(false);
     expect(await exists(distJsxMap)).toBe(false);
+    expect(await exists(distTuiV2Jsx)).toBe(false);
+    expect(await exists(distTuiV2JsxMap)).toBe(false);
 
     const source = await readFile(distTui, "utf8");
     expect(source).toContain("createComponent");
@@ -59,5 +67,14 @@ describe("tui dist packaging", () => {
       id: "@slkiser/opencode-quota",
     });
     expect(typeof mod.default.tui).toBe("function");
+  });
+
+  it("can load the packaged root module", async () => {
+    const mod = await import("../dist/index.js");
+
+    expect(mod.default).toMatchObject({
+      id: "@slkiser/opencode-quota",
+    });
+    expect(typeof mod.default.setup).toBe("function");
   });
 });

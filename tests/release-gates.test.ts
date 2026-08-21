@@ -115,7 +115,7 @@ describe("v4 release gates", () => {
     const typescript = run(typescriptScript);
     expect(typescript.status).toBe(0);
     expect(typescript.stdout).toContain(
-      "TypeScript 7.0.2 and @opencode-ai/plugin 1.18.11 lock entries verified",
+      "TypeScript 7.0.2 and @opencode-ai/plugin 1.18.1 lock entries verified",
     );
 
     const history = run(historyScript);
@@ -147,7 +147,7 @@ describe("v4 release gates", () => {
       "references/local/opencode-1.18.2/package.json",
       "references/branches/private-plan.md",
       "prompt-exports/session.md",
-      "opencode-quota/auth.json",
+      "opencode-quota/opencode.db",
       "images/private-smoke.png",
       "opencode.json",
       "tui.json",
@@ -210,7 +210,7 @@ describe("v4 release gates", () => {
       "references/local/v4.0.0-consolidated-plan.md",
       "references/upstream-plugins/README.md",
       "prompt-exports/review.md",
-      "opencode-quota/auth.json",
+      "opencode-quota/opencode.db",
       "tests/package-manifest.test.ts",
       "scripts/verify-release-version.mjs",
       "opencode-quota-logo-dark.svg",

@@ -129,7 +129,7 @@ export function sanitizeQuotaProviderResult(result: QuotaProviderResult): QuotaP
             ...diagnostic,
             modelIds: diagnostic.modelIds ? [...diagnostic.modelIds] : null,
             checkedPaths: [...diagnostic.checkedPaths],
-            authPaths: [...diagnostic.authPaths],
+            credentialDatabasePaths: [...diagnostic.credentialDatabasePaths],
           })),
         }
       : {}),

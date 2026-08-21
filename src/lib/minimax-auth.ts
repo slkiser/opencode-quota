@@ -2,7 +2,7 @@
  * MiniMax auth resolver
  *
  * Resolves MiniMax credentials from trusted env vars, trusted user/global
- * OpenCode config, and auth.json fallback into the standardized shape used
+ * OpenCode config, and opencode.db fallback into the standardized shape used
  * by the MiniMax Coding Plan providers.
  */
 
@@ -15,7 +15,7 @@ import {
 import { sanitizeDisplayText } from "./display-sanitize.js";
 import { resolveEnvTemplate } from "./env-template.js";
 import type { MiniMaxQuotaEndpointId } from "./minimax-endpoints.js";
-import { getAuthPaths, readAuthFileCached } from "./opencode-auth.js";
+import { getCredentialDatabasePaths, readAuthFileCached } from "./opencode-auth.js";
 import type { AuthData, MiniMaxAuthData } from "./types.js";
 
 export const DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS = 5_000;
@@ -26,9 +26,9 @@ export type MiniMaxKeySource =
   | "env:MINIMAX_API_KEY"
   | "opencode.json"
   | "opencode.jsonc"
-  | "auth.json";
+  | "opencode.db";
 
-type MiniMaxInvalidSource = "opencode.json" | "opencode.jsonc" | "auth.json";
+type MiniMaxInvalidSource = "opencode.json" | "opencode.jsonc" | "opencode.db";
 
 export type ResolvedMiniMaxAuth =
   | { state: "none" }
@@ -40,20 +40,20 @@ export type MiniMaxAuthDiagnostics =
       state: "none";
       source: null;
       checkedPaths: string[];
-      authPaths: string[];
+      credentialDatabasePaths: string[];
     }
   | {
       state: "configured";
       source: MiniMaxKeySource;
       endpoint: MiniMaxQuotaEndpointId;
       checkedPaths: string[];
-      authPaths: string[];
+      credentialDatabasePaths: string[];
     }
   | {
       state: "invalid";
       source: MiniMaxInvalidSource;
       checkedPaths: string[];
-      authPaths: string[];
+      credentialDatabasePaths: string[];
       error: string;
     };
 
@@ -250,7 +250,7 @@ async function resolveMiniMaxAuthWithSource(
 
   return {
     auth,
-    source: auth.state === "none" ? null : "auth.json",
+    source: auth.state === "none" ? null : "opencode.db",
   };
 }
 
@@ -277,33 +277,33 @@ async function getMiniMaxAuthDiagnosticsForSpec(
     envVarNames: spec.envVars.map((envVar) => envVar.name),
     getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
   });
-  const authPaths = getAuthPaths();
+  const credentialDatabasePaths = getCredentialDatabasePaths();
 
   if (auth.state === "none") {
     return {
       state: "none",
       source: null,
       checkedPaths,
-      authPaths,
+      credentialDatabasePaths,
     };
   }
 
   if (auth.state === "invalid") {
     return {
       state: "invalid",
-      source: (source ?? "auth.json") as MiniMaxInvalidSource,
+      source: (source ?? "opencode.db") as MiniMaxInvalidSource,
       checkedPaths,
-      authPaths,
+      credentialDatabasePaths,
       error: auth.error,
     };
   }
 
   return {
     state: "configured",
-    source: (source ?? "auth.json") as MiniMaxKeySource,
+    source: (source ?? "opencode.db") as MiniMaxKeySource,
     endpoint: auth.endpoint,
     checkedPaths,
-    authPaths,
+    credentialDatabasePaths,
   };
 }
 

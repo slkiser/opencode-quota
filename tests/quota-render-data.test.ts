@@ -1313,7 +1313,7 @@ describe("collectQuotaRenderData shared quota state", () => {
   it("fetches an available but disabled provider once and preserves its status details", async () => {
     const firstProvider = testProvider("synthetic", {
       attempted: false,
-      statusDetails: [{ key: "api_key_source", value: "auth.json" }],
+      statusDetails: [{ key: "api_key_source", value: "opencode.db" }],
       rawDetails: [{ key: "usage_usd", value: "$2.50" }],
     });
     const duplicateProvider = testProvider("synthetic", {
@@ -1333,7 +1333,7 @@ describe("collectQuotaRenderData shared quota state", () => {
           attempted: false,
           entries: [],
           errors: [],
-          statusDetails: [{ key: "api_key_source", value: "auth.json" }],
+          statusDetails: [{ key: "api_key_source", value: "opencode.db" }],
           rawDetails: [{ key: "usage_usd", value: "$2.50" }],
         },
       },
@@ -1343,7 +1343,7 @@ describe("collectQuotaRenderData shared quota state", () => {
           attempted: false,
           entries: [],
           errors: [],
-          statusDetails: [{ key: "api_key_source", value: "auth.json" }],
+          statusDetails: [{ key: "api_key_source", value: "opencode.db" }],
           rawDetails: [{ key: "usage_usd", value: "$2.50" }],
         },
       },

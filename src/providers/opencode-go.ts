@@ -35,7 +35,7 @@ function authStatusDetails(diagnostics: OpenCodeGoAuthDiagnostics): QuotaProvide
     auth_state: diagnostics.state,
     auth_source: diagnostics.source ?? "(none)",
     auth_checked_paths: diagnostics.checkedPaths.join(" | ") || "(none)",
-    auth_paths: diagnostics.authPaths.join(" | ") || "(none)",
+    credential_database_paths: diagnostics.credentialDatabasePaths.join(" | ") || "(none)",
     auth_error: diagnostics.state === "invalid" ? diagnostics.error : undefined,
   });
 }

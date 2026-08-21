@@ -35,13 +35,13 @@ vi.mock("../src/lib/minimax-auth.js", () => ({
     state: "none",
     source: null,
     checkedPaths: [],
-    authPaths: [],
+    credentialDatabasePaths: [],
   })),
   getMiniMaxChinaAuthDiagnostics: vi.fn(async () => ({
     state: "none",
     source: null,
     checkedPaths: [],
-    authPaths: [],
+    credentialDatabasePaths: [],
   })),
   DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS: 5_000,
 }));

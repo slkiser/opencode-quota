@@ -37,7 +37,7 @@ export function cloneQuotaProviderResult(result: QuotaProviderResult): QuotaProv
             ...diagnostic,
             modelIds: diagnostic.modelIds ? [...diagnostic.modelIds] : null,
             checkedPaths: [...diagnostic.checkedPaths],
-            authPaths: [...diagnostic.authPaths],
+            credentialDatabasePaths: [...diagnostic.credentialDatabasePaths],
           })),
         }
       : {}),
@@ -321,7 +321,7 @@ function isQuotaProviderDiagnostic(value: unknown): boolean {
       "httpStatus",
       "entryCount",
       "checkedPaths",
-      "authPaths",
+      "credentialDatabasePaths",
       "statePath",
       "stateHealth",
       "stateVersion",
@@ -344,7 +344,7 @@ function isQuotaProviderDiagnostic(value: unknown): boolean {
         "explicit_env",
         "global_opencode_json",
         "global_opencode_jsonc",
-        "auth_json",
+        "opencode_db",
       ])) &&
     isOneOf(value.outcome, [
       "missing_credential",
@@ -369,8 +369,8 @@ function isQuotaProviderDiagnostic(value: unknown): boolean {
     value.entryCount >= 0 &&
     isDenseArray(value.checkedPaths) &&
     value.checkedPaths.every((path) => typeof path === "string") &&
-    isDenseArray(value.authPaths) &&
-    value.authPaths.every((path) => typeof path === "string") &&
+    isDenseArray(value.credentialDatabasePaths) &&
+    value.credentialDatabasePaths.every((path) => typeof path === "string") &&
     (value.statePath === undefined || typeof value.statePath === "string") &&
     (value.stateHealth === undefined ||
       isOneOf(value.stateHealth, ["missing", "healthy", "malformed", "version_mismatch"])) &&

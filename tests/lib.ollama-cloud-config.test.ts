@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
     { path: "/trusted/opencode.jsonc", isJsonc: true },
     { path: "/trusted/opencode.json", isJsonc: false },
   ]),
-  getAuthPaths: vi.fn(() => ["/trusted/auth.json"]),
+  getCredentialDatabasePaths: vi.fn(() => ["/trusted/opencode.db"]),
   readAuthFile: vi.fn(),
 }));
 
@@ -26,7 +26,7 @@ vi.mock("../src/lib/api-key-resolver.js", () => ({
 }));
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
-  getAuthPaths: mocks.getAuthPaths,
+  getCredentialDatabasePaths: mocks.getCredentialDatabasePaths,
   readAuthFile: mocks.readAuthFile,
 }));
 
@@ -52,8 +52,8 @@ describe("ollama-cloud API key config", () => {
       getConfigCandidates: mocks.getGlobalOpencodeConfigCandidatePaths,
       auth: {
         readAuth: mocks.readAuthFile,
-        getAuthPaths: mocks.getAuthPaths,
-        authSource: "auth.json",
+        getCredentialDatabasePaths: mocks.getCredentialDatabasePaths,
+        authSource: "opencode.db",
       },
     });
     expect(JSON.stringify(mocks.config)).not.toContain("OLLAMA_USAGE_COOKIE");
@@ -70,7 +70,7 @@ describe("ollama-cloud API key config", () => {
       configured: true,
       source: "env:OLLAMA_API_KEY" as const,
       checkedPaths: ["env:OLLAMA_API_KEY"],
-      authPaths: ["/trusted/auth.json"],
+      credentialDatabasePaths: ["/trusted/opencode.db"],
     };
     mocks.resolve.mockResolvedValueOnce(resolved);
     mocks.has.mockResolvedValueOnce(true);

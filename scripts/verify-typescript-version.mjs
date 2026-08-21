@@ -5,10 +5,11 @@ import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
 const EXPECTED_TYPESCRIPT_VERSION = "7.0.2";
-const EXPECTED_PLUGIN_VERSION = "1.18.11";
-const EXPECTED_OPENTUI_VERSION = "0.4.5";
+const EXPECTED_PLUGIN_VERSION = "1.18.1";
+const EXPECTED_OPENTUI_SPECIFIER = "^0.5.3";
+const EXPECTED_OPENTUI_VERSION = "0.5.4";
 const EXPECTED_OPENTUI_PACKAGES = ["@opentui/core", "@opentui/solid"];
-const BUN_FFI_STRUCTS_VERSION = "0.2.4";
+const BUN_FFI_STRUCTS_VERSION = "0.3.1";
 const BUN_FFI_TYPESCRIPT_PEER = "^5";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -66,9 +67,9 @@ if (configuredPlugin !== EXPECTED_PLUGIN_VERSION) {
 }
 for (const name of EXPECTED_OPENTUI_PACKAGES) {
   const configuredVersion = packageJson.dependencies?.[name];
-  if (configuredVersion !== EXPECTED_OPENTUI_VERSION) {
+  if (configuredVersion !== EXPECTED_OPENTUI_SPECIFIER) {
     fail(
-      `${name} must be pinned exactly to ${EXPECTED_OPENTUI_VERSION} for @opencode-ai/plugin ${EXPECTED_PLUGIN_VERSION} compatibility; package.json has ${String(configuredVersion)}.`,
+      `${name} must be pinned to ${EXPECTED_OPENTUI_SPECIFIER}; package.json has ${String(configuredVersion)}.`,
     );
   }
 }
@@ -111,7 +112,7 @@ verifyImporterDependency("typescript", EXPECTED_TYPESCRIPT_VERSION);
 for (const name of EXPECTED_OPENTUI_PACKAGES) {
   const dependency = rootImporter.dependencies?.[name];
   if (
-    dependency?.specifier !== EXPECTED_OPENTUI_VERSION ||
+    dependency?.specifier !== EXPECTED_OPENTUI_SPECIFIER ||
     (dependency?.version !== EXPECTED_OPENTUI_VERSION &&
       !dependency?.version?.startsWith(`${EXPECTED_OPENTUI_VERSION}(`))
   ) {

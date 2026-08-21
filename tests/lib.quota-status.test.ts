@@ -46,8 +46,8 @@ vi.mock("fs/promises", () => ({
 }));
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
-  getAuthPath: () => "/tmp/auth.json",
-  getAuthPaths: () => ["/tmp/auth.json"],
+  getCredentialDatabasePath: () => "/tmp/opencode.db",
+  getCredentialDatabasePaths: () => ["/tmp/opencode.db"],
   readAuthFileCached: vi.fn(async () => ({})),
 }));
 
@@ -321,7 +321,7 @@ describe("buildQuotaStatusReport", () => {
                 httpStatus: 401,
                 entryCount: 0,
                 checkedPaths: ["env:INTERNAL_GATEWAY_KEY", "/trusted/opencode.jsonc"],
-                authPaths: ["/trusted/auth.json"],
+                credentialDatabasePaths: ["/trusted/opencode.db"],
               },
             ],
           },
@@ -338,7 +338,7 @@ describe("buildQuotaStatusReport", () => {
     expect(section).toContain("outcome=http_error");
     expect(section).toContain("credential_category=trusted_global_config");
     expect(section).toContain("env_name=INTERNAL_GATEWAY_KEY");
-    expect(section).toContain("/trusted/opencode.jsonc | /trusted/auth.json");
+    expect(section).toContain("/trusted/opencode.jsonc | /trusted/opencode.db");
     expect(section).toContain("provider_second-source:");
     expect(section).toContain("outcome=unavailable");
     expect(section).not.toContain("private.example");
@@ -591,7 +591,7 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- quota_plugin_configured: true");
     expect(report).toContain("- quota_plugin_paths: /tmp/project/tui.jsonc");
     expect(report).toContain(
-      "- auth.json: preferred=/tmp/auth.json present=(none) candidates=/tmp/auth.json",
+      "- opencode.db: preferred=/tmp/opencode.db present=(none) candidates=/tmp/opencode.db",
     );
     expect(report).toContain(
       "- pricing: source=test active_source=bundled generated_at=2026-01-01T00:00:00.000Z units=usd_per_1m_tokens",
@@ -921,7 +921,7 @@ describe("buildQuotaStatusReport", () => {
         makeProviderSuccessProbe("nanogpt", {
           api_key_configured: "true",
           api_key_source: "env:NANOGPT_API_KEY",
-          api_key_auth_paths: "/tmp/auth.json",
+          api_key_credential_database_paths: "/tmp/opencode.db",
           subscription_active: "false",
           subscription_state: "grace",
           enforce_daily_limit: "true",
@@ -941,7 +941,7 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("nanogpt:");
     expect(report).toContain("- api_key_configured: true");
     expect(report).toContain("- api_key_source: env:NANOGPT_API_KEY");
-    expect(report).toContain("- api_key_auth_paths: /tmp/auth.json");
+    expect(report).toContain("- api_key_credential_database_paths: /tmp/opencode.db");
     expect(report).toContain("- subscription_active: false");
     expect(report).toContain("- subscription_state: grace");
     expect(report).toContain("- enforce_daily_limit: true");
@@ -1042,7 +1042,7 @@ describe("buildQuotaStatusReport", () => {
           api_key_configured: "true",
           api_key_source: "env:DEEPSEEK_API_KEY",
           api_key_checked_paths: "env:DEEPSEEK_API_KEY",
-          api_key_auth_paths: "/tmp/auth.json",
+          api_key_credential_database_paths: "/tmp/opencode.db",
         }),
       ],
     });
@@ -1051,7 +1051,7 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- api_key_configured: true");
     expect(report).toContain("- api_key_source: env:DEEPSEEK_API_KEY");
     expect(report).toContain("- api_key_checked_paths: env:DEEPSEEK_API_KEY");
-    expect(report).toContain("- api_key_auth_paths: /tmp/auth.json");
+    expect(report).toContain("- api_key_credential_database_paths: /tmp/opencode.db");
     expect(report).toContain("- deepseek: pricing=no (account balance only (not token-priced))");
   });
 
@@ -1091,7 +1091,7 @@ describe("buildQuotaStatusReport", () => {
           auth_state: "configured",
           auth_source: "env:OPENCODE_API_KEY",
           auth_checked_paths: "env:OPENCODE_API_KEY | provider.opencode.options.apiKey",
-          auth_paths: "/tmp/auth.json",
+          credential_database_paths: "/tmp/opencode.db",
           selected_windows: "rolling,weekly,monthly",
           rolling_usage:
             "status=ok percent_used=7 percent_remaining=93 reset_at=2026-03-12T17:45:00.000Z",
@@ -1113,7 +1113,7 @@ describe("buildQuotaStatusReport", () => {
     expect(section).toContain(
       "- auth_checked_paths: env:OPENCODE_API_KEY | provider.opencode.options.apiKey",
     );
-    expect(section).toContain("- auth_paths: /tmp/auth.json");
+    expect(section).toContain("- credential_database_paths: /tmp/opencode.db");
     expect(section).toContain("- selected_windows: rolling,weekly,monthly");
     expect(section).toContain(
       "- rolling_usage: status=ok percent_used=7 percent_remaining=93 reset_at=2026-03-12T17:45:00.000Z",
@@ -1139,10 +1139,10 @@ describe("buildQuotaStatusReport", () => {
         makeProviderProbe("opencode-go", {
           statusDetails: makeStatusDetails({
             auth_state: "invalid",
-            auth_source: "auth.json",
+            auth_source: "opencode.db",
             auth_checked_paths: "env:OPENCODE_API_KEY | provider.opencode.options.apiKey",
-            auth_paths: "/tmp/auth.json",
-            auth_error: "auth.json entry opencode must contain a non-empty API key",
+            credential_database_paths: "/tmp/opencode.db",
+            auth_error: "opencode.db entry opencode must contain a non-empty API key",
             selected_windows: "rolling,weekly,monthly",
             config_state: "invalid",
             config_error: "legacy secret",
@@ -1153,10 +1153,10 @@ describe("buildQuotaStatusReport", () => {
 
     const section = getReportSection(report, "opencode_go:");
     expect(section).toContain("- auth_state: invalid");
-    expect(section).toContain("- auth_source: auth.json");
-    expect(section).toContain("- auth_paths: /tmp/auth.json");
+    expect(section).toContain("- auth_source: opencode.db");
+    expect(section).toContain("- credential_database_paths: /tmp/opencode.db");
     expect(section).toContain(
-      "- auth_error: auth.json entry opencode must contain a non-empty API key",
+      "- auth_error: opencode.db entry opencode must contain a non-empty API key",
     );
     expect(section).toContain("- selected_windows: rolling,weekly,monthly");
     expect(section).not.toContain("config_");
@@ -1171,9 +1171,9 @@ describe("buildQuotaStatusReport", () => {
           "opencode-go",
           {
             auth_state: "configured",
-            auth_source: "auth.json",
+            auth_source: "opencode.db",
             auth_checked_paths: "env:OPENCODE_API_KEY",
-            auth_paths: "/tmp/auth.json",
+            credential_database_paths: "/tmp/opencode.db",
             selected_windows: "rolling,weekly,monthly",
             live_fetch_error: "OpenCode Go API error 503: unavailable",
             dashboard_url: "https://opencode.ai/workspace/private",
@@ -1320,9 +1320,9 @@ describe("buildQuotaStatusReport", () => {
         makeProviderSuccessProbe("minimax-coding-plan", {
           auth_state: "configured",
           api_key_configured: "true",
-          api_key_source: "auth.json",
+          api_key_source: "opencode.db",
           api_key_checked_paths: "(none)",
-          api_key_auth_paths: "/tmp/auth.json",
+          api_key_credential_database_paths: "/tmp/opencode.db",
           five_hour_usage: "70/4500 percent_remaining=98 reset_at=2026-03-25T18:00:00.000Z",
           weekly_usage: "105/45000 percent_remaining=100 reset_at=2026-04-01T00:00:00.000Z",
         }),
@@ -1333,9 +1333,9 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("minimax:");
     expect(report).toContain("- auth_state: configured");
     expect(report).toContain("- api_key_configured: true");
-    expect(report).toContain("- api_key_source: auth.json");
+    expect(report).toContain("- api_key_source: opencode.db");
     expect(report).toContain("- api_key_checked_paths: (none)");
-    expect(report).toContain("- api_key_auth_paths: /tmp/auth.json");
+    expect(report).toContain("- api_key_credential_database_paths: /tmp/opencode.db");
     expect(report).toContain(
       "- five_hour_usage: 70/4500 percent_remaining=98 reset_at=2026-03-25T18:00:00.000Z",
     );
@@ -1420,7 +1420,7 @@ describe("buildQuotaStatusReport", () => {
           "alibaba auth configured": "false",
           alibaba_api_key_source: "(none)",
           alibaba_api_key_checked_paths: "(none)",
-          alibaba_api_key_auth_paths: "/tmp/auth.json",
+          alibaba_api_key_credential_database_paths: "/tmp/opencode.db",
           alibaba_coding_plan: "(none)",
         }),
         makeProviderSuccessProbe("openai", {
@@ -1474,14 +1474,14 @@ describe("buildQuotaStatusReport", () => {
 
       paths:
       - opencode_dirs: data=/tmp/data config=/tmp/config cache=/tmp/cache state=/tmp/state
-      - auth.json: preferred=/tmp/auth.json present=(none) candidates=/tmp/auth.json
+      - opencode.db: preferred=/tmp/opencode.db present=(none) candidates=/tmp/opencode.db
       - qwen oauth auth configured: false
       - qwen_oauth_source: (none)
       - qwen_local_plan: (none)
       - alibaba auth configured: false
       - alibaba_api_key_source: (none)
       - alibaba_api_key_checked_paths: (none)
-      - alibaba_api_key_auth_paths: /tmp/auth.json
+      - alibaba_api_key_credential_database_paths: /tmp/opencode.db
       - alibaba_coding_plan: (none)
 
       openai:

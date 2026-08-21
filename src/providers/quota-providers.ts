@@ -76,7 +76,7 @@ function buildDiagnosticIdentity(
 }
 
 function mapCredentialSource(
-  source: "env" | "opencode.json" | "opencode.jsonc" | "auth.json" | null,
+  source: "env" | "opencode.json" | "opencode.jsonc" | "opencode.db" | null,
 ): QuotaProviderDiagnostic["credentialSource"] {
   switch (source) {
     case "env":
@@ -85,8 +85,8 @@ function mapCredentialSource(
       return "global_opencode_json";
     case "opencode.jsonc":
       return "global_opencode_jsonc";
-    case "auth.json":
-      return "auth_json";
+    case "opencode.db":
+      return "opencode_db";
     default:
       return null;
   }
@@ -122,7 +122,7 @@ async function executeRemote(
         outcome: "missing_credential",
         entryCount: 0,
         checkedPaths: [...auth.checkedPaths],
-        authPaths: [...auth.authPaths],
+        credentialDatabasePaths: [...auth.credentialDatabasePaths],
       },
     };
   }
@@ -139,7 +139,7 @@ async function executeRemote(
         ...classifyRuntimeError(result.error),
         entryCount: 0,
         checkedPaths: [...auth.checkedPaths],
-        authPaths: [...auth.authPaths],
+        credentialDatabasePaths: [...auth.credentialDatabasePaths],
       },
     };
   }
@@ -160,7 +160,7 @@ async function executeRemote(
       outcome: "success",
       entryCount: result.entries.length,
       checkedPaths: [...auth.checkedPaths],
-      authPaths: [...auth.authPaths],
+      credentialDatabasePaths: [...auth.credentialDatabasePaths],
     },
   };
 }
@@ -203,7 +203,7 @@ async function executeRemoteWithCache(
       outcome: "network_error",
       entryCount: 0,
       checkedPaths: [],
-      authPaths: [],
+      credentialDatabasePaths: [],
     },
   };
 }
@@ -229,7 +229,7 @@ async function executeDefinition(
         outcome: "success",
         entryCount: result.entries.length,
         checkedPaths: [],
-        authPaths: [],
+        credentialDatabasePaths: [],
         statePath: state.path,
         stateHealth: state.health,
         stateVersion: state.version,
@@ -248,7 +248,7 @@ async function executeDefinition(
         outcome: "local_state_error",
         entryCount: 0,
         checkedPaths: [],
-        authPaths: [],
+        credentialDatabasePaths: [],
         statePath: state.path,
         stateHealth: state.health,
         stateVersion: state.version,
@@ -330,7 +330,7 @@ export const quotaProvidersProvider: QuotaProvider = {
               outcome: "network_error",
               entryCount: 0,
               checkedPaths: [],
-              authPaths: [],
+              credentialDatabasePaths: [],
             },
           } satisfies InstanceResult;
         }

@@ -17,7 +17,7 @@ vi.mock("../src/lib/kimi-auth.js", () => ({
     state: "none",
     source: null,
     checkedPaths: [],
-    authPaths: [],
+    credentialDatabasePaths: [],
   })),
   DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS: 5_000,
 }));

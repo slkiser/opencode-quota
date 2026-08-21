@@ -88,7 +88,7 @@ describe("quota provider Phase 7 documentation consistency", () => {
     for (const document of [configuration, providers]) {
       expect(document).toContain("apiKeyEnv");
       expect(document).toContain("provider.<providerId>.options.apiKey");
-      expect(document).toContain("auth.json");
+      expect(document).toContain("opencode.db");
       expect(document).toContain("quota-providers");
     }
 
