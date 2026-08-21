@@ -62,6 +62,10 @@ Business placement describes vendor plan availability. Except for configured Cop
 
 </details>
 
+### OpenAI multi-account quota
+
+If `oc-codex-multi-auth` is installed and configured, OpenAI quota discovery also reads its global account store automatically and can show each enabled account as a separate OpenAI group. OpenCode Quota reads the store only; it queries accounts with a currently usable cached access token, never exchanges refresh tokens, and never writes the multi-auth account file. Missing, malformed, unsupported, or unusable multi-auth storage does not disable the normal native OpenCode OpenAI integration.
+
 ### Chinese providers
 
 <details open>
