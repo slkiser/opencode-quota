@@ -677,7 +677,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       }),
     );
     const serverOutput = getPromptText(client);
-    expect(serverOutput).toContain("MiniMax Coding Plan");
+    expect(serverOutput).toContain("MiniMax Token Plan");
     expect(serverOutput).toContain("5h quota");
     expect(serverOutput).toContain("Week quota");
     expect(serverOutput).toContain("35%");
@@ -691,7 +691,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       },
     });
     const toastOutput = getToastMessage(client);
-    expect(toastOutput).toContain("MiniMax Coding Plan");
+    expect(toastOutput).toContain("MiniMax Token Plan");
     expect(toastOutput).toContain("Five-hour");
     expect(toastOutput).toContain("Weekly");
     expect(toastOutput).toContain("35%");
@@ -716,7 +716,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       ...surfaces.sidebar.lines,
       ...(surfaces.sidebar.linesExpanded ?? []),
     ].join("\n");
-    expect(sidebarOutput).toContain("MiniMax Coding Plan");
+    expect(sidebarOutput).toContain("MiniMax Token Plan");
     expect(sidebarOutput).toContain("Five-hour");
     expect(sidebarOutput).toContain("Weekly");
     expect(sidebarOutput).toContain("35%");

@@ -55,8 +55,6 @@ export type {
   GoogleModelQuota,
   GoogleQuotaResult,
   MaintainerAnnouncementsConfig,
-  MiniMaxResult,
-  MiniMaxResultEntry,
   PricingSnapshotSource,
   QuotaToastConfig,
   SessionTokenScope,

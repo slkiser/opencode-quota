@@ -189,8 +189,8 @@ Gemini CLI quota support is deprecated for new installs. Existing v4 configurati
 | Alibaba Coding Plan      | Automatic                                           | Local estimate | Quota              |
 | DeepSeek                 | Automatic                                           | Remote API     | Balance and status |
 | Kimi Code                | Automatic                                           | Remote API     | Quota              |
-| MiniMax Coding Plan      | Automatic                                           | Remote API     | Quota              |
-| MiniMax Coding Plan (CN) | Automatic                                           | Remote API     | Quota              |
+| MiniMax Token Plan       | Automatic                                           | Remote API     | Quota              |
+| MiniMax Token Plan (CN)  | Automatic                                           | Remote API     | Quota              |
 | Qwen Code                | [Needs setup](docs/readme/providers.md#qwen-code)   | Local estimate | Quota              |
 | Xiaomi MiMo              | [Needs setup](docs/readme/providers.md#xiaomi-mimo) | Dashboard API  | Quota and balance  |
 | Z.ai Coding Plan         | Automatic                                           | Remote API     | Quota              |
@@ -204,8 +204,8 @@ Gemini CLI quota support is deprecated for new installs. Existing v4 configurati
 | Provider                 | Auth/setup | Data from  | Reports |
 | ------------------------ | ---------- | ---------- | ------- |
 | Kimi Code                | Automatic  | Remote API | Quota   |
-| MiniMax Coding Plan      | Automatic  | Remote API | Quota   |
-| MiniMax Coding Plan (CN) | Automatic  | Remote API | Quota   |
+| MiniMax Token Plan       | Automatic  | Remote API | Quota   |
+| MiniMax Token Plan (CN)  | Automatic  | Remote API | Quota   |
 | Zhipu Coding Plan        | Automatic  | Remote API | Quota   |
 
 These vendors offer team or business plans, but the current integrations report only the configured member API key rather than organization-wide usage.
