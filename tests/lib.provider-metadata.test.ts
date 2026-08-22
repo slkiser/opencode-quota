@@ -229,7 +229,7 @@ describe("provider-metadata", () => {
   });
 
   it("preserves direct label aliases from the authored catalog", () => {
-    expect(QUOTA_PROVIDER_LABELS["minimax-cn-coding-plan"]).toBe("MiniMax Coding Plan (CN)");
+    expect(QUOTA_PROVIDER_LABELS["minimax-cn-coding-plan"]).toBe("MiniMax Token Plan (CN)");
     expect(QUOTA_PROVIDER_LABELS["kimi-code"]).toBe("Kimi Code");
     expect(QUOTA_PROVIDER_CATALOG["minimax-china-coding-plan"].labelAliases).toContain(
       "minimax-cn-coding-plan",
@@ -472,8 +472,8 @@ describe("provider-metadata", () => {
     expect(getQuotaProviderDisplayLabel("zhipu-coding-plan")).toBe("Zhipu");
     expect(getQuotaProviderDisplayLabel("nanogpt")).toBe("NanoGPT");
     expect(getQuotaProviderDisplayLabel("nano-gpt")).toBe("NanoGPT");
-    expect(getQuotaProviderDisplayLabel("minimax")).toBe("MiniMax Coding Plan");
-    expect(getQuotaProviderDisplayLabel("minimax-cn-coding-plan")).toBe("MiniMax Coding Plan (CN)");
+    expect(getQuotaProviderDisplayLabel("minimax")).toBe("MiniMax Token Plan");
+    expect(getQuotaProviderDisplayLabel("minimax-cn-coding-plan")).toBe("MiniMax Token Plan (CN)");
     expect(getQuotaProviderDisplayLabel("kimi-code")).toBe("Kimi Code");
     expect(getQuotaProviderDisplayLabel("kimi")).toBe("Kimi Code");
     expect(getQuotaProviderDisplayLabel("deep-seek")).toBe("DeepSeek");
