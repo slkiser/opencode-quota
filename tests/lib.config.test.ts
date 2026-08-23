@@ -132,15 +132,20 @@ describe("loadConfig", () => {
       ]);
     }
 
-    const explicitReplacement = await loadSdkConfig({
+    const explicitReplacementInput = {
       accountingDetail: "detailed",
       opencodeZenDisplay: "default",
-    });
+    };
+    const explicitReplacement = await loadSdkConfig(explicitReplacementInput);
     expect(explicitReplacement.config.accountingDetail).toBe("detailed");
     expect(explicitReplacement.meta.settingSources).toEqual({
       accountingDetail: "client.config.get",
     });
     expect(explicitReplacement.meta.configIssues).toHaveLength(1);
+    expect(explicitReplacementInput).toEqual({
+      accountingDetail: "detailed",
+      opencodeZenDisplay: "default",
+    });
   });
 
   it("defaults and validates quota reset notifications with provenance", async () => {

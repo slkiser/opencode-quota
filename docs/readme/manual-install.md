@@ -115,4 +115,4 @@ npx @slkiser/opencode-quota@latest update --dry-run
 npx @slkiser/opencode-quota@latest update
 ```
 
-The updater preserves unrelated settings, comments, and plugins. Restart OpenCode when it finishes.
+The updater preserves unrelated settings, comments, and plugins where targeted editing is safe. Its preview can include recognized file-backed display migration and report-only credential findings; it never moves or deletes secrets. Restart OpenCode when it finishes. See [Updating safely](updating.md) for the complete workflow.

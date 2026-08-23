@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -148,6 +148,76 @@ describe("opencode-zen config resolution", () => {
       source: path,
       error: "Failed to parse JSON",
     });
+  });
+
+  it("keeps file-only resolution and public diagnostics unchanged after source audit", async () => {
+    const [primary] = await createConfigDirs();
+    const path = configPath(primary);
+    const obsoleteGoPath = join(primary, "opencode-quota", "opencode-go.json");
+    const zenWorkspaceCanary = "zen-file-workspace-canary";
+    const zenCookieCanary = "zen-file-cookie-canary";
+    const goFileCanary = "obsolete-go-file-canary";
+    process.env.OPENCODE_WORKSPACE_ID = "zen-env-workspace-canary";
+    process.env.OPENCODE_AUTH_COOKIE = "zen-env-cookie-canary";
+    process.env.OPENCODE_GO_WORKSPACE_ID = "go-env-workspace-canary";
+    process.env.OPENCODE_GO_AUTH_COOKIE = "go-env-cookie-canary";
+    await writeFile(
+      path,
+      JSON.stringify({ workspaceId: zenWorkspaceCanary, authCookie: zenCookieCanary }),
+    );
+    await writeFile(obsoleteGoPath, JSON.stringify({ authCookie: goFileCanary }));
+    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({ configDirs: [primary] });
+
+    const { getOpenCodeZenConfigDiagnostics, resolveOpenCodeZenConfig } = await import(
+      "../src/lib/opencode-zen-config.js"
+    );
+    const beforeResult = await resolveOpenCodeZenConfig();
+    const beforeDiagnostics = await getOpenCodeZenConfigDiagnostics();
+    const zenBytesBeforeAudit = await readFile(path);
+    const goBytesBeforeAudit = await readFile(obsoleteGoPath);
+    const { auditObsoleteUpdateSources } = await import("../src/lib/scoped-update-migration.js");
+    const findings = await auditObsoleteUpdateSources({
+      env: process.env,
+      configDirs: [primary],
+      primaryConfigDir: primary,
+    });
+    expect(await readFile(path)).toEqual(zenBytesBeforeAudit);
+    expect(await readFile(obsoleteGoPath)).toEqual(goBytesBeforeAudit);
+    expect(process.env.OPENCODE_WORKSPACE_ID).toBe("zen-env-workspace-canary");
+    expect(process.env.OPENCODE_AUTH_COOKIE).toBe("zen-env-cookie-canary");
+    expect(process.env.OPENCODE_GO_WORKSPACE_ID).toBe("go-env-workspace-canary");
+    expect(process.env.OPENCODE_GO_AUTH_COOKIE).toBe("go-env-cookie-canary");
+    const afterResult = await resolveOpenCodeZenConfig();
+    const afterDiagnostics = await getOpenCodeZenConfigDiagnostics();
+
+    expect(beforeResult).toEqual({
+      state: "configured",
+      config: { workspaceId: zenWorkspaceCanary, authCookie: zenCookieCanary },
+      source: path,
+    });
+    expect(afterResult).toEqual(beforeResult);
+    expect(afterDiagnostics).toEqual(beforeDiagnostics);
+    expect(findings).toEqual(
+      expect.arrayContaining([
+        { kind: "obsolete-go-env", name: "OPENCODE_GO_WORKSPACE_ID" },
+        { kind: "obsolete-go-env", name: "OPENCODE_GO_AUTH_COOKIE" },
+        { kind: "obsolete-go-file", path: obsoleteGoPath },
+      ]),
+    );
+    expect(findings).not.toContainEqual(expect.objectContaining({ kind: "ambiguous-zen-env" }));
+
+    const publicBoundary = JSON.stringify({ findings, beforeDiagnostics, afterDiagnostics });
+    for (const canary of [
+      zenWorkspaceCanary,
+      zenCookieCanary,
+      goFileCanary,
+      "zen-env-workspace-canary",
+      "zen-env-cookie-canary",
+      "go-env-workspace-canary",
+      "go-env-cookie-canary",
+    ]) {
+      expect(publicBoundary).not.toContain(canary);
+    }
   });
 
   it("caches the resolved credentials within the configured TTL", async () => {

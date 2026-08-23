@@ -583,10 +583,14 @@ Project-local `opencode.json` and `opencode.jsonc` files are not read for this s
 OpenCode Go reads subscription quota from the official `https://opencode.ai/zen/go/v1/usage` API. OpenCode Quota automatically resolves the API key in this order:
 
 1. `OPENCODE_API_KEY`
-2. Trusted user/global OpenCode config: `provider.opencode.options.apiKey`
-3. An `opencode-go` API-key entry in OpenCode `auth.json`: `{ "type": "api", "key": "..." }`. This is the key the OpenCode CLI writes via `opencode auth login -p opencode-go`. A legacy `opencode` entry is still accepted as a fallback.
+2. Trusted user/global OpenCode config: `provider.opencode-go.options.apiKey`
+3. Trusted user/global fallback: `provider.opencode.options.apiKey`
+4. A strict `opencode-go` API-key entry in OpenCode `auth.json`: `{ "type": "api", "key": "..." }`. This is the key the OpenCode CLI writes via `opencode auth login -p opencode-go`.
+5. A strict legacy `opencode` API-key entry in `auth.json` as the final fallback.
 
 Project-local `opencode.json` and `opencode.jsonc` files are not read for this secret. Use `opencodeGoWindows` to choose which validated API results appear across surfaces and in the expanded sidebar: **Five-hour**, **Weekly**, and/or **Monthly**. To keep those rows expanded but prefer one while the sidebar is collapsed, set `tuiSidebarPanel.opencodeGoPreferredWindow` to `rolling`, `weekly`, or `monthly`; an unset or unavailable preference keeps the lowest-remaining selection. These settings do not change authentication or the API request.
+
+The updater reports obsolete `OPENCODE_GO_WORKSPACE_ID`, `OPENCODE_GO_AUTH_COOKIE`, and global `opencode-quota/opencode-go.json` sources without reading their values or contents. Workspace/cookie material cannot be converted into the official API key. Configure and verify a supported key before removing those sources manually; see [Updating safely](updating.md#opencode-go-findings).
 
 <a id="opencode-zen"></a>
 
@@ -605,8 +609,10 @@ Find both values in your browser: the workspace ID is in the billing-page URL, a
 
 > The credentials are read only from this config file. They are not read from
 > the `OPENCODE_WORKSPACE_ID` / `OPENCODE_AUTH_COOKIE` environment variables,
-> which collide with the OpenCode client's workspace feature.
+> which collide with the OpenCode client's workspace feature. The updater may
+> cautiously report those names when no supported global file exists; review
+> [Updating safely](updating.md#opencode-zen-findings) before changing them.
 
 Set `opencodeMonthlyLimit` in `opencode-quota/quota-toast.json` to override the monthly budget from the billing page. With valid monthly usage and a positive page/configured limit, Zen shows a primary **Monthly budget** percentage with used, limit, and locally derived remaining USD facts. The current account balance is separate and supplementary; without a valid budget percentage, that balance becomes the primary row. **Auto-reload** is a supplementary enabled/disabled row. Its raw amount and trigger remain diagnostics because their monetary units are not confirmed.
 
-Use root `accountingDetail: "detailed"` to admit the supplementary balance and auto-reload rows. The removed `opencodeZenDisplay` key is diagnostic-only: old `default` or `detailed` values are not translated and `/quota_status` reports a nonfatal migration issue until the key is removed.
+Use root `accountingDetail: "detailed"` to admit the supplementary balance and auto-reload rows. At runtime, the removed `opencodeZenDisplay` key remains diagnostic-only. The explicit `update` command can migrate recognized file-backed `default` and `detailed` values; unsupported cases remain unchanged for manual review. See [Updating safely](updating.md#what-can-change-automatically).

@@ -189,10 +189,10 @@ type ValidatedQuotaToastPatch = {
   telemetry?: TelemetryConfigPatch;
 };
 
-type ConfigLayerScope = "global" | "workspace";
-type ConfigLayerKind = "legacy" | "plugin";
+export type ConfigLayerScope = "global" | "workspace";
+export type ConfigLayerKind = "legacy" | "plugin";
 
-interface ConfigLayerCandidate {
+export interface ConfigLayerCandidate {
   path: string;
   rootDir: string;
   scope: ConfigLayerScope;
@@ -1213,7 +1213,7 @@ function buildConfigLayerCandidatesForRoot(
   ];
 }
 
-function buildConfigLayerCandidates(
+export function buildConfigLayerCandidates(
   configDirs: string[],
   configRootDir: string,
 ): ConfigLayerCandidate[] {

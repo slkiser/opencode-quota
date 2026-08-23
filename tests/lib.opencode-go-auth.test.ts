@@ -1,3 +1,5 @@
+import { dirname, join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
@@ -15,11 +17,22 @@ const authMocks = vi.hoisted(() => ({
   getAuthPaths: vi.fn(() => ["/tmp/auth.json"]),
   readAuthFileCached: vi.fn(),
   queryOpenCodeGoQuota: vi.fn(),
+  readFile: vi.fn(),
+  lstat: vi.fn(),
 }));
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => createRuntimePathsMockModule());
 vi.mock("fs", () => ({ existsSync: vi.fn() }));
-vi.mock("fs/promises", () => ({ readFile: vi.fn() }));
+vi.mock("fs/promises", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("fs/promises")>()),
+  readFile: authMocks.readFile,
+  lstat: authMocks.lstat,
+}));
+vi.mock("node:fs/promises", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:fs/promises")>()),
+  readFile: authMocks.readFile,
+  lstat: authMocks.lstat,
+}));
 vi.mock("../src/lib/opencode-auth.js", () => ({
   getAuthPaths: authMocks.getAuthPaths,
   readAuthFileCached: authMocks.readAuthFileCached,
@@ -35,6 +48,7 @@ import {
   resolveOpenCodeGoAuth,
   resolveOpenCodeGoAuthCached,
 } from "../src/lib/opencode-go-auth.js";
+import { auditObsoleteUpdateSources } from "../src/lib/scoped-update-migration.js";
 
 const originalEnv = process.env;
 const trustedPaths = getTrustedOpencodeConfigPaths();
@@ -49,6 +63,8 @@ function resetFixture(): void {
   process.env = { ...originalEnv };
   for (const name of [
     "OPENCODE_API_KEY",
+    "OPENCODE_GO_WORKSPACE_ID",
+    "OPENCODE_GO_AUTH_COOKIE",
     "XDG_CONFIG_HOME",
     "XDG_DATA_HOME",
     "XDG_CACHE_HOME",
@@ -60,6 +76,9 @@ function resetFixture(): void {
   resetFsConfigMocks(fsMocks);
   authMocks.getAuthPaths.mockReset().mockReturnValue(["/tmp/auth.json"]);
   authMocks.readAuthFileCached.mockReset().mockResolvedValue(null);
+  authMocks.lstat
+    .mockReset()
+    .mockRejectedValue(Object.assign(new Error("missing"), { code: "ENOENT" }));
 }
 
 describe("OpenCode Go auth resolution", () => {
@@ -189,6 +208,64 @@ describe("OpenCode Go auth resolution", () => {
     resetFixture();
     mockExistingConfigPath(fsMocks, workspacePaths.json);
     await expect(resolveOpenCodeGoAuthCached()).resolves.toEqual({ state: "none" });
+  });
+
+  it("keeps canonical config precedence and diagnostics unchanged after obsolete-source audit", async () => {
+    const configDir = dirname(trustedPaths.json);
+    const obsoletePath = join(configDir, "opencode-quota", "opencode-go.json");
+    const canonicalCanary = "canonical-go-key-canary";
+    const fallbackCanary = "fallback-go-key-canary";
+    process.env.OPENCODE_GO_WORKSPACE_ID = "obsolete-go-workspace-canary";
+    process.env.OPENCODE_GO_AUTH_COOKIE = "obsolete-go-cookie-canary";
+    mockTrustedConfigFile(
+      fsMocks,
+      trustedPaths.json,
+      JSON.stringify({
+        provider: {
+          "opencode-go": { options: { apiKey: canonicalCanary } },
+          opencode: { options: { apiKey: fallbackCanary } },
+        },
+      }),
+    );
+    authMocks.lstat.mockImplementation(async (path: string) => {
+      if (path === obsoletePath) return {};
+      throw Object.assign(new Error("missing"), { code: "ENOENT" });
+    });
+
+    const beforeResult = await resolveOpenCodeGoAuthCached();
+    const beforeDiagnostics = await getOpenCodeGoAuthDiagnostics();
+    const readsBeforeAudit = authMocks.readFile.mock.calls.length;
+    const findings = await auditObsoleteUpdateSources({
+      env: process.env,
+      configDirs: [configDir],
+      primaryConfigDir: configDir,
+    });
+    expect(authMocks.readFile).toHaveBeenCalledTimes(readsBeforeAudit);
+    expect(process.env.OPENCODE_GO_WORKSPACE_ID).toBe("obsolete-go-workspace-canary");
+    expect(process.env.OPENCODE_GO_AUTH_COOKIE).toBe("obsolete-go-cookie-canary");
+    const afterResult = await resolveOpenCodeGoAuthCached();
+    const afterDiagnostics = await getOpenCodeGoAuthDiagnostics();
+
+    expect(beforeResult).toEqual({ state: "configured", apiKey: canonicalCanary });
+    expect(afterResult).toEqual(beforeResult);
+    expect(afterDiagnostics).toEqual(beforeDiagnostics);
+    expect(findings).toEqual(
+      expect.arrayContaining([
+        { kind: "obsolete-go-env", name: "OPENCODE_GO_WORKSPACE_ID" },
+        { kind: "obsolete-go-env", name: "OPENCODE_GO_AUTH_COOKIE" },
+        { kind: "obsolete-go-file", path: obsoletePath },
+      ]),
+    );
+    const publicBoundary = JSON.stringify({ findings, beforeDiagnostics, afterDiagnostics });
+    for (const canary of [
+      canonicalCanary,
+      fallbackCanary,
+      "obsolete-go-workspace-canary",
+      "obsolete-go-cookie-canary",
+    ]) {
+      expect(publicBoundary).not.toContain(canary);
+    }
+    expect(authMocks.readAuthFileCached).not.toHaveBeenCalled();
   });
 
   it("continues past blank env and unusable config to canonical auth.json", async () => {

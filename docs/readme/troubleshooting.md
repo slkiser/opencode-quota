@@ -30,14 +30,31 @@ If every provider is missing, confirm OpenCode Quota is listed in `opencode.json
 
 ## Update safely
 
-Close OpenCode, preview the update, then apply it:
+1. Close OpenCode.
+2. Preview the update:
 
-```bash
-npx @slkiser/opencode-quota@latest update --dry-run
-npx @slkiser/opencode-quota@latest update
-```
+   ```bash
+   npx @slkiser/opencode-quota@latest update --dry-run
+   ```
 
-The updater preserves unrelated settings, comments, and plugins. Restart OpenCode when it finishes.
+3. Inspect both safe changes and manual findings. Do not paste credential values into command output or issue reports.
+4. Apply the plan:
+
+   ```bash
+   npx @slkiser/opencode-quota@latest update
+   ```
+
+5. Restart OpenCode.
+6. Run `/quota_status` in OpenCode, or run `opencode-quota status` in a terminal.
+
+The updater preserves unrelated settings, comments, and plugins where targeted editing is safe. Credential findings stay manual, and `--yes` authorizes only safe config/cache work. See [Updating safely](updating.md) for the complete workflow.
+
+| Update result | What to do |
+| --- | --- |
+| Obsolete OpenCode Go source | Configure `OPENCODE_API_KEY`, trusted global `provider.opencode-go.options.apiKey`, fallback `provider.opencode.options.apiKey`, or `opencode auth login -p opencode-go`. Verify it, then manually remove the reported old variable/file. Workspace/cookie material cannot become an API key. |
+| Ambiguous OpenCode Zen environment names | Decide whether the names belong to Zen or OpenCode's workspace feature. If they are Zen credentials, create and protect the supported global `opencode-quota/opencode.json` manually. Never paste the values into output or reports. |
+| Unsupported display migration | Fix the reported invalid, duplicate, or ambiguous config manually. Use root `accountingDetail: "summary"` or `"detailed"`; do not share the rejected value. |
+| Update race or partial-write failure | No package cache was deleted. Read the error's exact changed-path list, inspect those files, fix the cause, and rerun `update --dry-run` for a fresh plan. Do not restore over concurrent edits blindly. |
 
 ## Provider fixes
 
@@ -238,7 +255,7 @@ Run `/quota_status` and check the `opencode_go` section. It reports safe `auth_*
 
 | Symptom                             | Fix                                                                                                                                                                                                                  |
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Provider not detected               | Set `OPENCODE_API_KEY`, trusted global `provider.opencode.options.apiKey`, or a strict `opencode-go` API-key entry in OpenCode `auth.json`; legacy `opencode` is supported only as a fallback. Then check `auth_state`, `auth_source`, and `auth_checked_paths`. |
+| Provider not detected               | Set `OPENCODE_API_KEY`, trusted global `provider.opencode-go.options.apiKey`, fallback `provider.opencode.options.apiKey`, a strict `opencode-go` API-key entry in OpenCode `auth.json`, or a strict legacy `opencode` auth entry as the final fallback. Then check `auth_state`, `auth_source`, and `auth_checked_paths`. |
 | `auth_state` is `invalid`           | Fix the primary `opencode-go` record in `auth.json` so it is `{ "type": "api", "key": "..." }`. A malformed primary record blocks the legacy `opencode` fallback and is reported in `auth_error`.                    |
 | API returns 401 or 403              | The usage API rejected the key. Update the winning source shown by `auth_source`, wait briefly for credential caching to expire, and rerun `/quota_status`.                                                           |
 | Invalid API response                | Check `live_fetch_error`. OpenCode Quota requires valid 5h, Weekly, and Monthly results, so one missing or malformed API window rejects the full response instead of showing partial quota.                            |

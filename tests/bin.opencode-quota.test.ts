@@ -132,6 +132,17 @@ describe("opencode-quota bin", () => {
     expect(log).toHaveBeenCalledWith(expect.stringContaining("Usage:"));
     expect(log).toHaveBeenCalledWith(expect.stringContaining("opencode-quota show"));
     expect(log).toHaveBeenCalledWith(expect.stringContaining("opencode-quota status"));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("responsible preview"));
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining("Credential-specific audit sources and values are not read"),
+    );
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Values encountered in normal config parsing are never printed, copied, or modified",
+      ),
+    );
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("safe setting/package-cache changes"));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("Apply only safe setting/cache work"));
     log.mockRestore();
   });
 
