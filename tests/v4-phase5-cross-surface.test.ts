@@ -678,8 +678,8 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     );
     const serverOutput = getPromptText(client);
     expect(serverOutput).toContain("MiniMax Token Plan");
-    expect(serverOutput).toContain("5h quota");
-    expect(serverOutput).toContain("Week quota");
+    expect(serverOutput).toContain("Five-hour quota");
+    expect(serverOutput).toContain("Weekly quota");
     expect(serverOutput).toContain("35%");
     expect(serverOutput).toContain("80%");
     expect(serverOutput).not.toContain("Invalid normalized provider result");
