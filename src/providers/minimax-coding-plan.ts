@@ -51,7 +51,7 @@ interface MiniMaxModelRemain {
   /** Endpoint-specific raw count: international reports remaining, China reports used. */
   current_weekly_usage_count?: number;
   weekly_remains_time?: number;
-  /** Provider-reported remaining percentage used by zero-count international responses. */
+  /** Provider-reported remaining percentage used by supported percentage-only responses. */
   current_interval_remaining_percent?: number;
   current_weekly_remaining_percent?: number;
 }
@@ -109,8 +109,8 @@ function isFiniteNumber(value: unknown): value is number {
 /**
  * Type guard that validates a value is a well-formed MiniMax model record.
  *
- * Accepts the existing count shape or the international endpoint's percentage
- * fallback shape. A finite 5-hour reset offset remains required.
+ * Accepts the existing count shape or a supported percentage fallback shape.
+ * A finite 5-hour reset offset remains required.
  */
 function isMiniMaxModelRecord(value: unknown): value is MiniMaxModelRemain {
   if (value === null || typeof value !== "object" || !("model_name" in value)) return false;
@@ -160,7 +160,8 @@ function isMiniMaxCodingModelName(
     return true;
   }
 
-  return endpointId === "international" && (normalized === "general" || normalized === "video");
+  if (normalized === "general") return true;
+  return endpointId === "international" && normalized === "video";
 }
 
 function buildMiniMaxEntry(
@@ -189,7 +190,8 @@ function buildMiniMaxEntry(
     };
   }
 
-  if (countSemantics !== "remaining") return null;
+  const isGeneralModel = model.model_name.trim().toLowerCase() === "general";
+  if (countSemantics !== "remaining" && !isGeneralModel) return null;
   const percentRaw = spec.getPercentRemaining(model);
   if (!isFiniteNumber(percentRaw)) return null;
   const percentRemaining = roundPercent(percentRaw);

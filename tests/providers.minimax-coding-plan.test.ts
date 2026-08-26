@@ -547,12 +547,19 @@ describe("minimax-coding-plan provider", () => {
     });
   });
 
-  it("does not accept generic model_name rows for the China endpoint", async () => {
+  it("uses provider percentages for CN general rows and excludes video rows", async () => {
     mockMiniMaxHttpSuccess([
-      createCodingPlanModel({
+      {
         model_name: "general",
-        current_interval_total_count: 10,
-        current_interval_usage_count: 8,
+        remains_time: 13_987_604,
+        weekly_remains_time: 564_787_604,
+        current_interval_remaining_percent: 33,
+        current_weekly_remaining_percent: 46,
+      },
+      createCodingPlanModel({
+        model_name: "video",
+        current_interval_total_count: 100,
+        current_interval_usage_count: 99,
         current_weekly_total_count: undefined,
         current_weekly_usage_count: undefined,
         weekly_remains_time: undefined,
@@ -561,7 +568,33 @@ describe("minimax-coding-plan provider", () => {
 
     const out = await queryMiniMaxQuota("china-key", { endpoint: "china" });
 
-    expect(out).toEqual({ success: true, entries: [] });
+    expect(out.success).toBe(true);
+    if (!out.success) throw new Error("Expected successful MiniMax China query");
+    expect(out.entries).toMatchObject([
+      { right: "67%", percentRemaining: 33, window: "five_hour" },
+      { right: "54%", percentRemaining: 46, window: "weekly" },
+    ]);
+  });
+
+  it("keeps positive CN general counts authoritative over provider percentages", async () => {
+    mockMiniMaxChinaAuthConfigured();
+    mockMiniMaxHttpSuccess([
+      createCodingPlanModel({
+        model_name: "general",
+        current_interval_total_count: 100,
+        current_interval_usage_count: 25,
+        current_weekly_total_count: undefined,
+        current_weekly_usage_count: undefined,
+        weekly_remains_time: undefined,
+        current_interval_remaining_percent: 90,
+      }),
+    ]);
+
+    const out = await runChinaProviderFetch();
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries).toHaveLength(1);
+    expect(out.entries[0]).toMatchObject({ right: "25/100", percentRemaining: 75 });
   });
 
   it("preserves negative remaining percentages when MiniMax reports negative remaining quota", async () => {
