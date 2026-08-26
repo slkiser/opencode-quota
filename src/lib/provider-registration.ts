@@ -240,7 +240,7 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
   },
   {
     id: "minimax-coding-plan",
-    label: "MiniMax Token Plan",
+    label: "MiniMax Coding Plan",
     runtimeIds: ["minimax-coding-plan", "minimax"],
     synonyms: ["minimax"],
     shape: {
@@ -252,7 +252,7 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
   },
   {
     id: "minimax-china-coding-plan",
-    label: "MiniMax Token Plan (CN)",
+    label: "MiniMax Coding Plan (CN)",
     labelAliases: ["minimax-cn-coding-plan"],
     runtimeIds: [
       "minimax-china-coding-plan",
