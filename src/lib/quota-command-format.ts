@@ -14,6 +14,7 @@ import {
   bar,
   formatDisplayedPercentLabel,
   formatLocalCallTimestamp,
+  formatResetCountdown,
   formatTokenCount,
   padLeft,
   padRight,
@@ -30,24 +31,9 @@ import {
 import { SESSION_TOKEN_SECTION_HEADING } from "./session-tokens-format.js";
 import type { QuotaToastConfig } from "./types.js";
 
-/**
- * Format reset time in compact form (different from toast countdown).
- * Uses seconds/minutes/hours/days format for /quota command.
- */
-function formatResetTimeSeconds(diffSeconds: number): string {
-  if (!Number.isFinite(diffSeconds) || diffSeconds <= 0) return "now";
-  if (diffSeconds < 60) return `${Math.ceil(diffSeconds)}s`;
-  if (diffSeconds < 3600) return `${Math.ceil(diffSeconds / 60)}m`;
-  if (diffSeconds < 86400) return `${Math.round(diffSeconds / 3600)}h`;
-  return `${Math.round(diffSeconds / 86400)}d`;
-}
-
 function formatResetsIn(iso?: string): string {
-  if (!iso) return "";
-  const t = new Date(iso).getTime();
-  if (!Number.isFinite(t)) return "";
-  const diffSeconds = (t - Date.now()) / 1000;
-  return ` | resets in ${formatResetTimeSeconds(diffSeconds)}`;
+  if (!iso || !Number.isFinite(new Date(iso).getTime())) return "";
+  return ` | resets in ${formatResetCountdown(iso)}`;
 }
 
 export const QUOTA_COMMAND_BAR_WIDTH = 10;

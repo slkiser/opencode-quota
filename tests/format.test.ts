@@ -168,7 +168,7 @@ describe("formatQuotaRows", () => {
     expect(out).not.toMatch(/\d+[dhms]/);
   });
 
-  it("uses compact rounded reset labels for single-window rows", () => {
+  it("uses precise reset labels for single-window rows by default", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
 
@@ -184,11 +184,11 @@ describe("formatQuotaRows", () => {
       ],
     });
 
-    expect(out).toContain("2.5h");
-    expect(out).not.toContain("2h 14m");
+    expect(out).toContain("2h14m");
+    expect(out).not.toContain("2.5h");
   });
 
-  it("uses compact rounded reset labels for grouped rows", () => {
+  it("uses precise reset labels for grouped rows by default", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
 
@@ -207,8 +207,28 @@ describe("formatQuotaRows", () => {
       ],
     });
 
-    expect(out).toContain("0.5h");
-    expect(out).not.toContain("0h 14m");
+    expect(out).toContain("14m");
+    expect(out).not.toContain("0.5h");
+  });
+
+  it("rounds partial minutes up instead of understating the remaining time", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
+
+    const out = formatQuotaRows({
+      version: "1.0.0",
+      layout: { maxWidth: 50, narrowAt: 42, tinyAt: 32 },
+      entries: [
+        {
+          name: "OpenAI 5h",
+          percentRemaining: 50,
+          resetTimeIso: "2026-01-15T10:00:01.000Z",
+        },
+      ],
+    });
+
+    expect(out).toContain("1m");
+    expect(out).not.toContain("0m");
   });
 
   it("renders fractional reset countdowns when resetTimeDecimals is set (single-window)", () => {
@@ -344,7 +364,7 @@ describe("formatQuotaRows", () => {
     }
   });
 
-  it("keeps the default compact rounding when resetTimeDecimals is unset", () => {
+  it("keeps days, hours, and minutes when resetTimeDecimals is unset", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
 
@@ -360,7 +380,8 @@ describe("formatQuotaRows", () => {
       ],
     });
 
-    expect(out).toContain("5d");
+    expect(out).toContain("5d16h48m");
+    expect(out).not.toMatch(/5d\s*$/mu);
     expect(out).not.toContain("5.7d");
   });
 

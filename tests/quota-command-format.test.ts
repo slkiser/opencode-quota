@@ -93,17 +93,17 @@ describe("formatQuotaCommand", () => {
     expect(out.match(/[█░]{10}/gu)).toHaveLength(4);
     expect(lines.slice(2).join("\n")).toMatchInlineSnapshot(`
       "→ [Copilot] (personal)
-        Quota         █████████░   86% left | 42/300 | reset 12h
+        Quota         █████████░   86% left | 42/300 | reset 12h0m
 
       → [Copilot] (business)
-        Usage         9 used | 2026-01 | org=acme-corp | user=alice | reset 17d
+        Usage         9 used | 2026-01 | org=acme-corp | user=alice | reset 16d12h0m
 
       → [OpenAI] (Pro)
-        5h quota      ████░░░░░░   42% left | reset 2h
-        Week quota    ████████░░   81% left | reset 3d
+        5h quota      ████░░░░░░   42% left | reset 2h0m
+        Week quota    ████████░░   81% left | reset 3d0h0m
 
       → [Antigravity (acct)]
-        Claude        ███████░░░   67% left | reset 3h
+        Claude        ███████░░░   67% left | reset 3h0m
 
       Session input/output tokens
         openai/gpt-5: 1.2K in | 456 cached | 567 out
@@ -350,8 +350,8 @@ describe("formatQuotaCommand", () => {
     const rows = output.split("\n").filter((line) => line.includes(" | reset "));
 
     expect(rows).toEqual([
-      "  5h quota      ██████░░░░   60% left | 2/5  | reset 5h",
-      "  Day quota     ████████░░   80% left | 2/10 | reset 11h",
+      "  5h quota      ██████░░░░   60% left | 2/5  | reset 5h0m",
+      "  Day quota     ████████░░   80% left | 2/10 | reset 11h0m",
     ]);
     expect(output).not.toContain("```");
     expect(output).not.toMatch(/^## /mu);
@@ -368,7 +368,7 @@ describe("formatQuotaCommand", () => {
     expect(output).toContain("Example: secondary source failed");
   });
 
-  it("keeps /quota reset formatting independent from compact toast resets", () => {
+  it("uses the shared precise-to-minute reset formatter", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
 
@@ -385,8 +385,7 @@ describe("formatQuotaCommand", () => {
       errors: [],
     });
 
-    // /quota keeps its own formatter (hour-rounded here), not toast compact rounding.
-    expect(out).toContain("reset 3h");
+    expect(out).toContain("reset 2h40m");
   });
 
   it("aligns reset columns when usage values have different widths", () => {
