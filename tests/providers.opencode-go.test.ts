@@ -221,6 +221,29 @@ describe("opencode-go provider", () => {
     });
   });
 
+  it("surfaces a rate-limited monthly window as a valid result", async () => {
+    const result = successfulResult();
+    result.monthly = {
+      status: "rate-limited" as const,
+      usagePercent: 100,
+      percentRemaining: 0,
+      resetTimeIso: "2026-09-01T04:00:00.000Z",
+    };
+    mocks.queryOpenCodeGoQuota.mockResolvedValueOnce(result);
+
+    const out = await runFetch();
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.statusDetails).toContainEqual({
+      key: "monthly_usage",
+      value:
+        "status=rate-limited percent_used=100 percent_remaining=0 reset_at=2026-09-01T04:00:00.000Z",
+    });
+    expect(
+      out.entries.find((entry) => entry.name === "OpenCode Go Monthly")?.percentRemaining,
+    ).toBe(0);
+  });
+
   it("does not copy the resolved token into provider output", async () => {
     const out = await runFetch();
     expect(JSON.stringify(out)).not.toContain("provider-test-token");
