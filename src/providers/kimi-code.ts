@@ -8,10 +8,13 @@ import { queryKimiQuota } from "../lib/kimi.js";
 import {
   DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS,
   getKimiAuthDiagnostics,
+  resolveKimiAuth,
   resolveKimiAuthCached,
 } from "../lib/kimi-auth.js";
+import { formatCredentialDisplayNames, readCredentialRows } from "../lib/opencode-auth.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
+import type { AuthData } from "../lib/types.js";
 import {
   apiKeyStatusDetails,
   attemptedErrorResult,
@@ -59,6 +62,66 @@ export const kimiCodeProvider: QuotaProvider = {
 
     if (auth.state === "none") {
       return withStatusDetails(notAttemptedResult(), authDetails);
+    }
+
+    if (diagnostics.source === "opencode.db") {
+      const credentialRows = (await readCredentialRows()).filter((row) =>
+        ["kimi-for-coding", "kimi-code", "kimi"].includes(row.integrationId),
+      );
+      const rowNames = formatCredentialDisplayNames(
+        "Kimi Code",
+        credentialRows.map((row) => ({ row, fallbackName: "Kimi Code" })),
+      );
+      const displayNamesByRowId = new Map(
+        credentialRows.map((row, index) => [row.id, rowNames[index] ?? "Kimi Code"]),
+      );
+      const invalidErrors: QuotaProviderResult["errors"] = [];
+      const credentials = credentialRows.flatMap((row) => {
+        const rowAuth = resolveKimiAuth({ [row.integrationId]: row.value } as AuthData);
+        if (rowAuth.state === "invalid") {
+          invalidErrors.push({ label: displayNamesByRowId.get(row.id) ?? "Kimi Code", message: rowAuth.error });
+        }
+        return rowAuth.state === "configured" ? [{ row, auth: rowAuth }] : [];
+      });
+      if (credentials.length > 0 || invalidErrors.length > 0) {
+        const results = await Promise.all(
+          credentials.map(async ({ row, auth }) => ({
+            row,
+            result: await queryKimiQuota({
+              requestTimeoutMs: ctx.config?.requestTimeoutMs,
+              apiKey: auth.apiKey,
+            }),
+          })),
+        );
+        const entries: QuotaToastEntry[] = [];
+        const errors: QuotaProviderResult["errors"] = [...invalidErrors];
+        for (const { row, result } of results) {
+          const group = displayNamesByRowId.get(row.id) ?? "Kimi Code";
+          if (!result) continue;
+          if (!result.success) {
+            errors.push({ label: group, message: result.error });
+            continue;
+          }
+          entries.push(
+            ...result.windows.map((window) => ({
+              accounting: {
+                resultType: "quota" as const,
+                acquisitionMethod: "remote_api" as const,
+                ownership: "maintained" as const,
+                authority: "provider_reported" as const,
+                sourceId: row.id,
+              },
+              name: `${group} ${window.label}`,
+              group,
+              label: `${window.label}:`,
+              right: formatUsageRight(window),
+              percentRemaining: window.percentRemaining,
+              resetTimeIso: window.resetTimeIso,
+            })),
+          );
+        }
+        return withStatusDetails(attemptedResult(entries, errors), authDetails);
+      }
     }
 
     if (auth.state === "invalid") {

@@ -221,7 +221,7 @@ describe("Google Antigravity provider surfaces", () => {
       expect(output).toContain("Antigravity (bob…)");
     }
     expect(command.match(/\n {2}Quota\s/gu)).toHaveLength(2);
-    expect(toast).not.toMatch(/\n(?:5h|7d|Weekly|Five-hour)\s/u);
+    expect(toast).not.toMatch(/\n(?:5h|7d|Weekly)\s/u);
     expect(surfaces.sidebar.status).toBe("ready");
     expect(sidebar.match(/\nQuota\s/gu)).toHaveLength(2);
     expect(surfaces.compact.status).toBe("ready");

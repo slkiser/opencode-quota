@@ -143,8 +143,8 @@ describe("Google AGY provider surfaces", () => {
     for (const output of [toast, sidebar]) {
       for (const header of headers) expect(output).toContain(header);
       expect(output).toContain("Weekly");
-      expect(output).toContain("Five-hour");
-      expect(output.indexOf("Weekly")).toBeLessThan(output.indexOf("Five-hour"));
+      expect(output).toContain("5h");
+      expect(output.indexOf("Weekly")).toBeLessThan(output.indexOf("5h"));
     }
     for (const header of headers) expect(command).toContain(header);
     expect(command.indexOf("Week quota")).toBeLessThan(command.indexOf("5h quota"));

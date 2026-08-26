@@ -30,7 +30,7 @@ function normalizeLabelText(value?: string): string {
 
 const GROUPED_WINDOW_LABELS: Readonly<Record<QuotaWindowKind, string>> = {
   rpm: "RPM",
-  five_hour: "Five-hour",
+  five_hour: "5h",
   hour: "Hourly",
   week: "Weekly",
   day: "Daily",

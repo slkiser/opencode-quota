@@ -247,12 +247,13 @@ export async function hasOpenAIOAuthCached(params?: { maxAgeMs?: number }): Prom
 }
 
 export async function queryOpenAIQuota(
-  options: { requestTimeoutMs?: number } = {},
+  options: { requestTimeoutMs?: number; auth?: ResolvedOpenAIOAuth } = {},
 ): Promise<OpenAIResult> {
-  const auth = await readAuthFileCached({
-    maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS,
-  });
-  const resolvedAuth = resolveOpenAIOAuth(auth);
+  const resolvedAuth =
+    options.auth ??
+    resolveOpenAIOAuth(
+      await readAuthFileCached({ maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS }),
+    );
   if (resolvedAuth.state !== "configured") return null;
 
   if (resolvedAuth.expiresAt && resolvedAuth.expiresAt < Date.now()) {

@@ -1343,7 +1343,7 @@ async function fetchCopilotInternalUser(params: {
  * OpenCode-managed Copilot OAuth token can query the per-user internal quota endpoint.
  */
 export async function queryCopilotQuota(
-  options: { requestTimeoutMs?: number } = {},
+  options: { requestTimeoutMs?: number; authData?: AuthData } = {},
 ): Promise<CopilotResult> {
   const pat = readQuotaConfigWithMeta();
 
@@ -1353,7 +1353,7 @@ export async function queryCopilotQuota(
     );
   }
   if (pat.state === "absent" || !pat.config) {
-    const { auth } = selectCopilotAuth(await readAuthFile());
+    const { auth } = selectCopilotAuth(options.authData ?? (await readAuthFile()));
     const token = getCopilotOAuthToken(auth);
     if (!auth || !token) return null;
 

@@ -828,6 +828,16 @@ async function queryAnthropicQuotaFromOAuthAccessToken(
   }
 }
 
+export async function queryAnthropicQuotaWithOAuth(
+  accessToken: string,
+  requestTimeoutMs?: number,
+): Promise<AnthropicResult> {
+  const result = await queryAnthropicQuotaFromOAuthAccessToken(accessToken, requestTimeoutMs);
+  return result.state === "success"
+    ? result.quota
+    : { success: false, error: result.detail ?? "Anthropic OAuth quota unavailable" };
+}
+
 function extractAuthBoolean(data: unknown): boolean | undefined {
   const record = asRecord(data);
   if (!record) {

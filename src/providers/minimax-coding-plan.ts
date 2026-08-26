@@ -18,16 +18,19 @@ import {
   getMiniMaxChinaAuthDiagnostics,
   type MiniMaxAuthDiagnostics,
   type ResolvedMiniMaxAuth,
+  resolveMiniMaxAuth,
   resolveMiniMaxAuthCached,
+  resolveMiniMaxChinaAuth,
   resolveMiniMaxChinaAuthCached,
 } from "../lib/minimax-auth.js";
 import { getMiniMaxQuotaEndpoint, type MiniMaxQuotaEndpointId } from "../lib/minimax-endpoints.js";
+import { formatCredentialDisplayNames, readCredentialRows } from "../lib/opencode-auth.js";
 import {
   isAnyProviderIdAvailable,
   isCanonicalProviderAvailable,
 } from "../lib/provider-availability.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
-import type { MiniMaxResult, MiniMaxResultEntry } from "../lib/types.js";
+import type { AuthData, MiniMaxResult, MiniMaxResultEntry } from "../lib/types.js";
 import {
   apiKeyStatusDetails,
   attemptedErrorResult,
@@ -318,6 +321,8 @@ type MiniMaxProviderSpec = {
   label: string;
   endpoint: MiniMaxQuotaEndpointId;
   resolveAuthCached: (params?: { maxAgeMs?: number }) => Promise<ResolvedMiniMaxAuth>;
+  resolveCredentialAuth: (auth: AuthData) => ResolvedMiniMaxAuth;
+  credentialIntegrationIds: readonly string[];
   getAuthDiagnostics: (params?: { maxAgeMs?: number }) => Promise<MiniMaxAuthDiagnostics>;
 };
 
@@ -412,6 +417,65 @@ function createMiniMaxProvider(spec: MiniMaxProviderSpec): QuotaProvider {
         return withStatusDetails(notAttemptedResult(), statusDetails);
       }
 
+      if (diagnostics.source === "opencode.db") {
+        const credentialRows = (await readCredentialRows()).filter((row) =>
+          spec.credentialIntegrationIds.includes(row.integrationId),
+        );
+        const rowNames = formatCredentialDisplayNames(
+          spec.label,
+          credentialRows.map((row) => ({ row, fallbackName: spec.label })),
+        );
+        const displayNamesByRowId = new Map(
+          credentialRows.map((row, index) => [row.id, rowNames[index] ?? spec.label]),
+        );
+        const invalidErrors: QuotaProviderResult["errors"] = [];
+        const credentials = credentialRows.flatMap((row) => {
+          const rowAuth = spec.resolveCredentialAuth({
+            [row.integrationId]: row.value,
+          } as AuthData);
+          if (rowAuth.state === "invalid") {
+            invalidErrors.push({ label: displayNamesByRowId.get(row.id) ?? spec.label, message: rowAuth.error });
+          }
+          return rowAuth.state === "configured" ? [{ row, auth: rowAuth }] : [];
+        });
+        if (credentials.length > 0 || invalidErrors.length > 0) {
+          const results = await Promise.all(
+            credentials.map(async ({ row, auth }) => ({
+              row,
+              result: await queryMiniMaxQuota(auth.apiKey, {
+                endpoint: spec.endpoint,
+                label: spec.label,
+                requestTimeoutMs: ctx.config?.requestTimeoutMs,
+              }),
+            })),
+          );
+          const entries: QuotaProviderResult["entries"] = [];
+          const errors: QuotaProviderResult["errors"] = [...invalidErrors];
+          for (const { row, result } of results) {
+            const group = displayNamesByRowId.get(row.id) ?? spec.label;
+            if (!result.success) {
+              errors.push({ label: group, message: result.error });
+              continue;
+            }
+            entries.push(
+              ...result.entries.map(({ window: _window, ...entry }) => ({
+                ...entry,
+                name: entry.name.replace(spec.label, group),
+                group,
+                accounting: {
+                  resultType: "quota" as const,
+                  acquisitionMethod: "remote_api" as const,
+                  ownership: "maintained" as const,
+                  authority: "provider_reported" as const,
+                  sourceId: row.id,
+                },
+              })),
+            );
+          }
+          return withStatusDetails(attemptedResult(entries, errors), statusDetails);
+        }
+      }
+
       if (auth.state === "invalid") {
         return withStatusDetails(attemptedErrorResult(spec.label, auth.error), statusDetails);
       }
@@ -464,6 +528,8 @@ export const minimaxCodingPlanProvider: QuotaProvider = createMiniMaxProvider({
   label: MINIMAX_PROVIDER_LABEL,
   endpoint: "international",
   resolveAuthCached: resolveMiniMaxAuthCached,
+  resolveCredentialAuth: resolveMiniMaxAuth,
+  credentialIntegrationIds: ["minimax-coding-plan"],
   getAuthDiagnostics: getMiniMaxAuthDiagnostics,
 });
 
@@ -472,5 +538,7 @@ export const minimaxChinaCodingPlanProvider: QuotaProvider = createMiniMaxProvid
   label: MINIMAX_CHINA_PROVIDER_LABEL,
   endpoint: "china",
   resolveAuthCached: resolveMiniMaxChinaAuthCached,
+  resolveCredentialAuth: resolveMiniMaxChinaAuth,
+  credentialIntegrationIds: ["minimax-china-coding-plan", "minimax-cn-coding-plan"],
   getAuthDiagnostics: getMiniMaxChinaAuthDiagnostics,
 });

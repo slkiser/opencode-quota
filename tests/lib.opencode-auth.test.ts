@@ -8,7 +8,9 @@ import {
   clearReadAuthFileCacheForTests,
   getCredentialDatabasePath,
   getCredentialDatabasePaths,
+  formatCredentialDisplayNames,
   readAuthFile,
+  readCredentialRows,
 } from "../src/lib/opencode-auth.js";
 
 const temporaryDirectories: string[] = [];
@@ -76,6 +78,34 @@ async function createCredentialDatabase(): Promise<{ dataDir: string; databasePa
 }
 
 describe("OpenCode auth reader", () => {
+  it.each([
+    ["OpenAI", "OpenAI (Pro)", "default", true, "[OpenAI] (Pro)*"],
+    ["OpenAI", "OpenAI (Pro)", "SEPD", true, "[OpenAI SEPD] (Pro)*"],
+    ["Copilot", "Copilot (business)", "sita", true, "[Copilot sita] (business)*"],
+    ["xAI", "xAI SuperGrok", "personal", true, "[xAI personal] (SuperGrok)*"],
+    ["OpenAI", "OpenAI (Pro)", "  ", true, "[OpenAI] (Pro)*"],
+    ["OpenAI", "OpenAI (Pro)", "openai", true, "[OpenAI] (Pro)*"],
+  ])("formats %s credential aliases as %s", (providerName, fallbackName, label, active, expected) => {
+    expect(
+      formatCredentialDisplayNames(providerName, [
+        {
+          row: { id: "credential", integrationId: providerName, label, active, value: {} },
+          fallbackName,
+        },
+      ]),
+    ).toEqual([expected]);
+  });
+
+  it("numbers duplicate custom aliases without numbering default credentials", () => {
+    expect(
+      formatCredentialDisplayNames("OpenAI", [
+        { row: { id: "a", integrationId: "openai", label: "SEPD", active: true, value: {} }, fallbackName: "OpenAI (Pro)" },
+        { row: { id: "b", integrationId: "openai", label: "SEPD", active: false, value: {} }, fallbackName: "OpenAI (Pro)" },
+        { row: { id: "c", integrationId: "openai", label: "default", active: false, value: {} }, fallbackName: "OpenAI (Pro)" },
+      ]),
+    ).toEqual(["[OpenAI SEPD] (Pro)*", "[OpenAI SEPD 2] (Pro)", "[OpenAI] (Pro)"]);
+  });
+
   it("reports the credential database path and honors OPENCODE_DB", async () => {
     const { dataDir } = await createCredentialDatabase();
     vi.stubEnv("XDG_DATA_HOME", join(dataDir, ".."));
@@ -96,6 +126,41 @@ describe("OpenCode auth reader", () => {
       deepseek: { type: "api", key: "deepseek-key" },
       openai: { access: "openai-access" },
     });
+  });
+
+  it("exposes every credential row with active rows first", async () => {
+    const { databasePath } = await createCredentialDatabase();
+    const database = new DatabaseSync(databasePath);
+    database.prepare("UPDATE credential SET label = 'Work', active = 0 WHERE id = 'openai'").run();
+    database
+      .prepare("INSERT INTO credential VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?)")
+      .run(
+        "openai-active",
+        "openai",
+        "Personal",
+        JSON.stringify({ type: "oauth", access: "personal-access" }),
+        1,
+        4,
+        4,
+      );
+    database.close();
+    vi.stubEnv("OPENCODE_DB", databasePath);
+
+    await expect(readCredentialRows()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "openai-active",
+          integrationId: "openai",
+          label: "Personal",
+          active: true,
+          value: expect.objectContaining({ access: "personal-access" }),
+        }),
+        expect.objectContaining({ id: "openai", active: false }),
+      ]),
+    );
+    expect(
+      (await readCredentialRows()).findIndex((row) => row.id === "openai-active"),
+    ).toBeLessThan((await readCredentialRows()).findIndex((row) => row.id === "openai"));
   });
 
   it("ignores legacy auth.json entries", async () => {

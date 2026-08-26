@@ -29,6 +29,8 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("../src/lib/minimax-auth.js", () => ({
+  resolveMiniMaxAuth: vi.fn(),
+  resolveMiniMaxChinaAuth: vi.fn(),
   resolveMiniMaxAuthCached: mocks.resolveMiniMaxAuthCached,
   resolveMiniMaxChinaAuthCached: mocks.resolveMiniMaxChinaAuthCached,
   getMiniMaxAuthDiagnostics: vi.fn(async () => ({
@@ -53,6 +55,11 @@ vi.mock("../src/lib/http.js", () => ({
 vi.mock("../src/lib/provider-availability.js", () => ({
   isAnyProviderIdAvailable: mocks.isAnyProviderIdAvailable,
   isCanonicalProviderAvailable: mocks.isCanonicalProviderAvailable,
+}));
+
+vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/opencode-auth.js")>()),
+  readCredentialRows: vi.fn().mockResolvedValue([]),
 }));
 
 import {
@@ -157,6 +164,28 @@ describe("minimax-coding-plan provider", () => {
     const out = await minimaxCodingPlanProvider.fetch({ config: {} } as any);
     expectAttemptedWithErrorLabel(out, "MiniMax Coding Plan");
     expect(out.errors[0]?.message).toBe("Invalid API key");
+  });
+
+  it("keeps a valid inactive duplicate-label database credential when the active row is invalid", async () => {
+    const { getMiniMaxAuthDiagnostics, resolveMiniMaxAuth } = await import("../src/lib/minimax-auth.js");
+    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
+    (getMiniMaxAuthDiagnostics as any).mockResolvedValueOnce({ state: "invalid", source: "opencode.db", checkedPaths: [], credentialDatabasePaths: [] });
+    mockMiniMaxAuthInvalid("empty key");
+    (readCredentialRows as any).mockResolvedValueOnce([
+      { id: "bad", integrationId: "minimax-coding-plan", label: "shared", active: true, value: { key: "" } },
+      { id: "good", integrationId: "minimax-coding-plan", label: "shared", active: false, value: { key: "ok" } },
+    ]);
+    (resolveMiniMaxAuth as any).mockImplementation((auth: any) =>
+      auth["minimax-coding-plan"].key ? { state: "configured", apiKey: "row-key", endpoint: "international" } : { state: "invalid", error: "empty key" },
+    );
+    mockMiniMaxHttpSuccess([createCodingPlanModel()]);
+
+    const out = await runProviderFetch();
+    expect(out.errors).toContainEqual({ label: "[MiniMax Coding Plan shared]*", message: "empty key" });
+    expect(out.entries).toContainEqual(
+      expect.objectContaining({ group: "[MiniMax Coding Plan shared 2]", accounting: expect.objectContaining({ sourceId: "good" }) }),
+    );
+    expect(out.entries).not.toHaveLength(0);
   });
 
   it("maps MiniMax-M* model to rolling 5h and weekly entries", async () => {

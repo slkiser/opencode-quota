@@ -35,6 +35,42 @@ type AuthCacheEntry = {
   inFlight?: Promise<AuthData | null>;
 };
 
+export type CredentialRow = {
+  id: string;
+  integrationId: string;
+  label: string;
+  active: boolean;
+  value: Record<string, unknown>;
+};
+
+export function formatCredentialDisplayNames(
+  providerName: string,
+  credentials: ReadonlyArray<{ row: CredentialRow; fallbackName: string }>,
+): string[] {
+  const counts = new Map<string, number>();
+  return credentials.map(({ row, fallbackName }) => {
+    const alias = row.label.trim();
+    const redundantAlias =
+      !alias ||
+      alias.toLowerCase() === "default" ||
+      alias.toLowerCase() === providerName.toLowerCase();
+    const fallbackCategory = fallbackName
+      .trim()
+      .replace(new RegExp(`^${providerName.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}\\s*`, "iu"), "")
+      .trim()
+      .replace(/^\((.*)\)$/u, "$1")
+      .trim();
+    const aliasKey = redundantAlias ? "" : alias;
+    const duplicate = aliasKey ? (counts.get(aliasKey) ?? 0) + 1 : 1;
+    if (aliasKey) counts.set(aliasKey, duplicate);
+    const numberedAlias = duplicate === 1 ? aliasKey : `${aliasKey} ${duplicate}`;
+    const base = `[${providerName}${numberedAlias ? ` ${numberedAlias}` : ""}]`;
+    const category = fallbackCategory ? ` (${fallbackCategory})` : "";
+    const active = row.active || (credentials.length === 1 && !credentials[0]!.row.active);
+    return `${base}${category}${active ? "*" : ""}`;
+  });
+}
+
 let authCache: AuthCacheEntry | null = null;
 
 /**
@@ -74,16 +110,25 @@ export function getCredentialDatabasePath(): string {
 }
 
 export async function readAuthFile(): Promise<AuthData | null> {
-  return readCredentialDatabases(getCredentialDatabasePaths());
+  const rows = await readCredentialRows();
+  const auth: Record<string, unknown> = {};
+  for (const row of rows) {
+    if (!(row.integrationId in auth)) auth[row.integrationId] = row.value;
+  }
+  return Object.keys(auth).length > 0 ? (auth as AuthData) : null;
 }
 
-function readCredentialDatabases(paths: string[]): AuthData | null {
+export async function readCredentialRows(): Promise<CredentialRow[]> {
+  return readCredentialRowsFromDatabases(getCredentialDatabasePaths());
+}
+
+function readCredentialRowsFromDatabases(paths: string[]): CredentialRow[] {
   for (const path of paths) {
-    const auth = readCredentialDatabase(path);
-    if (auth) return auth;
+    const rows = readCredentialDatabase(path);
+    if (rows.length > 0) return rows;
   }
 
-  return null;
+  return [];
 }
 
 function getCredentialDatabasePathsForDataDirs(dataDirs: string[]): string[] {
@@ -99,33 +144,42 @@ function getCredentialDatabasePathsForDataDirs(dataDirs: string[]): string[] {
   return dataDirs.map((dataDir) => join(dataDir, "opencode.db"));
 }
 
-function readCredentialDatabase(path: string): AuthData | null {
-  if (!existsSync(path)) return null;
+function readCredentialDatabase(path: string): CredentialRow[] {
+  if (!existsSync(path)) return [];
 
   let database: CredentialDatabase | undefined;
   try {
     database = openCredentialDatabase(path);
     const rows = database
       .prepare(
-        "SELECT integration_id, value FROM credential WHERE integration_id IS NOT NULL ORDER BY time_updated DESC, id DESC",
+        "SELECT id, integration_id, label, active, value FROM credential WHERE integration_id IS NOT NULL ORDER BY active DESC, time_updated DESC, id DESC",
       )
-      .all() as Array<{ integration_id?: unknown; value?: unknown }>;
-    const auth: Record<string, unknown> = {};
+      .all() as Array<Record<string, unknown>>;
+    const credentials: CredentialRow[] = [];
 
     for (const row of rows) {
       if (
+        typeof row.id !== "string" ||
         typeof row.integration_id !== "string" ||
-        typeof row.value !== "string" ||
-        row.integration_id in auth
+        typeof row.label !== "string" ||
+        typeof row.value !== "string"
       )
         continue;
       const value = parseCredentialValue(row.value);
-      if (value) auth[row.integration_id] = value;
+      if (value) {
+        credentials.push({
+          id: row.id,
+          integrationId: row.integration_id,
+          label: row.label,
+          active: row.active === 1,
+          value,
+        });
+      }
     }
 
-    return Object.keys(auth).length > 0 ? (auth as AuthData) : null;
+    return credentials;
   } catch {
-    return null;
+    return [];
   } finally {
     database?.close();
   }

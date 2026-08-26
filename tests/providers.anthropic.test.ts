@@ -12,9 +12,59 @@ vi.mock("../src/lib/anthropic.js", () => ({
   getAnthropicDiagnostics: vi.fn(),
   hasAnthropicCredentialsConfigured: vi.fn(),
   queryAnthropicQuota: vi.fn(),
+  queryAnthropicQuotaWithOAuth: vi.fn(),
+}));
+
+vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/opencode-auth.js")>()),
+  readCredentialRows: vi.fn().mockResolvedValue([]),
 }));
 
 describe("anthropic provider", () => {
+  it("fans out to a valid inactive database credential when the active credential is expired", async () => {
+    const { getAnthropicDiagnostics, queryAnthropicQuota, queryAnthropicQuotaWithOAuth } =
+      await import("../src/lib/anthropic.js");
+    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
+    (readCredentialRows as any).mockResolvedValueOnce([
+      {
+        id: "expired-active",
+        integrationId: "anthropic",
+        label: "default",
+        active: true,
+        value: { type: "oauth", access: "expired", expires: 0 },
+      },
+      {
+        id: "valid-inactive",
+        integrationId: "anthropic",
+        label: "Work",
+        active: false,
+        value: { type: "oauth", access: "valid" },
+      },
+    ]);
+    (getAnthropicDiagnostics as any).mockResolvedValueOnce({
+      installed: true,
+      authStatus: "authenticated",
+      quotaSupported: true,
+      quotaSource: "claude-auth-status-json",
+      checkedCommands: [],
+      quota: { success: true, five_hour: { percentRemaining: 1 }, seven_day: { percentRemaining: 1 } },
+    });
+    (queryAnthropicQuotaWithOAuth as any).mockResolvedValueOnce({
+      success: true,
+      five_hour: { percentRemaining: 80 },
+      seven_day: { percentRemaining: 70 },
+    });
+
+    const out = await anthropicProvider.fetch({} as any);
+
+    expect(queryAnthropicQuotaWithOAuth).toHaveBeenCalledWith("valid", undefined);
+    expect(queryAnthropicQuota).not.toHaveBeenCalled();
+    expect(out.entries.map((entry) => [entry.group, entry.accounting.sourceId])).toEqual([
+      ["[Claude Work]*", "valid-inactive"],
+      ["[Claude Work]*", "valid-inactive"],
+    ]);
+  });
+
   it("reports the credential store that answered the usage probe", async () => {
     const { getAnthropicDiagnostics, queryAnthropicQuota } = await import(
       "../src/lib/anthropic.js"

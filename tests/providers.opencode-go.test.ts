@@ -10,6 +10,7 @@ import { createProviderAvailabilityContext } from "./helpers/provider-test-harne
 
 const mocks = vi.hoisted(() => ({
   resolveOpenCodeGoAuthCached: vi.fn(),
+  resolveOpenCodeGoAuth: vi.fn(),
   getOpenCodeGoAuthDiagnostics: vi.fn(),
   queryOpenCodeGoQuota: vi.fn(),
 }));
@@ -18,10 +19,16 @@ vi.mock("../src/lib/opencode-go-auth.js", () => ({
   DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS: 5_000,
   resolveOpenCodeGoAuthCached: mocks.resolveOpenCodeGoAuthCached,
   getOpenCodeGoAuthDiagnostics: mocks.getOpenCodeGoAuthDiagnostics,
+  resolveOpenCodeGoAuth: mocks.resolveOpenCodeGoAuth,
 }));
 
 vi.mock("../src/lib/opencode-go.js", () => ({
   queryOpenCodeGoQuota: mocks.queryOpenCodeGoQuota,
+}));
+
+vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/opencode-auth.js")>()),
+  readCredentialRows: vi.fn().mockResolvedValue([]),
 }));
 
 import { opencodeGoProvider } from "../src/providers/opencode-go.js";
@@ -82,6 +89,7 @@ describe("opencode-go provider", () => {
       apiKey: "provider-test-token",
     });
     mocks.queryOpenCodeGoQuota.mockResolvedValue(successfulResult());
+    mocks.resolveOpenCodeGoAuth.mockReturnValue({ state: "configured", apiKey: "row-token" });
   });
 
   it("returns not attempted for absent auth without calling the API", async () => {
@@ -112,6 +120,27 @@ describe("opencode-go provider", () => {
     expect(out.errors[0]?.message).toBe(error);
     expect(out.statusDetails).toContainEqual({ key: "auth_error", value: error });
     expect(mocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
+  });
+
+  it("keeps a valid inactive duplicate-label database credential when the active row is invalid", async () => {
+    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
+    mocks.getOpenCodeGoAuthDiagnostics.mockResolvedValueOnce(diagnostics("invalid"));
+    mocks.resolveOpenCodeGoAuthCached.mockResolvedValueOnce({ state: "invalid", error: "empty key" });
+    (readCredentialRows as any).mockResolvedValueOnce([
+      { id: "bad", integrationId: "opencode-go", label: "shared", active: true, value: { key: "" } },
+      { id: "good", integrationId: "opencode-go", label: "shared", active: false, value: { key: "ok" } },
+    ]);
+    mocks.resolveOpenCodeGoAuth.mockImplementation((auth: any) =>
+      auth["opencode-go"].key ? { state: "configured", apiKey: "row-token" } : { state: "invalid", error: "empty key" },
+    );
+
+    const out = await runFetch();
+    expect(out.errors).toContainEqual({ label: "[OpenCode Go shared]*", message: "empty key" });
+    expect(out.entries).toContainEqual(
+      expect.objectContaining({ group: "[OpenCode Go shared 2]", accounting: expect.objectContaining({ sourceId: "good" }) }),
+    );
+    expect(out.entries).toHaveLength(3);
+    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledOnce();
   });
 
   it("passes the resolved token and effective timeout to the API client", async () => {

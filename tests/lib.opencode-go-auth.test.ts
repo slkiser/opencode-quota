@@ -16,6 +16,8 @@ import {
 const authMocks = vi.hoisted(() => ({
   getCredentialDatabasePaths: vi.fn(() => ["/tmp/opencode.db"]),
   readAuthFileCached: vi.fn(),
+  readCredentialRows: vi.fn(async () => []),
+  formatCredentialDisplayNames: vi.fn(),
   queryOpenCodeGoQuota: vi.fn(),
   readFile: vi.fn(),
   lstat: vi.fn(),
@@ -36,6 +38,8 @@ vi.mock("node:fs/promises", async (importOriginal) => ({
 vi.mock("../src/lib/opencode-auth.js", () => ({
   getCredentialDatabasePaths: authMocks.getCredentialDatabasePaths,
   readAuthFileCached: authMocks.readAuthFileCached,
+  readCredentialRows: authMocks.readCredentialRows,
+  formatCredentialDisplayNames: authMocks.formatCredentialDisplayNames,
 }));
 vi.mock("../src/lib/opencode-go.js", () => ({
   queryOpenCodeGoQuota: authMocks.queryOpenCodeGoQuota,

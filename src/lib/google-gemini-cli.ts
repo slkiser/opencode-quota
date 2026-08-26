@@ -597,10 +597,10 @@ async function fetchAccountQuota(params: {
 
 export async function queryGeminiCliQuota(
   client?: ConfigClient,
-  options: { requestTimeoutMs?: number } = {},
+  options: { requestTimeoutMs?: number; authData?: AuthData } = {},
 ): Promise<GeminiCliResult> {
   const [auth, configuredProjectId] = await Promise.all([
-    readAuthFileCached({ maxAgeMs: DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS }),
+    options.authData ?? readAuthFileCached({ maxAgeMs: DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS }),
     resolveGeminiCliConfiguredProjectId(client),
   ]);
   const accounts = resolveGeminiCliAccounts(auth, configuredProjectId);
