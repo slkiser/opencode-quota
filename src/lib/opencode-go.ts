@@ -82,7 +82,7 @@ function normalizeWindow(
     return contractError(`${windowKey} window is missing or malformed`);
   }
 
-  if (window.status !== "ok") {
+  if (window.status !== "ok" && window.status !== "rate-limited") {
     return contractError(
       `${windowKey} status is not ok: ${sanitizeMessage(String(window.status), accessToken)}`,
     );
@@ -104,7 +104,7 @@ function normalizeWindow(
   }
 
   return {
-    status: "ok",
+    status: window.status as "ok" | "rate-limited",
     usagePercent: percent,
     percentRemaining: 100 - percent,
     resetTimeIso: new Date(resetTime).toISOString(),

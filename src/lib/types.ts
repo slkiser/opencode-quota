@@ -895,7 +895,7 @@ export type OllamaCloudResult =
 /** Single normalized usage window from the OpenCode Go API. */
 export interface OpenCodeGoWindow {
   /** Raw API status after exact validation. */
-  status: "ok";
+  status: "ok" | "rate-limited";
   /** Usage percentage [0..100]. */
   usagePercent: number;
   /** Remaining percentage [0..100]. */

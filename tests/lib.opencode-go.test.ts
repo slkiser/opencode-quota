@@ -131,6 +131,20 @@ describe("queryOpenCodeGoQuota", () => {
     });
   });
 
+  it("accepts a rate-limited window as a valid exhausted state", async () => {
+    const payload = validPayload();
+    windowFrom(payload, "monthly").status = "rate-limited";
+    windowFrom(payload, "monthly").percent = 100;
+    mockSuccess(payload);
+
+    const result = await queryOpenCodeGoQuota("token");
+
+    expect(result).toMatchObject({
+      success: true,
+      monthly: { status: "rate-limited", usagePercent: 100, percentRemaining: 0 },
+    });
+  });
+
   it.each([null, [], "bad", 1])("rejects a non-object root: %j", async (payload) => {
     mockSuccess(payload);
     await expect(queryOpenCodeGoQuota("token")).resolves.toEqual({
