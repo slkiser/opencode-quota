@@ -325,18 +325,32 @@ describe("quota provider remote runtime", () => {
     }
   });
 
-  it("rejects OpenRouter remaining above its positive limit", async () => {
+  it("accepts OpenRouter free-tier (limit_remaining: null)", async () => {
     vi.stubGlobal(
       "fetch",
       vi
         .fn()
-        .mockResolvedValue(jsonResponse({ data: { usage: 0, limit: 10, limit_remaining: 11 } })),
+        .mockResolvedValue(jsonResponse({ data: { usage: 0.106921435, limit: null, limit_remaining: null } })),
     );
-    await expect(
-      fetchRemoteQuotaProvider(source({ format: "openrouter-key-v1" }), "secret"),
-    ).resolves.toEqual({
-      success: false,
-      error: "Invalid openrouter-key-v1 response",
+    const result = await fetchRemoteQuotaProvider(
+      source({ format: "openrouter-key-v1" }),
+      "secret",
+    );
+    expect(result.success).toBe(true);
+    expect(result.entries[0]).toEqual({
+      kind: "spend",
+      name: "Spend",
+      resultType: "spend",
+      acquisitionMethod: "remote_api",
+      ownership: "user_configured",
+      authority: "provider_reported",
+      accounting: {
+        resultType: "spend",
+        acquisitionMethod: "remote_api",
+        ownership: "user_configured",
+        authority: "provider_reported",
+      },
+      value: "0.106921435",
     });
   });
 
