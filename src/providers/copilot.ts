@@ -58,10 +58,12 @@ function formatBillingPeriod(period: { year: number; month: number }): string {
 
 function getCopilotGroup(
   mode: "user_quota" | "user_plan" | "organization_usage" | "enterprise_usage",
+  plan?: string,
 ): string {
-  return mode === "organization_usage" || mode === "enterprise_usage"
-    ? "Copilot (business)"
-    : "Copilot (personal)";
+  if (mode === "organization_usage" || mode === "enterprise_usage") {
+    return "Copilot (business)";
+  }
+  return plan ? `Copilot (${plan})` : "Copilot (personal)";
 }
 
 function formatNumber(value: number): string {
@@ -141,7 +143,7 @@ function planEntries(result: CopilotPlanResult): QuotaToastEntry[] {
       kind: "value",
       accounting: remoteAccounting("quota", result.authority),
       name: "Copilot",
-      group: getCopilotGroup(result.mode),
+      group: getCopilotGroup(result.mode, result.plan),
       label: "Plan:",
       value: result.plan
         ? `${result.plan} | quota details unavailable`
@@ -152,7 +154,7 @@ function planEntries(result: CopilotPlanResult): QuotaToastEntry[] {
 }
 
 function personalEntries(result: CopilotQuotaResult): QuotaToastEntry[] {
-  const group = getCopilotGroup(result.mode);
+  const group = getCopilotGroup(result.mode, result.plan);
   const name =
     result.unit === "ai_credits"
       ? "Copilot AI Credits"
@@ -317,12 +319,9 @@ export const copilotProvider: QuotaProvider = {
           "Copilot",
           results.map(({ row, result }) => ({
             row,
-            fallbackName:
-              result?.success && result.mode === "user_plan" && result.plan
-                ? `Copilot (${result.plan})`
-                : result?.success
-                  ? getCopilotGroup(result.mode)
-                  : "Copilot",
+            fallbackName: result?.success
+              ? getCopilotGroup(result.mode, "plan" in result ? result.plan : undefined)
+              : "Copilot",
           })),
         );
         const entries: QuotaToastEntry[] = [];
