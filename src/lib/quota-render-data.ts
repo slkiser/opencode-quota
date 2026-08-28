@@ -376,6 +376,9 @@ function getExplicitNoDataMessage(provider: QuotaProvider): string {
   if (provider.id === "anthropic") {
     return getAnthropicNoDataMessage();
   }
+  if (provider.id === "opencode-go") {
+    return "Not subscribed";
+  }
   return "Not configured";
 }
 
@@ -568,6 +571,12 @@ export async function collectQuotaRenderData(params: {
       if (!selection.isAutoMode) {
         hasExplicitProviderIssues = true;
       }
+    } else if (provider && result?.notApplicable && params.config.showNotApplicableProviders) {
+      errors.push({
+        kind: "intentional-filter",
+        label: getQuotaProviderDisplayLabel(provider.id),
+        message: getExplicitNoDataMessage(provider),
+      });
     }
   }
 

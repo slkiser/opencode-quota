@@ -169,6 +169,8 @@ export interface QuotaToastConfig {
   showOnQuestion: boolean;
   showOnCompact: boolean;
   showOnBothFail: boolean;
+  /** Surface one soft line per deliberately no-data provider instead of hiding it. */
+  showNotApplicableProviders: boolean;
   /** Toast duration in milliseconds */
   toastDurationMs: number;
 
@@ -253,6 +255,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   showOnQuestion: true,
   showOnCompact: true,
   showOnBothFail: true,
+  showNotApplicableProviders: false,
   toastDurationMs: 9000,
   onlyCurrentModel: false,
   showSessionTokens: true,
