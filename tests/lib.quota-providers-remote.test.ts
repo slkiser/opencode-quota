@@ -330,7 +330,9 @@ describe("quota provider remote runtime", () => {
       "fetch",
       vi
         .fn()
-        .mockResolvedValue(jsonResponse({ data: { usage: 0.106921435, limit: null, limit_remaining: null } })),
+        .mockResolvedValue(
+          jsonResponse({ data: { usage: 0.106921435, limit: null, limit_remaining: null } }),
+        ),
     );
     const result = await fetchRemoteQuotaProvider(
       source({ format: "openrouter-key-v1" }),
@@ -338,19 +340,17 @@ describe("quota provider remote runtime", () => {
     );
     expect(result.success).toBe(true);
     expect(result.entries[0]).toEqual({
-      kind: "spend",
-      name: "Spend",
-      resultType: "spend",
-      acquisitionMethod: "remote_api",
-      ownership: "user_configured",
-      authority: "provider_reported",
       accounting: {
         resultType: "spend",
         acquisitionMethod: "remote_api",
         ownership: "user_configured",
         authority: "provider_reported",
       },
-      value: "0.106921435",
+      kind: "value",
+      name: "Source One spend",
+      group: "Source One",
+      label: "Spend:",
+      value: "$0.11",
     });
   });
 
