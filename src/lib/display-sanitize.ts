@@ -124,6 +124,7 @@ export function sanitizeQuotaProviderResult(result: QuotaProviderResult): QuotaP
     attempted: result.attempted,
     entries: result.entries.map(sanitizeQuotaToastEntry),
     errors: result.errors.map(sanitizeQuotaToastError),
+    ...(result.notApplicable ? { notApplicable: true } : {}),
     ...(result.diagnostics
       ? {
           diagnostics: result.diagnostics.map((diagnostic) => ({
