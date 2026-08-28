@@ -133,6 +133,11 @@ function normalizeResponse(payload: unknown, accessToken: string): OpenCodeGoRes
   };
 }
 
+function isNotSubscribedResponse(status: number, text: string): boolean {
+  if (status !== 403) return false;
+  return /EntitlementError|subscription required/i.test(text);
+}
+
 export async function queryOpenCodeGoQuota(
   accessToken: string,
   options: { requestTimeoutMs?: number } = {},
@@ -157,6 +162,14 @@ export async function queryOpenCodeGoQuota(
               success: false,
               error: `OpenCode Go API error ${response.status}: ${errorMessage(error, accessToken)}`,
               retryable: isRetryableHttpStatus(response.status),
+            };
+          }
+          if (isNotSubscribedResponse(response.status, text)) {
+            return {
+              success: false,
+              error: "OpenCode Go not subscribed (403 EntitlementError)",
+              notSubscribed: true,
+              retryable: false,
             };
           }
           return {

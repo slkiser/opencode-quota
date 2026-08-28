@@ -17,6 +17,7 @@ import type { OpenCodeGoResult, OpenCodeGoWindowKey } from "../lib/types.js";
 import {
   attemptedErrorResult,
   attemptedResult,
+  notApplicableResult,
   notAttemptedResult,
   statusDetailsFromRecord,
   withStatusDetails,
@@ -29,6 +30,12 @@ const OPENCODE_GO_WINDOW_LABELS: Record<OpenCodeGoWindowKey, { name: string; lab
   weekly: { name: `${OPENCODE_GO_PROVIDER_LABEL} Weekly`, label: "Weekly:" },
   monthly: { name: `${OPENCODE_GO_PROVIDER_LABEL} Monthly`, label: "Monthly:" },
 };
+
+let notSubscribedApiKey: string | null = null;
+
+export function resetOpenCodeGoNotSubscribedForTests(): void {
+  notSubscribedApiKey = null;
+}
 
 function authStatusDetails(diagnostics: OpenCodeGoAuthDiagnostics): QuotaProviderStatusDetail[] {
   return statusDetailsFromRecord({
@@ -109,11 +116,25 @@ export const opencodeGoProvider: QuotaProvider = {
       );
     }
 
+    if (notSubscribedApiKey !== null && notSubscribedApiKey === auth.apiKey) {
+      return withStatusDetails(notApplicableResult(), [
+        ...statusDetails,
+        { key: "opencode_go_state", value: "not_subscribed" },
+      ]);
+    }
+
     const result = await queryOpenCodeGoQuota(auth.apiKey, {
       requestTimeoutMs: ctx.config.requestTimeoutMs,
     });
 
     if (!result.success) {
+      if (result.notSubscribed === true) {
+        notSubscribedApiKey = auth.apiKey;
+        return withStatusDetails(notApplicableResult(), [
+          ...statusDetails,
+          { key: "opencode_go_state", value: "not_subscribed" },
+        ]);
+      }
       return withStatusDetails(
         attemptedErrorResult(OPENCODE_GO_PROVIDER_LABEL, result.error, {
           retryable: result.retryable,

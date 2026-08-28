@@ -318,6 +318,12 @@ export interface QuotaProviderResult {
   attempted: boolean;
   entries: QuotaToastEntry[];
   errors: QuotaToastError[];
+  /**
+   * True when the provider deliberately has no data for this account (e.g. a
+   * subscription-gated source without the subscription). Not an error and not
+   * "not configured": renderers must not surface a no-data fallback for it.
+   */
+  notApplicable?: true;
   /** Internal provider diagnostics; not projected into normal presentation/export surfaces. */
   diagnostics?: QuotaProviderDiagnostic[];
   /**

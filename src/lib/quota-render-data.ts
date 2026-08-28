@@ -386,6 +386,9 @@ function shouldSurfaceNoDataMessage(params: {
   activeProviderCount: number;
 }): boolean {
   const { provider, result, isAutoMode, activeProviderCount } = params;
+  if (result.notApplicable) {
+    return false;
+  }
   if (result.attempted || result.entries.length > 0 || result.errors.length > 0) {
     return false;
   }
