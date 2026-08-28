@@ -65,6 +65,7 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "showOnQuestion",
   "showOnCompact",
   "showOnBothFail",
+  "showNotApplicableProviders",
   "toastDurationMs",
   "onlyCurrentModel",
   "showSessionTokens",
@@ -138,6 +139,7 @@ const NETWORK_SETTING_SOURCE_KEYS = [
   "showOnQuestion",
   "showOnCompact",
   "showOnBothFail",
+  "showNotApplicableProviders",
 ] as const satisfies readonly QuotaToastSettingSourceKey[];
 
 type PricingSnapshotPatch = Partial<QuotaToastConfig["pricingSnapshot"]>;
@@ -176,6 +178,7 @@ type ValidatedQuotaToastPatch = {
   showOnQuestion?: boolean;
   showOnCompact?: boolean;
   showOnBothFail?: boolean;
+  showNotApplicableProviders?: boolean;
   toastDurationMs?: number;
   onlyCurrentModel?: boolean;
   showSessionTokens?: boolean;
@@ -815,6 +818,13 @@ function extractValidatedQuotaToastPatch(
   }
 
   if (
+    hasOwnKey(quotaToastConfig, "showNotApplicableProviders") &&
+    typeof quotaToastConfig.showNotApplicableProviders === "boolean"
+  ) {
+    patch.showNotApplicableProviders = quotaToastConfig.showNotApplicableProviders;
+  }
+
+  if (
     hasOwnKey(quotaToastConfig, "toastDurationMs") &&
     isPositiveNumber(quotaToastConfig.toastDurationMs)
   ) {
@@ -1045,6 +1055,11 @@ function applyValidatedQuotaToastPatch(
   if (hasOwnKey(patch, "showOnBothFail")) {
     config.showOnBothFail = patch.showOnBothFail!;
     applySettingSource(settingSources, "showOnBothFail", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "showNotApplicableProviders")) {
+    config.showNotApplicableProviders = patch.showNotApplicableProviders!;
+    applySettingSource(settingSources, "showNotApplicableProviders", sourcePath);
   }
 
   if (hasOwnKey(patch, "toastDurationMs")) {

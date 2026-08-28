@@ -14,6 +14,10 @@ export function notAttemptedResult(): QuotaProviderResult {
   return { attempted: false, entries: [], errors: [] };
 }
 
+export function notApplicableResult(): QuotaProviderResult {
+  return { attempted: false, entries: [], errors: [], notApplicable: true };
+}
+
 export function attemptedResult(
   entries: QuotaToastEntry[],
   errors: QuotaToastError[] = [],

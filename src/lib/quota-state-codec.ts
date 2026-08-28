@@ -31,6 +31,7 @@ export function cloneQuotaProviderResult(result: QuotaProviderResult): QuotaProv
     attempted: result.attempted,
     entries: result.entries.map(cloneQuotaToastEntry),
     errors: result.errors.map((error) => ({ ...error })),
+    ...(result.notApplicable ? { notApplicable: true } : {}),
     ...(result.diagnostics
       ? {
           diagnostics: result.diagnostics.map((diagnostic) => ({
@@ -420,12 +421,14 @@ function isQuotaProviderResult(value: unknown, safeText: boolean): value is Quot
       "attempted",
       "entries",
       "errors",
+      "notApplicable",
       "diagnostics",
       "statusDetails",
       "rawDetails",
       "presentation",
     ]) &&
     typeof value.attempted === "boolean" &&
+    (value.notApplicable === undefined || value.notApplicable === true) &&
     isDenseArray(value.entries) &&
     value.entries.every((entry) => isQuotaToastEntry(entry, safeText)) &&
     isDenseArray(value.errors) &&

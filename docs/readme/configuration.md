@@ -367,6 +367,7 @@ Existing `experimental.quotaToast` settings remain supported. Quota settings do 
 | `showOnQuestion`  | `true`  | Show a toast after a question/assistant response.                                                                                                           |
 | `showOnCompact`   | `true`  | Show a toast after session compaction.                                                                                                                      |
 | `showOnBothFail`  | `true`  | Show a fallback toast when providers attempted quota reads and all failed.                                                                                  |
+| `showNotApplicableProviders` | `false` | Surface one soft line per deliberately no-data provider (e.g. an OpenCode Go source without a subscription) instead of hiding it entirely.                   |
 | `layout.maxWidth` | `50`    | Toast formatting width target.                                                                                                                              |
 | `layout.narrowAt` | `42`    | Toast compact-layout breakpoint.                                                                                                                            |
 | `layout.tinyAt`   | `32`    | Toast tiny-layout breakpoint.                                                                                                                               |

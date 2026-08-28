@@ -78,6 +78,39 @@ describe("collectQuotaRenderData shared quota state", () => {
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
   });
 
+  it("hides not-applicable provider results by default and can surface a soft line", async () => {
+    const notApplicableProvider = testProvider("opencode-go", {
+      attempted: false,
+      entries: [],
+      errors: [],
+      notApplicable: true,
+      statusDetails: [{ key: "opencode_go_state", value: "not_subscribed" }],
+    });
+
+    const silent = await collectQuotaRenderData({
+      client: TEST_CLIENT,
+      config: renderConfig({
+        enabledProviders: ["opencode-go"],
+        showNotApplicableProviders: false,
+      }),
+      surfaceExplicitProviderIssues: true,
+      formatStyle: "allWindows",
+      providers: [notApplicableProvider],
+    });
+    expect(silent.data).toBeNull();
+
+    const surfaced = await collectQuotaRenderData({
+      client: TEST_CLIENT,
+      config: renderConfig({ enabledProviders: ["opencode-go"], showNotApplicableProviders: true }),
+      surfaceExplicitProviderIssues: true,
+      formatStyle: "allWindows",
+      providers: [notApplicableProvider],
+    });
+    expect(surfaced.data?.errors).toEqual([
+      { kind: "intentional-filter", label: "OpenCode Go", message: "Not subscribed" },
+    ]);
+  });
+
   it("uses explicitly provided providers instead of the global registry", async () => {
     const runtimeProvider = testProvider("custom-runtime", {
       entries: [
