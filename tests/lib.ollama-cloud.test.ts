@@ -48,13 +48,15 @@ function mockResponse(params: {
 
 const usagePayload = {
   limits: {
-    session: { usage: 0.25 },
-    weekly: { usage: 0.405 },
+    session: {
+      usage: 0.25,
+      models: [{ name: "glm-5.3-flash", request_count: 57 }],
+    },
+    weekly: {
+      usage: 0.405,
+      models: [{ name: "glm-5.3-flash", request_count: 162 }],
+    },
   },
-  models: [
-    { model: "qwen3-coder:480b", requests: 12 },
-    { model: "deepseek-v3.1:671b", requests: 1 },
-  ],
 };
 
 describe("queryOllamaCloudQuota", () => {
@@ -108,10 +110,11 @@ describe("queryOllamaCloudQuota", () => {
     );
   });
 
-  it("maps usage fractions and sorts model request counts", async () => {
+  it("maps usage fractions from a real nested Ollama response", async () => {
     mockResponse({ ok: true, status: 200, json: usagePayload });
 
-    await expect(queryOllamaCloudQuota()).resolves.toEqual({
+    const out = await queryOllamaCloudQuota();
+    expect(out).toEqual({
       success: true,
       session: {
         usageFraction: 0.25,
@@ -123,58 +126,38 @@ describe("queryOllamaCloudQuota", () => {
         usagePercent: 40.5,
         percentRemaining: 59.5,
       },
-      models: [
-        { model: "deepseek-v3.1:671b", requests: 1 },
-        { model: "qwen3-coder:480b", requests: 12 },
-      ],
     });
+    expect(out?.success ? out.rowErrors : undefined).toBeUndefined();
   });
 
   it("preserves zero and fully-used fraction boundaries", () => {
     expect(
       _parseOllamaCloudUsage({
-        limits: { session: { usage: 0 }, weekly: { usage: 1 } },
-        models: [],
+        limits: {
+          session: { usage: 0 },
+          weekly: { usage: 1 },
+        },
       }),
     ).toEqual({
       success: true,
       session: { usageFraction: 0, usagePercent: 0, percentRemaining: 100 },
       weekly: { usageFraction: 1, usagePercent: 100, percentRemaining: 0 },
-      models: [],
     });
   });
 
-  it("keeps valid rows and reports invalid independent rows", () => {
+  it("reports invalid independent usage windows", () => {
     const out = _parseOllamaCloudUsage({
       limits: {
         session: { usage: 0.2 },
         weekly: { usage: 1.5 },
       },
-      models: [
-        { model: "valid-model", requests: 0 },
-        { model: "negative", requests: -1 },
-        { model: "decimal", requests: 1.5 },
-        { model: "valid-model", requests: 3 },
-        { model: "  unsafe\nmodel\u202e\u001b[31m  ", requests: 2 },
-        null,
-      ],
     });
 
     expect(out).toMatchObject({
       success: true,
       session: { usageFraction: 0.2, usagePercent: 20, percentRemaining: 80 },
-      models: [
-        { model: "unsafe model", requests: 2 },
-        { model: "valid-model", requests: 0 },
-      ],
     });
-    expect(out && out.success ? out.rowErrors : []).toEqual([
-      "Weekly: ignored invalid usage fraction",
-      "Models: ignored invalid request count for negative",
-      "Models: ignored invalid request count for decimal",
-      "Models: ignored duplicate model valid-model",
-      "Models: ignored an invalid row",
-    ]);
+    expect(out?.success ? out.rowErrors : []).toEqual(["Weekly: ignored invalid usage fraction"]);
   });
 
   it.each([null, [], "invalid"])("rejects an invalid root payload: %j", (payload) => {
@@ -184,26 +167,10 @@ describe("queryOllamaCloudQuota", () => {
     });
   });
 
-  it("rejects more than 100 model rows", () => {
-    expect(
-      _parseOllamaCloudUsage({
-        limits: { session: { usage: 0.1 } },
-        models: Array.from({ length: 101 }, (_, index) => ({
-          model: `model-${index}`,
-          requests: index,
-        })),
-      }),
-    ).toEqual({
-      success: false,
-      error: "Ollama Cloud usage API returned more than 100 model rows",
-    });
-  });
-
   it("rejects an object with no usable usage data", () => {
     expect(
       _parseOllamaCloudUsage({
         limits: { session: { usage: -1 }, weekly: { usage: Number.NaN } },
-        models: [{ model: "bad", requests: -1 }],
       }),
     ).toEqual({
       success: false,

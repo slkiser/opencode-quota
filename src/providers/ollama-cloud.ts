@@ -1,8 +1,7 @@
 /**
  * Ollama Cloud provider wrapper.
  *
- * Queries the Ollama Cloud usage API and reports session/weekly quota plus
- * provider-reported per-model request counts.
+ * Queries the Ollama Cloud usage API and reports session/weekly quota.
  */
 
 import type {
@@ -31,10 +30,6 @@ const REMOTE_API_ACCOUNTING = {
 } as const;
 
 type OllamaCloudSuccess = Extract<OllamaCloudResult, { success: true }>;
-
-function formatRequestCount(requests: number): string {
-  return `${requests} ${requests === 1 ? "request" : "requests"}`;
-}
 
 function mapOllamaCloudSuccess(result: OllamaCloudSuccess): QuotaProviderResult {
   const entries: QuotaToastEntry[] = [];
@@ -65,21 +60,6 @@ function mapOllamaCloudSuccess(result: OllamaCloudSuccess): QuotaProviderResult 
     });
   }
 
-  for (const model of result.models) {
-    entries.push({
-      kind: "value",
-      accounting: {
-        resultType: "usage",
-        ...REMOTE_API_ACCOUNTING,
-      },
-      name: `${OLLAMA_CLOUD_PROVIDER_LABEL} ${model.model}`,
-      group: OLLAMA_CLOUD_PROVIDER_LABEL,
-      label: `${model.model}:`,
-      metricLabel: model.model,
-      value: formatRequestCount(model.requests),
-    });
-  }
-
   const errors = (result.rowErrors ?? []).map((message) => ({
     label: OLLAMA_CLOUD_PROVIDER_LABEL,
     message,
@@ -95,7 +75,6 @@ function mapOllamaCloudSuccess(result: OllamaCloudSuccess): QuotaProviderResult 
     ...statusDetailsFromRecord({
       session_usage_fraction: result.session?.usageFraction.toString(),
       weekly_usage_fraction: result.weekly?.usageFraction.toString(),
-      model_rows: result.models.length.toString(),
     }),
     ...(result.rowErrors ?? []).map((message, index) => ({
       key: `live_error_${index + 1}`,

@@ -870,12 +870,6 @@ export interface OllamaCloudWindow {
   percentRemaining: number;
 }
 
-/** Per-model request count from the Ollama Cloud usage API */
-export interface OllamaCloudModelUsage {
-  model: string;
-  requests: number;
-}
-
 /** Result from the Ollama Cloud usage API */
 export type OllamaCloudResult =
   | {
@@ -884,9 +878,7 @@ export type OllamaCloudResult =
       session?: OllamaCloudWindow;
       /** Weekly usage window, when present */
       weekly?: OllamaCloudWindow;
-      /** Valid per-model request counts */
-      models: OllamaCloudModelUsage[];
-      /** Independent response rows that could not be used */
+      /** Independent response fields that could not be used */
       rowErrors?: string[];
     }
   | QuotaError

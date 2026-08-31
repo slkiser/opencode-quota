@@ -48,7 +48,7 @@ describe("ollama-cloud provider", () => {
     expect(out.statusDetails).toContainEqual({ key: "api_key_configured", value: "true" });
   });
 
-  it("maps session, weekly, and sorted model request entries", async () => {
+  it("maps session and weekly quota entries", async () => {
     mocks.queryOllamaCloudQuota.mockResolvedValueOnce({
       success: true,
       session: {
@@ -61,10 +61,6 @@ describe("ollama-cloud provider", () => {
         usagePercent: 40,
         percentRemaining: 60,
       },
-      models: [
-        { model: "deepseek-v3.1:671b", requests: 1 },
-        { model: "qwen3-coder:480b", requests: 12 },
-      ],
     });
 
     const out = await runProviderFetch();
@@ -83,22 +79,6 @@ describe("ollama-cloud provider", () => {
         label: "Weekly:",
         percentRemaining: 60,
       },
-      {
-        kind: "value",
-        name: "Ollama Cloud deepseek-v3.1:671b",
-        group: "Ollama Cloud",
-        label: "deepseek-v3.1:671b:",
-        metricLabel: "deepseek-v3.1:671b",
-        value: "1 request",
-      },
-      {
-        kind: "value",
-        name: "Ollama Cloud qwen3-coder:480b",
-        group: "Ollama Cloud",
-        label: "qwen3-coder:480b:",
-        metricLabel: "qwen3-coder:480b",
-        value: "12 requests",
-      },
     ]);
     expect(out.entries.map((entry) => entry.accounting)).toEqual([
       {
@@ -113,25 +93,12 @@ describe("ollama-cloud provider", () => {
         ownership: "maintained",
         authority: "provider_reported",
       },
-      {
-        resultType: "usage",
-        acquisitionMethod: "remote_api",
-        ownership: "maintained",
-        authority: "provider_reported",
-      },
-      {
-        resultType: "usage",
-        acquisitionMethod: "remote_api",
-        ownership: "maintained",
-        authority: "provider_reported",
-      },
     ]);
     expect(out.statusDetails).toEqual(
       expect.arrayContaining([
         { key: "api_key_source", value: "env:OLLAMA_API_KEY" },
         { key: "session_usage_fraction", value: "0.25" },
         { key: "weekly_usage_fraction", value: "0.4" },
-        { key: "model_rows", value: "2" },
       ]),
     );
   });
@@ -144,7 +111,6 @@ describe("ollama-cloud provider", () => {
         usagePercent: 25,
         percentRemaining: 75,
       },
-      models: [],
       rowErrors: ["Weekly: ignored invalid usage fraction"],
     });
 
@@ -164,7 +130,6 @@ describe("ollama-cloud provider", () => {
     mocks.queryOllamaCloudQuota.mockResolvedValue({
       success: true,
       weekly: { usageFraction: 0.1, usagePercent: 10, percentRemaining: 90 },
-      models: [],
     });
 
     await runProviderFetch({ requestTimeoutMs: 1234, requestTimeoutMsConfigured: true });

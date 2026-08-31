@@ -562,7 +562,7 @@ Per-API-key costs remain unsupported until Xiaomi exposes endpoint and schema ev
 
 ### Ollama Cloud
 
-Ollama Cloud calls `https://ollama.com/api/usage` and reports session and weekly quota plus per-model request counts. Create an Ollama API key, then set:
+Ollama Cloud calls `https://ollama.com/api/usage` and reports session and weekly usage fractions. The API-key response does not include quota reset timestamps or per-model request rows. Create an Ollama API key, then set:
 
 ```bash
 export OLLAMA_API_KEY="your-api-key"

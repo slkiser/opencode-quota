@@ -28,15 +28,6 @@ const data: QuotaRenderData = {
       label: "Weekly:",
       percentRemaining: 60,
     },
-    {
-      kind: "value",
-      accounting: { resultType: "usage", ...accounting },
-      name: "Ollama Cloud qwen3",
-      group: "Ollama Cloud",
-      label: "qwen3:",
-      metricLabel: "qwen3",
-      value: "12 requests",
-    },
   ],
   errors: [],
 };
@@ -60,9 +51,8 @@ describe("Ollama Cloud four-surface formatting", () => {
       expect(output).toContain("75%");
     }
 
-    expect(command).toContain("qwen3");
-    for (const output of [command, toast, sidebar]) {
-      expect(output).toContain("12 requests");
+    for (const output of [command, toast, sidebar, compact]) {
+      expect(output).not.toContain("requests");
     }
   });
 });

@@ -1,18 +1,17 @@
 /**
  * Ollama Cloud usage API client.
  *
- * Fetches session and weekly usage fractions plus per-model request counts
- * from the authenticated Ollama Cloud usage endpoint.
+ * Fetches session and weekly usage fractions from the authenticated Ollama
+ * Cloud usage endpoint.
  */
 
 import { sanitizeSingleLineDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
 import { resolveOllamaCloudApiKey } from "./ollama-cloud-config.js";
-import type { OllamaCloudModelUsage, OllamaCloudResult, OllamaCloudWindow } from "./types.js";
+import type { OllamaCloudResult, OllamaCloudWindow } from "./types.js";
 
 const OLLAMA_CLOUD_USAGE_URL = "https://ollama.com/api/usage";
 const MAX_RESPONSE_BYTES = 256 * 1024;
-const MAX_MODEL_ROWS = 100;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -81,59 +80,11 @@ function parseWindow(value: unknown): OllamaCloudWindow | undefined {
   };
 }
 
-function parseModels(value: unknown, rowErrors: string[]): OllamaCloudModelUsage[] {
-  if (!Array.isArray(value)) {
-    rowErrors.push("Models: expected an array");
-    return [];
-  }
-
-  const models: OllamaCloudModelUsage[] = [];
-  const seenModels = new Set<string>();
-
-  for (const candidate of value) {
-    if (!isRecord(candidate)) {
-      rowErrors.push("Models: ignored an invalid row");
-      continue;
-    }
-
-    const model =
-      typeof candidate.model === "string"
-        ? sanitizeRemoteSingleLineText(candidate.model).slice(0, 160)
-        : "";
-    const requests = candidate.requests;
-
-    if (!model) {
-      rowErrors.push("Models: ignored a row without a model name");
-      continue;
-    }
-    if (typeof requests !== "number" || !Number.isSafeInteger(requests) || requests < 0) {
-      rowErrors.push(`Models: ignored invalid request count for ${model}`);
-      continue;
-    }
-    if (seenModels.has(model)) {
-      rowErrors.push(`Models: ignored duplicate model ${model}`);
-      continue;
-    }
-
-    seenModels.add(model);
-    models.push({ model, requests });
-  }
-
-  return models.sort((left, right) => left.model.localeCompare(right.model));
-}
-
 function parseOllamaCloudUsage(payload: unknown): OllamaCloudResult {
   if (!isRecord(payload)) {
     return {
       success: false,
       error: "Ollama Cloud usage API returned an unexpected response shape",
-    };
-  }
-
-  if (Array.isArray(payload.models) && payload.models.length > MAX_MODEL_ROWS) {
-    return {
-      success: false,
-      error: `Ollama Cloud usage API returned more than ${MAX_MODEL_ROWS} model rows`,
     };
   }
 
@@ -152,8 +103,7 @@ function parseOllamaCloudUsage(payload: unknown): OllamaCloudResult {
     rowErrors.push("Limits: expected an object");
   }
 
-  const models = parseModels(payload.models, rowErrors);
-  if (!session && !weekly && models.length === 0) {
+  if (!session && !weekly) {
     return {
       success: false,
       error: "Ollama Cloud usage API returned no usable usage data",
@@ -164,7 +114,6 @@ function parseOllamaCloudUsage(payload: unknown): OllamaCloudResult {
     success: true,
     ...(session ? { session } : {}),
     ...(weekly ? { weekly } : {}),
-    models,
     ...(rowErrors.length > 0 ? { rowErrors } : {}),
   };
 }
