@@ -46,15 +46,26 @@ export interface AnthropicQuotaWindow {
   resetAt?: string;
 }
 
+export interface AnthropicExtraUsage {
+  is_enabled?: boolean;
+  utilization?: number;
+}
+
 export interface AnthropicUsageResponse {
   five_hour: AnthropicQuotaWindow;
   seven_day: AnthropicQuotaWindow;
+  extra_usage?: AnthropicExtraUsage;
 }
 
 export interface AnthropicQuotaResult {
   success: true;
   five_hour: { percentRemaining: number; resetTimeIso?: string };
   seven_day: { percentRemaining: number; resetTimeIso?: string };
+  extra_usage?: { percentRemaining: number };
+}
+
+export interface AnthropicUsageParseOptions {
+  includeExtraUsage?: boolean;
 }
 
 export interface AnthropicQuotaError {
@@ -322,6 +333,20 @@ function parseQuotaWindow(
   };
 }
 
+function parseExtraUsageQuota(extraUsage: unknown): { percentRemaining: number } | undefined {
+  const record = asRecord(extraUsage);
+  if (!record || record["is_enabled"] !== true) {
+    return undefined;
+  }
+
+  const used = record["utilization"];
+  if (typeof used !== "number" || !Number.isFinite(used) || used < 0 || used > 100) {
+    return undefined;
+  }
+
+  return { percentRemaining: Math.round(100 - used) };
+}
+
 function getUsageRoots(data: unknown): Record<string, unknown>[] {
   const root = asRecord(data);
   if (!root) {
@@ -352,7 +377,10 @@ function getUsageRoots(data: unknown): Record<string, unknown>[] {
   return roots;
 }
 
-function parseUsageResponse(data: unknown): AnthropicQuotaResult | null {
+function parseUsageResponse(
+  data: unknown,
+  options: AnthropicUsageParseOptions = {},
+): AnthropicQuotaResult | null {
   for (const root of getUsageRoots(data)) {
     const fiveHour = parseQuotaWindow(root["five_hour"] ?? root["fiveHour"]);
     const sevenDay = parseQuotaWindow(root["seven_day"] ?? root["sevenDay"]);
@@ -361,10 +389,15 @@ function parseUsageResponse(data: unknown): AnthropicQuotaResult | null {
       continue;
     }
 
+    const extraUsage = options.includeExtraUsage
+      ? parseExtraUsageQuota(root["extra_usage"])
+      : undefined;
+
     return {
       success: true,
       five_hour: fiveHour,
       seven_day: sevenDay,
+      ...(extraUsage ? { extra_usage: extraUsage } : {}),
     };
   }
 
@@ -766,7 +799,7 @@ async function performAnthropicOAuthUsageRequest(
           };
         }
 
-        const quota = parseUsageResponse(data);
+        const quota = parseUsageResponse(data, { includeExtraUsage: true });
         if (!quota) {
           return {
             state: "unavailable",

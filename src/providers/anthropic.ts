@@ -125,6 +125,21 @@ export const anthropicProvider: QuotaProvider = {
       },
     ];
 
+    if (result.extra_usage) {
+      entries.push({
+        accounting: {
+          resultType: "quota",
+          acquisitionMethod,
+          ownership: "maintained",
+          authority: "provider_reported",
+        },
+        name: "Claude Usage Credits",
+        group: "Claude",
+        label: "Monthly:",
+        percentRemaining: result.extra_usage.percentRemaining,
+      });
+    }
+
     return withStatusDetails(attemptedResult(entries), statusDetails);
   },
 };

@@ -171,6 +171,74 @@ describe("parseUsageResponse", () => {
     expect(result?.seven_day.resetTimeIso).toBe("2026-04-01T00:00:00.000Z");
   });
 
+  it("parses enabled extra usage as remaining quota", () => {
+    const result = parseUsageResponse(
+      {
+        five_hour: { utilization: 57 },
+        seven_day: { utilization: 12 },
+        extra_usage: { is_enabled: true, utilization: 37.8 },
+      },
+      { includeExtraUsage: true },
+    );
+
+    expect(result?.extra_usage).toEqual({ percentRemaining: 62 });
+  });
+
+  it("ignores disabled or invalid extra usage without dropping quota windows", () => {
+    for (const extraUsage of [
+      undefined,
+      { is_enabled: false, utilization: 37 },
+      { is_enabled: true, utilization: "not-a-number" },
+      { is_enabled: true, utilization: 101 },
+      { is_enabled: true, utilization: -1 },
+    ]) {
+      const result = parseUsageResponse(
+        {
+          five_hour: { utilization: 57 },
+          seven_day: { utilization: 12 },
+          extra_usage: extraUsage,
+        },
+        { includeExtraUsage: true },
+      );
+
+      expect(result?.five_hour.percentRemaining).toBe(43);
+      expect(result?.seven_day.percentRemaining).toBe(88);
+      expect(result?.extra_usage).toBeUndefined();
+    }
+  });
+
+  it("ignores extra usage aliases and string utilization values", () => {
+    for (const extraUsage of [
+      { is_enabled: true, used_percentage: 37 },
+      { is_enabled: true, usedPercent: 37 },
+      { is_enabled: true, utilization: "37" },
+    ]) {
+      const result = parseUsageResponse(
+        {
+          five_hour: { utilization: 57 },
+          seven_day: { utilization: 12 },
+          extra_usage: extraUsage,
+        },
+        { includeExtraUsage: true },
+      );
+
+      expect(result?.extra_usage).toBeUndefined();
+    }
+  });
+
+  it("ignores camelCase extraUsage in OAuth payloads", () => {
+    const result = parseUsageResponse(
+      {
+        five_hour: { utilization: 57 },
+        seven_day: { utilization: 12 },
+        extraUsage: { is_enabled: true, utilization: 37 },
+      },
+      { includeExtraUsage: true },
+    );
+
+    expect(result?.extra_usage).toBeUndefined();
+  });
+
   it("drops invalid reset timestamps and only caps percent remaining above 100", () => {
     const result = parseUsageResponse({
       usage: {
@@ -434,6 +502,7 @@ describe("Claude CLI diagnostics", () => {
               usedPercentage: 12,
               resetsAt: "2026-04-01T00:00:00.000Z",
             },
+            extra_usage: { is_enabled: true, utilization: 37.8 },
           },
         }),
       },
@@ -446,6 +515,7 @@ describe("Claude CLI diagnostics", () => {
     expect(diagnostics.quotaSource).toBe("claude-auth-status-json");
     expect(diagnostics.quota?.five_hour.percentRemaining).toBe(43);
     expect(diagnostics.quota?.seven_day.percentRemaining).toBe(88);
+    expect(diagnostics.quota?.extra_usage).toBeUndefined();
 
     const quota = await queryAnthropicQuota();
     expect(quota?.success).toBe(true);
@@ -499,6 +569,7 @@ describe("Claude CLI diagnostics", () => {
             percent_used: 15,
             resetsAt: "2026-04-01T00:00:00.000Z",
           },
+          extra_usage: { is_enabled: true, utilization: 37.8 },
         },
       }),
     );
@@ -512,6 +583,7 @@ describe("Claude CLI diagnostics", () => {
     expect(diagnostics.quota?.five_hour.resetTimeIso).toBe("2026-03-25T18:00:00.000Z");
     expect(diagnostics.quota?.seven_day.percentRemaining).toBe(85);
     expect(diagnostics.quota?.seven_day.resetTimeIso).toBe("2026-04-01T00:00:00.000Z");
+    expect(diagnostics.quota?.extra_usage).toEqual({ percentRemaining: 62 });
     expect(fetchWithTimeoutMock).toHaveBeenCalledWith(ANTHROPIC_USAGE_URL, {
       request: {
         headers: {

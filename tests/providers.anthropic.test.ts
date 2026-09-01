@@ -130,6 +130,61 @@ describe("anthropic provider", () => {
     expect(out.presentation).toBeUndefined();
   });
 
+  it("reports enabled Usage Credits as a third remote API quota row", async () => {
+    const { getAnthropicDiagnostics, queryAnthropicQuota } = await import(
+      "../src/lib/anthropic.js"
+    );
+    (getAnthropicDiagnostics as any).mockResolvedValueOnce({
+      installed: true,
+      version: "1.2.3",
+      authStatus: "authenticated",
+      quotaSupported: true,
+      quotaSource: "opencode-auth-oauth-api",
+      oauthCredentialSource: "opencode-auth",
+      checkedCommands: ["claude --version"],
+      quota: {
+        success: true,
+        five_hour: { percentRemaining: 43 },
+        seven_day: { percentRemaining: 88 },
+        extra_usage: { percentRemaining: 62 },
+      },
+    });
+    (queryAnthropicQuota as any).mockResolvedValueOnce({
+      success: true,
+      five_hour: { percentRemaining: 43, resetTimeIso: "2026-03-25T18:00:00.000Z" },
+      seven_day: { percentRemaining: 88, resetTimeIso: "2026-04-01T00:00:00.000Z" },
+      extra_usage: { percentRemaining: 62 },
+    });
+
+    const out = await anthropicProvider.fetch({} as any);
+
+    expect(visibleEntries(out.entries, "anthropic")).toEqual([
+      {
+        name: "Claude 5h",
+        group: "Claude",
+        label: "5h:",
+        percentRemaining: 43,
+        resetTimeIso: "2026-03-25T18:00:00.000Z",
+      },
+      {
+        name: "Claude Weekly",
+        group: "Claude",
+        label: "Weekly:",
+        percentRemaining: 88,
+        resetTimeIso: "2026-04-01T00:00:00.000Z",
+      },
+      {
+        name: "Claude Usage Credits",
+        group: "Claude",
+        label: "Monthly:",
+        percentRemaining: 62,
+      },
+    ]);
+    expect(out.entries.every((entry) => entry.accounting.acquisitionMethod === "remote_api")).toBe(
+      true,
+    );
+  });
+
   it("defaults to canonical grouped-capable rows when no style is specified", async () => {
     const { queryAnthropicQuota } = await import("../src/lib/anthropic.js");
     (queryAnthropicQuota as any).mockResolvedValueOnce({
@@ -140,6 +195,7 @@ describe("anthropic provider", () => {
 
     const out = await anthropicProvider.fetch({} as any);
     expectAttemptedWithNoErrors(out);
+    expect(out.entries).toHaveLength(2);
     expect(visibleEntries(out.entries, "anthropic")).toEqual([
       {
         name: "Claude 5h",
