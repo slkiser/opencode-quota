@@ -1160,6 +1160,60 @@ describe("tui plugin smoke", () => {
     ).toEqual(["[OpenCode Go]", "Five-hour window 98%", "Weekly window 53%", "Monthly window 33%"]);
   });
 
+  it("renders the percent mode indicator in the sidebar header when set", async () => {
+    const plugin = await loadTuiModule();
+    const { api, registered } = createApi();
+
+    loadTuiSessionQuotaSurfaces.mockResolvedValueOnce({
+      sidebar: {
+        status: "ready",
+        lines: ["OpenCode Go Five-hour 98%"],
+        linesExpanded: ["[OpenCode Go]", "Five-hour window 98%"],
+        headerPercentMode: "used",
+      },
+      compact: { status: "disabled" },
+    });
+    resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      commandDisplay: "inline",
+      sidebar: { enabled: true },
+      compact: {
+        enabled: false,
+        homeBottom: false,
+        sessionPrompt: false,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      promptBar: { enabled: true },
+
+      announcements: { homeBottom: false },
+      homeBottom: false,
+    });
+
+    await startTui(plugin, api);
+
+    const sidebarRegistration = registered.find((registration) => registration.order === 150);
+    sidebarRegistration!.slots.sidebar_content({}, { session_id: "session-1" });
+    await Promise.resolve();
+
+    const collapsed = sidebarRegistration!.slots.sidebar_content(
+      {},
+      { session_id: "session-1" },
+    ) as any;
+    expect(collapsed.props.children[0].props.children[0].props.children.props.children).toBe(
+      "▶ Quota [Used]",
+    );
+
+    collapsed.props.children[0].props.children[0].props.onMouseDown();
+
+    const expanded = sidebarRegistration!.slots.sidebar_content(
+      {},
+      { session_id: "session-1" },
+    ) as any;
+    expect(expanded.props.children[0].props.children[0].props.children.props.children).toBe(
+      "▼ Quota [Used]",
+    );
+  });
+
   it("keeps non-expandable empty sidebar panels visible while collapsed", async () => {
     const plugin = await loadTuiModule();
     const { api, registered } = createApi();

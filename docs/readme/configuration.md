@@ -24,6 +24,8 @@ Strict `.json` files also work. Run `/quota_status` if you are unsure which file
 | Show every reset period                    | `formatStyle: "allWindows"`   |
 | Show one quota window per provider         | `formatStyle: "singleWindow"` |
 | Show quota used instead of left            | `percentDisplayMode: "used"`  |
+| Space out compound reset countdowns        | `resetTimeSpaced: true`       |
+| Show plain percent labels                  | `percentLabelStyle: "bare"`  |
 | Show supplementary accounting facts        | `accountingDetail: "detailed"` |
 | Show slash results with messages           | `tuiCommandDisplay: "inline"` |
 | Show slash results in a TUI popup          | `tuiCommandDisplay: "dialog"` |
@@ -275,6 +277,24 @@ Leave it unset to preserve the default display exactly.
 </details>
 
 <details>
+<summary><strong>Space out reset countdowns and simplify percent labels</strong></summary>
+
+Set `resetTimeSpaced` to `true` to join compound exact-minute countdowns with spaces (`2d 5h 14m` instead of `2d5h14m`) in popup toasts, the Sidebar panel, `/quota`, and terminal `show`. Single-unit values stay unchanged.
+
+Set `percentLabelStyle` to `"bare"` to drop the direction word from percent labels (`81%` instead of `81% left`). The Sidebar panel widens its bars with the freed columns and marks the header as `Quota [Remaining]` or `Quota [Used]` so the percent meaning stays visible.
+
+```jsonc
+{
+  "resetTimeSpaced": true,
+  "percentLabelStyle": "bare",
+}
+```
+
+Both settings are unset by default and preserve the compact display exactly.
+
+</details>
+
+<details>
 <summary><strong>Change maintainer notices</strong></summary>
 
 ```jsonc
@@ -351,6 +371,8 @@ Existing `experimental.quotaToast` settings remain supported. Quota settings do 
 | `percentDisplayMode`          | `remaining`    | Percentage/bar direction across human surfaces: `remaining` shows the percentage left; `used` shows the percentage consumed. It does not rename literal basis facts.                                                                                                                                               |
 | `accountingDetail`            | `summary`      | Provider-neutral accounting detail across human surfaces: `summary` keeps primary rows; `detailed` also admits supplementary rows and fuller basis detail when width allows. Independent of `formatStyle` and `percentDisplayMode`.                                                                                |
 | `resetTimeDecimals`           | unset          | Optional legacy compact reset display in popup toasts, the Sidebar panel, and terminal `show`. Accepts integers `0`–`4`; when unset, the default shows the exact remaining days, hours, and minutes as `DdHhMm`. |
+| `resetTimeSpaced`             | unset          | When `true`, exact-minute reset countdowns join compound units with spaces (`2d 5h 14m` instead of `2d5h14m`) in popup toasts, the Sidebar panel, `/quota`, and terminal `show`. Ignored while `resetTimeDecimals` selects the legacy compact display. |
+| `percentLabelStyle`           | `"full"`       | Percent label wording on human surfaces: `"full"` appends the direction word (`81% left` / `19% used`); `"bare"` shows the plain percent (`81%`), widens Sidebar bars, and marks the Sidebar header as `Quota [Remaining]` or `Quota [Used]`. |
 | `onlyCurrentModel`            | `false`        | Filter quota rows to the current model/provider when that session selection can be resolved.                                                                                                                                                                                                                        |
 | `showSessionTokens`           | `true`         | Show the `Session input/output tokens` section when session token data is available. When cached input is present, the section keeps the legacy `in/out` layout and appends cached input in parentheses next to the input amount.                                                                                   |
 | `sessionTokenScope`           | `"current"`    | Choose `current` for the active session only or `tree` for the active session plus recursive descendants/subagents, counted once. Applies to `/quota`, popup toasts, the Sidebar panel, and the compact input line when `showSessionTokens` is enabled. Does not change `/tokens_session` or `/tokens_session_all`. |

@@ -23,6 +23,7 @@ import type {
   CursorQuotaPlan,
   GoogleModelId,
   PercentDisplayMode,
+  PercentLabelStyle,
   PricingSnapshotSource,
   QuotaResetWindow,
   QuotaToastConfig,
@@ -47,6 +48,8 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "percentDisplayMode",
   "accountingDetail",
   "resetTimeDecimals",
+  "resetTimeSpaced",
+  "percentLabelStyle",
   "minIntervalMs",
   "requestTimeoutMs",
   "debug",
@@ -159,6 +162,8 @@ type ValidatedQuotaToastPatch = {
   percentDisplayMode?: PercentDisplayMode;
   accountingDetail?: QuotaToastConfig["accountingDetail"];
   resetTimeDecimals?: number;
+  resetTimeSpaced?: boolean;
+  percentLabelStyle?: PercentLabelStyle;
   minIntervalMs?: number;
   requestTimeoutMs?: number;
   debug?: boolean;
@@ -243,6 +248,10 @@ function isValidPricingSnapshotAutoRefresh(value: unknown): value is number {
 
 function isValidPercentDisplayMode(value: unknown): value is PercentDisplayMode {
   return value === "remaining" || value === "used";
+}
+
+function isValidPercentLabelStyle(value: unknown): value is PercentLabelStyle {
+  return value === "full" || value === "bare";
 }
 
 function isValidAccountingDetail(value: unknown): value is QuotaToastConfig["accountingDetail"] {
@@ -693,6 +702,21 @@ function extractValidatedQuotaToastPatch(
   }
 
   if (
+    hasOwnKey(quotaToastConfig, "resetTimeSpaced") &&
+    typeof quotaToastConfig.resetTimeSpaced === "boolean"
+  ) {
+    patch.resetTimeSpaced = quotaToastConfig.resetTimeSpaced;
+  }
+
+  if (hasOwnKey(quotaToastConfig, "percentLabelStyle")) {
+    if (isValidPercentLabelStyle(quotaToastConfig.percentLabelStyle)) {
+      patch.percentLabelStyle = quotaToastConfig.percentLabelStyle;
+    } else {
+      reportIssue?.("percentLabelStyle", 'expected "full" or "bare"');
+    }
+  }
+
+  if (
     hasOwnKey(quotaToastConfig, "minIntervalMs") &&
     isPositiveNumber(quotaToastConfig.minIntervalMs)
   ) {
@@ -955,6 +979,16 @@ function applyValidatedQuotaToastPatch(
   if (hasOwnKey(patch, "resetTimeDecimals")) {
     config.resetTimeDecimals = patch.resetTimeDecimals;
     applySettingSource(settingSources, "resetTimeDecimals", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "resetTimeSpaced")) {
+    config.resetTimeSpaced = patch.resetTimeSpaced;
+    applySettingSource(settingSources, "resetTimeSpaced", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "percentLabelStyle")) {
+    config.percentLabelStyle = patch.percentLabelStyle;
+    applySettingSource(settingSources, "percentLabelStyle", sourcePath);
   }
 
   if (hasOwnKey(patch, "minIntervalMs")) {

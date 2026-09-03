@@ -31,9 +31,9 @@ import {
 import { SESSION_TOKEN_SECTION_HEADING } from "./session-tokens-format.js";
 import type { QuotaToastConfig } from "./types.js";
 
-function formatResetsIn(iso?: string): string {
+function formatResetsIn(iso?: string, spaced?: boolean): string {
   if (!iso || !Number.isFinite(new Date(iso).getTime())) return "";
-  return ` | resets in ${formatResetCountdown(iso)}`;
+  return ` | resets in ${formatResetCountdown(iso, { spaced })}`;
 }
 
 export const QUOTA_COMMAND_BAR_WIDTH = 10;
@@ -88,9 +88,13 @@ function getCommandMetricLabel(entry: QuotaToastEntry, semanticLabel: string): s
   return explicit || (isValueEntry(entry) ? "Value" : "Quota");
 }
 
-function formatCommandDetails(entry: QuotaToastEntry, rightWidth: number): string {
+function formatCommandDetails(
+  entry: QuotaToastEntry,
+  rightWidth: number,
+  spaced?: boolean,
+): string {
   const right = entry.right?.trim();
-  const reset = formatResetsIn(entry.resetTimeIso).replace(/^ \| resets in /u, "reset ");
+  const reset = formatResetsIn(entry.resetTimeIso, spaced).replace(/^ \| resets in /u, "reset ");
   if (right && reset) return ` | ${padRight(right, rightWidth)} | ${reset}`;
   if (right) return ` | ${right}`;
   if (reset) return ` | ${reset}`;
@@ -114,7 +118,9 @@ function buildQuotaCommandDocument(params: {
   sessionTokens?: SessionTokensData;
   generatedAtMs?: number;
   percentDisplayMode?: QuotaToastConfig["percentDisplayMode"];
+  percentLabelStyle?: QuotaToastConfig["percentLabelStyle"];
   accountingDetail?: QuotaToastConfig["accountingDetail"];
+  resetTimeSpaced?: boolean;
 }): ReportDocument {
   const groups = groupQuotaEntries(params.entries, "quota");
 
@@ -144,7 +150,7 @@ function buildQuotaCommandDocument(params: {
     );
     for (const { entry: row, interpretation } of interpretedRows) {
       const label = padRight(getCommandMetricLabel(row, interpretation.label), labelWidth);
-      const details = formatCommandDetails(row, rightWidth);
+      const details = formatCommandDetails(row, rightWidth, params.resetTimeSpaced);
 
       if (interpretation.display.kind === "value") {
         lines.push(`  ${label}  ${interpretation.display.text}${details}`);
@@ -154,6 +160,7 @@ function buildQuotaCommandDocument(params: {
       const pctLabel = formatDisplayedPercentLabel(
         interpretation.display.percentRemaining,
         params.percentDisplayMode,
+        params.percentLabelStyle,
       );
       const displayedPercent = resolveDisplayedPercent(
         interpretation.display.percentRemaining,
@@ -226,7 +233,9 @@ export function formatQuotaCommand(params: {
   sessionTokens?: SessionTokensData;
   generatedAtMs?: number;
   percentDisplayMode?: QuotaToastConfig["percentDisplayMode"];
+  percentLabelStyle?: QuotaToastConfig["percentLabelStyle"];
   accountingDetail?: QuotaToastConfig["accountingDetail"];
+  resetTimeSpaced?: boolean;
 }): string {
   return renderPlainTextReport(buildQuotaCommandDocument(params));
 }

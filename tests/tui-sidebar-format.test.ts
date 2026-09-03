@@ -631,4 +631,75 @@ describe("buildSidebarQuotaPanelLines", () => {
     expect(used).toEqual(remaining);
     expect(used.join("\n")).toContain("$2.40 / $20.00");
   });
+
+  it("spaces compound reset countdowns when resetTimeSpaced is set", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
+
+    const data = {
+      entries: [
+        {
+          name: "[Copilot] Monthly",
+          group: "Copilot",
+          label: "Monthly:",
+          percentRemaining: 81,
+          resetTimeIso: "2026-01-17T15:14:00.000Z",
+        },
+      ],
+      errors: [],
+      sessionTokens: undefined,
+    };
+
+    for (const formatStyle of ["singleWindow", "allWindows"] as const) {
+      const lines = buildSidebarQuotaPanelLines({
+        config: {
+          formatStyle,
+          percentDisplayMode: "remaining",
+          resetTimeSpaced: true,
+        },
+        data,
+      });
+
+      expect(lines.join("\n")).toContain("2d 5h 14m");
+      expect(lines.join("\n")).not.toContain("2d5h14m");
+      expect(lines.every((line) => line.length <= TUI_SIDEBAR_MAX_WIDTH)).toBe(true);
+    }
+  });
+
+  it("omits the percent word suffix and widens the bar when percentLabelStyle is bare", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
+
+    const data = {
+      entries: [
+        {
+          name: "Copilot",
+          percentRemaining: 81,
+          resetTimeIso: "2026-01-15T12:14:00.000Z",
+        },
+      ],
+      errors: [],
+      sessionTokens: undefined,
+    };
+
+    for (const formatStyle of ["singleWindow", "allWindows"] as const) {
+      const full = buildSidebarQuotaPanelLines({
+        config: { formatStyle, percentDisplayMode: "remaining" },
+        data,
+      });
+      const bare = buildSidebarQuotaPanelLines({
+        config: { formatStyle, percentDisplayMode: "remaining", percentLabelStyle: "bare" },
+        data,
+      });
+
+      expect(full.join("\n")).toContain("81% left");
+      expect(bare.join("\n")).toContain("81%");
+      expect(bare.join("\n")).not.toContain("81% left");
+
+      const barCells = (lines: string[]) =>
+        (lines.find((line) => line.includes("░"))?.match(/[█░]/gu) ?? []).length;
+      expect(barCells(bare)).toBe(barCells(full) + " left".length);
+      expect(bare.every((line) => line.length <= TUI_SIDEBAR_MAX_WIDTH)).toBe(true);
+    }
+  });
 });

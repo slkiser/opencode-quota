@@ -406,6 +406,9 @@ function buildSidebarPanelFromData(params: {
     lines,
     ...(providerCount > 0 ? { providerCount } : {}),
     ...(linesExpanded ? { linesExpanded } : {}),
+    ...(params.runtime.config.percentLabelStyle === "bare"
+      ? { headerPercentMode: params.runtime.config.percentDisplayMode }
+      : {}),
   };
 }
 
@@ -433,8 +436,7 @@ function buildSemanticPromptBarEntry(
 
   const value = isPercentEntry(entry)
     ? Number.isFinite(entry.percentRemaining)
-      ? (formatDisplayedPercentLabel(entry.percentRemaining, percentDisplayMode).split(" ")[0] ??
-        "0%")
+      ? formatDisplayedPercentLabel(entry.percentRemaining, percentDisplayMode, "bare")
       : null
     : isQuantityEntry(entry)
       ? formatAccountingQuantity(entry.quantity)
@@ -516,6 +518,7 @@ function buildPromptBarFromData(params: {
     ...(entry ? { entry } : {}),
     percentDisplayMode: params.runtime.config.percentDisplayMode,
     resetTimeDecimals: params.runtime.config.resetTimeDecimals,
+    resetTimeSpaced: params.runtime.config.resetTimeSpaced,
   };
 }
 

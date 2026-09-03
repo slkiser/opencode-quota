@@ -10,7 +10,7 @@ import type { QuotaToastEntry, QuotaToastError, SessionTokensData } from "./entr
 import { isPercentEntry } from "./entries.js";
 import {
   bar,
-  DISPLAYED_PERCENT_LABEL_WIDTH,
+  displayedPercentLabelWidth,
   formatDisplayedPercentLabel,
   formatResetCountdown,
   isResetTimeDecimals,
@@ -73,8 +73,10 @@ export function formatQuotaRowsGrouped(params: {
   entries?: QuotaToastEntry[];
   errors?: QuotaToastError[];
   percentDisplayMode?: QuotaToastConfig["percentDisplayMode"];
+  percentLabelStyle?: QuotaToastConfig["percentLabelStyle"];
   accountingDetail?: QuotaToastConfig["accountingDetail"];
   resetTimeDecimals?: number;
+  resetTimeSpaced?: boolean;
   sessionTokens?: SessionTokensData;
 }): string {
   const layout = params.layout ?? { maxWidth: 50, narrowAt: 42, tinyAt: 32 };
@@ -84,12 +86,16 @@ export function formatQuotaRowsGrouped(params: {
 
   const separator = "  ";
   const percentCol = Math.max(
-    DISPLAYED_PERCENT_LABEL_WIDTH,
+    displayedPercentLabelWidth(params.percentLabelStyle),
     ...(params.entries ?? [])
       .filter(isPercentEntry)
       .map(
         (entry) =>
-          formatDisplayedPercentLabel(entry.percentRemaining, params.percentDisplayMode).length,
+          formatDisplayedPercentLabel(
+            entry.percentRemaining,
+            params.percentDisplayMode,
+            params.percentLabelStyle,
+          ).length,
       ),
   );
   const percentValueCol = percentCol;
@@ -142,7 +148,7 @@ export function formatQuotaRowsGrouped(params: {
               entry.resetTimeIso,
               isResetTimeDecimals(params.resetTimeDecimals)
                 ? { compactRounded: true, decimals: params.resetTimeDecimals }
-                : undefined,
+                : { spaced: params.resetTimeSpaced },
             )
           : "";
         const value =
@@ -229,6 +235,7 @@ export function formatQuotaRowsGrouped(params: {
       const percentLabel = formatDisplayedPercentLabel(
         interpretation.display.percentRemaining,
         params.percentDisplayMode,
+        params.percentLabelStyle,
       );
 
       // Percent entries
@@ -240,7 +247,7 @@ export function formatQuotaRowsGrouped(params: {
               entry.resetTimeIso,
               isResetTimeDecimals(params.resetTimeDecimals)
                 ? { compactRounded: true, decimals: params.resetTimeDecimals }
-                : undefined,
+                : { spaced: params.resetTimeSpaced },
             )
           : "";
 

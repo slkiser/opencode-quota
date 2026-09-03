@@ -377,13 +377,18 @@ function SidebarContentView(props: {
 
   const toggleIcon = () => (collapsed() ? "▶" : "▼");
   const providerCount = () => panel().providerCount ?? 0;
+  const headerText = () => {
+    const base = hasDetailLines() ? `${toggleIcon()} Quota` : "Quota";
+    const mode = panel().headerPercentMode;
+    return mode ? `${base} [${mode === "used" ? "Used" : "Remaining"}]` : base;
+  };
 
   return (
     <Show when={shouldRenderSidebarPanel(panel())}>
       <box gap={0}>
         <box flexDirection="row">
           <text fg={props.api.theme.current.text} onMouseDown={toggleCollapsed}>
-            <b>{hasDetailLines() ? `${toggleIcon()} Quota` : "Quota"}</b>
+            <b>{headerText()}</b>
           </text>
           <Show when={collapsed() && providerCount() > 0}>
             <text fg={props.api.theme.current.textMuted}> ({providerCount()} providers)</text>
@@ -524,7 +529,7 @@ function buildPromptBarParts(params: {
         entry.resetTimeIso,
         isResetTimeDecimals(bar.resetTimeDecimals)
           ? { compactRounded: true, decimals: bar.resetTimeDecimals }
-          : undefined,
+          : { spaced: bar.resetTimeSpaced },
       )
     : "";
 
@@ -541,6 +546,7 @@ function buildPromptBarParts(params: {
   const percent = formatDisplayedPercentLabel(
     entry.percentRemaining ?? 0,
     bar.percentDisplayMode ?? "remaining",
+    "bare",
   );
   const p = Math.max(0, Math.min(100, Math.round(entry.percentRemaining ?? 0)));
   const filled = Math.round((p / 100) * PROMPT_BAR_WIDTH);
@@ -559,9 +565,7 @@ function buildPromptBarParts(params: {
   return {
     label: windowLabel,
     barText,
-    meta: entry.semanticSegment
-      ? reset
-      : [percent.replace(/\s+left$/u, ""), reset].filter(Boolean).join(" | "),
+    meta: entry.semanticSegment ? reset : [percent, reset].filter(Boolean).join(" | "),
   };
 }
 

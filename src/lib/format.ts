@@ -7,7 +7,7 @@ import type { QuotaToastEntry, QuotaToastError, SessionTokensData } from "./entr
 import { isPercentEntry } from "./entries.js";
 import {
   bar,
-  DISPLAYED_PERCENT_LABEL_WIDTH,
+  displayedPercentLabelWidth,
   formatDisplayedPercentLabel,
   formatResetCountdown,
   isResetTimeDecimals,
@@ -100,8 +100,10 @@ export function formatQuotaRows(params: {
   errors?: QuotaToastError[];
   style?: QuotaFormatStyle;
   percentDisplayMode?: QuotaToastConfig["percentDisplayMode"];
+  percentLabelStyle?: QuotaToastConfig["percentLabelStyle"];
   accountingDetail?: QuotaToastConfig["accountingDetail"];
   resetTimeDecimals?: number;
+  resetTimeSpaced?: boolean;
   sessionTokens?: SessionTokensData;
 }): string {
   const styleDefinition = getQuotaFormatStyleDefinition(params.style);
@@ -112,8 +114,10 @@ export function formatQuotaRows(params: {
       entries: params.entries,
       errors: params.errors,
       percentDisplayMode: params.percentDisplayMode,
+      percentLabelStyle: params.percentLabelStyle,
       accountingDetail: params.accountingDetail,
       resetTimeDecimals: params.resetTimeDecimals,
+      resetTimeSpaced: params.resetTimeSpaced,
       sessionTokens: params.sessionTokens,
     });
   }
@@ -130,12 +134,16 @@ export function formatQuotaRows(params: {
 
   const separator = "  ";
   const percentCol = Math.max(
-    DISPLAYED_PERCENT_LABEL_WIDTH,
+    displayedPercentLabelWidth(params.percentLabelStyle),
     ...(params.entries ?? [])
       .filter(isPercentEntry)
       .map(
         (entry) =>
-          formatDisplayedPercentLabel(entry.percentRemaining, params.percentDisplayMode).length,
+          formatDisplayedPercentLabel(
+            entry.percentRemaining,
+            params.percentDisplayMode,
+            params.percentLabelStyle,
+          ).length,
       ),
   );
 
@@ -157,7 +165,11 @@ export function formatQuotaRows(params: {
     rightSummary?: string,
   ) => {
     const displayedPercent = resolveDisplayedPercent(remaining, params.percentDisplayMode);
-    const percentLabel = formatDisplayedPercentLabel(remaining, params.percentDisplayMode);
+    const percentLabel = formatDisplayedPercentLabel(
+      remaining,
+      params.percentDisplayMode,
+      params.percentLabelStyle,
+    );
     const visibleBarSuffix = percentLabel.slice(0, percentValueCol);
     const summary = rightSummary?.trim() || "";
     const leftText = summary ? `${name} ${summary}` : name;
@@ -174,7 +186,7 @@ export function formatQuotaRows(params: {
                   compactRounded: true,
                   decimals: params.resetTimeDecimals,
                 }
-              : { missing: "-" },
+              : { missing: "-", spaced: params.resetTimeSpaced },
           )
         : "";
 
@@ -230,7 +242,7 @@ export function formatQuotaRows(params: {
                   compactRounded: true,
                   decimals: params.resetTimeDecimals,
                 }
-              : { missing: "-" },
+              : { missing: "-", spaced: params.resetTimeSpaced },
           );
 
     if (atomicValue) {

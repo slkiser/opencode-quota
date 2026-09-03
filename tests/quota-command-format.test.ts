@@ -454,4 +454,30 @@ describe("formatQuotaCommand", () => {
     expect(metric).not.toContain("```");
     expect(Array.from(metric).length).toBeLessThanOrEqual(76);
   });
+
+  it("spaces reset countdowns and omits the percent suffix when configured", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));
+
+    const out = formatQuotaCommand({
+      entries: [
+        {
+          accounting: accounting("quota"),
+          name: "OpenAI (Pro) Weekly",
+          group: "OpenAI (Pro)",
+          label: "Weekly:",
+          percentRemaining: 81,
+          resetTimeIso: "2026-01-18T12:14:00.000Z",
+        },
+      ],
+      errors: [],
+      percentLabelStyle: "bare",
+      resetTimeSpaced: true,
+    });
+
+    expect(out).toContain("reset 3d 0h 14m");
+    expect(out).not.toContain("3d0h14m");
+    expect(out).not.toContain("81% left");
+    expect(out).toMatch(/ {2}81%(?:\s*\|)/u);
+  });
 });
