@@ -12,6 +12,8 @@ export type SidebarPanelState = {
   lines: string[];
   linesExpanded?: string[];
   providerCount?: number;
+  /** Header mode indicator shown when percent labels are bare. */
+  headerPercentMode?: PercentDisplayMode;
 };
 
 export type CompactStatusState =
@@ -40,6 +42,7 @@ export type PromptBarState =
       entry?: PromptBarEntry;
       percentDisplayMode?: PercentDisplayMode;
       resetTimeDecimals?: number;
+      resetTimeSpaced?: boolean;
     };
 
 export function shouldRenderSidebarPanel(panel: SidebarPanelState): boolean {

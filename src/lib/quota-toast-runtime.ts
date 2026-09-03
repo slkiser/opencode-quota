@@ -917,8 +917,10 @@ export async function collectQuotaToastMessage(params: {
       errors: data?.errors ?? [],
       style: resolveQuotaFormatStyle(runtimeConfig.formatStyle),
       percentDisplayMode: runtimeConfig.percentDisplayMode,
+      percentLabelStyle: runtimeConfig.percentLabelStyle,
       accountingDetail: runtimeConfig.accountingDetail,
       resetTimeDecimals: runtimeConfig.resetTimeDecimals,
+      resetTimeSpaced: runtimeConfig.resetTimeSpaced,
       sessionTokens: data?.sessionTokens,
     });
 

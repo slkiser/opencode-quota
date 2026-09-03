@@ -7,7 +7,7 @@
  * - quota-command-format.ts (/quota command)
  */
 
-import type { PercentDisplayMode } from "./types.js";
+import type { PercentDisplayMode, PercentLabelStyle } from "./types.js";
 
 /**
  * Clamp a number to an integer within [min, max].
@@ -67,12 +67,22 @@ export function resolveDisplayedPercent(
 export function formatDisplayedPercentLabel(
   percentRemaining: number,
   mode: PercentDisplayMode = "remaining",
+  labelStyle?: PercentLabelStyle,
 ): string {
   const displayedPercent = resolveDisplayedPercent(percentRemaining, mode);
+  if (labelStyle === "bare") return `${displayedPercent}%`;
   return `${displayedPercent}% ${mode === "used" ? "used" : "left"}`;
 }
 
 export const DISPLAYED_PERCENT_LABEL_WIDTH = "100% used".length;
+
+/**
+ * Column floor for displayed percent labels: the full word-suffixed label by
+ * default, or the bare percent value when labelStyle is "bare".
+ */
+export function displayedPercentLabelWidth(labelStyle?: PercentLabelStyle): number {
+  return labelStyle === "bare" ? "100%".length : DISPLAYED_PERCENT_LABEL_WIDTH;
+}
 
 /**
  * Format a token count with K/M suffix for compactness.
@@ -142,10 +152,8 @@ export interface FormatResetCountdownOptions {
    */
   missing?: string;
   /**
-   * When true, rounds down to the largest active unit.
-   * - 13d 5h -> 13d
-   * - 2h 14m -> 2h
-   * - 14m -> 14m
+   * Opt into the legacy compact display instead of the default exact-to-minute
+   * countdown.
    */
   compactRounded?: boolean;
   /**
@@ -153,6 +161,11 @@ export interface FormatResetCountdownOptions {
    * many decimal places instead of the default integer-day / half-hour steps.
    */
   decimals?: number;
+  /**
+   * Join compound exact-to-minute units with spaces ("2d 5h 14m") instead of
+   * the compact token form ("2d5h14m"). Single-unit output is unchanged.
+   */
+  spaced?: boolean;
 }
 
 const MS_PER_DAY = 86_400_000;
@@ -161,7 +174,7 @@ const MS_PER_HOUR = 3_600_000;
 /**
  * Format a reset countdown for toast display.
  *
- * Returns human-readable time like "2d 5h" or "3h 45m".
+ * Returns a precise-to-minute value like "2d5h14m", "3h45m", or "14m".
  * When reset time is in the past or invalid, returns "reset".
  */
 export function formatResetCountdown(iso?: string, opts?: FormatResetCountdownOptions): string {
@@ -171,7 +184,8 @@ export function formatResetCountdown(iso?: string, opts?: FormatResetCountdownOp
   const diffMs = resetDate.getTime() - now.getTime();
   if (!Number.isFinite(diffMs) || diffMs <= 0) return "reset";
 
-  const diffMinutes = Math.floor(diffMs / 60000);
+  // Round up partial minutes so the countdown never understates the time left.
+  const diffMinutes = Math.ceil(diffMs / 60_000);
   const days = Math.floor(diffMinutes / 1440);
   const hours = Math.floor((diffMinutes % 1440) / 60);
   const minutes = diffMinutes % 60;
@@ -192,8 +206,10 @@ export function formatResetCountdown(iso?: string, opts?: FormatResetCountdownOp
     return `0.5h`;
   }
 
-  if (days > 0) return `${days}d ${hours}h`;
-  return `${hours}h ${minutes}m`;
+  const unitSeparator = opts?.spaced ? " " : "";
+  if (days > 0) return `${days}d${unitSeparator}${hours}h${unitSeparator}${minutes}m`;
+  if (hours > 0) return `${hours}h${unitSeparator}${minutes}m`;
+  return `${minutes}m`;
 }
 
 export const MAX_RESET_TIME_DECIMALS = 4;

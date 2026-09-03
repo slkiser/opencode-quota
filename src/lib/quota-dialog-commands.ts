@@ -944,7 +944,9 @@ export async function buildQuotaDialogCommandOutput(params: {
         ...reportData.data,
         generatedAtMs,
         percentDisplayMode: runtime.config.percentDisplayMode,
+        percentLabelStyle: runtime.config.percentLabelStyle,
         accountingDetail: runtime.config.accountingDetail,
+        resetTimeSpaced: runtime.config.resetTimeSpaced,
       }),
     });
   }

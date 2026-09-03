@@ -1657,6 +1657,60 @@ describe("tui runtime helpers", () => {
     });
   });
 
+  it("forwards spaced reset and bare percent label settings to session surfaces", async () => {
+    writeFileSync(
+      join(worktreeDir, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            enabled: true,
+            percentLabelStyle: "bare",
+            resetTimeSpaced: true,
+            tuiPromptBar: { enabled: true },
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const data = {
+      entries: [{ name: "Copilot 5h", percentRemaining: 18 }],
+      errors: [],
+      sessionTokens: undefined,
+    };
+    collectQuotaRenderData.mockResolvedValue({ active: [], data });
+    buildSidebarQuotaPanelLines.mockReturnValue(["Sidebar quota"]);
+
+    const surfaces = await loadTuiSessionQuotaSurfaces({
+      api: {
+        state: {
+          provider: [],
+          path: { worktree: worktreeDir, directory: nestedDir },
+          session: { messages: () => [] },
+        },
+        client: {},
+      } as any,
+      sessionID: "spaced-bare-session",
+    });
+
+    expect(surfaces.sidebar).toEqual({
+      status: "ready",
+      lines: ["Sidebar quota"],
+      headerPercentMode: "remaining",
+    });
+    expect(surfaces.promptBar).toMatchObject({
+      status: "ready",
+      resetTimeSpaced: true,
+    });
+    expect(buildSidebarQuotaPanelLines).toHaveBeenCalledWith({
+      data,
+      config: expect.objectContaining({
+        percentLabelStyle: "bare",
+        resetTimeSpaced: true,
+      }),
+    });
+  });
+
   it("uses compact fallback text when session collection has no data", async () => {
     writeFileSync(
       join(worktreeDir, "opencode.json"),

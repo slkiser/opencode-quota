@@ -10,7 +10,7 @@ import type { QuotaToastEntry, QuotaToastError, SessionTokensData } from "./entr
 import { isPercentEntry } from "./entries.js";
 import {
   bar,
-  DISPLAYED_PERCENT_LABEL_WIDTH,
+  displayedPercentLabelWidth,
   formatDisplayedPercentLabel,
   formatResetCountdown,
   isResetTimeDecimals,
@@ -73,8 +73,10 @@ export function formatQuotaRowsGrouped(params: {
   entries?: QuotaToastEntry[];
   errors?: QuotaToastError[];
   percentDisplayMode?: QuotaToastConfig["percentDisplayMode"];
+  percentLabelStyle?: QuotaToastConfig["percentLabelStyle"];
   accountingDetail?: QuotaToastConfig["accountingDetail"];
   resetTimeDecimals?: number;
+  resetTimeSpaced?: boolean;
   sessionTokens?: SessionTokensData;
 }): string {
   const layout = params.layout ?? { maxWidth: 50, narrowAt: 42, tinyAt: 32 };
@@ -84,12 +86,16 @@ export function formatQuotaRowsGrouped(params: {
 
   const separator = "  ";
   const percentCol = Math.max(
-    DISPLAYED_PERCENT_LABEL_WIDTH,
+    displayedPercentLabelWidth(params.percentLabelStyle),
     ...(params.entries ?? [])
       .filter(isPercentEntry)
       .map(
         (entry) =>
-          formatDisplayedPercentLabel(entry.percentRemaining, params.percentDisplayMode).length,
+          formatDisplayedPercentLabel(
+            entry.percentRemaining,
+            params.percentDisplayMode,
+            params.percentLabelStyle,
+          ).length,
       ),
   );
   const percentValueCol = percentCol;
@@ -138,15 +144,28 @@ export function formatQuotaRowsGrouped(params: {
         const isAtomicValue = interpretation.display.entryKind !== "value";
         const label = entry.semantic ? interpretation.label : entry.label?.trim() || entry.name;
         const timeStr = entry.resetTimeIso
-          ? formatResetCountdown(entry.resetTimeIso, {
-              compactRounded: true,
-              decimals: params.resetTimeDecimals,
-            })
+          ? formatResetCountdown(
+              entry.resetTimeIso,
+              isResetTimeDecimals(params.resetTimeDecimals)
+                ? { compactRounded: true, decimals: params.resetTimeDecimals }
+                : { spaced: params.resetTimeSpaced },
+            )
           : "";
         const value =
           interpretation.display.entryKind === "value"
             ? interpretation.display.text.trim()
             : interpretation.display.text;
+        const leftText = right ? `${label} ${right}` : label;
+        const labelAndValue = [leftText, value].filter(Boolean).join(separator);
+        if (
+          timeStr &&
+          labelAndValue.length <= maxWidth &&
+          labelAndValue.length + separator.length + timeStr.length > maxWidth
+        ) {
+          lines.push(labelAndValue);
+          lines.push(padLeft(timeStr, maxWidth));
+          continue;
+        }
 
         if (isAtomicValue) {
           const suffix = [value, timeStr].filter(Boolean).join(separator);
@@ -168,9 +187,7 @@ export function formatQuotaRowsGrouped(params: {
 
         if (isTiny) {
           // Tiny: "label  time  value"
-          const timeWidth = isResetTimeDecimals(params.resetTimeDecimals)
-            ? Math.max(timeCol, timeStr.length)
-            : timeCol;
+          const timeWidth = Math.max(timeCol, timeStr.length);
           const valueCol = Math.min(value.length, Math.max(6, percentCol + 2));
           const tinyNameCol = Math.max(
             1,
@@ -193,7 +210,6 @@ export function formatQuotaRowsGrouped(params: {
           1,
           barWidth - separator.length - valueWidth - separator.length - timeWidth,
         );
-        const leftText = right ? `${label} ${right}` : label;
         lines.push(
           (
             padRight(leftText, leftMax) +
@@ -219,6 +235,7 @@ export function formatQuotaRowsGrouped(params: {
       const percentLabel = formatDisplayedPercentLabel(
         interpretation.display.percentRemaining,
         params.percentDisplayMode,
+        params.percentLabelStyle,
       );
 
       // Percent entries
@@ -226,17 +243,17 @@ export function formatQuotaRowsGrouped(params: {
       // (i.e., any usage at all, or depleted)
       const timeStr =
         interpretation.display.percentRemaining < 100
-          ? formatResetCountdown(entry.resetTimeIso, {
-              compactRounded: true,
-              decimals: params.resetTimeDecimals,
-            })
+          ? formatResetCountdown(
+              entry.resetTimeIso,
+              isResetTimeDecimals(params.resetTimeDecimals)
+                ? { compactRounded: true, decimals: params.resetTimeDecimals }
+                : { spaced: params.resetTimeSpaced },
+            )
           : "";
 
       if (isTiny) {
         // Tiny: single line with name/time/percent (or just the right summary)
-        const timeWidth = isResetTimeDecimals(params.resetTimeDecimals)
-          ? Math.max(timeCol, timeStr.length)
-          : timeCol;
+        const timeWidth = Math.max(timeCol, timeStr.length);
         const visibleBarSuffix = percentLabel.slice(0, percentValueCol);
         if (isValueRow) {
           const tinyNameCol = Math.max(

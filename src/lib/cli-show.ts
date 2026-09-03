@@ -359,8 +359,10 @@ export async function runCliShowCommand(options: RunCliShowCommandOptions = {}):
       errors: data.errors,
       style: resolveQuotaFormatStyle(config.formatStyle),
       percentDisplayMode: config.percentDisplayMode,
+      percentLabelStyle: config.percentLabelStyle,
       accountingDetail: config.accountingDetail,
       resetTimeDecimals: config.resetTimeDecimals,
+      resetTimeSpaced: config.resetTimeSpaced,
     });
 
     if (!output.trim()) {

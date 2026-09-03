@@ -882,6 +882,46 @@ describe("loadConfig", () => {
     }
   });
 
+  it("defaults resetTimeSpaced to unset and accepts boolean overrides", async () => {
+    const defaults = await loadSdkConfig({});
+    expect(defaults.config.resetTimeSpaced).toBeUndefined();
+
+    const explicit = await loadSdkConfig({ resetTimeSpaced: true });
+    expect(explicit.config.resetTimeSpaced).toBe(true);
+    expect(explicit.meta.settingSources).toEqual({
+      resetTimeSpaced: "client.config.get",
+    });
+
+    const disabled = await loadSdkConfig({ resetTimeSpaced: false });
+    expect(disabled.config.resetTimeSpaced).toBe(false);
+
+    for (const invalid of ["true", 1, null]) {
+      const rejected = await loadSdkConfig({ resetTimeSpaced: invalid });
+      expect(rejected.config.resetTimeSpaced).toBeUndefined();
+      expect(rejected.meta.settingSources).not.toHaveProperty("resetTimeSpaced");
+    }
+  });
+
+  it("defaults percentLabelStyle to unset and accepts full or bare overrides", async () => {
+    const defaults = await loadSdkConfig({});
+    expect(defaults.config.percentLabelStyle).toBeUndefined();
+
+    const explicit = await loadSdkConfig({ percentLabelStyle: "bare" });
+    expect(explicit.config.percentLabelStyle).toBe("bare");
+    expect(explicit.meta.settingSources).toEqual({
+      percentLabelStyle: "client.config.get",
+    });
+
+    const full = await loadSdkConfig({ percentLabelStyle: "full" });
+    expect(full.config.percentLabelStyle).toBe("full");
+
+    for (const invalid of ["minimal", 1, null, true]) {
+      const rejected = await loadSdkConfig({ percentLabelStyle: invalid });
+      expect(rejected.config.percentLabelStyle).toBeUndefined();
+      expect(rejected.meta.settingSources).not.toHaveProperty("percentLabelStyle");
+    }
+  });
+
   it("defaults anthropicBinaryPath and trims explicit overrides", async () => {
     const defaults = await loadSdkConfig({});
     expect(defaults.config.anthropicBinaryPath).toBe("claude");

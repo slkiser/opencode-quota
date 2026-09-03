@@ -22,6 +22,7 @@ export type GoogleAgyAuthSourceKey = "google-agy" | "opencode-agy-auth" | "googl
 export type CursorQuotaPlan = "none" | "pro" | "pro-plus" | "ultra";
 export type PricingSnapshotSource = "auto" | "bundled" | "runtime";
 export type PercentDisplayMode = "remaining" | "used";
+export type PercentLabelStyle = "full" | "bare";
 export type AccountingDetail = "summary" | "detailed";
 export type SessionTokenScope = "current" | "tree";
 export type OpenCodeGoWindowKey = "rolling" | "weekly" | "monthly";
@@ -119,6 +120,17 @@ export interface QuotaToastConfig {
    * Unset preserves the default integer-day and half-hour-step display.
    */
   resetTimeDecimals?: number;
+  /**
+   * Join compound exact-minute reset countdown units with spaces
+   * ("2d 5h 14m" instead of "2d5h14m") on human-facing surfaces.
+   */
+  resetTimeSpaced?: boolean;
+  /**
+   * Percent label wording on human-facing surfaces: "full" appends the
+   * direction word ("81% left" / "19% used"); "bare" shows the plain percent
+   * ("81%") and lets the sidebar header carry the mode indicator.
+   */
+  percentLabelStyle?: PercentLabelStyle;
   minIntervalMs: number;
 
   /** Request timeout in milliseconds for remote provider API calls. */
