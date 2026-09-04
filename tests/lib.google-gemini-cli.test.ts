@@ -24,6 +24,13 @@ const mocks = vi.hoisted(() => {
     inspectGeminiCliCompanionPresence: vi.fn(),
     resolveGeminiCliClientCredentials: vi.fn(),
     clearGeminiCliCompanionCacheForTests: vi.fn(),
+    deriveResolvedAuthIdentity: vi.fn(
+      async (params: { providerId: string }) => `identity:${params.providerId}`,
+    ),
+    composeResolvedAuthIdentities: vi.fn(
+      async (params: { providerId: string; identities: readonly string[] }) =>
+        `composed:${params.providerId}:${params.identities.join("|")}`,
+    ),
   };
 });
 
@@ -47,12 +54,18 @@ vi.mock("../src/lib/google-gemini-cli-companion.js", () => ({
   clearGeminiCliCompanionCacheForTests: mocks.clearGeminiCliCompanionCacheForTests,
 }));
 
+vi.mock("../src/lib/resolved-auth-identity.js", () => ({
+  deriveResolvedAuthIdentity: mocks.deriveResolvedAuthIdentity,
+  composeResolvedAuthIdentities: mocks.composeResolvedAuthIdentities,
+}));
+
 import {
   DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS,
   inspectGeminiCliAuthPresence,
   parseGeminiCliRefreshParts,
   queryGeminiCliQuota,
   resolveGeminiCliAccounts,
+  resolveGeminiCliAuthIdentity,
   resolveGeminiCliConfiguredProjectId,
 } from "../src/lib/google-gemini-cli.js";
 
@@ -79,6 +92,33 @@ describe("gemini cli auth resolution", () => {
     delete process.env.OPENCODE_GEMINI_PROJECT_ID;
     delete process.env.GOOGLE_CLOUD_PROJECT;
     delete process.env.GOOGLE_CLOUD_PROJECT_ID;
+  });
+
+  it("composes ordered account and companion identities", async () => {
+    mocks.readAuthFileCached.mockResolvedValue({
+      "google-gemini-cli": {
+        type: "oauth",
+        refresh: "refresh-one|project-one|",
+      },
+      google: {
+        type: "oauth",
+        refresh: "refresh-two|project-two|",
+      },
+    });
+
+    const identity = await resolveGeminiCliAuthIdentity();
+
+    expect(mocks.deriveResolvedAuthIdentity).toHaveBeenCalledWith({
+      providerId: "google-gemini-cli",
+      principal: { kind: "credential", value: "refresh-one" },
+      qualifiers: ["project-one"],
+    });
+    expect(mocks.deriveResolvedAuthIdentity).toHaveBeenCalledWith({
+      providerId: "google-gemini-cli:companion",
+      principal: { kind: "credential", value: "client-secret" },
+      qualifiers: ["client-id"],
+    });
+    expect(identity).toContain("composed:google-gemini-cli:");
   });
 
   it("parses opencode-gemini-auth packed refresh strings", () => {

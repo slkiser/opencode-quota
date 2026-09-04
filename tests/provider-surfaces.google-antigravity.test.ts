@@ -178,6 +178,7 @@ describe("Google Antigravity provider surfaces", () => {
       resetPluginState: true,
     });
     provider = (await import("../src/providers/google-antigravity.js")).googleAntigravityProvider;
+    provider.cachePolicy = { kind: "account-neutral" };
     mocks.loadConfig.mockResolvedValue(config);
     mocks.getProviders.mockReturnValue([provider]);
     mocks.queryGoogleQuota.mockResolvedValue({

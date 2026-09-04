@@ -12,6 +12,7 @@ import {
 } from "../lib/provider-registration.js";
 import { alibabaCodingPlanProvider } from "./alibaba-coding-plan.js";
 import { anthropicProvider } from "./anthropic.js";
+import { PROVIDER_CACHE_POLICIES } from "./cache-policies.js";
 import { chutesProvider } from "./chutes.js";
 import { copilotProvider } from "./copilot.js";
 import { cursorProvider } from "./cursor.js";
@@ -76,6 +77,7 @@ export function getProviders(): QuotaProvider[] {
         `Quota provider registration mismatch: expected ${id}, received ${provider.id}`,
       );
     }
+    provider.cachePolicy = PROVIDER_CACHE_POLICIES[id];
     return provider;
   });
 }

@@ -32,7 +32,7 @@ function isAgyModel(model: string): boolean {
 }
 
 function formatAgyAccountLabel(
-  bucket: { accountEmail?: string; accountKey?: string },
+  bucket: { accountEmail?: string; accountIndex: number },
   accountLabels: ReadonlyMap<string, string>,
 ): string {
   if (bucket.accountEmail) {
@@ -41,7 +41,7 @@ function formatAgyAccountLabel(
       formatGoogleAccountLabel(bucket.accountEmail, "domainHint")
     );
   }
-  return bucket.accountKey ? `Account ${bucket.accountKey.slice(0, 8)}` : "Unknown";
+  return `Account ${bucket.accountIndex + 1}`;
 }
 
 function familyRank(family: string): number {
@@ -169,7 +169,7 @@ export const googleAgyProvider: QuotaProvider = {
           acquisitionMethod: "remote_api",
           ownership: "maintained",
           authority: "provider_reported",
-          sourceId: bucket.accountKey ?? bucket.accountEmail ?? `account-${bucket.accountIndex}`,
+          sourceId: `account-${bucket.accountIndex + 1}`,
         },
         name: `${bucket.family} (${accountLabel})`,
         group: `AGY (${accountLabel}): ${formatAgyFamilyLabel(bucket.family)}`,

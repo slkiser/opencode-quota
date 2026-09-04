@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { rm } from "node:fs/promises";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-provider-cache-tests";
 
 import type { QuotaProviderContext } from "../src/lib/entries.js";
 import type {
@@ -12,6 +15,21 @@ const runtimeMocks = vi.hoisted(() => ({
   fetchRemoteQuotaProvider: vi.fn(),
   collectLocalQuotaProviderEstimate: vi.fn(),
   inspectLocalQuotaProviderState: vi.fn(),
+}));
+
+vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
+  getOpencodeRuntimeDirCandidates: () => ({
+    dataDirs: [`${TEST_RUNTIME_ROOT}/data`],
+    configDirs: [`${TEST_RUNTIME_ROOT}/config`],
+    cacheDirs: [`${TEST_RUNTIME_ROOT}/cache`],
+    stateDirs: [`${TEST_RUNTIME_ROOT}/state`],
+  }),
+  getOpencodeRuntimeDirs: () => ({
+    dataDir: `${TEST_RUNTIME_ROOT}/data`,
+    configDir: `${TEST_RUNTIME_ROOT}/config`,
+    cacheDir: `${TEST_RUNTIME_ROOT}/cache`,
+    stateDir: `${TEST_RUNTIME_ROOT}/state`,
+  }),
 }));
 
 vi.mock("../src/lib/quota-providers-remote.js", async (importOriginal) => {
@@ -28,11 +46,24 @@ vi.mock("../src/lib/quota-providers-local.js", () => ({
   inspectLocalQuotaProviderState: runtimeMocks.inspectLocalQuotaProviderState,
 }));
 
+vi.mock("../src/lib/resolved-auth-identity.js", () => ({
+  deriveResolvedAuthIdentity: vi.fn(
+    async (params: { providerId: string; principal: { value: string } }) =>
+      `opaque:${params.providerId}:${params.principal.value}`,
+  ),
+  composeResolvedAuthIdentities: vi.fn(
+    async (params: { providerId: string; identities: readonly string[] }) =>
+      `opaque:${params.providerId}:${params.identities.join("|")}`,
+  ),
+}));
+
+import { __resetQuotaStateForTests, fetchQuotaProviderResult } from "../src/lib/quota-state.js";
 import {
   QUOTA_PROVIDERS_PROVIDER_ID,
   quotaProvidersProvider,
   selectEligibleQuotaProviders,
 } from "../src/providers/quota-providers.js";
+import { getProviders } from "../src/providers/registry.js";
 
 function remote(
   id: string,
@@ -79,7 +110,9 @@ function context(
 }
 
 describe("quota-providers aggregate provider", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    __resetQuotaStateForTests();
+    await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
     runtimeMocks.resolveQuotaProviderApiKey.mockReset().mockResolvedValue({
       key: "secret",
       source: "auth.json",
@@ -108,6 +141,10 @@ describe("quota-providers aggregate provider", () => {
       version: 1,
       lastUpdatedAt: 1,
     });
+  });
+
+  afterEach(async () => {
+    await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
   });
 
   it("uses one stable aggregate identity", () => {
@@ -267,6 +304,46 @@ describe("quota-providers aggregate provider", () => {
       "second",
     ]);
     expect(result.statusDetails).toBeUndefined();
+  });
+
+  it("isolates the production nested remote cache by the winning credential", async () => {
+    const definition = remote("accounted", "provider-one");
+    const ctx = context([definition], ["provider-one"], { providerCacheTtlMs: 60_000 });
+    const provider = getProviders().find((candidate) => candidate.id === "quota-providers");
+    if (!provider) throw new Error("Expected aggregate provider");
+
+    let credential = "account-one";
+    runtimeMocks.resolveQuotaProviderApiKey.mockImplementation(async () => ({
+      key: credential,
+      source: "auth.json",
+      checkedPaths: [],
+      authPaths: ["/trusted/auth.json"],
+    }));
+    runtimeMocks.fetchRemoteQuotaProvider.mockImplementation(async (_definition, key) => ({
+      success: true,
+      entries: [
+        {
+          accounting: {
+            resultType: "quota",
+            acquisitionMethod: "remote_api",
+            ownership: "user_configured",
+            authority: "provider_reported",
+          },
+          name: key === "account-one" ? "Account one" : "Account two",
+          percentRemaining: key === "account-one" ? 70 : 30,
+        },
+      ],
+    }));
+
+    const first = await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+    const cached = await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+    credential = "account-two";
+    const second = await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+
+    expect(first.entries[0]?.name).toBe("Account one");
+    expect(cached.entries[0]?.name).toBe("Account one");
+    expect(second.entries[0]?.name).toBe("Account two");
+    expect(runtimeMocks.fetchRemoteQuotaProvider).toHaveBeenCalledTimes(2);
   });
 
   it("refreshes mixed local data while retaining remote definition caching", async () => {

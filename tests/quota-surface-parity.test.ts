@@ -165,6 +165,7 @@ describe("quota surface parity regressions", () => {
   it("uses the same effective worktree local root for plugin and sidebar in nested-directory sessions", async () => {
     const syntheticProvider = {
       id: "synthetic",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
@@ -265,6 +266,7 @@ describe("quota surface parity regressions", () => {
   it("resolves relative OPENCODE_CONFIG_DIR from the worktree root for plugin commands", async () => {
     const syntheticProvider = {
       id: "synthetic",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
@@ -347,6 +349,7 @@ describe("quota surface parity regressions", () => {
   it("keeps workspace overrides for formerly global-authoritative settings aligned between plugin and sidebar", async () => {
     const syntheticProvider = {
       id: "synthetic",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
@@ -366,6 +369,7 @@ describe("quota surface parity regressions", () => {
     };
     const openaiProvider = {
       id: "openai",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
@@ -475,6 +479,7 @@ describe("quota surface parity regressions", () => {
   it("keeps synthetic grouped numeric parity between real /quota and real sidebar from shared snapshot storage", async () => {
     const syntheticProvider = {
       id: "synthetic",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
@@ -566,6 +571,7 @@ describe("quota surface parity regressions", () => {
   it("keeps intentional single-window-vs-all-windows non-parity while still sharing the same underlying snapshot", async () => {
     const openaiProvider = {
       id: "openai",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,

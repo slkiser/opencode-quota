@@ -48,6 +48,7 @@ function testProvider(
 ) {
   return {
     id,
+    cachePolicy: { kind: "account-neutral" as const },
     isAvailable:
       availability instanceof Error
         ? vi.fn().mockRejectedValue(availability)

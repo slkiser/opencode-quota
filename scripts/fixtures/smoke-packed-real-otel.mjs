@@ -71,6 +71,7 @@ function createContext(token) {
 function createProvider(id, providerResult, counter) {
   return {
     id,
+    cachePolicy: { kind: "account-neutral" },
     isAvailable: async () => true,
     fetch: async () => {
       counter.count += 1;
@@ -433,11 +434,49 @@ async function runFailingInfrastructure() {
   telemetry.disposeQuotaTelemetryOwner(owner);
 }
 
+async function runSeedProductionOpenRouter() {
+  const { createCliQuotaClient, resolveCliRoots } = await packageImport("cli-show.js");
+  const { createExportProviderContext } = await packageImport("quota-export.js");
+  const { resolveQuotaRuntimeContext } = await packageImport("quota-runtime-context.js");
+  const secret = process.env.OPENROUTER_API_KEY;
+  assert.ok(secret);
+
+  const roots = resolveCliRoots(process.cwd());
+  const client = createCliQuotaClient({ configRootDir: roots.configRoot });
+  const runtime = await resolveQuotaRuntimeContext({
+    client,
+    roots,
+    includeSessionMeta: false,
+  });
+  const ctx = createExportProviderContext(runtime);
+  const provider = runtime.providers.find(({ id }) => id === "openrouter");
+  assert.ok(provider);
+  assert.equal(provider.cachePolicy?.kind, "resolved-auth");
+  provider.fetch = async () =>
+    result({
+      name: "Packed production OpenRouter",
+      percentRemaining: 67,
+      sourceId: "openrouter",
+    });
+
+  await quotaState.fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+  const exported = await buildQuotaExport({
+    providers: [provider],
+    ctx,
+    ttlMs: 60_000,
+    fromCache: true,
+  });
+  assert.equal(exported.providers.openrouter.status, "ok");
+  assert.equal(exported.providers.openrouter.entries[0].percentRemaining, 67);
+  assert.ok(!JSON.stringify(exported).includes(secret));
+}
+
 try {
   if (scenario === "happy") await runHappyPath();
   else if (scenario === "disabled") await runDisabled();
   else if (scenario === "no-global-provider") await runNoGlobalProvider();
   else if (scenario === "failing-infrastructure") await runFailingInfrastructure();
+  else if (scenario === "seed-production-openrouter") await runSeedProductionOpenRouter();
   else throw new Error(`Unknown packed real OpenTelemetry scenario: ${scenario}`);
   console.log(`Packed real OpenTelemetry scenario passed: ${scenario}`);
 } finally {

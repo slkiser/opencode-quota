@@ -12,6 +12,7 @@ import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.
 import { fetchWithTimeout } from "./http.js";
 import { readAuthFile } from "./opencode-auth.js";
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import { deriveResolvedAuthIdentity, type ResolvedAuthIdentity } from "./resolved-auth-identity.js";
 import type {
   AuthData,
   CopilotAuthData,
@@ -1403,6 +1404,45 @@ export async function queryCopilotQuota(
   } catch (error) {
     return toQuotaError(error instanceof Error ? error.message : String(error));
   }
+}
+
+export async function resolveCopilotAuthIdentity(): Promise<ResolvedAuthIdentity | null> {
+  const pat = readQuotaConfigWithMeta();
+  if (pat.state === "invalid") return null;
+
+  if (pat.state === "valid" && pat.config) {
+    const resolved = resolvePatBillingTarget(pat.config);
+    if (!resolved.target || validatePatTargetCompatibility(resolved.target, pat.tokenKind)) {
+      return null;
+    }
+
+    return deriveResolvedAuthIdentity({
+      providerId: "copilot:pat",
+      principal: { kind: "credential", value: pat.config.token },
+      qualifiers: [
+        `api=${getApiBaseUrl(pat.config.enterpriseUrl)}`,
+        `billingModel=${pat.config.billingModel ?? "ai_credits"}`,
+        `tier=${pat.config.tier}`,
+        `scope=${resolved.target.scope}`,
+        `username=${resolved.target.username ?? ""}`,
+        `organization=${"organization" in resolved.target ? resolved.target.organization : ""}`,
+        `enterprise=${"enterprise" in resolved.target ? resolved.target.enterprise : ""}`,
+        `period=${formatBillingPeriod(resolved.target.billingPeriod)}`,
+      ],
+    });
+  }
+
+  const { auth } = selectCopilotAuth(await readAuthFile());
+  const token = getCopilotOAuthToken(auth);
+  if (!auth || !token) return null;
+
+  const enterpriseHost = validateEnterpriseHost(auth.enterpriseUrl);
+  if (enterpriseHost.error) return null;
+  return deriveResolvedAuthIdentity({
+    providerId: "copilot:oauth",
+    principal: { kind: "credential", value: token },
+    qualifiers: [`api=${getApiBaseUrl(enterpriseHost.host)}`],
+  });
 }
 
 export async function hasCopilotQuotaRuntimeAvailable(): Promise<boolean> {

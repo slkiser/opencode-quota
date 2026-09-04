@@ -8,6 +8,16 @@ const authMocks = vi.hoisted(() => ({
   readAuthFileCached: vi.fn(),
 }));
 
+const identityMocks = vi.hoisted(() => ({
+  deriveResolvedAuthIdentity: vi.fn(
+    async (params: { providerId: string }) => `identity:${params.providerId}`,
+  ),
+  composeResolvedAuthIdentities: vi.fn(
+    async (params: { providerId: string; identities: readonly string[] }) =>
+      `composed:${params.providerId}:${params.identities.join("|")}`,
+  ),
+}));
+
 import { join } from "node:path";
 import { execFile } from "child_process";
 import { readFile } from "fs/promises";
@@ -18,6 +28,7 @@ import {
   hasAnthropicCredentialsConfigured,
   parseUsageResponse,
   queryAnthropicQuota,
+  resolveAnthropicAuthIdentity,
 } from "../src/lib/anthropic.js";
 import { fetchWithTimeout } from "../src/lib/http.js";
 
@@ -46,6 +57,8 @@ vi.mock("../src/lib/http.js", () => ({
     },
   ),
 }));
+
+vi.mock("../src/lib/resolved-auth-identity.js", () => identityMocks);
 
 type ExecSequenceStep = {
   stdout?: string;
@@ -207,6 +220,62 @@ describe("parseUsageResponse", () => {
 });
 
 describe("Claude CLI diagnostics", () => {
+  it("keeps direct Claude CLI quota uncached without an account identity", async () => {
+    mockExecSequence([
+      { stdout: "claude 1.2.3\n" },
+      {
+        stdout: JSON.stringify({
+          authenticated: true,
+          quota: {
+            five_hour: { used_percentage: 10 },
+            seven_day: { used_percentage: 20 },
+          },
+        }),
+      },
+    ]);
+
+    await expect(resolveAnthropicAuthIdentity()).resolves.toBeNull();
+    expect(identityMocks.deriveResolvedAuthIdentity).not.toHaveBeenCalled();
+  });
+
+  it("derives identity for the OpenCode OAuth winner when Claude CLI is unavailable", async () => {
+    mockExecSequence([{ code: "ENOENT", errorMessage: "spawn claude ENOENT" }]);
+    readAuthFileCachedMock.mockResolvedValue({
+      anthropic: { type: "oauth", access: "opencode-access-secret" },
+    });
+
+    const identity = await resolveAnthropicAuthIdentity();
+
+    expect(identityMocks.deriveResolvedAuthIdentity).toHaveBeenCalledWith({
+      providerId: "anthropic:opencode-auth",
+      principal: { kind: "credential", value: "opencode-access-secret" },
+    });
+    expect(identity).not.toContain("opencode-access-secret");
+  });
+
+  it("composes both credentials when authenticated Claude may receive OAuth fallback", async () => {
+    setProcessPlatform("linux");
+    mockExecSequence(authenticatedWithoutQuotaSteps(1));
+    readAuthFileCachedMock.mockResolvedValue({
+      anthropic: { type: "oauth", access: "opencode-access-secret" },
+    });
+    readFileMock.mockResolvedValue(
+      JSON.stringify({ claudeAiOauth: { accessToken: "claude-access-secret" } }),
+    );
+
+    const identity = await resolveAnthropicAuthIdentity();
+
+    expect(identityMocks.deriveResolvedAuthIdentity).toHaveBeenCalledWith({
+      providerId: "anthropic:claude-credentials",
+      principal: { kind: "credential", value: "claude-access-secret" },
+    });
+    expect(identityMocks.composeResolvedAuthIdentities).toHaveBeenCalledWith({
+      providerId: "anthropic",
+      identities: ["identity:anthropic:opencode-auth", "identity:anthropic:claude-credentials"],
+    });
+    expect(identity).not.toMatch(/opencode-access-secret|claude-access-secret/u);
+  });
+
   it("builds a Windows-safe Claude CLI invocation for shim-based installs", () => {
     const invocation = buildClaudeCommandInvocation(
       "C:\\Users\\alice\\AppData\\Roaming\\npm\\claude.cmd",

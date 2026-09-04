@@ -705,6 +705,7 @@ describe("/quota command behavior", () => {
 
     const provider = {
       id: "openai",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,

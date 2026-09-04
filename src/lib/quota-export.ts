@@ -173,7 +173,8 @@ function buildQuotaProviderStatuses(params: {
 /**
  * Builds a `QuotaExport` document by reading cached provider results.
  *
- * All providers are read in parallel from the per-provider disk cache.
+ * Providers are read in parallel from either identity-bound durable cache or
+ * the same-runtime-owner latest snapshot retained for uncached/live-local providers.
  * No live network fetches are performed.
  */
 export async function buildQuotaExport(params: {

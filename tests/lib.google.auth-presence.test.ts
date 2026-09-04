@@ -8,6 +8,17 @@ const fsMocks = vi.hoisted(() => ({
   existsSync: vi.fn(),
 }));
 
+const identityMocks = vi.hoisted(() => ({
+  resolveAntigravityClientCredentials: vi.fn(),
+  deriveResolvedAuthIdentity: vi.fn(
+    async (params: { providerId: string }) => `identity:${params.providerId}`,
+  ),
+  composeResolvedAuthIdentities: vi.fn(
+    async (params: { providerId: string; identities: readonly string[] }) =>
+      `composed:${params.providerId}:${params.identities.join("|")}`,
+  ),
+}));
+
 const testPaths = vi.hoisted(() => {
   const separator = process.platform === "win32" ? "\\" : "/";
   const join = (...parts: string[]) => parts.join(separator);
@@ -41,10 +52,21 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
   }),
 }));
 
+vi.mock("../src/lib/google-antigravity-companion.js", () => ({
+  inspectAntigravityCompanionPresence: vi.fn(),
+  resolveAntigravityClientCredentials: identityMocks.resolveAntigravityClientCredentials,
+}));
+
+vi.mock("../src/lib/resolved-auth-identity.js", () => ({
+  deriveResolvedAuthIdentity: identityMocks.deriveResolvedAuthIdentity,
+  composeResolvedAuthIdentities: identityMocks.composeResolvedAuthIdentities,
+}));
+
 import {
   hasAntigravityAccountsConfigured,
   inspectAntigravityAccountsPresence,
   readAntigravityAccounts,
+  resolveGoogleAntigravityAuthIdentity,
 } from "../src/lib/google.js";
 
 const CONFIG_PATH = testPaths.configPath;
@@ -53,6 +75,44 @@ const DATA_PATH = testPaths.dataPath;
 describe("google antigravity auth presence", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    identityMocks.resolveAntigravityClientCredentials.mockResolvedValue({
+      state: "configured",
+      clientId: "client-id",
+      clientSecret: "client-secret",
+    });
+  });
+
+  it("composes account and companion cache identities from the selected accounts file", async () => {
+    fsMocks.existsSync.mockImplementation((path) => path === CONFIG_PATH);
+    promiseMocks.readFile.mockResolvedValue(
+      JSON.stringify({
+        version: 1,
+        accounts: [
+          {
+            email: "alice@example.com",
+            refreshToken: "refresh-secret",
+            projectId: "project-one",
+            addedAt: 0,
+            lastUsed: 0,
+          },
+        ],
+      }),
+    );
+
+    const identity = await resolveGoogleAntigravityAuthIdentity();
+
+    expect(identityMocks.deriveResolvedAuthIdentity).toHaveBeenCalledWith({
+      providerId: "google-antigravity",
+      principal: { kind: "credential", value: "refresh-secret" },
+      qualifiers: ["project-one"],
+    });
+    expect(identityMocks.deriveResolvedAuthIdentity).toHaveBeenCalledWith({
+      providerId: "google-antigravity:companion",
+      principal: { kind: "credential", value: "client-secret" },
+      qualifiers: ["client-id"],
+    });
+    expect(identity).toContain("composed:google-antigravity:");
+    expect(identity).not.toContain("refresh-secret");
   });
 
   it("reports missing when no candidate accounts file exists", async () => {

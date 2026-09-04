@@ -17,6 +17,11 @@ import { join } from "path";
 import { resolveAnthropicOAuthCached } from "./anthropic-auth.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
+import {
+  composeResolvedAuthIdentities,
+  deriveResolvedAuthIdentity,
+  type ResolvedAuthIdentity,
+} from "./resolved-auth-identity.js";
 
 const DEFAULT_CLAUDE_BINARY = "claude";
 const CLAUDE_COMMAND_TIMEOUT_MS = 3_000;
@@ -1324,6 +1329,52 @@ export async function hasAnthropicCredentialsConfigured(
   } catch {
     return false;
   }
+}
+
+export async function resolveAnthropicAuthIdentity(
+  options: AnthropicProbeOptions = {},
+): Promise<ResolvedAuthIdentity | null> {
+  let localDiagnostics: AnthropicLocalDiagnostics;
+  try {
+    localDiagnostics = await getCachedAnthropicLocalDiagnostics(options);
+  } catch {
+    return null;
+  }
+
+  // Claude CLI quota does not expose an account identity. Keep that winning
+  // path process-local rather than risking reuse after a CLI account switch.
+  if (localDiagnostics.localQuota) return null;
+
+  const opencodeCredentials = await resolveAnthropicOAuthCached();
+  const opencodeIdentity =
+    opencodeCredentials.state === "configured"
+      ? await deriveResolvedAuthIdentity({
+          providerId: "anthropic:opencode-auth",
+          principal: { kind: "credential", value: opencodeCredentials.accessToken },
+        })
+      : null;
+
+  if (localDiagnostics.authStatus !== "authenticated") {
+    return opencodeIdentity;
+  }
+
+  const claudeCredentials = await readClaudeOAuthAccessToken();
+  const claudeIdentity =
+    claudeCredentials.state === "configured"
+      ? await deriveResolvedAuthIdentity({
+          providerId: "anthropic:claude-credentials",
+          principal: { kind: "credential", value: claudeCredentials.accessToken },
+        })
+      : null;
+
+  if (opencodeIdentity && claudeIdentity) {
+    return composeResolvedAuthIdentities({
+      providerId: "anthropic",
+      identities: [opencodeIdentity, claudeIdentity],
+    });
+  }
+
+  return opencodeIdentity ?? claudeIdentity;
 }
 
 export async function queryAnthropicQuota(

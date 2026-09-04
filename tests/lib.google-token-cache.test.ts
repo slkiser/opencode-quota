@@ -1,29 +1,20 @@
+import { access, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const testPaths = vi.hoisted(() => {
   const separator = process.platform === "win32" ? "\\" : "/";
   const join = (...parts: string[]) => parts.join(separator);
   const root = join(process.cwd(), ".google-token-cache-test");
-  const cacheDir = join(root, "cache", "opencode");
   return {
-    dataDir: join(root, "data", "opencode"),
-    configDir: join(root, "config", "opencode"),
-    cacheDir,
-    stateDir: join(root, "state", "opencode"),
-    cachePath: join(cacheDir, "opencode-quota", "google-access-tokens.json"),
+    root,
+    dataDir: join(root, "data"),
+    configDir: join(root, "config"),
+    cacheDir: join(root, "cache"),
+    stateDir: join(root, "state"),
+    cachePath: join(root, "cache", "opencode-quota", "google-access-tokens.json"),
   };
 });
-
-vi.mock("fs/promises", () => ({
-  mkdir: vi.fn(async () => undefined),
-  readFile: vi.fn(async () => {
-    throw new Error("missing");
-  }),
-  rename: vi.fn(async () => undefined),
-  rm: vi.fn(async () => undefined),
-  writeFile: vi.fn(async () => undefined),
-}));
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
   getOpencodeRuntimeDirs: () => ({
@@ -34,169 +25,155 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
   }),
 }));
 
+const TEST_RUNTIME_ROOT = testPaths.root;
 const CACHE_PATH = testPaths.cachePath;
 
-function entry(accessToken: string) {
-  return {
-    accessToken,
-    expiresAt: Date.now() + 60_000,
-    projectId: "project-1",
-    email: "user@example.com",
-  };
+function entry(accessToken: string, expiresAt = Date.now() + 60_000) {
+  return { accessToken, expiresAt };
 }
 
 describe("google-token-cache", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetModules();
-    vi.clearAllMocks();
+    await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
   });
 
-  it("atomically writes version 1 cache files with restrictive permissions", async () => {
-    const { mkdir, rename, writeFile } = await import("fs/promises");
-    const { setCachedAccessToken } = await import("../src/lib/google-token-cache.js");
-
-    await setCachedAccessToken({ key: "account-key", entry: entry("access-token") });
-
-    expect(mkdir).toHaveBeenCalledWith(dirname(CACHE_PATH), {
-      recursive: true,
-      mode: 0o700,
-    });
-    expect(writeFile).toHaveBeenCalledTimes(1);
-    const [tmpPath, content, options] = (writeFile as any).mock.calls[0];
-    expect(tmpPath).toContain(`${CACHE_PATH}.tmp-`);
-    expect(options).toEqual({ encoding: "utf-8", mode: 0o600 });
-    expect(JSON.parse(content)).toMatchObject({
-      version: 1,
-      tokens: { "account-key": { accessToken: "access-token" } },
-    });
-    expect(rename).toHaveBeenCalledWith(tmpPath, CACHE_PATH);
+  afterEach(async () => {
+    vi.resetModules();
+    await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
   });
 
-  it("retains valid disk entries and discards invalid entries", async () => {
-    const { readFile, writeFile } = await import("fs/promises");
-    const expiresAt = Date.now() + 60_000;
-    (readFile as any).mockResolvedValueOnce(
+  it("uses opaque process-local account keys without PII or reusable credential verifiers", async () => {
+    const { makeAccountCacheKey } = await import("../src/lib/google-token-cache.js");
+    const first = makeAccountCacheKey({
+      refreshToken: "refresh-secret-one",
+      projectId: "private-project-one",
+    });
+    const repeat = makeAccountCacheKey({
+      refreshToken: "refresh-secret-one",
+      projectId: "private-project-one",
+    });
+    const changedToken = makeAccountCacheKey({
+      refreshToken: "refresh-secret-two",
+      projectId: "private-project-one",
+    });
+    const changedProject = makeAccountCacheKey({
+      refreshToken: "refresh-secret-one",
+      projectId: "private-project-two",
+    });
+
+    expect(first).toMatch(/^gat1_[A-Za-z0-9_-]{43}$/u);
+    expect(first).toBe(repeat);
+    expect(changedToken).not.toBe(first);
+    expect(changedProject).not.toBe(first);
+    expect(JSON.stringify({ first })).not.toMatch(/refresh-secret|private-project/u);
+  });
+
+  it("migrates by deleting the legacy PII-bearing disk cache without reading or replacing it", async () => {
+    await mkdir(dirname(CACHE_PATH), { recursive: true });
+    await writeFile(
+      CACHE_PATH,
       JSON.stringify({
         version: 1,
-        updatedAt: 123,
-        tokens: {
-          valid: {
-            accessToken: "valid-token",
-            expiresAt,
-            projectId: "project-1",
-            email: "user@example.com",
-          },
-          validWithoutEmail: {
-            accessToken: "second-token",
-            expiresAt,
-            projectId: "project-2",
-          },
-          emptyAccessToken: { accessToken: " ", expiresAt, projectId: "project-3" },
-          emptyProjectId: { accessToken: "token", expiresAt, projectId: "" },
-          invalidExpiry: { accessToken: "token", expiresAt: "later", projectId: "project-4" },
-          invalidEmail: {
-            accessToken: "token",
-            expiresAt,
-            projectId: "project-5",
-            email: 42,
+        entries: {
+          "alice@example.com::private-project::reusable-unkeyed-verifier": {
+            accessToken: "legacy-access-token",
+            expiresAt: Date.now() + 60_000,
+            projectId: "private-project",
+            email: "alice@example.com",
           },
         },
       }),
+      "utf8",
     );
-    const { getCachedAccessToken } = await import("../src/lib/google-token-cache.js");
 
-    await expect(getCachedAccessToken({ key: "valid", skewMs: 0 })).resolves.toEqual({
-      accessToken: "valid-token",
-      expiresAt,
-      projectId: "project-1",
-      email: "user@example.com",
-    });
-    await expect(getCachedAccessToken({ key: "validWithoutEmail", skewMs: 0 })).resolves.toEqual({
-      accessToken: "second-token",
-      expiresAt,
-      projectId: "project-2",
-    });
-    for (const key of ["emptyAccessToken", "emptyProjectId", "invalidExpiry", "invalidEmail"]) {
-      await expect(getCachedAccessToken({ key, skewMs: 0 })).resolves.toBeNull();
-    }
-    expect(writeFile).not.toHaveBeenCalled();
+    const cache = await import("../src/lib/google-token-cache.js");
+    const cachedEntry = entry("new-process-token");
+    await cache.setCachedAccessToken({ key: "opaque-account", entry: cachedEntry });
+
+    await expect(access(CACHE_PATH)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(cache.getCachedAccessToken({ key: "opaque-account", skewMs: 0 })).resolves.toEqual(
+      cachedEntry,
+    );
+    expect(await readdir(dirname(CACHE_PATH))).toEqual([]);
+  });
+
+  it("keeps valid tokens process-local and removes expired entries", async () => {
+    const cache = await import("../src/lib/google-token-cache.js");
+    const validEntry = entry("valid-token");
+    await cache.setCachedAccessToken({ key: "valid", entry: validEntry });
+    await cache.setCachedAccessToken({ key: "expired", entry: entry("expired-token", Date.now()) });
+
+    const valid = await cache.getCachedAccessToken({ key: "valid", skewMs: 0 });
+    expect(valid).toEqual(validEntry);
+    if (valid) valid.accessToken = "mutated";
+    await expect(cache.getCachedAccessToken({ key: "valid", skewMs: 0 })).resolves.toEqual(
+      validEntry,
+    );
+    await expect(cache.getCachedAccessToken({ key: "expired", skewMs: 0 })).resolves.toBeNull();
+    await expect(access(CACHE_PATH)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("serializes concurrent updates without losing different accounts", async () => {
-    const { writeFile } = await import("fs/promises");
-    const { getCachedAccessToken, setCachedAccessToken } = await import(
-      "../src/lib/google-token-cache.js"
-    );
-
+    const cache = await import("../src/lib/google-token-cache.js");
     await Promise.all([
-      setCachedAccessToken({ key: "first", entry: entry("first-token") }),
-      setCachedAccessToken({ key: "second", entry: entry("second-token") }),
+      cache.setCachedAccessToken({ key: "first", entry: entry("first-token") }),
+      cache.setCachedAccessToken({ key: "second", entry: entry("second-token") }),
     ]);
 
-    expect(await getCachedAccessToken({ key: "first", skewMs: 0 })).toMatchObject({
+    await expect(cache.getCachedAccessToken({ key: "first", skewMs: 0 })).resolves.toMatchObject({
       accessToken: "first-token",
     });
-    expect(await getCachedAccessToken({ key: "second", skewMs: 0 })).toMatchObject({
-      accessToken: "second-token",
-    });
-    const finalContent = JSON.parse((writeFile as any).mock.calls.at(-1)[1]);
-    expect(finalContent.tokens).toMatchObject({
-      first: { accessToken: "first-token" },
-      second: { accessToken: "second-token" },
-    });
-  });
-
-  it("applies same-account updates in invocation order", async () => {
-    const { setCachedAccessToken, getCachedAccessToken } = await import(
-      "../src/lib/google-token-cache.js"
-    );
-
-    await Promise.all([
-      setCachedAccessToken({ key: "account", entry: entry("first-token") }),
-      setCachedAccessToken({ key: "account", entry: entry("second-token") }),
-    ]);
-
-    expect(await getCachedAccessToken({ key: "account", skewMs: 0 })).toMatchObject({
+    await expect(cache.getCachedAccessToken({ key: "second", skewMs: 0 })).resolves.toMatchObject({
       accessToken: "second-token",
     });
   });
 
-  it("serializes clear and set operations in invocation order", async () => {
-    const { clearGoogleTokenCache, getCachedAccessToken, setCachedAccessToken } = await import(
-      "../src/lib/google-token-cache.js"
-    );
-
-    await setCachedAccessToken({ key: "old", entry: entry("old-token") });
-    await Promise.all([
-      clearGoogleTokenCache(),
-      setCachedAccessToken({ key: "new", entry: entry("new-token") }),
-    ]);
-
-    expect(await getCachedAccessToken({ key: "old", skewMs: 0 })).toBeNull();
-    expect(await getCachedAccessToken({ key: "new", skewMs: 0 })).toMatchObject({
-      accessToken: "new-token",
+  it("does not reuse memory or opaque account keys across module instances", async () => {
+    const firstModule = await import("../src/lib/google-token-cache.js");
+    const firstKey = firstModule.makeAccountCacheKey({
+      refreshToken: "refresh-secret",
+      projectId: "project-id",
     });
-  });
+    await firstModule.setCachedAccessToken({ key: firstKey, entry: entry("first-token") });
 
-  it("publishes memory only after persistence and continues after a write failure", async () => {
-    const { writeFile } = await import("fs/promises");
-    const { getCachedAccessToken, setCachedAccessToken } = await import(
-      "../src/lib/google-token-cache.js"
-    );
+    vi.resetModules();
+    const secondModule = await import("../src/lib/google-token-cache.js");
+    const secondKey = secondModule.makeAccountCacheKey({
+      refreshToken: "refresh-secret",
+      projectId: "project-id",
+    });
 
-    await setCachedAccessToken({ key: "account", entry: entry("committed-token") });
-    (writeFile as any).mockRejectedValueOnce(new Error("disk full"));
-
+    expect(secondKey).not.toBe(firstKey);
     await expect(
-      setCachedAccessToken({ key: "account", entry: entry("failed-token") }),
-    ).rejects.toThrow("disk full");
-    expect(await getCachedAccessToken({ key: "account", skewMs: 0 })).toMatchObject({
-      accessToken: "committed-token",
-    });
+      secondModule.getCachedAccessToken({ key: secondKey, skewMs: 0 }),
+    ).resolves.toBeNull();
+  });
 
-    await setCachedAccessToken({ key: "account", entry: entry("recovered-token") });
-    expect(await getCachedAccessToken({ key: "account", skewMs: 0 })).toMatchObject({
-      accessToken: "recovered-token",
+  it("retries a denied legacy cleanup without using an insecure fallback", async () => {
+    await mkdir(CACHE_PATH, { recursive: true });
+    const cache = await import("../src/lib/google-token-cache.js");
+
+    await cache.setCachedAccessToken({ key: "account", entry: entry("token") });
+    expect((await readdir(CACHE_PATH)).length).toBe(0);
+
+    await rm(CACHE_PATH, { recursive: true, force: true });
+    await mkdir(dirname(CACHE_PATH), { recursive: true });
+    await writeFile(CACHE_PATH, "legacy-pii-after-transient-failure", "utf8");
+    await expect(cache.getCachedAccessToken({ key: "account", skewMs: 0 })).resolves.toMatchObject({
+      accessToken: "token",
     });
+    await expect(access(CACHE_PATH)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("clears process memory and retries legacy cleanup", async () => {
+    const cache = await import("../src/lib/google-token-cache.js");
+    await cache.setCachedAccessToken({ key: "account", entry: entry("token") });
+    await mkdir(dirname(CACHE_PATH), { recursive: true });
+    await writeFile(CACHE_PATH, "legacy-pii", "utf8");
+    await cache.clearGoogleTokenCache();
+
+    await expect(cache.getCachedAccessToken({ key: "account", skewMs: 0 })).resolves.toBeNull();
+    await expect(access(CACHE_PATH)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

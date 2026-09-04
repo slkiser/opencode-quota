@@ -1,5 +1,6 @@
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFile, mkdtemp, readFile, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -121,6 +122,12 @@ try {
     run(process.execPath, [realOtelFixture, scenario], workdir, { env: isolatedRuntimeEnv });
   }
 
+  const openRouterSecret = "packed-openrouter-secret-canary";
+  const openRouterEnv = { ...isolatedRuntimeEnv, OPENROUTER_API_KEY: openRouterSecret };
+  run(process.execPath, [realOtelFixture, "seed-production-openrouter"], workdir, {
+    env: openRouterEnv,
+  });
+
   const cliPath = path.join(
     workdir,
     "node_modules",
@@ -141,6 +148,38 @@ try {
       throw new Error(`Packed CLI help is missing: ${expected}`);
     }
   }
+
+  const cachedOpenRouterOutput = run(
+    process.execPath,
+    [cliPath, "show", "--json", "--provider", "openrouter"],
+    workdir,
+    { env: openRouterEnv },
+  );
+  const cachedOpenRouter = JSON.parse(cachedOpenRouterOutput);
+  assert.equal(cachedOpenRouter.fromCache, true);
+  assert.equal(cachedOpenRouter.providers.openrouter.status, "ok");
+  assert.equal(
+    cachedOpenRouter.providers.openrouter.entries[0].name,
+    "Packed production OpenRouter",
+  );
+  assert.equal(cachedOpenRouter.providers.openrouter.entries[0].percentRemaining, 67);
+
+  const readTree = async (directory) => {
+    const chunks = [];
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const target = path.join(directory, entry.name);
+      if (entry.isDirectory()) chunks.push(...(await readTree(target)));
+      else if (entry.isFile()) chunks.push(await readFile(target, "utf8"));
+    }
+    return chunks;
+  };
+  const privateArtifacts = [
+    cachedOpenRouterOutput,
+    ...(await readTree(path.join(workdir, "runtime"))),
+  ].join("\n");
+  assert.ok(!privateArtifacts.includes(openRouterSecret));
+  assert.ok(!privateArtifacts.includes("resolvedAuthIdentity"));
+  assert.ok(!privateArtifacts.includes("rai1_"));
 
   console.log(
     `Packed package smoke passed for ${artifact.filename} on Node ${process.versions.node} with packaged @opentelemetry/api and host-owned @opentelemetry/sdk-metrics ${sdkMetricsVersion} (sha256 ${artifact.sha256}).`,

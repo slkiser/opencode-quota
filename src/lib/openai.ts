@@ -5,10 +5,11 @@
  * https://chatgpt.com/backend-api/wham/usage
  */
 
-import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
+import { sanitizeDisplayText } from "./display-sanitize.js";
 import { clampPercent } from "./format-utils.js";
 import { fetchWithTimeout } from "./http.js";
 import { readAuthFileCached } from "./opencode-auth.js";
+import { deriveResolvedAuthIdentity, type ResolvedAuthIdentity } from "./resolved-auth-identity.js";
 import type { AuthData, OpenAIOAuthData, QuotaError } from "./types.js";
 
 interface OpenAIUsageResponse {
@@ -239,6 +240,28 @@ export function hasOpenAIOAuth(auth: AuthData | null | undefined): boolean {
   return resolveOpenAIOAuth(auth).state === "configured";
 }
 
+export async function resolveOpenAIAuthIdentity(params?: {
+  maxAgeMs?: number;
+}): Promise<ResolvedAuthIdentity | null> {
+  const auth = await readAuthFileCached({
+    maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS),
+  });
+  const resolved = resolveOpenAIOAuth(auth);
+  if (resolved.state !== "configured") return null;
+
+  if (resolved.accountId) {
+    return deriveResolvedAuthIdentity({
+      providerId: "openai",
+      principal: { kind: "stable-id", value: resolved.accountId },
+    });
+  }
+  const credential = resolved.refreshToken ?? resolved.accessToken;
+  return deriveResolvedAuthIdentity({
+    providerId: "openai",
+    principal: { kind: "credential", value: credential },
+  });
+}
+
 export async function hasOpenAIOAuthCached(params?: { maxAgeMs?: number }): Promise<boolean> {
   const auth = await readAuthFileCached({
     maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS),
@@ -275,10 +298,9 @@ export async function queryOpenAIQuota(
       timeoutMs: options.requestTimeoutMs,
       consume: async (resp) => {
         if (!resp.ok) {
-          const text = await resp.text();
           return {
             success: false,
-            error: `OpenAI API error ${resp.status}: ${sanitizeDisplaySnippet(text, 120)}`,
+            error: `OpenAI API error ${resp.status}`,
           };
         }
 

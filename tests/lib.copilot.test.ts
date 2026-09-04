@@ -26,6 +26,10 @@ const authMocks = vi.hoisted(() => ({
   readAuthFile: vi.fn(),
 }));
 
+const identityMocks = vi.hoisted(() => ({
+  deriveResolvedAuthIdentity: vi.fn(async () => `rai1_${"c".repeat(43)}`),
+}));
+
 vi.mock("fs", async (importOriginal) => {
   const mod = await importOriginal<typeof import("fs")>();
   return {
@@ -47,6 +51,8 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
 vi.mock("../src/lib/opencode-auth.js", () => ({
   readAuthFile: authMocks.readAuthFile,
 }));
+
+vi.mock("../src/lib/resolved-auth-identity.js", () => identityMocks);
 
 const patPath = join(testPaths.configDir, "copilot-quota-token.json");
 
@@ -137,6 +143,64 @@ describe("GitHub Copilot AI Credit accounting", () => {
     const { queryCopilotQuota } = await import("../src/lib/copilot.js");
     await expect(queryCopilotQuota()).resolves.toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("derives OAuth cache identity from the selected token and API host", async () => {
+    authMocks.readAuthFile.mockResolvedValue({
+      "github-copilot": {
+        type: "oauth",
+        access: "copilot-oauth-secret",
+        enterpriseUrl: "example.ghe.com",
+      },
+    });
+    const { resolveCopilotAuthIdentity } = await import("../src/lib/copilot.js");
+
+    const identity = await resolveCopilotAuthIdentity();
+
+    expect(identityMocks.deriveResolvedAuthIdentity).toHaveBeenCalledWith({
+      providerId: "copilot:oauth",
+      principal: { kind: "credential", value: "copilot-oauth-secret" },
+      qualifiers: ["api=https://api.example.ghe.com"],
+    });
+    expect(identity).not.toContain("copilot-oauth-secret");
+  });
+
+  it("keeps an invalid authoritative PAT uncached and does not fall through to OAuth", async () => {
+    configure({ token: "", tier: "pro" });
+    authMocks.readAuthFile.mockResolvedValue({
+      "github-copilot": { type: "oauth", access: "must-not-win" },
+    });
+    const { resolveCopilotAuthIdentity } = await import("../src/lib/copilot.js");
+
+    await expect(resolveCopilotAuthIdentity()).resolves.toBeNull();
+    expect(authMocks.readAuthFile).not.toHaveBeenCalled();
+  });
+
+  it("scopes PAT cache identity to the resolved billing target and UTC period", async () => {
+    configure({
+      token: "copilot-pat-secret",
+      tier: "business",
+      organization: "example-org",
+      username: "alice",
+    });
+    const { resolveCopilotAuthIdentity } = await import("../src/lib/copilot.js");
+
+    await resolveCopilotAuthIdentity();
+
+    expect(identityMocks.deriveResolvedAuthIdentity).toHaveBeenCalledWith({
+      providerId: "copilot:pat",
+      principal: { kind: "credential", value: "copilot-pat-secret" },
+      qualifiers: [
+        "api=https://api.github.com",
+        "billingModel=ai_credits",
+        "tier=business",
+        "scope=organization",
+        "username=alice",
+        "organization=example-org",
+        "enterprise=",
+        "period=2026-01",
+      ],
+    });
   });
 
   it("reuses OpenCode OAuth for GitHub.com personal quota", async () => {
