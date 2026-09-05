@@ -51,7 +51,7 @@ describe("api-key-resolver", () => {
     vi.restoreAllMocks();
   });
 
-  it("keeps environment first, trusted JSONC before JSON, and auth.json last", async () => {
+  it("keeps environment first, trusted JSONC before JSON, and opencode.db last", async () => {
     const { existsSync } = await import("fs");
     const { readFile } = await import("fs/promises");
     const trustedJsoncPath = join(homedir(), ".config", "opencode", "opencode.jsonc");
@@ -68,7 +68,7 @@ describe("api-key-resolver", () => {
           : null,
       configJsonSource: "opencode.json" as const,
       configJsoncSource: "opencode.jsonc" as const,
-      authSource: "auth.json" as const,
+      authSource: "opencode.db" as const,
     };
 
     process.env.TEST_PROVIDER_KEY = "env-key";
@@ -101,7 +101,7 @@ describe("api-key-resolver", () => {
     (readFile as any).mockReset();
     await expect(resolveApiKey(config, readAuth)).resolves.toEqual({
       key: "auth-key",
-      source: "auth.json",
+      source: "opencode.db",
     });
     expect(readAuth).toHaveBeenCalledOnce();
   });
@@ -161,20 +161,20 @@ describe("api-key-resolver", () => {
     const simpleReadAuth = vi.fn().mockResolvedValue({
       provider: { type: "oauth", key: "ignored-key" },
     });
-    const simple = createProviderApiKeyResolver<"config" | "auth.json">({
+    const simple = createProviderApiKeyResolver<"config" | "opencode.db">({
       envVars: [],
       providerKeys: ["provider"],
       configJsonSource: "config",
       configJsoncSource: "config",
       getConfigCandidates: () => [],
-      auth: { readAuth: simpleReadAuth, authSource: "auth.json" },
+      auth: { readAuth: simpleReadAuth, authSource: "opencode.db" },
     });
     await expect(simple.resolve()).resolves.toBeNull();
 
     const invalidReadAuth = vi.fn().mockResolvedValue({
       provider: { type: "oauth", key: "ignored-key" },
     });
-    const invalidAware = createProviderApiKeyResolver<"config" | "auth.json", "auth.json">({
+    const invalidAware = createProviderApiKeyResolver<"config" | "opencode.db", "opencode.db">({
       envVars: [],
       providerKeys: ["provider"],
       configJsonSource: "config",
@@ -183,11 +183,11 @@ describe("api-key-resolver", () => {
       auth: {
         policy: "invalid-aware-api-key",
         authKeys: ["provider"],
-        authSource: "auth.json",
+        authSource: "opencode.db",
         displayName: "Provider",
         defaultMaxAgeMs: 5_000,
         readAuth: invalidReadAuth,
-        getAuthPaths: () => ["/tmp/auth.json"],
+        getCredentialDatabasePaths: () => ["/tmp/opencode.db"],
       },
     });
 

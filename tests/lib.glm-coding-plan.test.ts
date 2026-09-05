@@ -40,7 +40,7 @@ function configure(provider: ProviderCase): void {
   provider.resolveAuth.mockResolvedValueOnce({
     state: "configured",
     apiKey: provider.key,
-    source: "auth.json",
+    source: "opencode.db",
   });
 }
 

@@ -758,9 +758,9 @@ describe("formatQuotaRows", () => {
       ],
     });
 
-    expect(out.indexOf("Five-hour")).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("5h")).toBeGreaterThanOrEqual(0);
     expect(out.indexOf("Weekly")).toBeGreaterThanOrEqual(0);
-    expect(out.indexOf("Five-hour")).toBeLessThan(out.indexOf("Weekly"));
+    expect(out.indexOf("5h")).toBeLessThan(out.indexOf("Weekly"));
   });
 
   it("renders all-window percent rows as used when percentDisplayMode is used", () => {
@@ -804,7 +804,7 @@ describe("formatQuotaRows", () => {
       ],
     });
 
-    expect(out).toContain("Five-hour");
+    expect(out).toContain("5h");
     expect(out).not.toContain("0/135");
     expect(out).toContain("100% left");
   });
@@ -847,7 +847,7 @@ describe("formatQuotaRows", () => {
     expect(out.indexOf("[Qwen] (free)")).toBeLessThan(out.indexOf("[OpenAI] (Pro)"));
 
     expect(out.indexOf("RPM")).toBeLessThan(out.indexOf("Daily"));
-    expect(out.indexOf("Five-hour")).toBeLessThan(out.indexOf("Weekly"));
+    expect(out.indexOf("5h")).toBeLessThan(out.indexOf("Weekly"));
   });
 
   it("preserves explicit legacy Google-style labels and only falls back for unlabeled rows", () => {

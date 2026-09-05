@@ -187,7 +187,7 @@ export const nanoGptProvider: QuotaProvider = {
       configured: false,
       source: null,
       checkedPaths: [],
-      authPaths: [],
+      credentialDatabasePaths: [],
     }));
     const result = await queryNanoGptQuota({ requestTimeoutMs: ctx.config?.requestTimeoutMs });
     const providerResult = mapNullableProviderResult(result, {

@@ -94,6 +94,8 @@ vi.mock("../src/lib/alibaba-auth.js", () =>
   createAlibabaAuthModuleMock(mocks.resolveAlibabaCodingPlanAuthCached),
 );
 vi.mock("../src/lib/minimax-auth.js", () => ({
+  resolveMiniMaxAuth: vi.fn(),
+  resolveMiniMaxChinaAuth: vi.fn(),
   DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS: 5_000,
   resolveMiniMaxAuthCached: mocks.resolveMiniMaxAuthCached,
   getMiniMaxAuthDiagnostics: mocks.getMiniMaxAuthDiagnostics,
@@ -102,7 +104,7 @@ vi.mock("../src/lib/minimax-auth.js", () => ({
     state: "none",
     source: null,
     checkedPaths: [],
-    authPaths: [],
+    credentialDatabasePaths: [],
   })),
 }));
 vi.mock("../src/lib/opencode-runtime-paths.js", () =>
@@ -282,10 +284,10 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     });
     mocks.getMiniMaxAuthDiagnostics.mockResolvedValue({
       state: "configured",
-      source: "auth.json",
+      source: "opencode.db",
       endpoint: "international",
       checkedPaths: [],
-      authPaths: [],
+      credentialDatabasePaths: [],
     });
 
     const { quotaProvidersProvider } = await import("../src/providers/quota-providers.js");
@@ -692,7 +694,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     });
     const toastOutput = getToastMessage(client);
     expect(toastOutput).toContain("MiniMax Coding Plan");
-    expect(toastOutput).toContain("Five-hour");
+    expect(toastOutput).toContain("5h");
     expect(toastOutput).toContain("Weekly");
     expect(toastOutput).toContain("35%");
     expect(toastOutput).toContain("80%");
@@ -717,7 +719,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       ...(surfaces.sidebar.linesExpanded ?? []),
     ].join("\n");
     expect(sidebarOutput).toContain("MiniMax Coding Plan");
-    expect(sidebarOutput).toContain("Five-hour");
+    expect(sidebarOutput).toContain("5h");
     expect(sidebarOutput).toContain("Weekly");
     expect(sidebarOutput).toContain("35%");
     expect(sidebarOutput).toContain("80%");

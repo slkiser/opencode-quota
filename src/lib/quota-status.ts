@@ -30,7 +30,7 @@ import {
   readPricingRefreshState,
   hasProvider as snapshotHasProvider,
 } from "./modelsdev-pricing.js";
-import { getAuthPath, getAuthPaths } from "./opencode-auth.js";
+import { getCredentialDatabasePath, getCredentialDatabasePaths } from "./opencode-auth.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import {
   getOpenCodeDbPath,
@@ -85,7 +85,7 @@ const OPENCODE_GO_STATUS_DETAIL_KEYS = new Set([
   "auth_state",
   "auth_source",
   "auth_checked_paths",
-  "auth_paths",
+  "credential_database_paths",
   "auth_error",
   "selected_windows",
   "rolling_usage",
@@ -331,8 +331,8 @@ function getQuotaProviderCredentialCategory(
     case "global_opencode_json":
     case "global_opencode_jsonc":
       return "trusted_global_config";
-    case "auth_json":
-      return "auth_json";
+    case "opencode_db":
+      return "opencode_db";
     default:
       return "none";
   }
@@ -419,7 +419,7 @@ function createQuotaProvidersSection(params: {
     }
 
     const checkedPaths = diagnostic
-      ? [...new Set([...diagnostic.checkedPaths, ...diagnostic.authPaths])]
+      ? [...new Set([...diagnostic.checkedPaths, ...diagnostic.credentialDatabasePaths])]
       : [];
     rows.push({
       key: `provider_${definition.id}`,
@@ -813,7 +813,7 @@ export async function buildQuotaStatusReport(params: {
     key: "opencode_dirs",
     value: `data=${runtime.dataDir} config=${runtime.configDir} cache=${runtime.cacheDir} state=${runtime.stateDir}`,
   });
-  const authCandidates = getAuthPaths();
+  const authCandidates = getCredentialDatabasePaths();
   const authPresent: string[] = [];
   await Promise.all(
     authCandidates.map(async (p) => {
@@ -826,8 +826,8 @@ export async function buildQuotaStatusReport(params: {
     }),
   );
   pathsRows.push({
-    key: "auth.json",
-    value: `preferred=${getAuthPath()} present=${joinOrNone(authPresent)} candidates=${joinOrNone(authCandidates)}`,
+    key: "opencode.db",
+    value: `preferred=${getCredentialDatabasePath()} present=${joinOrNone(authPresent)} candidates=${joinOrNone(authCandidates)}`,
   });
 
   appendProviderStatusDetailRows(
@@ -844,7 +844,7 @@ export async function buildQuotaStatusReport(params: {
       "alibaba auth configured",
       "alibaba_api_key_source",
       "alibaba_api_key_checked_paths",
-      "alibaba_api_key_auth_paths",
+      "alibaba_api_key_credential_database_paths",
       "alibaba_coding_plan",
       "alibaba_auth_error",
     ]),

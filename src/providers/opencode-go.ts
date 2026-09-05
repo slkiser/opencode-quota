@@ -5,11 +5,13 @@ import type {
   QuotaProviderStatusDetail,
   QuotaToastEntry,
 } from "../lib/entries.js";
+import { formatCredentialDisplayNames, readCredentialRows } from "../lib/opencode-auth.js";
 import { queryOpenCodeGoQuota } from "../lib/opencode-go.js";
 import {
   DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
   getOpenCodeGoAuthDiagnostics,
   type OpenCodeGoAuthDiagnostics,
+  resolveOpenCodeGoAuth,
   resolveOpenCodeGoAuthCached,
 } from "../lib/opencode-go-auth.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
@@ -35,7 +37,7 @@ function authStatusDetails(diagnostics: OpenCodeGoAuthDiagnostics): QuotaProvide
     auth_state: diagnostics.state,
     auth_source: diagnostics.source ?? "(none)",
     auth_checked_paths: diagnostics.checkedPaths.join(" | ") || "(none)",
-    auth_paths: diagnostics.authPaths.join(" | ") || "(none)",
+    credential_database_paths: diagnostics.credentialDatabasePaths.join(" | ") || "(none)",
     auth_error: diagnostics.state === "invalid" ? diagnostics.error : undefined,
   });
 }
@@ -43,6 +45,8 @@ function authStatusDetails(diagnostics: OpenCodeGoAuthDiagnostics): QuotaProvide
 function buildOpenCodeGoEntries(
   result: Extract<OpenCodeGoResult, { success: true }>,
   selectedWindows: OpenCodeGoWindowKey[],
+  group = OPENCODE_GO_PROVIDER_LABEL,
+  sourceId?: string,
 ): QuotaToastEntry[] {
   const selected = new Set(selectedWindows);
   const entries: QuotaToastEntry[] = [];
@@ -58,9 +62,10 @@ function buildOpenCodeGoEntries(
         acquisitionMethod: "remote_api",
         ownership: "maintained",
         authority: "provider_reported",
+        ...(sourceId ? { sourceId } : {}),
       },
-      name: labels.name,
-      group: OPENCODE_GO_PROVIDER_LABEL,
+      name: `${group} ${labels.label.slice(0, -1)}`,
+      group,
       label: labels.label,
       percentRemaining: usage.percentRemaining,
       resetTimeIso: usage.resetTimeIso,
@@ -100,6 +105,46 @@ export const opencodeGoProvider: QuotaProvider = {
 
     if (auth.state === "none") {
       return withStatusDetails(notAttemptedResult(), statusDetails);
+    }
+
+    if (diagnostics.source === "opencode.db") {
+      const credentialRows = (await readCredentialRows()).filter((row) =>
+        ["opencode-go", "opencode"].includes(row.integrationId),
+      );
+      const rowNames = formatCredentialDisplayNames(
+        OPENCODE_GO_PROVIDER_LABEL,
+        credentialRows.map((row) => ({ row, fallbackName: OPENCODE_GO_PROVIDER_LABEL })),
+      );
+      const displayNamesByRowId = new Map(
+        credentialRows.map((row, index) => [row.id, rowNames[index] ?? OPENCODE_GO_PROVIDER_LABEL]),
+      );
+      const invalidErrors: QuotaProviderResult["errors"] = [];
+      const credentials = credentialRows.flatMap((row) => {
+        const rowAuth = resolveOpenCodeGoAuth({ [row.integrationId]: row.value });
+        if (rowAuth.state === "invalid") {
+          invalidErrors.push({ label: displayNamesByRowId.get(row.id) ?? OPENCODE_GO_PROVIDER_LABEL, message: rowAuth.error });
+        }
+        return rowAuth.state === "configured" ? [{ row, auth: rowAuth }] : [];
+      });
+      if (credentials.length > 0 || invalidErrors.length > 0) {
+        const results = await Promise.all(
+          credentials.map(async ({ row, auth }) => ({
+            row,
+            result: await queryOpenCodeGoQuota(auth.apiKey, {
+              requestTimeoutMs: ctx.config.requestTimeoutMs,
+            }),
+          })),
+        );
+        const entries: QuotaToastEntry[] = [];
+        const errors: QuotaProviderResult["errors"] = [...invalidErrors];
+        for (const { row, result } of results) {
+          const group = displayNamesByRowId.get(row.id) ?? OPENCODE_GO_PROVIDER_LABEL;
+          if (result.success)
+            entries.push(...buildOpenCodeGoEntries(result, windows, group, row.id));
+          else errors.push({ label: group, message: result.error, retryable: result.retryable });
+        }
+        return withStatusDetails(attemptedResult(entries, errors), statusDetails);
+      }
     }
 
     if (auth.state === "invalid") {

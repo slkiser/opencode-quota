@@ -27,6 +27,30 @@ const data: QuotaRenderData = {
 };
 
 describe("Copilot usage-only four-surface formatting", () => {
+  it.each([
+    ["[Copilot] (business)*"],
+    ["[Copilot sita] (business)*"],
+  ])("preserves the credential group %s on command, toast, and sidebar", (group) => {
+    const credentialData: QuotaRenderData = {
+      ...data,
+      entries: data.entries.map((entry) => ({
+        ...entry,
+        name: entry.name.replace("Copilot", group),
+        group,
+      })),
+    };
+    const outputs = [
+      formatQuotaCommand({ ...credentialData, generatedAtMs: 0 }),
+      formatQuotaRowsGrouped(credentialData),
+      buildSidebarQuotaPanelLines({
+        data: credentialData,
+        config: { formatStyle: "allWindows", percentDisplayMode: "remaining" },
+      }).join("\n"),
+    ];
+
+    for (const output of outputs) expect(output).toContain(group);
+  });
+
   it("does not invent a remaining percentage or reset on any surface", () => {
     const web = formatQuotaCommand({ ...data, generatedAtMs: 0 });
     const toast = formatQuotaRowsGrouped({

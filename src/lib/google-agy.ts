@@ -691,10 +691,10 @@ async function fetchAccountQuota(params: {
 
 export async function queryGoogleAgyQuota(
   client?: ConfigClient,
-  options: { requestTimeoutMs?: number } = {},
+  options: { requestTimeoutMs?: number; authData?: AuthData } = {},
 ): Promise<GoogleAgyResult> {
   const [auth, configuredProjectId] = await Promise.all([
-    readAuthFileCached({ maxAgeMs: DEFAULT_AGY_AUTH_CACHE_MAX_AGE_MS }),
+    options.authData ?? readAuthFileCached({ maxAgeMs: DEFAULT_AGY_AUTH_CACHE_MAX_AGE_MS }),
     resolveAgyConfiguredProjectId(client),
   ]);
   const accounts = resolveAgyAccounts(auth, configuredProjectId);

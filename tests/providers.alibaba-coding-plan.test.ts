@@ -8,7 +8,7 @@ import {
 } from "./helpers/provider-assertions.js";
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
-  getAuthPaths: () => ["/tmp/auth.json"],
+  getCredentialDatabasePaths: () => ["/tmp/opencode.db"],
   readAuthFileCached: vi.fn(),
 }));
 

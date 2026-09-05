@@ -289,7 +289,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
 };
 
 // =============================================================================
-// Auth Data Types (from ~/.local/share/opencode/auth.json)
+// Auth Data Types (from ~/.local/share/opencode/opencode.db)
 // =============================================================================
 
 /** GitHub Copilot authentication data */
@@ -447,7 +447,7 @@ export interface CopilotQuotaConfig {
   tier: CopilotTier;
 }
 
-/** Full auth.json structure (partial - only what we need) */
+/** Full opencode.db structure (partial - only what we need) */
 export interface AuthData {
   anthropic?: AnthropicOAuthAuthData;
   "github-copilot"?: CopilotAuthData;
@@ -551,7 +551,7 @@ export interface GoogleQuotaResponse {
 // Kimi Types
 // =============================================================================
 
-/** Kimi auth entry in auth.json */
+/** Kimi auth entry in opencode.db */
 export interface KimiAuthData {
   type: "api";
   key: string;
@@ -579,7 +579,7 @@ export type KimiResult = KimiQuotaResult | QuotaError | null;
 // Z.ai Types
 // =============================================================================
 
-/** Z.ai auth entry in auth.json */
+/** Z.ai auth entry in opencode.db */
 export interface ZaiAuthData {
   type: "api";
   key: string;

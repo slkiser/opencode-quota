@@ -29,6 +29,32 @@ function renderDataForLabel(label: (typeof xaiLabels)[number]): QuotaRenderData 
 }
 
 describe("xAI four-surface formatting", () => {
+  it.each([
+    ["[xAI] (SuperGrok)*"],
+    ["[xAI personal] (SuperGrok)*"],
+  ])("preserves the credential group %s on command, toast, and sidebar", (group) => {
+    const data: QuotaRenderData = {
+      entries: [
+        {
+          ...renderDataForLabel("xAI SuperGrok").entries[0]!,
+          name: `${group} Weekly`,
+          group,
+        },
+      ],
+      errors: [],
+    };
+    const outputs = [
+      formatQuotaCommand({ ...data, generatedAtMs: 0 }),
+      formatQuotaRowsGrouped(data),
+      buildSidebarQuotaPanelLines({
+        data,
+        config: { formatStyle: "allWindows", percentDisplayMode: "remaining" },
+      }).join("\n"),
+    ];
+
+    for (const output of outputs) expect(output).toContain(group);
+  });
+
   it.each(
     xaiLabels,
   )("shows the %s weekly quota in command, toast, sidebar, and compact output", (label) => {

@@ -8,16 +8,18 @@ import {
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 
 const authMocks = vi.hoisted(() => ({
+  resolveKimiAuth: vi.fn(),
   resolveKimiAuthCached: vi.fn(),
 }));
 
 vi.mock("../src/lib/kimi-auth.js", () => ({
   resolveKimiAuthCached: authMocks.resolveKimiAuthCached,
+  resolveKimiAuth: authMocks.resolveKimiAuth,
   getKimiAuthDiagnostics: vi.fn(async () => ({
     state: "none",
     source: null,
     checkedPaths: [],
-    authPaths: [],
+    credentialDatabasePaths: [],
   })),
   DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS: 5_000,
 }));
@@ -30,6 +32,11 @@ vi.mock("../src/lib/provider-availability.js", () => ({
   isCanonicalProviderAvailable: vi.fn(),
 }));
 
+vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/opencode-auth.js")>()),
+  readCredentialRows: vi.fn().mockResolvedValue([]),
+}));
+
 import { kimiCodeProvider } from "../src/providers/kimi-code.js";
 
 describe("kimi-code provider", () => {
@@ -39,6 +46,7 @@ describe("kimi-code provider", () => {
       state: "configured",
       apiKey: "test-key",
     });
+    authMocks.resolveKimiAuth.mockReturnValue({ state: "configured", apiKey: "row-key" });
   });
 
   it("returns attempted:false when no kimi auth is configured", async () => {
@@ -105,6 +113,32 @@ describe("kimi-code provider", () => {
     expect(out.presentation).toEqual({
       singleWindowDisplayName: "Kimi Code",
     });
+  });
+
+  it("keeps a valid inactive duplicate-label database credential when the active row is invalid", async () => {
+    const { getKimiAuthDiagnostics } = await import("../src/lib/kimi-auth.js");
+    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
+    const { queryKimiQuota } = await import("../src/lib/kimi.js");
+    (getKimiAuthDiagnostics as any).mockResolvedValueOnce({ state: "invalid", source: "opencode.db", checkedPaths: [], credentialDatabasePaths: [] });
+    (readCredentialRows as any).mockResolvedValueOnce([
+      { id: "bad", integrationId: "kimi", label: "shared", active: true, value: { key: "" } },
+      { id: "good", integrationId: "kimi", label: "shared", active: false, value: { key: "ok" } },
+    ]);
+    authMocks.resolveKimiAuth.mockImplementation((auth: any) =>
+      auth.kimi.key ? { state: "configured", apiKey: "row-key" } : { state: "invalid", error: "empty key" },
+    );
+    (queryKimiQuota as any).mockResolvedValueOnce({
+      success: true,
+      label: "Kimi Code",
+      windows: [{ label: "5h", used: 1, limit: 10, percentRemaining: 90 }],
+    });
+
+    const out = await kimiCodeProvider.fetch({ config: {} } as any);
+    expect(out.errors).toContainEqual({ label: "[Kimi Code shared]*", message: "empty key" });
+    expect(out.entries).toContainEqual(
+      expect.objectContaining({ group: "[Kimi Code shared 2]", accounting: expect.objectContaining({ sourceId: "good" }) }),
+    );
+    expect(queryKimiQuota).toHaveBeenCalledOnce();
   });
 
   it("maps errors into toast errors", async () => {

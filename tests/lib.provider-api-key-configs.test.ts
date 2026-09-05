@@ -27,7 +27,7 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => createRuntimePathsMockModu
 vi.mock("fs", () => ({ existsSync: vi.fn() }));
 vi.mock("fs/promises", () => ({ readFile: vi.fn() }));
 vi.mock("../src/lib/opencode-auth.js", () => ({
-  getAuthPaths: () => ["/tmp/auth.json"],
+  getCredentialDatabasePaths: () => ["/tmp/opencode.db"],
   readAuthFile: authMocks.readAuthFile,
 }));
 
@@ -161,7 +161,7 @@ describe("simple provider API key configs", () => {
         configured: true,
         source: `env:${provider.envVars[0]}`,
         checkedPaths: [`env:${provider.envVars[0]}`],
-        authPaths: ["/tmp/auth.json"],
+        credentialDatabasePaths: ["/tmp/opencode.db"],
       });
     }
   });
@@ -183,7 +183,7 @@ describe("simple provider API key configs", () => {
     }
   });
 
-  it("keeps environment before config before strict auth.json", async () => {
+  it("keeps environment before config before strict opencode.db", async () => {
     for (const provider of providers) {
       const module = await provider.load();
 
@@ -224,7 +224,7 @@ describe("simple provider API key configs", () => {
       );
       await expect(module.resolve(), provider.name).resolves.toEqual({
         key: "auth-key",
-        source: "auth.json",
+        source: "opencode.db",
       });
 
       authMocks.readAuthFile.mockResolvedValue(
@@ -264,7 +264,7 @@ describe("simple provider API key configs", () => {
         configured: false,
         source: null,
         checkedPaths: [trustedPaths.json],
-        authPaths: ["/tmp/auth.json"],
+        credentialDatabasePaths: ["/tmp/opencode.db"],
       });
       expect(module.getConfigCandidates(), provider.name).toEqual(
         expectedTrustedConfigCandidates(),
@@ -297,7 +297,7 @@ describe("simple provider API key configs", () => {
     );
     await expect(module.resolve()).resolves.toEqual({
       key: "alias-key",
-      source: "auth.json",
+      source: "opencode.db",
     });
   });
 });

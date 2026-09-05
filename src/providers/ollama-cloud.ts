@@ -120,7 +120,7 @@ export const ollamaCloudProvider: QuotaProvider = {
       configured: false,
       source: null,
       checkedPaths: [],
-      authPaths: [],
+      credentialDatabasePaths: [],
     }));
     const result = await queryOllamaCloudQuota({
       requestTimeoutMs: ctx.config?.requestTimeoutMs,

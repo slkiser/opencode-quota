@@ -289,7 +289,7 @@ export interface QuotaProviderDiagnostic {
     | "explicit_env"
     | "global_opencode_json"
     | "global_opencode_jsonc"
-    | "auth_json"
+    | "opencode_db"
     | null;
   outcome:
     | "missing_credential"
@@ -306,7 +306,7 @@ export interface QuotaProviderDiagnostic {
   httpStatus?: number;
   entryCount: number;
   checkedPaths: string[];
-  authPaths: string[];
+  credentialDatabasePaths: string[];
   statePath?: string;
   stateHealth?: "missing" | "healthy" | "malformed" | "version_mismatch";
   stateVersion?: number | null;

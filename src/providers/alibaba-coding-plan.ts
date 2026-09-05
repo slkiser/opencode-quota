@@ -66,7 +66,8 @@ export const alibabaCodingPlanProvider: QuotaProvider = {
       "alibaba auth configured": diagnostics.state === "none" ? "false" : "true",
       alibaba_api_key_source: diagnostics.source ?? "(none)",
       alibaba_api_key_checked_paths: diagnostics.checkedPaths.join(" | ") || "(none)",
-      alibaba_api_key_auth_paths: diagnostics.authPaths.join(" | ") || "(none)",
+      alibaba_api_key_credential_database_paths:
+        diagnostics.credentialDatabasePaths.join(" | ") || "(none)",
       alibaba_coding_plan:
         diagnostics.state === "configured"
           ? diagnostics.tier
