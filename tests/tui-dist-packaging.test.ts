@@ -32,6 +32,14 @@ async function exists(url: URL): Promise<boolean> {
 }
 
 describe("tui dist packaging", () => {
+  it("loads the conventional root TUI entrypoint as the existing local plugin", async () => {
+    const [local, source] = await Promise.all([import("../tui.js"), import("../src/index.js")]);
+
+    expect(local.default).toBe(source.default);
+    expect(local.default).toMatchObject({ id: "@slkiser/opencode-quota" });
+    expect(typeof local.default.setup).toBe("function");
+  });
+
   it("ships the precompiled TUI entry and removes stale jsx artifacts", async () => {
     const distTui = new URL("../dist/tui.js", import.meta.url);
     const distTuiV2 = new URL("../dist/tui-v2.js", import.meta.url);
