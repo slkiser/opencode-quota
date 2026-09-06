@@ -1,5 +1,6 @@
 import type { QuotaProviderDefinition } from "./quota-providers.js";
 import type { QuotaTelemetryToken } from "./quota-telemetry.js";
+import type { ResolvedAuthIdentity } from "./resolved-auth-identity.js";
 import type { RuntimeProviderIdResolver } from "./runtime-provider-ids.js";
 import type { CursorQuotaPlan, OpenCodeGoWindowKey } from "./types.js";
 
@@ -366,6 +367,21 @@ export interface QuotaProviderContext {
   };
 }
 
+export interface QuotaProviderCacheContext {
+  runtimeEligibleQuotaProviders?: readonly QuotaProviderDefinition[];
+}
+
+export type QuotaProviderCachePolicy =
+  | { kind: "account-neutral" }
+  | { kind: "uncached" }
+  | {
+      kind: "resolved-auth";
+      resolveIdentity: (
+        ctx: QuotaProviderContext,
+        cacheContext: QuotaProviderCacheContext,
+      ) => Promise<ResolvedAuthIdentity | null>;
+    };
+
 export interface QuotaProvider {
   /** Stable id used by config.enabledProviders */
   id: string;
@@ -373,8 +389,18 @@ export interface QuotaProvider {
   /** Best-effort availability check (no network if possible) */
   isAvailable: (ctx: QuotaProviderContext) => Promise<boolean>;
 
-  /** Fetch and normalize quota for this provider */
-  fetch: (ctx: QuotaProviderContext) => Promise<QuotaProviderResult>;
+  /** Fetch and normalize quota for this provider. */
+  fetch: (
+    ctx: QuotaProviderContext,
+    cacheContext?: QuotaProviderCacheContext,
+  ) => Promise<QuotaProviderResult>;
+
+  /**
+   * Shared-cache safety policy. Canonical runtime providers are classified in
+   * the registry. Missing policy fails closed as uncached; account-neutral
+   * caching must be explicit.
+   */
+  cachePolicy?: QuotaProviderCachePolicy;
 
   /** Optional provider match for onlyCurrentModel filtering */
   matchesCurrentModel?: (model: string, context?: QuotaProviderMatchContext) => boolean;

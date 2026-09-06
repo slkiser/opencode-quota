@@ -4,15 +4,21 @@ import {
   hasOpenRouterApiKeyConfigured,
   queryOpenRouterQuota,
   resolveOpenRouterApiKey,
+  resolveOpenRouterAuthIdentity,
 } from "../src/lib/openrouter.js";
 import {
   fetchRemoteQuotaProvider,
   resolveQuotaProviderApiKey,
 } from "../src/lib/quota-providers-remote.js";
+import { deriveResolvedAuthIdentity } from "../src/lib/resolved-auth-identity.js";
 
 vi.mock("../src/lib/quota-providers-remote.js", () => ({
   fetchRemoteQuotaProvider: vi.fn(),
   resolveQuotaProviderApiKey: vi.fn(),
+}));
+
+vi.mock("../src/lib/resolved-auth-identity.js", () => ({
+  deriveResolvedAuthIdentity: vi.fn(async () => `rai1_${"a".repeat(43)}`),
 }));
 
 afterEach(() => {
@@ -20,6 +26,23 @@ afterEach(() => {
 });
 
 describe("OpenRouter quota", () => {
+  it("derives cache identity from the winning trusted key without exposing it", async () => {
+    vi.mocked(resolveQuotaProviderApiKey).mockResolvedValueOnce({
+      key: "openrouter-secret",
+      source: "env",
+      checkedPaths: [],
+      authPaths: [],
+    });
+
+    const identity = await resolveOpenRouterAuthIdentity();
+
+    expect(deriveResolvedAuthIdentity).toHaveBeenCalledWith({
+      providerId: "openrouter",
+      principal: { kind: "credential", value: "openrouter-secret" },
+    });
+    expect(identity).not.toContain("openrouter-secret");
+  });
+
   it("uses the standard OpenRouter credential sources and key endpoint", async () => {
     vi.mocked(resolveQuotaProviderApiKey).mockResolvedValueOnce({
       key: "secret",

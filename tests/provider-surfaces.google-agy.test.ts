@@ -32,7 +32,6 @@ function bucket(params: {
   window: "weekly" | "five_hour";
   percentRemaining: number;
   accountEmail: string;
-  accountKey: string;
   accountIndex: number;
 }) {
   return {
@@ -52,7 +51,6 @@ describe("Google AGY provider surfaces", () => {
           window: "five_hour",
           percentRemaining: 100,
           accountEmail: "alice@example.com",
-          accountKey: "account-alice",
           accountIndex: 0,
         }),
         bucket({
@@ -60,7 +58,6 @@ describe("Google AGY provider surfaces", () => {
           window: "weekly",
           percentRemaining: 99,
           accountEmail: "alice@example.com",
-          accountKey: "account-alice",
           accountIndex: 0,
         }),
         bucket({
@@ -68,7 +65,6 @@ describe("Google AGY provider surfaces", () => {
           window: "five_hour",
           percentRemaining: 100,
           accountEmail: "alice@example.com",
-          accountKey: "account-alice",
           accountIndex: 0,
         }),
         bucket({
@@ -76,7 +72,6 @@ describe("Google AGY provider surfaces", () => {
           window: "weekly",
           percentRemaining: 82,
           accountEmail: "alice@example.com",
-          accountKey: "account-alice",
           accountIndex: 0,
         }),
         bucket({
@@ -84,7 +79,6 @@ describe("Google AGY provider surfaces", () => {
           window: "five_hour",
           percentRemaining: 90,
           accountEmail: "bob@example.com",
-          accountKey: "account-bob",
           accountIndex: 1,
         }),
         bucket({
@@ -92,7 +86,6 @@ describe("Google AGY provider surfaces", () => {
           window: "weekly",
           percentRemaining: 75,
           accountEmail: "bob@example.com",
-          accountKey: "account-bob",
           accountIndex: 1,
         }),
         bucket({
@@ -100,7 +93,6 @@ describe("Google AGY provider surfaces", () => {
           window: "five_hour",
           percentRemaining: 80,
           accountEmail: "bob@example.com",
-          accountKey: "account-bob",
           accountIndex: 1,
         }),
         bucket({
@@ -108,7 +100,6 @@ describe("Google AGY provider surfaces", () => {
           window: "weekly",
           percentRemaining: 60,
           accountEmail: "bob@example.com",
-          accountKey: "account-bob",
           accountIndex: 1,
         }),
       ],
@@ -155,14 +146,14 @@ describe("Google AGY provider surfaces", () => {
         "AGY (bob…): Claude/GPT 7d 60%, 5h 80%",
     );
     expect(entries.map((entry) => entry.accounting.sourceId)).toEqual([
-      "account-alice",
-      "account-alice",
-      "account-alice",
-      "account-alice",
-      "account-bob",
-      "account-bob",
-      "account-bob",
-      "account-bob",
+      "account-1",
+      "account-1",
+      "account-1",
+      "account-1",
+      "account-2",
+      "account-2",
+      "account-2",
+      "account-2",
     ]);
   });
 });

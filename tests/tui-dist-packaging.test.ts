@@ -31,6 +31,8 @@ async function exists(url: URL): Promise<boolean> {
   }
 }
 
+const packagedTui = await import("../dist/tui.js");
+
 describe("tui dist packaging", () => {
   it("loads the conventional root TUI entrypoint as the existing local plugin", async () => {
     const [local, source] = await Promise.all([import("../tui.js"), import("../src/index.js")]);
@@ -68,13 +70,11 @@ describe("tui dist packaging", () => {
     expect(source).not.toContain("jsx-dev-runtime");
   });
 
-  it("can load the packaged TUI module", async () => {
-    const mod = await import("../dist/tui.js");
-
-    expect(mod.default).toMatchObject({
+  it("can load the packaged TUI module", () => {
+    expect(packagedTui.default).toMatchObject({
       id: "@slkiser/opencode-quota",
     });
-    expect(typeof mod.default.tui).toBe("function");
+    expect(typeof packagedTui.default.tui).toBe("function");
   });
 
   it("can load the packaged root module", async () => {

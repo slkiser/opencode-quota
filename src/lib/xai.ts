@@ -15,6 +15,7 @@ import { sanitizeSingleLineDisplaySnippet } from "./display-sanitize.js";
 import { clampPercent } from "./format-utils.js";
 import { fetchWithTimeout } from "./http.js";
 import { readAuthFile, readAuthFileCached } from "./opencode-auth.js";
+import { deriveResolvedAuthIdentity, type ResolvedAuthIdentity } from "./resolved-auth-identity.js";
 import type { AuthData, QuotaError } from "./types.js";
 
 export const DEFAULT_XAI_AUTH_CACHE_MAX_AGE_MS = 5_000;
@@ -115,6 +116,15 @@ export async function hasXaiOAuthCached(params?: { maxAgeMs?: number }): Promise
     maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_XAI_AUTH_CACHE_MAX_AGE_MS),
   });
   return hasXaiOAuth(auth);
+}
+
+export async function resolveXaiAuthIdentity(): Promise<ResolvedAuthIdentity | null> {
+  const resolved = resolveXaiOAuth(await readAuthFile());
+  if (resolved.state !== "configured") return null;
+  return deriveResolvedAuthIdentity({
+    providerId: "xai",
+    principal: { kind: "credential", value: resolved.accessToken },
+  });
 }
 
 function parseCreditsWindow(payload: unknown): XaiWindowValue | null {

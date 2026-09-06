@@ -223,9 +223,10 @@ function createApi() {
   };
 }
 
+const tuiPlugin = (await import("../src/tui.tsx")).default;
+
 async function loadTuiModule() {
-  const mod = await import("../src/tui.tsx");
-  return mod.default;
+  return tuiPlugin;
 }
 
 function deferred<T>() {

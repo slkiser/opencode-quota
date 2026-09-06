@@ -779,7 +779,6 @@ export interface GoogleAgyQuotaBucket {
   resetTimeIso?: string;
   remainingAmount?: string;
   accountEmail?: string;
-  accountKey: string;
   accountIndex: number;
   sourceKey: GoogleAgyAuthSourceKey;
 }

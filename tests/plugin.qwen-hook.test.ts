@@ -40,6 +40,8 @@ vi.mock("../src/lib/alibaba-auth.js", () =>
 );
 vi.mock("../src/lib/modelsdev-pricing.js", () => createPricingModuleMock(mocks));
 
+const { QuotaToastPlugin } = await import("../src/plugin.js");
+
 describe("plugin question hook accounting boundary", () => {
   beforeEach(() => {
     seedDefaultPluginBootstrapMocks(mocks, {
@@ -48,7 +50,6 @@ describe("plugin question hook accounting boundary", () => {
   });
 
   it("does not treat a successful question-tool execution as a completed model request", async () => {
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient({ modelID: "qwen3-coder-plus", providerID: "qwen-code" });
     const hooks = await QuotaToastPlugin({ client } as any);
 
@@ -63,7 +64,6 @@ describe("plugin question hook accounting boundary", () => {
   });
 
   it("does not use question-tool failure metadata as accounting authority", async () => {
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient({ modelID: "qwen3-coder-plus", providerID: "qwen-code" });
     const hooks = await QuotaToastPlugin({ client } as any);
 

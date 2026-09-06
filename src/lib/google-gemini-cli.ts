@@ -12,6 +12,11 @@ import {
 import { fetchWithTimeout } from "./http.js";
 import { mapWithConcurrency } from "./map-with-concurrency.js";
 import { readAuthFileCached } from "./opencode-auth.js";
+import {
+  composeResolvedAuthIdentities,
+  deriveResolvedAuthIdentity,
+  type ResolvedAuthIdentity,
+} from "./resolved-auth-identity.js";
 import type {
   AuthData,
   GeminiCliAuthSourceKey,
@@ -287,6 +292,41 @@ export async function hasGeminiCliQuotaRuntimeAvailable(client?: ConfigClient): 
   );
 }
 
+export async function resolveGeminiCliAuthIdentity(
+  client?: ConfigClient,
+): Promise<ResolvedAuthIdentity | null> {
+  const [auth, configuredProjectId, credentials] = await Promise.all([
+    readAuthFileCached({ maxAgeMs: DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS }),
+    resolveGeminiCliConfiguredProjectId(client),
+    resolveGeminiCliClientCredentials(),
+  ]);
+  const accounts = resolveGeminiCliAccounts(auth, configuredProjectId);
+  if (accounts.length === 0 || credentials.state !== "configured") return null;
+
+  const accountIdentities = await Promise.all(
+    accounts.map((account) =>
+      deriveResolvedAuthIdentity({
+        providerId: "google-gemini-cli",
+        principal: { kind: "credential" as const, value: account.refreshToken },
+        qualifiers: [account.projectId],
+      }),
+    ),
+  );
+  if (accountIdentities.some((identity) => identity === null)) return null;
+
+  const companionIdentity = await deriveResolvedAuthIdentity({
+    providerId: "google-gemini-cli:companion",
+    principal: { kind: "credential", value: credentials.clientSecret },
+    qualifiers: [credentials.clientId],
+  });
+  if (!companionIdentity) return null;
+
+  return composeResolvedAuthIdentities({
+    providerId: "google-gemini-cli",
+    identities: [...(accountIdentities as ResolvedAuthIdentity[]), companionIdentity],
+  });
+}
+
 async function refreshAccessToken(params: {
   refreshToken: string;
   clientId: string;
@@ -353,7 +393,6 @@ async function refreshGeminiCliAccessTokenWithCache(params: {
   const key = makeAccountCacheKey({
     refreshToken: params.account.refreshToken,
     projectId: params.account.projectId,
-    email: params.account.email,
   });
 
   if (!params.force) {
@@ -382,8 +421,6 @@ async function refreshGeminiCliAccessTokenWithCache(params: {
     entry: {
       accessToken: refreshed.accessToken,
       expiresAt: Date.now() + Math.max(1, refreshed.expiresIn) * 1000,
-      projectId: params.account.projectId,
-      email: params.account.email,
     },
   });
 

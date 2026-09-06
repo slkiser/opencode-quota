@@ -26,6 +26,7 @@ import {
   resolveQuotaProviderApiKey,
 } from "../lib/quota-providers-remote.js";
 import { fetchQuotaProviderResult } from "../lib/quota-state.js";
+import { resolveQuotaProviderDefinitionAuthIdentity } from "./cache-policies.js";
 
 export const QUOTA_PROVIDERS_PROVIDER_ID = QUOTA_PROVIDERS_AGGREGATE_ID;
 export const selectEligibleQuotaProviders = selectEligibleQuotaProviderDefinitions;
@@ -172,6 +173,10 @@ async function executeRemoteWithCache(
   const remoteProvider: QuotaProvider = {
     id: `${QUOTA_PROVIDERS_PROVIDER_ID}:${definition.id}`,
     isAvailable: async () => true,
+    cachePolicy: {
+      kind: "resolved-auth",
+      resolveIdentity: () => resolveQuotaProviderDefinitionAuthIdentity(definition),
+    },
     fetch: async () => {
       const result = await executeRemote(definition, ctx.config.requestTimeoutMs);
       return {
@@ -280,35 +285,38 @@ export const quotaProvidersProvider: QuotaProvider = {
     return matchesConfiguredCurrentSelection(model, context);
   },
 
-  async fetch(ctx): Promise<QuotaProviderResult> {
+  async fetch(ctx, cacheContext): Promise<QuotaProviderResult> {
     const definitions = ctx.config.quotaProviders ?? [];
     if (customQuotaProviderDefinitions(definitions).length === 0) {
       return { attempted: false, entries: [], errors: [] };
     }
 
-    let availableProviderIds: ReadonlySet<string>;
-    try {
-      availableProviderIds = await getAvailableProviderIds(ctx);
-    } catch {
-      return {
-        attempted: true,
-        entries: [],
-        errors: [
-          {
-            label: "Quota providers",
-            message: "Failed to read exact runtime provider identities",
-          },
-        ],
-      };
-    }
+    let selected = cacheContext?.runtimeEligibleQuotaProviders;
+    if (!selected) {
+      let availableProviderIds: ReadonlySet<string>;
+      try {
+        availableProviderIds = await getAvailableProviderIds(ctx);
+      } catch {
+        return {
+          attempted: true,
+          entries: [],
+          errors: [
+            {
+              label: "Quota providers",
+              message: "Failed to read exact runtime provider identities",
+            },
+          ],
+        };
+      }
 
-    const selected = selectEligibleQuotaProviders({
-      definitions,
-      availableProviderIds,
-      onlyCurrentModel: ctx.config.onlyCurrentModel,
-      currentModel: ctx.config.currentModel,
-      currentProviderID: ctx.config.currentProviderID,
-    });
+      selected = selectEligibleQuotaProviders({
+        definitions,
+        availableProviderIds,
+        onlyCurrentModel: ctx.config.onlyCurrentModel,
+        currentModel: ctx.config.currentModel,
+        currentProviderID: ctx.config.currentProviderID,
+      });
+    }
     if (selected.length === 0) {
       return { attempted: false, entries: [], errors: [] };
     }

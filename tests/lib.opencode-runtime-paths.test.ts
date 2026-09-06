@@ -1,3 +1,4 @@
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -17,22 +18,23 @@ describe("opencode-runtime-paths", () => {
 
     const dirs = getOpencodeRuntimeDirs({ env, homeDir: "/home/test" });
     expect(dirs).toEqual({
-      dataDir: "/x/data/opencode",
-      configDir: "/x/config/opencode",
-      cacheDir: "/x/cache/opencode",
-      stateDir: "/x/state/opencode",
+      dataDir: join(env.XDG_DATA_HOME!, "opencode"),
+      configDir: join(env.XDG_CONFIG_HOME!, "opencode"),
+      cacheDir: join(env.XDG_CACHE_HOME!, "opencode"),
+      stateDir: join(env.XDG_STATE_HOME!, "opencode"),
     });
   });
 
   it("uses OPENCODE_CONFIG_DIR as the primary global config directory", () => {
+    const absoluteConfigDir = resolve("custom", "opencode");
     const absolute = getOpencodeRuntimeDirs({
       env: {
         XDG_CONFIG_HOME: "/x/config",
-        OPENCODE_CONFIG_DIR: "/custom/opencode",
+        OPENCODE_CONFIG_DIR: absoluteConfigDir,
       },
       homeDir: "/home/test",
     });
-    expect(absolute.configDir).toBe("/custom/opencode");
+    expect(absolute.configDir).toBe(absoluteConfigDir);
 
     const relative = getOpencodeRuntimeDirs({
       env: {
@@ -41,17 +43,17 @@ describe("opencode-runtime-paths", () => {
       },
       homeDir: "/home/test",
     });
-    expect(relative.configDir).toBe("/x/config/opencode/work-profile");
+    expect(relative.configDir).toBe(resolve(join("/x/config", "opencode"), "work-profile"));
 
     const candidates = getOpencodeRuntimeDirCandidates({
       platform: "linux",
       env: {
         XDG_CONFIG_HOME: "/x/config",
-        OPENCODE_CONFIG_DIR: "/custom/opencode",
+        OPENCODE_CONFIG_DIR: absoluteConfigDir,
       },
       homeDir: "/home/test",
     });
-    expect(candidates.configDirs[0]).toBe("/custom/opencode");
+    expect(candidates.configDirs[0]).toBe(absoluteConfigDir);
   });
 
   it("includes Windows APPDATA/LOCALAPPDATA fallbacks after primary", () => {
@@ -77,11 +79,11 @@ describe("opencode-runtime-paths", () => {
     expect(c.cacheDirs[0]).toBe(primary.cacheDir);
     expect(c.stateDirs[0]).toBe(primary.stateDir);
 
-    expect(c.dataDirs).toContain("C:/Users/u/AppData/Roaming/opencode");
-    expect(c.dataDirs).toContain("C:/Users/u/AppData/Local/opencode");
+    expect(c.dataDirs).toContain(join(env.APPDATA!, "opencode"));
+    expect(c.dataDirs).toContain(join(env.LOCALAPPDATA!, "opencode"));
 
-    expect(c.configDirs).toContain("C:/Users/u/AppData/Roaming/opencode");
-    expect(c.configDirs).toContain("C:/Users/u/AppData/Local/opencode");
+    expect(c.configDirs).toContain(join(env.APPDATA!, "opencode"));
+    expect(c.configDirs).toContain(join(env.LOCALAPPDATA!, "opencode"));
   });
 
   it("derives opencode.db candidates from runtime data dirs", () => {
@@ -113,7 +115,7 @@ describe("opencode-runtime-paths", () => {
       const candidates = getOpenCodeDbPathCandidates();
 
       // Ensure the primary candidate matches runtime primary (order matters).
-      expect(candidates[0]).toBe(dirs.dataDirs[0] + "/opencode.db");
+      expect(candidates[0]).toBe(join(dirs.dataDirs[0]!, "opencode.db"));
     } finally {
       process.env.XDG_DATA_HOME = prev.XDG_DATA_HOME;
       process.env.XDG_CONFIG_HOME = prev.XDG_CONFIG_HOME;

@@ -226,7 +226,12 @@ describe("upstream-plugin-sync", () => {
   });
 
   afterEach(async () => {
-    await rm(testState.repoRoot, { force: true, recursive: true });
+    await rm(testState.repoRoot, {
+      force: true,
+      recursive: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
   });
 
   it("stages the full reference tree before swapping it into place", async () => {

@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -406,11 +407,15 @@ describe("migration candidate discovery", () => {
       selectedPackagePaths: [symlinkPath],
     });
 
+    const [realPath, realRoot] = await Promise.all([
+      realpath(workspaceFile),
+      realpath(workspaceRoot),
+    ]);
     expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0]).toMatchObject({
       path: workspaceFile,
-      realPath: realpathSync(workspaceFile),
-      realRoot: realpathSync(workspaceRoot),
+      realPath,
+      realRoot,
     });
     expect(result.manualFindings).toEqual([
       {

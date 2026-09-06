@@ -1,16 +1,31 @@
-import { readFileSync } from "fs";
-import { homedir } from "os";
-import { join } from "path";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // --------------- mock modules ---------------
 
+const testPaths = vi.hoisted(() => {
+  const separator = process.platform === "win32" ? "\\" : "/";
+  const join = (...parts: string[]) => parts.join(separator);
+  const root = join(process.cwd(), ".quota-export-test");
+  const cacheDir = join(root, "cache");
+  return {
+    dataDir: join(root, "data"),
+    configDir: join(root, "config"),
+    cacheDir,
+    stateDir: join(root, "state"),
+    defaultExport: join(cacheDir, "quota-export.json"),
+    explicitExport: join(root, "export.json"),
+  };
+});
+
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
   getOpencodeRuntimeDirs: () => ({
-    dataDir: "/tmp/test-opencode-quota-export/data",
-    configDir: "/tmp/test-opencode-quota-export/config",
-    cacheDir: "/tmp/test-opencode-quota-export/cache",
-    stateDir: "/tmp/test-opencode-quota-export/state",
+    dataDir: testPaths.dataDir,
+    configDir: testPaths.configDir,
+    cacheDir: testPaths.cacheDir,
+    stateDir: testPaths.stateDir,
   }),
 }));
 
@@ -82,7 +97,7 @@ const QUOTA_ACCOUNTING = {
 
 describe("resolveExportPath", () => {
   it("handles empty, tilde, absolute, and relative paths", () => {
-    expect(resolveExportPath("")).toBe("/tmp/test-opencode-quota-export/cache/quota-export.json");
+    expect(resolveExportPath("")).toBe(testPaths.defaultExport);
     expect(resolveExportPath("~/my-exports/quota.json")).toBe(
       join(homedir(), "my-exports/quota.json"),
     );
@@ -699,9 +714,9 @@ describe("writeQuotaExport", () => {
 
   it("calls writeJsonAtomic with the resolved path and trailing newline", async () => {
     const exportData: any = { version: 2, providers: {} };
-    await writeQuotaExport(exportData, "/tmp/export.json");
+    await writeQuotaExport(exportData, testPaths.explicitExport);
 
-    expect(writeJsonAtomic).toHaveBeenCalledWith("/tmp/export.json", exportData, {
+    expect(writeJsonAtomic).toHaveBeenCalledWith(testPaths.explicitExport, exportData, {
       trailingNewline: true,
     });
   });

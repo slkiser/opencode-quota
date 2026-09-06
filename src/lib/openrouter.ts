@@ -12,6 +12,7 @@ import {
   type RemoteQuotaProviderResult,
   resolveQuotaProviderApiKey,
 } from "./quota-providers-remote.js";
+import { deriveResolvedAuthIdentity, type ResolvedAuthIdentity } from "./resolved-auth-identity.js";
 
 const OPENROUTER_KEY_SOURCE = {
   id: "openrouter",
@@ -29,6 +30,15 @@ export async function resolveOpenRouterApiKey(): Promise<QuotaProviderAuthResolu
 
 export async function hasOpenRouterApiKeyConfigured(): Promise<boolean> {
   return Boolean((await resolveOpenRouterApiKey()).key);
+}
+
+export async function resolveOpenRouterAuthIdentity(): Promise<ResolvedAuthIdentity | null> {
+  const resolved = await resolveOpenRouterApiKey();
+  if (!resolved.key) return null;
+  return deriveResolvedAuthIdentity({
+    providerId: "openrouter",
+    principal: { kind: "credential", value: resolved.key },
+  });
 }
 
 export async function queryOpenRouterQuota(

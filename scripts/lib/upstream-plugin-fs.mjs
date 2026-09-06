@@ -3,7 +3,12 @@ import path from "node:path";
 
 export async function safeRm(targetPath) {
   try {
-    await rm(targetPath, { force: true, recursive: true });
+    await rm(targetPath, {
+      force: true,
+      recursive: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
   } catch {
     // best-effort cleanup
   }

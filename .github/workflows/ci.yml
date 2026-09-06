@@ -40,6 +40,30 @@ jobs:
           path: package-artifacts/*
           if-no-files-found: error
 
+  windows-verify:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.0.0 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run canonical verification
+        run: pnpm verify
+
   runtime-smoke:
     runs-on: ubuntu-latest
     needs: pnpm-quality

@@ -30,9 +30,13 @@ let rawManifest;
 if (manifestPath) {
   rawManifest = await readFile(path.resolve(repoRoot, manifestPath), "utf8");
 } else {
+  const pnpmCliPath = process.env.npm_execpath;
+  if (!pnpmCliPath) {
+    throw new Error("pnpm CLI path is unavailable; run this script through pnpm.");
+  }
   const result = spawnSync(
-    "pnpm",
-    ["--config.ignore-scripts=true", "pack", "--json", "--dry-run"],
+    process.execPath,
+    [pnpmCliPath, "--config.ignore-scripts=true", "pack", "--json", "--dry-run"],
     {
       cwd: repoRoot,
       encoding: "utf8",

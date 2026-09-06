@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -23,16 +23,18 @@ function tempDir(): string {
 
 describe("read-only OpenCode config mechanics", () => {
   it("builds candidates in caller-supplied directory and format order", () => {
+    const globalDir = join("root", "global");
+    const workspaceDir = join("root", "workspace");
     expect(
       buildOpenCodeConfigCandidates({
-        directories: ["/global", "/workspace"],
+        directories: [globalDir, workspaceDir],
         formatOrder: ["jsonc", "json"],
       }),
     ).toEqual([
-      { path: "/global/opencode.jsonc", format: "jsonc" },
-      { path: "/global/opencode.json", format: "json" },
-      { path: "/workspace/opencode.jsonc", format: "jsonc" },
-      { path: "/workspace/opencode.json", format: "json" },
+      { path: join(globalDir, "opencode.jsonc"), format: "jsonc" },
+      { path: join(globalDir, "opencode.json"), format: "json" },
+      { path: join(workspaceDir, "opencode.jsonc"), format: "jsonc" },
+      { path: join(workspaceDir, "opencode.json"), format: "json" },
     ]);
   });
 

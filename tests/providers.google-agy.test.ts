@@ -33,7 +33,6 @@ function bucket(overrides: Record<string, unknown> = {}) {
     bucketId: "gemini-weekly",
     percentRemaining: 58,
     accountEmail: "alice@example.com",
-    accountKey: "aaaaaaaa11111111",
     accountIndex: 0,
     sourceKey: "google-agy",
     ...overrides,
@@ -136,9 +135,7 @@ describe("google agy provider", () => {
     expect(out.presentation).toEqual({
       singleWindowShowRight: true,
     });
-    expect(out.entries.every((entry) => entry.accounting.sourceId === "aaaaaaaa11111111")).toBe(
-      true,
-    );
+    expect(out.entries.every((entry) => entry.accounting.sourceId === "account-1")).toBe(true);
   });
 
   it("keeps account order and email-less accounts distinct", async () => {
@@ -148,13 +145,11 @@ describe("google agy provider", () => {
       buckets: [
         bucket({
           accountEmail: undefined,
-          accountKey: "aaaaaaaa11111111",
           accountIndex: 0,
           percentRemaining: 20,
         }),
         bucket({
           accountEmail: undefined,
-          accountKey: "bbbbbbbb22222222",
           accountIndex: 1,
           percentRemaining: 80,
         }),
@@ -164,8 +159,12 @@ describe("google agy provider", () => {
     const out = await googleAgyProvider.fetch({ client: {} } as any);
     expectAttemptedWithNoErrors(out);
     expect(out.entries.map((entry) => entry.name)).toEqual([
-      "Gemini Models (Account aaaaaaaa)",
-      "Gemini Models (Account bbbbbbbb)",
+      "Gemini Models (Account 1)",
+      "Gemini Models (Account 2)",
+    ]);
+    expect(out.entries.map((entry) => entry.accounting.sourceId)).toEqual([
+      "account-1",
+      "account-2",
     ]);
     expect(out.entries.map((entry) => entry.percentRemaining)).toEqual([20, 80]);
   });

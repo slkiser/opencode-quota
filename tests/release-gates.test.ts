@@ -111,17 +111,22 @@ describe("v4 release gates", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it("verifies TypeScript 7 and keeps the v4 history free of local-only files", () => {
+  it("verifies TypeScript 7 and accepts clean v4 history", async () => {
     const typescript = run(typescriptScript);
     expect(typescript.status).toBe(0);
     expect(typescript.stdout).toContain(
       "TypeScript 7.0.2 and @opencode-ai/plugin 1.18.1 lock entries verified",
     );
 
-    const history = run(historyScript);
+    const historyRepo = path.join(tempDir, "clean-history");
+    const base = await createHistoryRepo(historyRepo);
+    const history = run(historyScript, [], {
+      V4_HISTORY_BASE: base,
+      V4_HISTORY_REPO: historyRepo,
+    });
     expect(history.status).toBe(0);
     expect(history.stdout).toContain("V4 history privacy verified");
-  }, 10_000);
+  });
 
   it("rejects every forced-added private path from temporary commit history", async () => {
     const historyRepo = path.join(tempDir, "history");

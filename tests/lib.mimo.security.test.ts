@@ -1,3 +1,5 @@
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -14,6 +16,8 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
 }));
 
 const originalEnv = process.env;
+const primaryConfigDir = join(tmpdir(), "trusted", "primary");
+const fallbackConfigDir = join(tmpdir(), "trusted", "fallback");
 
 describe("MiMo credential security boundary", () => {
   beforeEach(() => {
@@ -22,7 +26,7 @@ describe("MiMo credential security boundary", () => {
     process.env = { ...originalEnv };
     delete process.env.MIMO_USAGE_COOKIE;
     mocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: ["/trusted/primary", "/trusted/fallback"],
+      configDirs: [primaryConfigDir, fallbackConfigDir],
     });
     mocks.readFile.mockImplementation(async () => {
       const error = new Error("missing") as NodeJS.ErrnoException;
@@ -40,8 +44,8 @@ describe("MiMo credential security boundary", () => {
 
     await expect(resolveMimoConfig()).resolves.toEqual({ state: "none" });
     expect(mocks.readFile.mock.calls.map((call) => call[0])).toEqual([
-      "/trusted/primary/opencode-quota/mimo.json",
-      "/trusted/fallback/opencode-quota/mimo.json",
+      join(primaryConfigDir, "opencode-quota", "mimo.json"),
+      join(fallbackConfigDir, "opencode-quota", "mimo.json"),
     ]);
 
     const checked = JSON.stringify(mocks.readFile.mock.calls);

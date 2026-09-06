@@ -11,6 +11,7 @@ interface WorkflowStep {
 }
 
 interface WorkflowJob {
+  "runs-on"?: string;
   needs?: string | string[];
   permissions?: Record<string, string>;
   steps?: WorkflowStep[];
@@ -323,8 +324,12 @@ describe("package manifest compatibility", () => {
     );
   });
 
-  it("structures CI as one Node 24 pack followed by exact-artifact Node 22/24 smoke", () => {
-    expect(Object.keys(ciWorkflow.jobs).sort()).toEqual(["pnpm-quality", "runtime-smoke"]);
+  it("runs canonical verification on Ubuntu and Windows before exact-artifact smoke", () => {
+    expect(Object.keys(ciWorkflow.jobs).sort()).toEqual([
+      "pnpm-quality",
+      "runtime-smoke",
+      "windows-verify",
+    ]);
 
     const quality = ciWorkflow.jobs["pnpm-quality"];
     const checkout = quality.steps?.find((step) => step.uses === "actions/checkout@v6");
@@ -351,6 +356,18 @@ describe("package manifest compatibility", () => {
     expect(
       quality.steps?.filter((step) => step.run?.includes("pnpm run pack:release-package")),
     ).toHaveLength(1);
+
+    const windows = ciWorkflow.jobs["windows-verify"];
+    expect(windows["runs-on"]).toBe("windows-latest");
+    expect(
+      windows.steps?.find((step) => step.uses === "actions/checkout@v6")?.with?.["fetch-depth"],
+    ).toBe(0);
+    expect(
+      windows.steps?.find((step) => step.uses === "actions/setup-node@v6")?.with?.["node-version"],
+    ).toBe("24.x");
+    expect(namedStep(windows, "Install dependencies").run).toBe("pnpm install --frozen-lockfile");
+    expect(namedStep(windows, "Run canonical verification").run).toBe("pnpm verify");
+    expectCanonicalVerificationOnly(windows);
 
     expect(namedStep(quality, "Upload exact npm artifact")).toEqual(
       expect.objectContaining({

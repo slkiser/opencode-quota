@@ -120,6 +120,7 @@ describe("runCliShowCommand", () => {
   it("renders a compact quota glance and returns zero when quota rows are available", async () => {
     const provider = {
       id: "synthetic",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
@@ -218,6 +219,7 @@ describe("runCliShowCommand", () => {
   it("normalizes --provider aliases and uses the provider as an invocation override", async () => {
     const copilotProvider = {
       id: "copilot",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
@@ -257,6 +259,7 @@ describe("runCliShowCommand", () => {
   it("rejects an unknown provider before probing providers", async () => {
     const provider = {
       id: "copilot",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn(),
     };
@@ -319,6 +322,7 @@ describe("runCliShowCommand", () => {
   it("renders explicit unavailable provider output but returns non-zero", async () => {
     const provider = {
       id: "copilot",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn().mockResolvedValue(false),
       fetch: vi.fn(),
     };
@@ -372,6 +376,7 @@ describe("runCliShowCommand", () => {
     const nestedDir = join(workspaceDir, "packages", "app");
     const provider = {
       id: "synthetic",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn(),
     };
@@ -404,6 +409,7 @@ describe("runCliShowCommand", () => {
   it("renders Copilot and Gemini CLI success rows in standalone show", async () => {
     const copilotProvider = {
       id: "copilot",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
@@ -472,6 +478,7 @@ describe("runCliShowCommand", () => {
   it("uses root-level OpenCode provider ids for standalone provider availability", async () => {
     const provider = {
       id: "copilot",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn(async (ctx: any) => {
         const response = await ctx.client.config.providers();
         return response.data.providers.some((item: { id: string }) => item.id === "github-copilot");
@@ -511,6 +518,7 @@ describe("runCliShowCommand", () => {
   it("--json outputs valid JSON to stdout with cached provider data", async () => {
     const provider = {
       id: "synthetic",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
@@ -569,6 +577,7 @@ describe("runCliShowCommand", () => {
   it("--json reads from cache only and returns unavailable when no cache exists", async () => {
     const provider = {
       id: "synthetic",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
@@ -608,6 +617,7 @@ describe("runCliShowCommand", () => {
   ])("--threshold uses percentage rows even when the first row is a quantity: %s vs %s", async (percentRemaining, threshold, expectedCode) => {
     const provider = {
       id: "synthetic",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
@@ -658,6 +668,7 @@ describe("runCliShowCommand", () => {
     // Provider that is unavailable (no cache populated).
     const provider = {
       id: "synthetic",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
@@ -689,6 +700,7 @@ describe("runCliShowCommand", () => {
   it("--threshold exits 2 when cached ok providers have no percentRemaining values", async () => {
     const provider = {
       id: "synthetic",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
@@ -733,6 +745,7 @@ describe("runCliShowCommand", () => {
   it("--threshold exits 2 for partial cached results instead of passing incomplete data", async () => {
     const provider = {
       id: "synthetic",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
@@ -775,6 +788,7 @@ describe("runCliShowCommand", () => {
   it("--json --provider copilot only includes the copilot key", async () => {
     const copilotProvider = {
       id: "copilot",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,
@@ -784,6 +798,7 @@ describe("runCliShowCommand", () => {
     };
     const syntheticProvider = {
       id: "synthetic",
+      cachePolicy: { kind: "account-neutral" as const },
       isAvailable: vi.fn().mockResolvedValue(true),
       fetch: vi.fn().mockResolvedValue({
         attempted: true,

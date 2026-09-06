@@ -1,11 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { hasXaiOAuth, periodKindLabel, queryXaiQuota, resolveXaiOAuth } from "../src/lib/xai.js";
+import { deriveResolvedAuthIdentity } from "../src/lib/resolved-auth-identity.js";
+import {
+  hasXaiOAuth,
+  periodKindLabel,
+  queryXaiQuota,
+  resolveXaiAuthIdentity,
+  resolveXaiOAuth,
+} from "../src/lib/xai.js";
 import heavySubscriptionFixture from "./fixtures/xai/subscriptions-heavy.sanitized.json";
 import superGrokWeeklyFixture from "./fixtures/xai/supergrok-weekly.json";
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
   readAuthFile: vi.fn(),
   readAuthFileCached: vi.fn(),
+}));
+
+vi.mock("../src/lib/resolved-auth-identity.js", () => ({
+  deriveResolvedAuthIdentity: vi.fn(async () => `rai1_${"b".repeat(43)}`),
 }));
 
 async function mockConfiguredAuth(overrides: Record<string, unknown> = {}): Promise<void> {
@@ -33,6 +44,21 @@ function successfulXaiFetch(subscriptionPayload: unknown) {
 }
 
 describe("xAI auth resolution", () => {
+  it("derives cache identity from the direct access token used by quota", async () => {
+    const { readAuthFile } = await import("../src/lib/opencode-auth.js");
+    vi.mocked(readAuthFile).mockResolvedValueOnce({
+      xai: { type: "oauth", access: "xai-access-secret" },
+    });
+
+    const identity = await resolveXaiAuthIdentity();
+
+    expect(deriveResolvedAuthIdentity).toHaveBeenCalledWith({
+      providerId: "xai",
+      principal: { kind: "credential", value: "xai-access-secret" },
+    });
+    expect(identity).not.toContain("xai-access-secret");
+  });
+
   it("resolves only the read-only xai OAuth access token", () => {
     expect(
       resolveXaiOAuth({
