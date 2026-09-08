@@ -6,11 +6,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearReadAuthFileCacheForTests,
+  formatCredentialDisplayNames,
   getCredentialDatabasePath,
   getCredentialDatabasePaths,
-  formatCredentialDisplayNames,
   readAuthFile,
   readCredentialRows,
+  selectConnectionCredentialRows,
 } from "../src/lib/opencode-auth.js";
 
 const temporaryDirectories: string[] = [];
@@ -99,9 +100,18 @@ describe("OpenCode auth reader", () => {
   it("numbers duplicate custom aliases without numbering default credentials", () => {
     expect(
       formatCredentialDisplayNames("OpenAI", [
-        { row: { id: "a", integrationId: "openai", label: "SEPD", active: true, value: {} }, fallbackName: "OpenAI (Pro)" },
-        { row: { id: "b", integrationId: "openai", label: "SEPD", active: false, value: {} }, fallbackName: "OpenAI (Pro)" },
-        { row: { id: "c", integrationId: "openai", label: "default", active: false, value: {} }, fallbackName: "OpenAI (Pro)" },
+        {
+          row: { id: "a", integrationId: "openai", label: "SEPD", active: true, value: {} },
+          fallbackName: "OpenAI (Pro)",
+        },
+        {
+          row: { id: "b", integrationId: "openai", label: "SEPD", active: false, value: {} },
+          fallbackName: "OpenAI (Pro)",
+        },
+        {
+          row: { id: "c", integrationId: "openai", label: "default", active: false, value: {} },
+          fallbackName: "OpenAI (Pro)",
+        },
       ]),
     ).toEqual(["[OpenAI SEPD] (Pro)*", "[OpenAI SEPD 2] (Pro)", "[OpenAI] (Pro)"]);
   });
@@ -175,5 +185,84 @@ describe("OpenCode auth reader", () => {
       "github-copilot": { access: "copilot-access" },
       openai: { access: "openai-access" },
     });
+  });
+});
+
+describe("selectConnectionCredentialRows", () => {
+  const row = (id: string, integrationId: string, key: string) => ({
+    id,
+    integrationId,
+    label: "default",
+    active: false,
+    value: { type: "key", key },
+  });
+
+  it("prefers native rows over alias rows holding the same credential", () => {
+    const rows = [
+      row("alias", "opencode", "workspace-key"),
+      row("native", "opencode-go", "workspace-key"),
+    ];
+
+    expect(selectConnectionCredentialRows(rows, "opencode-go").map((row) => row.id)).toEqual([
+      "native",
+    ]);
+  });
+
+  it("falls back to alias rows when no native row exists", () => {
+    const rows = [row("alias", "opencode", "workspace-key")];
+
+    expect(selectConnectionCredentialRows(rows, "opencode-go").map((row) => row.id)).toEqual([
+      "alias",
+    ]);
+  });
+
+  it("collapses alias rows into native rows with the same credential value", () => {
+    const rows = [
+      row("go-1", "opencode-go", "workspace-key"),
+      row("zen", "opencode", "workspace-key"),
+      row("go-2", "opencode-go", "other-key"),
+    ];
+
+    expect(selectConnectionCredentialRows(rows, "opencode-go").map((row) => row.id)).toEqual([
+      "go-1",
+      "go-2",
+    ]);
+  });
+
+  it("collapses exact duplicates within the primary integration", () => {
+    const rows = [
+      row("first", "opencode-go", "workspace-key"),
+      row("second", "opencode-go", "workspace-key"),
+    ];
+
+    expect(selectConnectionCredentialRows(rows, "opencode-go").map((row) => row.id)).toEqual([
+      "first",
+    ]);
+  });
+
+  it("treats property order in stored credential values as insignificant", () => {
+    const rows = [
+      row("first", "opencode-go", "workspace-key"),
+      {
+        ...row("second", "opencode-go", "workspace-key"),
+        value: { key: "workspace-key", type: "key" },
+      },
+    ];
+
+    expect(selectConnectionCredentialRows(rows, "opencode-go").map((row) => row.id)).toEqual([
+      "first",
+    ]);
+  });
+
+  it("keeps distinct credentials as separate connections", () => {
+    const rows = [
+      row("personal", "opencode-go", "personal-key"),
+      row("work", "opencode-go", "work-key"),
+    ];
+
+    expect(selectConnectionCredentialRows(rows, "opencode-go").map((row) => row.id)).toEqual([
+      "personal",
+      "work",
+    ]);
   });
 });
