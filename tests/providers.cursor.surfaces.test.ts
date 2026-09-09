@@ -80,7 +80,7 @@ describe("Cursor structured four-surface formatting", () => {
     for (const output of [outputs.command, outputs.toast, outputs.sidebar]) {
       expect(output).toContain("Auto+Composer spend");
       expect(output).toContain("USD 1.25");
-      expect(output).toMatch(/\b\d+d\b/u);
+      expect(output).toMatch(/\b\d+d\d+h\d+m\b/u);
     }
     expect(outputs.command).toContain("Used: USD 5.00");
     expect(outputs.command).toContain("Limit: USD 20.00");

@@ -115,8 +115,8 @@ export interface QuotaToastConfig {
   /** Whether human surfaces include supplementary semantic accounting rows. */
   accountingDetail: AccountingDetail;
   /**
-   * Decimal places for compact reset countdown labels.
-   * Unset preserves the default integer-day and half-hour-step display.
+   * Decimal places for a largest-unit reset countdown override.
+   * Unset uses the default exact-to-minute DdHhMm display.
    */
   resetTimeDecimals?: number;
   minIntervalMs: number;
@@ -894,7 +894,7 @@ export type OllamaCloudResult =
 /** Single normalized usage window from the OpenCode Go API. */
 export interface OpenCodeGoWindow {
   /** Raw API status after exact validation. */
-  status: "ok";
+  status: "ok" | "rate-limited";
   /** Usage percentage [0..100]. */
   usagePercent: number;
   /** Remaining percentage [0..100]. */
@@ -911,7 +911,7 @@ export type OpenCodeGoResult =
       weekly: OpenCodeGoWindow;
       monthly: OpenCodeGoWindow;
     }
-  | QuotaError;
+  | (QuotaError & { notSubscribed?: true });
 
 /** Cached toast data */
 export interface CachedToast {

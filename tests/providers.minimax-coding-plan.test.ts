@@ -162,33 +162,60 @@ describe("minimax-coding-plan provider", () => {
     mockMiniMaxAuthInvalid();
 
     const out = await minimaxCodingPlanProvider.fetch({ config: {} } as any);
-    expectAttemptedWithErrorLabel(out, "MiniMax Coding Plan");
+    expectAttemptedWithErrorLabel(out, "MiniMax Token Plan");
     expect(out.errors[0]?.message).toBe("Invalid API key");
   });
 
   it("keeps a valid inactive duplicate-label database credential when the active row is invalid", async () => {
-    const { getMiniMaxAuthDiagnostics, resolveMiniMaxAuth } = await import("../src/lib/minimax-auth.js");
+    const { getMiniMaxAuthDiagnostics, resolveMiniMaxAuth } = await import(
+      "../src/lib/minimax-auth.js"
+    );
     const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
-    (getMiniMaxAuthDiagnostics as any).mockResolvedValueOnce({ state: "invalid", source: "opencode.db", checkedPaths: [], credentialDatabasePaths: [] });
+    (getMiniMaxAuthDiagnostics as any).mockResolvedValueOnce({
+      state: "invalid",
+      source: "opencode.db",
+      checkedPaths: [],
+      credentialDatabasePaths: [],
+    });
     mockMiniMaxAuthInvalid("empty key");
     (readCredentialRows as any).mockResolvedValueOnce([
-      { id: "bad", integrationId: "minimax-coding-plan", label: "shared", active: true, value: { key: "" } },
-      { id: "good", integrationId: "minimax-coding-plan", label: "shared", active: false, value: { key: "ok" } },
+      {
+        id: "bad",
+        integrationId: "minimax-coding-plan",
+        label: "shared",
+        active: true,
+        value: { key: "" },
+      },
+      {
+        id: "good",
+        integrationId: "minimax-coding-plan",
+        label: "shared",
+        active: false,
+        value: { key: "ok" },
+      },
     ]);
     (resolveMiniMaxAuth as any).mockImplementation((auth: any) =>
-      auth["minimax-coding-plan"].key ? { state: "configured", apiKey: "row-key", endpoint: "international" } : { state: "invalid", error: "empty key" },
+      auth["minimax-coding-plan"].key
+        ? { state: "configured", apiKey: "row-key", endpoint: "international" }
+        : { state: "invalid", error: "empty key" },
     );
     mockMiniMaxHttpSuccess([createCodingPlanModel()]);
 
     const out = await runProviderFetch();
-    expect(out.errors).toContainEqual({ label: "[MiniMax Coding Plan shared]*", message: "empty key" });
+    expect(out.errors).toContainEqual({
+      label: "[MiniMax Token Plan shared]*",
+      message: "empty key",
+    });
     expect(out.entries).toContainEqual(
-      expect.objectContaining({ group: "[MiniMax Coding Plan shared 2]", accounting: expect.objectContaining({ sourceId: "good" }) }),
+      expect.objectContaining({
+        group: "[MiniMax Token Plan shared 2]",
+        accounting: expect.objectContaining({ sourceId: "good" }),
+      }),
     );
     expect(out.entries).not.toHaveLength(0);
   });
 
-  it("maps MiniMax-M* model to rolling 5h and weekly entries", async () => {
+  it("maps MiniMax-M* model to structured five-hour and weekly entries", async () => {
     mockMiniMaxAuthConfigured();
     mockMiniMaxHttpSuccess([createCodingPlanModel({ model_name: "MiniMax-M2.7" })]);
 
@@ -197,29 +224,43 @@ describe("minimax-coding-plan provider", () => {
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toHaveLength(2);
     expect(out.entries[0]).toMatchObject({
-      name: "MiniMax Coding Plan 5h",
-      group: "MiniMax Coding Plan",
+      name: "minimax-token-plan-5h",
+      group: "MiniMax Token Plan",
       label: "5h:",
-      right: "70/4500",
       percentRemaining: 98,
+      semantic: { metric: { kind: "window", window: "five_hour" } },
+      basis: {
+        used: {
+          quantity: { decimal: "70", unit: { kind: "count", unit: "request" } },
+          authority: "locally_derived",
+        },
+        limit: {
+          quantity: { decimal: "4500", unit: { kind: "count", unit: "request" } },
+          authority: "provider_reported",
+        },
+        remaining: {
+          quantity: { decimal: "4430", unit: { kind: "count", unit: "request" } },
+          authority: "provider_reported",
+        },
+      },
     });
     expect(out.entries[1]).toMatchObject({
-      name: "MiniMax Coding Plan Weekly",
-      group: "MiniMax Coding Plan",
+      name: "minimax-token-plan-week",
+      group: "MiniMax Token Plan",
       label: "Weekly:",
-      right: "105/45000",
       percentRemaining: 100,
+      semantic: { metric: { kind: "window", window: "week" } },
     });
     expect(out.entries.every((entry) => !("window" in entry))).toBe(true);
     expect(out.statusDetails).toEqual(
       expect.arrayContaining([
         {
           key: "five_hour_usage",
-          value: expect.stringMatching(/^70\/4500 percent_remaining=98 reset_at=/u),
+          value: expect.stringMatching(/^percent_remaining=98 reset_at=/u),
         },
         {
           key: "weekly_usage",
-          value: expect.stringMatching(/^105\/45000 percent_remaining=100 reset_at=/u),
+          value: expect.stringMatching(/^percent_remaining=100 reset_at=/u),
         },
       ]),
     );
@@ -230,9 +271,15 @@ describe("minimax-coding-plan provider", () => {
 
     const out = await queryMiniMaxQuota("intl-key");
 
-    expect(out.success).toBe(true);
-    if (!out.success) throw new Error("Expected successful MiniMax query");
-    expect(out.entries.map((entry) => entry.window)).toEqual(["five_hour", "weekly"]);
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries.map((entry) => entry.semantic?.metric)).toEqual([
+      { kind: "window", window: "five_hour" },
+      { kind: "window", window: "week" },
+    ]);
+    expect(out.entries.map((entry) => entry.name)).toEqual([
+      "minimax-token-plan-5h",
+      "minimax-token-plan-week",
+    ]);
   });
 
   it("uses the China Token Plan endpoint for the MiniMax China provider", async () => {
@@ -273,17 +320,22 @@ describe("minimax-coding-plan provider", () => {
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toHaveLength(1);
     expect(out.entries[0]).toMatchObject({
-      name: "MiniMax Coding Plan (CN) 5h",
-      group: "MiniMax Coding Plan (CN)",
-      right: "1200/1500",
+      name: "minimax-token-plan-5h",
+      group: "MiniMax Token Plan (CN)",
       percentRemaining: 20,
+      semantic: { metric: { kind: "window", window: "five_hour" } },
+      basis: {
+        used: { quantity: { decimal: "1200" }, authority: "provider_reported" },
+        limit: { quantity: { decimal: "1500" }, authority: "provider_reported" },
+        remaining: { quantity: { decimal: "300" }, authority: "locally_derived" },
+      },
     });
     expect(out.entries[0]).not.toHaveProperty("window");
     expect(out.statusDetails).toEqual(
       expect.arrayContaining([
         {
           key: "five_hour_usage",
-          value: expect.stringMatching(/^1200\/1500 percent_remaining=20 reset_at=/u),
+          value: expect.stringMatching(/^percent_remaining=20 reset_at=/u),
         },
       ]),
     );
@@ -293,14 +345,14 @@ describe("minimax-coding-plan provider", () => {
   });
 
   it.each([
-    { rawUsed: 0, right: "0/1500", percentRemaining: 100 },
-    { rawUsed: 1500, right: "1500/1500", percentRemaining: 0 },
-    { rawUsed: 13, total: 15000, right: "13/15000", percentRemaining: 100 },
-    { rawUsed: 1550, right: "1550/1500", percentRemaining: -3 },
-  ])("normalizes China Token Plan used count $rawUsed as $right", async ({
+    { rawUsed: 0, remaining: 1500, percentRemaining: 100 },
+    { rawUsed: 1500, remaining: 0, percentRemaining: 0 },
+    { rawUsed: 13, total: 15000, remaining: 14987, percentRemaining: 100 },
+    { rawUsed: 1550, remaining: -50, percentRemaining: -3 },
+  ])("normalizes China Token Plan used count $rawUsed", async ({
     rawUsed,
     total = 1500,
-    right,
+    remaining,
     percentRemaining,
   }) => {
     mockMiniMaxChinaAuthConfigured("china-key");
@@ -320,8 +372,12 @@ describe("minimax-coding-plan provider", () => {
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toHaveLength(1);
     expect(out.entries[0]).toMatchObject({
-      right,
       percentRemaining,
+      basis: {
+        used: { quantity: { decimal: String(rawUsed) } },
+        limit: { quantity: { decimal: String(total) } },
+        remaining: { quantity: { decimal: String(remaining) } },
+      },
     });
   });
 
@@ -351,8 +407,12 @@ describe("minimax-coding-plan provider", () => {
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toHaveLength(1);
     expect(out.entries[0]).toMatchObject({
-      right: "1400/1500",
       percentRemaining: 7,
+      basis: {
+        used: { quantity: { decimal: "1400" } },
+        limit: { quantity: { decimal: "1500" } },
+        remaining: { quantity: { decimal: "100" } },
+      },
     });
   });
 
@@ -373,13 +433,13 @@ describe("minimax-coding-plan provider", () => {
     );
   });
 
-  it("accepts international generic model_name rows", async () => {
+  it("accepts international general rows and excludes video quota", async () => {
     mockMiniMaxAuthConfigured();
     mockMiniMaxHttpSuccess([
       createCodingPlanModel({
         model_name: "general",
-        current_interval_total_count: 0,
-        current_interval_usage_count: 0,
+        current_interval_total_count: 10,
+        current_interval_usage_count: 2,
         current_weekly_total_count: undefined,
         current_weekly_usage_count: undefined,
         weekly_remains_time: undefined,
@@ -399,8 +459,12 @@ describe("minimax-coding-plan provider", () => {
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toHaveLength(1);
     expect(out.entries[0]).toMatchObject({
-      right: "0/3",
-      percentRemaining: 100,
+      percentRemaining: 20,
+      basis: {
+        used: { quantity: { decimal: "8" } },
+        limit: { quantity: { decimal: "10" } },
+        remaining: { quantity: { decimal: "2" } },
+      },
     });
   });
 
@@ -422,9 +486,10 @@ describe("minimax-coding-plan provider", () => {
 
     expectAttemptedWithNoErrors(out);
     expect(visibleEntries(out.entries, "minimax-coding-plan")).toMatchObject([
-      { right: "14%", percentRemaining: 86 },
-      { right: "10%", percentRemaining: 90 },
+      { percentRemaining: 86 },
+      { percentRemaining: 90 },
     ]);
+    expect(out.entries.every((entry) => !("basis" in entry))).toBe(true);
   });
 
   it("falls back to provider-reported percentages when count fields are missing", async () => {
@@ -443,18 +508,18 @@ describe("minimax-coding-plan provider", () => {
 
     expectAttemptedWithNoErrors(out);
     expect(visibleEntries(out.entries, "minimax-coding-plan")).toMatchObject([
-      { right: "25%", percentRemaining: 75 },
-      { right: "20%", percentRemaining: 80 },
+      { percentRemaining: 75 },
+      { percentRemaining: 80 },
     ]);
+    expect(out.entries.every((entry) => !("basis" in entry))).toBe(true);
   });
 
   it.each([
-    { name: "zero", value: 0, right: "100%", percentRemaining: 0 },
-    { name: "negative", value: -25, right: "125%", percentRemaining: -25 },
-    { name: "above 100", value: 140, right: "0%", percentRemaining: 100 },
+    { name: "zero", value: 0, percentRemaining: 0 },
+    { name: "negative", value: -25, percentRemaining: -25 },
+    { name: "above 100", value: 140, percentRemaining: 100 },
   ])("preserves current percentage bounds for $name international fallback values", async ({
     value,
-    right,
     percentRemaining,
   }) => {
     mockMiniMaxAuthConfigured();
@@ -474,8 +539,9 @@ describe("minimax-coding-plan provider", () => {
 
     expectAttemptedWithNoErrors(out);
     expect(visibleEntries(out.entries, "minimax-coding-plan")).toMatchObject([
-      { right, percentRemaining },
+      { percentRemaining },
     ]);
+    expect(out.entries[0]).not.toHaveProperty("basis");
   });
 
   it.each([
@@ -522,7 +588,14 @@ describe("minimax-coding-plan provider", () => {
 
     expectAttemptedWithNoErrors(out);
     expect(visibleEntries(out.entries, "minimax-coding-plan")).toMatchObject([
-      { right: "75/100", percentRemaining: 25 },
+      {
+        percentRemaining: 25,
+        basis: {
+          used: { quantity: { decimal: "75" } },
+          limit: { quantity: { decimal: "100" } },
+          remaining: { quantity: { decimal: "25" } },
+        },
+      },
     ]);
   });
 
@@ -545,13 +618,13 @@ describe("minimax-coding-plan provider", () => {
     expect(out.entries).toHaveLength(0);
   });
 
-  it("selects the lowest-remaining international generic row", async () => {
+  it("excludes video even when it has the lowest remaining percentage", async () => {
     mockMiniMaxAuthConfigured();
     mockMiniMaxHttpSuccess([
       createCodingPlanModel({
         model_name: "general",
         current_interval_total_count: 10,
-        current_interval_usage_count: 2,
+        current_interval_usage_count: 8,
         current_weekly_total_count: undefined,
         current_weekly_usage_count: undefined,
         weekly_remains_time: undefined,
@@ -559,7 +632,7 @@ describe("minimax-coding-plan provider", () => {
       createCodingPlanModel({
         model_name: "video",
         current_interval_total_count: 10,
-        current_interval_usage_count: 8,
+        current_interval_usage_count: 2,
         current_weekly_total_count: undefined,
         current_weekly_usage_count: undefined,
         weekly_remains_time: undefined,
@@ -571,17 +644,28 @@ describe("minimax-coding-plan provider", () => {
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toHaveLength(1);
     expect(out.entries[0]).toMatchObject({
-      right: "8/10",
-      percentRemaining: 20,
+      percentRemaining: 80,
+      basis: {
+        used: { quantity: { decimal: "2" } },
+        limit: { quantity: { decimal: "10" } },
+        remaining: { quantity: { decimal: "8" } },
+      },
     });
   });
 
-  it("does not accept generic model_name rows for the China endpoint", async () => {
+  it("uses provider percentages for CN general rows and excludes video rows", async () => {
     mockMiniMaxHttpSuccess([
-      createCodingPlanModel({
+      {
         model_name: "general",
-        current_interval_total_count: 10,
-        current_interval_usage_count: 8,
+        remains_time: 13_987_604,
+        weekly_remains_time: 564_787_604,
+        current_interval_remaining_percent: 33,
+        current_weekly_remaining_percent: 46,
+      },
+      createCodingPlanModel({
+        model_name: "video",
+        current_interval_total_count: 100,
+        current_interval_usage_count: 99,
         current_weekly_total_count: undefined,
         current_weekly_usage_count: undefined,
         weekly_remains_time: undefined,
@@ -590,7 +674,48 @@ describe("minimax-coding-plan provider", () => {
 
     const out = await queryMiniMaxQuota("china-key", { endpoint: "china" });
 
-    expect(out).toEqual({ success: true, entries: [] });
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries).toMatchObject([
+      {
+        name: "minimax-token-plan-5h",
+        percentRemaining: 33,
+        semantic: { metric: { kind: "window", window: "five_hour" } },
+      },
+      {
+        name: "minimax-token-plan-week",
+        percentRemaining: 46,
+        semantic: { metric: { kind: "window", window: "week" } },
+      },
+    ]);
+    expect(out.entries.every((entry) => !("basis" in entry))).toBe(true);
+  });
+
+  it("keeps positive CN general counts authoritative over provider percentages", async () => {
+    mockMiniMaxChinaAuthConfigured();
+    mockMiniMaxHttpSuccess([
+      createCodingPlanModel({
+        model_name: "general",
+        current_interval_total_count: 100,
+        current_interval_usage_count: 25,
+        current_weekly_total_count: undefined,
+        current_weekly_usage_count: undefined,
+        weekly_remains_time: undefined,
+        current_interval_remaining_percent: 90,
+      }),
+    ]);
+
+    const out = await runChinaProviderFetch();
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries).toHaveLength(1);
+    expect(out.entries[0]).toMatchObject({
+      percentRemaining: 75,
+      basis: {
+        used: { quantity: { decimal: "25" } },
+        limit: { quantity: { decimal: "100" } },
+        remaining: { quantity: { decimal: "75" } },
+      },
+    });
   });
 
   it("preserves negative remaining percentages when MiniMax reports negative remaining quota", async () => {
@@ -607,12 +732,20 @@ describe("minimax-coding-plan provider", () => {
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toHaveLength(2);
     expect(out.entries[0]).toMatchObject({
-      right: "4550/4500",
       percentRemaining: -1,
+      basis: {
+        used: { quantity: { decimal: "4550" }, authority: "locally_derived" },
+        limit: { quantity: { decimal: "4500" }, authority: "provider_reported" },
+        remaining: { quantity: { decimal: "-50" }, authority: "provider_reported" },
+      },
     });
     expect(out.entries[1]).toMatchObject({
-      right: "45500/45000",
       percentRemaining: -1,
+      basis: {
+        used: { quantity: { decimal: "45500" } },
+        limit: { quantity: { decimal: "45000" } },
+        remaining: { quantity: { decimal: "-500" } },
+      },
     });
   });
 
@@ -671,12 +804,18 @@ describe("minimax-coding-plan provider", () => {
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toHaveLength(2);
     expect(out.entries[0]).toMatchObject({
-      right: "200/4500",
       percentRemaining: 96,
+      basis: {
+        used: { quantity: { decimal: "200" } },
+        remaining: { quantity: { decimal: "4300" } },
+      },
     });
     expect(out.entries[1]).toMatchObject({
-      right: "500/45000",
       percentRemaining: 99,
+      basis: {
+        used: { quantity: { decimal: "500" } },
+        remaining: { quantity: { decimal: "44500" } },
+      },
     });
   });
 
@@ -701,12 +840,18 @@ describe("minimax-coding-plan provider", () => {
     expectAttemptedWithNoErrors(out);
     expect(out.entries).toHaveLength(2);
     expect(out.entries[0]).toMatchObject({
-      right: "100/4500",
       percentRemaining: 98,
+      basis: {
+        used: { quantity: { decimal: "100" } },
+        remaining: { quantity: { decimal: "4400" } },
+      },
     });
     expect(out.entries[1]).toMatchObject({
-      right: "105/45000",
       percentRemaining: 100,
+      basis: {
+        used: { quantity: { decimal: "105" } },
+        remaining: { quantity: { decimal: "44895" } },
+      },
     });
   });
 
@@ -715,7 +860,7 @@ describe("minimax-coding-plan provider", () => {
     mockMiniMaxHttpFailure(401, "Unauthorized");
 
     const out = await minimaxCodingPlanProvider.fetch({ config: {} } as any);
-    expectAttemptedWithErrorLabel(out, "MiniMax Coding Plan");
+    expectAttemptedWithErrorLabel(out, "MiniMax Token Plan");
     expect(out.errors[0]?.message).toContain("401");
   });
 
@@ -724,7 +869,7 @@ describe("minimax-coding-plan provider", () => {
     mockMiniMaxHttpFailure(401, "\u001b[31mUnauthorized\nretry later\u001b[0m");
 
     const out = await minimaxCodingPlanProvider.fetch({ config: {} } as any);
-    expectAttemptedWithErrorLabel(out, "MiniMax Coding Plan");
+    expectAttemptedWithErrorLabel(out, "MiniMax Token Plan");
     expect(out.errors[0]?.message).toBe("MiniMax API error 401: Unauthorized retry later");
   });
 
@@ -739,7 +884,7 @@ describe("minimax-coding-plan provider", () => {
     });
 
     const out = await minimaxCodingPlanProvider.fetch({ config: {} } as any);
-    expectAttemptedWithErrorLabel(out, "MiniMax Coding Plan");
+    expectAttemptedWithErrorLabel(out, "MiniMax Token Plan");
     expect(out.errors[0]?.message).toContain("invalid token");
   });
 
@@ -757,7 +902,7 @@ describe("minimax-coding-plan provider", () => {
     });
 
     const statusOut = await minimaxCodingPlanProvider.fetch({ config: {} } as any);
-    expectAttemptedWithErrorLabel(statusOut, "MiniMax Coding Plan");
+    expectAttemptedWithErrorLabel(statusOut, "MiniMax Token Plan");
     expect(statusOut.errors[0]?.message).toBe(
       `MiniMax API error: ${`${"x".repeat(140)} retry`.slice(0, 120)}`,
     );
@@ -766,7 +911,7 @@ describe("minimax-coding-plan provider", () => {
     mocks.fetchResponse.mockRejectedValueOnce(new Error("network\nfailed"));
 
     const thrownOut = await minimaxCodingPlanProvider.fetch({ config: {} } as any);
-    expectAttemptedWithErrorLabel(thrownOut, "MiniMax Coding Plan");
+    expectAttemptedWithErrorLabel(thrownOut, "MiniMax Token Plan");
     expect(thrownOut.errors[0]?.message).toBe("network failed");
   });
 

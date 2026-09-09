@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { formatQuotaCommand } from "../src/lib/quota-command-format.js";
 import { projectQuotaProviderResults } from "../src/lib/quota-accounting-projection.js";
+import { formatQuotaCommand } from "../src/lib/quota-command-format.js";
 import { formatQuotaRowsGrouped } from "../src/lib/toast-format-grouped.js";
 import { buildSidebarQuotaPanelLines } from "../src/lib/tui-sidebar-format.js";
 import { openaiProvider } from "../src/providers/openai.js";
@@ -151,9 +151,7 @@ describe("openai provider", () => {
       "active-id",
       "other-id",
     ]);
-    expect(
-      out.entries.map((entry) => [entry.group, entry.accounting.sourceId]),
-    ).toEqual([
+    expect(out.entries.map((entry) => [entry.group, entry.accounting.sourceId])).toEqual([
       ["[OpenAI Work] (Business)*", "active-id"],
       ["[OpenAI Work] (Business)*", "active-id"],
       ["[OpenAI Work] (Business)*", "active-id"],

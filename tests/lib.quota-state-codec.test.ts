@@ -174,6 +174,23 @@ describe("quota-state codec", () => {
     expect(normalized?.diagnostics?.[0]?.checkedPaths).toEqual(["env:SYNTHETIC_API_KEY"]);
   });
 
+  it("normalizes and round-trips over-quota remaining basis values", () => {
+    const input = createValidResult();
+    const percentEntry = input.entries[0] as any;
+    percentEntry.percentRemaining = -5;
+    percentEntry.basis.used.quantity.decimal = "105";
+    percentEntry.basis.remaining.quantity.decimal = "-5";
+
+    expect(normalizeQuotaProviderResult(input)).toEqual(input);
+
+    const encoded = createEnvelope(input);
+    const decoded = decodePersistedQuotaProviderCacheEntry(
+      JSON.parse(JSON.stringify(encoded)) as unknown,
+      EXPECTED_IDENTITY,
+    );
+    expect(decoded?.result).toEqual(input);
+  });
+
   it("sanitizes text before strict safe-text revalidation", () => {
     const input = createValidResult();
     const quantity = input.entries[2] as any;
@@ -307,8 +324,12 @@ describe("quota-state codec", () => {
       (value: any) => (value.entries[0].basis.used.quantity.decimal = "01"),
     ],
     [
-      "basis quantities are nonnegative",
+      "basis used quantities are nonnegative",
       (value: any) => (value.entries[0].basis.used.quantity.decimal = "-1"),
+    ],
+    [
+      "basis limits are nonnegative",
+      (value: any) => (value.entries[0].basis.limit.quantity.decimal = "-1"),
     ],
     [
       "basis units match",

@@ -1,15 +1,23 @@
 /**
- * MiniMax Coding Plan provider wrapper.
+ * MiniMax Token Plan provider wrapper.
  *
- * Fetches quota data from MiniMax API for coding plan users.
+ * Fetches quota data from MiniMax API for Token Plan users and emits entries with
+ * the structured accounting core: `basis` (used/limit/remaining facts with
+ * authority), `semantic` (metric + prominence), and `accounting` metadata.
  */
 
 import { sanitizeDisplayText } from "../lib/display-sanitize.js";
 import type {
+  AccountingMetadata,
+  AccountingPercentageBasis,
+  AccountingSemantic,
+  AccountingUnit,
+  AccountingWindow,
   QuotaProvider,
   QuotaProviderContext,
   QuotaProviderMatchContext,
   QuotaProviderResult,
+  QuotaToastEntry,
 } from "../lib/entries.js";
 import { fetchWithTimeout } from "../lib/http.js";
 import {
@@ -30,7 +38,8 @@ import {
   isCanonicalProviderAvailable,
 } from "../lib/provider-availability.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
-import type { AuthData, MiniMaxResult, MiniMaxResultEntry } from "../lib/types.js";
+import type { AuthData } from "../lib/types.js";
+import { accountingDecimalFromNumber } from "./accounting-decimal.js";
 import {
   apiKeyStatusDetails,
   attemptedErrorResult,
@@ -40,9 +49,18 @@ import {
   withStatusDetails,
 } from "./result-helpers.js";
 
-const MINIMAX_PROVIDER_LABEL = "MiniMax Coding Plan";
-const MINIMAX_CHINA_PROVIDER_LABEL = "MiniMax Coding Plan (CN)";
+const MINIMAX_PROVIDER_LABEL = "MiniMax Token Plan";
+const MINIMAX_CHINA_PROVIDER_LABEL = "MiniMax Token Plan (CN)";
 const USER_AGENT = "OpenCode-Quota-Toast/1.0";
+
+const MINIMAX_TOKEN_PLAN_ACCOUNTING: AccountingMetadata = {
+  resultType: "quota",
+  acquisitionMethod: "remote_api",
+  ownership: "maintained",
+  authority: "provider_reported",
+};
+
+const REQUEST_UNIT = { kind: "count", unit: "request" } as const;
 
 interface MiniMaxModelRemain {
   model_name: string;
@@ -54,7 +72,7 @@ interface MiniMaxModelRemain {
   /** Endpoint-specific raw count: international reports remaining, China reports used. */
   current_weekly_usage_count?: number;
   weekly_remains_time?: number;
-  /** Provider-reported remaining percentage used by zero-count international responses. */
+  /** Provider-reported remaining percentage used by supported percentage-only responses. */
   current_interval_remaining_percent?: number;
   current_weekly_remaining_percent?: number;
 }
@@ -69,15 +87,11 @@ interface MiniMaxApiResponse {
 
 type MiniMaxCountSemantics = "remaining" | "used";
 
-const MINIMAX_COUNT_SEMANTICS_BY_ENDPOINT: Record<MiniMaxQuotaEndpointId, MiniMaxCountSemantics> = {
-  international: "remaining",
-  china: "used",
-};
-
 interface MiniMaxWindowSpec {
-  window: MiniMaxResultEntry["window"];
+  window: AccountingWindow;
   name: string;
   label: string;
+  semanticWindow: AccountingWindow;
   getTotal(model: MiniMaxModelRemain): number | undefined;
   getCount(model: MiniMaxModelRemain): number | undefined;
   getResetOffsetMs(model: MiniMaxModelRemain): number | undefined;
@@ -87,7 +101,8 @@ interface MiniMaxWindowSpec {
 const MINIMAX_WINDOW_SPECS: readonly MiniMaxWindowSpec[] = [
   {
     window: "five_hour",
-    name: "MiniMax Coding Plan 5h",
+    semanticWindow: "five_hour",
+    name: "minimax-token-plan-5h",
     label: "5h:",
     getTotal: (model) => model.current_interval_total_count,
     getCount: (model) => model.current_interval_usage_count,
@@ -95,8 +110,9 @@ const MINIMAX_WINDOW_SPECS: readonly MiniMaxWindowSpec[] = [
     getPercentRemaining: (model) => model.current_interval_remaining_percent,
   },
   {
-    window: "weekly",
-    name: "MiniMax Coding Plan Weekly",
+    window: "week",
+    semanticWindow: "week",
+    name: "minimax-token-plan-week",
     label: "Weekly:",
     getTotal: (model) => model.current_weekly_total_count,
     getCount: (model) => model.current_weekly_usage_count,
@@ -131,13 +147,14 @@ function roundPercent(value: number): number {
   return Math.min(100, Math.round(value));
 }
 
+/** Wrap a numeric value in an `AccountingQuantity` for the basis facts. */
+function quantity(value: number, unit: AccountingUnit): { decimal: string; unit: AccountingUnit } {
+  return { decimal: accountingDecimalFromNumber(value), unit };
+}
+
 function sanitizeMiniMaxMessage(text: string, maxLength = 120): string {
   const sanitized = sanitizeDisplayText(text).replace(/\s+/g, " ").trim();
   return (sanitized || "unknown").slice(0, maxLength);
-}
-
-function clampRemaining(total: number, remaining: number): number {
-  return Math.min(total, remaining);
 }
 
 function normalizeMiniMaxCounts(
@@ -149,99 +166,129 @@ function normalizeMiniMaxCounts(
     const used = Math.max(0, rawCount);
     return { used, remaining: total - used };
   }
-
-  const remaining = clampRemaining(total, rawCount);
+  const remaining = Math.min(total, rawCount);
   return { used: total - remaining, remaining };
 }
 
-function isMiniMaxCodingModelName(
-  modelName: string,
-  endpointId: MiniMaxQuotaEndpointId = "international",
-): boolean {
+/** Compute the structured accounting fields for one quota window. */
+function computeMiniMaxEntryData(
+  total: number | undefined,
+  rawCount: number | undefined,
+  percentRaw: number | undefined,
+  resetOffsetMs: number,
+  endpointId: MiniMaxQuotaEndpointId,
+): {
+  basis: AccountingPercentageBasis | undefined;
+  percentRemaining: number;
+  resetTimeIso: string;
+} | null {
+  const resetTimeIso = new Date(Date.now() + Math.max(0, resetOffsetMs)).toISOString();
+
+  // Old plan row: derive used/total from rawCount with endpoint-specific semantics.
+  if (isFiniteNumber(total) && total > 0 && isFiniteNumber(rawCount)) {
+    const countSemantics: MiniMaxCountSemantics = endpointId === "china" ? "used" : "remaining";
+    const { used, remaining } = normalizeMiniMaxCounts(total, rawCount, countSemantics);
+    const percentRemaining = roundPercent((remaining / total) * 100);
+    const basis: AccountingPercentageBasis = {
+      used: {
+        quantity: quantity(used, REQUEST_UNIT),
+        authority: countSemantics === "used" ? "provider_reported" : "locally_derived",
+      },
+      limit: { quantity: quantity(total, REQUEST_UNIT), authority: "provider_reported" },
+      remaining: {
+        quantity: quantity(remaining, REQUEST_UNIT),
+        authority: countSemantics === "remaining" ? "provider_reported" : "locally_derived",
+      },
+    };
+    return { basis, percentRemaining, resetTimeIso };
+  }
+
+  // New plan row (general bucket, total=0): only a percent is available from the API.
+  // Skip the basis — a single percent-only fact would just duplicate percentRemaining in the display.
+  if (!isFiniteNumber(percentRaw)) return null;
+  const percentRemaining = roundPercent(percentRaw);
+  return { basis: undefined, percentRemaining, resetTimeIso };
+}
+
+function isMiniMaxCodingModelName(modelName: string): boolean {
   const normalized = modelName.trim().toLowerCase();
   if (normalized === "minimax-m*" || normalized.startsWith("minimax-m")) {
     return true;
   }
 
-  return endpointId === "international" && (normalized === "general" || normalized === "video");
+  return normalized === "general";
 }
 
 function buildMiniMaxEntry(
   model: MiniMaxModelRemain,
   spec: MiniMaxWindowSpec,
   providerLabel: string,
-  countSemantics: MiniMaxCountSemantics,
-): MiniMaxResultEntry | null {
-  const total = spec.getTotal(model);
-  const rawCount = spec.getCount(model);
+  endpointId: MiniMaxQuotaEndpointId,
+): QuotaToastEntry | null {
   const resetOffsetMs = spec.getResetOffsetMs(model);
   if (!isFiniteNumber(resetOffsetMs)) return null;
 
-  if (isFiniteNumber(total) && isFiniteNumber(rawCount) && total > 0) {
-    const { used, remaining } = normalizeMiniMaxCounts(total, rawCount, countSemantics);
-    const percentRemaining = roundPercent((remaining / total) * 100);
+  const data = computeMiniMaxEntryData(
+    spec.getTotal(model),
+    spec.getCount(model),
+    endpointId === "international" || model.model_name.trim().toLowerCase() === "general"
+      ? spec.getPercentRemaining(model)
+      : undefined,
+    resetOffsetMs,
+    endpointId,
+  );
+  if (!data) return null;
 
-    return {
-      window: spec.window,
-      name: spec.name.replace(MINIMAX_PROVIDER_LABEL, providerLabel),
-      group: providerLabel,
-      label: spec.label,
-      right: `${used}/${total}`,
-      percentRemaining,
-      resetTimeIso: new Date(Date.now() + Math.max(0, resetOffsetMs)).toISOString(),
-    };
-  }
-
-  if (countSemantics !== "remaining") return null;
-  const percentRaw = spec.getPercentRemaining(model);
-  if (!isFiniteNumber(percentRaw)) return null;
-  const percentRemaining = roundPercent(percentRaw);
+  const semantic: AccountingSemantic = {
+    metric: { kind: "window", window: spec.semanticWindow },
+    prominence: "primary",
+  };
 
   return {
-    window: spec.window,
-    name: spec.name.replace(MINIMAX_PROVIDER_LABEL, providerLabel),
+    name: spec.name,
     group: providerLabel,
     label: spec.label,
-    right: `${100 - percentRemaining}%`,
-    percentRemaining,
-    resetTimeIso: new Date(Date.now() + Math.max(0, resetOffsetMs)).toISOString(),
+    percentRemaining: data.percentRemaining,
+    ...(data.basis ? { basis: data.basis } : {}),
+    resetTimeIso: data.resetTimeIso,
+    semantic,
+    accounting: MINIMAX_TOKEN_PLAN_ACCOUNTING,
   };
 }
 
 function buildMiniMaxEntries(
   model: MiniMaxModelRemain,
   providerLabel: string,
-  countSemantics: MiniMaxCountSemantics,
-): MiniMaxResultEntry[] {
+  endpointId: MiniMaxQuotaEndpointId,
+): QuotaToastEntry[] {
   return MINIMAX_WINDOW_SPECS.flatMap((spec) => {
-    const entry = buildMiniMaxEntry(model, spec, providerLabel, countSemantics);
+    const entry = buildMiniMaxEntry(model, spec, providerLabel, endpointId);
     return entry ? [entry] : [];
   });
 }
 
-function getWorstPercent(model: MiniMaxModelRemain, countSemantics: MiniMaxCountSemantics): number {
-  const percents = buildMiniMaxEntries(model, MINIMAX_PROVIDER_LABEL, countSemantics).map(
-    (entry) => entry.percentRemaining,
+function getWorstPercent(model: MiniMaxModelRemain, endpointId: MiniMaxQuotaEndpointId): number {
+  const percents = buildMiniMaxEntries(model, MINIMAX_PROVIDER_LABEL, endpointId).flatMap(
+    (entry) => ("percentRemaining" in entry ? [entry.percentRemaining] : []),
   );
   return percents.length > 0 ? Math.min(...percents) : Number.POSITIVE_INFINITY;
 }
 
 function selectCanonicalMiniMaxModel(
   models: MiniMaxModelRemain[],
-  countSemantics: MiniMaxCountSemantics,
+  endpointId: MiniMaxQuotaEndpointId,
 ): MiniMaxModelRemain | null {
   if (models.length === 0) return null;
 
   const wildcardModel =
     models.find((model) => model.model_name.trim().toLowerCase() === "minimax-m*") ?? null;
-  if (wildcardModel && Number.isFinite(getWorstPercent(wildcardModel, countSemantics))) {
+  if (wildcardModel && Number.isFinite(getWorstPercent(wildcardModel, endpointId))) {
     return wildcardModel;
   }
 
   return (
     [...models].sort((left, right) => {
-      const percentDiff =
-        getWorstPercent(left, countSemantics) - getWorstPercent(right, countSemantics);
+      const percentDiff = getWorstPercent(left, endpointId) - getWorstPercent(right, endpointId);
       if (percentDiff !== 0) return percentDiff;
       return left.model_name.localeCompare(right.model_name);
     })[0] ?? null
@@ -249,9 +296,9 @@ function selectCanonicalMiniMaxModel(
 }
 
 /**
- * Fetch MiniMax coding plan quota from the API.
+ * Fetch MiniMax Token Plan quota from the API.
  *
- * Parses usage for MiniMax coding-plan models returned by the selected endpoint.
+ * Parses usage for MiniMax Token Plan models returned by the selected endpoint.
  *
  * @param apiKey - MiniMax API key
  * @returns Quota entries on success, error on failure, or empty entries when
@@ -260,10 +307,9 @@ function selectCanonicalMiniMaxModel(
 export async function queryMiniMaxQuota(
   apiKey: string,
   options: { requestTimeoutMs?: number; endpoint?: MiniMaxQuotaEndpointId; label?: string } = {},
-): Promise<MiniMaxResult> {
+): Promise<QuotaProviderResult> {
   const endpointId = options.endpoint ?? "international";
   const endpoint = getMiniMaxQuotaEndpoint(endpointId);
-  const countSemantics = MINIMAX_COUNT_SEMANTICS_BY_ENDPOINT[endpointId];
   try {
     return await fetchWithTimeout(endpoint.quotaUrl, {
       request: {
@@ -277,42 +323,38 @@ export async function queryMiniMaxQuota(
       consume: async (response) => {
         if (!response.ok) {
           const text = await response.text();
-          return {
-            success: false,
-            error: `MiniMax API error ${response.status}: ${sanitizeMiniMaxMessage(text, 120)}`,
-          };
+          return attemptedErrorResult(
+            options.label ?? MINIMAX_PROVIDER_LABEL,
+            `MiniMax API error ${response.status}: ${sanitizeMiniMaxMessage(text, 120)}`,
+          );
         }
 
         const payload = (await response.json()) as MiniMaxApiResponse;
 
         if (payload.base_resp?.status_code !== 0) {
-          return {
-            success: false,
-            error: `MiniMax API error: ${sanitizeMiniMaxMessage(payload.base_resp?.status_msg ?? "unknown")}`,
-          };
+          return attemptedErrorResult(
+            options.label ?? MINIMAX_PROVIDER_LABEL,
+            `MiniMax API error: ${sanitizeMiniMaxMessage(payload.base_resp?.status_msg ?? "unknown")}`,
+          );
         }
 
         const matchingModels = (payload.model_remains ?? []).filter(
           (model): model is MiniMaxModelRemain =>
-            isMiniMaxModelRecord(model) && isMiniMaxCodingModelName(model.model_name, endpointId),
+            isMiniMaxModelRecord(model) && isMiniMaxCodingModelName(model.model_name),
         );
-        const canonicalModel = selectCanonicalMiniMaxModel(matchingModels, countSemantics);
+        const canonicalModel = selectCanonicalMiniMaxModel(matchingModels, endpointId);
         const entries = canonicalModel
-          ? buildMiniMaxEntries(
-              canonicalModel,
-              options.label ?? MINIMAX_PROVIDER_LABEL,
-              countSemantics,
-            )
+          ? buildMiniMaxEntries(canonicalModel, options.label ?? MINIMAX_PROVIDER_LABEL, endpointId)
           : [];
 
-        return { success: true, entries };
+        return attemptedResult(entries);
       },
     });
   } catch (err) {
-    return {
-      success: false,
-      error: sanitizeMiniMaxMessage(err instanceof Error ? err.message : String(err)),
-    };
+    return attemptedErrorResult(
+      options.label ?? MINIMAX_PROVIDER_LABEL,
+      sanitizeMiniMaxMessage(err instanceof Error ? err.message : String(err)),
+    );
   }
 }
 
@@ -434,7 +476,10 @@ function createMiniMaxProvider(spec: MiniMaxProviderSpec): QuotaProvider {
             [row.integrationId]: row.value,
           } as AuthData);
           if (rowAuth.state === "invalid") {
-            invalidErrors.push({ label: displayNamesByRowId.get(row.id) ?? spec.label, message: rowAuth.error });
+            invalidErrors.push({
+              label: displayNamesByRowId.get(row.id) ?? spec.label,
+              message: rowAuth.error,
+            });
           }
           return rowAuth.state === "configured" ? [{ row, auth: rowAuth }] : [];
         });
@@ -453,20 +498,16 @@ function createMiniMaxProvider(spec: MiniMaxProviderSpec): QuotaProvider {
           const errors: QuotaProviderResult["errors"] = [...invalidErrors];
           for (const { row, result } of results) {
             const group = displayNamesByRowId.get(row.id) ?? spec.label;
-            if (!result.success) {
-              errors.push({ label: group, message: result.error });
+            if (result.errors.length > 0) {
+              errors.push(...result.errors.map((error) => ({ ...error, label: group })));
               continue;
             }
             entries.push(
-              ...result.entries.map(({ window: _window, ...entry }) => ({
+              ...result.entries.map((entry) => ({
                 ...entry,
-                name: entry.name.replace(spec.label, group),
                 group,
                 accounting: {
-                  resultType: "quota" as const,
-                  acquisitionMethod: "remote_api" as const,
-                  ownership: "maintained" as const,
-                  authority: "provider_reported" as const,
+                  ...entry.accounting,
                   sourceId: row.id,
                 },
               })),
@@ -486,30 +527,35 @@ function createMiniMaxProvider(spec: MiniMaxProviderSpec): QuotaProvider {
         requestTimeoutMs: ctx.config?.requestTimeoutMs,
       });
 
-      if (!result.success) {
-        return withStatusDetails(attemptedErrorResult(spec.label, result.error), [
-          ...statusDetails,
-          { key: "live_fetch_error", value: result.error },
-        ]);
+      if (result.errors.length > 0) {
+        const firstError = result.errors[0];
+        return withStatusDetails(
+          attemptedErrorResult(spec.label, firstError?.message ?? "MiniMax API error"),
+          [
+            ...statusDetails,
+            { key: "live_fetch_error", value: firstError?.message ?? "MiniMax API error" },
+          ],
+        );
       }
 
       const providerResult = attemptedResult(
-        result.entries.map(({ window: _window, ...entry }) => ({
+        result.entries.map((entry) => ({
           ...entry,
-          accounting: {
-            resultType: "quota",
-            acquisitionMethod: "remote_api",
-            ownership: "maintained",
-            authority: "provider_reported",
-          },
         })),
       );
-      const fiveHourEntry = result.entries.find((entry) => entry.window === "five_hour");
-      const weeklyEntry = result.entries.find((entry) => entry.window === "weekly");
-      const formatUsage = (entry: MiniMaxResultEntry | undefined): string | undefined =>
-        entry
-          ? `${entry.right ?? "(none)"} percent_remaining=${entry.percentRemaining} reset_at=${entry.resetTimeIso ?? "(none)"}`
-          : undefined;
+      const fiveHourEntry = result.entries.find(
+        (entry) =>
+          entry.semantic?.metric?.kind === "window" && entry.semantic.metric.window === "five_hour",
+      );
+      const weeklyEntry = result.entries.find(
+        (entry) =>
+          entry.semantic?.metric?.kind === "window" && entry.semantic.metric.window === "week",
+      );
+      const formatUsage = (entry: QuotaToastEntry | undefined): string | undefined => {
+        if (!entry) return undefined;
+        const percent = "percentRemaining" in entry ? entry.percentRemaining : undefined;
+        return `percent_remaining=${percent ?? "(none)"} reset_at=${entry.resetTimeIso ?? "(none)"}`;
+      };
       return withStatusDetails(providerResult, [
         ...statusDetails,
         ...statusDetailsFromRecord({

@@ -209,12 +209,12 @@ function isAccountingQuantity(value: unknown, safeText: boolean): value is Accou
   );
 }
 
-function isAccountingBasisFact(value: unknown, safeText: boolean): boolean {
+function isAccountingBasisFact(value: unknown, safeText: boolean, allowNegative = false): boolean {
   return (
     isRecord(value) &&
     hasOnlyKeys(value, ["quantity", "authority"]) &&
     isAccountingQuantity(value.quantity, safeText) &&
-    !value.quantity.decimal.startsWith("-") &&
+    (allowNegative || !value.quantity.decimal.startsWith("-")) &&
     isOneOf(value.authority, ["provider_reported", "locally_derived", "user_configured"])
   );
 }
@@ -227,7 +227,12 @@ function isAccountingPercentageBasis(
   const facts = [value.used, value.limit, value.remaining].filter(
     (fact): fact is Record<string, unknown> => fact !== undefined,
   );
-  if (facts.length === 0 || !facts.every((fact) => isAccountingBasisFact(fact, safeText))) {
+  if (
+    facts.length === 0 ||
+    (value.used !== undefined && !isAccountingBasisFact(value.used, safeText)) ||
+    (value.limit !== undefined && !isAccountingBasisFact(value.limit, safeText)) ||
+    (value.remaining !== undefined && !isAccountingBasisFact(value.remaining, safeText, true))
+  ) {
     return false;
   }
   const firstFact = facts[0];

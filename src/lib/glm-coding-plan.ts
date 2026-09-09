@@ -77,9 +77,7 @@ export async function queryGlmCodingPlanQuota(
               : undefined;
           const window = { percentRemaining: clampPercent(100 - limit.percentage), resetTimeIso };
 
-          const isQuotaWindow =
-            limit.type === "TOKENS_LIMIT" ||
-            (descriptor.envelope === "zai" && limit.type === "CREDIT_LIMIT");
+          const isQuotaWindow = limit.type === "TOKENS_LIMIT" || limit.type === "CREDIT_LIMIT";
           if (isQuotaWindow && limit.unit === 3) windows.fiveHour = window;
           else if (isQuotaWindow && limit.unit === 6) windows.weekly = window;
           else if (limit.type === "TIME_LIMIT") windows.mcp = window;

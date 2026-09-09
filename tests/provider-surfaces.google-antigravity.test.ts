@@ -226,7 +226,7 @@ describe("Google Antigravity provider surfaces", () => {
     expect(surfaces.sidebar.status).toBe("ready");
     expect(sidebar.match(/\nQuota\s/gu)).toHaveLength(2);
     expect(surfaces.compact.status).toBe("ready");
-    expect(compact).toBe("Antigravity (ali…) 0% | Antigravity (bob…) 0%");
+    expect(compact).toBe("Antigravity (ali…) 0% reset | Antigravity (bob…) 0% reset");
     expect(mocks.queryGoogleQuota).toHaveBeenCalledTimes(1);
 
     await hooks.dispose?.();

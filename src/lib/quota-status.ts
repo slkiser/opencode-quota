@@ -92,6 +92,7 @@ const OPENCODE_GO_STATUS_DETAIL_KEYS = new Set([
   "weekly_usage",
   "monthly_usage",
   "live_fetch_error",
+  "opencode_go_state",
 ]);
 type ProviderLiveProbe = {
   providerId: string;

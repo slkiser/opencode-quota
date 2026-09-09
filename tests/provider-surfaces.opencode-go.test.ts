@@ -156,7 +156,15 @@ describe("OpenCode Go shared projections", () => {
       configOverrides: config,
       resetPluginState: true,
     });
-    provider = (await import("../src/providers/opencode-go.js")).opencodeGoProvider;
+    const providerModule = await import("../src/providers/opencode-go.js");
+    providerModule.__resetOpenCodeGoNotSubscribedForTests();
+    provider = providerModule.opencodeGoProvider;
+    provider.cachePolicy = {
+      kind: "resolved-auth",
+      async resolveIdentity() {
+        return "opencode-go-test-identity" as never;
+      },
+    };
     mocks.loadConfig.mockResolvedValue(config);
     mocks.getProviders.mockReturnValue([provider]);
     mocks.resolveOpenCodeGoAuthCached.mockResolvedValue({
@@ -242,6 +250,92 @@ describe("OpenCode Go shared projections", () => {
       percentDisplayMode: "remaining",
     });
     expect(JSON.stringify(surfaces)).not.toContain(TEST_TOKEN);
+
+    await hooks.dispose?.();
+  });
+
+  it("hides a not-subscribed result on every display and keeps it visible in safe diagnostics", async () => {
+    mocks.queryOpenCodeGoQuota.mockResolvedValue({
+      success: false,
+      error: "OpenCode Go not subscribed (403 EntitlementError)",
+      notSubscribed: true,
+      retryable: false,
+    });
+    const client = createPluginTestClient({
+      modelID: "opencode-go/model",
+      providerID: "opencode-go",
+    });
+    client.config.providers.mockResolvedValue({
+      data: { providers: [{ id: "opencode-go" }] },
+    });
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const hooks = (await QuotaToastPlugin({ client } as never)) as PluginHooks;
+
+    await expectHandled(
+      hooks["command.execute.before"]?.({
+        command: "quota",
+        sessionID: "opencode-go-no-subscription",
+      }),
+    );
+    const command = getPromptText(client);
+
+    await hooks.event?.({
+      event: {
+        type: "session.idle",
+        properties: { sessionID: "opencode-go-no-subscription" },
+      },
+    });
+
+    const { loadTuiSessionQuotaSurfaces } = await import("../src/lib/tui-runtime.js");
+    const surfaces = await loadTuiSessionQuotaSurfaces({
+      api: {
+        state: {
+          provider: [{ id: "opencode-go" }],
+          path: { worktree: process.cwd(), directory: process.cwd() },
+          session: { messages: () => [] },
+        },
+        client,
+      } as never,
+      sessionID: "opencode-go-no-subscription",
+    });
+    const sidebar = [...surfaces.sidebar.lines, ...(surfaces.sidebar.linesExpanded ?? [])].join(
+      "\n",
+    );
+    const compact = surfaces.compact.status === "ready" ? surfaces.compact.text : "";
+
+    for (const output of [command, getToastMessage(client), sidebar, compact]) {
+      expect(output).not.toContain("EntitlementError");
+      expect(output).not.toContain("not subscribed");
+      expect(output).not.toContain(TEST_TOKEN);
+    }
+    expect(client.tui.showToast).not.toHaveBeenCalled();
+
+    const { buildQuotaExport } = await import("../src/lib/quota-export.js");
+    const { createRuntimeProviderIdResolver } = await import("../src/lib/runtime-provider-ids.js");
+    const exportData = await buildQuotaExport({
+      providers: [provider],
+      ctx: {
+        client,
+        config: createConfig(),
+        resolveRuntimeProviderIds: createRuntimeProviderIdResolver(client),
+      } as never,
+      ttlMs: 60_000,
+      fromCache: true,
+    });
+    expect(exportData.providers["opencode-go"]).toEqual({ status: "unavailable" });
+
+    await expectHandled(
+      hooks["command.execute.before"]?.({
+        command: "quota_status",
+        sessionID: "opencode-go-no-subscription",
+      }),
+    );
+    const status = getPromptText(client, 1);
+    expect(status).toContain("opencode_go_state");
+    expect(status).toContain("not_subscribed");
+    expect(status).not.toContain(TEST_TOKEN);
+    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledTimes(1);
 
     await hooks.dispose?.();
   });

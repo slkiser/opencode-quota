@@ -681,7 +681,10 @@ function parseOpenRouterKeyV1(
     (limit !== null &&
       limit !== undefined &&
       (typeof limit !== "number" || !Number.isFinite(limit) || limit < 0)) ||
-    (remaining !== undefined && (typeof remaining !== "number" || !Number.isFinite(remaining)))
+    (remaining === null && limit !== null) ||
+    (remaining !== null &&
+      remaining !== undefined &&
+      (typeof remaining !== "number" || !Number.isFinite(remaining)))
   ) {
     return { success: false, error: "Invalid openrouter-key-v1 response" };
   }
@@ -695,6 +698,7 @@ function parseOpenRouterKeyV1(
       };
     }
     const percentRemaining = (remainingValue / limit) * 100;
+    const usedUsd = typeof remaining === "number" ? limit - remainingValue : usage;
     return {
       success: true,
       entries: [
@@ -704,7 +708,7 @@ function parseOpenRouterKeyV1(
           name: `${source.label} budget`,
           group: source.label,
           label: "Budget:",
-          right: `${formatUsd(usage)}/${formatUsd(limit)}`,
+          right: `${formatUsd(usedUsd)}/${formatUsd(limit)}`,
           percentRemaining,
         },
       ],

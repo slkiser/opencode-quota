@@ -1,8 +1,66 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { buildCompactQuotaStatusLine } from "../src/lib/tui-compact-format.js";
 
 describe("buildCompactQuotaStatusLine", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("formats provider reset timestamps to the exact minute", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
+
+    const line = buildCompactQuotaStatusLine({
+      maxWidth: 96,
+      data: {
+        entries: [
+          {
+            name: "OpenAI Weekly",
+            percentRemaining: 50,
+            resetTimeIso: "2026-01-17T15:14:00.000Z",
+          },
+        ],
+        errors: [],
+      },
+    });
+
+    expect(line).toBe("OpenAI Weekly 50% 2d5h14m");
+  });
+
+  it("renders expired provider resets once", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
+
+    const line = buildCompactQuotaStatusLine({
+      maxWidth: 96,
+      data: {
+        entries: [
+          {
+            name: "OpenAI Weekly",
+            percentRemaining: 50,
+            resetTimeIso: "2026-01-15T09:59:00.000Z",
+          },
+        ],
+        errors: [],
+      },
+    });
+
+    expect(line).toBe("OpenAI Weekly 50% reset");
+  });
+
+  it("keeps compact entries without provider reset timestamps unchanged", () => {
+    const line = buildCompactQuotaStatusLine({
+      maxWidth: 96,
+      data: {
+        entries: [{ name: "OpenAI Weekly", percentRemaining: 50 }],
+        errors: [],
+      },
+    });
+
+    expect(line).toBe("OpenAI Weekly 50%");
+  });
+
   it("formats percent entries with text-only remaining percent semantics", () => {
     const line = buildCompactQuotaStatusLine({
       percentDisplayMode: "remaining",

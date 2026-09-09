@@ -320,7 +320,7 @@ describe("buildSidebarQuotaPanelLines", () => {
     expect(rendered).not.toContain("0% used");
   });
 
-  it("uses compact rounded reset text in sidebar rows", () => {
+  it("uses precise reset text in sidebar rows by default", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
 
@@ -342,8 +342,8 @@ describe("buildSidebarQuotaPanelLines", () => {
       },
     });
 
-    expect(lines.join("\n")).toContain("2.5h");
-    expect(lines.join("\n")).not.toContain("2h 14m");
+    expect(lines.join("\n")).toContain("2h14m");
+    expect(lines.join("\n")).not.toContain("2.5h");
   });
 
   it("uses fractional reset text in sidebar rows when resetTimeDecimals is set", () => {

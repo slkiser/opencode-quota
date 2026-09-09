@@ -72,8 +72,8 @@ Business placement describes vendor plan availability. Except for configured Cop
 | Alibaba Coding Plan      | Automatic                   | Local estimate | Quota              |
 | DeepSeek                 | Automatic                   | Remote API     | Balance and status |
 | Kimi Code                | Automatic                   | Remote API     | Quota              |
-| MiniMax Coding Plan      | Automatic                   | Remote API     | Quota              |
-| MiniMax Coding Plan (CN) | Automatic                   | Remote API     | Quota              |
+| MiniMax Token Plan       | Automatic                   | Remote API     | Quota              |
+| MiniMax Token Plan (CN)  | Automatic                   | Remote API     | Quota              |
 | Qwen Code                | [Needs setup](#qwen-code)   | Local estimate | Quota              |
 | Xiaomi MiMo              | [Needs setup](#xiaomi-mimo) | Dashboard API  | Quota and balance  |
 | Z.ai Coding Plan         | Automatic                   | Remote API     | Quota              |
@@ -87,8 +87,8 @@ Business placement describes vendor plan availability. Except for configured Cop
 | Provider                 | Auth/setup | Data from  | Reports |
 | ------------------------ | ---------- | ---------- | ------- |
 | Kimi Code                | Automatic  | Remote API | Quota   |
-| MiniMax Coding Plan      | Automatic  | Remote API | Quota   |
-| MiniMax Coding Plan (CN) | Automatic  | Remote API | Quota   |
+| MiniMax Token Plan       | Automatic  | Remote API | Quota   |
+| MiniMax Token Plan (CN)  | Automatic  | Remote API | Quota   |
 | Zhipu Coding Plan        | Automatic  | Remote API | Quota   |
 
 These vendors offer team or business plans, but the current integrations report only the configured member API key rather than organization-wide usage.
@@ -388,6 +388,10 @@ claude auth status
 If Claude lives at a custom path, set `anthropicBinaryPath` in `opencode-quota/quota-toast.json`.
 
 When Claude Code does not expose quota windows itself, quota is read from Anthropic's OAuth usage endpoint using the first usable access token: OpenCode's own `anthropic` OAuth credential from `opencode.db`, then Claude Code's credentials. `/quota_status` reports which store answered as `oauth_credential_source`.
+
+When that OAuth response includes enabled Usage Credits with numeric utilization, quota displays show a separate monthly **Claude Usage Credits** group; missing or invalid credit data leaves the regular 5-hour and weekly rows unchanged.
+
+If that response includes Anthropic's model-scoped Fable weekly window, OpenCode Quota shows it as a separate `Fable` row. The row is omitted when Anthropic does not return the window; OpenCode Quota does not infer eligibility from the account's plan name. See [Claude Fable models on your plan](https://support.claude.com/en/articles/15424964-claude-fable-models-on-your-plan) for Anthropic's current eligibility rules.
 
 <a id="cursor"></a>
 

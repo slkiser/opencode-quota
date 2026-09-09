@@ -8,7 +8,11 @@ import type {
 } from "@opencode-ai/plugin/tui";
 import type { JSX } from "@opentui/solid";
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
-import { formatDisplayedPercentLabel, formatResetCountdown } from "./lib/format-utils.js";
+import {
+  formatDisplayedPercentLabel,
+  formatResetCountdown,
+  isResetTimeDecimals,
+} from "./lib/format-utils.js";
 import {
   buildQuotaDialogCommandOutput,
   QUOTA_DIALOG_COMMANDS,
@@ -516,10 +520,12 @@ function buildPromptBarParts(params: {
   const entry = bar.entry;
   if (!entry) return undefined;
   const reset = entry.resetTimeIso
-    ? formatResetCountdown(entry.resetTimeIso, {
-        compactRounded: true,
-        decimals: bar.resetTimeDecimals,
-      })
+    ? formatResetCountdown(
+        entry.resetTimeIso,
+        isResetTimeDecimals(bar.resetTimeDecimals)
+          ? { compactRounded: true, decimals: bar.resetTimeDecimals }
+          : undefined,
+      )
     : "";
 
   const hasPercent = Number.isFinite(entry.percentRemaining);

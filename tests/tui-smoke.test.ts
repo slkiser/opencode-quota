@@ -1789,4 +1789,47 @@ describe("tui plugin smoke", () => {
     expect(hint.props.children[0].props.children).toBe("Cursor: Known API spend USD 12.50");
     expect(JSON.stringify(hint)).not.toMatch(/[█░▓▒]/u);
   });
+
+  it("renders exact-minute reset text in the prompt bar", async () => {
+    vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
+    const plugin = await loadTuiModule();
+    const { api, registered } = createApi();
+
+    resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      commandDisplay: "inline",
+      sidebar: { enabled: false },
+      compact: {
+        enabled: false,
+        homeBottom: false,
+        sessionPrompt: false,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      promptBar: { enabled: true },
+      announcements: { homeBottom: false },
+      homeBottom: false,
+    });
+    loadTuiSessionQuotaSurfaces.mockResolvedValueOnce({
+      sidebar: { status: "disabled", lines: [] },
+      compact: { status: "disabled" },
+      promptBar: {
+        status: "ready",
+        entry: {
+          name: "OpenAI Weekly",
+          percentRemaining: 50,
+          resetTimeIso: "2026-01-17T15:14:00.000Z",
+        },
+        percentDisplayMode: "remaining",
+      },
+    });
+
+    await startTui(plugin, api);
+    const registration = registered.find((item) => item.order === 90)!;
+    registration.slots.session_prompt({}, { session_id: "session-reset" });
+    await flushPromises();
+    const rendered = registration.slots.session_prompt({}, { session_id: "session-reset" }) as any;
+    const hint = rendered.props.children[1];
+
+    expect(hint.props.children[2].props.children).toBe("50% | 2d5h14m");
+  });
 });

@@ -32,7 +32,10 @@ vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
   readCredentialRows: vi.fn().mockResolvedValue([]),
 }));
 
-import { opencodeGoProvider } from "../src/providers/opencode-go.js";
+import {
+  __resetOpenCodeGoNotSubscribedForTests,
+  opencodeGoProvider,
+} from "../src/providers/opencode-go.js";
 
 function successfulResult() {
   return {
@@ -84,6 +87,7 @@ async function runFetch(
 describe("opencode-go provider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetOpenCodeGoNotSubscribedForTests();
     mocks.getOpenCodeGoAuthDiagnostics.mockResolvedValue(diagnostics());
     mocks.resolveOpenCodeGoAuthCached.mockResolvedValue({
       state: "configured",
@@ -252,6 +256,59 @@ describe("opencode-go provider", () => {
     expect(groups).toEqual(["[OpenCode Go]", "[OpenCode Go]", "[OpenCode Go]", "[OpenCode Go]"]);
   });
 
+  it("suppresses non-entitled database connections independently", async () => {
+    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
+    const credentialRows = [
+      {
+        id: "not-subscribed",
+        integrationId: "opencode-go",
+        label: "free",
+        active: true,
+        value: { type: "key", key: "free-key" },
+      },
+      {
+        id: "subscribed",
+        integrationId: "opencode-go",
+        label: "paid",
+        active: false,
+        value: { type: "key", key: "paid-key" },
+      },
+    ];
+    (readCredentialRows as any)
+      .mockResolvedValueOnce(credentialRows)
+      .mockResolvedValueOnce(credentialRows);
+    mocks.resolveOpenCodeGoAuth.mockImplementation((auth: any) => ({
+      state: "configured",
+      apiKey: auth["opencode-go"].key,
+    }));
+    mocks.queryOpenCodeGoQuota.mockImplementation(async (apiKey: string) =>
+      apiKey === "free-key"
+        ? {
+            success: false,
+            error: "OpenCode Go not subscribed (403 EntitlementError)",
+            notSubscribed: true,
+            retryable: false,
+          }
+        : successfulResult(),
+    );
+
+    const first = await runFetch(["rolling"]);
+    const second = await runFetch(["rolling"]);
+
+    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledTimes(3);
+    expect(mocks.queryOpenCodeGoQuota.mock.calls.map(([apiKey]) => apiKey)).toEqual([
+      "free-key",
+      "paid-key",
+      "paid-key",
+    ]);
+    expect(first.entries).toEqual([
+      expect.objectContaining({ accounting: expect.objectContaining({ sourceId: "subscribed" }) }),
+    ]);
+    expect(second.entries).toEqual([
+      expect.objectContaining({ accounting: expect.objectContaining({ sourceId: "subscribed" }) }),
+    ]);
+  });
+
   it("falls back to legacy alias rows when no native opencode-go row exists", async () => {
     const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
     (readCredentialRows as any).mockResolvedValueOnce([
@@ -384,6 +441,112 @@ describe("opencode-go provider", () => {
     });
   });
 
+  it("surfaces a rate-limited monthly window as a valid result", async () => {
+    const result = successfulResult();
+    result.monthly = {
+      status: "rate-limited" as const,
+      usagePercent: 100,
+      percentRemaining: 0,
+      resetTimeIso: "2026-09-01T04:00:00.000Z",
+    };
+    mocks.queryOpenCodeGoQuota.mockResolvedValueOnce(result);
+
+    const out = await runFetch();
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.statusDetails).toContainEqual({
+      key: "monthly_usage",
+      value:
+        "status=rate-limited percent_used=100 percent_remaining=0 reset_at=2026-09-01T04:00:00.000Z",
+    });
+    expect(
+      out.entries.find((entry) => entry.name === "OpenCode Go Monthly")?.percentRemaining,
+    ).toBe(0);
+  });
+
+  it("suppresses repeat requests after a not-subscribed response", async () => {
+    mocks.queryOpenCodeGoQuota.mockResolvedValue({
+      success: false,
+      error: "OpenCode Go not subscribed (403 EntitlementError)",
+      notSubscribed: true,
+      retryable: false,
+    });
+
+    const first = await runFetch();
+    const second = await runFetch();
+
+    expectAttemptedWithNoErrors(first);
+    expectAttemptedWithNoErrors(second);
+    expect(first.entries).toEqual([]);
+    expect(second.entries).toEqual([]);
+    expect(first.statusDetails).toContainEqual({
+      key: "opencode_go_state",
+      value: "not_subscribed",
+    });
+    expect(second.statusDetails).toContainEqual({
+      key: "opencode_go_state",
+      value: "not_subscribed",
+    });
+    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledTimes(1);
+  });
+
+  it("queries again after the credential changes, including when the original returns", async () => {
+    mocks.queryOpenCodeGoQuota.mockResolvedValueOnce({
+      success: false,
+      error: "OpenCode Go not subscribed (403 EntitlementError)",
+      notSubscribed: true,
+      retryable: false,
+    });
+    await expect(opencodeGoProvider.isAvailable(createProviderAvailabilityContext())).resolves.toBe(
+      true,
+    );
+    await runFetch();
+
+    mocks.resolveOpenCodeGoAuthCached.mockResolvedValue({
+      state: "configured",
+      apiKey: "new-provider-test-token",
+    });
+    await runFetch();
+
+    mocks.resolveOpenCodeGoAuthCached.mockResolvedValue({
+      state: "configured",
+      apiKey: "provider-test-token",
+    });
+    await runFetch();
+
+    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledTimes(3);
+    expect(mocks.queryOpenCodeGoQuota).toHaveBeenNthCalledWith(2, "new-provider-test-token", {
+      requestTimeoutMs: 5_000,
+    });
+    expect(mocks.queryOpenCodeGoQuota).toHaveBeenLastCalledWith("provider-test-token", {
+      requestTimeoutMs: 5_000,
+    });
+  });
+
+  it.each([
+    ["missing", { state: "none" }],
+    ["invalid", { state: "invalid", error: "OpenCode Go auth entry present but key is empty" }],
+  ])("queries again after production availability sees %s auth", async (_name, auth) => {
+    mocks.queryOpenCodeGoQuota.mockResolvedValueOnce({
+      success: false,
+      error: "OpenCode Go not subscribed (403 EntitlementError)",
+      notSubscribed: true,
+      retryable: false,
+    });
+    await runFetch();
+
+    mocks.resolveOpenCodeGoAuthCached.mockResolvedValueOnce(auth);
+    await expect(opencodeGoProvider.isAvailable(createProviderAvailabilityContext())).resolves.toBe(
+      false,
+    );
+    await runFetch();
+
+    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledTimes(2);
+    expect(mocks.queryOpenCodeGoQuota).toHaveBeenLastCalledWith("provider-test-token", {
+      requestTimeoutMs: 5_000,
+    });
+  });
+
   it("does not copy the resolved token into provider output", async () => {
     const out = await runFetch();
     expect(JSON.stringify(out)).not.toContain("provider-test-token");
@@ -393,6 +556,7 @@ describe("opencode-go provider", () => {
 describe("opencode-go availability and model matching", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetOpenCodeGoNotSubscribedForTests();
   });
 
   it.each([

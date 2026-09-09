@@ -51,15 +51,28 @@ export interface AnthropicQuotaWindow {
   resetAt?: string;
 }
 
+export interface AnthropicExtraUsage {
+  is_enabled?: boolean;
+  utilization?: number;
+}
+
 export interface AnthropicUsageResponse {
   five_hour: AnthropicQuotaWindow;
   seven_day: AnthropicQuotaWindow;
+  extra_usage?: AnthropicExtraUsage;
+  limits?: unknown[];
 }
 
 export interface AnthropicQuotaResult {
   success: true;
   five_hour: { percentRemaining: number; resetTimeIso?: string };
   seven_day: { percentRemaining: number; resetTimeIso?: string };
+  extra_usage?: { percentRemaining: number };
+  fable_weekly?: { percentRemaining: number; resetTimeIso?: string };
+}
+
+export interface AnthropicUsageParseOptions {
+  includeExtraUsage?: boolean;
 }
 
 export interface AnthropicQuotaError {
@@ -327,6 +340,20 @@ function parseQuotaWindow(
   };
 }
 
+function parseExtraUsageQuota(extraUsage: unknown): { percentRemaining: number } | undefined {
+  const record = asRecord(extraUsage);
+  if (!record || record["is_enabled"] !== true) {
+    return undefined;
+  }
+
+  const used = record["utilization"];
+  if (typeof used !== "number" || !Number.isFinite(used) || used < 0 || used > 100) {
+    return undefined;
+  }
+
+  return { percentRemaining: Math.round(100 - used) };
+}
+
 function getUsageRoots(data: unknown): Record<string, unknown>[] {
   const root = asRecord(data);
   if (!root) {
@@ -357,7 +384,42 @@ function getUsageRoots(data: unknown): Record<string, unknown>[] {
   return roots;
 }
 
-function parseUsageResponse(data: unknown): AnthropicQuotaResult | null {
+function parseFableWeeklyWindow(
+  limits: unknown,
+): { percentRemaining: number; resetTimeIso?: string } | undefined {
+  if (!Array.isArray(limits)) {
+    return undefined;
+  }
+
+  for (const value of limits) {
+    const limit = asRecord(value);
+    if (!limit || limit["kind"] !== "weekly_scoped") {
+      continue;
+    }
+
+    const scope = asRecord(limit["scope"]);
+    const model = asRecord(scope?.["model"]);
+    const displayName = model?.["display_name"];
+    if (displayName !== "Fable") {
+      continue;
+    }
+
+    const window = parseQuotaWindow({
+      utilization: limit["percent"],
+      resets_at: limit["resets_at"],
+    });
+    if (window) {
+      return window;
+    }
+  }
+
+  return undefined;
+}
+
+function parseUsageResponse(
+  data: unknown,
+  options: AnthropicUsageParseOptions = {},
+): AnthropicQuotaResult | null {
   for (const root of getUsageRoots(data)) {
     const fiveHour = parseQuotaWindow(root["five_hour"] ?? root["fiveHour"]);
     const sevenDay = parseQuotaWindow(root["seven_day"] ?? root["sevenDay"]);
@@ -366,10 +428,38 @@ function parseUsageResponse(data: unknown): AnthropicQuotaResult | null {
       continue;
     }
 
+    const extraUsage = options.includeExtraUsage
+      ? parseExtraUsageQuota(root["extra_usage"])
+      : undefined;
+
     return {
       success: true,
       five_hour: fiveHour,
       seven_day: sevenDay,
+      ...(extraUsage ? { extra_usage: extraUsage } : {}),
+    };
+  }
+
+  return null;
+}
+
+function parseOAuthUsageResponse(data: unknown): AnthropicQuotaResult | null {
+  for (const root of getUsageRoots(data)) {
+    const fiveHour = parseQuotaWindow(root["five_hour"] ?? root["fiveHour"]);
+    const sevenDay = parseQuotaWindow(root["seven_day"] ?? root["sevenDay"]);
+
+    if (!fiveHour || !sevenDay) {
+      continue;
+    }
+
+    const extraUsage = parseExtraUsageQuota(root["extra_usage"]);
+    const fableWeekly = parseFableWeeklyWindow(root["limits"]);
+    return {
+      success: true,
+      five_hour: fiveHour,
+      seven_day: sevenDay,
+      ...(extraUsage ? { extra_usage: extraUsage } : {}),
+      ...(fableWeekly ? { fable_weekly: fableWeekly } : {}),
     };
   }
 
@@ -771,7 +861,7 @@ async function performAnthropicOAuthUsageRequest(
           };
         }
 
-        const quota = parseUsageResponse(data);
+        const quota = parseOAuthUsageResponse(data);
         if (!quota) {
           return {
             state: "unavailable",
@@ -1418,4 +1508,4 @@ export async function queryAnthropicQuota(
   }
 }
 
-export { parseUsageResponse };
+export { parseOAuthUsageResponse, parseUsageResponse };

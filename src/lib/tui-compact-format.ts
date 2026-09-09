@@ -2,7 +2,7 @@ import { interpretAccountingRow } from "./accounting-format.js";
 import { sanitizeQuotaRenderData, sanitizeSingleLineDisplayText } from "./display-sanitize.js";
 import type { QuotaToastEntry, QuotaToastError } from "./entries.js";
 import { isPercentEntry, isValueEntry } from "./entries.js";
-import { formatDisplayedPercentLabel } from "./format-utils.js";
+import { formatDisplayedPercentLabel, formatResetCountdown } from "./format-utils.js";
 import { formatGroupedHeader } from "./grouped-header-format.js";
 import { extractSingleWindowWindowLabel } from "./quota-entry-display.js";
 import type { QuotaRenderData } from "./quota-render-data.js";
@@ -95,7 +95,8 @@ function formatCompactValueEntrySegment(
 ): string | null {
   const name = getProviderName(entry);
   const value = compactText(entry.value);
-  const segment = [name, value].filter(Boolean).join(" - ");
+  const reset = formatResetCountdown(entry.resetTimeIso);
+  const segment = [name, value, reset].filter(Boolean).join(" - ");
   return segment || null;
 }
 
@@ -157,7 +158,10 @@ function buildSemanticCandidate(
   const provider = getProviderName(entry);
   const label = compactText(interpretation.label);
   const prefix = compactText([provider, label].filter(Boolean).join(": "));
-  const segment = compactText([prefix, value].filter(Boolean).join(" "));
+  const displayValue = compactText(
+    [value, formatResetCountdown(entry.resetTimeIso)].filter(Boolean).join(" "),
+  );
+  const segment = compactText([prefix, displayValue].filter(Boolean).join(" "));
   if (!segment) return null;
 
   const detailRole = percentDisplayMode === "used" ? "used" : "remaining";
@@ -170,7 +174,7 @@ function buildSemanticCandidate(
     prominence: entry.semantic.prominence === "supplementary" ? 1 : 0,
     ...(detail ? { detail } : {}),
     ...(interpretation.display.kind === "value" && interpretation.display.entryKind !== "value"
-      ? { atomic: { prefix, value } }
+      ? { atomic: { prefix, value: displayValue } }
       : {}),
   };
 }
@@ -203,7 +207,14 @@ function formatCompactEntryCandidates(params: {
     if (!isPercentEntry(entry)) continue;
 
     const provider = getProviderName(entry);
-    const value = formatCompactPercentLabel(entry.percentRemaining, params.percentDisplayMode);
+    const value = compactText(
+      [
+        formatCompactPercentLabel(entry.percentRemaining, params.percentDisplayMode),
+        formatResetCountdown(entry.resetTimeIso),
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
     const label = getWindowLabel(entry);
     const key = provider.toLowerCase();
     let group = groups.get(key);

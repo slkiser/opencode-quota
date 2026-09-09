@@ -260,9 +260,9 @@ See [Providers](providers.md#custom-providers) for response formats and setup de
 </details>
 
 <details>
-<summary><strong>Show finer-grained reset countdowns</strong></summary>
+<summary><strong>Choose decimal reset countdowns</strong></summary>
 
-By default, toast, Sidebar, and terminal `show` countdowns keep the compact display (`6d`, `2h`, `0.5h`). Set `resetTimeDecimals` to an integer from `0` to `4` to show fractional durations such as `5.7d` or `1.4h`.
+By default, popup toasts, the Sidebar, terminal `show`, and the prompt bar show exact remaining days, hours, and minutes in compact form, such as `6d1h17m`, `2h14m`, or `37m`. Partial minutes round up. Set `resetTimeDecimals` to an integer from `0` to `4` to instead show the largest unit as a decimal value, such as `5.7d` or `1.4h`.
 
 ```jsonc
 {
@@ -270,7 +270,7 @@ By default, toast, Sidebar, and terminal `show` countdowns keep the compact disp
 }
 ```
 
-Leave it unset to preserve the default display exactly.
+Leave it unset to use the default exact-to-minute display.
 
 </details>
 
@@ -350,7 +350,7 @@ Existing `experimental.quotaToast` settings remain supported. Quota settings do 
 | `formatStyle`                 | `singleWindow` | Shared quota reset-period display for TUI popup toasts, the Sidebar panel, and Compact status line unless a TUI surface override is set: `singleWindow` shows one reset period per provider; `allWindows` shows all reset periods per provider. Legacy `classic`/`grouped` aliases are still accepted.              |
 | `percentDisplayMode`          | `remaining`    | Percentage/bar direction across human surfaces: `remaining` shows the percentage left; `used` shows the percentage consumed. It does not rename literal basis facts.                                                                                                                                               |
 | `accountingDetail`            | `summary`      | Provider-neutral accounting detail across human surfaces: `summary` keeps primary rows; `detailed` also admits supplementary rows and fuller basis detail when width allows. Independent of `formatStyle` and `percentDisplayMode`.                                                                                |
-| `resetTimeDecimals`           | unset          | Decimal places for compact reset countdowns in popup toasts, the Sidebar panel, and terminal `show`. Accepts integers `0`–`4`; unset preserves the default integer-day and half-hour-step display.                                                                                                                  |
+| `resetTimeDecimals`           | unset          | Decimal places for a largest-unit reset countdown override in popup toasts, the Sidebar panel, terminal `show`, and the prompt bar. Accepts integers `0`–`4`; when unset, the default shows exact remaining days, hours, and minutes as `DdHhMm`. |
 | `onlyCurrentModel`            | `false`        | Filter quota rows to the current model/provider when that session selection can be resolved.                                                                                                                                                                                                                        |
 | `showSessionTokens`           | `true`         | Show the `Session input/output tokens` section when session token data is available. When cached input is present, the section keeps the legacy `in/out` layout and appends cached input in parentheses next to the input amount.                                                                                   |
 | `sessionTokenScope`           | `"current"`    | Choose `current` for the active session only or `tree` for the active session plus recursive descendants/subagents, counted once. Applies to `/quota`, popup toasts, the Sidebar panel, and the compact input line when `showSessionTokens` is enabled. Does not change `/tokens_session` or `/tokens_session_all`. |

@@ -301,6 +301,19 @@ describe("package manifest compatibility", () => {
     });
   });
 
+  it("keeps the legacy MiniMax result types in generated public declarations", async () => {
+    const [indexDeclarations, typesDeclarations] = await Promise.all([
+      readFile(new URL("../dist/index.d.ts", import.meta.url), "utf8"),
+      readFile(new URL("../dist/lib/types.d.ts", import.meta.url), "utf8"),
+    ]);
+
+    expect(indexDeclarations).toMatch(/MiniMaxResult[\s\S]*MiniMaxResultEntry/u);
+    expect(typesDeclarations).toContain("export interface MiniMaxResultEntry {");
+    expect(typesDeclarations).toContain('window: "five_hour" | "weekly";');
+    expect(typesDeclarations).toContain("export type MiniMaxResult = {");
+    expect(typesDeclarations).toContain("entries: MiniMaxResultEntry[];");
+  });
+
   it("does not leave stale Crof generated artifacts in active dist", async () => {
     const staleCrofDistPaths = [
       "../dist/lib/crof-config.d.ts",

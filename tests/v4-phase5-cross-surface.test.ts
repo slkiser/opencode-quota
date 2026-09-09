@@ -31,7 +31,9 @@ import {
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-v4-phase5-cross-surface";
 const POSIX_IDENTITY_STORAGE = process.platform !== "win32" && typeof process.getuid === "function";
 const MINIMAX_QUOTA_URL = "https://api.minimax.io/v1/api/openplatform/coding_plan/remains";
+const MINIMAX_CHINA_QUOTA_URL = "https://api.minimaxi.com/v1/token_plan/remains";
 const MINIMAX_API_KEY = "minimax-test-key";
+const MINIMAX_CHINA_API_KEY = "minimax-china-test-key";
 
 const mocks = vi.hoisted(() => ({
   loadConfig: vi.fn(),
@@ -47,6 +49,11 @@ const mocks = vi.hoisted(() => ({
   resolveAlibabaCodingPlanAuthCached: vi.fn(),
   resolveMiniMaxAuthCached: vi.fn(),
   getMiniMaxAuthDiagnostics: vi.fn(),
+  resolveMiniMaxChinaAuthCached: vi.fn(),
+  getMiniMaxChinaAuthDiagnostics: vi.fn(),
+  getAnthropicDiagnostics: vi.fn(),
+  hasAnthropicCredentialsConfigured: vi.fn(),
+  queryAnthropicQuota: vi.fn(),
   fetchSessionTokensForDisplay: vi.fn(),
 }));
 
@@ -100,13 +107,13 @@ vi.mock("../src/lib/minimax-auth.js", () => ({
   DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS: 5_000,
   resolveMiniMaxAuthCached: mocks.resolveMiniMaxAuthCached,
   getMiniMaxAuthDiagnostics: mocks.getMiniMaxAuthDiagnostics,
-  resolveMiniMaxChinaAuthCached: vi.fn(async () => ({ state: "none" })),
-  getMiniMaxChinaAuthDiagnostics: vi.fn(async () => ({
-    state: "none",
-    source: null,
-    checkedPaths: [],
-    credentialDatabasePaths: [],
-  })),
+  resolveMiniMaxChinaAuthCached: mocks.resolveMiniMaxChinaAuthCached,
+  getMiniMaxChinaAuthDiagnostics: mocks.getMiniMaxChinaAuthDiagnostics,
+}));
+vi.mock("../src/lib/anthropic.js", () => ({
+  getAnthropicDiagnostics: mocks.getAnthropicDiagnostics,
+  hasAnthropicCredentialsConfigured: mocks.hasAnthropicCredentialsConfigured,
+  queryAnthropicQuota: mocks.queryAnthropicQuota,
 }));
 vi.mock("../src/lib/opencode-runtime-paths.js", () =>
   createPluginRuntimePathsMockModule(TEST_RUNTIME_ROOT, { includeCandidates: true }),
@@ -166,10 +173,10 @@ function configFor(formatStyle: "allWindows" | "singleWindow") {
   });
 }
 
-function configForMiniMax() {
+function configForSingleProvider(providerId = "minimax-coding-plan") {
   return makeQuotaToastTestConfig({
     enabled: true,
-    enabledProviders: ["minimax-coding-plan"],
+    enabledProviders: [providerId],
     formatStyle: "allWindows",
     minIntervalMs: 60_000,
     showOnIdle: true,
@@ -290,6 +297,13 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       checkedPaths: [],
       credentialDatabasePaths: [],
     });
+    mocks.resolveMiniMaxChinaAuthCached.mockResolvedValue({ state: "none" });
+    mocks.getMiniMaxChinaAuthDiagnostics.mockResolvedValue({
+      state: "none",
+      source: null,
+      checkedPaths: [],
+      credentialDatabasePaths: [],
+    });
 
     const { quotaProvidersProvider } = await import("../src/providers/quota-providers.js");
     mocks.getProviders.mockReturnValue([quotaProvidersProvider]);
@@ -320,11 +334,36 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
             {
               model_name: "MiniMax-M*",
               current_interval_total_count: 100,
-              current_interval_usage_count: 35,
+              current_interval_usage_count: -5,
               remains_time: 3_600_000,
               current_weekly_total_count: 200,
-              current_weekly_usage_count: 160,
+              current_weekly_usage_count: -20,
               weekly_remains_time: 86_400_000,
+            },
+          ],
+          base_resp: { status_code: 0, status_msg: "success" },
+        });
+      }
+      if (url === MINIMAX_CHINA_QUOTA_URL) {
+        expect(authorization).toBe(`Bearer ${MINIMAX_CHINA_API_KEY}`);
+        return phase5JsonResponse({
+          model_remains: [
+            {
+              model_name: "general",
+              current_interval_total_count: 0,
+              current_interval_usage_count: 0,
+              remains_time: 3_600_000,
+              current_weekly_total_count: 0,
+              current_weekly_usage_count: 0,
+              weekly_remains_time: 86_400_000,
+              current_interval_remaining_percent: 33,
+              current_weekly_remaining_percent: 46,
+            },
+            {
+              model_name: "video",
+              current_interval_total_count: 100,
+              current_interval_usage_count: 99,
+              remains_time: 3_600_000,
             },
           ],
           base_resp: { status_code: 0, status_msg: "success" },
@@ -664,8 +703,8 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     await hooks.dispose?.();
   });
 
-  it("renders non-empty MiniMax five-hour and weekly quota on all four surfaces", async () => {
-    currentConfig = configForMiniMax();
+  it("keeps over-quota MiniMax results in cache, export, and all four displays", async () => {
+    currentConfig = configForSingleProvider();
     mocks.loadConfig.mockImplementation(async () => currentConfig);
     const { minimaxCodingPlanProvider } = await import("../src/providers/minimax-coding-plan.js");
     minimaxCodingPlanProvider.cachePolicy = { kind: "account-neutral" };
@@ -686,12 +725,43 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       }),
     );
     const serverOutput = getPromptText(client);
-    expect(serverOutput).toContain("MiniMax Coding Plan");
+    expect(serverOutput).toContain("MiniMax Token Plan");
     expect(serverOutput).toContain("5h quota");
-    expect(serverOutput).toContain("Week quota");
-    expect(serverOutput).toContain("35%");
-    expect(serverOutput).toContain("80%");
+    expect(serverOutput).toContain("Weekly quota");
+    expect(serverOutput).toContain("0% left");
+    expect(serverOutput).toContain("Remaining: -5 requests");
+    expect(serverOutput).toContain("Remaining: -20 requests");
     expect(serverOutput).not.toContain("Invalid normalized provider result");
+
+    const { resolveQuotaRuntimeContext } = await import("../src/lib/quota-runtime-context.js");
+    const runtime = await resolveQuotaRuntimeContext({
+      client: client as never,
+      roots: { workspaceRoot: process.cwd() },
+      config: currentConfig,
+      providers: [minimaxCodingPlanProvider],
+      configureTelemetry: false,
+    });
+    const { buildQuotaExport, createExportProviderContext } = await import(
+      "../src/lib/quota-export.js"
+    );
+    const fetchCallsBeforeExport = vi.mocked(globalThis.fetch).mock.calls.length;
+    const exportData = await buildQuotaExport({
+      providers: [minimaxCodingPlanProvider],
+      ctx: createExportProviderContext(runtime),
+      ttlMs: currentConfig.minIntervalMs,
+      fromCache: true,
+    });
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(fetchCallsBeforeExport);
+    const exportedProvider = exportData.providers["minimax-coding-plan"];
+    expect(exportedProvider?.status).toBe("ok");
+    if (!exportedProvider || !("entries" in exportedProvider)) {
+      throw new Error("Expected cached MiniMax export entries");
+    }
+    expect(
+      exportedProvider.entries.map((entry) =>
+        entry.renderType === "percent" ? entry.percentRemaining : entry.value,
+      ),
+    ).toEqual([-5, -10]);
 
     await hooks.event?.({
       event: {
@@ -700,11 +770,12 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       },
     });
     const toastOutput = getToastMessage(client);
-    expect(toastOutput).toContain("MiniMax Coding Plan");
+    expect(toastOutput).toContain("MiniMax Token Plan");
     expect(toastOutput).toContain("5h");
     expect(toastOutput).toContain("Weekly");
-    expect(toastOutput).toContain("35%");
-    expect(toastOutput).toContain("80%");
+    expect(toastOutput).toContain("0% left");
+    expect(toastOutput).toContain("Remaining: -5 requests");
+    expect(toastOutput).toContain("Remaining: -20 requests");
 
     const tuiApi = {
       state: {
@@ -725,16 +796,201 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       ...surfaces.sidebar.lines,
       ...(surfaces.sidebar.linesExpanded ?? []),
     ].join("\n");
-    expect(sidebarOutput).toContain("MiniMax Coding Plan");
+    expect(sidebarOutput).toContain("MiniMax Token Plan");
     expect(sidebarOutput).toContain("5h");
     expect(sidebarOutput).toContain("Weekly");
-    expect(sidebarOutput).toContain("35%");
-    expect(sidebarOutput).toContain("80%");
+    expect(sidebarOutput).toContain("0% left");
+    expect(sidebarOutput).toContain("Remaining: -5 requests");
+    expect(sidebarOutput).toContain("Remaining: -20 requests");
 
     expect(surfaces.compact.status).toBe("ready");
     const compactOutput = surfaces.compact.status === "ready" ? surfaces.compact.text : "";
-    expect(compactOutput).toContain("35%");
-    expect(compactOutput).toContain("80%");
+    expect(compactOutput.match(/0%/gu)).toHaveLength(2);
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(1);
+
+    await hooks.dispose?.();
+  });
+
+  it("shows the optional Anthropic Fable weekly row on all four displays", async () => {
+    currentConfig = configForSingleProvider("anthropic");
+    mocks.loadConfig.mockImplementation(async () => currentConfig);
+    mocks.hasAnthropicCredentialsConfigured.mockResolvedValue(true);
+    const quota = {
+      success: true,
+      five_hour: { percentRemaining: 58, resetTimeIso: "2026-07-21T14:10:00.268Z" },
+      seven_day: { percentRemaining: 72, resetTimeIso: "2026-07-27T07:00:00.268Z" },
+      fable_weekly: {
+        percentRemaining: 98,
+        resetTimeIso: "2026-07-27T07:00:00.268Z",
+      },
+    };
+    mocks.getAnthropicDiagnostics.mockResolvedValue({
+      installed: true,
+      version: "2.1.258",
+      authStatus: "authenticated",
+      quotaSupported: true,
+      quotaSource: "opencode-auth-oauth-api",
+      oauthCredentialSource: "opencode-auth",
+      checkedCommands: ["claude --version"],
+      quota,
+    });
+    mocks.queryAnthropicQuota.mockResolvedValue(quota);
+
+    const { anthropicProvider } = await import("../src/providers/anthropic.js");
+    anthropicProvider.cachePolicy = { kind: "account-neutral" };
+    mocks.getProviders.mockReturnValue([anthropicProvider]);
+
+    const client = createClient();
+    client.config.providers.mockResolvedValue({
+      data: { providers: [{ id: "anthropic" }] },
+    });
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const hooks = (await QuotaToastPlugin({ client } as never)) as PluginHooks;
+
+    await expectHandled(
+      hooks["command.execute.before"]?.({
+        command: "quota",
+        sessionID: "anthropic-fable-session",
+      }),
+    );
+    const serverOutput = getPromptText(client);
+    expect(serverOutput).toContain("Claude");
+    expect(serverOutput).toContain("Fable");
+    expect(serverOutput).toContain("98% left");
+
+    await hooks.event?.({
+      event: {
+        type: "session.idle",
+        properties: { sessionID: "anthropic-fable-session" },
+      },
+    });
+    const toastOutput = getToastMessage(client);
+    expect(toastOutput).toContain("Fable");
+    expect(toastOutput).toContain("98%");
+
+    const tuiApi = {
+      state: {
+        provider: [{ id: "anthropic" }],
+        path: { worktree: process.cwd(), directory: process.cwd() },
+        session: { messages: () => [] },
+      },
+      client,
+    } as never;
+    const { loadTuiSessionQuotaSurfaces } = await import("../src/lib/tui-runtime.js");
+    const surfaces = await loadTuiSessionQuotaSurfaces({
+      api: tuiApi,
+      sessionID: "anthropic-fable-session",
+    });
+
+    expect(surfaces.sidebar.status).toBe("ready");
+    const sidebarOutput = [
+      ...surfaces.sidebar.lines,
+      ...(surfaces.sidebar.linesExpanded ?? []),
+    ].join("\n");
+    expect(sidebarOutput).toContain("Fable");
+    expect(sidebarOutput).toContain("98%");
+
+    expect(surfaces.compact.status).toBe("ready");
+    const compactOutput = surfaces.compact.status === "ready" ? surfaces.compact.text : "";
+    expect(compactOutput).toContain("Fable");
+    expect(compactOutput).toContain("98%");
+
+    await hooks.dispose?.();
+  });
+
+  it("renders CN general percentage quota and excludes video on all four surfaces", async () => {
+    currentConfig = configForSingleProvider("minimax-china-coding-plan");
+    mocks.loadConfig.mockImplementation(async () => currentConfig);
+    mocks.resolveMiniMaxChinaAuthCached.mockResolvedValue({
+      state: "configured",
+      apiKey: MINIMAX_CHINA_API_KEY,
+      endpoint: "china",
+    });
+    mocks.getMiniMaxChinaAuthDiagnostics.mockResolvedValue({
+      state: "configured",
+      source: "opencode.db",
+      endpoint: "china",
+      checkedPaths: [],
+      credentialDatabasePaths: [],
+    });
+    const { minimaxChinaCodingPlanProvider } = await import(
+      "../src/providers/minimax-coding-plan.js"
+    );
+    minimaxChinaCodingPlanProvider.cachePolicy = { kind: "account-neutral" };
+    mocks.getProviders.mockReturnValue([minimaxChinaCodingPlanProvider]);
+
+    const client = createClient();
+    client.config.providers.mockResolvedValue({
+      data: { providers: [{ id: "minimax-china-coding-plan" }] },
+    });
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const hooks = (await QuotaToastPlugin({ client } as never)) as PluginHooks;
+
+    await expectHandled(
+      hooks["command.execute.before"]?.({
+        command: "quota",
+        sessionID: "minimax-china-session",
+      }),
+    );
+    const serverOutput = getPromptText(client);
+    expect(serverOutput).toContain("MiniMax Token Plan");
+    expect(serverOutput).toContain("(CN)");
+    expect(serverOutput).toContain("5h quota");
+    expect(serverOutput).toContain("Weekly quota");
+    expect(serverOutput).toContain("33%");
+    expect(serverOutput).toContain("46%");
+    expect(serverOutput).not.toContain("video");
+    expect(serverOutput).not.toContain("Invalid normalized provider result");
+
+    await hooks.event?.({
+      event: {
+        type: "session.idle",
+        properties: { sessionID: "minimax-china-session" },
+      },
+    });
+    const toastOutput = getToastMessage(client);
+    expect(toastOutput).toContain("MiniMax Token Plan");
+    expect(toastOutput).toContain("(CN)");
+    expect(toastOutput).toContain("5h");
+    expect(toastOutput).toContain("Weekly");
+    expect(toastOutput).toContain("33%");
+    expect(toastOutput).toContain("46%");
+    expect(toastOutput).not.toContain("video");
+
+    const tuiApi = {
+      state: {
+        provider: [{ id: "minimax-china-coding-plan" }],
+        path: { worktree: process.cwd(), directory: process.cwd() },
+        session: { messages: () => [] },
+      },
+      client,
+    } as never;
+    const { loadTuiSessionQuotaSurfaces } = await import("../src/lib/tui-runtime.js");
+    const surfaces = await loadTuiSessionQuotaSurfaces({
+      api: tuiApi,
+      sessionID: "minimax-china-session",
+    });
+
+    expect(surfaces.sidebar.status).toBe("ready");
+    const sidebarOutput = [
+      ...surfaces.sidebar.lines,
+      ...(surfaces.sidebar.linesExpanded ?? []),
+    ].join("\n");
+    expect(sidebarOutput).toContain("MiniMax Token Plan");
+    expect(sidebarOutput).toContain("(CN)");
+    expect(sidebarOutput).toContain("5h");
+    expect(sidebarOutput).toContain("Weekly");
+    expect(sidebarOutput).toContain("33%");
+    expect(sidebarOutput).toContain("46%");
+    expect(sidebarOutput).not.toContain("video");
+
+    expect(surfaces.compact.status).toBe("ready");
+    const compactOutput = surfaces.compact.status === "ready" ? surfaces.compact.text : "";
+    expect(compactOutput).toContain("33%");
+    expect(compactOutput).toContain("46%");
+    expect(compactOutput).not.toContain("video");
     expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(1);
 
     await hooks.dispose?.();

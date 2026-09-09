@@ -88,6 +88,9 @@ export const anthropicProvider: QuotaProvider = {
         seven_day_remaining: quota
           ? `${quota.seven_day.percentRemaining}% reset_at=${quota.seven_day.resetTimeIso ?? "(none)"}`
           : undefined,
+        fable_weekly_remaining: quota?.fable_weekly
+          ? `${quota.fable_weekly.percentRemaining}% reset_at=${quota.fable_weekly.resetTimeIso ?? "(none)"}`
+          : undefined,
       });
     } catch (error) {
       statusDetails = statusDetailsFromRecord({
@@ -99,9 +102,9 @@ export const anthropicProvider: QuotaProvider = {
     if (databaseCredentials.length > 0) {
       const results = await Promise.all(
         databaseCredentials.map(async ({ row, auth }) => ({
-            row,
-            result: await queryAnthropicQuotaWithOAuth(auth.accessToken, options.requestTimeoutMs),
-          })),
+          row,
+          result: await queryAnthropicQuotaWithOAuth(auth.accessToken, options.requestTimeoutMs),
+        })),
       );
       const names = formatCredentialDisplayNames(
         "Claude",
@@ -133,6 +136,41 @@ export const anthropicProvider: QuotaProvider = {
             }),
           ),
         );
+        if (result.extra_usage) {
+          entries.push({
+            accounting: {
+              resultType: "quota",
+              acquisitionMethod: "remote_api",
+              ownership: "maintained",
+              authority: "provider_reported",
+              sourceId: row.id,
+            },
+            name: `${group} Usage Credits`,
+            group: `${group} Usage Credits`,
+            label: "Monthly:",
+            percentRemaining: result.extra_usage.percentRemaining,
+          });
+        }
+        if (result.fable_weekly) {
+          entries.push({
+            accounting: {
+              resultType: "quota",
+              acquisitionMethod: "remote_api",
+              ownership: "maintained",
+              authority: "provider_reported",
+              sourceId: row.id,
+            },
+            name: `${group} Fable Weekly`,
+            group,
+            label: "Fable:",
+            semantic: {
+              metric: { kind: "named", name: "Fable weekly" },
+              prominence: "primary",
+            },
+            percentRemaining: result.fable_weekly.percentRemaining,
+            resetTimeIso: result.fable_weekly.resetTimeIso,
+          });
+        }
       }
       return withStatusDetails(attemptedResult(entries, errors), statusDetails);
     }
@@ -174,6 +212,41 @@ export const anthropicProvider: QuotaProvider = {
         resetTimeIso: result.seven_day.resetTimeIso,
       },
     ];
+
+    if (result.extra_usage) {
+      entries.push({
+        accounting: {
+          resultType: "quota",
+          acquisitionMethod,
+          ownership: "maintained",
+          authority: "provider_reported",
+        },
+        name: "Claude Usage Credits",
+        group: "Claude Usage Credits",
+        label: "Monthly:",
+        percentRemaining: result.extra_usage.percentRemaining,
+      });
+    }
+
+    if (result.fable_weekly) {
+      entries.push({
+        accounting: {
+          resultType: "quota",
+          acquisitionMethod,
+          ownership: "maintained",
+          authority: "provider_reported",
+        },
+        name: "Claude Fable Weekly",
+        group: "Claude",
+        label: "Fable:",
+        semantic: {
+          metric: { kind: "named", name: "Fable weekly" },
+          prominence: "primary",
+        },
+        percentRemaining: result.fable_weekly.percentRemaining,
+        resetTimeIso: result.fable_weekly.resetTimeIso,
+      });
+    }
 
     return withStatusDetails(attemptedResult(entries), statusDetails);
   },

@@ -79,7 +79,10 @@ export const kimiCodeProvider: QuotaProvider = {
       const credentials = credentialRows.flatMap((row) => {
         const rowAuth = resolveKimiAuth({ [row.integrationId]: row.value } as AuthData);
         if (rowAuth.state === "invalid") {
-          invalidErrors.push({ label: displayNamesByRowId.get(row.id) ?? "Kimi Code", message: rowAuth.error });
+          invalidErrors.push({
+            label: displayNamesByRowId.get(row.id) ?? "Kimi Code",
+            message: rowAuth.error,
+          });
         }
         return rowAuth.state === "configured" ? [{ row, auth: rowAuth }] : [];
       });

@@ -119,13 +119,20 @@ describe("kimi-code provider", () => {
     const { getKimiAuthDiagnostics } = await import("../src/lib/kimi-auth.js");
     const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
     const { queryKimiQuota } = await import("../src/lib/kimi.js");
-    (getKimiAuthDiagnostics as any).mockResolvedValueOnce({ state: "invalid", source: "opencode.db", checkedPaths: [], credentialDatabasePaths: [] });
+    (getKimiAuthDiagnostics as any).mockResolvedValueOnce({
+      state: "invalid",
+      source: "opencode.db",
+      checkedPaths: [],
+      credentialDatabasePaths: [],
+    });
     (readCredentialRows as any).mockResolvedValueOnce([
       { id: "bad", integrationId: "kimi", label: "shared", active: true, value: { key: "" } },
       { id: "good", integrationId: "kimi", label: "shared", active: false, value: { key: "ok" } },
     ]);
     authMocks.resolveKimiAuth.mockImplementation((auth: any) =>
-      auth.kimi.key ? { state: "configured", apiKey: "row-key" } : { state: "invalid", error: "empty key" },
+      auth.kimi.key
+        ? { state: "configured", apiKey: "row-key" }
+        : { state: "invalid", error: "empty key" },
     );
     (queryKimiQuota as any).mockResolvedValueOnce({
       success: true,
@@ -136,7 +143,10 @@ describe("kimi-code provider", () => {
     const out = await kimiCodeProvider.fetch({ config: {} } as any);
     expect(out.errors).toContainEqual({ label: "[Kimi Code shared]*", message: "empty key" });
     expect(out.entries).toContainEqual(
-      expect.objectContaining({ group: "[Kimi Code shared 2]", accounting: expect.objectContaining({ sourceId: "good" }) }),
+      expect.objectContaining({
+        group: "[Kimi Code shared 2]",
+        accounting: expect.objectContaining({ sourceId: "good" }),
+      }),
     );
     expect(queryKimiQuota).toHaveBeenCalledOnce();
   });

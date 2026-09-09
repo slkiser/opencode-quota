@@ -47,12 +47,18 @@ describe("anthropic provider", () => {
       quotaSupported: true,
       quotaSource: "claude-auth-status-json",
       checkedCommands: [],
-      quota: { success: true, five_hour: { percentRemaining: 1 }, seven_day: { percentRemaining: 1 } },
+      quota: {
+        success: true,
+        five_hour: { percentRemaining: 1 },
+        seven_day: { percentRemaining: 1 },
+      },
     });
     (queryAnthropicQuotaWithOAuth as any).mockResolvedValueOnce({
       success: true,
       five_hour: { percentRemaining: 80 },
       seven_day: { percentRemaining: 70 },
+      extra_usage: { percentRemaining: 60 },
+      fable_weekly: { percentRemaining: 50 },
     });
 
     const out = await anthropicProvider.fetch({} as any);
@@ -61,6 +67,8 @@ describe("anthropic provider", () => {
     expect(queryAnthropicQuota).not.toHaveBeenCalled();
     expect(out.entries.map((entry) => [entry.group, entry.accounting.sourceId])).toEqual([
       ["[Claude Work]*", "valid-inactive"],
+      ["[Claude Work]*", "valid-inactive"],
+      ["[Claude Work]* Usage Credits", "valid-inactive"],
       ["[Claude Work]*", "valid-inactive"],
     ]);
   });
@@ -125,6 +133,75 @@ describe("anthropic provider", () => {
     });
   });
 
+  it("adds the Fable weekly row and diagnostic when the OAuth response reports it", async () => {
+    const { getAnthropicDiagnostics, queryAnthropicQuota } = await import(
+      "../src/lib/anthropic.js"
+    );
+    const quota = {
+      success: true,
+      five_hour: { percentRemaining: 58, resetTimeIso: "2026-07-21T14:10:00.268Z" },
+      seven_day: { percentRemaining: 72, resetTimeIso: "2026-07-27T07:00:00.268Z" },
+      fable_weekly: {
+        percentRemaining: 98,
+        resetTimeIso: "2026-07-27T07:00:00.268Z",
+      },
+    };
+    (getAnthropicDiagnostics as any).mockResolvedValueOnce({
+      installed: true,
+      version: "2.1.258",
+      authStatus: "authenticated",
+      quotaSupported: true,
+      quotaSource: "opencode-auth-oauth-api",
+      oauthCredentialSource: "opencode-auth",
+      checkedCommands: ["claude --version"],
+      quota,
+    });
+    (queryAnthropicQuota as any).mockResolvedValueOnce(quota);
+
+    const out = await anthropicProvider.fetch({} as any);
+
+    expectAttemptedWithNoErrors(out);
+    expect(out.statusDetails).toContainEqual({
+      key: "fable_weekly_remaining",
+      value: "98% reset_at=2026-07-27T07:00:00.268Z",
+    });
+    expect(visibleEntries(out.entries, "anthropic")).toEqual([
+      {
+        name: "Claude 5h",
+        group: "Claude",
+        label: "5h:",
+        percentRemaining: 58,
+        resetTimeIso: "2026-07-21T14:10:00.268Z",
+      },
+      {
+        name: "Claude Weekly",
+        group: "Claude",
+        label: "Weekly:",
+        percentRemaining: 72,
+        resetTimeIso: "2026-07-27T07:00:00.268Z",
+      },
+      {
+        name: "Claude Fable Weekly",
+        group: "Claude",
+        label: "Fable:",
+        semantic: {
+          metric: { kind: "named", name: "Fable weekly" },
+          prominence: "primary",
+        },
+        percentRemaining: 98,
+        resetTimeIso: "2026-07-27T07:00:00.268Z",
+      },
+    ]);
+    expect(out.entries.map((entry) => entry.accounting)).toEqual(
+      Array.from({ length: 3 }, () => ({
+        resultType: "quota",
+        acquisitionMethod: "remote_api",
+        ownership: "maintained",
+        authority: "provider_reported",
+      })),
+    );
+  });
+
   it("returns attempted:false when Anthropic quota is unavailable locally", async () => {
     const { queryAnthropicQuota } = await import("../src/lib/anthropic.js");
     (queryAnthropicQuota as any).mockResolvedValueOnce(null);
@@ -180,6 +257,61 @@ describe("anthropic provider", () => {
     expect(out.presentation).toBeUndefined();
   });
 
+  it("reports enabled Usage Credits as a third remote API quota row", async () => {
+    const { getAnthropicDiagnostics, queryAnthropicQuota } = await import(
+      "../src/lib/anthropic.js"
+    );
+    (getAnthropicDiagnostics as any).mockResolvedValueOnce({
+      installed: true,
+      version: "1.2.3",
+      authStatus: "authenticated",
+      quotaSupported: true,
+      quotaSource: "opencode-auth-oauth-api",
+      oauthCredentialSource: "opencode-auth",
+      checkedCommands: ["claude --version"],
+      quota: {
+        success: true,
+        five_hour: { percentRemaining: 43 },
+        seven_day: { percentRemaining: 88 },
+        extra_usage: { percentRemaining: 62 },
+      },
+    });
+    (queryAnthropicQuota as any).mockResolvedValueOnce({
+      success: true,
+      five_hour: { percentRemaining: 43, resetTimeIso: "2026-03-25T18:00:00.000Z" },
+      seven_day: { percentRemaining: 88, resetTimeIso: "2026-04-01T00:00:00.000Z" },
+      extra_usage: { percentRemaining: 62 },
+    });
+
+    const out = await anthropicProvider.fetch({} as any);
+
+    expect(visibleEntries(out.entries, "anthropic")).toEqual([
+      {
+        name: "Claude 5h",
+        group: "Claude",
+        label: "5h:",
+        percentRemaining: 43,
+        resetTimeIso: "2026-03-25T18:00:00.000Z",
+      },
+      {
+        name: "Claude Weekly",
+        group: "Claude",
+        label: "Weekly:",
+        percentRemaining: 88,
+        resetTimeIso: "2026-04-01T00:00:00.000Z",
+      },
+      {
+        name: "Claude Usage Credits",
+        group: "Claude Usage Credits",
+        label: "Monthly:",
+        percentRemaining: 62,
+      },
+    ]);
+    expect(out.entries.every((entry) => entry.accounting.acquisitionMethod === "remote_api")).toBe(
+      true,
+    );
+  });
+
   it("defaults to canonical grouped-capable rows when no style is specified", async () => {
     const { queryAnthropicQuota } = await import("../src/lib/anthropic.js");
     (queryAnthropicQuota as any).mockResolvedValueOnce({
@@ -190,6 +322,7 @@ describe("anthropic provider", () => {
 
     const out = await anthropicProvider.fetch({} as any);
     expectAttemptedWithNoErrors(out);
+    expect(out.entries).toHaveLength(2);
     expect(visibleEntries(out.entries, "anthropic")).toEqual([
       {
         name: "Claude 5h",
