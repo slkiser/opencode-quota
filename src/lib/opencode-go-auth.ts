@@ -11,6 +11,8 @@ export const DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS = 5_000;
 // `opencode` stays as a fallback alias for existing manual setups.
 const OPENCODE_GO_AUTH_KEYS = ["opencode-go", "opencode"] as const;
 const OPENCODE_GO_PROVIDER_KEYS = ["opencode-go", "opencode"] as const;
+/** Integration IDs whose credential rows can hold OpenCode Go auth, in resolver precedence order. */
+export const OPENCODE_GO_CREDENTIAL_INTEGRATION_IDS: readonly string[] = OPENCODE_GO_AUTH_KEYS;
 const ALLOWED_OPENCODE_GO_ENV_VARS = ["OPENCODE_API_KEY"] as const;
 
 export type OpenCodeGoKeySource =

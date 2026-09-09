@@ -35,7 +35,8 @@ vi.mock("node:fs/promises", async (importOriginal) => ({
   readFile: authMocks.readFile,
   lstat: authMocks.lstat,
 }));
-vi.mock("../src/lib/opencode-auth.js", () => ({
+vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/opencode-auth.js")>()),
   getCredentialDatabasePaths: authMocks.getCredentialDatabasePaths,
   readAuthFileCached: authMocks.readAuthFileCached,
   readCredentialRows: authMocks.readCredentialRows,

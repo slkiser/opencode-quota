@@ -5,11 +5,16 @@ import type {
   QuotaProviderStatusDetail,
   QuotaToastEntry,
 } from "../lib/entries.js";
-import { formatCredentialDisplayNames, readCredentialRows } from "../lib/opencode-auth.js";
+import {
+  formatCredentialDisplayNames,
+  readCredentialRows,
+  selectConnectionCredentialRows,
+} from "../lib/opencode-auth.js";
 import { queryOpenCodeGoQuota } from "../lib/opencode-go.js";
 import {
   DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
   getOpenCodeGoAuthDiagnostics,
+  OPENCODE_GO_CREDENTIAL_INTEGRATION_IDS,
   type OpenCodeGoAuthDiagnostics,
   resolveOpenCodeGoAuth,
   resolveOpenCodeGoAuthCached,
@@ -108,8 +113,15 @@ export const opencodeGoProvider: QuotaProvider = {
     }
 
     if (diagnostics.source === "opencode.db") {
-      const credentialRows = (await readCredentialRows()).filter((row) =>
-        ["opencode-go", "opencode"].includes(row.integrationId),
+      // `opencode` is a legacy alias of the `opencode-go` integration in the
+      // credential database (see resolveOpenCodeGoAuth). Alias rows must not
+      // become additional connections: prefer native rows and collapse rows
+      // holding the same credential (e.g. Zen + Go sharing a workspace key).
+      const credentialRows = selectConnectionCredentialRows(
+        (await readCredentialRows()).filter((row) =>
+          OPENCODE_GO_CREDENTIAL_INTEGRATION_IDS.includes(row.integrationId),
+        ),
+        "opencode-go",
       );
       const rowNames = formatCredentialDisplayNames(
         OPENCODE_GO_PROVIDER_LABEL,
@@ -122,7 +134,10 @@ export const opencodeGoProvider: QuotaProvider = {
       const credentials = credentialRows.flatMap((row) => {
         const rowAuth = resolveOpenCodeGoAuth({ [row.integrationId]: row.value });
         if (rowAuth.state === "invalid") {
-          invalidErrors.push({ label: displayNamesByRowId.get(row.id) ?? OPENCODE_GO_PROVIDER_LABEL, message: rowAuth.error });
+          invalidErrors.push({
+            label: displayNamesByRowId.get(row.id) ?? OPENCODE_GO_PROVIDER_LABEL,
+            message: rowAuth.error,
+          });
         }
         return rowAuth.state === "configured" ? [{ row, auth: rowAuth }] : [];
       });

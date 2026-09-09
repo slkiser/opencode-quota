@@ -122,6 +122,48 @@ export async function readCredentialRows(): Promise<CredentialRow[]> {
   return readCredentialRowsFromDatabases(getCredentialDatabasePaths());
 }
 
+function canonicalCredentialValueKey(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalCredentialValueKey(item)).join(",")}]`;
+  }
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+      a < b ? -1 : a > b ? 1 : 0,
+    );
+    return `{${entries
+      .map(([key, nested]) => `${JSON.stringify(key)}:${canonicalCredentialValueKey(nested)}`)
+      .join(",")}}`;
+  }
+  return value === undefined ? "undefined" : JSON.stringify(value);
+}
+
+/**
+ * Collapse credential rows that represent the same upstream connection.
+ *
+ * Rows holding identical credential values are the same connection (e.g. the
+ * same workspace key stored under the `opencode-go` integration and its legacy
+ * `opencode` alias), and rows under `primaryIntegrationId` take precedence over
+ * alias rows so a real credential for another integration that shares the key
+ * is not reported as an additional connection. Input order is preserved
+ * otherwise.
+ */
+export function selectConnectionCredentialRows(
+  rows: readonly CredentialRow[],
+  primaryIntegrationId: string,
+): CredentialRow[] {
+  const primaryRows = rows.filter((row) => row.integrationId === primaryIntegrationId);
+  const candidates = primaryRows.length > 0 ? primaryRows : [...rows];
+  const seen = new Set<string>();
+  const selected: CredentialRow[] = [];
+  for (const row of candidates) {
+    const key = canonicalCredentialValueKey(row.value);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    selected.push(row);
+  }
+  return selected;
+}
+
 function readCredentialRowsFromDatabases(paths: string[]): CredentialRow[] {
   for (const path of paths) {
     const rows = readCredentialDatabase(path);
