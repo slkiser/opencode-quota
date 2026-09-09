@@ -95,7 +95,7 @@ function formatCompactValueEntrySegment(
 ): string | null {
   const name = getProviderName(entry);
   const value = compactText(entry.value);
-  const reset = formatResetCountdown(entry.resetTimeIso);
+  const reset = formatResetCountdown(entry.resetTimeIso, { compactUnits: true });
   const segment = [name, value, reset].filter(Boolean).join(" - ");
   return segment || null;
 }
@@ -159,7 +159,9 @@ function buildSemanticCandidate(
   const label = compactText(interpretation.label);
   const prefix = compactText([provider, label].filter(Boolean).join(": "));
   const displayValue = compactText(
-    [value, formatResetCountdown(entry.resetTimeIso)].filter(Boolean).join(" "),
+    [value, formatResetCountdown(entry.resetTimeIso, { compactUnits: true })]
+      .filter(Boolean)
+      .join(" "),
   );
   const segment = compactText([prefix, displayValue].filter(Boolean).join(" "));
   if (!segment) return null;
@@ -210,7 +212,7 @@ function formatCompactEntryCandidates(params: {
     const value = compactText(
       [
         formatCompactPercentLabel(entry.percentRemaining, params.percentDisplayMode),
-        formatResetCountdown(entry.resetTimeIso),
+        formatResetCountdown(entry.resetTimeIso, { compactUnits: true }),
       ]
         .filter(Boolean)
         .join(" "),

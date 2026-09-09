@@ -151,6 +151,8 @@ export interface FormatResetCountdownOptions {
    * many decimal places.
    */
   decimals?: number;
+  /** Render adjacent exact units without spaces for width-constrained surfaces. */
+  compactUnits?: boolean;
 }
 
 const MS_PER_DAY = 86_400_000;
@@ -159,7 +161,7 @@ const MS_PER_HOUR = 3_600_000;
 /**
  * Format a reset countdown for toast display.
  *
- * Returns a precise-to-minute value like "2d5h14m", "3h45m", or "14m".
+ * Returns a precise-to-minute value like "2d 5h 14m", "3h 45m", or "14m".
  * When reset time is in the past or invalid, returns "reset".
  */
 export function formatResetCountdown(iso?: string, opts?: FormatResetCountdownOptions): string {
@@ -191,8 +193,9 @@ export function formatResetCountdown(iso?: string, opts?: FormatResetCountdownOp
     return `0.5h`;
   }
 
-  if (days > 0) return `${days}d${hours}h${minutes}m`;
-  if (hours > 0) return `${hours}h${minutes}m`;
+  const separator = opts?.compactUnits ? "" : " ";
+  if (days > 0) return `${days}d${separator}${hours}h${separator}${minutes}m`;
+  if (hours > 0) return `${hours}h${separator}${minutes}m`;
   return `${minutes}m`;
 }
 

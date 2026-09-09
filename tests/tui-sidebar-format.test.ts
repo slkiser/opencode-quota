@@ -342,7 +342,7 @@ describe("buildSidebarQuotaPanelLines", () => {
       },
     });
 
-    expect(lines.join("\n")).toContain("2h14m");
+    expect(lines.join("\n")).toContain("2h 14m");
     expect(lines.join("\n")).not.toContain("2.5h");
   });
 

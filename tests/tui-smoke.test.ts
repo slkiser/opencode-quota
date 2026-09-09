@@ -1830,6 +1830,6 @@ describe("tui plugin smoke", () => {
     const rendered = registration.slots.session_prompt({}, { session_id: "session-reset" }) as any;
     const hint = rendered.props.children[1];
 
-    expect(hint.props.children[2].props.children).toBe("50% | 2d5h14m");
+    expect(hint.props.children[2].props.children).toBe("50% | 2d 5h 14m");
   });
 });

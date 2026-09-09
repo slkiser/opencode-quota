@@ -107,7 +107,11 @@ async function getQuotaMessage(
     return;
   }
 
-  const formatStyle = resolveQuotaFormatStyle(config.formatStyle);
+  const rootFormatStyle = resolveQuotaFormatStyle(config.formatStyle);
+  const formatStyle =
+    surface === "sidebar" && config.tuiSidebarPanel.formatStyle
+      ? resolveQuotaFormatStyle(config.tuiSidebarPanel.formatStyle)
+      : rootFormatStyle;
   const result = await collectQuotaRenderData({
     client: runtime.client,
     resolveRuntimeProviderIds: runtime.resolveRuntimeProviderIds,
@@ -126,9 +130,7 @@ async function getQuotaMessage(
             data,
             config: {
               ...config,
-              formatStyle: config.tuiSidebarPanel.formatStyle
-                ? resolveQuotaFormatStyle(config.tuiSidebarPanel.formatStyle)
-                : formatStyle,
+              formatStyle,
             },
           }).join("\n")
         : undefined
@@ -138,7 +140,7 @@ async function getQuotaMessage(
             layout: config.layout,
             entries: data?.entries ?? [],
             errors: data?.errors ?? [],
-            style: resolveQuotaFormatStyle(config.formatStyle),
+            style: rootFormatStyle,
             percentDisplayMode: config.percentDisplayMode,
             resetTimeDecimals: config.resetTimeDecimals,
             sessionTokens: data?.sessionTokens,

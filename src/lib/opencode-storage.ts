@@ -86,12 +86,22 @@ export function getOpenCodeDbPath(): string {
   return pickFirstExistingPath(getOpenCodeDbPathCandidates());
 }
 
-type MessageRow = {
+type ProjectedMessageRow = {
   id: string;
   session_id: string;
   time_created: number;
-  time_updated?: number;
-  data: string;
+  role: unknown;
+  provider_id: unknown;
+  model_id: unknown;
+  tokens_input: unknown;
+  tokens_output: unknown;
+  tokens_reasoning: unknown;
+  tokens_cache_read: unknown;
+  tokens_cache_write: unknown;
+  cost: unknown;
+  time_completed: unknown;
+  agent: unknown;
+  mode: unknown;
 };
 
 type SessionRow = {
@@ -101,18 +111,6 @@ type SessionRow = {
   time_created: number;
   time_updated: number;
 };
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
-}
-
-function safeJsonParse(raw: string): unknown | null {
-  try {
-    return JSON.parse(raw) as unknown;
-  } catch {
-    return null;
-  }
-}
 
 // Stay comfortably below SQLite's default host-parameter cap once optional
 // time filters are included in the query.
@@ -126,31 +124,41 @@ function normalizeString(s: unknown): string | undefined {
   return typeof s === "string" ? s : undefined;
 }
 
-function mapRowToOpenCodeMessage(row: MessageRow): OpenCodeMessage | null {
+function mapRowToOpenCodeMessage(row: ProjectedMessageRow): OpenCodeMessage | null {
   if (!row || typeof row !== "object") return null;
   if (typeof row.id !== "string" || typeof row.session_id !== "string") return null;
   if (typeof row.time_created !== "number") return null;
 
-  const payload = asRecord(safeJsonParse(row.data));
-  if (!payload) return null;
-
-  const payloadTime = asRecord(payload.time);
-  const role = normalizeString(payload.role) ?? "unknown";
+  const input = normalizeNumber(row.tokens_input);
+  const output = normalizeNumber(row.tokens_output);
+  const reasoning = normalizeNumber(row.tokens_reasoning);
+  const cacheRead = normalizeNumber(row.tokens_cache_read);
+  const cacheWrite = normalizeNumber(row.tokens_cache_write);
+  const hasTokens = [input, output, reasoning, cacheRead, cacheWrite].some(
+    (value) => value !== undefined,
+  );
 
   return {
     id: row.id,
     sessionID: row.session_id,
-    role,
-    providerID: normalizeString(payload.providerID),
-    modelID: normalizeString(payload.modelID),
-    tokens: payload.tokens as OpenCodeTokens | undefined,
-    cost: normalizeNumber(payload.cost),
+    role: normalizeString(row.role) ?? "unknown",
+    providerID: normalizeString(row.provider_id),
+    modelID: normalizeString(row.model_id),
+    tokens: hasTokens
+      ? {
+          input: input ?? 0,
+          output: output ?? 0,
+          ...(reasoning === undefined ? {} : { reasoning }),
+          cache: { read: cacheRead ?? 0, write: cacheWrite ?? 0 },
+        }
+      : undefined,
+    cost: normalizeNumber(row.cost),
     time: {
       created: row.time_created,
-      completed: normalizeNumber(payloadTime?.completed),
+      completed: normalizeNumber(row.time_completed),
     },
-    agent: normalizeString(payload.agent),
-    mode: normalizeString(payload.mode),
+    agent: normalizeString(row.agent),
+    mode: normalizeString(row.mode),
   };
 }
 
@@ -195,6 +203,30 @@ function chunkArray<T>(items: readonly T[], chunkSize: number): T[][] {
   return chunks;
 }
 
+function guardedJsonScalar(path: string): string {
+  return `CASE WHEN json_valid(data) THEN json_extract(data, '${path}') END`;
+}
+
+const PROJECTED_MESSAGE_COLUMNS = [
+  "id",
+  "session_id",
+  "time_created",
+  `${guardedJsonScalar("$.role")} AS role`,
+  `${guardedJsonScalar("$.providerID")} AS provider_id`,
+  `${guardedJsonScalar("$.modelID")} AS model_id`,
+  `${guardedJsonScalar("$.tokens.input")} AS tokens_input`,
+  `${guardedJsonScalar("$.tokens.output")} AS tokens_output`,
+  `${guardedJsonScalar("$.tokens.reasoning")} AS tokens_reasoning`,
+  `${guardedJsonScalar("$.tokens.cache.read")} AS tokens_cache_read`,
+  `${guardedJsonScalar("$.tokens.cache.write")} AS tokens_cache_write`,
+  `${guardedJsonScalar("$.cost")} AS cost`,
+  `${guardedJsonScalar("$.time.completed")} AS time_completed`,
+  `${guardedJsonScalar("$.agent")} AS agent`,
+  `${guardedJsonScalar("$.mode")} AS mode`,
+].join(", ");
+
+const ASSISTANT_ROLE_EXPRESSION = `lower(${guardedJsonScalar("$.role")}) = 'assistant'`;
+
 function buildMessageQuery(params: {
   sessionID?: string;
   sessionIDs?: string[];
@@ -230,8 +262,10 @@ function buildMessageQuery(params: {
     args.push(params.untilMs);
   }
 
+  where.push(ASSISTANT_ROLE_EXPRESSION);
+
   const sql =
-    `SELECT id, session_id, time_created, time_updated, data FROM "message"` +
+    `SELECT ${PROJECTED_MESSAGE_COLUMNS} FROM "message"` +
     (where.length ? ` WHERE ${where.join(" AND ")}` : "") +
     ` ORDER BY time_created ASC, id ASC`;
 
@@ -251,7 +285,7 @@ async function hasJsonExtract(conn: {
   }
 }
 
-function mapAssistantMessages(rows: MessageRow[]): OpenCodeMessage[] {
+function mapAssistantMessages(rows: ProjectedMessageRow[]): OpenCodeMessage[] {
   const out: OpenCodeMessage[] = [];
   for (const row of rows) {
     const msg = mapRowToOpenCodeMessage(row);
@@ -269,25 +303,19 @@ function completedAt(message: OpenCodeMessage): number | null {
     : null;
 }
 
-function mapCompletedAssistantMessages(rows: MessageRow[]): OpenCodeMessage[] {
+function mapCompletedAssistantMessages(rows: ProjectedMessageRow[]): OpenCodeMessage[] {
   return mapAssistantMessages(rows).filter((message) => completedAt(message) !== null);
-}
-
-function compareCompletedMessageOrder(a: OpenCodeMessage, b: OpenCodeMessage): number {
-  const aCompleted = completedAt(a) ?? Number.MAX_SAFE_INTEGER;
-  const bCompleted = completedAt(b) ?? Number.MAX_SAFE_INTEGER;
-  if (aCompleted !== bCompleted) return aCompleted - bCompleted;
-  return a.id.localeCompare(b.id);
 }
 
 function buildCompletedAssistantQuery(params: {
   completedSinceMs?: number;
   completedUntilMs?: number;
 }): { sql: string; args: unknown[] } {
-  const completedExpression = `CAST(json_extract(data, '$.time.completed') AS REAL)`;
+  const completedScalar = guardedJsonScalar("$.time.completed");
+  const completedExpression = `CAST(${completedScalar} AS REAL)`;
   const where = [
-    `json_extract(data, '$.role') = 'assistant'`,
-    `json_type(data, '$.time.completed') IN ('integer', 'real')`,
+    ASSISTANT_ROLE_EXPRESSION,
+    `CASE WHEN json_valid(data) THEN json_type(data, '$.time.completed') END IN ('integer', 'real')`,
     `${completedExpression} > 0`,
   ];
   const args: unknown[] = [];
@@ -303,7 +331,7 @@ function buildCompletedAssistantQuery(params: {
 
   return {
     sql:
-      `SELECT id, session_id, time_created, time_updated, data FROM "message"` +
+      `SELECT ${PROJECTED_MESSAGE_COLUMNS} FROM "message"` +
       ` WHERE ${where.join(" AND ")}` +
       ` ORDER BY ${completedExpression} ASC, id ASC`,
     args,
@@ -336,15 +364,9 @@ export async function getOpenCodeDbStats(): Promise<OpenCodeDbStats> {
     let assistantCount = 0;
     if (await hasJsonExtract(conn)) {
       const a = conn.get<{ c: number }>(
-        `SELECT count(*) as c FROM "message" WHERE json_extract(data, '$.role') = 'assistant'`,
+        `SELECT count(*) as c FROM "message" WHERE ${guardedJsonScalar("$.role")} = 'assistant'`,
       );
       assistantCount = typeof a?.c === "number" ? a.c : 0;
-    } else {
-      const rows = conn.all<{ data: string }>(`SELECT data FROM "message"`);
-      for (const r of rows) {
-        const payload = asRecord(safeJsonParse(r.data));
-        if (payload?.role === "assistant") assistantCount += 1;
-      }
     }
 
     return {
@@ -367,8 +389,9 @@ export async function iterAssistantMessages(params: {
 
   const conn = await db.open();
   try {
+    if (!(await hasJsonExtract(conn))) return [];
     const q = buildMessageQuery({ sinceMs: params.sinceMs, untilMs: params.untilMs });
-    const rows = conn.all<MessageRow>(q.sql, q.args);
+    const rows = conn.all<ProjectedMessageRow>(q.sql, q.args);
     return mapAssistantMessages(rows);
   } finally {
     conn.close();
@@ -392,25 +415,10 @@ export async function iterCompletedAssistantMessages(params: {
   try {
     if (await hasJsonExtract(conn)) {
       const query = buildCompletedAssistantQuery(params);
-      return mapCompletedAssistantMessages(conn.all<MessageRow>(query.sql, query.args));
+      return mapCompletedAssistantMessages(conn.all<ProjectedMessageRow>(query.sql, query.args));
     }
 
-    const rows = conn.all<MessageRow>(
-      `SELECT id, session_id, time_created, time_updated, data FROM "message"`,
-    );
-    return mapCompletedAssistantMessages(rows)
-      .filter((message) => {
-        const atMs = completedAt(message);
-        if (atMs === null) return false;
-        if (typeof params.completedSinceMs === "number" && atMs < params.completedSinceMs) {
-          return false;
-        }
-        if (typeof params.completedUntilMs === "number" && atMs > params.completedUntilMs) {
-          return false;
-        }
-        return true;
-      })
-      .sort(compareCompletedMessageOrder);
+    return [];
   } finally {
     conn.close();
   }
@@ -441,8 +449,10 @@ export async function iterAssistantMessagesForSession(params: {
       throw new SessionNotFoundError(sessionID, db.dbPath);
     }
 
+    if (!(await hasJsonExtract(conn))) return [];
+
     const q = buildMessageQuery({ sessionID, sinceMs, untilMs });
-    const rows = conn.all<MessageRow>(q.sql, q.args);
+    const rows = conn.all<ProjectedMessageRow>(q.sql, q.args);
     return mapAssistantMessages(rows);
   } finally {
     conn.close();
@@ -467,6 +477,7 @@ export async function iterAssistantMessagesForSessions(params: {
 
   const conn = await db.open();
   try {
+    if (!(await hasJsonExtract(conn))) return [];
     const reservedArgs =
       (typeof params.sinceMs === "number" ? 1 : 0) + (typeof params.untilMs === "number" ? 1 : 0);
     const maxSessionIdsPerQuery = Math.max(1, SQLITE_MAX_MESSAGE_QUERY_ARGS - reservedArgs);
@@ -478,7 +489,7 @@ export async function iterAssistantMessagesForSessions(params: {
         sinceMs: params.sinceMs,
         untilMs: params.untilMs,
       });
-      const rows = conn.all<MessageRow>(q.sql, q.args);
+      const rows = conn.all<ProjectedMessageRow>(q.sql, q.args);
       messages.push(...mapAssistantMessages(rows));
     }
 

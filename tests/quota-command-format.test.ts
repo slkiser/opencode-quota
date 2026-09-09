@@ -93,17 +93,17 @@ describe("formatQuotaCommand", () => {
     expect(out.match(/[█░]{10}/gu)).toHaveLength(4);
     expect(lines.slice(2).join("\n")).toMatchInlineSnapshot(`
       "→ [Copilot] (personal)
-        Quota         █████████░   86% left | 42/300 | reset 12h0m
+        Quota         █████████░   86% left | 42/300 | reset 12h 0m
 
       → [Copilot] (business)
-        Usage         9 used | 2026-01 | org=acme-corp | user=alice | reset 16d12h0m
+        Usage         9 used | 2026-01 | org=acme-corp | user=alice | reset 16d 12h 0m
 
       → [OpenAI] (Pro)
-        5h quota      ████░░░░░░   42% left | reset 2h0m
-        Week quota    ████████░░   81% left | reset 3d0h0m
+        5h quota      ████░░░░░░   42% left | reset 2h 0m
+        Week quota    ████████░░   81% left | reset 3d 0h 0m
 
       → [Antigravity (acct)]
-        Claude        ███████░░░   67% left | reset 3h0m
+        Claude        ███████░░░   67% left | reset 3h 0m
 
       Session input/output tokens
         openai/gpt-5: 1.2K in | 456 cached | 567 out
@@ -350,8 +350,8 @@ describe("formatQuotaCommand", () => {
     const rows = output.split("\n").filter((line) => line.includes(" | reset "));
 
     expect(rows).toEqual([
-      "  5h quota      ██████░░░░   60% left | 2/5  | reset 5h0m",
-      "  Day quota     ████████░░   80% left | 2/10 | reset 11h0m",
+      "  5h quota      ██████░░░░   60% left | 2/5  | reset 5h 0m",
+      "  Day quota     ████████░░   80% left | 2/10 | reset 11h 0m",
     ]);
     expect(output).not.toContain("```");
     expect(output).not.toMatch(/^## /mu);
@@ -385,7 +385,7 @@ describe("formatQuotaCommand", () => {
       errors: [],
     });
 
-    expect(out).toContain("reset 2h40m");
+    expect(out).toContain("reset 2h 40m");
   });
 
   it("renders an expired reset once and omits a missing reset", () => {

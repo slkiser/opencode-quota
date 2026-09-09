@@ -184,7 +184,7 @@ describe("formatQuotaRows", () => {
       ],
     });
 
-    expect(out).toContain("2h14m");
+    expect(out).toContain("2h 14m");
     expect(out).not.toContain("2.5h");
   });
 
@@ -380,7 +380,7 @@ describe("formatQuotaRows", () => {
       ],
     });
 
-    expect(out).toContain("5d16h48m");
+    expect(out).toContain("5d 16h 48m");
     expect(out).not.toMatch(/5d\s*$/mu);
     expect(out).not.toContain("5.7d");
   });
@@ -735,7 +735,7 @@ describe("formatQuotaRows", () => {
 
     const lines = out.split("\n");
     expect(lines[0]).toBe("[Copilot] (personal) Monthly");
-    expect(lines[1]?.trim()).toBe("21d20h10m");
+    expect(lines[1]?.trim()).toBe("21d 20h 10m");
     expect(lines[2]).toContain("75% left");
     expect(lines.every((line) => line.length <= 36)).toBe(true);
   });

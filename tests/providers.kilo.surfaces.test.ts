@@ -116,8 +116,9 @@ describe("Kilo Gateway structured four-surface formatting", () => {
       expect(output).not.toContain("$");
     }
     for (const output of [outputs.command, outputs.toast, outputs.sidebar]) {
-      expect(output).toMatch(/\b\d+d\d+h\d+m\b/u);
+      expect(output).toContain("31d 0h 0m");
     }
+    expect(outputs.compact).toContain("31d0h0m");
   });
 
   it("keeps the Gateway fallback as one total-balance quantity", () => {
