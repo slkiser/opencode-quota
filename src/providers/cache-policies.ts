@@ -23,7 +23,12 @@ import {
 } from "../lib/minimax-auth.js";
 import { resolveNanoGptApiKey } from "../lib/nanogpt-config.js";
 import { resolveOllamaCloudApiKey } from "../lib/ollama-cloud-config.js";
-import { resolveOpenAIAuthIdentity } from "../lib/openai.js";
+import {
+  DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS,
+  hasOpenAIOAuthCached,
+  resolveOpenAIAuthIdentity,
+} from "../lib/openai.js";
+import { resolveOpenAIMultiAuthIdentity } from "../lib/openai-multi-auth.js";
 import {
   DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
   resolveOpenCodeGoAuthCached,
@@ -50,6 +55,23 @@ import { DEFAULT_ZAI_AUTH_CACHE_MAX_AGE_MS, resolveZaiAuthCached } from "../lib/
 import { DEFAULT_ZHIPU_AUTH_CACHE_MAX_AGE_MS, resolveZhipuAuthCached } from "../lib/zhipu-auth.js";
 
 const UNCACHED = { kind: "uncached" } as const satisfies QuotaProviderCachePolicy;
+
+async function resolveOpenAICacheIdentity(): Promise<ResolvedAuthIdentity | null> {
+  const multiAuth = await resolveOpenAIMultiAuthIdentity();
+  if (multiAuth.state === "inactive") return resolveOpenAIAuthIdentity();
+  if (!multiAuth.identity) return null;
+
+  const native = await resolveOpenAIAuthIdentity();
+  if (native) {
+    return composeResolvedAuthIdentities({
+      providerId: "openai",
+      identities: [native, multiAuth.identity].sort(),
+    });
+  }
+
+  if (await hasOpenAIOAuthCached({ maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS })) return null;
+  return multiAuth.identity;
+}
 
 type ResolvedCredential = {
   credential: string;
@@ -128,7 +150,7 @@ export const PROVIDER_CACHE_POLICIES = {
   },
   openai: {
     kind: "resolved-auth",
-    resolveIdentity: () => resolveOpenAIAuthIdentity(),
+    resolveIdentity: () => resolveOpenAICacheIdentity(),
   },
   openrouter: {
     kind: "resolved-auth",

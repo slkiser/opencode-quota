@@ -62,6 +62,12 @@ Business placement describes vendor plan availability. Except for configured Cop
 
 </details>
 
+### OpenAI multi-account quota
+
+If `oc-codex-multi-auth` is configured, OpenAI quota discovery automatically reads its **global** account pool at `~/.opencode/oc-codex-multi-auth-accounts.json` (storage versions 1 and 3). Each enabled subscription can appear independently, using provider-reported plan names such as `OpenAI (Business)` or `OpenAI (Plus) #2`.
+
+This integration is read-only: only already-cached access tokens are queried. OpenCode Quota does not refresh, exchange, rotate, or persist credentials, and never modifies the account file. Accounts without a cached access token report that it is unavailable; healthy accounts still return quota. Missing, malformed, unsupported, or partially unusable storage does not interfere with native OpenCode OpenAI integration. Project-specific `oc-codex-multi-auth` pools are not part of this integration.
+
 ### Chinese providers
 
 <details open>

@@ -5,7 +5,6 @@
  * https://chatgpt.com/backend-api/wham/usage
  */
 
-import { sanitizeDisplayText } from "./display-sanitize.js";
 import { clampPercent } from "./format-utils.js";
 import { fetchWithTimeout } from "./http.js";
 import { readAuthFileCached } from "./opencode-auth.js";
@@ -38,6 +37,7 @@ interface JwtPayload {
   };
   "https://api.openai.com/auth"?: {
     chatgpt_account_id?: string;
+    chatgpt_account_user_id?: string;
   };
 }
 
@@ -64,6 +64,10 @@ function getEmailFromJwt(token: string): string | null {
 
 function getAccountIdFromJwt(token: string): string | null {
   return parseJwt(token)?.["https://api.openai.com/auth"]?.chatgpt_account_id ?? null;
+}
+
+function getAccountUserIdFromJwt(token: string): string | null {
+  return parseJwt(token)?.["https://api.openai.com/auth"]?.chatgpt_account_user_id ?? null;
 }
 
 type OpenAIWindowKind = "hourly" | "weekly" | "monthly";
@@ -148,11 +152,11 @@ function parseRateLimitWindow(
 }
 
 function derivePlanLabel(planType: string | undefined): string {
-  const normalized = (planType ?? "").trim().toLowerCase();
+  const displayPlanType = planType?.replace(/\s+\(role:[^)]+\)/giu, "").trim();
+  const normalized = (displayPlanType ?? "").toLowerCase();
   if (normalized === "team" || normalized === "business") return "OpenAI (Business)";
   if (normalized.includes("pro")) return "OpenAI (Pro)";
   if (normalized.includes("plus")) return "OpenAI (Plus)";
-  if (planType) return `OpenAI (${planType})`;
   return "OpenAI";
 }
 
@@ -182,6 +186,14 @@ export type OpenAIResult =
   | QuotaError
   | null;
 
+export type OpenAIQuotaCredential = {
+  accessToken: string;
+  accountId?: string;
+  accountUserId?: string;
+  expiresAt?: number;
+  email?: string;
+};
+
 export type ResolvedOpenAIOAuth =
   | { state: "none" }
   | {
@@ -192,6 +204,7 @@ export type ResolvedOpenAIOAuth =
       expiresAt?: number;
       email?: string;
       accountId?: string;
+      accountUserId?: string;
     };
 
 function getOpenAIOAuthEntry(
@@ -221,6 +234,7 @@ export function resolveOpenAIOAuth(auth: AuthData | null | undefined): ResolvedO
   const email = getEmailFromJwt(resolved.accessToken) ?? undefined;
   const accountId =
     getAccountIdFromJwt(resolved.accessToken) ?? resolved.entry.accountId ?? undefined;
+  const accountUserId = getAccountUserIdFromJwt(resolved.accessToken) ?? undefined;
 
   return {
     state: "configured",
@@ -233,6 +247,7 @@ export function resolveOpenAIOAuth(auth: AuthData | null | undefined): ResolvedO
     expiresAt: typeof resolved.entry.expires === "number" ? resolved.entry.expires : undefined,
     email,
     accountId,
+    accountUserId,
   };
 }
 
@@ -269,29 +284,21 @@ export async function hasOpenAIOAuthCached(params?: { maxAgeMs?: number }): Prom
   return hasOpenAIOAuth(auth);
 }
 
-export async function queryOpenAIQuota(
+export async function queryOpenAIQuotaForCredential(
+  credential: OpenAIQuotaCredential,
   options: { requestTimeoutMs?: number } = {},
-): Promise<OpenAIResult> {
-  const auth = await readAuthFileCached({
-    maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS,
-  });
-  const resolvedAuth = resolveOpenAIOAuth(auth);
-  if (resolvedAuth.state !== "configured") return null;
-
-  if (resolvedAuth.expiresAt && resolvedAuth.expiresAt < Date.now()) {
+): Promise<Exclude<OpenAIResult, null>> {
+  if (credential.expiresAt !== undefined && credential.expiresAt <= Date.now()) {
     return { success: false, error: "Token expired" };
   }
 
   try {
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${resolvedAuth.accessToken}`,
+      Authorization: `Bearer ${credential.accessToken}`,
       "User-Agent": "OpenCode-Quota-Toast/1.0",
     };
 
-    const accountId = resolvedAuth.accountId;
-    if (accountId) {
-      headers["ChatGPT-Account-Id"] = accountId;
-    }
+    if (credential.accountId) headers["ChatGPT-Account-Id"] = credential.accountId;
 
     return await fetchWithTimeout(OPENAI_USAGE_URL, {
       request: { headers },
@@ -342,7 +349,7 @@ export async function queryOpenAIQuota(
         return {
           success: true,
           label: derivePlanLabel(data.plan_type),
-          email: resolvedAuth.email,
+          email: credential.email,
           windows,
           credits: credits
             ? {
@@ -355,9 +362,35 @@ export async function queryOpenAIQuota(
       },
     });
   } catch (err) {
+    const message = err instanceof Error ? err.message : "";
     return {
       success: false,
-      error: sanitizeDisplayText(err instanceof Error ? err.message : String(err)),
+      // Parser and transport errors can contain response fragments or request credentials.
+      error:
+        /^Request timeout after \d+s$/u.test(message) || message === "fetch failed"
+          ? message
+          : "OpenAI quota request failed",
     };
   }
+}
+
+export async function queryOpenAIQuota(
+  options: { requestTimeoutMs?: number } = {},
+): Promise<OpenAIResult> {
+  const auth = await readAuthFileCached({
+    maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS,
+  });
+  const resolvedAuth = resolveOpenAIOAuth(auth);
+  if (resolvedAuth.state !== "configured") return null;
+
+  return queryOpenAIQuotaForCredential(
+    {
+      accessToken: resolvedAuth.accessToken,
+      accountId: resolvedAuth.accountId,
+      accountUserId: resolvedAuth.accountUserId,
+      expiresAt: resolvedAuth.expiresAt,
+      email: resolvedAuth.email,
+    },
+    options,
+  );
 }
