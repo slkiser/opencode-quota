@@ -156,6 +156,8 @@ Run `/quota_status` and check `qwen_oauth_source`, `qwen_local_plan`, and the `q
 
 Run `/quota_status` and check the Alibaba auth, resolved tier, state-file path, and `alibaba_coding_plan` live probe section.
 
+For Token Plan, also check `alibaba_quota_source`, `alibaba_cli_installed`, `alibaba_cli_authenticated`, and `alibaba_cli_message`. Install with `npm install -g bailian-cli`, then explicitly sign in using `bl auth login --console --console-site international`. For Singapore set `alibabaConsoleRegion: "ap-southeast-1"` and `alibabaConsoleSite: "international"`. The plugin never starts browser login or reads console credentials. CLI failures fall back to Coding Plan request estimates, not Token Plan credits. A fresh `show --json` process cannot use console quota because it has no account-bound durable cache; use live `show` or the running TUI's configured JSON export. See [Alibaba Token Plan](providers.md#alibaba-token-plan).
+
 | Symptom              | Fix                                                                                                                                                                |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | API key not detected | Use `ALIBABA_CODING_PLAN_API_KEY`, `ALIBABA_API_KEY`, trusted user/global OpenCode config, or OpenCode auth. Repo-local provider secrets are ignored.              |

@@ -128,6 +128,12 @@ export const PROVIDER_ACCOUNTING_LEDGER: Record<string, Array<QuotaToastEntry["a
   "alibaba-coding-plan": [
     {
       resultType: "quota",
+      acquisitionMethod: "local_cli",
+      ownership: "maintained",
+      authority: "provider_reported",
+    },
+    {
+      resultType: "quota",
       acquisitionMethod: "local_estimation",
       ownership: "maintained",
       authority: "locally_derived",

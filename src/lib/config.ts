@@ -57,6 +57,9 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "enabledProviders",
   "quotaProviders",
   "anthropicBinaryPath",
+  "alibabaBinaryPath",
+  "alibabaConsoleRegion",
+  "alibabaConsoleSite",
   "googleModels",
   "cursorPlan",
   "cursorIncludedApiUsd",
@@ -172,6 +175,9 @@ type ValidatedQuotaToastPatch = {
   enabledProviders?: string[] | "auto";
   enabledProvidersInvalidEmpty?: boolean;
   anthropicBinaryPath?: string;
+  alibabaBinaryPath?: string;
+  alibabaConsoleRegion?: string;
+  alibabaConsoleSite?: "domestic" | "international";
   googleModels?: GoogleModelId[];
   cursorPlan?: CursorQuotaPlan;
   cursorIncludedApiUsd?: number;
@@ -763,6 +769,36 @@ function extractValidatedQuotaToastPatch(
     }
   }
 
+  if (hasOwnKey(quotaToastConfig, "alibabaBinaryPath")) {
+    const alibabaBinaryPath = normalizeOptionalString(quotaToastConfig.alibabaBinaryPath);
+    if (alibabaBinaryPath !== undefined) {
+      patch.alibabaBinaryPath = alibabaBinaryPath;
+    }
+  }
+
+  if (hasOwnKey(quotaToastConfig, "alibabaConsoleRegion")) {
+    const alibabaConsoleRegion = normalizeOptionalString(quotaToastConfig.alibabaConsoleRegion);
+    if (alibabaConsoleRegion !== undefined) {
+      if (/^[a-z0-9-]+$/u.test(alibabaConsoleRegion)) {
+        patch.alibabaConsoleRegion = alibabaConsoleRegion;
+      } else {
+        reportIssue?.(
+          "alibabaConsoleRegion",
+          'expected a region slug such as "cn-beijing" or "ap-southeast-1"',
+        );
+      }
+    }
+  }
+
+  if (hasOwnKey(quotaToastConfig, "alibabaConsoleSite")) {
+    const alibabaConsoleSite = quotaToastConfig.alibabaConsoleSite;
+    if (alibabaConsoleSite === "domestic" || alibabaConsoleSite === "international") {
+      patch.alibabaConsoleSite = alibabaConsoleSite;
+    } else {
+      reportIssue?.("alibabaConsoleSite", 'expected "domestic" or "international"');
+    }
+  }
+
   if (hasOwnKey(quotaToastConfig, "googleModels")) {
     const googleModels = normalizeGoogleModels(quotaToastConfig.googleModels);
     if (googleModels !== undefined) {
@@ -1031,6 +1067,21 @@ function applyValidatedQuotaToastPatch(
   if (hasOwnKey(patch, "anthropicBinaryPath")) {
     config.anthropicBinaryPath = patch.anthropicBinaryPath!;
     applySettingSource(settingSources, "anthropicBinaryPath", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "alibabaBinaryPath")) {
+    config.alibabaBinaryPath = patch.alibabaBinaryPath!;
+    applySettingSource(settingSources, "alibabaBinaryPath", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "alibabaConsoleRegion")) {
+    config.alibabaConsoleRegion = patch.alibabaConsoleRegion!;
+    applySettingSource(settingSources, "alibabaConsoleRegion", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "alibabaConsoleSite")) {
+    config.alibabaConsoleSite = patch.alibabaConsoleSite!;
+    applySettingSource(settingSources, "alibabaConsoleSite", sourcePath);
   }
 
   if (hasOwnKey(patch, "googleModels")) {

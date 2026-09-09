@@ -8,14 +8,21 @@
  * Keychain first, then the local credentials file).
  */
 
-import { execFile } from "child_process";
 import { createHash } from "crypto";
 import { readFile } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
 
 import { resolveAnthropicOAuthCached } from "./anthropic-auth.js";
-import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
+import {
+  buildCliCommandInvocation,
+  type CliCommandInvocation,
+  type CliCommandResult,
+  detailFromCliCommandResult,
+  isCliCommandMissing,
+  runCliCommand,
+} from "./cli-invocation.js";
+import { sanitizeDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
 import {
   composeResolvedAuthIdentities,
@@ -106,20 +113,9 @@ export interface AnthropicProbeOptions {
   requestTimeoutMs?: number;
 }
 
-type ClaudeCommandResult = {
-  code: number | null;
-  stdout: string;
-  stderr: string;
-  timedOut: boolean;
-  spawnErrorCode?: number | string;
-  errorMessage?: string;
-};
+type ClaudeCommandResult = CliCommandResult;
 
-export type ClaudeCommandInvocation = {
-  file: string;
-  args: string[];
-  display: string;
-};
+export type ClaudeCommandInvocation = CliCommandInvocation;
 
 type AnthropicDiagnosticsCacheEntry = {
   timestamp: number;
@@ -203,53 +199,12 @@ export function resolveAnthropicBinaryPath(binaryPath?: string): string {
   return trimmed ? trimmed : DEFAULT_CLAUDE_BINARY;
 }
 
-function formatCommandDisplayArg(value: string): string {
-  const sanitized = sanitizeDisplayText(value);
-  return /[\s"]/u.test(sanitized) ? JSON.stringify(sanitized) : sanitized;
-}
-
-function formatCommandDisplay(parts: string[]): string {
-  return parts.map(formatCommandDisplayArg).join(" ");
-}
-
-function quoteWindowsCmdArg(value: string): string {
-  const escaped = value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, "$1$1");
-  return `"${escaped}"`;
-}
-
-function shouldBridgeClaudeCommandThroughWindowsShell(binaryPath: string): boolean {
-  const normalized = binaryPath.trim().toLowerCase();
-  if (!/[\\/]/u.test(normalized)) {
-    return true;
-  }
-
-  return /\.(?:cmd|bat)$/u.test(normalized);
-}
-
 export function buildClaudeCommandInvocation(
   binaryPath: string,
   args: string[],
   runtime: { platform?: NodeJS.Platform; comspec?: string } = {},
 ): ClaudeCommandInvocation {
-  const resolvedBinaryPath = resolveAnthropicBinaryPath(binaryPath);
-  const display = formatCommandDisplay([resolvedBinaryPath, ...args]);
-
-  if (
-    (runtime.platform ?? process.platform) === "win32" &&
-    shouldBridgeClaudeCommandThroughWindowsShell(resolvedBinaryPath)
-  ) {
-    return {
-      file: runtime.comspec?.trim() || process.env["ComSpec"]?.trim() || "cmd.exe",
-      args: ["/d", "/s", "/c", [resolvedBinaryPath, ...args].map(quoteWindowsCmdArg).join(" ")],
-      display,
-    };
-  }
-
-  return {
-    file: resolvedBinaryPath,
-    args: [...args],
-    display,
-  };
+  return buildCliCommandInvocation(binaryPath, DEFAULT_CLAUDE_BINARY, args, runtime);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -541,45 +496,12 @@ function parseClaudeCredentialsAccessToken(
 }
 
 async function runCredentialCommand(file: string, args: string[]): Promise<ClaudeCommandResult> {
-  return await new Promise<ClaudeCommandResult>((resolve, reject) => {
-    try {
-      execFile(
-        file,
-        args,
-        {
-          encoding: "utf8",
-          timeout: CLAUDE_COMMAND_TIMEOUT_MS,
-          maxBuffer: 1024 * 1024,
-        },
-        (error: Error | null, stdout: string | Buffer, stderr: string | Buffer) => {
-          const stdoutText = typeof stdout === "string" ? stdout : stdout.toString("utf8");
-          const stderrText = typeof stderr === "string" ? stderr : stderr.toString("utf8");
-
-          if (!error) {
-            resolve({
-              code: 0,
-              stdout: stdoutText,
-              stderr: stderrText,
-              timedOut: false,
-            });
-            return;
-          }
-
-          const execError = error as Error & { code?: number | string; killed?: boolean };
-          resolve({
-            code: typeof execError.code === "number" ? execError.code : null,
-            stdout: stdoutText,
-            stderr: stderrText,
-            timedOut: isTimedOutError(execError),
-            spawnErrorCode: execError.code,
-            errorMessage: execError.message,
-          });
-        },
-      );
-    } catch (error) {
-      reject(error);
-    }
-  });
+  return await runCliCommand(
+    { file, args: [...args], display: `${file} ${args.join(" ")}` },
+    {
+      timeoutMs: CLAUDE_COMMAND_TIMEOUT_MS,
+    },
+  );
 }
 
 async function readClaudeCredentialsAccessTokenFromMacOSKeychain(): Promise<ClaudeCredentialSourceResult | null> {
@@ -985,8 +907,7 @@ function hasUnauthenticatedText(output: string): boolean {
 }
 
 function detailFromCommandResult(result: ClaudeCommandResult): string | undefined {
-  const detail = `${result.stderr}\n${result.stdout}\n${result.errorMessage ?? ""}`.trim();
-  return detail ? sanitizeDisplaySnippet(detail, 160) : undefined;
+  return detailFromCliCommandResult(result);
 }
 
 function parseVersion(output: string): string | null {
@@ -995,66 +916,11 @@ function parseVersion(output: string): string | null {
 }
 
 function isCommandMissing(result: ClaudeCommandResult): boolean {
-  if (result.spawnErrorCode === "ENOENT") {
-    return true;
-  }
-
-  const output = `${result.stderr}\n${result.stdout}\n${result.errorMessage ?? ""}`.toLowerCase();
-  return (
-    output.includes("command not found") ||
-    output.includes("not recognized as an internal or external command") ||
-    output.includes("no such file or directory")
-  );
-}
-
-function isTimedOutError(error: Error & { code?: number | string; killed?: boolean }): boolean {
-  return (
-    error.code === "ETIMEDOUT" ||
-    error.killed === true ||
-    error.message.toLowerCase().includes("timed out")
-  );
+  return isCliCommandMissing(result);
 }
 
 async function runClaudeCommand(invocation: ClaudeCommandInvocation): Promise<ClaudeCommandResult> {
-  return await new Promise<ClaudeCommandResult>((resolve, reject) => {
-    try {
-      execFile(
-        invocation.file,
-        invocation.args,
-        {
-          encoding: "utf8",
-          timeout: CLAUDE_COMMAND_TIMEOUT_MS,
-          maxBuffer: 1024 * 1024,
-        },
-        (error: Error | null, stdout: string | Buffer, stderr: string | Buffer) => {
-          const stdoutText = typeof stdout === "string" ? stdout : stdout.toString("utf8");
-          const stderrText = typeof stderr === "string" ? stderr : stderr.toString("utf8");
-
-          if (!error) {
-            resolve({
-              code: 0,
-              stdout: stdoutText,
-              stderr: stderrText,
-              timedOut: false,
-            });
-            return;
-          }
-
-          const execError = error as Error & { code?: number | string; killed?: boolean };
-          resolve({
-            code: typeof execError.code === "number" ? execError.code : null,
-            stdout: stdoutText,
-            stderr: stderrText,
-            timedOut: isTimedOutError(execError),
-            spawnErrorCode: execError.code,
-            errorMessage: execError.message,
-          });
-        },
-      );
-    } catch (error) {
-      reject(error);
-    }
-  });
+  return await runCliCommand(invocation, { timeoutMs: CLAUDE_COMMAND_TIMEOUT_MS });
 }
 
 function parseClaudeAuthStatusResult(result: ClaudeCommandResult): ParsedAuthProbe {

@@ -70,9 +70,10 @@ describe("provider-metadata", () => {
       {
         id: "alibaba-coding-plan",
         autoSetup: "yes",
-        authentication: "opencode_auth_api_key",
+        authentication: "local_cli_auth",
         authFallbacks: ["env_api_key", "global_opencode_config"],
-        quota: "local_estimation",
+        quota: "local_cli_report",
+        notes: "Token Plan CLI quota with Coding Plan local estimate fallback",
       },
       {
         id: "synthetic",

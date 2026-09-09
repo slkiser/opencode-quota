@@ -69,7 +69,7 @@ Business placement describes vendor plan availability. Except for configured Cop
 
 | Provider                 | Auth/setup                  | Data from      | Reports            |
 | ------------------------ | --------------------------- | -------------- | ------------------ |
-| Alibaba Coding Plan      | Automatic                   | Local estimate | Quota              |
+| Alibaba Coding Plan      | Automatic                   | Alibaba Cloud CLI, Local estimate fallback | Quota              |
 | DeepSeek                 | Automatic                   | Remote API     | Balance and status |
 | Kimi Code                | Automatic                   | Remote API     | Quota              |
 | MiniMax Token Plan       | Automatic                   | Remote API     | Quota              |
@@ -287,6 +287,26 @@ A custom model provider still needs its normal OpenCode provider/model config. `
 </details>
 
 ## Provider setup notes
+
+### Alibaba Token Plan
+
+The existing `alibaba-coding-plan` provider automatically prefers real Token Plan quota from the official Alibaba Cloud CLI when console authentication is available. Runtime provider IDs `alibaba-token-plan`, `alibaba-coding-plan`, and `alibaba` are recognized. No separate quota command or provider block is needed.
+
+This integration targets the international Token Plan. The `alibaba-token-plan-cn` runtime ID is out of scope pending validation of its quota contract. A Token Plan model API key alone does not authenticate the console CLI; it is deliberately not treated as a Coding Plan request allowance.
+
+```sh
+npm install -g bailian-cli
+bl auth login --console --console-site international
+bl usage token-plan --console-region ap-southeast-1 --console-site international --output json
+```
+
+Set `alibabaConsoleRegion` to `ap-southeast-1` and `alibabaConsoleSite` to `international` in `quota-toast.jsonc` for the Singapore console. Without these options the CLI uses its own defaults. `alibabaBinaryPath` optionally selects a native executable (default `bl`). Windows shell wrappers (`.cmd`/`.bat`) are not executed through a shell; use a native executable or WSL.
+
+Token Plan rows show provider-reported quota percentages, not token counts. The official console uses Credits. A missing five-hour window is omitted (it can be unlimited); weekly-only reports are supported. Percentage-used fractions from the CLI are converted to remaining percentages and then rendered using your shared display preference.
+
+If the CLI is missing, unauthenticated, fails, or returns no usable windows, the existing Coding Plan request estimate remains the fallback when configured. It is labeled **Alibaba Coding Plan**, never Token Plan Credits. Existing API-key sources, tier defaults, local counters, and custom estimate limits are unchanged. `/quota_status` reports `alibaba_quota_source` as `alibaba-cli` or `local-estimate`, with fixed safe CLI diagnostics, never raw subprocess errors or credentials.
+
+Live `/quota`, sidebar, compact status, toasts, and CLI `show --provider alibaba-coding-plan` share these rows. Console quota is never persisted under an unrelated Coding Plan API key. Following the existing cache-only export policy, a separate `show --json` process reports this provider as unavailable rather than reading another console account's quota. The running TUI's configured JSON export can include its own latest snapshot; `--threshold` returns 2 when cache-only data is unavailable. CLI probes are bounded and deduplicated, with a 30-second process-local cache; after changing console accounts, restart OpenCode or allow this cache to expire.
 
 <a id="github-copilot"></a>
 

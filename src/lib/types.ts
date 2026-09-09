@@ -160,6 +160,20 @@ export interface QuotaToastConfig {
   /** Path or command name for the local Claude CLI used by Anthropic probing. */
   anthropicBinaryPath: string;
 
+  /** Path or command name for the Alibaba Cloud Model Studio CLI (`bl`). */
+  alibabaBinaryPath: string;
+  /**
+   * Console region passed to `bl` for Alibaba Token Plan probing
+   * (for example "cn-beijing" or "ap-southeast-1").
+   * Unset defers to the CLI's own configured region.
+   */
+  alibabaConsoleRegion?: string;
+  /**
+   * Console site passed to `bl` for Alibaba Token Plan probing.
+   * Unset defers to the CLI's own configured site.
+   */
+  alibabaConsoleSite?: "domestic" | "international";
+
   googleModels: GoogleModelId[];
   cursorPlan: CursorQuotaPlan;
   /**
@@ -245,6 +259,8 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   quotaProviders: [],
 
   anthropicBinaryPath: "claude",
+
+  alibabaBinaryPath: "bl",
 
   // If Google Antigravity is enabled, default to Claude only.
   googleModels: ["CLAUDE"],

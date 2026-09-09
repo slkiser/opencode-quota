@@ -1,7 +1,3 @@
-import {
-  DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
-  resolveAlibabaCodingPlanAuthCached,
-} from "../lib/alibaba-auth.js";
 import { resolveAnthropicAuthIdentity } from "../lib/anthropic.js";
 import { resolveChutesApiKey } from "../lib/chutes-config.js";
 import { resolveCopilotAuthIdentity } from "../lib/copilot.js";
@@ -140,14 +136,9 @@ export const PROVIDER_CACHE_POLICIES = {
   }),
   cursor: UNCACHED,
   "qwen-code": UNCACHED,
-  "alibaba-coding-plan": resolvedCredentialPolicy("alibaba-coding-plan", async () => {
-    const resolved = await resolveAlibabaCodingPlanAuthCached({
-      maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
-    });
-    return resolved.state === "configured"
-      ? { credential: resolved.apiKey, qualifiers: [resolved.tier] }
-      : null;
-  }),
+  // Console authentication is unrelated to the Coding Plan key. Never persist
+  // CLI results under that identity; the CLI owns credentials and account choice.
+  "alibaba-coding-plan": UNCACHED,
   synthetic: resolvedCredentialPolicy("synthetic", async () => {
     const resolved = await resolveSyntheticApiKey();
     return resolved ? { credential: resolved.key } : null;

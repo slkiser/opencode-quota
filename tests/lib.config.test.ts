@@ -966,6 +966,29 @@ describe("loadConfig", () => {
     );
   });
 
+  it("validates Alibaba CLI settings and preserves CLI defaults when omitted", async () => {
+    const defaults = await loadSdkConfig({});
+    expect(defaults.config.alibabaBinaryPath).toBe("bl");
+    expect(defaults.config.alibabaConsoleRegion).toBeUndefined();
+    expect(defaults.config.alibabaConsoleSite).toBeUndefined();
+    const configured = await loadSdkConfig({
+      alibabaBinaryPath: " /native bl ",
+      alibabaConsoleRegion: " ap-southeast-1 ",
+      alibabaConsoleSite: "international",
+    });
+    expect(configured.config).toMatchObject({
+      alibabaBinaryPath: "/native bl",
+      alibabaConsoleRegion: "ap-southeast-1",
+      alibabaConsoleSite: "international",
+    });
+    const invalid = await loadSdkConfig({
+      alibabaConsoleRegion: "region; command",
+      alibabaConsoleSite: "other",
+    });
+    expect(invalid.config.alibabaConsoleRegion).toBeUndefined();
+    expect(invalid.config.alibabaConsoleSite).toBeUndefined();
+  });
+
   it("normalizes enabled provider aliases to canonical ids", async () => {
     const cfg = await loadSdkConfig({
       enabledProviders: ["nano-gpt", "nanogpt", "open-cursor", "gemini-cli", "minimax-cn"],
