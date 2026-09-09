@@ -5,7 +5,7 @@ import {
   resolveApiKeyFromEnvAndConfig,
 } from "./api-key-resolver.js";
 import { sanitizeDisplayText } from "./display-sanitize.js";
-import { getAuthPaths, readAuthFileCached } from "./opencode-auth.js";
+import { getCredentialDatabasePaths, readAuthFileCached } from "./opencode-auth.js";
 import type { AlibabaAuthData, AlibabaCodingPlanTier, AuthData } from "./types.js";
 
 export const DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS = 5_000;
@@ -19,7 +19,7 @@ export type AlibabaCodingPlanKeySource =
   | "env:ALIBABA_API_KEY"
   | "opencode.json"
   | "opencode.jsonc"
-  | "auth.json";
+  | "opencode.db";
 
 export type ResolvedAlibabaCodingPlanAuth =
   | { state: "none" }
@@ -31,20 +31,20 @@ export type AlibabaCodingPlanAuthDiagnostics =
       state: "none";
       source: null;
       checkedPaths: string[];
-      authPaths: string[];
+      credentialDatabasePaths: string[];
     }
   | {
       state: "configured";
       source: AlibabaCodingPlanKeySource;
       checkedPaths: string[];
-      authPaths: string[];
+      credentialDatabasePaths: string[];
       tier: AlibabaCodingPlanTier;
     }
   | {
       state: "invalid";
-      source: "auth.json";
+      source: "opencode.db";
       checkedPaths: string[];
-      authPaths: string[];
+      credentialDatabasePaths: string[];
       error: string;
       rawTier?: string;
     };
@@ -202,7 +202,7 @@ async function resolveAlibabaCodingPlanAuthWithSource(params?: {
 
   return {
     auth,
-    source: auth.state === "none" ? null : "auth.json",
+    source: auth.state === "none" ? null : "opencode.db",
   };
 }
 
@@ -222,23 +222,23 @@ export async function getAlibabaCodingPlanAuthDiagnostics(params?: {
     envVarNames: [...ALLOWED_ALIBABA_ENV_VARS],
     getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
   });
-  const authPaths = getAuthPaths();
+  const credentialDatabasePaths = getCredentialDatabasePaths();
 
   if (auth.state === "none") {
     return {
       state: "none",
       source: null,
       checkedPaths,
-      authPaths,
+      credentialDatabasePaths,
     };
   }
 
   if (auth.state === "invalid") {
     return {
       state: "invalid",
-      source: "auth.json",
+      source: "opencode.db",
       checkedPaths,
-      authPaths,
+      credentialDatabasePaths,
       error: auth.error,
       rawTier: auth.rawTier,
     };
@@ -246,9 +246,9 @@ export async function getAlibabaCodingPlanAuthDiagnostics(params?: {
 
   return {
     state: "configured",
-    source: source ?? "auth.json",
+    source: source ?? "opencode.db",
     checkedPaths,
-    authPaths,
+    credentialDatabasePaths,
     tier: auth.tier,
   };
 }

@@ -11,8 +11,9 @@ import {
   queryGoogleAgyQuota,
 } from "../lib/google-agy.js";
 import { inspectAgyCompanionPresence } from "../lib/google-agy-companion.js";
+import { formatCredentialDisplayNames, readCredentialRows } from "../lib/opencode-auth.js";
 import { parseProviderModelRef } from "../lib/provider-model-matching.js";
-import type { GoogleAgyQuotaBucket } from "../lib/types.js";
+import type { AuthData, GoogleAgyQuotaBucket } from "../lib/types.js";
 import {
   createGoogleAccountLabelMap,
   formatGoogleAccountErrors,
@@ -137,6 +138,65 @@ export const googleAgyProvider: QuotaProvider = {
       companion_error:
         companion.state !== "present" ? sanitizeDisplayText(companion.error) : undefined,
     });
+    const credentialRows = (await readCredentialRows()).filter((row) =>
+      ["google-agy", "opencode-agy-auth", "google-agy-auth"].includes(row.integrationId),
+    );
+    if (credentialRows.length > 0) {
+      const results = await Promise.all(
+        credentialRows.map(async (row) => ({
+          row,
+          result: await queryGoogleAgyQuota(ctx.client, {
+            requestTimeoutMs: ctx.config?.requestTimeoutMsConfigured
+              ? ctx.config.requestTimeoutMs
+              : undefined,
+            authData: { [row.integrationId]: row.value } as AuthData,
+          }),
+        })),
+      );
+      const names = formatCredentialDisplayNames(
+        "Google AGY",
+        results.map(({ row }) => ({ row, fallbackName: "Google AGY" })),
+      );
+      const entries: QuotaToastEntry[] = [];
+      const errors: QuotaProviderResult["errors"] = [];
+      for (const [index, { row, result }] of results.entries()) {
+        const group = names[index] ?? "Google AGY";
+        if (!result) continue;
+        if (!result.success) {
+          errors.push({ label: group, message: result.error });
+          continue;
+        }
+        for (const bucket of [...result.buckets].sort(compareBuckets)) {
+          const right = formatRemainingAmount(bucket.remainingAmount);
+          entries.push({
+            accounting: {
+              resultType: "quota",
+              acquisitionMethod: "remote_api",
+              ownership: "maintained",
+              authority: "provider_reported",
+              sourceId: row.id,
+            },
+            name: `${group} ${formatAgyFamilyLabel(bucket.family)} ${bucket.windowLabel}`,
+            group,
+            label: `${bucket.windowLabel}:`,
+            sortPriority: windowRank(bucket.window),
+            ...(right ? { right } : {}),
+            percentRemaining: bucket.percentRemaining,
+            resetTimeIso: bucket.resetTimeIso,
+          });
+        }
+        errors.push(
+          ...(result.errors ?? []).map((error) => ({
+            label: group,
+            message: error.error,
+          })),
+        );
+      }
+      return withStatusDetails(
+        attemptedResult(entries, errors, { singleWindowShowRight: true }),
+        statusDetails,
+      );
+    }
     const result = await queryGoogleAgyQuota(ctx.client, {
       requestTimeoutMs: ctx.config?.requestTimeoutMsConfigured
         ? ctx.config.requestTimeoutMs

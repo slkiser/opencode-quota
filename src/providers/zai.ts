@@ -3,6 +3,7 @@ import { queryZaiQuota } from "../lib/zai.js";
 import {
   DEFAULT_ZAI_AUTH_CACHE_MAX_AGE_MS,
   getZaiAuthDiagnostics,
+  resolveZaiAuth,
   resolveZaiAuthCached,
 } from "../lib/zai-auth.js";
 import { createGlmCodingPlanProvider } from "./glm-coding-plan-provider.js";
@@ -13,6 +14,8 @@ export const zaiProvider = createGlmCodingPlanProvider({
   errorLabel: "Z.ai",
   authCacheMaxAgeMs: DEFAULT_ZAI_AUTH_CACHE_MAX_AGE_MS,
   resolveAuth: resolveZaiAuthCached,
+  resolveCredentialAuth: resolveZaiAuth,
+  credentialIntegrationIds: ["zai-coding-plan"],
   getAuthDiagnostics: getZaiAuthDiagnostics,
   queryQuota: queryZaiQuota,
   matchesCurrentModel(model) {

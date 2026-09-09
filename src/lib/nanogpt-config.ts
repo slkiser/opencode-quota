@@ -2,7 +2,7 @@ import {
   createProviderApiKeyResolver,
   getGlobalOpencodeConfigCandidatePaths,
 } from "./api-key-resolver.js";
-import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
+import { getCredentialDatabasePaths, readAuthFile } from "./opencode-auth.js";
 
 export interface NanoGptApiKeyResult {
   key: string;
@@ -17,7 +17,7 @@ export type NanoGptKeySource =
   | "env:NANO_GPT_API_KEY"
   | "opencode.json"
   | "opencode.jsonc"
-  | "auth.json";
+  | "opencode.db";
 
 export { getGlobalOpencodeConfigCandidatePaths as getOpencodeConfigCandidatePaths } from "./api-key-resolver.js";
 
@@ -33,8 +33,8 @@ const nanoGptApiKeyResolver = createProviderApiKeyResolver<NanoGptKeySource>({
   getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
   auth: {
     readAuth: readAuthFile,
-    getAuthPaths,
-    authSource: "auth.json",
+    getCredentialDatabasePaths,
+    authSource: "opencode.db",
   },
 });
 
@@ -50,7 +50,7 @@ export async function getNanoGptKeyDiagnostics(): Promise<{
   configured: boolean;
   source: NanoGptKeySource | null;
   checkedPaths: string[];
-  authPaths: string[];
+  credentialDatabasePaths: string[];
 }> {
   return nanoGptApiKeyResolver.diagnostics();
 }

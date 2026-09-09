@@ -158,7 +158,7 @@ export const kiloProvider: QuotaProvider = {
       configured: false,
       source: null,
       checkedPaths: [],
-      authPaths: [],
+      credentialDatabasePaths: [],
     }));
     const stateResult = await queryKiloQuota({
       requestTimeoutMs: ctx.config?.requestTimeoutMs,

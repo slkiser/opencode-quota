@@ -22,7 +22,7 @@ export type ExampleProviderKeySource =
   | "env:EXAMPLE_PROVIDER_API_KEY"
   | "opencode.json"
   | "opencode.jsonc"
-  | "auth.json";
+  | "opencode.db";
 
 export interface ExampleProviderApiKeyResult {
   key: string;
@@ -39,7 +39,7 @@ export async function resolveExampleProviderApiKey(): Promise<ExampleProviderApi
     getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
     auth: {
       readAuth: readAuthFile,
-      authSource: "auth.json",
+      authSource: "opencode.db",
     },
   });
 }

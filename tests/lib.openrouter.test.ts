@@ -46,9 +46,9 @@ describe("OpenRouter quota", () => {
   it("uses the standard OpenRouter credential sources and key endpoint", async () => {
     vi.mocked(resolveQuotaProviderApiKey).mockResolvedValueOnce({
       key: "secret",
-      source: "auth.json",
+      source: "opencode.db",
       checkedPaths: [],
-      authPaths: [],
+      credentialDatabasePaths: [],
     });
     vi.mocked(fetchRemoteQuotaProvider).mockResolvedValueOnce({
       success: true,
@@ -81,7 +81,7 @@ describe("OpenRouter quota", () => {
     vi.mocked(resolveQuotaProviderApiKey).mockResolvedValue({
       source: null,
       checkedPaths: [],
-      authPaths: [],
+      credentialDatabasePaths: [],
     });
 
     await expect(queryOpenRouterQuota()).resolves.toBeNull();
@@ -89,7 +89,7 @@ describe("OpenRouter quota", () => {
     await expect(resolveOpenRouterApiKey()).resolves.toEqual({
       source: null,
       checkedPaths: [],
-      authPaths: [],
+      credentialDatabasePaths: [],
     });
     expect(fetchRemoteQuotaProvider).not.toHaveBeenCalled();
   });
@@ -99,7 +99,7 @@ describe("OpenRouter quota", () => {
       key: "secret",
       source: "env",
       checkedPaths: [],
-      authPaths: [],
+      credentialDatabasePaths: [],
     });
     vi.mocked(fetchRemoteQuotaProvider).mockResolvedValue({
       success: true,
@@ -132,7 +132,7 @@ describe("OpenRouter quota", () => {
       key: "SUPER_SECRET",
       source: "env",
       checkedPaths: [],
-      authPaths: [],
+      credentialDatabasePaths: [],
     });
     vi.mocked(fetchRemoteQuotaProvider).mockResolvedValue({
       success: false,

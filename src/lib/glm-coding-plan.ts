@@ -21,9 +21,11 @@ type GlmCodingPlanDescriptor = {
 
 export async function queryGlmCodingPlanQuota(
   descriptor: GlmCodingPlanDescriptor,
-  options: { requestTimeoutMs?: number } = {},
+  options: { requestTimeoutMs?: number; apiKey?: string } = {},
 ): Promise<ZaiResult> {
-  const auth = await descriptor.resolveAuth();
+  const auth = options.apiKey
+    ? { state: "configured" as const, apiKey: options.apiKey }
+    : await descriptor.resolveAuth();
   if (auth.state === "none") return null;
   if (auth.state === "invalid") return { success: false, error: auth.error };
 

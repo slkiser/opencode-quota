@@ -42,7 +42,7 @@ describe("quota provider trusted auth binding", () => {
   const originalEnv = { ...process.env };
   const trustedJson = join(homedir(), ".config", "opencode", "opencode.json");
   const trustedJsonc = join(homedir(), ".config", "opencode", "opencode.jsonc");
-  const authJson = join(homedir(), ".local", "share", "opencode", "auth.json");
+  const authJson = join(homedir(), ".local", "share", "opencode", "opencode.db");
   const workspaceJson = join(process.cwd(), "opencode.json");
 
   beforeEach(async () => {
@@ -59,7 +59,7 @@ describe("quota provider trusted auth binding", () => {
     process.env = { ...originalEnv };
   });
 
-  it("uses explicit environment auth before trusted config and strict auth.json", async () => {
+  it("uses explicit environment auth before trusted config and strict opencode.db", async () => {
     process.env.EXPLICIT_KEY = "env-secret";
     const { existsSync } = await import("fs");
     const { readFile } = await import("fs/promises");
@@ -130,7 +130,7 @@ describe("quota provider trusted auth binding", () => {
     expect(JSON.stringify(disallowed)).not.toContain("other-secret");
   });
 
-  it("falls back only to strict API-key-shaped auth.json for exact providerId", async () => {
+  it("ignores legacy opencode.db entries", async () => {
     const { readFile } = await import("fs/promises");
     vi.mocked(readFile).mockImplementation(async (path) => {
       if (path === authJson) {
@@ -143,19 +143,8 @@ describe("quota provider trusted auth binding", () => {
     });
 
     const result = await resolveQuotaProviderApiKey(source());
-    expect(result.key).toBe("auth-secret");
-    expect(result.source).toBe("auth.json");
-
-    vi.mocked(readFile).mockImplementation(async (path) => {
-      if (path === authJson) {
-        return JSON.stringify({
-          "provider-one": { type: "oauth", key: "oauth-secret" },
-        });
-      }
-      throw new Error("missing");
-    });
-    const oauth = await resolveQuotaProviderApiKey(source());
-    expect(oauth.key).toBeUndefined();
+    expect(result.key).toBeUndefined();
+    expect(result.source).toBeNull();
   });
 
   it("never reads workspace config, SDK config, aliases, or derived env names", async () => {

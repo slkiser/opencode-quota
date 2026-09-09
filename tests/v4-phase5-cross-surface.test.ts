@@ -102,6 +102,8 @@ vi.mock("../src/lib/alibaba-auth.js", () =>
   createAlibabaAuthModuleMock(mocks.resolveAlibabaCodingPlanAuthCached),
 );
 vi.mock("../src/lib/minimax-auth.js", () => ({
+  resolveMiniMaxAuth: vi.fn(),
+  resolveMiniMaxChinaAuth: vi.fn(),
   DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS: 5_000,
   resolveMiniMaxAuthCached: mocks.resolveMiniMaxAuthCached,
   getMiniMaxAuthDiagnostics: mocks.getMiniMaxAuthDiagnostics,
@@ -290,17 +292,17 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     });
     mocks.getMiniMaxAuthDiagnostics.mockResolvedValue({
       state: "configured",
-      source: "auth.json",
+      source: "opencode.db",
       endpoint: "international",
       checkedPaths: [],
-      authPaths: [],
+      credentialDatabasePaths: [],
     });
     mocks.resolveMiniMaxChinaAuthCached.mockResolvedValue({ state: "none" });
     mocks.getMiniMaxChinaAuthDiagnostics.mockResolvedValue({
       state: "none",
       source: null,
       checkedPaths: [],
-      authPaths: [],
+      credentialDatabasePaths: [],
     });
 
     const { quotaProvidersProvider } = await import("../src/providers/quota-providers.js");
@@ -724,7 +726,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     );
     const serverOutput = getPromptText(client);
     expect(serverOutput).toContain("MiniMax Token Plan");
-    expect(serverOutput).toContain("Five-hour quota");
+    expect(serverOutput).toContain("5h quota");
     expect(serverOutput).toContain("Weekly quota");
     expect(serverOutput).toContain("0% left");
     expect(serverOutput).toContain("Remaining: -5 requests");
@@ -769,7 +771,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     });
     const toastOutput = getToastMessage(client);
     expect(toastOutput).toContain("MiniMax Token Plan");
-    expect(toastOutput).toContain("Five-hour");
+    expect(toastOutput).toContain("5h");
     expect(toastOutput).toContain("Weekly");
     expect(toastOutput).toContain("0% left");
     expect(toastOutput).toContain("Remaining: -5 requests");
@@ -795,7 +797,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       ...(surfaces.sidebar.linesExpanded ?? []),
     ].join("\n");
     expect(sidebarOutput).toContain("MiniMax Token Plan");
-    expect(sidebarOutput).toContain("Five-hour");
+    expect(sidebarOutput).toContain("5h");
     expect(sidebarOutput).toContain("Weekly");
     expect(sidebarOutput).toContain("0% left");
     expect(sidebarOutput).toContain("Remaining: -5 requests");
@@ -907,10 +909,10 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     });
     mocks.getMiniMaxChinaAuthDiagnostics.mockResolvedValue({
       state: "configured",
-      source: "auth.json",
+      source: "opencode.db",
       endpoint: "china",
       checkedPaths: [],
-      authPaths: [],
+      credentialDatabasePaths: [],
     });
     const { minimaxChinaCodingPlanProvider } = await import(
       "../src/providers/minimax-coding-plan.js"
@@ -935,7 +937,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     const serverOutput = getPromptText(client);
     expect(serverOutput).toContain("MiniMax Token Plan");
     expect(serverOutput).toContain("(CN)");
-    expect(serverOutput).toContain("Five-hour quota");
+    expect(serverOutput).toContain("5h quota");
     expect(serverOutput).toContain("Weekly quota");
     expect(serverOutput).toContain("33%");
     expect(serverOutput).toContain("46%");
@@ -951,7 +953,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     const toastOutput = getToastMessage(client);
     expect(toastOutput).toContain("MiniMax Token Plan");
     expect(toastOutput).toContain("(CN)");
-    expect(toastOutput).toContain("Five-hour");
+    expect(toastOutput).toContain("5h");
     expect(toastOutput).toContain("Weekly");
     expect(toastOutput).toContain("33%");
     expect(toastOutput).toContain("46%");
@@ -978,7 +980,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     ].join("\n");
     expect(sidebarOutput).toContain("MiniMax Token Plan");
     expect(sidebarOutput).toContain("(CN)");
-    expect(sidebarOutput).toContain("Five-hour");
+    expect(sidebarOutput).toContain("5h");
     expect(sidebarOutput).toContain("Weekly");
     expect(sidebarOutput).toContain("33%");
     expect(sidebarOutput).toContain("46%");

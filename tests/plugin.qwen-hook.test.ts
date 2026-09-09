@@ -28,8 +28,8 @@ vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
 vi.mock("../src/lib/opencode-auth.js", () => ({
   readAuthFileCached: vi.fn(),
   readAuthFile: vi.fn(),
-  getAuthPath: vi.fn(() => "/tmp/auth.json"),
-  getAuthPaths: vi.fn(() => ["/tmp/auth.json"]),
+  getCredentialDatabasePath: vi.fn(() => "/tmp/opencode.db"),
+  getCredentialDatabasePaths: vi.fn(() => ["/tmp/opencode.db"]),
   clearReadAuthFileCacheForTests: vi.fn(),
 }));
 vi.mock("../src/lib/qwen-auth.js", () =>

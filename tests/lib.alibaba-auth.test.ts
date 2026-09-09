@@ -12,7 +12,7 @@ import {
 } from "./helpers/trusted-config-test-harness.js";
 
 const mocks = vi.hoisted(() => ({
-  getAuthPaths: vi.fn(() => ["/tmp/auth.json", "/tmp/auth-fallback.json"]),
+  getCredentialDatabasePaths: vi.fn(() => ["/tmp/opencode.db", "/tmp/auth-fallback.json"]),
   readAuthFileCached: vi.fn(),
 }));
 
@@ -27,7 +27,7 @@ vi.mock("fs/promises", () => ({
 }));
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
-  getAuthPaths: mocks.getAuthPaths,
+  getCredentialDatabasePaths: mocks.getCredentialDatabasePaths,
   readAuthFileCached: mocks.readAuthFileCached,
 }));
 
@@ -54,7 +54,9 @@ describe("alibaba auth resolution", () => {
     vi.clearAllMocks();
     resetProcessEnv(originalEnv, ["ALIBABA_CODING_PLAN_API_KEY", "ALIBABA_API_KEY"]);
 
-    mocks.getAuthPaths.mockReset().mockReturnValue(["/tmp/auth.json", "/tmp/auth-fallback.json"]);
+    mocks.getCredentialDatabasePaths
+      .mockReset()
+      .mockReturnValue(["/tmp/opencode.db", "/tmp/auth-fallback.json"]);
     mocks.readAuthFileCached.mockReset();
 
     fsConfigMocks = await loadFsConfigMocks();
@@ -188,7 +190,7 @@ describe("alibaba auth resolution", () => {
   });
 
   describe("resolveAlibabaCodingPlanAuthCached", () => {
-    it("prefers ALIBABA_CODING_PLAN_API_KEY over auth.json and uses the fallback tier", async () => {
+    it("prefers ALIBABA_CODING_PLAN_API_KEY over opencode.db and uses the fallback tier", async () => {
       process.env.ALIBABA_CODING_PLAN_API_KEY = "env-key";
       mocks.readAuthFileCached.mockResolvedValueOnce({
         alibaba: { type: "api", key: "auth-key", tier: "max" },
@@ -259,7 +261,7 @@ describe("alibaba auth resolution", () => {
       await expect(resolveAlibabaCodingPlanAuthCached()).resolves.toEqual({ state: "none" });
     });
 
-    it("falls back to auth.json when env/config are not configured", async () => {
+    it("falls back to opencode.db when env/config are not configured", async () => {
       mocks.readAuthFileCached.mockResolvedValueOnce({
         alibaba: { type: "api", key: "dashscope-key", tier: "pro" },
       });
@@ -274,7 +276,7 @@ describe("alibaba auth resolution", () => {
       });
     });
 
-    it("returns invalid for access-only cached auth.json", async () => {
+    it("returns invalid for access-only cached opencode.db", async () => {
       mocks.readAuthFileCached.mockResolvedValueOnce({
         alibaba: { type: "api", access: "dashscope-key", tier: "pro" },
       });
@@ -285,7 +287,7 @@ describe("alibaba auth resolution", () => {
       });
     });
 
-    it("surfaces invalid auth.json tiers only when fallback auth wins", async () => {
+    it("surfaces invalid opencode.db tiers only when fallback auth wins", async () => {
       mocks.readAuthFileCached.mockResolvedValueOnce({
         alibaba: { type: "api", key: "dashscope-key", tier: "max" },
       });
@@ -313,7 +315,7 @@ describe("alibaba auth resolution", () => {
         state: "configured",
         source: "env:ALIBABA_API_KEY",
         checkedPaths: ["env:ALIBABA_API_KEY"],
-        authPaths: ["/tmp/auth.json", "/tmp/auth-fallback.json"],
+        credentialDatabasePaths: ["/tmp/opencode.db", "/tmp/auth-fallback.json"],
         tier: "lite",
       });
     });
@@ -326,20 +328,20 @@ describe("alibaba auth resolution", () => {
         state: "none",
         source: null,
         checkedPaths: [trustedPaths.json],
-        authPaths: ["/tmp/auth.json", "/tmp/auth-fallback.json"],
+        credentialDatabasePaths: ["/tmp/opencode.db", "/tmp/auth-fallback.json"],
       });
     });
 
-    it("reports invalid auth.json diagnostics when fallback auth is malformed", async () => {
+    it("reports invalid opencode.db diagnostics when fallback auth is malformed", async () => {
       mocks.readAuthFileCached.mockResolvedValueOnce({
         alibaba: { type: "api", key: "dashscope-key", tier: "max" },
       });
 
       await expect(getAlibabaCodingPlanAuthDiagnostics()).resolves.toEqual({
         state: "invalid",
-        source: "auth.json",
+        source: "opencode.db",
         checkedPaths: [],
-        authPaths: ["/tmp/auth.json", "/tmp/auth-fallback.json"],
+        credentialDatabasePaths: ["/tmp/opencode.db", "/tmp/auth-fallback.json"],
         error: "Unsupported Alibaba Coding Plan tier: max",
         rawTier: "max",
       });

@@ -12,7 +12,7 @@ This template is intentionally outside `src/` and is not published to npm. `pack
 
 Use this template for API-key/token providers that support all three trusted sources:
 
-1. existing OpenCode API-key/token auth (`auth.json`)
+1. existing OpenCode API-key/token auth (`opencode.db`)
 2. trusted user/global OpenCode config
 3. environment variables
 

@@ -245,9 +245,11 @@ async function fetchKimiQuotaFromUrl(
 }
 
 export async function queryKimiQuota(
-  options: { requestTimeoutMs?: number } = {},
+  options: { requestTimeoutMs?: number; apiKey?: string } = {},
 ): Promise<KimiResult> {
-  const auth = await resolveKimiAuthCached({ maxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS });
+  const auth = options.apiKey
+    ? { state: "configured" as const, apiKey: options.apiKey }
+    : await resolveKimiAuthCached({ maxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS });
   if (auth.state === "none") return null;
   if (auth.state === "invalid") {
     return { success: false, error: auth.error };

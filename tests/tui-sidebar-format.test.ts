@@ -257,9 +257,9 @@ describe("buildSidebarQuotaPanelLines", () => {
       },
     });
 
-    expect(lines.findIndex((line) => line.includes("Five-hour"))).toBeGreaterThanOrEqual(0);
+    expect(lines.findIndex((line) => line.includes("5h"))).toBeGreaterThanOrEqual(0);
     expect(lines.findIndex((line) => line.includes("Weekly"))).toBeGreaterThanOrEqual(0);
-    expect(lines.findIndex((line) => line.includes("Five-hour"))).toBeLessThan(
+    expect(lines.findIndex((line) => line.includes("5h"))).toBeLessThan(
       lines.findIndex((line) => line.includes("Weekly")),
     );
   });

@@ -20,7 +20,7 @@ import {
 } from "./helpers/trusted-config-test-harness.js";
 
 const authMocks = vi.hoisted(() => ({
-  getAuthPaths: vi.fn(() => ["/tmp/auth.json"]),
+  getCredentialDatabasePaths: vi.fn(() => ["/tmp/opencode.db"]),
   readAuthFileCached: vi.fn(),
 }));
 
@@ -28,7 +28,7 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => createRuntimePathsMockModu
 vi.mock("fs", () => ({ existsSync: vi.fn() }));
 vi.mock("fs/promises", () => ({ readFile: vi.fn() }));
 vi.mock("../src/lib/opencode-auth.js", () => ({
-  getAuthPaths: authMocks.getAuthPaths,
+  getCredentialDatabasePaths: authMocks.getCredentialDatabasePaths,
   readAuthFileCached: authMocks.readAuthFileCached,
 }));
 
@@ -100,7 +100,7 @@ describe("invalid-aware provider auth", () => {
   function resetFixture(): void {
     resetContractEnv(originalEnv, providers);
     resetFsConfigMocks(fsMocks);
-    authMocks.getAuthPaths.mockReset().mockReturnValue(["/tmp/auth.json"]);
+    authMocks.getCredentialDatabasePaths.mockReset().mockReturnValue(["/tmp/opencode.db"]);
     authMocks.readAuthFileCached.mockReset().mockResolvedValue(null);
   }
 
@@ -299,7 +299,7 @@ describe("invalid-aware provider auth", () => {
         state: "configured",
         source: `env:${provider.envVars[1]}`,
         checkedPaths: [`env:${provider.envVars[1]}`],
-        authPaths: ["/tmp/auth.json"],
+        credentialDatabasePaths: ["/tmp/opencode.db"],
       });
 
       resetFixture();
@@ -309,9 +309,9 @@ describe("invalid-aware provider auth", () => {
       const invalid = await module.diagnostics();
       expect(invalid, `${provider.name} invalid`).toEqual({
         state: "invalid",
-        source: "auth.json",
+        source: "opencode.db",
         checkedPaths: [],
-        authPaths: ["/tmp/auth.json"],
+        credentialDatabasePaths: ["/tmp/opencode.db"],
         error: `Unsupported ${provider.displayName} auth type: "oauth"`,
       });
       expect(JSON.stringify(invalid), `${provider.name} secret-free`).not.toContain("diag-key");
@@ -321,7 +321,7 @@ describe("invalid-aware provider auth", () => {
         state: "none",
         source: null,
         checkedPaths: [],
-        authPaths: ["/tmp/auth.json"],
+        credentialDatabasePaths: ["/tmp/opencode.db"],
       });
       expect(module.getConfigCandidates(), provider.name).toEqual(
         expectedTrustedConfigCandidates(),

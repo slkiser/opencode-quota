@@ -53,6 +53,7 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () =>
 );
 vi.mock("../src/lib/opencode-go-auth.js", () => ({
   DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS: 5_000,
+  OPENCODE_GO_CREDENTIAL_INTEGRATION_IDS: ["opencode-go", "opencode"],
   resolveOpenCodeGoAuthCached: mocks.resolveOpenCodeGoAuthCached,
   getOpenCodeGoAuthDiagnostics: mocks.getOpenCodeGoAuthDiagnostics,
 }));
@@ -172,9 +173,9 @@ describe("OpenCode Go shared projections", () => {
     });
     mocks.getOpenCodeGoAuthDiagnostics.mockResolvedValue({
       state: "configured",
-      source: "auth.json",
+      source: "opencode.db",
       checkedPaths: ["env:OPENCODE_API_KEY"],
-      authPaths: ["/tmp/auth.json"],
+      credentialDatabasePaths: ["/tmp/opencode.db"],
     });
     mocks.queryOpenCodeGoQuota.mockResolvedValue(successfulResult());
 
