@@ -270,6 +270,7 @@ describe("plugin command handled boundary", () => {
     );
     expect(getPromptText(client)).toContain("Quota unavailable");
     expect(getPromptText(client)).toContain("No provider data available");
+    expect(client.session.abort).toHaveBeenCalledWith({ path: { id: "session-2" } });
   });
 
   it("injects clean plain text with noReply/ignored when /quota has no current model", async () => {
@@ -373,6 +374,7 @@ describe("plugin command handled boundary", () => {
     ).rejects.toBe(injectionError);
 
     expect(isCommandHandledError(injectionError)).toBe(false);
+    expect(client.session.abort).not.toHaveBeenCalled();
     expect(client.app.log).toHaveBeenCalledWith(
       expect.objectContaining({
         body: expect.objectContaining({
