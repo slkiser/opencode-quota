@@ -158,12 +158,15 @@ Run `/quota_status` and check the Alibaba auth, resolved tier, state-file path, 
 
 For Token Plan, also check `alibaba_quota_source`, `alibaba_cli_installed`, `alibaba_cli_authenticated`, and `alibaba_cli_message`. Install with `npm install -g bailian-cli`, then explicitly sign in using `bl auth login --console --console-site international`. For Singapore set `alibabaConsoleRegion: "ap-southeast-1"` and `alibabaConsoleSite: "international"`. The plugin never starts browser login or reads console credentials. CLI failures fall back to Coding Plan request estimates, not Token Plan credits. A fresh `show --json` process cannot use console quota because it has no account-bound durable cache; use live `show` or the running TUI's configured JSON export. See [Alibaba Token Plan](providers.md#alibaba-token-plan).
 
+If the model picker shows both an authenticated alias (for example `alibaba-token-plan`) and a separate `alibaba-coding-plan` entry, an older build declared the canonical id in the global OpenCode config. Keep only the authenticated id: remove the unused canonical key from `provider` in your global `opencode.json(c)`. Current builds declare the authenticated runtime id instead, and treat an already-declared alias as satisfied.
+
 | Symptom              | Fix                                                                                                                                                                |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | API key not detected | Use `ALIBABA_CODING_PLAN_API_KEY`, `ALIBABA_API_KEY`, trusted user/global OpenCode config, or OpenCode auth. Repo-local provider secrets are ignored.              |
 | Limits need tuning   | Run `opencode-quota provider add`, choose local estimate, and use the maintained `alibaba-coding-plan` id with its five-hour, weekly, and monthly rolling windows. |
 | Counters do not move | Confirm the current model is `alibaba/*` or `alibaba-cn/*`.                                                                                                        |
 | Quota seems stale    | Check the state-file path shown in `/quota_status`.                                                                                                                |
+| Duplicate provider entry in the model picker | Remove the unauthenticated canonical key from `provider` in the global `opencode.json(c)` and keep only the authenticated alias, for example `alibaba-token-plan`. |
 
 </details>
 

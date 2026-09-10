@@ -290,7 +290,7 @@ A custom model provider still needs its normal OpenCode provider/model config. `
 
 ### Alibaba Token Plan
 
-The existing `alibaba-coding-plan` provider automatically prefers real Token Plan quota from the official Alibaba Cloud CLI when console authentication is available. Runtime provider IDs `alibaba-token-plan`, `alibaba-coding-plan`, and `alibaba` are recognized. No separate quota command or provider block is needed.
+The existing `alibaba-coding-plan` provider automatically prefers real Token Plan quota from the official Alibaba Cloud CLI when console authentication is available. Runtime provider IDs `alibaba-token-plan`, `alibaba-coding-plan`, and `alibaba` are recognized. No separate quota command or provider block is needed. When the plugin declares detected providers in the global OpenCode config, it writes the authenticated runtime id (for example `alibaba-token-plan`), not the canonical provider id.
 
 This integration targets the international Token Plan. The `alibaba-token-plan-cn` runtime ID is out of scope pending validation of its quota contract. A Token Plan model API key alone does not authenticate the console CLI; it is deliberately not treated as a Coding Plan request allowance.
 
