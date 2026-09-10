@@ -342,6 +342,7 @@ export function createPluginTestClient({
     session: {
       get: vi.fn().mockResolvedValue({ data }),
       prompt: vi.fn().mockResolvedValue({}),
+      abort: vi.fn().mockResolvedValue({}),
     },
     tui: {
       showToast: vi.fn().mockResolvedValue({}),
