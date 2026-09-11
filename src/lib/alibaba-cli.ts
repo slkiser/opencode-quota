@@ -247,7 +247,7 @@ async function runProbe(params: {
       authenticated: false,
       failureReason: "not_authenticated",
       message:
-        "Alibaba Cloud Model Studio CLI is not authenticated. Run `bl auth login --console`.",
+        "Alibaba Cloud console session is missing or expired. Run `bl auth login --console`.",
     };
   }
 

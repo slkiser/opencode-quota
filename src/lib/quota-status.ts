@@ -847,6 +847,7 @@ export async function buildQuotaStatusReport(params: {
       "alibaba_api_key_source",
       "alibaba_api_key_checked_paths",
       "alibaba_api_key_auth_paths",
+      "alibaba_runtime_auth",
       "alibaba_coding_plan",
       "alibaba_auth_error",
       "alibaba_quota_source",

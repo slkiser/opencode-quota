@@ -1,6 +1,7 @@
 import {
   DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
   getAlibabaCodingPlanAuthDiagnostics,
+  hasAlibabaRuntimeAuthEntryCached,
   isAlibabaModelId,
   resolveAlibabaCodingPlanAuthCached,
 } from "../lib/alibaba-auth.js";
@@ -103,7 +104,13 @@ export const alibabaCodingPlanProvider: QuotaProvider = {
       return true;
     }
 
-    return false;
+    // Keep the provider visible while OpenCode still holds an Alibaba credential
+    // but the console CLI is missing, unauthenticated, or its session expired, so
+    // fetch() can explain the missing quota instead of the provider silently
+    // disappearing from every quota surface.
+    return await hasAlibabaRuntimeAuthEntryCached({
+      maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
+    });
   },
 
   matchesCurrentModel(model: string, context): boolean {
@@ -142,6 +149,9 @@ export const alibabaCodingPlanProvider: QuotaProvider = {
       maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
       fallbackTier: "lite",
     });
+    const hasRuntimeAuth = await hasAlibabaRuntimeAuthEntryCached({
+      maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
+    });
     const statePath = getAlibabaCodingPlanQuotaPath();
     const state = await inspectGeneratedCounterFile(statePath, ALIBABA_CODING_PLAN_STATE_VERSION);
     const lastUpdate =
@@ -153,6 +163,7 @@ export const alibabaCodingPlanProvider: QuotaProvider = {
       alibaba_api_key_source: diagnostics.source ?? "(none)",
       alibaba_api_key_checked_paths: diagnostics.checkedPaths.join(" | ") || "(none)",
       alibaba_api_key_auth_paths: diagnostics.authPaths.join(" | ") || "(none)",
+      alibaba_runtime_auth: hasRuntimeAuth ? "true" : "false",
       alibaba_coding_plan:
         diagnostics.state === "configured"
           ? diagnostics.tier
@@ -174,6 +185,23 @@ export const alibabaCodingPlanProvider: QuotaProvider = {
     const statusDetails = statusDetailsFromRecord(details);
 
     if (plan.state === "none") {
+      // OpenCode holds an Alibaba credential, so a CLI failure (expired console
+      // session, missing binary, timeout, network) is actionable rather than a
+      // reason to hide the provider. Only the CLI's fixed safe messages are
+      // surfaced; timeouts and network faults stay retryable.
+      if (hasRuntimeAuth && cli.failureReason) {
+        return withStatusDetails(
+          attemptedErrorResult(
+            ALIBABA_TOKEN_PLAN_GROUP,
+            cli.message ?? "Could not read Alibaba Token Plan quota.",
+            {
+              retryable: cli.failureReason === "timeout" || cli.failureReason === "network",
+            },
+          ),
+          statusDetails,
+        );
+      }
+
       return withStatusDetails(notAttemptedResult(), statusDetails);
     }
 

@@ -56,6 +56,7 @@ vi.mock("../src/lib/alibaba-auth.js", () => ({
     checkedPaths: [],
     authPaths: [],
   })),
+  hasAlibabaRuntimeAuthEntryCached: vi.fn(async () => false),
   isAlibabaModelId: () => false,
 }));
 

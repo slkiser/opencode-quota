@@ -481,4 +481,102 @@ describe("alibaba-coding-plan provider", () => {
 
     await expect(alibabaCodingPlanProvider.isAvailable({ config: {} } as any)).resolves.toBe(false);
   });
+
+  const mockExpiredConsoleSession = async () => {
+    const { probeAlibabaCliUsage } = await import("../src/lib/alibaba-cli.js");
+    (probeAlibabaCliUsage as any).mockResolvedValue({
+      installed: true,
+      authenticated: false,
+      checkedCommands: ["bl --version", "bl usage token-plan --output json --timeout 8"],
+      failureReason: "not_authenticated",
+      message:
+        "Alibaba Cloud console session is missing or expired. Run `bl auth login --console`.",
+    });
+  };
+
+  const mockTokenPlanCredential = async () => {
+    const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
+    (readAuthFileCached as any).mockResolvedValue({
+      "alibaba-token-plan": { type: "api", key: "token-plan-key" },
+    });
+  };
+
+  it("stays available when the console session expired but a Token Plan credential exists", async () => {
+    await mockTokenPlanCredential();
+    await mockExpiredConsoleSession();
+
+    await expect(alibabaCodingPlanProvider.isAvailable({ config: {} } as any)).resolves.toBe(true);
+  });
+
+  it("surfaces the expired console session instead of hiding the provider", async () => {
+    await mockTokenPlanCredential();
+    await mockExpiredConsoleSession();
+
+    const out = await alibabaCodingPlanProvider.fetch({ config: {} } as any);
+
+    expectAttemptedWithErrorLabel(out, "Alibaba Token Plan");
+    expect(out.errors[0]?.message).toBe(
+      "Alibaba Cloud console session is missing or expired. Run `bl auth login --console`.",
+    );
+    expect(out.errors[0]?.retryable).not.toBe(true);
+    expect(statusDetail(out, "alibaba_runtime_auth")).toBe("true");
+    expect(statusDetail(out, "alibaba_cli_authenticated")).toBe("false");
+    expect(statusDetail(out, "alibaba_quota_source")).toBe("(none)");
+  });
+
+  it("surfaces the install hint when the CLI is missing but a Token Plan credential exists", async () => {
+    await mockTokenPlanCredential();
+
+    const out = await alibabaCodingPlanProvider.fetch({ config: {} } as any);
+
+    expectAttemptedWithErrorLabel(out, "Alibaba Token Plan");
+    expect(out.errors[0]?.message).toContain("bailian-cli");
+    expect(out.errors[0]?.retryable).not.toBe(true);
+  });
+
+  it("marks transient CLI failures retryable while keeping the provider visible", async () => {
+    const transientFailures = [
+      { failureReason: "timeout", message: "Timed out while running `bl usage token-plan`." },
+      { failureReason: "network", message: "Network error while running `bl usage token-plan`." },
+    ] as const;
+
+    for (const failure of transientFailures) {
+      vi.clearAllMocks();
+      await mockTokenPlanCredential();
+      const { probeAlibabaCliUsage } = await import("../src/lib/alibaba-cli.js");
+      (probeAlibabaCliUsage as any).mockResolvedValue({
+        installed: true,
+        checkedCommands: ["bl --version", "bl usage token-plan --output json --timeout 8"],
+        ...failure,
+      });
+
+      const out = await alibabaCodingPlanProvider.fetch({ config: {} } as any);
+
+      expectAttemptedWithErrorLabel(out, "Alibaba Token Plan");
+      expect(out.errors[0]?.message).toBe(failure.message);
+      expect(out.errors[0]?.retryable).toBe(true);
+    }
+  });
+
+  it("stays silent when no Alibaba credential is configured and the CLI probe fails", async () => {
+    const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
+    (readAuthFileCached as any).mockResolvedValue({ openai: { type: "oauth" } });
+
+    const out = await alibabaCodingPlanProvider.fetch({ config: {} } as any);
+
+    expectNotAttempted(out);
+    await expect(alibabaCodingPlanProvider.isAvailable({ config: {} } as any)).resolves.toBe(false);
+  });
+
+  it("ignores an Alibaba auth entry without usable credentials", async () => {
+    const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
+    (readAuthFileCached as any).mockResolvedValue({
+      "alibaba-token-plan": { type: "api", key: "   " },
+    });
+
+    const out = await alibabaCodingPlanProvider.fetch({ config: {} } as any);
+
+    expectNotAttempted(out);
+    await expect(alibabaCodingPlanProvider.isAvailable({ config: {} } as any)).resolves.toBe(false);
+  });
 });

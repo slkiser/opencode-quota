@@ -148,6 +148,7 @@ export function createAlibabaAuthModuleMock(resolveAlibabaCodingPlanAuthCached: 
       typeof model === "string" &&
       (model.toLowerCase().startsWith("alibaba/") || model.toLowerCase().startsWith("alibaba-cn/")),
     resolveAlibabaCodingPlanAuthCached,
+    hasAlibabaRuntimeAuthEntryCached: async () => false,
   };
 }
 
