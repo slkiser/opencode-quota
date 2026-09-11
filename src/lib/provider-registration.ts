@@ -130,14 +130,15 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
   {
     id: "alibaba-coding-plan",
     label: "Alibaba Coding Plan",
-    runtimeIds: ["alibaba-coding-plan"],
-    synonyms: ["alibaba"],
+    runtimeIds: ["alibaba-coding-plan", "alibaba-token-plan"],
+    synonyms: ["alibaba", "alibaba-token-plan"],
     liveLocalUsage: true,
     shape: {
       autoSetup: "yes",
-      authentication: "opencode_auth_api_key",
+      authentication: "local_cli_auth",
       authFallbacks: ["env_api_key", "global_opencode_config"],
-      quota: "local_estimation",
+      quota: "local_cli_report",
+      notes: "Token Plan CLI quota with Coding Plan local estimate fallback",
     },
   },
   {

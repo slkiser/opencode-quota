@@ -11,6 +11,12 @@ import type { AlibabaAuthData, AlibabaCodingPlanTier, AuthData } from "./types.j
 export const DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS = 5_000;
 const ALIBABA_AUTH_KEYS = ["alibaba-coding-plan", "alibaba"] as const;
 const ALIBABA_PROVIDER_KEYS = ["alibaba-coding-plan", "alibaba"] as const;
+/**
+ * Runtime ids OpenCode may authenticate an Alibaba credential under. Used only
+ * as a presence signal; a Token Plan model API key is still never treated as a
+ * Coding Plan request allowance.
+ */
+const ALIBABA_RUNTIME_AUTH_KEYS = ["alibaba-token-plan", "alibaba-coding-plan", "alibaba"] as const;
 const ALLOWED_ALIBABA_ENV_VARS = ["ALIBABA_CODING_PLAN_API_KEY", "ALIBABA_API_KEY"] as const;
 const DEFAULT_ALIBABA_CODING_PLAN_TIER: AlibabaCodingPlanTier = "lite";
 
@@ -255,6 +261,34 @@ export async function getAlibabaCodingPlanAuthDiagnostics(params?: {
 
 export function hasAlibabaAuth(auth: AuthData | null | undefined): boolean {
   return resolveAlibabaCodingPlanAuth(auth).state === "configured";
+}
+
+function hasUsableAlibabaRuntimeAuthEntry(value: unknown): boolean {
+  const record = asRecord(value);
+  if (!record) return false;
+  if (typeof record.key === "string") return record.key.trim().length > 0;
+  return typeof record.type === "string" && record.type.trim().length > 0;
+}
+
+/**
+ * Reports whether OpenCode holds an Alibaba credential under any recognized
+ * runtime id. Presence only: it keeps the provider visible so a lapsed console
+ * session can be explained, and never grants a Coding Plan request allowance.
+ */
+export function hasAlibabaRuntimeAuthEntry(auth: AuthData | null | undefined): boolean {
+  const root = asRecord(auth);
+  if (!root) return false;
+  return ALIBABA_RUNTIME_AUTH_KEYS.some(
+    (key) => Object.hasOwn(root, key) && hasUsableAlibabaRuntimeAuthEntry(root[key]),
+  );
+}
+
+export async function hasAlibabaRuntimeAuthEntryCached(params?: {
+  maxAgeMs?: number;
+}): Promise<boolean> {
+  const maxAgeMs = Math.max(0, params?.maxAgeMs ?? DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS);
+  const auth = await readAuthFileCached({ maxAgeMs });
+  return hasAlibabaRuntimeAuthEntry(auth);
 }
 
 export function isAlibabaModelId(model?: string): boolean {

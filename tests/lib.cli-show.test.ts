@@ -39,6 +39,27 @@ vi.mock("../src/providers/registry.js", () => ({
   getProviders: () => mockProviders,
 }));
 
+vi.mock("../src/lib/alibaba-cli.js", () => ({
+  probeAlibabaCliUsage: vi.fn(async () => ({
+    installed: true,
+    authenticated: true,
+    checkedCommands: [],
+    usage: { per5Hour: { percentUsed: 0.25 }, per1Week: { percentUsed: 0.6 } },
+  })),
+}));
+
+vi.mock("../src/lib/alibaba-auth.js", () => ({
+  DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS: 30_000,
+  resolveAlibabaCodingPlanAuthCached: vi.fn(async () => ({ state: "none" })),
+  getAlibabaCodingPlanAuthDiagnostics: vi.fn(async () => ({
+    state: "none",
+    checkedPaths: [],
+    authPaths: [],
+  })),
+  hasAlibabaRuntimeAuthEntryCached: vi.fn(async () => false),
+  isAlibabaModelId: () => false,
+}));
+
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
   getOpencodeRuntimeDirCandidates: () => runtimeDirs.value,
   getOpencodeRuntimeDirs: () => ({
@@ -158,6 +179,58 @@ describe("runCliShowCommand", () => {
     expect(stdout.output).toContain("75%");
     expect(stderr.output).toBe("");
     expect(provider.fetch).toHaveBeenCalledOnce();
+  });
+
+  it("shows live Alibaba CLI quota but never exports it under an unrelated disk identity", async () => {
+    const { alibabaCodingPlanProvider } = await import("../src/providers/alibaba-coding-plan.js");
+    const { probeAlibabaCliUsage } = await import("../src/lib/alibaba-cli.js");
+    vi.mocked(probeAlibabaCliUsage).mockClear();
+    mockProviders.push({ ...alibabaCodingPlanProvider, cachePolicy: { kind: "uncached" } });
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({
+        provider: { "alibaba-token-plan": {} },
+        experimental: {
+          quotaToast: {
+            enabledProviders: "auto",
+            formatStyle: "allWindows",
+            alibabaConsoleRegion: "ap-southeast-1",
+            alibabaConsoleSite: "international",
+          },
+        },
+      }),
+    );
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    expect(
+      await runCliShowCommand({
+        argv: [],
+        cwd: workspaceDir,
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+      }),
+    ).toBe(0);
+    expect(stdout.output).toContain("Alibaba Token Plan");
+    expect(stdout.output).toContain("75%");
+    expect(stdout.output).toContain("40%");
+    expect(probeAlibabaCliUsage).toHaveBeenCalledWith({
+      binaryPath: "bl",
+      consoleRegion: "ap-southeast-1",
+      consoleSite: "international",
+    });
+    vi.mocked(probeAlibabaCliUsage).mockClear();
+    const json = createCaptureStream();
+    expect(
+      await runCliShowCommand({
+        argv: ["--provider", "alibaba-coding-plan", "--json", "--threshold", "10"],
+        cwd: workspaceDir,
+        stdout: json.stream,
+        stderr: stderr.stream,
+      }),
+    ).toBe(2);
+    expect(JSON.parse(json.output).providers["alibaba-coding-plan"].status).toBe("unavailable");
+    expect(probeAlibabaCliUsage).not.toHaveBeenCalled();
+    expect(stderr.output).toBe("");
   });
 
   it("adds a Quota mode heading for bare CLI labels and spaces reset units", async () => {

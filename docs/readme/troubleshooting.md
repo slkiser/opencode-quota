@@ -156,12 +156,21 @@ Run `/quota_status` and check `qwen_oauth_source`, `qwen_local_plan`, and the `q
 
 Run `/quota_status` and check the Alibaba auth, resolved tier, state-file path, and `alibaba_coding_plan` live probe section.
 
+For Token Plan, also check `alibaba_quota_source`, `alibaba_cli_installed`, `alibaba_cli_authenticated`, and `alibaba_cli_message`. Install with `npm install -g bailian-cli`, then explicitly sign in using `bl auth login --console --console-site international`. For Singapore set `alibabaConsoleRegion: "ap-southeast-1"` and `alibabaConsoleSite: "international"`. The plugin never starts browser login or reads console credentials. CLI failures fall back to Coding Plan request estimates, not Token Plan credits. A fresh `show --json` process cannot use console quota because it has no account-bound durable cache; use live `show` or the running TUI's configured JSON export. See [Alibaba Token Plan](providers.md#alibaba-token-plan).
+
+If the model picker shows both an authenticated alias (for example `alibaba-token-plan`) and a separate `alibaba-coding-plan` entry, an older build declared the canonical id in the global OpenCode config. Keep only the authenticated id: remove the unused canonical key from `provider` in your global `opencode.json(c)`. Current builds declare the authenticated runtime id instead, and treat an already-declared alias as satisfied.
+
+The `bl` console session expires independently of your Token Plan model API key, so models can keep working while quota stops updating. `bl auth status` only reports that a console token is stored, not that it is still valid; `bl usage token-plan` is the check that fails with `Console session is not logged in or has expired.` Re-run `bl auth login --console --console-site international` to restore quota. While the session has lapsed the provider stays visible and reports that re-login hint instead of disappearing, and `/quota_status` shows `alibaba_runtime_auth: true` together with `alibaba_cli_authenticated: false`. Timeout and network faults are reported as retryable rather than as an authentication problem.
+
 | Symptom              | Fix                                                                                                                                                                |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | API key not detected | Use `ALIBABA_CODING_PLAN_API_KEY`, `ALIBABA_API_KEY`, trusted user/global OpenCode config, or OpenCode auth. Repo-local provider secrets are ignored.              |
 | Limits need tuning   | Run `opencode-quota provider add`, choose local estimate, and use the maintained `alibaba-coding-plan` id with its five-hour, weekly, and monthly rolling windows. |
 | Counters do not move | Confirm the current model is `alibaba/*` or `alibaba-cn/*`.                                                                                                        |
 | Quota seems stale    | Check the state-file path shown in `/quota_status`.                                                                                                                |
+| Duplicate provider entry in the model picker | Remove the unauthenticated canonical key from `provider` in the global `opencode.json(c)` and keep only the authenticated alias, for example `alibaba-token-plan`. |
+| Token Plan quota stopped updating while models still work | The `bl` console session expired; `bl auth status` can still report a stored token. Re-run `bl auth login --console --console-site international` and confirm `alibaba_cli_authenticated: true`. |
+| Provider reports an expired console session | Run the hinted `bl auth login --console` command. Quota resumes on the next probe or after the 30-second probe cache expires. |
 
 </details>
 

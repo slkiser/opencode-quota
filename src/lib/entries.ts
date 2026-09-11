@@ -368,6 +368,9 @@ export interface QuotaProviderContext {
   config: {
     googleModels: string[];
     anthropicBinaryPath?: string;
+    alibabaBinaryPath?: string;
+    alibabaConsoleRegion?: string;
+    alibabaConsoleSite?: "domestic" | "international";
     cursorPlan: CursorQuotaPlan;
     cursorIncludedApiUsd?: number;
     cursorBillingCycleStartDay?: number;

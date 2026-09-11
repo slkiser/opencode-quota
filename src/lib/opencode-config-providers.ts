@@ -8,6 +8,7 @@ import {
   resolveEditableConfigPath,
   resolveExistingConfigPath,
 } from "./config-file-utils.js";
+import { readAuthFileCached } from "./opencode-auth.js";
 import {
   applyConfigDocumentEdit,
   ConfigDocumentError,
@@ -25,6 +26,7 @@ import {
   getQuotaProviderRuntimeIds,
   getQuotaProviderShape,
   normalizeQuotaProviderId,
+  QUOTA_PROVIDER_CATALOG,
 } from "./provider-metadata.js";
 
 export interface LoadConfiguredProviderIdsOptions {
@@ -36,6 +38,7 @@ export interface ReconcileDetectedProviderConfigOptions {
   detectedProviderIds: readonly string[];
   preferredFormat?: ConfigFileFormat;
   writeText?: (path: string, content: string) => Promise<void>;
+  resolveAuthenticatedProviderIds?: () => Promise<readonly string[]>;
 }
 
 export interface ReconcileDetectedProviderConfigResult {
@@ -156,6 +159,40 @@ function isDetectedProviderDeclared(
   return [providerId, ...runtimeIds].some((id) => configuredProviderIds.has(id));
 }
 
+async function readAuthenticatedProviderIds(): Promise<readonly string[]> {
+  try {
+    const auth = await readAuthFileCached();
+    return auth ? Object.keys(auth) : [];
+  } catch {
+    // Provider declarations are best-effort; a missing or unreadable auth file
+    // must not block config reconciliation.
+    return [];
+  }
+}
+
+function getProviderDeclarationCandidates(providerId: string): string[] {
+  const shape = getQuotaProviderShape(providerId);
+  if (!shape) {
+    return [providerId];
+  }
+  const entry = QUOTA_PROVIDER_CATALOG[shape.id];
+  return dedupeNonEmptyStrings([shape.id, ...entry.runtimeIds, ...entry.synonyms]);
+}
+
+/**
+ * Detected provider ids are canonical, but OpenCode authenticates providers under
+ * runtime ids (auth.json keys). Declaring the canonical id when a runtime alias is
+ * authenticated leaves a phantom provider entry next to the real one, so prefer
+ * the authenticated alias when writing global declarations.
+ */
+function resolveProviderDeclarationKey(
+  providerId: string,
+  authenticatedProviderIds: ReadonlySet<string>,
+): string {
+  const candidates = getProviderDeclarationCandidates(providerId);
+  return candidates.find((candidate) => authenticatedProviderIds.has(candidate)) ?? providerId;
+}
+
 /**
  * Adds providers proven available at runtime to the global OpenCode config only.
  * Project declarations participate in the read/precedence check but are never written.
@@ -202,6 +239,19 @@ export async function reconcileDetectedProvidersInGlobalConfig(
     return { path: target.path, format: target.format, addedProviderIds, changed: false };
   }
 
+  const resolveAuthenticatedProviderIds =
+    options.resolveAuthenticatedProviderIds ?? readAuthenticatedProviderIds;
+  const authenticatedProviderIds = new Set(
+    (await resolveAuthenticatedProviderIds())
+      .map((providerId) => providerId.trim().toLowerCase())
+      .filter((providerId) => providerId.length > 0),
+  );
+  const declarationKeys = dedupeNonEmptyStrings(
+    addedProviderIds.map((providerId) =>
+      resolveProviderDeclarationKey(providerId, authenticatedProviderIds),
+    ),
+  );
+
   const raw = target.existed ? await readFile(target.sourcePath, "utf8") : "{}\n";
   const sourceFormat: ConfigFileFormat = target.sourcePath.endsWith(".jsonc") ? "jsonc" : "json";
   const root = parseConfigDocument(raw, sourceFormat, target.sourcePath);
@@ -212,16 +262,16 @@ export async function reconcileDetectedProvidersInGlobalConfig(
     );
   }
   const provider = isRecord(root.provider) ? { ...root.provider } : {};
-  for (const providerId of addedProviderIds) {
-    provider[providerId] = {};
+  for (const declarationKey of declarationKeys) {
+    provider[declarationKey] = {};
   }
 
   const edit = await planConfigDocumentEdit({
     target,
     desiredData: { ...root, provider },
-    managedComments: addedProviderIds.map((providerId) => ({
-      path: ["provider", providerId],
-      text: `// Detected ${providerId} authentication; opencode-quota added this global provider declaration.`,
+    managedComments: declarationKeys.map((declarationKey) => ({
+      path: ["provider", declarationKey],
+      text: `// Detected ${declarationKey} authentication; opencode-quota added this global provider declaration.`,
     })),
   });
   await applyConfigDocumentEdit(edit, { writeText: options.writeText });
@@ -229,7 +279,7 @@ export async function reconcileDetectedProvidersInGlobalConfig(
   return {
     path: target.path,
     format: target.format,
-    addedProviderIds,
+    addedProviderIds: declarationKeys,
     changed: edit.changed,
   };
 }

@@ -567,7 +567,8 @@ function supportedProviderPricingRow(params: {
     return {
       id,
       pricing: "no",
-      notes: "local request-count estimate (tiered rolling windows, no token pricing API)",
+      notes:
+        "Alibaba Cloud CLI quota when available; local request-count estimate fallback (tiered rolling windows, no token pricing API)",
     };
   }
 
@@ -846,8 +847,17 @@ export async function buildQuotaStatusReport(params: {
       "alibaba_api_key_source",
       "alibaba_api_key_checked_paths",
       "alibaba_api_key_auth_paths",
+      "alibaba_runtime_auth",
       "alibaba_coding_plan",
       "alibaba_auth_error",
+      "alibaba_quota_source",
+      "alibaba_cli_installed",
+      "alibaba_cli_version",
+      "alibaba_cli_authenticated",
+      "alibaba_console_region",
+      "alibaba_console_site",
+      "alibaba_cli_checked_commands",
+      "alibaba_cli_message",
     ]),
   );
   sections.push(createKvSection("paths", "paths:", pathsRows));

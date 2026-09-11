@@ -36,6 +36,8 @@ import {
   getAlibabaCodingPlanAuthDiagnostics,
   getOpencodeConfigCandidatePaths,
   hasAlibabaAuth,
+  hasAlibabaRuntimeAuthEntry,
+  hasAlibabaRuntimeAuthEntryCached,
   resolveAlibabaCodingPlanAuth,
   resolveAlibabaCodingPlanAuthCached,
 } from "../src/lib/alibaba-auth.js";
@@ -351,6 +353,58 @@ describe("alibaba auth resolution", () => {
       const paths = getOpencodeConfigCandidatePaths();
 
       expect(paths).toEqual(expectedTrustedCandidates);
+    });
+  });
+
+  describe("hasAlibabaRuntimeAuthEntry", () => {
+    it.each([
+      [
+        "the Token Plan runtime id is present",
+        { "alibaba-token-plan": { type: "api", key: "token-plan-key" } },
+      ],
+      [
+        "the canonical Coding Plan id is present",
+        { "alibaba-coding-plan": { type: "api", key: "dashscope-key" } },
+      ],
+      ["the legacy alias is present", { alibaba: { type: "api", key: "dashscope-key" } }],
+      ["an entry has a type but no key", { "alibaba-token-plan": { type: "oauth" } }],
+    ])("reports presence when %s", (_label, auth) => {
+      expect(hasAlibabaRuntimeAuthEntry(auth as any)).toBe(true);
+    });
+
+    it.each([
+      ["auth is null", null],
+      ["auth is undefined", undefined],
+      ["no Alibaba entry exists", { openai: { type: "oauth" } }],
+      ["the entry key is blank", { "alibaba-token-plan": { type: "api", key: "   " } }],
+      ["the entry is not an object", { "alibaba-token-plan": "bad-shape" }],
+    ])("reports absence when %s", (_label, auth) => {
+      expect(hasAlibabaRuntimeAuthEntry(auth as any)).toBe(false);
+    });
+
+    it("never treats a Token Plan key as a Coding Plan allowance", () => {
+      const auth = { "alibaba-token-plan": { type: "api", key: "token-plan-key" } };
+
+      expect(hasAlibabaRuntimeAuthEntry(auth as any)).toBe(true);
+      expect(resolveAlibabaCodingPlanAuth(auth as any)).toEqual({ state: "none" });
+      expect(hasAlibabaAuth(auth as any)).toBe(false);
+    });
+
+    it("reads the cached auth file for the async variant", async () => {
+      mocks.readAuthFileCached.mockResolvedValueOnce({
+        "alibaba-token-plan": { type: "api", key: "token-plan-key" },
+      });
+
+      await expect(hasAlibabaRuntimeAuthEntryCached()).resolves.toBe(true);
+      expect(mocks.readAuthFileCached).toHaveBeenCalledWith({
+        maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
+      });
+    });
+
+    it("reports absence when the cached auth file is missing", async () => {
+      mocks.readAuthFileCached.mockResolvedValueOnce(null);
+
+      await expect(hasAlibabaRuntimeAuthEntryCached()).resolves.toBe(false);
     });
   });
 });

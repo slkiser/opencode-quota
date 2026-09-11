@@ -16,6 +16,20 @@ Strict `.json` files also work. Run `/quota_status` if you are unsure which file
 
 `opencode.jsonc` loads the main plugin. `tui.jsonc` loads TUI features. Put the settings below in `quota-toast.jsonc`, not `tui.jsonc`.
 
+## Alibaba console quota
+
+After installing `bailian-cli` and running `bl auth login --console --console-site international`, add these options for Singapore Token Plan quota:
+
+```jsonc
+{
+  "alibabaBinaryPath": "bl",
+  "alibabaConsoleRegion": "ap-southeast-1",
+  "alibabaConsoleSite": "international"
+}
+```
+
+The binary defaults to `bl`; omitted region/site settings preserve CLI defaults. Site accepts `international` or `domestic`. See [Alibaba Token Plan](providers.md#alibaba-token-plan) for fallback and cache-only JSON behavior.
+
 ## Common changes
 
 | You want                                   | Setting                       |

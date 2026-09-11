@@ -129,6 +129,9 @@ export function createQuotaProviderRuntimeContext(runtime: {
     config: {
       googleModels: runtime.config.googleModels,
       anthropicBinaryPath: runtime.config.anthropicBinaryPath,
+      alibabaBinaryPath: runtime.config.alibabaBinaryPath,
+      alibabaConsoleRegion: runtime.config.alibabaConsoleRegion,
+      alibabaConsoleSite: runtime.config.alibabaConsoleSite,
       cursorPlan: runtime.config.cursorPlan,
       cursorIncludedApiUsd: runtime.config.cursorIncludedApiUsd,
       cursorBillingCycleStartDay: runtime.config.cursorBillingCycleStartDay,

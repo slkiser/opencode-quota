@@ -12,8 +12,16 @@ const runtimeDirs = vi.hoisted(() => ({
   },
 }));
 
+const authStore = vi.hoisted(() => ({
+  value: null as Record<string, unknown> | null,
+}));
+
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
   getOpencodeRuntimeDirCandidates: () => runtimeDirs.value,
+}));
+
+vi.mock("../src/lib/opencode-auth.js", () => ({
+  readAuthFileCached: async () => authStore.value,
 }));
 
 import { extractProviderIdsFromParsedConfig } from "../src/lib/config-file-utils.js";
@@ -40,6 +48,7 @@ describe("opencode config provider discovery", () => {
       cacheDirs: [],
       stateDirs: [],
     };
+    authStore.value = null;
   });
 
   afterEach(() => {
@@ -353,5 +362,94 @@ describe("opencode config provider discovery", () => {
     );
 
     await expect(loadConfiguredProviderIds({ configRootDir: workspaceDir })).resolves.toEqual([]);
+  });
+
+  it("declares the authenticated runtime alias instead of the canonical provider id", async () => {
+    const globalPath = join(globalConfigDir, "opencode.jsonc");
+    writeFileSync(globalPath, '{\n  "provider": {},\n}\n', "utf8");
+    authStore.value = {
+      "alibaba-token-plan": { type: "api", key: "token-plan-key" },
+    };
+
+    const result = await reconcileDetectedProvidersInGlobalConfig({
+      configRootDir: workspaceDir,
+      detectedProviderIds: ["alibaba-coding-plan"],
+    });
+
+    expect(result).toMatchObject({
+      path: globalPath,
+      format: "jsonc",
+      addedProviderIds: ["alibaba-token-plan"],
+      changed: true,
+    });
+    const globalAfter = readFileSync(globalPath, "utf8");
+    expect(globalAfter).toContain(
+      "// Detected alibaba-token-plan authentication; opencode-quota added this global provider declaration.",
+    );
+    expect(globalAfter).not.toContain("alibaba-coding-plan");
+    const effective = await loadConfiguredOpenCodeConfig({ configRootDir: workspaceDir });
+    expect(effective.provider).toEqual({ "alibaba-token-plan": {} });
+  });
+
+  it("does not redeclare a provider when an authenticated runtime alias is already declared", async () => {
+    const globalPath = join(globalConfigDir, "opencode.jsonc");
+    const before = '{\n  "provider": {\n    "alibaba-token-plan": {},\n  },\n}\n';
+    writeFileSync(globalPath, before, "utf8");
+    authStore.value = {
+      "alibaba-token-plan": { type: "api", key: "token-plan-key" },
+    };
+
+    const result = await reconcileDetectedProvidersInGlobalConfig({
+      configRootDir: workspaceDir,
+      detectedProviderIds: ["alibaba-coding-plan"],
+    });
+
+    expect(result).toMatchObject({ addedProviderIds: [], changed: false });
+    expect(readFileSync(globalPath, "utf8")).toBe(before);
+  });
+
+  it("falls back to the canonical provider id when no runtime alias is authenticated", async () => {
+    const globalPath = join(globalConfigDir, "opencode.json");
+    writeFileSync(globalPath, `${JSON.stringify({ provider: {} }, null, 2)}\n`, "utf8");
+    authStore.value = { openai: { type: "oauth" } };
+
+    const result = await reconcileDetectedProvidersInGlobalConfig({
+      configRootDir: workspaceDir,
+      detectedProviderIds: ["alibaba-coding-plan"],
+    });
+
+    expect(result).toMatchObject({ addedProviderIds: ["alibaba-coding-plan"], changed: true });
+    expect(JSON.parse(readFileSync(globalPath, "utf8"))).toEqual({
+      provider: { "alibaba-coding-plan": {} },
+    });
+  });
+
+  it("prefers the first authenticated candidate in catalog order when several aliases are authenticated", async () => {
+    const globalPath = join(globalConfigDir, "opencode.json");
+    writeFileSync(globalPath, `${JSON.stringify({ provider: {} }, null, 2)}\n`, "utf8");
+    authStore.value = {
+      alibaba: { type: "api", key: "a" },
+      "alibaba-token-plan": { type: "api", key: "b" },
+    };
+
+    const result = await reconcileDetectedProvidersInGlobalConfig({
+      configRootDir: workspaceDir,
+      detectedProviderIds: ["alibaba-coding-plan"],
+    });
+
+    expect(result).toMatchObject({ addedProviderIds: ["alibaba-token-plan"] });
+  });
+
+  it("honours an injected authenticated provider id resolver", async () => {
+    const globalPath = join(globalConfigDir, "opencode.json");
+    writeFileSync(globalPath, `${JSON.stringify({ provider: {} }, null, 2)}\n`, "utf8");
+
+    const result = await reconcileDetectedProvidersInGlobalConfig({
+      configRootDir: workspaceDir,
+      detectedProviderIds: ["alibaba-coding-plan"],
+      resolveAuthenticatedProviderIds: async () => [" Alibaba-Token-Plan "],
+    });
+
+    expect(result).toMatchObject({ addedProviderIds: ["alibaba-token-plan"] });
   });
 });

@@ -657,6 +657,40 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- seven_day_remaining: 88% reset_at=2026-04-01T00:00:00.000Z");
   });
 
+  it("reports Alibaba CLI source and numeric Token Plan rows through the status allowlist", async () => {
+    const report = await buildProviderStatusReport("alibaba-coding-plan", {
+      providerLiveProbes: [
+        makeProviderSuccessProbe(
+          "alibaba-coding-plan",
+          {
+            alibaba_quota_source: "alibaba-cli",
+            alibaba_cli_installed: "true",
+            alibaba_cli_authenticated: "true",
+            alibaba_cli_version: "1.22.0",
+            alibaba_console_region: "ap-southeast-1",
+            alibaba_console_site: "international",
+            console_credential: "SENTINEL_CONSOLE_CREDENTIAL",
+          },
+          {
+            entries: [
+              {
+                name: "Alibaba Token Plan Weekly",
+                group: "Alibaba Token Plan",
+                label: "Weekly:",
+                percentRemaining: 75,
+              },
+            ],
+          },
+        ),
+      ],
+    });
+    expect(report).toContain("alibaba_quota_source: alibaba-cli");
+    expect(report).toContain("alibaba_cli_authenticated: true");
+    expect(report).toContain("alibaba_console_region: ap-southeast-1");
+    expect(report).toContain("percent_remaining=75");
+    expect(report).not.toContain("SENTINEL_CONSOLE_CREDENTIAL");
+  });
+
   it("renders Synthetic API-key diagnostics plus compact live success rows", async () => {
     const report = await buildSyntheticStatusReport({
       providerLiveProbes: [
