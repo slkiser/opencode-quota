@@ -234,9 +234,9 @@ describe("provider-specific GLM envelopes", () => {
         type: "CREDIT_LIMIT",
         unit: 3,
         number: 1,
-        usage: 400,
-        currentValue: 9_600,
-        remaining: 9_600,
+        usage: 12_000,
+        currentValue: 569,
+        remaining: 11_430,
         percentage: 4,
         nextResetTime: resetMs,
       },
@@ -244,10 +244,10 @@ describe("provider-specific GLM envelopes", () => {
         type: "CREDIT_LIMIT",
         unit: 6,
         number: 1,
-        usage: 1_100,
-        currentValue: 8_900,
-        remaining: 8_900,
-        percentage: 11,
+        usage: 60_000,
+        currentValue: 569,
+        remaining: 59_430,
+        percentage: 1,
         nextResetTime: resetMs + 1_000,
       },
     ];
@@ -260,11 +260,11 @@ describe("provider-specific GLM envelopes", () => {
       label: "Z.ai",
       windows: {
         fiveHour: {
-          percentRemaining: 96,
+          percentRemaining: 95,
           resetTimeIso: new Date(resetMs).toISOString(),
         },
         weekly: {
-          percentRemaining: 89,
+          percentRemaining: 99,
           resetTimeIso: new Date(resetMs + 1_000).toISOString(),
         },
       },
@@ -281,11 +281,11 @@ describe("provider-specific GLM envelopes", () => {
       label: "Zhipu",
       windows: {
         fiveHour: {
-          percentRemaining: 96,
+          percentRemaining: 95,
           resetTimeIso: new Date(resetMs).toISOString(),
         },
         weekly: {
-          percentRemaining: 89,
+          percentRemaining: 99,
           resetTimeIso: new Date(resetMs + 1_000).toISOString(),
         },
       },
@@ -293,6 +293,40 @@ describe("provider-specific GLM envelopes", () => {
     expect(zhipuResult).not.toHaveProperty("windows.fiveHour.usage");
     expect(zhipuResult).not.toHaveProperty("windows.fiveHour.currentValue");
     expect(zhipuResult).not.toHaveProperty("windows.fiveHour.remaining");
+  });
+
+  it("falls back to reported percentage when exact credit values are unavailable", async () => {
+    const creditLimits = [
+      {
+        type: "CREDIT_LIMIT",
+        unit: 3,
+        number: 1,
+        usage: 12_000,
+        percentage: 4,
+      },
+      {
+        type: "CREDIT_LIMIT",
+        unit: 6,
+        number: 1,
+        usage: 0,
+        currentValue: 569,
+        percentage: 11,
+      },
+    ];
+
+    for (const provider of providers) {
+      configure(provider);
+      stubJson(quotaResponse(creditLimits));
+
+      await expect(provider.query(), provider.label).resolves.toEqual({
+        success: true,
+        label: provider.label,
+        windows: {
+          fiveHour: { percentRemaining: 96, resetTimeIso: undefined },
+          weekly: { percentRemaining: 89, resetTimeIso: undefined },
+        },
+      });
+    }
   });
 
   it("allows Z.ai root limits but keeps Zhipu strict to data.limits", async () => {
