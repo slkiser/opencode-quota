@@ -3,9 +3,18 @@
  */
 
 import type { QuotaProvider, QuotaProviderContext, QuotaProviderResult } from "../lib/entries.js";
-import { hasOpenRouterApiKeyConfigured, queryOpenRouterQuota } from "../lib/openrouter.js";
+import {
+  hasOpenRouterApiKeyConfigured,
+  queryOpenRouterQuota,
+  resolveOpenRouterApiKey,
+} from "../lib/openrouter.js";
 import { modelProviderMatchesRuntimeId } from "../lib/provider-model-matching.js";
-import { attemptedResult, mapNullableProviderResult } from "./result-helpers.js";
+import {
+  attemptedResult,
+  mapNullableProviderResult,
+  simpleApiKeyStatusDetails,
+  withStatusDetails,
+} from "./result-helpers.js";
 
 export const openRouterProvider: QuotaProvider = {
   id: "openrouter",
@@ -19,11 +28,17 @@ export const openRouterProvider: QuotaProvider = {
   },
 
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
+    const diagnostics = await resolveOpenRouterApiKey().catch(() => ({
+      key: undefined,
+      source: null,
+      checkedPaths: [],
+      authPaths: [],
+    }));
     const result = await queryOpenRouterQuota({
       requestTimeoutMs: ctx.config?.requestTimeoutMs,
     });
 
-    return mapNullableProviderResult(result, {
+    const providerResult = mapNullableProviderResult(result, {
       errorLabel: "OpenRouter",
       onSuccess: (success) =>
         attemptedResult(
@@ -32,5 +47,14 @@ export const openRouterProvider: QuotaProvider = {
           { singleWindowShowRight: true },
         ),
     });
+    return withStatusDetails(
+      providerResult,
+      simpleApiKeyStatusDetails({
+        configured: Boolean(diagnostics.key),
+        source: diagnostics.source,
+        checkedPaths: diagnostics.checkedPaths,
+        authPaths: diagnostics.authPaths,
+      }),
+    );
   },
 };

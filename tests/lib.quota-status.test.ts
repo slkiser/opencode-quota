@@ -1055,6 +1055,48 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- deepseek: pricing=no (account balance only (not token-priced))");
   });
 
+  it("reports OpenRouter API key diagnostics", async () => {
+    const report = await buildProviderStatusReport("openrouter", {
+      providerLiveProbes: [
+        makeProviderSuccessProbe("openrouter", {
+          api_key_configured: "true",
+          api_key_source: "env:OPENROUTER_API_KEY",
+          api_key_checked_paths: "env:OPENROUTER_API_KEY",
+          api_key_auth_paths: "/tmp/auth.json",
+        }),
+      ],
+    });
+
+    expect(report).toContain("openrouter:");
+    expect(report).toContain("- api_key_configured: true");
+    expect(report).toContain("- api_key_source: env:OPENROUTER_API_KEY");
+    expect(report).toContain("- api_key_checked_paths: env:OPENROUTER_API_KEY");
+    expect(report).toContain("- api_key_auth_paths: /tmp/auth.json");
+  });
+
+  it("reports the OpenRouter live probe error", async () => {
+    const report = await buildProviderStatusReport("openrouter", {
+      providerLiveProbes: [
+        makeProviderSuccessProbe(
+          "openrouter",
+          {
+            api_key_configured: "true",
+            api_key_source: "auth.json",
+          },
+          {
+            errors: [{ label: "OpenRouter", message: "HTTP 401" }],
+          },
+        ),
+      ],
+    });
+
+    const section = getReportSection(report, "openrouter:");
+    expect(section).toContain("- api_key_configured: true");
+    expect(section).toContain("- api_key_source: auth.json");
+    expect(section).toContain("- live_probe: error");
+    expect(section).toContain("- live_error_1: HTTP 401");
+  });
+
   it("reports the xAI live quota probe", async () => {
     const report = await buildProviderStatusReport("xai", {
       providerLiveProbes: [
@@ -1530,6 +1572,7 @@ chutes:
 deepseek:
 xai:
 nanogpt:
+openrouter:
 copilot_quota_auth:
 google_antigravity:
 google_gemini_cli:
