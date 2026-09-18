@@ -1,11 +1,48 @@
-import { mkdir, rename, rm, writeFile } from "fs/promises";
-import { dirname } from "path";
+import { lstat, mkdir, readlink, rename, rm, writeFile } from "fs/promises";
+import { dirname, resolve } from "path";
 import { stringifyWithComments } from "./jsonc.js";
 
 export interface WriteJsonAtomicOptions {
   trailingNewline?: boolean;
   directoryMode?: number;
   fileMode?: number;
+}
+
+const MAX_SYMLINK_DEPTH = 8;
+
+/**
+ * Resolve the real file a destination points at.
+ *
+ * An atomic write ends in `rename()`, which replaces the path itself rather
+ * than following it. When the destination is a symlink - the usual shape for a
+ * config file linked into a dotfiles repository - renaming over it silently
+ * detaches the link and leaves a plain file behind, so later edits stop
+ * reaching the original target. Resolving first keeps the write atomic while
+ * preserving the link.
+ *
+ * A missing destination, a dangling link, or a cycle longer than
+ * `MAX_SYMLINK_DEPTH` resolves to the last path reached, which the caller then
+ * writes as a regular file.
+ */
+async function resolveWriteTarget(path: string): Promise<string> {
+  let current = path;
+
+  for (let depth = 0; depth < MAX_SYMLINK_DEPTH; depth += 1) {
+    let stats: Awaited<ReturnType<typeof lstat>>;
+    try {
+      stats = await lstat(current);
+    } catch {
+      return current;
+    }
+
+    if (!stats.isSymbolicLink()) {
+      return current;
+    }
+
+    current = resolve(dirname(current), await readlink(current));
+  }
+
+  return current;
 }
 
 async function safeRm(target: string): Promise<void> {
@@ -31,8 +68,9 @@ export async function writeTextAtomic(
   content: string,
   opts: Omit<WriteJsonAtomicOptions, "trailingNewline"> = {},
 ): Promise<void> {
-  const dir = dirname(path);
-  const tmp = `${path}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const target = await resolveWriteTarget(path);
+  const dir = dirname(target);
+  const tmp = `${target}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
   await mkdir(
     dir,
@@ -53,7 +91,7 @@ export async function writeTextAtomic(
   }
 
   try {
-    await rename(tmp, path);
+    await rename(tmp, target);
   } catch (renameError) {
     const code =
       renameError && typeof renameError === "object" && "code" in renameError
@@ -67,9 +105,9 @@ export async function writeTextAtomic(
       throw renameError;
     }
 
-    await safeRm(path);
+    await safeRm(target);
     try {
-      await rename(tmp, path);
+      await rename(tmp, target);
     } catch (replaceError) {
       await safeRm(tmp);
       throw replaceError;

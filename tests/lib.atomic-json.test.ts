@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("fs/promises", () => ({
+  lstat: vi.fn(async () => ({ isSymbolicLink: () => false })),
   mkdir: vi.fn(),
+  readlink: vi.fn(),
   rename: vi.fn(),
   rm: vi.fn(),
   writeFile: vi.fn(),
