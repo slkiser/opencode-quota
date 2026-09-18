@@ -936,6 +936,7 @@ export async function buildQuotaStatusReport(params: {
     { id: "deepseek", title: "deepseek:", providerId: "deepseek" },
     { id: "xai", title: "xai:", providerId: "xai", includeDetails: false },
     { id: "nanogpt", title: "nanogpt:", providerId: "nanogpt" },
+    { id: "openrouter", title: "openrouter:", providerId: "openrouter" },
     {
       id: "copilot_quota_auth",
       title: "copilot_quota_auth:",
