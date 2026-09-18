@@ -860,6 +860,12 @@ async function runQuotaDialogCommandAsync(
         noReply: true,
         parts: [{ type: "text", text: result.output, ignored: true }],
       });
+      // Settle the session so lifecycle watchers recover from chat.message.
+      try {
+        await api.client.session.abort?.({ sessionID: destination.sessionID });
+      } catch {
+        // Best-effort settle; the injected output is already visible.
+      }
       return;
     }
 

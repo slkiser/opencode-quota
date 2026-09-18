@@ -178,6 +178,7 @@ declare module "@opencode-ai/plugin/tui" {
       };
       session: {
         prompt: OpencodeClient["session"]["prompt"];
+        abort?: (params: { sessionID: string }) => Promise<unknown>;
         get?: (params: { path: { id: string } }) => Promise<{
           data?: {
             model?: {

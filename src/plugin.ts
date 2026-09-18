@@ -64,6 +64,7 @@ interface OpencodeClient {
         parts: Array<{ type: "text"; text: string; ignored?: boolean }>;
       };
     }) => Promise<unknown>;
+    abort: (params: { path: { id: string } }) => Promise<unknown>;
   };
   tui: {
     showToast: (params: {
@@ -228,6 +229,12 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
 
     if (result.state === "output") {
       await injectRawOutput(input.sessionID, result.output, { rethrow: true });
+      // Settle the session so lifecycle watchers recover from chat.message.
+      try {
+        await typedClient.session.abort({ path: { id: input.sessionID } });
+      } catch {
+        // Best-effort settle; the injected output is already visible.
+      }
     }
 
     handled();

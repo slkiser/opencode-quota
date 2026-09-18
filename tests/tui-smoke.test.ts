@@ -208,6 +208,7 @@ function createApi() {
       session: {
         prompt: vi.fn(),
         command: vi.fn(),
+        abort: vi.fn().mockResolvedValue(undefined),
       },
     },
   };
@@ -340,6 +341,7 @@ describe("tui plugin smoke", () => {
 
     expect(buildQuotaDialogCommandOutput).toHaveBeenCalledOnce();
     expect(api.client.session.prompt).toHaveBeenCalledOnce();
+    expect(api.client.session.abort).toHaveBeenCalledWith({ sessionID: "session-route" });
     expect(registered[1]!.slots.session_prompt({}, { session_id: "session-1" })).not.toBeNull();
     expect(registered[1]!.slots.home_bottom({}, {})).not.toBeNull();
     expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledOnce();
