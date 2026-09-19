@@ -119,6 +119,8 @@ vi.mock("../src/providers/registry.js", () => ({
     { id: "deepseek" },
     { id: "opencode-go" },
     { id: "xiaomi" },
+    { id: "kimi-code-plan-global" },
+    { id: "kimi-code-plan-cn" },
     { id: "kimi-for-coding" },
     { id: "kimi-code" },
   ],
@@ -628,6 +630,12 @@ describe("buildQuotaStatusReport", () => {
     );
     expect(report).toContain(
       "- nanogpt: pricing=no (subscription request quota + account balance (not token-priced))",
+    );
+    expect(report).toContain(
+      "- kimi-code-plan-global: pricing=no (request quota via Kimi Code API (not token-priced))",
+    );
+    expect(report).toContain(
+      "- kimi-code-plan-cn: pricing=no (request quota via Kimi Code API (not token-priced))",
     );
     expect(report).toContain(
       "- kimi-for-coding: pricing=no (request quota via Kimi Code API (not token-priced))",
@@ -1520,6 +1528,7 @@ cursor:
 minimax:
 minimax_china:
 kimi:
+kimi_cn:
 opencode_go:
 opencode_zen:
 xiaomi:

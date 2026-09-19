@@ -11,7 +11,11 @@ import { resolveGoogleAntigravityAuthIdentity } from "../lib/google.js";
 import { resolveGoogleAgyAuthIdentity } from "../lib/google-agy.js";
 import { resolveGeminiCliAuthIdentity } from "../lib/google-gemini-cli.js";
 import { resolveKiloApiKey } from "../lib/kilo-config.js";
-import { DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS, resolveKimiAuthCached } from "../lib/kimi-auth.js";
+import {
+  DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS,
+  resolveKimiCodePlanCnAuthCached,
+  resolveKimiCodePlanGlobalAuthCached,
+} from "../lib/kimi-auth.js";
 import {
   DEFAULT_MIMO_CONFIG_CACHE_MAX_AGE_MS,
   resolveMimoConfigCached,
@@ -198,8 +202,16 @@ export const PROVIDER_CACHE_POLICIES = {
       ? { credential: resolved.apiKey, qualifiers: [resolved.endpoint] }
       : null;
   }),
-  "kimi-for-coding": resolvedCredentialPolicy("kimi-for-coding", async () => {
-    const resolved = await resolveKimiAuthCached({ maxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS });
+  "kimi-code-plan-global": resolvedCredentialPolicy("kimi-code-plan-global", async () => {
+    const resolved = await resolveKimiCodePlanGlobalAuthCached({
+      maxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS,
+    });
+    return resolved.state === "configured" ? { credential: resolved.apiKey } : null;
+  }),
+  "kimi-code-plan-cn": resolvedCredentialPolicy("kimi-code-plan-cn", async () => {
+    const resolved = await resolveKimiCodePlanCnAuthCached({
+      maxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS,
+    });
     return resolved.state === "configured" ? { credential: resolved.apiKey } : null;
   }),
   deepseek: resolvedCredentialPolicy("deepseek", async () => {

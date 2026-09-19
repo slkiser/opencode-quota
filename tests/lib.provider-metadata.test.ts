@@ -147,7 +147,14 @@ describe("provider-metadata", () => {
         quota: "remote_api",
       },
       {
-        id: "kimi-for-coding",
+        id: "kimi-code-plan-global",
+        autoSetup: "yes",
+        authentication: "opencode_auth_api_key",
+        authFallbacks: ["env_api_key", "global_opencode_config"],
+        quota: "remote_api",
+      },
+      {
+        id: "kimi-code-plan-cn",
         autoSetup: "yes",
         authentication: "opencode_auth_api_key",
         authFallbacks: ["env_api_key", "global_opencode_config"],
@@ -229,11 +236,11 @@ describe("provider-metadata", () => {
 
   it("preserves direct label aliases from the authored catalog", () => {
     expect(QUOTA_PROVIDER_LABELS["minimax-cn-coding-plan"]).toBe("MiniMax Token Plan (CN)");
-    expect(QUOTA_PROVIDER_LABELS["kimi-code"]).toBe("Kimi Code");
+    expect(QUOTA_PROVIDER_LABELS["kimi-code"]).toBe("Kimi Code (CN)");
     expect(QUOTA_PROVIDER_CATALOG["minimax-china-coding-plan"].labelAliases).toContain(
       "minimax-cn-coding-plan",
     );
-    expect(QUOTA_PROVIDER_CATALOG["kimi-for-coding"].labelAliases).toContain("kimi-code");
+    expect(QUOTA_PROVIDER_CATALOG["kimi-code-plan-cn"].labelAliases).toContain("kimi-code");
   });
 
   it("keeps canonical provider setup ids unique", () => {
@@ -297,7 +304,9 @@ describe("provider-metadata", () => {
       "minimax-cn",
       "minimax-china",
     ]);
-    expect(QUOTA_PROVIDER_RUNTIME_IDS["kimi-for-coding"]).toEqual([
+    expect(QUOTA_PROVIDER_RUNTIME_IDS["kimi-code-plan-global"]).toEqual(["kimi-code-plan-global"]);
+    expect(QUOTA_PROVIDER_RUNTIME_IDS["kimi-code-plan-cn"]).toEqual([
+      "kimi-code-plan-cn",
       "kimi-for-coding",
       "kimi",
       "kimi-code",
@@ -363,7 +372,12 @@ describe("provider-metadata", () => {
       "minimax-cn",
       "minimax-china",
     ]);
-    expect(getQuotaProviderRuntimeIds("kimi")).toEqual(["kimi-for-coding", "kimi", "kimi-code"]);
+    expect(getQuotaProviderRuntimeIds("kimi")).toEqual([
+      "kimi-code-plan-cn",
+      "kimi-for-coding",
+      "kimi",
+      "kimi-code",
+    ]);
     expect(getQuotaProviderRuntimeIds("deep-seek")).toEqual(["deepseek"]);
     expect(getQuotaProviderRuntimeIds("opencode-zen")).toEqual(["opencode", "opencode-zen"]);
     expect(getQuotaProviderRuntimeIds("xai")).toEqual(["xai"]);
@@ -473,8 +487,9 @@ describe("provider-metadata", () => {
     expect(getQuotaProviderDisplayLabel("nano-gpt")).toBe("NanoGPT");
     expect(getQuotaProviderDisplayLabel("minimax")).toBe("MiniMax Token Plan");
     expect(getQuotaProviderDisplayLabel("minimax-cn-coding-plan")).toBe("MiniMax Token Plan (CN)");
-    expect(getQuotaProviderDisplayLabel("kimi-code")).toBe("Kimi Code");
-    expect(getQuotaProviderDisplayLabel("kimi")).toBe("Kimi Code");
+    expect(getQuotaProviderDisplayLabel("kimi-code-plan-global")).toBe("Kimi Code");
+    expect(getQuotaProviderDisplayLabel("kimi-code")).toBe("Kimi Code (CN)");
+    expect(getQuotaProviderDisplayLabel("kimi")).toBe("Kimi Code (CN)");
     expect(getQuotaProviderDisplayLabel("deep-seek")).toBe("DeepSeek");
     expect(getQuotaProviderDisplayLabel("opencode-zen")).toBe("OpenCode Zen");
     expect(getQuotaProviderDisplayLabel("kilo")).toBe("Kilo Gateway");

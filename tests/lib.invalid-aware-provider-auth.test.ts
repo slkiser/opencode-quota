@@ -39,18 +39,35 @@ type InvalidAwareDescriptor = ProviderApiKeyContractDescriptor<InvalidAwareApiKe
 
 const providers = [
   {
-    name: "Kimi",
+    name: "Kimi Code",
     displayName: "Kimi",
     envVars: ["KIMI_API_KEY", "KIMI_CODE_API_KEY"],
-    providerKeys: ["kimi-for-coding", "kimi-code", "kimi"],
-    authKeys: ["kimi-for-coding", "kimi-code", "kimi"],
+    providerKeys: ["kimi-code-plan-global"],
+    authKeys: ["kimi-code-plan-global"],
     defaultCacheMaxAgeMs: 5_000,
     load: async () => {
       const module = await import("../src/lib/kimi-auth.js");
       return {
-        parseAuth: module.resolveKimiAuth,
-        resolve: module.resolveKimiAuthCached,
-        diagnostics: module.getKimiAuthDiagnostics,
+        parseAuth: module.resolveKimiCodePlanGlobalAuth,
+        resolve: module.resolveKimiCodePlanGlobalAuthCached,
+        diagnostics: module.getKimiCodePlanGlobalAuthDiagnostics,
+        getConfigCandidates: module.getOpencodeConfigCandidatePaths,
+      };
+    },
+  },
+  {
+    name: "Kimi Code (CN)",
+    displayName: "Kimi",
+    envVars: ["KIMI_API_KEY", "KIMI_CODE_API_KEY"],
+    providerKeys: ["kimi-code-plan-cn", "kimi-for-coding", "kimi-code", "kimi"],
+    authKeys: ["kimi-code-plan-cn", "kimi-for-coding", "kimi-code", "kimi"],
+    defaultCacheMaxAgeMs: 5_000,
+    load: async () => {
+      const module = await import("../src/lib/kimi-auth.js");
+      return {
+        parseAuth: module.resolveKimiCodePlanCnAuth,
+        resolve: module.resolveKimiCodePlanCnAuthCached,
+        diagnostics: module.getKimiCodePlanCnAuthDiagnostics,
         getConfigCandidates: module.getOpencodeConfigCandidatePaths,
       };
     },

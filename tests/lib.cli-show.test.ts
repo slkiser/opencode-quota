@@ -32,7 +32,8 @@ vi.mock("../src/lib/anthropic.js", () => ({
 
 vi.mock("../src/lib/kimi-auth.js", () => ({
   DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS: 30_000,
-  resolveKimiAuthCached: vi.fn(async () => ({ state: authMocks.kimiState })),
+  resolveKimiCodePlanGlobalAuthCached: vi.fn(async () => ({ state: authMocks.kimiState })),
+  resolveKimiCodePlanCnAuthCached: vi.fn(async () => ({ state: authMocks.kimiState })),
 }));
 
 vi.mock("../src/providers/registry.js", () => ({
@@ -115,7 +116,11 @@ describe("runCliShowCommand", () => {
     const authenticated = await createCliQuotaClient({
       configRootDir: workspaceDir,
     }).config.providers();
-    expect(authenticated.data?.providers).toEqual([{ id: "anthropic" }, { id: "kimi-for-coding" }]);
+    expect(authenticated.data?.providers).toEqual([
+      { id: "anthropic" },
+      { id: "kimi-code-plan-global" },
+      { id: "kimi-code-plan-cn" },
+    ]);
   });
 
   it("renders a compact quota glance and returns zero when quota rows are available", async () => {

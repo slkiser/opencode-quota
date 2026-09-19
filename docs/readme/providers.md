@@ -72,6 +72,7 @@ Business placement describes vendor plan availability. Except for configured Cop
 | Alibaba Coding Plan      | Automatic                   | Local estimate | Quota              |
 | DeepSeek                 | Automatic                   | Remote API     | Balance and status |
 | Kimi Code                | Automatic                   | Remote API     | Quota              |
+| Kimi Code (CN)           | Automatic                   | Remote API     | Quota              |
 | MiniMax Token Plan       | Automatic                   | Remote API     | Quota              |
 | MiniMax Token Plan (CN)  | Automatic                   | Remote API     | Quota              |
 | Qwen Code                | [Needs setup](#qwen-code)   | Local estimate | Quota              |
@@ -87,6 +88,7 @@ Business placement describes vendor plan availability. Except for configured Cop
 | Provider                 | Auth/setup | Data from  | Reports |
 | ------------------------ | ---------- | ---------- | ------- |
 | Kimi Code                | Automatic  | Remote API | Quota   |
+| Kimi Code (CN)           | Automatic  | Remote API | Quota   |
 | MiniMax Token Plan       | Automatic  | Remote API | Quota   |
 | MiniMax Token Plan (CN)  | Automatic  | Remote API | Quota   |
 | Zhipu Coding Plan        | Automatic  | Remote API | Quota   |
