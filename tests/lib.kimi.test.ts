@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const authMocks = vi.hoisted(() => ({
-  resolveKimiAuthCached: vi.fn(),
-}));
-
 const fetchMocks = vi.hoisted(() => {
   const fetchResponse = vi.fn();
   return {
@@ -22,19 +18,14 @@ const fetchMocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("../src/lib/kimi-auth.js", () => ({
-  resolveKimiAuthCached: authMocks.resolveKimiAuthCached,
-  DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS: 5_000,
-}));
-
 vi.mock("../src/lib/http.js", () => ({
   fetchWithTimeout: fetchMocks.fetchWithTimeout,
 }));
 
 import { queryKimiQuota } from "../src/lib/kimi.js";
 
-function mockKimiAuthConfigured(apiKey = "test-key") {
-  authMocks.resolveKimiAuthCached.mockResolvedValueOnce({ state: "configured", apiKey });
+function queryChina(apiKey = "test-key") {
+  return queryKimiQuota({ apiKey, endpoint: "china" });
 }
 
 function mockKimiHttpSuccess(payload: unknown) {
@@ -55,23 +46,9 @@ function mockKimiHttpFailure(status: number, text: string) {
 describe("queryKimiQuota", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    authMocks.resolveKimiAuthCached.mockResolvedValue({ state: "configured", apiKey: "test-key" });
-  });
-
-  it("returns null when auth is none", async () => {
-    authMocks.resolveKimiAuthCached.mockResolvedValueOnce({ state: "none" });
-    const result = await queryKimiQuota();
-    expect(result).toBeNull();
-  });
-
-  it("returns error when auth is invalid", async () => {
-    authMocks.resolveKimiAuthCached.mockResolvedValueOnce({ state: "invalid", error: "bad auth" });
-    const result = await queryKimiQuota();
-    expect(result).toEqual({ success: false, error: "bad auth" });
   });
 
   it("parses string numbers from real API shape", async () => {
-    mockKimiAuthConfigured();
     mockKimiHttpSuccess({
       usage: {
         limit: "100",
@@ -98,11 +75,15 @@ describe("queryKimiQuota", () => {
       },
     });
 
-    const result = await queryKimiQuota();
+    const result = await queryChina();
 
+    expect(fetchMocks.fetchWithTimeout).toHaveBeenCalledWith(
+      "https://api.kimi.com/coding/v1/usages",
+      expect.any(Object),
+    );
     expect(result).toMatchObject({
       success: true,
-      label: "Kimi Code",
+      label: "Kimi Code (CN)",
       windows: [
         {
           label: "Weekly limit",
@@ -122,8 +103,36 @@ describe("queryKimiQuota", () => {
     });
   });
 
+  it("queries the global usage endpoint", async () => {
+    mockKimiHttpSuccess({
+      usage: {
+        limit: "100",
+        used: "10",
+        remaining: "90",
+      },
+    });
+
+    const result = await queryKimiQuota({ apiKey: "global-key", endpoint: "global" });
+
+    expect(fetchMocks.fetchWithTimeout).toHaveBeenCalledWith(
+      "https://api.kimi.ai/coding/v1/usages",
+      expect.any(Object),
+    );
+    expect(result).toMatchObject({
+      success: true,
+      label: "Kimi Code",
+      windows: [
+        {
+          label: "Weekly limit",
+          used: 10,
+          limit: 100,
+          percentRemaining: 90,
+        },
+      ],
+    });
+  });
+
   it("computes used from remaining when used is absent", async () => {
-    mockKimiAuthConfigured();
     mockKimiHttpSuccess({
       usage: {
         limit: "100",
@@ -131,7 +140,7 @@ describe("queryKimiQuota", () => {
       },
     });
 
-    const result = await queryKimiQuota();
+    const result = await queryChina();
 
     expect(result).toMatchObject({
       success: true,
@@ -147,10 +156,9 @@ describe("queryKimiQuota", () => {
   });
 
   it("returns error when endpoint fails", async () => {
-    mockKimiAuthConfigured();
     mockKimiHttpFailure(401, "Unauthorized");
 
-    const result = await queryKimiQuota();
+    const result = await queryChina();
 
     expect(result).toEqual({
       success: false,
@@ -159,10 +167,9 @@ describe("queryKimiQuota", () => {
   });
 
   it("returns error with unexpected response keys when endpoint has no usable data", async () => {
-    mockKimiAuthConfigured();
     mockKimiHttpSuccess({ message: "hello", code: 0 });
 
-    const result = await queryKimiQuota();
+    const result = await queryChina();
 
     expect(result).toMatchObject({
       success: false,
@@ -171,10 +178,9 @@ describe("queryKimiQuota", () => {
   });
 
   it("returns API error on non-200 with sanitized text", async () => {
-    mockKimiAuthConfigured();
     mockKimiHttpFailure(403, "Forbidden access");
 
-    const result = await queryKimiQuota();
+    const result = await queryChina();
 
     expect(result).toMatchObject({
       success: false,
@@ -183,10 +189,9 @@ describe("queryKimiQuota", () => {
   });
 
   it("sanitizes thrown errors", async () => {
-    mockKimiAuthConfigured();
     fetchMocks.fetchResponse.mockRejectedValue(new Error("network error"));
 
-    const result = await queryKimiQuota();
+    const result = await queryChina();
 
     expect(result).toEqual({
       success: false,

@@ -269,11 +269,23 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     },
   },
   {
-    id: "kimi-for-coding",
+    id: "kimi-code-plan-global",
     label: "Kimi Code",
+    runtimeIds: ["kimi-code-plan-global"],
+    synonyms: [],
+    shape: {
+      autoSetup: "yes",
+      authentication: "opencode_auth_api_key",
+      authFallbacks: ["env_api_key", "global_opencode_config"],
+      quota: "remote_api",
+    },
+  },
+  {
+    id: "kimi-code-plan-cn",
+    label: "Kimi Code (CN)",
     labelAliases: ["kimi-code"],
-    runtimeIds: ["kimi-for-coding", "kimi", "kimi-code"],
-    synonyms: ["kimi", "kimi-for-code", "kimi-code"],
+    runtimeIds: ["kimi-code-plan-cn", "kimi-for-coding", "kimi", "kimi-code"],
+    synonyms: ["kimi", "kimi-for-code", "kimi-code", "kimi-for-coding"],
     shape: {
       autoSetup: "yes",
       authentication: "opencode_auth_api_key",

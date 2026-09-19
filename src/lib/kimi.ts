@@ -1,10 +1,9 @@
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
 import { clampPercent } from "./format-utils.js";
 import { fetchWithTimeout } from "./http.js";
-import { DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS, resolveKimiAuthCached } from "./kimi-auth.js";
-import type { KimiQuotaWindow, KimiResult, QuotaError } from "./types.js";
+import { getKimiQuotaEndpoint, type KimiQuotaEndpointId } from "./kimi-endpoints.js";
+import type { KimiQuotaWindow, KimiResult } from "./types.js";
 
-const KIMI_USAGE_URL = "https://api.kimi.com/coding/v1/usages";
 const USER_AGENT = "OpenCode-Quota-Toast/1.0";
 
 function getFiniteNumber(value: unknown): number | undefined {
@@ -244,20 +243,22 @@ async function fetchKimiQuotaFromUrl(
   }
 }
 
-export async function queryKimiQuota(
-  options: { requestTimeoutMs?: number } = {},
-): Promise<KimiResult> {
-  const auth = await resolveKimiAuthCached({ maxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS });
-  if (auth.state === "none") return null;
-  if (auth.state === "invalid") {
-    return { success: false, error: auth.error };
-  }
-
-  const result = await fetchKimiQuotaFromUrl(KIMI_USAGE_URL, auth.apiKey, options.requestTimeoutMs);
+export async function queryKimiQuota(options: {
+  apiKey: string;
+  endpoint: KimiQuotaEndpointId;
+  label?: string;
+  requestTimeoutMs?: number;
+}): Promise<KimiResult> {
+  const endpoint = getKimiQuotaEndpoint(options.endpoint);
+  const result = await fetchKimiQuotaFromUrl(
+    endpoint.quotaUrl,
+    options.apiKey,
+    options.requestTimeoutMs,
+  );
   if (result.ok && result.windows.length > 0) {
     return {
       success: true,
-      label: "Kimi Code",
+      label: options.label ?? endpoint.label,
       windows: result.windows,
     };
   }

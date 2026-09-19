@@ -505,6 +505,9 @@ export interface AuthData {
   "minimax-coding-plan"?: MiniMaxAuthData;
   "minimax-china-coding-plan"?: MiniMaxAuthData;
   "minimax-cn-coding-plan"?: MiniMaxAuthData;
+  "kimi-code-plan-global"?: KimiAuthData;
+  "kimi-code-plan-cn"?: KimiAuthData;
+  "kimi-for-coding"?: KimiAuthData;
   "kimi-code"?: KimiAuthData;
   kimi?: KimiAuthData;
   xai?: XaiOAuthData;
@@ -581,7 +584,7 @@ export interface KimiQuotaResult {
   windows: KimiQuotaWindow[];
 }
 
-export type KimiResult = KimiQuotaResult | QuotaError | null;
+export type KimiResult = KimiQuotaResult | QuotaError;
 
 // =============================================================================
 // Z.ai Types

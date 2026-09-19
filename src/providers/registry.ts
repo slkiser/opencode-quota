@@ -21,7 +21,7 @@ import { googleAgyProvider } from "./google-agy.js";
 import { googleAntigravityProvider } from "./google-antigravity.js";
 import { googleGeminiCliProvider } from "./google-gemini-cli.js";
 import { kiloProvider } from "./kilo.js";
-import { kimiCodeProvider } from "./kimi-code.js";
+import { kimiCodePlanCnProvider, kimiCodePlanGlobalProvider } from "./kimi-code.js";
 import { xiaomiProvider } from "./mimo.js";
 import {
   minimaxChinaCodingPlanProvider,
@@ -59,7 +59,8 @@ const PROVIDERS_BY_ID = {
   nanogpt: nanoGptProvider,
   "minimax-coding-plan": minimaxCodingPlanProvider,
   "minimax-china-coding-plan": minimaxChinaCodingPlanProvider,
-  "kimi-for-coding": kimiCodeProvider,
+  "kimi-code-plan-global": kimiCodePlanGlobalProvider,
+  "kimi-code-plan-cn": kimiCodePlanCnProvider,
   deepseek: deepseekProvider,
   xai: xaiProvider,
   xiaomi: xiaomiProvider,

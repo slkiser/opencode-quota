@@ -191,6 +191,8 @@ const SOURCE_PROVIDER_ALIASES: Record<string, string> = {
   chatgpt: "openai",
   codex: "openai",
   "kimi-for-coding": "moonshotai",
+  "kimi-code-plan-global": "moonshotai",
+  "kimi-code-plan-cn": "moonshotai",
   "zai-coding-plan": "zai",
   glm: "zai",
 };

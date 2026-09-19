@@ -612,7 +612,12 @@ function supportedProviderPricingRow(params: {
     };
   }
 
-  if (id === "kimi-for-coding" || id === "kimi-code") {
+  if (
+    id === "kimi-code-plan-global" ||
+    id === "kimi-code-plan-cn" ||
+    id === "kimi-for-coding" ||
+    id === "kimi-code"
+  ) {
     return {
       id,
       pricing: "no",
@@ -920,7 +925,8 @@ export async function buildQuotaStatusReport(params: {
       title: "minimax_china:",
       providerId: "minimax-china-coding-plan",
     },
-    { id: "kimi", title: "kimi:", providerId: "kimi-for-coding" },
+    { id: "kimi", title: "kimi:", providerId: "kimi-code-plan-global" },
+    { id: "kimi_cn", title: "kimi_cn:", providerId: "kimi-code-plan-cn" },
     {
       id: "opencode_go",
       title: "opencode_go:",
