@@ -1,4 +1,3 @@
-import { sanitizeDisplayText } from "../lib/display-sanitize.js";
 import type {
   AccountingMetadata,
   QuotaProvider,
@@ -7,19 +6,13 @@ import type {
   QuotaToastEntry,
 } from "../lib/entries.js";
 import {
-  OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR,
   queryOpenCodeZenQuota,
 } from "../lib/opencode-zen.js";
-import {
-  DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS,
-  getOpenCodeZenConfigDiagnostics,
-  resolveOpenCodeZenConfigCached,
-} from "../lib/opencode-zen-config.js";
+import { OPENCODE_CONSOLE_BASE_URL, resolveOpenCodeConsoleAuth } from "../lib/opencode-console-auth.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
 import {
   attemptedErrorResult,
   attemptedResult,
-  configStatusDetails,
   notAttemptedResult,
   withStatusDetails,
 } from "./result-helpers.js";
@@ -28,19 +21,19 @@ const OPENCODE_PROVIDER_LABEL = "OpenCode";
 const OPENCODE_ZEN_GROUP = "OpenCode Zen";
 const OPENCODE_ZEN_BALANCE_ACCOUNTING: AccountingMetadata = {
   resultType: "balance",
-  acquisitionMethod: "dashboard_scrape",
+  acquisitionMethod: "remote_api",
   ownership: "maintained",
   authority: "provider_reported",
 };
 const OPENCODE_ZEN_BUDGET_ACCOUNTING: AccountingMetadata = {
   resultType: "budget",
-  acquisitionMethod: "dashboard_scrape",
+  acquisitionMethod: "remote_api",
   ownership: "maintained",
   authority: "locally_derived",
 };
 const OPENCODE_ZEN_STATUS_ACCOUNTING: AccountingMetadata = {
   resultType: "status",
-  acquisitionMethod: "dashboard_scrape",
+  acquisitionMethod: "remote_api",
   ownership: "maintained",
   authority: "provider_reported",
 };
@@ -55,10 +48,8 @@ export const opencodeZenProvider: QuotaProvider = {
   id: "opencode",
 
   async isAvailable(_ctx: QuotaProviderContext): Promise<boolean> {
-    const config = await resolveOpenCodeZenConfigCached({
-      maxAgeMs: DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS,
-    });
-    return config.state === "configured";
+    const auth = await resolveOpenCodeConsoleAuth();
+    return auth.state === "configured" || auth.state === "expired";
   },
 
   matchesCurrentModel(model: string): boolean {
@@ -67,40 +58,41 @@ export const opencodeZenProvider: QuotaProvider = {
   },
 
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
-    const diagnostics = await getOpenCodeZenConfigDiagnostics();
-    const statusDetails = configStatusDetails({
-      ...diagnostics,
-      error: diagnostics.error ? sanitizeDisplayText(diagnostics.error) : undefined,
-    });
-    const config = await resolveOpenCodeZenConfigCached({
-      maxAgeMs: DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS,
-    });
+    const auth = await resolveOpenCodeConsoleAuth();
 
-    if (config.state === "none") return withStatusDetails(notAttemptedResult(), statusDetails);
+    if (auth.state === "none") {
+      return withStatusDetails(notAttemptedResult(), [
+        { key: "console_auth_state", value: "none" },
+      ]);
+    }
 
-    if (config.state === "incomplete") {
+    if (auth.state === "expired") {
       return withStatusDetails(
         attemptedErrorResult(
           OPENCODE_PROVIDER_LABEL,
-          `Missing ${config.missing} (source: ${config.source})`,
+          "OpenCode Console credential expired - run `opencode auth login` to refresh",
         ),
-        statusDetails,
+        [
+          { key: "console_auth_state", value: "expired" },
+          { key: "console_server", value: auth.credential.server ?? OPENCODE_CONSOLE_BASE_URL },
+        ],
       );
     }
 
-    if (config.state === "invalid") {
+    if (auth.state === "invalid") {
       return withStatusDetails(
-        attemptedErrorResult(
-          OPENCODE_PROVIDER_LABEL,
-          `Invalid config (${config.source}): ${config.error}`,
-        ),
-        statusDetails,
+        attemptedErrorResult(OPENCODE_PROVIDER_LABEL, auth.error),
+        [{ key: "console_auth_state", value: "invalid" }],
       );
     }
+
+    const statusDetails = [
+      { key: "console_auth_state", value: "configured" },
+      { key: "console_server", value: auth.credential.server ?? OPENCODE_CONSOLE_BASE_URL },
+    ];
 
     const result = await queryOpenCodeZenQuota(
-      config.config.workspaceId,
-      config.config.authCookie,
+      { accessToken: auth.credential.accessToken },
       {
         requestTimeoutMs: ctx.config?.requestTimeoutMsConfigured
           ? ctx.config.requestTimeoutMs
@@ -115,13 +107,11 @@ export const opencodeZenProvider: QuotaProvider = {
       ]);
     }
 
-    const balanceUsd = result.data.balance / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
+    // The console quota query returns USD-converted billing data.
+    const balanceUsd = result.data.balance;
     const configuredMonthlyLimit = ctx.config?.opencodeMonthlyLimit;
     const effectiveMonthlyLimit = configuredMonthlyLimit ?? result.data.monthlyLimit;
-    const monthlyUsageUsd =
-      result.data.monthlyUsage === null
-        ? null
-        : result.data.monthlyUsage / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
+    const monthlyUsageUsd = result.data.monthlyUsage;
 
     const hasMonthlyBudget =
       effectiveMonthlyLimit !== null &&

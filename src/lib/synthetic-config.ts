@@ -2,7 +2,7 @@ import {
   createProviderApiKeyResolver,
   getGlobalOpencodeConfigCandidatePaths,
 } from "./api-key-resolver.js";
-import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
+import { getCredentialDatabasePaths, readAuthFile } from "./opencode-auth.js";
 
 export interface SyntheticApiKeyResult {
   key: string;
@@ -16,7 +16,7 @@ export type SyntheticKeySource =
   | "env:SYNTHETIC_API_KEY"
   | "opencode.json"
   | "opencode.jsonc"
-  | "auth.json";
+  | "opencode.db";
 
 export { getGlobalOpencodeConfigCandidatePaths as getOpencodeConfigCandidatePaths } from "./api-key-resolver.js";
 
@@ -29,8 +29,8 @@ const syntheticApiKeyResolver = createProviderApiKeyResolver<SyntheticKeySource>
   getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
   auth: {
     readAuth: readAuthFile,
-    getAuthPaths,
-    authSource: "auth.json",
+    getCredentialDatabasePaths,
+    authSource: "opencode.db",
   },
 });
 
@@ -46,7 +46,7 @@ export async function getSyntheticKeyDiagnostics(): Promise<{
   configured: boolean;
   source: SyntheticKeySource | null;
   checkedPaths: string[];
-  authPaths: string[];
+  credentialDatabasePaths: string[];
 }> {
   return syntheticApiKeyResolver.diagnostics();
 }

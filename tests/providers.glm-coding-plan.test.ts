@@ -26,21 +26,23 @@ vi.mock("../src/lib/zhipu.js", () => ({ queryZhipuQuota: mocks.queryZhipuQuota }
 vi.mock("../src/lib/zai-auth.js", () => ({
   DEFAULT_ZAI_AUTH_CACHE_MAX_AGE_MS: 5_000,
   resolveZaiAuthCached: mocks.resolveZaiAuthCached,
+  resolveZaiAuth: vi.fn(),
   getZaiAuthDiagnostics: vi.fn(async () => ({
     state: "none",
     source: null,
     checkedPaths: [],
-    authPaths: [],
+    credentialDatabasePaths: [],
   })),
 }));
 vi.mock("../src/lib/zhipu-auth.js", () => ({
   DEFAULT_ZHIPU_AUTH_CACHE_MAX_AGE_MS: 5_000,
   resolveZhipuAuthCached: mocks.resolveZhipuAuthCached,
+  resolveZhipuAuth: vi.fn(),
   getZhipuAuthDiagnostics: vi.fn(async () => ({
     state: "none",
     source: null,
     checkedPaths: [],
-    authPaths: [],
+    credentialDatabasePaths: [],
   })),
 }));
 
@@ -238,7 +240,7 @@ describe("Z.ai credit quota surfaces", () => {
       expect(output).toContain("89%");
     }
     for (const output of [command, toast, sidebar]) {
-      expect(output).toMatch(/(?:5h|Five-hour)/u);
+      expect(output).toContain("5h");
       expect(output).toMatch(/\bWeek(?:ly)?\b/u);
     }
   });

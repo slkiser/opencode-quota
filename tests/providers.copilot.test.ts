@@ -8,6 +8,11 @@ import {
 } from "./helpers/provider-assertions.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 
+const authMocks = vi.hoisted(() => ({
+  readAuthFileCached: vi.fn(async () => null),
+  readCredentialRows: vi.fn(async () => []),
+}));
+
 vi.mock("../src/lib/copilot.js", () => ({
   hasCopilotQuotaRuntimeAvailable: vi.fn(async () => false),
   queryCopilotQuota: vi.fn(),
@@ -33,6 +38,12 @@ vi.mock("../src/lib/copilot.js", () => ({
     billingApiAccessLikely: false,
     remainingTotalsState: "not_available",
   })),
+}));
+
+vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/opencode-auth.js")>()),
+  readAuthFileCached: authMocks.readAuthFileCached,
+  readCredentialRows: authMocks.readCredentialRows,
 }));
 
 describe("copilot provider", () => {
@@ -95,7 +106,7 @@ describe("copilot provider", () => {
     expect(visibleEntries(out.entries, "copilot")).toEqual([
       {
         name: "Copilot Premium Interactions",
-        group: "Copilot (personal)",
+        group: "Copilot (enterprise)",
         label: "Quota:",
         right: "600.5/1,000",
         percentRemaining: 40,
@@ -106,6 +117,61 @@ describe("copilot provider", () => {
       resultType: "quota",
       authority: "locally_derived",
     });
+  });
+
+  it("uses the OAuth GHE Copilot plan in the credential presentation without changing billing scope", async () => {
+    const { getCopilotQuotaAuthDiagnostics, queryCopilotQuota } = await import(
+      "../src/lib/copilot.js"
+    );
+    const diagnostics = {
+      pat: { state: "absent", checkedPaths: [] },
+      oauth: {
+        configured: true,
+        keyName: "github-copilot",
+        hasRefreshToken: false,
+        hasAccessToken: true,
+        hasEnterpriseUrl: true,
+      },
+      deployment: "ghe.com",
+      apiHost: "api.acme.ghe.com",
+      enterpriseHostSource: "oauth",
+      effectiveSource: "oauth",
+      override: "none",
+      billingMode: "user_quota",
+      billingScope: "user",
+      quotaApi: "copilot_internal_user",
+      budgetApi: "not_available",
+      oauthAccountingState: "available_via_copilot_internal_user",
+      billingApiAccessLikely: true,
+      remainingTotalsState: "reported_by_copilot_internal_user",
+    };
+    (getCopilotQuotaAuthDiagnostics as any)
+      .mockReturnValueOnce(diagnostics)
+      .mockReturnValueOnce(diagnostics);
+    authMocks.readCredentialRows.mockResolvedValueOnce([
+      {
+        id: "copilot-alice",
+        integrationId: "github-copilot",
+        label: "alice",
+        active: true,
+        value: { type: "oauth", access: "oauth-token", enterpriseUrl: "acme.ghe.com" },
+      },
+    ]);
+    (queryCopilotQuota as any).mockResolvedValueOnce({
+      success: true,
+      mode: "user_quota",
+      unit: "premium_interactions",
+      used: 600,
+      total: 1_000,
+      percentRemaining: 40,
+      authority: "provider_reported",
+      plan: "enterprise",
+    });
+
+    const out = await copilotProvider.fetch({} as any);
+
+    expect(visibleEntries(out.entries, "copilot")[0]?.group).toBe("[Copilot alice] (enterprise)*");
+    expect(out.statusDetails).toContainEqual({ key: "billing_scope", value: "user" });
   });
 
   it("renders pooled organization credits plus a real additional-usage budget", async () => {
@@ -227,7 +293,7 @@ describe("copilot provider", () => {
     expect(visibleEntries(out.entries, "copilot")).toEqual([
       {
         name: "Copilot Premium Requests",
-        group: "Copilot (personal)",
+        group: "Copilot (pro+)",
         label: "Quota:",
         right: "150/1,500",
         percentRemaining: 90,
@@ -252,7 +318,7 @@ describe("copilot provider", () => {
       {
         kind: "value",
         name: "Copilot",
-        group: "Copilot (personal)",
+        group: "Copilot (business)",
         label: "Plan:",
         value: "business | quota details unavailable",
         resetTimeIso: "2026-02-01T00:00:00.000Z",

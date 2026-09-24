@@ -14,7 +14,7 @@ export interface SimpleApiKeyContractModule {
     configured: boolean;
     source: string | null;
     checkedPaths: string[];
-    authPaths: string[];
+    credentialDatabasePaths: string[];
   }>;
   getConfigCandidates: () => Array<{ path: string; isJsonc: boolean }>;
 }
@@ -26,7 +26,7 @@ export interface InvalidAwareApiKeyContractModule {
     state: "none" | "configured" | "invalid";
     source: string | null;
     checkedPaths: string[];
-    authPaths: string[];
+    credentialDatabasePaths: string[];
     error?: string;
   }>;
   getConfigCandidates: () => Array<{ path: string; isJsonc: boolean }>;

@@ -243,10 +243,10 @@ describe("quota runway production surfaces", () => {
       command:
         "→ [OpenAI Account With A Very Long Provider Label]\n  5h quota      █████░░░░░   50% left | reset 2h0m",
       toast:
-        "[OpenAI Account With A Very Long Provider Label]\nFive-hour                                       2h0m\n█████████████████████░░░░░░░░░░░░░░░░░░░░   50% left",
+        "[OpenAI Account With A Very Long Provider Label]\n5h                                              2h0m\n█████████████████████░░░░░░░░░░░░░░░░░░░░   50% left",
       sidebar: [
         "[OpenAI Account With A Very Long Pro",
-        "Five-hour                       2h0m",
+        "5h                              2h0m",
         "█████████████░░░░░░░░░░░░   50% left",
       ],
       compact: "OpenAI Account With A Very Long Provider Label 50% 2h0m",

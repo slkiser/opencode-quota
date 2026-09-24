@@ -73,7 +73,6 @@ Business placement describes vendor plan availability. Except for configured Cop
 | Alibaba Personal Token Plan   | [Needs setup](#alibaba-personal-token-plan)                         | Official CLI   | Quota              |
 | DeepSeek                      | Automatic                                                           | Remote API     | Balance and status |
 | Kimi Code                     | Automatic                                                           | Remote API     | Quota              |
-| Kimi Code (CN)                | Automatic                                                           | Remote API     | Quota              |
 | MiniMax Token Plan            | Automatic                                                           | Remote API     | Quota              |
 | MiniMax Token Plan (CN)       | Automatic                                                           | Remote API     | Quota              |
 | Qwen Code                     | [Needs setup](#qwen-code)                                           | Local estimate | Quota              |
@@ -89,7 +88,6 @@ Business placement describes vendor plan availability. Except for configured Cop
 | Provider                 | Auth/setup | Data from  | Reports |
 | ------------------------ | ---------- | ---------- | ------- |
 | Kimi Code                | Automatic  | Remote API | Quota   |
-| Kimi Code (CN)           | Automatic  | Remote API | Quota   |
 | MiniMax Token Plan       | Automatic  | Remote API | Quota   |
 | MiniMax Token Plan (CN)  | Automatic  | Remote API | Quota   |
 | Zhipu Coding Plan        | Automatic  | Remote API | Quota   |
@@ -97,8 +95,6 @@ Business placement describes vendor plan availability. Except for configured Cop
 These vendors offer team or business plans, but the current integrations report only the configured member API key rather than organization-wide usage.
 
 </details>
-
-Kimi plans are region-bound: **Kimi Code** uses `api.kimi.ai`, while **Kimi Code (CN)** uses `api.kimi.com`. A key is sent only to its selected regional host. Legacy provider ids `kimi-for-coding`, `kimi-code`, and `kimi` belong to the CN plan.
 
 The friendly `Quota` label covers quota and rate-limit windows; JSON distinguishes them.
 
@@ -277,7 +273,7 @@ Credentials are checked in this order:
 
 1. The environment variable named by `apiKeyEnv`.
 2. Trusted global `provider.<providerId>.options.apiKey`.
-3. An API-key entry in OpenCode `auth.json`.
+3. An API-key entry in OpenCode `opencode.db`.
 
 Project secrets are never read. Custom definitions cannot add scripts, methods, headers, templates, executable mappings, regular expressions, JSONPath, or automatic endpoint discovery.
 
@@ -404,7 +400,7 @@ claude auth status
 
 If Claude lives at a custom path, set `anthropicBinaryPath` in `opencode-quota/quota-toast.json`.
 
-When Claude Code does not expose quota windows itself, quota is read from Anthropic's OAuth usage endpoint using the first usable access token: OpenCode's own `anthropic` OAuth credential from `auth.json`, then Claude Code's credentials. `/quota_status` reports which store answered as `oauth_credential_source`.
+When Claude Code does not expose quota windows itself, quota is read from Anthropic's OAuth usage endpoint using the first usable access token: OpenCode's own `anthropic` OAuth credential from `opencode.db`, then Claude Code's credentials. `/quota_status` reports which store answered as `oauth_credential_source`.
 
 When that OAuth response includes enabled Usage Credits with numeric utilization, quota displays show a separate monthly **Claude Usage Credits** group; missing or invalid credit data leaves the regular 5-hour and weekly rows unchanged.
 
@@ -559,7 +555,7 @@ Credentials resolve in this order:
 
 1. `KILO_API_KEY`
 2. Trusted user/global OpenCode config: `provider.kilo.options.apiKey`
-3. A strict `kilo` API-key entry in OpenCode `auth.json`: `{ "type": "api", "key": "..." }`
+3. A strict `kilo` API-key entry in OpenCode `opencode.db`: `{ "type": "api", "key": "..." }`
 
 Project-local `opencode.json` and `opencode.jsonc` files are not read for this secret. The canonical OpenCode provider ID is `kilo`; if you use manual provider selection, include `kilo` in `enabledProviders`.
 
@@ -614,7 +610,7 @@ Credentials resolve in this order:
 
 1. `OLLAMA_API_KEY`
 2. Trusted user/global OpenCode config: `provider.ollama-cloud.options.apiKey`
-3. A strict `ollama-cloud` API-key entry in OpenCode `auth.json`: `{ "type": "api", "key": "..." }`
+3. A strict `ollama-cloud` API-key entry in OpenCode `opencode.db`: `{ "type": "api", "key": "..." }`
 
 Project-local `opencode.json` and `opencode.jsonc` files are not read for this secret. The old `OLLAMA_USAGE_COOKIE`, `ollama-cloud.json`, and `ollama-usage/config.yaml` cookie setup is no longer supported.
 
@@ -627,8 +623,8 @@ OpenCode Go reads subscription quota from the official `https://opencode.ai/zen/
 1. `OPENCODE_API_KEY`
 2. Trusted user/global OpenCode config: `provider.opencode-go.options.apiKey`
 3. Trusted user/global fallback: `provider.opencode.options.apiKey`
-4. A strict `opencode-go` API-key entry in OpenCode `auth.json`: `{ "type": "api", "key": "..." }`. This is the key the OpenCode CLI writes via `opencode auth login -p opencode-go`.
-5. A strict legacy `opencode` API-key entry in `auth.json` as the final fallback.
+4. A strict `opencode-go` API-key entry in OpenCode `opencode.db`: `{ "type": "api", "key": "..." }`. This is the key the OpenCode CLI writes via `opencode auth login -p opencode-go`.
+5. A strict legacy `opencode` API-key entry in `opencode.db` as the final fallback.
 
 Project-local `opencode.json` and `opencode.jsonc` files are not read for this secret. Use `opencodeGoWindows` to choose which validated API results appear across surfaces and in the expanded sidebar: **Five-hour**, **Weekly**, and/or **Monthly**. To keep those rows expanded but prefer one while the sidebar is collapsed, set `tuiSidebarPanel.opencodeGoPreferredWindow` to `rolling`, `weekly`, or `monthly`; an unset or unavailable preference keeps the lowest-remaining selection. These settings do not change authentication or the API request.
 

@@ -4,7 +4,7 @@ import {
   getGlobalOpencodeConfigCandidatePaths,
 } from "./api-key-resolver.js";
 import type { KimiQuotaEndpointId } from "./kimi-endpoints.js";
-import { getAuthPaths, readAuthFileCached } from "./opencode-auth.js";
+import { getCredentialDatabasePaths, readAuthFileCached } from "./opencode-auth.js";
 import type { AuthData } from "./types.js";
 
 export const DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS = 5_000;
@@ -16,9 +16,9 @@ export type KimiKeySource =
   | "env:KIMI_CODE_API_KEY"
   | "opencode.json"
   | "opencode.jsonc"
-  | "auth.json";
+  | "opencode.db";
 
-type BaseKimiAuthDiagnostics = InvalidAwareAuthDiagnostics<KimiKeySource, "auth.json">;
+type BaseKimiAuthDiagnostics = InvalidAwareAuthDiagnostics<KimiKeySource, "opencode.db">;
 
 export type ResolvedKimiAuth =
   | { state: "none" }
@@ -67,7 +67,7 @@ const KIMI_CN_AUTH_SPEC = {
 } as const satisfies KimiAuthSpec;
 
 function createKimiAuthResolver(spec: KimiAuthSpec) {
-  return createProviderApiKeyResolver<KimiKeySource, "auth.json">({
+  return createProviderApiKeyResolver<KimiKeySource, "opencode.db">({
     envVars: [...spec.envVars],
     providerKeys: spec.providerKeys,
     allowedEnvVars: spec.allowedEnvVars,
@@ -77,11 +77,11 @@ function createKimiAuthResolver(spec: KimiAuthSpec) {
     auth: {
       policy: "invalid-aware-api-key",
       authKeys: spec.authKeys,
-      authSource: "auth.json",
+      authSource: "opencode.db",
       displayName: "Kimi",
       defaultMaxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS,
       readAuth: (maxAgeMs) => readAuthFileCached({ maxAgeMs }),
-      getAuthPaths,
+      getCredentialDatabasePaths,
     },
   });
 }

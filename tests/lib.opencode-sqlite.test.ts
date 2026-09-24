@@ -89,32 +89,37 @@ describe("opencode sqlite adapter", () => {
       runtimePaths.dataDirs = [dir];
       const writer = new sqlite.DatabaseSync(dbPath);
       writer.exec(`
-        CREATE TABLE "message" (
+        CREATE TABLE "session_v2" (
+          id TEXT PRIMARY KEY
+        );
+        CREATE TABLE "session_message" (
           id TEXT PRIMARY KEY,
           session_id TEXT NOT NULL,
+          type TEXT NOT NULL,
+          seq INTEGER NOT NULL,
           time_created INTEGER NOT NULL,
           time_updated INTEGER NOT NULL,
           data TEXT NOT NULL
         );
       `);
       const insert = writer.prepare(
-        `INSERT INTO "message" (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO "session_message" (id, session_id, type, seq, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       );
       const add = (
         id: string,
-        role: "assistant" | "user",
+        type: "assistant" | "user",
         created: number,
         completed?: number,
       ): void => {
         insert.run(
           id,
           "ses_accounting",
+          type,
+          created,
           created,
           completed ?? created,
           JSON.stringify({
-            role,
-            providerID: "qwen-code",
-            modelID: "qwen-plus",
+            model: { id: "qwen-plus", providerID: "qwen-code" },
             time: completed === undefined ? { created } : { created, completed },
           }),
         );

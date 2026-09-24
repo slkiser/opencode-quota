@@ -115,9 +115,9 @@ describe("quota-providers aggregate provider", () => {
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
     runtimeMocks.resolveQuotaProviderApiKey.mockReset().mockResolvedValue({
       key: "secret",
-      source: "auth.json",
+      source: "opencode.db",
       checkedPaths: ["/trusted/opencode.json"],
-      authPaths: ["/trusted/auth.json"],
+      credentialDatabasePaths: ["/trusted/opencode.db"],
     });
     runtimeMocks.fetchRemoteQuotaProvider.mockReset().mockResolvedValue({
       success: true,
@@ -315,9 +315,9 @@ describe("quota-providers aggregate provider", () => {
     let credential = "account-one";
     runtimeMocks.resolveQuotaProviderApiKey.mockImplementation(async () => ({
       key: credential,
-      source: "auth.json",
+      source: "opencode.db",
       checkedPaths: [],
-      authPaths: ["/trusted/auth.json"],
+      credentialDatabasePaths: ["/trusted/opencode.db"],
     }));
     runtimeMocks.fetchRemoteQuotaProvider.mockImplementation(async (_definition, key) => ({
       success: true,
@@ -508,9 +508,9 @@ describe("quota-providers aggregate provider", () => {
       providerId: "runtime-provider",
       mode: "remote-api",
       format: "quota-v1",
-      credentialSource: "auth_json",
+      credentialSource: "opencode_db",
       checkedPaths: ["/trusted/opencode.json"],
-      authPaths: ["/trusted/auth.json"],
+      credentialDatabasePaths: ["/trusted/opencode.db"],
     });
     expect(JSON.stringify(result.diagnostics)).not.toContain("secret");
   });

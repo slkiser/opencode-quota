@@ -17,10 +17,15 @@ import type {
   QuotaProviderResult,
   QuotaToastEntry,
 } from "../lib/entries.js";
-import { readAuthFileCached } from "../lib/opencode-auth.js";
+import {
+  formatCredentialDisplayNames,
+  readAuthFileCached,
+  readCredentialRows,
+} from "../lib/opencode-auth.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { modelIncludesAny, modelProviderIncludesAny } from "../lib/provider-model-matching.js";
 import type {
+  AuthData,
   CopilotBudgetResult,
   CopilotEnterpriseUsageResult,
   CopilotOrganizationUsageResult,
@@ -53,10 +58,12 @@ function formatBillingPeriod(period: { year: number; month: number }): string {
 
 function getCopilotGroup(
   mode: "user_quota" | "user_plan" | "organization_usage" | "enterprise_usage",
+  plan?: string,
 ): string {
-  return mode === "organization_usage" || mode === "enterprise_usage"
-    ? "Copilot (business)"
-    : "Copilot (personal)";
+  if (mode === "organization_usage" || mode === "enterprise_usage") {
+    return "Copilot (business)";
+  }
+  return plan ? `Copilot (${plan})` : "Copilot (personal)";
 }
 
 function formatNumber(value: number): string {
@@ -136,7 +143,7 @@ function planEntries(result: CopilotPlanResult): QuotaToastEntry[] {
       kind: "value",
       accounting: remoteAccounting("quota", result.authority),
       name: "Copilot",
-      group: getCopilotGroup(result.mode),
+      group: getCopilotGroup(result.mode, result.plan),
       label: "Plan:",
       value: result.plan
         ? `${result.plan} | quota details unavailable`
@@ -147,7 +154,7 @@ function planEntries(result: CopilotPlanResult): QuotaToastEntry[] {
 }
 
 function personalEntries(result: CopilotQuotaResult): QuotaToastEntry[] {
-  const group = getCopilotGroup(result.mode);
+  const group = getCopilotGroup(result.mode, result.plan);
   const name =
     result.unit === "ai_credits"
       ? "Copilot AI Credits"
@@ -291,6 +298,65 @@ export const copilotProvider: QuotaProvider = {
 
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
     const statusDetails = await getCopilotStatusDetails();
+    const authData = await readAuthFileCached({ maxAgeMs: 5_000 });
+    if (getCopilotQuotaAuthDiagnostics(authData).effectiveSource === "oauth") {
+      const credentials = (await readCredentialRows()).filter((row) =>
+        ["github-copilot", "copilot", "copilot-chat", "github-copilot-chat"].includes(
+          row.integrationId,
+        ),
+      );
+      if (credentials.length > 0) {
+        const results = await Promise.all(
+          credentials.map(async (row) => ({
+            row,
+            result: await queryCopilotQuota({
+              requestTimeoutMs: ctx.config?.requestTimeoutMs,
+              authData: { [row.integrationId]: row.value } as AuthData,
+            }),
+          })),
+        );
+        const names = formatCredentialDisplayNames(
+          "Copilot",
+          results.map(({ row, result }) => ({
+            row,
+            fallbackName: result?.success
+              ? getCopilotGroup(result.mode, "plan" in result ? result.plan : undefined)
+              : "Copilot",
+          })),
+        );
+        const entries: QuotaToastEntry[] = [];
+        const errors: QuotaProviderResult["errors"] = [];
+        for (const [index, { row, result }] of results.entries()) {
+          const group = names[index] ?? "Copilot";
+          if (!result) continue;
+          if (!result.success) {
+            errors.push({ label: group, message: result.error });
+            continue;
+          }
+          const resultEntries =
+            result.mode === "user_plan"
+              ? planEntries(result)
+              : result.mode === "user_quota"
+                ? personalEntries(result)
+                : managedEntries(result);
+          entries.push(
+            ...resultEntries.map((entry) => ({
+              ...entry,
+              name: entry.group ? entry.name.replace(entry.group, group) : entry.name,
+              group,
+              accounting: { ...entry.accounting, sourceId: row.id },
+            })),
+          );
+          errors.push(
+            ...("warnings" in result ? (result.warnings ?? []) : []).map((message) => ({
+              label: group,
+              message,
+            })),
+          );
+        }
+        return withStatusDetails(attemptedResult(entries, errors), statusDetails);
+      }
+    }
     const result = await queryCopilotQuota({ requestTimeoutMs: ctx.config?.requestTimeoutMs });
     if (!result) return withStatusDetails(notAttemptedResult(), statusDetails);
     if (!result.success) {

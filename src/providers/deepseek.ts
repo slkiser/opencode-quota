@@ -136,7 +136,7 @@ export const deepseekProvider: QuotaProvider = {
       configured: false,
       source: null,
       checkedPaths: [],
-      authPaths: [],
+      credentialDatabasePaths: [],
     }));
     const result = await queryDeepSeekBalance({ requestTimeoutMs: ctx.config?.requestTimeoutMs });
     const providerResult = mapNullableProviderResult(result, {

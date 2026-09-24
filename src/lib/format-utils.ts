@@ -200,7 +200,7 @@ const MS_PER_HOUR = 3_600_000;
 /**
  * Format a reset countdown for toast display.
  *
- * Returns a precise-to-minute value like "2d5h14m", "3h45m", or "14m".
+ * Returns a precise-to-minute value like "2d 5h 14m", "3h 45m", or "14m".
  * When reset time is in the past or invalid, returns "reset".
  */
 export function formatResetCountdown(iso?: string, opts?: FormatResetCountdownOptions): string {

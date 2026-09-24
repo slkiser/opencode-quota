@@ -21,14 +21,14 @@ describe("buildCompactQuotaStatusLine", () => {
           {
             name: "OpenAI Weekly",
             percentRemaining: 50,
-            resetTimeIso: "2026-01-17T15:14:00.000Z",
+            resetTimeIso: "2026-01-21T05:49:00.000Z",
           },
         ],
         errors: [],
       },
     });
 
-    expect(line).toBe("OpenAI Weekly 50% 2d5h14m");
+    expect(line).toBe("OpenAI Weekly 50% 5d19h49m");
   });
 
   it("uses the resolved spacing default while keeping compact percentages bare", () => {

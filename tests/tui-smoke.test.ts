@@ -1136,10 +1136,10 @@ describe("tui plugin smoke", () => {
     loadTuiSessionQuotaSurfaces.mockResolvedValueOnce({
       sidebar: {
         status: "ready",
-        lines: ["OpenCode Go Five-hour 98%"],
+        lines: ["OpenCode Go 5h 98%"],
         linesExpanded: [
           "[OpenCode Go]",
-          "Five-hour window 98%",
+          "5h window 98%",
           "Weekly window 53%",
           "Monthly window 33%",
         ],
@@ -1176,7 +1176,7 @@ describe("tui plugin smoke", () => {
       { session_id: "session-1" },
     ) as any;
     const collapsedLines = readSidebarDisplayLines(collapsed);
-    expect(collapsedLines).toEqual(["▶ Quota (2 providers)", "OpenCode Go Five-hour 98%"]);
+    expect(collapsedLines).toEqual(["▶ Quota (2 providers)", "OpenCode Go 5h 98%"]);
     const collapsedHeader = readSidebarHeaderTree(collapsed);
     expect(collapsedHeader.header.type).toBe("text");
     expect(collapsedHeader.header.props.width).toBe("100%");
@@ -1199,7 +1199,7 @@ describe("tui plugin smoke", () => {
     expect(expandedLines).toEqual([
       "▼ Quota",
       "[OpenCode Go]",
-      "Five-hour window 98%",
+      "5h window 98%",
       "Weekly window 53%",
       "Monthly window 33%",
     ]);

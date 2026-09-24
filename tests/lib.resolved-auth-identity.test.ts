@@ -62,28 +62,6 @@ describe("resolved-auth identity", () => {
   );
 
   it.runIf(POSIX_IDENTITY_STORAGE)(
-    "keeps identical Kimi credentials separate by canonical region and endpoint",
-    async () => {
-      const identity = await import("../src/lib/resolved-auth-identity.js");
-      const global = await identity.deriveResolvedAuthIdentity({
-        providerId: "kimi-code-plan-global",
-        principal: { kind: "credential", value: "shared-kimi-secret" },
-        qualifiers: ["global"],
-      });
-      const cn = await identity.deriveResolvedAuthIdentity({
-        providerId: "kimi-code-plan-cn",
-        principal: { kind: "credential", value: "shared-kimi-secret" },
-        qualifiers: ["cn"],
-      });
-
-      expect(identity.isResolvedAuthIdentity(global)).toBe(true);
-      expect(identity.isResolvedAuthIdentity(cn)).toBe(true);
-      expect(global).not.toBe(cn);
-      expect(JSON.stringify({ global, cn })).not.toContain("shared-kimi-secret");
-    },
-  );
-
-  it.runIf(POSIX_IDENTITY_STORAGE)(
     "composes multi-account identities in deterministic order",
     async () => {
       const identity = await import("../src/lib/resolved-auth-identity.js");

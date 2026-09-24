@@ -48,7 +48,7 @@ export const openRouterProvider: QuotaProvider = {
         configured: Boolean(resolved.key),
         source: resolved.source,
         checkedPaths: resolved.checkedPaths,
-        authPaths: resolved.authPaths,
+        credentialDatabasePaths: resolved.credentialDatabasePaths,
       }),
     );
   },

@@ -35,7 +35,7 @@ describe("ollama-cloud provider", () => {
       configured: true,
       source: "env:OLLAMA_API_KEY",
       checkedPaths: ["env:OLLAMA_API_KEY"],
-      authPaths: ["/tmp/auth.json"],
+      credentialDatabasePaths: ["/tmp/opencode.db"],
     });
   });
 

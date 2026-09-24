@@ -7,28 +7,32 @@ import solidPreset from "babel-preset-solid";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
-const sourcePath = path.join(rootDir, "src", "tui.tsx");
-const distSourcePath = path.join(rootDir, "dist", "tui.tsx");
+const sourcePath = path.join(rootDir, "src", "tui-v2.tsx");
 const distJsPath = path.join(rootDir, "dist", "tui.js");
+const distTypesPath = path.join(rootDir, "dist", "tui.d.ts");
 const distJsxPath = path.join(rootDir, "dist", "tui.jsx");
 const distJsxMapPath = path.join(rootDir, "dist", "tui.jsx.map");
 
-await fs.copyFile(sourcePath, distSourcePath);
-const source = await fs.readFile(sourcePath, "utf8");
-const transformed = await babel.transformAsync(source, {
-  filename: sourcePath,
-  configFile: false,
-  babelrc: false,
-  presets: [
-    [solidPreset, { moduleName: "@opentui/solid", generate: "universal" }],
-    [typescriptPreset],
-  ],
-});
+for (const [inputPath, outputPath] of [[sourcePath, distJsPath]]) {
+  const source = await fs.readFile(inputPath, "utf8");
+  const transformed = await babel.transformAsync(source, {
+    filename: inputPath,
+    configFile: false,
+    babelrc: false,
+    presets: [
+      [solidPreset, { moduleName: "@opentui/solid", generate: "universal" }],
+      [typescriptPreset],
+    ],
+  });
 
-if (!transformed?.code) {
-  throw new Error("Babel transform returned empty output");
+  if (!transformed?.code) {
+    throw new Error(`Babel transform returned empty output for ${inputPath}`);
+  }
+
+  await fs.writeFile(outputPath, `${transformed.code}\n`);
 }
 
-await fs.writeFile(distJsPath, `${transformed.code}\n`);
 await fs.rm(distJsxPath, { force: true });
 await fs.rm(distJsxMapPath, { force: true });
+await fs.copyFile(path.join(rootDir, "dist", "tui-v2.d.ts"), distTypesPath);
+await fs.copyFile(path.join(rootDir, "dist", "tui-v2.d.ts.map"), `${distTypesPath}.map`);

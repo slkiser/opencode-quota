@@ -1,78 +1,57 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  createAlibabaAuthModuleMock,
-  createPluginTestClient as createClient,
-  createConfigModuleMock,
-  createPluginToolMockModule,
-  createPricingModuleMock,
-  createQwenAuthModuleMock,
-  seedDefaultPluginBootstrapMocks,
-} from "./helpers/plugin-test-harness.js";
-
-const mocks = vi.hoisted(() => ({
-  loadConfig: vi.fn(),
-  resolveQwenLocalPlanCached: vi.fn(),
-  resolveAlibabaCodingPlanAuthCached: vi.fn(),
-  getPricingSnapshotMeta: vi.fn(),
-  getPricingSnapshotSource: vi.fn(),
-  getRuntimePricingRefreshStatePath: vi.fn(),
-  getRuntimePricingSnapshotPath: vi.fn(),
-  maybeRefreshPricingSnapshot: vi.fn(),
-  setPricingSnapshotAutoRefresh: vi.fn(),
-  setPricingSnapshotSelection: vi.fn(),
+const resolveQuotaRuntimeContext = vi.hoisted(() => vi.fn());
+vi.mock("../src/lib/quota-runtime-context.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/quota-runtime-context.js")>()),
+  resolveQuotaRuntimeContext,
 }));
 
-vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
-vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
-vi.mock("../src/lib/opencode-auth.js", () => ({
-  readAuthFileCached: vi.fn(),
-  readAuthFile: vi.fn(),
-  getAuthPath: vi.fn(() => "/tmp/auth.json"),
-  getAuthPaths: vi.fn(() => ["/tmp/auth.json"]),
-  clearReadAuthFileCacheForTests: vi.fn(),
-}));
-vi.mock("../src/lib/qwen-auth.js", () =>
-  createQwenAuthModuleMock(mocks.resolveQwenLocalPlanCached),
-);
-vi.mock("../src/lib/alibaba-auth.js", () =>
-  createAlibabaAuthModuleMock(mocks.resolveAlibabaCodingPlanAuthCached),
-);
-vi.mock("../src/lib/modelsdev-pricing.js", () => createPricingModuleMock(mocks));
+import plugin from "../src/tui-v2.tsx";
 
-const { QuotaToastPlugin } = await import("../src/plugin.js");
+describe("V2 CLI question-tool accounting boundary", () => {
+  const handlers = new Map<string, (event: { data: Record<string, unknown> }) => void>();
+  const client = { session: { get: vi.fn() } };
+  const toast = vi.fn();
 
-describe("plugin question hook accounting boundary", () => {
   beforeEach(() => {
-    seedDefaultPluginBootstrapMocks(mocks, {
-      configOverrides: { showOnQuestion: false },
+    handlers.clear();
+    client.session.get.mockReset();
+    toast.mockReset();
+    resolveQuotaRuntimeContext.mockReset().mockResolvedValue({
+      config: { enabled: true, enableToast: true, showOnQuestion: false },
     });
+    plugin.setup({
+      client,
+      data: {
+        on: (name: string, handler: (event: { data: Record<string, unknown> }) => void) => {
+          handlers.set(name, handler);
+          return () => handlers.delete(name);
+        },
+      },
+      keymap: { layer: vi.fn() },
+      ui: {
+        slot: (claim: { append: string; render: () => unknown }) => {
+          if (claim.append === "app") claim.render();
+          return vi.fn();
+        },
+        toast: { show: toast },
+      },
+    } as never);
   });
 
   it("does not treat a successful question-tool execution as a completed model request", async () => {
-    const client = createClient({ modelID: "qwen3-coder-plus", providerID: "qwen-code" });
-    const hooks = await QuotaToastPlugin({ client } as any);
-
-    await hooks["tool.execute.after"]?.(
-      { tool: "question", sessionID: "session-1", callID: "call-1" },
-      { title: "Question", output: "ok", metadata: { status: "success" } },
-    );
-
+    handlers.get("session.tool.input.started")?.({ data: { name: "question", id: "call-1" } });
+    handlers.get("session.tool.success")?.({ data: { sessionID: "session-1", id: "call-1" } });
+    await vi.waitFor(() => expect(resolveQuotaRuntimeContext).toHaveBeenCalledTimes(1));
     expect(client.session.get).not.toHaveBeenCalled();
-    expect(mocks.resolveQwenLocalPlanCached).not.toHaveBeenCalled();
-    expect(mocks.resolveAlibabaCodingPlanAuthCached).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalled();
   });
 
-  it("does not use question-tool failure metadata as accounting authority", async () => {
-    const client = createClient({ modelID: "qwen3-coder-plus", providerID: "qwen-code" });
-    const hooks = await QuotaToastPlugin({ client } as any);
-
-    await hooks["tool.execute.after"]?.(
-      { tool: "question", sessionID: "session-1", callID: "call-2" },
-      { title: "Error", output: "failed", metadata: { status: "error", error: "boom" } },
-    );
-
+  it("does not use question-tool failure metadata as accounting authority", () => {
+    handlers.get("session.tool.input.started")?.({ data: { name: "question", id: "call-2" } });
+    handlers.get("session.tool.failed")?.({ data: { sessionID: "session-1", id: "call-2" } });
+    expect(resolveQuotaRuntimeContext).not.toHaveBeenCalled();
     expect(client.session.get).not.toHaveBeenCalled();
-    expect(mocks.resolveQwenLocalPlanCached).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalled();
   });
 });

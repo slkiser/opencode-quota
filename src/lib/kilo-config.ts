@@ -2,14 +2,14 @@ import {
   createProviderApiKeyResolver,
   getGlobalOpencodeConfigCandidatePaths,
 } from "./api-key-resolver.js";
-import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
+import { getCredentialDatabasePaths, readAuthFile } from "./opencode-auth.js";
 
 export interface KiloApiKeyResult {
   key: string;
   source: KiloKeySource;
 }
 
-export type KiloKeySource = "env:KILO_API_KEY" | "opencode.json" | "opencode.jsonc" | "auth.json";
+export type KiloKeySource = "env:KILO_API_KEY" | "opencode.json" | "opencode.jsonc" | "opencode.db";
 
 export { getGlobalOpencodeConfigCandidatePaths as getOpencodeConfigCandidatePaths } from "./api-key-resolver.js";
 
@@ -22,8 +22,8 @@ const kiloApiKeyResolver = createProviderApiKeyResolver<KiloKeySource>({
   getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
   auth: {
     readAuth: readAuthFile,
-    getAuthPaths,
-    authSource: "auth.json",
+    getCredentialDatabasePaths,
+    authSource: "opencode.db",
   },
 });
 
@@ -39,7 +39,7 @@ export async function getKiloKeyDiagnostics(): Promise<{
   configured: boolean;
   source: KiloKeySource | null;
   checkedPaths: string[];
-  authPaths: string[];
+  credentialDatabasePaths: string[];
 }> {
   return kiloApiKeyResolver.diagnostics();
 }

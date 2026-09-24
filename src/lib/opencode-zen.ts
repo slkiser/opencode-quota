@@ -1,18 +1,13 @@
-import { sanitizeDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
 
-const BILLING_URL_PREFIX = "https://opencode.ai/workspace/";
-const BILLING_URL_SUFFIX = "/billing";
-const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Gecko/20100101 Firefox/148.0";
+const CONSOLE_BASE_URL = "https://opencode.ai/console";
 const SCRAPE_TIMEOUT_MS = 10_000;
 
 /**
- * Conversion used by the OpenCode billing-page values in PR #140.
- * The source represents one US dollar as 100,000,000 billing units.
+ * Conversion used by the OpenCode Console billing APIs.
+ * The source represents one US dollar as 100,000,000 microcents.
  */
 export const OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR = 100_000_000;
-
-const SSR_FIELD_RE = /\b(balance|monthlyLimit|monthlyUsage)\s*:\s*(\d+(?:\.\d+)?)\b/g;
 
 export interface OpenCodeZenBillingData {
   balance: number;
@@ -28,273 +23,143 @@ export type OpenCodeZenResult =
   | { success: true; data: OpenCodeZenBillingData }
   | { success: false; error: string };
 
-function parseSsrBillingData(html: string): OpenCodeZenBillingData | null {
-  const fields: Record<string, number> = {};
-  for (const match of html.matchAll(SSR_FIELD_RE)) {
-    fields[match[1]] = Number(match[2]);
-  }
-
-  if (!Number.isFinite(fields.balance) || fields.balance < 0) return null;
-
-  return {
-    balance: fields.balance,
-    monthlyLimit:
-      Number.isFinite(fields.monthlyLimit) && fields.monthlyLimit >= 0 ? fields.monthlyLimit : null,
-    monthlyUsage:
-      Number.isFinite(fields.monthlyUsage) && fields.monthlyUsage >= 0 ? fields.monthlyUsage : null,
-    lastPayment: null,
-    reload: false,
-    reloadAmount: null,
-    reloadTrigger: null,
-  };
+export interface OpenCodeConsoleQuotaAuth {
+  accessToken: string;
 }
 
-/** Extracts one balanced object/array while ignoring delimiters inside quoted strings. */
-function extractBalancedValue(
-  source: string,
-  start: number,
-): { value: string; end: number } | null {
-  const open = source[start];
-  if (open !== "{" && open !== "[") return null;
-  const close = open === "{" ? "}" : "]";
-
-  let depth = 0;
-  let quote: '"' | "'" | "`" | null = null;
-  let escaped = false;
-  for (let i = start; i < source.length; i++) {
-    const ch = source[i];
-    if (quote !== null) {
-      if (escaped) {
-        escaped = false;
-      } else if (ch === "\\") {
-        escaped = true;
-      } else if (ch === quote) {
-        quote = null;
-      }
-      continue;
-    }
-
-    if (ch === '"' || ch === "'" || ch === "`") {
-      quote = ch;
-    } else if (ch === open) {
-      depth++;
-    } else if (ch === close && --depth === 0) {
-      return { value: source.slice(start, i + 1), end: i };
-    }
-  }
-  return null;
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
-function extractSsrAssignment(html: string, key: string): string | null {
-  const match = new RegExp(
-    `${key}\\[\\\\?"[^"]+\\\\?"\\]"]=\\$R\\[\\d+\\]=\\$R\\[\\d+\\]\\(\\$R\\[(\\d+)\\]` +
-      `[\\s\\S]*?\\$R\\[\\d+\\]\\(\\$R\\[\\1\\],\\$R\\[\\d+\\]=`,
-  ).exec(html);
-  if (!match) return null;
-
-  const start = match.index + match[0].length;
-  return extractBalancedValue(html, start)?.value ?? null;
+function asMicroCents(value: unknown): number | null {
+  const parsed = typeof value === "string" ? Number(value) : typeof value === "number" ? value : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
-function parseNewSsrBillingData(html: string): OpenCodeZenBillingData | null {
-  const object = extractSsrAssignment(html, "billing\\.get");
-  if (!object) return null;
-
-  const balanceMatch = object.match(/\bbalance\s*:\s*(-?\d+)/);
-  const limitMatch = object.match(/\bmonthlyLimit\s*:\s*(\d+)/);
-  const usageMatch = object.match(/\bmonthlyUsage\s*:\s*(\d+)/);
-  const reloadMatch = object.match(/\breload\s*:\s*(!0|!1|true|false)/);
-  const reloadAmountMatch = object.match(/\breloadAmount\s*:\s*(\d+)/);
-  const reloadTriggerMatch = object.match(/\breloadTrigger\s*:\s*(\d+)/);
-  if (!balanceMatch) return null;
-
-  return {
-    balance: Math.max(0, Number(balanceMatch[1])),
-    monthlyLimit: limitMatch ? Number(limitMatch[1]) : null,
-    monthlyUsage: usageMatch ? Number(usageMatch[1]) : null,
-    lastPayment: null,
-    reload: reloadMatch ? reloadMatch[1] === "true" || reloadMatch[1] === "!0" : false,
-    reloadAmount: reloadAmountMatch ? Number(reloadAmountMatch[1]) : null,
-    reloadTrigger: reloadTriggerMatch ? Number(reloadTriggerMatch[1]) : null,
-  };
+function asDollars(microCents: number | null): number | null {
+  return microCents === null ? null : microCents / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
 }
 
-function parseNewSsrPaymentData(html: string): number | null {
-  const array = extractSsrAssignment(html, "payment\\.list");
-  if (!array) return null;
-
-  for (let i = 1; i < array.length - 1; i++) {
-    if (array[i] !== "{") continue;
-
-    const extracted = extractBalancedValue(array, i);
-    if (!extracted) return null;
-    i = extracted.end;
-
-    const amountMatch = extracted.value.match(/\bamount\s*:\s*(-?\d+(?:\.\d+)?)/);
-    const amount = amountMatch ? Number(amountMatch[1]) : Number.NaN;
-    if (!Number.isFinite(amount) || amount <= 0) continue;
-
-    const timeRefunded = extracted.value.match(/\btimeRefunded\s*:\s*([^,}]+)/)?.[1].trim();
-    const explicitlyRefunded =
-      /\brefunded\s*:\s*true\b/.test(extracted.value) ||
-      (timeRefunded !== undefined && timeRefunded !== "null");
-    if (!explicitlyRefunded) {
-      return amount / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
-    }
-  }
-  return null;
+function currentMonthStartDate(): string {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
 }
 
-function parseDataSlotBillingData(html: string): OpenCodeZenBillingData | null {
-  let balance: number | null = null;
-  let monthlyLimit: number | null = null;
-  let monthlyUsage: number | null = null;
+type ConsoleJsonResponse =
+  | { ok: true; json: unknown }
+  | { ok: false; error: string };
 
-  const items = html.split(/data-slot="billing-item"/);
-  for (let index = 1; index < items.length; index++) {
-    const content = items[index];
-    const labelMatch = content.match(/data-slot="billing-label">([^<]+)</);
-    if (!labelMatch) continue;
-
-    const valueMatch = content.match(
-      /data-slot="billing-value">[^$]*\$?(\d+(?:,\d{3})*(?:\.\d+)?)/,
-    );
-    if (!valueMatch) continue;
-
-    const dollarAmount = Number.parseFloat(valueMatch[1].replace(/,/g, ""));
-    if (!Number.isFinite(dollarAmount) || dollarAmount < 0) continue;
-
-    const label = labelMatch[1].trim().toLowerCase();
-    if (label.includes("balance")) {
-      balance = dollarAmount * OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
-    } else if (label.includes("monthly") && label.includes("limit")) {
-      monthlyLimit = dollarAmount;
-    } else if (label.includes("monthly") && label.includes("usage")) {
-      monthlyUsage = dollarAmount * OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
-    }
-  }
-
-  if (balance === null) return null;
-  return {
-    balance,
-    monthlyLimit,
-    monthlyUsage,
-    lastPayment: null,
-    reload: false,
-    reloadAmount: null,
-    reloadTrigger: null,
-  };
-}
-
-function parseSsrPaymentData(html: string): number | null {
-  const patterns = [
-    /"payment\.list"\]\s*=\s*\[\s*\{[\s\S]*?"amount":\s*(\d+)/,
-    /"payment\.list"\s*:\s*\[[\s\S]*?"amount":\s*(\d+)/,
-    /__\$S\["payment\.list"\][\s\S]*?"amount":\s*(\d+)/,
-  ];
-
-  for (const pattern of patterns) {
-    const match = pattern.exec(html);
-    if (!match) continue;
-
-    const amount = Number(match[1]);
-    if (Number.isFinite(amount) && amount > 0) {
-      return amount / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
-    }
-  }
-
-  return null;
-}
-
-function parseDataSlotPaymentData(html: string): number | null {
-  const tableMatch = html.match(
-    /<table[\s\S]*?data-slot="payments-table-element"[\s\S]*?<\/table>/i,
-  );
-  const tableHtml = tableMatch?.[0] ?? html;
-  const amountCellRe = /<td[\s\S]*?data-slot="payment-amount"([^>]*)>([\s\S]*?)<\/td>/gi;
-
-  for (const match of tableHtml.matchAll(amountCellRe)) {
-    if (/data-refunded="true"/.test(match[1])) continue;
-
-    const dollarMatch = match[2].match(/\$?(\d+(?:,\d{3})*(?:\.\d{1,2})?)/);
-    if (!dollarMatch) continue;
-
-    const amount = Number.parseFloat(dollarMatch[1].replace(/,/g, ""));
-    if (Number.isFinite(amount) && amount > 0) return amount;
-  }
-
-  return null;
-}
-
-function sanitizeMessage(text: string, secrets: string[] = [], maxLength = 120): string {
-  let sanitized = sanitizeDisplayText(text).replace(/\s+/g, " ").trim();
-  for (const secret of secrets) {
-    if (secret) sanitized = sanitized.split(secret).join("[redacted]");
-  }
-  return (sanitized || "unknown").slice(0, maxLength);
-}
-
-export async function queryOpenCodeZenQuota(
-  workspaceId: string,
-  authCookie: string,
-  options: { requestTimeoutMs?: number } = {},
-): Promise<OpenCodeZenResult> {
+async function getConsoleJson(
+  path: string,
+  accessToken: string,
+  timeoutMs: number,
+): Promise<ConsoleJsonResponse> {
   try {
-    const url = `${BILLING_URL_PREFIX}${encodeURIComponent(workspaceId)}${BILLING_URL_SUFFIX}`;
-    return await fetchWithTimeout(url, {
+    return await fetchWithTimeout<ConsoleJsonResponse>(`${CONSOLE_BASE_URL}${path}`, {
       request: {
         method: "GET",
         headers: {
-          "User-Agent": USER_AGENT,
-          Accept: "text/html",
-          Cookie: `auth=${authCookie}`,
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
         },
       },
-      timeoutMs: options.requestTimeoutMs ?? SCRAPE_TIMEOUT_MS,
+      timeoutMs,
       consume: async (response) => {
         if (!response.ok) {
-          return {
-            success: false,
-            error: `OpenCode Zen billing error ${response.status}`,
-          };
+          return { ok: false, error: `OpenCode Console API error ${response.status} (${path})` };
         }
-
-        const html = await response.text();
-        const data =
-          parseNewSsrBillingData(html) ??
-          parseSsrBillingData(html) ??
-          parseDataSlotBillingData(html);
-        if (!data) {
-          return {
-            success: false,
-            error:
-              "Could not parse OpenCode Zen billing data (balance, monthlyLimit, monthlyUsage) from the billing page",
-          };
+        let json: unknown = null;
+        try {
+          json = JSON.parse(await response.text());
+        } catch {
+          json = null;
         }
-
-        data.lastPayment =
-          parseNewSsrPaymentData(html) ??
-          parseSsrPaymentData(html) ??
-          parseDataSlotPaymentData(html);
-        return { success: true, data };
+        return { ok: true, json };
       },
     });
   } catch (error) {
-    return {
-      success: false,
-      error: sanitizeMessage(error instanceof Error ? error.message : String(error), [
-        authCookie,
-        workspaceId,
-      ]),
-    };
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
-export {
-  parseDataSlotBillingData as _parseDataSlotBillingData,
-  parseDataSlotPaymentData as _parseDataSlotPaymentData,
-  parseNewSsrBillingData as _parseNewSsrBillingData,
-  parseNewSsrPaymentData as _parseNewSsrPaymentData,
-  parseSsrBillingData as _parseSsrBillingData,
-  parseSsrPaymentData as _parseSsrPaymentData,
-};
+function contractError(path: string): { success: false; error: string } {
+  return {
+    success: false,
+    error: `Could not parse OpenCode Console response (${path})`,
+  };
+}
+
+export async function queryOpenCodeZenQuota(
+  auth: { accessToken: string },
+  options: { requestTimeoutMs?: number } = {},
+): Promise<OpenCodeZenResult> {
+  const timeoutMs = options.requestTimeoutMs ?? SCRAPE_TIMEOUT_MS;
+
+  const statusResponse = await getConsoleJson("/api/billing/status", auth.accessToken, timeoutMs);
+  if (!statusResponse.ok) return { success: false, error: statusResponse.error };
+  const status = asRecord(statusResponse.json);
+  const balanceMicroCents = status ? asMicroCents(status.balanceMicroCents) : null;
+  if (status === null || balanceMicroCents === null || balanceMicroCents < 0) {
+    return contractError("/api/billing/status");
+  }
+
+  const accountResponse = await getConsoleJson("/api/billing/account", auth.accessToken, timeoutMs);
+  const account = accountResponse.ok ? asRecord(accountResponse.json) : null;
+  const creditLimitMicroCents = account ? asMicroCents(account.creditLimitMicroCents) : null;
+
+  const autoRechargeResponse = await getConsoleJson(
+    "/api/billing/auto-recharge",
+    auth.accessToken,
+    timeoutMs,
+  );
+  const autoRecharge = autoRechargeResponse.ok ? asRecord(autoRechargeResponse.json) : null;
+  const rechargeEnabled = autoRecharge?.enabled === true;
+  const rechargeAmount =
+    rechargeEnabled && typeof autoRecharge?.rechargeAmountDollars === "number"
+      ? autoRecharge.rechargeAmountDollars
+      : null;
+  const rechargeTrigger =
+    rechargeEnabled && typeof autoRecharge?.thresholdDollars === "number"
+      ? autoRecharge.thresholdDollars
+      : null;
+
+  let monthlyUsageMicroCents: number | null = null;
+  const costByDayResponse = await getConsoleJson("/api/usage/cost-by-day", auth.accessToken, timeoutMs);
+  if (!costByDayResponse.ok) return { success: false, error: costByDayResponse.error };
+  if (Array.isArray(costByDayResponse.json)) {
+    const monthStart = currentMonthStartDate();
+    let sum = 0;
+    let seen = false;
+    for (const entry of costByDayResponse.json) {
+      const record = asRecord(entry);
+      const day = typeof record?.date === "string" ? record.date : "";
+      if (!day || day < monthStart) continue;
+      const cost = asMicroCents(record?.totalCostMicroCents);
+      if (cost === null) continue;
+      sum += cost;
+      seen = true;
+    }
+    if (seen) monthlyUsageMicroCents = sum;
+  }
+
+  return {
+    success: true,
+    data: {
+      balance: balanceMicroCents / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR,
+      monthlyLimit:
+        creditLimitMicroCents === null || creditLimitMicroCents < 0
+          ? null
+          : creditLimitMicroCents / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR,
+      monthlyUsage:
+        monthlyUsageMicroCents === null
+          ? null
+          : monthlyUsageMicroCents / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR,
+      lastPayment: null,
+      reload: rechargeEnabled,
+      reloadAmount: rechargeAmount,
+      reloadTrigger: rechargeTrigger,
+    },
+  };
+}

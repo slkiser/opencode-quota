@@ -225,9 +225,6 @@ describe("quota surface parity regressions", () => {
       sessionMeta: { modelID: "synthetic/default", providerID: "synthetic" },
     });
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    await QuotaToastPlugin({ client } as any);
-
     const quotaOutput = await buildQuotaDialogOutputText({
       client,
       sessionID: "session-worktree-root-parity",
@@ -328,9 +325,6 @@ describe("quota surface parity regressions", () => {
       },
       sessionMeta: { modelID: "synthetic/default", providerID: "synthetic" },
     });
-
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    await QuotaToastPlugin({ client } as any);
 
     await expect(
       buildQuotaDialogOutputText({
@@ -434,9 +428,6 @@ describe("quota surface parity regressions", () => {
       sessionMeta: { modelID: "openai/gpt-5", providerID: "openai" },
     });
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    await QuotaToastPlugin({ client } as any);
-
     const quotaOutput = await buildQuotaDialogOutputText({
       client,
       sessionID: "session-layered-provider-override",
@@ -525,9 +516,6 @@ describe("quota surface parity regressions", () => {
       sessionMeta: { modelID: "synthetic/default", providerID: "synthetic" },
     });
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    await QuotaToastPlugin({ client } as any);
-
     const quotaOutput = await buildQuotaDialogOutputText({
       client,
       sessionID: "session-synthetic-parity",
@@ -614,9 +602,6 @@ describe("quota surface parity regressions", () => {
       config,
       sessionMeta: { modelID: "openai/gpt-5", providerID: "openai" },
     });
-
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    await QuotaToastPlugin({ client } as any);
 
     const quotaOutput = await buildQuotaDialogOutputText({
       client,

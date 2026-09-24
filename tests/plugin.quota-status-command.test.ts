@@ -243,7 +243,7 @@ describe("/quota_status command behavior", () => {
     );
   });
 
-  it("passes every registered provider through the shared fetch-once status flow", async () => {
+  it("passes every registered provider through the shared fetch-once CLI status flow", async () => {
     const openai = {
       id: "openai",
       isAvailable: vi.fn().mockResolvedValue(true),
@@ -266,9 +266,7 @@ describe("/quota_status command behavior", () => {
     };
     mocks.getProviders.mockReturnValue([openai, synthetic, copilot, cursor]);
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient({ modelID: "openai/gpt-5", providerID: "openai" });
-    await QuotaToastPlugin({ client } as any);
 
     const output = await buildQuotaStatusDialogOutput({
       client,
@@ -325,12 +323,10 @@ describe("/quota_status command behavior", () => {
     expect(output).toBe("Injected quota status");
   });
 
-  it("reports no_session diagnostics when no active TUI session is available", async () => {
+  it("reports no_session diagnostics when the CLI has no active session", async () => {
     mocks.getProviders.mockReturnValue([]);
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient({ modelID: "openai/gpt-5", providerID: "openai" });
-    await QuotaToastPlugin({ client } as any);
 
     const output = await buildQuotaStatusDialogOutput({
       client,

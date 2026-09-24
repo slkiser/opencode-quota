@@ -45,12 +45,6 @@ describe("provider model matching helpers", () => {
     expect(modelProviderMatchesRuntimeId("alibaba-token-plan/qwen3", "alibaba-coding-plan")).toBe(
       false,
     );
-    expect(modelProviderMatchesRuntimeId("kimi-code-plan-global/k3", "kimi-code-plan-global")).toBe(
-      true,
-    );
-    expect(modelProviderMatchesRuntimeId("kimi-code-plan-cn/k3", "kimi-code-plan-cn")).toBe(true);
-    expect(modelProviderMatchesRuntimeId("kimi/k3", "kimi-code-plan-cn")).toBe(true);
-    expect(modelProviderMatchesRuntimeId("kimi/k3", "kimi-code-plan-global")).toBe(false);
   });
 
   it("supports provider prefix fragment checks", () => {

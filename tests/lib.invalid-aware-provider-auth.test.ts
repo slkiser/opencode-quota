@@ -20,7 +20,7 @@ import {
 } from "./helpers/trusted-config-test-harness.js";
 
 const authMocks = vi.hoisted(() => ({
-  getAuthPaths: vi.fn(() => ["/tmp/auth.json"]),
+  getCredentialDatabasePaths: vi.fn(() => ["/tmp/opencode.db"]),
   readAuthFileCached: vi.fn(),
 }));
 
@@ -28,53 +28,16 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => createRuntimePathsMockModu
 vi.mock("fs", () => ({ existsSync: vi.fn() }));
 vi.mock("fs/promises", () => ({ readFile: vi.fn() }));
 vi.mock("../src/lib/opencode-auth.js", () => ({
-  getAuthPaths: authMocks.getAuthPaths,
+  getCredentialDatabasePaths: authMocks.getCredentialDatabasePaths,
   readAuthFileCached: authMocks.readAuthFileCached,
 }));
 
 type InvalidAwareDescriptor = ProviderApiKeyContractDescriptor<InvalidAwareApiKeyContractModule> & {
   displayName: string;
   defaultCacheMaxAgeMs: number;
-  endpoint?: "global" | "cn";
 };
 
 const providers = [
-  {
-    name: "Kimi Global",
-    displayName: "Kimi",
-    envVars: ["KIMI_GLOBAL_API_KEY"],
-    providerKeys: ["kimi-code-plan-global"],
-    authKeys: ["kimi-code-plan-global"],
-    defaultCacheMaxAgeMs: 5_000,
-    endpoint: "global",
-    load: async () => {
-      const module = await import("../src/lib/kimi-auth.js");
-      return {
-        parseAuth: module.resolveKimiGlobalAuth,
-        resolve: module.resolveKimiGlobalAuthCached,
-        diagnostics: module.getKimiGlobalAuthDiagnostics,
-        getConfigCandidates: module.getOpencodeConfigCandidatePaths,
-      };
-    },
-  },
-  {
-    name: "Kimi CN",
-    displayName: "Kimi",
-    envVars: ["KIMI_CN_API_KEY", "KIMI_API_KEY", "KIMI_CODE_API_KEY"],
-    providerKeys: ["kimi-code-plan-cn", "kimi-for-coding", "kimi-code", "kimi"],
-    authKeys: ["kimi-code-plan-cn", "kimi-for-coding", "kimi-code", "kimi"],
-    defaultCacheMaxAgeMs: 5_000,
-    endpoint: "cn",
-    load: async () => {
-      const module = await import("../src/lib/kimi-auth.js");
-      return {
-        parseAuth: module.resolveKimiCnAuth,
-        resolve: module.resolveKimiCnAuthCached,
-        diagnostics: module.getKimiCnAuthDiagnostics,
-        getConfigCandidates: module.getOpencodeConfigCandidatePaths,
-      };
-    },
-  },
   {
     name: "Z.ai",
     displayName: "Z.ai",
@@ -113,11 +76,6 @@ const providers = [
 
 describe("invalid-aware provider auth", () => {
   const originalEnv = process.env;
-  const configuredResult = (provider: InvalidAwareDescriptor, apiKey: string) => ({
-    state: "configured" as const,
-    apiKey,
-    ...(provider.endpoint ? { endpoint: provider.endpoint } : {}),
-  });
   const trustedPaths = getTrustedOpencodeConfigPaths();
   const workspacePaths = getWorkspaceOpencodeConfigPaths();
   let fsMocks: Awaited<ReturnType<typeof loadFsConfigMocks>>;
@@ -125,7 +83,7 @@ describe("invalid-aware provider auth", () => {
   function resetFixture(): void {
     resetContractEnv(originalEnv, providers);
     resetFsConfigMocks(fsMocks);
-    authMocks.getAuthPaths.mockReset().mockReturnValue(["/tmp/auth.json"]);
+    authMocks.getCredentialDatabasePaths.mockReset().mockReturnValue(["/tmp/opencode.db"]);
     authMocks.readAuthFileCached.mockReset().mockResolvedValue(null);
   }
 
@@ -174,7 +132,7 @@ describe("invalid-aware provider auth", () => {
       expect(
         module.parseAuth(withEntry({ type: "api", key: " contract-key " })),
         `${provider.name} configured`,
-      ).toEqual(configuredResult(provider, "contract-key"));
+      ).toEqual({ state: "configured", apiKey: "contract-key" });
     }
   });
 
@@ -214,7 +172,7 @@ describe("invalid-aware provider auth", () => {
         expect(
           module.parseAuth(authWithEntry(authKey, { type: "api", key: `${authKey}-key` })),
           `${provider.name} ${authKey}`,
-        ).toEqual(configuredResult(provider, `${authKey}-key`));
+        ).toEqual({ state: "configured", apiKey: `${authKey}-key` });
       }
 
       if (provider.authKeys.length > 1) {
@@ -237,23 +195,23 @@ describe("invalid-aware provider auth", () => {
       const module = await provider.load();
       resetFixture();
       process.env[provider.envVars[0]] = "first-key";
-      if (provider.envVars[1]) process.env[provider.envVars[1]] = "second-key";
+      process.env[provider.envVars[1]] = "second-key";
       authMocks.readAuthFileCached.mockResolvedValue(
         authWithEntry(provider.authKeys[0], { type: "oauth" }),
       );
 
-      await expect(module.resolve(), provider.name).resolves.toEqual(
-        configuredResult(provider, "first-key"),
-      );
+      await expect(module.resolve(), provider.name).resolves.toEqual({
+        state: "configured",
+        apiKey: "first-key",
+      });
       expect(authMocks.readAuthFileCached, provider.name).not.toHaveBeenCalled();
 
-      if (provider.envVars[1]) {
-        resetFixture();
-        process.env[provider.envVars[1]] = "second-key";
-        await expect(module.resolve(), `${provider.name} second env`).resolves.toEqual(
-          configuredResult(provider, "second-key"),
-        );
-      }
+      resetFixture();
+      process.env[provider.envVars[1]] = "second-key";
+      await expect(module.resolve(), `${provider.name} second env`).resolves.toEqual({
+        state: "configured",
+        apiKey: "second-key",
+      });
     }
   });
 
@@ -269,9 +227,10 @@ describe("invalid-aware provider auth", () => {
           [provider.providerKeys.at(-1)!]: { options: { apiKey: "alias-key" } },
         }),
       );
-      await expect(module.resolve(), provider.name).resolves.toEqual(
-        configuredResult(provider, "alias-key"),
-      );
+      await expect(module.resolve(), provider.name).resolves.toEqual({
+        state: "configured",
+        apiKey: "alias-key",
+      });
       expect(authMocks.readAuthFileCached, provider.name).not.toHaveBeenCalled();
 
       for (const workspacePath of [workspacePaths.json, workspacePaths.jsonc]) {
@@ -291,9 +250,10 @@ describe("invalid-aware provider auth", () => {
       authMocks.readAuthFileCached.mockResolvedValue(
         authWithEntry(provider.authKeys[0], { type: "api", key: "auth-key" }),
       );
-      await expect(module.resolve(), provider.name).resolves.toEqual(
-        configuredResult(provider, "auth-key"),
-      );
+      await expect(module.resolve(), provider.name).resolves.toEqual({
+        state: "configured",
+        apiKey: "auth-key",
+      });
       expect(authMocks.readAuthFileCached, provider.name).toHaveBeenLastCalledWith({
         maxAgeMs: provider.defaultCacheMaxAgeMs,
       });
@@ -317,14 +277,12 @@ describe("invalid-aware provider auth", () => {
     for (const provider of providers) {
       const module = await provider.load();
       resetFixture();
-      const diagnosticsEnv = provider.envVars.at(-1)!;
-      process.env[diagnosticsEnv] = "diag-key";
+      process.env[provider.envVars[1]] = "diag-key";
       await expect(module.diagnostics(), provider.name).resolves.toEqual({
         state: "configured",
-        source: `env:${diagnosticsEnv}`,
-        checkedPaths: [`env:${diagnosticsEnv}`],
-        authPaths: ["/tmp/auth.json"],
-        ...(provider.endpoint ? { endpoint: provider.endpoint } : {}),
+        source: `env:${provider.envVars[1]}`,
+        checkedPaths: [`env:${provider.envVars[1]}`],
+        credentialDatabasePaths: ["/tmp/opencode.db"],
       });
 
       resetFixture();
@@ -334,9 +292,9 @@ describe("invalid-aware provider auth", () => {
       const invalid = await module.diagnostics();
       expect(invalid, `${provider.name} invalid`).toEqual({
         state: "invalid",
-        source: "auth.json",
+        source: "opencode.db",
         checkedPaths: [],
-        authPaths: ["/tmp/auth.json"],
+        credentialDatabasePaths: ["/tmp/opencode.db"],
         error: `Unsupported ${provider.displayName} auth type: "oauth"`,
       });
       expect(JSON.stringify(invalid), `${provider.name} secret-free`).not.toContain("diag-key");
@@ -346,7 +304,7 @@ describe("invalid-aware provider auth", () => {
         state: "none",
         source: null,
         checkedPaths: [],
-        authPaths: ["/tmp/auth.json"],
+        credentialDatabasePaths: ["/tmp/opencode.db"],
       });
       expect(module.getConfigCandidates(), provider.name).toEqual(
         expectedTrustedConfigCandidates(),

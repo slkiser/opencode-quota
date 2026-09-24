@@ -23,7 +23,7 @@ async function mockResolvedKey(
   const resolved: QuotaProviderAuthResolution = {
     source: null,
     checkedPaths: [],
-    authPaths: [],
+    credentialDatabasePaths: [],
     ...overrides,
   };
   vi.mocked(resolveOpenRouterApiKey).mockResolvedValue(resolved);
@@ -39,8 +39,8 @@ function expectedStatusDetails(resolved: QuotaProviderAuthResolution) {
       value: resolved.checkedPaths.join(" | ") || "(none)",
     },
     {
-      key: "api_key_auth_paths",
-      value: resolved.authPaths.join(" | ") || "(none)",
+      key: "api_key_credential_database_paths",
+      value: resolved.credentialDatabasePaths.join(" | ") || "(none)",
     },
   ];
 }
@@ -53,7 +53,7 @@ describe("OpenRouter provider", () => {
     const resolved = await mockResolvedKey({
       source: null,
       checkedPaths: ["env:OPENROUTER_API_KEY", "/tmp/opencode.json"],
-      authPaths: ["/tmp/auth.json"],
+      credentialDatabasePaths: ["/tmp/opencode.db"],
     });
     vi.mocked(queryOpenRouterQuota).mockResolvedValueOnce(null);
 
@@ -73,14 +73,14 @@ describe("OpenRouter provider", () => {
     ["env", "env:OPENROUTER_API_KEY"],
     ["opencode.json", "/tmp/opencode.json"],
     ["opencode.jsonc", "/tmp/opencode.jsonc"],
-    ["auth.json", "/tmp/auth.json"],
+    ["opencode.db", "/tmp/opencode.db"],
   ] as const)("attaches safe %s key diagnostics and forwards that resolution", async (source, path) => {
     const { queryOpenRouterQuota } = await import("../src/lib/openrouter.js");
     const resolved = await mockResolvedKey({
       key: SECRET_CANARY,
       source,
       checkedPaths: [path],
-      authPaths: ["/tmp/auth.json"],
+      credentialDatabasePaths: ["/tmp/opencode.db"],
     });
     vi.mocked(queryOpenRouterQuota).mockResolvedValueOnce({
       success: true,
@@ -126,9 +126,9 @@ describe("OpenRouter provider", () => {
     const { queryOpenRouterQuota } = await import("../src/lib/openrouter.js");
     const resolved = await mockResolvedKey({
       key: SECRET_CANARY,
-      source: "auth.json",
+      source: "opencode.db",
       checkedPaths: ["env:OPENROUTER_API_KEY", "/tmp/opencode.json"],
-      authPaths: ["/tmp/auth.json"],
+      credentialDatabasePaths: ["/tmp/opencode.db"],
     });
     vi.mocked(queryOpenRouterQuota).mockResolvedValueOnce({
       success: false,

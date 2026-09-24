@@ -12,6 +12,8 @@ const authMocks = vi.hoisted(() => ({
   resolveCn: vi.fn(),
   resolveGlobalWithDiagnostics: vi.fn(),
   resolveCnWithDiagnostics: vi.fn(),
+  parseGlobal: vi.fn(),
+  parseCn: vi.fn(),
 }));
 
 vi.mock("../src/lib/kimi-auth.js", () => ({
@@ -19,6 +21,8 @@ vi.mock("../src/lib/kimi-auth.js", () => ({
   resolveKimiCnAuthCached: authMocks.resolveCn,
   resolveKimiGlobalAuthWithDiagnosticsCached: authMocks.resolveGlobalWithDiagnostics,
   resolveKimiCnAuthWithDiagnosticsCached: authMocks.resolveCnWithDiagnostics,
+  resolveKimiGlobalAuth: authMocks.parseGlobal,
+  resolveKimiCnAuth: authMocks.parseCn,
   DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS: 5_000,
 }));
 
@@ -26,8 +30,13 @@ vi.mock("../src/lib/kimi.js", () => ({ queryKimiQuota: vi.fn() }));
 vi.mock("../src/lib/provider-availability.js", () => ({
   isCanonicalProviderAvailable: vi.fn(),
 }));
+vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/opencode-auth.js")>()),
+  readCredentialRows: vi.fn().mockResolvedValue([]),
+}));
 
 import { queryKimiQuota } from "../src/lib/kimi.js";
+import { readCredentialRows } from "../src/lib/opencode-auth.js";
 import { isCanonicalProviderAvailable } from "../src/lib/provider-availability.js";
 import { kimiCodePlanCnProvider, kimiCodePlanGlobalProvider } from "../src/providers/kimi-code.js";
 
@@ -68,7 +77,7 @@ describe("Kimi regional providers", () => {
         source: "env:KIMI_GLOBAL_API_KEY",
         endpoint: "global",
         checkedPaths: ["env:KIMI_GLOBAL_API_KEY"],
-        authPaths: [],
+        credentialDatabasePaths: [],
       },
     });
     authMocks.resolveCnWithDiagnostics.mockResolvedValue({
@@ -78,7 +87,7 @@ describe("Kimi regional providers", () => {
         source: "env:KIMI_CN_API_KEY",
         endpoint: "cn",
         checkedPaths: ["env:KIMI_CN_API_KEY"],
-        authPaths: [],
+        credentialDatabasePaths: [],
       },
     });
     vi.mocked(isCanonicalProviderAvailable).mockResolvedValue(true);
@@ -230,7 +239,7 @@ describe("Kimi regional providers", () => {
         state: "none",
         source: null,
         checkedPaths: ["/trusted/opencode.json"],
-        authPaths: ["/trusted/auth.json"],
+        credentialDatabasePaths: ["/trusted/opencode.db"],
       },
     });
     expectNotAttempted(await kimiCodePlanGlobalProvider.fetch({ config: {} } as any));
@@ -239,9 +248,9 @@ describe("Kimi regional providers", () => {
       auth: { state: "invalid", error: "Invalid API key" },
       diagnostics: {
         state: "invalid",
-        source: "auth.json",
+        source: "opencode.db",
         checkedPaths: ["/trusted/opencode.json"],
-        authPaths: ["/trusted/auth.json"],
+        credentialDatabasePaths: ["/trusted/opencode.db"],
         error: "Invalid API key",
       },
     });
@@ -251,7 +260,7 @@ describe("Kimi regional providers", () => {
     expect(invalid.statusDetails).toEqual(
       expect.arrayContaining([
         { key: "auth_state", value: "invalid" },
-        { key: "api_key_source", value: "auth.json" },
+        { key: "api_key_source", value: "opencode.db" },
         { key: "auth_error", value: "Invalid API key" },
         { key: "api_endpoint", value: "cn" },
       ]),
@@ -265,5 +274,65 @@ describe("Kimi regional providers", () => {
     const out = await kimiCodePlanGlobalProvider.fetch({ config: {} } as any);
     expectAttemptedWithErrorLabel(out, "Kimi Code");
     expect(out.statusDetails).toContainEqual({ key: "live_fetch_error", value: "Unauthorized" });
+  });
+
+  it("keeps valid inactive CN credentials and errors alongside invalid rows, without querying Global", async () => {
+    authMocks.resolveCnWithDiagnostics.mockResolvedValueOnce({
+      auth: { state: "invalid", error: "empty key" },
+      diagnostics: {
+        state: "invalid",
+        source: "opencode.db",
+        error: "empty key",
+        checkedPaths: [],
+        credentialDatabasePaths: [],
+      },
+    });
+    vi.mocked(readCredentialRows).mockResolvedValueOnce([
+      {
+        id: "bad",
+        integrationId: "kimi",
+        label: "shared",
+        active: true,
+        value: { type: "api", key: "" },
+      },
+      {
+        id: "good",
+        integrationId: "kimi-code-plan-cn",
+        label: "shared",
+        active: false,
+        value: { type: "api", key: "cn-key" },
+      },
+      {
+        id: "global",
+        integrationId: "kimi-code-plan-global",
+        label: "other",
+        active: false,
+        value: { type: "api", key: "global-key" },
+      },
+    ] as never);
+    authMocks.parseCn.mockImplementation((auth: Record<string, { key: string }>) => {
+      const key = Object.values(auth)[0]?.key;
+      return key
+        ? { state: "configured", apiKey: key, endpoint: "cn" }
+        : { state: "invalid", error: "empty key" };
+    });
+    vi.mocked(queryKimiQuota).mockResolvedValueOnce({
+      success: true,
+      label: "Kimi Code (CN)",
+      windows: successfulWindows,
+    });
+
+    const out = await kimiCodePlanCnProvider.fetch({ config: {} } as any);
+
+    expect(out.attempted).toBe(true);
+    expect(out.errors).toEqual([
+      { label: expect.stringContaining("shared"), message: "empty key" },
+    ]);
+    expect(out.entries).toHaveLength(2);
+    expect(out.entries[0]?.accounting.sourceId).toBe("good");
+    expect(queryKimiQuota).toHaveBeenCalledOnce();
+    expect(queryKimiQuota).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: "cn-key", endpoint: "cn" }),
+    );
   });
 });

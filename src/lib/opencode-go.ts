@@ -1,5 +1,6 @@
 import { sanitizeDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
+import { OPENCODE_CONSOLE_BASE_URL } from "./opencode-console-auth.js";
 import type { OpenCodeGoResult, OpenCodeGoWindow, OpenCodeGoWindowKey } from "./types.js";
 
 const OPENCODE_GO_USAGE_URL = "https://opencode.ai/zen/go/v1/usage";
@@ -197,5 +198,124 @@ export async function queryOpenCodeGoQuota(
     });
   } catch (error) {
     return { success: false, error: errorMessage(error, accessToken), retryable: true };
+  }
+}
+
+const OPENCODE_CONSOLE_GO_STATUS_URL = `${OPENCODE_CONSOLE_BASE_URL}/api/go/status`;
+
+function asMicroCents(value: unknown): number | null {
+  const parsed = typeof value === "string" ? Number(value) : typeof value === "number" ? value : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeConsoleMeter(
+  windowKey: OpenCodeGoWindowKey,
+  meter: Record<string, unknown>,
+  fallbackResetsAtIso: string | null,
+): OpenCodeGoWindow | OpenCodeGoResult {
+  const limit = asMicroCents(meter.limitMicroCents);
+  const used = asMicroCents(meter.usedMicroCents);
+  if (limit === null || used === null || limit < 0 || used < 0) {
+    return contractError(`console ${windowKey} meter microcents are invalid`);
+  }
+
+  const percent =
+    limit === 0 ? (used > 0 ? 100 : 0) : Math.min(100, Math.max(0, Math.round((used / limit) * 100)));
+  const resetsAt = typeof meter.resetsAt === "string" && meter.resetsAt ? meter.resetsAt : fallbackResetsAtIso;
+  if (!resetsAt || !Number.isFinite(Date.parse(resetsAt))) {
+    return contractError(`console ${windowKey} resetsAt is missing or invalid`);
+  }
+
+  return {
+    status: percent >= 100 ? "rate-limited" : "ok",
+    usagePercent: percent,
+    percentRemaining: 100 - percent,
+    resetTimeIso: new Date(Date.parse(resetsAt)).toISOString(),
+  };
+}
+
+/**
+ * Read OpenCode Go subscription windows from the Console API.
+ *
+ * The Console tracks Go plan access (five-hour, weekly, and monthly meters)
+ * for the member that owns the OAuth credential, so this works for fresh
+ * accounts without any pre-2.0 workspace API key.
+ */
+export async function queryOpenCodeGoConsoleStatus(
+  credential: { accessToken: string },
+  options: { requestTimeoutMs?: number } = {},
+): Promise<OpenCodeGoResult> {
+  try {
+    return await fetchWithTimeout(OPENCODE_CONSOLE_GO_STATUS_URL, {
+      request: {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${credential.accessToken}`,
+          Accept: "application/json",
+        },
+      },
+      timeoutMs: options.requestTimeoutMs,
+      consume: async (response) => {
+        if (!response.ok) {
+          // 404 on this member-scoped route is read as "no Go subscription".
+          // 403 is kept ambiguous (it could be an access/permission issue on
+          // the console side rather than a subscription state), so callers
+          // fall back instead of showing a not-subscribed state.
+          if (response.status === 404) {
+            return {
+              success: false,
+              error: "OpenCode Go subscription not found for this console account (404)",
+              notSubscribed: true,
+            };
+          }
+          return {
+            success: false,
+            error: `OpenCode Console API error ${response.status} (/api/go/status)`,
+            retryable: isRetryableHttpStatus(response.status),
+          };
+        }
+
+        let payload: unknown;
+        try {
+          payload = JSON.parse(await response.text());
+        } catch {
+          return contractError("console response is not valid JSON");
+        }
+        const root = asRecord(payload);
+        if (!root) return contractError("console root must be an object");
+
+        const access = asRecord(root.access);
+        if (!access) {
+          return {
+            success: false,
+            error: "OpenCode Go subscription is not active",
+            notSubscribed: true,
+          };
+        }
+
+        const meters = asRecord(access.meters);
+        if (!meters) return contractError("console access meters are missing");
+
+        const endsAt = typeof access.endsAt === "string" ? access.endsAt : null;
+        const normalized = {} as Record<OpenCodeGoWindowKey, OpenCodeGoWindow>;
+        const meterByKey: Array<[OpenCodeGoWindowKey, string]> = [
+          ["rolling", "fiveHour"],
+          ["weekly", "week"],
+          ["monthly", "month"],
+        ];
+        for (const [windowKey, meterKey] of meterByKey) {
+          const meter = meters[meterKey];
+          const meterRecord = asRecord(meter);
+          if (!meterRecord) return contractError(`console ${meterKey} meter is missing`);
+          const window = normalizeConsoleMeter(windowKey, meterRecord, endsAt);
+          if ("success" in window) return window;
+          normalized[windowKey] = window;
+        }
+
+        return { success: true, rolling: normalized.rolling, weekly: normalized.weekly, monthly: normalized.monthly };
+      },
+    });
+  } catch (error) {
+    return { success: false, error: errorMessage(error, credential.accessToken), retryable: true };
   }
 }

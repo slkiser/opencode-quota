@@ -33,7 +33,7 @@ describe("Kilo Gateway provider", () => {
       configured: true,
       source: "env:KILO_API_KEY",
       checkedPaths: ["env:KILO_API_KEY"],
-      authPaths: ["/tmp/auth.json"],
+      credentialDatabasePaths: ["/tmp/opencode.db"],
     });
   });
 

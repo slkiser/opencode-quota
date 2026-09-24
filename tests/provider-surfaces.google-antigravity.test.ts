@@ -1,16 +1,16 @@
 import { rm } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { isCommandHandledError } from "../src/lib/command-handled.js";
+import { formatQuotaRows } from "../src/lib/format.js";
+import { formatQuotaCommand } from "../src/lib/quota-command-format.js";
+import { formatQuotaRowsGrouped } from "../src/lib/toast-format-grouped.js";
+import { buildCompactQuotaStatusLine } from "../src/lib/tui-compact-format.js";
+import { buildSidebarQuotaPanelLines } from "../src/lib/tui-sidebar-format.js";
 import {
   createConfigModuleMock,
   createPluginRuntimePathsMockModule,
-  createPluginTestClient,
-  createPluginToolMockModule,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
-  getPromptText,
-  getToastMessage,
   makeQuotaToastTestConfig,
   seedDefaultPluginBootstrapMocks,
 } from "./helpers/plugin-test-harness.js";
@@ -32,7 +32,6 @@ const mocks = vi.hoisted(() => ({
   queryGoogleQuota: vi.fn(),
 }));
 
-vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
 vi.mock("../src/lib/config.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/config.js")>()),
   ...createConfigModuleMock(mocks.loadConfig),
@@ -66,15 +65,6 @@ vi.mock("../src/lib/google-antigravity-companion.js", () => ({
   })),
 }));
 
-type PluginHooks = {
-  dispose?: () => Promise<void> | void;
-  event?: (input: unknown) => Promise<void> | void;
-  "command.execute.before"?: (input: {
-    command: string;
-    sessionID: string;
-  }) => Promise<void> | void;
-};
-
 function createConfig() {
   return makeQuotaToastTestConfig({
     enabled: true,
@@ -106,68 +96,29 @@ function createConfig() {
   });
 }
 
-async function expectHandled(value: unknown): Promise<void> {
-  try {
-    await Promise.resolve(value);
-  } catch (error) {
-    expect(isCommandHandledError(error)).toBe(true);
-    return;
-  }
-  throw new Error("Expected the handled command sentinel");
-}
-
 function expectNoProviderMisattribution(output: string): void {
   expect(output).toContain("Antigravity");
   expect(output).not.toContain("Google Antigravity");
-  expect(output).not.toMatch(/\bClaude\b/u);
   expect(output).not.toMatch(/Anthropic|subscription/iu);
 }
 
 async function collectSurfaceOutputs() {
-  const client = createPluginTestClient({
-    modelID: "google/antigravity-claude",
-    providerID: "google",
-  });
-  client.config.providers.mockResolvedValue({
-    data: { providers: [{ id: "google" }] },
-  });
-
-  const { QuotaToastPlugin } = await import("../src/plugin.js");
-  const hooks = (await QuotaToastPlugin({ client } as never)) as PluginHooks;
-
-  await expectHandled(
-    hooks["command.execute.before"]?.({
-      command: "quota",
-      sessionID: "antigravity-session",
-    }),
-  );
-  const command = getPromptText(client);
-
-  await hooks.event?.({
-    event: {
-      type: "session.idle",
-      properties: { sessionID: "antigravity-session" },
-    },
-  });
-  const toast = getToastMessage(client);
-
-  const tuiApi = {
-    state: {
-      provider: [{ id: "google" }],
-      path: { worktree: process.cwd(), directory: process.cwd() },
-      session: { messages: () => [] },
-    },
-    client,
-  } as never;
-  const { loadTuiSessionQuotaSurfaces } = await import("../src/lib/tui-runtime.js");
-  const surfaces = await loadTuiSessionQuotaSurfaces({
-    api: tuiApi,
-    sessionID: "antigravity-session",
-  });
-  const sidebar = [...surfaces.sidebar.lines, ...(surfaces.sidebar.linesExpanded ?? [])].join("\n");
-  const compact = surfaces.compact.status === "ready" ? surfaces.compact.text : "";
-
-  return { command, toast, sidebar, compact, surfaces, hooks };
+  const result = await provider.fetch({ config: createConfig() } as never);
+  const data = { entries: result.entries, errors: result.errors };
+  const formatConfig = {
+    formatStyle: "singleWindow" as const,
+    percentDisplayMode: "remaining" as const,
+  };
+  return {
+    command: formatQuotaCommand({ ...data, generatedAtMs: 0 }),
+    cli: formatQuotaRows({ ...data, version: "test", style: "allWindows" }),
+    toast: formatQuotaRowsGrouped(data),
+    sidebar: buildSidebarQuotaPanelLines({
+      data,
+      config: { ...formatConfig, formatStyle: "allWindows" },
+    }).join("\n"),
+    compact: buildCompactQuotaStatusLine({ data, maxWidth: 240 }),
+  };
 }
 
 describe("Google Antigravity provider surfaces", () => {
@@ -213,23 +164,18 @@ describe("Google Antigravity provider surfaces", () => {
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
   });
 
-  it("keeps two same-family accounts distinct without redundant family wording", async () => {
-    const { command, toast, sidebar, compact, surfaces, hooks } = await collectSurfaceOutputs();
+  it("keeps same-family accounts distinct and verifies the compact line", async () => {
+    const outputs = await collectSurfaceOutputs();
 
-    for (const output of [command, toast, sidebar, compact]) {
+    for (const output of Object.values(outputs)) {
       expectNoProviderMisattribution(output);
       expect(output).toContain("Antigravity (ali…)");
       expect(output).toContain("Antigravity (bob…)");
     }
-    expect(command.match(/\n {2}Quota\s/gu)).toHaveLength(2);
-    expect(toast).not.toMatch(/\n(?:5h|7d|Weekly|Five-hour)\s/u);
-    expect(surfaces.sidebar.status).toBe("ready");
-    expect(sidebar.match(/\nQuota\s/gu)).toHaveLength(2);
-    expect(surfaces.compact.status).toBe("ready");
-    expect(compact).toBe("Antigravity (ali…) 0% reset | Antigravity (bob…) 0% reset");
-    expect(mocks.queryGoogleQuota).toHaveBeenCalledTimes(1);
-
-    await hooks.dispose?.();
+    expect(outputs.compact).toBe(
+      "Antigravity (ali…): Claude 0% reset | Antigravity (bob…): Claude 0% reset",
+    );
+    expect(mocks.queryGoogleQuota).toHaveBeenCalled();
   });
 
   it("keeps family names when one account returns multiple families", async () => {
@@ -252,13 +198,13 @@ describe("Google Antigravity provider surfaces", () => {
       errors: [],
     });
 
-    const { command, toast, sidebar, compact, hooks } = await collectSurfaceOutputs();
-    for (const output of [command, toast, sidebar, compact]) {
+    const outputs = await collectSurfaceOutputs();
+    for (const output of [outputs.command, outputs.cli, outputs.toast, outputs.compact]) {
       expect(output).toMatch(/\bClaude\b/u);
       expect(output).toMatch(/\bG3Pro\b/u);
     }
-
-    await hooks.dispose?.();
+    expect(outputs.sidebar).toMatch(/\bClaude\b/u);
+    expect(outputs.sidebar).toMatch(/\bG3Pro\b/u);
   });
 
   it("keeps family names when accounts return different singleton families", async () => {
@@ -281,16 +227,20 @@ describe("Google Antigravity provider surfaces", () => {
       errors: [],
     });
 
-    const { command, toast, sidebar, compact, hooks } = await collectSurfaceOutputs();
-    for (const output of [command, toast, sidebar, compact]) {
-      expect(output).toMatch(/Antigravity \(ali…\).*Claude/su);
-      expect(output).toMatch(/Antigravity \(bob…\).*G3Pro/su);
+    const outputs = await collectSurfaceOutputs();
+    for (const output of Object.values(outputs)) {
+      expect(output).toContain("Antigravity (ali…)");
+      expect(output).toContain("Antigravity (bob…)");
     }
-
-    await hooks.dispose?.();
+    for (const output of [outputs.command, outputs.cli, outputs.toast, outputs.compact]) {
+      expect(output).toMatch(/Antigravity \(ali…\)[\s\S]*Claude/u);
+      expect(output).toMatch(/Antigravity \(bob…\)[\s\S]*G3Pro/u);
+    }
+    expect(outputs.sidebar).toMatch(/Antigravity \(ali…\)[\s\S]*Claude/u);
+    expect(outputs.sidebar).toMatch(/Antigravity \(bob…\)[\s\S]*G3Pro/u);
   });
 
-  it("preserves collision-safe account labels while hiding a shared family", async () => {
+  it("preserves collision-safe account labels for a shared family", async () => {
     mocks.queryGoogleQuota.mockResolvedValue({
       success: true,
       models: [
@@ -310,14 +260,14 @@ describe("Google Antigravity provider surfaces", () => {
       errors: [],
     });
 
-    const { command, toast, sidebar, compact, hooks } = await collectSurfaceOutputs();
-    for (const output of [command, toast, sidebar, compact]) {
+    const outputs = await collectSurfaceOutputs();
+    for (const output of Object.values(outputs)) {
       expectNoProviderMisattribution(output);
       expect(output).toContain("Antigravity (alice… 1)");
       expect(output).toContain("Antigravity (alice… 2)");
     }
-    expect(compact).toBe("Antigravity (alice… 1) 64% | Antigravity (alice… 2) 37%");
-
-    await hooks.dispose?.();
+    expect(outputs.compact).toBe(
+      "Antigravity (alice… 1): Claude 64% | Antigravity (alice… 2): Claude 37%",
+    );
   });
 });

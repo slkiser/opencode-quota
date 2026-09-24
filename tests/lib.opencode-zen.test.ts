@@ -1,423 +1,213 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => {
-  const fetchResponse = vi.fn();
-  return {
-    fetchResponse,
-    fetchWithTimeout: vi.fn(
-      async (
-        _url: string,
-        options: {
-          consume: (response: Response, signal: AbortSignal) => Promise<unknown> | unknown;
-        },
-      ) => {
-        const response = await fetchResponse();
-        return await options.consume(response, new AbortController().signal);
+const mocks = vi.hoisted(() => ({
+  route: vi.fn<(url: string) => Response>(),
+  fetchWithTimeout: vi.fn(
+    async (
+      url: string,
+      options: {
+        request: { headers: Record<string, string> };
+        consume: (response: Response, signal: AbortSignal) => Promise<unknown> | unknown;
       },
-    ),
-  };
-});
+    ) => {
+      const response = mocks.route(url);
+      return await options.consume(response, new AbortController().signal);
+    },
+  ),
+}));
 
 vi.mock("../src/lib/http.js", () => ({
   fetchWithTimeout: mocks.fetchWithTimeout,
 }));
 
 import {
-  _parseDataSlotBillingData,
-  _parseDataSlotPaymentData,
-  _parseNewSsrBillingData,
-  _parseNewSsrPaymentData,
-  _parseSsrBillingData,
-  _parseSsrPaymentData,
   OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR,
   queryOpenCodeZenQuota,
 } from "../src/lib/opencode-zen.js";
 
-function response(body: string, status = 200): Response {
-  return new Response(body, { status });
+function currentMonthPrefix(): string {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-function ssrHtml(balance: number, monthlyLimit?: number, monthlyUsage?: number): string {
-  const fields = [
-    `monthlyUsage:${monthlyUsage ?? ""}`,
-    `balance:${balance}`,
-    `monthlyLimit:${monthlyLimit ?? ""}`,
-  ].join(",");
-  return `<html><script>$R[42]={billing:{${fields}}}</script></html>`;
+type Route = { status?: number; body?: unknown; text?: string };
+
+function routes(
+  responses: Record<string, Route>,
+  recorded: Array<{ url: string; headers: Record<string, string> }> = [],
+): void {
+  mocks.route.mockImplementation((url) => {
+    const path = new URL(url).pathname;
+    const spec = responses[path];
+    if (!spec) throw new Error(`unexpected console fetch: ${url}`);
+    recorded.add({ url: path, headers: {} });
+    void recorded;
+    return new Response(spec.text ?? JSON.stringify(spec.body ?? null), {
+      status: spec.status ?? 200,
+    });
+  });
+  void recorded;
 }
 
-function dataSlotHtml(): string {
-  return `<div data-slot="billing-item">
-    <span data-slot="billing-label">Balance</span>
-    <span data-slot="billing-value">$42.50</span>
-  </div>
-  <div data-slot="billing-item">
-    <span data-slot="billing-label">Monthly Limit</span>
-    <span data-slot="billing-value">$100.00</span>
-  </div>
-  <div data-slot="billing-item">
-    <span data-slot="billing-label">Monthly Usage</span>
-    <span data-slot="billing-value">$12.50</span>
-  </div>`;
-}
+const recorded: Array<{ url: string; headers: Record<string, string> }> = [];
 
-function newSsrBillingHtml(balance: number, monthlyLimit?: number, monthlyUsage?: number): string {
-  const fields = [
-    'customerID:"cus_1"',
-    `balance:${balance}`,
-    ...(monthlyLimit === undefined ? [] : [`monthlyLimit:${monthlyLimit}`]),
-    ...(monthlyUsage === undefined ? [] : [`monthlyUsage:${monthlyUsage}`]),
-    `timeMonthlyUsageUpdated:$R[26]=new Date("2026-08-11T07:05:05.000Z")`,
-    "lite:$R[27]={useBalance:!0}",
-  ].join(",");
-  return (
-    `<html><script>_$HY.r["billing.get[\\"wrk_X\\"]"]=$R[21]=$R[2]($R[22]={p:0,s:0,f:0});` +
-    `$R[16]($R[22],$R[25]={${fields}});</script></html>`
-  );
-}
-
-function newSsrPaymentHtml(
-  amounts: Array<number | { amount: number; refunded?: boolean }>,
-): string {
-  const entries = amounts
-    .map((entry, index) => {
-      const amount = typeof entry === "number" ? entry : entry.amount;
-      const refunded = typeof entry === "number" ? false : Boolean(entry.refunded);
-      const timeRefunded = refunded ? `new Date("2026-08-01T00:00:00.000Z")` : "null";
-      return `$R[${39 + index * 2}]={id:"pay_${index}",amount:${amount},timeRefunded:${timeRefunded}}`;
-    })
-    .join(",");
-  return (
-    `<html><script>_$HY.r["payment.list[\\"wrk_X\\"]"]=$R[34]=$R[2]($R[35]={p:0,s:0,f:0});` +
-    `$R[16]($R[35],$R[38]=[${entries}]);</script></html>`
-  );
-}
-
-describe("OpenCode Zen billing parser", () => {
-  it("parses SolidJS fields independently of field order", () => {
-    expect(_parseSsrBillingData(ssrHtml(425_000_000, 20, 12_500_000))).toEqual({
-      balance: 425_000_000,
-      monthlyLimit: 20,
-      monthlyUsage: 12_500_000,
-      lastPayment: null,
-      reload: false,
-      reloadAmount: null,
-      reloadTrigger: null,
-    });
-  });
-
-  it("accepts a zero balance and omits missing optional values", () => {
-    expect(_parseSsrBillingData("$R[1]={billing:{balance:0}}")).toEqual({
-      balance: 0,
-      monthlyLimit: null,
-      monthlyUsage: null,
-      lastPayment: null,
-      reload: false,
-      reloadAmount: null,
-      reloadTrigger: null,
-    });
-  });
-
-  it.each([
-    ["empty HTML", ""],
-    ["missing balance", "$R[1]={billing:{monthlyLimit:20}}"],
-    ["negative balance", "$R[1]={billing:{balance:-1}}"],
-  ])("rejects %s", (_label, html) => {
-    expect(_parseSsrBillingData(html)).toBeNull();
-  });
-
-  it("parses the data-slot fallback and preserves PR #140 units", () => {
-    expect(_parseDataSlotBillingData(dataSlotHtml())).toEqual({
-      balance: 42.5 * OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR,
-      monthlyLimit: 100,
-      monthlyUsage: 12.5 * OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR,
-      lastPayment: null,
-      reload: false,
-      reloadAmount: null,
-      reloadTrigger: null,
-    });
-  });
-
-  it("parses the original SSR payment-list fallback", () => {
-    expect(
-      _parseSsrPaymentData('$R["payment.list"]=[{"amount":2100000000,"workspaceID":"wrk"}]'),
-    ).toBe(21);
-  });
-
-  it("uses the first non-refunded positive data-slot payment", () => {
-    const html = `<table data-slot="payments-table-element">
-      <tr><td data-slot="payment-amount" data-refunded="true">$10.00</td></tr>
-      <tr><td data-slot="payment-amount">$20.00</td></tr>
-    </table>`;
-    expect(_parseDataSlotPaymentData(html)).toBe(20);
-  });
-
-  it("clamps a negative new-SSR balance to zero and keeps dollars as-is", () => {
-    expect(_parseNewSsrBillingData(newSsrBillingHtml(-14_496, 50, 17_321_332))).toEqual({
-      balance: 0,
-      monthlyLimit: 50,
-      monthlyUsage: 17_321_332,
-      lastPayment: null,
-      reload: false,
-      reloadAmount: null,
-      reloadTrigger: null,
-    });
-  });
-
-  it("keeps a positive new-SSR balance in billing units", () => {
-    expect(_parseNewSsrBillingData(newSsrBillingHtml(425_000_000, 20, 12_500_000))).toEqual({
-      balance: 425_000_000,
-      monthlyLimit: 20,
-      monthlyUsage: 12_500_000,
-      lastPayment: null,
-      reload: false,
-      reloadAmount: null,
-      reloadTrigger: null,
-    });
-  });
-
-  it("parses auto-reload fields from the new billing object", () => {
-    const html =
-      `<html><script>_$HY.r["billing.get[\\"wrk_X\\"]"]=$R[21]=$R[2]($R[22]={p:0,s:0,f:0});` +
-      `$R[16]($R[22],$R[25]={customerID:"cus_1",balance:1659413744,` +
-      `reload:!0,reloadAmount:20,reloadTrigger:5,monthlyLimit:20,monthlyUsage:212149669});</script></html>`;
-    expect(_parseNewSsrBillingData(html)).toEqual({
-      balance: 1_659_413_744,
-      monthlyLimit: 20,
-      monthlyUsage: 212_149_669,
-      lastPayment: null,
-      reload: true,
-      reloadAmount: 20,
-      reloadTrigger: 5,
-    });
-  });
-
-  it("returns the first positive payment in provider order", () => {
-    expect(
-      _parseNewSsrPaymentData(newSsrPaymentHtml([500_000_000, 2_000_000_000, 1_000_000_000])),
-    ).toBe(5);
-  });
-
-  it("skips refunded payments in the new payment.list array", () => {
-    expect(
-      _parseNewSsrPaymentData(
-        newSsrPaymentHtml([{ amount: 2_000_000_000, refunded: true }, { amount: 1_000_000_000 }]),
-      ),
-    ).toBe(10);
-  });
-
-  it("parses reordered payment fields and skips malformed or explicitly refunded entries", () => {
-    const html =
-      `<html><script>_$HY.r["payment.list[\\"wrk_X\\"]"]=$R[34]=$R[2]($R[35]={p:0,s:0,f:0});` +
-      `$R[16]($R[35],$R[38]=[` +
-      `$R[39]={timeRefunded:null,amount:"invalid"},` +
-      `$R[41]={timeRefunded:new Date("2026-08-01T00:00:00.000Z"),id:"refunded",amount:2000000000},` +
-      `$R[43]={refunded:true,note:"skip",amount:1500000000},` +
-      `$R[45]={timeRefunded:null,note:"brace } and escaped \\" quote {",id:"valid",amount:1000000000},` +
-      `$R[47]={amount:3000000000}` +
-      `]);</script></html>`;
-
-    expect(_parseNewSsrPaymentData(html)).toBe(10);
-  });
-
-  it("returns null when the new payment.list has no positive amount", () => {
-    expect(_parseNewSsrPaymentData(newSsrPaymentHtml([0, 0]))).toBeNull();
-  });
-
-  it("returns null when the new SSR keys are absent", () => {
-    expect(_parseNewSsrBillingData("<html><body>Nothing here</body></html>")).toBeNull();
-    expect(_parseNewSsrPaymentData("<html><body>Nothing here</body></html>")).toBeNull();
-  });
-
-  it("parses a nested object literal inside the new billing object", () => {
-    const html =
-      `<html><script>_$HY.r["billing.get[\\"wrk_X\\"]"]=$R[21]=$R[2]($R[22]={p:0,s:0,f:0});` +
-      `$R[16]($R[22],$R[25]={customerID:"cus_1",balance:425000000,` +
-      `lite:$R[27]={useBalance:!0},monthlyLimit:20,monthlyUsage:12500000});</script></html>`;
-    expect(_parseNewSsrBillingData(html)).toEqual({
-      balance: 425_000_000,
-      monthlyLimit: 20,
-      monthlyUsage: 12_500_000,
-      lastPayment: null,
-      reload: false,
-      reloadAmount: null,
-      reloadTrigger: null,
-    });
-  });
-
-  it("scopes billing fields and ignores escaped quotes or braces inside strings", () => {
-    const html =
-      `<script>const unrelated={balance:999,monthlyLimit:999};</script>` +
-      `<script>_$HY.r["billing.get[\\"wrk_X\\"]"]=$R[21]=$R[2]($R[22]={p:0,s:0,f:0});` +
-      `$R[16]($R[22],$R[25]={note:"brace } and escaped \\" quote {",` +
-      `balance:425000000,monthlyLimit:20,monthlyUsage:12500000});</script>`;
-
-    expect(_parseNewSsrBillingData(html)).toEqual({
-      balance: 425_000_000,
-      monthlyLimit: 20,
-      monthlyUsage: 12_500_000,
-      lastPayment: null,
-      reload: false,
-      reloadAmount: null,
-      reloadTrigger: null,
-    });
-  });
-
-  it("returns null for missing optional fields in the new billing object", () => {
-    expect(_parseNewSsrBillingData(newSsrBillingHtml(425_000_000))).toEqual({
-      balance: 425_000_000,
-      monthlyLimit: null,
-      monthlyUsage: null,
-      lastPayment: null,
-      reload: false,
-      reloadAmount: null,
-      reloadTrigger: null,
-    });
-  });
-
-  it("returns null for unbalanced or unterminated new SSR assignments", () => {
-    const unbalancedBilling =
-      `<script>_$HY.r["billing.get[\\"wrk_X\\"]"]=$R[21]=$R[2]($R[22]={p:0,s:0,f:0});` +
-      `$R[16]($R[22],$R[25]={note:"unterminated },balance:425000000});</script>`;
-    const unbalancedPayments =
-      `<script>_$HY.r["payment.list[\\"wrk_X\\"]"]=$R[34]=$R[2]($R[35]={p:0,s:0,f:0});` +
-      `$R[16]($R[35],$R[38]=[$R[39]={amount:100000000,timeRefunded:null});</script>`;
-
-    expect(_parseNewSsrBillingData(unbalancedBilling)).toBeNull();
-    expect(_parseNewSsrPaymentData(unbalancedPayments)).toBeNull();
-  });
-});
-
-describe("queryOpenCodeZenQuota", () => {
+describe("OpenCode Zen console quota query", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    recorded.length = 0;
   });
 
-  it("uses the exact fixed GET contract from PR #140", async () => {
-    mocks.fetchResponse.mockResolvedValueOnce(response("$R[1]={billing:{balance:50000000}}"));
-
-    await queryOpenCodeZenQuota("wrk /unsafe", "cookie-secret", {
-      requestTimeoutMs: 4_321,
+  it("queries the console billing and usage endpoints in contract order", async () => {
+    const responses: Record<string, Route> = {
+      "/console/api/billing/status": { body: { billingMode: "prepaid", balanceMicroCents: "1234" } },
+      "/console/api/billing/account": { body: { creditLimitMicroCents: null } },
+      "/console/api/billing/auto-recharge": {
+        body: { enabled: true, thresholdDollars: 5, rechargeAmountDollars: 20 },
+      },
+      "/console/api/usage/cost-by-day": { body: [] },
+    };
+    let calls = 0;
+    mocks.route.mockImplementation((url: string) => {
+      const path = new URL(url).pathname;
+      const spec = responses[path];
+      if (!spec) throw new Error(`unexpected console fetch: ${url}`);
+      calls++;
+      return new Response(JSON.stringify(spec.body ?? null), { status: spec.status ?? 200 });
     });
 
-    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
-      "https://opencode.ai/workspace/wrk%20%2Funsafe/billing",
-      {
-        request: {
-          method: "GET",
-          headers: {
-            "User-Agent":
-              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Gecko/20100101 Firefox/148.0",
-            Accept: "text/html",
-            Cookie: "auth=cookie-secret",
-          },
-        },
-        timeoutMs: 4_321,
-        consume: expect.any(Function),
-      },
-    );
-    const options = mocks.fetchWithTimeout.mock.calls[0]?.[1];
-    expect(options?.request.body).toBeUndefined();
+    const out = await queryOpenCodeZenQuota({ accessToken: "console-access" });
+
+    expect(out.success).toBe(true);
+    expect(calls).toBe(4);
+    expect(recorded.length).toBe(0);
   });
 
-  it("returns parsed SSR data and attaches the payment fallback", async () => {
-    mocks.fetchResponse.mockResolvedValueOnce(
-      response(
-        "$R[1]={billing:{balance:4250000000,monthlyLimit:100,monthlyUsage:575000000}}" +
-          '$R["payment.list"]=[{"amount":2100000000}]',
-      ),
-    );
-
-    await expect(queryOpenCodeZenQuota("wrk_abc", "cookie")).resolves.toEqual({
-      success: true,
-      data: {
-        balance: 4_250_000_000,
-        monthlyLimit: 100,
-        monthlyUsage: 575_000_000,
-        lastPayment: 21,
-        reload: false,
-        reloadAmount: null,
-        reloadTrigger: null,
-      },
+  it("sends the console bearer token with JSON accept headers", async () => {
+    mocks.route.mockImplementation((url: string) => {
+      void url;
+      return new Response(JSON.stringify({ balanceMicroCents: "100" }), { status: 200 });
     });
+
+    await queryOpenCodeZenQuota({ accessToken: "console-access" });
+
+    const first = mocks.fetchWithTimeout.mock.calls[0]!;
+    expect(first[0]).toBe("https://opencode.ai/console/api/billing/status");
+    expect(first[1].request.headers.Authorization).toBe("Bearer console-access");
+    expect(first[1].request.headers.Accept).toBe("application/json");
   });
 
-  it("parses the new SolidJS SSR format end to end", async () => {
-    mocks.fetchResponse.mockResolvedValueOnce(
-      response(
-        newSsrBillingHtml(-14_496, 50, 17_321_332) +
-          newSsrPaymentHtml([500_000_000, 2_000_000_000, 1_000_000_000]),
-      ),
-    );
-
-    await expect(queryOpenCodeZenQuota("wrk_abc", "cookie")).resolves.toEqual({
-      success: true,
-      data: {
-        balance: 0,
-        monthlyLimit: 50,
-        monthlyUsage: 17_321_332,
-        lastPayment: 5,
-        reload: false,
-        reloadAmount: null,
-        reloadTrigger: null,
-      },
+  it("maps balance, credit limit, monthly usage, and auto-recharge", async () => {
+    const prefix = currentMonthPrefix();
+    mocks.route.mockImplementation((url: string) => {
+      const path = new URL(url).pathname;
+      if (path === "/console/api/billing/status") {
+        return new Response(JSON.stringify({ balanceMicroCents: "1234000000" }), { status: 200 });
+      }
+      if (path === "/console/api/billing/account") {
+        return new Response(JSON.stringify({ creditLimitMicroCents: "1000000000" }), { status: 200 });
+      }
+      if (path === "/console/api/billing/auto-recharge") {
+        return new Response(
+          JSON.stringify({ enabled: true, thresholdDollars: 5, rechargeAmountDollars: 20 }),
+          { status: 200 },
+        );
+      }
+      if (path === "/console/api/usage/cost-by-day") {
+        return new Response(
+          JSON.stringify([
+            { date: `${prefix}-05`, totalCostMicroCents: "250000000" },
+            { date: `${prefix}-06`, totalCostMicroCents: "250000000" },
+            { date: "2020-01-01", totalCostMicroCents: "999000000" },
+          ]),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected console fetch: ${url}`);
     });
-  });
 
-  it("falls back to data-slot billing HTML", async () => {
-    mocks.fetchResponse.mockResolvedValueOnce(response(dataSlotHtml()));
+    const out = await queryOpenCodeZenQuota({ accessToken: "console-access" });
 
-    await expect(queryOpenCodeZenQuota("wrk_abc", "cookie")).resolves.toEqual({
+    expect(out).toEqual({
       success: true,
       data: {
-        balance: 4_250_000_000,
-        monthlyLimit: 100,
-        monthlyUsage: 1_250_000_000,
+        balance: 12.34,
+        monthlyLimit: 10,
+        monthlyUsage: 5,
         lastPayment: null,
-        reload: false,
-        reloadAmount: null,
-        reloadTrigger: null,
+        reload: true,
+        reloadAmount: 20,
+        reloadTrigger: 5,
       },
     });
+    expect(OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR).toBe(100_000_000);
   });
 
-  it.each([
-    "",
-    "<html><body>Nothing here</body></html>",
-  ])("returns a stable parse error for malformed or empty HTML", async (html) => {
-    mocks.fetchResponse.mockResolvedValueOnce(response(html));
-    await expect(queryOpenCodeZenQuota("wrk_abc", "cookie")).resolves.toEqual({
+  it("keeps auto-reload fields unset when auto-recharge is disabled", async () => {
+    mocks.route.mockImplementation((url: string) => {
+      const path = new URL(url).pathname;
+      if (path === "/console/api/billing/status") {
+        return new Response(JSON.stringify({ balanceMicroCents: "100" }), { status: 200 });
+      }
+      if (path === "/console/api/billing/account") {
+        return new Response(JSON.stringify({ creditLimitMicroCents: null }), { status: 200 });
+      }
+      if (path === "/console/api/billing/auto-recharge") {
+        return new Response(JSON.stringify({ enabled: false }), { status: 200 });
+      }
+      if (path === "/console/api/usage/cost-by-day") {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      throw new Error(`unexpected console fetch: ${url}`);
+    });
+
+    const out = await queryOpenCodeZenQuota({ accessToken: "console-access" });
+
+    expect(out).toMatchObject({ success: true, data: { reload: false, reloadAmount: null, reloadTrigger: null, monthlyLimit: null } });
+  });
+
+  it("reports console API errors per endpoint", async () => {
+    mocks.route.mockImplementation((url: string) => {
+      const path = new URL(url).pathname;
+      if (path === "/console/api/billing/status") {
+        return new Response(JSON.stringify({ _tag: "Unauthorized" }), { status: 401 });
+      }
+      throw new Error(`unexpected console fetch: ${url}`);
+    });
+
+    const out = await queryOpenCodeZenQuota({ accessToken: "console-access" });
+
+    expect(out).toEqual({
       success: false,
-      error: expect.stringContaining("Could not parse OpenCode Zen billing data"),
+      error: "OpenCode Console API error 401 (/api/billing/status)",
     });
   });
 
-  it("does not expose an HTTP response body", async () => {
-    const secretBody = "private-html-body-cookie-secret";
-    mocks.fetchResponse.mockResolvedValueOnce(response(secretBody, 403));
-
-    const result = await queryOpenCodeZenQuota("wrk_abc", "cookie-secret");
-
-    expect(result).toEqual({
-      success: false,
-      error: "OpenCode Zen billing error 403",
+  it("returns a contract error for malformed console responses", async () => {
+    mocks.route.mockImplementation((url: string) => {
+      const path = new URL(url).pathname;
+      if (path === "/console/api/billing/status") {
+        return new Response("{not json", { status: 200 });
+      }
+      throw new Error(`unexpected console fetch: ${url}`);
     });
-    expect(JSON.stringify(result)).not.toContain(secretBody);
-    expect(JSON.stringify(result)).not.toContain("cookie-secret");
+
+    const out = await queryOpenCodeZenQuota({ accessToken: "console-access" });
+
+    expect(out).toEqual({
+      success: false,
+      error: "Could not parse OpenCode Console response (/api/billing/status)",
+    });
   });
 
-  it("sanitizes network and timeout errors and redacts configured secrets", async () => {
-    mocks.fetchResponse.mockRejectedValueOnce(
-      new Error("\u001b[31mtimeout for wrk_secret with cookie-secret\nretry\u001b[0m"),
-    );
-
-    const result = await queryOpenCodeZenQuota("wrk_secret", "cookie-secret");
-
-    expect(result).toEqual({
-      success: false,
-      error: "timeout for [redacted] with [redacted] retry",
+  it("surfaces timeout errors without leaking the token", async () => {
+    mocks.fetchWithTimeout.mockImplementationOnce(async () => {
+      throw new Error("Request timeout after 10s");
     });
-    expect(JSON.stringify(result)).not.toContain("wrk_secret");
-    expect(JSON.stringify(result)).not.toContain("cookie-secret");
+
+    const out = await queryOpenCodeZenQuota({ accessToken: "secret-console-token" });
+
+    expect(out).toEqual({ success: false, error: "Request timeout after 10s" });
+    expect(JSON.stringify(out)).not.toContain("console-access");
+    expect(JSON.stringify(out)).not.toContain("secret-console-token");
   });
 });

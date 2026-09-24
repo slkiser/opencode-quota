@@ -1,7 +1,6 @@
 import { rm } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { isCommandHandledError } from "../src/lib/command-handled.js";
 import {
   assertPhase5CanariesRedacted,
   assertPhase5FixtureOrder,
@@ -22,8 +21,6 @@ import {
   createProvidersRegistryModuleMock,
   createQwenAuthModuleMock,
   createSessionTokensModuleMock,
-  getPromptText,
-  getToastMessage,
   makeQuotaToastTestConfig,
   seedDefaultPluginBootstrapMocks,
 } from "./helpers/plugin-test-harness.js";
@@ -102,6 +99,8 @@ vi.mock("../src/lib/alibaba-auth.js", () =>
   createAlibabaAuthModuleMock(mocks.resolveAlibabaCodingPlanAuthCached),
 );
 vi.mock("../src/lib/minimax-auth.js", () => ({
+  resolveMiniMaxAuth: vi.fn(),
+  resolveMiniMaxChinaAuth: vi.fn(),
   DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS: 5_000,
   resolveMiniMaxAuthCached: mocks.resolveMiniMaxAuthCached,
   getMiniMaxAuthDiagnostics: mocks.getMiniMaxAuthDiagnostics,
@@ -117,23 +116,85 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () =>
   createPluginRuntimePathsMockModule(TEST_RUNTIME_ROOT, { includeCandidates: true }),
 );
 
-type PluginHooks = {
-  config?: (input: unknown) => Promise<void> | void;
-  dispose?: () => Promise<void> | void;
-  event?: (input: unknown) => Promise<void> | void;
-  "command.execute.before"?: (input: {
-    command: string;
-    sessionID: string;
-  }) => Promise<void> | void;
-  tool?: {
-    quota_status?: {
-      execute(
-        args: Record<string, never>,
-        context: { sessionID: string; metadata(value: { title: string }): void },
-      ): Promise<string>;
-    };
-  };
+type RegisteredTool = {
+  name: string;
+  execute(input: object, context: { sessionID: string }): Promise<{ content: string }>;
 };
+
+async function setupV2Surfaces(client: ReturnType<typeof createClient>, providerIds: string[]) {
+  let tool: RegisteredTool | undefined;
+  const { default: serverPlugin } = await import("../src/plugin.js");
+  await serverPlugin.setup({
+    location: { directory: process.cwd() },
+    provider: { list: vi.fn(async () => ({ data: providerIds.map((id) => ({ id })) })) },
+    session: {
+      get: vi.fn(async () => ({ model: { id: "model-one", providerID: providerIds[0] } })),
+    },
+    tool: {
+      transform: vi.fn(async (callback: (editor: { add(value: RegisteredTool): void }) => void) => {
+        callback({
+          add: (value) => {
+            tool = value;
+          },
+        });
+      }),
+    },
+  } as never);
+  expect(tool?.name).toBe("quota_status");
+
+  const events = new Map<string, (event: { data: { sessionID: string } }) => void>();
+  let commands: Array<{ slash: { name: string }; run: (input?: unknown) => Promise<void> }> = [];
+  const alert = vi.fn(async (_input: { title: string; message: string }) => {});
+  const toast = vi.fn();
+  const slots: string[] = [];
+  const { default: tuiPlugin } = await import("../src/tui-v2.js");
+  const dispose = tuiPlugin.setup({
+    client,
+    location: { directory: process.cwd() },
+    data: {
+      on: (event: string, callback: (event: { data: { sessionID: string } }) => void) => {
+        events.set(event, callback);
+        return () => events.delete(event);
+      },
+      location: {
+        default: () => ({ directory: process.cwd() }),
+        provider: { list: () => providerIds.map((id) => ({ id })) },
+      },
+    },
+    keymap: {
+      layer: (build: () => { commands: typeof commands }) => {
+        commands = build().commands;
+      },
+    },
+    ui: {
+      slot: (claim: { append: string; render: () => unknown }) => {
+        slots.push(claim.append);
+        if (claim.append === "app") claim.render();
+        return () => {};
+      },
+      toast: { show: toast },
+      dialog: { alert, prompt: vi.fn(), set: vi.fn() },
+    },
+  } as never);
+  expect(slots).toEqual(["app", "sidebar.content", "prompt.footer", "home.footer.status"]);
+  const quota = commands.find((command) => command.slash.name === "quota");
+  expect(quota).toBeDefined();
+  expect(commands.some((command) => command.slash.name === "quota_status")).toBe(true);
+  return {
+    tool: tool!,
+    alert,
+    toast,
+    events,
+    quota: quota!,
+    dispose: dispose as () => void,
+  };
+}
+
+function getV2ToastMessage(toast: ReturnType<typeof vi.fn>, index = 0): string {
+  const message = toast.mock.calls[index]?.[0]?.message;
+  if (typeof message !== "string") throw new Error("Expected V2 CLI quota toast");
+  return message;
+}
 
 function configFor(formatStyle: "allWindows" | "singleWindow") {
   return makeQuotaToastTestConfig({
@@ -218,16 +279,6 @@ function createClient() {
   return client;
 }
 
-async function expectHandled(value: unknown): Promise<void> {
-  try {
-    await Promise.resolve(value);
-  } catch (error) {
-    expect(isCommandHandledError(error)).toBe(true);
-    return;
-  }
-  throw new Error("Expected the ADR 0002 handled sentinel");
-}
-
 function assertTreeSessionTokenTotals(output: string): void {
   expect(output).toMatch(/1\.2K[^\n]*300[^\n]*45/u);
 }
@@ -290,17 +341,17 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     });
     mocks.getMiniMaxAuthDiagnostics.mockResolvedValue({
       state: "configured",
-      source: "auth.json",
+      source: "opencode.db",
       endpoint: "international",
       checkedPaths: [],
-      authPaths: [],
+      credentialDatabasePaths: [],
     });
     mocks.resolveMiniMaxChinaAuthCached.mockResolvedValue({ state: "none" });
     mocks.getMiniMaxChinaAuthDiagnostics.mockResolvedValue({
       state: "none",
       source: null,
       checkedPaths: [],
-      authPaths: [],
+      credentialDatabasePaths: [],
     });
 
     const { quotaProvidersProvider } = await import("../src/providers/quota-providers.js");
@@ -389,33 +440,15 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
   });
 
-  it("proves server command, toast lifecycle, TUI placement, projections, order, partial failure, and redaction", async () => {
+  it("proves V2 CLI command and toast, server diagnostic tool, TUI placement, export, and redaction", async () => {
     const client = createClient();
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const hooks = (await QuotaToastPlugin({ client } as never)) as PluginHooks;
-
-    const serverConfig: { command?: Record<string, unknown> } = {};
-    await hooks.config?.(serverConfig);
-    expect(serverConfig.command).toHaveProperty("quota");
-
-    await expectHandled(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "phase5-session",
-      }),
-    );
-
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    expect(client.session.prompt).toHaveBeenCalledWith(
-      expect.objectContaining({
-        path: { id: "phase5-session" },
-        body: expect.objectContaining({
-          noReply: true,
-          parts: [expect.objectContaining({ type: "text", ignored: true })],
-        }),
-      }),
-    );
-    const serverOutput = getPromptText(client);
+    const v2 = await setupV2Surfaces(client, PHASE5_RUNTIME_PROVIDER_IDS);
+    v2.events.get("session.step.ended")?.({ data: { sessionID: "phase5-session" } });
+    await vi.waitFor(() => expect(v2.toast).toHaveBeenCalledTimes(1));
+    await v2.quota.run();
+    expect(v2.alert).toHaveBeenCalledOnce();
+    expect(client.session.prompt).not.toHaveBeenCalled();
+    const serverOutput = v2.alert.mock.calls[0][0].message;
     expect(serverOutput).toMatch(/^Quota \(\/quota\)/);
     expect(serverOutput).not.toContain("```");
     expect(serverOutput).not.toMatch(/^#{1,6} /mu);
@@ -429,40 +462,19 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     assertTreeSessionTokenTotals(serverOutput);
     expect(serverOutput).toContain("tree-model");
 
-    await hooks.event?.({
-      event: {
-        type: "session.idle",
-        properties: { sessionID: "phase5-session" },
-      },
-    });
-    expect(client.tui.showToast).toHaveBeenCalledTimes(1);
-    const toastOutput = getToastMessage(client);
+    const toastOutput = getV2ToastMessage(v2.toast);
     assertFixtureContent(toastOutput);
     assertTreeSessionTokenTotals(toastOutput);
     expect(toastOutput).toContain("tree-model");
 
     const callsAfterFirstToast = vi.mocked(globalThis.fetch).mock.calls.length;
-    await hooks.event?.({
-      event: {
-        type: "session.idle",
-        properties: { sessionID: "phase5-session" },
-      },
-    });
-    expect(client.tui.showToast).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(callsAfterFirstToast);
-    assertFixtureContent(getToastMessage(client, 1));
+    v2.events.get("session.step.ended")?.({ data: { sessionID: "phase5-session" } });
+    await vi.waitFor(() => expect(v2.toast).toHaveBeenCalledTimes(2));
+    // The failed accounting source is retried on the next V2 CLI event.
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(callsAfterFirstToast + 1);
+    assertFixtureContent(getV2ToastMessage(v2.toast, 1));
 
-    const statusMetadata = vi.fn();
-    expect(hooks.tool?.quota_status).toBeDefined();
-    await hooks.tool?.quota_status?.execute(
-      {},
-      {
-        sessionID: "phase5-session",
-        metadata: statusMetadata,
-      },
-    );
-    expect(statusMetadata).toHaveBeenCalledWith({ title: "Quota Status" });
-    const statusOutput = getPromptText(client, 1);
+    const statusOutput = (await v2.tool.execute({}, { sessionID: "phase5-session" })).content;
     expect(statusOutput).toMatch(/^# Quota Status .*\(\/quota_status\)/u);
     expect(statusOutput).toContain("provider_team-accounting:");
     expect(statusOutput).toContain("provider_openrouter-primary:");
@@ -487,6 +499,17 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       "../src/lib/quota-export.js"
     );
     const exportContext = createExportProviderContext(runtime);
+    const { collectQuotaRenderData } = await import("../src/lib/quota-render-data.js");
+    // The aggregate's process-local cache is scoped to the client object; V2 CLI
+    // constructs its own client adapter, so prime the export reader's context.
+    await collectQuotaRenderData({
+      client: runtime.client,
+      resolveRuntimeProviderIds: runtime.resolveRuntimeProviderIds,
+      config: runtime.config,
+      configMeta: runtime.configMeta,
+      request: {},
+      providers: runtime.providers,
+    });
     const fetchCallsBeforeExport = vi.mocked(globalThis.fetch).mock.calls.length;
     const exportData = await buildQuotaExport({
       providers: [quotaProvidersProvider],
@@ -698,7 +721,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       expect(telemetryOutput).not.toContain(source.url);
     }
     expect(allOutput).not.toMatch(/telemetryToken|opencode\.quota\./);
-    await hooks.dispose?.();
+    v2.dispose();
   });
 
   it("keeps over-quota MiniMax results in cache, export, and all four displays", async () => {
@@ -713,18 +736,11 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       data: { providers: [{ id: "minimax-coding-plan" }] },
     });
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const hooks = (await QuotaToastPlugin({ client } as never)) as PluginHooks;
-
-    await expectHandled(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "minimax-session",
-      }),
-    );
-    const serverOutput = getPromptText(client);
+    const v2 = await setupV2Surfaces(client, ["minimax-coding-plan"]);
+    await v2.quota.run();
+    const serverOutput = v2.alert.mock.calls[0][0].message;
     expect(serverOutput).toContain("MiniMax Token Plan");
-    expect(serverOutput).toContain("Five-hour quota");
+    expect(serverOutput).toContain("5h quota");
     expect(serverOutput).toContain("Weekly quota");
     expect(serverOutput).toContain("0% left");
     expect(serverOutput).toContain("Remaining: -5 requests");
@@ -761,15 +777,11 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       ),
     ).toEqual([-5, -10]);
 
-    await hooks.event?.({
-      event: {
-        type: "session.idle",
-        properties: { sessionID: "minimax-session" },
-      },
-    });
-    const toastOutput = getToastMessage(client);
+    v2.events.get("session.step.ended")?.({ data: { sessionID: "minimax-session" } });
+    await vi.waitFor(() => expect(v2.toast).toHaveBeenCalledOnce());
+    const toastOutput = getV2ToastMessage(v2.toast);
     expect(toastOutput).toContain("MiniMax Token Plan");
-    expect(toastOutput).toContain("Five-hour");
+    expect(toastOutput).toContain("5h");
     expect(toastOutput).toContain("Weekly");
     expect(toastOutput).toContain("0% left");
     expect(toastOutput).toContain("Remaining: -5 requests");
@@ -795,7 +807,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       ...(surfaces.sidebar.linesExpanded ?? []),
     ].join("\n");
     expect(sidebarOutput).toContain("MiniMax Token Plan");
-    expect(sidebarOutput).toContain("Five-hour");
+    expect(sidebarOutput).toContain("5h");
     expect(sidebarOutput).toContain("Weekly");
     expect(sidebarOutput).toContain("0% left");
     expect(sidebarOutput).toContain("Remaining: -5 requests");
@@ -806,7 +818,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(compactOutput.match(/0%/gu)).toHaveLength(2);
     expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(1);
 
-    await hooks.dispose?.();
+    v2.dispose();
   });
 
   it("shows the optional Anthropic Fable weekly row on all four displays", async () => {
@@ -843,27 +855,16 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       data: { providers: [{ id: "anthropic" }] },
     });
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const hooks = (await QuotaToastPlugin({ client } as never)) as PluginHooks;
-
-    await expectHandled(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "anthropic-fable-session",
-      }),
-    );
-    const serverOutput = getPromptText(client);
+    const v2 = await setupV2Surfaces(client, ["anthropic"]);
+    await v2.quota.run();
+    const serverOutput = v2.alert.mock.calls[0][0].message;
     expect(serverOutput).toContain("Claude");
     expect(serverOutput).toContain("Fable");
     expect(serverOutput).toContain("98% left");
 
-    await hooks.event?.({
-      event: {
-        type: "session.idle",
-        properties: { sessionID: "anthropic-fable-session" },
-      },
-    });
-    const toastOutput = getToastMessage(client);
+    v2.events.get("session.step.ended")?.({ data: { sessionID: "anthropic-fable-session" } });
+    await vi.waitFor(() => expect(v2.toast).toHaveBeenCalledOnce());
+    const toastOutput = getV2ToastMessage(v2.toast);
     expect(toastOutput).toContain("Fable");
     expect(toastOutput).toContain("98%");
 
@@ -894,7 +895,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(compactOutput).toContain("Fable");
     expect(compactOutput).toContain("98%");
 
-    await hooks.dispose?.();
+    v2.dispose();
   });
 
   it("renders CN general percentage quota and excludes video on all four surfaces", async () => {
@@ -907,10 +908,10 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     });
     mocks.getMiniMaxChinaAuthDiagnostics.mockResolvedValue({
       state: "configured",
-      source: "auth.json",
+      source: "opencode.db",
       endpoint: "china",
       checkedPaths: [],
-      authPaths: [],
+      credentialDatabasePaths: [],
     });
     const { minimaxChinaCodingPlanProvider } = await import(
       "../src/providers/minimax-coding-plan.js"
@@ -923,35 +924,24 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       data: { providers: [{ id: "minimax-china-coding-plan" }] },
     });
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const hooks = (await QuotaToastPlugin({ client } as never)) as PluginHooks;
-
-    await expectHandled(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "minimax-china-session",
-      }),
-    );
-    const serverOutput = getPromptText(client);
+    const v2 = await setupV2Surfaces(client, ["minimax-china-coding-plan"]);
+    await v2.quota.run();
+    const serverOutput = v2.alert.mock.calls[0][0].message;
     expect(serverOutput).toContain("MiniMax Token Plan");
     expect(serverOutput).toContain("(CN)");
-    expect(serverOutput).toContain("Five-hour quota");
+    expect(serverOutput).toContain("5h quota");
     expect(serverOutput).toContain("Weekly quota");
     expect(serverOutput).toContain("33%");
     expect(serverOutput).toContain("46%");
     expect(serverOutput).not.toContain("video");
     expect(serverOutput).not.toContain("Invalid normalized provider result");
 
-    await hooks.event?.({
-      event: {
-        type: "session.idle",
-        properties: { sessionID: "minimax-china-session" },
-      },
-    });
-    const toastOutput = getToastMessage(client);
+    v2.events.get("session.step.ended")?.({ data: { sessionID: "minimax-china-session" } });
+    await vi.waitFor(() => expect(v2.toast).toHaveBeenCalledOnce());
+    const toastOutput = getV2ToastMessage(v2.toast);
     expect(toastOutput).toContain("MiniMax Token Plan");
     expect(toastOutput).toContain("(CN)");
-    expect(toastOutput).toContain("Five-hour");
+    expect(toastOutput).toContain("5h");
     expect(toastOutput).toContain("Weekly");
     expect(toastOutput).toContain("33%");
     expect(toastOutput).toContain("46%");
@@ -978,7 +968,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     ].join("\n");
     expect(sidebarOutput).toContain("MiniMax Token Plan");
     expect(sidebarOutput).toContain("(CN)");
-    expect(sidebarOutput).toContain("Five-hour");
+    expect(sidebarOutput).toContain("5h");
     expect(sidebarOutput).toContain("Weekly");
     expect(sidebarOutput).toContain("33%");
     expect(sidebarOutput).toContain("46%");
@@ -991,6 +981,6 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(compactOutput).not.toContain("video");
     expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(1);
 
-    await hooks.dispose?.();
+    v2.dispose();
   });
 });

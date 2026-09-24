@@ -156,25 +156,17 @@ describe("resolvePricingKey snapshot coverage", () => {
   });
 
   it("maps documented Kimi Code K3 models to authoritative pricing", () => {
-    for (const providerID of [
-      "kimi-for-coding",
-      "kimi",
-      "kimi-code",
-      "kimi-code-plan-global",
-      "kimi-code-plan-cn",
-    ]) {
-      for (const modelID of ["k3", "k3-256k"]) {
-        expect(
-          resolvePricingKey({
-            providerID,
-            modelID,
-          }),
-        ).toEqual({
-          ok: true,
-          key: { provider: "moonshotai", model: "kimi-k3" },
-          method: "source_provider",
-        });
-      }
+    for (const modelID of ["k3", "k3-256k"]) {
+      expect(
+        resolvePricingKey({
+          providerID: "kimi-for-coding",
+          modelID,
+        }),
+      ).toEqual({
+        ok: true,
+        key: { provider: "moonshotai", model: "kimi-k3" },
+        method: "source_provider",
+      });
     }
 
     expect(lookupCost("moonshotai", "kimi-k3")).toEqual({

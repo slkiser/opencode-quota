@@ -123,7 +123,7 @@ describe("accounting-format", () => {
 
   it("owns provider-neutral labels including typed windows and components", () => {
     expect(formatAccountingWindowLabel("rpm")).toBe("RPM");
-    expect(formatAccountingWindowLabel("five_hour")).toBe("Five-hour");
+    expect(formatAccountingWindowLabel("five_hour")).toBe("5h");
     expect(formatAccountingWindowLabel("code_review")).toBe("Code Review");
     expect(
       formatAccountingSemanticLabel(

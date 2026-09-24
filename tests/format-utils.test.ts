@@ -77,4 +77,12 @@ describe("percent labels", () => {
     expect(formatQuotaModeHeading("remaining")).toBe("Quota [Remaining]");
     expect(formatQuotaModeHeading("used")).toBe("Quota [Used]");
   });
+
+  it("separates exact countdown units when spacing is requested", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"));
+
+    expect(formatResetCountdown("2026-01-21T05:49:00.000Z", { spaced: true })).toBe("5d 19h 49m");
+    expect(formatResetCountdown("2026-01-15T12:14:00.000Z", { spaced: true })).toBe("2h 14m");
+  });
 });

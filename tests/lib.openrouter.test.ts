@@ -38,7 +38,7 @@ const CREDENTIAL_SOURCES: QuotaProviderAuthSource[] = [
   "env",
   "opencode.json",
   "opencode.jsonc",
-  "auth.json",
+  "opencode.db",
 ];
 
 function resolvedAuth(
@@ -47,7 +47,7 @@ function resolvedAuth(
   return {
     source: null,
     checkedPaths: [],
-    authPaths: [],
+    credentialDatabasePaths: [],
     ...overrides,
   };
 }
@@ -62,7 +62,7 @@ describe("OpenRouter quota", () => {
       key: SECRET_CANARY,
       source: "env",
       checkedPaths: [],
-      authPaths: [],
+      credentialDatabasePaths: [],
     });
 
     const identity = await resolveOpenRouterAuthIdentity();
@@ -87,7 +87,7 @@ describe("OpenRouter quota", () => {
       key: SECRET_CANARY,
       source,
       checkedPaths: [`source:${source}`],
-      authPaths: ["/tmp/auth.json"],
+      credentialDatabasePaths: ["/tmp/opencode.db"],
     });
     vi.mocked(fetchRemoteQuotaProvider).mockResolvedValueOnce({
       success: true,
@@ -109,7 +109,7 @@ describe("OpenRouter quota", () => {
     const resolved = resolvedAuth({
       source: null,
       checkedPaths: ["env:OPENROUTER_API_KEY", "/tmp/opencode.json"],
-      authPaths: ["/tmp/auth.json"],
+      credentialDatabasePaths: ["/tmp/opencode.db"],
     });
 
     await expect(queryOpenRouterQuota({ resolved })).resolves.toBeNull();
@@ -121,14 +121,14 @@ describe("OpenRouter quota", () => {
     vi.mocked(resolveQuotaProviderApiKey).mockResolvedValue({
       source: null,
       checkedPaths: [],
-      authPaths: [],
+      credentialDatabasePaths: [],
     });
 
     await expect(hasOpenRouterApiKeyConfigured()).resolves.toBe(false);
     await expect(resolveOpenRouterApiKey()).resolves.toEqual({
       source: null,
       checkedPaths: [],
-      authPaths: [],
+      credentialDatabasePaths: [],
     });
     expect(fetchRemoteQuotaProvider).not.toHaveBeenCalled();
   });

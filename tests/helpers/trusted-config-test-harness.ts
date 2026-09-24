@@ -36,7 +36,7 @@ export const TRUSTED_CONFIG_ENV_KEYS = [
 ] as const;
 
 export function getTrustedAuthPath(): string {
-  return join(homedir(), ".local", "share", "opencode", "auth.json");
+  return join(homedir(), ".local", "share", "opencode", "opencode.db");
 }
 
 export function getTrustedOpencodeConfigPaths() {

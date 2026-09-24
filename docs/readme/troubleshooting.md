@@ -116,7 +116,7 @@ Run `/quota_status` and check the OpenAI auth source and token status.
 
 | Symptom               | Fix                                                                                        |
 | --------------------- | ------------------------------------------------------------------------------------------ |
-| OpenAI quota missing  | Confirm OpenCode native OpenAI OAuth is present in `auth.json`.                            |
+| OpenAI quota missing  | Confirm OpenCode native OpenAI OAuth is present in `opencode.db`.                            |
 | Token expired         | Re-run OpenCode's OpenAI auth flow.                                                        |
 | Provider not detected | Confirm your OpenCode config uses the `openai` provider or a compatible OpenAI auth entry. |
 
@@ -188,8 +188,7 @@ These providers use trusted env vars, trusted user/global OpenCode config, or na
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | MiniMax Token Plan       | Use `MINIMAX_CODING_PLAN_API_KEY` or `MINIMAX_API_KEY` for the international endpoint. Runtime/config ids like `minimax` and `minimax-coding-plan` use this provider. Repo-local provider secrets are ignored.                        |
 | MiniMax Token Plan (CN)  | Use `MINIMAX_CHINA_CODING_PLAN_API_KEY` or trusted user/global OpenCode config under `minimax-china-coding-plan`, `minimax-cn-coding-plan`, `minimax-cn`, or `minimax-china`. Runtime id `minimax-cn-coding-plan` uses this provider. |
-| Kimi Code                | Check `kimi:`. Use `KIMI_GLOBAL_API_KEY`, trusted global `provider.kimi-code-plan-global.options.apiKey`, or strict `kimi-code-plan-global` auth. Requests go only to `api.kimi.ai`; repo-local secrets are ignored.                     |
-| Kimi Code (CN)           | Check `kimi_cn:`. Use `KIMI_CN_API_KEY`, then `KIMI_API_KEY` or `KIMI_CODE_API_KEY`, or trusted CN/legacy config/auth ids. Requests go only to `api.kimi.com`; repo-local secrets are ignored.                                          |
+| Kimi Code                | Use `KIMI_API_KEY` or `KIMI_CODE_API_KEY`; repo-local provider secrets are ignored.                                                                                                                                                   |
 | Chutes AI                | Use `CHUTES_API_KEY`, trusted user/global config, or OpenCode auth.                                                                                                                                                                   |
 | Synthetic                | Use `SYNTHETIC_API_KEY`, trusted user/global config, or OpenCode auth.                                                                                                                                                                |
 | Z.ai Coding Plan         | Use `ZAI_API_KEY` or `ZAI_CODING_PLAN_API_KEY`; malformed fallback auth is surfaced as an auth error.                                                                                                                                 |
@@ -273,8 +272,8 @@ Run `/quota_status` and check the `opencode_go` section. It reports safe `auth_*
 
 | Symptom                             | Fix                                                                                                                                                                                                                  |
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Provider not detected               | Set `OPENCODE_API_KEY`, trusted global `provider.opencode-go.options.apiKey`, fallback `provider.opencode.options.apiKey`, a strict `opencode-go` API-key entry in OpenCode `auth.json`, or a strict legacy `opencode` auth entry as the final fallback. Then check `auth_state`, `auth_source`, and `auth_checked_paths`. |
-| `auth_state` is `invalid`           | Fix the primary `opencode-go` record in `auth.json` so it is `{ "type": "api", "key": "..." }`. A malformed primary record blocks the legacy `opencode` fallback and is reported in `auth_error`.                    |
+| Provider not detected               | Set `OPENCODE_API_KEY`, trusted global `provider.opencode-go.options.apiKey`, fallback `provider.opencode.options.apiKey`, a strict `opencode-go` API-key entry in OpenCode `opencode.db`, or a strict legacy `opencode` auth entry as the final fallback. Then check `auth_state`, `auth_source`, and `auth_checked_paths`. |
+| `auth_state` is `invalid`           | Fix the primary `opencode-go` record in `opencode.db` so it is `{ "type": "api", "key": "..." }`. A malformed primary record blocks the legacy `opencode` fallback and is reported in `auth_error`.                    |
 | API returns 401 or 403              | The usage API rejected the key. Update the winning source shown by `auth_source`, wait briefly for credential caching to expire, and rerun `/quota_status`.                                                           |
 | Invalid API response                | Check `live_fetch_error`. OpenCode Quota requires valid 5h, Weekly, and Monthly results, so one missing or malformed API window rejects the full response instead of showing partial quota.                            |
 | API request times out or fails      | Check `live_fetch_error`, confirm `https://opencode.ai/zen/go/v1/usage` is reachable, and retry. Increase `requestTimeoutMs` only when the error is a timeout.                                                          |

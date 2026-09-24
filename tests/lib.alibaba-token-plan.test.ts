@@ -651,6 +651,7 @@ process.stdin.on("end", () => {
     async () => {
       const bin = await makeDir();
       const termSeen = path.join(bin, "term.flag");
+      const timeoutMs = 1_000;
       const started = Date.now();
       const result = await runAlibabaTokenPlanProcess(
         spawnRequest(process.execPath, {
@@ -668,14 +669,14 @@ spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); setInterval(() 
 setInterval(() => {}, 30000);
 `,
           ],
-          timeoutMs: 80,
+          timeoutMs,
           cwd: await makeDir(),
         }),
       );
       const elapsed = Date.now() - started;
       expect(result.timedOut).toBe(true);
       expect(result.truncated).toBe(false);
-      expect(elapsed).toBeGreaterThanOrEqual(ALIBABA_TOKEN_PLAN_KILL_GRACE_MS);
+      expect(elapsed).toBeGreaterThanOrEqual(timeoutMs + ALIBABA_TOKEN_PLAN_KILL_GRACE_MS);
       expect(await (await import("node:fs/promises")).readFile(termSeen, "utf8")).toBe("term");
     },
   );

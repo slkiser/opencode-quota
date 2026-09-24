@@ -36,7 +36,7 @@ const RESULT_TYPE_ORDER: Readonly<Record<AccountingResultType, number>> = {
 const WINDOW_LABELS: Readonly<Record<AccountingWindow, string>> = {
   rpm: "RPM",
   hour: "Hourly",
-  five_hour: "Five-hour",
+  five_hour: "5h",
   day: "Daily",
   week: "Weekly",
   month: "Monthly",

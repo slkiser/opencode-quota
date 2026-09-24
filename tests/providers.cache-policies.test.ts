@@ -12,6 +12,8 @@ vi.mock("../src/lib/kimi-auth.js", () => ({
   resolveKimiCnAuthCached: cachePolicyMocks.resolveCn,
   resolveKimiGlobalAuthWithDiagnosticsCached: vi.fn(),
   resolveKimiCnAuthWithDiagnosticsCached: vi.fn(),
+  resolveKimiGlobalAuth: vi.fn(),
+  resolveKimiCnAuth: vi.fn(),
 }));
 
 vi.mock("../src/lib/resolved-auth-identity.js", async (importOriginal) => {

@@ -9,6 +9,6 @@ const ZHIPU_QUOTA = {
   resolveAuth: resolveZhipuAuthCached,
 } as const;
 
-export function queryZhipuQuota(options: { requestTimeoutMs?: number } = {}) {
+export function queryZhipuQuota(options: { requestTimeoutMs?: number; apiKey?: string } = {}) {
   return queryGlmCodingPlanQuota(ZHIPU_QUOTA, options);
 }

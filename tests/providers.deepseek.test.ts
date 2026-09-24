@@ -14,7 +14,7 @@ vi.mock("../src/lib/deepseek.js", () => ({
     configured: false,
     source: null,
     checkedPaths: [],
-    authPaths: [],
+    credentialDatabasePaths: [],
   })),
 }));
 

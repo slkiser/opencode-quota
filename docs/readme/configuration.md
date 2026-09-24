@@ -235,7 +235,7 @@ The command writes the `experimental.quotaToast.quotaProviders` section. Configu
 - Local estimates support 1–16 UTC-day or rolling request windows.
 - Automatic models.dev matching runs first. `pricingModelMap` cannot override a successful automatic match.
 - If any request cannot be priced, request counts stay visible and the budget percentage is reported unavailable.
-- Credentials resolve from `apiKeyEnv`, trusted global `provider.<providerId>.options.apiKey`, then API-key entries in OpenCode `auth.json`.
+- Credentials resolve from `apiKeyEnv`, trusted global `provider.<providerId>.options.apiKey`, then API-key entries in OpenCode `opencode.db`.
 - Definitions run automatically with `enabledProviders: "auto"`. A manual list must include `quota-providers` and every built-in provider you still want.
 - To tune maintained estimates, use the reserved `qwen-code` or `alibaba-coding-plan` ID and its maintained window shape. Do not add a duplicate normal provider block. Alibaba Personal Token Plan uses the reserved `alibaba-token-plan` ID and is not a local-estimate tuning target.
 - Project secrets, scripts, custom headers, executable mappings, regular expressions, and JSONPath are not accepted.
@@ -456,18 +456,11 @@ Existing `experimental.quotaToast` settings remain supported. Quota settings do 
 | `cursorIncludedApiUsd`       | unset                              | Override Cursor monthly included API budget in USD.                                                  |
 | `cursorBillingCycleStartDay` | unset                              | Local billing-cycle anchor day `1..28`; when unset, Cursor usage resets on the local calendar month. |
 
-Kimi has no `quota-toast.json` credential setting. Each regional plan resolves its own key:
+Kilo Gateway has no `quota-toast.json` credential setting. Use `KILO_API_KEY`, trusted user/global `provider.kilo.options.apiKey`, or a strict `kilo` API-key entry in OpenCode `opencode.db`; project-local OpenCode config is not read for this secret. See [Kilo Gateway setup](providers.md#kilo-gateway).
 
-- **Kimi Code (Global):** `KIMI_GLOBAL_API_KEY` → trusted user/global `provider.kimi-code-plan-global.options.apiKey` → strict `kimi-code-plan-global` API-key entry in OpenCode `auth.json`.
-- **Kimi Code (CN):** `KIMI_CN_API_KEY` → `KIMI_API_KEY` → `KIMI_CODE_API_KEY` → trusted user/global config under `kimi-code-plan-cn`, `kimi-for-coding`, `kimi-code`, or `kimi` → strict API-key auth entry under those same ids.
+Ollama Cloud has no `quota-toast.json` credential setting. Use `OLLAMA_API_KEY`, trusted user/global `provider.ollama-cloud.options.apiKey`, or a strict `ollama-cloud` API-key entry in OpenCode `opencode.db`; project-local OpenCode config is not read for this secret. See [Ollama Cloud setup](providers.md#ollama-cloud).
 
-Project-local `opencode.json` and `opencode.jsonc` are never read for these secrets. Global credentials are sent only to `api.kimi.ai`; CN and legacy credentials are sent only to `api.kimi.com`. A failed request is not retried against the other host.
-
-Kilo Gateway has no `quota-toast.json` credential setting. Use `KILO_API_KEY`, trusted user/global `provider.kilo.options.apiKey`, or a strict `kilo` API-key entry in OpenCode `auth.json`; project-local OpenCode config is not read for this secret. See [Kilo Gateway setup](providers.md#kilo-gateway).
-
-Ollama Cloud has no `quota-toast.json` credential setting. Use `OLLAMA_API_KEY`, trusted user/global `provider.ollama-cloud.options.apiKey`, or a strict `ollama-cloud` API-key entry in OpenCode `auth.json`; project-local OpenCode config is not read for this secret. See [Ollama Cloud setup](providers.md#ollama-cloud).
-
-OpenCode Go has no `quota-toast.json` workspace ID, cookie, endpoint, credential, or token setting. It automatically uses `OPENCODE_API_KEY`, trusted user/global `provider.opencode-go.options.apiKey`, trusted user/global fallback `provider.opencode.options.apiKey`, a strict `opencode-go` API-key entry in OpenCode `auth.json`, or a strict legacy `opencode` auth entry as the final fallback. `opencodeGoWindows` filters the Five-hour, Weekly, and Monthly rows returned by the official usage API, including the expanded sidebar. Use `tuiSidebarPanel.opencodeGoPreferredWindow` to prefer one available row only while the sidebar is collapsed. See [OpenCode Go setup](providers.md#opencode-go).
+OpenCode Go has no `quota-toast.json` workspace ID, cookie, endpoint, credential, or token setting. It automatically uses `OPENCODE_API_KEY`, trusted user/global `provider.opencode-go.options.apiKey`, trusted user/global fallback `provider.opencode.options.apiKey`, a strict `opencode-go` API-key entry in OpenCode `opencode.db`, or a strict legacy `opencode` auth entry as the final fallback. `opencodeGoWindows` filters the Five-hour, Weekly, and Monthly rows returned by the official usage API, including the expanded sidebar. Use `tuiSidebarPanel.opencodeGoPreferredWindow` to prefer one available row only while the sidebar is collapsed. See [OpenCode Go setup](providers.md#opencode-go).
 
 Xiaomi MiMo has no `quota-toast.json` credential or endpoint setting. Use `MIMO_USAGE_COOKIE` or trusted user/global `opencode-quota/mimo.json`; see [Xiaomi MiMo setup](providers.md#xiaomi-mimo).
 

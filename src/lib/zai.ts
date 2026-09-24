@@ -10,6 +10,6 @@ const ZAI_QUOTA = {
   resolveAuth: resolveZaiAuthCached,
 } as const;
 
-export function queryZaiQuota(options: { requestTimeoutMs?: number } = {}) {
+export function queryZaiQuota(options: { requestTimeoutMs?: number; apiKey?: string } = {}) {
   return queryGlmCodingPlanQuota(ZAI_QUOTA, options);
 }
