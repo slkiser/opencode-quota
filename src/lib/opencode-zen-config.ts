@@ -2,7 +2,6 @@ import { openOpenCodeSqliteReadOnly } from "./opencode-sqlite.js";
 import { getOpenCodeDbPath } from "./opencode-storage.js";
 
 export interface OpenCodeZenConsoleAccount {
-  email: string;
   /** Console base URL from the account row, e.g. https://opencode.ai/console */
   baseUrl: string;
   accessToken: string;
@@ -18,8 +17,6 @@ export type ResolvedOpenCodeZenAccount =
   | { state: "configured"; account: OpenCodeZenConsoleAccount };
 
 type AccountRow = {
-  id?: unknown;
-  email?: unknown;
   url?: unknown;
   access_token?: unknown;
   token_expiry?: unknown;
@@ -58,8 +55,10 @@ export async function resolveOpenCodeZenAccount(): Promise<ResolvedOpenCodeZenAc
     const activeAccountId = asString(stateRow?.active_account_id);
     if (!activeAccountId) return { state: "no_active_account" };
 
-    const rows = conn.all<AccountRow>(`SELECT * FROM "account"`);
-    const active = rows.find((row) => row.id === stateRow?.active_account_id);
+    const active = conn.get<AccountRow>(
+      `SELECT url, access_token, token_expiry FROM "account" WHERE id = ? LIMIT 1`,
+      [activeAccountId],
+    );
     if (!active) return { state: "inactive_account" };
 
     const activeOrgId = asString(stateRow?.active_org_id);
@@ -82,7 +81,6 @@ export async function resolveOpenCodeZenAccount(): Promise<ResolvedOpenCodeZenAc
     return {
       state: "configured",
       account: {
-        email: asString(active.email) ?? "",
         baseUrl,
         accessToken,
         activeOrgId,

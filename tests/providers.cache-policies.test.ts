@@ -16,7 +16,6 @@ vi.mock("../src/lib/kimi-auth.js", () => ({
 }));
 
 vi.mock("../src/lib/opencode-zen-config.js", () => ({
-  DEFAULT_OPENCODE_ZEN_ACCOUNT_CACHE_MAX_AGE_MS: 5_000,
   resolveOpenCodeZenAccountCached: cachePolicyMocks.resolveZenAccount,
 }));
 
@@ -117,7 +116,6 @@ describe("provider cache policies", () => {
     cachePolicyMocks.resolveZenAccount.mockResolvedValue({
       state: "configured",
       account: {
-        email: "dev@example.com",
         baseUrl: "https://opencode.ai/console",
         accessToken: "st_secret-token",
         activeOrgId: "wrk_shared",
@@ -128,7 +126,6 @@ describe("provider cache policies", () => {
     cachePolicyMocks.resolveZenAccount.mockResolvedValue({
       state: "configured",
       account: {
-        email: "dev@example.com",
         baseUrl: "https://console.self-hosted.example",
         accessToken: "st_self-hosted-token",
         activeOrgId: "wrk_shared",

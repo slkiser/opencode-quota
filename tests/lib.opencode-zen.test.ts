@@ -29,7 +29,6 @@ const SESSION_ERROR =
   "OpenCode Console session expired or invalid — run `opencode console login` to sign in again";
 
 const account = {
-  email: "dev@example.com",
   baseUrl: "https://opencode.ai/console",
   accessToken: "st_secret-token",
   activeOrgId: "wrk_abc",

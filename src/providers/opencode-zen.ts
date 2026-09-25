@@ -10,10 +10,7 @@ import {
   OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR,
   queryOpenCodeZenQuota,
 } from "../lib/opencode-zen.js";
-import {
-  DEFAULT_OPENCODE_ZEN_ACCOUNT_CACHE_MAX_AGE_MS,
-  resolveOpenCodeZenAccountCached,
-} from "../lib/opencode-zen-config.js";
+import { resolveOpenCodeZenAccountCached } from "../lib/opencode-zen-config.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
 import {
   attemptedErrorResult,
@@ -83,9 +80,7 @@ export const opencodeZenProvider: QuotaProvider = {
   id: "opencode",
 
   async isAvailable(_ctx: QuotaProviderContext): Promise<boolean> {
-    const resolved = await resolveOpenCodeZenAccountCached({
-      maxAgeMs: DEFAULT_OPENCODE_ZEN_ACCOUNT_CACHE_MAX_AGE_MS,
-    });
+    const resolved = await resolveOpenCodeZenAccountCached();
     return resolved.state === "configured";
   },
 
@@ -95,9 +90,7 @@ export const opencodeZenProvider: QuotaProvider = {
   },
 
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
-    const resolved = await resolveOpenCodeZenAccountCached({
-      maxAgeMs: DEFAULT_OPENCODE_ZEN_ACCOUNT_CACHE_MAX_AGE_MS,
-    });
+    const resolved = await resolveOpenCodeZenAccountCached();
 
     if (resolved.state === "none") {
       // No Console CLI session in the OpenCode state DB; absent, not an error.

@@ -20,7 +20,6 @@ vi.mock("../src/lib/opencode-zen.js", async (importOriginal) => {
 });
 
 vi.mock("../src/lib/opencode-zen-config.js", () => ({
-  DEFAULT_OPENCODE_ZEN_ACCOUNT_CACHE_MAX_AGE_MS: 30_000,
   resolveOpenCodeZenAccountCached: mocks.resolveOpenCodeZenAccountCached,
 }));
 
@@ -43,7 +42,6 @@ const statusAccounting = {
 } as const;
 
 const consoleAccount = {
-  email: "dev@example.com",
   baseUrl: "https://opencode.ai/console",
   accessToken: "st_secret-token",
   activeOrgId: "wrk_123",

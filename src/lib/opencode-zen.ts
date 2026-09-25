@@ -240,22 +240,17 @@ export async function queryOpenCodeZenQuota(
 
   // Prefer the org budget when it supplies a positive limit and usable spend;
   // otherwise fall back to the credit limit plus this month's usage costs.
-  const orgBudgetUsable = ((): boolean => {
-    if (!orgBudget.success) return false;
-    const { limitMicroCents, spentMicroCents } = orgBudget.data;
-    return limitMicroCents !== null && limitMicroCents > 0 && spentMicroCents !== null;
-  })();
-  const orgBudgetData = orgBudget.success ? orgBudget.data : null;
-  const monthlyLimit = orgBudgetUsable
-    ? (orgBudgetData?.limitMicroCents ?? 0) / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR
-    : creditLimit.success
-      ? creditLimit.data
-      : null;
-  const usage = orgBudgetUsable
-    ? (orgBudgetData?.spentMicroCents ?? null)
-    : monthlyUsage.success
-      ? monthlyUsage.data
-      : null;
+  let monthlyLimit = creditLimit.success ? creditLimit.data : null;
+  let usage = monthlyUsage.success ? monthlyUsage.data : null;
+  let budgetResetIso: string | null = null;
+  if (orgBudget.success) {
+    const { limitMicroCents, spentMicroCents, resetsAt } = orgBudget.data;
+    if (limitMicroCents !== null && limitMicroCents > 0 && spentMicroCents !== null) {
+      monthlyLimit = limitMicroCents / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
+      usage = spentMicroCents;
+      budgetResetIso = resetsAt;
+    }
+  }
 
   return {
     success: true,
@@ -267,7 +262,7 @@ export async function queryOpenCodeZenQuota(
       ...(autoRecharge.success
         ? autoRecharge.data
         : { reload: null, reloadAmount: null, reloadTrigger: null }),
-      budgetResetIso: orgBudgetUsable ? (orgBudgetData?.resetsAt ?? null) : null,
+      budgetResetIso,
     },
     errors: optional.flatMap((result) => (result.success ? [] : [result.error])),
   };

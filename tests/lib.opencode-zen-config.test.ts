@@ -103,7 +103,6 @@ describe("OpenCode Zen Console account resolution", () => {
     await expect(resolveOpenCodeZenAccount()).resolves.toEqual({
       state: "configured",
       account: {
-        email: "dev@example.com",
         baseUrl: "https://opencode.ai/console",
         accessToken: "st_secret-token",
         activeOrgId: "org_1",
