@@ -267,12 +267,26 @@ describe("OpenCode Zen Console account resolution", () => {
     await expect(resolveOpenCodeZenAccount()).resolves.toEqual({ state: "incompatible" });
   });
 
-  it("reports read_error and closes the connection when a schema read fails", async () => {
+  it("reports read_error and closes the connection when the account query fails", async () => {
+    // Schema probes succeed so execution reaches the account_state SELECT,
+    // whose disk-I/O failure must map to read_error (not incompatible).
+    const columns = (names: string[]): Array<{ name: string }> => names.map((name) => ({ name }));
     const conn = {
-      get: () => {
+      all: vi.fn((sql: string) => {
+        if (sql.includes("sqlite_master")) {
+          return columns(["account", "account_state"]);
+        }
+        if (sql.includes("table_info(account_state)")) {
+          return columns(["id", "active_account_id", "active_org_id"]);
+        }
+        if (sql.includes("table_info(account)")) {
+          return columns(["id", "email", "url", "access_token", "refresh_token", "token_expiry"]);
+        }
+        return [];
+      }),
+      get: vi.fn(() => {
         throw new Error("disk I/O error");
-      },
-      all: vi.fn(),
+      }),
       close: vi.fn(),
     };
     storageMocks.dbPath = join(dir, "opencode.db");
@@ -396,6 +410,39 @@ describe("OpenCode Zen Console account resolution", () => {
       await expect(resolveOpenCodeZenAccountCached()).resolves.toEqual({
         state: "expired",
         expiryMs: FIXED_NOW_MS + 10_000,
+      });
+    });
+
+    testWithSqlite("rereads immediately on maxAgeMs 0 even with an unexpired cache", async () => {
+      await openSeededDb((writer) => seedAccount(writer));
+      vi.resetModules();
+      const { resolveOpenCodeZenAccountCached } = await import("../src/lib/opencode-zen-config.js");
+
+      const first = await resolveOpenCodeZenAccountCached();
+      expect(first).toEqual({
+        state: "configured",
+        account: {
+          baseUrl: "https://opencode.ai/console",
+          accessToken: "st_secret-token",
+          activeOrgId: "org_1",
+        },
+      });
+
+      // Rotate the token, then force a refresh with maxAgeMs 0 while the prior
+      // cache entry is still unexpired: the new token must be returned.
+      const writer = new sqlite.DatabaseSync(storageMocks.dbPath);
+      writer
+        .prepare(`UPDATE account SET access_token = 'st_rotated-token' WHERE id = 'acc_1'`)
+        .run();
+      writer.close();
+
+      await expect(resolveOpenCodeZenAccountCached({ maxAgeMs: 0 })).resolves.toEqual({
+        state: "configured",
+        account: {
+          baseUrl: "https://opencode.ai/console",
+          accessToken: "st_rotated-token",
+          activeOrgId: "org_1",
+        },
       });
     });
 

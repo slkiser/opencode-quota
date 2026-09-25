@@ -88,9 +88,17 @@ function zenUsdDecimal(value: number): string {
 export const opencodeZenProvider: QuotaProvider = {
   id: "opencode",
 
-  async isAvailable(_ctx: QuotaProviderContext): Promise<boolean> {
+  async isAvailable(ctx: QuotaProviderContext): Promise<boolean> {
     const resolved = await resolveOpenCodeZenAccountCached();
-    return resolved.state === "configured";
+    if (resolved.state === "none") return false;
+    // A normal DB with no Console sign-in is not an auto-mode error, but stays
+    // actionable when the user explicitly enables the opencode provider.
+    if (resolved.state === "no_active_account" && ctx.config.enabledProviders === "auto") {
+      return false;
+    }
+    // Other recoverable states (expired session, no active org, ...) stay
+    // available so fetch() can surface their recovery hints.
+    return true;
   },
 
   matchesCurrentModel(model: string): boolean {

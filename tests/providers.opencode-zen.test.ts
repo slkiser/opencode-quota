@@ -175,17 +175,22 @@ describe("opencode Zen provider", () => {
   });
 
   it.each([
-    [{ state: "configured", account: consoleAccount }, true],
-    [{ state: "none" }, false],
-    [{ state: "no_active_account" }, false],
-    [{ state: "missing_org" }, false],
-    [{ state: "inactive_account" }, false],
-    [{ state: "invalid_url" }, false],
-    [{ state: "incompatible" }, false],
-    [{ state: "expired", expiryMs: 0 }, false],
-  ])("reports availability for account resolution %j", async (resolution, expected) => {
+    [{ state: "configured", account: consoleAccount }, "auto", true],
+    [{ state: "expired", expiryMs: 0 }, "auto", true],
+    [{ state: "missing_org" }, "auto", true],
+    [{ state: "inactive_account" }, "auto", true],
+    [{ state: "invalid_url" }, "auto", true],
+    [{ state: "incompatible" }, "auto", true],
+    [{ state: "read_error" }, "auto", true],
+    [{ state: "none" }, "auto", false],
+    [{ state: "none" }, ["opencode"], false],
+    [{ state: "no_active_account" }, "auto", false],
+    [{ state: "no_active_account" }, ["opencode"], true],
+  ])("reports availability for %j with enabledProviders %j -> %j", async (resolution, enabledProviders, expected) => {
     mocks.resolveOpenCodeZenAccountCached.mockResolvedValueOnce(resolution);
-    await expect(opencodeZenProvider.isAvailable(context())).resolves.toBe(expected);
+    await expect(opencodeZenProvider.isAvailable(context({ enabledProviders }))).resolves.toBe(
+      expected,
+    );
   });
 
   it.each([

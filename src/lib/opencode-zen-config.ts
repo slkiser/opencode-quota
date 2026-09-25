@@ -188,7 +188,8 @@ export async function resolveOpenCodeZenAccountCached(params?: {
   maxAgeMs?: number;
 }): Promise<ResolvedOpenCodeZenAccount> {
   const maxAgeMs = Math.max(0, params?.maxAgeMs ?? DEFAULT_OPENCODE_ZEN_ACCOUNT_CACHE_MAX_AGE_MS);
-  if (cachedAccount && Date.now() < cachedExpiresAt) return cachedAccount;
+  // A zero maxAgeMs explicitly bypasses an unexpired prior cache entry.
+  if (maxAgeMs > 0 && cachedAccount && Date.now() < cachedExpiresAt) return cachedAccount;
 
   const { resolved, tokenExpiryMs } = await readAccount();
   // The cache must never outlive the token: cap the TTL at the token's expiry
