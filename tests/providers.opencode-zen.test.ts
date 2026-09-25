@@ -84,6 +84,7 @@ function budgetEntry(
     limit?: string;
     remaining?: string;
     limitAuthority?: "provider_reported" | "user_configured";
+    resetTimeIso?: string;
   } = {},
 ) {
   return {
@@ -91,6 +92,7 @@ function budgetEntry(
     name: "zen-monthly-budget",
     group: "OpenCode Zen",
     percentRemaining: options.percentRemaining ?? 94.25,
+    ...(options.resetTimeIso ? { resetTimeIso: options.resetTimeIso } : {}),
     semantic: {
       metric: { kind: "window", window: "month" },
       prominence: "primary",
@@ -140,6 +142,7 @@ function success(overrides: Record<string, unknown> = {}, errors: string[] = [])
       reload: false,
       reloadAmount: null,
       reloadTrigger: null,
+      budgetResetIso: null,
       ...overrides,
     },
   });
@@ -288,6 +291,30 @@ describe("opencode Zen provider", () => {
     expect(result.statusDetails).toContainEqual({ key: "auto_reload_amount_raw", value: "20" });
     expect(result.statusDetails).toContainEqual({ key: "auto_reload_trigger_raw", value: "5" });
     expect(result.presentation).toBeUndefined();
+  });
+
+  it("attaches the org budget reset date to the monthly budget entry", async () => {
+    configured();
+    success({
+      monthlyLimit: 60,
+      monthlyUsage: 617_355_570,
+      budgetResetIso: "2026-10-01T00:00:00.000Z",
+    });
+
+    const result = await opencodeZenProvider.fetch(context());
+
+    expectAttemptedWithNoErrors(result);
+    expect(result.entries).toEqual([
+      budgetEntry({
+        percentRemaining: Math.min(100, ((60 - 6.1735557) / 60) * 100),
+        used: "6.1735557",
+        limit: "60",
+        remaining: "53.8264443",
+        resetTimeIso: "2026-10-01T00:00:00.000Z",
+      }),
+      balanceEntry("supplementary"),
+      autoReloadEntry(),
+    ]);
   });
 
   it("prefers the positive plugin monthly-limit override", async () => {

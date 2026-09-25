@@ -59,6 +59,12 @@ const AUTO_RECHARGE = {
   pending: false,
   failureReason: null,
 };
+const ORG_BUDGET = {
+  limitMicroCents: "6000000000",
+  spentMicroCents: "617355570",
+  exceeded: false,
+  resetsAt: "2026-10-01T00:00:00.000Z",
+};
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -72,6 +78,7 @@ function routes(overrides: Record<string, () => Response> = {}): void {
     "billing/status": () => json(STATUS),
     "billing/account": () => json(ACCOUNT),
     "billing/auto-recharge": () => json(AUTO_RECHARGE),
+    "budgets/org": () => json(ORG_BUDGET),
     "usage/cost-by-day": () => json([]),
     ...overrides,
   };
@@ -95,7 +102,7 @@ describe("queryOpenCodeZenQuota", () => {
     vi.useRealTimers();
   });
 
-  it("calls the four Console routes with the Bearer token and org id", async () => {
+  it("calls the five Console routes with the Bearer token and org id", async () => {
     routes();
 
     await queryOpenCodeZenQuota(account, { requestTimeoutMs: 4_000 });
@@ -104,6 +111,7 @@ describe("queryOpenCodeZenQuota", () => {
       `${CONSOLE_API}/billing/account`,
       `${CONSOLE_API}/billing/auto-recharge`,
       `${CONSOLE_API}/billing/status`,
+      `${CONSOLE_API}/budgets/org`,
       `${CONSOLE_API}/usage/cost-by-day`,
     ]);
     for (const [, options] of mocks.fetchWithTimeout.mock.calls) {
@@ -132,14 +140,86 @@ describe("queryOpenCodeZenQuota", () => {
       success: true,
       data: {
         balance: 0,
-        monthlyLimit: null,
-        monthlyUsage: 0,
+        monthlyLimit: 60,
+        monthlyUsage: 617_355_570,
         lastPayment: null,
         reload: false,
         reloadAmount: 20,
         reloadTrigger: 5,
+        budgetResetIso: "2026-10-01T00:00:00.000Z",
       },
       errors: [],
+    });
+  });
+
+  it("prefers the org budget for the monthly limit, spend, and reset date", async () => {
+    routes({
+      "billing/status": () => json({ ...STATUS, balanceMicroCents: "1822921472" }),
+      "billing/account": () => json({ ...ACCOUNT, creditLimitMicroCents: "10000000000" }),
+      "usage/cost-by-day": () => json([{ date: "2026-09-24", totalCostMicroCents: "75000000" }]),
+    });
+
+    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
+      success: true,
+      data: {
+        balance: 1_822_921_472,
+        monthlyLimit: 60,
+        monthlyUsage: 617_355_570,
+        lastPayment: null,
+        reload: false,
+        reloadAmount: 20,
+        reloadTrigger: 5,
+        budgetResetIso: "2026-10-01T00:00:00.000Z",
+      },
+      errors: [],
+    });
+  });
+
+  it("falls back to the credit limit and usage costs when the org budget has no limit", async () => {
+    routes({
+      "billing/status": () => json({ ...STATUS, balanceMicroCents: "4250000000" }),
+      "billing/account": () => json({ ...ACCOUNT, creditLimitMicroCents: "10000000000" }),
+      "usage/cost-by-day": () => json([{ date: "2026-09-24", totalCostMicroCents: "75000000" }]),
+      "budgets/org": () => json({ limitMicroCents: null, spentMicroCents: null, resetsAt: null }),
+    });
+
+    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
+      success: true,
+      data: {
+        balance: 4_250_000_000,
+        monthlyLimit: 100,
+        monthlyUsage: 75_000_000,
+        lastPayment: null,
+        reload: false,
+        reloadAmount: 20,
+        reloadTrigger: 5,
+        budgetResetIso: null,
+      },
+      errors: [],
+    });
+  });
+
+  it("falls back and lists an error when the org budget route fails", async () => {
+    routes({
+      "billing/status": () => json({ ...STATUS, balanceMicroCents: "4250000000" }),
+      "billing/account": () => json({ ...ACCOUNT, creditLimitMicroCents: "10000000000" }),
+      "usage/cost-by-day": () => json([{ date: "2026-09-24", totalCostMicroCents: "75000000" }]),
+      "budgets/org": () => new Response("server error", { status: 500 }),
+    });
+
+    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
+      success: true,
+      data: {
+        balance: 4_250_000_000,
+        monthlyLimit: 100,
+        monthlyUsage: 75_000_000,
+        lastPayment: null,
+        reload: false,
+        reloadAmount: 20,
+        reloadTrigger: 5,
+        budgetResetIso: null,
+      },
+      errors: ["OpenCode Console budgets/org error 500"],
     });
   });
 
@@ -148,6 +228,7 @@ describe("queryOpenCodeZenQuota", () => {
       "billing/status": () => json({ ...STATUS, balanceMicroCents: "4250000000" }),
       "billing/account": () => json({ ...ACCOUNT, creditLimitMicroCents: "10000000000" }),
       "billing/auto-recharge": () => json({ ...AUTO_RECHARGE, enabled: true }),
+      "budgets/org": () => json({ limitMicroCents: null, spentMicroCents: null, resetsAt: null }),
       "usage/cost-by-day": () =>
         json([
           { date: "2026-08-31", totalCostMicroCents: "900000000" },
@@ -166,6 +247,7 @@ describe("queryOpenCodeZenQuota", () => {
         reload: true,
         reloadAmount: 20,
         reloadTrigger: 5,
+        budgetResetIso: null,
       },
       errors: [],
     });
@@ -174,15 +256,33 @@ describe("queryOpenCodeZenQuota", () => {
   it.each([
     [
       "billing/account",
-      { monthlyLimit: null, monthlyUsage: 75_000_000, reload: true, reloadAmount: 20 },
+      {
+        monthlyLimit: 60,
+        monthlyUsage: 617_355_570,
+        reload: true,
+        reloadAmount: 20,
+        budgetResetIso: "2026-10-01T00:00:00.000Z",
+      },
     ],
     [
       "billing/auto-recharge",
-      { monthlyLimit: 100, monthlyUsage: 75_000_000, reload: null, reloadAmount: null },
+      {
+        monthlyLimit: 60,
+        monthlyUsage: 617_355_570,
+        reload: null,
+        reloadAmount: null,
+        budgetResetIso: "2026-10-01T00:00:00.000Z",
+      },
     ],
     [
       "usage/cost-by-day",
-      { monthlyLimit: 100, monthlyUsage: null, reload: true, reloadAmount: 20 },
+      {
+        monthlyLimit: 60,
+        monthlyUsage: 617_355_570,
+        reload: true,
+        reloadAmount: 20,
+        budgetResetIso: "2026-10-01T00:00:00.000Z",
+      },
     ],
   ])("keeps the balance when optional %s fails", async (route, expected) => {
     routes({
@@ -212,6 +312,7 @@ describe("queryOpenCodeZenQuota", () => {
     routes({
       "billing/account": failed,
       "billing/auto-recharge": failed,
+      "budgets/org": failed,
       "usage/cost-by-day": failed,
     });
 
@@ -225,10 +326,12 @@ describe("queryOpenCodeZenQuota", () => {
         reload: null,
         reloadAmount: null,
         reloadTrigger: null,
+        budgetResetIso: null,
       },
       errors: [
         "OpenCode Console billing/account error 500",
         "OpenCode Console billing/auto-recharge error 500",
+        "OpenCode Console budgets/org error 500",
         "OpenCode Console usage/cost-by-day error 500",
       ],
     });
@@ -262,6 +365,7 @@ describe("queryOpenCodeZenQuota", () => {
       "billing/status": sessionResponse,
       "billing/account": sessionResponse,
       "billing/auto-recharge": sessionResponse,
+      "budgets/org": sessionResponse,
       "usage/cost-by-day": sessionResponse,
     });
 
@@ -274,6 +378,7 @@ describe("queryOpenCodeZenQuota", () => {
   it.each([
     "billing/account",
     "billing/auto-recharge",
+    "budgets/org",
     "usage/cost-by-day",
   ])("reports an expired session when only %s is rejected", async (route) => {
     routes({ [route]: () => new Response("unauthorized", { status: 401 }) });
@@ -315,6 +420,9 @@ describe("queryOpenCodeZenQuota", () => {
     ["billing/account", () => json({ orgId: "wrk_ABC" })],
     ["billing/account", () => json({ ...ACCOUNT, creditLimitMicroCents: "9".repeat(309) })],
     ["billing/auto-recharge", () => json({ ...AUTO_RECHARGE, enabled: "no" })],
+    ["budgets/org", () => json([])],
+    ["budgets/org", () => json({ limitMicroCents: "abc", spentMicroCents: "0" })],
+    ["budgets/org", () => json({ limitMicroCents: "6000000000", resetsAt: 7 })],
     ["usage/cost-by-day", () => json({ days: [] })],
     ["usage/cost-by-day", () => json([{ date: "2026-09-01", totalCostMicroCents: "abc" }])],
     [

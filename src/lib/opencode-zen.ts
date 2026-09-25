@@ -23,6 +23,8 @@ export interface OpenCodeZenBillingData {
   reload: boolean | null;
   reloadAmount: number | null;
   reloadTrigger: number | null;
+  /** Org-budget reset ISO timestamp; only set when budgets/org supplies the monthly budget. */
+  budgetResetIso: string | null;
 }
 
 /**
@@ -37,6 +39,7 @@ type ConsoleRoute =
   | "billing/status"
   | "billing/account"
   | "billing/auto-recharge"
+  | "budgets/org"
   | "usage/cost-by-day";
 
 type ConsoleRouteResult<T> = { success: true; data: T } | { success: false; error: string };
@@ -113,6 +116,37 @@ function parseMonthlyUsage(json: unknown, now: Date): number {
   return Number.isFinite(total) ? total : invalidResponse();
 }
 
+/** Parses the org budget; a null limit means the org has no budget configured. */
+function parseOrgBudget(json: unknown): {
+  limitMicroCents: number | null;
+  spentMicroCents: number | null;
+  resetsAt: string | null;
+} {
+  const budget = asRecord(json);
+  if (!budget) return invalidResponse();
+
+  const limitValue = budget.limitMicroCents;
+  if (limitValue === undefined) return invalidResponse();
+  const limit = limitValue === null ? null : parseMicroCents(limitValue);
+  if (limitValue !== null && limit === null) return invalidResponse();
+
+  const spentValue = budget.spentMicroCents;
+  if (spentValue === undefined) return invalidResponse();
+  const spent = spentValue === null ? null : parseMicroCents(spentValue);
+  if (spentValue !== null && spent === null) return invalidResponse();
+
+  const resetsAt = budget.resetsAt;
+  if (resetsAt !== null && resetsAt !== undefined && typeof resetsAt !== "string") {
+    return invalidResponse();
+  }
+
+  return {
+    limitMicroCents: limit,
+    spentMicroCents: spent,
+    resetsAt: typeof resetsAt === "string" ? resetsAt : null,
+  };
+}
+
 function sanitizeMessage(text: string, secrets: string[] = [], maxLength = 120): string {
   let sanitized = sanitizeDisplayText(text).replace(/\s+/g, " ").trim();
   for (const secret of secrets) {
@@ -186,10 +220,11 @@ export async function queryOpenCodeZenQuota(
     timeoutMs: options.requestTimeoutMs ?? CONSOLE_TIMEOUT_MS,
   };
   const now = new Date();
-  const [balance, creditLimit, autoRecharge, monthlyUsage] = await Promise.all([
+  const [balance, creditLimit, autoRecharge, orgBudget, monthlyUsage] = await Promise.all([
     fetchConsoleRoute({ ...request, route: "billing/status", parse: parseBalance }),
     fetchConsoleRoute({ ...request, route: "billing/account", parse: parseCreditLimit }),
     fetchConsoleRoute({ ...request, route: "billing/auto-recharge", parse: parseAutoRecharge }),
+    fetchConsoleRoute({ ...request, route: "budgets/org", parse: parseOrgBudget }),
     fetchConsoleRoute({
       ...request,
       route: "usage/cost-by-day",
@@ -197,22 +232,42 @@ export async function queryOpenCodeZenQuota(
     }),
   ]);
 
-  const optional = [creditLimit, autoRecharge, monthlyUsage];
+  const optional = [creditLimit, autoRecharge, orgBudget, monthlyUsage];
   if ([balance, ...optional].some((result) => !result.success && result.error === SESSION_ERROR)) {
     return { success: false, error: SESSION_ERROR };
   }
   if (!balance.success) return balance;
 
+  // Prefer the org budget when it supplies a positive limit and usable spend;
+  // otherwise fall back to the credit limit plus this month's usage costs.
+  const orgBudgetUsable = ((): boolean => {
+    if (!orgBudget.success) return false;
+    const { limitMicroCents, spentMicroCents } = orgBudget.data;
+    return limitMicroCents !== null && limitMicroCents > 0 && spentMicroCents !== null;
+  })();
+  const orgBudgetData = orgBudget.success ? orgBudget.data : null;
+  const monthlyLimit = orgBudgetUsable
+    ? (orgBudgetData?.limitMicroCents ?? 0) / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR
+    : creditLimit.success
+      ? creditLimit.data
+      : null;
+  const usage = orgBudgetUsable
+    ? (orgBudgetData?.spentMicroCents ?? null)
+    : monthlyUsage.success
+      ? monthlyUsage.data
+      : null;
+
   return {
     success: true,
     data: {
       balance: balance.data,
-      monthlyLimit: creditLimit.success ? creditLimit.data : null,
-      monthlyUsage: monthlyUsage.success ? monthlyUsage.data : null,
+      monthlyLimit,
+      monthlyUsage: usage,
       lastPayment: null,
       ...(autoRecharge.success
         ? autoRecharge.data
         : { reload: null, reloadAmount: null, reloadTrigger: null }),
+      budgetResetIso: orgBudgetUsable ? (orgBudgetData?.resetsAt ?? null) : null,
     },
     errors: optional.flatMap((result) => (result.success ? [] : [result.error])),
   };

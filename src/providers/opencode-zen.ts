@@ -157,6 +157,7 @@ export const opencodeZenProvider: QuotaProvider = {
         name: "zen-monthly-budget",
         group: OPENCODE_ZEN_GROUP,
         percentRemaining: Math.min(100, (monthlyRemainingUsd / effectiveMonthlyLimit) * 100),
+        ...(result.data.budgetResetIso ? { resetTimeIso: result.data.budgetResetIso } : {}),
         semantic: {
           metric: { kind: "window", window: "month" },
           prominence: "primary",
