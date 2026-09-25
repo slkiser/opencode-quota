@@ -344,7 +344,7 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
       quota: "remote_api",
       quickSetupAnchor: "opencode-zen",
       notes:
-        "Reads the OpenCode Console billing API; requires workspaceId and consoleSessionCookie",
+        "Reads the OpenCode Console billing and usage APIs using the active `opencode console login` session",
     },
   },
   {

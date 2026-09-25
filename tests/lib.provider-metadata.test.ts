@@ -190,7 +190,7 @@ describe("provider-metadata", () => {
         quota: "remote_api",
         quickSetupAnchor: "opencode-zen",
         notes:
-          "Reads the OpenCode Console billing API; requires workspaceId and consoleSessionCookie",
+          "Reads the OpenCode Console billing and usage APIs using the active `opencode console login` session",
       },
       {
         id: "ollama-cloud",
@@ -445,7 +445,7 @@ describe("provider-metadata", () => {
       quota: "remote_api",
       quickSetupAnchor: "opencode-zen",
       notes:
-        "Reads the OpenCode Console billing API; requires workspaceId and consoleSessionCookie",
+        "Reads the OpenCode Console billing and usage APIs using the active `opencode console login` session",
     });
     expect(getQuotaProviderShape("kilo")).toEqual({
       id: "kilo",

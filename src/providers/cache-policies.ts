@@ -32,8 +32,8 @@ import {
   resolveOpenCodeGoAuthCached,
 } from "../lib/opencode-go-auth.js";
 import {
-  DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS,
-  resolveOpenCodeZenConfigCached,
+  DEFAULT_OPENCODE_ZEN_ACCOUNT_CACHE_MAX_AGE_MS,
+  resolveOpenCodeZenAccountCached,
 } from "../lib/opencode-zen-config.js";
 import { resolveOpenRouterAuthIdentity } from "../lib/openrouter.js";
 import type { CanonicalQuotaProviderId } from "../lib/provider-registration.js";
@@ -234,15 +234,17 @@ export const PROVIDER_CACHE_POLICIES = {
     return resolved.state === "configured" ? { credential: resolved.apiKey } : null;
   }),
   opencode: resolvedCredentialPolicy("opencode", async () => {
-    const resolved = await resolveOpenCodeZenConfigCached({
-      maxAgeMs: DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS,
+    const resolved = await resolveOpenCodeZenAccountCached({
+      maxAgeMs: DEFAULT_OPENCODE_ZEN_ACCOUNT_CACHE_MAX_AGE_MS,
     });
-    return resolved.state === "configured"
-      ? {
-          credential: resolved.config.workspaceId,
-          principalKind: "stable-id",
-        }
-      : null;
+    if (resolved.state !== "configured") return null;
+    // Org ids can collide across self-hosted Console URLs, so the cache
+    // identity is the (org id, console URL) tuple.
+    return {
+      credential: resolved.account.activeOrgId,
+      principalKind: "stable-id",
+      qualifiers: [resolved.account.baseUrl],
+    };
   }),
   "ollama-cloud": resolvedCredentialPolicy("ollama-cloud", async () => {
     const resolved = await resolveOllamaCloudApiKey();

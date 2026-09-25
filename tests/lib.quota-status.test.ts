@@ -1235,26 +1235,24 @@ describe("buildQuotaStatusReport", () => {
     expect(section).not.toContain("workspace/private");
   });
 
-  it("reports OpenCode Zen config and live billing details without exposing credentials", async () => {
+  it("reports OpenCode Zen console account and live billing details without exposing credentials", async () => {
     const report = await buildOpenCodeZenStatusReport({
       providerLiveProbes: [
         makeProviderSuccessProbe("opencode", {
-          config_state: "configured",
-          config_source: "env(OPENCODE_*)",
+          account_state: "configured",
+          console_url: "https://opencode.ai/console",
           balance_usd: "$42.50",
           monthly_limit_usd: "$50.00",
-          last_payment_usd: "$20.00",
         }),
       ],
     });
 
     expect(report).toContain("opencode_zen:");
-    expect(report).toContain("- config_state: configured");
-    expect(report).toContain("- config_source: env(OPENCODE_*)");
+    expect(report).toContain("- account_state: configured");
+    expect(report).toContain("- console_url: https://opencode.ai/console");
     expect(report).toContain("- balance_usd: $42.50");
     expect(report).toContain("- monthly_limit_usd: $50.00");
-    expect(report).toContain("- last_payment_usd: $20.00");
-    expect(report).not.toContain("wrk-secret");
+    expect(report).not.toContain("st-secret-token");
   });
 
   it("does not retry a failed OpenCode Zen live probe", async () => {
@@ -1267,8 +1265,8 @@ describe("buildQuotaStatusReport", () => {
             entries: [],
             errors: [{ label: "OpenCode", message: "Request timeout after 10s" }],
             statusDetails: makeStatusDetails({
-              config_state: "configured",
-              config_source: "env(OPENCODE_*)",
+              account_state: "configured",
+              console_url: "https://opencode.ai/console",
             }),
           },
         },
@@ -1278,21 +1276,21 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- live_probe: error");
   });
 
-  it("reports a fixed OpenCode Zen parse error without attempting a live fetch", async () => {
+  it("reports a fixed OpenCode Zen auth error without attempting a live fetch", async () => {
     const report = await buildOpenCodeZenStatusReport({
       providerLiveProbes: [
         makeProviderProbe("opencode", {
           statusDetails: makeStatusDetails({
-            config_state: "invalid",
-            config_error: "Failed to parse JSON",
+            account_state: "expired",
+            account_error: "OpenCode Console session expired",
           }),
         }),
       ],
     });
 
     expect(report).toContain("opencode_zen:");
-    expect(report).toContain("- config_state: invalid");
-    expect(report).toContain("- config_error: Failed to parse JSON");
+    expect(report).toContain("- account_state: expired");
+    expect(report).toContain("- account_error: OpenCode Console session expired");
   });
 
   it("reports safe Xiaomi config and partial live summaries without exposing cookie data", async () => {

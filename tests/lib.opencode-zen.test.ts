@@ -26,7 +26,14 @@ import { queryOpenCodeZenQuota } from "../src/lib/opencode-zen.js";
 
 const CONSOLE_API = "https://opencode.ai/console/api";
 const SESSION_ERROR =
-  "OpenCode Console session expired or invalid — paste a fresh __Host-console_session cookie as consoleSessionCookie";
+  "OpenCode Console session expired or invalid — run `opencode console login` to sign in again";
+
+const account = {
+  email: "dev@example.com",
+  baseUrl: "https://opencode.ai/console",
+  accessToken: "st_secret-token",
+  activeOrgId: "wrk_abc",
+};
 
 // Payloads captured from a real account by the maintainer (org id replaced).
 const STATUS = {
@@ -88,10 +95,10 @@ describe("queryOpenCodeZenQuota", () => {
     vi.useRealTimers();
   });
 
-  it("calls the four Console routes with the session cookie and org id", async () => {
+  it("calls the four Console routes with the Bearer token and org id", async () => {
     routes();
 
-    await queryOpenCodeZenQuota("wrk_abc", "session-value", { requestTimeoutMs: 4_000 });
+    await queryOpenCodeZenQuota(account, { requestTimeoutMs: 4_000 });
 
     expect(mocks.fetchWithTimeout.mock.calls.map(([url]) => url).sort()).toEqual([
       `${CONSOLE_API}/billing/account`,
@@ -106,19 +113,22 @@ describe("queryOpenCodeZenQuota", () => {
           redirect: "manual",
           headers: {
             Accept: "application/json",
-            Cookie: "__Host-console_session=session-value",
+            Authorization: "Bearer st_secret-token",
             "x-org-id": "wrk_abc",
           },
         },
         timeoutMs: 4_000,
       });
     }
+    for (const [, options] of mocks.fetchWithTimeout.mock.calls) {
+      expect(options.request.headers).not.toHaveProperty("Cookie");
+    }
   });
 
   it("parses the real empty-account payloads", async () => {
     routes();
 
-    await expect(queryOpenCodeZenQuota("wrk_abc", "session-value")).resolves.toEqual({
+    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
       success: true,
       data: {
         balance: 0,
@@ -146,7 +156,7 @@ describe("queryOpenCodeZenQuota", () => {
         ]),
     });
 
-    await expect(queryOpenCodeZenQuota("wrk_abc", "session-value")).resolves.toEqual({
+    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
       success: true,
       data: {
         balance: 4_250_000_000,
@@ -183,7 +193,7 @@ describe("queryOpenCodeZenQuota", () => {
       [route]: () => new Response("server error", { status: 500 }),
     });
 
-    const result = await queryOpenCodeZenQuota("wrk_abc", "session-value");
+    const result = await queryOpenCodeZenQuota(account);
 
     expect(result).toEqual({
       success: true,
@@ -205,7 +215,7 @@ describe("queryOpenCodeZenQuota", () => {
       "usage/cost-by-day": failed,
     });
 
-    await expect(queryOpenCodeZenQuota("wrk_abc", "session-value")).resolves.toEqual({
+    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
       success: true,
       data: {
         balance: 0,
@@ -227,7 +237,7 @@ describe("queryOpenCodeZenQuota", () => {
   it("clamps a negative balance to zero", async () => {
     routes({ "billing/status": () => json({ ...STATUS, balanceMicroCents: "-14496" }) });
 
-    const result = await queryOpenCodeZenQuota("wrk_abc", "session-value");
+    const result = await queryOpenCodeZenQuota(account);
 
     expect(result).toMatchObject({ success: true, data: { balance: 0 } });
   });
@@ -255,10 +265,10 @@ describe("queryOpenCodeZenQuota", () => {
       "usage/cost-by-day": sessionResponse,
     });
 
-    const result = await queryOpenCodeZenQuota("wrk_abc", "session-secret");
+    const result = await queryOpenCodeZenQuota(account);
 
     expect(result).toEqual({ success: false, error: SESSION_ERROR });
-    expect(JSON.stringify(result)).not.toContain("session-secret");
+    expect(JSON.stringify(result)).not.toContain("st_secret-token");
   });
 
   it.each([
@@ -268,7 +278,7 @@ describe("queryOpenCodeZenQuota", () => {
   ])("reports an expired session when only %s is rejected", async (route) => {
     routes({ [route]: () => new Response("unauthorized", { status: 401 }) });
 
-    await expect(queryOpenCodeZenQuota("wrk_abc", "session-value")).resolves.toEqual({
+    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
       success: false,
       error: SESSION_ERROR,
     });
@@ -278,14 +288,14 @@ describe("queryOpenCodeZenQuota", () => {
     const secretBody = "private-body-session-secret";
     routes({ "billing/status": () => new Response(secretBody, { status: 500 }) });
 
-    const result = await queryOpenCodeZenQuota("wrk_abc", "session-secret");
+    const result = await queryOpenCodeZenQuota(account);
 
     expect(result).toEqual({
       success: false,
       error: "OpenCode Console billing/status error 500",
     });
     expect(JSON.stringify(result)).not.toContain(secretBody);
-    expect(JSON.stringify(result)).not.toContain("session-secret");
+    expect(JSON.stringify(result)).not.toContain("st_secret-token");
   });
 
   it.each([
@@ -295,7 +305,7 @@ describe("queryOpenCodeZenQuota", () => {
   ])("returns a stable parse error for a %s billing/status response", async (_name, payload) => {
     routes({ "billing/status": payload });
 
-    await expect(queryOpenCodeZenQuota("wrk_abc", "session-value")).resolves.toEqual({
+    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
       success: false,
       error: "Could not parse OpenCode Console billing/status response",
     });
@@ -322,7 +332,7 @@ describe("queryOpenCodeZenQuota", () => {
   ])("lists a stable parse error for a malformed %s response", async (route, payload) => {
     routes({ [route]: payload });
 
-    const result = await queryOpenCodeZenQuota("wrk_abc", "session-value");
+    const result = await queryOpenCodeZenQuota(account);
 
     expect(result).toMatchObject({
       success: true,
@@ -331,19 +341,19 @@ describe("queryOpenCodeZenQuota", () => {
     });
   });
 
-  it("sanitizes network and timeout errors and redacts configured secrets", async () => {
+  it("sanitizes network and timeout errors and redacts the Bearer token and org id", async () => {
     mocks.fetchResponse.mockRejectedValue(
-      new Error("\u001b[31mtimeout for wrk_secret with session-secret\nretry\u001b[0m"),
+      new Error("\u001b[31mtimeout for wrk_abc with st_secret-token\nretry\u001b[0m"),
     );
 
-    const result = await queryOpenCodeZenQuota("wrk_secret", "session-secret");
+    const result = await queryOpenCodeZenQuota(account);
 
     expect(result).toEqual({
       success: false,
       error:
         "OpenCode Console billing/status request failed: timeout for [redacted] with [redacted] retry",
     });
-    expect(JSON.stringify(result)).not.toContain("wrk_secret");
-    expect(JSON.stringify(result)).not.toContain("session-secret");
+    expect(JSON.stringify(result)).not.toContain("wrk_abc");
+    expect(JSON.stringify(result)).not.toContain("st_secret-token");
   });
 });

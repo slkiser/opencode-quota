@@ -4,6 +4,7 @@ const cachePolicyMocks = vi.hoisted(() => ({
   resolveGlobal: vi.fn(),
   resolveCn: vi.fn(),
   deriveIdentity: vi.fn(async (params: unknown) => JSON.stringify(params)),
+  resolveZenAccount: vi.fn(),
 }));
 
 vi.mock("../src/lib/kimi-auth.js", () => ({
@@ -12,6 +13,11 @@ vi.mock("../src/lib/kimi-auth.js", () => ({
   resolveKimiCnAuthCached: cachePolicyMocks.resolveCn,
   resolveKimiGlobalAuthWithDiagnosticsCached: vi.fn(),
   resolveKimiCnAuthWithDiagnosticsCached: vi.fn(),
+}));
+
+vi.mock("../src/lib/opencode-zen-config.js", () => ({
+  DEFAULT_OPENCODE_ZEN_ACCOUNT_CACHE_MAX_AGE_MS: 5_000,
+  resolveOpenCodeZenAccountCached: cachePolicyMocks.resolveZenAccount,
 }));
 
 vi.mock("../src/lib/resolved-auth-identity.js", async (importOriginal) => {
@@ -102,7 +108,59 @@ describe("provider cache policies", () => {
     expect(cachePolicyMocks.resolveCn).toHaveBeenCalledTimes(2);
   });
 
-  it("attaches the exhaustive policy to the stable provider singleton", () => {
+  it("derives distinct OpenCode Zen identities for the same org on different Console URLs", async () => {
+    const policy = PROVIDER_CACHE_POLICIES.opencode;
+    if (policy.kind !== "resolved-auth") throw new Error("Expected a resolved-auth policy");
+
+    const ctx = { config: {} } as never;
+    const cacheContext = {} as never;
+    cachePolicyMocks.resolveZenAccount.mockResolvedValue({
+      state: "configured",
+      account: {
+        email: "dev@example.com",
+        baseUrl: "https://opencode.ai/console",
+        accessToken: "st_secret-token",
+        activeOrgId: "wrk_shared",
+      },
+    });
+    const cloudIdentity = await policy.resolveIdentity(ctx, cacheContext);
+
+    cachePolicyMocks.resolveZenAccount.mockResolvedValue({
+      state: "configured",
+      account: {
+        email: "dev@example.com",
+        baseUrl: "https://console.self-hosted.example",
+        accessToken: "st_self-hosted-token",
+        activeOrgId: "wrk_shared",
+      },
+    });
+    const selfHostedIdentity = await policy.resolveIdentity(ctx, cacheContext);
+
+    expect(cloudIdentity).not.toBeNull();
+    expect(selfHostedIdentity).not.toBeNull();
+    expect(cloudIdentity).not.toBe(selfHostedIdentity);
+    expect(cachePolicyMocks.deriveIdentity).toHaveBeenCalledWith({
+      providerId: "opencode",
+      principal: { kind: "stable-id", value: "wrk_shared" },
+      qualifiers: ["https://opencode.ai/console"],
+    });
+    expect(cachePolicyMocks.deriveIdentity).toHaveBeenCalledWith({
+      providerId: "opencode",
+      principal: { kind: "stable-id", value: "wrk_shared" },
+      qualifiers: ["https://console.self-hosted.example"],
+    });
+  });
+
+  it("returns no OpenCode Zen identity without a configured Console account", async () => {
+    const policy = PROVIDER_CACHE_POLICIES.opencode;
+    if (policy.kind !== "resolved-auth") throw new Error("Expected a resolved-auth policy");
+
+    cachePolicyMocks.resolveZenAccount.mockResolvedValue({ state: "expired", expiryMs: 0 });
+    await expect(policy.resolveIdentity({ config: {} } as never, {} as never)).resolves.toBeNull();
+    expect(cachePolicyMocks.deriveIdentity).not.toHaveBeenCalled();
+  });
+
+  it("attaches the exhaustive policy to the stable provider singleton", async () => {
     const first = getProviders();
     const second = getProviders();
     expect(first.map(({ id }) => id)).toEqual(

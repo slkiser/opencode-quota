@@ -1,129 +1,113 @@
-import { readFile } from "fs/promises";
-import { join } from "path";
+import { openOpenCodeSqliteReadOnly } from "./opencode-sqlite.js";
+import { getOpenCodeDbPath } from "./opencode-storage.js";
 
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
-
-export interface OpenCodeZenConfig {
-  workspaceId: string;
-  consoleSessionCookie: string;
+export interface OpenCodeZenConsoleAccount {
+  email: string;
+  /** Console base URL from the account row, e.g. https://opencode.ai/console */
+  baseUrl: string;
+  accessToken: string;
+  activeOrgId: string;
 }
 
-export type ResolvedOpenCodeZenConfig =
+export type ResolvedOpenCodeZenAccount =
   | { state: "none" }
-  | { state: "configured"; config: OpenCodeZenConfig; source: string }
-  | { state: "incomplete"; source: string; missing: string }
-  | { state: "invalid"; source: string; error: string };
+  | { state: "expired"; expiryMs: number }
+  | { state: "no_active_account" }
+  | { state: "missing_org" }
+  | { state: "inactive_account" }
+  | { state: "configured"; account: OpenCodeZenConsoleAccount };
 
-export interface OpenCodeZenConfigDiagnostics {
-  state: ResolvedOpenCodeZenConfig["state"];
-  source: string | null;
-  missing: string | null;
-  error: string | null;
-  checkedPaths: string[];
+type AccountRow = {
+  id?: unknown;
+  email?: unknown;
+  url?: unknown;
+  access_token?: unknown;
+  token_expiry?: unknown;
+};
+
+function asString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-type ReadConfigFileResult =
-  | { state: "missing" }
-  | { state: "loaded"; config: Partial<OpenCodeZenConfig> }
-  | { state: "invalid"; error: string };
-
-const LEGACY_AUTH_COOKIE_ERROR =
-  "authCookie no longer works after the OpenCode Console redesign; paste the __Host-console_session cookie as consoleSessionCookie";
-
-function getConfigCandidatePaths(): string[] {
-  const { configDirs } = getOpencodeRuntimeDirCandidates();
-  return configDirs.map((dir) => join(dir, "opencode-quota", "opencode.json"));
+function normalizeBaseUrl(value: unknown): string | null {
+  const url = asString(value);
+  if (!url || !/^https:\/\//i.test(url)) return null;
+  return url.replace(/\/+$/, "");
 }
 
-function getConfigFileError(error: unknown): string {
-  if (error instanceof SyntaxError) {
-    return "Failed to parse JSON";
-  }
-  if (error instanceof Error && error.message) {
-    return `Failed to read config file: ${error.message}`;
-  }
-  return `Failed to read config file: ${String(error)}`;
-}
+/**
+ * Reads the active OpenCode Console CLI session (`opencode console login`)
+ * from OpenCode's local state database, strictly read-only. Tokens are never
+ * refreshed or written here.
+ */
+export async function resolveOpenCodeZenAccount(): Promise<ResolvedOpenCodeZenAccount> {
+  const dbPath = getOpenCodeDbPath();
+  if (!dbPath) return { state: "none" };
 
-async function readConfigFile(path: string): Promise<ReadConfigFileResult> {
+  let conn: Awaited<ReturnType<typeof openOpenCodeSqliteReadOnly>>;
   try {
-    const data = await readFile(path, "utf8");
-    const parsed = JSON.parse(data) as Record<string, unknown>;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { state: "invalid", error: "Config file must contain a JSON object" };
-    }
-    return { state: "loaded", config: parsed as Partial<OpenCodeZenConfig> };
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return { state: "missing" };
-    }
-    return { state: "invalid", error: getConfigFileError(error) };
+    conn = await openOpenCodeSqliteReadOnly(dbPath);
+  } catch {
+    return { state: "none" };
   }
-}
 
-export async function resolveOpenCodeZenConfig(): Promise<ResolvedOpenCodeZenConfig> {
-  for (const path of getConfigCandidatePaths()) {
-    const fileResult = await readConfigFile(path);
-    if (fileResult.state === "missing") continue;
-    if (fileResult.state === "invalid") {
-      return { state: "invalid", source: path, error: fileResult.error };
+  try {
+    const stateRow = conn.get<{ active_account_id?: unknown; active_org_id?: unknown }>(
+      `SELECT active_account_id, active_org_id FROM "account_state" LIMIT 1`,
+    );
+    const activeAccountId = asString(stateRow?.active_account_id);
+    if (!activeAccountId) return { state: "no_active_account" };
+
+    const rows = conn.all<AccountRow>(`SELECT * FROM "account"`);
+    const active = rows.find((row) => row.id === stateRow?.active_account_id);
+    if (!active) return { state: "inactive_account" };
+
+    const activeOrgId = asString(stateRow?.active_org_id);
+    if (!activeOrgId) return { state: "missing_org" };
+
+    const accessToken = asString(active.access_token);
+    if (!accessToken) return { state: "expired", expiryMs: 0 };
+
+    const expiryMs =
+      typeof active.token_expiry === "number" && Number.isFinite(active.token_expiry)
+        ? active.token_expiry
+        : null;
+    if (expiryMs !== null && expiryMs <= Date.now()) {
+      return { state: "expired", expiryMs };
     }
 
-    const workspaceId =
-      typeof fileResult.config.workspaceId === "string" ? fileResult.config.workspaceId.trim() : "";
-    const consoleSessionCookie =
-      typeof fileResult.config.consoleSessionCookie === "string"
-        ? fileResult.config.consoleSessionCookie.trim()
-        : "";
-
-    if (!consoleSessionCookie && "authCookie" in fileResult.config) {
-      return { state: "invalid", source: path, error: LEGACY_AUTH_COOKIE_ERROR };
-    }
-
-    if (workspaceId && consoleSessionCookie) {
-      return {
-        state: "configured",
-        config: { workspaceId, consoleSessionCookie },
-        source: path,
-      };
-    }
+    const baseUrl = normalizeBaseUrl(active.url);
+    if (!baseUrl) return { state: "none" };
 
     return {
-      state: "incomplete",
-      source: path,
-      missing: workspaceId ? "consoleSessionCookie" : "workspaceId",
+      state: "configured",
+      account: {
+        email: asString(active.email) ?? "",
+        baseUrl,
+        accessToken,
+        activeOrgId,
+      },
     };
+  } finally {
+    conn.close();
   }
-
-  return { state: "none" };
 }
 
-let cachedConfig: ResolvedOpenCodeZenConfig | null = null;
+let cachedAccount: ResolvedOpenCodeZenAccount | null = null;
 let cachedAt = 0;
 
-export const DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS = 30_000;
+export const DEFAULT_OPENCODE_ZEN_ACCOUNT_CACHE_MAX_AGE_MS = 30_000;
 
-export async function resolveOpenCodeZenConfigCached(params?: {
+export async function resolveOpenCodeZenAccountCached(params?: {
   maxAgeMs?: number;
-}): Promise<ResolvedOpenCodeZenConfig> {
-  const maxAgeMs = Math.max(0, params?.maxAgeMs ?? DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS);
+}): Promise<ResolvedOpenCodeZenAccount> {
+  const maxAgeMs = Math.max(0, params?.maxAgeMs ?? DEFAULT_OPENCODE_ZEN_ACCOUNT_CACHE_MAX_AGE_MS);
   const now = Date.now();
-  if (cachedConfig && now - cachedAt < maxAgeMs) {
-    return cachedConfig;
+  if (cachedAccount && now - cachedAt < maxAgeMs) {
+    return cachedAccount;
   }
 
-  cachedConfig = await resolveOpenCodeZenConfig();
+  cachedAccount = await resolveOpenCodeZenAccount();
   cachedAt = now;
-  return cachedConfig;
-}
-
-export async function getOpenCodeZenConfigDiagnostics(): Promise<OpenCodeZenConfigDiagnostics> {
-  const resolved = await resolveOpenCodeZenConfig();
-  return {
-    state: resolved.state,
-    source: "source" in resolved ? resolved.source : null,
-    missing: "missing" in resolved ? resolved.missing : null,
-    error: "error" in resolved ? resolved.error : null,
-    checkedPaths: getConfigCandidatePaths(),
-  };
+  return cachedAccount;
 }

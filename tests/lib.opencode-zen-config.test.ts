@@ -1,319 +1,185 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "fs/promises";
-import { tmpdir } from "os";
-import { join } from "path";
-
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const runtimePathMocks = vi.hoisted(() => ({
-  getOpencodeRuntimeDirCandidates: vi.fn(),
+const storageMocks = vi.hoisted(() => ({
+  dbPath: "",
 }));
 
-vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: runtimePathMocks.getOpencodeRuntimeDirCandidates,
+vi.mock("../src/lib/opencode-storage.js", () => ({
+  getOpenCodeDbPath: () => storageMocks.dbPath,
 }));
 
-const originalEnv = process.env;
-const tempRoots: string[] = [];
+import {
+  DEFAULT_OPENCODE_ZEN_ACCOUNT_CACHE_MAX_AGE_MS,
+  resolveOpenCodeZenAccount,
+  resolveOpenCodeZenAccountCached,
+} from "../src/lib/opencode-zen-config.js";
 
-async function createConfigDirs(): Promise<[string, string]> {
-  const root = await mkdtemp(join(tmpdir(), "opencode-zen-config-"));
-  tempRoots.push(root);
-  const primary = join(root, "primary");
-  const fallback = join(root, "fallback");
-  await mkdir(join(primary, "opencode-quota"), { recursive: true });
-  await mkdir(join(fallback, "opencode-quota"), { recursive: true });
-  return [primary, fallback];
+async function importNodeSqlite(): Promise<typeof import("node:sqlite") | null> {
+  try {
+    return await import("node:sqlite");
+  } catch {
+    return null;
+  }
 }
 
-function configPath(configDir: string): string {
-  return join(configDir, "opencode-quota", "opencode.json");
-}
+const FUTURE_EXPIRY_MS = Date.now() + 60_000;
 
-describe("opencode-zen config resolution", () => {
-  beforeEach(() => {
+describe("OpenCode Zen Console account resolution", () => {
+  let sqlite: typeof import("node:sqlite") | null;
+  let dir: string;
+
+  beforeEach(async () => {
+    sqlite = await importNodeSqlite();
+    dir = await mkdtemp(join(tmpdir(), "opencode-zen-config-"));
+    storageMocks.dbPath = "";
     vi.resetModules();
-    vi.clearAllMocks();
-    process.env = { ...originalEnv };
-    delete process.env.OPENCODE_WORKSPACE_ID;
-    delete process.env.OPENCODE_AUTH_COOKIE;
-    delete process.env.OPENCODE_GO_WORKSPACE_ID;
-    delete process.env.OPENCODE_GO_AUTH_COOKIE;
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({ configDirs: [] });
   });
 
   afterEach(async () => {
-    process.env = originalEnv;
-    for (const root of tempRoots.splice(0)) {
-      await rm(root, { recursive: true, force: true });
-    }
+    await rm(dir, { recursive: true, force: true });
   });
 
-  it("ignores OPENCODE_* environment variables and reads only the config file", async () => {
-    process.env.OPENCODE_WORKSPACE_ID = "wrk_env";
-    process.env.OPENCODE_AUTH_COOKIE = "cookie-env";
-    const [primary] = await createConfigDirs();
-    const path = configPath(primary);
-    await writeFile(
-      path,
-      JSON.stringify({ workspaceId: "wrk_file", consoleSessionCookie: "cookie-file" }),
-    );
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: [primary],
-    });
+  async function openSeededDb(
+    seed: (writer: import("node:sqlite").DatabaseSync) => void,
+  ): Promise<void> {
+    if (!sqlite) return;
+    const dbPath = join(dir, "opencode.db");
+    const writer = new sqlite.DatabaseSync(dbPath);
+    writer.exec(`
+      CREATE TABLE account (
+        id TEXT PRIMARY KEY,
+        email TEXT,
+        url TEXT,
+        access_token TEXT,
+        refresh_token TEXT,
+        token_expiry INTEGER,
+        time_created INTEGER,
+        time_updated INTEGER
+      );
+      CREATE TABLE account_state (
+        id INTEGER PRIMARY KEY,
+        active_account_id TEXT,
+        active_org_id TEXT
+      );
+    `);
+    seed(writer);
+    writer.close();
+    storageMocks.dbPath = dbPath;
+  }
 
-    const { resolveOpenCodeZenConfig } = await import("../src/lib/opencode-zen-config.js");
+  function seedAccount(
+    writer: import("node:sqlite").DatabaseSync,
+    overrides: Record<string, unknown> = {},
+  ): void {
+    const ov = (key: string, fallback: unknown): unknown =>
+      key in overrides ? overrides[key] : fallback;
+    writer
+      .prepare(
+        `INSERT INTO account (id, email, url, access_token, refresh_token, token_expiry, time_created, time_updated)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        ov("id", "acc_1"),
+        ov("email", "dev@example.com"),
+        ov("url", "https://opencode.ai/console/"),
+        ov("access_token", "st_secret-token"),
+        ov("refresh_token", "rt_refresh"),
+        ov("token_expiry", FUTURE_EXPIRY_MS),
+        0,
+        0,
+      );
+    writer
+      .prepare(`INSERT INTO account_state (id, active_account_id, active_org_id) VALUES (?, ?, ?)`)
+      .run(ov("state_id", 1), ov("active_account_id", "acc_1"), ov("active_org_id", "org_1"));
+  }
 
-    await expect(resolveOpenCodeZenConfig()).resolves.toEqual({
+  it("resolves the active console account from the OpenCode state DB", async () => {
+    if (!sqlite) return;
+    await openSeededDb((writer) => seedAccount(writer));
+
+    await expect(resolveOpenCodeZenAccount()).resolves.toEqual({
       state: "configured",
-      config: { workspaceId: "wrk_file", consoleSessionCookie: "cookie-file" },
-      source: path,
+      account: {
+        email: "dev@example.com",
+        baseUrl: "https://opencode.ai/console",
+        accessToken: "st_secret-token",
+        activeOrgId: "org_1",
+      },
     });
   });
 
-  it("ignores OPENCODE_* environment variables when no config file exists", async () => {
-    process.env.OPENCODE_WORKSPACE_ID = "wrk_env";
-    process.env.OPENCODE_AUTH_COOKIE = "cookie-env";
-
-    const { resolveOpenCodeZenConfig } = await import("../src/lib/opencode-zen-config.js");
-
-    await expect(resolveOpenCodeZenConfig()).resolves.toEqual({ state: "none" });
+  it("reports none when the state DB is absent", async () => {
+    storageMocks.dbPath = "";
+    await expect(resolveOpenCodeZenAccount()).resolves.toEqual({ state: "none" });
+    storageMocks.dbPath = join(dir, "does-not-exist.db");
+    await expect(resolveOpenCodeZenAccount()).resolves.toEqual({ state: "none" });
   });
 
-  it("reads the first trusted runtime config file", async () => {
-    const [primary] = await createConfigDirs();
-    const path = configPath(primary);
-    await writeFile(
-      path,
-      JSON.stringify({ workspaceId: " wrk_file ", consoleSessionCookie: " cookie-file " }),
+  it("reports missing_org when a signed-in account has no active org", async () => {
+    if (!sqlite) return;
+    await openSeededDb((writer) => seedAccount(writer, { active_org_id: null }));
+    await expect(resolveOpenCodeZenAccount()).resolves.toEqual({ state: "missing_org" });
+  });
+
+  it("reports no_active_account when account_state has no active account", async () => {
+    if (!sqlite) return;
+    await openSeededDb((writer) =>
+      seedAccount(writer, { active_account_id: null, active_org_id: null }),
     );
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: [primary],
-    });
-
-    const { resolveOpenCodeZenConfig } = await import("../src/lib/opencode-zen-config.js");
-
-    await expect(resolveOpenCodeZenConfig()).resolves.toEqual({
-      state: "configured",
-      config: { workspaceId: "wrk_file", consoleSessionCookie: "cookie-file" },
-      source: path,
-    });
+    await expect(resolveOpenCodeZenAccount()).resolves.toEqual({ state: "no_active_account" });
   });
 
-  it("returns incomplete for missing and wrong-type file fields", async () => {
-    const [primary] = await createConfigDirs();
-    const path = configPath(primary);
-    await writeFile(path, JSON.stringify({ workspaceId: 123, consoleSessionCookie: "cookie" }));
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: [primary],
-    });
+  it("reports no_active_account when the account_state table is empty", async () => {
+    if (!sqlite) return;
+    await openSeededDb(() => {});
+    await expect(resolveOpenCodeZenAccount()).resolves.toEqual({ state: "no_active_account" });
+  });
 
-    const { resolveOpenCodeZenConfig } = await import("../src/lib/opencode-zen-config.js");
+  it("reports inactive_account when the active account row is gone", async () => {
+    if (!sqlite) return;
+    await openSeededDb((writer) => seedAccount(writer, { active_account_id: "acc_gone" }));
+    await expect(resolveOpenCodeZenAccount()).resolves.toEqual({ state: "inactive_account" });
+  });
 
-    await expect(resolveOpenCodeZenConfig()).resolves.toEqual({
-      state: "incomplete",
-      source: path,
-      missing: "workspaceId",
+  it("rejects an expired access token", async () => {
+    if (!sqlite) return;
+    const expiredMs = Date.now() - 1;
+    await openSeededDb((writer) => seedAccount(writer, { token_expiry: expiredMs }));
+    await expect(resolveOpenCodeZenAccount()).resolves.toEqual({
+      state: "expired",
+      expiryMs: expiredMs,
     });
   });
 
-  it("reports an old authCookie key without using its value", async () => {
-    const [primary] = await createConfigDirs();
-    const path = configPath(primary);
-    await writeFile(path, JSON.stringify({ workspaceId: "wrk_file", authCookie: "old-cookie" }));
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: [primary],
-    });
-
-    const { getOpenCodeZenConfigDiagnostics, resolveOpenCodeZenConfig } = await import(
-      "../src/lib/opencode-zen-config.js"
-    );
-    const expectedError =
-      "authCookie no longer works after the OpenCode Console redesign; paste the __Host-console_session cookie as consoleSessionCookie";
-
-    await expect(resolveOpenCodeZenConfig()).resolves.toEqual({
-      state: "invalid",
-      source: path,
-      error: expectedError,
-    });
-    const diagnostics = await getOpenCodeZenConfigDiagnostics();
-    expect(diagnostics).toMatchObject({ state: "invalid", error: expectedError });
-    expect(JSON.stringify(diagnostics)).not.toContain("old-cookie");
-  });
-
-  it("ignores an old authCookie key once consoleSessionCookie is set", async () => {
-    const [primary] = await createConfigDirs();
-    const path = configPath(primary);
-    await writeFile(
-      path,
-      JSON.stringify({
-        workspaceId: "wrk_file",
-        authCookie: "old-cookie",
-        consoleSessionCookie: "session-file",
-      }),
-    );
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: [primary],
-    });
-
-    const { resolveOpenCodeZenConfig } = await import("../src/lib/opencode-zen-config.js");
-
-    await expect(resolveOpenCodeZenConfig()).resolves.toEqual({
-      state: "configured",
-      config: { workspaceId: "wrk_file", consoleSessionCookie: "session-file" },
-      source: path,
+  it("rejects an empty access token", async () => {
+    if (!sqlite) return;
+    await openSeededDb((writer) => seedAccount(writer, { access_token: " " }));
+    await expect(resolveOpenCodeZenAccount()).resolves.toEqual({
+      state: "expired",
+      expiryMs: 0,
     });
   });
 
-  it("stops at the first invalid config instead of falling through", async () => {
-    const [primary, fallback] = await createConfigDirs();
-    await writeFile(configPath(primary), "[]");
-    await writeFile(
-      configPath(fallback),
-      JSON.stringify({ workspaceId: "wrk_ok", consoleSessionCookie: "cookie-ok" }),
-    );
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: [primary, fallback],
-    });
-
-    const { resolveOpenCodeZenConfig } = await import("../src/lib/opencode-zen-config.js");
-
-    await expect(resolveOpenCodeZenConfig()).resolves.toEqual({
-      state: "invalid",
-      source: configPath(primary),
-      error: "Config file must contain a JSON object",
-    });
+  it("rejects a non-HTTPS console URL", async () => {
+    if (!sqlite) return;
+    await openSeededDb((writer) => seedAccount(writer, { url: "http://opencode.ai/console/" }));
+    await expect(resolveOpenCodeZenAccount()).resolves.toEqual({ state: "none" });
   });
 
-  it("does not include malformed credential text in JSON parse errors", async () => {
-    const [primary] = await createConfigDirs();
-    const path = configPath(primary);
-    await writeFile(path, '{"consoleSessionCookie":super-secret}');
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: [primary],
-    });
+  it("caches the resolved account within the configured TTL", async () => {
+    if (!sqlite) return;
+    await openSeededDb((writer) => seedAccount(writer));
+    const { DatabaseSync } = sqlite;
 
-    const { resolveOpenCodeZenConfig } = await import("../src/lib/opencode-zen-config.js");
+    const first = await resolveOpenCodeZenAccountCached({ maxAgeMs: 5_000 });
+    const writer = new DatabaseSync(storageMocks.dbPath);
+    writer.prepare(`UPDATE account SET access_token = 'st_rotated-token' WHERE id = 'acc_1'`).run();
+    writer.close();
 
-    await expect(resolveOpenCodeZenConfig()).resolves.toEqual({
-      state: "invalid",
-      source: path,
-      error: "Failed to parse JSON",
-    });
-  });
-
-  it("keeps file-only resolution and public diagnostics unchanged after source audit", async () => {
-    const [primary] = await createConfigDirs();
-    const path = configPath(primary);
-    const obsoleteGoPath = join(primary, "opencode-quota", "opencode-go.json");
-    const zenWorkspaceCanary = "zen-file-workspace-canary";
-    const zenCookieCanary = "zen-file-cookie-canary";
-    const goFileCanary = "obsolete-go-file-canary";
-    process.env.OPENCODE_WORKSPACE_ID = "zen-env-workspace-canary";
-    process.env.OPENCODE_AUTH_COOKIE = "zen-env-cookie-canary";
-    process.env.OPENCODE_GO_WORKSPACE_ID = "go-env-workspace-canary";
-    process.env.OPENCODE_GO_AUTH_COOKIE = "go-env-cookie-canary";
-    await writeFile(
-      path,
-      JSON.stringify({ workspaceId: zenWorkspaceCanary, consoleSessionCookie: zenCookieCanary }),
-    );
-    await writeFile(obsoleteGoPath, JSON.stringify({ authCookie: goFileCanary }));
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({ configDirs: [primary] });
-
-    const { getOpenCodeZenConfigDiagnostics, resolveOpenCodeZenConfig } = await import(
-      "../src/lib/opencode-zen-config.js"
-    );
-    const beforeResult = await resolveOpenCodeZenConfig();
-    const beforeDiagnostics = await getOpenCodeZenConfigDiagnostics();
-    const zenBytesBeforeAudit = await readFile(path);
-    const goBytesBeforeAudit = await readFile(obsoleteGoPath);
-    const { auditObsoleteUpdateSources } = await import("../src/lib/scoped-update-migration.js");
-    const findings = await auditObsoleteUpdateSources({
-      env: process.env,
-      configDirs: [primary],
-      primaryConfigDir: primary,
-    });
-    expect(await readFile(path)).toEqual(zenBytesBeforeAudit);
-    expect(await readFile(obsoleteGoPath)).toEqual(goBytesBeforeAudit);
-    expect(process.env.OPENCODE_WORKSPACE_ID).toBe("zen-env-workspace-canary");
-    expect(process.env.OPENCODE_AUTH_COOKIE).toBe("zen-env-cookie-canary");
-    expect(process.env.OPENCODE_GO_WORKSPACE_ID).toBe("go-env-workspace-canary");
-    expect(process.env.OPENCODE_GO_AUTH_COOKIE).toBe("go-env-cookie-canary");
-    const afterResult = await resolveOpenCodeZenConfig();
-    const afterDiagnostics = await getOpenCodeZenConfigDiagnostics();
-
-    expect(beforeResult).toEqual({
-      state: "configured",
-      config: { workspaceId: zenWorkspaceCanary, consoleSessionCookie: zenCookieCanary },
-      source: path,
-    });
-    expect(afterResult).toEqual(beforeResult);
-    expect(afterDiagnostics).toEqual(beforeDiagnostics);
-    expect(findings).toEqual(
-      expect.arrayContaining([
-        { kind: "obsolete-go-env", name: "OPENCODE_GO_WORKSPACE_ID" },
-        { kind: "obsolete-go-env", name: "OPENCODE_GO_AUTH_COOKIE" },
-        { kind: "obsolete-go-file", path: obsoleteGoPath },
-      ]),
-    );
-    expect(findings).not.toContainEqual(expect.objectContaining({ kind: "ambiguous-zen-env" }));
-
-    const publicBoundary = JSON.stringify({ findings, beforeDiagnostics, afterDiagnostics });
-    for (const canary of [
-      zenWorkspaceCanary,
-      zenCookieCanary,
-      goFileCanary,
-      "zen-env-workspace-canary",
-      "zen-env-cookie-canary",
-      "go-env-workspace-canary",
-      "go-env-cookie-canary",
-    ]) {
-      expect(publicBoundary).not.toContain(canary);
-    }
-  });
-
-  it("caches the resolved credentials within the configured TTL", async () => {
-    const [primary] = await createConfigDirs();
-    const path = configPath(primary);
-    await writeFile(
-      path,
-      JSON.stringify({ workspaceId: "wrk_initial", consoleSessionCookie: "cookie-initial" }),
-    );
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: [primary],
-    });
-
-    const { resolveOpenCodeZenConfigCached } = await import("../src/lib/opencode-zen-config.js");
-    const first = await resolveOpenCodeZenConfigCached({ maxAgeMs: 5_000 });
-    await writeFile(
-      path,
-      JSON.stringify({ workspaceId: "wrk_changed", consoleSessionCookie: "cookie-changed" }),
-    );
-
-    await expect(resolveOpenCodeZenConfigCached({ maxAgeMs: 5_000 })).resolves.toEqual(first);
-  });
-
-  it("reports diagnostics without exposing credential values", async () => {
-    const [primary] = await createConfigDirs();
-    const path = configPath(primary);
-    await writeFile(
-      path,
-      JSON.stringify({ workspaceId: "wrk_secret", consoleSessionCookie: "cookie-secret" }),
-    );
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: [primary],
-    });
-
-    const { getOpenCodeZenConfigDiagnostics } = await import("../src/lib/opencode-zen-config.js");
-    const diagnostics = await getOpenCodeZenConfigDiagnostics();
-
-    expect(diagnostics).toEqual({
-      state: "configured",
-      source: path,
-      missing: null,
-      error: null,
-      checkedPaths: [path],
-    });
-    expect(JSON.stringify(diagnostics)).not.toContain("cookie-secret");
-    expect(JSON.stringify(diagnostics)).not.toContain("wrk_secret");
+    await expect(resolveOpenCodeZenAccountCached({ maxAgeMs: 5_000 })).resolves.toEqual(first);
+    expect(DEFAULT_OPENCODE_ZEN_ACCOUNT_CACHE_MAX_AGE_MS).toBeGreaterThan(0);
   });
 });

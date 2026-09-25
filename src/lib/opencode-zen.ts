@@ -1,11 +1,10 @@
 import { sanitizeDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
+import type { OpenCodeZenConsoleAccount } from "./opencode-zen-config.js";
 
-const CONSOLE_API_URL = "https://opencode.ai/console/api";
-const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Gecko/20100101 Firefox/148.0";
 const CONSOLE_TIMEOUT_MS = 10_000;
 const SESSION_ERROR =
-  "OpenCode Console session expired or invalid — paste a fresh __Host-console_session cookie as consoleSessionCookie";
+  "OpenCode Console session expired or invalid — run `opencode console login` to sign in again";
 
 /**
  * The OpenCode Console reports amounts in micro-cents:
@@ -124,21 +123,19 @@ function sanitizeMessage(text: string, secrets: string[] = [], maxLength = 120):
 
 async function fetchConsoleRoute<T>(params: {
   route: ConsoleRoute;
-  workspaceId: string;
-  consoleSessionCookie: string;
+  account: OpenCodeZenConsoleAccount;
   timeoutMs: number;
   parse: (json: unknown) => T;
 }): Promise<ConsoleRouteResult<T>> {
   try {
-    return await fetchWithTimeout(`${CONSOLE_API_URL}/${params.route}`, {
+    return await fetchWithTimeout(`${params.account.baseUrl}/api/${params.route}`, {
       request: {
         method: "GET",
         redirect: "manual",
         headers: {
-          "User-Agent": USER_AGENT,
           Accept: "application/json",
-          Cookie: `__Host-console_session=${params.consoleSessionCookie}`,
-          "x-org-id": params.workspaceId,
+          Authorization: `Bearer ${params.account.accessToken}`,
+          "x-org-id": params.account.activeOrgId,
         },
       },
       timeoutMs: params.timeoutMs,
@@ -173,21 +170,19 @@ async function fetchConsoleRoute<T>(params: {
     });
   } catch (error) {
     const message = sanitizeMessage(error instanceof Error ? error.message : String(error), [
-      params.consoleSessionCookie,
-      params.workspaceId,
+      params.account.accessToken,
+      params.account.activeOrgId,
     ]);
     return { success: false, error: `OpenCode Console ${params.route} request failed: ${message}` };
   }
 }
 
 export async function queryOpenCodeZenQuota(
-  workspaceId: string,
-  consoleSessionCookie: string,
+  account: OpenCodeZenConsoleAccount,
   options: { requestTimeoutMs?: number } = {},
 ): Promise<OpenCodeZenResult> {
   const request = {
-    workspaceId,
-    consoleSessionCookie,
+    account,
     timeoutMs: options.requestTimeoutMs ?? CONSOLE_TIMEOUT_MS,
   };
   const now = new Date();

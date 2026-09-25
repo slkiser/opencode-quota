@@ -98,16 +98,7 @@ Workspace/cookie material cannot be converted into the official API key. Do not 
 
 `OPENCODE_WORKSPACE_ID` and `OPENCODE_AUTH_COOKIE` are ambiguous names: they may come from an older Zen setup, but they may instead belong to OpenCode's workspace feature. Current quota code ignores them. The updater reports them only when it finds no supported global `opencode-quota/opencode.json` path, and it does not read or move their values.
 
-First decide whether those variables really contain Zen credentials. If they do, the old `auth` cookie no longer works after the OpenCode Console redesign: create the supported file under your global OpenCode config directory with a fresh `__Host-console_session` cookie ([how to find it](providers.md#opencode-zen)). The usual path is `~/.config/opencode/opencode-quota/opencode.json`:
-
-```json
-{
-  "workspaceId": "wrk_your-workspace-id",
-  "consoleSessionCookie": "your-console-session-cookie"
-}
-```
-
-Use placeholders while documenting or sharing the setup; never share the real values. Restrict file access to your user account, verify with `/quota_status` or terminal `opencode-quota status`, and only then remove obsolete environment declarations manually. If the variables belong to OpenCode's workspace feature, leave them with that feature instead of treating them as Zen credentials.
+Current OpenCode Zen versions authenticate with the active OpenCode Console CLI session instead: run `opencode console login` (and `opencode console switch` when you belong to multiple organizations), then verify with `/quota_status` or terminal `opencode-quota status`. OpenCode Quota reads that session strictly read-only from OpenCode's local state database; it never refreshes or writes tokens. It no longer reads the `workspaceId` + `consoleSessionCookie` plugin config file, so remove any leftover `opencode-quota/opencode.json` credential file after verifying the CLI session works. Use placeholders while documenting or sharing the setup; never share the real values. If the variables belong to OpenCode's workspace feature, leave them with that feature instead of treating them as Zen credentials.
 
 ## Cancellation, failures, and reruns
 
