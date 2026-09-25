@@ -58,6 +58,15 @@ function accountErrorMessage(state: string): string {
   if (state === "no_active_account") {
     return `No active OpenCode Console account. ${LOGIN_HINT}`;
   }
+  if (state === "invalid_url") {
+    return `The stored OpenCode Console URL is invalid. ${LOGIN_HINT}`;
+  }
+  if (state === "incompatible") {
+    return `OpenCode state database is missing the Console account tables. Update OpenCode, then ${LOGIN_HINT}`;
+  }
+  if (state === "read_error") {
+    return "The OpenCode state database could not be read (it may be locked). Close or retry OpenCode, then try again.";
+  }
   return `No OpenCode Console session found. ${LOGIN_HINT}`;
 }
 

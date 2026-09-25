@@ -9,10 +9,25 @@ import {
 const mocks = vi.hoisted(() => ({
   queryOpenCodeZenQuota: vi.fn(),
   resolveOpenCodeZenAccountCached: vi.fn(),
+  fetchResponse: vi.fn(),
+  realQueryOpenCodeZenQuota: null as
+    | null
+    | typeof import("../src/lib/opencode-zen.js").queryOpenCodeZenQuota,
+}));
+
+vi.mock("../src/lib/http.js", () => ({
+  fetchWithTimeout: async (
+    url: string,
+    options: { consume: (response: Response) => Promise<unknown> },
+  ) => {
+    const response = await mocks.fetchResponse(url);
+    return await options.consume(response);
+  },
 }));
 
 vi.mock("../src/lib/opencode-zen.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../src/lib/opencode-zen.js")>();
+  mocks.realQueryOpenCodeZenQuota = original.queryOpenCodeZenQuota;
   return {
     ...original,
     queryOpenCodeZenQuota: mocks.queryOpenCodeZenQuota,
@@ -165,6 +180,8 @@ describe("opencode Zen provider", () => {
     [{ state: "no_active_account" }, false],
     [{ state: "missing_org" }, false],
     [{ state: "inactive_account" }, false],
+    [{ state: "invalid_url" }, false],
+    [{ state: "incompatible" }, false],
     [{ state: "expired", expiryMs: 0 }, false],
   ])("reports availability for account resolution %j", async (resolution, expected) => {
     mocks.resolveOpenCodeZenAccountCached.mockResolvedValueOnce(resolution);
@@ -190,6 +207,9 @@ describe("opencode Zen provider", () => {
   it.each([
     [{ state: "expired", expiryMs: 0 }, "opencode console login"],
     [{ state: "no_active_account" }, "opencode console login"],
+    [{ state: "invalid_url" }, "opencode console login"],
+    [{ state: "incompatible" }, "opencode console login"],
+    [{ state: "read_error" }, "could not be read"],
     [{ state: "missing_org" }, "opencode console switch"],
     [{ state: "inactive_account" }, "opencode console switch"],
   ])("projects account state %j as an actionable attempted error", async (resolution, hint) => {
@@ -313,6 +333,55 @@ describe("opencode Zen provider", () => {
       balanceEntry("supplementary"),
       autoReloadEntry(),
     ]);
+  });
+
+  it("does not reject the whole result for a parseable non-ISO org-budget reset", async () => {
+    configured();
+    // Run the real query pipeline against a fake HTTP layer where budgets/org
+    // returns a parseable-but-non-ISO reset ("0"); the resolver must normalize
+    // it to canonical ISO so shared result validation never drops the result.
+    mocks.fetchResponse.mockImplementation((url: string) => {
+      const route = url.slice("https://opencode.ai/console/api/".length);
+      const payloads: Record<string, unknown> = {
+        "billing/status": { balanceMicroCents: "4250000000" },
+        "billing/account": { orgId: "wrk_123", creditLimitMicroCents: null },
+        "billing/auto-recharge": {
+          enabled: false,
+          thresholdDollars: 5,
+          rechargeAmountDollars: 20,
+          pending: false,
+          failureReason: null,
+        },
+        "budgets/org": {
+          limitMicroCents: "6000000000",
+          spentMicroCents: "617355570",
+          exceeded: false,
+          resetsAt: "2026-10-01T00:00:00",
+        },
+        "usage/cost-by-day": [],
+      };
+      const payload = payloads[route];
+      if (payload === undefined) throw new Error(`unexpected url ${url}`);
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    if (!mocks.realQueryOpenCodeZenQuota) throw new Error("real query not captured");
+    const realQuery = mocks.realQueryOpenCodeZenQuota;
+    mocks.queryOpenCodeZenQuota.mockImplementation(
+      (acct: typeof consoleAccount, opts?: { requestTimeoutMs?: number }) => realQuery(acct, opts),
+    );
+
+    const result = await opencodeZenProvider.fetch(context());
+
+    expectAttemptedWithNoErrors(result);
+    expect(result.entries[0]).toMatchObject({
+      percentRemaining: Math.min(100, ((60 - 6.1735557) / 60) * 100),
+      resetTimeIso: new Date("2026-10-01T00:00:00").toISOString(),
+    });
+    // Canonical ISO only: the parseable non-ISO input must never surface.
+    expect(result.entries[0].resetTimeIso?.endsWith("Z")).toBe(true);
   });
 
   it("prefers the positive plugin monthly-limit override", async () => {

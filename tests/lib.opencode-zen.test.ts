@@ -350,7 +350,6 @@ describe("queryOpenCodeZenQuota", () => {
       () => new Response(null, { status: 302, headers: { location: "/console/login" } }),
     ],
     ["401", () => new Response("unauthorized", { status: 401 })],
-    ["403", () => new Response("forbidden", { status: 403 })],
     [
       "login page",
       () =>
@@ -372,6 +371,90 @@ describe("queryOpenCodeZenQuota", () => {
 
     expect(result).toEqual({ success: false, error: SESSION_ERROR });
     expect(JSON.stringify(result)).not.toContain("st_secret-token");
+  });
+
+  it("fails the query when the required billing/status route returns 403", async () => {
+    routes({ "billing/status": () => new Response("forbidden", { status: 403 }) });
+
+    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
+      success: false,
+      error: "OpenCode Console billing/status error 403",
+    });
+  });
+
+  it("keeps the balance when only budgets/org is forbidden", async () => {
+    routes({
+      "billing/status": () => json({ ...STATUS, balanceMicroCents: "4250000000" }),
+      "billing/account": () => json({ ...ACCOUNT, creditLimitMicroCents: "10000000000" }),
+      "usage/cost-by-day": () => json([{ date: "2026-09-24", totalCostMicroCents: "75000000" }]),
+      "budgets/org": () => new Response("forbidden", { status: 403 }),
+    });
+
+    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
+      success: true,
+      data: {
+        balance: 4_250_000_000,
+        monthlyLimit: 100,
+        monthlyUsage: 75_000_000,
+        lastPayment: null,
+        reload: false,
+        reloadAmount: 20,
+        reloadTrigger: 5,
+        budgetResetIso: null,
+      },
+      errors: ["OpenCode Console budgets/org error 403"],
+    });
+  });
+
+  it("falls back to the credit limit when the org budget spend is negative", async () => {
+    routes({
+      "billing/status": () => json({ ...STATUS, balanceMicroCents: "4250000000" }),
+      "billing/account": () => json({ ...ACCOUNT, creditLimitMicroCents: "10000000000" }),
+      "usage/cost-by-day": () => json([{ date: "2026-09-24", totalCostMicroCents: "75000000" }]),
+      "budgets/org": () => json({ ...ORG_BUDGET, spentMicroCents: "-5" }),
+    });
+
+    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
+      success: true,
+      data: {
+        balance: 4_250_000_000,
+        monthlyLimit: 100,
+        monthlyUsage: 75_000_000,
+        lastPayment: null,
+        reload: false,
+        reloadAmount: 20,
+        reloadTrigger: 5,
+        budgetResetIso: null,
+      },
+      errors: [],
+    });
+  });
+
+  it("keeps a usable org budget but omits an invalid reset date", async () => {
+    routes({ "budgets/org": () => json({ ...ORG_BUDGET, resetsAt: "not-a-date" }) });
+
+    const result = await queryOpenCodeZenQuota(account);
+
+    expect(result).toMatchObject({
+      success: true,
+      data: { balance: 0, monthlyLimit: 60, monthlyUsage: 617_355_570, budgetResetIso: null },
+      errors: [],
+    });
+  });
+
+  it("normalizes a parseable non-ISO reset date to canonical ISO", async () => {
+    // "2026-10-01T00:00:00" parses but lacks the UTC offset required of ISO;
+    // it must be canonicalized, never passed through as-is.
+    routes({ "budgets/org": () => json({ ...ORG_BUDGET, resetsAt: "2026-10-01T00:00:00" }) });
+
+    const result = await queryOpenCodeZenQuota(account);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+
+    expect(result.data.budgetResetIso).toBe(new Date("2026-10-01T00:00:00").toISOString());
+    expect(result.data.budgetResetIso?.endsWith("Z")).toBe(true);
+    expect(result.data).toMatchObject({ balance: 0, monthlyLimit: 60, monthlyUsage: 617_355_570 });
+    expect(result.errors).toEqual([]);
   });
 
   it.each([

@@ -174,11 +174,9 @@ async function fetchConsoleRoute<T>(params: {
       },
       timeoutMs: params.timeoutMs,
       consume: async (response): Promise<ConsoleRouteResult<T>> => {
-        if (
-          (response.status >= 300 && response.status < 400) ||
-          response.status === 401 ||
-          response.status === 403
-        ) {
+        // Redirects and 401 mean the whole session is gone; a 403 is treated as
+        // a per-route failure so optional routes can fall back gracefully.
+        if ((response.status >= 300 && response.status < 400) || response.status === 401) {
           return { success: false, error: SESSION_ERROR };
         }
         if (!response.ok) {
@@ -245,10 +243,18 @@ export async function queryOpenCodeZenQuota(
   let budgetResetIso: string | null = null;
   if (orgBudget.success) {
     const { limitMicroCents, spentMicroCents, resetsAt } = orgBudget.data;
-    if (limitMicroCents !== null && limitMicroCents > 0 && spentMicroCents !== null) {
+    if (
+      limitMicroCents !== null &&
+      limitMicroCents > 0 &&
+      spentMicroCents !== null &&
+      spentMicroCents >= 0
+    ) {
       monthlyLimit = limitMicroCents / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
       usage = spentMicroCents;
-      budgetResetIso = resetsAt;
+      // Normalize to canonical ISO so downstream result validation never sees a
+      // parseable-but-non-ISO reset (e.g. "0") and drops the whole result.
+      const resetTimeMs = resetsAt === null ? Number.NaN : Date.parse(resetsAt);
+      budgetResetIso = Number.isFinite(resetTimeMs) ? new Date(resetTimeMs).toISOString() : null;
     }
   }
 
