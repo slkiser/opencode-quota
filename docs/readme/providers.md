@@ -31,7 +31,7 @@ Most providers work automatically. `Automatic` means OpenCode Quota reuses the c
 | Ollama Cloud       | Automatic                              | Remote API         | Quota and usage    |
 | OpenAI             | Automatic                              | Remote API         | Quota              |
 | OpenCode Go        | Automatic                              | Remote API         | Quota              |
-| OpenCode Zen       | [Needs setup](#opencode-zen)           | Dashboard API      | Budget and balance |
+| OpenCode Zen       | [Needs setup](#opencode-zen)           | Remote API         | Budget and balance |
 | OpenRouter         | Automatic                              | Remote API         | Budget and spend   |
 | Synthetic          | Automatic                              | Remote API         | Quota              |
 | xAI                | Automatic                              | Remote API         | Quota              |
@@ -51,7 +51,7 @@ Most providers work automatically. `Automatic` means OpenCode Quota reuses the c
 | Google AGY              | [Needs setup](#google-agy-quick-setup) | Remote API         | Quota              |
 | NanoGPT                 | Automatic                              | Remote API         | Quota and balance  |
 | OpenAI                  | Automatic                              | Remote API         | Quota              |
-| OpenCode Zen            | [Needs setup](#opencode-zen)           | Dashboard API      | Budget and balance |
+| OpenCode Zen            | [Needs setup](#opencode-zen)           | Remote API         | Budget and balance |
 | OpenRouter              | Automatic                              | Remote API         | Budget and spend   |
 | Synthetic               | Automatic                              | Remote API         | Quota              |
 | xAI                     | Automatic                              | Remote API         | Quota              |
@@ -618,29 +618,20 @@ The updater reports obsolete `OPENCODE_GO_WORKSPACE_ID`, `OPENCODE_GO_AUTH_COOKI
 
 ### OpenCode Zen
 
-OpenCode Zen reads billing and usage from the OpenCode Console API (`opencode.ai/console/api/...`). These routes are unofficial, so OpenCode may change them. Provide your workspace ID and Console session cookie via the plugin config file `~/.config/opencode/opencode-quota/opencode.json`:
+OpenCode Zen reads billing and usage from the OpenCode Console API (`/api/billing/status`, `/api/billing/account`, `/api/billing/auto-recharge`, and `/api/usage/cost-by-day`). These routes are unofficial, so OpenCode may change them. It authenticates with the active Console session that OpenCode itself stores after `opencode console login` — no cookie or workspace-id setup is required.
 
-```json
-{
-  "workspaceId": "wrk_your-workspace-id",
-  "consoleSessionCookie": "your-console-session-cookie"
-}
-```
+1. Run `opencode console login` in OpenCode and sign in.
+2. Run `opencode console switch` if you belong to multiple organizations.
 
-Find both values in your browser:
+OpenCode Quota reads that session strictly read-only from OpenCode's local state database; it never refreshes or writes tokens. When the session expires or no active organization is selected, Zen reports the exact command to run: `opencode console login` for an expired session, or `opencode console switch` when no organization is active.
 
-1. Open https://opencode.ai/console and sign in.
-2. `workspaceId`: copy the `wrk_...` part of the Console URL.
-3. `consoleSessionCookie`: open Developer Tools → **Application** (Firefox: **Storage**) → **Cookies** → `https://opencode.ai`, then copy the **Value** of `__Host-console_session`.
+> The old `workspaceId` + `consoleSessionCookie` plugin config file and the
+> `OPENCODE_WORKSPACE_ID` / `OPENCODE_AUTH_COOKIE` environment variables are no
+> longer read. Remove leftover credential files after verifying the CLI session
+> works; see [Updating safely](updating.md#opencode-zen-findings).
 
-When the cookie expires, Zen reports `OpenCode Console session expired or invalid`; paste a fresh value. The old `authCookie` key no longer works and is reported as a setup error. OpenCode Quota never reads browser cookie stores.
+The monthly budget prefers the org budget route (`/api/budgets/org`): when it reports a positive budget limit and usable spend, the **Monthly budget** percentage uses those values plus the org budget reset date. If the org budget route fails or the org has no budget, Zen falls back to the Console credit limit (`/api/billing/account`) plus the current month's usage costs (`/api/usage/cost-by-day`); a failed org-budget route is listed as an error but never removes the balance row.
 
-> The credentials are read only from this config file. They are not read from
-> the `OPENCODE_WORKSPACE_ID` / `OPENCODE_AUTH_COOKIE` environment variables,
-> which collide with the OpenCode client's workspace feature. The updater may
-> cautiously report those names when no supported global file exists; review
-> [Updating safely](updating.md#opencode-zen-findings) before changing them.
-
-Set `opencodeMonthlyLimit` in `opencode-quota/quota-toast.json` to override the monthly budget from the Console credit limit. With valid monthly usage and a positive Console/configured limit, Zen shows a primary **Monthly budget** percentage with used, limit, and locally derived remaining USD facts. The current account balance is separate and supplementary; without a valid budget percentage, that balance becomes the primary row. **Auto-reload** is a supplementary enabled/disabled row. Its raw amount and trigger remain diagnostics. The balance is required; if the credit-limit, auto-reload, or usage route fails, Zen still shows the balance, omits only the rows that need the failed data, and lists each failed route as an error.
+Set `opencodeMonthlyLimit` in `opencode-quota/quota-toast.json` to override the monthly budget from either source. With valid monthly usage and a positive Console/configured limit, Zen shows a primary **Monthly budget** percentage with used, limit, and locally derived remaining USD facts. The current account balance is separate and supplementary; without a valid budget percentage, that balance becomes the primary row. **Auto-reload** is a supplementary enabled/disabled row. Its raw amount and trigger remain diagnostics. The balance is required; if the credit-limit, auto-reload, or usage route fails, Zen still shows the balance, omits only the rows that need the failed data, and lists each failed route as an error.
 
 Use root `accountingDetail: "detailed"` to admit the supplementary balance and auto-reload rows. At runtime, the removed `opencodeZenDisplay` key remains diagnostic-only. The explicit `update` command can migrate recognized file-backed `default` and `detailed` values; unsupported cases remain unchanged for manual review. See [Updating safely](updating.md#what-can-change-automatically).

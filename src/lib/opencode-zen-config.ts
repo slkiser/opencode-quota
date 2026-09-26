@@ -1,129 +1,202 @@
-import { readFile } from "fs/promises";
-import { join } from "path";
+import { statSync } from "node:fs";
 
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import { openOpenCodeSqliteReadOnly } from "./opencode-sqlite.js";
+import { getOpenCodeDbPath } from "./opencode-storage.js";
 
-export interface OpenCodeZenConfig {
-  workspaceId: string;
-  consoleSessionCookie: string;
+export interface OpenCodeZenConsoleAccount {
+  /** Console base URL from the account row, e.g. https://opencode.ai/console */
+  baseUrl: string;
+  accessToken: string;
+  activeOrgId: string;
 }
 
-export type ResolvedOpenCodeZenConfig =
+export type ResolvedOpenCodeZenAccount =
   | { state: "none" }
-  | { state: "configured"; config: OpenCodeZenConfig; source: string }
-  | { state: "incomplete"; source: string; missing: string }
-  | { state: "invalid"; source: string; error: string };
+  | { state: "expired"; expiryMs: number }
+  | { state: "no_active_account" }
+  | { state: "missing_org" }
+  | { state: "inactive_account" }
+  | { state: "invalid_url" }
+  | { state: "incompatible" }
+  | { state: "read_error" }
+  | { state: "configured"; account: OpenCodeZenConsoleAccount };
 
-export interface OpenCodeZenConfigDiagnostics {
-  state: ResolvedOpenCodeZenConfig["state"];
-  source: string | null;
-  missing: string | null;
-  error: string | null;
-  checkedPaths: string[];
+type AccountRow = {
+  url?: unknown;
+  access_token?: unknown;
+  token_expiry?: unknown;
+};
+
+interface AccountRead {
+  resolved: ResolvedOpenCodeZenAccount;
+  /** Raw token_expiry column value; null when absent or the token is already invalid. */
+  tokenExpiryMs: number | null;
 }
 
-type ReadConfigFileResult =
-  | { state: "missing" }
-  | { state: "loaded"; config: Partial<OpenCodeZenConfig> }
-  | { state: "invalid"; error: string };
-
-const LEGACY_AUTH_COOKIE_ERROR =
-  "authCookie no longer works after the OpenCode Console redesign; paste the __Host-console_session cookie as consoleSessionCookie";
-
-function getConfigCandidatePaths(): string[] {
-  const { configDirs } = getOpencodeRuntimeDirCandidates();
-  return configDirs.map((dir) => join(dir, "opencode-quota", "opencode.json"));
+function asString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function getConfigFileError(error: unknown): string {
-  if (error instanceof SyntaxError) {
-    return "Failed to parse JSON";
+/** Checks a thrown error (e.g. from statSync) for a stable errno code. */
+function hasErrnoCode(error: unknown, code: string): boolean {
+  let current: unknown = error;
+  for (let depth = 0; current && depth < 5; depth += 1) {
+    if ((current as NodeJS.ErrnoException).code === code) return true;
+    current = (current as { cause?: unknown }).cause;
   }
-  if (error instanceof Error && error.message) {
-    return `Failed to read config file: ${error.message}`;
-  }
-  return `Failed to read config file: ${String(error)}`;
+  return false;
 }
 
-async function readConfigFile(path: string): Promise<ReadConfigFileResult> {
+/**
+ * node:sqlite reports missing files as SQLITE_CANTOPEN (ERR_SQLITE_ERROR), the
+ * same errcode it uses for permission problems — so ask the filesystem for the
+ * real errno. statSync (unlike existsSync) distinguishes ENOENT from EACCES.
+ */
+function isMissingStateDbFile(dbPath: string): boolean {
   try {
-    const data = await readFile(path, "utf8");
-    const parsed = JSON.parse(data) as Record<string, unknown>;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { state: "invalid", error: "Config file must contain a JSON object" };
-    }
-    return { state: "loaded", config: parsed as Partial<OpenCodeZenConfig> };
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return { state: "missing" };
-    }
-    return { state: "invalid", error: getConfigFileError(error) };
+    statSync(dbPath);
+    return false;
+  } catch (statError) {
+    return hasErrnoCode(statError, "ENOENT");
   }
 }
 
-export async function resolveOpenCodeZenConfig(): Promise<ResolvedOpenCodeZenConfig> {
-  for (const path of getConfigCandidatePaths()) {
-    const fileResult = await readConfigFile(path);
-    if (fileResult.state === "missing") continue;
-    if (fileResult.state === "invalid") {
-      return { state: "invalid", source: path, error: fileResult.error };
+function normalizeBaseUrl(value: unknown): string | null {
+  const raw = asString(value);
+  if (!raw) return null;
+
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:") return null;
+  // Bare "?" / "#" leave search/hash empty but are not a valid Console base.
+  if (raw.includes("?") || raw.includes("#")) return null;
+  if (url.username || url.password || url.search || url.hash) return null;
+  return url.href.replace(/\/+$/, "");
+}
+
+/**
+ * Reads the active OpenCode Console CLI session (`opencode console login`)
+ * from OpenCode's local state database, strictly read-only. Tokens are never
+ * refreshed or written here.
+ */
+async function readAccount(): Promise<AccountRead> {
+  const safe = (resolved: ResolvedOpenCodeZenAccount): AccountRead => ({
+    resolved,
+    tokenExpiryMs: null,
+  });
+
+  const dbPath = getOpenCodeDbPath();
+  if (!dbPath) return safe({ state: "none" });
+
+  let conn: Awaited<ReturnType<typeof openOpenCodeSqliteReadOnly>>;
+  try {
+    conn = await openOpenCodeSqliteReadOnly(dbPath);
+  } catch {
+    // Classify by the actual DB path, not the opener's error: node:sqlite
+    // surfaces missing files as SQLITE_CANTOPEN (ERR_SQLITE_ERROR) — the same
+    // errcode it uses for permission problems — and a wrapped unrelated ENOENT
+    // must never hide an existing DB. statSync distinguishes ENOENT (absent)
+    // from EACCES (unsearchable parent) without exception-text matching.
+    if (isMissingStateDbFile(dbPath)) return safe({ state: "none" });
+    return safe({ state: "read_error" });
+  }
+
+  try {
+    const tables = conn.all<{ name?: unknown }>(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('account', 'account_state')`,
+    );
+    const names = new Set(tables.map((row) => row?.name));
+    if (!names.has("account") || !names.has("account_state")) {
+      return safe({ state: "incompatible" });
     }
 
-    const workspaceId =
-      typeof fileResult.config.workspaceId === "string" ? fileResult.config.workspaceId.trim() : "";
-    const consoleSessionCookie =
-      typeof fileResult.config.consoleSessionCookie === "string"
-        ? fileResult.config.consoleSessionCookie.trim()
-        : "";
-
-    if (!consoleSessionCookie && "authCookie" in fileResult.config) {
-      return { state: "invalid", source: path, error: LEGACY_AUTH_COOKIE_ERROR };
+    // Column-level check: an older/newer schema that misses required columns is
+    // incompatible, while a failing read (lock, I/O) is a transient read_error.
+    const requiredColumns: Record<string, Set<string>> = {
+      account_state: new Set(["active_account_id", "active_org_id"]),
+      account: new Set(["id", "url", "access_token", "token_expiry"]),
+    };
+    for (const [table, required] of Object.entries(requiredColumns)) {
+      const columns = conn.all<{ name?: unknown }>(`PRAGMA table_info(${table})`);
+      const columnNames = new Set(columns.map((row) => row?.name));
+      for (const column of required) {
+        if (!columnNames.has(column)) return safe({ state: "incompatible" });
+      }
     }
 
-    if (workspaceId && consoleSessionCookie) {
-      return {
-        state: "configured",
-        config: { workspaceId, consoleSessionCookie },
-        source: path,
-      };
+    const stateRow = conn.get<{ active_account_id?: unknown; active_org_id?: unknown }>(
+      `SELECT active_account_id, active_org_id FROM "account_state" LIMIT 1`,
+    );
+    const activeAccountId = asString(stateRow?.active_account_id);
+    if (!activeAccountId) return safe({ state: "no_active_account" });
+
+    const active = conn.get<AccountRow>(
+      `SELECT url, access_token, token_expiry FROM "account" WHERE id = ? LIMIT 1`,
+      [activeAccountId],
+    );
+    if (!active) return safe({ state: "inactive_account" });
+
+    const activeOrgId = asString(stateRow?.active_org_id);
+    if (!activeOrgId) return safe({ state: "missing_org" });
+
+    const accessToken = asString(active.access_token);
+    if (!accessToken) return { resolved: { state: "expired", expiryMs: 0 }, tokenExpiryMs: 0 };
+
+    const expiryMs =
+      typeof active.token_expiry === "number" && Number.isFinite(active.token_expiry)
+        ? active.token_expiry
+        : null;
+    if (expiryMs !== null && expiryMs <= Date.now()) {
+      // Propagate the already-passed expiry so the cache TTL collapses to 0 and
+      // the next read goes back to the DB (e.g. right after a fresh login).
+      return { resolved: { state: "expired", expiryMs }, tokenExpiryMs: expiryMs };
     }
+
+    const baseUrl = normalizeBaseUrl(active.url);
+    if (!baseUrl) return safe({ state: "invalid_url" });
 
     return {
-      state: "incomplete",
-      source: path,
-      missing: workspaceId ? "consoleSessionCookie" : "workspaceId",
+      resolved: {
+        state: "configured",
+        account: { baseUrl, accessToken, activeOrgId },
+      },
+      tokenExpiryMs: expiryMs,
     };
+  } catch {
+    // The schema is fine but the read failed (lock, disk I/O, ...): report a
+    // transient read error instead of throwing.
+    return safe({ state: "read_error" });
+  } finally {
+    conn.close();
   }
-
-  return { state: "none" };
 }
 
-let cachedConfig: ResolvedOpenCodeZenConfig | null = null;
-let cachedAt = 0;
+export async function resolveOpenCodeZenAccount(): Promise<ResolvedOpenCodeZenAccount> {
+  return (await readAccount()).resolved;
+}
 
-export const DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS = 30_000;
+let cachedAccount: ResolvedOpenCodeZenAccount | null = null;
+let cachedExpiresAt = 0;
 
-export async function resolveOpenCodeZenConfigCached(params?: {
+export const DEFAULT_OPENCODE_ZEN_ACCOUNT_CACHE_MAX_AGE_MS = 30_000;
+
+export async function resolveOpenCodeZenAccountCached(params?: {
   maxAgeMs?: number;
-}): Promise<ResolvedOpenCodeZenConfig> {
-  const maxAgeMs = Math.max(0, params?.maxAgeMs ?? DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS);
-  const now = Date.now();
-  if (cachedConfig && now - cachedAt < maxAgeMs) {
-    return cachedConfig;
-  }
+}): Promise<ResolvedOpenCodeZenAccount> {
+  const maxAgeMs = Math.max(0, params?.maxAgeMs ?? DEFAULT_OPENCODE_ZEN_ACCOUNT_CACHE_MAX_AGE_MS);
+  // A zero maxAgeMs explicitly bypasses an unexpired prior cache entry.
+  if (maxAgeMs > 0 && cachedAccount && Date.now() < cachedExpiresAt) return cachedAccount;
 
-  cachedConfig = await resolveOpenCodeZenConfig();
-  cachedAt = now;
-  return cachedConfig;
-}
-
-export async function getOpenCodeZenConfigDiagnostics(): Promise<OpenCodeZenConfigDiagnostics> {
-  const resolved = await resolveOpenCodeZenConfig();
-  return {
-    state: resolved.state,
-    source: "source" in resolved ? resolved.source : null,
-    missing: "missing" in resolved ? resolved.missing : null,
-    error: "error" in resolved ? resolved.error : null,
-    checkedPaths: getConfigCandidatePaths(),
-  };
+  const { resolved, tokenExpiryMs } = await readAccount();
+  // The cache must never outlive the token: cap the TTL at the token's expiry
+  // so an expired session triggers a fresh DB read (and a login prompt).
+  const ttl =
+    tokenExpiryMs === null ? maxAgeMs : Math.min(maxAgeMs, Math.max(0, tokenExpiryMs - Date.now()));
+  cachedAccount = resolved;
+  cachedExpiresAt = Date.now() + ttl;
+  return resolved;
 }

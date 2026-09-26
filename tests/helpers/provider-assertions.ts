@@ -268,19 +268,19 @@ export const PROVIDER_ACCOUNTING_LEDGER: Record<string, Array<QuotaToastEntry["a
   opencode: [
     {
       resultType: "balance",
-      acquisitionMethod: "dashboard_scrape",
+      acquisitionMethod: "remote_api",
       ownership: "maintained",
       authority: "provider_reported",
     },
     {
       resultType: "budget",
-      acquisitionMethod: "dashboard_scrape",
+      acquisitionMethod: "remote_api",
       ownership: "maintained",
       authority: "locally_derived",
     },
     {
       resultType: "status",
-      acquisitionMethod: "dashboard_scrape",
+      acquisitionMethod: "remote_api",
       ownership: "maintained",
       authority: "provider_reported",
     },

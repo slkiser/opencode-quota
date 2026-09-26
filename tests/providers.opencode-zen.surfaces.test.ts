@@ -5,14 +5,14 @@ import { renderAccountingFourSurfaces } from "./helpers/accounting-four-surface.
 
 const budgetAccounting = {
   resultType: "budget",
-  acquisitionMethod: "dashboard_scrape",
+  acquisitionMethod: "remote_api",
   ownership: "maintained",
   authority: "locally_derived",
 } as const;
 
 const providerAccounting = {
   resultType: "balance",
-  acquisitionMethod: "dashboard_scrape",
+  acquisitionMethod: "remote_api",
   ownership: "maintained",
   authority: "provider_reported",
 } as const;

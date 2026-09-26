@@ -8,11 +8,26 @@ import {
 
 const mocks = vi.hoisted(() => ({
   queryOpenCodeZenQuota: vi.fn(),
-  resolveOpenCodeZenConfigCached: vi.fn(),
+  resolveOpenCodeZenAccountCached: vi.fn(),
+  fetchResponse: vi.fn(),
+  realQueryOpenCodeZenQuota: null as
+    | null
+    | typeof import("../src/lib/opencode-zen.js").queryOpenCodeZenQuota,
+}));
+
+vi.mock("../src/lib/http.js", () => ({
+  fetchWithTimeout: async (
+    url: string,
+    options: { consume: (response: Response) => Promise<unknown> },
+  ) => {
+    const response = await mocks.fetchResponse(url);
+    return await options.consume(response);
+  },
 }));
 
 vi.mock("../src/lib/opencode-zen.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../src/lib/opencode-zen.js")>();
+  mocks.realQueryOpenCodeZenQuota = original.queryOpenCodeZenQuota;
   return {
     ...original,
     queryOpenCodeZenQuota: mocks.queryOpenCodeZenQuota,
@@ -20,22 +35,14 @@ vi.mock("../src/lib/opencode-zen.js", async (importOriginal) => {
 });
 
 vi.mock("../src/lib/opencode-zen-config.js", () => ({
-  DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS: 30_000,
-  resolveOpenCodeZenConfigCached: mocks.resolveOpenCodeZenConfigCached,
-  getOpenCodeZenConfigDiagnostics: vi.fn(async () => ({
-    state: "configured",
-    source: "test",
-    missing: null,
-    error: null,
-    checkedPaths: [],
-  })),
+  resolveOpenCodeZenAccountCached: mocks.resolveOpenCodeZenAccountCached,
 }));
 
 import { opencodeZenProvider } from "../src/providers/opencode-zen.js";
 
 const balanceAccounting = {
   resultType: "balance",
-  acquisitionMethod: "dashboard_scrape",
+  acquisitionMethod: "remote_api",
   ownership: "maintained",
   authority: "provider_reported",
 } as const;
@@ -48,6 +55,12 @@ const statusAccounting = {
   ...balanceAccounting,
   resultType: "status",
 } as const;
+
+const consoleAccount = {
+  baseUrl: "https://opencode.ai/console",
+  accessToken: "st_secret-token",
+  activeOrgId: "wrk_123",
+};
 
 function balanceEntry(prominence: "primary" | "supplementary") {
   return {
@@ -84,6 +97,7 @@ function budgetEntry(
     limit?: string;
     remaining?: string;
     limitAuthority?: "provider_reported" | "user_configured";
+    resetTimeIso?: string;
   } = {},
 ) {
   return {
@@ -91,6 +105,7 @@ function budgetEntry(
     name: "zen-monthly-budget",
     group: "OpenCode Zen",
     percentRemaining: options.percentRemaining ?? 94.25,
+    ...(options.resetTimeIso ? { resetTimeIso: options.resetTimeIso } : {}),
     semantic: {
       metric: { kind: "window", window: "month" },
       prominence: "primary",
@@ -122,10 +137,9 @@ function budgetEntry(
 }
 
 function configured(): void {
-  mocks.resolveOpenCodeZenConfigCached.mockResolvedValueOnce({
+  mocks.resolveOpenCodeZenAccountCached.mockResolvedValueOnce({
     state: "configured",
-    config: { workspaceId: "wrk_123", consoleSessionCookie: "cookie-abc" },
-    source: "env(OPENCODE_*)",
+    account: consoleAccount,
   });
 }
 
@@ -141,6 +155,7 @@ function success(overrides: Record<string, unknown> = {}, errors: string[] = [])
       reload: false,
       reloadAmount: null,
       reloadTrigger: null,
+      budgetResetIso: null,
       ...overrides,
     },
   });
@@ -160,20 +175,22 @@ describe("opencode Zen provider", () => {
   });
 
   it.each([
-    [
-      {
-        state: "configured",
-        config: { workspaceId: "wrk", consoleSessionCookie: "cookie" },
-        source: "env(OPENCODE_*)",
-      },
-      true,
-    ],
-    [{ state: "incomplete", source: "env", missing: "consoleSessionCookie" }, false],
-    [{ state: "invalid", source: "/tmp/opencode.json", error: "broken" }, false],
-    [{ state: "none" }, false],
-  ])("reports availability for config state %j", async (configState, expected) => {
-    mocks.resolveOpenCodeZenConfigCached.mockResolvedValueOnce(configState);
-    await expect(opencodeZenProvider.isAvailable(context())).resolves.toBe(expected);
+    [{ state: "configured", account: consoleAccount }, "auto", true],
+    [{ state: "expired", expiryMs: 0 }, "auto", true],
+    [{ state: "missing_org" }, "auto", true],
+    [{ state: "inactive_account" }, "auto", true],
+    [{ state: "invalid_url" }, "auto", true],
+    [{ state: "incompatible" }, "auto", true],
+    [{ state: "read_error" }, "auto", true],
+    [{ state: "none" }, "auto", false],
+    [{ state: "none" }, ["opencode"], false],
+    [{ state: "no_active_account" }, "auto", false],
+    [{ state: "no_active_account" }, ["opencode"], true],
+  ])("reports availability for %j with enabledProviders %j -> %j", async (resolution, enabledProviders, expected) => {
+    mocks.resolveOpenCodeZenAccountCached.mockResolvedValueOnce(resolution);
+    await expect(opencodeZenProvider.isAvailable(context({ enabledProviders }))).resolves.toBe(
+      expected,
+    );
   });
 
   it.each([
@@ -186,46 +203,41 @@ describe("opencode Zen provider", () => {
     expect(opencodeZenProvider.matchesCurrentModel?.(model)).toBe(expected);
   });
 
-  it("returns attempted:false when configuration is absent", async () => {
-    mocks.resolveOpenCodeZenConfigCached.mockResolvedValueOnce({ state: "none" });
+  it("returns attempted:false when no Console session exists", async () => {
+    mocks.resolveOpenCodeZenAccountCached.mockResolvedValueOnce({ state: "none" });
     expectNotAttempted(await opencodeZenProvider.fetch(context()));
     expect(mocks.queryOpenCodeZenQuota).not.toHaveBeenCalled();
   });
 
   it.each([
-    [
-      { state: "incomplete", source: "env(OPENCODE_*)", missing: "OPENCODE_AUTH_COOKIE" },
-      "Missing OPENCODE_AUTH_COOKIE",
-    ],
-    [{ state: "invalid", source: "/tmp/opencode.json", error: "bad JSON" }, "Invalid config"],
-    [
-      {
-        state: "invalid",
-        source: "/tmp/opencode.json",
-        error:
-          "authCookie no longer works after the OpenCode Console redesign; paste the __Host-console_session cookie as consoleSessionCookie",
-      },
-      "paste the __Host-console_session cookie as consoleSessionCookie",
-    ],
-  ])("projects config state as an attempted error", async (configState, message) => {
-    mocks.resolveOpenCodeZenConfigCached.mockResolvedValueOnce(configState);
+    [{ state: "expired", expiryMs: 0 }, "opencode console login"],
+    [{ state: "no_active_account" }, "opencode console login"],
+    [{ state: "invalid_url" }, "opencode console login"],
+    [{ state: "incompatible" }, "opencode console login"],
+    [{ state: "read_error" }, "could not be read"],
+    [{ state: "missing_org" }, "opencode console switch"],
+    [{ state: "inactive_account" }, "opencode console switch"],
+  ])("projects account state %j as an actionable attempted error", async (resolution, hint) => {
+    mocks.resolveOpenCodeZenAccountCached.mockResolvedValueOnce(resolution);
     const result = await opencodeZenProvider.fetch(context());
 
     expectAttemptedWithErrorLabel(result, "OpenCode");
-    expect(result.errors[0]?.message).toContain(message);
+    expect(result.errors[0]?.message).toContain(hint);
     expect(mocks.queryOpenCodeZenQuota).not.toHaveBeenCalled();
   });
 
   it("projects Console failures as attempted errors", async () => {
-    const sessionError =
-      "OpenCode Console session expired or invalid — paste a fresh __Host-console_session cookie as consoleSessionCookie";
     configured();
-    mocks.queryOpenCodeZenQuota.mockResolvedValueOnce({ success: false, error: sessionError });
+    mocks.queryOpenCodeZenQuota.mockResolvedValueOnce({
+      success: false,
+      error:
+        "OpenCode Console session expired or invalid — run `opencode console login` to sign in again",
+    });
 
     const result = await opencodeZenProvider.fetch(context());
 
     expectAttemptedWithErrorLabel(result, "OpenCode");
-    expect(result.errors[0]?.message).toBe(sessionError);
+    expect(result.errors[0]?.message).toContain("opencode console login");
   });
 
   it("makes structured balance primary when no monthly budget is available", async () => {
@@ -252,16 +264,25 @@ describe("opencode Zen provider", () => {
       autoReloadEntry(),
     ]);
     expect(result.statusDetails).toEqual([
-      { key: "config_state", value: "configured" },
-      { key: "config_source", value: "test" },
-      { key: "config_checked_paths", value: "(none)" },
+      { key: "account_state", value: "configured" },
+      { key: "console_url", value: "https://opencode.ai/console" },
       { key: "balance_usd", value: "USD 42.5" },
       { key: "monthly_limit_usd", value: "USD 100" },
-      { key: "last_payment_usd", value: "(none)" },
       { key: "auto_reload", value: "false" },
       { key: "auto_reload_amount_raw", value: "(none)" },
       { key: "auto_reload_trigger_raw", value: "(none)" },
     ]);
+  });
+
+  it("does not project a last payment status detail", async () => {
+    configured();
+    success({ lastPayment: 50 });
+
+    const result = await opencodeZenProvider.fetch(context());
+
+    expectAttemptedWithNoErrors(result);
+    expect(result.statusDetails.some((d) => d.key === "last_payment_usd")).toBe(false);
+    expect(JSON.stringify(result)).not.toContain("last_payment_usd");
   });
 
   it("emits only the contract-backed reload boolean and keeps ambiguous values diagnostic", async () => {
@@ -293,6 +314,79 @@ describe("opencode Zen provider", () => {
     expect(result.statusDetails).toContainEqual({ key: "auto_reload_amount_raw", value: "20" });
     expect(result.statusDetails).toContainEqual({ key: "auto_reload_trigger_raw", value: "5" });
     expect(result.presentation).toBeUndefined();
+  });
+
+  it("attaches the org budget reset date to the monthly budget entry", async () => {
+    configured();
+    success({
+      monthlyLimit: 60,
+      monthlyUsage: 617_355_570,
+      budgetResetIso: "2026-10-01T00:00:00.000Z",
+    });
+
+    const result = await opencodeZenProvider.fetch(context());
+
+    expectAttemptedWithNoErrors(result);
+    expect(result.entries).toEqual([
+      budgetEntry({
+        percentRemaining: Math.min(100, ((60 - 6.1735557) / 60) * 100),
+        used: "6.1735557",
+        limit: "60",
+        remaining: "53.8264443",
+        resetTimeIso: "2026-10-01T00:00:00.000Z",
+      }),
+      balanceEntry("supplementary"),
+      autoReloadEntry(),
+    ]);
+  });
+
+  it("does not reject the whole result for a parseable non-ISO org-budget reset", async () => {
+    configured();
+    // Run the real query pipeline against a fake HTTP layer where budgets/org
+    // returns a parseable-but-non-ISO reset ("0"); the resolver must normalize
+    // it to canonical ISO so shared result validation never drops the result.
+    mocks.fetchResponse.mockImplementation((url: string) => {
+      const route = url.slice("https://opencode.ai/console/api/".length);
+      const payloads: Record<string, unknown> = {
+        "billing/status": { balanceMicroCents: "4250000000" },
+        "billing/account": { orgId: "wrk_123", creditLimitMicroCents: null },
+        "billing/auto-recharge": {
+          enabled: false,
+          thresholdDollars: 5,
+          rechargeAmountDollars: 20,
+          pending: false,
+          failureReason: null,
+        },
+        "budgets/org": {
+          limitMicroCents: "6000000000",
+          spentMicroCents: "617355570",
+          exceeded: false,
+          resetsAt: "2026-10-01T00:00:00",
+        },
+        "usage/cost-by-day": [],
+      };
+      const payload = payloads[route];
+      if (payload === undefined) throw new Error(`unexpected url ${url}`);
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    if (!mocks.realQueryOpenCodeZenQuota) throw new Error("real query not captured");
+    const realQuery = mocks.realQueryOpenCodeZenQuota;
+    mocks.queryOpenCodeZenQuota.mockImplementation(
+      (acct: typeof consoleAccount, opts?: { requestTimeoutMs?: number }) => realQuery(acct, opts),
+    );
+
+    const result = await opencodeZenProvider.fetch(context());
+
+    expectAttemptedWithNoErrors(result);
+    expect(result.entries[0]).toMatchObject({
+      percentRemaining: Math.min(100, ((60 - 6.1735557) / 60) * 100),
+      resetTimeIso: new Date("2026-10-01T00:00:00").toISOString(),
+    });
+    // Canonical ISO only: the parseable non-ISO input must never surface.
+    expect(result.entries[0].resetTimeIso?.endsWith("Z")).toBe(true);
   });
 
   it("prefers the positive plugin monthly-limit override", async () => {
@@ -409,7 +503,7 @@ describe("opencode Zen provider", () => {
     await opencodeZenProvider.fetch(
       context({ requestTimeoutMs: 7_654, requestTimeoutMsConfigured: true }),
     );
-    expect(mocks.queryOpenCodeZenQuota).toHaveBeenLastCalledWith("wrk_123", "cookie-abc", {
+    expect(mocks.queryOpenCodeZenQuota).toHaveBeenLastCalledWith(consoleAccount, {
       requestTimeoutMs: 7_654,
     });
 
@@ -418,7 +512,7 @@ describe("opencode Zen provider", () => {
     await opencodeZenProvider.fetch(
       context({ requestTimeoutMs: 5_000, requestTimeoutMsConfigured: false }),
     );
-    expect(mocks.queryOpenCodeZenQuota).toHaveBeenLastCalledWith("wrk_123", "cookie-abc", {
+    expect(mocks.queryOpenCodeZenQuota).toHaveBeenLastCalledWith(consoleAccount, {
       requestTimeoutMs: undefined,
     });
   });

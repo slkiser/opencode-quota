@@ -18,6 +18,14 @@ vi.mock("../src/providers/registry.js", () => ({
   getProviders: () => mockProviders,
 }));
 
+const zenMocks = vi.hoisted(() => ({
+  resolveOpenCodeZenAccountCached: vi.fn(),
+}));
+
+vi.mock("../src/lib/opencode-zen-config.js", () => ({
+  resolveOpenCodeZenAccountCached: zenMocks.resolveOpenCodeZenAccountCached,
+}));
+
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
   getOpencodeRuntimeDirs: () => ({
     dataDir: `${TEST_RUNTIME_ROOT}/data`,
@@ -35,6 +43,7 @@ import {
 import { __resetQuotaStateForTests } from "../src/lib/quota-state.js";
 import { DEFAULT_CONFIG, type QuotaToastConfig } from "../src/lib/types.js";
 import { kimiCodePlanCnProvider, kimiCodePlanGlobalProvider } from "../src/providers/kimi-code.js";
+import { opencodeZenProvider } from "../src/providers/opencode-zen.js";
 
 function renderConfig(overrides: Partial<QuotaToastConfig> = {}): QuotaToastConfig {
   return { ...DEFAULT_CONFIG, showSessionTokens: false, ...overrides };
@@ -111,6 +120,66 @@ describe("collectQuotaRenderData shared quota state", () => {
         percentRemaining: 42,
       },
     ]);
+  });
+
+  it("surfaces recoverable OpenCode Zen auth states without auto-mode noise", async () => {
+    // Recoverable states (here: signed in but no active org) must pass the
+    // auto-mode availability gate so fetch() can surface its recovery hint.
+    zenMocks.resolveOpenCodeZenAccountCached.mockResolvedValue({ state: "missing_org" });
+
+    const missingOrg = await collectQuotaRenderData({
+      client: TEST_CLIENT,
+      config: renderConfig(),
+      surfaceExplicitProviderIssues: true,
+      formatStyle: "allWindows",
+      providers: [opencodeZenProvider],
+    });
+    expect(missingOrg.active).toEqual([opencodeZenProvider]);
+    expect(missingOrg.data?.errors).toContainEqual({
+      label: "OpenCode",
+      message:
+        "No active OpenCode Console organization. Run `opencode console switch` to select one.",
+    });
+
+    // A normal DB with no Console sign-in is silent in auto mode, but stays
+    // actionable when the user explicitly enables the opencode provider.
+    zenMocks.resolveOpenCodeZenAccountCached.mockResolvedValue({ state: "no_active_account" });
+
+    const autoNoAccount = await collectQuotaRenderData({
+      client: TEST_CLIENT,
+      config: renderConfig(),
+      surfaceExplicitProviderIssues: true,
+      formatStyle: "allWindows",
+      providers: [opencodeZenProvider],
+    });
+    expect(autoNoAccount.active).toEqual([]);
+    expect(autoNoAccount.data?.errors ?? []).toEqual([]);
+
+    const explicitNoAccount = await collectQuotaRenderData({
+      client: TEST_CLIENT,
+      config: renderConfig({ enabledProviders: ["opencode"] }),
+      surfaceExplicitProviderIssues: true,
+      formatStyle: "allWindows",
+      providers: [opencodeZenProvider],
+    });
+    expect(explicitNoAccount.active).toEqual([opencodeZenProvider]);
+    expect(explicitNoAccount.data?.errors).toContainEqual({
+      label: "OpenCode",
+      message: "No active OpenCode Console account. Run `opencode console login` to sign in again.",
+    });
+
+    // An absent Console session is silent in every mode.
+    zenMocks.resolveOpenCodeZenAccountCached.mockResolvedValue({ state: "none" });
+
+    const absent = await collectQuotaRenderData({
+      client: TEST_CLIENT,
+      config: renderConfig(),
+      surfaceExplicitProviderIssues: true,
+      formatStyle: "allWindows",
+      providers: [opencodeZenProvider],
+    });
+    expect(absent.active).toEqual([]);
+    expect(absent.data?.errors ?? []).toEqual([]);
   });
 
   it("returns allWindowsData when includeAllWindowsData is true and style is singleWindow", async () => {
