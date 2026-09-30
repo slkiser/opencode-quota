@@ -137,7 +137,8 @@ jobs:
             echo "Expected exactly one release tarball." >&2
             exit 1
           fi
-          npm publish "./${TARBALLS[0]}" --access public --provenance --ignore-scripts
+          # 4.x is the OpenCode 1 maintenance line. npm `latest` stays on 5.x.
+          npm publish "./${TARBALLS[0]}" --access public --provenance --ignore-scripts --tag v4-latest
 
   backfill-version:
     runs-on: ubuntu-latest
@@ -179,8 +180,7 @@ jobs:
       - name: Commit synced version back to repository
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-          TARGET_BRANCH: ${{ github.event.release.target_commitish }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          BRANCH: release/4.x
         run: |
           if git diff --quiet -- package.json pnpm-lock.yaml; then
             echo "No package version file changes to commit."
@@ -188,11 +188,10 @@ jobs:
           fi
 
           VERSION="${RELEASE_TAG#v}"
-          BRANCH="${TARGET_BRANCH:-$DEFAULT_BRANCH}"
 
           if ! git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
-            echo "Target '$BRANCH' is not a remote branch; falling back to '$DEFAULT_BRANCH'."
-            BRANCH="$DEFAULT_BRANCH"
+            echo "Release branch '$BRANCH' is not a remote branch." >&2
+            exit 1
           fi
 
           echo "Committing synced package version to branch '$BRANCH'"
@@ -209,14 +208,8 @@ jobs:
       - name: Verify committed sync reached remote branch
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-          TARGET_BRANCH: ${{ github.event.release.target_commitish }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          BRANCH: release/4.x
         run: |
-          BRANCH="${TARGET_BRANCH:-$DEFAULT_BRANCH}"
-          if ! git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
-            BRANCH="$DEFAULT_BRANCH"
-          fi
-
           VERSION="${RELEASE_TAG#v}"
           git fetch origin "$BRANCH"
           REMOTE_VERSION="$(git show "origin/$BRANCH:package.json" | node -e "process.stdin.setEncoding('utf8'); let d=''; process.stdin.on('data', c => d += c); process.stdin.on('end', () => console.log(JSON.parse(d).version || ''));")"

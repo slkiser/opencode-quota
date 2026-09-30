@@ -8,6 +8,7 @@ interface WorkflowStep {
   uses?: string;
   run?: string;
   with?: Record<string, unknown>;
+  env?: Record<string, string>;
 }
 
 interface WorkflowJob {
@@ -566,7 +567,7 @@ describe("package manifest compatibility", () => {
     const publishRun = namedStep(publish, "Verify and publish exact release artifact").run ?? "";
     expect(publishRun).toContain("node scripts/verify-release-artifact.mjs package-artifacts");
     expect(publishRun).toContain(
-      'npm publish "./${TARBALLS[0]}" --access public --provenance --ignore-scripts',
+      'npm publish "./${TARBALLS[0]}" --access public --provenance --ignore-scripts --tag v4-latest',
     );
     expect(publishRun).not.toContain(
       'npm publish "${TARBALLS[0]}" --access public --provenance --ignore-scripts',
@@ -596,5 +597,8 @@ describe("package manifest compatibility", () => {
     expect(namedStep(backfill, "Commit synced version back to repository").run).toContain(
       'git push origin HEAD:"$BRANCH"',
     );
+    expect(namedStep(backfill, "Commit synced version back to repository").env).toMatchObject({
+      BRANCH: "release/4.x",
+    });
   });
 });

@@ -83,7 +83,7 @@ PR and `main` pushes trigger `.github/workflows/ci.yml` (`CI` workflow):
 - Job: `runtime-smoke` on Node `22.x` and `24.x`
 - Runtime smoke installs that exact packed artifact as a consumer and verifies the default/server imports, TUI export payload, CLI help, and `engines.node >=22.0.0`
 
-Release workflow `.github/workflows/publish-npm.yml` first checks the release tag, SHA, and package version, then runs `pnpm verify` on Node 24. After that, it packs one exact artifact, smoke-tests that artifact on Node 22 and 24, verifies it again before provenance publishing, and backfills the release version. Run `pnpm run release:check` on Node 24 when the release environment is available; it adds the release-version assertion after the canonical gate.
+Release workflow `.github/workflows/publish-npm.yml` first checks the release tag, SHA, and package version, then runs `pnpm verify` on Node 24. After that, it packs one exact artifact, smoke-tests that artifact on Node 22 and 24, verifies it again before provenance publishing to the `v4-latest` npm tag (npm `latest` stays on 5.x), and backfills the release version to `release/4.x`. Run `pnpm run release:check` on Node 24 when the release environment is available; it adds the release-version assertion after the canonical gate.
 
 ## Branch Protection (Maintainers)
 
