@@ -184,6 +184,7 @@ interface CopilotInternalQuotaSnapshot {
   remaining?: number;
   quota_remaining?: number;
   percent_remaining?: number;
+  credits_used?: number;
   unlimited?: boolean;
 }
 
@@ -1245,8 +1246,9 @@ function parseCopilotInternalUser(
     reportedPercentRemaining !== undefined &&
     reportedPercentRemaining >= 0 &&
     reportedPercentRemaining <= 100;
+  const tokenBasedBilling = response.token_based_billing === true;
   const isPlaceholder =
-    response.token_based_billing === true &&
+    tokenBasedBilling &&
     (!snapshot ||
       (snapshot.unlimited !== true &&
         entitlement === 0 &&
@@ -1293,6 +1295,30 @@ function parseCopilotInternalUser(
         : !hasPercentRemaining
           ? Math.min(100, Math.max(0, (remaining / entitlement) * 100))
           : undefined,
+      plan,
+      resetTimeIso,
+    };
+  }
+  // Token-based billing reports a negative remaining once usage goes over the
+  // entitlement, alongside a provider-reported clamp in [0, 100].
+  const creditsUsed = readFiniteNumber(snapshot?.credits_used);
+  const hasValidCreditsUsed = creditsUsed !== undefined && creditsUsed >= 0;
+  if (
+    tokenBasedBilling &&
+    entitlement !== undefined &&
+    entitlement > 0 &&
+    remaining !== undefined &&
+    remaining < 0 &&
+    hasReportedPercent
+  ) {
+    return {
+      success: true,
+      mode: "user_quota",
+      unit: hasValidCreditsUsed ? "ai_credits" : "premium_interactions",
+      used: hasValidCreditsUsed ? creditsUsed : entitlement - remaining,
+      authority: hasValidCreditsUsed ? "provider_reported" : "locally_derived",
+      total: entitlement,
+      percentRemaining: reportedPercentRemaining,
       plan,
       resetTimeIso,
     };
