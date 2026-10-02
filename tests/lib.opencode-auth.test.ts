@@ -220,7 +220,8 @@ describe("integration credential source", () => {
         id: "cred_deepseek",
         integrationId: "deepseek",
         label: "default",
-        active: false,
+        // The connection active("deepseek") reports, so its row is the active one.
+        active: true,
         value: { region: "eu", type: "api", key: "deepseek-key", metadata: { region: "eu" } },
       },
     ]);
@@ -251,7 +252,8 @@ describe("integration credential source", () => {
       "cred_codex_newest",
     ]);
     expect(integration.list).toHaveBeenCalledOnce();
-    expect(integration.connection.active.mock.calls).toEqual([["codex"]]);
+    // Listed ids look up active() too, to know which connection to star.
+    expect(integration.connection.active.mock.calls).toEqual([["openai"], ["codex"]]);
     expect(integration.get).not.toHaveBeenCalled();
   });
 
@@ -331,8 +333,8 @@ describe("integration credential source", () => {
     expect(getCredentialSourceDiagnostics().lastListError).toBeUndefined();
   });
 
-  it("stars only the first row of the first requested id that has rows", async () => {
-    bindFakeIntegration(
+  it("stars the connection active() reports for each id, not the first row", async () => {
+    const integration = bindFakeIntegration(
       [
         oauthCredential("codex", "cred_codex", { registered: false }),
         oauthCredential("chatgpt", "cred_chatgpt_1"),
@@ -343,9 +345,76 @@ describe("integration credential source", () => {
 
     const rows = await readCredentialRows(["openai", "codex", "chatgpt"]);
     expect(rows.map((row) => [row.id, row.active])).toEqual([
+      // A fallback id's row is the one active("codex") returned.
       ["cred_codex", true],
-      ["cred_chatgpt_1", false],
+      // active("chatgpt") stars the listed row it selects, per id.
+      ["cred_chatgpt_1", true],
       ["cred_chatgpt_2", false],
+    ]);
+    // An id with only an env connection has no listed row to look active() up for.
+    expect(integration.connection.active.mock.calls).toEqual([["codex"], ["chatgpt"]]);
+  });
+
+  it("stars the second listed row when active() selects it over the first", async () => {
+    const integration = bindFakeIntegration([
+      oauthCredential("github-copilot", "cred_copilot_first", { label: "First" }),
+      oauthCredential("github-copilot", "cred_copilot_second", { label: "Second" }),
+    ]);
+    integration.connection.active.mockResolvedValueOnce({
+      type: "credential",
+      id: "cred_copilot_second",
+      label: "Second",
+      method: "oauth",
+    });
+
+    const rows = await readCredentialRows(["github-copilot"], { methods: ["oauth"] });
+    expect(rows.map((row) => [row.id, row.active])).toEqual([
+      ["cred_copilot_first", false],
+      ["cred_copilot_second", true],
+    ]);
+  });
+
+  it("does not mark the OAuth row active when the active login is a key", async () => {
+    const integration = bindFakeIntegration([
+      keyCredential("openai", "cred_openai_key"),
+      oauthCredential("openai", "cred_openai_oauth"),
+    ]);
+
+    // The unfiltered rows identify the key as the login OpenCode uses.
+    const rows = await readCredentialRows(["openai"]);
+    expect(rows.map((row) => [row.id, row.active])).toEqual([
+      ["cred_openai_key", true],
+      ["cred_openai_oauth", false],
+    ]);
+
+    // The OAuth-only read keeps its row in place but leaves the mark on the key.
+    const oauthRows = await readCredentialRows(["openai"], { methods: ["oauth"] });
+    expect(oauthRows.map((row) => [row.id, row.active])).toEqual([["cred_openai_oauth", false]]);
+    expect(resolvedIds(integration).slice(-1)).toEqual(["cred_openai_oauth"]);
+  });
+
+  it("marks no listed row active when the active lookup fails, keeping every row", async () => {
+    const integration = bindFakeIntegration([
+      oauthCredential("openai", "cred_openai_first", { label: "First" }),
+      oauthCredential("openai", "cred_openai_second", { label: "Second" }),
+    ]);
+    integration.connection.active.mockRejectedValueOnce(new Error("database is locked"));
+
+    // The failed lookup only drops the mark: no row is starred in another's place,
+    // and every listed row still resolves as usual.
+    const rows = await readCredentialRows(["openai"]);
+    expect(rows.map((row) => [row.id, row.active])).toEqual([
+      ["cred_openai_first", false],
+      ["cred_openai_second", false],
+    ]);
+    expect(rows.map((row) => row.resolveError)).toEqual([undefined, undefined]);
+    expect(getCredentialSourceDiagnostics().failures).toEqual([]);
+
+    // A later read with a working lookup stars the selected row again.
+    const retried = await readCredentialRows(["openai"]);
+    expect(retried.map((row) => [row.id, row.active])).toEqual([
+      ["cred_openai_first", true],
+      ["cred_openai_second", false],
     ]);
   });
 
