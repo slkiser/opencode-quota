@@ -197,6 +197,7 @@ function createApi() {
     },
     ui: {
       Prompt: vi.fn((props: Record<string, unknown>) => ({ type: "Prompt", props })),
+      Slot: vi.fn((props: Record<string, unknown>) => ({ type: "Slot", props })),
       DialogPrompt: vi.fn((props: Record<string, unknown>) => ({ type: "DialogPrompt", props })),
       dialog,
       toast: vi.fn(),
@@ -1740,6 +1741,51 @@ describe("tui plugin smoke", () => {
     expect(writeTuiQuotaExportIfEnabled).toHaveBeenCalledWith({ api });
   });
 
+  it.each([false, true])("preserves companion prompt content (prompt bar=%s)", async (enabled) => {
+    const plugin = await loadTuiModule();
+    const { api, registered } = createApi();
+    api.ui.Slot.mockImplementation((props) => ({
+      type: "Slot",
+      props: { ...props, children: "last activity 8s ago" },
+    }));
+    api.ui.Prompt.mockImplementation((props) => ({
+      type: "Prompt",
+      props: { ...props, children: props.right },
+    }));
+    resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      sidebar: { enabled: false },
+      compact: { enabled: true, sessionPrompt: true },
+      promptBar: { enabled },
+    });
+    loadTuiSessionQuotaSurfaces.mockResolvedValue({
+      sidebar: { status: "disabled", lines: [] },
+      compact: { status: "ready", text: "Session quota" },
+      promptBar: {
+        status: "ready",
+        entry: { semanticSegment: "Quota available" },
+        percentDisplayMode: "remaining",
+      },
+    });
+
+    await startTui(plugin, api);
+    const registration = registered.find((item) => item.order === 90)!;
+    registration.slots.session_prompt({}, { session_id: "session-companion" });
+    await flushPromises();
+    const rendered = registration.slots.session_prompt(
+      {},
+      {
+        session_id: "session-companion",
+      },
+    );
+
+    expect(api.ui.Slot).toHaveBeenCalledWith({
+      name: "session_prompt_right",
+      session_id: "session-companion",
+    });
+    expect(flattenSidebarText(rendered)).toContain("last activity 8s ago");
+    expect(flattenSidebarText(rendered)).toContain(enabled ? "Quota available" : "Session quota");
+  });
+
   it("wraps api.ui.Prompt and forwards session prompt props and ref exactly", async () => {
     const plugin = await loadTuiModule();
     const { api, registered } = createApi();
@@ -1814,6 +1860,10 @@ describe("tui plugin smoke", () => {
       disabled: true,
       onSubmit,
       ref,
+      right: {
+        type: "Slot",
+        props: { name: "session_prompt_right", session_id: "session-1" },
+      },
     });
   });
 
