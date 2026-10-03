@@ -327,15 +327,14 @@ function forkCopyFingerprint(message: OpenCodeMessage, completed: number): strin
 }
 
 /**
- * OpenCode copies a parent's finished messages into a forked session with new
- * ids but identical times, model, tokens, and cost. Keep only the first row of
- * each finished fingerprint: queries sort by time then id, and copies get newer
- * ids, so the first row is the original. Unfinished rows are always kept.
- * A copy lives in another session, so only cross-session matches are dropped;
- * identical rows in the first row's own session are kept.
+ * OpenCode copies a parent's finished messages into a fork with new ids but
+ * identical times, model, tokens, and cost. Count each finished fingerprint as
+ * many times as the session that has it most often, so copies are not added on
+ * top of the original. Unfinished rows are always kept.
  */
 function dropForkCopies(messages: OpenCodeMessage[]): OpenCodeMessage[] {
-  const firstSessionByFingerprint = new Map<string, string>();
+  const countBySessionAndFingerprint = new Map<string, number>();
+  const keptCountByFingerprint = new Map<string, number>();
   const out: OpenCodeMessage[] = [];
   for (const message of messages) {
     const completed = completedAt(message);
@@ -344,12 +343,12 @@ function dropForkCopies(messages: OpenCodeMessage[]): OpenCodeMessage[] {
       continue;
     }
     const fingerprint = forkCopyFingerprint(message, completed);
-    const firstSessionID = firstSessionByFingerprint.get(fingerprint);
-    if (firstSessionID === undefined) {
-      firstSessionByFingerprint.set(fingerprint, message.sessionID);
-    } else if (firstSessionID !== message.sessionID) {
-      continue;
-    }
+    const sessionKey = JSON.stringify([message.sessionID, fingerprint]);
+    const sessionCount = (countBySessionAndFingerprint.get(sessionKey) ?? 0) + 1;
+    countBySessionAndFingerprint.set(sessionKey, sessionCount);
+    const keptCount = keptCountByFingerprint.get(fingerprint) ?? 0;
+    if (sessionCount <= keptCount) continue;
+    keptCountByFingerprint.set(fingerprint, sessionCount);
     out.push(message);
   }
   return out;
