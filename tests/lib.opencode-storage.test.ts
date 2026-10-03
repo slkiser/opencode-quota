@@ -229,3 +229,110 @@ describe("opencode storage multi-session reads", () => {
     expect(conn.close).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("opencode storage forked session copies", () => {
+  const originalRow = {
+    id: "msg_01original",
+    session_id: "ses_parent",
+    time_created: 100,
+    role: "assistant",
+    provider_id: "openai",
+    model_id: "gpt-5",
+    tokens_input: 1000,
+    tokens_output: 500,
+    tokens_reasoning: 10,
+    tokens_cache_read: 20,
+    tokens_cache_write: 30,
+    cost: 10,
+    time_completed: 150,
+    agent: "build",
+    mode: null,
+  };
+  // Message ids ascend with time. OpenCode copies finished parent rows into the
+  // fork with a newer id and identical data.
+  const forkCopyRow = { ...originalRow, id: "msg_05forkevent_1", session_id: "ses_fork" };
+  const forkNewRow = {
+    ...originalRow,
+    id: "msg_06forknew",
+    session_id: "ses_fork",
+    time_created: 200,
+    tokens_input: 40,
+    cost: 1,
+    time_completed: 250,
+  };
+
+  function mockConnection(rowsForSql: (sql: string, params?: unknown[]) => unknown[]) {
+    sqliteMocks.openOpenCodeSqliteReadOnly.mockResolvedValue({
+      get: vi.fn((sql: string) => (sql.includes("session_v2") ? { ok: 1 } : { r: "assistant" })),
+      all: vi.fn(rowsForSql),
+      close: vi.fn(),
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    fsMocks.existsSync.mockReturnValue(true);
+  });
+
+  it("counts a forked session's copied message once in all-history reads", async () => {
+    mockConnection(() => [originalRow, forkCopyRow, forkNewRow]);
+
+    const { iterAssistantMessages, iterCompletedAssistantMessages } = await import(
+      "../src/lib/opencode-storage.js"
+    );
+
+    const messages = await iterAssistantMessages({});
+    expect(messages.map((message) => message.id)).toEqual(["msg_01original", "msg_06forknew"]);
+
+    const completed = await iterCompletedAssistantMessages({});
+    expect(completed.map((message) => message.id)).toEqual(["msg_01original", "msg_06forknew"]);
+  });
+
+  it("counts a forked session's copied message once across a session set", async () => {
+    mockConnection((_sql, params) => {
+      const sessionIDs = params ?? [];
+      return [originalRow, forkCopyRow, forkNewRow].filter((row) =>
+        sessionIDs.includes(row.session_id),
+      );
+    });
+
+    const { iterAssistantMessagesForSessions } = await import("../src/lib/opencode-storage.js");
+    const messages = await iterAssistantMessagesForSessions({
+      sessionIDs: ["ses_parent", "ses_fork"],
+    });
+
+    expect(messages.map((message) => message.id)).toEqual(["msg_01original", "msg_06forknew"]);
+  });
+
+  it("keeps a fork's copied history in its own single-session read", async () => {
+    mockConnection(() => [forkCopyRow, forkNewRow]);
+
+    const { iterAssistantMessagesForSession } = await import("../src/lib/opencode-storage.js");
+    const messages = await iterAssistantMessagesForSession({ sessionID: "ses_fork" });
+
+    expect(messages.map((message) => message.id)).toEqual(["msg_05forkevent_1", "msg_06forknew"]);
+  });
+
+  it("keeps finished messages that differ only in tokens and identical unfinished messages", async () => {
+    const otherTokensRow = { ...originalRow, id: "msg_other_tokens", tokens_output: 501 };
+    const unfinishedRow = {
+      ...originalRow,
+      id: "msg_unfinished_a",
+      time_created: 300,
+      time_completed: null,
+    };
+    const unfinishedTwinRow = { ...unfinishedRow, id: "msg_unfinished_b" };
+    mockConnection(() => [originalRow, otherTokensRow, unfinishedRow, unfinishedTwinRow]);
+
+    const { iterAssistantMessages } = await import("../src/lib/opencode-storage.js");
+    const messages = await iterAssistantMessages({});
+
+    expect(messages.map((message) => message.id)).toEqual([
+      "msg_01original",
+      "msg_other_tokens",
+      "msg_unfinished_a",
+      "msg_unfinished_b",
+    ]);
+  });
+});
