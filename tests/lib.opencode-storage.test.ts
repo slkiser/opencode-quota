@@ -314,15 +314,20 @@ describe("opencode storage forked session copies", () => {
     expect(messages.map((message) => message.id)).toEqual(["msg_05forkevent_1", "msg_06forknew"]);
   });
 
-  it("keeps finished messages that differ only in tokens and identical unfinished messages", async () => {
-    const otherTokensRow = { ...originalRow, id: "msg_other_tokens", tokens_output: 501 };
+  it("keeps finished messages that differ only in tokens and identical unfinished messages across sessions", async () => {
+    const otherTokensRow = {
+      ...originalRow,
+      id: "msg_other_tokens",
+      session_id: "ses_fork",
+      tokens_output: 501,
+    };
     const unfinishedRow = {
       ...originalRow,
       id: "msg_unfinished_a",
       time_created: 300,
       time_completed: null,
     };
-    const unfinishedTwinRow = { ...unfinishedRow, id: "msg_unfinished_b" };
+    const unfinishedTwinRow = { ...unfinishedRow, id: "msg_unfinished_b", session_id: "ses_fork" };
     mockConnection(() => [originalRow, otherTokensRow, unfinishedRow, unfinishedTwinRow]);
 
     const { iterAssistantMessages } = await import("../src/lib/opencode-storage.js");
@@ -360,6 +365,36 @@ describe("opencode storage forked session copies", () => {
     const messages = await iterAssistantMessages({});
 
     expect(messages.map((message) => message.id)).toEqual(["msg_01original", "msg_02parenttwin"]);
+  });
+
+  it("keeps both identical messages when an earlier fork copied one and a later fork copied both", async () => {
+    // The parent had two identical messages. The earlier fork copied only the
+    // first; the later fork copied both. The parent is not read or was deleted.
+    const laterForkCopyRow = {
+      ...originalRow,
+      id: "msg_07laterforkevent_1",
+      session_id: "ses_later_fork",
+    };
+    const laterForkTwinCopyRow = { ...laterForkCopyRow, id: "msg_07laterforkevent_2" };
+    mockConnection(() => [forkCopyRow, laterForkCopyRow, laterForkTwinCopyRow]);
+
+    const { iterAssistantMessages, iterAssistantMessagesForSessions } = await import(
+      "../src/lib/opencode-storage.js"
+    );
+
+    const sessionMessages = await iterAssistantMessagesForSessions({
+      sessionIDs: ["ses_fork", "ses_later_fork"],
+    });
+    expect(sessionMessages.map((message) => message.id)).toEqual([
+      "msg_05forkevent_1",
+      "msg_07laterforkevent_2",
+    ]);
+
+    const allMessages = await iterAssistantMessages({});
+    expect(allMessages.map((message) => message.id)).toEqual([
+      "msg_05forkevent_1",
+      "msg_07laterforkevent_2",
+    ]);
   });
 
   it("counts a fork copy once when the original and copy come from different query chunks", async () => {
