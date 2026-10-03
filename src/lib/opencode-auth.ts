@@ -26,6 +26,11 @@ export type CredentialRow = {
   id: string;
   integrationId: string;
   label: string;
+  /**
+   * Whether OpenCode uses this login. The integration source marks, per
+   * integration id, the connection `connection.active(integrationId)` reports;
+   * the database reader marks the database's active row.
+   */
   active: boolean;
   value: Record<string, unknown>;
   /**
@@ -247,14 +252,44 @@ async function activeConnectionSlots(
   }
 }
 
+/** The listed rows of the requested ids, plus per id the connection `active()` reports. */
+type ListedConnectionSlots = {
+  slots: ConnectionSlot[];
+  /**
+   * Per id: the stored connection `active()` reports, when it read one. For an
+   * id `list()` does not show this is its fallback row itself; for a listed id
+   * it is looked up separately, and a failed lookup or an active env connection
+   * marks none of that id's listed rows.
+   */
+  activeConnections: Map<string, CredentialConnection>;
+};
+
+/**
+ * The stored connection `active()` reports for a listed id, without recording
+ * anything: a failed lookup or an active env connection only leaves every
+ * listed row inactive, instead of marking another row or failing the read.
+ */
+async function activeListedConnection(
+  integration: CredentialIntegration,
+  integrationId: string,
+): Promise<CredentialConnection | undefined> {
+  try {
+    const connection = await integration.connection.active(integrationId);
+    return connection?.type === "credential" ? connection : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Every connection of the requested ids: all of them for ids `list()` shows
- * (registered integrations), the active one for any other id.
+ * (registered integrations), the active one for any other id. For listed ids,
+ * `active()` also says which of them OpenCode uses.
  */
 async function listedConnectionSlots(
   integration: CredentialIntegration,
   integrationIds: readonly string[],
-): Promise<ConnectionSlot[]> {
+): Promise<ListedConnectionSlots> {
   let listed: Map<string, readonly Connection[]> | undefined;
   try {
     const { data } = await integration.list();
@@ -266,17 +301,29 @@ async function listedConnectionSlots(
   }
 
   const slots: ConnectionSlot[] = [];
+  const activeConnections = new Map<string, CredentialConnection>();
   for (const integrationId of integrationIds) {
     const connections = listed?.get(integrationId);
     if (connections === undefined) {
-      slots.push(...(await activeConnectionSlots(integration, integrationId)));
+      for (const slot of await activeConnectionSlots(integration, integrationId)) {
+        slots.push(slot);
+        if ("connection" in slot) activeConnections.set(integrationId, slot.connection);
+      }
       continue;
     }
+    let listedCredentials = 0;
     for (const connection of connections) {
-      if (connection.type === "credential") slots.push({ integrationId, connection });
+      if (connection.type === "credential") {
+        slots.push({ integrationId, connection });
+        listedCredentials += 1;
+      }
+    }
+    if (listedCredentials > 0) {
+      const active = await activeListedConnection(integration, integrationId);
+      if (active) activeConnections.set(integrationId, active);
     }
   }
-  return slots;
+  return { slots, activeConnections };
 }
 
 function recordResolveFailure(
@@ -377,6 +424,35 @@ async function credentialRowForSlot(
   };
 }
 
+/**
+ * Resolves the wanted slots into rows and marks the active login: with
+ * `activeConnections`, the row holding the connection `active()` reported for
+ * its integration id (a failed lookup or an active env connection marks none
+ * of that id's rows); without it, the first row of the first requested id that
+ * has rows, since a firstOnly read returns one active connection per id.
+ */
+async function credentialRowsForSlots(
+  integration: CredentialIntegration,
+  slots: readonly ConnectionSlot[],
+  methods: readonly CredentialMethod[] | undefined,
+  activeConnections?: ReadonlyMap<string, CredentialConnection>,
+): Promise<CredentialRow[]> {
+  const wanted = slots.filter(
+    (slot) => !methods || !("connection" in slot) || methods.includes(slot.connection.method),
+  );
+  const pairs = await Promise.all(
+    wanted.map(async (slot) => ({
+      slot,
+      row: await credentialRowForSlot(integration, slot, methods),
+    })),
+  );
+  return pairs.map(({ slot, row }, index) => {
+    if (!activeConnections) return { ...row, active: index === 0 };
+    const activeConnection = activeConnections.get(slot.integrationId);
+    return { ...row, active: "connection" in slot && slot.connection.id === activeConnection?.id };
+  });
+}
+
 /** The credential source backed by the server plugin's `ctx.integration`. */
 export function createIntegrationCredentialSource(
   integration: CredentialIntegration,
@@ -384,24 +460,19 @@ export function createIntegrationCredentialSource(
   return {
     kind: "opencode-integration-api",
     async readRows(request) {
-      const slots: ConnectionSlot[] = [];
       if (request.firstOnly) {
+        const slots: ConnectionSlot[] = [];
         for (const integrationId of request.integrationIds) {
           slots.push(...(await activeConnectionSlots(integration, integrationId)));
         }
-      } else {
-        slots.push(...(await listedConnectionSlots(integration, request.integrationIds)));
+        return credentialRowsForSlots(integration, slots, request.methods);
       }
 
-      const methods = request.methods;
-      const wanted = slots.filter(
-        (slot) => !methods || !("connection" in slot) || methods.includes(slot.connection.method),
+      const { slots, activeConnections } = await listedConnectionSlots(
+        integration,
+        request.integrationIds,
       );
-      const rows = await Promise.all(
-        wanted.map((slot) => credentialRowForSlot(integration, slot, methods)),
-      );
-      // The active mark goes to the first row of the first requested id that has rows.
-      return rows.map((row, index) => ({ ...row, active: index === 0 }));
+      return credentialRowsForSlots(integration, slots, request.methods, activeConnections);
     },
   };
 }

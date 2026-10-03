@@ -68,6 +68,12 @@ export const PROVIDER_ACCOUNTING_LEDGER: Record<string, Array<QuotaToastEntry["a
       ownership: "maintained",
       authority: "provider_reported",
     },
+    {
+      resultType: "status",
+      acquisitionMethod: "local_runtime_accounting",
+      ownership: "maintained",
+      authority: "locally_derived",
+    },
   ],
   openrouter: [
     {

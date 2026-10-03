@@ -95,6 +95,32 @@ describe("buildSidebarQuotaPanelLines", () => {
     expect(lines.some((line) => /^(Copilot|Plan)\b/u.test(line.trim()))).toBe(true);
   });
 
+  it.each([
+    "allWindows",
+    "singleWindow",
+  ] as const)("renders a readable status with one header (%s)", (formatStyle) => {
+    const lines = buildSidebarQuotaPanelLines({
+      config: { formatStyle, percentDisplayMode: "remaining" },
+      data: {
+        entries: [
+          {
+            kind: "value",
+            name: "[OpenAI] (active)",
+            group: "[OpenAI] (active)",
+            value: "ChatGPT quota unavailable for API key",
+          },
+        ],
+        errors: [],
+      },
+    });
+
+    expect(lines.filter((line) => line === "[OpenAI] (active)")).toHaveLength(1);
+    expect(lines.every((line) => line.length <= TUI_SIDEBAR_MAX_WIDTH)).toBe(true);
+    expect(lines.every((line) => line === line.trim())).toBe(true);
+    expect(lines).not.toContain("-");
+    expect(lines.join(" ")).toContain("ChatGPT quota unavailable for API key");
+  });
+
   it("wraps long error rows within the sidebar width and keeps bar rows unchanged", () => {
     const message = "Could not parse OpenCode Console budgets/org response";
     const data = {

@@ -151,6 +151,17 @@ export function formatQuotaRowsGrouped(params: {
       if (interpretation.display.kind === "value") {
         const isAtomicValue = interpretation.display.entryKind !== "value";
         const label = entry.semantic ? interpretation.label : entry.label?.trim() || entry.name;
+        const isRedundantLabel =
+          !entry.semantic &&
+          !entry.label &&
+          Boolean(
+            label &&
+              (label === g ||
+                label === groupHeader ||
+                formatGroupedHeader(label) === groupHeader ||
+                normalizeLabelText(label) === normalizeLabelText(g)),
+          );
+        const effectiveLabel = isRedundantLabel ? "" : label;
         const timeStr = entry.resetTimeIso
           ? formatResetCountdown(
               entry.resetTimeIso,
@@ -163,7 +174,11 @@ export function formatQuotaRowsGrouped(params: {
           interpretation.display.entryKind === "value"
             ? interpretation.display.text.trim()
             : interpretation.display.text;
-        const leftText = right ? `${label} ${right}` : label;
+        const leftText = right
+          ? effectiveLabel
+            ? `${effectiveLabel} ${right}`
+            : right
+          : effectiveLabel;
         const labelAndValue = [leftText, value].filter(Boolean).join(separator);
         if (
           timeStr &&
@@ -182,18 +197,23 @@ export function formatQuotaRowsGrouped(params: {
             continue;
           }
           const availableLabelWidth = maxWidth - (suffix ? separator.length + suffix.length : 0);
-          if (availableLabelWidth <= 0) {
-            lines.push(padLeft(suffix, maxWidth));
+          if (availableLabelWidth <= 0 || !leftText) {
+            lines.push(leftText ? padLeft(suffix, maxWidth) : suffix);
             continue;
           }
-          const leftText = label.slice(0, availableLabelWidth).trimEnd();
+          const leftTextToPad = leftText.slice(0, availableLabelWidth).trimEnd();
           lines.push(
-            `${padRight(leftText, availableLabelWidth)}${suffix ? `${separator}${suffix}` : ""}`,
+            `${padRight(leftTextToPad, availableLabelWidth)}${suffix ? `${separator}${suffix}` : ""}`,
           );
           continue;
         }
 
         if (isTiny) {
+          if (!leftText) {
+            lines.push(...wrapDisplayText(value, maxWidth));
+            if (timeStr) lines.push(padLeft(timeStr, maxWidth));
+            continue;
+          }
           // Tiny: "label  time  value"
           const timeWidth = Math.max(timeCol, timeStr.length);
           const valueCol = Math.min(value.length, Math.max(6, percentCol + 2));
@@ -201,7 +221,6 @@ export function formatQuotaRowsGrouped(params: {
             1,
             maxWidth - separator.length - timeWidth - separator.length - valueCol,
           );
-          const leftText = right ? `${label} ${right}` : label;
           const line = [
             padRight(leftText, tinyNameCol),
             padLeft(timeStr, timeWidth),
@@ -214,14 +233,16 @@ export function formatQuotaRowsGrouped(params: {
         // Non-tiny: single line (no bar)
         const timeWidth = Math.max(timeStr.length, timeCol);
         const valueWidth = Math.max(value.length, 6);
-        const leftMax = Math.max(
-          1,
-          barWidth - separator.length - valueWidth - separator.length - timeWidth,
-        );
-        if (leftMax + separator.length + valueWidth + separator.length + timeWidth > maxWidth) {
+        const leftMax = leftText
+          ? Math.max(1, barWidth - separator.length - valueWidth - separator.length - timeWidth)
+          : 0;
+        if (
+          !leftText ||
+          leftMax + separator.length + valueWidth + separator.length + timeWidth > maxWidth
+        ) {
           // The value is too wide to share a line with its label, so stack them instead of cutting both.
-          lines.push(leftText.slice(0, maxWidth));
-          lines.push(...wrapDisplayText(value, maxWidth).map((line) => padLeft(line, maxWidth)));
+          if (leftText) lines.push(leftText.slice(0, maxWidth));
+          lines.push(...wrapDisplayText(value, maxWidth));
           if (timeStr) lines.push(padLeft(timeStr, maxWidth));
           continue;
         }

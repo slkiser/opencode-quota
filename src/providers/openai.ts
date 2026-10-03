@@ -41,7 +41,16 @@ export const openaiProvider: QuotaProvider = {
       return true;
     }
 
-    return hasOpenAIOAuthCached({ maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS });
+    if (await hasOpenAIOAuthCached({ maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS })) {
+      return true;
+    }
+
+    // Without an OpenAI alias or OAuth login, a stored API key still counts.
+    const keyRows = await readCredentialRows(OPENAI_AUTH_SOURCE_KEYS, {
+      methods: ["key"],
+      firstOnly: true,
+    });
+    return keyRows.length > 0;
   },
 
   matchesCurrentModel(model: string): boolean {
@@ -49,16 +58,18 @@ export const openaiProvider: QuotaProvider = {
   },
 
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
-    const rows = (await readCredentialRows(OPENAI_AUTH_SOURCE_KEYS, { methods: ["oauth"] })).filter(
-      (row) => (OPENAI_AUTH_SOURCE_KEYS as readonly string[]).includes(row.integrationId),
-    );
+    const rows = (
+      await readCredentialRows(OPENAI_AUTH_SOURCE_KEYS, { methods: ["oauth", "key"] })
+    ).filter((row) => (OPENAI_AUTH_SOURCE_KEYS as readonly string[]).includes(row.integrationId));
     // A failed login stays in the list so it shows as its own error row.
     const credentials = rows.flatMap((row) => {
+      if (row.value.type === "api") return [];
       const auth = resolveOpenAIOAuth({
         [row.integrationId]: credentialRowAuthEntry(row),
       } as AuthData);
       return auth.state === "none" ? [] : [{ row, auth }];
     });
+    const keyRows = rows.filter((row) => row.value.type === "api");
     const entries: QuotaProviderResult["entries"] = [];
     const errors: QuotaProviderResult["errors"] = [];
     const mapResult = (
@@ -94,43 +105,100 @@ export const openaiProvider: QuotaProvider = {
     const results = await Promise.all(
       credentials.map(async ({ row, auth }) => ({
         row,
-        auth,
         result: await queryOpenAIQuota({ requestTimeoutMs: ctx.config?.requestTimeoutMs, auth }),
       })),
     );
+    const resultByRow = new Map(results.map(({ row, result }) => [row, result]));
+    // Names span every stored account (OAuth and API key) so numbering and the
+    // `(active)` marker match the accounts OpenCode actually holds.
     const names = formatCredentialDisplayNames(
       "OpenAI",
-      results.map(({ row, result }) => ({
-        row,
-        fallbackName: result?.success ? result.label : "OpenAI",
-      })),
+      rows.map((row) => {
+        const result = resultByRow.get(row);
+        return { row, fallbackName: result?.success ? result.label : "OpenAI" };
+      }),
     );
+    const nameByRow = new Map(rows.map((row, index) => [row, names[index]]));
 
-    for (const [index, { row, result }] of results.entries()) {
-      const providerResult = mapResult(result, { group: names[index], sourceId: row.id });
+    for (const { row, result } of results) {
+      const providerResult = mapResult(result, { group: nameByRow.get(row), sourceId: row.id });
       entries.push(...providerResult.entries);
       errors.push(...providerResult.errors);
     }
+
+    // ChatGPT's usage endpoint only accepts OAuth credentials, so an API-key
+    // account reports its lack of ChatGPT quota instead of a quota number.
+    for (const row of keyRows) {
+      const name = nameByRow.get(row) ?? "OpenAI";
+      if (row.resolveError !== undefined) {
+        errors.push({
+          label: name,
+          message: `OpenAI API key could not be read: ${row.resolveError}`,
+        });
+        continue;
+      }
+      entries.push({
+        kind: "value",
+        accounting: {
+          resultType: "status",
+          acquisitionMethod: "local_runtime_accounting",
+          ownership: "maintained",
+          authority: "locally_derived",
+          sourceId: row.id,
+        },
+        name,
+        group: name,
+        value: "ChatGPT quota unavailable for API key",
+      });
+    }
+
     const providerResult =
       entries.length > 0 || errors.length > 0
         ? attemptedResult(entries, errors)
         : mapResult(await queryOpenAIQuota({ requestTimeoutMs: ctx.config?.requestTimeoutMs }));
-    const configuredAuth = credentials[0]?.auth;
-    const configured = configuredAuth !== undefined;
-    const expiresAt = configuredAuth?.state === "configured" ? configuredAuth.expiresAt : undefined;
+
+    // The active account describes the status; a row OpenCode did not mark
+    // active (e.g. an env-selected connection or a failed active lookup) must
+    // not be reported as the active one.
+    const activeRow = rows.find((row) => row.active);
+    let authConfigured = "false";
+    let authSource = "(none)";
+    let tokenStatus = "(none)";
+    let tokenExpiresAt = "(none)";
+    if (activeRow) {
+      if (activeRow.value.type === "api") {
+        authConfigured = "true";
+        authSource = activeRow.integrationId;
+        tokenStatus = activeRow.resolveError !== undefined ? "failed" : "api key";
+      } else {
+        const auth = credentials.find(({ row }) => row === activeRow)?.auth;
+        if (auth) {
+          const expiresAt = auth.state === "configured" ? auth.expiresAt : undefined;
+          authConfigured = "true";
+          authSource = auth.sourceKey;
+          tokenStatus =
+            auth.state === "failed"
+              ? "failed"
+              : expiresAt && expiresAt < Date.now()
+                ? "expired"
+                : "valid";
+          tokenExpiresAt = expiresAt ? new Date(expiresAt).toISOString() : "(none)";
+        }
+      }
+    } else if (rows.length > 0) {
+      // Stored accounts exist, but which one is active is unknown.
+      authConfigured = "true";
+      authSource = "unknown";
+      tokenStatus = "unknown";
+      tokenExpiresAt = "unknown";
+    }
     return withStatusDetails(
       providerResult,
       statusDetailsFromRecord({
-        auth_configured: configured ? "true" : "false",
-        auth_source: configuredAuth?.sourceKey ?? "(none)",
-        token_status: !configured
-          ? "(none)"
-          : configuredAuth?.state === "failed"
-            ? "failed"
-            : expiresAt && expiresAt < Date.now()
-              ? "expired"
-              : "valid",
-        token_expires_at: expiresAt ? new Date(expiresAt).toISOString() : "(none)",
+        auth_configured: authConfigured,
+        auth_source: authSource,
+        token_status: tokenStatus,
+        token_expires_at: tokenExpiresAt,
       }),
     );
   },
