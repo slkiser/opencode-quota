@@ -335,4 +335,53 @@ describe("opencode storage forked session copies", () => {
       "msg_unfinished_b",
     ]);
   });
+
+  it("keeps identical finished messages that are in the same session", async () => {
+    const sameSessionTwinRow = { ...originalRow, id: "msg_02sametwin" };
+    mockConnection(() => [originalRow, sameSessionTwinRow]);
+
+    const { iterAssistantMessages, iterCompletedAssistantMessages } = await import(
+      "../src/lib/opencode-storage.js"
+    );
+
+    const messages = await iterAssistantMessages({});
+    expect(messages.map((message) => message.id)).toEqual(["msg_01original", "msg_02sametwin"]);
+
+    const completed = await iterCompletedAssistantMessages({});
+    expect(completed.map((message) => message.id)).toEqual(["msg_01original", "msg_02sametwin"]);
+  });
+
+  it("drops both fork copies when the parent has two identical messages", async () => {
+    const parentTwinRow = { ...originalRow, id: "msg_02parenttwin" };
+    const forkTwinCopyRow = { ...originalRow, id: "msg_05forkevent_2", session_id: "ses_fork" };
+    mockConnection(() => [originalRow, parentTwinRow, forkCopyRow, forkTwinCopyRow]);
+
+    const { iterAssistantMessages } = await import("../src/lib/opencode-storage.js");
+    const messages = await iterAssistantMessages({});
+
+    expect(messages.map((message) => message.id)).toEqual(["msg_01original", "msg_02parenttwin"]);
+  });
+
+  it("counts a fork copy once when the original and copy come from different query chunks", async () => {
+    const fillerSessionIDs = Array.from({ length: 899 }, (_, index) => `ses_filler_${index}`);
+    const queriedChunks: unknown[][] = [];
+    mockConnection((_sql, params) => {
+      const sessionIDs = params ?? [];
+      queriedChunks.push(sessionIDs);
+      return [originalRow, forkCopyRow, forkNewRow].filter((row) =>
+        sessionIDs.includes(row.session_id),
+      );
+    });
+
+    const { iterAssistantMessagesForSessions } = await import("../src/lib/opencode-storage.js");
+    const messages = await iterAssistantMessagesForSessions({
+      sessionIDs: ["ses_parent", ...fillerSessionIDs, "ses_fork"],
+    });
+
+    expect(queriedChunks).toHaveLength(2);
+    expect(queriedChunks[0]).toContain("ses_parent");
+    expect(queriedChunks[0]).not.toContain("ses_fork");
+    expect(queriedChunks[1]).toEqual(["ses_fork"]);
+    expect(messages.map((message) => message.id)).toEqual(["msg_01original", "msg_06forknew"]);
+  });
 });

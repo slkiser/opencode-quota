@@ -337,9 +337,11 @@ function forkCopyFingerprint(message: OpenCodeMessage, completed: number): strin
  * ids but identical times, model, tokens, and cost. Keep only the first row of
  * each finished fingerprint: queries sort by time then id, and copies get newer
  * ids, so the first row is the original. Unfinished rows are always kept.
+ * A copy lives in another session, so only cross-session matches are dropped;
+ * identical rows in the first row's own session are kept.
  */
 function dropForkCopies(messages: OpenCodeMessage[]): OpenCodeMessage[] {
-  const seen = new Set<string>();
+  const firstSessionByFingerprint = new Map<string, string>();
   const out: OpenCodeMessage[] = [];
   for (const message of messages) {
     const completed = completedAt(message);
@@ -348,8 +350,12 @@ function dropForkCopies(messages: OpenCodeMessage[]): OpenCodeMessage[] {
       continue;
     }
     const fingerprint = forkCopyFingerprint(message, completed);
-    if (seen.has(fingerprint)) continue;
-    seen.add(fingerprint);
+    const firstSessionID = firstSessionByFingerprint.get(fingerprint);
+    if (firstSessionID === undefined) {
+      firstSessionByFingerprint.set(fingerprint, message.sessionID);
+    } else if (firstSessionID !== message.sessionID) {
+      continue;
+    }
     out.push(message);
   }
   return out;
