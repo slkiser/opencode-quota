@@ -167,6 +167,108 @@ describe("buildQuotaStatusReport", () => {
     vi.clearAllMocks();
   });
 
+  it("shows the home dir as ~ in every report path, but not in lookalike or outside paths", async () => {
+    const report = await buildQuotaStatusReportForTest({
+      homeDir: "/tmp",
+      configPaths: ["/tmp/config/opencode.json", "/tmpfoo/opencode.json", "/var/opencode.json"],
+      tuiDiagnostics: {
+        workspaceRoot: "/tmp/project",
+        configRoot: "/tmp",
+        configured: false,
+        inferredSelectedPath: null,
+        presentPaths: [],
+        candidatePaths: ["/tmp/tui.json"],
+        quotaPluginConfigured: false,
+        quotaPluginConfigPaths: [],
+      },
+    });
+
+    expect(report).toContain(
+      "- configPaths: ~/config/opencode.json | /tmpfoo/opencode.json | /var/opencode.json",
+    );
+    expect(report).toContain("- workspace_root: ~/project");
+    expect(report).toContain("- config_root: ~\n");
+    expect(report).toContain("- candidate_config_paths: ~/tui.json");
+    expect(report).toContain("data=~/data config=~/config cache=~/cache state=~/state");
+    expect(report).toContain("preferred=~/opencode.db present=(none) candidates=~/opencode.db");
+    expect(report).toContain(
+      "snapshot=~/pricing-snapshot.json refresh_state=~/pricing-refresh-state.json",
+    );
+    expect(report).not.toMatch(/(^|[\s=|(])\/tmp([/\s]|$)/mu);
+  });
+
+  it("does not show the user name anywhere when paths and errors sit under home", async () => {
+    const report = await buildProviderStatusReport("openrouter", {
+      homeDir: "/Users/alice",
+      configPaths: ["/Users/alice/.config/opencode/opencode.json"],
+      configIssues: [
+        {
+          path: "/Users/alice/project/opencode.json",
+          key: "enabledProviders",
+          message: "bad value in /Users/alice/project/opencode.json",
+        },
+      ],
+      sessionTokenError: {
+        sessionID: "ses_1",
+        error: "ENOENT: no such file, open '/Users/alice/.local/share/opencode/x.json'",
+        checkedPath: "/Users/alice/.local/share/opencode/x.json",
+      },
+      providerLiveProbes: [
+        makeProviderSuccessProbe(
+          "openrouter",
+          { auth_checked_paths: "/Users/alice/.local/share/opencode/auth.json" },
+          { errors: [{ label: "OpenRouter", message: "cannot read /Users/alice/key.txt" }] },
+        ),
+      ],
+    });
+
+    expect(report).toContain("- configPaths: ~/.config/opencode/opencode.json");
+    expect(report).toContain("~/project/opencode.json enabledProviders: bad value in ~/project");
+    expect(report).toContain("open '~/.local/share/opencode/x.json'");
+    expect(report).toContain("auth_checked_paths: ~/.local/share/opencode/auth.json");
+    expect(report).toContain("cannot read ~/key.txt");
+    expect(report).not.toContain("alice");
+  });
+
+  it("shows a JSON-quoted Windows command under a home with a space as ~", async () => {
+    const quotedCommand = `${JSON.stringify("C:\\Users\\Alice Smith\\.local\\bin\\claude")} --version`;
+    const report = await buildProviderStatusReport("anthropic", {
+      homeDir: "C:\\Users\\Alice Smith",
+      providerLiveProbes: [
+        makeProviderSuccessProbe("anthropic", {
+          checked_commands: `claude --version | ${quotedCommand}`,
+        }),
+      ],
+    });
+
+    expect(getReportSection(report, "anthropic:")).toContain(
+      '- checked_commands: claude --version | "~\\\\.local\\\\bin\\\\claude" --version',
+    );
+    expect(report).not.toContain("Alice");
+  });
+
+  it("shows the home dir as ~ before cutting a long live row", async () => {
+    const report = await buildProviderStatusReport("openrouter", {
+      homeDir: "/Users/alice",
+      providerLiveProbes: [
+        makeProviderSuccessProbe(
+          "openrouter",
+          {},
+          {
+            errors: [
+              { label: "OpenRouter", message: `${"x".repeat(109)} /Users/alice/token.json` },
+            ],
+          },
+        ),
+      ],
+    });
+
+    expect(getReportSection(report, "openrouter:")).toContain(
+      `- live_error_1: ${"x".repeat(109)} ~/token.js\n`,
+    );
+    expect(report).not.toContain("/Users/ali");
+  });
+
   it("uses a Unicode ellipsis for truncated pricing diagnostic lists", async () => {
     const tokens = { input: 1, output: 0, reasoning: 0, cache_read: 0, cache_write: 0 };
     const unpriced = Array.from({ length: 7 }, (_, index) => ({
