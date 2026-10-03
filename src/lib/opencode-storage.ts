@@ -310,6 +310,50 @@ function buildCompletedAssistantQuery(params: {
   };
 }
 
+function forkCopyFingerprint(message: OpenCodeMessage, completed: number): string {
+  const tokens = message.tokens;
+  return JSON.stringify([
+    message.time?.created,
+    completed,
+    message.providerID,
+    message.modelID,
+    tokens?.input,
+    tokens?.output,
+    tokens?.reasoning,
+    tokens?.cache?.read,
+    tokens?.cache?.write,
+    message.cost,
+  ]);
+}
+
+/**
+ * OpenCode copies a parent's finished messages into a fork with new ids but
+ * identical times, model, tokens, and cost. Count each finished fingerprint as
+ * many times as the session that has it most often, so copies are not added on
+ * top of the original. Unfinished rows are always kept.
+ */
+function dropForkCopies(messages: OpenCodeMessage[]): OpenCodeMessage[] {
+  const countBySessionAndFingerprint = new Map<string, number>();
+  const keptCountByFingerprint = new Map<string, number>();
+  const out: OpenCodeMessage[] = [];
+  for (const message of messages) {
+    const completed = completedAt(message);
+    if (completed === null) {
+      out.push(message);
+      continue;
+    }
+    const fingerprint = forkCopyFingerprint(message, completed);
+    const sessionKey = JSON.stringify([message.sessionID, fingerprint]);
+    const sessionCount = (countBySessionAndFingerprint.get(sessionKey) ?? 0) + 1;
+    countBySessionAndFingerprint.set(sessionKey, sessionCount);
+    const keptCount = keptCountByFingerprint.get(fingerprint) ?? 0;
+    if (sessionCount <= keptCount) continue;
+    keptCountByFingerprint.set(fingerprint, sessionCount);
+    out.push(message);
+  }
+  return out;
+}
+
 function compareMessageOrder(a: OpenCodeMessage, b: OpenCodeMessage): number {
   const aCreated = typeof a.time?.created === "number" ? a.time.created : Number.MAX_SAFE_INTEGER;
   const bCreated = typeof b.time?.created === "number" ? b.time.created : Number.MAX_SAFE_INTEGER;
@@ -369,7 +413,7 @@ export async function iterAssistantMessages(params: {
   try {
     const q = buildMessageQuery({ sinceMs: params.sinceMs, untilMs: params.untilMs });
     const rows = conn.all<MessageRow>(q.sql, q.args);
-    return mapAssistantMessages(rows);
+    return dropForkCopies(mapAssistantMessages(rows));
   } finally {
     conn.close();
   }
@@ -392,13 +436,15 @@ export async function iterCompletedAssistantMessages(params: {
   try {
     if (await hasJsonExtract(conn)) {
       const query = buildCompletedAssistantQuery(params);
-      return mapCompletedAssistantMessages(conn.all<MessageRow>(query.sql, query.args));
+      return dropForkCopies(
+        mapCompletedAssistantMessages(conn.all<MessageRow>(query.sql, query.args)),
+      );
     }
 
     const rows = conn.all<MessageRow>(
       `SELECT id, session_id, time_created, time_updated, data FROM "message"`,
     );
-    return mapCompletedAssistantMessages(rows)
+    const messages = mapCompletedAssistantMessages(rows)
       .filter((message) => {
         const atMs = completedAt(message);
         if (atMs === null) return false;
@@ -411,6 +457,7 @@ export async function iterCompletedAssistantMessages(params: {
         return true;
       })
       .sort(compareCompletedMessageOrder);
+    return dropForkCopies(messages);
   } finally {
     conn.close();
   }
@@ -483,7 +530,7 @@ export async function iterAssistantMessagesForSessions(params: {
     }
 
     messages.sort(compareMessageOrder);
-    return messages;
+    return dropForkCopies(messages);
   } finally {
     conn.close();
   }
