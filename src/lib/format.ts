@@ -250,19 +250,18 @@ export function formatQuotaRows(params: {
     value: string,
     atomicValue = false,
   ) => {
-    const timeStr =
-      atomicValue && !resetIso
-        ? ""
-        : formatResetCountdown(
-            resetIso,
-            isResetTimeDecimals(params.resetTimeDecimals)
-              ? {
-                  missing: "-",
-                  compactRounded: true,
-                  decimals: params.resetTimeDecimals,
-                }
-              : { missing: "-", spaced: params.resetTimeSpaced },
-          );
+    const timeStr = !resetIso
+      ? ""
+      : formatResetCountdown(
+          resetIso,
+          isResetTimeDecimals(params.resetTimeDecimals)
+            ? {
+                missing: "-",
+                compactRounded: true,
+                decimals: params.resetTimeDecimals,
+              }
+            : { missing: "-", spaced: params.resetTimeSpaced },
+        );
 
     if (atomicValue) {
       const suffix = [value, timeStr].filter(Boolean).join(separator);
@@ -309,6 +308,22 @@ export function formatQuotaRows(params: {
       return;
     }
 
+    const valueAndTimeWidth =
+      separator.length +
+      Math.max(value.length, 6) +
+      separator.length +
+      Math.max(timeStr.length, timeCol);
+    if (
+      nameAndValue.length + separator.length + timeStr.length > maxWidth &&
+      valueAndTimeWidth >= maxWidth
+    ) {
+      // The value is too wide to share a line with its name, so stack them instead of cutting both.
+      lines.push(...wrapDisplayText(name, maxWidth));
+      lines.push(...wrapDisplayText(value, maxWidth));
+      if (timeStr) lines.push(padLeft(timeStr, maxWidth));
+      return;
+    }
+
     if (isTiny) {
       // Tiny: single line without percent; keep time col alignment.
       const timeWidth = Math.max(timeCol, timeStr.length);
@@ -321,22 +336,6 @@ export function formatQuotaRows(params: {
         padLeft(value, valueCol),
       ].join(separator);
       lines.push(line.slice(0, maxWidth));
-      return;
-    }
-
-    const valueAndTimeWidth =
-      separator.length +
-      Math.max(value.length, 6) +
-      separator.length +
-      Math.max(timeStr.length, timeCol);
-    if (
-      nameAndValue.length + separator.length + timeStr.length > maxWidth &&
-      valueAndTimeWidth >= maxWidth
-    ) {
-      // The value is too wide to share a line with its name, so stack them instead of cutting both.
-      lines.push(name.slice(0, maxWidth));
-      lines.push(...wrapDisplayText(value, maxWidth).map((line) => padLeft(line, maxWidth)));
-      if (timeStr) lines.push(padLeft(timeStr, maxWidth));
       return;
     }
 

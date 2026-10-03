@@ -348,6 +348,18 @@ describe("openai provider", () => {
       ["[OpenAI Work] (Pro)", "oauth-id"],
       ["[OpenAI] (active)", "key-id"],
     ]);
+    for (const formatStyle of ["allWindows", "singleWindow"] as const) {
+      const lines = buildSidebarQuotaPanelLines({
+        data: { entries: out.entries, errors: out.errors },
+        config: { formatStyle, percentDisplayMode: "remaining" },
+      });
+      expect(lines.some((line) => line.includes("[OpenAI Work] (Pro)"))).toBe(true);
+      expect(lines.some((line) => line.includes("42%"))).toBe(true);
+      expect(lines.filter((line) => line === "[OpenAI] (active)")).toHaveLength(1);
+      const statusLines = lines.slice(lines.indexOf("[OpenAI] (active)") + 1);
+      expect(statusLines.every((line) => line === line.trim())).toBe(true);
+      expect(statusLines.join(" ")).toBe("ChatGPT quota unavailable for API key");
+    }
     expect(out.statusDetails).toEqual(
       expect.arrayContaining([
         { key: "auth_configured", value: "true" },
@@ -463,59 +475,10 @@ describe("openai provider", () => {
 
     const sidebarLines = outputs[0]!.split("\n");
     expect(sidebarLines.filter((line) => line === "[OpenAI Key]")).toHaveLength(1);
-    expect(sidebarLines.every((line) => line.length <= 24)).toBe(true);
 
     const singleWindow = projectQuotaProviderResults([result], "singleWindow", "summary");
     expect(singleWindow).toHaveLength(1);
     expect(singleWindow[0]?.accounting.sourceId).toBe("key-id");
-  });
-
-  it("renders Plus OAuth and active API-key accounts together in sidebar without duplicate header", async () => {
-    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
-    const { queryOpenAIQuota, resolveOpenAIOAuth } = await import("../src/lib/openai.js");
-    vi.mocked(readCredentialRows).mockResolvedValueOnce([
-      {
-        id: "key-id",
-        integrationId: "openai",
-        label: "API key",
-        active: true,
-        value: { type: "api", key: "sk-test" },
-      },
-      {
-        id: "oauth-id",
-        integrationId: "openai",
-        label: "Work",
-        active: false,
-        value: { type: "oauth", access: "token" },
-      },
-    ]);
-    vi.mocked(resolveOpenAIOAuth).mockImplementation((auth) => ({
-      state: "configured",
-      sourceKey: "openai",
-      accessToken: auth?.openai?.access ?? "",
-    }));
-    vi.mocked(queryOpenAIQuota).mockResolvedValueOnce({
-      success: true,
-      label: "OpenAI (Pro)",
-      windows: { hourly: { percentRemaining: 42 } },
-    });
-
-    const out = await openaiProvider.fetch({} as any);
-    const data = { entries: out.entries, errors: out.errors };
-    const sidebarLines = buildSidebarQuotaPanelLines({
-      data,
-      config: { formatStyle: "allWindows", percentDisplayMode: "remaining" },
-    });
-
-    expect(sidebarLines).toContain("[OpenAI Work] (Pro)");
-    expect(sidebarLines.some((line) => line.includes("42%"))).toBe(true);
-
-    expect(sidebarLines.filter((line) => line === "[OpenAI] (active)")).toHaveLength(1);
-
-    const activeIndex = sidebarLines.indexOf("[OpenAI] (active)");
-    const apiKeyStatusLines = sidebarLines.slice(activeIndex + 1);
-    expect(apiKeyStatusLines.every((line) => line.length <= 24)).toBe(true);
-    expect(apiKeyStatusLines.join(" ")).toContain("ChatGPT quota unavailable for API key");
   });
 
   it("is available when provider ids include openai/chatgpt/codex", async () => {

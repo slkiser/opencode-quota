@@ -208,11 +208,9 @@ export function formatQuotaRowsGrouped(params: {
           continue;
         }
 
-        const wrapWidth = isNarrow && isRedundantLabel ? Math.min(maxWidth, 24) : maxWidth;
-
         if (isTiny) {
           if (!leftText) {
-            lines.push(...wrapDisplayText(value, wrapWidth));
+            lines.push(...wrapDisplayText(value, maxWidth));
             if (timeStr) lines.push(padLeft(timeStr, maxWidth));
             continue;
           }
@@ -244,7 +242,7 @@ export function formatQuotaRowsGrouped(params: {
         ) {
           // The value is too wide to share a line with its label, so stack them instead of cutting both.
           if (leftText) lines.push(leftText.slice(0, maxWidth));
-          lines.push(...wrapDisplayText(value, wrapWidth));
+          lines.push(...wrapDisplayText(value, maxWidth));
           if (timeStr) lines.push(padLeft(timeStr, maxWidth));
           continue;
         }

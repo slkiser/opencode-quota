@@ -9,6 +9,31 @@ describe("formatQuotaRows", () => {
     vi.useRealTimers();
   });
 
+  it.each([
+    "allWindows",
+    "singleWindow",
+  ] as const)("wraps untimed status text at narrow widths (%s)", (style) => {
+    for (const maxWidth of [20, 24, 36]) {
+      const lines = formatQuotaRows({
+        version: "1.0.0",
+        style,
+        layout: { maxWidth, narrowAt: 36, tinyAt: 20 },
+        entries: [
+          {
+            kind: "value",
+            name: "[OpenAI] (active)",
+            group: "[OpenAI] (active)",
+            value: "ChatGPT quota unavailable for API key",
+          },
+        ],
+      }).split("\n");
+
+      expect(lines.filter((line) => line === "[OpenAI] (active)")).toHaveLength(1);
+      expect(lines.every((line) => line.length <= maxWidth && line === line.trim())).toBe(true);
+      expect(lines.slice(1).join(" ")).toBe("ChatGPT quota unavailable for API key");
+    }
+  });
+
   it("renders a Copilot row", () => {
     const out = formatQuotaRows({
       version: "1.0.0",

@@ -20,21 +20,12 @@ export function buildSidebarQuotaPanelLines(params: {
         "accountingDetail" | "percentLabelStyle" | "quotaProjection" | "resetTimeSpaced"
       >
     >;
-  maxWidth?: number;
 }): string[] {
   const data = sanitizeQuotaRenderData(params.data);
-  const maxWidth = params.maxWidth ?? TUI_SIDEBAR_MAX_WIDTH;
-  const layout = params.maxWidth
-    ? {
-        maxWidth,
-        narrowAt: maxWidth,
-        tinyAt: Math.min(20, maxWidth),
-      }
-    : TUI_SIDEBAR_LAYOUT;
 
   const quotaBody = formatQuotaRows({
     version: "1.0.0",
-    layout,
+    layout: TUI_SIDEBAR_LAYOUT,
     entries: data.entries,
     errors: data.errors,
     style: params.config.formatStyle,
@@ -51,5 +42,7 @@ export function buildSidebarQuotaPanelLines(params: {
   // (errors, notices) runs longer, and the TUI would cut it, so wrap it here.
   return quotaBody
     .split("\n")
-    .flatMap((line) => (line.length > maxWidth ? wrapDisplayText(line, maxWidth) : [line]));
+    .flatMap((line) =>
+      line.length > TUI_SIDEBAR_MAX_WIDTH ? wrapDisplayText(line, TUI_SIDEBAR_MAX_WIDTH) : [line],
+    );
 }

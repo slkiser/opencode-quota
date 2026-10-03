@@ -95,9 +95,12 @@ describe("buildSidebarQuotaPanelLines", () => {
     expect(lines.some((line) => /^(Copilot|Plan)\b/u.test(line.trim()))).toBe(true);
   });
 
-  it("renders a status value entry without repeating its group header and wraps to fit narrow widths", () => {
+  it.each([
+    "allWindows",
+    "singleWindow",
+  ] as const)("renders a readable status with one header (%s)", (formatStyle) => {
     const lines = buildSidebarQuotaPanelLines({
-      config: { formatStyle: "allWindows", percentDisplayMode: "remaining" },
+      config: { formatStyle, percentDisplayMode: "remaining" },
       data: {
         entries: [
           {
@@ -109,11 +112,12 @@ describe("buildSidebarQuotaPanelLines", () => {
         ],
         errors: [],
       },
-      maxWidth: 24,
     });
 
     expect(lines.filter((line) => line === "[OpenAI] (active)")).toHaveLength(1);
-    expect(lines.every((line) => line.length <= 24)).toBe(true);
+    expect(lines.every((line) => line.length <= TUI_SIDEBAR_MAX_WIDTH)).toBe(true);
+    expect(lines.every((line) => line === line.trim())).toBe(true);
+    expect(lines).not.toContain("-");
     expect(lines.join(" ")).toContain("ChatGPT quota unavailable for API key");
   });
 
