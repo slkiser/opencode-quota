@@ -478,6 +478,7 @@ function SessionPromptWithCompactStatus(props: {
         disabled={props.disabled}
         onSubmit={props.onSubmit}
         ref={props.promptRef}
+        right={<props.api.ui.Slot name="session_prompt_right" session_id={props.sessionID} />}
       />
       <CompactStatusLine api={props.api} panel={panel} justifyContent="flex-end" />
     </box>
@@ -646,6 +647,7 @@ function SessionQuotaPromptBar(props: {
         disabled={props.disabled}
         onSubmit={props.onSubmit}
         ref={props.promptRef}
+        right={<props.api.ui.Slot name="session_prompt_right" session_id={props.sessionID} />}
       />
       <PromptQuotaHint api={props.api} bar={promptBar} running={running} phase={phase} />
     </box>

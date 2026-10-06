@@ -108,6 +108,7 @@ declare module "@opencode-ai/plugin/tui" {
     };
     ui: {
       Prompt: (props: TuiPromptProps) => JSX.Element;
+      Slot: (props: { name: "session_prompt_right"; session_id: string }) => JSX.Element | null;
       DialogPrompt: (props: {
         title: string;
         description?: () => JSX.Element;

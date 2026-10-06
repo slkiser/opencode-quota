@@ -437,6 +437,8 @@ Existing `experimental.quotaToast` settings remain supported. Quota settings do 
 | `tuiCompactStatus.formatStyle`                     | (root `formatStyle`) | Override `formatStyle` for the Compact status line only. Useful when you want `singleWindow` on the compact line while the sidebar shows `allWindows`.                                                        |
 | `tuiPromptBar.enabled`                             | `false`              | Show one opt-in primary quota/accounting result below the TUI prompt and replace the Compact line there. Percentage rows use a provider plus window label such as `OpenAI 5h`. The fill is a fixed 12-cell bar with no width setting; long labels truncate with an ellipsis instead of dropping the provider name. Rich results use the first projected primary row; legacy-only results keep the existing 5h percentage preference. Basis and supplementary rows are omitted. |
 
+The Compact status line and quota prompt bar preserve content from companion TUI plugins in the `session_prompt_right` slot. For example, a companion plugin's activity indicator stays visible beside the session prompt when either quota display is enabled.
+
 ### Maintainer announcement settings
 
 | Option                            | Default | Meaning                                                                                                                                                     |
