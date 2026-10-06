@@ -34,6 +34,58 @@ describe("formatQuotaRows", () => {
     }
   });
 
+  it.each([
+    "[OpenAI Key]",
+    "[OpenAI] (active)",
+  ])("keeps the full untimed status header at the default width (%s)", (name) => {
+    expect(
+      formatQuotaRows({
+        version: "1.0.0",
+        style: "singleWindow",
+        entries: [
+          {
+            kind: "value",
+            name,
+            group: name,
+            accounting: {
+              resultType: "status",
+              acquisitionMethod: "local_runtime_accounting",
+              ownership: "maintained",
+              authority: "locally_derived",
+            },
+            value: "ChatGPT quota unavailable for API key",
+          },
+        ],
+      }),
+    ).toBe(`${name}\nChatGPT quota unavailable for API key`);
+  });
+
+  it("does not reserve a reset column when an untimed status fits beside its header", () => {
+    const name = "[OpenAI] (active)";
+    const value = "ChatGPT quota unavailable for API key";
+    const maxWidth = name.length + 2 + value.length;
+    expect(
+      formatQuotaRows({
+        version: "1.0.0",
+        style: "singleWindow",
+        layout: { maxWidth, narrowAt: 42, tinyAt: 32 },
+        entries: [
+          {
+            kind: "value",
+            name,
+            accounting: {
+              resultType: "status",
+              acquisitionMethod: "local_runtime_accounting",
+              ownership: "maintained",
+              authority: "locally_derived",
+            },
+            value,
+          },
+        ],
+      }),
+    ).toBe(`${name}  ${value}`);
+  });
+
   it("renders a Copilot row", () => {
     const out = formatQuotaRows({
       version: "1.0.0",

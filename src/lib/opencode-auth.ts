@@ -127,10 +127,14 @@ const GENERIC_CREDENTIAL_LABELS: ReadonlySet<string> = new Set(["default", "oaut
 
 export function formatCredentialDisplayNames(
   providerName: string,
-  credentials: ReadonlyArray<{ row: CredentialRow; fallbackName: string }>,
+  credentials: ReadonlyArray<{
+    row: CredentialRow;
+    fallbackName: string;
+    numberUnnamed?: boolean;
+  }>,
 ): string[] {
   const counts = new Map<string, number>();
-  return credentials.map(({ row, fallbackName }) => {
+  return credentials.map(({ row, fallbackName, numberUnnamed = false }) => {
     const alias = row.label.trim();
     const redundantAlias =
       !alias ||
@@ -143,9 +147,10 @@ export function formatCredentialDisplayNames(
       .replace(/^\((.*)\)$/u, "$1")
       .trim();
     const aliasKey = redundantAlias ? "" : alias;
-    const duplicate = aliasKey ? (counts.get(aliasKey) ?? 0) + 1 : 1;
-    if (aliasKey) counts.set(aliasKey, duplicate);
-    const numberedAlias = duplicate === 1 ? aliasKey : `${aliasKey} ${duplicate}`;
+    const shouldNumber = Boolean(aliasKey) || numberUnnamed;
+    const duplicate = shouldNumber ? (counts.get(aliasKey) ?? 0) + 1 : 1;
+    if (shouldNumber) counts.set(aliasKey, duplicate);
+    const numberedAlias = duplicate === 1 ? aliasKey : `${aliasKey} ${duplicate}`.trim();
     const base = `[${providerName}${numberedAlias ? ` ${numberedAlias}` : ""}]`;
     const category = fallbackCategory ? ` (${fallbackCategory})` : "";
     // Only a provider with several logins marks the one OpenCode uses.

@@ -58,9 +58,11 @@ export const openaiProvider: QuotaProvider = {
   },
 
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
-    const rows = (
-      await readCredentialRows(OPENAI_AUTH_SOURCE_KEYS, { methods: ["oauth", "key"] })
-    ).filter((row) => (OPENAI_AUTH_SOURCE_KEYS as readonly string[]).includes(row.integrationId));
+    const rows = (await readCredentialRows(OPENAI_AUTH_SOURCE_KEYS, { methods: ["oauth", "key"] }))
+      .filter((row) => (OPENAI_AUTH_SOURCE_KEYS as readonly string[]).includes(row.integrationId))
+      // Sources usually return the active login first, but integration aliases may not.
+      // Keep source order within each set so compact output never drops the active login.
+      .sort((left, right) => Number(right.active) - Number(left.active));
     // A failed login stays in the list so it shows as its own error row.
     const credentials = rows.flatMap((row) => {
       if (row.value.type === "api") return [];
@@ -69,7 +71,6 @@ export const openaiProvider: QuotaProvider = {
       } as AuthData);
       return auth.state === "none" ? [] : [{ row, auth }];
     });
-    const keyRows = rows.filter((row) => row.value.type === "api");
     const entries: QuotaProviderResult["entries"] = [];
     const errors: QuotaProviderResult["errors"] = [];
     const mapResult = (
@@ -115,21 +116,29 @@ export const openaiProvider: QuotaProvider = {
       "OpenAI",
       rows.map((row) => {
         const result = resultByRow.get(row);
-        return { row, fallbackName: result?.success ? result.label : "OpenAI" };
+        return {
+          row,
+          fallbackName: result?.success ? result.label : "OpenAI",
+          numberUnnamed: row.value.type === "api",
+        };
       }),
     );
     const nameByRow = new Map(rows.map((row, index) => [row, names[index]]));
 
-    for (const { row, result } of results) {
-      const providerResult = mapResult(result, { group: nameByRow.get(row), sourceId: row.id });
-      entries.push(...providerResult.entries);
-      errors.push(...providerResult.errors);
-    }
-
-    // ChatGPT's usage endpoint only accepts OAuth credentials, so an API-key
-    // account reports its lack of ChatGPT quota instead of a quota number.
-    for (const row of keyRows) {
+    for (const row of rows) {
       const name = nameByRow.get(row) ?? "OpenAI";
+      if (row.value.type !== "api") {
+        const providerResult = mapResult(resultByRow.get(row) ?? null, {
+          group: name,
+          sourceId: row.id,
+        });
+        entries.push(...providerResult.entries);
+        errors.push(...providerResult.errors);
+        continue;
+      }
+
+      // ChatGPT's usage endpoint only accepts OAuth credentials, so an API-key
+      // account reports its lack of ChatGPT quota instead of a quota number.
       if (row.resolveError !== undefined) {
         errors.push({
           label: name,

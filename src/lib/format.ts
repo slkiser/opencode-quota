@@ -249,6 +249,7 @@ export function formatQuotaRows(params: {
     resetIso: string | undefined,
     value: string,
     atomicValue = false,
+    statusValue = false,
   ) => {
     const timeStr = !resetIso
       ? ""
@@ -298,6 +299,16 @@ export function formatQuotaRows(params: {
     }
 
     const nameAndValue = [name, value].filter(Boolean).join(separator);
+    if (statusValue && !timeStr) {
+      // Untimed statuses have no reset column; keep the full name and status visible.
+      if (nameAndValue.length > maxWidth) {
+        lines.push(...wrapDisplayText(name, maxWidth));
+        lines.push(...wrapDisplayText(value, maxWidth));
+      } else {
+        lines.push(nameAndValue);
+      }
+      return;
+    }
     if (
       timeStr &&
       nameAndValue.length <= maxWidth &&
@@ -397,6 +408,7 @@ export function formatQuotaRows(params: {
         entry.resetTimeIso,
         interpretation.display.text,
         interpretation.display.entryKind !== "value",
+        entry.accounting?.resultType === "status",
       );
     } else {
       addPercentEntry(

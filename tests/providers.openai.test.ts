@@ -345,8 +345,8 @@ describe("openai provider", () => {
     });
     expect(out.errors).toEqual([]);
     expect(out.entries.map((entry) => [entry.group, entry.accounting.sourceId])).toEqual([
-      ["[OpenAI Work] (Pro)", "oauth-id"],
       ["[OpenAI] (active)", "key-id"],
+      ["[OpenAI Work] (Pro)", "oauth-id"],
     ]);
     for (const formatStyle of ["allWindows", "singleWindow"] as const) {
       const lines = buildSidebarQuotaPanelLines({
@@ -356,7 +356,12 @@ describe("openai provider", () => {
       expect(lines.some((line) => line.includes("[OpenAI Work] (Pro)"))).toBe(true);
       expect(lines.some((line) => line.includes("42%"))).toBe(true);
       expect(lines.filter((line) => line === "[OpenAI] (active)")).toHaveLength(1);
-      const statusLines = lines.slice(lines.indexOf("[OpenAI] (active)") + 1);
+      const statusLines = lines
+        .slice(
+          lines.indexOf("[OpenAI] (active)") + 1,
+          lines.findIndex((line) => line.startsWith("[OpenAI Work] (Pro)")),
+        )
+        .filter(Boolean);
       expect(statusLines.every((line) => line === line.trim())).toBe(true);
       expect(statusLines.join(" ")).toBe("ChatGPT quota unavailable for API key");
     }
@@ -367,6 +372,99 @@ describe("openai provider", () => {
         { key: "token_status", value: "api key" },
       ]),
     );
+  });
+
+  it.each([
+    true,
+    false,
+  ])("keeps the active API-key account on a 60-column mixed-credential compact line (key first: %s)", async (keyFirst) => {
+    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
+    const { queryOpenAIQuota, resolveOpenAIOAuth } = await import("../src/lib/openai.js");
+    const keyRow = {
+      id: "key-id",
+      integrationId: "openai",
+      label: "API key",
+      active: true,
+      value: { type: "api", key: "sk-test" },
+    };
+    const oauthRow = {
+      id: "oauth-id",
+      integrationId: "openai",
+      label: "OAuth",
+      active: false,
+      value: { type: "oauth", access: "token" },
+    };
+    vi.mocked(readCredentialRows).mockResolvedValueOnce(
+      keyFirst ? [keyRow, oauthRow] : [oauthRow, keyRow],
+    );
+    vi.mocked(resolveOpenAIOAuth).mockReturnValue({
+      state: "configured",
+      sourceKey: "openai",
+      accessToken: "token",
+    });
+    vi.mocked(queryOpenAIQuota).mockResolvedValueOnce({
+      success: true,
+      label: "OpenAI",
+      windows: {
+        hourly: { percentRemaining: 42 },
+        weekly: { percentRemaining: 74 },
+      },
+    });
+
+    const out = await openaiProvider.fetch({} as any);
+    expect(out.entries.map((entry) => entry.accounting.sourceId)).toEqual([
+      "key-id",
+      "oauth-id",
+      "oauth-id",
+    ]);
+    expect(
+      buildCompactQuotaStatusLine({
+        data: { entries: out.entries, errors: out.errors },
+        maxWidth: 60,
+      }),
+    ).toBe("OpenAI - ChatGPT quota unavailable for API key");
+  });
+
+  it.each([
+    { active: true, labels: ["API key", "default", "OpenAI"] },
+    { active: false, labels: ["", "API key"] },
+  ])("keeps unnamed API-key accounts distinct (active: $active)", async ({ active, labels }) => {
+    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
+    const { queryOpenAIQuota } = await import("../src/lib/openai.js");
+    vi.mocked(readCredentialRows).mockResolvedValueOnce(
+      labels.map((label, index) => ({
+        id: `key-${index}`,
+        integrationId: "openai",
+        label,
+        active: active && index === 0,
+        value: { type: "api", key: `sk-test-${index}` },
+      })),
+    );
+
+    const out = await openaiProvider.fetch({} as any);
+    const names = labels.map(
+      (_, index) =>
+        `[OpenAI${index === 0 ? "" : ` ${index + 1}`}]${active && index === 0 ? " (active)" : ""}`,
+    );
+    expect(queryOpenAIQuota).not.toHaveBeenCalled();
+    expect(out.entries.map((entry) => entry.name)).toEqual(names);
+    expect(out.entries.map((entry) => entry.group)).toEqual(names);
+    expect(out.entries.map((entry) => entry.accounting.sourceId)).toEqual(
+      labels.map((_, index) => `key-${index}`),
+    );
+    const data = { entries: out.entries, errors: out.errors };
+    const outputs = [
+      formatQuotaRowsGrouped(data),
+      buildSidebarQuotaPanelLines({ data, config: { formatStyle: "allWindows" } }).join("\n"),
+      formatQuotaCommand(data),
+    ];
+    for (const output of outputs) {
+      for (const name of names) {
+        expect(
+          output.split("\n").filter((line) => line === name || line === `→ ${name}`),
+        ).toHaveLength(1);
+      }
+    }
   });
 
   it("reports unknown active auth when no stored row is marked active", async () => {

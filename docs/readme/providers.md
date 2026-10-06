@@ -546,7 +546,7 @@ Create an Ollama API key, then set `OLLAMA_API_KEY` (or use trusted user/global 
 
 ### OpenAI and xAI
 
-- **OpenAI:** sign in with `opencode auth login openai`.
+- **OpenAI:** ChatGPT quota requires an OAuth login via `opencode auth login openai`; stored API keys show "ChatGPT quota unavailable for API key" without a ChatGPT request.
 - **xAI:** reads OpenCode's xAI login and shows its single Weekly window. The credits endpoint sets the quota; a best-effort subscription lookup labels the plan as xAI Lite, xAI SuperGrok, or xAI Heavy. If the plan is unknown, the quota still shows under the xAI SuperGrok label.
 
 <a id="openrouter"></a>

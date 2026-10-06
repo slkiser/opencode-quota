@@ -141,6 +141,32 @@ describe("OpenCode auth reader", () => {
     ).toEqual(["[OpenAI SEPD] (Pro) (active)", "[OpenAI SEPD 2] (Pro)", "[OpenAI] (Pro)"]);
   });
 
+  it("opts unnamed accounts into the existing duplicate-alias numbering convention", () => {
+    expect(
+      formatCredentialDisplayNames("OpenAI", [
+        {
+          row: { id: "a", integrationId: "openai", label: "API key", active: true, value: {} },
+          fallbackName: "OpenAI",
+          numberUnnamed: true,
+        },
+        {
+          row: { id: "b", integrationId: "openai", label: "default", active: false, value: {} },
+          fallbackName: "OpenAI",
+          numberUnnamed: true,
+        },
+        {
+          row: { id: "c", integrationId: "openai", label: "  ", active: false, value: {} },
+          fallbackName: "OpenAI",
+          numberUnnamed: true,
+        },
+        {
+          row: { id: "d", integrationId: "openai", label: "OAuth", active: false, value: {} },
+          fallbackName: "OpenAI (Pro)",
+        },
+      ]),
+    ).toEqual(["[OpenAI] (active)", "[OpenAI 2]", "[OpenAI 3]", "[OpenAI] (Pro)"]);
+  });
+
   it("keeps a named connection next to an imported generic one", () => {
     expect(
       formatCredentialDisplayNames("Z.ai", [
