@@ -139,8 +139,9 @@ export function keepRetiredModels(snapshot, previous, providerIDs) {
 
   for (const providerID of providerIDs) {
     const models = { ...(snapshot.providers[providerID] ?? {}) };
-    for (const [modelID, cost] of Object.entries(previousProviders[providerID] ?? {})) {
-      if (models[modelID]) continue;
+    for (const [modelID, rawCost] of Object.entries(previousProviders[providerID] ?? {})) {
+      const cost = pickCostBuckets(rawCost);
+      if (models[modelID] || !cost) continue;
       models[modelID] = cost;
       keptModelIDs.push(`${providerID}/${modelID}`);
     }
@@ -154,13 +155,23 @@ export function keepRetiredModels(snapshot, previous, providerIDs) {
   return keptModelIDs;
 }
 
+export function buildRefreshedSnapshot(api, previous, providerIDs) {
+  const snapshot = buildSnapshot(api, providerIDs);
+  if (Object.keys(snapshot.providers).length === 0) {
+    throw new Error(
+      `Refusing to write a pricing snapshot: ${SOURCE_URL} returned no priced models.`,
+    );
+  }
+  const keptModelIDs = keepRetiredModels(snapshot, previous, providerIDs);
+  return { snapshot, keptModelIDs };
+}
+
 async function main() {
   const providerIDs = parseProviderArgs(process.argv.slice(2));
   const outPath = fileURLToPath(new URL("../src/data/modelsdev-pricing.min.json", import.meta.url));
   const previous = await readPreviousSnapshot(outPath);
   const api = await fetchModelsDevJson();
-  const snapshot = buildSnapshot(api, providerIDs);
-  const keptModelIDs = keepRetiredModels(snapshot, previous, providerIDs);
+  const { snapshot, keptModelIDs } = buildRefreshedSnapshot(api, previous, providerIDs);
 
   await writeFileAtomic(outPath, `${JSON.stringify(snapshot, null, 2)}\n`);
 

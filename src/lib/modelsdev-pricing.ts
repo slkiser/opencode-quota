@@ -236,6 +236,20 @@ function hasSnapshotData(snapshot: PricingSnapshot): boolean {
   return snapshot._meta.generatedAt > 0;
 }
 
+// A runtime snapshot saved by an older version may lack models that models.dev
+// stopped listing. Fill them from the bundled file on every load, so a fresh
+// runtime snapshot doesn't hide them until its next refresh.
+function withBundledRetiredModels(
+  runtime: PricingSnapshot,
+  bundled: PricingSnapshot,
+): PricingSnapshot {
+  return keepRetiredModels({
+    current: runtime,
+    previous: [bundled],
+    providerIDs: DEFAULT_MODELSDEV_PROVIDERS,
+  });
+}
+
 function chooseSnapshot(params?: {
   runtimeDirs?: OpencodeRuntimeDirs;
   bootstrapSnapshotOverride?: PricingSnapshot;
@@ -254,7 +268,7 @@ function chooseSnapshot(params?: {
 
   if (selection === "runtime") {
     if (runtime) {
-      return { snapshot: runtime, source: "runtime" };
+      return { snapshot: withBundledRetiredModels(runtime, bundled), source: "runtime" };
     }
     if (hasSnapshotData(bundled)) {
       return { snapshot: bundled, source: "bundled" };
@@ -263,7 +277,7 @@ function chooseSnapshot(params?: {
   }
 
   if (runtime && runtime._meta.generatedAt >= bundled._meta.generatedAt) {
-    return { snapshot: runtime, source: "runtime" };
+    return { snapshot: withBundledRetiredModels(runtime, bundled), source: "runtime" };
   }
 
   if (hasSnapshotData(bundled)) {
@@ -436,21 +450,24 @@ function buildSnapshotFromApi(
 
 /**
  * models.dev drops retired models from its list. Keep their last known price so
- * older usage still gets a cost. `current` wins; among `previous`, the newest wins.
+ * older usage still gets a cost. `current` wins, then `previous` in the order given.
+ * Callers list the user's runtime snapshot before the bundled one: its prices come
+ * from the user's own last download, while the bundled file's date only says when
+ * the file was rewritten, not when a kept model's price was last seen.
  */
 function keepRetiredModels(params: {
   current: PricingSnapshot;
   previous: Array<PricingSnapshot | null>;
   providerIDs: string[];
 }): PricingSnapshot {
-  const previousNewestFirst = params.previous
-    .filter((snapshot): snapshot is PricingSnapshot => snapshot !== null)
-    .sort((a, b) => b._meta.generatedAt - a._meta.generatedAt);
+  const previous = params.previous.filter(
+    (snapshot): snapshot is PricingSnapshot => snapshot !== null,
+  );
   const providers = { ...params.current.providers };
 
   for (const providerID of params.providerIDs) {
     const models = { ...(providers[providerID] ?? {}) };
-    for (const snapshot of previousNewestFirst) {
+    for (const snapshot of previous) {
       for (const [modelID, cost] of Object.entries(snapshot.providers[providerID] ?? {})) {
         if (!models[modelID]) models[modelID] = cost;
       }
