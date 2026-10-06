@@ -1,5 +1,5 @@
-import { mkdir, rename, rm, writeFile } from "fs/promises";
-import { dirname } from "path";
+import { mkdir, readFile, rename, rm, writeFile } from "fs/promises";
+import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
 
 const SOURCE_URL = "https://models.dev/api.json";
@@ -122,20 +122,66 @@ function buildSnapshot(api, providerIDs) {
   };
 }
 
-async function main() {
-  const providerIDs = parseProviderArgs(process.argv.slice(2));
-  const api = await fetchModelsDevJson();
-  const snapshot = buildSnapshot(api, providerIDs);
-
-  const outPath = new URL("../src/data/modelsdev-pricing.min.json", import.meta.url);
-  await writeFileAtomic(fileURLToPath(outPath), `${JSON.stringify(snapshot, null, 2)}\n`);
-
-  console.log(
-    `Wrote ${outPath.pathname} with ${snapshot._meta.providers.length} providers and ${Object.values(snapshot.providers).reduce((sum, models) => sum + Object.keys(models).length, 0)} priced models.`,
-  );
+async function readPreviousSnapshot(path) {
+  try {
+    return JSON.parse(await readFile(path, "utf8"));
+  } catch (error) {
+    if (error && typeof error === "object" && error.code === "ENOENT") return null;
+    throw error;
+  }
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+// models.dev drops retired models from its list. Keep their last known price so
+// older usage still gets a cost. Prices from models.dev always win.
+export function keepRetiredModels(snapshot, previous, providerIDs) {
+  const previousProviders = previous?.providers ?? {};
+  const keptModelIDs = [];
+
+  for (const providerID of providerIDs) {
+    const models = { ...(snapshot.providers[providerID] ?? {}) };
+    for (const [modelID, cost] of Object.entries(previousProviders[providerID] ?? {})) {
+      if (models[modelID]) continue;
+      models[modelID] = cost;
+      keptModelIDs.push(`${providerID}/${modelID}`);
+    }
+    if (Object.keys(models).length > 0) {
+      snapshot.providers[providerID] = sortObjectByKeys(models);
+    }
+  }
+
+  snapshot.providers = sortObjectByKeys(snapshot.providers);
+  snapshot._meta.providers = Object.keys(snapshot.providers);
+  return keptModelIDs;
+}
+
+async function main() {
+  const providerIDs = parseProviderArgs(process.argv.slice(2));
+  const outPath = fileURLToPath(new URL("../src/data/modelsdev-pricing.min.json", import.meta.url));
+  const previous = await readPreviousSnapshot(outPath);
+  const api = await fetchModelsDevJson();
+  const snapshot = buildSnapshot(api, providerIDs);
+  const keptModelIDs = keepRetiredModels(snapshot, previous, providerIDs);
+
+  await writeFileAtomic(outPath, `${JSON.stringify(snapshot, null, 2)}\n`);
+
+  console.log(
+    `Wrote ${outPath} with ${snapshot._meta.providers.length} providers and ${Object.values(snapshot.providers).reduce((sum, models) => sum + Object.keys(models).length, 0)} priced models.`,
+  );
+  if (keptModelIDs.length > 0) {
+    console.log(
+      `Kept ${keptModelIDs.length} models that models.dev no longer lists: ${keptModelIDs.join(", ")}`,
+    );
+  }
+}
+
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  return resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
+}
+
+if (isMainModule()) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
