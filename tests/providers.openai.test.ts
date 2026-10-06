@@ -436,7 +436,8 @@ describe("openai provider", () => {
       config: { currentProviderID: "openai", currentModel: "codex/gpt-5-codex" },
       firstId: "key-id",
     },
-    { config: {}, firstId: "key-id" },
+    // Unknown session (e.g. onlyCurrentModel off): the OAuth login with quota numbers goes first.
+    { config: {}, firstId: "oauth-id" },
   ])("prefers the session's active integration when OpenAI and Codex are both active ($config)", async ({
     config,
     firstId,

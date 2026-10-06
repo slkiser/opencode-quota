@@ -66,14 +66,17 @@ export const openaiProvider: QuotaProvider = {
     const rows = (await readCredentialRows(OPENAI_AUTH_SOURCE_KEYS, { methods: ["oauth", "key"] }))
       .filter((row) => (OPENAI_AUTH_SOURCE_KEYS as readonly string[]).includes(row.integrationId))
       // Active is per integration: keep the session's active login first, then
-      // other active logins, preserving source order within each set.
+      // other active logins, preserving source order within each set. Without
+      // the session's login, an active OAuth login (which has quota numbers)
+      // goes before an active API key (which only has a status).
       .sort((left, right) => {
         const activeOrder = Number(right.active) - Number(left.active);
         if (activeOrder !== 0 || !left.active) return activeOrder;
-        return (
+        const sessionOrder =
           Number(right.integrationId === currentIntegrationId) -
-          Number(left.integrationId === currentIntegrationId)
-        );
+          Number(left.integrationId === currentIntegrationId);
+        if (sessionOrder !== 0) return sessionOrder;
+        return Number(left.value.type === "api") - Number(right.value.type === "api");
       });
     // A failed login stays in the list so it shows as its own error row.
     const credentials = rows.flatMap((row) => {
