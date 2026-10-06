@@ -17,6 +17,7 @@ import {
 } from "../lib/opencode-auth.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { modelProviderIncludesAny } from "../lib/provider-model-matching.js";
+import { resolveQuotaProviderSessionModelIdentity } from "../lib/quota-providers.js";
 import type { AuthData } from "../lib/types.js";
 import {
   attemptedResult,
@@ -58,11 +59,22 @@ export const openaiProvider: QuotaProvider = {
   },
 
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
+    const currentIntegrationId =
+      ctx.config?.currentProviderID ??
+      resolveQuotaProviderSessionModelIdentity({ currentModel: ctx.config?.currentModel ?? "" })
+        ?.providerId;
     const rows = (await readCredentialRows(OPENAI_AUTH_SOURCE_KEYS, { methods: ["oauth", "key"] }))
       .filter((row) => (OPENAI_AUTH_SOURCE_KEYS as readonly string[]).includes(row.integrationId))
-      // Sources usually return the active login first, but integration aliases may not.
-      // Keep source order within each set so compact output never drops the active login.
-      .sort((left, right) => Number(right.active) - Number(left.active));
+      // Active is per integration: keep the session's active login first, then
+      // other active logins, preserving source order within each set.
+      .sort((left, right) => {
+        const activeOrder = Number(right.active) - Number(left.active);
+        if (activeOrder !== 0 || !left.active) return activeOrder;
+        return (
+          Number(right.integrationId === currentIntegrationId) -
+          Number(left.integrationId === currentIntegrationId)
+        );
+      });
     // A failed login stays in the list so it shows as its own error row.
     const credentials = rows.flatMap((row) => {
       if (row.value.type === "api") return [];

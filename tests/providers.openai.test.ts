@@ -426,6 +426,97 @@ describe("openai provider", () => {
   });
 
   it.each([
+    { config: { currentModel: "codex/gpt-5-codex" }, firstId: "oauth-id" },
+    {
+      config: { currentProviderID: "codex", currentModel: "gpt-5-codex" },
+      firstId: "oauth-id",
+    },
+    { config: { currentProviderID: "codex" }, firstId: "oauth-id" },
+    {
+      config: { currentProviderID: "openai", currentModel: "codex/gpt-5-codex" },
+      firstId: "key-id",
+    },
+    { config: {}, firstId: "key-id" },
+  ])("prefers the session's active integration when OpenAI and Codex are both active ($config)", async ({
+    config,
+    firstId,
+  }) => {
+    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
+    const { queryOpenAIQuota, resolveOpenAIOAuth } = await import("../src/lib/openai.js");
+    vi.mocked(readCredentialRows).mockResolvedValueOnce([
+      {
+        id: "key-id",
+        integrationId: "openai",
+        label: "API key",
+        active: true,
+        value: { type: "api", key: "sk-test" },
+      },
+      {
+        id: "oauth-id",
+        integrationId: "codex",
+        label: "Work",
+        active: true,
+        value: { type: "oauth", access: "token" },
+      },
+    ]);
+    vi.mocked(resolveOpenAIOAuth).mockReturnValue({
+      state: "configured",
+      sourceKey: "codex",
+      accessToken: "token",
+    });
+    vi.mocked(queryOpenAIQuota).mockResolvedValueOnce({
+      success: true,
+      label: "OpenAI",
+      windows: { hourly: { percentRemaining: 42 } },
+    });
+
+    const out = await openaiProvider.fetch({ config } as any);
+    const expectedIds = firstId === "oauth-id" ? ["oauth-id", "key-id"] : ["key-id", "oauth-id"];
+    expect(out.entries.map((entry) => entry.accounting.sourceId)).toEqual(expectedIds);
+    expect(queryOpenAIQuota).toHaveBeenCalledOnce();
+    expect(out.errors).toEqual([]);
+    expect(out.statusDetails).toEqual(
+      expect.arrayContaining([
+        { key: "auth_source", value: firstId === "oauth-id" ? "codex" : "openai" },
+        { key: "token_status", value: firstId === "oauth-id" ? "valid" : "api key" },
+      ]),
+    );
+    expect(
+      buildCompactQuotaStatusLine({
+        data: { entries: out.entries, errors: out.errors },
+        maxWidth: 60,
+      }),
+    ).toBe(
+      firstId === "oauth-id"
+        ? "OpenAI Work 42% | +1"
+        : "OpenAI - ChatGPT quota unavailable for API key | +1",
+    );
+  });
+
+  it("keeps other active rows and inactive rows in source order after the session's active row", async () => {
+    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
+    vi.mocked(readCredentialRows).mockResolvedValueOnce(
+      [
+        { id: "inactive-openai", integrationId: "openai", active: false },
+        { id: "active-openai", integrationId: "openai", active: true },
+        { id: "inactive-codex", integrationId: "codex", active: false },
+        { id: "active-chatgpt", integrationId: "chatgpt", active: true },
+        { id: "active-codex", integrationId: "codex", active: true },
+      ].map((row) => ({ ...row, label: row.id, value: { type: "api", key: "sk-test" } })),
+    );
+
+    const out = await openaiProvider.fetch({ config: { currentProviderID: "codex" } } as any);
+
+    expect(out.entries.map((entry) => entry.accounting.sourceId)).toEqual([
+      "active-codex",
+      "active-openai",
+      "active-chatgpt",
+      "inactive-openai",
+      "inactive-codex",
+    ]);
+  });
+
+  it.each([
     { active: true, labels: ["API key", "default", "OpenAI"] },
     { active: false, labels: ["", "API key"] },
   ])("keeps unnamed API-key accounts distinct (active: $active)", async ({ active, labels }) => {
@@ -464,6 +555,40 @@ describe("openai provider", () => {
           output.split("\n").filter((line) => line === name || line === `→ ${name}`),
         ).toHaveLength(1);
       }
+    }
+  });
+
+  it("keeps an explicit numeric API-key alias separate from numbered unnamed accounts on every grouped surface", async () => {
+    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
+    const labels = ["API key", "default", "2"];
+    vi.mocked(readCredentialRows).mockResolvedValueOnce(
+      labels.map((label, index) => ({
+        id: `key-${index}`,
+        integrationId: "openai",
+        label,
+        active: index === 0,
+        value: { type: "api", key: `sk-test-${index}` },
+      })),
+    );
+
+    const out = await openaiProvider.fetch({} as any);
+    const names = ["[OpenAI] (active)", "[OpenAI 3]", "[OpenAI 2]"];
+    expect(out.entries.map((entry) => entry.group)).toEqual(names);
+    const data = { entries: out.entries, errors: out.errors };
+    const outputs = [
+      formatQuotaRowsGrouped(data),
+      buildSidebarQuotaPanelLines({ data, config: { formatStyle: "allWindows" } }).join("\n"),
+      formatQuotaCommand(data),
+    ];
+    for (const output of outputs) {
+      for (const name of names) {
+        expect(
+          output.split("\n").filter((line) => line === name || line === `→ ${name}`),
+        ).toHaveLength(1);
+      }
+      expect(
+        output.replace(/\s+/gu, " ").match(/ChatGPT quota unavailable for API key/gu),
+      ).toHaveLength(3);
     }
   });
 

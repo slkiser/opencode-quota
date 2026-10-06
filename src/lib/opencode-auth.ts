@@ -133,24 +133,39 @@ export function formatCredentialDisplayNames(
     numberUnnamed?: boolean;
   }>,
 ): string[] {
-  const counts = new Map<string, number>();
-  return credentials.map(({ row, fallbackName, numberUnnamed = false }) => {
+  const aliases = credentials.map(({ row }) => {
     const alias = row.label.trim();
-    const redundantAlias =
-      !alias ||
+    return !alias ||
       GENERIC_CREDENTIAL_LABELS.has(alias.toLowerCase()) ||
-      alias.toLowerCase() === providerName.toLowerCase();
+      alias.toLowerCase() === providerName.toLowerCase()
+      ? ""
+      : alias;
+  });
+  // Only opted-in providers reserve explicit aliases before generating numbers.
+  // A user-named "2" must not collide with the second unnamed account.
+  const occupiedAliases = credentials.some(({ numberUnnamed }) => numberUnnamed)
+    ? new Set(aliases.filter(Boolean))
+    : undefined;
+  const counts = new Map<string, number>();
+  return credentials.map(({ row, fallbackName, numberUnnamed = false }, index) => {
     const fallbackCategory = fallbackName
       .trim()
       .replace(new RegExp(`^${providerName.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}\\s*`, "iu"), "")
       .trim()
       .replace(/^\((.*)\)$/u, "$1")
       .trim();
-    const aliasKey = redundantAlias ? "" : alias;
+    const aliasKey = aliases[index]!;
     const shouldNumber = Boolean(aliasKey) || numberUnnamed;
-    const duplicate = shouldNumber ? (counts.get(aliasKey) ?? 0) + 1 : 1;
-    if (shouldNumber) counts.set(aliasKey, duplicate);
-    const numberedAlias = duplicate === 1 ? aliasKey : `${aliasKey} ${duplicate}`.trim();
+    let duplicate = shouldNumber ? (counts.get(aliasKey) ?? 0) + 1 : 1;
+    let numberedAlias = duplicate === 1 ? aliasKey : `${aliasKey} ${duplicate}`.trim();
+    while (duplicate > 1 && occupiedAliases?.has(numberedAlias)) {
+      duplicate += 1;
+      numberedAlias = `${aliasKey} ${duplicate}`.trim();
+    }
+    if (shouldNumber) {
+      counts.set(aliasKey, duplicate);
+      occupiedAliases?.add(numberedAlias);
+    }
     const base = `[${providerName}${numberedAlias ? ` ${numberedAlias}` : ""}]`;
     const category = fallbackCategory ? ` (${fallbackCategory})` : "";
     // Only a provider with several logins marks the one OpenCode uses.

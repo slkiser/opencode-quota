@@ -167,6 +167,58 @@ describe("OpenCode auth reader", () => {
     ).toEqual(["[OpenAI] (active)", "[OpenAI 2]", "[OpenAI 3]", "[OpenAI] (Pro)"]);
   });
 
+  it.each([
+    {
+      labels: ["API key", "default", "2"],
+      expected: ["[OpenAI] (active)", "[OpenAI 3]", "[OpenAI 2]"],
+    },
+    {
+      labels: ["2", "API key", "default"],
+      expected: ["[OpenAI 2] (active)", "[OpenAI]", "[OpenAI 3]"],
+    },
+    {
+      labels: ["API key", "default", " 2 ", "3", "OAuth"],
+      expected: ["[OpenAI] (active)", "[OpenAI 4]", "[OpenAI 2]", "[OpenAI 3]", "[OpenAI 5]"],
+    },
+    {
+      labels: ["Work", "Work", "Work 2", "API key"],
+      expected: ["[OpenAI Work] (active)", "[OpenAI Work 3]", "[OpenAI Work 2]", "[OpenAI]"],
+    },
+  ])("reserves explicit aliases before numbering opted-in accounts ($labels)", ({
+    labels,
+    expected,
+  }) => {
+    expect(
+      formatCredentialDisplayNames(
+        "OpenAI",
+        labels.map((label, index) => ({
+          row: { id: `${index}`, integrationId: "openai", label, active: index === 0, value: {} },
+          fallbackName: "OpenAI",
+          numberUnnamed: true,
+        })),
+      ),
+    ).toEqual(expected);
+  });
+
+  it("preserves naming without the unnamed-account numbering opt-in", () => {
+    expect(
+      formatCredentialDisplayNames(
+        "Z.ai",
+        ["API key", "default", "2", "Work", "Work", "Work 2"].map((label, index) => ({
+          row: { id: `${index}`, integrationId: "zai", label, active: index === 0, value: {} },
+          fallbackName: "Z.ai",
+        })),
+      ),
+    ).toEqual([
+      "[Z.ai] (active)",
+      "[Z.ai]",
+      "[Z.ai 2]",
+      "[Z.ai Work]",
+      "[Z.ai Work 2]",
+      "[Z.ai Work 2]",
+    ]);
+  });
+
   it("keeps a named connection next to an imported generic one", () => {
     expect(
       formatCredentialDisplayNames("Z.ai", [
