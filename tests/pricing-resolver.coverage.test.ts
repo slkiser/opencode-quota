@@ -383,6 +383,12 @@ describe("resolvePricingKey snapshot coverage", () => {
         { input: 1, output: 5, cache_read: 0.1 },
       ],
       [
+        "claude-haiku-5-5",
+        "anthropic",
+        "claude-haiku-5-5",
+        { input: 0.1, output: 0.5, cache_read: 0.01, cache_write: 0.125 },
+      ],
+      [
         "claude-opus-4-5",
         "anthropic",
         "claude-opus-4-5",
@@ -441,7 +447,7 @@ describe("resolvePricingKey snapshot coverage", () => {
         "claude-sonnet-5-5",
         "anthropic",
         "claude-sonnet-5-5",
-        { input: 2, output: 10, cache_read: 0.2 },
+        { input: 2, output: 10, cache_read: 0.1 },
       ],
       [
         "gemini-2.5-flash",
@@ -522,6 +528,7 @@ describe("resolvePricingKey snapshot coverage", () => {
     // from Cursor's published rates stay unknown instead of guessing a price.
     const unconfirmed = [
       "default",
+      "claude-haiku-5-5-1m",
       "claude-fable-5-1m",
       "claude-fable-5-1-1m",
       "claude-sonnet-4-1m",

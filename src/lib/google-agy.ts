@@ -44,7 +44,7 @@ const AGY_TOKEN_REFRESH_URL = "https://oauth2.googleapis.com/token";
 const AGY_TOKEN_TIMEOUT_MS = 8_000;
 const AGY_QUOTA_TIMEOUT_MS = 6_000;
 const AGY_ACCOUNTS_CONCURRENCY = 3;
-const AGY_USER_AGENT = "antigravity/cli/1.2.17 darwin/amd64";
+const AGY_USER_AGENT = "antigravity/cli/1.3.2 darwin/amd64";
 
 function createAgyActivityRequestId(): string {
   return crypto.randomUUID();

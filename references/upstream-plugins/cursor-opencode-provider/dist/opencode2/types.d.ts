@@ -43,6 +43,7 @@ export type ModelInfo2 = {
     modelID: string;
     providerID: string;
     name: string;
+    family?: string;
     capabilities: {
         tools: boolean;
         input: readonly string[];
@@ -415,6 +416,19 @@ export type McpEditor = {
 export type McpDomain = {
     readonly transform: Transform<McpEditor>;
 };
+/** Only the fields this plugin reads from a registered skill. */
+export type SkillInfo = {
+    readonly id: string;
+    readonly path: string;
+};
+export type SkillDomain = {
+    readonly list: () => Promise<{
+        readonly location: {
+            readonly directory: string;
+        };
+        readonly data: readonly SkillInfo[];
+    }>;
+};
 export type PluginLocation = {
     readonly directory: string;
 };
@@ -429,6 +443,7 @@ export type PluginContext = {
     readonly shell?: ShellDomain;
     readonly websearch?: WebSearchDomain;
     readonly mcp?: McpDomain;
+    readonly skill?: SkillDomain;
 };
 export type Cleanup = () => Promise<void> | void;
 export type Plugin2 = {

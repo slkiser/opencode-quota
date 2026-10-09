@@ -8,6 +8,15 @@ import { type ModelInfo, type ModelVariant } from "./models.js";
  * tagged redundantly.
  */
 export declare function thinkingSuffixBaseNames(models: ModelInfo[]): Set<string>;
+/**
+ * models.dev-style family for a Cursor model id: the id without its version
+ * segments and context/speed suffixes (`claude-haiku-4-5` → `claude-haiku`,
+ * `gemini-3.8-flash` → `gemini-flash`, `gpt-5.6-luna` → `gpt-luna`).
+ * Kimi keeps its major generation (`kimi-k2.7-code` → `kimi-k2`). OpenCode
+ * picks its small title model by family and falls back to the session model when
+ * no entry has one. Cursor Auto (`default`) is not a model family.
+ */
+export declare function cursorModelFamily(id: string): string | undefined;
 export declare function modelInfoToConfig(mi: ModelInfo, options?: {
     thinkingSuffix?: boolean;
     contextTier?: "base" | "long";

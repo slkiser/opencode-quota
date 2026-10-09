@@ -28,8 +28,8 @@ export function createMessageTypes() {
     ]);
     addType(root, "Heartbeat", []);
     // Display ToolCall (interaction_update.tool_call_*) — agent.v1 oneof, not
-    // {tool_name,args} strings. Args-only wrappers are enough to bridge into
-    // OpenCode; result payloads are ignored on decode.
+    // {tool_name,args} strings. Decode finalized todo state for mirroring and
+    // MCP errors for diagnostics; other completion results are not replayed.
     root.add(new protobuf.Enum("TodoStatus", {
         TODO_STATUS_UNSPECIFIED: 0,
         TODO_STATUS_PENDING: 1,
@@ -79,7 +79,10 @@ export function createMessageTypes() {
     ]);
     addType(root, "EditToolCall", [{ id: 1, name: "args", type: "EditToolArgs" }]);
     addType(root, "LsToolCall", [{ id: 1, name: "args", type: "LsArgs" }]);
-    addType(root, "McpToolCall", [{ id: 1, name: "args", type: "McpArgs" }]);
+    addType(root, "McpToolCall", [
+        { id: 1, name: "args", type: "McpArgs" },
+        { id: 2, name: "result", type: "McpResult" },
+    ]);
     addType(root, "CreatePlanArgs", [
         { id: 1, name: "plan", type: "string" },
         { id: 2, name: "todos", type: "TodoItem", repeated: true },
@@ -389,6 +392,13 @@ export function createMessageTypes() {
         { id: 3, name: "args_text_delta", type: "string" },
         { id: 4, name: "model_call_id", type: "string" },
     ]);
+    // agent.v1 ToolCallDeltaUpdate: keep the nested delta opaque; the pump
+    // needs its presence as generation progress, not its display-only content.
+    addType(root, "ToolCallDeltaUpdate", [
+        { id: 1, name: "call_id", type: "string" },
+        { id: 2, name: "tool_call_delta", type: "bytes" },
+        { id: 3, name: "model_call_id", type: "string" },
+    ]);
     // agent.v1 StepStartedUpdate / StepCompletedUpdate: step_id is uint64 (T:4),
     // not string — wrong type made every step_completed frame throw
     // "index out of range" in decodeMessage.
@@ -399,6 +409,12 @@ export function createMessageTypes() {
         { id: 1, name: "step_id", type: "uint64" },
         { id: 2, name: "step_duration_ms", type: "int64" },
     ]);
+    // agent.v1 ToolRequestsListedUpdate — Cursor lists how many tool calls this
+    // generation will send so the client can place its step boundary (CLI does
+    // not need this; OpenCode's AI SDK step does). Field 27 on InteractionUpdate.
+    addType(root, "ToolRequestsListedUpdate", [
+        { id: 1, name: "call_count", type: "uint32" },
+    ]);
     // InteractionUpdate — the core streaming update message
     addType(root, "InteractionUpdate", [
         { id: 1, name: "text_delta", type: "TextDeltaUpdate" },
@@ -408,9 +424,11 @@ export function createMessageTypes() {
         { id: 7, name: "partial_tool_call", type: "PartialToolCall" },
         { id: 13, name: "heartbeat", type: "Heartbeat" },
         { id: 14, name: "turn_ended", type: "TurnEnded" },
+        { id: 15, name: "tool_call_delta", type: "ToolCallDeltaUpdate" },
         { id: 16, name: "step_started", type: "StepStarted" },
         { id: 17, name: "step_completed", type: "StepCompleted" },
-    ], [{ name: "update", fields: ["text_delta", "tool_call_started", "tool_call_completed", "thinking_delta", "partial_tool_call", "heartbeat", "turn_ended", "step_started", "step_completed"] }]);
+        { id: 27, name: "tool_requests_listed", type: "ToolRequestsListedUpdate" },
+    ], [{ name: "update", fields: ["text_delta", "tool_call_started", "tool_call_completed", "thinking_delta", "partial_tool_call", "heartbeat", "turn_ended", "tool_call_delta", "step_started", "step_completed", "tool_requests_listed"] }]);
     // ── Exec channel ──
     // Field numbers match agent.v1. Extra fields we don't use are still declared
     // so protobufjs doesn't drop them on decode.
@@ -934,12 +952,25 @@ export function createMessageTypes() {
         { id: 5, name: "tool_name", type: "string" },
     ]);
     addType(root, "McpTextContent", [{ id: 1, name: "text", type: "string" }]);
-    addType(root, "McpToolResultContentItem", [{ id: 1, name: "text", type: "McpTextContent" }], [{ name: "content", fields: ["text"] }]);
+    // Cursor CLI 2026.10.01 `agent/v1/mcp_exec_pb.js`: "McpImageContent|1 data 12|2 mime_type 9",
+    // "McpToolResultContentItem|1 text #0 content|2 image #1 content".
+    addType(root, "McpImageContent", [
+        { id: 1, name: "data", type: "bytes" },
+        { id: 2, name: "mime_type", type: "string" },
+    ]);
+    addType(root, "McpToolResultContentItem", [
+        { id: 1, name: "text", type: "McpTextContent" },
+        { id: 2, name: "image", type: "McpImageContent" },
+    ], [{ name: "content", fields: ["text", "image"] }]);
     addType(root, "McpSuccess", [
         { id: 1, name: "content", type: "McpToolResultContentItem", repeated: true },
         { id: 2, name: "is_error", type: "bool" },
     ]);
-    addType(root, "McpError", [{ id: 1, name: "error", type: "string" }]);
+    addType(root, "McpError", [
+        { id: 1, name: "error", type: "string" },
+        // Server-side CallDynamicTool validation uses a title (#1) and detail (#2).
+        { id: 2, name: "detail", type: "string" },
+    ]);
     addType(root, "McpResult", [
         { id: 1, name: "success", type: "McpSuccess" },
         { id: 2, name: "error", type: "McpError" },
@@ -1347,10 +1378,23 @@ export function createMessageTypes() {
     addType(root, "SelectedContext", [
         { id: 1, name: "selected_images", type: "SelectedImage", repeated: true },
     ]);
+    // agent.v1.AgentMode — the client's current mode, sent on every user message.
+    root.add(new protobuf.Enum("AgentMode", {
+        AGENT_MODE_UNSPECIFIED: 0,
+        AGENT_MODE_AGENT: 1,
+        AGENT_MODE_ASK: 2,
+        AGENT_MODE_PLAN: 3,
+        AGENT_MODE_DEBUG: 4,
+        AGENT_MODE_TRIAGE: 5,
+        AGENT_MODE_PROJECT: 6,
+        AGENT_MODE_MULTITASK: 7,
+        AGENT_MODE_CUSTOM: 8,
+    }));
     addType(root, "UserMessage", [
         { id: 1, name: "text", type: "string" },
         { id: 2, name: "message_id", type: "string" },
         { id: 3, name: "selected_context", type: "SelectedContext" },
+        { id: 4, name: "mode", type: "AgentMode" },
     ]);
     // RequestContext — UserMessageAction #2. Slim mcp_meta_tool_options names
     // the advertised catalog; AgentRunRequest.mcp_tools (#4) is empty on real turns.
@@ -1390,7 +1434,8 @@ export function createMessageTypes() {
         { id: 2, name: "request_context", type: "RequestContext" },
     ]);
     addType(root, "CancelAction", [
-        { id: 1, name: "conversation_id", type: "string" },
+        // Cursor CLI CancelAction field #1 is the interruption reason, not an id.
+        { id: 1, name: "reason", type: "string" },
     ]);
     // Deferred answers for an AskQuestion the client already replied to with
     // `async`. `original_args` is kept as raw bytes so the exact AskQuestionArgs
@@ -1401,11 +1446,23 @@ export function createMessageTypes() {
         { id: 2, name: "original_args", type: "bytes" },
         { id: 3, name: "result", type: "AskQuestionResult" },
     ]);
+    // Cursor CLI 2026.10.01 descriptors: system context is
+    // injected into the current Run without submitting another user turn.
+    addType(root, "SystemContextInjection", [
+        { id: 1, name: "producer", type: "string" },
+        { id: 2, name: "content", type: "string" },
+    ]);
+    addType(root, "InjectContextAction", [
+        { id: 1, name: "injection_id", type: "string" },
+        { id: 2, name: "expected_run_id", type: "string" },
+        { id: 4, name: "system_context", type: "SystemContextInjection" },
+    ]);
     addType(root, "ConversationAction", [
         { id: 1, name: "user_message_action", type: "UserMessageAction" },
         { id: 2, name: "resume_action", type: "ResumeAction" },
         { id: 3, name: "cancel_action", type: "CancelAction" },
         { id: 8, name: "async_ask_question_completion_action", type: "AsyncAskQuestionCompletionAction" },
+        { id: 19, name: "inject_context_action", type: "InjectContextAction" },
     ], [{
             name: "action",
             fields: [
@@ -1413,6 +1470,7 @@ export function createMessageTypes() {
                 "resume_action",
                 "cancel_action",
                 "async_ask_question_completion_action",
+                "inject_context_action",
             ],
         }]);
     // Seed ConversationStateStructure for turn 1 (system prompt as JSON strings
@@ -1701,11 +1759,11 @@ export function createMessageTypes() {
         { id: 2, name: "value", type: "string" },
     ]);
     addType(root, "AvailableModelVariant", [
-        { id: 1, name: "display_name", type: "string" },
-        { id: 2, name: "is_max_mode", type: "bool" },
-        { id: 3, name: "is_default_max_config", type: "bool" },
-        { id: 4, name: "is_default_non_max_config", type: "bool" },
-        { id: 5, name: "parameter_values", type: "AvailableModelParameterValue", repeated: true },
+        { id: 1, name: "parameter_values", type: "AvailableModelParameterValue", repeated: true },
+        { id: 2, name: "display_name", type: "string" },
+        { id: 3, name: "is_max_mode", type: "bool" },
+        { id: 4, name: "is_default_max_config", type: "bool" },
+        { id: 5, name: "is_default_non_max_config", type: "bool" },
     ]);
     addType(root, "AvailableModelEntry", [
         { id: 1, name: "name", type: "string" },
@@ -1714,14 +1772,16 @@ export function createMessageTypes() {
         { id: 9, name: "supports_thinking", type: "bool" },
         { id: 10, name: "supports_images", type: "bool" },
         { id: 14, name: "supports_max_mode", type: "bool" },
-        { id: 15, name: "context_token_limit", type: "uint32" },
+        { id: 15, name: "context_token_limit", type: "int32" },
+        { id: 16, name: "context_token_limit_for_max_mode", type: "int32" },
         { id: 17, name: "client_display_name", type: "string" },
         { id: 18, name: "server_model_name", type: "string" },
         { id: 29, name: "parameter_definitions", type: "AvailableModelParameterDefinition", repeated: true },
         { id: 30, name: "variants", type: "AvailableModelVariant", repeated: true },
     ]);
     addType(root, "AvailableModelsResponse", [
-        { id: 1, name: "models", type: "AvailableModelEntry", repeated: true },
+        { id: 1, name: "model_names", type: "string", repeated: true },
+        { id: 2, name: "models", type: "AvailableModelEntry", repeated: true },
     ]);
     return root;
 }

@@ -9,10 +9,36 @@ import { trace, traceRequestContextPaths } from "../debug.js";
 import { cursorExecVariantByRequestName, FORCE_BACKGROUND_STATUS_ERROR, } from "./exec-variants.js";
 import { APPLY_PATCH_TOOL, buildAddFilePatch, buildUpdateFilePatch, planSubstringEdit, } from "./apply-patch.js";
 import { BACKGROUND_SHELL_MARKER, buildBackgroundShellCommand, } from "../shell-timeout.js";
+import { normalizeOpencodeQuestionArgs } from "./ask-question.js";
+import { normalizeOpencodeTodoArgs } from "../todo-store.js";
 // Exec variant field number whose reply is the server-initiated request_context
 // probe (ExecServerMessage #10 → ExecClientMessage #10). request/result share a
 // field number for every exec variant, so this is also the result field.
 export const REQUEST_CONTEXT_RESULT_FIELD = 10;
+/** Check explicit required keys after normalization, before host execution. */
+export function missingRequiredToolArguments(tool, args) {
+    const schema = tool?.inputSchema;
+    if (!schema || typeof schema !== "object" || Array.isArray(schema))
+        return [];
+    const required = schema.required;
+    if (!Array.isArray(required))
+        return [];
+    return required.filter((key) => typeof key === "string" && (!Object.hasOwn(args, key) || args[key] === undefined));
+}
+/** Canonical file/search tools must not silently ignore a misplaced shell command. */
+export function misplacedShellCommand(tool, args) {
+    if (!tool || args.command === undefined)
+        return false;
+    if (!["read", "write", "edit", "grep", "glob", "ls"].includes(tool.name))
+        return false;
+    const schema = tool.inputSchema;
+    if (!schema || typeof schema !== "object" || Array.isArray(schema))
+        return false;
+    const properties = schema.properties;
+    if (!properties || typeof properties !== "object" || Array.isArray(properties))
+        return false;
+    return !Object.hasOwn(properties, "command");
+}
 export const OPENCODE_1_TOOL_DIALECT = {
     filePathKey: "filePath",
     shellTool: "bash",
@@ -88,7 +114,20 @@ export function hostToolDialectFromTools(tools, defaultDialect = OPENCODE_1_TOOL
             ? "id"
             : defaultDialect.skillArgKey;
     }
-    return { filePathKey, shellTool, skillArgKey };
+    const shellSchema = tools.find((tool) => tool.name === shellTool)?.inputSchema;
+    const shellProps = jsonSchemaProperties(shellSchema);
+    const description = shellProps?.description;
+    const required = shellSchema && typeof shellSchema === "object" && !Array.isArray(shellSchema)
+        ? shellSchema.required
+        : undefined;
+    return {
+        filePathKey, shellTool, skillArgKey,
+        ...(description && typeof description === "object"
+            && description.type === "string"
+            ? { shellDescription: Array.isArray(required) && required.includes("description")
+                    ? "required" : "optional" }
+            : {}),
+    };
 }
 function assignHostFilePath(args, filePath, dialect) {
     delete args.filePath;
@@ -1163,10 +1202,9 @@ export function mapCursorArgsToOpencode(toolName, raw, execVariant, dialect = OP
     // as any other bash tool call.
     if (execVariant === "delete_args") {
         const target = str(cleaned.path) ?? str(cleaned.filePath);
-        return {
-            toolName: dialect.shellTool,
-            args: target ? { command: `rm -f -- ${shellQuote(target)}` } : { command: "true" },
-        };
+        return mapCursorArgsToOpencode(dialect.shellTool, {
+            command: target ? `rm -f -- ${shellQuote(target)}` : "true",
+        }, undefined, dialect);
     }
     switch (toolName) {
         case "read": {
@@ -1237,6 +1275,14 @@ export function mapCursorArgsToOpencode(toolName, raw, execVariant, dialect = OP
             const command = str(cleaned.command);
             if (command)
                 args.command = command;
+            if (dialect.shellDescription) {
+                const description = str(cleaned.description)
+                    ?? (dialect.shellDescription === "required" && command
+                        ? `Run: ${command.length > 60 ? `${command.slice(0, 57)}...` : command}`
+                        : undefined);
+                if (description)
+                    args.description = description;
+            }
             const workdir = str(cleaned.workdir) ?? str(cleaned.working_directory);
             if (workdir)
                 args.workdir = workdir;
@@ -1287,6 +1333,22 @@ export function mapCursorArgsToOpencode(toolName, raw, execVariant, dialect = OP
             if (value)
                 args[dialect.skillArgKey] = value;
             return { toolName: "skill", args };
+        }
+        case "todowrite": {
+            // OpenCode requires `priority` on every todo item. Cursor TodoWrite /
+            // model MCP calls often omit it; fill host defaults before validation.
+            return {
+                toolName: "todowrite",
+                args: normalizeOpencodeTodoArgs(cleaned),
+            };
+        }
+        case "question": {
+            // OpenCode requires `header` on every question. Model MCP calls often
+            // omit it (AskQuestion bridge already fills it); default before validation.
+            return {
+                toolName: "question",
+                args: normalizeOpencodeQuestionArgs(cleaned),
+            };
         }
         default:
             return { toolName, args: cleaned };
@@ -1540,6 +1602,24 @@ export function buildReadRejectionMessages(execId, readResult) {
     ];
 }
 /**
+ * The leading tool-result images an exec result can carry on a held Run.
+ * Cursor's own read executor answers an image file with its bytes in
+ * `ReadSuccess.data` (#5) and no text; its MCP executor appends each MCP image
+ * as an `McpImageContent` item (#2). Other result shapes have no image field.
+ */
+export function execResultImages(resultField, images) {
+    if (!images?.length)
+        return [];
+    if (resultField === "read_result")
+        return [images[0]];
+    if (resultField === "mcp_result")
+        return [...images];
+    return [];
+}
+function mcpImageItems(images) {
+    return images.map((image) => ({ image: { data: image.data, mime_type: image.mimeType } }));
+}
+/**
  * Build one or more ExecClientMessage frames for a tool result.
  * Shell replies are a sequence of ShellStream oneofs under the same id —
  * Start → stdout/stderr → exit — then an ACM #5 stream_close so the server
@@ -1594,7 +1674,7 @@ export function buildExecClientMessages(input) {
             id: input.execId,
             local_execution_time_ms: input.executionTimeMs ?? 0,
         };
-        clientMsg[resultField] = buildTypedExecResult(resultField, input.output, input.error, input.toolName, input.resultMetadata, input.shellOutcome, input.workspaceRoot);
+        clientMsg[resultField] = buildTypedExecResult(resultField, input.output, input.error, input.toolName, input.resultMetadata, input.shellOutcome, input.workspaceRoot, execResultImages(resultField, input.images));
         frames.push(encodeMessage("AgentClientMessage", {
             exec_client_message: clientMsg,
         }));
@@ -2463,7 +2543,7 @@ export function unwrapReadOutput(output) {
  * OpenCode returns free-form text; we wrap it in the minimal success shape the
  * server accepts (verified against agent.v1 wire captures).
  */
-export function buildTypedExecResult(resultField, output, error, toolName, resultMetadata, shellOutcome, workspaceRoot) {
+export function buildTypedExecResult(resultField, output, error, toolName, resultMetadata, shellOutcome, workspaceRoot, images = []) {
     // Prefer the session workspace; never advertise the host process cwd (daemon
     // often starts in $HOME) as the path Cursor shows the model for glob/ls.
     const trimmedRoot = typeof workspaceRoot === "string" ? workspaceRoot.trim() : "";
@@ -2483,6 +2563,18 @@ export function buildTypedExecResult(resultField, output, error, toolName, resul
             const readPath = resolveToolPath(rawPath, resultRoot);
             if (error)
                 return { error: { path: readPath, error } };
+            const image = images[0];
+            if (image) {
+                return {
+                    success: {
+                        path: readPath,
+                        data: image.data,
+                        total_lines: 0,
+                        file_size: readFileSize(readPath) || image.data.length,
+                        truncated: false,
+                    },
+                };
+            }
             // The host may have resolved an alternate spelling after the request
             // (for example a Unicode-space filename). Use the result's own path for
             // local stat/newline recovery while preserving the requested path in the
@@ -2750,18 +2842,20 @@ export function buildTypedExecResult(resultField, output, error, toolName, resul
             if (toolName === "grep" || toolName === "glob") {
                 return {
                     success: {
-                        content: [{ text: { text: groundSearchOutput(output, resultRoot) } }],
+                        content: [{ text: { text: groundSearchOutput(output, resultRoot) } }, ...mcpImageItems(images)],
                         is_error: false,
                     },
                 };
             }
             if (toolName !== "read") {
-                return { success: { content: [{ text: { text: output } }], is_error: false } };
+                return {
+                    success: { content: [{ text: { text: output } }, ...mcpImageItems(images)], is_error: false },
+                };
             }
             const listing = parseOpenCode2DirectoryListing(output, resultRoot);
             if (listing) {
                 return {
-                    success: { content: [{ text: { text: listing.text } }], is_error: false },
+                    success: { content: [{ text: { text: listing.text } }, ...mcpImageItems(images)], is_error: false },
                 };
             }
             // Carry the truncation notice as its own content item: the file content
@@ -2775,6 +2869,7 @@ export function buildTypedExecResult(resultField, output, error, toolName, resul
                     content: [
                         { text: { text: unwrapReadOutput(output) } },
                         ...notices.map((notice) => ({ text: { text: notice } })),
+                        ...mcpImageItems(images),
                     ],
                     is_error: false,
                 },
@@ -3226,7 +3321,14 @@ export function buildMcpStateResult(execId, args, toolDescriptors) {
         }
         list.push({
             name: stringValue(tool.name) ?? `${server}-${toolName}`,
-            description: stringValue(tool.description) ?? "",
+            // GetDynamicTools exposes the inner schema without the outer call identity.
+            // Keep the exact identity in the definition, including truncated searches.
+            description: `CallDynamicTool identity: ${JSON.stringify({ namespace: server, toolName })}. `
+                + `Complete outer envelope: ${JSON.stringify({ namespace: server, toolName, arguments: {} })}. `
+                + "Replace arguments with this inputSchema's object; keep both identity fields outside it. "
+                + "Write namespace and toolName FIRST, then arguments containing this inputSchema's object. "
+                + "All three outer fields are required on every invocation.\n\n"
+                + (stringValue(tool.description) ?? ""),
             input_schema: tool.input_schema,
             provider_identifier: server,
             tool_name: toolName,

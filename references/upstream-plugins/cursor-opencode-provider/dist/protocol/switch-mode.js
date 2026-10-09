@@ -17,18 +17,18 @@
  * through the Question service and, on "Yes", injects a synthetic user message
  * carrying `agent: "plan" | "build"`, which `createUserMessage` turns into a
  * `setAgentModel` primary-agent switch (opencode `tool/plan.ts`,
- * `session/prompt.ts`). A provider cannot reach `setAgentModel`, but the two
- * observable halves — the approval gate and the behavioural contract — are both
- * reachable, so the protocol bridge degrades instead of refusing when the host
- * tool is missing. OpenCode 2 additionally exposes `session.switchAgent`; its
+ * `session/prompt.ts`). OpenCode 2 exposes `session.switchAgent`; its
  * entrypoint installs a structural callback that selects the native `plan` or
  * `build` primary agent after the owning Cursor Run becomes terminal:
  *
  * - entering plan/spec needs no host tool at all — approve immediately and let
  *   the injected <system_reminder> carry the contract, exactly as Cursor CLI's
  *   own plan mode is prompt-enforced.
- * - leaving plan mode is the gate the user must actually see, so it falls back
- *   to the host `question` tool and only rejects when that is absent too.
+ * - leaving the host's own `plan` agent without its `plan_exit` goes through
+ *   CreatePlan, whose `question` prompt is the execution approval, so the
+ *   request is rejected with a pointer there (or, with no `question`, to the
+ *   user's agent switch); a Cursor-only plan mode has nothing on the host to
+ *   leave and is approved.
  *
  * Resolution is keyed solely on the advertised catalog under canonical
  * OpenCode tool names — never on any external identity or model id.
@@ -36,7 +36,7 @@
  * CLI reject reason for user declines: "Mode switch rejected by user"
  * (chunk-7076/dist/ui.js onSwitchModeReject).
  */
-import { parseAnswerSegments, } from "./ask-question.js";
+import { CURSOR_PLAN_STAGE_TOOL } from "./create-plan.js";
 import { decodeMessageSparse } from "./messages.js";
 /**
  * `PendingExec.resultField` for a held-open SwitchMode InteractionQuery.
@@ -59,13 +59,18 @@ export const MISSING_TARGET_REASON = "Missing targetModeId";
  * even though the next Run will succeed. CreatePlan already soft-acks the same
  * case; SwitchMode must match.
  */
-export const PLAN_EXIT_UNAVAILABLE_REASON = "Neither the OpenCode `plan_exit` tool nor the `question` tool is available to the " +
-    "current agent, so leaving plan mode cannot be approved this turn.";
-/** Upstream `PlanExitTool` wording, minus a plan path the provider cannot verify. */
-export const SWITCH_MODE_EXIT_QUESTION = "Planning is complete. Would you like to switch to the build agent and start implementing?";
-export const SWITCH_MODE_EXIT_HEADER = "Build Agent";
-const SWITCH_MODE_EXIT_YES = "Yes";
-const SWITCH_MODE_EXIT_NO = "No";
+/**
+ * The host's plan agent is active and offers no `plan_exit`: on such a host
+ * the user ends plan mode by switching agents, so the model cannot.
+ */
+export const PLAN_EXIT_BY_USER_REASON = "This host leaves plan mode when the user switches from the plan agent to the build " +
+    "agent. Ask the user to switch agents when the plan is ready; do not implement before then.";
+/**
+ * The host's plan agent is active, offers no `plan_exit`, but can ask: leaving
+ * plan mode goes through CreatePlan, whose `question` prompt is the approval.
+ */
+export const PLAN_EXIT_VIA_CREATE_PLAN_REASON = "Leave plan mode by recording the finished plan with Cursor CreatePlan: the user is then " +
+    "asked whether to switch to the build agent and start implementing. Do not implement before they approve.";
 const activeCursorModeBySession = new Map();
 const MAX_ACTIVE_CURSOR_MODES = 256;
 function asRecord(value) {
@@ -97,46 +102,14 @@ export function mapSwitchModeTarget(targetModeId) {
     }
     return { ok: true, toolName: "plan_exit" };
 }
-/** The synthetic AskQuestion item backing a question-emulated plan exit. */
-function switchModeExitQuestionItem() {
-    return {
-        id: "switch_mode_exit",
-        prompt: SWITCH_MODE_EXIT_QUESTION,
-        options: [
-            { id: "yes", label: SWITCH_MODE_EXIT_YES },
-            { id: "no", label: SWITCH_MODE_EXIT_NO },
-        ],
-        allowMultiple: false,
-    };
-}
-/** Host `question` input mirroring upstream `PlanExitTool`'s own prompt. */
-export function switchModeExitQuestionInput() {
-    return {
-        questions: [
-            {
-                question: SWITCH_MODE_EXIT_QUESTION,
-                header: SWITCH_MODE_EXIT_HEADER,
-                options: [
-                    {
-                        label: SWITCH_MODE_EXIT_YES,
-                        description: "Switch to build agent and start implementing the plan",
-                    },
-                    {
-                        label: SWITCH_MODE_EXIT_NO,
-                        description: "Stay with plan agent to continue refining the plan",
-                    },
-                ],
-            },
-        ],
-    };
-}
 /**
  * Resolve how this SwitchMode target is satisfied, keyed only on the advertised
  * catalog under canonical tool names.
  *
- * A missing plan tool is not a refusal: entering plan mode needs no host tool,
- * and leaving it degrades to the `question` prompt so the user still approves
- * before any execution starts.
+ * A missing plan tool is not a refusal: entering plan mode needs no host tool.
+ * Leaving the host's own plan agent without `plan_exit` is approved through
+ * CreatePlan (or the user's agent switch when nothing can ask), and a
+ * Cursor-only plan mode (no host plan agent) has nothing on the host to leave.
  */
 export function resolveSwitchModeBridge(targetModeId, options) {
     const mapped = mapSwitchModeTarget(targetModeId);
@@ -162,11 +135,13 @@ export function resolveSwitchModeBridge(targetModeId, options) {
     // whole contract, exactly as Cursor CLI's own plan mode is prompt-enforced.
     if (mapped.toolName === "plan_enter")
         return { kind: "approve" };
-    // Leaving plan mode starts real work, so it keeps a user-visible gate.
-    if (names.has("question")) {
-        return { kind: "question", input: switchModeExitQuestionInput() };
+    if (options.hostAgent === "plan") {
+        return {
+            kind: "reject",
+            reason: names.has("question") ? PLAN_EXIT_VIA_CREATE_PLAN_REASON : PLAN_EXIT_BY_USER_REASON,
+        };
     }
-    return { kind: "reject", reason: PLAN_EXIT_UNAVAILABLE_REASON };
+    return { kind: "approve" };
 }
 /** Decode a `switch_mode_request_query` body, or undefined when unusable. */
 export function decodeSwitchModeQuery(queryBytes) {
@@ -222,20 +197,6 @@ export function switchModeResultFromToolOutput(output, isError) {
     }
     return switchModeRejectedResult(trimmed);
 }
-/**
- * Host `question` outcome → Cursor SwitchModeRequestResponse, for the emulated
- * plan exit. Only an explicit "Yes" approves; an unanswered or dismissed prompt
- * keeps the model in plan mode rather than silently starting execution.
- */
-export function switchModeResultFromQuestionOutput(output, isError) {
-    if (isError)
-        return switchModeResultFromToolOutput(output, true);
-    const [segment] = parseAnswerSegments([switchModeExitQuestionItem()], output);
-    const answer = (segment ?? "").trim().toLowerCase();
-    if (answer === SWITCH_MODE_EXIT_YES.toLowerCase())
-        return switchModeApprovedResult();
-    return switchModeRejectedResult(USER_REJECTED_REASON);
-}
 /** Record the approved Cursor mode for later system-reminder injection. */
 export function setActiveCursorMode(sessionKey, targetModeId, options = {}) {
     if (!sessionKey)
@@ -265,12 +226,120 @@ export function isCursorPlanModeActive(sessionKey) {
     const mode = getActiveCursorMode(sessionKey);
     return mode === "plan" || mode === "spec";
 }
-/** True after a bridged plan/spec Run has observed plan_enter removed by the host. */
+/** True while Cursor plan/spec mode is one the host enforces (see `bridgedPlanEntered`). */
 export function isBridgedCursorPlanModeActive(sessionKey) {
     if (!sessionKey)
         return false;
     const state = activeCursorModeBySession.get(sessionKey);
     return (state?.modeId === "plan" || state?.modeId === "spec") && state.bridgedPlanEntered;
+}
+/**
+ * Cursor plan mode follows the host's `plan` primary agent, as Cursor CLI's
+ * mode follows its own mode switch (Shift+Tab, `/plan`).
+ *
+ * - A turn under the host plan agent puts Cursor in plan mode, however the
+ *   host got there (its agent picker, a plan_enter approval).
+ * - The host's own exit from that agent (a plan_exit approval, or an agent
+ *   switch in its UI) ends Cursor plan mode. Only an observed `plan` → other
+ *   transition counts, so Cursor-only modes (debug, ask, …) under the host's
+ *   ordinary agent are kept; the next Run then carries the agent-mode
+ *   reminder instead of a stale "plan mode is still active" one.
+ */
+export function followHostPlanAgent(sessionKey, previousHostAgent, hostAgent) {
+    if (!sessionKey || !hostAgent)
+        return undefined;
+    if (hostAgent === "plan") {
+        if (isBridgedCursorPlanModeActive(sessionKey))
+            return undefined;
+        // The host runs its own plan agent, so it enforces this plan mode.
+        setActiveCursorMode(sessionKey, "plan", { bridgedPlanEntered: true });
+        return "entered";
+    }
+    if (previousHostAgent !== "plan" || !isCursorPlanModeActive(sessionKey))
+        return undefined;
+    setActiveCursorMode(sessionKey, "agent");
+    return "left";
+}
+/**
+ * `agent.v1.AgentMode` for a Cursor mode id, as Cursor CLI derives
+ * `UserMessage.mode` from its current mode: plan, ask, and debug are their own
+ * modes; every other mode (agent, spec, triage, …) runs as agent.
+ */
+export function cursorAgentModeWireValue(modeId) {
+    switch (normalizeSwitchModeId(modeId ?? "")) {
+        case "plan":
+            return 3;
+        case "chat":
+        case "ask":
+        case "search":
+            return 2;
+        case "debug":
+            return 4;
+        default:
+            return 1;
+    }
+}
+/** Conversation that already received the host plan-exit call shape, per session. */
+const hostPlanExitNoteBySession = new Map();
+function describeToolArguments(schema) {
+    const record = asRecord(schema);
+    const properties = asRecord(record?.properties);
+    const names = properties ? Object.keys(properties) : [];
+    if (names.length === 0)
+        return "It takes no arguments: call it with `{}`.";
+    const required = new Set(Array.isArray(record?.required) ? record.required.filter((name) => typeof name === "string") : []);
+    const lines = names.map((name) => {
+        const property = asRecord(properties[name]);
+        const type = str(property?.type) || "value";
+        const description = str(property?.description).trim();
+        return `- \`${name}\` (${type}, ${required.has(name) ? "required" : "optional"})` +
+            (description ? `: ${description}` : "");
+    });
+    return `Its arguments (use exactly these names):\n${lines.join("\n")}`;
+}
+/**
+ * One-shot translation of the host plan agent's workflow into Cursor terms,
+ * delivered once per Cursor conversation while that agent owns the turn.
+ *
+ * With the host's plan file known, Cursor's native CreatePlan carries out the
+ * host instruction "write the plan file, then call plan_exit" (see the `exit`
+ * CreatePlan bridge), so the model needs no host tool at all. Without it, the
+ * model is given `plan_exit`'s exact call shape from the live schema: the
+ * RequestContext overlay is names-only, and otherwise it must look the tool up
+ * (or guess its arguments) before it can submit the plan.
+ */
+export function takeHostPlanAgentNote(sessionKey, conversationId, hostAgent, tools, options = {}) {
+    if (!sessionKey)
+        return undefined;
+    if (hostAgent !== "plan") {
+        hostPlanExitNoteBySession.delete(sessionKey);
+        return undefined;
+    }
+    const planExit = tools.find((tool) => tool.name === "plan_exit");
+    // A host plan-stage tool carries the plan to the host review itself.
+    if (tools.some((tool) => tool.name === CURSOR_PLAN_STAGE_TOOL))
+        return undefined;
+    if (!planExit || hostPlanExitNoteBySession.get(sessionKey) === conversationId)
+        return undefined;
+    hostPlanExitNoteBySession.delete(sessionKey);
+    hostPlanExitNoteBySession.set(sessionKey, conversationId);
+    while (hostPlanExitNoteBySession.size > MAX_ACTIVE_CURSOR_MODES) {
+        const oldest = hostPlanExitNoteBySession.keys().next().value;
+        if (!oldest)
+            break;
+        hostPlanExitNoteBySession.delete(oldest);
+    }
+    if (options.hostPlanFile) {
+        return wrapReminder("The host plan agent is active. When the plan is ready, record it with CreatePlan. " +
+            `CreatePlan saves it as the host's plan file (${options.hostPlanFile}) and submits it ` +
+            "to the host's plan review, which asks the user; this carries out the host " +
+            "instructions to write the plan file and call plan_exit, so do neither yourself. " +
+            "Do not implement until the user approves.");
+    }
+    return wrapReminder("The host plan agent is active. When the plan file is written and ready for review, " +
+        `submit it by calling MCP tool \`plan_exit\` on server \`${options.server ?? "opencode"}\` directly. ` +
+        "Its full definition is below, so do not look it up with GetMcpTools first. " +
+        describeToolArguments(planExit.inputSchema));
 }
 export function clearActiveCursorMode(sessionKey) {
     if (!sessionKey)
@@ -279,6 +348,7 @@ export function clearActiveCursorMode(sessionKey) {
 }
 export function resetActiveCursorModesForTests() {
     activeCursorModeBySession.clear();
+    hostPlanExitNoteBySession.clear();
 }
 function wrapReminder(body) {
     return `<system_reminder>\n${body.trim()}\n</system_reminder>`;
@@ -295,12 +365,15 @@ export function cursorModeSystemReminder(targetModeId, options = {}) {
     const first = options.firstTurn !== false;
     // A host plan-stage tool writes the artifact and its result names the
     // follow-up that requests approval. plan_exit only leaves plan mode.
-    // Without either tool, recording the plan is the gate and the provider asks
-    // whether to start implementing. Naming an unavailable tool would strand the model.
+    // Without either, CreatePlan asks through `question` whether to implement;
+    // with no `question` either, the user leaves plan mode by switching agents.
+    // Naming an unavailable tool would strand the model.
     const leavePlan = options.planStageAdvertised
         ? "record the finished plan with Cursor CreatePlan. The host stage tool waits for the host plan review and does not return until the user accepts or declines. Do not call `plan_exit` to submit or skip that review, and do not implement until the tool returns success"
         : options.planExitAdvertised === false
-            ? "record the finished plan (Cursor CreatePlan). Writing it needs no approval, and the user is then asked whether to start implementing; if they decline, refine the plan and record it again"
+            ? options.questionAdvertised
+                ? "record the finished plan with Cursor CreatePlan. Writing it needs no approval; the user is then asked whether to switch to the build agent and start implementing. If they decline, refine the plan and record it again"
+                : "record the finished plan (Cursor CreatePlan), then tell the user it is ready: they switch to the build agent to have it implemented"
             : "record the finished plan, then call OpenCode `plan_exit` so the user can approve leaving plan mode";
     if (id === "plan" || id === "spec") {
         return wrapReminder(first
@@ -413,7 +486,7 @@ export function takeActiveCursorModeReminder(sessionKey, options = {}) {
             : new Set(options.advertisedTools)
         : undefined;
     const isPlanMode = state.modeId === "plan" || state.modeId === "spec";
-    if (isPlanMode && state.bridgedPlanEntered && advertised) {
+    if (isPlanMode && state.bridgedPlanEntered && advertised && !options.hostAgent) {
         if (advertised.has("plan_enter")) {
             activeCursorModeBySession.delete(sessionKey);
             return cursorModeSystemReminder("agent", { firstTurn: true });
@@ -425,6 +498,7 @@ export function takeActiveCursorModeReminder(sessionKey, options = {}) {
             ? {
                 planExitAdvertised: advertised.has("plan_exit"),
                 planStageAdvertised: advertised.has("cursor_plan_stage"),
+                questionAdvertised: advertised.has("question"),
             }
             : {}),
     });

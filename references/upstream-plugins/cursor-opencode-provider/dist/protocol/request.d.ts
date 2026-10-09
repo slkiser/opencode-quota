@@ -37,6 +37,11 @@ export type RunRequestInput = {
     requestContext?: Record<string, unknown>;
     /** Resume the supplied checkpoint instead of submitting another user turn. */
     action?: "user" | "resume";
+    /**
+     * Cursor mode of this user turn (`UserMessage.mode`, an `agent.v1.AgentMode`
+     * value). Cursor CLI sends its current mode on every user message.
+     */
+    mode?: number;
 };
 /**
  * Seed ConversationStateStructure for the first turn (no checkpoint yet).

@@ -1,5 +1,6 @@
 import { type OpencodeToolDef } from "../protocol/tools.js";
 import { type OpencodeJson } from "./rules.js";
+import { hostSkillFiles, loadBridgeSkills } from "./skills.js";
 export type BuildRequestContextInput = {
     workspaceRoot: string;
     tools?: OpencodeToolDef[];
@@ -13,6 +14,8 @@ export type BuildRequestContextInput = {
     mergedConfig?: OpencodeJson;
     /** Host system context to deliver as the frozen system-instructions rule. */
     systemInstructions?: SystemInstructions;
+    /** Optional host session id for `opencode.host.skills` list(). */
+    sessionID?: string;
 };
 /**
  * Host system context (OpenCode's system prompt plus this provider's
@@ -48,8 +51,8 @@ export declare function withSystemInstructions(context: Record<string, unknown>,
 export declare const DYNAMIC_REQUEST_CONTEXT_KEYS: readonly ["tools", "custom_subagents", "mcp_file_system_options", "mcp_meta_tool_options", "web_search_enabled", "web_fetch_enabled", "custom_subagents_info_complete", "mcp_file_system_info_complete", "mcp_info_complete", "hooks_additional_context"];
 export type DynamicRequestContextKey = typeof DYNAMIC_REQUEST_CONTEXT_KEYS[number];
 /**
- * The host system context (delivered as the system-instructions rule) already
- * carries these; never keep them on a frozen base.
+ * Derived from the system-instructions rule on every materialization (see
+ * `skills.ts`); never kept on a frozen base.
  */
 export declare const HOST_DUPLICATED_REQUEST_CONTEXT_KEYS: readonly ["agent_skills", "agent_skills_info_complete"];
 /**
@@ -59,9 +62,24 @@ export declare const HOST_DUPLICATED_REQUEST_CONTEXT_KEYS: readonly ["agent_skil
  * own directories.
  */
 export declare function buildRequestContext(input: BuildRequestContextInput): Promise<Record<string, unknown>>;
+/** Locations for path-desc materialization (bridge, then remembered OC2 files). */
+export declare function resolveSkillLocations(input: Pick<BuildRequestContextInput, "tools" | "sessionID">, workspaceRoot: string): Promise<{
+    bridgeSkills?: Awaited<ReturnType<typeof loadBridgeSkills>>;
+    skillFiles?: ReturnType<typeof hostSkillFiles>;
+}>;
 /** Rediscover only capability/plugin sections that may change during a chat. */
 export declare function buildDynamicRequestContext(input: BuildRequestContextInput): Promise<Record<string, unknown>>;
-/** Keep expensive workspace state frozen while replacing every live capability field. */
-export declare function materializeRequestContext(base: Record<string, unknown>, dynamic: Record<string, unknown>): Record<string, unknown>;
+export type MaterializeRequestContextOptions = {
+    tools?: OpencodeToolDef[];
+    skillFiles?: ReadonlyMap<string, string>;
+    bridgeSkills?: Awaited<ReturnType<typeof loadBridgeSkills>>;
+};
+/**
+ * Keep expensive workspace state frozen while replacing every live capability
+ * field. Skill locations (bridge / OpenCode 2 files / OpenCode 1 catalog
+ * paths) turn the skill catalog in the system-instructions rule into Cursor's
+ * path-desc `agent_skills`.
+ */
+export declare function materializeRequestContext(base: Record<string, unknown>, dynamic: Record<string, unknown>, options?: MaterializeRequestContextOptions): Record<string, unknown>;
 /** Strip live capability fields before retaining/persisting a conversation base. */
 export declare function requestContextBase(context: Record<string, unknown>): Record<string, unknown>;

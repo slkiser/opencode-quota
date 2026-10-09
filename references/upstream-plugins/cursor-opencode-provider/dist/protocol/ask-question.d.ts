@@ -76,6 +76,13 @@ export declare function decodeAskQuestionQuery(queryBytes: Uint8Array): DecodedA
 export declare function isCatchAllOptionLabel(label: string): boolean;
 /** Options as Cursor would display them: trailing catch-all removed. */
 export declare function displayOptions(question: CursorAskQuestionItem): CursorAskQuestionOption[];
+/** OpenCode `Question.Prompt.header`: short label, max 30 chars. */
+export declare function questionHeader(title: string): string;
+/**
+ * Fill required OpenCode `question` fields when a model call omits them.
+ * Live OC1 failure: SchemaError Missing key at ["questions"][0]["header"].
+ */
+export declare function normalizeOpencodeQuestionArgs(args: Record<string, unknown>): Record<string, unknown>;
 export type OpencodeQuestionInput = {
     questions: Array<{
         question: string;
@@ -100,11 +107,15 @@ export declare function asyncResult(): AskQuestionResultMessage;
 /**
  * Pull each question's answer text out of a host `question` tool output.
  *
- * OpenCode returns prose (`metadata.answers` does not cross the AI SDK
+ * OpenCode 1.x returns prose (`metadata.answers` does not cross the AI SDK
  * boundary):
  *
  *   User has answered your questions: "<q1>"="<a, b>", "<q2>"="Unanswered". You
  *   can now continue with the user's answers in mind.
+ *
+ * OpenCode 2.0 sends the tool's declared output as JSON
+ * (`{ "answers": [["Yes"], …] }`) and does not put that prose on the AI SDK
+ * tool-result. Answers are positional.
  *
  * The prose is located by its `"<question>"="` anchor — robust
  * against commas, quotes and `"="` inside question or answer text, and against

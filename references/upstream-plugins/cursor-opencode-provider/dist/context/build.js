@@ -7,6 +7,7 @@ import { collectProjectLayout } from "./layout.js";
 import { buildEnv } from "./env.js";
 import { ensureOpencodeProjectDir } from "./paths.js";
 import { holdCapabilityOverlay } from "./overlay.js";
+import { agentSkillsForCursor, applyAgentSkillsToContext, hostSkillFiles, loadBridgeSkills, skillToolAdvertised, } from "./skills.js";
 import { traceRequestContextPaths } from "../debug.js";
 /** Rule name Cursor shows for the host system context (not a file). */
 export const SYSTEM_INSTRUCTIONS_RULE_PATH = "OpenCode system instructions";
@@ -74,8 +75,8 @@ export const DYNAMIC_REQUEST_CONTEXT_KEYS = [
     "hooks_additional_context",
 ];
 /**
- * The host system context (delivered as the system-instructions rule) already
- * carries these; never keep them on a frozen base.
+ * Derived from the system-instructions rule on every materialization (see
+ * `skills.ts`); never kept on a frozen base.
  */
 export const HOST_DUPLICATED_REQUEST_CONTEXT_KEYS = [
     "agent_skills",
@@ -120,9 +121,25 @@ export async function buildRequestContext(input) {
         git_status_info_complete: true,
     };
     const base = withSystemInstructions(workspace, input.systemInstructions);
-    const ctx = materializeRequestContext(base, dynamic);
+    const skillLocations = await resolveSkillLocations(input, workspaceRoot);
+    const ctx = materializeRequestContext(base, dynamic, {
+        tools: input.tools,
+        ...skillLocations,
+    });
     traceRequestContextPaths("buildRequestContext", ctx);
     return ctx;
+}
+/** Locations for path-desc materialization (bridge, then remembered OC2 files). */
+export async function resolveSkillLocations(input, workspaceRoot) {
+    if (!skillToolAdvertised(input.tools))
+        return {};
+    return {
+        bridgeSkills: await loadBridgeSkills({
+            workspaceRoot,
+            sessionID: input.sessionID,
+        }),
+        skillFiles: hostSkillFiles(workspaceRoot),
+    };
 }
 async function buildDynamicRequestContextFromDiscovery(input, workspaceRoot, config) {
     const providerIdentifier = input.providerIdentifier ?? "opencode";
@@ -184,8 +201,13 @@ export async function buildDynamicRequestContext(input) {
         : await loadMergedConfig(workspaceRoot);
     return buildDynamicRequestContextFromDiscovery(input, workspaceRoot, config);
 }
-/** Keep expensive workspace state frozen while replacing every live capability field. */
-export function materializeRequestContext(base, dynamic) {
+/**
+ * Keep expensive workspace state frozen while replacing every live capability
+ * field. Skill locations (bridge / OpenCode 2 files / OpenCode 1 catalog
+ * paths) turn the skill catalog in the system-instructions rule into Cursor's
+ * path-desc `agent_skills`.
+ */
+export function materializeRequestContext(base, dynamic, options) {
     const context = structuredClone(base);
     stripHostDuplicatedRequestContextFields(context);
     for (const key of DYNAMIC_REQUEST_CONTEXT_KEYS)
@@ -194,6 +216,12 @@ export function materializeRequestContext(base, dynamic) {
         if (Object.hasOwn(dynamic, key))
             context[key] = structuredClone(dynamic[key]);
     }
+    const skills = agentSkillsForCursor(systemInstructionsRuleText(context), {
+        skillToolAdvertised: skillToolAdvertised(options?.tools),
+        skillFiles: options?.skillFiles,
+        bridgeSkills: options?.bridgeSkills,
+    });
+    applyAgentSkillsToContext(context, skills);
     return context;
 }
 /** Strip live capability fields before retaining/persisting a conversation base. */

@@ -3,6 +3,7 @@ import { type CursorProviderError } from "./errors.js";
 import { type SessionActivitySource } from "./activity.js";
 import type { HostSubagentCatalog, HostToolDialect, OpencodeToolDef, ToolAliasRegistry } from "./protocol/tools.js";
 import type { CursorConversationTokenDetails } from "./protocol/token-details.js";
+import type { ParallelStepState } from "./parallel-step.js";
 export type Frame = {
     flags: number;
     payload: Uint8Array;
@@ -95,6 +96,8 @@ export type CursorSession = {
      * (Cursor resets them per stream) can't cross-deliver results.
      */
     sessionId: string;
+    /** AgentRunRequest.run_id, for context injections bound to this Run. */
+    runId?: string;
     /**
      * Cursor conversation_id for this Run — used to store/echo
      * conversation_checkpoint_update (CLI parity).
@@ -152,8 +155,24 @@ export type CursorSession = {
     toolCatalog?: OpencodeToolDef[];
     /** Configured MCP server ids used to split flattened host tool names. */
     knownMcpServers?: string[];
+    /** The Run's model accepts images, so held-Run exec results may carry them. */
+    supportsImages?: boolean;
     stream: BidiStream;
     frames: AsyncIterator<Frame>;
+    /** An iterator read retained across an idle-guard timeout. */
+    pendingFrameRead?: Promise<IteratorResult<Frame>>;
+    /**
+     * One-slot pushback for a terminal update that must start the next pump pass
+     * after the host settles emitted tools. Timed-out reads use pendingFrameRead.
+     */
+    pushbackFrame?: Frame;
+    /**
+     * In-progress parallel tool-call step (field 27 hold). Cleared when the step
+     * finishes; added to priorParallelStepCallIds for late-completion filtering.
+     */
+    parallelStep?: ParallelStepState;
+    /** Resolved call ids from prior steps of this Run — ignore late completions. */
+    priorParallelStepCallIds?: Set<string>;
     pending: Map<number, PendingExec>;
     /**
      * Cursor display tool calls (tool_call_started) awaiting either an exec or a
@@ -167,6 +186,11 @@ export type CursorSession = {
      * completed list so host todos still receive a replace-all snapshot.
      */
     mirroredTodos?: Array<Record<string, unknown>>;
+    /**
+     * CreatePlan display calls whose plan was deferred to the host plan agent.
+     * Their completed display carries no recorded plan, so it is not mirrored.
+     */
+    deferredCreatePlanCalls?: Set<string>;
     /**
      * Legacy edit calls whose authoritative exec path is still in progress.
      * Cursor implements these as read -> whole-file write; retaining the path
@@ -302,7 +326,7 @@ export declare class SessionManager {
      * Callers must cancel the session heartbeat and wait for the old stream's
      * write chain before this, so an in-flight heartbeat cannot close the session.
      */
-    replaceStream(session: CursorSession, next: BidiStream): void;
+    replaceStream(session: CursorSession, next: BidiStream, runId?: string): void;
     private subscribeTerminal;
     private key;
     close(session: CursorSession, reason?: SessionCloseReason, error?: CursorProviderError): void;
@@ -325,5 +349,15 @@ export declare class SessionManager {
     private putTombstone;
     private isTerminalReason;
 }
+/**
+ * Read one frame, retaining ownership of the iterator read when a timeout
+ * wins. Every reader uses this function so a continuation cannot overtake a
+ * late frame (or discard its EOF/error).
+ */
+export declare function readSessionFrame(session: CursorSession): Promise<IteratorResult<Frame>>;
+export declare function readSessionFrame(session: CursorSession, timeoutMs: number): Promise<IteratorResult<Frame> | {
+    done: true;
+    timedOut: true;
+}>;
 export declare const sessionManager: SessionManager;
 export {};

@@ -138,6 +138,7 @@ export const CURSOR_OFFICIAL_MODEL_ALIASES: Readonly<
   "claude-fable-5": { providerHint: "anthropic", modelHint: "claude-fable-5" },
   "claude-fable-5-1": { providerHint: "anthropic", modelHint: "claude-fable-5-1" },
   "claude-haiku-4-5": { providerHint: "anthropic", modelHint: "claude-haiku-4-5" },
+  "claude-haiku-5-5": { providerHint: "anthropic", modelHint: "claude-haiku-5-5" },
   "claude-opus-4-5": { providerHint: "anthropic", modelHint: "claude-opus-4-5" },
   "claude-opus-4-6": { providerHint: "anthropic", modelHint: "claude-opus-4-6" },
   "claude-opus-4-6-1m": { providerHint: "anthropic", modelHint: "claude-opus-4-6" },

@@ -47,6 +47,8 @@ export function buildRunRequest(input) {
         text: input.text,
         message_id: msgId,
     };
+    if (input.mode !== undefined)
+        userMessage.mode = input.mode;
     if (input.images?.length) {
         userMessage.selected_context = {
             selected_images: input.images.map((image) => ({

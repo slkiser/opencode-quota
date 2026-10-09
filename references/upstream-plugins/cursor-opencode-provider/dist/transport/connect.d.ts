@@ -73,6 +73,8 @@ export declare function resolveAgentOrigin(baseURL: string): string;
 export declare function closeCachedHttp2SessionsForTests(): void;
 /** Node-runtime regression hook; production callers use getSession(). */
 export declare function installSessionInvalidationForTests(origin: string, session: http2.ClientHttp2Session): void;
+/** Node-runtime regression hook: cache a connected local session for `origin`. */
+export declare function cacheHttp2SessionForTests(origin: string, session: http2.ClientHttp2Session): void;
 export declare function getSession(baseURL: string, options?: {
     pingTimeoutMs?: number;
 }): Promise<http2.ClientHttp2Session>;

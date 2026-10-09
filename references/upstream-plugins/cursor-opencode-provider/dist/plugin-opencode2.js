@@ -1,6 +1,6 @@
 import { CURSOR_PROVIDER_ID, CURSOR_COMPACTION_OPTION, CURSOR_HOST_AGENT_OPTION, } from "./shared.js";
 import { createSdk, cursorApiBaseURL, cursorGetServerConfigTelemetryEnabled, isCursorPackage } from "./plugin-core.js";
-import { opencodeGlobalCacheDir } from "./context/paths.js";
+import { opencode2PlanDir, opencodeGlobalCacheDir, setNativePlansDir } from "./context/paths.js";
 import { discoverModels, isCacheFresh, readCache } from "./models.js";
 import { resolveAgentUrl } from "./agent-url.js";
 import { sessionActivity } from "./activity.js";
@@ -10,13 +10,14 @@ import { applyCursorProviderInventory, CURSOR_INTEGRATION_ID } from "./opencode2
 import { applyCursorIntegration, requireCursorAccessToken, resolveCursorAccessToken, } from "./opencode2/integration.js";
 import { exposeDirectMcpTools, rememberDirectMcpNamespaces } from "./opencode2/mcp-direct.js";
 import { registerTodoTools } from "./opencode2/todo-tools.js";
+import { registerCursorImageSaveTool } from "./opencode2/image-save-tool.js";
 import { OPENCODE_2_TOOL_DIALECT } from "./protocol/tools.js";
 import { clearSessionTodos } from "./todo-store.js";
 import { markCompactionSession } from "./compaction-marker.js";
 import { getSessionDirectory, markSessionDirectory } from "./session-directory.js";
+import { rememberHostSkillFiles } from "./context/skills.js";
 import { trace } from "./debug.js";
-import { cancelPlanExecutionKickoff, createPlanExecutionKickoffText, setPlanExecutionKickoff, } from "./plan-execution-kickoff.js";
-import { cancelHostAgentModeSwitch, setHostAgentModeSwitch, } from "./host-agent-mode.js";
+import { cancelHostAgentModeSwitch, hostAgentSwitchPromptText, setHostAgentModeSwitch, } from "./host-agent-mode.js";
 import { clearActiveCursorMode, getActiveCursorMode, normalizeSwitchModeId, setActiveCursorMode, } from "./protocol/switch-mode.js";
 import { CursorPlugin } from "./plugin.js";
 /**
@@ -92,45 +93,36 @@ const plugin = {
     setup: async (ctx) => {
         const cacheDir = opencodeGlobalCacheDir();
         const workspaceRoot = ctx.location?.directory || process.cwd();
+        // CreatePlan writes where OpenCode 2.0's Plan agent keeps plan files.
+        // OpenCode 2.0 sets a plugin up once per location instance and again on a
+        // plugin reload, then disposes older setups: each cleanup removes only
+        // what its own setup installed.
+        const disposeNativePlansDir = setNativePlansDir(opencode2PlanDir());
+        let disposeHostAgentModeSwitch;
+        trace(`opencode2 plugin: setup directory=${workspaceRoot}`);
         const hasShellEnvHook = typeof ctx.shell?.hook === "function";
-        const admitPlanKickoff = typeof ctx.session.synthetic === "function"
-            ? ctx.session.synthetic
-            : ctx.session.prompt;
-        if (typeof ctx.session.switchAgent === "function" && typeof admitPlanKickoff === "function") {
-            const switchAgent = ctx.session.switchAgent;
-            setPlanExecutionKickoff(async ({ sessionID, planPath }) => {
-                await switchAgent({ sessionID, agent: "build" });
-                try {
-                    await admitPlanKickoff({
-                        sessionID,
-                        text: createPlanExecutionKickoffText(planPath),
-                    });
-                }
-                catch (error) {
-                    // Switching and admitting input are separate public APIs. Restore the
-                    // plan agent if admission fails so the shared retry state is honest:
-                    // the plan remains active rather than silently leaving the session in
-                    // build mode with no execution turn.
-                    await switchAgent({ sessionID, agent: "plan" }).catch(() => { });
-                    throw error;
-                }
-            });
-        }
-        else {
-            setPlanExecutionKickoff(undefined);
-        }
         if (typeof ctx.session.switchAgent === "function") {
             const switchAgent = ctx.session.switchAgent;
-            setHostAgentModeSwitch(async ({ sessionID, targetModeID }) => {
-                const mode = normalizeSwitchModeId(targetModeID);
-                await switchAgent({
-                    sessionID,
-                    agent: mode === "plan" || mode === "spec" ? "plan" : "build",
-                });
-            });
-        }
-        else {
-            setHostAgentModeSwitch(undefined);
+            const continueTurn = typeof ctx.session.synthetic === "function"
+                ? ctx.session.synthetic
+                : typeof ctx.session.prompt === "function"
+                    ? ctx.session.prompt
+                    : undefined;
+            disposeHostAgentModeSwitch = setHostAgentModeSwitch(async ({ sessionID, targetModeID }) => {
+                const agent = normalizeSwitchModeId(targetModeID) === "plan"
+                    || normalizeSwitchModeId(targetModeID) === "spec"
+                    ? "plan"
+                    : "build";
+                await switchAgent({ sessionID, agent });
+                // switchAgent only publishes AgentSelected and leaves the session idle.
+                // Continue under the new agent the same way OpenCode 1.x promptAsync does.
+                if (continueTurn) {
+                    await continueTurn({
+                        sessionID,
+                        text: hostAgentSwitchPromptText(agent),
+                    });
+                }
+            }, continueTurn ? { resumesTurn: true } : {});
         }
         const registrations = [];
         const track = async (p) => {
@@ -262,6 +254,7 @@ const plugin = {
             // them as direct catalog tools (`codemode: false` + output schema) if
             // the host does not already own those names. When off, register none.
             registerTodoTools(draft);
+            registerCursorImageSaveTool(draft, ctx);
             // MCP tools default into Code Mode. Move every server that did not
             // explicitly opt in onto the direct catalog so this provider can
             // advertise them to Cursor (issue #29 still routes via CallDynamicTool).
@@ -375,6 +368,20 @@ const plugin = {
         // last known session directory ahead of this Location's static root.
         // Scoped by the host to this provider: other providers' requests never
         // reach the callback, so the header cannot leak to their endpoints.
+        // Skill files for RequestContext path-desc `agent_skills` (see context/skills.ts).
+        const rememberSkillFiles = async () => {
+            if (!ctx.skill)
+                return;
+            try {
+                const listed = await ctx.skill.list();
+                // skill.list is bound to this plugin Location. A session may have
+                // moved; never relabel this catalog with the session's new directory.
+                rememberHostSkillFiles(listed.location.directory, listed.data);
+            }
+            catch (error) {
+                trace(`model.request: skill.list failed: ${String(error)}`);
+            }
+        };
         await track(ctx.session.hook("model.request", async (event) => {
             const current = await ctx.session
                 .get({ sessionID: event.sessionID })
@@ -387,6 +394,7 @@ const plugin = {
             const directory = current ?? getSessionDirectory(event.sessionID) ?? ctx.location?.directory;
             if (!directory)
                 return;
+            await rememberSkillFiles();
             event.headers = {
                 ...event.headers,
                 "x-opencode-directory": encodeURIComponent(directory),
@@ -469,8 +477,9 @@ const plugin = {
         return async () => {
             clearInterval(retry);
             unsubscribe?.();
-            setPlanExecutionKickoff(undefined);
-            setHostAgentModeSwitch(undefined);
+            disposeHostAgentModeSwitch?.();
+            disposeNativePlansDir();
+            trace(`opencode2 plugin: cleanup directory=${workspaceRoot}`);
             for (const registration of registrations.reverse()) {
                 await registration.dispose().catch(() => { });
             }
@@ -529,7 +538,6 @@ function applySessionActivity(event, onCredentialSwitch) {
                 sessionActivity.removeSession(id);
                 clearSessionTodos(id);
                 clearActiveCursorMode(id);
-                cancelPlanExecutionKickoff(id);
                 cancelHostAgentModeSwitch(id);
             }
             break;

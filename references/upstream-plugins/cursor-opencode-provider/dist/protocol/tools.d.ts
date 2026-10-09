@@ -1,3 +1,4 @@
+import type { CursorImageInput } from "../image-input.js";
 import { type CursorExecVariant } from "./exec-variants.js";
 import { type CursorShellOutcome } from "../shell-timeout.js";
 export declare const REQUEST_CONTEXT_RESULT_FIELD = 10;
@@ -8,6 +9,10 @@ export type OpencodeToolDef = {
     /** Original flattened identity when `name` is a Cursor-facing alias. */
     sourceName?: string;
 };
+/** Check explicit required keys after normalization, before host execution. */
+export declare function missingRequiredToolArguments(tool: OpencodeToolDef | undefined, args: Record<string, unknown>): string[];
+/** Canonical file/search tools must not silently ignore a misplaced shell command. */
+export declare function misplacedShellCommand(tool: OpencodeToolDef | undefined, args: Record<string, unknown>): boolean;
 /** Host file-tool argument key. OpenCode 1.x uses `filePath`; 2.0 uses `path`. */
 export type HostFilePathKey = "path" | "filePath";
 /** Host shell tool id. OpenCode 1.x uses `bash`; 2.0 uses `shell`. */
@@ -18,6 +23,7 @@ export type HostToolDialect = {
     filePathKey: HostFilePathKey;
     shellTool: HostShellTool;
     skillArgKey: HostSkillArgKey;
+    shellDescription?: "optional" | "required";
 };
 export declare const OPENCODE_1_TOOL_DIALECT: HostToolDialect;
 export declare const OPENCODE_2_TOOL_DIALECT: HostToolDialect;
@@ -280,7 +286,16 @@ export type ToolResultInput = {
      * often $HOME and would re-advertise the wrong folder to the model.
      */
     workspaceRoot?: string;
+    /** Images the host tool returned; see `execResultImages` for which results carry them. */
+    images?: readonly CursorImageInput[];
 };
+/**
+ * The leading tool-result images an exec result can carry on a held Run.
+ * Cursor's own read executor answers an image file with its bytes in
+ * `ReadSuccess.data` (#5) and no text; its MCP executor appends each MCP image
+ * as an `McpImageContent` item (#2). Other result shapes have no image field.
+ */
+export declare function execResultImages(resultField: string, images: readonly CursorImageInput[] | undefined): CursorImageInput[];
 /**
  * Build one or more ExecClientMessage frames for a tool result.
  * Shell replies are a sequence of ShellStream oneofs under the same id —
@@ -321,7 +336,7 @@ export declare function unwrapReadOutput(output: string): string;
  * OpenCode returns free-form text; we wrap it in the minimal success shape the
  * server accepts (verified against agent.v1 wire captures).
  */
-export declare function buildTypedExecResult(resultField: string, output: string, error?: string, toolName?: string, resultMetadata?: Record<string, unknown>, shellOutcome?: CursorShellOutcome, workspaceRoot?: string): Record<string, unknown>;
+export declare function buildTypedExecResult(resultField: string, output: string, error?: string, toolName?: string, resultMetadata?: Record<string, unknown>, shellOutcome?: CursorShellOutcome, workspaceRoot?: string, images?: readonly CursorImageInput[]): Record<string, unknown>;
 export declare function buildToolCallPart(execMsg: ParsedExecRequest, sessionId: string): {
     toolCallId: string;
     toolName: string;

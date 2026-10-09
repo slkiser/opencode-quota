@@ -386,7 +386,7 @@ export class SessionManager {
      * Callers must cancel the session heartbeat and wait for the old stream's
      * write chain before this, so an in-flight heartbeat cannot close the session.
      */
-    replaceStream(session, next) {
+    replaceStream(session, next, runId) {
         if (session.closed)
             throw new CursorProtocolError("Cannot replace stream on a closed Cursor session");
         session.heartbeatCancel?.();
@@ -395,7 +395,13 @@ export class SessionManager {
         session.deferredTerminalReason = null;
         const old = session.stream;
         session.stream = next;
+        if (runId !== undefined)
+            session.runId = runId;
         session.frames = next.frames()[Symbol.asyncIterator]();
+        session.pendingFrameRead = undefined;
+        session.pushbackFrame = undefined;
+        session.parallelStep = undefined;
+        session.priorParallelStepCallIds = undefined;
         this.subscribeTerminal(session);
         try {
             old.destroy();
@@ -444,6 +450,10 @@ export class SessionManager {
                 this.putTombstone(key, reason);
         }
         session.pending.clear();
+        session.pendingFrameRead = undefined;
+        session.pushbackFrame = undefined;
+        session.parallelStep = undefined;
+        session.priorParallelStepCallIds = undefined;
         session.pumpOwner = null;
         session.pumpActive = false;
         session.displayToolCalls?.clear();
@@ -568,6 +578,40 @@ export class SessionManager {
     }
     isTerminalReason(reason) {
         return !["ordinary-cleanup", "turn-ended", "initial-write-failed"].includes(reason);
+    }
+}
+export async function readSessionFrame(session, timeoutMs) {
+    if (session.pushbackFrame) {
+        const value = session.pushbackFrame;
+        session.pushbackFrame = undefined;
+        return { done: false, value };
+    }
+    const pending = session.pendingFrameRead ??= session.frames.next();
+    // A timed-out read can reject while no pump is consuming it. Preserve the
+    // rejection for the next reader without an unhandled detached promise.
+    void pending.catch(() => { });
+    let timer;
+    try {
+        const result = timeoutMs === undefined ? await pending : await Promise.race([
+            pending,
+            new Promise(resolve => {
+                timer = setTimeout(() => resolve({ done: true, timedOut: true }), timeoutMs);
+                timer.unref?.();
+            }),
+        ]);
+        if (!("timedOut" in result) && session.pendingFrameRead === pending) {
+            session.pendingFrameRead = undefined;
+        }
+        return result;
+    }
+    catch (error) {
+        if (session.pendingFrameRead === pending)
+            session.pendingFrameRead = undefined;
+        throw error;
+    }
+    finally {
+        if (timer)
+            clearTimeout(timer);
     }
 }
 export const sessionManager = new SessionManager();

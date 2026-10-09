@@ -22,6 +22,8 @@ export type SessionTodo = {
 /** Normalize one host/Cursor todo item. Drops entries with empty content. */
 export declare function normalizeSessionTodo(value: unknown, index: number): SessionTodo | undefined;
 export declare function normalizeSessionTodos(value: unknown): SessionTodo[];
+/** Fill omitted defaults before validation without dropping malformed entries. */
+export declare function normalizeOpencodeTodoArgs(args: Record<string, unknown>): Record<string, unknown>;
 export declare function getSessionTodos(sessionID: string): SessionTodo[];
 export declare function setSessionTodos(sessionID: string, todos: unknown): SessionTodo[];
 export declare function clearSessionTodos(sessionID: string): void;

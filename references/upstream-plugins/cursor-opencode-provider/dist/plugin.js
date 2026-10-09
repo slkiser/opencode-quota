@@ -12,8 +12,9 @@ import { readStoredAuth } from "./context/auth-store.js";
 import { resolveAgentUrl } from "./agent-url.js";
 import { captureCursorShellResult, cursorShellEnvForCall, cursorShellOriginalCommand, prepareCursorShellArgs, releaseCursorShellEnv, sanitizeRegisteredCursorShellOutput, setCursorShellPath, } from "./shell-timeout.js";
 import { sessionActivity } from "./activity.js";
-import { createPlanExecutionKickoffText, setPlanExecutionKickoff, } from "./plan-execution-kickoff.js";
 import { dispatchHostEventBridge } from "./host-event-bridge.js";
+import { createPromptHostAgentModeSwitch, setHostAgentModeSwitch } from "./host-agent-mode.js";
+import { isHostPlanFileResolved, resolveHostPlanFile } from "./host-plan-file.js";
 const MODULE_URL = new URL("./index.js", import.meta.url).href;
 /**
  * Raw `crsr_` key behind an API-key login: under `metadata.apiKey` (saved at
@@ -41,29 +42,63 @@ function isSameCredential(latest, started) {
     }
     return false;
 }
+/** Names of the host's own user-selectable primary agents, from `app.agents()`. */
+function primaryAgentNames(response) {
+    const list = Array.isArray(response)
+        ? response
+        : Array.isArray(response?.data)
+            ? response.data
+            : undefined;
+    if (!list)
+        return undefined;
+    const names = new Set();
+    for (const item of list) {
+        if (typeof item?.name !== "string" || item.mode === "subagent" || item.hidden === true)
+            continue;
+        names.add(item.name);
+    }
+    return names;
+}
+/**
+ * Install the OpenCode 1.x host-agent switch. Returns the agent-list refresh,
+ * which the caller runs once the host serves requests: the list is read from
+ * the host's own API, and a failed read leaves SwitchMode provider-owned.
+ */
+function installPromptHostAgentModeSwitch(input, sessionClient, promptAsync) {
+    const app = input.client?.app;
+    const agents = app?.agents;
+    // Nothing to install; a switch another entrypoint installed stays in place.
+    if (typeof promptAsync !== "function" || typeof agents !== "function")
+        return undefined;
+    let primary;
+    const refresh = () => agents.call(app)
+        .then((response) => { primary = primaryAgentNames(response) ?? primary; })
+        .catch((error) => trace(`host-agent-mode: agent list unavailable: ${errorMessage(error)}`));
+    const { apply, accepts } = createPromptHostAgentModeSwitch(async ({ sessionID, agent, text }) => {
+        await promptAsync.call(sessionClient, {
+            path: { id: sessionID },
+            body: { agent, parts: [{ type: "text", text, synthetic: true }] },
+        });
+        void refresh();
+    }, () => primary);
+    setHostAgentModeSwitch(apply, { resumesTurn: true, accepts });
+    return refresh;
+}
 export async function CursorPlugin(input) {
     const cacheDir = opencodeGlobalCacheDir();
     const apiBaseURL = cursorApiBaseURL();
     const classicTools = await loadClassicTools();
-    // Install the OpenCode plan-exit-shaped kickoff only when the OpenCode client
-    // exposes that structural API. Without it, no synthetic kickoff is registered.
     const sessionClient = input.client?.session;
     const promptAsync = sessionClient?.promptAsync;
-    setPlanExecutionKickoff(typeof promptAsync === "function"
-        ? async ({ sessionID, planPath }) => {
-            await promptAsync.call(sessionClient, {
-                path: { id: sessionID },
-                body: {
-                    agent: "build",
-                    parts: [{
-                            type: "text",
-                            text: createPlanExecutionKickoffText(planPath),
-                            synthetic: true,
-                        }],
-                },
-            });
-        }
-        : undefined);
+    // Cursor SwitchMode without an advertised plan_enter selects the host's
+    // primary agent the OpenCode 1.x way once its Run has ended. The OpenCode 2.0
+    // entrypoint replaces this with `session.switchAgent` in its own setup().
+    const refreshHostAgents = installPromptHostAgentModeSwitch(input, sessionClient, promptAsync);
+    let hostAgentsLoaded;
+    const sessionGet = sessionClient?.get;
+    const getSession = typeof sessionGet === "function"
+        ? (sessionID) => sessionGet.call(sessionClient, { path: { id: sessionID } })
+        : undefined;
     let lastPersistAttempt;
     async function persistAuth(body) {
         await input.client.auth.set({
@@ -280,6 +315,22 @@ export async function CursorPlugin(input) {
             // Carry the canonical OpenCode id so an incompatible Cursor checkpoint
             // is rotated instead of resuming the prior agent's prompt.
             output.options[CURSOR_HOST_AGENT_OPTION] = hookInput.agent;
+            // First Cursor request: the host now serves its API, so read its agents
+            // before any Run can raise SwitchMode. Concurrent first requests share
+            // the one read; later requests find it settled.
+            hostAgentsLoaded ??= refreshHostAgents?.();
+            await hostAgentsLoaded;
+            // Know the session's own plan file (OpenCode's `Session.plan`) before the
+            // Run starts, so CreatePlan records the plan where the plan agent and
+            // plan_exit read it. It is fixed per session, so resolve it once.
+            if (hookInput.agent !== "compaction" && getSession && !isHostPlanFileResolved(hookInput.sessionID)) {
+                await resolveHostPlanFile({
+                    sessionID: hookInput.sessionID,
+                    getSession,
+                    worktree: input.worktree || input.project?.worktree,
+                    vcs: !!input.project?.vcs,
+                });
+            }
             // OpenCode's compaction pipeline invokes the LLM with agent="compaction".
             // Carry that stable runtime fact into LanguageModelV3 providerOptions so
             // the provider never has to guess from an empty tool list.

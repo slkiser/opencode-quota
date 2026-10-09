@@ -1,6 +1,6 @@
 {
   "name": "@anthonyhaussman/opencode-agy-auth",
-  "version": "1.2.17-alpha.0",
+  "version": "1.3.2-alpha.0",
   "author": "antigravity",
   "repository": {
     "type": "git",
@@ -53,8 +53,8 @@
     "vitest": "^5.0.3"
   },
   "dependencies": {
-    "@ai-sdk/google": "^4.0.88",
+    "@ai-sdk/google": "^4.0.90",
     "@openauthjs/openauth": "^0.4.3",
-    "@opencode-ai/plugin": "^1.18.34"
+    "@opencode-ai/plugin": "^1.18.35"
   }
 }

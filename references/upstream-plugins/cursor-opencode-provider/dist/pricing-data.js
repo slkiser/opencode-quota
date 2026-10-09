@@ -25,6 +25,12 @@ export const CURSOR_MODEL_COSTS = {
         "cache_read": 0.1,
         "cache_write": 1.25
     },
+    "claude-haiku-5-5": {
+        "input": 0.1,
+        "output": 0.5,
+        "cache_read": 0.01,
+        "cache_write": 0.125
+    },
     "claude-opus-4-5": {
         "input": 5,
         "output": 25,
@@ -94,7 +100,7 @@ export const CURSOR_MODEL_COSTS = {
     "claude-sonnet-5-5": {
         "input": 2,
         "output": 10,
-        "cache_read": 0.2,
+        "cache_read": 0.1,
         "cache_write": 2.5
     },
     "composer-2.5": {
@@ -311,6 +317,10 @@ export const CURSOR_MODEL_CONTEXTS = {
     "claude-haiku-4-5": {
         "maxContext": 200000
     },
+    "claude-haiku-5-5": {
+        "maxContext": 300000,
+        "maxContextForMaxMode": 1000000
+    },
     "claude-opus-4-5": {
         "maxContext": 200000,
         "maxContextForMaxMode": 200000
@@ -463,6 +473,9 @@ export const CURSOR_MODEL_CAPABILITIES = {
         "supportsImages": true
     },
     "claude-haiku-4-5": {
+        "supportsImages": true
+    },
+    "claude-haiku-5-5": {
         "supportsImages": true
     },
     "claude-opus-4-5": {

@@ -69,6 +69,8 @@ export function modelConfigEntryToInfo(id, entry) {
         time: { released: 0 },
         cost: toOpenCode2Costs(entry.cost),
     };
+    if (typeof entry.family === "string" && entry.family.trim())
+        info.family = entry.family.trim();
     if (options)
         info.settings = { ...options };
     return info;

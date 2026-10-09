@@ -183,13 +183,48 @@ export function displayOptions(question) {
         return question.options.slice(0, -1);
     return question.options.slice();
 }
-function header(title) {
+/** OpenCode `Question.Prompt.header`: short label, max 30 chars. */
+export function questionHeader(title) {
     const trimmed = title.trim();
     if (!trimmed)
         return "Question";
     return trimmed.length > HEADER_MAX_LENGTH
         ? trimmed.slice(0, HEADER_MAX_LENGTH - 1).trimEnd() + "…"
         : trimmed;
+}
+/**
+ * Fill required OpenCode `question` fields when a model call omits them.
+ * Live OC1 failure: SchemaError Missing key at ["questions"][0]["header"].
+ */
+export function normalizeOpencodeQuestionArgs(args) {
+    if (!Array.isArray(args.questions))
+        return args;
+    return {
+        ...args,
+        questions: args.questions.map((item) => {
+            if (!item || typeof item !== "object" || Array.isArray(item))
+                return item;
+            const q = item;
+            const prompt = typeof q.question === "string" ? q.question : "";
+            const existing = typeof q.header === "string" ? q.header : "";
+            const options = Array.isArray(q.options)
+                ? q.options.map((opt) => {
+                    if (!opt || typeof opt !== "object" || Array.isArray(opt))
+                        return opt;
+                    const o = opt;
+                    return {
+                        ...o,
+                        ...(o.description === undefined ? { description: "" } : {}),
+                    };
+                })
+                : q.options;
+            return {
+                ...q,
+                header: questionHeader(existing.trim() || prompt),
+                options,
+            };
+        }),
+    };
 }
 /**
  * Build the OpenCode `question` tool input. `Question.Prompt` requires
@@ -200,7 +235,7 @@ export function askQuestionToolInput(args) {
     return {
         questions: args.questions.map((question) => ({
             question: question.prompt,
-            header: header(args.title),
+            header: questionHeader(args.title),
             options: displayOptions(question).map((option) => ({
                 label: option.label,
                 description: "",
@@ -220,11 +255,15 @@ export function asyncResult() {
 /**
  * Pull each question's answer text out of a host `question` tool output.
  *
- * OpenCode returns prose (`metadata.answers` does not cross the AI SDK
+ * OpenCode 1.x returns prose (`metadata.answers` does not cross the AI SDK
  * boundary):
  *
  *   User has answered your questions: "<q1>"="<a, b>", "<q2>"="Unanswered". You
  *   can now continue with the user's answers in mind.
+ *
+ * OpenCode 2.0 sends the tool's declared output as JSON
+ * (`{ "answers": [["Yes"], …] }`) and does not put that prose on the AI SDK
+ * tool-result. Answers are positional.
  *
  * The prose is located by its `"<question>"="` anchor — robust
  * against commas, quotes and `"="` inside question or answer text, and against
@@ -232,6 +271,9 @@ export function asyncResult() {
  * absent, which is treated as unanswered rather than guessed at.
  */
 export function parseAnswerSegments(questions, output) {
+    const fromJson = parseJsonAnswerSegments(output, questions.length);
+    if (fromJson)
+        return fromJson;
     const answers = [];
     let cursor = 0;
     for (const question of questions) {
@@ -259,6 +301,38 @@ export function parseAnswerSegments(questions, output) {
         cursor = valueEnd;
     }
     return answers;
+}
+function cellText(cell) {
+    if (typeof cell === "string")
+        return cell;
+    if (typeof cell === "number" || typeof cell === "boolean")
+        return String(cell);
+    if (Array.isArray(cell)) {
+        const parts = cell.map((item) => (typeof item === "string" ? item : "")).filter(Boolean);
+        return parts.length > 0 ? parts.join(", ") : undefined;
+    }
+    return undefined;
+}
+/** OpenCode 2 `question` output `{ answers: string[][] }`, or a JSON array of cells. */
+function parseJsonAnswerSegments(output, count) {
+    const trimmed = output.trim();
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("["))
+        return undefined;
+    let parsed;
+    try {
+        parsed = JSON.parse(trimmed);
+    }
+    catch {
+        return undefined;
+    }
+    const cells = Array.isArray(parsed)
+        ? parsed
+        : parsed && typeof parsed === "object" && Array.isArray(parsed.answers)
+            ? parsed.answers
+            : undefined;
+    if (!cells)
+        return undefined;
+    return Array.from({ length: count }, (_, index) => cellText(cells[index]));
 }
 /** OpenCode's placeholder for a question the user left blank. */
 const UNANSWERED = "Unanswered";

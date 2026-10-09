@@ -1,4 +1,4 @@
-import { buildDynamicRequestContext, buildRequestContext, materializeRequestContext, requestContextBase, withSystemInstructions, } from "./build.js";
+import { buildDynamicRequestContext, buildRequestContext, materializeRequestContext, requestContextBase, resolveSkillLocations, withSystemInstructions, } from "./build.js";
 import { clearContextEpoch, endContextEpoch, resetContextEpochsForTests } from "./epoch.js";
 import { clearOverlayHold, resetOverlayHoldsForTests, transferOverlayHold, } from "./overlay.js";
 import { trace } from "../debug.js";
@@ -174,7 +174,11 @@ export async function getOrBuildRequestContext(conversationId, input, opts) {
                     `authoritative=${input.systemInstructions?.authoritative ?? false}`);
             }
             const dynamic = await buildDynamicRequestContext(scoped);
-            const materialized = rememberMaterialized(conversationId, materializeRequestContext(base, dynamic));
+            const skillLocations = await resolveSkillLocations(scoped, scoped.workspaceRoot);
+            const materialized = rememberMaterialized(conversationId, materializeRequestContext(base, dynamic, {
+                tools: scoped.tools,
+                ...skillLocations,
+            }));
             trace(`request_context: materialized conversationId=${conversationId} ` +
                 `tools=${advertisedMetaToolCount(materialized.context)} ` +
                 `reused=${materialized.reused}`);

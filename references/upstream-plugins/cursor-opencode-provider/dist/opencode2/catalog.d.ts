@@ -36,6 +36,7 @@ export type CatalogModelInfo = {
     modelID: string;
     providerID: string;
     name: string;
+    family?: string;
     capabilities: {
         tools: boolean;
         input: string[];

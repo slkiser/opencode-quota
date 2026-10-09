@@ -15,6 +15,8 @@ export type CursorConversationTokenDetails = {
     breakdown?: CursorPromptTokenBreakdown;
 };
 export type CursorContextUsageSource = "checkpoint-current-run" | "checkpoint-previous-turn";
+/** Cursor can update occupancy while retaining categories from an older checkpoint. */
+export declare function currentCursorTokenBreakdown(details: CursorConversationTokenDetails | undefined): CursorPromptTokenBreakdown | undefined;
 /**
  * Read field #5 (`ConversationTokenDetails`) from Cursor's opaque
  * `ConversationStateStructure` checkpoint without decoding or re-encoding the

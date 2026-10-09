@@ -1,3 +1,4 @@
+import { currentCursorTokenBreakdown } from "./protocol/token-details.js";
 /** Non-negative integer counter from a Cursor `turn_ended` field. */
 export function turnEndedCounter(te, key) {
     const value = te[key];
@@ -75,7 +76,7 @@ function usageRatio(part, total) {
     return total > 0 ? `${(part / total * 100).toFixed(1)}%` : "n/a";
 }
 function categoryTokens(details) {
-    return new Map(details?.breakdown?.categories.map((category) => [
+    return new Map(currentCursorTokenBreakdown(details)?.categories.map((category) => [
         category.id || category.label || "(unnamed)",
         category.estimatedTokens,
     ]) ?? []);
@@ -97,7 +98,7 @@ export function formatCursorCacheDiagnostics(counters, current, prior, stats) {
     const rawUncached = Math.max(0, rawInput - rawRead - rawWrite);
     const priorCategories = categoryTokens(prior);
     const currentCategories = categoryTokens(current);
-    const categoriesComparable = !!prior?.breakdown && !!current?.breakdown;
+    const categoriesComparable = !!currentCursorTokenBreakdown(prior) && !!currentCursorTokenBreakdown(current);
     const categoryDelta = {};
     let sameSizedCategoryTokens = 0;
     if (categoriesComparable) {
@@ -132,6 +133,13 @@ export function formatCursorCacheDiagnostics(counters, current, prior, stats) {
             && toolsDelta !== 0
             ? "client-overlay-changed"
             : "none";
+    // Occupancy measures context size, not cache reuse. A zero counter on an
+    // interaction turn cannot distinguish omitted accounting from a cache miss.
+    const interactionZeroRead = stats.startedWithCheckpoint
+        && rawRead === 0
+        && typeof prior?.usedTokens === "number"
+        && prior.usedTokens > 0
+        && (stats.createPlanInTurn === true || stats.switchModeInTurn === true);
     return [
         "cache diagnosis:",
         `sessionKey=${stats.sessionKey ?? "-"}`,
@@ -164,6 +172,12 @@ export function formatCursorCacheDiagnostics(counters, current, prior, stats) {
         `execRequests=${stats.execRequests}`,
         `createPlanInTurn=${stats.createPlanInTurn === true}`,
         `switchModeInTurn=${stats.switchModeInTurn === true}`,
+        ...(interactionZeroRead
+            ? [
+                "turnEndedCacheRead=zero-interaction",
+                "cacheReuseEvidence=unavailable",
+            ]
+            : []),
         "perModelCallCache=unavailable",
     ].join(" ");
 }
@@ -189,8 +203,9 @@ export function formatTurnUsageValidation(counters, usage, tokenDetails, context
     const breakdown = tokenDetails?.breakdown;
     const categorySum = breakdown?.categories.reduce((sum, category) => sum + category.estimatedTokens, 0);
     const breakdownMatch = breakdown && categorySum !== undefined
-        ? breakdown.totalUsedTokens === tokenDetails.usedTokens &&
-            categorySum === breakdown.totalUsedTokens
+        ? categorySum !== breakdown.totalUsedTokens
+            ? false
+            : currentCursorTokenBreakdown(tokenDetails) ? true : "stale"
         : undefined;
     const rawCached = counters.cacheRead + counters.cacheWrite;
     const sentCached = cacheRead + cacheWrite;
@@ -208,7 +223,7 @@ export function formatTurnUsageValidation(counters, usage, tokenDetails, context
         projectedOpenCodeTotal === sentTotal &&
         (cacheRatioMatch ?? true) &&
         (!tokenDetails || sentTotal === tokenDetails.usedTokens) &&
-        (breakdownMatch ?? true)
+        breakdownMatch !== false
         ? "ok"
         : "mismatch";
     return [
@@ -267,7 +282,9 @@ export function occupancyValidationCounters(details, prior) {
     return {
         inputTokens: used,
         outputTokens: used > 0 ? 1 : 0,
-        cacheRead: Math.max(0, Math.trunc(prior?.usedTokens ?? 0)),
+        // Cursor can shrink the context between checkpoints; the prior prefix
+        // cannot be larger than what is in context now.
+        cacheRead: Math.min(used, Math.max(0, Math.trunc(prior?.usedTokens ?? 0))),
         cacheWrite: 0,
         reasoningTokens: 0,
     };

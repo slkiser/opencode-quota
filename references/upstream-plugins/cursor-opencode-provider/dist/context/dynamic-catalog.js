@@ -64,7 +64,12 @@ export function buildDynamicCatalogRoutingInstruction(options) {
         `- OpenCode host tools that are not in Cursor's native top-level list (including ${extras.join(" and ")}) ` +
             "are reached through GetDynamicTools / CallDynamicTool (or the host's equivalent dynamic catalog). " +
             "When a skill matches or project rules name an MCP server, discover and call those tools that way " +
-            "before Grep/Shell fallbacks. Do not narrate that they are unavailable.",
+            "before Grep/Shell fallbacks. Do not narrate that they are unavailable. " +
+            // Cursor's server answers lookups and calls in its own `cursor` namespace
+            // (built-in tools such as GenerateImage) and rejects any other name there.
+            `Host tools are in namespace \`${DEFAULT_TOOL_SERVER}\`` +
+            (mcpServers.length > 0 ? " and MCP tools in their server's namespace" : "") +
+            "; namespace `cursor` holds only Cursor's built-in tools.",
     ];
     if (hasSkill) {
         // Mirror OpenCode 1 SystemPrompt.skills / OC2 SkillInstructions.render.

@@ -1,4 +1,13 @@
 import protobuf from "protobufjs";
+/** Cursor can update occupancy while retaining categories from an older checkpoint. */
+export function currentCursorTokenBreakdown(details) {
+    const breakdown = details?.breakdown;
+    return breakdown
+        && breakdown.totalUsedTokens === details.usedTokens
+        && breakdown.maxTokens === details.maxTokens
+        ? breakdown
+        : undefined;
+}
 const MAX_BREAKDOWN_CATEGORIES = 128;
 function requireWireType(actual, expected, field) {
     if (actual !== expected)
@@ -142,6 +151,7 @@ export function cursorContextUsageMetadata(details, source = "checkpoint-current
     const usedPercent = details.maxTokens > 0
         ? Math.max(0, Math.min(100, Math.round(details.usedTokens / details.maxTokens * 1_000) / 10))
         : undefined;
+    const breakdown = currentCursorTokenBreakdown(details);
     return {
         contextUsageVersion: 2,
         source,
@@ -150,6 +160,6 @@ export function cursorContextUsageMetadata(details, source = "checkpoint-current
         maxTokens: details.maxTokens,
         remainingTokens: Math.max(0, details.maxTokens - details.usedTokens),
         ...(usedPercent === undefined ? {} : { usedPercent }),
-        ...(details.breakdown ? { breakdown: details.breakdown } : {}),
+        ...(breakdown ? { breakdown } : {}),
     };
 }

@@ -4,8 +4,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { UnsupportedFunctionalityError } from "@ai-sdk/provider";
 export const MAX_CURSOR_IMAGE_INPUT_BYTES = 20 * 1024 * 1024;
+function isToolMediaCaption(message) {
+    if (!message || !Array.isArray(message.content))
+        return false;
+    const first = message.content[0];
+    return first?.type === "text" && first.text === "Attached media from tool result:";
+}
 export function hasCursorUserImages(lastUser) {
-    return !!lastUser && Array.isArray(lastUser.content) && lastUser.content.some((part) => {
+    return !isToolMediaCaption(lastUser) && !!lastUser && Array.isArray(lastUser.content) && lastUser.content.some((part) => {
         if (!part || typeof part !== "object")
             return false;
         const file = part;
@@ -20,18 +26,20 @@ export function assertCursorUserImageSupport(lastUser, supportsImages, modelId) 
         return;
     unsupported("image input", `Cursor model ${JSON.stringify(modelId)} does not support image input`);
 }
-function decodeBase64(value) {
+function decodeBase64(value, remaining) {
     const normalized = value.replace(/\s/g, "");
     if (!normalized || !/^[A-Za-z0-9+/_-]*={0,2}$/.test(normalized)) {
         return unsupported("image input", "Cursor provider received invalid base64 image data");
     }
+    const padding = normalized.endsWith("==") ? 2 : normalized.endsWith("=") ? 1 : 0;
+    assertImageSize(Math.floor((normalized.length - padding) * 3 / 4), remaining);
     const data = Uint8Array.from(Buffer.from(normalized, "base64"));
     if (data.length === 0) {
         return unsupported("image input", "Cursor provider received an empty image");
     }
     return data;
 }
-function decodeDataUrl(value) {
+function decodeDataUrl(value, remaining) {
     if (!value.startsWith("data:")) {
         return unsupported("image input", "Cursor provider supports base64-encoded image data URLs only");
     }
@@ -47,7 +55,7 @@ function decodeDataUrl(value) {
     const firstSeparator = metadata.indexOf(";");
     const mimeType = metadata.slice(0, firstSeparator);
     return {
-        data: decodeBase64(value.slice(commaIndex + 1)),
+        data: decodeBase64(value.slice(commaIndex + 1), remaining),
         mimeType: mimeType || undefined,
     };
 }
@@ -121,13 +129,15 @@ async function readResponseBytes(response, remaining) {
     return data;
 }
 async function resolveImageData(value, remaining, signal) {
-    if (value instanceof Uint8Array)
+    if (value instanceof Uint8Array) {
+        assertImageSize(value.length, remaining);
         return { data: Uint8Array.from(value) };
+    }
     if (typeof value === "string") {
-        return value.startsWith("data:") ? decodeDataUrl(value) : { data: decodeBase64(value) };
+        return value.startsWith("data:") ? decodeDataUrl(value, remaining) : { data: decodeBase64(value, remaining) };
     }
     if (value.protocol === "data:")
-        return decodeDataUrl(value.href);
+        return decodeDataUrl(value.href, remaining);
     if (value.protocol === "file:") {
         const filePath = fileURLToPath(value);
         const info = await stat(filePath);
@@ -183,21 +193,33 @@ export async function extractCursorUserImages(lastUser, signal, maxBytes = MAX_C
         const file = part;
         if (file.type !== "file")
             continue;
-        const image = await decodeCursorImagePart(file, byteBudget - totalBytes, signal, `image-${images.length + 1}`);
+        const image = await decodeCursorImagePart(toolImagePart(file) ?? file, byteBudget - totalBytes, signal, `image-${images.length + 1}`);
         totalBytes += image.data.length;
         images.push(image);
     }
     return images;
 }
-function pushImageFileParts(parts, content) {
+/** Normalize OpenCode / AI SDK attachment shapes before either delivery path. */
+function toolImagePart(part) {
+    if (!part || typeof part !== "object")
+        return undefined;
+    const file = part;
+    if (!["file", "file-data", "image-data", "image-url", "media", "image"].includes(String(file.type)))
+        return undefined;
+    const mediaType = typeof file.mediaType === "string" ? file.mediaType
+        : file.type === "image-url" ? "image/*" : file.mime;
+    if (typeof mediaType !== "string" || !mediaType.startsWith("image/"))
+        return undefined;
+    const source = file.url ?? file.uri;
+    const data = file.data ?? (typeof source === "string" && /^(?:https?|file):/.test(source) && URL.canParse(source)
+        ? new URL(source) : source);
+    return { ...file, mediaType, data };
+}
+function pushImageFileParts(parts, content, toolResult = false) {
     for (const part of content) {
-        if (!part || typeof part !== "object")
-            continue;
-        const file = part;
-        if (file.type === "file" &&
-            typeof file.mediaType === "string" &&
-            file.mediaType.startsWith("image/"))
-            parts.push(file);
+        const file = toolImagePart(part);
+        if (file?.type === "file")
+            parts.push({ file, toolResult });
     }
 }
 function cursorHistoryImageParts(prompt) {
@@ -222,7 +244,7 @@ function cursorHistoryImageParts(prompt) {
         if (record.role === "user") {
             if (i === lastUserIndex)
                 continue;
-            pushImageFileParts(parts, record.content);
+            pushImageFileParts(parts, record.content, isToolMediaCaption(record));
             continue;
         }
         if (record.role === "assistant") {
@@ -244,11 +266,9 @@ function cursorHistoryImageParts(prompt) {
             for (const value of output.value) {
                 if (!value || typeof value !== "object")
                     continue;
-                const file = value;
-                if (file.type === "file-data" &&
-                    typeof file.mediaType === "string" &&
-                    file.mediaType.startsWith("image/"))
-                    parts.push(file);
+                const file = toolImagePart(value);
+                if (file)
+                    parts.push({ file, toolResult: true });
             }
         }
     }
@@ -264,11 +284,22 @@ export async function extractCursorHistoryImages(prompt, options) {
     const hashes = [];
     const hashesThisTurn = new Set();
     let duplicateCount = 0;
+    let omittedCount = 0;
     let totalBytes = 0;
-    for (const file of candidates) {
+    for (const { file, toolResult } of candidates) {
         // Resolve against the per-image cap first so a previously sent duplicate
         // does not fail merely because little combined budget remains this turn.
-        const image = await decodeCursorImagePart(file, MAX_CURSOR_IMAGE_INPUT_BYTES, options.signal, `image-${(options.filenameOffset ?? 0) + images.length + 1}`, MAX_CURSOR_IMAGE_INPUT_BYTES);
+        let image;
+        try {
+            image = await decodeCursorImagePart(file, MAX_CURSOR_IMAGE_INPUT_BYTES, options.signal, `image-${(options.filenameOffset ?? 0) + images.length + 1}`);
+        }
+        catch (error) {
+            options.signal?.throwIfAborted();
+            if (!toolResult || (error instanceof Error && error.name === "AbortError"))
+                throw error;
+            omittedCount++;
+            continue;
+        }
         const hash = imageContentHash(image.data);
         if (options.seenHashes?.has(hash) || hashesThisTurn.has(hash)) {
             duplicateCount++;
@@ -280,15 +311,71 @@ export async function extractCursorHistoryImages(prompt, options) {
         hashes.push(hash);
         hashesThisTurn.add(hash);
     }
-    return { images, hashes, candidateCount: candidates.length, duplicateCount };
+    return { images, hashes, candidateCount: candidates.length, duplicateCount, ...(omittedCount > 0 ? { omittedCount } : {}) };
+}
+/**
+ * Decode the images a host tool returned (its own `file-data` / `image-data`
+ * parts, or the `file` parts OpenCode moves into the trailing
+ * `Attached media from tool result:` message) for a held-Run exec result.
+ * Non-image parts are skipped; a part that cannot be decoded is dropped so the
+ * text result is still delivered.
+ */
+export async function extractCursorToolResultImages(parts, options = {}) {
+    const maxBytes = cursorImageBudget(options.maxBytes ?? MAX_CURSOR_IMAGE_INPUT_BYTES);
+    const images = [];
+    const hashes = [];
+    let totalBytes = 0;
+    let omittedCount = 0;
+    options.signal?.throwIfAborted();
+    for (const part of parts) {
+        options.signal?.throwIfAborted();
+        const file = toolImagePart(part);
+        if (!file)
+            continue;
+        if (images.length >= (options.maxImages ?? Infinity) || totalBytes >= maxBytes) {
+            omittedCount++;
+            continue;
+        }
+        try {
+            const image = await decodeCursorImagePart(file, maxBytes - totalBytes, options.signal, `image-${images.length + 1}`);
+            options.signal?.throwIfAborted();
+            totalBytes += image.data.length;
+            images.push(image);
+            hashes.push(imageContentHash(image.data));
+        }
+        catch (error) {
+            // Tool media is optional: a missing file or failed download must not
+            // strand every pending exec. Cancellation still belongs to the caller.
+            options.signal?.throwIfAborted();
+            if (error instanceof Error && error.name === "AbortError")
+                throw error;
+            omittedCount++;
+        }
+    }
+    return { images, hashes, omittedCount };
 }
 export async function extractCursorPromptImages(prompt, lastUser, options) {
     const maxBytes = cursorImageBudget(options.maxBytes ?? MAX_CURSOR_IMAGE_INPUT_BYTES);
-    const userImages = await extractCursorUserImages(lastUser, options.signal, maxBytes);
+    const toolCaption = isToolMediaCaption(lastUser);
+    const caption = toolCaption && options.supportsImages
+        ? await extractCursorToolResultImages(lastUser.content, { signal: options.signal, maxBytes })
+        : undefined;
+    const captionHashes = [];
+    const seenHashes = new Set(options.seenHistoryHashes);
+    let captionDuplicates = 0;
+    const userImages = toolCaption ? (caption?.images ?? []).filter((_image, index) => {
+        const hash = caption.hashes[index];
+        if (seenHashes.has(hash)) {
+            captionDuplicates++;
+            return false;
+        }
+        seenHashes.add(hash);
+        captionHashes.push(hash);
+        return true;
+    }) : await extractCursorUserImages(lastUser, options.signal, maxBytes);
     const userBytes = userImages.reduce((total, image) => total + image.data.length, 0);
     // Seed history dedupe with this-turn last-user hashes so the same bytes on an
     // earlier user/assistant/tool message are not attached twice in one Run.
-    const seenHashes = new Set(options.seenHistoryHashes);
     for (const image of userImages)
         seenHashes.add(imageContentHash(image.data));
     const history = await extractCursorHistoryImages(prompt, {
@@ -300,7 +387,11 @@ export async function extractCursorPromptImages(prompt, lastUser, options) {
     });
     return {
         ...history,
+        hashes: [...captionHashes, ...history.hashes],
+        duplicateCount: history.duplicateCount + captionDuplicates,
         images: [...userImages, ...history.images],
-        userImageCount: userImages.length,
+        userImageCount: toolCaption ? 0 : userImages.length,
+        ...((history.omittedCount ?? 0) + (caption?.omittedCount ?? 0) > 0
+            ? { omittedCount: (history.omittedCount ?? 0) + (caption?.omittedCount ?? 0) } : {}),
     };
 }

@@ -4,3 +4,5 @@ export { clearFrozenRequestContext, getFrozenRequestContext, getOrBuildRequestCo
 export { MAX_OVERLAY_HOLDS, holdCapabilityOverlay, resetOverlayHoldsForTests, } from "./overlay.js";
 export { admitContextEpoch, appendMidConversationMessage, clearContextEpoch, endContextEpoch, getContextEpoch, MAX_CONTEXT_EPOCHS, resetContextEpochsForTests, type AdmitContextEpochInput, type AdmitContextEpochResult, type ContextEpoch, type ContextSourceSnapshot, } from "./epoch.js";
 export { HOST_PATH_BRIDGE, getHostCacheDirOverride, opencodeGlobalCacheDir, opencodeGlobalConfigDir, opencodeGlobalDataDir, hostGlobalDataDir, resolveHostCacheDir, setHostCacheDirOverride, } from "./paths.js";
+export { HOST_SKILLS_BRIDGE, setHostSkillsBridgeForTests, type HostSkill, type OpenCodeSkillsBridge, } from "./skills-bridge.js";
+export { agentSkillsForCursor, hostSkillFiles, rememberHostSkillFiles, resetHostSkillFilesForTests, skillToolAdvertised, } from "./skills.js";

@@ -2,7 +2,7 @@ import { encodeMessage } from "./messages.js";
 import { readAllFields } from "./struct.js";
 import { decodeAskQuestionQuery, MISSING_ARGS_REASON, MISSING_QUERY_REASON, } from "./ask-question.js";
 import { decodeGenerateImageQuery, } from "./generate-image.js";
-import { CURSOR_PLAN_STAGE_TOOL, createPlanApprovalQuestionInput, decodeCreatePlanQuery, renderPlanReviewMessage, resolveCreatePlanBridge, writeOpencodePlanFile, } from "./create-plan.js";
+import { CURSOR_PLAN_STAGE_TOOL, decodeCreatePlanQuery, createPlanApprovalQuestionInput, renderPlanReviewMessage, resolveCreatePlanBridge, writeOpencodePlanFile, } from "./create-plan.js";
 import { decodeSwitchModeQuery, MISSING_ARGS_REASON as SWITCH_MODE_MISSING_ARGS_REASON, MISSING_QUERY_REASON as SWITCH_MODE_MISSING_QUERY_REASON, resolveSwitchModeBridge, switchModeApprovedResult, } from "./switch-mode.js";
 const HEADLESS_REASON = "This Cursor interaction requires UI approval and is not available through the OpenCode provider.";
 /**
@@ -76,9 +76,9 @@ export function inspectInteractionQueryWire(agentServerPayload) {
  * Bridged / persisted exceptions:
  * - AskQuestion (#3) → OpenCode `question` tool
  * - SwitchMode (#4) → OpenCode `plan_enter` / `plan_exit` when advertised
- * - CreatePlan (#7) → host-calculated plan file via hostPlansDir (project-config
- *   `plans/` in a git worktree, else host global data/plans); empty args still
- *   get the CLI empty-`plan_uri` success ack
+ * - CreatePlan (#7) → the host's plan file (session `Session.plan` file when
+ *   known, else a new file under hostPlansDir); empty args still get the CLI
+ *   empty-`plan_uri` success ack
  * - GenerateImage (#12) → approve when `cursor_image_save` is advertised
  */
 export function handleInteractionQuery(query, agentServerPayload, options = {}) {
@@ -160,7 +160,7 @@ export function handleInteractionQuery(query, agentServerPayload, options = {}) 
  * non-blocking prompt, and otherwise hold the query open until the user picks.
  */
 function handleAskQuestionQuery(id, variantBytes, options) {
-    const base = { id, variantField: 3, variantName: "ask_question_interaction_query" };
+    const base = { id, variantField: 3, variantName: "ask_question_interaction_query", toolCallId: undefined };
     const reject = (reason) => ({
         ...base,
         outcome: "rejected",
@@ -171,6 +171,7 @@ function handleAskQuestionQuery(id, variantBytes, options) {
     const decoded = decodeAskQuestionQuery(variantBytes);
     if (!decoded)
         return reject(MISSING_ARGS_REASON);
+    base.toolCallId = decoded.toolCallId;
     if (!options.canBridgeAskQuestion)
         return reject(ASK_QUESTION_UNAVAILABLE_REASON);
     return {
@@ -200,7 +201,7 @@ export function buildAskQuestionInteractionReply(id, result) {
  * until the host tool returns, then reply approved{} or rejected{reason}.
  */
 function handleSwitchModeQuery(id, variantBytes, options) {
-    const base = { id, variantField: 4, variantName: "switch_mode_request_query" };
+    const base = { id, variantField: 4, variantName: "switch_mode_request_query", toolCallId: undefined };
     const reject = (reason) => ({
         ...base,
         outcome: "rejected",
@@ -211,10 +212,12 @@ function handleSwitchModeQuery(id, variantBytes, options) {
     const decoded = decodeSwitchModeQuery(variantBytes);
     if (!decoded)
         return reject(SWITCH_MODE_MISSING_ARGS_REASON);
+    base.toolCallId = decoded.toolCallId;
     const bridge = resolveSwitchModeBridge(decoded.args.targetModeId, {
         allowTools: options.allowTools === true,
         advertised: options.advertisedTools ?? [],
         ...(options.activeCursorModeId ? { activeModeId: options.activeCursorModeId } : {}),
+        ...(options.hostAgent ? { hostAgent: options.hostAgent } : {}),
     });
     if (bridge.kind === "reject")
         return reject(bridge.reason);
@@ -243,10 +246,10 @@ function handleSwitchModeQuery(id, variantBytes, options) {
         switchMode: {
             ...decoded,
             bridge,
-            toolName: bridge.kind === "native" ? bridge.toolName : "question",
+            toolName: bridge.toolName,
         },
-        // Keep Cursor waiting until the host tool returns, matching CLI blocking on
-        // the mode-switch approval prompt.
+        // Keep Cursor waiting until the host plan tool returns: the host owns the
+        // mode-switch approval.
         reply: undefined,
     };
 }
@@ -298,7 +301,7 @@ export function buildAsyncAskQuestionCompletion(originalToolCallId, originalArgs
  * written but not accepted, so the model keeps planning.
  */
 function handleCreatePlanQuery(id, variantBytes, options) {
-    const base = { id, variantField: 7, variantName: "create_plan_request_query" };
+    const base = { id, variantField: 7, variantName: "create_plan_request_query", toolCallId: undefined };
     const reply = (result) => ({
         ...base,
         outcome: result.error ? "failed" : "acknowledged",
@@ -315,13 +318,46 @@ function handleCreatePlanQuery(id, variantBytes, options) {
     const decoded = decodeCreatePlanQuery(variantBytes);
     if (!decoded)
         return reply({ success: {}, plan_uri: "" });
+    base.toolCallId = decoded.toolCallId;
     const bridge = resolveCreatePlanBridge({
         allowTools: options.allowTools === true,
         canStage: options.canBridgeCreatePlan === true,
-        planModeActive: options.planModeActive === true,
         advertised: options.advertisedTools ?? [],
+        hostPlanEntryPending: options.hostPlanEntryPending === true,
+        ...(options.hostAgent ? { hostAgent: options.hostAgent } : {}),
+        planModeActive: options.planModeActive === true,
+        ...(options.hostPlanFile ? { hostPlanFile: options.hostPlanFile } : {}),
     });
-    // The host plan-stage tool owns the write and the approval prompt together.
+    // The host's plan agent records and reviews the plan; write nothing here.
+    if (bridge.kind === "defer") {
+        return {
+            ...reply({ error: { error: bridge.reason }, plan_uri: "" }),
+            ...(decoded.toolCallId ? { deferredCreatePlanToolCallId: decoded.toolCallId } : {}),
+        };
+    }
+    // The host plan agent reviews its own plan file: record the plan there and
+    // hand it to the host plan_exit, which asks the user and, on approval,
+    // moves the session to its build agent.
+    if (bridge.kind === "exit") {
+        const written = writeOpencodePlanFile(decoded.args, options.workspaceRoot ?? "", Date.now(), bridge.planPath);
+        if (!written.ok) {
+            return reply({ error: { error: written.error }, plan_uri: "" });
+        }
+        return {
+            ...base,
+            outcome: "bridged",
+            createPlan: {
+                ...decoded,
+                bridge,
+                toolName: "plan_exit",
+                planUri: written.planUri,
+                planPath: written.planPath,
+                planReview: renderPlanReviewMessage(written.markdown, written.planPath),
+            },
+            reply: undefined,
+        };
+    }
+    // The host plan-stage tool owns the write and the review together.
     if (bridge.kind === "stage") {
         return {
             ...base,
@@ -330,25 +366,18 @@ function handleCreatePlanQuery(id, variantBytes, options) {
             reply: undefined,
         };
     }
-    // A lifecycle turn (title generation, compaction) runs alongside the real one
-    // and would otherwise write a second, throwaway plan file for the same
-    // request. Ack it the CLI way instead of persisting anything.
-    if (options.allowTools !== true)
-        return reply({ success: {}, plan_uri: "" });
-    const workspaceRoot = options.workspaceRoot?.trim();
-    if (!workspaceRoot) {
-        return reply({
-            error: { error: "CreatePlan requires a workspace root to write the plan file" },
-            plan_uri: "",
-        });
-    }
-    const written = writeOpencodePlanFile(decoded.args, workspaceRoot);
-    if (!written.ok) {
-        return reply({ error: { error: written.error }, plan_uri: "" });
-    }
-    // The plan is on disk either way; only execution needs the user. Hold Cursor's
-    // query open while the host asks, exactly as the CLI blocks on its own prompt.
     if (bridge.kind === "approve") {
+        const workspaceRoot = options.workspaceRoot?.trim();
+        if (!workspaceRoot) {
+            return reply({
+                error: { error: "CreatePlan requires a workspace root to write the plan file" },
+                plan_uri: "",
+            });
+        }
+        const written = writeOpencodePlanFile(decoded.args, workspaceRoot, Date.now(), options.hostPlanFile);
+        if (!written.ok) {
+            return reply({ error: { error: written.error }, plan_uri: "" });
+        }
         return {
             ...base,
             outcome: "bridged",
@@ -364,6 +393,25 @@ function handleCreatePlanQuery(id, variantBytes, options) {
             reply: undefined,
         };
     }
+    // A lifecycle turn (title generation, compaction) runs alongside the real one
+    // and would otherwise write a second, throwaway plan file for the same
+    // request. Ack it the CLI way instead of persisting anything.
+    if (options.allowTools !== true)
+        return reply({ success: {}, plan_uri: "" });
+    const workspaceRoot = options.workspaceRoot?.trim();
+    if (!workspaceRoot) {
+        return reply({
+            error: { error: "CreatePlan requires a workspace root to write the plan file" },
+            plan_uri: "",
+        });
+    }
+    // The session's own plan file when known, as the host's plan agent uses it.
+    const written = writeOpencodePlanFile(decoded.args, workspaceRoot, Date.now(), options.hostPlanFile);
+    if (!written.ok) {
+        return reply({ error: { error: written.error }, plan_uri: "" });
+    }
+    // Nothing advertised can ask: the plan is recorded where the host keeps
+    // plans. Execution starts only if the user later switches agents.
     return reply({ success: {}, plan_uri: written.planUri });
 }
 /**
@@ -375,7 +423,7 @@ function handleCreatePlanQuery(id, variantBytes, options) {
  * nowhere to go.
  */
 function handleGenerateImageQuery(id, variantBytes, options) {
-    const base = { id, variantField: 12, variantName: "generate_image_request_query" };
+    const base = { id, variantField: 12, variantName: "generate_image_request_query", toolCallId: undefined };
     const reject = (reason) => ({
         ...base,
         outcome: "rejected",
@@ -388,6 +436,7 @@ function handleGenerateImageQuery(id, variantBytes, options) {
     const decoded = decodeGenerateImageQuery(variantBytes);
     if (!decoded)
         return reject("Missing generate image arguments");
+    base.toolCallId = decoded.toolCallId;
     if (!options.canSaveGeneratedImage) {
         return reject("This OpenCode agent cannot save a generated image, so generating one would "
             + "produce nothing. Describe the image in your reply instead.");

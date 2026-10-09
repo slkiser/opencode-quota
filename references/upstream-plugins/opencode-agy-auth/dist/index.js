@@ -268,7 +268,7 @@ function createAgyActivityRequestId() {
 import os from "os";
 
 // src/sdk/agy-cli-version.ts
-var AGY_CLI_VERSION = "1.2.17";
+var AGY_CLI_VERSION = "1.3.2";
 
 // src/sdk/user-agent.ts
 var cachedUserAgent = null;
@@ -16076,8 +16076,12 @@ var models_default = {
     }
   },
   experimentIds: [
-    106560668,
-    106760947,
+    106791760,
+    106786387,
+    106791766,
+    106427252,
+    106815069,
+    106805876,
     105979552,
     105979574,
     106015333,
@@ -16096,6 +16100,7 @@ var models_default = {
     105887299,
     106428370,
     106640126,
+    106793266,
     106380926,
     106281951,
     106264532,
@@ -16118,7 +16123,9 @@ var models_default = {
     106038164,
     106032301,
     106121604,
-    106793057
+    106793057,
+    106778026,
+    106786388
   ],
   imageGenerationModelIds: [
     "gemini-3.1-flash-image"
@@ -16165,7 +16172,7 @@ var models_default = {
       modelExperiments: {
         experiments: {
           CASCADE_USE_EXPERIMENT_CHECKPOINTER: {
-            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SAME_MODEL",\n    "max_token_limit": "256000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": true,\n    "is_sync": true,\n    "max_user_requests": 10,\n    "include_last_user_message": true,\n    "include_conversation_log": false,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 4,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": ""\n}'
+            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SAME_MODEL",\n    "max_token_limit": "256000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": true,\n    "is_sync": true,\n    "max_user_requests": 10,\n    "include_last_user_message": true,\n    "include_conversation_log": false,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 4,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": "",\n    "use_model_reported_token_count": false\n}'
           },
           retry_model_capacity_exhausted: {
             boolValue: true
@@ -16174,8 +16181,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_ANTHROPIC",
       quotaInfo: {
-        remainingFraction: 1,
-        resetTime: "2026-10-06T00:32:08Z"
+        remainingFraction: 0.1891668,
+        resetTime: "2026-10-10T14:24:26Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16203,7 +16210,7 @@ var models_default = {
       modelExperiments: {
         experiments: {
           CASCADE_USE_EXPERIMENT_CHECKPOINTER: {
-            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SAME_MODEL",\n    "max_token_limit": "256000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": true,\n    "is_sync": true,\n    "max_user_requests": 10,\n    "include_last_user_message": true,\n    "include_conversation_log": false,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 4,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": ""\n}'
+            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SAME_MODEL",\n    "max_token_limit": "256000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": true,\n    "is_sync": true,\n    "max_user_requests": 10,\n    "include_last_user_message": true,\n    "include_conversation_log": false,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 4,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": "",\n    "use_model_reported_token_count": false\n}'
           },
           retry_model_capacity_exhausted: {
             boolValue: true
@@ -16212,8 +16219,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_ANTHROPIC",
       quotaInfo: {
-        remainingFraction: 1,
-        resetTime: "2026-10-06T00:32:08Z"
+        remainingFraction: 0.1891668,
+        resetTime: "2026-10-10T14:24:26Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16241,7 +16248,7 @@ var models_default = {
       modelExperiments: {
         experiments: {
           CASCADE_USE_EXPERIMENT_CHECKPOINTER: {
-            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SAME_MODEL",\n    "max_token_limit": "256000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": true,\n    "is_sync": true,\n    "max_user_requests": 10,\n    "include_last_user_message": true,\n    "include_conversation_log": false,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 4,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": ""\n}'
+            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SAME_MODEL",\n    "max_token_limit": "256000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": true,\n    "is_sync": true,\n    "max_user_requests": 10,\n    "include_last_user_message": true,\n    "include_conversation_log": false,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 4,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": "",\n    "use_model_reported_token_count": false\n}'
           },
           retry_model_capacity_exhausted: {
             boolValue: true
@@ -16250,8 +16257,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_ANTHROPIC",
       quotaInfo: {
-        remainingFraction: 1,
-        resetTime: "2026-10-06T00:32:08Z"
+        remainingFraction: 0.1891668,
+        resetTime: "2026-10-10T14:24:26Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16279,7 +16286,7 @@ var models_default = {
       modelExperiments: {
         experiments: {
           CASCADE_USE_EXPERIMENT_CHECKPOINTER: {
-            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SAME_MODEL",\n    "max_token_limit": "256000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": true,\n    "is_sync": true,\n    "max_user_requests": 10,\n    "include_last_user_message": true,\n    "include_conversation_log": false,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 4,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": ""\n}'
+            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SAME_MODEL",\n    "max_token_limit": "256000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": true,\n    "is_sync": true,\n    "max_user_requests": 10,\n    "include_last_user_message": true,\n    "include_conversation_log": false,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 4,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": "",\n    "use_model_reported_token_count": false\n}'
           },
           retry_model_capacity_exhausted: {
             boolValue: true
@@ -16288,8 +16295,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_ANTHROPIC",
       quotaInfo: {
-        remainingFraction: 1,
-        resetTime: "2026-10-06T00:32:08Z"
+        remainingFraction: 0.1891668,
+        resetTime: "2026-10-10T14:24:26Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16317,7 +16324,7 @@ var models_default = {
       modelExperiments: {
         experiments: {
           CASCADE_USE_EXPERIMENT_CHECKPOINTER: {
-            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SAME_MODEL",\n    "max_token_limit": "256000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": true,\n    "is_sync": true,\n    "max_user_requests": 10,\n    "include_last_user_message": true,\n    "include_conversation_log": false,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 4,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": ""\n}'
+            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SAME_MODEL",\n    "max_token_limit": "256000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": true,\n    "is_sync": true,\n    "max_user_requests": 10,\n    "include_last_user_message": true,\n    "include_conversation_log": false,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 4,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": "",\n    "use_model_reported_token_count": false\n}'
           },
           retry_model_capacity_exhausted: {
             boolValue: true
@@ -16326,8 +16333,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_ANTHROPIC",
       quotaInfo: {
-        remainingFraction: 1,
-        resetTime: "2026-10-06T00:32:08Z"
+        remainingFraction: 0.1891668,
+        resetTime: "2026-10-10T14:24:26Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16355,7 +16362,7 @@ var models_default = {
       modelExperiments: {
         experiments: {
           CASCADE_USE_EXPERIMENT_CHECKPOINTER: {
-            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SAME_MODEL",\n    "max_token_limit": "256000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": true,\n    "is_sync": true,\n    "max_user_requests": 10,\n    "include_last_user_message": true,\n    "include_conversation_log": false,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 4,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": ""\n}'
+            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SAME_MODEL",\n    "max_token_limit": "256000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": true,\n    "is_sync": true,\n    "max_user_requests": 10,\n    "include_last_user_message": true,\n    "include_conversation_log": false,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 4,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": "",\n    "use_model_reported_token_count": false\n}'
           },
           retry_model_capacity_exhausted: {
             boolValue: true
@@ -16364,8 +16371,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_ANTHROPIC",
       quotaInfo: {
-        remainingFraction: 1,
-        resetTime: "2026-10-06T00:32:08Z"
+        remainingFraction: 0.1891668,
+        resetTime: "2026-10-10T14:24:26Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16394,7 +16401,7 @@ var models_default = {
       modelExperiments: {
         experiments: {
           CASCADE_USE_EXPERIMENT_CHECKPOINTER: {
-            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SINGLE_PROMPT",\n    "max_token_limit": "128000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": ""\n}'
+            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SINGLE_PROMPT",\n    "max_token_limit": "128000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": "",\n    "use_model_reported_token_count": false\n}'
           },
           retry_model_capacity_exhausted: {
             boolValue: true
@@ -16403,8 +16410,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16477,7 +16484,7 @@ var models_default = {
       modelExperiments: {
         experiments: {
           CASCADE_USE_EXPERIMENT_CHECKPOINTER: {
-            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SINGLE_PROMPT",\n    "max_token_limit": "128000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": ""\n}'
+            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SINGLE_PROMPT",\n    "max_token_limit": "128000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": "",\n    "use_model_reported_token_count": false\n}'
           },
           retry_model_capacity_exhausted: {
             boolValue: true
@@ -16486,8 +16493,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16560,7 +16567,7 @@ var models_default = {
       modelExperiments: {
         experiments: {
           CASCADE_USE_EXPERIMENT_CHECKPOINTER: {
-            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SINGLE_PROMPT",\n    "max_token_limit": "128000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": ""\n}'
+            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SINGLE_PROMPT",\n    "max_token_limit": "128000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": "",\n    "use_model_reported_token_count": false\n}'
           },
           retry_model_capacity_exhausted: {
             boolValue: true
@@ -16569,8 +16576,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16643,14 +16650,14 @@ var models_default = {
       modelExperiments: {
         experiments: {
           CASCADE_USE_EXPERIMENT_CHECKPOINTER: {
-            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SINGLE_PROMPT",\n    "max_token_limit": "128000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": ""\n}'
+            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SINGLE_PROMPT",\n    "max_token_limit": "128000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": "",\n    "use_model_reported_token_count": false\n}'
           }
         }
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       requiresImageOutputOutsideFunctionResponses: true,
@@ -16721,7 +16728,7 @@ var models_default = {
       modelExperiments: {
         experiments: {
           CASCADE_USE_EXPERIMENT_CHECKPOINTER: {
-            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SINGLE_PROMPT",\n    "max_token_limit": "128000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": ""\n}'
+            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SINGLE_PROMPT",\n    "max_token_limit": "128000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": "",\n    "use_model_reported_token_count": false\n}'
           },
           template__system_prompts__communication_style: {
             stringValue: '- Keep your responses concise.\n- Provide a summary of your work when you end your turn. Ground your response in the work you did. Keep your tone professional and avoid overconfident language, bragging, or overclaiming success.\n- AVOID using superlatives such as "perfectly", "flawlessly", "100% correct", "Summary of Accomplishments" etc. to summarize your work for the user. Be humble.\n- AVOID over-the-top politeness or complimenting the user excessively.\n- Format your responses in github-style markdown.'
@@ -16730,8 +16737,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16825,7 +16832,8 @@ var models_default = {
         "exponential_multiplier": 2,
         "include_error_feedback": false
     },
-    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n"
+    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n",
+    "use_model_reported_token_count": false
 }`
           },
           template__system_prompts__planning_mode_artifacts: {
@@ -16835,8 +16843,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16903,8 +16911,8 @@ var models_default = {
       model: "MODEL_PLACEHOLDER_M21",
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       }
     },
     "gemini-3.1-flash-lite": {
@@ -16916,14 +16924,14 @@ var models_default = {
       modelExperiments: {
         experiments: {
           CASCADE_USE_EXPERIMENT_CHECKPOINTER: {
-            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SINGLE_PROMPT",\n    "max_token_limit": "128000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": ""\n}'
+            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SINGLE_PROMPT",\n    "max_token_limit": "128000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": "",\n    "use_model_reported_token_count": false\n}'
           }
         }
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       }
     },
     "gemini-3.1-pro-high": {
@@ -16936,7 +16944,7 @@ var models_default = {
       modelExperiments: {
         experiments: {
           CASCADE_USE_EXPERIMENT_CHECKPOINTER: {
-            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SINGLE_PROMPT",\n    "max_token_limit": "128000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": ""\n}'
+            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SINGLE_PROMPT",\n    "max_token_limit": "128000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": "",\n    "use_model_reported_token_count": false\n}'
           },
           "cascade-include-ephemeral-message": {
             stringValue: '{\n    "enabled": true,\n    "disabledHeuristics": ["running_tasks_reminder"],\n    "staticMessages": [],\n    "useAllowlist": false,\n    "enabledHeuristics": []\n}'
@@ -16954,8 +16962,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17014,7 +17022,8 @@ var models_default = {
       supportsImages: true,
       supportsThinking: true,
       supportsVideo: true,
-      tagTitle: "New",
+      tagDescription: "Use Gemini 3.8 Flash! As a newer model, it delivers more intelligence at 2x the speed for 70% less cost than Gemini 3.1 Pro.",
+      tagTitle: "Leaving Soon",
       thinkingBudget: 10001
     },
     "gemini-3.1-pro-low": {
@@ -17027,7 +17036,7 @@ var models_default = {
       modelExperiments: {
         experiments: {
           CASCADE_USE_EXPERIMENT_CHECKPOINTER: {
-            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SINGLE_PROMPT",\n    "max_token_limit": "128000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": ""\n}'
+            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SINGLE_PROMPT",\n    "max_token_limit": "128000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": "",\n    "use_model_reported_token_count": false\n}'
           },
           "cascade-include-ephemeral-message": {
             stringValue: '{\n    "enabled": true,\n    "disabledHeuristics": ["running_tasks_reminder"],\n    "staticMessages": [],\n    "useAllowlist": false,\n    "enabledHeuristics": []\n}'
@@ -17045,8 +17054,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17105,6 +17114,8 @@ var models_default = {
       supportsImages: true,
       supportsThinking: true,
       supportsVideo: true,
+      tagDescription: "Use Gemini 3.8 Flash! As a newer model, it delivers more intelligence at 2x the speed for 70% less cost than Gemini 3.1 Pro.",
+      tagTitle: "Leaving Soon",
       thinkingBudget: 1001
     },
     "gemini-3.5-flash-extra-low": {
@@ -17140,7 +17151,8 @@ var models_default = {
         "exponential_multiplier": 2,
         "include_error_feedback": false
     },
-    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n"
+    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n",
+    "use_model_reported_token_count": false
 }`
           },
           template__system_prompts__planning_mode_artifacts: {
@@ -17150,8 +17162,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17222,7 +17234,7 @@ var models_default = {
       modelExperiments: {
         experiments: {
           CASCADE_USE_EXPERIMENT_CHECKPOINTER: {
-            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SINGLE_PROMPT",\n    "max_token_limit": "128000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": ""\n}'
+            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SINGLE_PROMPT",\n    "max_token_limit": "128000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": "",\n    "use_model_reported_token_count": false\n}'
           },
           retry_model_capacity_exhausted: {
             boolValue: true
@@ -17231,8 +17243,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17328,7 +17340,8 @@ var models_default = {
         "exponential_multiplier": 2,
         "include_error_feedback": false
     },
-    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n"
+    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n",
+    "use_model_reported_token_count": false
 }`
           },
           template__system_prompts__planning_mode_artifacts: {
@@ -17338,8 +17351,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17433,7 +17446,8 @@ var models_default = {
         "exponential_multiplier": 2,
         "include_error_feedback": false
     },
-    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n"
+    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n",
+    "use_model_reported_token_count": false
 }`
           },
           "cascade-include-ephemeral-message": {
@@ -17455,8 +17469,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17515,6 +17529,8 @@ var models_default = {
       supportsImages: true,
       supportsThinking: true,
       supportsVideo: true,
+      tagDescription: "Start using Gemini 3.8 Flash, our best Flash model.",
+      tagTitle: "Leaving Soon",
       thinkingBudget: -1
     },
     "gemini-3.6-flash-low": {
@@ -17550,7 +17566,8 @@ var models_default = {
         "exponential_multiplier": 2,
         "include_error_feedback": false
     },
-    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n"
+    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n",
+    "use_model_reported_token_count": false
 }`
           },
           "cascade-include-ephemeral-message": {
@@ -17572,8 +17589,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17632,6 +17649,8 @@ var models_default = {
       supportsImages: true,
       supportsThinking: true,
       supportsVideo: true,
+      tagDescription: "Start using Gemini 3.8 Flash, our best Flash model.",
+      tagTitle: "Leaving Soon",
       thinkingBudget: 1e3
     },
     "gemini-3.6-flash-medium": {
@@ -17667,7 +17686,8 @@ var models_default = {
         "exponential_multiplier": 2,
         "include_error_feedback": false
     },
-    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n"
+    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n",
+    "use_model_reported_token_count": false
 }`
           },
           "cascade-include-ephemeral-message": {
@@ -17689,8 +17709,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17749,6 +17769,8 @@ var models_default = {
       supportsImages: true,
       supportsThinking: true,
       supportsVideo: true,
+      tagDescription: "Start using Gemini 3.8 Flash, our best Flash model.",
+      tagTitle: "Leaving Soon",
       thinkingBudget: 4e3
     },
     "gemini-3.6-flash-tiered": {
@@ -17783,7 +17805,8 @@ var models_default = {
         "exponential_multiplier": 2,
         "include_error_feedback": false
     },
-    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n"
+    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n",
+    "use_model_reported_token_count": false
 }`
           },
           "cascade-include-ephemeral-message": {
@@ -17805,8 +17828,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17900,7 +17923,8 @@ var models_default = {
         "exponential_multiplier": 2,
         "include_error_feedback": false
     },
-    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n"
+    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n",
+    "use_model_reported_token_count": false
 }`
           },
           "cascade-include-ephemeral-message": {
@@ -17916,8 +17940,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17976,6 +18000,8 @@ var models_default = {
       supportsImages: true,
       supportsThinking: true,
       supportsVideo: true,
+      tagDescription: "Start using Gemini 3.8 Flash, our best Flash model.",
+      tagTitle: "Leaving Soon",
       thinkingBudget: -1
     },
     "gemini-3.7-flash-low": {
@@ -18011,7 +18037,8 @@ var models_default = {
         "exponential_multiplier": 2,
         "include_error_feedback": false
     },
-    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n"
+    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n",
+    "use_model_reported_token_count": false
 }`
           },
           "cascade-include-ephemeral-message": {
@@ -18027,8 +18054,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18087,6 +18114,8 @@ var models_default = {
       supportsImages: true,
       supportsThinking: true,
       supportsVideo: true,
+      tagDescription: "Start using Gemini 3.8 Flash, our best Flash model.",
+      tagTitle: "Leaving Soon",
       thinkingBudget: 1e3
     },
     "gemini-3.7-flash-medium": {
@@ -18122,7 +18151,8 @@ var models_default = {
         "exponential_multiplier": 2,
         "include_error_feedback": false
     },
-    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n"
+    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n",
+    "use_model_reported_token_count": false
 }`
           },
           "cascade-include-ephemeral-message": {
@@ -18138,8 +18168,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18198,6 +18228,8 @@ var models_default = {
       supportsImages: true,
       supportsThinking: true,
       supportsVideo: true,
+      tagDescription: "Start using Gemini 3.8 Flash, our best Flash model.",
+      tagTitle: "Leaving Soon",
       thinkingBudget: 4e3
     },
     "gemini-3.7-flash-tiered": {
@@ -18232,7 +18264,8 @@ var models_default = {
         "exponential_multiplier": 2,
         "include_error_feedback": false
     },
-    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n"
+    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n",
+    "use_model_reported_token_count": false
 }`
           },
           "cascade-include-ephemeral-message": {
@@ -18248,8 +18281,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18343,7 +18376,8 @@ var models_default = {
         "exponential_multiplier": 2,
         "include_error_feedback": false
     },
-    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n"
+    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n",
+    "use_model_reported_token_count": false
 }`
           },
           "cascade-include-ephemeral-message": {
@@ -18359,8 +18393,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18454,7 +18488,8 @@ var models_default = {
         "exponential_multiplier": 2,
         "include_error_feedback": false
     },
-    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n"
+    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n",
+    "use_model_reported_token_count": false
 }`
           },
           "cascade-include-ephemeral-message": {
@@ -18470,8 +18505,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18565,7 +18600,8 @@ var models_default = {
         "exponential_multiplier": 2,
         "include_error_feedback": false
     },
-    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n"
+    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n",
+    "use_model_reported_token_count": false
 }`
           },
           "cascade-include-ephemeral-message": {
@@ -18581,8 +18617,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18675,7 +18711,8 @@ var models_default = {
         "exponential_multiplier": 2,
         "include_error_feedback": false
     },
-    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n"
+    "session_summary_prompt_override": "You have been working on the task described above but have not yet completed\\nit. Write a continuation summary that will allow you (or another instance of\\nyourself) to resume work efficiently in a future context window where the\\nfull conversation history will NOT be available\\u2014only this summary.\\n\\nThis summary is all that will be available to you going forward in the future\\ncontext window. Do not call any tools, simply just provide the summary based on\\nthe information available in the current context window.\\n\\nYour summary must be structured, concise, and actionable. Optimize for enabling immediate resumption with zero redundant work.\\n\\nInclude the following sections:\\n\\n1. **Task Overview**\\n   - The user's core request and success criteria\\n   - Constraints, preferences, or scope boundaries they specified\\n   - Any ambiguities that were resolved (and how)\\n\\n2. **Progress**\\n   - What has been completed, with concrete references (file paths,\\n     resource identifiers, tool outputs, URLs, etc.)\\n   - Key artifacts produced and their current state\\n   - What is in progress but incomplete, and its current state\\n\\n3. **Key Findings**\\n   - Technical constraints, requirements, or domain details uncovered\\n   - Decisions made and their rationale\\n   - Errors encountered and their resolutions\\n   - Approaches that were tried and abandoned (and why\\u2014this prevents\\n     the successor from repeating them)\\n\\n4. **Active Context**\\n   - State of any external resources, sessions, or environments in use\\n   - Relevant intermediate results, hypotheses, or working assumptions\\n   - Dependencies between components or steps\\n\\n5. **Next Steps**\\n   - Specific actions needed to complete the task, in priority order\\n   - Known blockers or open questions that must be resolved\\n   - For each step, note any prerequisites or risks\\n\\n6. **Commitments & Constraints**\\n   - Promises made to the user (e.g., \\"I said I would do X before Y\\")\\n   - User preferences or style requirements\\n   - Any boundaries the user set on approach, tools, or scope\\n\\nBe concise but complete\\u2014err on the side of including anything that would\\nprevent duplicate work, repeated mistakes, or broken promises. Do not include\\ninformation that is obvious from the task description itself.\\n\\nWrap your response in <summary></summary> tags.\\n",
+    "use_model_reported_token_count": false
 }`
           },
           "cascade-include-ephemeral-message": {
@@ -18691,8 +18728,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18763,7 +18800,7 @@ var models_default = {
       modelExperiments: {
         experiments: {
           CASCADE_USE_EXPERIMENT_CHECKPOINTER: {
-            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SINGLE_PROMPT",\n    "max_token_limit": "128000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": ""\n}'
+            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_SINGLE_PROMPT",\n    "max_token_limit": "128000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "16384",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": "",\n    "use_model_reported_token_count": false\n}'
           },
           "cascade-include-ephemeral-message": {
             stringValue: '{\n    "enabled": true,\n    "disabledHeuristics": ["running_tasks_reminder"],\n    "staticMessages": [],\n    "useAllowlist": false,\n    "enabledHeuristics": []\n}'
@@ -18781,8 +18818,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9418832,
-        resetTime: "2026-10-05T19:38:35Z"
+        remainingFraction: 0.9749444,
+        resetTime: "2026-10-09T09:49:33Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18841,6 +18878,8 @@ var models_default = {
       supportsImages: true,
       supportsThinking: true,
       supportsVideo: true,
+      tagDescription: "Use Gemini 3.8 Flash! As a newer model, it delivers more intelligence at 2x the speed for 70% less cost than Gemini 3.1 Pro.",
+      tagTitle: "Leaving Soon",
       thinkingBudget: 10001
     },
     "gpt-oss-120b-medium": {
@@ -18852,14 +18891,14 @@ var models_default = {
       modelExperiments: {
         experiments: {
           CASCADE_USE_EXPERIMENT_CHECKPOINTER: {
-            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_UNSPECIFIED",\n    "max_token_limit": "80000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "8192",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": ""\n}'
+            stringValue: '{\n    "strategy": "CHECKPOINT_STRATEGY_UNSPECIFIED",\n    "max_token_limit": "80000",\n    "token_threshold": "50000",\n    "max_overhead_ratio": "0.15",\n    "moving_window_size": "1",\n    "enabled": true,\n    "max_output_tokens": "8192",\n    "checkpoint_model": "MODEL_PLACEHOLDER_M50",\n    "use_last_planner_model": false,\n    "is_sync": false,\n    "max_user_requests": 10,\n    "include_last_user_message": false,\n    "include_conversation_log": true,\n    "include_running_task_snapshots": true,\n    "include_subagent_snapshots": true,\n    "include_artifact_snapshots": true,\n    "retry_config": {\n        "max_retries": 0,\n        "initial_sleep_duration_ms": 1000,\n        "exponential_multiplier": 2,\n        "include_error_feedback": false\n    },\n    "session_summary_prompt_override": "",\n    "use_model_reported_token_count": false\n}'
           }
         }
       },
       modelProvider: "MODEL_PROVIDER_OPENAI",
       quotaInfo: {
-        remainingFraction: 1,
-        resetTime: "2026-10-06T00:32:08Z"
+        remainingFraction: 0.1891668,
+        resetTime: "2026-10-10T14:24:26Z"
       },
       recommended: true,
       supportsThinking: true,

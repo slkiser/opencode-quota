@@ -17,16 +17,24 @@ export declare const IMAGE_PERMISSION_DENIED_PREFIX = "CursorImagePermissionDeni
 export type ImageSaveToolContext = {
     worktree: string;
     directory: string;
-    ask(input: {
+    /**
+     * Classic OpenCode 1.x `ToolContext.ask`. A host whose tool context has no
+     * permission prompt (OpenCode 2.0's public `ToolContext`) passes `null`
+     * explicitly: the commit then writes after containment, gated only by the
+     * tool's catalog permission. A missing `ask` is refused, never treated as
+     * permission.
+     */
+    ask: ((input: {
         permission: string;
         patterns: string[];
         always: string[];
         metadata: Record<string, unknown>;
-    }): Promise<void>;
+    }) => Promise<void>) | null;
 };
 export type ImageSaveResult = {
     title: string;
     output: string;
+    bytes: number;
     attachments?: Array<{
         type: "file";
         mime: string;

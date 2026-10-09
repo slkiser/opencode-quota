@@ -22,6 +22,10 @@ export type BridgedOpenCodeToolCall = {
 };
 /** Display variants Cursor executes itself (mcp_state + optional write spill). */
 export declare function isNativeDisplayToolCall(variant: string): boolean;
+/** Server-side dynamic-call failures may complete without a started/exec frame. */
+export declare function displayMcpToolError(toolCall: Record<string, unknown> | undefined): string | undefined;
+/** Native discovery errors are server-side results, never host execution. */
+export declare function displayNativeDiscoveryError(toolCall: Record<string, unknown> | undefined): string | undefined;
 /**
  * Normalize a full todo snapshot for `mirroredTodos` storage. Returns
  * undefined when the input is not a todo array (nothing to learn). Drops the

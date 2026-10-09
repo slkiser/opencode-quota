@@ -7,6 +7,7 @@ import { type CursorSession } from "./session.js";
 import { CursorProviderError } from "./errors.js";
 import { type ModelInfo } from "./models.js";
 import type { SeedHistoryMessage } from "./protocol/request.js";
+import { type CursorImageInput } from "./image-input.js";
 type PromptIdentity = {
     hostAgent?: string;
     systemPromptHash?: string;
@@ -36,7 +37,7 @@ export type CursorRetryPolicy = {
 };
 export declare function resolveRetryPolicy(options: CursorRetryOptions | undefined): CursorRetryPolicy;
 export declare function connectFrameError(payload: string): CursorProviderError;
-/** Restore the last real catalog solely for lifecycle turns such as compaction. */
+/** Restore the epoch catalog for the next nonempty host turn. */
 export declare function restoreTurnToolCatalog(sessionKey: string, tools: OpencodeToolDef[]): void;
 /** Record the authoritative host todo list for an OpenCode session. */
 export declare function rememberMirroredTodos(sessionKey: string | undefined, todos: ReadonlyArray<Record<string, unknown>>): void;
@@ -48,6 +49,8 @@ export declare function snapshotMirroredTodosBySession(sessionKey: string | unde
  * churn have a single no-op definition.
  */
 export declare function promptIdentityWouldRemint(_previous: PromptIdentity, _current: PromptIdentity): boolean;
+/** Test helper: content hashes recorded after a successful held-Run image write. */
+export declare function snapshotSentHistoryImageHashesForTests(sessionKey: string): string[];
 type V3Part = LanguageModelV3StreamPart;
 export declare function createCursorLanguageModel(modelId: string, providerId: string, options: CreateCursorOptions): LanguageModelV3;
 export declare function pumpWithRecovery(input: {
@@ -96,12 +99,14 @@ export declare function isProperCatalogSubset(incoming: ReadonlyArray<{
 }>): boolean;
 /**
  * An open parent Run for this OpenCode session whose catalog strictly contains
- * the incoming tools is treated as an in-session helper. Those calls must not
- * cancel/supersede the parent (that remints on the trailing tool result).
+ * the incoming tools is treated as an in-session helper unless the request
+ * carries a result for that parent's pending call. A result can precede a new
+ * user message or agent-change reminder and still needs to reach the parent.
+ * Helper calls must not cancel/supersede the parent.
  */
 export declare function shouldIsolateInSessionHelper(openCodeSessionId: string | undefined, incomingTools: ReadonlyArray<{
     name?: string;
-}>): boolean;
+}>, historicalResults?: ExtractedToolResult[]): boolean;
 /** How long a fresh-turn drain may wait for Cursor `turn_ended` after bridged settle. */
 export declare const FRESH_TURN_DRAIN_TIMEOUT_MS = 8000;
 /**
@@ -119,6 +124,9 @@ export declare const FRESH_TURN_PENDING_CANCEL_REASON = "Host started a new user
  */
 export declare function preparePriorSessionForFreshTurn(openCodeSessionId: string | undefined, opts?: {
     timeoutMs?: number;
+    /** Tool results already in this prompt; deliver any that match held pendings before cancel. */
+    toolResults?: ExtractedToolResult[];
+    hostAgent?: string;
 }): Promise<"drained" | "settled-only" | "busy" | "none">;
 /**
  * Write error/reject results for every still-open non-bridged pending on the
@@ -135,33 +143,46 @@ export declare function cancelPendingExecsForFreshTurn(session: CursorSession): 
 export declare function drainSessionUntilTurnEnded(session: CursorSession, opts?: {
     timeoutMs?: number;
 }): Promise<"turn-ended" | "busy" | "timeout" | "interrupted" | "skipped">;
-/**
- * Deliver trailing tool results onto a live continuation session.
- * Returns the same session when writes succeed (or only bridged results were
- * cleared). Returns undefined after closing the session when a write fails, so
- * the caller can rebase onto a fresh Run instead of pumping a dead stream.
- */
-export declare function deliverContinuationResults(session: CursorSession, trailingToolResults: ExtractedToolResult[]): CursorSession | undefined;
+export declare function deliverContinuationResults(session: CursorSession, trailingToolResults: ExtractedToolResult[], 
+/** Host primary agent of the request that carries these results. */
+delivery?: {
+    hostAgent?: string;
+}): CursorSession | undefined;
 /**
  * Read the held-open stream, emitting stream parts, until the turn boundary:
- *  - a tool call (exec_server_message) → emit tool-call, finish "tool-calls",
- *    and KEEP the session open for the result on the next doStream call;
+ *  - tool call(s) for one Cursor generation → emit each tool-call as it
+ *    arrives; finish "tool-calls" once Cursor's listed count (field 27) is
+ *    met (or immediately when the process has never seen field 27); KEEP the
+ *    session open for results on the next doStream call;
  *  - turn_ended → finish "stop" and close the session;
- *  - transport EOF before turn_ended → throw for one fresh-Run recovery.
+ *  - transport EOF before turn_ended → throw for one fresh-Run recovery
+ *    (after host tools were already emitted, finish "tool-calls" instead and
+ *    let the continuation rebase).
  */
 export declare function pump(session: CursorSession, controller: ReadableStreamDefaultController<V3Part>, ids: {
     textId: string;
     reasoningId: string;
 }, abortSignal?: AbortSignal): Promise<void>;
-type ExtractedToolResult = {
+type ToolResultContent = {
     toolCallId: string;
-    sessionId: string;
-    execId: number;
     toolName: string;
     output: string;
     error?: string;
+    /** Host media parts of this result (own content, or the trailing media message). */
+    media?: unknown[];
+    /** `media` decoded for the exec result, with content hashes in the same order. */
+    images?: CursorImageInput[];
+    imageHashes?: string[];
+    /** Host updates that a binary read cannot carry in its output oneof. */
+    notes?: string;
+};
+type ExtractedToolResult = ToolResultContent & {
+    sessionId: string;
+    execId: number;
 };
 export declare function extractTrailingToolResults(prompt: LanguageModelV3CallOptions["prompt"]): ExtractedToolResult[];
+/** Decode only image-bearing pending execs, under one continuation-wide budget. */
+export declare function decodeTrailingToolImages(session: CursorSession, results: ExtractedToolResult[], signal?: AbortSignal, maxBytes?: number): Promise<ExtractedToolResult[]>;
 /** Detect a host-owned canonical plan review, excluding Cursor exec replies. */
 export declare function hasApprovedUncorrelatedPlanStageResult(prompt: LanguageModelV3CallOptions["prompt"]): boolean;
 /**
@@ -179,6 +200,7 @@ export declare function groundCheckpointTurnText(userText: string, checkpoint: b
  */
 export declare function buildOpenCodeInteractionGuidance(tools: OpencodeToolDef[], isCompaction: boolean, workspaceRoot: string, options?: {
     knownMcpServers?: Iterable<string>;
+    allowTools?: boolean;
 }): string | undefined;
 /** Rough char→token estimate for mid-turn usage before TurnEnded arrives. */
 export declare function estimateTokens(chars: number): number;
@@ -250,6 +272,12 @@ export declare function spanEndParts(opts: {
 }>;
 /** Exported for tests — false for compaction/summary (no tools) and toolChoice none. */
 export declare function computeAllowTools(toolCount: number, toolChoice: LanguageModelV3CallOptions["toolChoice"] | undefined): boolean;
+/**
+ * OpenCode title/summary take the first non-empty line of the answer. After a
+ * lifecycle refuse, Cursor often narrates that tools are unavailable — drop
+ * that so it does not become the session title.
+ */
+export declare function shouldDropLifecycleToollessText(text: string, refusedExec: boolean): boolean;
 export declare function resolveTurnToolState(input: {
     sessionKey?: string;
     incomingTools: OpencodeToolDef[];

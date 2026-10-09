@@ -7,10 +7,10 @@
  * does **not** — plans must stay host-portable so switching models does not
  * strand users on Cursor-specific paths or frontmatter.
  *
- * Location mirrors OpenCode Session.plan shape, but the project-config segment
- * comes from {@link hostPlansDir} / {@link opencodeProjectConfigDirs}
- * (the active host's project config dir via the path bridge), never a
- * hardcoded OpenCode-only directory name.
+ * Location is the host's own: the session plan file when the host defines one
+ * (`hostPlanFilePath`, OpenCode 1.x `Session.plan`), otherwise a new
+ * `<created>-<slug>.md` under {@link hostPlansDir} (OpenCode 2.0's Plan
+ * directory, OpenCode 1.x `<data>/plans`, or an installed path bridge).
  *
  * Body is plain markdown (the same shape a plan-mode model would write with
  * `write`). Cursor YAML frontmatter is never emitted.
@@ -19,9 +19,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { hostPlansDir } from "../context/paths.js";
-import { parseAnswerSegments, } from "./ask-question.js";
 import { decodeMessageSparse } from "./messages.js";
 import { errorMessage } from "../debug.js";
+import { parseAnswerSegments, } from "./ask-question.js";
 const PLAN_ADJECTIVES = [
     "brave",
     "calm",
@@ -90,6 +90,17 @@ const PLAN_NOUNS = [
 export const CURSOR_PLAN_STAGE_TOOL = "cursor_plan_stage";
 /** Held InteractionQuery continuation field for a native host plan stage. */
 export const CREATE_PLAN_RESULT_FIELD = "create_plan_request_response";
+/** CreatePlan raised before an approved switch into the host plan agent took effect. */
+export const CREATE_PLAN_HOST_PLAN_PENDING_REASON = "Plan mode starts in the host's plan agent after this turn. Do not record the plan " +
+    "now and make no further tool calls: end this turn. Planning continues in the next " +
+    "turn under the host's plan-mode instructions.";
+/** CreatePlan raised while the host's own plan agent owns the plan file and its review. */
+export const CREATE_PLAN_HOST_PLAN_WORKFLOW_REASON = "This host's plan agent owns the plan file and its approval. Write the plan where the " +
+    "plan-mode instructions say, then call `plan_exit` to ask the user to approve it. Do " +
+    "not implement until it is approved.";
+/** Cursor-visible reason when the user wants the plan revised instead of run. */
+export const CREATE_PLAN_NOT_APPROVED_REASON = "The user did not approve executing this plan. Keep planning: refine the plan and "
+    + "propose it again when it is ready.";
 /** Upstream `PlanExitTool` wording, with the plan the provider just wrote. */
 export function createPlanApprovalQuestion(planLabel) {
     const where = planLabel.trim();
@@ -100,28 +111,28 @@ export function createPlanApprovalQuestion(planLabel) {
 export const CREATE_PLAN_APPROVAL_HEADER = "Build Agent";
 const CREATE_PLAN_APPROVAL_YES = "Yes";
 const CREATE_PLAN_APPROVAL_NO = "No";
-/** Cursor-visible reason when the user wants the plan revised instead of run. */
-export const CREATE_PLAN_NOT_APPROVED_REASON = "The user did not approve executing this plan. Keep planning: refine the plan and "
-    + "propose it again when it is ready.";
-/**
- * Resolve how this CreatePlan is satisfied. `planModeActive` is the provider's
- * own record of an approved Cursor plan/spec mode: the approval prompt guards
- * the transition *out of* planning, so a CreatePlan raised outside plan mode is
- * written and acknowledged without one.
- */
+/** Resolve how this CreatePlan is satisfied (see {@link CreatePlanBridge}). */
 export function resolveCreatePlanBridge(options) {
     // A lifecycle turn (title generation, compaction) runs alongside the real one
     // and must not write a second plan file or raise a second prompt.
     if (!options.allowTools)
         return { kind: "ack" };
+    if (options.hostPlanEntryPending) {
+        return { kind: "defer", reason: CREATE_PLAN_HOST_PLAN_PENDING_REASON };
+    }
     if (options.canStage)
         return { kind: "stage" };
     const names = options.advertised instanceof Set ? options.advertised : new Set(options.advertised);
-    if (options.planModeActive && names.has("question"))
+    if (options.hostAgent === "plan" && names.has("plan_exit")) {
+        return options.hostPlanFile
+            ? { kind: "exit", planPath: options.hostPlanFile }
+            : { kind: "defer", reason: CREATE_PLAN_HOST_PLAN_WORKFLOW_REASON };
+    }
+    const planModeActive = options.planModeActive === true || options.hostAgent === "plan";
+    if (planModeActive && names.has("question"))
         return { kind: "approve" };
     return { kind: "ack" };
 }
-/** The synthetic AskQuestion item backing the emulated approval prompt. */
 function createPlanApprovalItem(question) {
     return {
         id: "create_plan_approval",
@@ -156,16 +167,13 @@ export function createPlanApprovalQuestionInput(planLabel) {
 }
 /**
  * True when the emulated approval prompt came back as an explicit "Yes".
- * An unanswered, dismissed, or failed prompt keeps the model planning rather
- * than silently starting execution. OpenCode prose is anchored on the exact
- * prompt text. Every other result shape fails closed.
+ * An unanswered, dismissed, or failed prompt keeps the model planning.
  */
 export function createPlanApproved(output, isError, question) {
     if (isError)
         return false;
     const [segment] = parseAnswerSegments([createPlanApprovalItem(question)], output);
-    const answer = (segment ?? "").trim().toLowerCase();
-    return answer === CREATE_PLAN_APPROVAL_YES.toLowerCase();
+    return (segment ?? "").trim().toLowerCase() === CREATE_PLAN_APPROVAL_YES.toLowerCase();
 }
 function asRecord(value) {
     return value && typeof value === "object" && !Array.isArray(value)
@@ -334,12 +342,14 @@ export function renderOpencodePlanMarkdown(args) {
  * Write the plan under {@link hostPlansDir} and return a `file://` URI.
  * Empty / missing content is the caller's responsibility (empty plan_uri ack).
  */
-export function writeOpencodePlanFile(args, workspaceRoot, created = Date.now()) {
+export function writeOpencodePlanFile(args, workspaceRoot, created = Date.now(), 
+/** Exact host-owned plan file; default is a new file under {@link hostPlansDir}. */
+target) {
     const markdown = renderOpencodePlanMarkdown(args);
     if (!markdown.trim()) {
         return { ok: false, error: "CreatePlan produced no plan content to write" };
     }
-    const planPath = resolveHostPlanPath(workspaceRoot, args.name, created);
+    const planPath = target ?? resolveHostPlanPath(workspaceRoot, args.name, created);
     try {
         mkdirSync(path.dirname(planPath), { recursive: true });
         writeFileSync(planPath, markdown, "utf-8");

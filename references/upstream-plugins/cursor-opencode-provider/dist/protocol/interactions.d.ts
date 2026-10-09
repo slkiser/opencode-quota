@@ -14,6 +14,8 @@ export type HandledInteraction = {
     variantField: number;
     variantName: string;
     outcome: "rejected" | "acknowledged" | "failed" | "bridged" | "approved";
+    /** Decoded model call id, including refusals and lifecycle acknowledgments. */
+    toolCallId?: string;
     /**
      * Immediate reply for this query. Absent for bridged *synchronous* AskQuestion
      * or SwitchMode: Cursor blocks until the host tool returns, exactly as its own
@@ -31,24 +33,29 @@ export type HandledInteraction = {
      */
     switchMode?: DecodedSwitchModeQuery & {
         bridge: SwitchModeBridge;
-        toolName?: SwitchModeHostTool | "question";
+        toolName?: SwitchModeHostTool;
     };
     /**
-     * Present when CreatePlan needs a host tool: either a native plan stage that
-     * owns the write *and* the approval, or the emulated `question` prompt the
-     * provider raises after writing the plan itself. `planUri` is set only for
-     * the emulated path, where the provider already knows the file it wrote.
+     * Present when CreatePlan needs a host tool: a host plan-stage tool that
+     * owns the write *and* the review, the host's `plan_exit` review of the
+     * plan file the provider just wrote (`planUri` / `planPath` set), or the
+     * emulated `question` prompt after that write.
      */
     createPlan?: DecodedCreatePlanQuery & {
         bridge: CreatePlanBridge;
-        toolName: typeof CURSOR_PLAN_STAGE_TOOL | "question";
+        toolName: typeof CURSOR_PLAN_STAGE_TOOL | "plan_exit" | "question";
         planUri?: string;
-        /** Filesystem path of the plan the provider just wrote (emulated path). */
+        /** Filesystem path of the plan the provider just wrote. */
         planPath?: string;
         questionInput?: ReturnType<typeof createPlanApprovalQuestionInput>;
-        /** The plan to show the user before they approve it (emulated path only). */
+        /** The plan to show the user before the host review. */
         planReview?: string;
     };
+    /**
+     * Cursor tool call id of a CreatePlan the host plan agent will record
+     * instead. Nothing was written, so its display must not be mirrored as a plan.
+     */
+    deferredCreatePlanToolCallId?: string;
     /** Present when an image generation was approved: the target to expect. */
     generateImage?: DecodedGenerateImageQuery;
 };
@@ -81,16 +88,18 @@ export type HandleInteractionQueryOptions = {
     workspaceRoot?: string;
     /** True when the advertised host plan-stage tool is available. */
     canBridgeCreatePlan?: boolean;
-    /**
-     * True when the provider has recorded an approved Cursor plan/spec mode for
-     * this session. A written plan then ends with an execution-approval prompt,
-     * which is the transition out of planning; outside plan mode there is none.
-     */
+    /** An approved switch into the host `plan` agent waits for this Run to end. */
+    hostPlanEntryPending?: boolean;
+    /** Host primary agent this Run executes under, when the host reported it. */
+    hostAgent?: string;
+    /** Provider-recorded Cursor plan/spec mode for the CreatePlan execution gate. */
     planModeActive?: boolean;
+    /** The host's own plan file for this session, when the host defines one. */
+    hostPlanFile?: string;
     /**
      * Cursor unified mode currently recorded for this session. A SwitchMode to
      * the mode already in effect needs no approval, matching Cursor's own IDE
-     * handler and keeping the plan-approval prompt from firing twice.
+     * handler and keeping the host's plan review from running twice.
      */
     activeCursorModeId?: string;
 };
@@ -112,9 +121,9 @@ export declare function inspectInteractionQueryWire(agentServerPayload: Uint8Arr
  * Bridged / persisted exceptions:
  * - AskQuestion (#3) → OpenCode `question` tool
  * - SwitchMode (#4) → OpenCode `plan_enter` / `plan_exit` when advertised
- * - CreatePlan (#7) → host-calculated plan file via hostPlansDir (project-config
- *   `plans/` in a git worktree, else host global data/plans); empty args still
- *   get the CLI empty-`plan_uri` success ack
+ * - CreatePlan (#7) → the host's plan file (session `Session.plan` file when
+ *   known, else a new file under hostPlansDir); empty args still get the CLI
+ *   empty-`plan_uri` success ack
  * - GenerateImage (#12) → approve when `cursor_image_save` is advertised
  */
 export declare function handleInteractionQuery(query: Record<string, unknown>, agentServerPayload: Uint8Array, options?: HandleInteractionQueryOptions): HandledInteraction;
