@@ -297,6 +297,7 @@ describe("loadConfig layered precedence", () => {
           quotaToast: {
             maintainerAnnouncements: {
               home: false,
+              homeFrequency: "always",
             },
           },
         },
@@ -310,12 +311,15 @@ describe("loadConfig layered precedence", () => {
     expect(cfg.maintainerAnnouncements).toEqual({
       enabled: false,
       home: false,
-      homeFrequency: "daily",
+      homeFrequency: "always",
     });
     expect(meta.settingSources["maintainerAnnouncements.enabled"]).toBe(
       quotaConfigSource(join(xdgConfigHome, "opencode")),
     );
     expect(meta.settingSources["maintainerAnnouncements.home"]).toBe(
+      quotaConfigSource(workspaceDir),
+    );
+    expect(meta.settingSources["maintainerAnnouncements.homeFrequency"]).toBe(
       quotaConfigSource(workspaceDir),
     );
     expect(meta.networkSettingSources).toEqual({});

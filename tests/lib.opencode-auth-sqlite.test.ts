@@ -102,6 +102,29 @@ describe("the terminal command's database login reader", () => {
     });
   });
 
+  it("keeps the OAuth methodID, which tells Sign in with ChatGPT logins apart (#316)", async () => {
+    writeCredentialDatabase(
+      databasePath,
+      withRow("openai", {
+        value: {
+          type: "oauth",
+          methodID: "chatgpt-token-sharing",
+          access: "openai-access",
+          refresh: "openai-refresh",
+          expires: 20,
+          metadata: { clientID: "client", scopes: ["chatgpt.tokens.use.direct"] },
+        },
+      }),
+    );
+
+    await expect(readCredentialRows(["openai"])).resolves.toEqual([
+      expect.objectContaining({
+        id: "openai",
+        value: expect.objectContaining({ methodID: "chatgpt-token-sharing" }),
+      }),
+    ]);
+  });
+
   it("exposes every credential row with active rows first", async () => {
     writeCredentialDatabase(databasePath, [
       ...withRow("openai", { label: "Work", active: 0 }),

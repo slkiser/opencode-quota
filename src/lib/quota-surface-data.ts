@@ -250,6 +250,11 @@ function formatQuotaToastDebugInfo(params: {
 // footer's one-minute refresh does not hide it while you are on Home.
 const DAILY_HOME_NOTICE_VISIBLE_MS = 10 * 60_000;
 
+type DailyHomeNoticeClaim = { day: string; shownAtMs: number };
+
+/** Today's claim when the state file could not be written; keeps this process to once a day. */
+let unsavedDailyHomeNoticeClaim: DailyHomeNoticeClaim | undefined;
+
 /**
  * Whether the daily Home notice may show now. The first call on each local day
  * starts that day's window and records it in the state dir.
@@ -266,25 +271,35 @@ async function claimDailyHomeNotice(nowMs: number): Promise<boolean> {
     String(now.getMonth() + 1).padStart(2, "0"),
     String(now.getDate()).padStart(2, "0"),
   ].join("-");
+  let shownAtMs: number | undefined;
   try {
     const state = JSON.parse(await readFile(statePath, "utf8")) as {
       day?: unknown;
       shownAtMs?: unknown;
     };
-    if (state.day === day && typeof state.shownAtMs === "number") {
-      return nowMs - state.shownAtMs < DAILY_HOME_NOTICE_VISIBLE_MS;
+    if (state.day === day && Number.isFinite(state.shownAtMs)) {
+      shownAtMs = state.shownAtMs as number;
     }
   } catch {
-    // No state yet, or unreadable: today's window starts now.
+    // No state yet, or unreadable: fall back to this process's claim.
   }
+  if (shownAtMs === undefined && unsavedDailyHomeNoticeClaim?.day === day) {
+    shownAtMs = unsavedDailyHomeNoticeClaim.shownAtMs;
+  }
+  if (shownAtMs !== undefined) {
+    // A claim from the future (the clock went back) counts as used up.
+    const elapsedMs = nowMs - shownAtMs;
+    return elapsedMs >= 0 && elapsedMs < DAILY_HOME_NOTICE_VISIBLE_MS;
+  }
+  const claim: DailyHomeNoticeClaim = { day, shownAtMs: nowMs };
   try {
-    await writeJsonAtomic(
-      statePath,
-      { day, shownAtMs: nowMs },
-      { trailingNewline: true, directoryMode: 0o700, fileMode: 0o600 },
-    );
+    await writeJsonAtomic(statePath, claim, {
+      trailingNewline: true,
+      directoryMode: 0o700,
+      fileMode: 0o600,
+    });
   } catch {
-    // Without a state file the notice shows on every Home screen, as before.
+    unsavedDailyHomeNoticeClaim = claim;
   }
   return true;
 }

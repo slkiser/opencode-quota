@@ -1,4 +1,4 @@
-import { rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { QuotaSurfaceHost } from "../src/lib/quota-surface-data.js";
@@ -319,6 +319,8 @@ describe("quota surface data", () => {
     }
 
     beforeEach(() => {
+      // A fresh module per test: an unsaved claim lives in module state.
+      vi.resetModules();
       vi.useFakeTimers({ toFake: ["Date"] });
     });
 
@@ -337,6 +339,41 @@ describe("quota surface data", () => {
       ).resolves.toEqual([]);
       await expect(homeLinesAt(new Date(2026, 9, 10, 23, 59), "daily")).resolves.toEqual([]);
       await expect(homeLinesAt(new Date(2026, 9, 11, 0, 1), "daily")).resolves.toEqual([
+        ANNOUNCEMENT_HOME_MESSAGE,
+      ]);
+    });
+
+    it("hides the notice from exactly 10 minutes on", async () => {
+      const morning = new Date(2026, 9, 10, 9, 0);
+      await expect(homeLinesAt(morning, "daily")).resolves.toEqual([ANNOUNCEMENT_HOME_MESSAGE]);
+      await expect(
+        homeLinesAt(new Date(morning.getTime() + 10 * MINUTE - 1), "daily"),
+      ).resolves.toEqual([ANNOUNCEMENT_HOME_MESSAGE]);
+      await expect(
+        homeLinesAt(new Date(morning.getTime() + 10 * MINUTE), "daily"),
+      ).resolves.toEqual([]);
+    });
+
+    it("counts a showing from the future as used up when the clock goes back", async () => {
+      await expect(homeLinesAt(new Date(2026, 9, 10, 15, 0), "daily")).resolves.toEqual([
+        ANNOUNCEMENT_HOME_MESSAGE,
+      ]);
+      await expect(homeLinesAt(new Date(2026, 9, 10, 13, 0), "daily")).resolves.toEqual([]);
+    });
+
+    it("keeps one process to once a day when the state file cannot be written", async () => {
+      // A file where the state folder should be makes every read and write fail.
+      await mkdir(`${TEST_RUNTIME_ROOT}/state`, { recursive: true });
+      await writeFile(`${TEST_RUNTIME_ROOT}/state/opencode-quota`, "not a folder");
+      const morning = new Date(2026, 9, 10, 9, 0);
+      await expect(homeLinesAt(morning, "daily")).resolves.toEqual([ANNOUNCEMENT_HOME_MESSAGE]);
+      await expect(homeLinesAt(new Date(morning.getTime() + 5 * MINUTE), "daily")).resolves.toEqual(
+        [ANNOUNCEMENT_HOME_MESSAGE],
+      );
+      await expect(
+        homeLinesAt(new Date(morning.getTime() + 11 * MINUTE), "daily"),
+      ).resolves.toEqual([]);
+      await expect(homeLinesAt(new Date(2026, 9, 11, 9, 0), "daily")).resolves.toEqual([
         ANNOUNCEMENT_HOME_MESSAGE,
       ]);
     });

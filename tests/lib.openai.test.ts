@@ -145,11 +145,13 @@ describe("openai auth resolution", () => {
       error:
         "OpenAI sign-in could not be refreshed: refresh_failed: Request failed: 401. Run `opencode auth logout openai default`, then `opencode auth login openai`.",
     });
-    await expect(queryOpenAIQuota({ auth: failed, loginLabel: "My work; rm" })).resolves.toEqual({
-      success: false,
-      error:
-        "OpenAI sign-in could not be refreshed: refresh_failed: Request failed: 401. Run `opencode auth login openai`.",
-    });
+    for (const loginLabel of ["My work; rm", " Work ", "--help"]) {
+      await expect(queryOpenAIQuota({ auth: failed, loginLabel })).resolves.toEqual({
+        success: false,
+        error:
+          "OpenAI sign-in could not be refreshed: refresh_failed: Request failed: 401. Run `opencode auth login openai`.",
+      });
+    }
   });
 
   it("lets a failed openai login win over a later compatibility key, as a configured one would", () => {

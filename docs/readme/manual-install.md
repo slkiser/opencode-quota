@@ -50,7 +50,7 @@ Create `opencode-quota/quota-toast.jsonc` next to that OpenCode config:
   "enableToast": false,
   "tuiCompactStatus": { "enabled": false },
 
-  // Show a one-time count of maintainer notices.
+  // Show the count of maintainer notices on Home, once a day for 10 minutes.
   "maintainerAnnouncements": { "enabled": true, "home": true },
 }
 ```
