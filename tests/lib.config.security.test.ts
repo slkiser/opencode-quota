@@ -310,6 +310,7 @@ describe("loadConfig layered precedence", () => {
     expect(cfg.maintainerAnnouncements).toEqual({
       enabled: false,
       home: false,
+      homeFrequency: "daily",
     });
     expect(meta.settingSources["maintainerAnnouncements.enabled"]).toBe(
       quotaConfigSource(join(xdgConfigHome, "opencode")),

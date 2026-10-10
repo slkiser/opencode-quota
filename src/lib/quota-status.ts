@@ -801,6 +801,7 @@ export async function buildQuotaStatusReportDocument(
       createLinesSection("maintainer_announcements", "maintainer_announcements:", [
         `- enabled: ${announcements.config.enabled ? "true" : "false"}`,
         `- home: ${announcements.config.home ? "true" : "false"}`,
+        `- home_frequency: ${announcements.config.homeFrequency}`,
         `- source: ${summary.source}`,
         `- network: ${summary.network ? "true" : "false"}`,
         `- active: ${summary.activeCount}`,

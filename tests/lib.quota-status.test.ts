@@ -478,6 +478,7 @@ describe("buildQuotaStatusReport", () => {
         config: {
           enabled: true,
           home: true,
+          homeFrequency: "daily",
         },
         summary: {
           source: "bundled_only",
@@ -498,6 +499,7 @@ describe("buildQuotaStatusReport", () => {
       [
         "- enabled: true",
         "- home: true",
+        "- home_frequency: daily",
         "- source: bundled_only",
         "- network: false",
         "- active: 2",

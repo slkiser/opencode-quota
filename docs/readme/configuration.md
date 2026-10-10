@@ -249,10 +249,11 @@ Toasts appear only in the TUI, never in Web or Desktop.
 
 ### Maintainer notices
 
-| Option                            | Default | Meaning |
-| --------------------------------- | ------- | ------- |
-| `maintainerAnnouncements.enabled` | `true`  | Show bundled maintainer notices. |
-| `maintainerAnnouncements.home`    | `true`  | Show the count of active notices at the bottom of Home. |
+| Option                                  | Default   | Meaning |
+| --------------------------------------- | --------- | ------- |
+| `maintainerAnnouncements.enabled`       | `true`    | Show bundled maintainer notices. |
+| `maintainerAnnouncements.home`          | `true`    | Show the count of active notices at the bottom of Home. |
+| `maintainerAnnouncements.homeFrequency` | `"daily"` | `"daily"`: show that Home line on the first Home screen of each day, for 10 minutes. `"always"`: show it on every Home screen. `/quota_announcements` always lists the notices. |
 
 ### Provider settings
 

@@ -300,6 +300,74 @@ describe("quota surface data", () => {
     );
   });
 
+  describe("Home announcement frequency", () => {
+    const MINUTE = 60_000;
+
+    async function homeLinesAt(time: Date, homeFrequency?: "daily" | "always"): Promise<string[]> {
+      vi.setSystemTime(time);
+      mocks.loadConfig.mockResolvedValue(
+        makeQuotaToastTestConfig({
+          enabled: true,
+          enabledProviders: ["copilot"],
+          minIntervalMs: 0,
+          maintainerAnnouncements: { enabled: true, home: true, homeFrequency },
+        }),
+      );
+      mocks.getProviders.mockReturnValue([makeCopilotProvider()]);
+      const { getQuotaFooter } = await import("../src/lib/quota-surface-data.js");
+      return getQuotaFooter(createHost(), undefined, "home");
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("shows the notice for 10 minutes on the first Home screen of each day by default", async () => {
+      const morning = new Date(2026, 9, 10, 9, 0);
+      await expect(homeLinesAt(morning)).resolves.toEqual([ANNOUNCEMENT_HOME_MESSAGE]);
+      await expect(homeLinesAt(new Date(morning.getTime() + 9 * MINUTE), "daily")).resolves.toEqual(
+        [ANNOUNCEMENT_HOME_MESSAGE],
+      );
+      await expect(
+        homeLinesAt(new Date(morning.getTime() + 11 * MINUTE), "daily"),
+      ).resolves.toEqual([]);
+      await expect(homeLinesAt(new Date(2026, 9, 10, 23, 59), "daily")).resolves.toEqual([]);
+      await expect(homeLinesAt(new Date(2026, 9, 11, 0, 1), "daily")).resolves.toEqual([
+        ANNOUNCEMENT_HOME_MESSAGE,
+      ]);
+    });
+
+    it("shows the notice on every Home screen with homeFrequency always", async () => {
+      const morning = new Date(2026, 9, 10, 9, 0);
+      await expect(homeLinesAt(morning, "always")).resolves.toEqual([ANNOUNCEMENT_HOME_MESSAGE]);
+      await expect(
+        homeLinesAt(new Date(morning.getTime() + 60 * MINUTE), "always"),
+      ).resolves.toEqual([ANNOUNCEMENT_HOME_MESSAGE]);
+    });
+
+    it("does not use up the day's showing while no notice is active", async () => {
+      mocks.getMaintainerAnnouncementsSummary.mockReturnValueOnce({
+        source: "bundled_only",
+        network: false,
+        bundledCount: 1,
+        activeCount: 0,
+        futureCount: 1,
+        expiredCount: 0,
+        activeAnnouncements: [],
+        evaluations: [],
+      });
+      const morning = new Date(2026, 9, 10, 9, 0);
+      await expect(homeLinesAt(morning, "daily")).resolves.toEqual([]);
+      await expect(
+        homeLinesAt(new Date(morning.getTime() + 60 * MINUTE), "daily"),
+      ).resolves.toEqual([ANNOUNCEMENT_HOME_MESSAGE]);
+    });
+  });
+
   it("skips the Home announcement when maintainerAnnouncements.home is off", async () => {
     const copilot = makeCopilotProvider();
     mocks.loadConfig.mockResolvedValue(

@@ -82,6 +82,7 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "tuiPromptBar.enabled",
   "maintainerAnnouncements.enabled",
   "maintainerAnnouncements.home",
+  "maintainerAnnouncements.homeFrequency",
   "layout.maxWidth",
   "layout.narrowAt",
   "layout.tinyAt",
@@ -557,6 +558,13 @@ function extractMaintainerAnnouncementsPatch(
 
   if (hasOwnKey(value, "home") && typeof value.home === "boolean") {
     patch.home = value.home;
+  }
+
+  if (
+    hasOwnKey(value, "homeFrequency") &&
+    (value.homeFrequency === "daily" || value.homeFrequency === "always")
+  ) {
+    patch.homeFrequency = value.homeFrequency;
   }
 
   return Object.keys(patch).length > 0 ? patch : undefined;
@@ -1148,6 +1156,11 @@ function applyValidatedQuotaToastPatch(
     if (hasOwnKey(patch.maintainerAnnouncements, "home")) {
       config.maintainerAnnouncements.home = patch.maintainerAnnouncements.home!;
       applySettingSource(settingSources, "maintainerAnnouncements.home", sourcePath);
+    }
+
+    if (hasOwnKey(patch.maintainerAnnouncements, "homeFrequency")) {
+      config.maintainerAnnouncements.homeFrequency = patch.maintainerAnnouncements.homeFrequency!;
+      applySettingSource(settingSources, "maintainerAnnouncements.homeFrequency", sourcePath);
     }
   }
 

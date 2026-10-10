@@ -75,9 +75,13 @@ export interface QuotaTelemetryConfig {
   enabled: boolean;
 }
 
+/** How often Home shows the notice: on the first Home screen of each day, or every time. */
+export type MaintainerAnnouncementHomeFrequency = "daily" | "always";
+
 export interface MaintainerAnnouncementsConfig {
   enabled: boolean;
   home: boolean;
+  homeFrequency: MaintainerAnnouncementHomeFrequency;
 }
 
 export type TuiCommandDisplay = "inline" | "dialog";
@@ -284,6 +288,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   maintainerAnnouncements: {
     enabled: true,
     home: true,
+    homeFrequency: "daily",
   },
   export: {
     enabled: false,

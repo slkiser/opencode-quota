@@ -3,6 +3,9 @@
  * session prompt line and the Home footer, plus the optional export file. The server
  * plugin serves these to the TUI over its RPC.
  */
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { writeJsonAtomic } from "./atomic-json.js";
 import type { RuntimeContextRootHints } from "./config-file-utils.js";
 import { sanitizeDisplayText } from "./display-sanitize.js";
 import { formatQuotaRows } from "./format.js";
@@ -12,6 +15,7 @@ import {
   getMaintainerAnnouncementsSummary,
   getMaintainerAnnouncementTargetProviderIds,
 } from "./maintainer-announcements.js";
+import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import { getQuotaProviderShape, normalizeQuotaProviderId } from "./provider-metadata.js";
 import {
   buildQuotaExport,
@@ -242,6 +246,49 @@ function formatQuotaToastDebugInfo(params: {
   ].join("\n");
 }
 
+// A daily Home notice stays this long after it first shows on a day, so the
+// footer's one-minute refresh does not hide it while you are on Home.
+const DAILY_HOME_NOTICE_VISIBLE_MS = 10 * 60_000;
+
+/**
+ * Whether the daily Home notice may show now. The first call on each local day
+ * starts that day's window and records it in the state dir.
+ */
+async function claimDailyHomeNotice(nowMs: number): Promise<boolean> {
+  const statePath = join(
+    getOpencodeRuntimeDirs().stateDir,
+    "opencode-quota",
+    "maintainer-announcements-home.json",
+  );
+  const now = new Date(nowMs);
+  const day = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-");
+  try {
+    const state = JSON.parse(await readFile(statePath, "utf8")) as {
+      day?: unknown;
+      shownAtMs?: unknown;
+    };
+    if (state.day === day && typeof state.shownAtMs === "number") {
+      return nowMs - state.shownAtMs < DAILY_HOME_NOTICE_VISIBLE_MS;
+    }
+  } catch {
+    // No state yet, or unreadable: today's window starts now.
+  }
+  try {
+    await writeJsonAtomic(
+      statePath,
+      { day, shownAtMs: nowMs },
+      { trailingNewline: true, directoryMode: 0o700, fileMode: 0o600 },
+    );
+  } catch {
+    // Without a state file the notice shows on every Home screen, as before.
+  }
+  return true;
+}
+
 async function getHomeAnnouncementText(runtime: QuotaRuntimeContext): Promise<string> {
   const announcements = BUNDLED_MAINTAINER_ANNOUNCEMENTS;
   const targetProviderIds = new Set(getMaintainerAnnouncementTargetProviderIds({ announcements }));
@@ -261,6 +308,14 @@ async function getHomeAnnouncementText(runtime: QuotaRuntimeContext): Promise<st
     enabledProviders: providerIds,
     announcements,
   });
+  // Only a day with an active notice uses up that day's showing.
+  if (
+    summary.activeCount > 0 &&
+    runtime.config.maintainerAnnouncements.homeFrequency !== "always" &&
+    !(await claimDailyHomeNotice(Date.now()))
+  ) {
+    return "";
+  }
   return formatMaintainerAnnouncementHomeCountLine(summary.activeCount);
 }
 

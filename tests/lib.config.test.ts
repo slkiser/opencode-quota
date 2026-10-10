@@ -233,15 +233,18 @@ describe("loadConfig", () => {
       maintainerAnnouncements: {
         enabled: false,
         home: false,
+        homeFrequency: "always",
       },
     });
     expect(explicit.config.maintainerAnnouncements).toEqual({
       enabled: false,
       home: false,
+      homeFrequency: "always",
     });
     expect(explicit.meta.settingSources).toEqual({
       "maintainerAnnouncements.enabled": "client.config.get",
       "maintainerAnnouncements.home": "client.config.get",
+      "maintainerAnnouncements.homeFrequency": "client.config.get",
     });
     expect(explicit.meta.networkSettingSources).toEqual({});
 
@@ -249,6 +252,7 @@ describe("loadConfig", () => {
       maintainerAnnouncements: {
         enabled: true,
         home: "no",
+        homeFrequency: "hourly",
       },
     });
     expect(partialInvalid.config.maintainerAnnouncements).toEqual({
@@ -503,6 +507,7 @@ describe("loadConfig", () => {
     expect(DEFAULT_CONFIG.maintainerAnnouncements).toEqual({
       enabled: true,
       home: true,
+      homeFrequency: "daily",
     });
   });
 
