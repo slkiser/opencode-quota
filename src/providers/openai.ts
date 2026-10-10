@@ -11,6 +11,7 @@ import {
   resolveOpenAIOAuth,
 } from "../lib/openai.js";
 import {
+  type CredentialRow,
   credentialRowAuthEntry,
   formatCredentialDisplayNames,
   readCredentialRows,
@@ -26,6 +27,38 @@ import {
   statusDetailsFromRecord,
   withStatusDetails,
 } from "./result-helpers.js";
+
+/**
+ * OpenCode 2's "Sign in with ChatGPT" login. Its token is scoped to
+ * api.openai.com, and ChatGPT's usage endpoint rejects it with HTTP 401
+ * `no_matching_rule` (#316), so it gets a status row instead of a request.
+ */
+const TOKEN_SHARING_METHOD_ID = "chatgpt-token-sharing";
+
+function isTokenSharingLogin(row: CredentialRow): boolean {
+  return row.value.methodID === TOKEN_SHARING_METHOD_ID;
+}
+
+/** A row that says why a login has no ChatGPT quota number. */
+function statusValueEntry(
+  row: CredentialRow,
+  name: string,
+  value: string,
+): QuotaProviderResult["entries"][number] {
+  return {
+    kind: "value",
+    accounting: {
+      resultType: "status",
+      acquisitionMethod: "local_runtime_accounting",
+      ownership: "maintained",
+      authority: "locally_derived",
+      sourceId: row.id,
+    },
+    name,
+    group: name,
+    value,
+  };
+}
 
 export const openaiProvider: QuotaProvider = {
   id: "openai",
@@ -119,10 +152,16 @@ export const openaiProvider: QuotaProvider = {
         },
       });
     const results = await Promise.all(
-      credentials.map(async ({ row, auth }) => ({
-        row,
-        result: await queryOpenAIQuota({ requestTimeoutMs: ctx.config?.requestTimeoutMs, auth }),
-      })),
+      credentials
+        .filter(({ row }) => !isTokenSharingLogin(row))
+        .map(async ({ row, auth }) => ({
+          row,
+          result: await queryOpenAIQuota({
+            requestTimeoutMs: ctx.config?.requestTimeoutMs,
+            auth,
+            loginLabel: row.label,
+          }),
+        })),
     );
     const resultByRow = new Map(results.map(({ row, result }) => [row, result]));
     // Names span every stored account (OAuth and API key) so numbering and the
@@ -142,6 +181,12 @@ export const openaiProvider: QuotaProvider = {
 
     for (const row of rows) {
       const name = nameByRow.get(row) ?? "OpenAI";
+      if (isTokenSharingLogin(row)) {
+        entries.push(
+          statusValueEntry(row, name, "ChatGPT quota unavailable for Sign in with ChatGPT"),
+        );
+        continue;
+      }
       if (row.value.type !== "api") {
         const providerResult = mapResult(resultByRow.get(row) ?? null, {
           group: name,
@@ -161,19 +206,7 @@ export const openaiProvider: QuotaProvider = {
         });
         continue;
       }
-      entries.push({
-        kind: "value",
-        accounting: {
-          resultType: "status",
-          acquisitionMethod: "local_runtime_accounting",
-          ownership: "maintained",
-          authority: "locally_derived",
-          sourceId: row.id,
-        },
-        name,
-        group: name,
-        value: "ChatGPT quota unavailable for API key",
-      });
+      entries.push(statusValueEntry(row, name, "ChatGPT quota unavailable for API key"));
     }
 
     const providerResult =
@@ -187,9 +220,12 @@ export const openaiProvider: QuotaProvider = {
     const activeRow = rows.find((row) => row.active);
     let authConfigured = "false";
     let authSource = "(none)";
+    // OpenCode 2's sign-in method, e.g. chatgpt-token-sharing ("Sign in with ChatGPT").
+    let authMethod = "(none)";
     let tokenStatus = "(none)";
     let tokenExpiresAt = "(none)";
     if (activeRow) {
+      if (typeof activeRow.value.methodID === "string") authMethod = activeRow.value.methodID;
       if (activeRow.value.type === "api") {
         authConfigured = "true";
         authSource = activeRow.integrationId;
@@ -213,6 +249,7 @@ export const openaiProvider: QuotaProvider = {
       // Stored accounts exist, but which one is active is unknown.
       authConfigured = "true";
       authSource = "unknown";
+      authMethod = "unknown";
       tokenStatus = "unknown";
       tokenExpiresAt = "unknown";
     }
@@ -221,6 +258,7 @@ export const openaiProvider: QuotaProvider = {
       statusDetailsFromRecord({
         auth_configured: authConfigured,
         auth_source: authSource,
+        auth_method: authMethod,
         token_status: tokenStatus,
         token_expires_at: tokenExpiresAt,
       }),

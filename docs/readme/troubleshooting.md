@@ -114,7 +114,8 @@ Check `copilot_quota_auth`, `deployment`, `api_host`, `enterprise_host_source`, 
 | Symptom                                  | Fix |
 | ---------------------------------------- | --- |
 | OpenAI quota missing                     | Run `opencode auth login openai`. |
-| `OpenAI sign-in could not be refreshed`  | OpenCode could not refresh the token. Run `opencode auth login openai`. For xAI (`xAI sign-in could not be refreshed`), run `opencode auth login xai`. |
+| `ChatGPT quota unavailable for Sign in with ChatGPT` | OpenAI doesn't share ChatGPT usage with this login. Run `/connect` → OpenAI → **Codex browser (legacy)** or **Codex device code (legacy)**. |
+| `OpenAI sign-in could not be refreshed`  | OpenCode could not refresh that login. Run the `opencode auth logout openai <label>` command the error names to remove it (`opencode auth list` shows the labels), then `opencode auth login openai`. Signing in again alone can leave a broken login with another label in place. For xAI (`xAI sign-in could not be refreshed`), run `opencode auth login xai`. |
 | Provider not detected                    | Make sure OpenCode uses the `openai` provider or a compatible OpenAI login. |
 
 </details>

@@ -251,7 +251,7 @@ describe("openai provider", () => {
       {
         label: "[OpenAI Work] (active)",
         message:
-          "OpenAI sign-in could not be refreshed: refresh_failed: HTTP 400. Run `opencode auth login openai`.",
+          "OpenAI sign-in could not be refreshed: refresh_failed: HTTP 400. Run `opencode auth logout openai Work`, then `opencode auth login openai`.",
       },
     ]);
     expect(out.entries.map((entry) => [entry.group, entry.accounting.sourceId])).toEqual([
@@ -299,6 +299,54 @@ describe("openai provider", () => {
         { key: "auth_source", value: "openai" },
         { key: "token_status", value: "api key" },
         { key: "token_expires_at", value: "(none)" },
+      ]),
+    );
+  });
+
+  it("reports a Sign in with ChatGPT login without querying ChatGPT (#316)", async () => {
+    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
+    const { queryOpenAIQuota, resolveOpenAIOAuth } = await import("../src/lib/openai.js");
+    const actual =
+      await vi.importActual<typeof import("../src/lib/openai.js")>("../src/lib/openai.js");
+    const queryCallsBefore = vi.mocked(queryOpenAIQuota).mock.calls.length;
+    const expires = Date.now() + 60 * 60_000;
+    vi.mocked(readCredentialRows).mockResolvedValueOnce([
+      {
+        id: "sharing-id",
+        integrationId: "openai",
+        label: "OpenAI",
+        active: true,
+        value: {
+          type: "oauth",
+          methodID: "chatgpt-token-sharing",
+          access: "a.b.c",
+          refresh: "refresh",
+          expires,
+        },
+      },
+    ]);
+    vi.mocked(resolveOpenAIOAuth).mockImplementationOnce(actual.resolveOpenAIOAuth);
+
+    const out = await openaiProvider.fetch({} as any);
+
+    expect(vi.mocked(queryOpenAIQuota).mock.calls).toHaveLength(queryCallsBefore);
+    expect(out.attempted).toBe(true);
+    expect(out.errors).toEqual([]);
+    expect(visibleEntries(out.entries, "openai")).toEqual([
+      {
+        kind: "value",
+        name: "[OpenAI]",
+        group: "[OpenAI]",
+        value: "ChatGPT quota unavailable for Sign in with ChatGPT",
+      },
+    ]);
+    expect(out.statusDetails).toEqual(
+      expect.arrayContaining([
+        { key: "auth_configured", value: "true" },
+        { key: "auth_source", value: "openai" },
+        { key: "auth_method", value: "chatgpt-token-sharing" },
+        { key: "token_status", value: "valid" },
+        { key: "token_expires_at", value: new Date(expires).toISOString() },
       ]),
     );
   });
@@ -625,6 +673,7 @@ describe("openai provider", () => {
     expect(out.statusDetails).toEqual([
       { key: "auth_configured", value: "true" },
       { key: "auth_source", value: "unknown" },
+      { key: "auth_method", value: "unknown" },
       { key: "token_status", value: "unknown" },
       { key: "token_expires_at", value: "unknown" },
     ]);

@@ -112,7 +112,7 @@ Type these in OpenCode. Add dates after the command, like `/tokens_between 2026-
 ## Providers
 
 Most providers work automatically once you log in through OpenCode. **Needs setup** links show the extra step.
-OpenAI ChatGPT quota requires an OAuth login; stored API keys show "ChatGPT quota unavailable for API key" without a ChatGPT request.
+OpenAI ChatGPT quota needs a Codex login (`/connect` → OpenAI → **Codex browser (legacy)** or **Codex device code (legacy)**). OpenAI doesn't share ChatGPT usage with **Sign in with ChatGPT** logins or API keys, so those show a "ChatGPT quota unavailable" row without a ChatGPT request.
 
 ### Pre-configured American providers
 

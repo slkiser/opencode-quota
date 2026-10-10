@@ -298,8 +298,27 @@ export async function hasOpenAIOAuthCached(params?: { maxAgeMs?: number }): Prom
   return hasOpenAIOAuth(auth);
 }
 
+/** A login label that can go into a shell command unquoted. */
+const SHELL_SAFE_LOGIN_LABEL = /^[A-Za-z0-9._@-]+$/u;
+/** OpenAI's error codes are short snake_case words, e.g. `no_matching_rule`. */
+const OPENAI_ERROR_CODE = /^[A-Za-z0-9_.-]{1,64}$/u;
+
+/**
+ * Only OpenAI's short error code, never the free-text body, which can echo
+ * account details.
+ */
+async function readOpenAIErrorCode(resp: Response): Promise<string | undefined> {
+  try {
+    const body = (await resp.json()) as { error?: { code?: unknown } } | null;
+    const code = body?.error?.code;
+    return typeof code === "string" && OPENAI_ERROR_CODE.test(code) ? code : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function queryOpenAIQuota(
-  options: { requestTimeoutMs?: number; auth?: ResolvedOpenAIOAuth } = {},
+  options: { requestTimeoutMs?: number; auth?: ResolvedOpenAIOAuth; loginLabel?: string } = {},
 ): Promise<OpenAIResult> {
   const resolvedAuth =
     options.auth ??
@@ -310,9 +329,16 @@ export async function queryOpenAIQuota(
       }),
     );
   if (resolvedAuth.state === "failed") {
+    // Signing in again leaves a broken login with another label in place
+    // (#316), so name the command that removes it when the label is known.
+    const label = options.loginLabel?.trim();
+    const fix =
+      label && SHELL_SAFE_LOGIN_LABEL.test(label)
+        ? `Run \`opencode auth logout ${resolvedAuth.sourceKey} ${label}\`, then \`opencode auth login openai\`.`
+        : "Run `opencode auth login openai`.";
     return {
       success: false,
-      error: `OpenAI sign-in could not be refreshed: ${resolvedAuth.error}. Run \`opencode auth login openai\`.`,
+      error: `OpenAI sign-in could not be refreshed: ${resolvedAuth.error}. ${fix}`,
     };
   }
   if (resolvedAuth.state !== "configured") return null;
@@ -337,9 +363,10 @@ export async function queryOpenAIQuota(
       timeoutMs: options.requestTimeoutMs,
       consume: async (resp) => {
         if (!resp.ok) {
+          const code = await readOpenAIErrorCode(resp);
           return {
             success: false,
-            error: `OpenAI API error ${resp.status}`,
+            error: `OpenAI API error ${resp.status}${code ? ` (${code})` : ""}`,
           };
         }
 

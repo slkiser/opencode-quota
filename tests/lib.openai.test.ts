@@ -135,6 +135,23 @@ describe("openai auth resolution", () => {
     expect(mocks.deriveResolvedAuthIdentity).not.toHaveBeenCalled();
   });
 
+  it("names the logout command for a failed login with a shell-safe label (#316)", async () => {
+    const failed = resolveOpenAIOAuth({
+      openai: { type: "oauth", resolveError: "refresh_failed: Request failed: 401" },
+    });
+
+    await expect(queryOpenAIQuota({ auth: failed, loginLabel: "default" })).resolves.toEqual({
+      success: false,
+      error:
+        "OpenAI sign-in could not be refreshed: refresh_failed: Request failed: 401. Run `opencode auth logout openai default`, then `opencode auth login openai`.",
+    });
+    await expect(queryOpenAIQuota({ auth: failed, loginLabel: "My work; rm" })).resolves.toEqual({
+      success: false,
+      error:
+        "OpenAI sign-in could not be refreshed: refresh_failed: Request failed: 401. Run `opencode auth login openai`.",
+    });
+  });
+
   it("lets a failed openai login win over a later compatibility key, as a configured one would", () => {
     expect(
       resolveOpenAIOAuth({
@@ -183,6 +200,34 @@ describe("openai auth resolution", () => {
     const result = await queryOpenAIQuota();
     expect(result).toEqual({ success: false, error: "OpenAI API error 403" });
     expect(JSON.stringify(result)).not.toMatch(/alice@example\.com|account-id-123|access-secret/u);
+  });
+
+  it("adds only OpenAI's short error code to an HTTP error (#316)", async () => {
+    const respond = (code: unknown) =>
+      new Response(
+        JSON.stringify({
+          error: {
+            message: "Unauthorized alice@example.com",
+            type: "rejected_by_access_enforcement",
+            code,
+          },
+        }),
+        { status: 401 },
+      );
+    const openai = { type: "oauth", access: "a.b.c", expires: Date.now() + 60_000 };
+    mocks.readAuthFileCached.mockResolvedValue({ openai });
+
+    vi.stubGlobal("fetch", vi.fn(async () => respond("no_matching_rule")) as any);
+    await expect(queryOpenAIQuota()).resolves.toEqual({
+      success: false,
+      error: "OpenAI API error 401 (no_matching_rule)",
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async () => respond("alice@example.com is blocked")) as any);
+    await expect(queryOpenAIQuota()).resolves.toEqual({
+      success: false,
+      error: "OpenAI API error 401",
+    });
   });
 
   it("reads auth from chatgpt when codex and openai are absent", async () => {
