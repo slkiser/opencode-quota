@@ -43,14 +43,20 @@ describe("account-scoped shared cache", () => {
     } as any;
     let state = await import("../src/lib/quota-state.js");
     const params = { provider, ctx, ttlMs: 60000 };
-    expect(await state.fetchQuotaProviderResult(params)).toEqual(result("A"));
+    expect(await state.fetchQuotaProviderResult(params)).toEqual(
+      expect.objectContaining(result("A")),
+    );
     account = "B";
     expect(await state.readCachedProviderResult(params)).toEqual({ hit: false });
-    expect(await state.fetchQuotaProviderResult(params)).toEqual(result("B"));
+    expect(await state.fetchQuotaProviderResult(params)).toEqual(
+      expect.objectContaining(result("B")),
+    );
     vi.resetModules();
     state = await import("../src/lib/quota-state.js");
     account = "A";
-    expect(await state.fetchQuotaProviderResult(params)).toEqual(result("A"));
+    expect(await state.fetchQuotaProviderResult(params)).toEqual(
+      expect.objectContaining(result("A")),
+    );
     expect(fetch).toHaveBeenCalledTimes(2);
     const files = await readdir(`${root}/cache/quota-provider-state`);
     expect(files).toHaveLength(2);
@@ -88,8 +94,8 @@ describe("account-scoped shared cache", () => {
     const a = state.fetchQuotaProviderResult(params);
     account = "B";
     const b = state.fetchQuotaProviderResult(params);
-    expect(await a).toEqual(result("A"));
-    expect(await b).toEqual(result("B"));
+    expect(await a).toEqual(expect.objectContaining(result("A")));
+    expect(await b).toEqual(expect.objectContaining(result("B")));
     state.__resetQuotaStateForTests();
     await rm(`${root}/cache`, { recursive: true, force: true });
     fetch.mockClear();
@@ -142,9 +148,9 @@ describe("account-scoped shared cache", () => {
     const pending = state.fetchQuotaProviderResult(params);
     await beginning;
     expect(await state.fetchQuotaProviderResult({ ...params, bypassCache: true })).toEqual(
-      result("fresh"),
+      expect.objectContaining(result("fresh")),
     );
     complete(result("cached-request"));
-    expect(await pending).toEqual(result("cached-request"));
+    expect(await pending).toEqual(expect.objectContaining(result("cached-request")));
   });
 });

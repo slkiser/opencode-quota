@@ -8,6 +8,7 @@ declare module "better-sqlite3" {
   class Database {
     constructor(filename: string, options?: { readonly?: boolean });
     prepare(sql: string): Statement;
+    exec(sql: string): void;
     close(): void;
   }
 

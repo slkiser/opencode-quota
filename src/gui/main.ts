@@ -29,6 +29,7 @@ import {
   loadStandaloneQuotaConfig,
   type StandaloneQuotaConfig,
 } from "./quota-config.js";
+import { HistoryBudgetRuntime } from "./history-budget-runtime.js";
 import { QuotaRefreshController } from "./quota-refresh-controller.js";
 import {
   getGuiConfig,
@@ -165,13 +166,35 @@ function registerIpcHandlers(initialConfig: StandaloneQuotaConfig, guiConfig: Gu
     quotaConfig = loaded;
     return quotaConfig;
   }
+  historyBudgetRuntime = new HistoryBudgetRuntime({
+    pricing: () => quotaConfig.config.pricingSnapshot,
+    onHistory: () => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("history:updated");
+    },
+    onBudgets: (state) => {
+      if (mainWindow && !mainWindow.isDestroyed())
+        mainWindow.webContents.send("alerts:updated", state);
+      const unknown =
+        state.results.filter((result) => result.status === "unknown").length +
+        (state.diagnostic ? 1 : 0);
+      if (tray && !tray.isDestroyed())
+        tray.setToolTip(
+          `${APP_NAME}: ${state.triggeredCount} budget alerts${unknown ? `, ${unknown} unknown` : ""}`,
+        );
+    },
+  });
   const controller = new QuotaRefreshController({
     intervalMs: guiConfig.refreshIntervalMs,
     fetch: async (fresh) => {
       const effective = fresh ? await reloadQuotaConfig() : quotaConfig;
       const result = await quotaIpc.fetchAllQuota(effective.config, fresh, effective.meta);
+      const historyDiagnostics = await historyBudgetRuntime!.postFetch(
+        result.providerResults ?? [],
+      );
+      const { providerResults: _providerResults, ...display } = result;
       return {
-        ...result,
+        ...display,
+        historyDiagnostics,
         errors: [
           ...result.errors,
           ...effective.meta.configIssues.map((issue) => ({
@@ -270,7 +293,7 @@ function registerIpcHandlers(initialConfig: StandaloneQuotaConfig, guiConfig: Gu
   });
 
   ipcMain.handle("alerts:create", async (_event, params: Record<string, unknown>) => {
-    return alertsIpc.createAlert({
+    const rule = await alertsIpc.createAlert({
       name: params.name as string,
       scope: params.scope as {
         type: "global" | "provider" | "model";
@@ -283,30 +306,27 @@ function registerIpcHandlers(initialConfig: StandaloneQuotaConfig, guiConfig: Gu
       direction: params.direction as "above" | "below",
       enabled: params.enabled as boolean | undefined,
     });
+    await historyBudgetRuntime!.evaluate();
+    return rule;
   });
 
   ipcMain.handle(
     "alerts:update",
     async (_event, params: { id: string; params: Record<string, unknown> }) => {
-      return alertsIpc.updateAlert(params.id, params.params);
+      const rule = await alertsIpc.updateAlert(params.id, params.params);
+      await historyBudgetRuntime!.evaluate();
+      return rule;
     },
   );
 
   ipcMain.handle("alerts:delete", async (_event, params: { id: string }) => {
-    return alertsIpc.deleteAlert(params.id);
+    const removed = await alertsIpc.deleteAlert(params.id);
+    await historyBudgetRuntime!.evaluate();
+    return removed;
   });
 
-  ipcMain.handle(
-    "alerts:eval",
-    async (_event, params: { usageMap: Array<{ key: string; usage: unknown }> }) => {
-      return alertsIpc.evaluateAlerts(
-        params.usageMap as Array<{
-          key: string;
-          usage: Parameters<typeof alertsIpc.evaluateAlerts>[0][number]["usage"];
-        }>,
-      );
-    },
-  );
+  ipcMain.handle("alerts:eval", () => historyBudgetRuntime!.evaluate());
+  ipcMain.handle("alerts:state", () => historyBudgetRuntime!.getState());
 
   // ── API Keys ───────────────────────────────────────
   ipcMain.handle("apikeys:status", async () => apikeysIpc.getStatus());
@@ -416,6 +436,7 @@ let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let toggleCooldownUntil = 0;
 let quotaController: QuotaRefreshController | null = null;
+let historyBudgetRuntime: HistoryBudgetRuntime | null = null;
 
 function createWindow(guiConfig: GuiConfig): BrowserWindow {
   const preloadPath = resolvePreloadPath();
@@ -617,6 +638,8 @@ app.on("activate", () => {
 app.on("before-quit", () => {
   quotaController?.dispose();
   quotaController = null;
+  historyBudgetRuntime?.dispose();
+  historyBudgetRuntime = null;
   powerMonitor.removeListener("suspend", suspendQuotaRefresh);
   powerMonitor.removeListener("resume", resumeQuotaRefresh);
   // Cleanup tray

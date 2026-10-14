@@ -12,7 +12,12 @@
 
 import path from "path";
 
-import type { DashboardApi as DashboardApiType, ModelUsage, QuotaSnapshot, WeeklyReset } from "../../dashboard/api.js";
+import type {
+  DashboardApi as DashboardApiType,
+  ModelUsage,
+  QuotaSnapshot,
+  WeeklyReset,
+} from "../../dashboard/api.js";
 import { getOpenCodeDbPath } from "../../lib/opencode-storage.js";
 
 let dashboardApi: Promise<DashboardApiType | null> | null = null;
@@ -33,8 +38,11 @@ function loadDashboardApi(): Promise<DashboardApiType | null> {
       return new DashboardApi(adapter as any);
     })().catch((err) => {
       dashboardApi = null; // allow retry on next call
-      console.error("[gui] Dashboard history unavailable:", err instanceof Error ? err.message : err);
-      return null;
+      console.error(
+        "[gui] Dashboard history unavailable:",
+        err instanceof Error ? err.message : err,
+      );
+      throw new Error("Local history unavailable");
     });
   }
   return dashboardApi;

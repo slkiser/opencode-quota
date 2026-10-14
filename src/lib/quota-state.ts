@@ -1,4 +1,4 @@
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { readFile, readdir, rm, stat } from "fs/promises";
 import { join } from "path";
 
@@ -10,7 +10,7 @@ import { isLiveLocalUsageProviderId } from "./provider-metadata.js";
 import { isResolvedAuthIdentity, type ResolvedAuthIdentity } from "./resolved-auth-identity.js";
 import { getPackageVersion } from "./version.js";
 
-const QUOTA_PROVIDER_CACHE_VERSION = 2 as const;
+const QUOTA_PROVIDER_CACHE_VERSION = 3 as const;
 const QUOTA_PROVIDER_CACHE_PACKAGE_VERSION_FALLBACK = "unknown";
 const QUOTA_PROVIDER_CACHE_DIRNAME = "quota-provider-state";
 const QUOTA_PROVIDER_CACHE_RETENTION_MS = 24 * 60 * 60 * 1000;
@@ -31,6 +31,7 @@ let lastPruneAtMs = 0;
 
 export function cloneQuotaProviderResult(result: QuotaProviderResult): QuotaProviderResult {
   return {
+    ...(result.observation ? { observation: { ...result.observation } } : {}),
     attempted: result.attempted,
     entries: result.entries.map((entry) => ({ ...entry })),
     errors: result.errors.map((error) => ({ ...error })),
@@ -144,6 +145,19 @@ function isQuotaProviderResult(value: unknown): value is QuotaProviderResult {
     return false;
   }
 
+  if (result.observation !== undefined) {
+    const observation = result.observation as Record<string, unknown>;
+    if (
+      !observation ||
+      typeof observation !== "object" ||
+      typeof observation.id !== "string" ||
+      !/^(?:[a-f0-9]{64}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/i.test(observation.id) ||
+      typeof observation.observedAt !== "number" ||
+      !Number.isFinite(observation.observedAt) ||
+      observation.observedAt < 0
+    )
+      return false;
+  }
   if (result.presentation !== undefined && !isQuotaProviderPresentation(result.presentation)) {
     return false;
   }
@@ -171,12 +185,14 @@ function isPersistedQuotaProviderCacheEntry(
 
   const entry = value as Record<string, unknown>;
   return (
-    entry.version === QUOTA_PROVIDER_CACHE_VERSION &&
+    (entry.version === QUOTA_PROVIDER_CACHE_VERSION || entry.version === 2) &&
     entry.packageVersion === packageVersion &&
     entry.key === getQuotaProviderCacheLocator(key) &&
     entry.providerId === providerId &&
     typeof entry.timestamp === "number" &&
+    Number.isFinite(entry.timestamp) &&
     isQuotaProviderResult(entry.result) &&
+    (entry.version === 2 || Boolean((entry.result as QuotaProviderResult).observation)) &&
     !isErrorOnlyResult(entry.result)
   );
 }
@@ -255,12 +271,18 @@ async function readPersistedQuotaProviderCacheEntry(params: {
     }
 
     return {
-      version: parsed.version,
+      version: QUOTA_PROVIDER_CACHE_VERSION,
       packageVersion: parsed.packageVersion,
       key: parsed.key,
       providerId: parsed.providerId,
       timestamp: parsed.timestamp,
-      result: cloneQuotaProviderResult(parsed.result),
+      result: {
+        ...cloneQuotaProviderResult(parsed.result),
+        observation: parsed.result.observation ?? {
+          id: createHash("sha256").update(`legacy:${parsed.key}:${parsed.timestamp}`).digest("hex"),
+          observedAt: parsed.timestamp,
+        },
+      },
     };
   } catch {
     return null;
@@ -279,6 +301,13 @@ async function writePersistedQuotaProviderCacheEntry(
   }
 }
 
+function observe(result: QuotaProviderResult): QuotaProviderResult {
+  return {
+    ...cloneQuotaProviderResult(result),
+    observation: { id: randomUUID(), observedAt: Date.now() },
+  };
+}
+
 export async function fetchQuotaProviderResult(params: {
   provider: QuotaProvider;
   ctx: QuotaProviderContext;
@@ -288,11 +317,11 @@ export async function fetchQuotaProviderResult(params: {
   const { provider, ctx, ttlMs, bypassCache = false } = params;
 
   if (bypassCache || isLiveLocalUsageProviderId(provider.id)) {
-    return cloneQuotaProviderResult(await provider.fetch(ctx));
+    return observe(await provider.fetch(ctx));
   }
 
   const scope = await prepareCacheScope(provider, ctx);
-  if (!scope) return cloneQuotaProviderResult(await provider.fetch(ctx));
+  if (!scope) return observe(await provider.fetch(ctx));
   const key = buildQuotaProviderStateCacheKey(provider.id, ctx, scope.identity);
   const now = Date.now();
   const packageVersion = await getQuotaProviderCachePackageVersion();
@@ -334,7 +363,7 @@ export async function fetchQuotaProviderResult(params: {
 
   const fetchPromise = (async () => {
     const fetched = await scope.fetch();
-    const snapshot = cloneQuotaProviderResult(fetched);
+    const snapshot = observe(fetched);
 
     if (!snapshot.attempted) {
       inMemoryCache.delete(key);
@@ -351,7 +380,7 @@ export async function fetchQuotaProviderResult(params: {
       packageVersion,
       key: getQuotaProviderCacheLocator(key),
       providerId: provider.id,
-      timestamp: Date.now(),
+      timestamp: snapshot.observation!.observedAt,
       result: cloneQuotaProviderResult(snapshot),
     };
 

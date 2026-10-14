@@ -16,6 +16,8 @@ export interface QuotaFetchResult {
   entries: QuotaToastEntry[];
   errors: QuotaToastError[];
   detectedProviderIds: string[];
+  historyDiagnostics?: string[];
+  providerResults?: import("../../dashboard/quota-snapshot-bridge.js").ProviderResultForSnapshot[];
 }
 
 function buildMinimalProviderContext(
@@ -54,6 +56,7 @@ export async function fetchAllQuota(
   const entries: QuotaToastEntry[] = [];
   const errors: QuotaToastError[] = [];
   const detectedProviderIds: string[] = [];
+  const providerResults: NonNullable<QuotaFetchResult["providerResults"]> = [];
 
   // Determine which providers to query
   const enabledList =
@@ -90,6 +93,7 @@ export async function fetchAllQuota(
     if (!item) continue;
 
     detectedProviderIds.push(item.providerId);
+    providerResults.push({ providerId: item.providerId, result: item.result });
 
     if (item.result.entries.length > 0) {
       entries.push(...item.result.entries);
@@ -99,5 +103,5 @@ export async function fetchAllQuota(
     }
   }
 
-  return { entries, errors, detectedProviderIds };
+  return { entries, errors, detectedProviderIds, providerResults };
 }

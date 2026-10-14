@@ -8,8 +8,10 @@ export interface QuotaSnapshot {
   timestamp: number;
   provider: string;
   limits: QuotaLimit[];
-  percentUsed: number;
-  percentRemaining: number;
+  percentUsed: number | null;
+  percentRemaining: number | null;
+  error?: string;
+  accountIdentity: "unknown";
 }
 
 export interface QuotaLimit {
@@ -68,13 +70,45 @@ export class DashboardApi {
    * Capture current quota snapshot
    */
   captureSnapshot(provider: string, quotaData: any): void {
+    const observation = quotaData.observation;
+    if (observation) {
+      // Serialize with all native writers. Keep the v1 schema and unique key
+      // readable by older packages; the real time lives in the JSON metadata.
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        const duplicate = this.db
+          .prepare(
+            "SELECT id FROM quota_snapshots WHERE provider = ? AND json_extract(quota_data, '$.observation.id') = ? LIMIT 1",
+          )
+          .get(provider, observation.id);
+        if (!duplicate) {
+          let capturedAt = observation.observedAt;
+          while (
+            this.db
+              .prepare("SELECT id FROM quota_snapshots WHERE provider = ? AND captured_at = ?")
+              .get(provider, capturedAt)
+          )
+            capturedAt++;
+          this.db
+            .prepare(
+              "INSERT INTO quota_snapshots (provider, captured_at, quota_data) VALUES (?, ?, ?)",
+            )
+            .run(provider, capturedAt, JSON.stringify(quotaData));
+        }
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        throw error;
+      }
+      return;
+    }
     const now = Date.now();
     this.db
       .prepare(
         `INSERT INTO quota_snapshots (provider, captured_at, quota_data)
          VALUES (?, ?, ?)
          ON CONFLICT(provider, captured_at) 
-         DO UPDATE SET quota_data = excluded.quota_data`
+         DO UPDATE SET quota_data = excluded.quota_data`,
       )
       .run(provider, now, JSON.stringify(quotaData));
   }
@@ -88,8 +122,8 @@ export class DashboardApi {
         `SELECT quota_data
          FROM quota_snapshots
          WHERE provider = ?
-         ORDER BY captured_at DESC
-         LIMIT 1`
+         ORDER BY COALESCE(json_extract(quota_data, '$.observation.observedAt'), captured_at) DESC, captured_at DESC
+         LIMIT 1`,
       )
       .get(provider);
 
@@ -106,19 +140,21 @@ export class DashboardApi {
       .prepare(
         `SELECT captured_at, quota_data
          FROM quota_snapshots
-         WHERE provider = ? AND captured_at >= ?
-         ORDER BY captured_at ASC`
+         WHERE provider = ? AND COALESCE(json_extract(quota_data, '$.observation.observedAt'), captured_at) >= ?
+         ORDER BY COALESCE(json_extract(quota_data, '$.observation.observedAt'), captured_at) ASC, captured_at ASC`,
       )
       .all(provider, since);
 
     return rows.map((row: any) => {
       const data = JSON.parse(row.quota_data);
       return {
-        timestamp: row.captured_at,
+        timestamp: data.observation?.observedAt ?? row.captured_at,
         provider,
         limits: data.limits || [],
-        percentUsed: 100 - (data.percentRemaining || 0),
-        percentRemaining: data.percentRemaining || 0,
+        percentUsed: typeof data.percentRemaining === "number" ? 100 - data.percentRemaining : null,
+        percentRemaining: typeof data.percentRemaining === "number" ? data.percentRemaining : null,
+        ...(data.error ? { error: data.error } : {}),
+        accountIdentity: "unknown" as const,
       };
     });
   }
@@ -137,7 +173,7 @@ export class DashboardApi {
            tokens_output = tokens_output + excluded.tokens_output,
            tokens_cache = tokens_cache + excluded.tokens_cache,
            cost_usd = cost_usd + excluded.cost_usd,
-           request_count = request_count + excluded.request_count`
+           request_count = request_count + excluded.request_count`,
       )
       .run(
         provider,
@@ -147,7 +183,7 @@ export class DashboardApi {
         usage.tokensOutput,
         usage.tokensCache,
         usage.costUsd,
-        usage.requestCount
+        usage.requestCount,
       );
   }
 
@@ -169,7 +205,7 @@ export class DashboardApi {
            tokens_output = excluded.tokens_output,
            tokens_cache = excluded.tokens_cache,
            cost_usd = excluded.cost_usd,
-           request_count = excluded.request_count`
+           request_count = excluded.request_count`,
       )
       .run(
         provider,
@@ -179,7 +215,7 @@ export class DashboardApi {
         usage.tokensOutput,
         usage.tokensCache,
         usage.costUsd,
-        usage.requestCount
+        usage.requestCount,
       );
   }
 
@@ -187,9 +223,7 @@ export class DashboardApi {
    * Get per-model breakdown
    */
   getModelBreakdown(provider: string, days: number = 7): ModelUsage[] {
-    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .split("T")[0];
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
     const rows = this.db
       .prepare(
@@ -202,7 +236,7 @@ export class DashboardApi {
          FROM usage_history
          WHERE provider = ? AND date >= ?
          GROUP BY model
-         ORDER BY cost_usd DESC`
+         ORDER BY cost_usd DESC`,
       )
       .all(provider, since);
 
@@ -227,7 +261,7 @@ export class DashboardApi {
         `SELECT reset_at, quota_used, quota_remaining, quota_limit, reset_type
          FROM weekly_resets
          WHERE provider = ? AND reset_at >= ?
-         ORDER BY reset_at DESC`
+         ORDER BY reset_at DESC`,
       )
       .all(provider, since);
   }
@@ -242,22 +276,15 @@ export class DashboardApi {
       used: number;
       remaining: number;
       limit: number;
-    }
+    },
   ): void {
     this.db
       .prepare(
         `INSERT OR IGNORE INTO weekly_resets 
          (provider, reset_at, quota_used, quota_remaining, quota_limit, reset_type)
-         VALUES (?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?)`,
       )
-      .run(
-        provider,
-        Date.now(),
-        quotaData.used,
-        quotaData.remaining,
-        quotaData.limit,
-        resetType
-      );
+      .run(provider, Date.now(), quotaData.used, quotaData.remaining, quotaData.limit, resetType);
   }
 
   /**
@@ -272,7 +299,7 @@ export class DashboardApi {
         `SELECT provider FROM quota_snapshots
          UNION
          SELECT provider FROM usage_history
-         ORDER BY provider`
+         ORDER BY provider`,
       )
       .all();
     return rows.map((row: any) => row.provider);

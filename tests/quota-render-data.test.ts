@@ -778,7 +778,10 @@ describe("collectQuotaRenderData shared quota state", () => {
     const first = await collectQuotaStatusLiveProbes(params);
     const second = await collectQuotaStatusLiveProbes(params);
 
-    expect(first).toEqual([
+    const display = (probes: typeof first) =>
+      probes.map(({ providerId, result: { observation, ...result } }) => ({ providerId, result }));
+    expect(first[0].result.observation?.id).not.toBe(second[0].result.observation?.id);
+    expect(display(first)).toEqual([
       {
         providerId: "synthetic",
         result: {
@@ -809,7 +812,7 @@ describe("collectQuotaRenderData shared quota state", () => {
         },
       },
     ]);
-    expect(second).toEqual(first);
+    expect(display(second)).toEqual(display(first));
     expect(syntheticProvider.fetch).toHaveBeenCalledTimes(2);
     expect(openaiProvider.fetch).toHaveBeenCalledTimes(2);
   });

@@ -308,13 +308,17 @@ ELECTRON_ARGS="--disable-gpu --enable-features=WaylandWindowDecorations" opencod
 | Headless / no display          | The app requires a running display server (X11 or Wayland). Use `xvfb-run` in CI or headless environments.                                                     |
 | `better-sqlite3` native module | Not required — the app uses Node.js 22's built-in `node:sqlite` by default. If your Node runtime is older, install `better-sqlite3` as an optional dependency. |
 
-| Tab           | What it shows                                                                                                                                                               |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Dashboard** | Live quota from all enabled providers — percent bars, remaining counts, reset timers. Filter by provider.                                                                   |
-| **Tokens**    | Token usage charts grouped by model or provider. Toggle day / week / month / all-time windows. USD cost breakdown with custom pricing support.                              |
-| **Alerts**    | Configure budget thresholds (e.g. "alert when daily spend > $5 on OpenAI"). Per provider, per model, or global. Active alerts show a red badge on the tray icon.            |
-| **Pricing**   | View the models.dev pricing snapshot. Add custom per-1M-token pricing overrides for any provider/model to correct missing or incorrect rates.                               |
-| **API Keys**  | Encrypted store for provider API keys (AES-256-GCM with PBKDF2 key derivation). Unlock with a master passphrase. Export/import encrypted bundles for cross-machine sharing. |
+| Tab           | What it shows                                                                                                                                                                                        |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Dashboard** | Live quota from all enabled providers — percent bars, remaining counts, reset timers. Filter by provider.                                                                                            |
+| **Tokens**    | Token usage charts grouped by model or provider. Toggle day / week / month / all-time windows. USD cost breakdown with custom pricing support.                                                       |
+| **Alerts**    | Configure budget thresholds (e.g. "alert when daily spend > $5 on OpenAI"). Per provider, per model, or global. Main evaluates each rolling window; the tray tooltip shows triggered/unknown counts. |
+| **Pricing**   | View the models.dev pricing snapshot. Add custom per-1M-token pricing overrides for any provider/model to correct missing or incorrect rates.                                                        |
+| **API Keys**  | Encrypted store for provider API keys (AES-256-GCM with PBKDF2 key derivation). Unlock with a master passphrase. Export/import encrypted bundles for cross-machine sharing.                          |
+
+Standalone refreshes also record **History**: successful percentage observations and actionable failures persist without an OpenCode toast. History is provider-wide with unknown account identity; existing reset history remains readable, while new resets require verified account/window continuity.
+
+History and budget evaluation use system Node with SQLite support (Node 22 built-in SQLite, or an older supported Node with optional `better-sqlite3`). If the helper/database is unavailable, quota display continues with a diagnostic. Budget day/week/month windows mean rolling 24h/7d/30d; unknown prices or failed reads show **Unknown**, including below-threshold rules. Existing WAL-mode history is left unchanged and reported unavailable for standalone writes.
 
 ## API Key Management
 

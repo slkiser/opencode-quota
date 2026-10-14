@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { rm } from "fs/promises";
+import { rm, writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { mkdirSync } from "fs";
@@ -229,18 +229,20 @@ describe("budget-alerts", () => {
     });
 
     it("handles missing usage data gracefully", () => {
-      const rules: BudgetAlertRule[] = [{
-        id: "r1",
-        enabled: true,
-        name: "Test",
-        scope: { type: "model", providerId: "unknown", modelId: "unknown" },
-        window: "day",
-        metric: "cost_usd",
-        threshold: 5,
-        direction: "above",
-        createdAt: 0,
-        updatedAt: 0,
-      }];
+      const rules: BudgetAlertRule[] = [
+        {
+          id: "r1",
+          enabled: true,
+          name: "Test",
+          scope: { type: "model", providerId: "unknown", modelId: "unknown" },
+          window: "day",
+          metric: "cost_usd",
+          threshold: 5,
+          direction: "above",
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      ];
 
       const results = evaluateAllBudgetAlerts(rules, new Map());
       expect(results).toHaveLength(1);
@@ -274,7 +276,18 @@ describe("budget-alerts", () => {
     it("describeScope returns human-readable descriptions", () => {
       expect(describeScope({ type: "global" })).toBe("All providers");
       expect(describeScope({ type: "provider", providerId: "openai" })).toBe("openai");
-      expect(describeScope({ type: "model", providerId: "openai", modelId: "gpt-5" })).toBe("openai/gpt-5");
+      expect(describeScope({ type: "model", providerId: "openai", modelId: "gpt-5" })).toBe(
+        "openai/gpt-5",
+      );
     });
+  });
+  it("reports malformed rules to strict readers even after a cached successful read", async () => {
+    await getBudgetAlertRules();
+    const dir = join(testDir, "opencode", "opencode-quota");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "budget-alerts.json"), "{broken");
+    await expect(getBudgetAlertRules({ strictReads: true, forceReload: true })).rejects.toThrow(
+      "Budget rules unavailable",
+    );
   });
 });

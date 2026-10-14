@@ -62,8 +62,7 @@ import {
 } from "./lib/quota-dialog-commands.js";
 import { getDashboardApi } from "./dashboard/dashboard-instance.js";
 import {
-  captureQuotaSnapshots,
-  detectAndRecordWeeklyResets,
+  recordQuotaObservations,
   type ProviderResultForSnapshot,
 } from "./dashboard/quota-snapshot-bridge.js";
 import { syncTodayUsageHistory } from "./dashboard/usage-history-bridge.js";
@@ -79,9 +78,7 @@ async function captureDashboardSnapshotsBestEffort(
   try {
     const dashboardApi = await getDashboardApi();
     if (!dashboardApi) return;
-    // Must run before captureQuotaSnapshots(), which overwrites "current".
-    detectAndRecordWeeklyResets(dashboardApi, providerResults);
-    captureQuotaSnapshots(dashboardApi, providerResults);
+    recordQuotaObservations(dashboardApi, providerResults);
     syncTodayUsageHistory(dashboardApi).catch((err) => {
       console.error(
         "[dashboard] Usage history sync failed:",

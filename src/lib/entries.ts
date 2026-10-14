@@ -92,7 +92,15 @@ export interface QuotaProviderPresentation {
   classicStrategy?: "preserve";
 }
 
+export interface QuotaObservation {
+  /** Random observation ID; never an account or credential identifier. */
+  id: string;
+  observedAt: number;
+}
+
 export interface QuotaProviderResult {
+  /** Assigned by the shared fetch pipeline, retained through cache reads. */
+  observation?: QuotaObservation;
   /** True when provider had enough configuration to attempt a query. */
   attempted: boolean;
   entries: QuotaToastEntry[];

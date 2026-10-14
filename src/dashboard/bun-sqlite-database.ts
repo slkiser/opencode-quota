@@ -38,7 +38,9 @@ export class BunSqliteDatabaseAdapter {
 
   static async open(dbPath: string): Promise<BunSqliteDatabaseAdapter> {
     const { Database } = (await import("bun:sqlite")) as unknown as BunSqliteModule;
-    return new BunSqliteDatabaseAdapter(new Database(dbPath));
+    const db = new Database(dbPath);
+    db.exec("PRAGMA busy_timeout = 1500");
+    return new BunSqliteDatabaseAdapter(db);
   }
 
   prepare(sql: string): PreparedLike {

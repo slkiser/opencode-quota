@@ -26,7 +26,9 @@ async function openDatabase(dbPath: string): Promise<unknown> {
   }
 
   const Database = await import("better-sqlite3").then((mod) => mod.default);
-  return new Database(dbPath);
+  const db = new Database(dbPath);
+  db.exec("PRAGMA busy_timeout = 1500");
+  return db;
 }
 
 export async function getDashboardApi(): Promise<DashboardApiType | null> {
@@ -47,7 +49,10 @@ export async function getDashboardApi(): Promise<DashboardApiType | null> {
 
     cached = new DashboardApi(db as any);
   } catch (err) {
-    console.error("[dashboard] Snapshot capture unavailable:", err instanceof Error ? err.message : err);
+    console.error(
+      "[dashboard] Snapshot capture unavailable:",
+      err instanceof Error ? err.message : err,
+    );
     cached = null;
   }
 

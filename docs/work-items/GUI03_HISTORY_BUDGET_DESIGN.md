@@ -1,8 +1,8 @@
 # GUI-03 history and budget runtime design
 
-Issue: [#15](https://github.com/thanhndv212/opencode-quota/issues/15). Prepared: 2026-10-09. Status: design and code-path investigation; implementation and acceptance tests remain pending. Dependencies: GUI-02 and COR-04.
+Issue: [#15](https://github.com/thanhndv212/opencode-quota/issues/15). Prepared: 2026-10-09. Status: implemented, local acceptance passed on 2026-10-15; [PR #43](https://github.com/thanhndv212/opencode-quota/pull/43) / hosted CI, review and merged-main acceptance remain pending. Dependencies: GUI-02 and COR-04.
 
-## Verified starting point
+## Verified starting point (2026-10-09)
 
 - Electron refresh now runs through `src/gui/quota-refresh-controller.ts` and `src/gui/ipc/quota.ts`. The controller distinguishes current outcomes from retained previous observations. Persistence must consume current provider outcomes, never the retained display snapshot.
 - Plugin snapshot recording lives in `src/plugin.ts: captureDashboardSnapshotsBestEffort()`, using `src/dashboard/quota-snapshot-bridge.ts`. The bridge already skips value-only quota rather than inventing percentages, and writes actionable errors when a provider has no usable percentage rows.
@@ -32,4 +32,32 @@ Issue: [#15](https://github.com/thanhndv212/opencode-quota/issues/15). Prepared:
 | Desktop state            | Actual installed app publishes history/budget updates while hidden, re-evaluates rule edits, unsubscribes listeners and quits helper/timer work                                  |
 | Compatibility            | Old history/config fixture copies remain readable; rollback preserves data; any account identity/schema dependency is explicitly documented and tested                           |
 
-This design does not complete GUI-03. Implementation must resolve the observation/account metadata boundary and pass these gates before merge and green main CI can close #15. FND-04 remains a separate release/publisher and host/installation gate.
+## Implemented behavior (2026-10-15)
+
+- Cache v3 adds a non-secret random observation ID and actual observation time. Cached/coalesced readers retain it; legacy v2 snapshots receive deterministic SHA-256 observation IDs. Distinct fresh fetches stay distinct even in the same millisecond. Account cache scope remains unchanged.
+- Plugin and Electron use `recordQuotaObservations()` after the existing provider loop. Native SQLite serializes/deduplicates provider + observation ID. Existing schema-v1 tables remain intact; real time stays in JSON metadata when a storage-key collision requires a different unique key. Reads sort/filter by actual observation time, including out-of-order writes.
+- A bounded serialized `HistoryHelperClient` starts a real system Node worker, using `node:sqlite` or optional `better-sqlite3`. IPC has request IDs, queue/time limits, failure recovery and disposal. Electron's sql.js reader never exports over the live database. WAL-mode histories are refused for writing rather than silently changing journal mode; unavailable writers/reads produce diagnostics.
+- Main evaluates one aggregate per distinct rolling day (24h), week (7d), month (30d) or all-history window, with one upper timestamp. Provider/model scopes use source attribution, not pricing aliases. Unpriced costs, unreadable usage and malformed budget rules stay unknown. Rule edits re-evaluate locally without fetching providers.
+- Renderer/tray consume the same budget state. History updates, rule status/time/range, diagnostics and unsubscribe handlers are wired. Each unsubscribe returns undefined across the Electron bridge. Quit disposes worker and controller work.
+
+## Account, reset and rollback boundary
+
+History remains explicitly `accountIdentity: "unknown"`; no account is invented for old or new rows. These are provider observations, not account-specific history. Existing reset rows remain readable. The new shared recording path does not infer new resets from an unqualified provider percentage jump; trusted account/window continuity belongs to ACC-02 and INS-01. Budget alerts are local usage thresholds, not reset notices.
+
+No dashboard table is replaced, and no whole-file writer is added. Old readers still see schema-v1 rows and percentage JSON fields; new observation/error metadata is additive. Cache v3 reads valid account-scoped v2 records; older packages may discard/refetch v3 cache files, which are disposable. Rollback restores the prior package without deleting the dashboard DB or budget rules. A Node runtime with SQLite support is required for the helper; absent Node/bindings and WAL mode are explicit unavailable states.
+
+## Local acceptance evidence (2026-10-15)
+
+Node 22.23.3 / pnpm 10.0.0: typecheck/build, full Vitest suite, installed-tarball consumer check and separate-process account-cache smoke passed. The final local full suite passed 143 files / 1,476 tests. Provider HTTP is fixture-backed; no live-provider certification is claimed.
+
+| Gate                                                                                                    | Local evidence                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Standalone persistence, hidden refreshes, failure rows, rule edits, subscriptions, real helper shutdown | Installed-tarball macOS Electron 42.5.0 smoke using real main/preload/renderer/controller/helper/SQLite with fixture HTTP and usage DB |
+| Observation dedup, same-ms distinct results, legacy v2 reads, clone/restart stability                   | `tests/quota-state.test.ts`, account-identity tests and separate-process cache smoke                                                   |
+| Two real Node writers + WASM reader; restart and legacy history readability                             | `tests/gui.history-process.test.ts`                                                                                                    |
+| Out-of-order reads, locked DB, no fabricated percentages/value rows, WAL refusal                        | `tests/gui.history-persistence.test.ts`                                                                                                |
+| Day/week/month/all boundaries from a real usage DB; corrupt transcript unavailable                      | `tests/gui.history-process.test.ts`                                                                                                    |
+| Source scopes, unpriced cost, one request per distinct window, unavailable reads/rules                  | `tests/gui.budget-evaluation.test.ts`, budget-alert and Claude-storage tests                                                           |
+| Missing Node, helper timeout/death/idle exit and pending disposal                                       | `tests/gui.history-client.test.ts`                                                                                                     |
+
+The first sandbox-only full run could not bind the local HTTP test server; the full run with socket permission passed. A new regression reproduced incorrect current-history ordering before the fix. A loaded concurrent-writer run exposed journal-mode probing before the busy timeout; moving timeout configuration before that probe fixed it, and the full suite passed. FND-04 remains a separate DMG installation, signing/publisher and actual-host gate. Hosted CI and green merged-main CI are still required before closing #15.

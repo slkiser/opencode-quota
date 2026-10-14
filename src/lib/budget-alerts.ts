@@ -23,13 +23,13 @@ export const BUDGET_ALERTS_DIRNAME = "opencode-quota";
 export const BUDGET_ALERTS_FILENAME = "budget-alerts.json";
 
 export type BudgetTimeWindow =
-  | "day"       // rolling 24 hours
-  | "week"      // rolling 7 days
-  | "month"     // rolling 30 days
-  | "all";      // all available history
+  | "day" // rolling 24 hours
+  | "week" // rolling 7 days
+  | "month" // rolling 30 days
+  | "all"; // all available history
 
 export type BudgetThresholdMetric =
-  | "cost_usd"     // USD spend
+  | "cost_usd" // USD spend
   | "tokens_total" // total tokens (input + output + reasoning + cache)
   | "tokens_input"
   | "tokens_output";
@@ -117,13 +117,9 @@ function emptyStore(): BudgetAlertStore {
   return { version: BUDGET_ALERTS_VERSION, rules: [] };
 }
 
-async function loadStore(forceReload = false): Promise<BudgetAlertStore> {
+async function loadStore(forceReload = false, strictReads = false): Promise<BudgetAlertStore> {
   const now = Date.now();
-  if (
-    !forceReload &&
-    cachedStore &&
-    now - storeLoadedAt < STORE_CACHE_TTL_MS
-  ) {
+  if (!forceReload && cachedStore && now - storeLoadedAt < STORE_CACHE_TTL_MS) {
     return cachedStore;
   }
 
@@ -134,9 +130,12 @@ async function loadStore(forceReload = false): Promise<BudgetAlertStore> {
     if (parsed && typeof parsed === "object" && Array.isArray(parsed.rules)) {
       cachedStore = parsed as BudgetAlertStore;
     } else {
+      if (strictReads) throw new Error("Budget rules unavailable");
       cachedStore = emptyStore();
     }
-  } catch {
+  } catch (error) {
+    if (strictReads && (error as NodeJS.ErrnoException).code !== "ENOENT")
+      throw new Error("Budget rules unavailable");
     cachedStore = emptyStore();
   }
   storeLoadedAt = now;
@@ -176,10 +175,14 @@ export function getWindowSinceMs(window: BudgetTimeWindow): number | undefined {
  */
 export function getWindowLabel(window: BudgetTimeWindow): string {
   switch (window) {
-    case "day": return "24 hours";
-    case "week": return "7 days";
-    case "month": return "30 days";
-    case "all": return "All time";
+    case "day":
+      return "24 hours";
+    case "week":
+      return "7 days";
+    case "month":
+      return "30 days";
+    case "all":
+      return "All time";
   }
 }
 
@@ -225,11 +228,7 @@ function formatMetricValue(value: number, metric: BudgetThresholdMetric): string
 // Rule scope matching
 // =============================================================================
 
-function scopeMatches(
-  scope: BudgetAlertScope,
-  providerId?: string,
-  modelId?: string,
-): boolean {
+function scopeMatches(scope: BudgetAlertScope, providerId?: string, modelId?: string): boolean {
   switch (scope.type) {
     case "global":
       return true;
@@ -254,8 +253,30 @@ function generateRuleId(): string {
 /**
  * Get all budget alert rules.
  */
-export async function getBudgetAlertRules(): Promise<BudgetAlertRule[]> {
-  const store = await loadStore();
+export async function getBudgetAlertRules(
+  options: { strictReads?: boolean; forceReload?: boolean } = {},
+): Promise<BudgetAlertRule[]> {
+  const store = await loadStore(options.forceReload, options.strictReads);
+  if (
+    options.strictReads &&
+    (store.version !== BUDGET_ALERTS_VERSION ||
+      store.rules.some(
+        (rule) =>
+          !rule ||
+          typeof rule.id !== "string" ||
+          typeof rule.enabled !== "boolean" ||
+          !["day", "week", "month", "all"].includes(rule.window) ||
+          !["cost_usd", "tokens_total", "tokens_input", "tokens_output"].includes(rule.metric) ||
+          !["above", "below"].includes(rule.direction) ||
+          !Number.isFinite(rule.threshold) ||
+          rule.threshold <= 0 ||
+          !rule.scope ||
+          !["global", "provider", "model"].includes(rule.scope.type) ||
+          (rule.scope.type !== "global" && !rule.scope.providerId) ||
+          (rule.scope.type === "model" && !rule.scope.modelId),
+      ))
+  )
+    throw new Error("Budget rules unavailable");
   return [...store.rules];
 }
 

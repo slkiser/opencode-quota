@@ -61,10 +61,10 @@ describe("quota-state shared cache", () => {
       fetch: vi.fn().mockResolvedValueOnce(failure).mockResolvedValue(healthy),
     } as any;
     const params = { provider, ctx: createTestContext(), ttlMs: 60_000 };
-    expect(await fetchQuotaProviderResult(params)).toEqual(failure);
+    expect(await fetchQuotaProviderResult(params)).toEqual(expect.objectContaining(failure));
     const files = await readdir(`${TEST_RUNTIME_ROOT}/cache/quota-provider-state`).catch(() => []);
     expect(files.filter((file) => file.endsWith(".json"))).toEqual([]);
-    expect(await fetchQuotaProviderResult(params)).toEqual(healthy);
+    expect(await fetchQuotaProviderResult(params)).toEqual(expect.objectContaining(healthy));
     expect(provider.fetch).toHaveBeenCalledTimes(2);
   });
 
@@ -96,7 +96,9 @@ describe("quota-state shared cache", () => {
     await writeFile(path, JSON.stringify(persisted));
     vi.resetModules();
     const freshState = await import("../src/lib/quota-state.js");
-    expect(await freshState.fetchQuotaProviderResult(params)).toEqual(healthy);
+    expect(await freshState.fetchQuotaProviderResult(params)).toEqual(
+      expect.objectContaining(healthy),
+    );
     expect(provider.fetch).toHaveBeenCalledTimes(2);
   });
 
@@ -121,7 +123,7 @@ describe("quota-state shared cache", () => {
     const params = { provider, ctx: createTestContext(), ttlMs: 0 };
     await fetchQuotaProviderResult(params);
     const before = await readCachedProviderResult(params);
-    expect(await fetchQuotaProviderResult(params)).toEqual(failure);
+    expect(await fetchQuotaProviderResult(params)).toEqual(expect.objectContaining(failure));
     expect(await readCachedProviderResult(params)).toEqual(before);
   });
 
@@ -138,8 +140,8 @@ describe("quota-state shared cache", () => {
       fetch: vi.fn().mockResolvedValue(partial),
     } as any;
     const params = { provider, ctx: createTestContext(), ttlMs: 60_000 };
-    expect(await fetchQuotaProviderResult(params)).toEqual(partial);
-    expect(await fetchQuotaProviderResult(params)).toEqual(partial);
+    expect(await fetchQuotaProviderResult(params)).toEqual(expect.objectContaining(partial));
+    expect(await fetchQuotaProviderResult(params)).toEqual(expect.objectContaining(partial));
     expect(provider.fetch).toHaveBeenCalledTimes(1);
   });
 
@@ -202,23 +204,25 @@ describe("quota-state shared cache", () => {
       ttlMs: 60_000,
     });
 
-    expect(second).toEqual({
-      attempted: true,
-      entries: [
-        {
-          name: "Synthetic Weekly",
-          group: "Synthetic",
-          label: "Weekly:",
-          percentRemaining: 84,
-          right: "$8/$50",
-          resetTimeIso: "2026-04-21T18:00:00.000Z",
+    expect(second).toEqual(
+      expect.objectContaining({
+        attempted: true,
+        entries: [
+          {
+            name: "Synthetic Weekly",
+            group: "Synthetic",
+            label: "Weekly:",
+            percentRemaining: 84,
+            right: "$8/$50",
+            resetTimeIso: "2026-04-21T18:00:00.000Z",
+          },
+        ],
+        errors: [],
+        presentation: {
+          singleWindowShowRight: true,
         },
-      ],
-      errors: [],
-      presentation: {
-        singleWindowShowRight: true,
-      },
-    });
+      }),
+    );
     expect(provider.fetch).toHaveBeenCalledTimes(1);
   });
 
@@ -252,11 +256,13 @@ describe("quota-state shared cache", () => {
       ttlMs: 60_000,
     });
 
-    expect(second).toEqual({
-      attempted: true,
-      entries: [{ name: "Synthetic", percentRemaining: 55 }],
-      errors: [],
-    });
+    expect(second).toEqual(
+      expect.objectContaining({
+        attempted: true,
+        entries: [{ name: "Synthetic", percentRemaining: 55 }],
+        errors: [],
+      }),
+    );
     expect(provider.fetch).toHaveBeenCalledTimes(1);
   });
 
@@ -307,16 +313,18 @@ describe("quota-state shared cache", () => {
     const quotaStateB = await import("../src/lib/quota-state.js");
     const result = await quotaStateB.fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
 
-    expect(result).toEqual({
-      attempted: true,
-      entries: [{ name: "Synthetic", percentRemaining: 55 }],
-      errors: [],
-      presentation: {
-        classicDisplayName: "Synthetic",
-        classicShowRight: true,
-        classicStrategy: "preserve",
-      },
-    });
+    expect(result).toEqual(
+      expect.objectContaining({
+        attempted: true,
+        entries: [{ name: "Synthetic", percentRemaining: 55 }],
+        errors: [],
+        presentation: {
+          classicDisplayName: "Synthetic",
+          classicShowRight: true,
+          classicStrategy: "preserve",
+        },
+      }),
+    );
     expect(provider.fetch).not.toHaveBeenCalled();
   });
 
@@ -495,7 +503,7 @@ describe("readCachedProviderResult", () => {
       ttlMs: 60_000,
     });
 
-    expect(result).toEqual({ hit: false });
+    expect(result).toEqual(expect.objectContaining({ hit: false }));
   });
 
   it("returns { hit: true } with the cached result when cache is populated", async () => {
@@ -592,5 +600,58 @@ describe("readCachedProviderResult", () => {
       ttlMs: 60_000,
     });
     expect(second).toMatchObject({ hit: true, result: { entries: [{ percentRemaining: 42 }] } });
+  });
+});
+
+describe("quota observation contract", () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
+  });
+  afterEach(async () => {
+    await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+  it("preserves observation identity/time across coalescing, clones and disk reload; live fetches remain distinct", async () => {
+    const state = await import("../src/lib/quota-state.js");
+    vi.spyOn(Date, "now").mockReturnValue(Date.now());
+    const provider = {
+      id: "synthetic",
+      cachePolicy: { kind: "account-neutral" },
+      fetch: vi.fn(async () => ({
+        attempted: true,
+        entries: [{ name: "Synthetic", percentRemaining: 55 }],
+        errors: [],
+      })),
+    } as any;
+    const params = { provider, ctx: createTestContext(), ttlMs: 60000 };
+    const [a, b] = await Promise.all([
+      state.fetchQuotaProviderResult(params),
+      state.fetchQuotaProviderResult(params),
+    ]);
+    expect(provider.fetch).toHaveBeenCalledTimes(1);
+    expect(a.observation).toEqual(b.observation);
+    expect(a.observation).not.toBe(b.observation);
+    state.__resetQuotaStateForTests();
+    expect((await state.fetchQuotaProviderResult(params)).observation).toEqual(a.observation);
+    const fresh = await state.fetchQuotaProviderResult({ ...params, bypassCache: true });
+    expect(fresh.observation!.observedAt).toBe(a.observation!.observedAt);
+    expect(fresh.observation!.id).not.toBe(a.observation!.id);
+    // A v2 cache has a deterministic safe ID across independent legacy reads.
+    const file = state.getQuotaProviderStateCacheFilePath(
+      provider.id,
+      state.buildQuotaProviderStateCacheKey(provider.id, params.ctx),
+    );
+    const { readFile } = await import("fs/promises");
+    const data = JSON.parse(await readFile(file, "utf8"));
+    data.version = 2;
+    delete data.result.observation;
+    await writeFile(file, JSON.stringify(data));
+    state.__resetQuotaStateForTests();
+    const legacy = await state.fetchQuotaProviderResult(params);
+    state.__resetQuotaStateForTests();
+    expect((await state.fetchQuotaProviderResult(params)).observation).toEqual(legacy.observation);
+    expect(legacy.observation!.observedAt).toBe(data.timestamp);
+    expect(legacy.observation!.id).toMatch(/^[a-f0-9]{64}$/);
   });
 });

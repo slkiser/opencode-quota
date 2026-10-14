@@ -20,6 +20,12 @@ Thanks for contributing. This repo has strict local-only behavior and regression
 - Feature title format: `[feature]: <short description>`
 - Pull requests use `.github/pull_request_template.md` and should include tested OpenCode version details.
 
+## Documentation
+
+See the [documentation index](docs/README.md) for planning documents, implemented work-item records and architecture decisions. Store project documentation under `docs/` by default. Store work-item designs and completed implementation records in `docs/work-items/`, including behavior, acceptance evidence, limitations and rollback details. Link each record from the delivery tracker and update the adoption ledger when applicable.
+
+[UPSTREAM_DELIVERY_PLAN.md](docs/UPSTREAM_DELIVERY_PLAN.md) owns delivery status and dependencies; [UPSTREAM_ADOPTION.md](docs/UPSTREAM_ADOPTION.md) owns upstream provenance. Keep pending designs in `docs/work-items/` with their implementation and acceptance status explicit.
+
 ## Development Setup
 
 - The published package runtime supports Node.js `>=20.0.0` (matches `package.json` engines).

@@ -111,6 +111,13 @@ pnpm run build:install:mac             # Build macOS .dmg + install to /Applicat
 pnpm run upstream:sync                 # Sync upstream plugin references
 ```
 
+## Documentation
+
+- Store project documentation under `docs/` by default, including plans, designs, implementation records and acceptance evidence. Keep standard repository entry points (`README.md`, `CONTRIBUTING.md`, `AGENTS.md`) at the root.
+- Store work-item designs and implementation records in `docs/work-items/`. State whether each item is planned, in progress or complete; preserve evidence dates, validation limits and rollback details.
+- `docs/UPSTREAM_DELIVERY_PLAN.md` is authoritative for delivery status, dependencies and acceptance/release gates; `docs/UPSTREAM_ADOPTION.md` owns upstream provenance and capability mapping.
+- Update `docs/README.md` and relative links when adding or moving documentation. Documentation under `docs/` is versioned by default.
+
 ## Conventions
 
 - TypeScript strict mode, ESNext modules with bundler resolution, jsxImportSource: `@opentui/solid`.

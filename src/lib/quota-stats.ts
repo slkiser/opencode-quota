@@ -24,11 +24,7 @@ import {
   resolveCursorModel,
 } from "./cursor-pricing.js";
 import { calculateUsdFromTokenBuckets } from "./token-cost.js";
-import {
-  addTokenBuckets,
-  emptyTokenBuckets,
-  tokenBucketsFromMessage,
-} from "./token-buckets.js";
+import { addTokenBuckets, emptyTokenBuckets, tokenBucketsFromMessage } from "./token-buckets.js";
 import type { TokenBuckets } from "./token-buckets.js";
 
 // Re-export for consumers
@@ -167,7 +163,10 @@ function freeSuffixCandidates(modelId: string): string[] {
   return candidates.filter((value, index, list) => list.indexOf(value) === index);
 }
 
-function pickBestModelForProvider(providerID: string, candidates: readonly string[]): string | null {
+function pickBestModelForProvider(
+  providerID: string,
+  candidates: readonly string[],
+): string | null {
   for (const candidate of candidates) {
     if (hasCost(providerID, candidate)) return candidate;
   }
@@ -273,7 +272,10 @@ function moonshotaiPricingCandidates(model: string): string[] {
 
 function resolveModelForProvider(providerID: string, normalizedModel: string): string | null {
   if (!isModelsDevProviderId(providerID)) return null;
-  const preferredDirect = pickBestModelForProvider(providerID, freeSuffixCandidates(normalizedModel));
+  const preferredDirect = pickBestModelForProvider(
+    providerID,
+    freeSuffixCandidates(normalizedModel),
+  );
   if (preferredDirect) return preferredDirect;
 
   // Some source ids include "-thinking" while snapshot keeps a base key (or vice versa).
@@ -348,11 +350,7 @@ export function resolvePricingKey(source: {
 
   const tryProvider = (
     providerID: string | undefined,
-    method:
-      | "source_provider"
-      | "model_prefix"
-      | "alias_fallback"
-      | "cursor_api_alias",
+    method: "source_provider" | "model_prefix" | "alias_fallback" | "cursor_api_alias",
     modelIDHint: string = normalizedModel,
   ): PricingResolution | null => {
     if (!providerID) return null;
@@ -489,7 +487,8 @@ function calculateCostUsd(params: {
   const cost =
     params.provider === "cursor"
       ? lookupCursorLocalCost(params.model)
-      : lookupUserCostSync(params.provider, params.model) ?? lookupCost(params.provider, params.model);
+      : (lookupUserCostSync(params.provider, params.model) ??
+        lookupCost(params.provider, params.model));
   if (!cost) return { ok: false };
   return { ok: true, costUsd: calculateUsdFromTokenBuckets(cost, params.tokens) };
 }
@@ -591,6 +590,7 @@ export async function aggregateUsage(params: {
   untilMs?: number;
   sessionID?: string;
   sessionIDs?: string[];
+  strictReads?: boolean;
 }): Promise<AggregateResult> {
   if (params.sessionID && params.sessionIDs?.length) {
     throw new Error("aggregateUsage received both sessionID and sessionIDs");
@@ -618,7 +618,11 @@ export async function aggregateUsage(params: {
     // namespaces, so there's no "this OpenCode session" equivalent for them.
     const [openCodeMessages, claudeCliMessages] = await Promise.all([
       iterAssistantMessages({ sinceMs: params.sinceMs, untilMs: params.untilMs }),
-      iterClaudeCodeCliMessages({ sinceMs: params.sinceMs, untilMs: params.untilMs }),
+      iterClaudeCodeCliMessages({
+        sinceMs: params.sinceMs,
+        untilMs: params.untilMs,
+        strictReads: params.strictReads,
+      }),
     ]);
     messages = [...openCodeMessages, ...claudeCliMessages];
   }
@@ -657,7 +661,8 @@ export async function aggregateUsage(params: {
 
     const cacheKey = `${msg.providerID ?? ""}|||${msg.modelID ?? ""}`;
     const cached = resolutionCache.get(cacheKey);
-    const mapping = cached ?? resolvePricingKey({ providerID: msg.providerID, modelID: msg.modelID });
+    const mapping =
+      cached ?? resolvePricingKey({ providerID: msg.providerID, modelID: msg.modelID });
     if (!cached) resolutionCache.set(cacheKey, mapping);
 
     if (!mapping.ok) {
@@ -865,7 +870,10 @@ export async function getSessionTokenSummary(
 
   if (sessionMessages.length === 0) return null;
 
-  const byModel = new Map<string, { input: number; cachedInput: number; totalInput: number; output: number }>();
+  const byModel = new Map<
+    string,
+    { input: number; cachedInput: number; totalInput: number; output: number }
+  >();
   let totalInput = 0;
   let totalCachedInput = 0;
   let totalCombinedInput = 0;

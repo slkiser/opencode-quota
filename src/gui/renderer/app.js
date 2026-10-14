@@ -23,6 +23,8 @@
   let quotaData = null;
   let tokenData = null;
   let alerts = [];
+  let budgetState = null;
+  let historyReadError = null;
   let pricingOverrides = [];
   let pricingSnapshot = null;
   let apikeyStatus = null;
@@ -144,9 +146,17 @@
   async function loadAlerts() {
     try {
       alerts = await api.alerts.list();
+      receiveBudgetState(await api.alerts.state());
     } catch (e) {
       /* ignore */
     }
+    if (activeTab === 2) renderAlerts();
+  }
+
+  function receiveBudgetState(state) {
+    if (budgetState && state.revision < budgetState.revision) return;
+    budgetState = state;
+    if (state.evaluatedAt !== null) alerts = state.rules;
     if (activeTab === 2) renderAlerts();
   }
 
@@ -171,6 +181,7 @@
   }
 
   async function loadHistory() {
+    historyReadError = null;
     try {
       if (!historyProvidersLoaded) {
         historyProviders = await api.dashboardHistory.listProviders();
@@ -205,7 +216,7 @@
 
       await loadHistoryBurningSessions();
     } catch (e) {
-      /* ignore — History tab just shows its empty state */
+      historyReadError = "History unavailable: local observations could not be read";
     }
     if (activeTab === 5) renderHistory();
   }
@@ -580,6 +591,18 @@
       ),
     );
 
+    for (const message of quotaData.historyDiagnostics || []) {
+      container.appendChild(
+        el(
+          "div",
+          {
+            className: "history-diagnostic",
+            style: { marginBottom: "8px", color: "var(--text-secondary)" },
+          },
+          message,
+        ),
+      );
+    }
     // Surface provider-level errors (e.g. Claude CLI session expired) instead
     // of letting the provider silently vanish from the list below.
     for (const err of errors) {
@@ -1257,6 +1280,10 @@
   // Budget Alerts
   // ===========================================================================
   function renderAlertsInto(container) {
+    if (budgetState?.diagnostic) {
+      container.appendChild(el("div", { className: "history-diagnostic" }, budgetState.diagnostic));
+      if (!alerts.length) return;
+    }
     const header = el("div", {
       style: {
         display: "flex",
@@ -1323,6 +1350,37 @@
         ),
       );
       card.appendChild(renderKV("Window", alert.window));
+      const evaluation = budgetState?.results.find((item) => item.rule.id === alert.id);
+      if (alert.enabled) {
+        card.appendChild(
+          renderKV(
+            "Status",
+            evaluation
+              ? evaluation.status === "unknown"
+                ? "Unknown"
+                : evaluation.triggered
+                  ? "Triggered"
+                  : "Within threshold"
+              : "Not evaluated",
+          ),
+        );
+        if (evaluation) {
+          card.appendChild(renderKV("Evaluation", evaluation.message));
+          card.appendChild(
+            renderKV("Evaluated", new Date(evaluation.evaluatedAt).toLocaleString()),
+          );
+          card.appendChild(
+            renderKV(
+              "Range",
+              (evaluation.window.sinceMs
+                ? new Date(evaluation.window.sinceMs).toLocaleString()
+                : "All available history") +
+                " – " +
+                new Date(evaluation.window.untilMs).toLocaleString(),
+            ),
+          );
+        }
+      }
       card.appendChild(
         el(
           "div",
@@ -2163,6 +2221,9 @@
   }
 
   function renderHistoryInto(container) {
+    if (historyReadError) {
+      container.appendChild(el("div", { className: "history-diagnostic" }, historyReadError));
+    }
     if (!historyProvidersLoaded) {
       container.appendChild(
         el(
@@ -2227,6 +2288,25 @@
 
     container.appendChild(controls);
 
+    container.appendChild(
+      el(
+        "div",
+        {
+          className: "history-diagnostic",
+          style: { marginBottom: "8px", color: "var(--text-secondary)" },
+        },
+        "Account identity unknown: these are provider observations, not account-specific history.",
+      ),
+    );
+    for (const snapshot of historyQuota.filter((item) => item.error).slice(-5)) {
+      container.appendChild(
+        el(
+          "div",
+          { className: "history-diagnostic" },
+          new Date(snapshot.timestamp).toLocaleString() + ": " + snapshot.error,
+        ),
+      );
+    }
     const byKind = groupQuotaSnapshotsByKind(historyQuota);
     if (byKind.size === 0) {
       const card = el("div", { className: "card" });
@@ -2466,7 +2546,20 @@
       .state()
       .then(receiveQuotaSnapshot)
       .catch((e) => showToast(e.message, "error"));
-    window.addEventListener("beforeunload", unsubscribeQuota, { once: true });
+    const unsubscribeBudgets = api.alerts.onUpdate(receiveBudgetState);
+    const unsubscribeHistory = api.dashboardHistory.onUpdate(() => {
+      historyProvidersLoaded = false;
+      if (activeTab === 5) loadHistory();
+    });
+    window.addEventListener(
+      "beforeunload",
+      () => {
+        unsubscribeQuota();
+        unsubscribeBudgets();
+        unsubscribeHistory();
+      },
+      { once: true },
+    );
     loadAlerts();
     loadPricing();
     loadApikeyStatus();

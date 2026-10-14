@@ -106,6 +106,7 @@ export class QuotaRefreshController {
           this.state.previousObservation =
             failed && result.entries.length === 0 && this.state.entries.length > 0;
           this.state.errors = errors;
+          this.state.historyDiagnostics = result.historyDiagnostics ?? [];
           this.state.stale = failed;
           this.failures = failed ? this.failures + 1 : 0;
           if (!failed) this.state.lastSuccessAt = Date.now();

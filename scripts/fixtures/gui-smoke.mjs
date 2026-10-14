@@ -1,8 +1,19 @@
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
-import { app, BrowserWindow, ipcMain, session, Menu, powerMonitor } from "electron";
+import { app, BrowserWindow, ipcMain, session, Menu, powerMonitor, Tray } from "electron";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+
+const helpers = [];
+const fork = childProcess.fork;
+childProcess.fork = (...args) => {
+  const child = fork(...args);
+  if (String(args[0]).includes("history-helper")) helpers.push(child);
+  return child;
+};
+syncBuiltinESMExports();
 
 // This is an external fixture harness, never a production-mode bypass. Load
 // the actual installed main/preload/renderer/controller/provider pipeline.
@@ -33,6 +44,13 @@ globalThis.fetch = async (input, options) => {
     { status: 200 },
   );
 };
+const noTray = process.env.QUOTA_SMOKE_NO_TRAY === "1";
+if (noTray) {
+  Tray.prototype.setToolTip = function () {
+    this.destroy();
+    throw new Error("Fixture system tray unavailable");
+  };
+}
 let trayRefresh;
 const buildMenu = Menu.buildFromTemplate.bind(Menu);
 Menu.buildFromTemplate = (template) => {
@@ -44,10 +62,8 @@ const fixtures = {
     aggregate: { totals: { costUsd: 0 }, bySourceModel: [], bySession: [] },
     window: { label: "7 days" },
   }),
-  "alerts:list": () => [],
   "pricing:list": () => ({ overrides: [], snapshot: null }),
   "apikeys:status": () => ({ state: "empty" }),
-  "dashboardHistory:listProviders": () => [],
 };
 const realHandle = ipcMain.handle.bind(ipcMain);
 ipcMain.handle = (channel, handler) => {
@@ -55,7 +71,9 @@ ipcMain.handle = (channel, handler) => {
   else if (
     channel.startsWith("app:") ||
     channel.startsWith("config:") ||
-    channel.startsWith("quota:")
+    channel.startsWith("quota:") ||
+    channel.startsWith("alerts:") ||
+    channel.startsWith("dashboardHistory:")
   )
     realHandle(channel, handler);
   else
@@ -140,6 +158,38 @@ async function smoke() {
         `tab ${index}`,
       );
     }
+    const initialHistory = await evaluate(
+      'window.quotaApi.dashboardHistory.quotaHistory("openai")',
+    );
+    assert.equal(initialHistory.length, 1, "standalone startup must persist one observation");
+    assert.equal(initialHistory[0].accountIdentity, "unknown");
+    await evaluate(
+      "window.__budgetEvents = 0; window.__historyEvents = 0; window.__budgetOff = window.quotaApi.alerts.onUpdate(() => window.__budgetEvents++); window.__historyOff = window.quotaApi.dashboardHistory.onUpdate(() => window.__historyEvents++); undefined",
+    );
+    const day = await evaluate(
+      'window.quotaApi.alerts.create({ name: "Fixture day", scope: { type: "global" }, window: "day", metric: "tokens_input", threshold: 15, direction: "above" })',
+    );
+    const week = await evaluate(
+      'window.quotaApi.alerts.create({ name: "Fixture week", scope: { type: "global" }, window: "week", metric: "tokens_input", threshold: 15, direction: "above" })',
+    );
+    const cost = await evaluate(
+      'window.quotaApi.alerts.create({ name: "Unknown price", scope: { type: "global" }, window: "day", metric: "cost_usd", threshold: 1, direction: "below" })',
+    );
+    let budgets = await evaluate("window.quotaApi.alerts.state()");
+    assert.equal(budgets.results.find((r) => r.rule.id === day.id).currentValue, 10);
+    assert.equal(budgets.results.find((r) => r.rule.id === day.id).triggered, false);
+    assert.equal(budgets.results.find((r) => r.rule.id === week.id).currentValue, 20);
+    assert.equal(budgets.results.find((r) => r.rule.id === week.id).triggered, true);
+    assert.equal(budgets.results.find((r) => r.rule.id === cost.id).status, "unknown");
+    await evaluate(`window.quotaApi.alerts.update(${JSON.stringify(week.id)}, { threshold: 25 })`);
+    await evaluate(`window.quotaApi.alerts.delete(${JSON.stringify(cost.id)})`);
+    budgets = await evaluate("window.quotaApi.alerts.state()");
+    assert.equal(budgets.triggeredCount, 0);
+    assert.equal(
+      budgets.results.some((r) => r.rule.id === cost.id),
+      false,
+    );
+    assert.equal(fetches, 1, "rule edits must not refetch provider quota");
     await evaluate("document.querySelectorAll('.tab-btn')[0].click()");
     const before = fetches;
     await evaluate("document.querySelector('.btn-refresh').click()");
@@ -156,8 +206,13 @@ async function smoke() {
       () => evaluate("window.quotaApi.quota.state().then(s => !s.fetching)"),
       "timer completion",
     );
-    assert.equal(typeof trayRefresh, "function");
-    trayRefresh();
+    if (noTray) {
+      assert.equal(trayRefresh, undefined);
+      await evaluate("window.quotaApi.quota.fetch(true)");
+    } else {
+      assert.equal(typeof trayRefresh, "function");
+      trayRefresh();
+    }
     await waitFor(() => fetches === beforeTimer + 2, "real tray refresh while hidden");
     await waitFor(
       () => evaluate("window.quotaApi.quota.state().then(s => !s.fetching)"),
@@ -215,11 +270,38 @@ async function smoke() {
       2,
       "unsubscribe removes only its own listener",
     );
+    const history = await evaluate('window.quotaApi.dashboardHistory.quotaHistory("openai")');
+    assert.ok(
+      history.length > initialHistory.length,
+      "hidden/manual refreshes must persist history",
+    );
+    assert.ok(history.some((row) => row.error?.includes("503") && row.percentRemaining === null));
+    assert.ok(await evaluate("window.__historyEvents > 0 && window.__budgetEvents > 0"));
+    await evaluate("window.__budgetOff(); window.__historyOff(); undefined");
+    const eventCounts = await evaluate("[window.__budgetEvents, window.__historyEvents]");
+    await evaluate("window.quotaApi.quota.fetch(true)");
+    assert.deepEqual(
+      await evaluate("[window.__budgetEvents, window.__historyEvents]"),
+      eventCounts,
+    );
     assert.deepEqual(errors, []);
     clearTimeout(deadline);
     console.log(
-      `Installed Electron GUI smoke passed: ${process.platform}, Electron ${process.versions.electron}, six tabs, config, startup/timer/tray/wake/coalesced HTTP refresh, stale/recovery, unsubscribe, version, preload`,
+      `Installed Electron GUI smoke passed: ${process.platform}, Electron ${process.versions.electron}, six tabs, config, startup/timer/tray/wake/coalesced HTTP refresh, stale/recovery, unsubscribe, persisted history, windowed budgets/rule edits, version, preload`,
     );
+    assert.ok(helpers.length > 0, "installed main must launch the real history helper");
+    app.once("will-quit", (event) => {
+      event.preventDefault();
+      void waitFor(
+        () => helpers.every((child) => child.exitCode !== null || child.signalCode !== null),
+        "history helper shutdown",
+      )
+        .then(() => app.exit(0))
+        .catch((error) => {
+          console.error(error);
+          app.exit(1);
+        });
+    });
     await evaluate("window.quotaApi.app.quit()");
   } catch (error) {
     console.error(error, errors);

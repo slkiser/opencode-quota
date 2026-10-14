@@ -196,4 +196,15 @@ describe("iterClaudeCodeCliMessages", () => {
 
     expect(messages[0]!.sessionID).toBe("session-5");
   });
+  it("makes incomplete transcripts an unavailable strict read rather than zero usage", async () => {
+    const project = join(projectsDir, "broken");
+    mkdirSync(project);
+    writeFileSync(join(project, "partial.jsonl"), "{unfinished");
+    await expect(iterClaudeCodeCliMessages({ projectsDir, strictReads: true })).rejects.toThrow();
+    expect(await iterClaudeCodeCliMessages({ projectsDir })).toEqual([]);
+  });
+  it("ignores non-directory metadata while preserving strict transcript errors", async () => {
+    writeFileSync(join(projectsDir, ".DS_Store"), "metadata");
+    expect(await iterClaudeCodeCliMessages({ projectsDir, strictReads: true })).toEqual([]);
+  });
 });

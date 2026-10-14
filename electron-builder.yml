@@ -19,6 +19,11 @@ extraMetadata:
 
 asar: true
 
+# System Node cannot import modules inside Electron asar archives.
+asarUnpack:
+  - dist/**/*
+  - node_modules/**/*
+
 npmRebuild: false
 
 mac:

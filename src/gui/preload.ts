@@ -71,8 +71,20 @@ const quotaApi = {
     update: (id: string, params: Record<string, unknown>) =>
       ipcRenderer.invoke("alerts:update", { id, params }),
     delete: (id: string) => ipcRenderer.invoke("alerts:delete", { id }),
-    evaluate: (usageMap: Array<{ key: string; usage: unknown }>) =>
-      ipcRenderer.invoke("alerts:eval", { usageMap }),
+    evaluate: () => ipcRenderer.invoke("alerts:eval"),
+    state: () => ipcRenderer.invoke("alerts:state"),
+    onUpdate: (
+      callback: (state: import("./budget-evaluation.js").BudgetEvaluationState) => void,
+    ) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        state: import("./budget-evaluation.js").BudgetEvaluationState,
+      ) => callback(state);
+      ipcRenderer.on("alerts:updated", listener);
+      return () => {
+        ipcRenderer.removeListener("alerts:updated", listener);
+      };
+    },
   },
 
   // ── API Keys ───────────────────────────────────────────
@@ -126,6 +138,13 @@ const quotaApi = {
 
   // ── Dashboard History ──────────────────────────────────
   dashboardHistory: {
+    onUpdate: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on("history:updated", listener);
+      return () => {
+        ipcRenderer.removeListener("history:updated", listener);
+      };
+    },
     listProviders: () => ipcRenderer.invoke("dashboardHistory:listProviders"),
     quotaHistory: (provider: string, days?: number) =>
       ipcRenderer.invoke("dashboardHistory:quotaHistory", { provider, days }),

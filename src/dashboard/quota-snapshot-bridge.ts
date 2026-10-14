@@ -54,7 +54,8 @@ function toQuotaLimits(entries: QuotaToastEntry[]): QuotaLimit[] {
 export function captureQuotaSnapshots(
   dashboardApi: Pick<DashboardApi, "captureSnapshot">,
   providerResults: ProviderResultForSnapshot[],
-): void {
+): string[] {
+  const diagnostics: string[] = [];
   for (const { providerId, result } of providerResults) {
     const limits = toQuotaLimits(result.entries);
 
@@ -63,11 +64,13 @@ export function captureQuotaSnapshots(
 
       try {
         dashboardApi.captureSnapshot(providerId, {
+          ...(result.observation ? { observation: result.observation } : {}),
           percentRemaining: null,
           limits: [],
           error: result.errors[0].message,
         });
       } catch (err) {
+        diagnostics.push(`History write failed for ${providerId}`);
         console.error(`[dashboard] Failed to capture error snapshot for ${providerId}:`, err);
       }
       continue;
@@ -76,11 +79,18 @@ export function captureQuotaSnapshots(
     const percentRemaining = Math.min(...limits.map((l) => 100 - l.percent));
 
     try {
-      dashboardApi.captureSnapshot(providerId, { percentRemaining, limits });
+      dashboardApi.captureSnapshot(providerId, {
+        ...(result.observation ? { observation: result.observation } : {}),
+        percentRemaining,
+        limits,
+        ...(result.errors[0] ? { error: result.errors[0].message } : {}),
+      });
     } catch (err) {
+      diagnostics.push(`History write failed for ${providerId}`);
       console.error(`[dashboard] Failed to capture snapshot for ${providerId}:`, err);
     }
   }
+  return diagnostics;
 }
 
 /**
@@ -124,8 +134,21 @@ export function detectAndRecordWeeklyResets(
           limit: 100,
         });
       } catch (err) {
-        console.error(`[dashboard] Failed to record reset for ${providerId}/${newLimit.kind}:`, err);
+        console.error(
+          `[dashboard] Failed to record reset for ${providerId}/${newLimit.kind}:`,
+          err,
+        );
       }
     }
   }
+}
+
+/** Shared post-fetch hook. Provider-only history cannot prove account/window
+ * continuity, so reset heuristics are not run until ACC-02 supplies that proof.
+ * Stored reset history remains readable. No provider requests occur here. */
+export function recordQuotaObservations(
+  dashboardApi: Pick<DashboardApi, "captureSnapshot">,
+  providerResults: ProviderResultForSnapshot[],
+): string[] {
+  return captureQuotaSnapshots(dashboardApi, providerResults);
 }

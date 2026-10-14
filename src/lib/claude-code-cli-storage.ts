@@ -40,11 +40,12 @@ interface ClaudeCliTranscriptEntry {
   };
 }
 
-async function listJsonlFiles(projectsDir: string): Promise<string[]> {
+async function listJsonlFiles(projectsDir: string, strictReads = false): Promise<string[]> {
   let projectDirs: string[];
   try {
     projectDirs = await readdir(projectsDir);
-  } catch {
+  } catch (error) {
+    if (strictReads && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     return [];
   }
 
@@ -54,7 +55,9 @@ async function listJsonlFiles(projectsDir: string): Promise<string[]> {
     let entries;
     try {
       entries = await readdir(projectPath, { withFileTypes: true });
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOTDIR") continue;
+      if (strictReads) throw error;
       continue;
     }
     for (const entry of entries) {
@@ -114,9 +117,10 @@ export async function iterClaudeCodeCliMessages(params: {
   sinceMs?: number;
   untilMs?: number;
   projectsDir?: string;
+  strictReads?: boolean;
 }): Promise<OpenCodeMessage[]> {
   const projectsDir = params.projectsDir ?? getClaudeCodeCliProjectsDir();
-  const files = await listJsonlFiles(projectsDir);
+  const files = await listJsonlFiles(projectsDir, params.strictReads);
   const messages: OpenCodeMessage[] = [];
 
   for (const file of files) {
@@ -127,7 +131,8 @@ export async function iterClaudeCodeCliMessages(params: {
       try {
         const stats = await stat(file);
         if (stats.mtimeMs < params.sinceMs) continue;
-      } catch {
+      } catch (error) {
+        if (params.strictReads) throw error;
         continue;
       }
     }
@@ -135,7 +140,8 @@ export async function iterClaudeCodeCliMessages(params: {
     let raw: string;
     try {
       raw = await readFile(file, "utf8");
-    } catch {
+    } catch (error) {
+      if (params.strictReads) throw error;
       continue;
     }
 
@@ -148,7 +154,8 @@ export async function iterClaudeCodeCliMessages(params: {
       let entry: ClaudeCliTranscriptEntry;
       try {
         entry = JSON.parse(line);
-      } catch {
+      } catch (error) {
+        if (params.strictReads) throw error;
         continue;
       }
 
