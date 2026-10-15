@@ -39,6 +39,8 @@
   let historyProvider = null;
   let historyDays = 7;
   let historyQuota = [];
+  let historyAccounting = [];
+  let historyAccount = "all";
   let historyResets = [];
   let historySourceModels = [];
   let historyGroupBy = "All";
@@ -190,18 +192,21 @@
       }
 
       if (historyProvider) {
-        const [quota, resets] = await Promise.all([
+        const [quota, resets, accounting] = await Promise.all([
           api.dashboardHistory.quotaHistory(historyProvider, historyDays),
           api.dashboardHistory.weeklyResets(
             historyProvider,
             Math.max(1, Math.ceil(historyDays / 7)),
           ),
+          api.dashboardHistory.accountingHistory(historyProvider, historyDays),
         ]);
         historyQuota = quota || [];
         historyResets = resets || [];
+        historyAccounting = accounting || [];
       } else {
         historyQuota = [];
         historyResets = [];
+        historyAccounting = [];
       }
 
       // Source-grouped model cost breakdown over the selected range - reuses
@@ -679,6 +684,8 @@
         container.appendChild(renderProviderCard(item.entry));
       }
     }
+    if (quotaData.accountingDetails?.length)
+      container.appendChild(renderAccountingRows(quotaData.accountingDetails));
 
     if (quotaData.sessionTokens) {
       const st = quotaData.sessionTokens;
@@ -736,6 +743,46 @@
     }
 
     return card;
+  }
+
+  function renderAccountingRows(rows) {
+    const details = el("details", {
+      className: "card accounting-details",
+      style: { overflowWrap: "anywhere", minWidth: "0" },
+    });
+    details.appendChild(
+      el(
+        "summary",
+        { className: "card-title", style: { cursor: "pointer" } },
+        "Balances and usage details",
+      ),
+    );
+    for (const row of rows) {
+      const item = el("div", {
+        className: "accounting-detail-row",
+        style: { marginTop: "12px", minWidth: "0" },
+      });
+      item.appendChild(
+        el(
+          "div",
+          { className: "card-subtitle" },
+          row.providerId +
+            " · " +
+            row.name +
+            (row.prominence === "supplementary" ? " · Additional detail" : ""),
+        ),
+      );
+      item.appendChild(
+        el(
+          "div",
+          { className: "accounting-detail-value", style: { fontWeight: "600", margin: "4px 0" } },
+          row.value,
+        ),
+      );
+      for (const fact of row.facts || []) item.appendChild(renderKV(fact.label, fact.value));
+      details.appendChild(item);
+    }
+    return details;
   }
 
   // ===========================================================================
@@ -1888,7 +1935,11 @@
     const byKind = new Map();
     (snapshots || []).forEach((snap) => {
       (snap.limits || []).forEach((limit) => {
-        const key = limit.kind || limit.group || "quota";
+        const account =
+          snap.accountIdentity && snap.accountIdentity !== "unknown"
+            ? "Account " + snap.accountIdentity.slice(0, 8)
+            : "Unknown account";
+        const key = account + " · " + (limit.kind || limit.group || "quota");
         if (!byKind.has(key)) byKind.set(key, { group: limit.group || key, points: [] });
         byKind.get(key).points.push({
           timestamp: snap.timestamp,
@@ -2259,6 +2310,7 @@
       className: "filter-select",
       onChange: (e) => {
         historyProvider = e.target.value;
+        historyAccount = "all";
         loadHistory();
       },
     });
@@ -2268,6 +2320,33 @@
       providerSelect.appendChild(opt);
     });
     controls.appendChild(providerSelect);
+    const accountSelect = el("select", {
+      className: "filter-select history-account-filter",
+      onChange: (e) => {
+        historyAccount = e.target.value;
+        renderHistory();
+      },
+    });
+    const accounts = [
+      ...new Set([
+        ...historyQuota.map((row) => row.accountIdentity || "unknown"),
+        ...historyAccounting.map((row) => row.detail.accountIdentity),
+      ]),
+    ];
+    for (const id of ["all", ...accounts]) {
+      const option = el(
+        "option",
+        { value: id },
+        id === "all"
+          ? "All accounts (separate series)"
+          : id === "unknown"
+            ? "Unknown account"
+            : "Account " + id.slice(0, 8),
+      );
+      if (historyAccount === id) option.setAttribute("selected", "");
+      accountSelect.appendChild(option);
+    }
+    controls.appendChild(accountSelect);
 
     const rangeSelect = el("select", {
       className: "filter-select",
@@ -2295,10 +2374,20 @@
           className: "history-diagnostic",
           style: { marginBottom: "8px", color: "var(--text-secondary)" },
         },
-        "Account identity unknown: these are provider observations, not account-specific history.",
+        "Unknown observations are kept separate from identified accounts. An account label identifies only observations from the same selected account.",
       ),
     );
-    for (const snapshot of historyQuota.filter((item) => item.error).slice(-5)) {
+    const selectedHistory = historyQuota.filter(
+      (item) => historyAccount === "all" || (item.accountIdentity || "unknown") === historyAccount,
+    );
+    const selectedAccounting = historyAccounting.filter(
+      (item) => historyAccount === "all" || item.detail.accountIdentity === historyAccount,
+    );
+    const latestDetails = new Map();
+    for (const item of selectedAccounting) latestDetails.set(item.detail.key, item.detail);
+    if (latestDetails.size)
+      container.appendChild(renderAccountingRows([...latestDetails.values()]));
+    for (const snapshot of selectedHistory.filter((item) => item.error).slice(-5)) {
       container.appendChild(
         el(
           "div",
@@ -2307,7 +2396,7 @@
         ),
       );
     }
-    const byKind = groupQuotaSnapshotsByKind(historyQuota);
+    const byKind = groupQuotaSnapshotsByKind(selectedHistory);
     if (byKind.size === 0) {
       const card = el("div", { className: "card" });
       card.appendChild(el("div", { className: "card-title" }, "Quota Burn-down"));
@@ -2323,12 +2412,25 @@
       kinds.forEach((k) => container.appendChild(renderBurnCard(k, byKind.get(k))));
     }
 
+    container.appendChild(
+      el(
+        "div",
+        { style: { fontSize: "11px", color: "var(--text-muted)" } },
+        "Local usage totals are not filtered by quota account.",
+      ),
+    );
     renderBurningSessionsCard(container);
     renderModelSourceBreakdown(container);
 
     const resetCard = el("div", { className: "card" });
-    resetCard.appendChild(el("div", { className: "card-title" }, "Reset History"));
-    resetCard.appendChild(renderResetHistoryList(historyResets));
+    resetCard.appendChild(
+      el("div", { className: "card-title" }, "Legacy Reset History (account unknown)"),
+    );
+    resetCard.appendChild(
+      renderResetHistoryList(
+        historyAccount === "all" || historyAccount === "unknown" ? historyResets : [],
+      ),
+    );
     container.appendChild(resetCard);
   }
 

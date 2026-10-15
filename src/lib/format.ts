@@ -5,6 +5,7 @@
 import type { QuotaToastConfig } from "./types.js";
 import type { QuotaToastEntry, QuotaToastError, SessionTokensData } from "./entries.js";
 import type { QuotaFormatStyle } from "./quota-format-style.js";
+import { formatCompactAccountingDetails, type AccountingDisplayRow } from "./accounting-display.js";
 import { isValueEntry } from "./entries.js";
 import {
   bar,
@@ -88,6 +89,7 @@ function buildClassicValueLine(params: {
 }
 
 export function formatQuotaRows(params: {
+  accountingDetails?: AccountingDisplayRow[];
   version: string;
   layout?: {
     maxWidth: number;
@@ -103,13 +105,18 @@ export function formatQuotaRows(params: {
   const styleDefinition = getQuotaFormatStyleDefinition(params.style);
 
   if (styleDefinition.renderer === "grouped") {
-    return formatQuotaRowsGrouped({
+    const body = formatQuotaRowsGrouped({
       layout: params.layout,
       entries: params.entries,
       errors: params.errors,
       percentDisplayMode: params.percentDisplayMode,
       sessionTokens: params.sessionTokens,
     });
+    const extras = formatCompactAccountingDetails(
+      params.accountingDetails ?? [],
+      params.layout?.maxWidth,
+    );
+    return extras ? `${body}\n${extras}` : body;
   }
 
   const layout = params.layout ?? { maxWidth: 50, narrowAt: 42, tinyAt: 32 };
@@ -127,8 +134,9 @@ export function formatQuotaRows(params: {
     DISPLAYED_PERCENT_LABEL_WIDTH,
     ...(params.entries ?? [])
       .filter((entry) => !isValueEntry(entry))
-      .map((entry) =>
-        formatDisplayedPercentLabel(entry.percentRemaining, params.percentDisplayMode).length,
+      .map(
+        (entry) =>
+          formatDisplayedPercentLabel(entry.percentRemaining, params.percentDisplayMode).length,
       ),
   );
 
@@ -156,9 +164,7 @@ export function formatQuotaRows(params: {
     // Show reset countdown whenever quota is not fully available.
     // (i.e., any usage at all, or depleted)
     const timeStr =
-      remaining < 100
-        ? formatResetCountdown(resetIso, { missing: "-", compactRounded: true })
-        : "";
+      remaining < 100 ? formatResetCountdown(resetIso, { missing: "-", compactRounded: true }) : "";
 
     if (isTiny) {
       // In tiny mode: single line with name + time + percent
@@ -200,8 +206,7 @@ export function formatQuotaRows(params: {
     if (isTiny) {
       // Tiny: single line without percent; keep time col alignment.
       const valueCol = Math.min(value.length, Math.max(6, percentCol + 2));
-      const tinyNameCol =
-        maxWidth - separator.length - timeCol - separator.length - valueCol;
+      const tinyNameCol = maxWidth - separator.length - timeCol - separator.length - valueCol;
       const nameCol = Math.max(1, tinyNameCol);
       const line = [
         padRight(name, nameCol),
@@ -253,5 +258,7 @@ export function formatQuotaRows(params: {
     lines.push(...tokenLines);
   }
 
+  const extras = formatCompactAccountingDetails(params.accountingDetails ?? [], maxWidth);
+  if (extras) lines.push(extras);
   return lines.join("\n");
 }

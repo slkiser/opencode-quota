@@ -1,6 +1,6 @@
 # ACC-02 account/window history and additive migration
 
-Issue: [#17](https://github.com/thanhndv212/opencode-quota/issues/17). Status: implemented; local acceptance passed; [PR #47](https://github.com/thanhndv212/opencode-quota/pull/47) awaiting hosted acceptance/merge. Evidence date: 2026-10-15. Dependencies: ACC-01 and GUI-03 complete.
+Issue: [#17](https://github.com/thanhndv212/opencode-quota/issues/17). Status: complete; [PR #47](https://github.com/thanhndv212/opencode-quota/pull/47) merged at `4e3bd4f`; [main CI 38702627029](https://github.com/thanhndv212/opencode-quota/actions/runs/38702627029) passed all six checks. Evidence date: 2026-10-15. Dependencies: ACC-01 and GUI-03 complete.
 
 ## Identity boundary
 

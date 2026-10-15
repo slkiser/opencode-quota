@@ -404,6 +404,13 @@ function registerIpcHandlers(initialConfig: StandaloneQuotaConfig, guiConfig: Gu
   ipcMain.handle("dashboardHistory:listProviders", async () => {
     return dashboardHistoryIpc.listProviders();
   });
+  ipcMain.handle(
+    "dashboardHistory:accountingHistory",
+    async (
+      _event,
+      params: { provider: string; days?: number; accountIdentity?: string; windowId?: string },
+    ) => dashboardHistoryIpc.getAccountingHistory(params),
+  );
 
   ipcMain.handle(
     "dashboardHistory:quotaHistory",

@@ -100,6 +100,7 @@ export class QuotaRefreshController {
           // old rows into a partially successful current result.
           if (!failed || result.entries.length > 0) {
             this.state.entries = result.entries;
+            this.state.accountingDetails = result.accountingDetails;
             this.state.detectedProviderIds = result.detectedProviderIds;
             this.state.lastObservationAt = Date.now();
           }
@@ -142,6 +143,7 @@ export class QuotaRefreshController {
   /** Explicit settings changes invalidate retained observations from old settings. */
   clearObservation(): void {
     this.state.entries = [];
+    delete this.state.accountingDetails;
     this.state.errors = [];
     this.state.detectedProviderIds = [];
     this.state.lastSuccessAt = null;

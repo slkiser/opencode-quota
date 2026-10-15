@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QuotaRefreshController } from "../src/gui/quota-refresh-controller.js";
 import type { QuotaFetchResult } from "../src/gui/ipc/quota.js";
 import { normalizeGuiRefreshInterval } from "../src/lib/gui-config.js";
+import { projectAccountingDetails } from "../src/lib/accounting-display.js";
+import { openAIAccounting } from "../src/providers/accounting-adapters.js";
 
 const result = (remaining = 75): QuotaFetchResult => ({
   entries: [{ name: "Fixture", percentRemaining: remaining }],
@@ -22,6 +24,29 @@ function deferred<T>() {
 }
 
 describe("desktop quota refresh controller", () => {
+  it("retains and clears detail metadata together with its corresponding observation", async () => {
+    const details = projectAccountingDetails("openai", {
+      attempted: true,
+      entries: [],
+      errors: [],
+      accounting: openAIAccounting({
+        success: true,
+        label: "Account A",
+        windows: { weekly: { percentRemaining: 75 } },
+      }),
+    });
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ...result(), accountingDetails: details })
+      .mockResolvedValue(failure);
+    const { controller } = create(fetch);
+    await controller.start();
+    await controller.refresh(true);
+    expect(controller.getState().previousObservation).toBe(true);
+    expect(controller.getState().accountingDetails).toEqual(details);
+    controller.clearObservation();
+    expect(controller.getState().accountingDetails).toBeUndefined();
+  });
   const controllers: QuotaRefreshController[] = [];
   function create(fetch = vi.fn(async () => result()), intervalMs = 10_000, onChange = vi.fn()) {
     const controller = new QuotaRefreshController({ fetch, intervalMs, onChange });

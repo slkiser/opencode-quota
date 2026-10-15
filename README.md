@@ -1196,3 +1196,7 @@ OpenCode Quota is not built by the OpenCode team and is not affiliated with Open
 ## Star history
 
 [![Star History Chart](https://api.star-history.com/chart?repos=thanhndv212/opencode-quota&type=date&legend=bottom-right)](https://www.star-history.com/?repos=thanhndv212%2Fopencode-quota&type=date&legend=bottom-right)
+
+### Accounting details
+
+Use `opencode-quota show --details` or `/quota` for typed balances, usage operands, source authority and observation times. The desktop Dashboard and History tabs expose the same facts under **Balances and usage details**; History separates identified accounts from unknown observations. Compact rows retain their existing presentation, and `show --json` remains schema v1. Source/account details are available only where a provider adapter establishes them.

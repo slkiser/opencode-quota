@@ -21,6 +21,7 @@ export function buildSidebarQuotaPanelLines(params: {
     version: "1.0.0",
     layout: TUI_SIDEBAR_LAYOUT,
     entries: data.entries,
+    accountingDetails: data.accountingDetails,
     errors: data.errors,
     style: params.config.formatStyle,
     percentDisplayMode: params.config.percentDisplayMode,

@@ -17,7 +17,12 @@ import type {
   ModelUsage,
   QuotaSnapshot,
   WeeklyReset,
+  AccountingObservation,
 } from "../../dashboard/api.js";
+import {
+  projectAccountingDetails,
+  type AccountingDisplayRow,
+} from "../../lib/accounting-display.js";
 import { getOpenCodeDbPath } from "../../lib/opencode-storage.js";
 
 let dashboardApi: Promise<DashboardApiType | null> | null = null;
@@ -59,6 +64,28 @@ export async function getQuotaHistory(params: {
 }): Promise<QuotaSnapshot[]> {
   const api = await loadDashboardApi();
   return api ? api.getQuotaHistory(params.provider, params.days) : [];
+}
+
+export async function getAccountingHistory(params: {
+  provider: string;
+  days?: number;
+  accountIdentity?: string;
+  windowId?: string;
+}): Promise<Array<{ timestamp: number; detail: AccountingDisplayRow }>> {
+  const api = await loadDashboardApi();
+  if (!api) return [];
+  return api
+    .getAccountingHistory(params.provider, params.days, params)
+    .flatMap((observation: AccountingObservation) => {
+      const details = projectAccountingDetails(params.provider, {
+        attempted: true,
+        entries: [],
+        errors: [],
+        observation: { id: observation.observationId, observedAt: observation.timestamp },
+        accounting: { version: 1, rows: [observation.row] },
+      });
+      return details.map((detail) => ({ timestamp: observation.timestamp, detail }));
+    });
 }
 
 export async function getModelBreakdown(params: {

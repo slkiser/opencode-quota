@@ -146,6 +146,18 @@ const quotaApi = {
       };
     },
     listProviders: () => ipcRenderer.invoke("dashboardHistory:listProviders"),
+    accountingHistory: (
+      provider: string,
+      days?: number,
+      accountIdentity?: string,
+      windowId?: string,
+    ) =>
+      ipcRenderer.invoke("dashboardHistory:accountingHistory", {
+        provider,
+        days,
+        accountIdentity,
+        windowId,
+      }),
     quotaHistory: (provider: string, days?: number) =>
       ipcRenderer.invoke("dashboardHistory:quotaHistory", { provider, days }),
     modelBreakdown: (provider: string, days?: number) =>

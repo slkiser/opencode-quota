@@ -81,9 +81,7 @@ export function sanitizeQuotaProviderResult(result: QuotaProviderResult): QuotaP
   };
 }
 
-export function sanitizeSessionTokensData(
-  data?: SessionTokensData,
-): SessionTokensData | undefined {
+export function sanitizeSessionTokensData(data?: SessionTokensData): SessionTokensData | undefined {
   if (!data) return undefined;
 
   return {
@@ -97,6 +95,9 @@ export function sanitizeSessionTokensData(
 
 export function sanitizeQuotaRenderData(data: QuotaRenderData): QuotaRenderData {
   return {
+    ...(data.accountingDetails
+      ? { accountingDetails: structuredClone(data.accountingDetails) }
+      : {}),
     entries: data.entries.map(sanitizeQuotaToastEntry),
     errors: data.errors.map(sanitizeQuotaToastError),
     sessionTokens: sanitizeSessionTokensData(data.sessionTokens),

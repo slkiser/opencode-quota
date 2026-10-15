@@ -21,6 +21,11 @@ import { DEFAULT_QUOTA_FORMAT_STYLE, getQuotaFormatStyleDefinition } from "./quo
 import { formatGroupedHeader } from "./grouped-header-format.js";
 import { getProviders } from "../providers/registry.js";
 import { getAnthropicNoDataMessage } from "../providers/anthropic.js";
+import {
+  displayQuotaEntries,
+  projectAccountingDetails,
+  type AccountingDisplayRow,
+} from "./accounting-display.js";
 
 export type SessionModelMeta = {
   modelID?: string;
@@ -33,6 +38,7 @@ export type QuotaRequestContext = {
 };
 
 export type QuotaRenderData = {
+  accountingDetails?: AccountingDisplayRow[];
   entries: QuotaToastEntry[];
   errors: QuotaToastError[];
   sessionTokens?: SessionTokensData;
@@ -435,11 +441,11 @@ function selectSingleWindowEntry(entries: QuotaToastEntry[]): QuotaToastEntry | 
   return selectedPercentEntry ?? entries[0];
 }
 
-function projectProviderResultToStyle(
+export function projectProviderResultToStyle(
   result: QuotaProviderResult,
   style: QuotaFormatStyle,
 ): QuotaToastEntry[] {
-  const entries = result.entries.map((entry) => ({ ...entry }));
+  const entries = displayQuotaEntries(result).map((entry) => ({ ...entry }));
   const definition = getQuotaFormatStyleDefinition(style);
   if (definition.projection === "allWindows") {
     return entries;
@@ -614,6 +620,10 @@ export async function collectQuotaRenderData(params: {
     projectProviderResultToStyle(result, style),
   ) as QuotaToastEntry[];
   const errors = [...availabilityErrors, ...results.flatMap((result) => result.errors)];
+  const details = results.flatMap((result, index) =>
+    projectAccountingDetails(active[index]!.id, result),
+  );
+  const accountingDetails = details.length ? { accountingDetails: details } : {};
   const attemptedAny = results.some((result) => result.attempted);
 
   let hasExplicitProviderIssues = false;
@@ -689,7 +699,7 @@ export async function collectQuotaRenderData(params: {
   const data =
     entries.length === 0 && errors.length === 0 && !sessionTokens
       ? null
-      : { entries, errors, sessionTokens };
+      : { entries, errors, sessionTokens, ...accountingDetails };
 
   let allWindowsData: QuotaRenderData | null | undefined;
   let singleWindowData: QuotaRenderData | null | undefined;
@@ -703,7 +713,7 @@ export async function collectQuotaRenderData(params: {
     allWindowsData =
       allWindowsEntries.length === 0 && errors.length === 0 && !sessionTokens
         ? null
-        : { entries: allWindowsEntries, errors: [...errors], sessionTokens };
+        : { entries: allWindowsEntries, errors: [...errors], sessionTokens, ...accountingDetails };
 
     if (style === "allWindows") {
       const singleWindowEntries = results.flatMap((result) =>
@@ -712,7 +722,12 @@ export async function collectQuotaRenderData(params: {
       singleWindowData =
         singleWindowEntries.length === 0 && errors.length === 0 && !sessionTokens
           ? null
-          : { entries: singleWindowEntries, errors: [...errors], sessionTokens };
+          : {
+              entries: singleWindowEntries,
+              errors: [...errors],
+              sessionTokens,
+              ...accountingDetails,
+            };
     }
   }
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
 import { app, BrowserWindow, ipcMain, session, Menu, powerMonitor, Tray } from "electron";
-import { writeFile } from "node:fs/promises";
+import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import childProcess from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
@@ -163,6 +163,12 @@ async function smoke() {
     );
     assert.equal(initialHistory.length, 1, "standalone startup must persist one observation");
     assert.equal(initialHistory[0].accountIdentity, "unknown");
+    const richHistory = await evaluate(
+      'window.quotaApi.dashboardHistory.accountingHistory("openai")',
+    );
+    assert.equal(richHistory.length, 1);
+    assert.equal(richHistory[0].detail.value, "75% remaining");
+    assert.equal(richHistory[0].detail.accountIdentity, "unknown");
     await evaluate(
       "window.__budgetEvents = 0; window.__historyEvents = 0; window.__budgetOff = window.quotaApi.alerts.onUpdate(() => window.__budgetEvents++); window.__historyOff = window.quotaApi.dashboardHistory.onUpdate(() => window.__historyEvents++); undefined",
     );
@@ -284,6 +290,43 @@ async function smoke() {
       await evaluate("[window.__budgetEvents, window.__historyEvents]"),
       eventCounts,
     );
+    await evaluate("document.querySelectorAll('.tab-btn')[0].click(); undefined");
+    await waitFor(
+      () => evaluate("document.querySelectorAll('.accounting-details').length > 0"),
+      "structured accounting details",
+    );
+    await evaluate("document.querySelector('.accounting-details').open = true; undefined");
+    assert.ok(
+      await evaluate(
+        "document.querySelector('.accounting-details').innerText.includes('75% remaining')",
+      ),
+    );
+    assert.ok(
+      await evaluate(
+        "document.querySelector('.accounting-details').innerText.includes('Source observation')",
+      ),
+    );
+    assert.ok(
+      await evaluate(
+        "document.querySelector('.accounting-details').innerText.includes('Five-hour')",
+      ),
+    );
+    if (process.env.QUOTA_SMOKE_SCREENSHOT_DIR) {
+      await mkdir(process.env.QUOTA_SMOKE_SCREENSHOT_DIR, { recursive: true });
+      const window = BrowserWindow.getAllWindows()[0];
+      for (const [label, width] of [
+        ["wide", 960],
+        ["narrow", 480],
+      ]) {
+        window.setMinimumSize(400, 500);
+        window.setSize(width, 820);
+        await evaluate("document.querySelector('.accounting-details').scrollIntoView(); undefined");
+        await writeFile(
+          join(process.env.QUOTA_SMOKE_SCREENSHOT_DIR, `accounting-${label}.png`),
+          (await window.webContents.capturePage()).toPNG(),
+        );
+      }
+    }
     assert.deepEqual(errors, []);
     clearTimeout(deadline);
     console.log(

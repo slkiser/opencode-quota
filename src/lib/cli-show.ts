@@ -4,6 +4,7 @@ import type { QuotaRuntimeClient } from "./quota-runtime-context.js";
 import type { QuotaToastConfig } from "./types.js";
 
 import { formatQuotaRows } from "./format.js";
+import { formatAccountingDetails } from "./accounting-display.js";
 import { getQuotaProviderShape } from "./provider-metadata.js";
 import { findGitWorktreeRoot, getEffectiveConfigRoot } from "./config-file-utils.js";
 import {
@@ -28,7 +29,14 @@ export interface RunCliShowCommandOptions {
 }
 
 type ParsedShowArgs =
-  | { ok: true; providerId?: string; help: boolean; json: boolean; threshold?: number }
+  | {
+      ok: true;
+      providerId?: string;
+      help: boolean;
+      json: boolean;
+      threshold?: number;
+      details?: boolean;
+    }
   | { ok: false; error: string };
 
 const SHOW_USAGE = [
@@ -38,6 +46,7 @@ const SHOW_USAGE = [
   "Options:",
   "  --provider <provider-id>  Show quota for one provider",
   "  --json                    Machine-readable JSON output (reads from cache)",
+  "  --details                 Show typed balances, usage and source details (text only)",
   "  --threshold <pct>         With --json, exit 1 if any cached percentage is below <pct>%",
   "                            remaining (exit 2 if no cached percentage can be compared)",
   "  --help, -h                Show help",
@@ -47,6 +56,7 @@ function parseShowArgs(argv: string[]): ParsedShowArgs {
   let providerId: string | undefined;
   let json = false;
   let threshold: number | undefined;
+  let details = false;
 
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
@@ -57,6 +67,10 @@ function parseShowArgs(argv: string[]): ParsedShowArgs {
 
     if (arg === "--json") {
       json = true;
+      continue;
+    }
+    if (arg === "--details") {
+      details = true;
       continue;
     }
 
@@ -117,8 +131,10 @@ function parseShowArgs(argv: string[]): ParsedShowArgs {
   if (threshold !== undefined && !json) {
     return { ok: false, error: "--threshold requires --json." };
   }
+  if (details && json)
+    return { ok: false, error: "--details is text-only; schema-v1 JSON remains unchanged." };
 
-  return { ok: true, providerId, help: false, json, threshold };
+  return { ok: true, providerId, help: false, json, threshold, details };
 }
 
 function cloneCliConfig(config: QuotaToastConfig): QuotaToastConfig {
@@ -321,6 +337,7 @@ export async function runCliShowCommand(options: RunCliShowCommandOptions = {}):
       version,
       layout: config.layout,
       entries: data.entries,
+      accountingDetails: data.accountingDetails,
       errors: data.errors,
       style: resolveQuotaFormatStyle(config.formatStyle),
       percentDisplayMode: config.percentDisplayMode,
@@ -332,6 +349,8 @@ export async function runCliShowCommand(options: RunCliShowCommandOptions = {}):
     }
 
     writeLine(stdout, output);
+    if (parsed.details && data.accountingDetails?.length)
+      writeLine(stdout, formatAccountingDetails(data.accountingDetails, config.layout.maxWidth));
     return data.entries.length > 0 ? 0 : 1;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

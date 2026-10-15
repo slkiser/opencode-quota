@@ -31,6 +31,7 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
 
 import { runCliShowCommand } from "../src/lib/cli-show.js";
 import { __resetQuotaStateForTests } from "../src/lib/quota-state.js";
+import { copilotAccounting } from "../src/providers/accounting-adapters.js";
 
 function createCaptureStream() {
   let output = "";
@@ -48,6 +49,57 @@ function createCaptureStream() {
 }
 
 describe("runCliShowCommand", () => {
+  it("shows typed details from one fetch and keeps the JSON details flag invalid", async () => {
+    const fetch = vi.fn(async () => ({
+      attempted: true,
+      entries: [{ name: "Copilot", percentRemaining: 75 }],
+      errors: [],
+      accounting: copilotAccounting({
+        success: true,
+        mode: "user_quota",
+        unit: "ai_credits",
+        authority: "provider_reported",
+        used: 25,
+        total: 100,
+        percentRemaining: 75,
+        billedAmountUsd: 0.25,
+      }),
+    }));
+    mockProviders.push({
+      id: "copilot",
+      cachePolicy: { kind: "account-neutral" },
+      isAvailable: async () => true,
+      fetch,
+    });
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({ experimental: { quotaToast: { enabledProviders: ["copilot"] } } }),
+    );
+    const stdout = createCaptureStream(),
+      stderr = createCaptureStream();
+    expect(
+      await runCliShowCommand({
+        argv: ["--details"],
+        cwd: workspaceDir,
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+      }),
+    ).toBe(0);
+    expect(stdout.output).toContain("Accounting details");
+    expect(stdout.output).toContain("25 credits (Provider reported)");
+    expect(stdout.output).toContain("USD 0.25");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(
+      await runCliShowCommand({
+        argv: ["--json", "--details"],
+        cwd: workspaceDir,
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+      }),
+    ).toBe(1);
+    expect(stderr.output).toContain("text-only");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   let tempDir: string;
   let globalConfigDir: string;
   let workspaceDir: string;

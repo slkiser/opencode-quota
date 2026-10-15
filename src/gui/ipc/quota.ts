@@ -11,8 +11,14 @@ import { getQuotaProviderDisplayLabel } from "../../lib/provider-metadata.js";
 import { DEFAULT_CONFIG } from "../../lib/types.js";
 import { createQuotaProviderRuntimeContext } from "../../lib/quota-runtime-context.js";
 import type { LoadConfigMeta } from "../../lib/config.js";
+import {
+  projectAccountingDetails,
+  displayQuotaEntries,
+  type AccountingDisplayRow,
+} from "../../lib/accounting-display.js";
 
 export interface QuotaFetchResult {
+  accountingDetails?: AccountingDisplayRow[];
   entries: QuotaToastEntry[];
   errors: QuotaToastError[];
   detectedProviderIds: string[];
@@ -95,13 +101,20 @@ export async function fetchAllQuota(
     detectedProviderIds.push(item.providerId);
     providerResults.push({ providerId: item.providerId, result: item.result });
 
-    if (item.result.entries.length > 0) {
-      entries.push(...item.result.entries);
-    }
+    entries.push(...displayQuotaEntries(item.result));
     if (item.result.errors.length > 0) {
       errors.push(...item.result.errors);
     }
   }
 
-  return { entries, errors, detectedProviderIds, providerResults };
+  const details = providerResults.flatMap((item) =>
+    projectAccountingDetails(item.providerId, item.result),
+  );
+  return {
+    entries,
+    errors,
+    detectedProviderIds,
+    providerResults,
+    ...(details.length ? { accountingDetails: details } : {}),
+  };
 }

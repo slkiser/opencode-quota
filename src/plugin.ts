@@ -869,6 +869,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
         version: "1.0.0",
         layout: runtimeConfig.layout,
         entries: data?.entries ?? [],
+        accountingDetails: data?.accountingDetails,
         errors: data?.errors ?? [],
         style: resolveQuotaFormatStyle(runtimeConfig.formatStyle),
         percentDisplayMode: runtimeConfig.percentDisplayMode,

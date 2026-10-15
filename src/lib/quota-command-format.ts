@@ -9,11 +9,21 @@
 
 import type { QuotaToastEntry, QuotaToastError, SessionTokensData } from "./entries.js";
 import type { PercentDisplayMode } from "./types.js";
+import { formatAccountingDetails, type AccountingDisplayRow } from "./accounting-display.js";
 import { isValueEntry } from "./entries.js";
-import { bar, formatDisplayedPercentLabel, padRight, resolveDisplayedPercent } from "./format-utils.js";
+import {
+  bar,
+  formatDisplayedPercentLabel,
+  padRight,
+  resolveDisplayedPercent,
+} from "./format-utils.js";
 import { formatGroupedHeader } from "./grouped-header-format.js";
 import { groupQuotaEntries } from "./grouped-entry-normalization.js";
-import { renderPlainTextReport, type ReportDocument, type ReportSection } from "./report-document.js";
+import {
+  renderPlainTextReport,
+  type ReportDocument,
+  type ReportSection,
+} from "./report-document.js";
 import { buildSessionTokenSectionModel } from "./session-tokens-format.js";
 
 /**
@@ -115,11 +125,14 @@ function buildQuotaCommandDocument(params: {
 }
 
 export function formatQuotaCommand(params: {
+  accountingDetails?: AccountingDisplayRow[];
   entries: QuotaToastEntry[];
   errors: QuotaToastError[];
   sessionTokens?: SessionTokensData;
   generatedAtMs?: number;
   percentDisplayMode?: PercentDisplayMode;
 }): string {
-  return renderPlainTextReport(buildQuotaCommandDocument(params));
+  const report = renderPlainTextReport(buildQuotaCommandDocument(params));
+  const details = formatAccountingDetails(params.accountingDetails ?? []);
+  return details ? `${report}\n\n${details}` : report;
 }

@@ -1,4 +1,5 @@
 import { stat } from "fs/promises";
+import { formatAccountingDetails, projectAccountingDetails } from "./accounting-display.js";
 
 import { getAuthPath, getAuthPaths, readAuthFileCached } from "./opencode-auth.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
@@ -1846,6 +1847,15 @@ export async function buildQuotaStatusReport(params: {
   }
   sections.push(createKvSection("unknown_pricing", "unknown_pricing:", unknownRows));
 
+  const details = (params.providerLiveProbes ?? []).flatMap((probe) =>
+    projectAccountingDetails(probe.providerId, probe.result),
+  );
+  if (details.length)
+    sections.push({
+      id: "accounting_details",
+      title: "Accounting details",
+      blocks: [{ kind: "lines", lines: formatAccountingDetails(details).split("\n").slice(1) }],
+    });
   return renderPlainTextReport({
     heading: {
       title: `Quota Status (opencode-quota v${v}) (/quota_status)`,
