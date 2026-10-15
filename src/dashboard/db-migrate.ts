@@ -1,14 +1,16 @@
-/**
- * Database migration for dashboard historical tracking
- */
-
-import { readFileSync, mkdirSync, chmodSync, rmSync } from "fs";
+/** Additive migrations with SQLite-managed snapshots and locked version checks. */
+import {
+  readFileSync,
+  mkdirSync,
+  chmodSync,
+  rmSync,
+  openSync,
+  fsyncSync,
+  closeSync,
+} from "node:fs";
 import { randomUUID } from "node:crypto";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 interface DatabaseLike {
   exec(sql: string): void;
@@ -18,69 +20,86 @@ interface DatabaseLike {
     all(...params: any[]): any[];
   };
 }
-
+const directory = dirname(fileURLToPath(import.meta.url));
+const V2 = `CREATE TABLE IF NOT EXISTS accounting_observations (
+  provider TEXT NOT NULL, observation_id TEXT NOT NULL, observed_at INTEGER NOT NULL,
+  row_id TEXT NOT NULL, account_identity TEXT NOT NULL, window_id TEXT, row_data TEXT NOT NULL,
+  PRIMARY KEY(provider,account_identity,observation_id,row_id));
+CREATE INDEX IF NOT EXISTS idx_accounting_identity_time
+  ON accounting_observations(provider,account_identity,window_id,observed_at);`;
+const V3 = `CREATE TABLE IF NOT EXISTS reset_events (
+  id TEXT PRIMARY KEY, provider TEXT NOT NULL, account_identity TEXT NOT NULL,
+  window_id TEXT NOT NULL, observed_at INTEGER NOT NULL, reset_at INTEGER NOT NULL,
+  event_data TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending',
+  lease_owner TEXT, lease_until INTEGER, lease_channel TEXT,
+  delivered_at INTEGER, delivered_channel TEXT);
+CREATE INDEX IF NOT EXISTS idx_reset_events_pending ON reset_events(state,observed_at);`;
+function version(db: DatabaseLike): number {
+  if (
+    !db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'").get()
+  )
+    return 0;
+  return Number(
+    db.prepare("SELECT max(version) AS version FROM schema_version").get()?.version ?? 0,
+  );
+}
 export function migrateSchema(db: DatabaseLike): void {
-  try {
-    // Check current version
-    let currentVersion = 0;
-    try {
-      const row = db
-        .prepare("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1")
-        .get();
-      currentVersion = row?.version || 0;
-    } catch {
-      // Table doesn't exist yet, version is 0
-    }
-
-    console.log(`Current dashboard schema version: ${currentVersion}`);
-
-    if (currentVersion < 1) {
-      console.log("Applying dashboard schema v1...");
-      const schemaPath = join(__dirname, "schema.sql");
-      const schemaSql = readFileSync(schemaPath, "utf-8");
-      db.exec(schemaSql);
-      console.log("✓ Dashboard schema v1 applied");
-    }
-
-    if (currentVersion < 2) {
-      // Native connections expose their on-disk file; WASM readers expose an
-      // ephemeral in-memory database and never back up/export the live file.
-      const file = db
-        .prepare("PRAGMA database_list")
-        .all()
-        .find((row) => row.name === "main")?.file;
-      if (currentVersion === 1 && file) {
-        const directory = `${file}.pre-v2-${randomUUID()}`;
-        mkdirSync(directory, { mode: 0o700 });
-        const backup = join(directory, "history.sqlite");
-        try {
-          db.prepare("VACUUM INTO ?").run(backup);
-          chmodSync(backup, 0o600);
-        } catch (error) {
-          rmSync(directory, { recursive: true, force: true });
-          throw error;
-        }
-      }
-      db.exec("BEGIN IMMEDIATE");
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const initial = version(db);
+    if (initial >= 3) return;
+    const file = db
+      .prepare("PRAGMA database_list")
+      .all()
+      .find((row) => row.name === "main")?.file;
+    let backupDirectory: string | null = null;
+    if (initial > 0 && file) {
+      // Never copy/read the live DB through ordinary filesystem APIs: closing
+      // that descriptor can cancel SQLite's POSIX locks (sqlite.org/howtocorrupt).
+      backupDirectory = `${file}.pre-v${initial + 1}-${randomUUID()}`;
+      mkdirSync(backupDirectory, { mode: 0o700 });
+      const backup = join(backupDirectory, "history.sqlite");
       try {
-        db.exec(`CREATE TABLE IF NOT EXISTS accounting_observations (
-          provider TEXT NOT NULL, observation_id TEXT NOT NULL,
-          observed_at INTEGER NOT NULL, row_id TEXT NOT NULL,
-          account_identity TEXT NOT NULL, window_id TEXT,
-          row_data TEXT NOT NULL,
-          PRIMARY KEY(provider, account_identity, observation_id, row_id)
-        );
-        CREATE INDEX IF NOT EXISTS idx_accounting_identity_time
-          ON accounting_observations(provider, account_identity, window_id, observed_at);
-        INSERT OR IGNORE INTO schema_version(version, applied_at) VALUES(2, ${Date.now()});`);
-        db.exec("COMMIT");
+        db.prepare("VACUUM INTO ?").run(backup);
+        chmodSync(backup, 0o600);
+        const fd = openSync(backup, "r");
+        try {
+          fsyncSync(fd);
+        } finally {
+          closeSync(fd);
+        }
       } catch (error) {
-        db.exec("ROLLBACK");
+        rmSync(backupDirectory, { recursive: true, force: true });
         throw error;
       }
     }
-  } catch (err) {
-    console.error("Failed to migrate dashboard schema:", err);
-    throw err;
+    db.exec("BEGIN EXCLUSIVE");
+    try {
+      const current = version(db);
+      if (current !== initial) {
+        db.exec("ROLLBACK");
+        // Another process won the upgrade. This process's snapshot might have
+        // captured that newer version; it is not advertised as a pre-upgrade backup.
+        if (backupDirectory) rmSync(backupDirectory, { recursive: true, force: true });
+        continue;
+      }
+      if (current < 1) db.exec(readFileSync(join(directory, "schema.sql"), "utf8"));
+      for (const [target, sql] of [
+        [2, V2],
+        [3, V3],
+      ] as const)
+        if (current < target) {
+          db.exec(sql);
+          db.prepare("INSERT OR IGNORE INTO schema_version(version,applied_at) VALUES(?,?)").run(
+            target,
+            Date.now(),
+          );
+        }
+      db.exec("COMMIT");
+      return;
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
   }
+  throw new Error("History migration changed concurrently; retry required");
 }

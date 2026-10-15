@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,8 @@ import { SqlJsDatabaseAdapter } from "../src/dashboard/sqljs-database.js";
 import { DashboardApi } from "../src/dashboard/api.js";
 import type { ProviderResultForSnapshot } from "../src/dashboard/quota-snapshot-bridge.js";
 import { openAIAccounting } from "../src/providers/accounting-adapters.js";
+import type { ResetClaim } from "../src/dashboard/reset-events.js";
+import type { StoredResetEvent } from "../src/lib/quota-reset-transition.js";
 
 let root: string;
 const clients: HistoryHelperClient[] = [];
@@ -62,6 +64,126 @@ function observation(id: string, observedAt: number): ProviderResultForSnapshot 
 const pricing = { source: "bundled" as const, autoRefresh: 0 };
 
 describe("installed helper protocol with real SQLite processes", () => {
+  it("upgrades two writers concurrently and claims one durable reset across channels and restart", async () => {
+    const { data, make } = await setup();
+    const file = join(data, "quota-dashboard.db");
+    const db = await openNativeDashboardDatabase(file);
+    const api = new DashboardApi(db);
+    const now = Date.now();
+    function resetObservation(id: string, before: boolean): ProviderResultForSnapshot {
+      const accounting = openAIAccounting({
+        success: true,
+        label: "OpenAI",
+        windows: {
+          weekly: {
+            percentRemaining: before ? 25 : 100,
+            resetTimeIso: new Date(now + (before ? -1000 : 604800000)).toISOString(),
+          },
+        },
+      });
+      accounting.rows[0].account = { kind: "opaque", digest: "a".repeat(64) };
+      return {
+        providerId: "openai",
+        result: {
+          attempted: true,
+          entries: [{ name: "Weekly", percentRemaining: before ? 25 : 100 }],
+          errors: [],
+          accounting,
+          observation: { id, observedAt: now - (before ? 2000 : 0) },
+        },
+      };
+    }
+    api.captureSnapshot("openai", {
+      accounting: resetObservation("before", true).result.accounting,
+      observation: { id: "before", observedAt: now - 2000 },
+      accountingOnly: true,
+    });
+    // Exercise a real v2 fixture upgrade, not only steady-state v3 contention.
+    db.exec("DROP TABLE reset_events; DELETE FROM schema_version WHERE version=3;");
+    db.close();
+    const a = make(),
+      b = make(),
+      current = resetObservation("after", false);
+    await Promise.all([
+      a
+        .request({ operation: "record", providerResults: [current], now, pricing })
+        .catch((error) => {
+          throw new Error("writer A: " + error.message);
+        }),
+      b
+        .request({ operation: "record", providerResults: [current], now, pricing })
+        .catch((error) => {
+          throw new Error("writer B: " + error.message);
+        }),
+    ]);
+    const backups = (await readdir(data)).filter((name) => name.includes("pre-v3"));
+    expect(backups).toHaveLength(1);
+    const backup = await openNativeDashboardDatabase(join(data, backups[0], "history.sqlite"));
+    expect(backup.prepare("PRAGMA integrity_check").get()).toMatchObject({ integrity_check: "ok" });
+    expect(
+      backup.prepare("SELECT max(version) AS version FROM schema_version").get(),
+    ).toMatchObject({ version: 2 });
+    backup.close();
+    const verified = await openNativeDashboardDatabase(file);
+    expect(verified.prepare("PRAGMA integrity_check").get()).toMatchObject({
+      integrity_check: "ok",
+    });
+    verified.close();
+    const events = await a.request<StoredResetEvent[]>({
+      operation: "reset-events",
+      providerId: "openai",
+    });
+    expect(events).toHaveLength(1);
+    const watched = [{ providerId: "openai", windowId: "weekly" }];
+    const claims = await Promise.all([
+      a.request<ResetClaim[]>({
+        operation: "reset-claim",
+        enabled: true,
+        watched,
+        channel: "desktop",
+        consumerId: "a",
+        now,
+      }),
+      b.request<ResetClaim[]>({
+        operation: "reset-claim",
+        enabled: true,
+        watched,
+        channel: "plugin",
+        consumerId: "b",
+        now,
+      }),
+    ]);
+    expect(claims.flat()).toHaveLength(1);
+    const index = claims[0].length ? 0 : 1,
+      claim = claims[index][0],
+      winner = index ? b : a;
+    expect(
+      await winner.request({
+        operation: "reset-settle",
+        id: claim.event.id,
+        leaseToken: claim.leaseToken,
+        channel: index ? "plugin" : "desktop",
+        delivered: true,
+        now,
+      }),
+    ).toBe(true);
+    a.dispose();
+    b.dispose();
+    const restarted = make();
+    expect(
+      (await restarted.request<StoredResetEvent[]>({ operation: "reset-events" }))[0].state,
+    ).toBe("delivered");
+    expect(
+      await restarted.request({
+        operation: "reset-claim",
+        enabled: true,
+        watched,
+        channel: "desktop",
+        consumerId: "restart",
+        now,
+      }),
+    ).toEqual([]);
+  });
   it("preserves two concurrent writers, a WASM reader, restart and a legacy reader", async () => {
     const { data, make } = await setup();
     const file = join(data, "quota-dashboard.db");

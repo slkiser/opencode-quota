@@ -18,8 +18,12 @@ import {
 import { budgetSince, type WindowAggregation } from "./budget-evaluation.js";
 import type { BudgetTimeWindow } from "../lib/budget-alerts.js";
 import type { QuotaToastConfig } from "../lib/types.js";
+import { claimResetEvents, settleResetEvent, getResetEvents } from "../dashboard/reset-events.js";
 
 export type HistoryRequest =
+  | ({ operation: "reset-claim" } & Parameters<typeof claimResetEvents>[1])
+  | ({ operation: "reset-settle" } & Parameters<typeof settleResetEvent>[1])
+  | { operation: "reset-events"; providerId?: string }
   | {
       operation: "record";
       providerResults: ProviderResultForSnapshot[];
@@ -35,9 +39,11 @@ export type HistoryRequest =
 
 let queue = Promise.resolve();
 async function execute(request: HistoryRequest) {
-  setPricingSnapshotSelection(request.pricing.source);
-  setPricingSnapshotAutoRefresh(request.pricing.autoRefresh);
-  await preloadUserPricing();
+  if ("pricing" in request) {
+    setPricingSnapshotSelection(request.pricing.source);
+    setPricingSnapshotAutoRefresh(request.pricing.autoRefresh);
+    await preloadUserPricing();
+  }
   if (request.operation === "aggregate") {
     const windows: WindowAggregation[] = [];
     for (const window of new Set(request.windows)) {
@@ -61,6 +67,9 @@ async function execute(request: HistoryRequest) {
   const db = await openNativeDashboardDatabase(dbPath);
   try {
     const api = new DashboardApi(db);
+    if (request.operation === "reset-claim") return claimResetEvents(db, request);
+    if (request.operation === "reset-settle") return settleResetEvent(db, request);
+    if (request.operation === "reset-events") return getResetEvents(db, request.providerId);
     const diagnostics = recordQuotaObservations(api, request.providerResults);
     try {
       await syncTodayUsageHistory(

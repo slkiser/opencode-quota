@@ -9,6 +9,11 @@ import { openNativeDashboardDatabase } from "../dist/dashboard/native-database.j
 import { SqlJsDatabaseAdapter } from "../dist/dashboard/sqljs-database.js";
 import { openAIAccounting } from "../dist/providers/accounting-adapters.js";
 import { recordQuotaObservations } from "../dist/dashboard/quota-snapshot-bridge.js";
+import {
+  getResetEvents,
+  claimResetEvents,
+  settleResetEvent,
+} from "../dist/dashboard/reset-events.js";
 const root = await mkdtemp(join(tmpdir(), "quota-history-compat-"));
 const open = process.versions.bun
   ? (path) => BunSqliteDatabaseAdapter.open(path)
@@ -58,6 +63,56 @@ try {
     1,
   );
   assert.equal((await readdir(root)).filter((name) => name.includes("pre-v2")).length, 1);
+  const now = Date.now();
+  for (const before of [true, false, false]) {
+    const accounting = openAIAccounting({
+      success: true,
+      label: "Reset fixture",
+      windows: {
+        weekly: {
+          percentRemaining: before ? 25 : 100,
+          resetTimeIso: new Date(now + (before ? -1000 : 604800000)).toISOString(),
+        },
+      },
+    });
+    accounting.rows[0].account = { kind: "opaque", digest: "c".repeat(64) };
+    recordQuotaObservations(api, [
+      {
+        providerId: "reset-fixture",
+        result: {
+          attempted: true,
+          entries: [],
+          errors: [],
+          accounting,
+          observation: {
+            id: before ? "reset-before" : "reset-after",
+            observedAt: now - (before ? 2000 : 0),
+          },
+        },
+      },
+    ]);
+  }
+  assert.equal(getResetEvents(db, "reset-fixture").length, 1);
+  const claimOptions = {
+    enabled: true,
+    watched: [{ providerId: "reset-fixture", windowId: "weekly" }],
+    channel: "desktop",
+    consumerId: "compat",
+    now,
+  };
+  const claim = claimResetEvents(db, claimOptions)[0];
+  assert.equal(claimResetEvents(db, { ...claimOptions, channel: "plugin" }).length, 0);
+  assert.equal(
+    settleResetEvent(db, {
+      id: claim.event.id,
+      leaseToken: claim.leaseToken,
+      channel: "desktop",
+      delivered: true,
+      now,
+    }),
+    true,
+  );
+  assert.equal(getResetEvents(db, "reset-fixture")[0].state, "delivered");
   db.close();
   db = null;
   const reader = await SqlJsDatabaseAdapter.open(file);

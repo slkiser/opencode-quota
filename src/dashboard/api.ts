@@ -4,6 +4,7 @@
 
 import { migrateSchema } from "./db-migrate.js";
 import { isAccountingDocument, type AccountingRow } from "../lib/accounting.js";
+import { recordResetTransition } from "./reset-events.js";
 
 export interface QuotaSnapshot {
   timestamp: number;
@@ -89,6 +90,7 @@ export class DashboardApi {
       try {
         if (quotaData.accounting)
           for (const row of quotaData.accounting.rows as AccountingRow[]) {
+            recordResetTransition(this.db, provider, observation, row);
             this.db
               .prepare(
                 `INSERT OR IGNORE INTO accounting_observations

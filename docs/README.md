@@ -22,7 +22,8 @@ These are the completed items with dedicated records. Other completed items have
 - [GUI-03 history and budget runtime record](work-items/GUI03_HISTORY_BUDGET_DESIGN.md): complete in PR #43; merged-main CI passed.
 - [ACC-01 accounting adapter record](work-items/ACC01_ACCOUNTING_ADAPTER.md): complete in PR #45; structured facts and legacy compatibility, with green main CI.
 - [ACC-02 history identity record](work-items/ACC02_HISTORY_IDENTITY.md): complete in PR #47 with green main CI; additive migration, account/window history and rollback.
-- [ACC-03 accounting surface record](work-items/ACC03_ACCOUNTING_SURFACES.md): in progress; shared details and account-separated history.
+- [ACC-03 accounting surface record](work-items/ACC03_ACCOUNTING_SURFACES.md): complete in PR #48 with green main CI; shared details and account-separated history.
+- [INS-01 durable reset record](work-items/INS01_DURABLE_RESETS.md): in progress; qualified transitions, atomic dedup and delivery state.
 
 ## Architecture decisions
 
