@@ -29,7 +29,9 @@ These are the completed items with dedicated records. Other completed items have
 
 - [INS-03 fixed-window runway record](work-items/INS03_FIXED_WINDOW_RUNWAY.md): complete in PR #51 with green main CI; strict eligibility and shared estimates.
 
-- [PRO-01 OpenRouter record](work-items/PRO01_OPENROUTER.md): implemented; hosted acceptance pending, live credential unavailable.
+- [PRO-01 OpenRouter record](work-items/PRO01_OPENROUTER.md): complete in PR #52 with green main CI; live credential unavailable.
+
+- [PRO-02 Kilo record](work-items/PRO02_KILO.md): implemented; hosted acceptance pending, live credential unavailable.
 
 ## Architecture decisions
 

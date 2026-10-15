@@ -396,6 +396,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | Z.ai Coding Plan         | OpenCode config                        | Remote API         | Usage/quota     |
 | Zhipu Coding Plan        | OpenCode config                        | Remote API         | Usage/quota     |
 | NanoGPT                  | API key/config                         | Remote APIs        | Usage + balance |
+| Kilo                     | Existing OpenCode auth, global config, or env | Remote APIs | Personal balance / Pass facts |
 | OpenRouter               | Existing OpenCode auth, global config, or env | Remote API | Key caps/spend |
 | DeepSeek                 | API key/config                         | Remote API         | Balance/status  |
 | Ollama Cloud             | [Needs setup](#ollama-cloud)           | Dashboard scraping | Dashboard usage |
@@ -910,6 +911,14 @@ opencode auth login --provider google
 If you use manual provider selection, include `google-gemini-cli` in `enabledProviders`.
 
 </details>
+
+<a id="kilo"></a>
+
+### Kilo
+
+Kilo reports the personal USD balance and separate Pass base credits, period spend and issued/potential bonus facts. Potential bonuses are labelled **not issued**; hosting spend is already included in period spend and is not added again. Billing renewal dates are not treated as quota resets. No synthetic percentage or fixed-window estimate is invented from these amounts.
+
+Use a personal Gateway API key via `KILO_API_KEY`, trusted global `provider.kilo.options.apiKey` in opencode.json/jsonc, or an existing OpenCode auth.json API-key entry for `kilo`, in that precedence order. Workspace-local secrets are ignored. Organization selection/delegated tokens are outside this adapter's scope. Enable `kilo` explicitly for manual provider selection. See the [contract and validation record](docs/work-items/PRO02_KILO.md).
 
 <a id="openrouter"></a>
 

@@ -16,6 +16,7 @@ export type CanonicalQuotaProviderId =
   | "minimax-coding-plan"
   | "minimax-china-coding-plan"
   | "kimi-for-coding"
+  | "kilo"
   | "openrouter"
   | "deepseek"
   | "opencode-go"
@@ -72,6 +73,7 @@ export const QUOTA_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   "minimax-cn-coding-plan": "MiniMax Coding Plan (CN)",
   "kimi-for-coding": "Kimi Code",
   "kimi-code": "Kimi Code",
+  kilo: "Kilo",
   openrouter: "OpenRouter",
   deepseek: "DeepSeek",
   "opencode-go": "OpenCode Go",
@@ -139,6 +141,7 @@ export const QUOTA_PROVIDER_RUNTIME_IDS: QuotaProviderRuntimeIds = {
     "minimax-china",
   ],
   "kimi-for-coding": ["kimi-for-coding", "kimi", "kimi-code"],
+  kilo: ["kilo"],
   openrouter: ["openrouter"],
   deepseek: ["deepseek"],
   "opencode-go": ["opencode-go"],
@@ -280,6 +283,13 @@ export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
   },
   {
     id: "openrouter",
+    autoSetup: "yes",
+    authentication: "opencode_auth_api_key",
+    authFallbacks: ["env_api_key", "global_opencode_config"],
+    quota: "remote_api",
+  },
+  {
+    id: "kilo",
     autoSetup: "yes",
     authentication: "opencode_auth_api_key",
     authFallbacks: ["env_api_key", "global_opencode_config"],

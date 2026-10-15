@@ -147,6 +147,13 @@ describe("provider-metadata", () => {
         quota: "remote_api",
       },
       {
+        id: "kilo",
+        autoSetup: "yes",
+        authentication: "opencode_auth_api_key",
+        authFallbacks: ["env_api_key", "global_opencode_config"],
+        quota: "remote_api",
+      },
+      {
         id: "opencode-go",
         autoSetup: "needs_quick_setup",
         authentication: "state_only",
