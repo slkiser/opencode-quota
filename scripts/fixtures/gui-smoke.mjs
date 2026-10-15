@@ -345,6 +345,67 @@ async function smoke() {
         );
       }
     }
+    assert.equal(
+      await evaluate("document.body.innerText.includes('Fixed-window estimates')"),
+      false,
+      "identified OpenAI windows must not invent a fixed-window estimate",
+    );
+    // Presentation fixture: provider integration is covered separately by quota IPC tests.
+    const { projectAccountingDetails } = await import(
+      new URL("../lib/accounting-display.js", pathToFileURL(process.env.QUOTA_SMOKE_MAIN)).href
+    );
+    const now = Date.now();
+    const fixed = {
+      id: "explicit",
+      name: "Fixture fixed window",
+      resultType: "quota",
+      prominence: "primary",
+      source: {
+        id: "fixture",
+        acquisitionMethod: "remote_api",
+        ownership: "maintained",
+        authority: "provider_reported",
+      },
+      account: { kind: "unknown" },
+      freshness: { kind: "observed", observedAtIso: new Date(now).toISOString() },
+      window: {
+        kind: "fixed",
+        id: "explicit",
+        startedAtIso: new Date(now - 4 * 3600000).toISOString(),
+        endsAtIso: new Date(now + 4 * 3600000).toISOString(),
+        fullReset: true,
+      },
+      value: { kind: "percent", remaining: 25 },
+    };
+    const state = await evaluate("window.quotaApi.quota.state()");
+    win.webContents.send("quota:updated", {
+      ...state,
+      revision: state.revision + 1000,
+      accountingDetails: projectAccountingDetails(
+        "fixture",
+        { attempted: true, entries: [], errors: [], accounting: { version: 1, rows: [fixed] } },
+        { quotaProjection: "runway", now },
+      ),
+    });
+    await waitFor(
+      () => evaluate("document.body.innerText.includes('≈ 1h 20m')"),
+      "shared fixed-window estimate presentation",
+    );
+    assert.ok(await evaluate("document.body.innerText.includes('not a recent-rate prediction')"));
+    if (process.env.QUOTA_SMOKE_SCREENSHOT_DIR) {
+      for (const [label, width] of [
+        ["wide", 960],
+        ["narrow", 480],
+      ]) {
+        win.setMinimumSize(400, 500);
+        win.setSize(width, 820);
+        await evaluate("document.querySelector('.runway-estimates').scrollIntoView(); undefined");
+        await writeFile(
+          join(process.env.QUOTA_SMOKE_SCREENSHOT_DIR, `runway-${label}.png`),
+          (await win.webContents.capturePage()).toPNG(),
+        );
+      }
+    }
     assert.deepEqual(errors, []);
     clearTimeout(deadline);
     console.log(

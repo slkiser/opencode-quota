@@ -1,6 +1,6 @@
 # INS-02 — Desktop and plugin reset notices
 
-Issue: [#20](https://github.com/thanhndv212/opencode-quota/issues/20). Status: implemented; local acceptance passed; hosted checks and observed OS delivery gates remain open. Evidence date: 2026-10-15. Dependencies: INS-01 and GUI-02 complete.
+Issue: [#20](https://github.com/thanhndv212/opencode-quota/issues/20). Status: implemented; local acceptance passed; [PR #50](https://github.com/thanhndv212/opencode-quota/pull/50) merged at `7e1d60e`; [main CI 38745556505](https://github.com/thanhndv212/opencode-quota/actions/runs/38745556505) passed all six checks; observed OS delivery gates remain open. Evidence date: 2026-10-15. Dependencies: INS-01 and GUI-02 complete.
 
 Upstream provenance: mature reset notification policy at `2733b5bd010f659d1d6007e5d19026e82d51353f`, following `c2dca3c` and `cedee73`. Delivery is adapted to the fork's native history writers and separate Electron process.
 

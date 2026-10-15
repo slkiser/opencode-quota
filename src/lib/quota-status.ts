@@ -632,6 +632,7 @@ export async function buildQuotaStatusReport(params: {
     matchesCurrentModel?: boolean;
   }>;
   providerLiveProbes?: ProviderLiveProbe[];
+  quotaProjection?: "none" | "runway";
   googleRefresh?: {
     attempted: boolean;
     total?: number;
@@ -1848,7 +1849,9 @@ export async function buildQuotaStatusReport(params: {
   sections.push(createKvSection("unknown_pricing", "unknown_pricing:", unknownRows));
 
   const details = (params.providerLiveProbes ?? []).flatMap((probe) =>
-    projectAccountingDetails(probe.providerId, probe.result),
+    projectAccountingDetails(probe.providerId, probe.result, {
+      quotaProjection: params.quotaProjection,
+    }),
   );
   if (details.length)
     sections.push({

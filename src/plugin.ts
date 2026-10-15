@@ -1258,6 +1258,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
       currentModel,
       sessionModelLookup,
       providerAvailability: availability,
+      quotaProjection: runtime.config.quotaProjection,
       providerLiveProbes,
       googleRefresh: refresh
         ? {

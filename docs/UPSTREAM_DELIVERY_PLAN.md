@@ -4,7 +4,7 @@ Prepared: 2026-10-06. Status: execution started. See the live delivery tracker b
 
 ## Live delivery tracker
 
-Updated: 2026-10-15. Parent issue: [Upstream adoption delivery](https://github.com/thanhndv212/opencode-quota/issues/3). PRs #30–#49 are merged on `main`; the latest verified implementation is `ef2abeb` (INS-01), with [green main CI 38744283981](https://github.com/thanhndv212/opencode-quota/actions/runs/38744283981). GUI-03 is complete after [PR #43](https://github.com/thanhndv212/opencode-quota/pull/43) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/38647782503). GUI-02 is complete after [PR #41](https://github.com/thanhndv212/opencode-quota/pull/41) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/37853670522). GUI-01 is complete after [PR #40](https://github.com/thanhndv212/opencode-quota/pull/40) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/37852563879). COR-05 is complete after [PR #39](https://github.com/thanhndv212/opencode-quota/pull/39) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/37820466327). COR-03 is complete after [PR #38](https://github.com/thanhndv212/opencode-quota/pull/38) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/37803649093) on rerun. COR-02 is complete after [PR #35](https://github.com/thanhndv212/opencode-quota/pull/35) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/37787732500). The rollout covers 13 resolved-auth providers, explicitly disables shared caching for 7 providers without frozen account selection, and removes unscoped auth/rendered-toast reuse. Work-item completion and remaining dependencies are shown below.
+Updated: 2026-10-15. Parent issue: [Upstream adoption delivery](https://github.com/thanhndv212/opencode-quota/issues/3). PRs #30–#50 are merged on `main`; the latest verified implementation is `7e1d60e` (INS-02 implementation), with [green main CI 38745556505](https://github.com/thanhndv212/opencode-quota/actions/runs/38745556505). GUI-03 is complete after [PR #43](https://github.com/thanhndv212/opencode-quota/pull/43) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/38647782503). GUI-02 is complete after [PR #41](https://github.com/thanhndv212/opencode-quota/pull/41) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/37853670522). GUI-01 is complete after [PR #40](https://github.com/thanhndv212/opencode-quota/pull/40) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/37852563879). COR-05 is complete after [PR #39](https://github.com/thanhndv212/opencode-quota/pull/39) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/37820466327). COR-03 is complete after [PR #38](https://github.com/thanhndv212/opencode-quota/pull/38) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/37803649093) on rerun. COR-02 is complete after [PR #35](https://github.com/thanhndv212/opencode-quota/pull/35) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/37787732500). The rollout covers 13 resolved-auth providers, explicitly disables shared caching for 7 providers without frozen account selection, and removes unscoped auth/rendered-toast reuse. Work-item completion and remaining dependencies are shown below.
 
 | Milestone | Status      | Completion gate                                                                          |
 | --------- | ----------- | ---------------------------------------------------------------------------------------- |
@@ -37,8 +37,8 @@ Updated: 2026-10-15. Parent issue: [Upstream adoption delivery](https://github.c
 | ACC-02 | [#17](https://github.com/thanhndv212/opencode-quota/issues/17) | Done        | [History identity record](work-items/ACC02_HISTORY_IDENTITY.md); PR #47 merged at `4e3bd4f`; main CI 38702627029 passed all six checks, including native Node/Bun history compatibility                                                                                                                                 |
 | ACC-03 | [#18](https://github.com/thanhndv212/opencode-quota/issues/18) | Done        | [Surface acceptance record](work-items/ACC03_ACCOUNTING_SURFACES.md); PR #48 merged at `88e3329`; main CI 38738877462 passed all six checks; 1,509 tests and inspected wide/narrow Electron captures                                                                                                                    |
 | INS-01 | [#19](https://github.com/thanhndv212/opencode-quota/issues/19) | Done | [Reset transition record](work-items/INS01_DURABLE_RESETS.md); PR #49 merged at `ef2abeb`; all six main CI 38744283981 checks passed |
-| INS-02 | [#20](https://github.com/thanhndv212/opencode-quota/issues/20) | Validating | [Delivery record](work-items/INS02_NOTIFICATION_DELIVERY.md); implementation and local fixture gates passed; observed macOS/Linux OS delivery remains required |
-| INS-03 | [#21](https://github.com/thanhndv212/opencode-quota/issues/21) | Planned     | Independent calculation fixtures                                                                                                                                                                                                                                                                                        |
+| INS-02 | [#20](https://github.com/thanhndv212/opencode-quota/issues/20) | Validating | [Delivery record](work-items/INS02_NOTIFICATION_DELIVERY.md); PR #50 merged at `7e1d60e`, main CI 38745556505 passed; observed macOS/Linux OS delivery remains required |
+| INS-03 | [#21](https://github.com/thanhndv212/opencode-quota/issues/21) | In progress | [Runway record](work-items/INS03_FIXED_WINDOW_RUNWAY.md); strict fixed-window evidence, independent 80-minute example and shared surfaces; local 1,566 tests passed |
 | PRO-01 | [#22](https://github.com/thanhndv212/opencode-quota/issues/22) | Planned     | Auth/parser/surface contract                                                                                                                                                                                                                                                                                            |
 | PRO-02 | [#23](https://github.com/thanhndv212/opencode-quota/issues/23) | Planned     | Per-provider evidence checklist                                                                                                                                                                                                                                                                                         |
 | CUS-01 | [#24](https://github.com/thanhndv212/opencode-quota/issues/24) | Planned     | Schema + mapping + request tests                                                                                                                                                                                                                                                                                        |
@@ -212,7 +212,7 @@ flowchart LR
     A02 --> I01["INS-01 DONE"]
     I01 --> I02["INS-02 OS VALIDATION"]
     G02 --> I02
-    A03 --> I03["INS-03"]
+    A03 --> I03["INS-03 IN PROGRESS"]
   end
   subgraph Extensibility
     A03 --> P01["PRO-01"]
@@ -232,9 +232,9 @@ flowchart LR
   classDef active fill:#fef3c7,stroke:#b45309,color:#78350f;
   classDef ready fill:#dbeafe,stroke:#2563eb,color:#1e3a8a;
   classDef optional fill:#f3f4f6,stroke:#6b7280,color:#374151;
-  class F01,F02,F03,C01,C02,C03,C04,C05,G01,G02,G03,A01,A02,A03 done;
-  class F04,I01 active;
-  class I03,P01 ready;
+  class F01,F02,F03,C01,C02,C03,C04,C05,G01,G02,G03,A01,A02,A03,I01 done;
+  class F04,I02,I03 active;
+  class P01 ready;
   class O01,V01,V02 optional;
 ```
 
@@ -246,7 +246,7 @@ flowchart LR
 | Provider payloads         | COR-05 (#12) complete                       | PR #39 merged at 377c5a3; main CI 37820466327 passed                                                                                                         |
 | Desktop configuration     | GUI-01 (#13)                                | PR #40 merged; main CI 37852563879 passed                                                                                                                    |
 | Desktop refresh / history | GUI-02 (#14), then GUI-03 (#15)             | GUI-02 and GUI-03 complete after merge and green main CI (COR-04 already done)                                                                               |
-| Accounting                | ACC-01/02/03 complete                       | ACC-01 and GUI-03 complete; ACC-02 complete; ACC-03 complete; INS-01 in progress; INS-03 and PRO-01 ready                                                    |
+| Accounting                | ACC-01/02/03 complete                       | ACC-01 and GUI-03 complete; ACC-02 complete; ACC-03 complete; INS-01 complete; INS-02 OS validation open; INS-03 in progress; PRO-01 ready                                                    |
 | Release preparation       | Finish FND-04 (#7) alongside implementation | Version/tag-aligned draft, npm authentication/publisher setup, and remaining host/installation evidence; unsigned artifact builds/checksums already verified |
 
 COR-02, COR-03 and COR-05 are complete. GUI-01 is complete after merge and green main CI. GUI-02 is complete after merge and green main CI. GUI-03 history/budget runtime is complete after PR #43 and green main CI 38647782503. Shared-file PRs still merge in order and rerun required checks against the current base. Milestone numbering identifies workstreams; a milestone is marked done only when all its acceptance gates pass.

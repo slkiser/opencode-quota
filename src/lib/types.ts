@@ -76,6 +76,7 @@ export interface QuotaToastConfig {
   /** If false, never show popup toasts (commands/tools still work). */
   enableToast: boolean;
   resetNotifications: ResetNotificationConfig;
+  quotaProjection: "none" | "runway";
 
   /**
    * Shared quota-row formatting style for popup toasts and the TUI sidebar.
@@ -175,6 +176,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
 
   enableToast: true,
   resetNotifications: { enabled: false, watched: [], preferDesktop: true },
+  quotaProjection: "none",
   formatStyle: DEFAULT_QUOTA_FORMAT_STYLE,
   percentDisplayMode: "remaining",
   minIntervalMs: 300000, // 5 minutes

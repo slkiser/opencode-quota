@@ -621,7 +621,9 @@ export async function collectQuotaRenderData(params: {
   ) as QuotaToastEntry[];
   const errors = [...availabilityErrors, ...results.flatMap((result) => result.errors)];
   const details = results.flatMap((result, index) =>
-    projectAccountingDetails(active[index]!.id, result),
+    projectAccountingDetails(active[index]!.id, result, {
+      quotaProjection: params.config.quotaProjection,
+    }),
   );
   const accountingDetails = details.length ? { accountingDetails: details } : {};
   const attemptedAny = results.some((result) => result.attempted);

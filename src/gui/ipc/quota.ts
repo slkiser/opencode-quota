@@ -108,7 +108,9 @@ export async function fetchAllQuota(
   }
 
   const details = providerResults.flatMap((item) =>
-    projectAccountingDetails(item.providerId, item.result),
+    projectAccountingDetails(item.providerId, item.result, {
+      quotaProjection: mergedConfig.quotaProjection,
+    }),
   );
   return {
     entries,

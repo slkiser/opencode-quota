@@ -63,6 +63,15 @@ describe("loadConfig", () => {
     return { config, meta };
   }
 
+  it("keeps runway opt-in and rejects invalid modes", async () => {
+    expect((await loadSdkConfig({})).config.quotaProjection).toBe("none");
+    expect((await loadSdkConfig({ quotaProjection: "runway" })).config.quotaProjection).toBe(
+      "runway",
+    );
+    const invalid = await loadSdkConfig({ quotaProjection: true });
+    expect(invalid.config.quotaProjection).toBe("none");
+    expect(invalid.meta.configIssues.some((issue) => issue.key === "quotaProjection")).toBe(true);
+  });
   it("defaults reset notices off and validates explicit watched windows", async () => {
     expect((await loadSdkConfig({})).config.resetNotifications).toEqual({
       enabled: false,

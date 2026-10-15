@@ -27,6 +27,8 @@ These are the completed items with dedicated records. Other completed items have
 
 - [INS-02 notification delivery record](work-items/INS02_NOTIFICATION_DELIVERY.md): implemented; observed OS delivery gates remain open.
 
+- [INS-03 fixed-window runway record](work-items/INS03_FIXED_WINDOW_RUNWAY.md): implemented; strict eligibility and shared estimates, hosted acceptance pending.
+
 ## Architecture decisions
 
 - [Dual deterministic command surfaces](adr/0002-dual-deterministic-command-surfaces.md): server/web/desktop command output and local TUI dialogs.

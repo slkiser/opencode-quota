@@ -32,6 +32,7 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "enabled",
   "enableToast",
   "resetNotifications",
+  "quotaProjection",
   "formatStyle",
   "percentDisplayMode",
   "minIntervalMs",
@@ -135,6 +136,7 @@ type ValidatedQuotaToastPatch = {
   enabled?: boolean;
   enableToast?: boolean;
   resetNotifications?: QuotaToastConfig["resetNotifications"];
+  quotaProjection?: QuotaToastConfig["quotaProjection"];
   formatStyle?: QuotaToastConfig["formatStyle"];
   percentDisplayMode?: PercentDisplayMode;
   minIntervalMs?: number;
@@ -556,6 +558,11 @@ function extractValidatedQuotaToastPatch(
     } else reportIssue?.("resetNotifications", "expected an object; delivery disabled");
   }
 
+  if (hasOwnKey(quotaToastConfig, "quotaProjection")) {
+    patch.quotaProjection = quotaToastConfig.quotaProjection === "runway" ? "runway" : "none";
+    if (!["runway", "none"].includes(String(quotaToastConfig.quotaProjection)))
+      reportIssue?.("quotaProjection", "expected none or runway; projection disabled");
+  }
   const formatStyle = getConfiguredFormatStyle(quotaToastConfig as Partial<QuotaToastConfig>);
   if (formatStyle) {
     patch.formatStyle = formatStyle;
@@ -773,6 +780,10 @@ function applyValidatedQuotaToastPatch(
     applySettingSource(settingSources, "formatStyle", sourcePath);
   }
 
+  if (patch.quotaProjection) {
+    config.quotaProjection = patch.quotaProjection;
+    applySettingSource(settingSources, "quotaProjection", sourcePath);
+  }
   if (patch.resetNotifications) {
     config.resetNotifications = structuredClone(patch.resetNotifications);
     applySettingSource(settingSources, "resetNotifications", sourcePath);

@@ -231,28 +231,8 @@
     if (activeTab === 5) renderHistory();
   }
 
-  function inferWindowLengthMs(label) {
-    const s = (label || "").toLowerCase();
-    if (s.includes("5h") || s.includes("5-hour") || s.includes("session"))
-      return 5 * 60 * 60 * 1000;
-    if (s.includes("week") || s.includes("7d") || s.includes("7-day"))
-      return 7 * 24 * 60 * 60 * 1000;
-    return null;
-  }
-
   function findActiveBurnWindow() {
-    const latest = historyQuota.length > 0 ? historyQuota[historyQuota.length - 1] : null;
-    if (latest) {
-      for (const limit of latest.limits || []) {
-        const lenMs = inferWindowLengthMs(limit.kind) || inferWindowLengthMs(limit.group);
-        if (lenMs === 5 * 60 * 60 * 1000 && limit.resets_at) {
-          const resetsAtMs = new Date(limit.resets_at).getTime();
-          if (Number.isFinite(resetsAtMs)) {
-            return { sinceMs: resetsAtMs - lenMs, label: "Current 5-Hour Window" };
-          }
-        }
-      }
-    }
+    // A local rolling lookback, never presented as a provider's fixed window.
     return { sinceMs: Date.now() - 5 * 60 * 60 * 1000, label: "Last 5 Hours" };
   }
 
@@ -689,8 +669,27 @@
         container.appendChild(renderProviderCard(item.entry));
       }
     }
-    if (quotaData.accountingDetails?.length)
+    if (quotaData.accountingDetails?.length) {
+      const estimates = quotaData.accountingDetails.filter((row) => row.runway);
+      if (estimates.length) {
+        const card = el("div", { className: "card runway-estimates" });
+        card.appendChild(el("div", { className: "card-title" }, "Fixed-window estimates"));
+        for (const row of estimates) {
+          card.appendChild(el("div", {}, row.name + ": " + row.runway));
+          const reset = row.facts.find((fact) => fact.label === "Reset");
+          if (reset) card.appendChild(el("div", { className: "hint" }, "Reset: " + reset.value));
+        }
+        card.appendChild(
+          el(
+            "div",
+            { className: "hint" },
+            "Linear average since fixed-window start; not a recent-rate prediction.",
+          ),
+        );
+        container.appendChild(card);
+      }
       container.appendChild(renderAccountingRows(quotaData.accountingDetails));
+    }
 
     if (quotaData.sessionTokens) {
       const st = quotaData.sessionTokens;
@@ -1966,21 +1965,16 @@
   }
 
   /**
-   * Burn rate (%/min from the last two same-kind snapshots), pace comparison
-   * (actual used% vs. a steady straight-line burn to the next reset), and a
-   * simple "runs out before reset" / "safe until reset" projection.
-   * Returns null when there isn't enough data to say anything meaningful.
+   * Descriptive consumption between the last two observations only.
+   * Fixed-window runway is calculated by the shared metadata-aware formatter.
    */
-  function computeBurnStats(points, windowLengthMs) {
+  function computeBurnStats(points) {
     if (!points || points.length === 0) return null;
     const latest = points[points.length - 1];
     const stats = {
       percentRemaining: latest.percentRemaining,
       resetTimeIso: latest.resetTimeIso,
       burnPerMin: null,
-      pacePercent: null,
-      paceDeltaPp: null,
-      projectionText: null,
     };
 
     if (points.length >= 2) {
@@ -1989,33 +1983,6 @@
       const usedDelta = prev.percentRemaining - latest.percentRemaining; // + = consumed since prev
       if (deltaMin > 0 && usedDelta >= 0) {
         stats.burnPerMin = usedDelta / deltaMin;
-      }
-    }
-
-    const resetsAtMs = latest.resetTimeIso ? new Date(latest.resetTimeIso).getTime() : NaN;
-    if (Number.isFinite(resetsAtMs) && windowLengthMs) {
-      const windowStartMs = resetsAtMs - windowLengthMs;
-      const elapsedFraction = Math.min(
-        1,
-        Math.max(0, (Date.now() - windowStartMs) / windowLengthMs),
-      );
-      stats.pacePercent = elapsedFraction * 100;
-      const actualUsedPercent = 100 - latest.percentRemaining;
-      stats.paceDeltaPp = Math.round(actualUsedPercent - stats.pacePercent);
-
-      const minutesToReset = (resetsAtMs - Date.now()) / 60000;
-      if (stats.burnPerMin != null && stats.burnPerMin > 0 && minutesToReset > 0) {
-        const minutesToEmpty = latest.percentRemaining / stats.burnPerMin;
-        if (minutesToEmpty < minutesToReset) {
-          stats.projectionText =
-            "Runs out in " + formatDuration(minutesToEmpty) + " (before reset)";
-        } else {
-          const projRemaining = Math.max(
-            0,
-            latest.percentRemaining - stats.burnPerMin * minutesToReset,
-          );
-          stats.projectionText = "Safe until reset (proj " + Math.round(projRemaining) + "% left)";
-        }
       }
     }
 
@@ -2033,8 +2000,7 @@
     );
     card.appendChild(renderBurndownSparkline(entry.points));
 
-    const windowLengthMs = inferWindowLengthMs(kindLabel) || inferWindowLengthMs(entry.group);
-    const stats = computeBurnStats(entry.points, windowLengthMs);
+    const stats = computeBurnStats(entry.points);
     if (stats) {
       const line1 = [Math.round(stats.percentRemaining) + "% left"];
       if (stats.burnPerMin != null) {
@@ -2057,37 +2023,6 @@
           line1.join(" · "),
         ),
       );
-
-      if (stats.paceDeltaPp != null) {
-        const dir = stats.paceDeltaPp >= 0 ? "ahead of" : "behind";
-        const line2 =
-          "Used " +
-          Math.round(100 - stats.percentRemaining) +
-          "% vs " +
-          Math.round(stats.pacePercent) +
-          "% pace (" +
-          (stats.paceDeltaPp >= 0 ? "+" : "") +
-          stats.paceDeltaPp +
-          "pp " +
-          dir +
-          " steady burn)";
-        card.appendChild(
-          el(
-            "div",
-            { style: { fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" } },
-            line2,
-          ),
-        );
-      }
-      if (stats.projectionText) {
-        card.appendChild(
-          el(
-            "div",
-            { style: { fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" } },
-            stats.projectionText,
-          ),
-        );
-      }
     }
     return card;
   }
@@ -2478,9 +2413,7 @@
     } else {
       // 5h-like windows first (fastest-moving, most actionable), then the rest.
       const kinds = [...byKind.keys()].sort((a, b) => {
-        const la = inferWindowLengthMs(a) ?? Infinity;
-        const lb = inferWindowLengthMs(b) ?? Infinity;
-        return la - lb;
+        return a.localeCompare(b);
       });
       kinds.forEach((k) => container.appendChild(renderBurnCard(k, byKind.get(k))));
     }

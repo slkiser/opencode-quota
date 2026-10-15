@@ -71,19 +71,24 @@ export async function getAccountingHistory(params: {
   days?: number;
   accountIdentity?: string;
   windowId?: string;
+  quotaProjection?: "none" | "runway";
 }): Promise<Array<{ timestamp: number; detail: AccountingDisplayRow }>> {
   const api = await loadDashboardApi();
   if (!api) return [];
   return api
     .getAccountingHistory(params.provider, params.days, params)
     .flatMap((observation: AccountingObservation) => {
-      const details = projectAccountingDetails(params.provider, {
-        attempted: true,
-        entries: [],
-        errors: [],
-        observation: { id: observation.observationId, observedAt: observation.timestamp },
-        accounting: { version: 1, rows: [observation.row] },
-      });
+      const details = projectAccountingDetails(
+        params.provider,
+        {
+          attempted: true,
+          entries: [],
+          errors: [],
+          observation: { id: observation.observationId, observedAt: observation.timestamp },
+          accounting: { version: 1, rows: [observation.row] },
+        },
+        { quotaProjection: params.quotaProjection },
+      );
       return details.map((detail) => ({ timestamp: observation.timestamp, detail }));
     });
 }

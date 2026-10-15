@@ -449,7 +449,11 @@ function registerIpcHandlers(initialConfig: StandaloneQuotaConfig, guiConfig: Gu
     async (
       _event,
       params: { provider: string; days?: number; accountIdentity?: string; windowId?: string },
-    ) => dashboardHistoryIpc.getAccountingHistory(params),
+    ) =>
+      dashboardHistoryIpc.getAccountingHistory({
+        ...params,
+        quotaProjection: quotaConfig.config.quotaProjection,
+      }),
   );
 
   ipcMain.handle(

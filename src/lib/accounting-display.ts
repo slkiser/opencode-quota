@@ -1,3 +1,4 @@
+import { projectQuotaRunway, formatQuotaRunway } from "./quota-runway.js";
 import {
   isAccountingDocument,
   formatAccountingQuantity,
@@ -16,6 +17,7 @@ export interface AccountingDisplayRow {
   valueKind: AccountingRow["value"]["kind"];
   accountIdentity: string;
   windowId?: string;
+  runway?: string;
   facts: Array<{ label: string; value: string }>;
 }
 const authority = (value: string) =>
@@ -50,6 +52,7 @@ function valueText(row: AccountingRow): string {
 export function projectAccountingDetails(
   providerId: string,
   result: QuotaProviderResult,
+  options: { quotaProjection?: "none" | "runway"; now?: number } = {},
 ): AccountingDisplayRow[] {
   if (!isAccountingDocument(result.accounting)) return [];
   return result.accounting.rows.map((row) => {
@@ -65,6 +68,17 @@ export function projectAccountingDetails(
         value: row.freshness.kind === "observed" ? row.freshness.observedAtIso : "Unknown",
       },
     ];
+    const projection =
+      options.quotaProjection === "runway" ? projectQuotaRunway(row, options.now) : null;
+    const runway = projection ? formatQuotaRunway(projection, options.now) : undefined;
+    if (runway) {
+      facts.push({ label: "Runway", value: runway });
+      facts.push({
+        label: "Estimate basis",
+        value: "Linear average since fixed-window start; not a recent-rate prediction",
+      });
+      facts.push({ label: "Reset", value: new Date(projection!.resetAt).toISOString() });
+    }
     const fetched = result.observation ? new Date(result.observation.observedAt) : null;
     if (fetched && Number.isFinite(fetched.getTime()))
       facts.push({ label: "Fetched", value: fetched.toISOString() });
@@ -106,6 +120,7 @@ export function projectAccountingDetails(
       valueKind: row.value.kind,
       prominence: row.prominence,
       accountIdentity: identity,
+      ...(runway ? { runway } : {}),
       ...(row.window.kind !== "unknown" ? { windowId: row.window.id } : {}),
       facts: facts.map((fact) => ({
         label: clean(fact.label, 200),
@@ -116,6 +131,9 @@ export function projectAccountingDetails(
 }
 
 export function formatCompactAccountingDetails(rows: AccountingDisplayRow[], width = 50): string {
+  const estimates = rows
+    .filter((row) => row.runway)
+    .map((row) => `${row.name}: ${row.runway} (average since start)`);
   const extras = rows.filter(
     (row) =>
       row.prominence === "supplementary" &&
@@ -123,8 +141,11 @@ export function formatCompactAccountingDetails(rows: AccountingDisplayRow[], wid
   );
   const bound = Math.max(16, Math.floor(width));
   const lines: string[] = [];
-  for (const row of extras.slice(0, 2)) {
-    const chars = Array.from(clean(`${row.name}: ${row.value}`, 1500));
+  for (const text of [
+    ...estimates.slice(0, 4),
+    ...extras.slice(0, 2).map((row) => `${row.name}: ${row.value}`),
+  ]) {
+    const chars = Array.from(clean(text, 1500));
     while (chars.length) lines.push(chars.splice(0, bound).join(""));
   }
   if (extras.length > 2) lines.push("More details: /quota".slice(0, bound));
