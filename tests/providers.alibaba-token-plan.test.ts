@@ -272,14 +272,14 @@ describe("alibaba-token-plan provider", () => {
   it.runIf(SUPPORTED).each([
     [
       "the monthly window, with its reset",
-      { usage: replying({ per1MonthPercentage: 0.6, per1MonthResetTime: Date.parse(RESET) }) },
-      [["alibaba-token-plan.personal", null, "Monthly", "month", 40, RESET]],
+      cli({ usage: replying({ per1MonthPercentage: 0.6, per1MonthResetTime: Date.parse(RESET) }) }),
+      [["alibaba-token-plan.personal", "personal", "Monthly", "month", 40, RESET]],
       undefined,
       [{ key: "cli_available", value: "true" }, PLATFORM, { key: "windows", value: "monthly" }],
     ],
     [
       "a signed-in reply with no window, left blank rather than reported",
-      { usage: replying({}) },
+      cli({ usage: replying({}) }),
       [],
       undefined,
       [
@@ -292,7 +292,7 @@ describe("alibaba-token-plan provider", () => {
     [
       "the monthly window without a reset time",
       cli({ usage: replying({ per1MonthPercentage: 0.5 }) }),
-      [["alibaba-token-plan.personal", null, "Monthly", "month", 50, null]],
+      [["alibaba-token-plan.personal", "personal", "Monthly", "month", 50, null]],
       undefined,
       [{ key: "cli_available", value: "true" }, PLATFORM, { key: "windows", value: "monthly" }],
     ],
@@ -307,15 +307,14 @@ describe("alibaba-token-plan provider", () => {
         { key: "failure_kind", value: "executable_not_found" },
         {
           key: "error",
-          value:
-            "Alibaba Personal Token Plan: Alibaba Cloud CLI (bl) was not found on the trusted PATH.",
+          value: `Alibaba Token Plan (personal): ${ERROR_MESSAGES.executable_not_found}`,
         },
         { key: "error_kind", value: "local_tool" },
       ],
     ],
     [
       "an expired console sign-in",
-      { usage: exits(3) },
+      cli({ usage: exits(3) }),
       [],
       { code: "login_expired" },
       [
@@ -325,14 +324,14 @@ describe("alibaba-token-plan provider", () => {
         {
           key: "error",
           value:
-            "Alibaba Personal Token Plan: Alibaba Cloud console session is missing or expired. Run `bl auth login --console`.",
+            "Alibaba Token Plan (personal): Alibaba Cloud console session is missing or expired. Run `bl auth login --console`.",
         },
         { key: "error_kind", value: "login_expired" },
       ],
     ],
     [
       "a timeout",
-      { usage: WAITS },
+      cli({ usage: WAITS }),
       [],
       { code: "timeout" },
       [
@@ -341,7 +340,7 @@ describe("alibaba-token-plan provider", () => {
         { key: "failure_kind", value: "timeout" },
         {
           key: "error",
-          value: "Alibaba Personal Token Plan: Timed out while running the Alibaba Cloud CLI.",
+          value: `Alibaba Token Plan (personal): ${ERROR_MESSAGES.timeout}`,
         },
         { key: "error_kind", value: "timeout" },
       ],
@@ -361,9 +360,11 @@ describe("alibaba-token-plan provider", () => {
   it.runIf(SUPPORTED)(
     "gives the monthly row a start a calendar month before its reset",
     async () => {
-      installCli({
-        usage: replying({ per1MonthPercentage: 0.6, per1MonthResetTime: Date.parse(RESET) }),
-      });
+      installCli(
+        cli({
+          usage: replying({ per1MonthPercentage: 0.6, per1MonthResetTime: Date.parse(RESET) }),
+        }),
+      );
 
       const fetched = await fetchTokenPlan();
 
@@ -374,10 +375,12 @@ describe("alibaba-token-plan provider", () => {
   );
 
   it.runIf(SUPPORTED)("clamps the monthly start to the last day of a shorter month", async () => {
-    installCli({
-      usage: replying({
-        per1MonthPercentage: 0.6,
-        per1MonthResetTime: Date.parse("2024-03-31T00:00:00.000Z"),
+    installCli(
+      cli({
+        usage: replying({
+          per1MonthPercentage: 0.6,
+          per1MonthResetTime: Date.parse("2024-03-31T00:00:00.000Z"),
+        }),
       }),
     );
 
@@ -387,14 +390,28 @@ describe("alibaba-token-plan provider", () => {
     expect(fetched.rows[0]?.windowStartedAt).toBe("2024-02-29T00:00:00.000Z");
   });
 
+  it.runIf(!SUPPORTED)("is not set up on an unsupported platform", async () => {
+    const fetched = await fetchTokenPlan();
+
+    expect(fetched.rows).toEqual([]);
+    expect(fetched.error).toMatchObject({ code: "not_configured" });
+    expect(fetched.debug).toEqual([
+      { key: "cli_available", value: "true" },
+      PLATFORM,
+      { key: "failure_kind", value: "unsupported_platform" },
+    ]);
+  });
+
   // The seam: the provider spawns through its own `runAlibabaTokenPlanProcess`, so a row appears
   // only after the declared document travelled argv, pipes, parsers and arithmetic.
   it.runIf(SUPPORTED)(
     "drives the provider's own process runner from the declared replies",
     async () => {
-      installCli({
-        usage: replying({ per1MonthPercentage: 0.25, per1MonthResetTime: Date.parse(RESET) }),
-      });
+      installCli(
+        cli({
+          usage: replying({ per1MonthPercentage: 0.25, per1MonthResetTime: Date.parse(RESET) }),
+        }),
+      );
 
       const fetched = await fetchTokenPlan();
 
@@ -414,7 +431,7 @@ describe("alibaba-token-plan provider", () => {
 
       // 0.25 used is 75% left: the arithmetic ran on the faked chunks, unmodified.
       expect(rowSummary(fetched.rows)).toEqual([
-        ["alibaba-token-plan.personal", null, "Monthly", "month", 75, RESET],
+        ["alibaba-token-plan.personal", "personal", "Monthly", "month", 75, RESET],
       ]);
     },
   );

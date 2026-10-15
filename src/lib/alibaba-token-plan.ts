@@ -1,6 +1,5 @@
 /**
- * Alibaba Personal Token Plan quota from the official `bl` CLI, whose production invocation is
- * exactly:
+ * Alibaba Token Plan quota from the official `bl` CLI, whose production invocation is exactly:
  *   bl usage token-plan --output json          (console; the personal monthly window)
  * Console auth belongs to the CLI: this module never installs `bl`, logs in, reads credential
  * stores or uses a shell, and takes POSIX or win32 path semantics from the platform it targets.
@@ -142,20 +141,19 @@ type AlibabaTokenPlanRuntime = {
 };
 
 export const ERROR_MESSAGES: Record<AlibabaTokenPlanErrorKind, string> = {
-  unsupported_platform: "Alibaba Personal Token Plan is not supported on this platform.",
+  unsupported_platform: "Alibaba Token Plan is not supported on this platform.",
   executable_not_found: "Alibaba Cloud CLI (bl) was not found on the trusted PATH.",
   shell_launcher_rejected:
-    "Alibaba Personal Token Plan refused a shell launcher for bl. Install it with `npm install -g bailian-cli`, whose shim resolves to the package's node entry.",
-  workspace_path_rejected:
-    "Alibaba Personal Token Plan ignored workspace and relative PATH entries.",
+    "Alibaba Token Plan refused a shell launcher for bl. Install it with `npm install -g bailian-cli`, whose shim resolves to the package's node entry.",
+  workspace_path_rejected: "Alibaba Token Plan ignored workspace and relative PATH entries.",
   spawn_failed: "Could not start Alibaba Cloud CLI.",
   timeout: "Timed out while running the Alibaba Cloud CLI.",
   output_truncated: "Alibaba Cloud CLI output exceeded the bounded size limit.",
-  nonzero_exit: "Could not read Alibaba Personal Token Plan quota.",
+  nonzero_exit: "Could not read Alibaba Token Plan quota.",
   not_authenticated:
     "Alibaba Cloud console session is missing or expired. Run `bl auth login --console`.",
   invalid_json: "Alibaba Cloud CLI did not return valid JSON.",
-  invalid_schema: "Alibaba Cloud CLI returned an invalid Personal Token Plan payload.",
+  invalid_schema: "Alibaba Cloud CLI returned an invalid Alibaba Token Plan payload.",
 };
 
 /** A reply without a monthly percentage. `bl` renders that case as an unlimited limit, and a CLI

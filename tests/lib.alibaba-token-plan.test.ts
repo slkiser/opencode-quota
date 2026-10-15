@@ -125,7 +125,7 @@ const INVALID_SCHEMA = {
   ok: false,
   error: {
     kind: "invalid_schema",
-    message: "Alibaba Cloud CLI returned an invalid Personal Token Plan payload.",
+    message: ERROR_MESSAGES.invalid_schema,
   },
 };
 
@@ -222,8 +222,7 @@ describe("alibaba token plan executable resolution", () => {
       ok: false,
       error: {
         kind: "shell_launcher_rejected",
-        message:
-          "Alibaba Personal Token Plan refused a shell launcher for bl. Install it with `npm install -g bailian-cli`, whose shim resolves to the package's node entry.",
+        message: ERROR_MESSAGES.shell_launcher_rejected,
       },
     });
   });
@@ -340,8 +339,7 @@ describe("alibaba token plan Windows resolution", () => {
     ok: false,
     error: {
       kind: "shell_launcher_rejected",
-      message:
-        "Alibaba Personal Token Plan refused a shell launcher for bl. Install it with `npm install -g bailian-cli`, whose shim resolves to the package's node entry.",
+      message: ERROR_MESSAGES.shell_launcher_rejected,
     },
   };
 
@@ -718,7 +716,7 @@ describe("alibaba token plan process boundary", () => {
     {
       name: "a generic nonzero exit separately from console auth",
       run: { code: 1 },
-      error: { kind: "nonzero_exit", message: "Could not read Alibaba Personal Token Plan quota." },
+      error: { kind: "nonzero_exit", message: ERROR_MESSAGES.nonzero_exit },
     },
     {
       name: "a vanished executable",

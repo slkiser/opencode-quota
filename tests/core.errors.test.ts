@@ -328,7 +328,7 @@ const PRODUCED: ReadonlyArray<{
   {
     code: "local_tool",
     from: "src/lib/alibaba-token-plan.ts",
-    text: "Alibaba Personal Token Plan is not supported on this platform.",
+    text: "Alibaba Token Plan is not supported on this platform.",
   },
   {
     code: "internal",

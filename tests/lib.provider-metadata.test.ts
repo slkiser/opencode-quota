@@ -40,8 +40,8 @@ describe("provider-metadata", () => {
     [
       "alibaba-token-plan",
       "alibaba-token-plan",
-      "Alibaba Personal Token Plan",
-      ["alibaba-token-plan"],
+      "Alibaba Token Plan",
+      ["alibaba-token-plan", "alibaba-token-plan-cn"],
     ],
     ["glm-coding-plan", "zhipu", "Zhipu", ZHIPU],
     ["minimax-cn-coding-plan", "minimax-china-coding-plan", "MiniMax Token Plan (CN)", MINIMAX_CN],
@@ -61,11 +61,20 @@ describe("provider-metadata", () => {
   });
 
   it.each([
+    ["alibaba-token-plan-cn", ["alibaba-token-plan"]],
     ["kimi", ["kimi-code-plan-cn"]],
     [" KIMI-CODE-PLAN-GLOBAL ", ["kimi-code-plan-global"]],
     ["google", ["google-gemini-cli"]],
     ["claude", []],
   ])("finds the provider owning the runtime id %j", (runtimeId, ids) => {
     expect(getQuotaProviderIdsForRuntimeId(runtimeId)).toEqual(ids);
+  });
+
+  // `runtimeIds` only cover the OpenCode side; `providers.off` and the saved `names`/`rowOrder`
+  // keys go through `normalizeQuotaProviderId`, which reads synonyms and never runtime ids. So the
+  // older spelling needs both to keep a configured user working.
+  it("names the provider for the older spelling as a synonym, not only as a runtime id", () => {
+    expect(getCanonicalQuotaProviderId("alibaba-token-plan-cn")).toBe("alibaba-token-plan");
+    expect(getCanonicalQuotaProviderId("alibaba-token-plan")).toBe("alibaba-token-plan");
   });
 });

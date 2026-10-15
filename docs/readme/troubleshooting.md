@@ -166,7 +166,7 @@ Check the `alibaba-coding-plan` section: the login, tier (`alibaba_coding_plan`)
 </details>
 
 <details>
-<summary><strong>Alibaba Personal Token Plan</strong></summary>
+<summary><strong>Alibaba Token Plan</strong></summary>
 
 Check the `alibaba-token-plan` section (separate from Alibaba Coding Plan).
 

@@ -83,9 +83,12 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
   },
   {
     id: "alibaba-token-plan",
-    label: "Alibaba Personal Token Plan",
-    runtimeIds: ["alibaba-token-plan"],
-    synonyms: [],
+    label: "Alibaba Token Plan",
+    // One account, two accepted spellings: the CLI's endpoint comes from its own config, so nothing
+    // here can tell a "CN" sign-in from any other. The second spelling is for provider selection
+    // and `providers.off`; per-row settings use the canonical id.
+    runtimeIds: ["alibaba-token-plan", "alibaba-token-plan-cn"],
+    synonyms: ["alibaba-token-plan-cn"],
     // Its rows: the personal plan as `personal`.
     rowKeys: ["personal"],
   },

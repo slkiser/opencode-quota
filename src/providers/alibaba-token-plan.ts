@@ -19,7 +19,13 @@ import {
 } from "./contract.js";
 import { statusDetailsFromRecord } from "./result-helpers.js";
 
-const GROUP = "Alibaba Personal Token Plan";
+/** The registration label; an account name must start with the brand `rows.ts` strips. */
+const GROUP_LABEL = "Alibaba Token Plan";
+
+/** The personal account's text: the one account that is not a seat. */
+function personalGroup(label: string): string {
+  return `${label} (personal)`;
+}
 
 /**
  * One calendar month back, clamped to that month's last day: a monthly cycle ends on the next
@@ -93,56 +99,63 @@ function alibabaRequestTimeoutMs(ctx: QuotaProviderContext): number | undefined 
   return ctx.config?.requestTimeoutMsConfigured ? ctx.config.requestTimeoutMs : undefined;
 }
 
-export const alibabaTokenPlanProvider: QuotaProvider = {
-  id: "alibaba-token-plan",
-  cachePolicy: { kind: "uncached" },
+export const alibabaTokenPlanProvider: QuotaProvider = createTokenPlanProvider();
 
-  // Never probes PATH: availability comes from selection or the current runtime identity.
-  async isAvailable(ctx: QuotaProviderContext): Promise<boolean> {
-    if (!isAlibabaTokenPlanSupportedPlatform()) return false;
+function createTokenPlanProvider(): QuotaProvider {
+  const id = "alibaba-token-plan";
+  const label = GROUP_LABEL;
+  const group = personalGroup(label);
+  return {
+    id,
+    cachePolicy: { kind: "uncached" },
 
-    const selected = await isCanonicalProviderAvailable({
-      ctx,
-      providerId: "alibaba-token-plan",
-      fallbackOnError: false,
-    });
-    if (selected || ctx.config.currentProviderID === "alibaba-token-plan") return true;
-    const currentModel = ctx.config.currentModel;
-    return !!currentModel && modelProviderMatchesRuntimeId(currentModel, "alibaba-token-plan");
-  },
+    // Never probes PATH: availability comes from selection or the current runtime identity.
+    async isAvailable(ctx: QuotaProviderContext): Promise<boolean> {
+      if (!isAlibabaTokenPlanSupportedPlatform()) return false;
 
-  matchesCurrentModel(model: string, context): boolean {
-    if (context?.currentProviderID) {
-      return context.currentProviderID === "alibaba-token-plan";
-    }
-    return modelProviderMatchesRuntimeId(model, "alibaba-token-plan");
-  },
+      const selected = await isCanonicalProviderAvailable({
+        ctx,
+        providerId: id,
+        fallbackOnError: false,
+      });
+      if (selected || ctx.config.currentProviderID === id) return true;
+      const currentModel = ctx.config.currentModel;
+      return !!currentModel && modelProviderMatchesRuntimeId(currentModel, id);
+    },
 
-  async fetch(ctx: QuotaProviderContext): Promise<ProviderFetchResult> {
-    const result = await queryAlibabaTokenPlanQuota({
-      requestTimeoutMs: alibabaRequestTimeoutMs(ctx),
-      runtime: { cwd: ctx.workspaceRoot },
-    });
-    const debug = statusDetailsFromResult(result);
-    if (result.ok) {
-      // A signed-in reply carrying no window is an absence, not a fault: the account may not
-      // sell a personal plan at all, and `window_hint` already carries `bl`'s own wording for
-      // the ambiguity. Nothing is pushed, which leaves it invisible rather than painted red.
+    matchesCurrentModel(model: string, context): boolean {
+      if (context?.currentProviderID) {
+        return context.currentProviderID === id;
+      }
+      return modelProviderMatchesRuntimeId(model, id);
+    },
+
+    async fetch(ctx: QuotaProviderContext): Promise<ProviderFetchResult> {
+      const result = await queryAlibabaTokenPlanQuota({
+        requestTimeoutMs: alibabaRequestTimeoutMs(ctx),
+        runtime: { cwd: ctx.workspaceRoot },
+      });
+      const debug = statusDetailsFromResult(result);
+      if (result.ok) {
+        // A signed-in reply carrying no window is an absence, not a fault: the account may not
+        // sell a personal plan at all, and `window_hint` already carries `bl`'s own wording for
+        // the ambiguity. Nothing is pushed, which leaves it invisible rather than painted red.
+        return {
+          attempted: true,
+          accounts: result.monthly
+            ? [{ name: group, rows: [windowRow(result.monthly)], errors: [] }]
+            : [],
+          debug,
+        };
+      }
+      if (result.error.kind === "unsupported_platform") {
+        return { attempted: false, accounts: [], debug };
+      }
       return {
         attempted: true,
-        accounts: result.monthly
-          ? [{ name: GROUP, rows: [windowRow(result.monthly)], errors: [] }]
-          : [],
+        accounts: [failedAccount(group, result.error.message)],
         debug,
       };
-    }
-    if (result.error.kind === "unsupported_platform") {
-      return { attempted: false, accounts: [], debug };
-    }
-    return {
-      attempted: true,
-      accounts: [failedAccount(GROUP, result.error.message)],
-      debug,
-    };
-  },
-};
+    },
+  };
+}
