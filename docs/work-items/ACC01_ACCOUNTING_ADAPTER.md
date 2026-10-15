@@ -1,6 +1,6 @@
 # ACC-01 structured accounting compatibility adapter
 
-Issue: [#16](https://github.com/thanhndv212/opencode-quota/issues/16). Status: implemented; local acceptance passed; [PR #45](https://github.com/thanhndv212/opencode-quota/pull/45) awaiting hosted acceptance/merge. Evidence date: 2026-10-15. Dependencies: COR-02 and COR-05 (complete).
+Issue: [#16](https://github.com/thanhndv212/opencode-quota/issues/16). Status: complete; [PR #45](https://github.com/thanhndv212/opencode-quota/pull/45) merged at `0642107`, with [green main CI 38700278375](https://github.com/thanhndv212/opencode-quota/actions/runs/38700278375). Evidence date: 2026-10-15. Dependencies: COR-02 and COR-05 (complete).
 
 ## Contract and provenance
 
@@ -27,7 +27,7 @@ Cache clones deep-copy accounting documents through fresh, coalesced, memory and
 
 ## Acceptance evidence
 
-Local acceptance passed on Node 22.23.3 / pnpm 10.0.0: typecheck, 145 Vitest files / 1,494 tests, clean installed-tarball consumer check, account-cache process smoke and installed macOS Electron 42.5.0 smoke. The Electron smoke exercised the real OpenAI provider path with HTTP fixtures, six tabs, hidden/timer/tray/wake/coalesced refresh, stale/recovery, history, windowed budgets, subscriptions and helper shutdown. Hosted Node 20/22 and Linux/macOS checks, merge and green merged-main CI remain pending.
+Local acceptance passed on Node 22.23.3 / pnpm 10.0.0: typecheck, 145 Vitest files / 1,494 tests, clean installed-tarball consumer check, account-cache process smoke and installed macOS Electron 42.5.0 smoke. The Electron smoke exercised the real OpenAI provider path with HTTP fixtures, six tabs, hidden/timer/tray/wake/coalesced refresh, stale/recovery, history, windowed budgets, subscriptions and helper shutdown. All six PR checks passed at `b1de415`; [PR #45](https://github.com/thanhndv212/opencode-quota/pull/45) merged at `0642107` and [green main CI 38700278375](https://github.com/thanhndv212/opencode-quota/actions/runs/38700278375) passed all six checks, including Node 20/22 installed consumers and Linux/macOS Electron smoke.
 
 Semantic tests cover mixed currencies and precise decimals, zero/missing limits, unknown/unlimited/over-limit values, authority, independent account digests, window/freshness evidence, supplementary facts and invalid metadata. Existing OpenAI/Copilot display assertions remain unchanged. Cache tests cover coalescing, mutation isolation, restart and malformed-document refetch. Export tests deliberately supply different structured percentages and prove schema-v1 JSON still uses the original legacy rows.
 
