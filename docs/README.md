@@ -27,7 +27,9 @@ These are the completed items with dedicated records. Other completed items have
 
 - [INS-02 notification delivery record](work-items/INS02_NOTIFICATION_DELIVERY.md): implemented; observed OS delivery gates remain open.
 
-- [INS-03 fixed-window runway record](work-items/INS03_FIXED_WINDOW_RUNWAY.md): implemented; strict eligibility and shared estimates, hosted acceptance pending.
+- [INS-03 fixed-window runway record](work-items/INS03_FIXED_WINDOW_RUNWAY.md): complete in PR #51 with green main CI; strict eligibility and shared estimates.
+
+- [PRO-01 OpenRouter record](work-items/PRO01_OPENROUTER.md): implemented; hosted acceptance pending, live credential unavailable.
 
 ## Architecture decisions
 

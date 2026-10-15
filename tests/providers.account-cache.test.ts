@@ -33,6 +33,13 @@ const ctx = {
 } as QuotaProviderContext;
 const cases = [
   {
+    id: "openrouter",
+    env: "OPENROUTER_API_KEY",
+    header: "Authorization",
+    prefix: "Bearer ",
+    load: async () => (await import("../src/providers/openrouter.js")).openRouterProvider,
+  },
+  {
     id: "chutes",
     env: "CHUTES_API_KEY",
     header: "Authorization",

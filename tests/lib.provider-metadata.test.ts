@@ -140,6 +140,13 @@ describe("provider-metadata", () => {
         quota: "remote_api",
       },
       {
+        id: "openrouter",
+        autoSetup: "yes",
+        authentication: "opencode_auth_api_key",
+        authFallbacks: ["env_api_key", "global_opencode_config"],
+        quota: "remote_api",
+      },
+      {
         id: "opencode-go",
         autoSetup: "needs_quick_setup",
         authentication: "state_only",
@@ -152,7 +159,8 @@ describe("provider-metadata", () => {
         autoSetup: "manual_env_config",
         authentication: "state_only",
         quota: "remote_api",
-        notes: "Scrapes the Ollama Cloud settings page; requires __Secure-session cookie via OLLAMA_USAGE_COOKIE env or ollama-usage config",
+        notes:
+          "Scrapes the Ollama Cloud settings page; requires __Secure-session cookie via OLLAMA_USAGE_COOKIE env or ollama-usage config",
       },
     ]);
   });

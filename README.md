@@ -396,6 +396,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | Z.ai Coding Plan         | OpenCode config                        | Remote API         | Usage/quota     |
 | Zhipu Coding Plan        | OpenCode config                        | Remote API         | Usage/quota     |
 | NanoGPT                  | API key/config                         | Remote APIs        | Usage + balance |
+| OpenRouter               | Existing OpenCode auth, global config, or env | Remote API | Key caps/spend |
 | DeepSeek                 | API key/config                         | Remote API         | Balance/status  |
 | Ollama Cloud             | [Needs setup](#ollama-cloud)           | Dashboard scraping | Dashboard usage |
 | OpenCode Go              | [Needs setup](#opencode-go)            | Dashboard scraping | Dashboard usage |
@@ -909,6 +910,14 @@ opencode auth login --provider google
 If you use manual provider selection, include `google-gemini-cli` in `enabledProviders`.
 
 </details>
+
+<a id="openrouter"></a>
+
+### OpenRouter
+
+OpenRouter reads key caps, period/lifetime spend and available budget/request rows from the read-only key quota endpoint. Key caps are distinct from the account's credit balance. Explicit null caps mean unlimited **key cap**; missing limits remain unknown. Negative remaining values stay over-limit in accounting details. Source observation and stable history account identity remain unknown when the endpoint does not supply them.
+
+Auth precedence: `OPENROUTER_API_KEY`, trusted global `provider.openrouter.options.apiKey` in opencode.json/jsonc, then existing OpenCode `auth.json` API-key login. Workspace-local secrets are ignored. Use `openrouter` in enabledProviders for manual selection. No management-key or model endpoint is called. See the [contract and validation record](docs/work-items/PRO01_OPENROUTER.md).
 
 <a id="deepseek"></a>
 

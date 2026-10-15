@@ -16,6 +16,7 @@ export type CanonicalQuotaProviderId =
   | "minimax-coding-plan"
   | "minimax-china-coding-plan"
   | "kimi-for-coding"
+  | "openrouter"
   | "deepseek"
   | "opencode-go"
   | "ollama-cloud";
@@ -71,6 +72,7 @@ export const QUOTA_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   "minimax-cn-coding-plan": "MiniMax Coding Plan (CN)",
   "kimi-for-coding": "Kimi Code",
   "kimi-code": "Kimi Code",
+  openrouter: "OpenRouter",
   deepseek: "DeepSeek",
   "opencode-go": "OpenCode Go",
   "ollama-cloud": "Ollama Cloud",
@@ -125,11 +127,7 @@ export const QUOTA_PROVIDER_RUNTIME_IDS: QuotaProviderRuntimeIds = {
     "opencode-gemini-auth",
     "google",
   ],
-  "google-agy": [
-    "google-agy",
-    "opencode-agy-auth",
-    "google-agy-auth",
-  ],
+  "google-agy": ["google-agy", "opencode-agy-auth", "google-agy-auth"],
   zai: ["zai", "glm", "zai-coding-plan"],
   zhipu: ["zhipu", "glm-coding-plan", "zhipu-coding-plan", "zhipuai-coding-plan"],
   nanogpt: ["nanogpt", "nano-gpt"],
@@ -141,6 +139,7 @@ export const QUOTA_PROVIDER_RUNTIME_IDS: QuotaProviderRuntimeIds = {
     "minimax-china",
   ],
   "kimi-for-coding": ["kimi-for-coding", "kimi", "kimi-code"],
+  openrouter: ["openrouter"],
   deepseek: ["deepseek"],
   "opencode-go": ["opencode-go"],
   "ollama-cloud": ["ollama-cloud"],
@@ -280,6 +279,13 @@ export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
     quota: "remote_api",
   },
   {
+    id: "openrouter",
+    autoSetup: "yes",
+    authentication: "opencode_auth_api_key",
+    authFallbacks: ["env_api_key", "global_opencode_config"],
+    quota: "remote_api",
+  },
+  {
     id: "opencode-go",
     autoSetup: "needs_quick_setup",
     authentication: "state_only",
@@ -292,7 +298,8 @@ export const QUOTA_PROVIDER_SHAPES: readonly QuotaProviderShape[] = [
     autoSetup: "manual_env_config",
     authentication: "state_only",
     quota: "remote_api",
-    notes: "Scrapes the Ollama Cloud settings page; requires __Secure-session cookie via OLLAMA_USAGE_COOKIE env or ollama-usage config",
+    notes:
+      "Scrapes the Ollama Cloud settings page; requires __Secure-session cookie via OLLAMA_USAGE_COOKIE env or ollama-usage config",
   },
 ];
 
