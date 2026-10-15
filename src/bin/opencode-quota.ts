@@ -12,6 +12,8 @@ const USAGE = [
   "  npx @thanhndv212/opencode-quota show [--provider <provider-id>] [--json] [--threshold <pct>]",
   "  npx @thanhndv212/opencode-quota dashboard [--port <port>]",
   "  npx @thanhndv212/opencode-quota gui",
+  "  npx @thanhndv212/opencode-quota provider add <definition.json> [--write --expect <preview-sha256>]",
+  "  npx @thanhndv212/opencode-quota provider status",
   "  npx @thanhndv212/opencode-quota --help",
   "",
   "Commands:",
@@ -71,6 +73,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (rest.length === 1 && rest[0] === "--sync-legacy-config") {
       return await runInitInstaller({ syncLegacyConfig: true });
     }
+  }
+
+  if (command === "provider") {
+    const { runCliProvider } = await import("../lib/cli-provider.js");
+    return runCliProvider(rest);
   }
 
   if (command === "show") {

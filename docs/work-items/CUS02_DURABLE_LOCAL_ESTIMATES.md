@@ -1,6 +1,6 @@
 # CUS-02 — Durable local accounting definitions
 
-Issue: [#25](https://github.com/thanhndv212/opencode-quota/issues/25). Status: implemented; local acceptance passed; hosted checks and merge pending. Evidence date: 2026-10-15. Dependencies: CUS-01 and COR-04 complete.
+Issue: [#25](https://github.com/thanhndv212/opencode-quota/issues/25). Status: complete. PR #55 merged at `77ea5d1`; all six merged-main CI 38760769638 checks passed. Evidence date: 2026-10-15. Dependencies: CUS-01 and COR-04 complete.
 
 Adapted from the local-estimate capability in upstream `2733b5bd010f659d1d6007e5d19026e82d51353f/src/lib/quota-providers-local.ts`. The fork uses its existing native helper, source-aware usage readers and user pricing policy rather than an independent writer or provider-specific renderer.
 

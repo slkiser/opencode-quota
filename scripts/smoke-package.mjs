@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { run, withConsumer } from "./lib/package-consumer.mjs";
 
 const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
@@ -35,6 +36,15 @@ await withConsumer(process.argv[2], async (root) => {
   `,
   );
   await run(process.execPath, [script], { cwd: root });
+  await run(
+    process.execPath,
+    [
+      fileURLToPath(new URL("fixtures/provider-editor-smoke.mjs", import.meta.url)),
+      root,
+      path.join(root, "node_modules", pkg.name, "dist/bin/opencode-quota.js"),
+    ],
+    { cwd: root },
+  );
   await run(
     process.execPath,
     [path.join(root, "node_modules", pkg.name, "dist/bin/opencode-quota.js"), "--help"],

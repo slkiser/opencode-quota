@@ -35,7 +35,9 @@ These are the completed items with dedicated records. Other completed items have
 
 - [CUS-01 remote definition record](work-items/CUS01_REMOTE_DEFINITIONS.md): complete in PR #54 with green main CI; two real HTTP fixture protocols.
 
-- [CUS-02 durable local estimate record](work-items/CUS02_DURABLE_LOCAL_ESTIMATES.md): implemented; native journal, pricing coverage and installed CLI/Electron evidence.
+- [CUS-02 durable local estimate record](work-items/CUS02_DURABLE_LOCAL_ESTIMATES.md): complete in PR #55 with green main CI; native journal, pricing coverage and installed CLI/Electron evidence.
+
+- [CUS-03 guided provider setup](work-items/CUS03_GUIDED_PROVIDER_SETUP.md): preview, explicit write, JSONC preservation and rollback.
 
 ## Architecture decisions
 
