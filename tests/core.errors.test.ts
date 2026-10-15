@@ -106,6 +106,11 @@ const PRODUCED: ReadonlyArray<{
   },
   {
     code: "login_expired",
+    from: "src/lib/alibaba-token-plan.ts",
+    text: "Alibaba Cloud API Key credentials are missing or expired for team seats; this requires login. Run `bl auth login --open-api`, or set ALIBABA_CLOUD_ACCESS_KEY_ID and ALIBABA_CLOUD_ACCESS_KEY_SECRET.",
+  },
+  {
+    code: "login_expired",
     from: "src/providers/mimo.ts",
     text: "request requires login",
     message: "Xiaomi MiMo usage request requires login",
@@ -290,6 +295,11 @@ const PRODUCED: ReadonlyArray<{
     code: "bad_response",
     from: "src/lib/alibaba-token-plan.ts",
     text: "Alibaba Cloud CLI did not return valid JSON.",
+  },
+  {
+    code: "bad_response",
+    from: "src/lib/alibaba-token-plan.ts",
+    text: "Alibaba Cloud CLI returned an invalid team seat payload.",
   },
   { code: "no_data", from: "src/providers/xai.ts", text: "No quota data" },
   {

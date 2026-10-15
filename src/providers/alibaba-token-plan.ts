@@ -1,17 +1,25 @@
-import type { QuotaWindow } from "../core/types.js";
+import { createHash } from "node:crypto";
+
+import type { Amount, DebugDetail, QuotaWindow } from "../core/types.js";
 import { WINDOWS } from "../core/windows.js";
 import {
   type AlibabaTokenPlanClosedResult,
+  type AlibabaTokenPlanSeat,
+  type AlibabaTokenPlanSeatResult,
   type AlibabaTokenPlanWindow,
   isAlibabaTokenPlanSupportedPlatform,
   NO_WINDOW_HINT,
   queryAlibabaTokenPlanQuota,
+  queryAlibabaTokenPlanSeats,
 } from "../lib/alibaba-token-plan.js";
 import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { modelProviderMatchesRuntimeId } from "../lib/provider-model-matching.js";
+import { accountingDecimalFromNumber } from "./accounting-decimal.js";
 import {
+  type AccountResult,
   failedAccount,
+  keySlug,
   MONTHLY,
   type ProviderFetchResult,
   type ProviderRow,
@@ -61,6 +69,19 @@ function windowStartIso(window: QuotaWindow, resetsAt: string | undefined): stri
   return new Date(startMs).toISOString();
 }
 
+const CREDIT_UNIT = { kind: "count", unit: "credit" } as const;
+/** Credits carry six decimals; a difference of two would otherwise show binary noise past them. */
+const CREDIT_DECIMALS = 6;
+
+/** Credits as a display amount, rounded to the six decimals the provider reports. */
+function creditAmount(value: number): Amount {
+  const factor = 10 ** CREDIT_DECIMALS;
+  return {
+    decimal: accountingDecimalFromNumber(Math.round(value * factor) / factor),
+    unit: CREDIT_UNIT,
+  };
+}
+
 /** The monthly window the local Alibaba CLI reported. */
 function windowRow(window: AlibabaTokenPlanWindow): ProviderRow {
   return {
@@ -78,25 +99,94 @@ function windowRow(window: AlibabaTokenPlanWindow): ProviderRow {
   };
 }
 
-function statusDetailsFromResult(result: AlibabaTokenPlanClosedResult) {
-  if (result.ok) {
-    return statusDetailsFromRecord({
-      cli_available: "true",
-      platform: process.platform,
-      windows: result.monthly ? MONTHLY.key : "(none)",
-      window_hint: result.monthly ? undefined : NO_WINDOW_HINT,
-    });
+/**
+ * One team seat as a `team.<AccountName>` row. The percent and `used` come from `parseSeat`, so
+ * both carry the same cycle arithmetic; `amount` carries the surplus even when there is no total,
+ * and a seat reporting no usage at all carries text, so the row still holds a value and survives.
+ */
+function seatRow(seat: AlibabaTokenPlanSeat, key: string): ProviderRow {
+  // Only `percentRemaining` or `amount` satisfy `core/validate.ts`, and both need a surplus.
+  const hasValue = seat.percentRemaining !== undefined || seat.surplus !== undefined;
+  return {
+    key: `team.${key}`,
+    label: "Credits",
+    type: "quota",
+    method: "local_cli",
+    authority: "provider_reported",
+    prominence: "primary",
+    window: "month",
+    ...(seat.percentRemaining !== undefined ? { percentRemaining: seat.percentRemaining } : {}),
+    ...(seat.total !== undefined ? { limit: creditAmount(seat.total) } : {}),
+    ...(seat.surplus !== undefined ? { amount: creditAmount(seat.surplus) } : {}),
+    ...(seat.used !== undefined ? { used: creditAmount(seat.used) } : {}),
+    ...(seat.resetsAt !== undefined ? { resetsAt: seat.resetsAt } : {}),
+    ...(seat.startedAt !== undefined ? { windowStartedAt: seat.startedAt } : {}),
+    // The cycle's own start, so the window's span is exact: a seat's cycle is 30 days, not a
+    // calendar month, and without it the row cannot say how fast the credits are being spent.
+    ...(hasValue ? {} : { text: "no usage reported" }),
+  };
+}
+
+/** The brand `rows.ts` strips, leaving the seat's own account name. */
+function seatAccountName(label: string, seatName: string): string {
+  return `${label} (${seatName})`;
+}
+
+/**
+ * The row key parts for the seats, in order: each seat's slugged name, or a digest of its raw name
+ * when that slug is empty or shared with a different name. A key drives the user's hide/rename
+ * settings and the store's row slot, so it must follow the name alone, never the seat's position,
+ * while every distinct name gets its own.
+ */
+function seatKeys(seats: readonly AlibabaTokenPlanSeat[]): string[] {
+  const namesBySlug = new Map<string, Set<string>>();
+  for (const seat of seats) {
+    const slug = keySlug(seat.name);
+    if (!slug) continue;
+    const owners = namesBySlug.get(slug) ?? new Set<string>();
+    owners.add(seat.name);
+    namesBySlug.set(slug, owners);
   }
-  return statusDetailsFromRecord({
-    cli_available: result.error.kind === "executable_not_found" ? "false" : "true",
-    platform: process.platform,
-    failure_kind: result.error.kind,
+  return seats.map((seat) => {
+    const slug = keySlug(seat.name);
+    // A name digest is order-free; a plain slug is only safe while one name owns it.
+    if (slug && namesBySlug.get(slug)?.size === 1) return slug;
+    const digest = createHash("sha256").update(seat.name).digest("hex").slice(0, 8);
+    return `${slug || "seat"}_${digest}`;
   });
 }
 
 /** The user's own request timeout when they set one; none otherwise, so the CLI's own applies. */
 function alibabaRequestTimeoutMs(ctx: QuotaProviderContext): number | undefined {
   return ctx.config?.requestTimeoutMsConfigured ? ctx.config.requestTimeoutMs : undefined;
+}
+
+/**
+ * Both commands' outcomes, each reported on its own side: the personal console command and the
+ * OpenAPI seat command fail separately, so one never hides the other.
+ */
+function statusDetails(
+  personal: AlibabaTokenPlanClosedResult,
+  seats: AlibabaTokenPlanSeatResult,
+): DebugDetail[] {
+  const details = personal.ok
+    ? statusDetailsFromRecord({
+        cli_available: "true",
+        platform: process.platform,
+        windows: personal.monthly ? MONTHLY.key : "(none)",
+        window_hint: personal.monthly ? undefined : NO_WINDOW_HINT,
+      })
+    : statusDetailsFromRecord({
+        cli_available: personal.error.kind === "executable_not_found" ? "false" : "true",
+        platform: process.platform,
+        failure_kind: personal.error.kind,
+      });
+  if (seats.ok) {
+    if (seats.seats.length > 0) details.push({ key: "seat_windows", value: "credits" });
+  } else {
+    details.push({ key: "seat_failure_kind", value: seats.error.kind });
+  }
+  return details;
 }
 
 export const alibabaTokenPlanProvider: QuotaProvider = createTokenPlanProvider();
@@ -131,31 +221,42 @@ function createTokenPlanProvider(): QuotaProvider {
     },
 
     async fetch(ctx: QuotaProviderContext): Promise<ProviderFetchResult> {
-      const result = await queryAlibabaTokenPlanQuota({
-        requestTimeoutMs: alibabaRequestTimeoutMs(ctx),
-        runtime: { cwd: ctx.workspaceRoot },
-      });
-      const debug = statusDetailsFromResult(result);
-      if (result.ok) {
-        // A signed-in reply carrying no window is an absence, not a fault: the account may not
-        // sell a personal plan at all, and `window_hint` already carries `bl`'s own wording for
-        // the ambiguity. Nothing is pushed, which leaves it invisible rather than painted red.
-        return {
-          attempted: true,
-          accounts: result.monthly
-            ? [{ name: group, rows: [windowRow(result.monthly)], errors: [] }]
-            : [],
-          debug,
-        };
-      }
-      if (result.error.kind === "unsupported_platform") {
+      const runtime = { cwd: ctx.workspaceRoot };
+      const requestTimeoutMs = alibabaRequestTimeoutMs(ctx);
+      // Independent commands with different auth: run both, and let each report its own failure.
+      const [personal, seats] = await Promise.all([
+        queryAlibabaTokenPlanQuota({ requestTimeoutMs, runtime }),
+        queryAlibabaTokenPlanSeats({ requestTimeoutMs, runtime }),
+      ]);
+      const debug = statusDetails(personal, seats);
+
+      if (!personal.ok && personal.error.kind === "unsupported_platform") {
         return { attempted: false, accounts: [], debug };
       }
-      return {
-        attempted: true,
-        accounts: [failedAccount(group, result.error.message)],
-        debug,
-      };
+
+      const accounts: AccountResult[] = [];
+      if (!personal.ok) {
+        accounts.push(failedAccount(group, personal.error.message));
+      } else if (personal.monthly) {
+        accounts.push({ name: group, rows: [windowRow(personal.monthly)], errors: [] });
+      }
+      // A signed-in reply carrying no window is an absence, not a fault: the account may not
+      // sell a personal plan at all, and `window_hint` already carries `bl`'s own wording for
+      // the ambiguity. Nothing is pushed, which leaves it invisible rather than painted red.
+      if (seats.ok) {
+        const keys = seatKeys(seats.seats);
+        for (const [index, seat] of seats.seats.entries()) {
+          accounts.push({
+            name: seatAccountName(label, seat.name),
+            rows: [seatRow(seat, keys[index])],
+            errors: [],
+          });
+        }
+      } else {
+        accounts.push(failedAccount(`${label} (team)`, seats.error.message));
+      }
+
+      return { attempted: true, accounts, debug };
     },
   };
 }

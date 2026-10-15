@@ -5,9 +5,12 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   type AlibabaTokenPlanSpawnRequest,
+  ERROR_MESSAGES,
   isAlibabaTokenPlanSupportedPlatform,
+  parseAlibabaTokenPlanSeatsJson,
   parseAlibabaTokenPlanUsageJson,
   queryAlibabaTokenPlanQuota,
+  queryAlibabaTokenPlanSeats,
   resolveAlibabaTokenPlanExecutable,
   runAlibabaTokenPlanProcess,
 } from "../src/lib/alibaba-token-plan.js";
@@ -15,9 +18,31 @@ import {
 // The `bl` CLI contract, written out by hand so a changed production constant fails here.
 const BL_COMMAND = "bl";
 const BL_ARGS = ["usage", "token-plan", "--output", "json"];
+const BL_SEAT_ARGS = [
+  "token-plan",
+  "list-seats",
+  "--status",
+  "NORMAL",
+  "--query-assigned",
+  "true",
+  "--page-size",
+  "100",
+  "--output",
+  "json",
+];
+const SEAT_PAGE_SIZE = 100;
 const STDOUT_LIMIT_BYTES = 262_144;
 const STDERR_LIMIT_BYTES = 16_384;
 const KILL_GRACE_MS = 250;
+
+// `bl`'s seat failure shape, on stdout and with exit 3: a different envelope from the personal one.
+const REAL_SEAT_ERROR_ENVELOPE = JSON.stringify({
+  error: {
+    code: 3,
+    message: "No OpenAPI AK/SK credentials found.",
+    hint: SEAT_ENVELOPE_HINT,
+  },
+});
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const fs = await importOriginal<typeof import("node:fs/promises")>();
@@ -32,6 +57,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 const created: string[] = [];
 
 afterEach(async () => {
+  vi.useRealTimers();
   vi.mocked(stat).mockReset();
   vi.mocked(realpath).mockReset();
   vi.mocked(readFile).mockReset();
@@ -756,6 +782,27 @@ describe("alibaba token plan process boundary", () => {
     expect(JSON.stringify(result)).not.toContain("secret-");
   });
 
+  it("reports a whole document as the answer, since no exit code is left to read", async () => {
+    await mockExecutable();
+    const result = await queryAlibabaTokenPlanQuota({
+      runtime: linuxRuntime(async () => ({
+        // The early exit stops the child on a whole document, so `code` stays null.
+        code: null,
+        complete: true,
+        stdout: Buffer.from(
+          JSON.stringify({ per1MonthPercentage: 0.034, per1MonthResetTime: 1792771200000 }),
+        ),
+        stderr: Buffer.from(""),
+        timedOut: false,
+        truncated: false,
+      })),
+    });
+    expect(result).toEqual({
+      ok: true,
+      monthly: { percentRemaining: 96.6, resetTimeIso: "2026-10-23T16:00:00.000Z" },
+    });
+  });
+
   it.runIf(process.platform !== "win32")(
     "runs a real fake bl with ignored stdin and the fixed argument sequence",
     async () => {
@@ -946,5 +993,378 @@ const { setTimeout: delay } = require("node:timers/promises");
     );
     expect(result.truncated).toBe(true);
     expect(result.stdout.length).toBe(256);
+  });
+});
+
+describe("alibaba token plan seat parser", () => {
+  const RESET_AT = 1_792_742_400_000;
+  const RESET_ISO = new Date(RESET_AT).toISOString();
+  const CYCLE_START_AT = 1_790_150_400_000;
+  const CYCLE_START_ISO = new Date(CYCLE_START_AT).toISOString();
+  const SEAT_ERROR = {
+    ok: false,
+    error: {
+      kind: "seat_not_authenticated",
+      message: ERROR_MESSAGES.seat_not_authenticated,
+    },
+  };
+  const INVALID_SEAT_SCHEMA = {
+    ok: false,
+    error: {
+      kind: "seat_invalid_schema",
+      message: ERROR_MESSAGES.seat_invalid_schema,
+    },
+  };
+
+  it("parses the real success envelope, keeping only NORMAL seats", () => {
+    const payload = {
+      Success: true,
+      Data: {
+        Items: [
+          {
+            Status: "RELEASE",
+            AssignedStatus: "UNASSIGNED",
+            EquityList: [{ EquityType: "CREDITS" }],
+            EndTime: 1790150400000,
+            SpecType: "pro",
+            StartTime: 1782201600000,
+            InstanceCode: "subs-ef7defa40ni48OZD",
+          },
+          {
+            Status: "NORMAL",
+            AssignedStatus: "ASSIGNED",
+            AccountId: "acc_d78137618e404af3a60c766868c98233",
+            EquityList: [
+              {
+                CycleStartTime: CYCLE_START_AT,
+                CycleVersion: 9626,
+                EquityType: "CREDITS",
+                CycleTotalValue: 250000,
+                CycleInstanceId: "1005775283",
+                CycleSurplusValue: 170166.41186,
+                CycleEndTime: RESET_AT,
+              },
+            ],
+            EndTime: 1821686400000,
+            SpecType: "max",
+            StartTime: 1790150400000,
+            AccountEmail: "",
+            InstanceCode: "subs-ede0e5baTv5q8Zky",
+            SeatId: "seat_81c7eba6a53f485ab20921415a27f1b1",
+            AccountName: "team-lead",
+          },
+        ],
+        PageNo: 1,
+        PageSize: 10,
+        Total: 4,
+      },
+    };
+    expect(parseAlibabaTokenPlanSeatsJson(JSON.stringify(payload))).toEqual({
+      ok: true,
+      seats: [
+        {
+          name: "team-lead",
+          total: 250000,
+          surplus: 170166.41186,
+          percentRemaining: (170166.41186 / 250000) * 100,
+          used: 250000 - 170166.41186,
+          resetsAt: RESET_ISO,
+          startedAt: CYCLE_START_ISO,
+        },
+      ],
+    });
+  });
+
+  it("reads the real error envelope as the seat credentials failure, without its words", () => {
+    const result = parseAlibabaTokenPlanSeatsJson(REAL_SEAT_ERROR_ENVELOPE);
+    expect(result).toEqual(SEAT_ERROR);
+    expect(JSON.stringify(result)).not.toContain("No OpenAPI AK/SK credentials found.");
+    expect(JSON.stringify(result)).not.toContain("pass --access-key-id");
+  });
+
+  it("treats a reply without Items or Total as no seats, not a failure", () => {
+    expect(parseAlibabaTokenPlanSeatsJson(JSON.stringify({ Success: true, Data: {} }))).toEqual({
+      ok: true,
+      seats: [],
+    });
+  });
+
+  it("ignores a RELEASE seat, whose EquityList carries no Cycle fields", () => {
+    const release = {
+      Status: "RELEASE",
+      AssignedStatus: "UNASSIGNED",
+      EquityList: [{ EquityType: "CREDITS" }],
+      AccountName: "gone",
+    };
+    expect(parseAlibabaTokenPlanSeatsJson(seatEnvelope([release], 1))).toEqual({
+      ok: true,
+      seats: [],
+    });
+  });
+
+  it("drops a NORMAL seat with no account name, which cannot be keyed", () => {
+    const nameless = {
+      Status: "NORMAL",
+      AccountName: "",
+      EquityList: [{ EquityType: "CREDITS", CycleTotalValue: 10, CycleSurplusValue: 5 }],
+    };
+    expect(parseAlibabaTokenPlanSeatsJson(seatEnvelope([nameless], 1))).toEqual({
+      ok: true,
+      seats: [],
+    });
+  });
+
+  it("keeps a NORMAL seat whose cycle total is 0, without a percentage", () => {
+    const payload = seatEnvelope(
+      [seatItem("zero", { CycleTotalValue: 0, CycleSurplusValue: 0, CycleEndTime: RESET_AT })],
+      1,
+    );
+    expect(parseAlibabaTokenPlanSeatsJson(payload)).toEqual({
+      ok: true,
+      seats: [{ name: "zero", total: 0, surplus: 0, used: 0, resetsAt: RESET_ISO }],
+    });
+  });
+
+  it("clamps the percent when the surplus is greater than the total", () => {
+    const payload = seatEnvelope(
+      [seatItem("over", { CycleTotalValue: 100, CycleSurplusValue: 250, CycleEndTime: RESET_AT })],
+      1,
+    );
+    expect(parseAlibabaTokenPlanSeatsJson(payload)).toEqual({
+      ok: true,
+      seats: [
+        {
+          name: "over",
+          total: 100,
+          surplus: 250,
+          percentRemaining: 100,
+          used: 0,
+          resetsAt: RESET_ISO,
+        },
+      ],
+    });
+  });
+
+  it.each([
+    ["null", null],
+    ["a string", "1792742400000"],
+    ["a value past 2100", 5_000_000_000_000],
+    ["zero", 0],
+  ])(
+    "leaves out resetsAt for a %s CycleEndTime, keeping the rest of the seat",
+    (_name, endTime) => {
+      const payload = seatEnvelope(
+        [
+          seatItem("bad-end", {
+            CycleTotalValue: 100,
+            CycleSurplusValue: 50,
+            CycleEndTime: endTime,
+          }),
+        ],
+        1,
+      );
+      expect(parseAlibabaTokenPlanSeatsJson(payload)).toEqual({
+        ok: true,
+        seats: [{ name: "bad-end", total: 100, surplus: 50, percentRemaining: 50, used: 50 }],
+      });
+    },
+  );
+
+  it("keeps a NORMAL seat whose CycleSurplusValue is missing, without a percentage", () => {
+    const payload = seatEnvelope(
+      [seatItem("no-surplus", { CycleTotalValue: 250000, CycleEndTime: RESET_AT })],
+      1,
+    );
+    expect(parseAlibabaTokenPlanSeatsJson(payload)).toEqual({
+      ok: true,
+      seats: [{ name: "no-surplus", total: 250000, resetsAt: RESET_ISO }],
+    });
+  });
+
+  it.each([
+    [
+      "invalid JSON",
+      "{",
+      {
+        ok: false,
+        error: { kind: "invalid_json", message: ERROR_MESSAGES.invalid_json },
+      },
+    ],
+    ["a non-object root", "[]", INVALID_SEAT_SCHEMA],
+    ["no Data object", JSON.stringify({ Success: true }), INVALID_SEAT_SCHEMA],
+    ["a non-object Data", JSON.stringify({ Success: true, Data: [] }), INVALID_SEAT_SCHEMA],
+  ])("rejects %s", (_name, text, expected) => {
+    expect(parseAlibabaTokenPlanSeatsJson(text)).toEqual(expected);
+  });
+});
+
+describe("alibaba token plan seat process boundary", () => {
+  function pageSpawn(pages: string[]) {
+    const requests: AlibabaTokenPlanSpawnRequest[] = [];
+    const spawn = async (request: AlibabaTokenPlanSpawnRequest) => {
+      requests.push(request);
+      return {
+        code: 0,
+        stdout: Buffer.from(pages[requests.length - 1] ?? "{}"),
+        stderr: Buffer.alloc(0),
+        timedOut: false,
+        truncated: false,
+      };
+    };
+    return { requests, spawn };
+  }
+
+  it("runs the seat command with the fixed argv, the caps, and no shell or stdin", async () => {
+    await mockExecutable();
+    const { requests, spawn } = pageSpawn([seatEnvelope([seatItem("team-lead")], 1)]);
+    const result = await queryAlibabaTokenPlanSeats({
+      requestTimeoutMs: 4_321,
+      runtime: {
+        platform: "linux",
+        cwd: "/workspace",
+        homedir: "/safe-home",
+        pathEnv: "/trusted/bin",
+        tmpdir: "/safe-tmp",
+        env: { PATH: "/wrong/bin", TEST_ENV: "preserved" },
+        spawn,
+      },
+    });
+    expect(result).toEqual({
+      ok: true,
+      seats: [
+        {
+          name: "team-lead",
+          total: 10,
+          surplus: 5,
+          percentRemaining: 50,
+          used: 5,
+          resetsAt: new Date(SEAT_RESET_AT).toISOString(),
+        },
+      ],
+    });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.file).toBe("/trusted/bin/bl");
+    expect(requests[0]?.args).toEqual(BL_SEAT_ARGS);
+    expect(requests[0]?.shell).toBe(false);
+    expect(requests[0]?.stdin).toBe("ignore");
+    expect(requests[0]?.cwd).toBe("/safe-tmp");
+    expect(requests[0]?.env).toEqual({ PATH: "/trusted/bin", TEST_ENV: "preserved" });
+    expect(requests[0]?.timeoutMs).toBe(4_321);
+    expect(requests[0]?.stdoutLimitBytes).toBe(STDOUT_LIMIT_BYTES);
+    expect(requests[0]?.stderrLimitBytes).toBe(STDERR_LIMIT_BYTES);
+    expect(requests[0]?.killGraceMs).toBe(KILL_GRACE_MS);
+  });
+
+  it("asks for the next page with `--page-no` while Total exceeds the items collected", async () => {
+    await mockExecutable();
+    const first = Array.from({ length: SEAT_PAGE_SIZE }, (_, index) => seatItem(`seat${index}`));
+    const { requests, spawn } = pageSpawn([
+      seatEnvelope(first, SEAT_PAGE_SIZE + 1),
+      seatEnvelope([seatItem("last")], SEAT_PAGE_SIZE + 1),
+    ]);
+    const result = await queryAlibabaTokenPlanSeats({
+      runtime: {
+        platform: "linux",
+        cwd: "/workspace",
+        homedir: "/safe-home",
+        pathEnv: "/trusted/bin",
+        tmpdir: "/safe-tmp",
+        spawn,
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(requests).toHaveLength(2);
+    expect(requests[0]?.args).toEqual(BL_SEAT_ARGS);
+    expect(requests[1]?.args).toEqual([...BL_SEAT_ARGS, "--page-no", "2"]);
+  });
+
+  it("stops after one short page when the reply carries no Total", async () => {
+    await mockExecutable();
+    const { requests, spawn } = pageSpawn([seatEnvelope([seatItem("a"), seatItem("b")])]);
+    const result = await queryAlibabaTokenPlanSeats({
+      runtime: {
+        platform: "linux",
+        cwd: "/workspace",
+        homedir: "/safe-home",
+        pathEnv: "/trusted/bin",
+        tmpdir: "/safe-tmp",
+        spawn,
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(requests).toHaveLength(1);
+  });
+
+  it("gives up when its whole time budget is spent, rather than report a short list", async () => {
+    await mockExecutable();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(0);
+    const full = Array.from({ length: SEAT_PAGE_SIZE }, (_, index) => seatItem(`seat${index}`));
+    const { requests, spawn: page } = pageSpawn([
+      seatEnvelope(full, 1000),
+      seatEnvelope(full, 1000),
+    ]);
+    const spawn = async (request: AlibabaTokenPlanSpawnRequest) => {
+      const answered = await page(request);
+      // Each page eats the whole budget, as 50 slow pages would; only a shared deadline stops it.
+      vi.setSystemTime(60_000);
+      return answered;
+    };
+    const result = await queryAlibabaTokenPlanSeats({
+      requestTimeoutMs: 5_000,
+      runtime: {
+        platform: "linux",
+        cwd: "/workspace",
+        homedir: "/safe-home",
+        pathEnv: "/trusted/bin",
+        tmpdir: "/safe-tmp",
+        spawn,
+      },
+    });
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error.kind).toBe("timeout");
+    expect(requests).toHaveLength(1);
+  });
+
+  it.each([
+    {
+      name: "exit 3 as the seat credentials failure, not the personal one",
+      run: { code: 3 },
+      error: { kind: "seat_not_authenticated", message: ERROR_MESSAGES.seat_not_authenticated },
+    },
+    {
+      name: "the error envelope on stdout, without its words",
+      run: { code: 0, stdout: REAL_SEAT_ERROR_ENVELOPE },
+      error: { kind: "seat_not_authenticated", message: ERROR_MESSAGES.seat_not_authenticated },
+    },
+  ])("maps $name without leaking CLI output", async ({ run, error }) => {
+    await mockExecutable();
+    const result = await queryAlibabaTokenPlanSeats({
+      runtime: {
+        platform: "linux",
+        pathEnv: "/trusted/bin",
+        cwd: "/workspace",
+        tmpdir: "/safe-tmp",
+        homedir: "/safe-home",
+        spawn: async () => ({
+          stdout: Buffer.from("secret-stdout token=abc"),
+          stderr: Buffer.from("secret-stderr no OpenAPI AK/SK credentials found"),
+          timedOut: false,
+          truncated: false,
+          ...run,
+        }),
+      },
+    });
+    expect(result).toEqual({ ok: false, error });
+    expect(JSON.stringify(result)).not.toContain("secret-");
+    expect(JSON.stringify(result)).not.toContain("OpenAPI AK/SK credentials found");
+  });
+
+  it("rejects an unsupported platform for seats too, without spawning", async () => {
+    const result = await queryAlibabaTokenPlanSeats({
+      runtime: { platform: "aix", cwd: "/workspace", pathEnv: "/usr/bin" },
+    });
+    expect(result).toMatchObject({ ok: false, error: { kind: "unsupported_platform" } });
+    expect(stat).not.toHaveBeenCalled();
   });
 });

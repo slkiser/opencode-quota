@@ -1026,6 +1026,14 @@ const GOOGLE_DETAILS: DebugRules = {
 };
 const CONSOLE_AUTH_STATES = ["none", "configured", "expired", "invalid"] as const;
 
+/** One id with two accepted spellings; its personal and seat commands share one kinds vocabulary. */
+const ALIBABA_TOKEN_PLAN_DETAILS: DebugRules = {
+  cli_available: bool,
+  platform: oneOf(process.platform),
+  windows: listOf(["monthly"]),
+  failure_kind: oneOf(...Object.keys(ALIBABA_TOKEN_PLAN_ERRORS)),
+};
+
 /**
  * The debug details each provider's section may show besides its setup and API-key details,
  * by key; every other one is counted.
@@ -1114,14 +1122,7 @@ const DEBUG_DETAILS = {
     alibaba_api_key_credential_database_paths: pathList,
     alibaba_coding_plan: oneOf("lite", "pro", "invalid"),
   },
-  "alibaba-token-plan": {
-    cli_available: bool,
-    // The provider writes the platform this report runs on.
-    platform: oneOf(process.platform),
-    windows: listOf(["monthly"]),
-    window_hint: oneOf(NO_WINDOW_HINT),
-    failure_kind: oneOf(...Object.keys(ALIBABA_TOKEN_PLAN_ERRORS)),
-  },
+  "alibaba-token-plan": ALIBABA_TOKEN_PLAN_DETAILS,
   "google-gemini-cli": GOOGLE_DETAILS,
   "google-agy": GOOGLE_DETAILS,
   openrouter: {},

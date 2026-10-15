@@ -416,22 +416,26 @@ Cursor estimates the current billing cycle from your local OpenCode history, pri
 
 ### Alibaba Token Plan
 
-This is separate from Alibaba Coding Plan. Install and sign in to Alibaba Cloud Model Studio's official CLI yourself:
+This is separate from Alibaba Coding Plan. Install the Alibaba Cloud Model Studio official CLI yourself:
 
 ```bash
 npm install -g bailian-cli
-bl auth login --console
 ```
 
-- OpenCode Quota runs only `bl usage token-plan --output json`. It never installs `bl`, opens a login, reads console cookies, or runs a custom command.
-- The command carries no region or account, so which plan you see is the one `bl` is signed in to. `bl auth login --console` binds it to that console's account, and `bl auth status` says which account, region and site that is. Change it there, not in OpenCode Quota.
+OpenCode Quota runs two quota commands, each with its own sign-in, and reads `bl auth status` to see which credentials exist. They are independent: setting up one still runs the other. A half that was never set up reports nothing at all — no rows and no error — while an expired sign-in reports its own failure.
+
+- **Personal** (the `Monthly` row) runs `bl usage token-plan --output json` and needs a **console** session: `bl auth login --console`.
+- **Team seats** (one `Credits` row per seat) run `bl token-plan list-seats --status NORMAL --query-assigned true --page-size 100 --output json` and need **API Key** (AK/SK) credentials: `bl auth login --open-api`, or `ALIBABA_CLOUD_ACCESS_KEY_ID` and `ALIBABA_CLOUD_ACCESS_KEY_SECRET` in the environment. Without them the team rows are skipped; the personal row still reports.
+- Neither sign-in substitutes for the other.
+- OpenCode Quota never installs `bl`, opens a login, reads console cookies, or runs a custom command.
+- Neither command carries a region or account, so which plan you see is the one `bl` is signed in to for that command's auth. `bl auth login --console` binds the personal command to that console's account, and `bl auth status` says which account, region and site that is. Change it there, not in OpenCode Quota.
 - One ID reports it: `alibaba-token-plan`, and `alibaba-token-plan-cn` is accepted as another name for the same CLI, so a config that names it keeps working for provider selection and for `providers.off`. Per-row settings (hide, rename, order) are keyed by the canonical `alibaba-token-plan` id. There is nothing to tell apart or to switch off: the numbers come from that one sign-in.
 - It reports one **Monthly** row, keyed `personal`: the percent of the monthly plan still left, and its reset time when `bl` gives one. A signed-in reply with no percentage leaves the row out — an account that sells no personal plan is not a fault — and `/quota_status` says so in `window_hint`, using `bl`'s own wording; nothing is invented.
+- Each team seat is one `team.<account>` row: the credits left in its current billing cycle, out of the cycle total. Seat status other than `NORMAL` is ignored, so a released seat has no row.
 - `bl` must be in an absolute folder on the [service `PATH`](#service-environment) (the OpenCode service's inside OpenCode, your shell's in the terminal). Relative entries are ignored, and so is anything inside the project folder, including a `bl` that links into it. Your home folder is not a project, so `~/.local/bin` and nvm folders work.
 - A native `bl` executable is run directly. An npm `bl.cmd` shim is resolved to the package's own node entry and run with `node`, so no shell is involved. Other launchers (`.ps1`, `.bat`, a `bl` linking to `cmd.exe`) are refused.
-- Team plans and cookie-based console scraping are not supported.
+- Cookie-based console scraping is not supported.
 - After switching the CLI's console account, restart OpenCode or wait for the next live check.
-
 
 OpenCode Quota's Google integrations use independent community companion plugins. They are not endorsed by Google.
 

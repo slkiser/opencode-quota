@@ -89,8 +89,7 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     // and `providers.off`; per-row settings use the canonical id.
     runtimeIds: ["alibaba-token-plan", "alibaba-token-plan-cn"],
     synonyms: ["alibaba-token-plan-cn"],
-    // Its rows: the personal plan as `personal`.
-    rowKeys: ["personal"],
+    rowKeys: ["personal", "team.*"],
   },
   {
     id: "google-gemini-cli",
