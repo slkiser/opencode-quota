@@ -5,6 +5,7 @@ import { join } from "path";
 import type { QuotaProvider, QuotaProviderContext, QuotaProviderResult } from "./entries.js";
 
 import { writeJsonAtomic } from "./atomic-json.js";
+import { isAccountingDocument } from "./accounting.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import { isLiveLocalUsageProviderId } from "./provider-metadata.js";
 import { isResolvedAuthIdentity, type ResolvedAuthIdentity } from "./resolved-auth-identity.js";
@@ -31,6 +32,7 @@ let lastPruneAtMs = 0;
 
 export function cloneQuotaProviderResult(result: QuotaProviderResult): QuotaProviderResult {
   return {
+    ...(result.accounting ? { accounting: structuredClone(result.accounting) } : {}),
     ...(result.observation ? { observation: { ...result.observation } } : {}),
     attempted: result.attempted,
     entries: result.entries.map((entry) => ({ ...entry })),
@@ -137,6 +139,7 @@ function isQuotaProviderResult(value: unknown): value is QuotaProviderResult {
   }
 
   const result = value as Record<string, unknown>;
+  if (result.accounting !== undefined && !isAccountingDocument(result.accounting)) return false;
   if (typeof result.attempted !== "boolean") {
     return false;
   }

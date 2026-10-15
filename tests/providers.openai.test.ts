@@ -72,6 +72,11 @@ describe("openai provider", () => {
     expect(out.presentation).toEqual({
       singleWindowDisplayName: "OpenAI (Pro)",
     });
+    expect(out.accounting?.rows.map((row) => [row.id, row.value])).toEqual([
+      ["hourly", { kind: "percent", remaining: 42 }],
+      ["weekly", { kind: "percent", remaining: 80 }],
+      ["monthly", { kind: "percent", remaining: 67 }],
+    ]);
   });
 
   it("maps errors into toast errors", async () => {

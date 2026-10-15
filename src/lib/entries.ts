@@ -1,5 +1,6 @@
 import type { ResolvedAuthIdentity } from "./resolved-auth-identity.js";
 import type { CursorQuotaPlan, OpenCodeGoWindowKey } from "./types.js";
+import type { AccountingDocument } from "./accounting.js";
 
 /**
  * Normalized quota output model.
@@ -99,6 +100,8 @@ export interface QuotaObservation {
 }
 
 export interface QuotaProviderResult {
+  /** Additive internal facts; legacy entries and stable exports retain their existing shape. */
+  accounting?: AccountingDocument;
   /** Assigned by the shared fetch pipeline, retained through cache reads. */
   observation?: QuotaObservation;
   /** True when provider had enough configuration to attempt a query. */

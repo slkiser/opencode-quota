@@ -5,6 +5,7 @@
  */
 
 import { createResolvedAuthCachePolicy } from "./account-cache.js";
+import { copilotAccounting } from "./accounting-adapters.js";
 import { prepareCopilotQuotaQuery } from "../lib/copilot.js";
 import type {
   QuotaProvider,
@@ -266,5 +267,8 @@ function mapCopilotResult(
       : result.mode === "organization_usage"
         ? { singleWindowDisplayName: `Copilot Org (${result.organization})` }
         : undefined;
-  return attemptedResult(entries, errors, presentation);
+  return {
+    ...attemptedResult(entries, errors, presentation),
+    accounting: copilotAccounting(result),
+  };
 }

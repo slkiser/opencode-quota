@@ -20,6 +20,7 @@ These are the completed items with dedicated records. Other completed items have
 - [Upstream delivery plan](UPSTREAM_DELIVERY_PLAN.md): authoritative work-item status, dependencies and acceptance/release gates.
 - [Upstream adoption ledger](UPSTREAM_ADOPTION.md): source-to-fork provenance and capability mapping.
 - [GUI-03 history and budget runtime record](work-items/GUI03_HISTORY_BUDGET_DESIGN.md): complete in PR #43; merged-main CI passed.
+- [ACC-01 accounting adapter record](work-items/ACC01_ACCOUNTING_ADAPTER.md): in progress; structured facts and legacy compatibility.
 
 ## Architecture decisions
 

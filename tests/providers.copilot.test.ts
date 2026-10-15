@@ -46,6 +46,11 @@ describe("copilot provider", () => {
       },
     ]);
     expect(out.presentation).toBeUndefined();
+    expect(out.accounting?.rows[0].value).toMatchObject({
+      kind: "percent",
+      remaining: 86,
+      basis: { used: { quantity: { decimal: "42", unit: { kind: "count", unit: "request" } } } },
+    });
   });
 
   it("maps explicit unlimited personal quota into a value row", async () => {

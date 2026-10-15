@@ -28,6 +28,16 @@ export default pluginModule;
 // { QuotaToastPlugin } directly.
 export { QuotaToastPlugin } from "./plugin.js";
 
+export type {
+  AccountingDocument,
+  AccountingRow,
+  AccountingQuantity,
+  AccountingUnit,
+  AccountingAuthority,
+  AccountingBasisFact,
+  AccountingResultType,
+} from "./lib/accounting.js";
+
 // Re-export types for consumers (types are erased at runtime, so safe to export)
 export type {
   QuotaToastConfig,

@@ -31,6 +31,50 @@ function createTestContext() {
 }
 
 describe("quota-state shared cache", () => {
+  it("retains accounting through coalescing/restart and isolates nested facts from callers", async () => {
+    const { openAIAccounting } = await import("../src/providers/accounting-adapters.js");
+    const accounting = openAIAccounting({
+      success: true,
+      label: "OpenAI",
+      windows: { weekly: { percentRemaining: 42 } },
+    });
+    let state = await import("../src/lib/quota-state.js");
+    const provider = {
+      id: "accounting-fixture",
+      cachePolicy: { kind: "account-neutral" },
+      fetch: vi.fn(async () => ({
+        attempted: true,
+        entries: [{ name: "OpenAI Weekly", percentRemaining: 42 }],
+        errors: [],
+        accounting,
+      })),
+    } as any;
+    const params = { provider, ctx: createTestContext(), ttlMs: 60_000 };
+    const [first, second] = await Promise.all([
+      state.fetchQuotaProviderResult(params),
+      state.fetchQuotaProviderResult(params),
+    ]);
+    expect(provider.fetch).toHaveBeenCalledTimes(1);
+    first.accounting!.rows[0].source.authority = "unknown";
+    first.accounting!.rows[0].value = { kind: "percent", remaining: 0 };
+    expect(second.accounting).toEqual(accounting);
+    vi.resetModules();
+    state = await import("../src/lib/quota-state.js");
+    expect((await state.fetchQuotaProviderResult(params)).accounting).toEqual(accounting);
+    expect(provider.fetch).toHaveBeenCalledTimes(1);
+    const path = state.getQuotaProviderStateCacheFilePath(
+      provider.id,
+      state.buildQuotaProviderStateCacheKey(provider.id, params.ctx),
+    );
+    const { readFile } = await import("fs/promises");
+    const persisted = JSON.parse(await readFile(path, "utf8"));
+    persisted.result.accounting.version = 99;
+    await writeFile(path, JSON.stringify(persisted));
+    vi.resetModules();
+    state = await import("../src/lib/quota-state.js");
+    expect((await state.fetchQuotaProviderResult(params)).accounting).toEqual(accounting);
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
+  });
   beforeEach(async () => {
     vi.restoreAllMocks();
     vi.resetModules();

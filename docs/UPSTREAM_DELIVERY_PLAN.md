@@ -4,14 +4,14 @@ Prepared: 2026-10-06. Status: execution started. See the live delivery tracker b
 
 ## Live delivery tracker
 
-Updated: 2026-10-15. Parent issue: [Upstream adoption delivery](https://github.com/thanhndv212/opencode-quota/issues/3). PRs #30–#41 are merged on `main`; the latest verified implementation is `0139dd8`. GUI-02 is complete after [PR #41](https://github.com/thanhndv212/opencode-quota/pull/41) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/37853670522). GUI-01 is complete after [PR #40](https://github.com/thanhndv212/opencode-quota/pull/40) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/37852563879). COR-05 is complete after [PR #39](https://github.com/thanhndv212/opencode-quota/pull/39) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/37820466327). COR-03 is complete after [PR #38](https://github.com/thanhndv212/opencode-quota/pull/38) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/37803649093) on rerun. COR-02 is complete after [PR #35](https://github.com/thanhndv212/opencode-quota/pull/35) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/37787732500). The rollout covers 13 resolved-auth providers, explicitly disables shared caching for 7 providers without frozen account selection, and removes unscoped auth/rendered-toast reuse. Work-item completion and remaining dependencies are shown below.
+Updated: 2026-10-15. Parent issue: [Upstream adoption delivery](https://github.com/thanhndv212/opencode-quota/issues/3). PRs #30–#44 are merged on `main`; the latest verified implementation is `6689d8b` (GUI-03), with the completion map at `7d9ffb8`. GUI-03 is complete after [PR #43](https://github.com/thanhndv212/opencode-quota/pull/43) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/38647782503). GUI-02 is complete after [PR #41](https://github.com/thanhndv212/opencode-quota/pull/41) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/37853670522). GUI-01 is complete after [PR #40](https://github.com/thanhndv212/opencode-quota/pull/40) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/37852563879). COR-05 is complete after [PR #39](https://github.com/thanhndv212/opencode-quota/pull/39) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/37820466327). COR-03 is complete after [PR #38](https://github.com/thanhndv212/opencode-quota/pull/38) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/37803649093) on rerun. COR-02 is complete after [PR #35](https://github.com/thanhndv212/opencode-quota/pull/35) and [green main CI](https://github.com/thanhndv212/opencode-quota/actions/runs/37787732500). The rollout covers 13 resolved-auth providers, explicitly disables shared caching for 7 providers without frozen account selection, and removes unscoped auth/rendered-toast reuse. Work-item completion and remaining dependencies are shown below.
 
 | Milestone | Status      | Completion gate                                                                          |
 | --------- | ----------- | ---------------------------------------------------------------------------------------- |
 | M0        | In progress | Tracking/protection, green Linux CI, installed package/GUI smoke, fork release candidate |
 | M1        | In progress | Correctness backports and identity/usage/recovery evidence                               |
 | M2        | Done        | Standalone config, scheduling, history and budget evaluation                             |
-| M3        | Planned     | Accounting parity and database/export compatibility                                      |
+| M3        | In progress | Accounting parity and database/export compatibility                                      |
 | M4        | Planned     | Verified reset notices and eligible exhaustion estimates                                 |
 | M5        | Planned     | Provider contracts and validated custom definitions                                      |
 | M6        | Deferred    | Separate OpenCode 2 compatibility decision and migration                                 |
@@ -33,7 +33,7 @@ Updated: 2026-10-15. Parent issue: [Upstream adoption delivery](https://github.c
 | GUI-01 | [#13](https://github.com/thanhndv212/opencode-quota/issues/13) | Done        | PR #40 merged at f11e8fb; main CI 37852563879 green; [acceptance record](work-items/GUI01_STANDALONE_CONFIG.md)                                                                                                                                          |
 | GUI-02 | [#14](https://github.com/thanhndv212/opencode-quota/issues/14) | Done        | PR #41 merged at 0139dd8; main CI 37853670522 green; [acceptance record](work-items/GUI02_REFRESH_CONTROLLER.md)                                                                                                                                         |
 | GUI-03 | [#15](https://github.com/thanhndv212/opencode-quota/issues/15) | Done        | [Acceptance record](work-items/GUI03_HISTORY_BUDGET_DESIGN.md); [PR #43](https://github.com/thanhndv212/opencode-quota/pull/43) merged at `6689d8b`; [green main CI 38647782503](https://github.com/thanhndv212/opencode-quota/actions/runs/38647782503) |
-| ACC-01 | [#16](https://github.com/thanhndv212/opencode-quota/issues/16) | Planned     | Semantic row contract tests                                                                                                                                                                                                                              |
+| ACC-01 | [#16](https://github.com/thanhndv212/opencode-quota/issues/16) | In progress | [Accounting adapter record](work-items/ACC01_ACCOUNTING_ADAPTER.md); typed facts/OpenAI/Copilot adapters implemented; local 1,494 tests/package/Electron checks pass; [PR #45](https://github.com/thanhndv212/opencode-quota/pull/45) awaiting hosted acceptance/merge                                                                                          |
 | ACC-02 | [#17](https://github.com/thanhndv212/opencode-quota/issues/17) | Planned     | Migration/rollback fixtures                                                                                                                                                                                                                              |
 | ACC-03 | [#18](https://github.com/thanhndv212/opencode-quota/issues/18) | Planned     | Shared data parity and UI evidence                                                                                                                                                                                                                       |
 | INS-01 | [#19](https://github.com/thanhndv212/opencode-quota/issues/19) | Planned     | Concurrent/restart deduplication                                                                                                                                                                                                                         |
@@ -147,7 +147,7 @@ flowchart TD
   FND["Foundation: FND-01–03 DONE"] --> M1["M1: Correctness IN PROGRESS"]
   FND --> M2["M2: Desktop reliability DONE"]
   FND --> PUB["M0 remaining: FND-04 release gates OPEN"]
-  M1 --> M3["M3: Accounting PLANNED"]
+  M1 --> M3["M3: Accounting IN PROGRESS"]
   M2 --> M3
   M3 --> M4["M4: Insights PLANNED"]
   M3 --> M5["M5: Extensibility PLANNED"]
@@ -167,7 +167,7 @@ flowchart TD
   classDef active fill:#fef3c7,stroke:#b45309,color:#78350f;
   classDef optional fill:#f3f4f6,stroke:#6b7280,color:#374151;
   class FND,M2 done;
-  class M1,PUB active;
+  class M1,M3,PUB active;
   class M7,SPIKE,V2 optional;
 ```
 
@@ -199,7 +199,7 @@ flowchart LR
     C04 --> G03
   end
   subgraph Accounting
-    C02 --> A01["ACC-01"]
+    C02 --> A01["ACC-01 IN PROGRESS"]
     C05 --> A01
     A01 --> A02["ACC-02"]
     G03 --> A02
@@ -231,8 +231,7 @@ flowchart LR
   classDef ready fill:#dbeafe,stroke:#2563eb,color:#1e3a8a;
   classDef optional fill:#f3f4f6,stroke:#6b7280,color:#374151;
   class F01,F02,F03,C01,C02,C03,C04,C05,G01,G02,G03 done;
-  class F04 active;
-  class A01 ready;
+  class F04,A01 active;
   class O01,V01,V02 optional;
 ```
 
@@ -244,7 +243,7 @@ flowchart LR
 | Provider payloads         | COR-05 (#12) complete                            | PR #39 merged at 377c5a3; main CI 37820466327 passed                                                                                                         |
 | Desktop configuration     | GUI-01 (#13)                                     | PR #40 merged; main CI 37852563879 passed                                                                                                                    |
 | Desktop refresh / history | GUI-02 (#14), then GUI-03 (#15)                  | GUI-02 and GUI-03 complete after merge and green main CI (COR-04 already done)                                                                               |
-| Accounting                | ACC-01 (#16), then ACC-02 (#17) and ACC-03 (#18) | COR-02/COR-05 complete; ACC-01 ready; ACC-02 also needs GUI-03                                                                                               |
+| Accounting                | ACC-01 (#16), then ACC-02 (#17) and ACC-03 (#18) | COR-02/COR-05 and GUI-03 complete; ACC-01 in progress; ACC-02/03 follow its contract                                                                         |
 | Release preparation       | Finish FND-04 (#7) alongside implementation      | Version/tag-aligned draft, npm authentication/publisher setup, and remaining host/installation evidence; unsigned artifact builds/checksums already verified |
 
 COR-02, COR-03 and COR-05 are complete. GUI-01 is complete after merge and green main CI. GUI-02 is complete after merge and green main CI. GUI-03 history/budget runtime is complete after PR #43 and green main CI 38647782503. Shared-file PRs still merge in order and rerun required checks against the current base. Milestone numbering identifies workstreams; a milestone is marked done only when all its acceptance gates pass.

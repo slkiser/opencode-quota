@@ -36,11 +36,8 @@ vi.mock("../src/lib/quota-state.js", async () => {
 // --------------- imports ---------------
 
 import { writeJsonAtomic } from "../src/lib/atomic-json.js";
-import {
-  resolveExportPath,
-  buildQuotaExport,
-  writeQuotaExport,
-} from "../src/lib/quota-export.js";
+import { openAIAccounting } from "../src/providers/accounting-adapters.js";
+import { resolveExportPath, buildQuotaExport, writeQuotaExport } from "../src/lib/quota-export.js";
 
 // --------------- helpers ---------------
 
@@ -75,9 +72,7 @@ function createMockContext(): any {
 
 describe("resolveExportPath", () => {
   it("handles empty, tilde, absolute, and relative paths", () => {
-    expect(resolveExportPath("")).toBe(
-      "/tmp/test-opencode-quota-export/cache/quota-export.json",
-    );
+    expect(resolveExportPath("")).toBe("/tmp/test-opencode-quota-export/cache/quota-export.json");
     expect(resolveExportPath("~/my-exports/quota.json")).toBe(
       join(homedir(), "my-exports/quota.json"),
     );
@@ -97,10 +92,15 @@ describe("buildQuotaExport", () => {
     mockReadCachedProviderResult.mockReset();
   });
 
-  it("returns status ok and maps cached entries into export rows", async () => {
+  it("maps legacy cached entries without leaking rich facts or changing percentage semantics", async () => {
     mockReadCachedProviderResult.mockResolvedValue({
       hit: true,
       result: {
+        accounting: openAIAccounting({
+          success: true,
+          label: "Different rich fact",
+          windows: { weekly: { percentRemaining: 0 } },
+        }),
         attempted: true,
         entries: [
           {
@@ -128,6 +128,8 @@ describe("buildQuotaExport", () => {
     });
 
     expect(exportData.version).toBe(1);
+    expect(JSON.stringify(exportData)).not.toContain("Different rich fact");
+    expect(JSON.stringify(exportData)).not.toContain("accounting");
     expect(exportData.fromCache).toBe(true);
     expect(exportData.exportedAt).toBe(Math.floor(Date.now() / 1000));
 
@@ -215,7 +217,6 @@ describe("buildQuotaExport", () => {
     // Oldest is "a" at 10:00, now is 12:00 → 2h = 7200s
     expect(exportData.cacheAgeSeconds).toBe(7200);
   });
-
 });
 
 describe("writeQuotaExport", () => {

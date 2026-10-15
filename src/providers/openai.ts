@@ -3,6 +3,7 @@
  */
 
 import { createResolvedAuthCachePolicy } from "./account-cache.js";
+import { openAIAccounting } from "./accounting-adapters.js";
 import { readAuthFile } from "../lib/opencode-auth.js";
 import {
   resolveOpenAIOAuth,
@@ -67,8 +68,8 @@ async function fetchWithAuth(
 
   return mapNullableProviderResult(result, {
     errorLabel: "OpenAI",
-    onSuccess: (result) =>
-      attemptedResult(
+    onSuccess: (result) => ({
+      ...attemptedResult(
         groupedPercentWindowEntries({
           group: result.label,
           windows: [
@@ -83,5 +84,7 @@ async function fetchWithAuth(
           singleWindowDisplayName: result.label,
         },
       ),
+      accounting: openAIAccounting(result),
+    }),
   });
 }
