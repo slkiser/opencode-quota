@@ -32,6 +32,7 @@ export const openaiProvider: QuotaProvider = {
     return {
       credential: auth.accessToken,
       qualifiers: [auth.accountId ?? "", auth.email ?? "", String(auth.expiresAt ?? "")],
+      ...(auth.accountId ? { historyPrincipal: { stableId: auth.accountId } } : {}),
       fetch: () => fetchWithAuth(ctx, auth),
     };
   }),

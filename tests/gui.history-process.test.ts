@@ -8,6 +8,7 @@ import { openNativeDashboardDatabase } from "../src/dashboard/native-database.js
 import { SqlJsDatabaseAdapter } from "../src/dashboard/sqljs-database.js";
 import { DashboardApi } from "../src/dashboard/api.js";
 import type { ProviderResultForSnapshot } from "../src/dashboard/quota-snapshot-bridge.js";
+import { openAIAccounting } from "../src/providers/accounting-adapters.js";
 
 let root: string;
 const clients: HistoryHelperClient[] = [];
@@ -40,10 +41,18 @@ async function setup() {
   return { data, make };
 }
 function observation(id: string, observedAt: number): ProviderResultForSnapshot {
+  const accounting = openAIAccounting({
+    success: true,
+    label: "OpenAI",
+    windows: { hourly: { percentRemaining: 40 } },
+  });
+  accounting.rows[0].account = { kind: "opaque", digest: (id === "b" ? "b" : "a").repeat(64) };
   return {
     providerId: "openai",
     result: {
       attempted: true,
+      accounting,
+      accountIdentity: accounting.rows[0].account,
       observation: { id, observedAt },
       entries: [{ name: "5h", percentRemaining: 40 }],
       errors: [],
@@ -84,11 +93,19 @@ describe("installed helper protocol with real SQLite processes", () => {
       results.every((r) => !r.diagnostics.some((d) => d.startsWith("History write failed"))),
     ).toBe(true);
     expect(api.getQuotaHistory("openai")).toHaveLength(3);
+    expect(api.getAccountingHistory("openai")).toHaveLength(3);
+    expect(
+      api.getAccountingHistory("openai", 7, {
+        accountIdentity: "b".repeat(64),
+        windowId: "hourly",
+      }),
+    ).toHaveLength(1);
     a.dispose();
     b.dispose();
     await make().request({ operation: "record", providerResults: [shared], now, pricing });
     const reopened = await SqlJsDatabaseAdapter.open(file);
     expect(new DashboardApi(reopened).getQuotaHistory("openai")).toHaveLength(3);
+    expect(new DashboardApi(reopened).getAccountingHistory("openai")).toHaveLength(3);
     expect(new DashboardApi(reopened).getCurrentQuota("legacy").percentRemaining).toBe(60);
     reopened.close();
     reader.close();

@@ -56,6 +56,7 @@
     "build:install:mac": "npm run build:package:mac && rm -rf \"/Applications/OpenCode Quota.app\" && cp -R \"release/mac-arm64/OpenCode Quota.app\" \"/Applications/OpenCode Quota.app\"",
     "build:check": "pnpm run build && node scripts/check-package.mjs",
     "smoke:account-cache": "node scripts/smoke-account-cache.mjs",
+    "smoke:history:compat": "node scripts/smoke-history-compat.mjs",
     "smoke:package": "node scripts/smoke-package.mjs",
     "smoke:gui": "node scripts/smoke-gui.mjs",
     "pricing:refresh": "node scripts/refresh-modelsdev-pricing.mjs",

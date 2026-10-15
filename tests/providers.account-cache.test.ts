@@ -292,9 +292,32 @@ describe("production provider account cache adapters", () => {
     expect(a).not.toBeNull();
     expect(b).not.toBeNull();
     expect(a!.identity).not.toBe(b!.identity);
+    expect(a!.accountIdentity).toMatchObject({
+      kind: "opaque",
+      digest: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(a!.accountIdentity).not.toEqual(b!.accountIdentity);
     await a!.fetch();
     expect(new Headers(vi.mocked(fetch).mock.calls[0][1]?.headers).get("ChatGPT-Account-Id")).toBe(
       "account-A",
     );
+  });
+  it("OpenAI retains history identity through token rotation and leaves unidentified auth unknown", async () => {
+    const authPath = `${root}/data/auth.json`;
+    const writeAuth = (access: string, accountId?: string) =>
+      writeFile(
+        authPath,
+        JSON.stringify({ openai: { type: "oauth", access, ...(accountId ? { accountId } : {}) } }),
+      );
+    const provider = (await import("../src/providers/openai.js")).openaiProvider;
+    await writeAuth("fixture-token-A", "stable-account");
+    const a = await prepare(provider);
+    await writeAuth("fixture-token-B", "stable-account");
+    const rotated = await prepare(provider);
+    expect(rotated!.identity).not.toBe(a!.identity);
+    expect(rotated!.accountIdentity).toEqual(a!.accountIdentity);
+    expect(JSON.stringify(a!.accountIdentity)).not.toContain("stable-account");
+    await writeAuth("fixture-token-B");
+    expect((await prepare(provider))!.accountIdentity).toBeUndefined();
   });
 });

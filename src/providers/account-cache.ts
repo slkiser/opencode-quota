@@ -5,13 +5,17 @@ import type {
   QuotaProviderContext,
   QuotaProviderResult,
 } from "../lib/entries.js";
-import { deriveResolvedAuthIdentity } from "../lib/resolved-auth-identity.js";
+import {
+  deriveResolvedAuthIdentity,
+  deriveHistoryAccountDigest,
+} from "../lib/resolved-auth-identity.js";
 
 export function createResolvedAuthCachePolicy(
   providerId: string,
   resolve: (ctx: QuotaProviderContext) => Promise<{
     credential: string;
     qualifiers?: readonly string[];
+    historyPrincipal?: { stableId: string; qualifiers?: readonly string[] };
     fetch: () => Promise<QuotaProviderResult>;
   } | null>,
 ): QuotaProviderCachePolicy {
@@ -25,7 +29,20 @@ export function createResolvedAuthCachePolicy(
         principal: { kind: "credential", value: selected.credential },
         qualifiers: selected.qualifiers,
       });
-      return identity ? { identity, fetch: selected.fetch } : null;
+      const digest = selected.historyPrincipal
+        ? await deriveHistoryAccountDigest({
+            providerId,
+            stablePrincipal: selected.historyPrincipal.stableId,
+            qualifiers: selected.historyPrincipal.qualifiers,
+          })
+        : null;
+      return identity
+        ? {
+            identity,
+            fetch: selected.fetch,
+            ...(digest ? { accountIdentity: { kind: "opaque" as const, digest } } : {}),
+          }
+        : null;
     },
   };
 }

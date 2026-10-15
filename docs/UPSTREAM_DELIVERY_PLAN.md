@@ -34,7 +34,7 @@ Updated: 2026-10-15. Parent issue: [Upstream adoption delivery](https://github.c
 | GUI-02 | [#14](https://github.com/thanhndv212/opencode-quota/issues/14) | Done        | PR #41 merged at 0139dd8; main CI 37853670522 green; [acceptance record](work-items/GUI02_REFRESH_CONTROLLER.md)                                                                                                                                                                                                        |
 | GUI-03 | [#15](https://github.com/thanhndv212/opencode-quota/issues/15) | Done        | [Acceptance record](work-items/GUI03_HISTORY_BUDGET_DESIGN.md); [PR #43](https://github.com/thanhndv212/opencode-quota/pull/43) merged at `6689d8b`; [green main CI 38647782503](https://github.com/thanhndv212/opencode-quota/actions/runs/38647782503)                                                                |
 | ACC-01 | [#16](https://github.com/thanhndv212/opencode-quota/issues/16) | Done        | [Accounting adapter record](work-items/ACC01_ACCOUNTING_ADAPTER.md); [PR #45](https://github.com/thanhndv212/opencode-quota/pull/45) merged at `0642107`; [green main CI 38700278375](https://github.com/thanhndv212/opencode-quota/actions/runs/38700278375); 1,494 tests and installed package/Electron checks passed |
-| ACC-02 | [#17](https://github.com/thanhndv212/opencode-quota/issues/17) | Planned     | Migration/rollback fixtures                                                                                                                                                                                                                                                                                             |
+| ACC-02 | [#17](https://github.com/thanhndv212/opencode-quota/issues/17) | In progress | [History identity record](work-items/ACC02_HISTORY_IDENTITY.md); additive storage/backup, frozen OpenAI principal and runtime compatibility implemented; local 1,503 tests/runtime checks passed; [PR #47](https://github.com/thanhndv212/opencode-quota/pull/47) awaiting hosted acceptance/merge                                                                                                                                         |
 | ACC-03 | [#18](https://github.com/thanhndv212/opencode-quota/issues/18) | Planned     | Shared data parity and UI evidence                                                                                                                                                                                                                                                                                      |
 | INS-01 | [#19](https://github.com/thanhndv212/opencode-quota/issues/19) | Planned     | Concurrent/restart deduplication                                                                                                                                                                                                                                                                                        |
 | INS-02 | [#20](https://github.com/thanhndv212/opencode-quota/issues/20) | Planned     | OS + channel-policy evidence                                                                                                                                                                                                                                                                                            |
@@ -203,7 +203,7 @@ flowchart LR
   subgraph Accounting
     C02 --> A01["ACC-01 DONE"]
     C05 --> A01
-    A01 --> A02["ACC-02"]
+    A01 --> A02["ACC-02 IN PROGRESS"]
     G03 --> A02
     A01 --> A03["ACC-03"]
     A02 --> A03
@@ -233,8 +233,7 @@ flowchart LR
   classDef ready fill:#dbeafe,stroke:#2563eb,color:#1e3a8a;
   classDef optional fill:#f3f4f6,stroke:#6b7280,color:#374151;
   class F01,F02,F03,C01,C02,C03,C04,C05,G01,G02,G03,A01 done;
-  class F04 active;
-  class A02 ready;
+  class F04,A02 active;
   class O01,V01,V02 optional;
 ```
 
@@ -246,7 +245,7 @@ flowchart LR
 | Provider payloads         | COR-05 (#12) complete                       | PR #39 merged at 377c5a3; main CI 37820466327 passed                                                                                                         |
 | Desktop configuration     | GUI-01 (#13)                                | PR #40 merged; main CI 37852563879 passed                                                                                                                    |
 | Desktop refresh / history | GUI-02 (#14), then GUI-03 (#15)             | GUI-02 and GUI-03 complete after merge and green main CI (COR-04 already done)                                                                               |
-| Accounting                | ACC-02 (#17), then ACC-03 (#18)             | ACC-01 and GUI-03 complete; ACC-02 ready; ACC-03 depends on ACC-02                                                                                           |
+| Accounting                | ACC-02 (#17), then ACC-03 (#18)             | ACC-01 and GUI-03 complete; ACC-02 in progress; ACC-03 depends on ACC-02                                                                                     |
 | Release preparation       | Finish FND-04 (#7) alongside implementation | Version/tag-aligned draft, npm authentication/publisher setup, and remaining host/installation evidence; unsigned artifact builds/checksums already verified |
 
 COR-02, COR-03 and COR-05 are complete. GUI-01 is complete after merge and green main CI. GUI-02 is complete after merge and green main CI. GUI-03 history/budget runtime is complete after PR #43 and green main CI 38647782503. Shared-file PRs still merge in order and rerun required checks against the current base. Milestone numbering identifies workstreams; a milestone is marked done only when all its acceptance gates pass.

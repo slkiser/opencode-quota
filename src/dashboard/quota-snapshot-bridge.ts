@@ -58,13 +58,29 @@ export function captureQuotaSnapshots(
   const diagnostics: string[] = [];
   for (const { providerId, result } of providerResults) {
     const limits = toQuotaLimits(result.entries);
+    const metadata = {
+      ...(result.observation ? { observation: result.observation } : {}),
+      ...(result.accountIdentity?.kind === "opaque"
+        ? { accountIdentity: result.accountIdentity.digest }
+        : {}),
+      ...(result.accounting && result.observation ? { accounting: result.accounting } : {}),
+    };
 
     if (limits.length === 0) {
-      if (result.errors.length === 0) continue;
+      if (result.errors.length === 0) {
+        if (result.accounting?.rows.length && result.observation) {
+          try {
+            dashboardApi.captureSnapshot(providerId, { ...metadata, accountingOnly: true });
+          } catch {
+            diagnostics.push(`History write failed for ${providerId}`);
+          }
+        }
+        continue;
+      }
 
       try {
         dashboardApi.captureSnapshot(providerId, {
-          ...(result.observation ? { observation: result.observation } : {}),
+          ...metadata,
           percentRemaining: null,
           limits: [],
           error: result.errors[0].message,
@@ -80,7 +96,7 @@ export function captureQuotaSnapshots(
 
     try {
       dashboardApi.captureSnapshot(providerId, {
-        ...(result.observation ? { observation: result.observation } : {}),
+        ...metadata,
         percentRemaining,
         limits,
         ...(result.errors[0] ? { error: result.errors[0].message } : {}),

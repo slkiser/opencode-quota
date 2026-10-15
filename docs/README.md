@@ -21,6 +21,7 @@ These are the completed items with dedicated records. Other completed items have
 - [Upstream adoption ledger](UPSTREAM_ADOPTION.md): source-to-fork provenance and capability mapping.
 - [GUI-03 history and budget runtime record](work-items/GUI03_HISTORY_BUDGET_DESIGN.md): complete in PR #43; merged-main CI passed.
 - [ACC-01 accounting adapter record](work-items/ACC01_ACCOUNTING_ADAPTER.md): complete in PR #45; structured facts and legacy compatibility, with green main CI.
+- [ACC-02 history identity record](work-items/ACC02_HISTORY_IDENTITY.md): in progress; additive migration, account/window history and rollback.
 
 ## Architecture decisions
 

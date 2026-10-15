@@ -32,6 +32,7 @@ let lastPruneAtMs = 0;
 
 export function cloneQuotaProviderResult(result: QuotaProviderResult): QuotaProviderResult {
   return {
+    ...(result.accountIdentity ? { accountIdentity: { ...result.accountIdentity } } : {}),
     ...(result.accounting ? { accounting: structuredClone(result.accounting) } : {}),
     ...(result.observation ? { observation: { ...result.observation } } : {}),
     attempted: result.attempted,
@@ -73,6 +74,7 @@ async function prepareCacheScope(
   ctx: QuotaProviderContext,
 ): Promise<{
   identity?: ResolvedAuthIdentity;
+  accountIdentity?: QuotaProviderResult["accountIdentity"];
   fetch: () => Promise<QuotaProviderResult>;
 } | null> {
   if (provider.cachePolicy?.kind === "account-neutral") return { fetch: () => provider.fetch(ctx) };
@@ -139,6 +141,20 @@ function isQuotaProviderResult(value: unknown): value is QuotaProviderResult {
   }
 
   const result = value as Record<string, unknown>;
+  if (result.accountIdentity !== undefined) {
+    const account = result.accountIdentity as Record<string, unknown>;
+    if (
+      !account ||
+      typeof account !== "object" ||
+      !(
+        account.kind === "unknown" ||
+        (account.kind === "opaque" &&
+          typeof account.digest === "string" &&
+          /^[a-f0-9]{64}$/u.test(account.digest))
+      )
+    )
+      return false;
+  }
   if (result.accounting !== undefined && !isAccountingDocument(result.accounting)) return false;
   if (typeof result.attempted !== "boolean") {
     return false;
@@ -304,11 +320,21 @@ async function writePersistedQuotaProviderCacheEntry(
   }
 }
 
-function observe(result: QuotaProviderResult): QuotaProviderResult {
-  return {
+function observe(
+  result: QuotaProviderResult,
+  account?: QuotaProviderResult["accountIdentity"],
+): QuotaProviderResult {
+  const snapshot: QuotaProviderResult = {
     ...cloneQuotaProviderResult(result),
     observation: { id: randomUUID(), observedAt: Date.now() },
   };
+  // Never trust provider/display account labels as evidence of selected auth.
+  const selected = account ?? { kind: "unknown" as const };
+  delete snapshot.accountIdentity;
+  if (selected.kind === "opaque") snapshot.accountIdentity = { ...selected };
+  if (snapshot.accounting)
+    for (const row of snapshot.accounting.rows) row.account = { ...selected };
+  return snapshot;
 }
 
 export async function fetchQuotaProviderResult(params: {
@@ -319,11 +345,10 @@ export async function fetchQuotaProviderResult(params: {
 }): Promise<QuotaProviderResult> {
   const { provider, ctx, ttlMs, bypassCache = false } = params;
 
-  if (bypassCache || isLiveLocalUsageProviderId(provider.id)) {
-    return observe(await provider.fetch(ctx));
-  }
-
   const scope = await prepareCacheScope(provider, ctx);
+  if (bypassCache || isLiveLocalUsageProviderId(provider.id)) {
+    return observe(await (scope ? scope.fetch() : provider.fetch(ctx)), scope?.accountIdentity);
+  }
   if (!scope) return observe(await provider.fetch(ctx));
   const key = buildQuotaProviderStateCacheKey(provider.id, ctx, scope.identity);
   const now = Date.now();
@@ -366,7 +391,7 @@ export async function fetchQuotaProviderResult(params: {
 
   const fetchPromise = (async () => {
     const fetched = await scope.fetch();
-    const snapshot = observe(fetched);
+    const snapshot = observe(fetched, scope.accountIdentity);
 
     if (!snapshot.attempted) {
       inMemoryCache.delete(key);

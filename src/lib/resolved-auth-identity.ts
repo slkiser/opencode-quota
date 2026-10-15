@@ -205,6 +205,28 @@ export async function deriveResolvedAuthIdentity(params: {
   ]);
 }
 
+/** Public history correlation uses a separate HMAC domain and stable principals
+ * only. Credential rotation must never silently join or split known accounts. */
+export async function deriveHistoryAccountDigest(params: {
+  providerId: string;
+  stablePrincipal: string;
+  qualifiers?: readonly string[];
+}): Promise<string | null> {
+  if (!params.providerId || !params.stablePrincipal.trim()) return null;
+  const key = await getIdentityKey();
+  if (!key) return null;
+  return createHmac("sha256", key)
+    .update(
+      JSON.stringify([
+        "quota-history-account-v1",
+        params.providerId,
+        params.stablePrincipal.trim(),
+        params.qualifiers ?? [],
+      ]),
+    )
+    .digest("hex");
+}
+
 export async function composeResolvedAuthIdentities(params: {
   providerId: string;
   identities: readonly ResolvedAuthIdentity[];
