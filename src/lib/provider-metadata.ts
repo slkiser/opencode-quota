@@ -1,3 +1,4 @@
+import { loadCustomQuotaDefinitions } from "./quota-provider-config.js";
 export type CanonicalQuotaProviderId =
   | "anthropic"
   | "copilot"
@@ -42,7 +43,7 @@ export type QuotaProviderQuotaSource =
   | "local_cli_report";
 
 export interface QuotaProviderShape {
-  id: CanonicalQuotaProviderId;
+  id: CanonicalQuotaProviderId | `custom-${string}`;
   autoSetup: QuotaProviderAutoSetup;
   authentication: QuotaProviderAuthentication;
   authFallbacks?: QuotaProviderAuthFallback[];
@@ -323,13 +324,27 @@ export function normalizeQuotaProviderId(id: string): string {
 }
 
 export function getQuotaProviderShape(id: string): QuotaProviderShape | undefined {
-  const normalized = normalizeQuotaProviderId(id) as CanonicalQuotaProviderId;
-  return QUOTA_PROVIDER_SHAPES_BY_ID[normalized];
+  const normalized = normalizeQuotaProviderId(id);
+  const builtin = QUOTA_PROVIDER_SHAPES_BY_ID[normalized as CanonicalQuotaProviderId];
+  if (builtin) return builtin;
+  const custom = loadCustomQuotaDefinitions().definitions.find((item) => item.id === normalized);
+  return custom
+    ? {
+        id: custom.id,
+        autoSetup: "manual_env_config",
+        authentication: "external_api_key",
+        quota: "remote_api",
+      }
+    : undefined;
 }
 
 export function getQuotaProviderDisplayLabel(id: string): string {
   const normalized = normalizeQuotaProviderId(id);
-  return QUOTA_PROVIDER_LABELS[normalized] ?? id;
+  return (
+    QUOTA_PROVIDER_LABELS[normalized] ??
+    loadCustomQuotaDefinitions().definitions.find((item) => item.id === normalized)?.label ??
+    id
+  );
 }
 
 export function getQuotaProviderRuntimeIds(id: string): readonly string[] {
@@ -338,7 +353,12 @@ export function getQuotaProviderRuntimeIds(id: string): readonly string[] {
     return [];
   }
 
-  return [...new Set(QUOTA_PROVIDER_RUNTIME_IDS[shape.id])];
+  if (shape.id.startsWith("custom-"))
+    return [
+      loadCustomQuotaDefinitions().definitions.find((item) => item.id === shape.id)?.providerId ??
+        shape.id,
+    ];
+  return [...new Set(QUOTA_PROVIDER_RUNTIME_IDS[shape.id as CanonicalQuotaProviderId])];
 }
 
 export function isLiveLocalUsageProviderId(id: string): boolean {

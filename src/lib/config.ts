@@ -1,3 +1,4 @@
+import { loadCustomQuotaDefinitions } from "./quota-provider-config.js";
 /**
  * Configuration loader for opencode-quota plugin.
  *
@@ -1067,6 +1068,7 @@ export async function loadConfig(
   meta?: LoadConfigMeta,
   options?: LoadConfigOptions,
 ): Promise<QuotaToastConfig> {
+  const customIssues = loadCustomQuotaDefinitions().issues;
   async function readJson(path: string): Promise<unknown | null> {
     try {
       const content = await readFile(path, "utf-8");
@@ -1186,7 +1188,15 @@ export async function loadConfig(
       meta.workspaceConfigPaths = fileConfig.workspaceConfigPaths;
       meta.settingSources = fileConfig.settingSources;
       meta.networkSettingSources = fileConfig.networkSettingSources;
-      meta.configIssues = fileConfig.configIssues;
+      meta.configIssues = [
+        ...fileConfig.configIssues,
+        ...customIssues.filter(
+          (issue) =>
+            !fileConfig.configIssues.some(
+              (existing) => existing.key === "$root" && existing.path.startsWith(issue.path),
+            ),
+        ),
+      ];
     }
     return fileConfig.config;
   }
@@ -1219,7 +1229,7 @@ export async function loadConfig(
           meta.workspaceConfigPaths = [];
           meta.settingSources = settingSources;
           meta.networkSettingSources = projectNetworkSettingSources(settingSources);
-          meta.configIssues = configIssues;
+          meta.configIssues = [...configIssues, ...customIssues];
         }
 
         return config;
@@ -1236,7 +1246,7 @@ export async function loadConfig(
     meta.workspaceConfigPaths = [];
     meta.settingSources = {};
     meta.networkSettingSources = {};
-    meta.configIssues = [];
+    meta.configIssues = customIssues;
   }
   return cloneDefaultConfig();
 }

@@ -4,6 +4,7 @@
  * Add new providers here; everything else should stay provider-agnostic.
  */
 
+import { getCustomQuotaProviders } from "./custom.js";
 import type { QuotaProvider } from "../lib/entries.js";
 import { anthropicProvider } from "./anthropic.js";
 import { copilotProvider } from "./copilot.js";
@@ -55,5 +56,6 @@ export function getProviders(): QuotaProvider[] {
     kiloProvider,
     opencodeGoProvider,
     ollamaCloudProvider,
+    ...getCustomQuotaProviders(),
   ];
 }

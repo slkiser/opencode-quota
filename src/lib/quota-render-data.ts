@@ -167,6 +167,8 @@ export function matchesQuotaProviderCurrentSelection(params: {
   if (!params.currentProviderID) return false;
 
   const normalizedCurrentProviderID = normalizeQuotaProviderId(params.currentProviderID);
+  if (params.provider.id.startsWith("custom-"))
+    return params.provider.matchesCurrentModel?.(`${normalizedCurrentProviderID}/`) ?? false;
   if (params.provider.id === normalizedCurrentProviderID) {
     return true;
   }

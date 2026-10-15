@@ -77,11 +77,11 @@ function normalizedProviderIds(providerIds: readonly string[]): CanonicalQuotaPr
 
   for (const providerId of providerIds) {
     const shape = getQuotaProviderShape(normalizeQuotaProviderId(providerId));
-    if (!shape || seen.has(shape.id)) {
+    if (!shape || shape.id.startsWith("custom-") || seen.has(shape.id)) {
       continue;
     }
     seen.add(shape.id);
-    out.push(shape.id);
+    out.push(shape.id as CanonicalQuotaProviderId);
   }
 
   return out;
@@ -121,12 +121,15 @@ export function evaluateMaintainerAnnouncements(params?: {
 
       if (!announcement.id.trim()) reasons.push("invalid_id");
       if (!announcement.message.trim()) reasons.push("invalid_message");
-      if (announcement.url !== undefined && !isHttpsUrl(announcement.url)) reasons.push("invalid_url");
+      if (announcement.url !== undefined && !isHttpsUrl(announcement.url))
+        reasons.push("invalid_url");
 
       const startsAtMs = parseTimestamp(announcement.startsAt);
       const endsAtMs = parseTimestamp(announcement.endsAt);
-      if (announcement.startsAt !== undefined && startsAtMs === undefined) reasons.push("invalid_starts_at");
-      if (announcement.endsAt !== undefined && endsAtMs === undefined) reasons.push("invalid_ends_at");
+      if (announcement.startsAt !== undefined && startsAtMs === undefined)
+        reasons.push("invalid_starts_at");
+      if (announcement.endsAt !== undefined && endsAtMs === undefined)
+        reasons.push("invalid_ends_at");
       if (startsAtMs !== undefined && startsAtMs > nowMs) reasons.push("not_started");
       if (endsAtMs !== undefined && endsAtMs <= nowMs) reasons.push("ended");
 
@@ -177,7 +180,8 @@ export function getMaintainerAnnouncementsSummary(params?: {
     network: false,
     bundledCount: announcements.length,
     activeCount: activeAnnouncements.length,
-    futureCount: evaluations.filter((evaluation) => evaluation.reasons.includes("not_started")).length,
+    futureCount: evaluations.filter((evaluation) => evaluation.reasons.includes("not_started"))
+      .length,
     expiredCount: evaluations.filter((evaluation) => evaluation.reasons.includes("ended")).length,
     activeAnnouncements,
     evaluations,

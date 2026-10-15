@@ -402,6 +402,10 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 | Ollama Cloud             | [Needs setup](#ollama-cloud)           | Dashboard scraping | Dashboard usage |
 | OpenCode Go              | [Needs setup](#opencode-go)            | Dashboard scraping | Dashboard usage |
 
+### Custom remote quota sources
+
+Add global-only `quotaProviders` definitions to the shared quota-toast.json sidecar. Both authenticated quota-v1 envelopes and bounded json-v1 mappings use the same desktop, CLI and plugin presentation as built-ins. Use IDs beginning with `custom-`; keep credentials in the declared env variable, trusted global provider config or existing key login. Workspace/SDK definitions cannot supply endpoints. See [schema, examples and security boundaries](docs/work-items/CUS01_REMOTE_DEFINITIONS.md).
+
 ## Common configuration
 
 Customize these settings in `opencode-quota/quota-toast.json`, next to the OpenCode config for your install scope.

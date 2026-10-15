@@ -31,7 +31,9 @@ These are the completed items with dedicated records. Other completed items have
 
 - [PRO-01 OpenRouter record](work-items/PRO01_OPENROUTER.md): complete in PR #52 with green main CI; live credential unavailable.
 
-- [PRO-02 Kilo record](work-items/PRO02_KILO.md): implemented; hosted acceptance pending, live credential unavailable.
+- [PRO-02 Kilo record](work-items/PRO02_KILO.md): complete in PR #53 with green main CI; live credential unavailable.
+
+- [CUS-01 remote definition record](work-items/CUS01_REMOTE_DEFINITIONS.md): implemented; hosted acceptance pending, two real HTTP fixture protocols.
 
 ## Architecture decisions
 
