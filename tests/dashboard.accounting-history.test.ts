@@ -62,7 +62,7 @@ describe.each(["native", "better-sqlite3"])("additive history migration: %s", (b
     expect((await readdir(root)).filter((name) => name.includes("pre-v2"))).toHaveLength(1);
     new DashboardApi(db); // recovery retries cleanly
     expect(db.prepare("SELECT max(version) AS version FROM schema_version").get()).toMatchObject({
-      version: 3,
+      version: 4,
     });
     db.close();
   });

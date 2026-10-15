@@ -4,7 +4,7 @@
 
 import { migrateSchema } from "./db-migrate.js";
 import { isAccountingDocument, type AccountingRow } from "../lib/accounting.js";
-import { recordResetTransition } from "./reset-events.js";
+import { claimResetEvents, settleResetEvent, recordResetTransition } from "./reset-events.js";
 
 export interface QuotaSnapshot {
   timestamp: number;
@@ -73,6 +73,13 @@ export class DashboardApi {
   constructor(db: DatabaseLike) {
     this.db = db;
     migrateSchema(this.db);
+  }
+
+  claimResets(params: Parameters<typeof claimResetEvents>[1]) {
+    return claimResetEvents(this.db, params);
+  }
+  settleReset(params: Parameters<typeof settleResetEvent>[1]) {
+    return settleResetEvent(this.db, params);
   }
 
   /**

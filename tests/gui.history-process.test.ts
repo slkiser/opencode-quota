@@ -99,7 +99,9 @@ describe("installed helper protocol with real SQLite processes", () => {
       accountingOnly: true,
     });
     // Exercise a real v2 fixture upgrade, not only steady-state v3 contention.
-    db.exec("DROP TABLE reset_events; DELETE FROM schema_version WHERE version=3;");
+    db.exec(
+      "DROP TABLE reset_events; DROP TABLE reset_delivery_consumers; DELETE FROM schema_version WHERE version>=3;",
+    );
     db.close();
     const a = make(),
       b = make(),
@@ -135,6 +137,30 @@ describe("installed helper protocol with real SQLite processes", () => {
     });
     expect(events).toHaveLength(1);
     const watched = [{ providerId: "openai", windowId: "weekly" }];
+    await a.request({
+      operation: "reset-desktop",
+      consumerId: "preferred",
+      watched,
+      available: true,
+      now,
+    });
+    expect(
+      await b.request({
+        operation: "reset-claim",
+        enabled: true,
+        watched,
+        channel: "plugin",
+        consumerId: "fallback",
+        now,
+      }),
+    ).toEqual([]);
+    await a.request({
+      operation: "reset-desktop",
+      consumerId: "preferred",
+      watched: [],
+      available: false,
+      now,
+    });
     const claims = await Promise.all([
       a.request<ResetClaim[]>({
         operation: "reset-claim",

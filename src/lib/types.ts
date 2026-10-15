@@ -63,12 +63,19 @@ export interface MaintainerAnnouncementsConfig {
 /** Request timeout in milliseconds */
 export const REQUEST_TIMEOUT_MS = 5000;
 
+export interface ResetNotificationConfig {
+  enabled: boolean;
+  watched: Array<{ providerId: string; windowId: string }>;
+  preferDesktop: boolean;
+}
+
 /** Plugin configuration from opencode-quota/quota-toast.json or legacy experimental.quotaToast. */
 export interface QuotaToastConfig {
   enabled: boolean;
 
   /** If false, never show popup toasts (commands/tools still work). */
   enableToast: boolean;
+  resetNotifications: ResetNotificationConfig;
 
   /**
    * Shared quota-row formatting style for popup toasts and the TUI sidebar.
@@ -167,6 +174,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   enabled: true,
 
   enableToast: true,
+  resetNotifications: { enabled: false, watched: [], preferDesktop: true },
   formatStyle: DEFAULT_QUOTA_FORMAT_STYLE,
   percentDisplayMode: "remaining",
   minIntervalMs: 300000, // 5 minutes

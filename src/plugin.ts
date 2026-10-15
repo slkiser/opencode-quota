@@ -65,6 +65,8 @@ import {
   recordQuotaObservations,
   type ProviderResultForSnapshot,
 } from "./dashboard/quota-snapshot-bridge.js";
+import { deliverResetToast } from "./lib/reset-notification-delivery.js";
+import { randomUUID } from "node:crypto";
 import { syncTodayUsageHistory } from "./dashboard/usage-history-bridge.js";
 
 /**
@@ -74,11 +76,32 @@ import { syncTodayUsageHistory } from "./dashboard/usage-history-bridge.js";
  */
 async function captureDashboardSnapshotsBestEffort(
   providerResults: ProviderResultForSnapshot[],
+  config?: QuotaToastConfig,
+  client?: OpencodeClient,
 ): Promise<void> {
   try {
     const dashboardApi = await getDashboardApi();
     if (!dashboardApi) return;
     recordQuotaObservations(dashboardApi, providerResults);
+    if (config?.enabled && config.enableToast && config.resetNotifications?.enabled && client) {
+      const claims = dashboardApi.claimResets({
+        ...config.resetNotifications,
+        channel: "plugin",
+        consumerId: `plugin/${randomUUID()}`,
+        maxClaims: 1,
+      });
+      for (const claim of claims) {
+        const delivered = await deliverResetToast(claim.event, (params) =>
+          client.tui.showToast(params),
+        );
+        dashboardApi.settleReset({
+          id: claim.event.id,
+          leaseToken: claim.leaseToken,
+          channel: "plugin",
+          delivered,
+        });
+      }
+    }
     syncTodayUsageHistory(dashboardApi).catch((err) => {
       console.error(
         "[dashboard] Usage history sync failed:",
@@ -826,7 +849,11 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     // the toast path - dashboard availability (better-sqlite3, DB path) is
     // independent of quota rendering.
     if (quotaResult.providerResults.length > 0) {
-      void captureDashboardSnapshotsBestEffort(quotaResult.providerResults);
+      void captureDashboardSnapshotsBestEffort(
+        quotaResult.providerResults,
+        runtimeConfig,
+        typedClient,
+      );
     }
 
     if (runtimeConfig.showSessionTokens && params.sessionID) {

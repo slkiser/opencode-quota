@@ -8,6 +8,8 @@ import { recordQuotaObservations } from "../src/dashboard/quota-snapshot-bridge.
 import { openAIAccounting } from "../src/providers/accounting-adapters.js";
 import {
   getResetEvents,
+  advertiseResetDesktop,
+  retryUncertainReset,
   claimResetEvents,
   settleResetEvent,
 } from "../src/dashboard/reset-events.js";
@@ -51,6 +53,72 @@ async function seed() {
   return { db, api, now, file, current };
 }
 describe("durable reset delivery state", () => {
+  it("prefers an available desktop for the selected window and falls back after expiry", async () => {
+    const { db, now } = await seed();
+    advertiseResetDesktop(db, { consumerId: "desktop", watched, available: true, now });
+    const plugin = {
+      enabled: true,
+      watched,
+      channel: "plugin" as const,
+      consumerId: "plugin",
+      now,
+    };
+    expect(claimResetEvents(db, plugin)).toEqual([]);
+    expect(claimResetEvents(db, { ...plugin, now: now + 45001 })).toHaveLength(1);
+    db.close();
+  });
+  it("does not suppress other windows or an explicit first-available channel policy", async () => {
+    const { db, now } = await seed();
+    advertiseResetDesktop(db, {
+      consumerId: "desktop",
+      watched: [{ providerId: "openai", windowId: "hourly" }],
+      available: true,
+      now,
+    });
+    const plugin = {
+      enabled: true,
+      watched,
+      channel: "plugin" as const,
+      consumerId: "plugin",
+      now,
+    };
+    const first = claimResetEvents(db, plugin)[0];
+    settleResetEvent(db, {
+      id: first.event.id,
+      leaseToken: first.leaseToken,
+      channel: "plugin",
+      delivered: false,
+      now,
+    });
+    advertiseResetDesktop(db, { consumerId: "desktop", watched, available: true, now });
+    expect(claimResetEvents(db, { ...plugin, preferDesktop: false })).toHaveLength(1);
+    db.close();
+  });
+  it("withdraws denied desktop capability and requires explicit uncertain retry", async () => {
+    const { db, now } = await seed();
+    advertiseResetDesktop(db, { consumerId: "desktop", watched, available: true, now });
+    advertiseResetDesktop(db, { consumerId: "desktop", watched: [], available: false, now });
+    const first = claimResetEvents(db, {
+      enabled: true,
+      watched,
+      channel: "plugin",
+      consumerId: "plugin",
+      now,
+      leaseMs: 5000,
+    })[0];
+    expect(retryUncertainReset(db, first.event.id, now)).toBe(false);
+    expect(retryUncertainReset(db, first.event.id, now + 5001)).toBe(true);
+    expect(
+      claimResetEvents(db, {
+        enabled: true,
+        watched,
+        channel: "desktop",
+        consumerId: "desktop",
+        now: now + 5002,
+      }),
+    ).toHaveLength(1);
+    db.close();
+  });
   it("does not let a larger unwatched backlog starve selected windows", async () => {
     const { db, now } = await seed();
     const original = getResetEvents(db)[0];

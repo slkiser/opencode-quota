@@ -15,6 +15,7 @@ export interface AccountingDisplayRow {
   prominence: "primary" | "supplementary";
   valueKind: AccountingRow["value"]["kind"];
   accountIdentity: string;
+  windowId?: string;
   facts: Array<{ label: string; value: string }>;
 }
 const authority = (value: string) =>
@@ -105,6 +106,7 @@ export function projectAccountingDetails(
       valueKind: row.value.kind,
       prominence: row.prominence,
       accountIdentity: identity,
+      ...(row.window.kind !== "unknown" ? { windowId: row.window.id } : {}),
       facts: facts.map((fact) => ({
         label: clean(fact.label, 200),
         value: clean(fact.value, 1000),

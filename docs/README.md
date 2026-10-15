@@ -23,7 +23,9 @@ These are the completed items with dedicated records. Other completed items have
 - [ACC-01 accounting adapter record](work-items/ACC01_ACCOUNTING_ADAPTER.md): complete in PR #45; structured facts and legacy compatibility, with green main CI.
 - [ACC-02 history identity record](work-items/ACC02_HISTORY_IDENTITY.md): complete in PR #47 with green main CI; additive migration, account/window history and rollback.
 - [ACC-03 accounting surface record](work-items/ACC03_ACCOUNTING_SURFACES.md): complete in PR #48 with green main CI; shared details and account-separated history.
-- [INS-01 durable reset record](work-items/INS01_DURABLE_RESETS.md): in progress; qualified transitions, atomic dedup and delivery state.
+- [INS-01 durable reset record](work-items/INS01_DURABLE_RESETS.md): complete in PR #49 with green main CI; qualified transitions, atomic dedup and delivery state.
+
+- [INS-02 notification delivery record](work-items/INS02_NOTIFICATION_DELIVERY.md): implemented; observed OS delivery gates remain open.
 
 ## Architecture decisions
 

@@ -1,6 +1,6 @@
 # INS-01 durable quota reset transitions
 
-Issue: [#19](https://github.com/thanhndv212/opencode-quota/issues/19). Status: implemented; local acceptance passed, hosted acceptance/merge pending. Evidence date: 2026-10-15. Dependency: ACC-02 complete.
+Issue: [#19](https://github.com/thanhndv212/opencode-quota/issues/19). Status: complete in [PR #49](https://github.com/thanhndv212/opencode-quota/pull/49), merged at `ef2abeb`; [main CI 38744283981](https://github.com/thanhndv212/opencode-quota/actions/runs/38744283981) passed all six checks. Evidence date: 2026-10-15. Dependency: ACC-02 complete.
 
 ## Detection contract
 
@@ -26,6 +26,6 @@ The two-process upgrade regression reproduced corruption with an intermediate fi
 
 ## Acceptance evidence
 
-Node 22.23.3/pnpm 10.0.0: typecheck, 149 Vitest files / 1,538 tests, clean installed-tarball consumer, account-cache process smoke, actual native Node/Bun 1.3.14 history/reset lease/ack compatibility and installed macOS Electron 42.5.0 smoke passed. Hosted checks, merge and main CI remain pending.
+Node 22.23.3/pnpm 10.0.0: typecheck, 149 Vitest files / 1,538 tests, clean installed-tarball consumer, account-cache process smoke, actual native Node/Bun 1.3.14 history/reset lease/ack compatibility and installed macOS Electron 42.5.0 smoke passed. PR #49 and merged-main CI 38744283981 passed all six checks.
 
 Tests cover rollover, consumption, missing/unknown/account-switched data, stale source/cache, clock jumps, small valid replenishment, rolling/partial windows, concurrent v2 upgrade and integrity, atomic observation/event rollback, two real helper processes claiming different channels, acknowledged restart dedup, failure retry, uncertain crash recovery and corrupt-state fail-closed/repair. Live-provider and OS delivery certification remain separate; current known-account coverage follows ACC-02's selected OpenAI principal contract.

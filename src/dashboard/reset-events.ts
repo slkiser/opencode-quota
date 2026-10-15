@@ -91,7 +91,7 @@ function parseEvent(row: any): StoredResetEvent {
     throw new Error("Reset history unavailable");
   return {
     ...event,
-    state: row.state,
+    state: row.state === "delivering" && row.lease_until <= Date.now() ? "uncertain" : row.state,
     ...(row.delivered_at !== null && row.delivered_at !== undefined
       ? { deliveredAt: row.delivered_at, deliveredChannel: row.delivered_channel }
       : {}),
@@ -118,6 +118,8 @@ export function claimResetEvents(
     watched: readonly { providerId: string; windowId: string }[];
     channel: ResetDeliveryChannel;
     consumerId: string;
+    preferDesktop?: boolean;
+    maxClaims?: number;
     now?: number;
     leaseMs?: number;
   },
@@ -149,9 +151,32 @@ export function claimResetEvents(
         now,
         ...params.watched.flatMap((watch) => [watch.providerId, watch.windowId]),
       );
+    const preferredWatches =
+      params.channel === "plugin" && params.preferDesktop !== false
+        ? db
+            .prepare(
+              "SELECT watched FROM reset_delivery_consumers WHERE available_until > ? AND available_until <= ?",
+            )
+            .all(now, now + 60000)
+            .flatMap((consumer) => {
+              try {
+                const watches = JSON.parse(consumer.watched);
+                return Array.isArray(watches) ? watches : [];
+              } catch {
+                return [];
+              }
+            })
+        : [];
     const claims: ResetClaim[] = [];
     for (const candidate of candidates) {
       const event = parseEvent(candidate);
+      if (
+        preferredWatches.some(
+          (watch: any) =>
+            watch?.providerId === event.providerId && watch?.windowId === event.windowId,
+        )
+      )
+        continue;
       if (
         !params.watched.some(
           (watch) => watch.providerId === event.providerId && watch.windowId === event.windowId,
@@ -163,7 +188,11 @@ export function claimResetEvents(
         "UPDATE reset_events SET state='delivering', lease_owner=?, lease_until=?, lease_channel=? WHERE id=? AND state='pending'",
       ).run(leaseToken, now + leaseMs, params.channel, event.id);
       claims.push({ event, leaseToken });
-      if (claims.length === 10) break;
+      if (
+        claims.length >=
+        (Number.isInteger(params.maxClaims) ? Math.max(1, Math.min(10, params.maxClaims!)) : 10)
+      )
+        break;
     }
     db.exec("COMMIT");
     return claims;
@@ -197,5 +226,41 @@ export function settleResetEvent(
       params.channel,
       now,
     );
+  return Number(result.changes) > 0;
+}
+
+/** Short, renewable availability lease; never a provider polling loop. */
+export function advertiseResetDesktop(
+  db: ResetDatabase,
+  params: {
+    consumerId: string;
+    watched: readonly { providerId: string; windowId: string }[];
+    available: boolean;
+    now?: number;
+  },
+): void {
+  const now = params.now ?? Date.now();
+  if (!Number.isFinite(now) || params.watched.length > 64)
+    throw new Error("Invalid desktop availability");
+  if (!params.available || !params.watched.length) {
+    db.prepare("DELETE FROM reset_delivery_consumers WHERE consumer_id=?").run(params.consumerId);
+    return;
+  }
+  db.prepare("DELETE FROM reset_delivery_consumers WHERE available_until <= ?").run(now);
+  db.prepare(
+    `INSERT INTO reset_delivery_consumers(consumer_id,watched,available_until) VALUES(?,?,?)
+    ON CONFLICT(consumer_id) DO UPDATE SET watched=excluded.watched,available_until=excluded.available_until`,
+  ).run(params.consumerId, JSON.stringify(params.watched), now + 45000);
+}
+
+/** Explicit retry acknowledges that a previous notice may already have appeared. */
+export function retryUncertainReset(db: ResetDatabase, id: string, now = Date.now()): boolean {
+  if (!Number.isFinite(now)) return false;
+  const result = db
+    .prepare(
+      `UPDATE reset_events SET state='pending', lease_owner=NULL, lease_until=NULL, lease_channel=NULL
+    WHERE id=? AND (state='uncertain' OR (state='delivering' AND lease_until<=?)) AND observed_at>=? AND observed_at<=? AND reset_at>?`,
+    )
+    .run(id, now, now - 15 * 60000, now, now);
   return Number(result.changes) > 0;
 }

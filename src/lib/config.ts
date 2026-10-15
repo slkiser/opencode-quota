@@ -31,6 +31,7 @@ export const QUOTA_TOAST_CONFIG_RELATIVE_PATH = "opencode-quota/quota-toast.json
 export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "enabled",
   "enableToast",
+  "resetNotifications",
   "formatStyle",
   "percentDisplayMode",
   "minIntervalMs",
@@ -133,6 +134,7 @@ type ExportConfigPatch = Partial<QuotaToastConfig["export"]>;
 type ValidatedQuotaToastPatch = {
   enabled?: boolean;
   enableToast?: boolean;
+  resetNotifications?: QuotaToastConfig["resetNotifications"];
   formatStyle?: QuotaToastConfig["formatStyle"];
   percentDisplayMode?: PercentDisplayMode;
   minIntervalMs?: number;
@@ -290,6 +292,7 @@ function cloneConfig(config: QuotaToastConfig): QuotaToastConfig {
       : config.enabledProviders,
     googleModels: [...config.googleModels],
     opencodeGoWindows: [...config.opencodeGoWindows],
+    resetNotifications: structuredClone(config.resetNotifications),
     pricingSnapshot: { ...config.pricingSnapshot },
     tuiSidebarPanel: { ...config.tuiSidebarPanel },
     tuiCompactStatus: { ...config.tuiCompactStatus },
@@ -516,6 +519,43 @@ function extractValidatedQuotaToastPatch(
     patch.enableToast = quotaToastConfig.enableToast;
   }
 
+  if (hasOwnKey(quotaToastConfig, "resetNotifications")) {
+    const value = quotaToastConfig.resetNotifications;
+    // A malformed override disables delivery rather than inheriting an enabled setting.
+    patch.resetNotifications = { enabled: false, watched: [], preferDesktop: true };
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const item = value as Record<string, unknown>;
+      if (
+        typeof item.enabled === "boolean" &&
+        (item.preferDesktop === undefined || typeof item.preferDesktop === "boolean") &&
+        Array.isArray(item.watched) &&
+        item.watched.length <= 64 &&
+        item.watched.every(
+          (watch) =>
+            watch &&
+            typeof watch === "object" &&
+            typeof watch.providerId === "string" &&
+            /^[a-z0-9][a-z0-9-]{0,99}$/u.test(watch.providerId) &&
+            typeof watch.windowId === "string" &&
+            /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$/u.test(watch.windowId),
+        )
+      ) {
+        patch.resetNotifications = {
+          enabled: item.enabled,
+          preferDesktop: item.preferDesktop !== false,
+          watched: item.watched.map((watch) => ({
+            providerId: watch.providerId,
+            windowId: watch.windowId,
+          })),
+        };
+      } else
+        reportIssue?.(
+          "resetNotifications",
+          "expected enabled, explicit watched provider/window pairs and optional preferDesktop",
+        );
+    } else reportIssue?.("resetNotifications", "expected an object; delivery disabled");
+  }
+
   const formatStyle = getConfiguredFormatStyle(quotaToastConfig as Partial<QuotaToastConfig>);
   if (formatStyle) {
     patch.formatStyle = formatStyle;
@@ -731,6 +771,11 @@ function applyValidatedQuotaToastPatch(
   if (hasOwnKey(patch, "formatStyle")) {
     config.formatStyle = patch.formatStyle!;
     applySettingSource(settingSources, "formatStyle", sourcePath);
+  }
+
+  if (patch.resetNotifications) {
+    config.resetNotifications = structuredClone(patch.resetNotifications);
+    applySettingSource(settingSources, "resetNotifications", sourcePath);
   }
 
   if (hasOwnKey(patch, "percentDisplayMode")) {

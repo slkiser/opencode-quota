@@ -34,6 +34,8 @@ const V3 = `CREATE TABLE IF NOT EXISTS reset_events (
   lease_owner TEXT, lease_until INTEGER, lease_channel TEXT,
   delivered_at INTEGER, delivered_channel TEXT);
 CREATE INDEX IF NOT EXISTS idx_reset_events_pending ON reset_events(state,observed_at);`;
+const V4 = `CREATE TABLE IF NOT EXISTS reset_delivery_consumers (
+  consumer_id TEXT PRIMARY KEY, watched TEXT NOT NULL, available_until INTEGER NOT NULL);`;
 function version(db: DatabaseLike): number {
   if (
     !db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'").get()
@@ -44,9 +46,9 @@ function version(db: DatabaseLike): number {
   );
 }
 export function migrateSchema(db: DatabaseLike): void {
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 4; attempt++) {
     const initial = version(db);
-    if (initial >= 3) return;
+    if (initial >= 4) return;
     const file = db
       .prepare("PRAGMA database_list")
       .all()
@@ -86,6 +88,7 @@ export function migrateSchema(db: DatabaseLike): void {
       for (const [target, sql] of [
         [2, V2],
         [3, V3],
+        [4, V4],
       ] as const)
         if (current < target) {
           db.exec(sql);

@@ -19,6 +19,7 @@ import {
   Menu,
   shell,
   powerMonitor,
+  Notification,
 } from "electron";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -29,6 +30,8 @@ import {
   loadStandaloneQuotaConfig,
   type StandaloneQuotaConfig,
 } from "./quota-config.js";
+import { ResetNotificationRuntime } from "./reset-notification-runtime.js";
+import { showNativeResetNotification } from "./native-reset-notification.js";
 import { HistoryBudgetRuntime } from "./history-budget-runtime.js";
 import { QuotaRefreshController } from "./quota-refresh-controller.js";
 import {
@@ -164,8 +167,44 @@ function registerIpcHandlers(initialConfig: StandaloneQuotaConfig, guiConfig: Gu
       controller.clearObservation();
     }
     quotaConfig = loaded;
+    resetNotificationRuntime?.resetCapability();
     return quotaConfig;
   }
+  resetNotificationRuntime = new ResetNotificationRuntime({
+    config: () => ({
+      ...quotaConfig.config.resetNotifications,
+      enabled: quotaConfig.config.enabled && quotaConfig.config.resetNotifications.enabled,
+    }),
+    supported: () => Notification.isSupported(),
+    deliver: (event) =>
+      showNativeResetNotification(event, (selected) => {
+        if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createWindow(guiConfig);
+        mainWindow?.show();
+        mainWindow?.focus();
+        const target = mainWindow;
+        const navigate = () => {
+          if (target && !target.isDestroyed())
+            target.webContents.send("reset:open", {
+              providerId: selected.providerId,
+              windowId: selected.windowId,
+              accountIdentity: selected.accountIdentity,
+            });
+        };
+        if (target?.webContents.isLoadingMainFrame())
+          target.webContents.once("did-finish-load", navigate);
+        else navigate();
+      }),
+    onChange: () => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("history:updated");
+    },
+  });
+  resetNotificationRuntime.start();
+  ipcMain.handle("reset:status", () => resetNotificationRuntime!.status());
+  ipcMain.handle("reset:events", () => resetNotificationRuntime!.events());
+  ipcMain.handle("reset:retry", (_event, id: unknown) => {
+    if (typeof id !== "string" || !/^[a-f0-9]{64}$/u.test(id)) return false;
+    return resetNotificationRuntime!.retry(id);
+  });
   historyBudgetRuntime = new HistoryBudgetRuntime({
     pricing: () => quotaConfig.config.pricingSnapshot,
     onHistory: () => {
@@ -191,6 +230,7 @@ function registerIpcHandlers(initialConfig: StandaloneQuotaConfig, guiConfig: Gu
       const historyDiagnostics = await historyBudgetRuntime!.postFetch(
         result.providerResults ?? [],
       );
+      await resetNotificationRuntime?.tick();
       const { providerResults: _providerResults, ...display } = result;
       return {
         ...display,
@@ -444,6 +484,7 @@ let tray: Tray | null = null;
 let toggleCooldownUntil = 0;
 let quotaController: QuotaRefreshController | null = null;
 let historyBudgetRuntime: HistoryBudgetRuntime | null = null;
+let resetNotificationRuntime: ResetNotificationRuntime | null = null;
 
 function createWindow(guiConfig: GuiConfig): BrowserWindow {
   const preloadPath = resolvePreloadPath();
@@ -646,6 +687,7 @@ app.on("before-quit", () => {
   quotaController?.dispose();
   quotaController = null;
   historyBudgetRuntime?.dispose();
+  resetNotificationRuntime?.dispose();
   historyBudgetRuntime = null;
   powerMonitor.removeListener("suspend", suspendQuotaRefresh);
   powerMonitor.removeListener("resume", resumeQuotaRefresh);

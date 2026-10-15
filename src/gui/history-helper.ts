@@ -18,9 +18,17 @@ import {
 import { budgetSince, type WindowAggregation } from "./budget-evaluation.js";
 import type { BudgetTimeWindow } from "../lib/budget-alerts.js";
 import type { QuotaToastConfig } from "../lib/types.js";
-import { claimResetEvents, settleResetEvent, getResetEvents } from "../dashboard/reset-events.js";
+import {
+  claimResetEvents,
+  settleResetEvent,
+  getResetEvents,
+  advertiseResetDesktop,
+  retryUncertainReset,
+} from "../dashboard/reset-events.js";
 
 export type HistoryRequest =
+  | ({ operation: "reset-desktop" } & Parameters<typeof advertiseResetDesktop>[1])
+  | { operation: "reset-retry"; id: string }
   | ({ operation: "reset-claim" } & Parameters<typeof claimResetEvents>[1])
   | ({ operation: "reset-settle" } & Parameters<typeof settleResetEvent>[1])
   | { operation: "reset-events"; providerId?: string }
@@ -67,6 +75,8 @@ async function execute(request: HistoryRequest) {
   const db = await openNativeDashboardDatabase(dbPath);
   try {
     const api = new DashboardApi(db);
+    if (request.operation === "reset-desktop") return advertiseResetDesktop(db, request);
+    if (request.operation === "reset-retry") return retryUncertainReset(db, request.id);
     if (request.operation === "reset-claim") return claimResetEvents(db, request);
     if (request.operation === "reset-settle") return settleResetEvent(db, request);
     if (request.operation === "reset-events") return getResetEvents(db, request.providerId);

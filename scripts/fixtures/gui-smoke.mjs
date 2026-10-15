@@ -73,7 +73,8 @@ ipcMain.handle = (channel, handler) => {
     channel.startsWith("config:") ||
     channel.startsWith("quota:") ||
     channel.startsWith("alerts:") ||
-    channel.startsWith("dashboardHistory:")
+    channel.startsWith("dashboardHistory:") ||
+    channel.startsWith("reset:")
   )
     realHandle(channel, handler);
   else
@@ -127,6 +128,13 @@ async function smoke() {
     assert.equal(fetches, 1, "startup must query once, independent of renderer startup");
     assert.deepEqual(settings.config.enabledProviders, ["openai"]);
     assert.equal(settings.config.cursorPlan, "pro");
+    assert.deepEqual(settings.config.resetNotifications, {
+      enabled: false,
+      watched: [],
+      preferDesktop: true,
+    });
+    assert.deepEqual(await evaluate("window.quotaApi.resets.events()"), []);
+    assert.equal(await evaluate('window.quotaApi.resets.retry("invalid")'), false);
     assert.equal(settings.config.requestTimeoutMs, 9000);
     assert.deepEqual(settings.meta.workspaceConfigPaths, []);
     assert.equal(settings.meta.globalConfigPaths.length, 1);
@@ -158,6 +166,16 @@ async function smoke() {
         `tab ${index}`,
       );
     }
+    win.webContents.send("reset:open", {
+      providerId: "openai",
+      windowId: "hourly",
+      accountIdentity: "unknown",
+    });
+    await waitFor(
+      () => evaluate("document.body.innerText.includes('Window: hourly')"),
+      "reset notice opens selected window",
+    );
+    assert.ok(await evaluate("document.body.innerText.includes('Confirmed Reset Events')"));
     const initialHistory = await evaluate(
       'window.quotaApi.dashboardHistory.quotaHistory("openai")',
     );

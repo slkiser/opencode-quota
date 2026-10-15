@@ -136,6 +136,27 @@ const quotaApi = {
     openExternal: (url: string) => ipcRenderer.invoke("shell:openExternal", { url }),
   },
 
+  resets: {
+    status: () => ipcRenderer.invoke("reset:status"),
+    events: () => ipcRenderer.invoke("reset:events"),
+    retry: (id: string) => ipcRenderer.invoke("reset:retry", id),
+    onOpen: (
+      callback: (selection: {
+        providerId: string;
+        windowId: string;
+        accountIdentity: string;
+      }) => void,
+    ) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        selection: { providerId: string; windowId: string; accountIdentity: string },
+      ) => callback(selection);
+      ipcRenderer.on("reset:open", listener);
+      return () => {
+        ipcRenderer.removeListener("reset:open", listener);
+      };
+    },
+  },
   // ── Dashboard History ──────────────────────────────────
   dashboardHistory: {
     onUpdate: (callback: () => void) => {

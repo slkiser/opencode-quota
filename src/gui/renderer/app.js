@@ -41,6 +41,9 @@
   let historyQuota = [];
   let historyAccounting = [];
   let historyAccount = "all";
+  let historyWindow = null;
+  let resetEvents = [];
+  let resetStatus = "";
   let historyResets = [];
   let historySourceModels = [];
   let historyGroupBy = "All";
@@ -191,6 +194,8 @@
         if (!historyProvider && historyProviders.length > 0) historyProvider = historyProviders[0];
       }
 
+      resetEvents = api.resets ? await api.resets.events() : [];
+      resetStatus = api.resets ? await api.resets.status() : "";
       if (historyProvider) {
         const [quota, resets, accounting] = await Promise.all([
           api.dashboardHistory.quotaHistory(historyProvider, historyDays),
@@ -2311,6 +2316,7 @@
       onChange: (e) => {
         historyProvider = e.target.value;
         historyAccount = "all";
+        historyWindow = null;
         loadHistory();
       },
     });
@@ -2377,12 +2383,79 @@
         "Unknown observations are kept separate from identified accounts. An account label identifies only observations from the same selected account.",
       ),
     );
-    const selectedHistory = historyQuota.filter(
+    const selectedHistory = (historyWindow ? [] : historyQuota).filter(
       (item) => historyAccount === "all" || (item.accountIdentity || "unknown") === historyAccount,
     );
     const selectedAccounting = historyAccounting.filter(
-      (item) => historyAccount === "all" || item.detail.accountIdentity === historyAccount,
+      (item) =>
+        (historyAccount === "all" || item.detail.accountIdentity === historyAccount) &&
+        (!historyWindow || item.detail.windowId === historyWindow),
     );
+    if (historyWindow)
+      container.appendChild(
+        el(
+          "button",
+          {
+            className: "btn btn-sm",
+            onClick: () => {
+              historyWindow = null;
+              renderHistory();
+            },
+          },
+          "Window: " + historyWindow + " · Show all windows",
+        ),
+      );
+    const eventCard = el("div", { className: "card" });
+    eventCard.appendChild(el("div", { className: "card-title" }, "Confirmed Reset Events"));
+    eventCard.appendChild(el("div", { className: "hint" }, resetStatus));
+    const selectedEvents = resetEvents.filter(
+      (event) =>
+        event.providerId === historyProvider &&
+        (historyAccount === "all" || event.accountIdentity === historyAccount) &&
+        (!historyWindow || event.windowId === historyWindow),
+    );
+    if (!selectedEvents.length)
+      eventCard.appendChild(el("div", { className: "hint" }, "No confirmed resets recorded."));
+    selectedEvents.slice(0, 20).forEach((event) => {
+      eventCard.appendChild(
+        el(
+          "div",
+          {},
+          event.windowId +
+            " · Account " +
+            event.accountIdentity.slice(0, 8) +
+            " · " +
+            event.state +
+            " · " +
+            new Date(event.observedAt).toLocaleString(),
+        ),
+      );
+      if (event.state === "uncertain")
+        eventCard.appendChild(
+          el(
+            "button",
+            {
+              className: "btn btn-sm",
+              onClick: async () => {
+                if (
+                  window.confirm(
+                    "A notice may already have appeared. Retry this reset notification?",
+                  )
+                ) {
+                  try {
+                    await api.resets.retry(event.id);
+                    await loadHistory();
+                  } catch {
+                    showToast("Reset retry unavailable", "error");
+                  }
+                }
+              },
+            },
+            "Retry uncertain notice",
+          ),
+        );
+    });
+    container.appendChild(eventCard);
     const latestDetails = new Map();
     for (const item of selectedAccounting) latestDetails.set(item.detail.key, item.detail);
     if (latestDetails.size)
@@ -2643,6 +2716,14 @@
     applyTheme();
 
     render();
+    const unsubscribeResets = api.resets?.onOpen((selection) => {
+      historyProvider = selection.providerId;
+      historyAccount = selection.accountIdentity;
+      historyWindow = selection.windowId;
+      activeTab = 5;
+      render();
+      loadHistory();
+    });
     const unsubscribeQuota = api.quota.onUpdate(receiveQuotaSnapshot);
     api.quota
       .state()
@@ -2659,6 +2740,7 @@
         unsubscribeQuota();
         unsubscribeBudgets();
         unsubscribeHistory();
+        unsubscribeResets?.();
       },
       { once: true },
     );
