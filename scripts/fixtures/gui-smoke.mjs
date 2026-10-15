@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import { app, BrowserWindow, ipcMain, session, Menu, powerMonitor, Tray } from "electron";
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -349,6 +349,90 @@ async function smoke() {
       await evaluate("document.body.innerText.includes('Fixed-window estimates')"),
       false,
       "identified OpenAI windows must not invent a fixed-window estimate",
+    );
+    // Actual installed custom local provider -> system Node journal -> renderer/CLI.
+    const localDefinition = {
+      id: "custom-local",
+      providerId: "fixture",
+      label: "Local fixture",
+      mode: "local-estimate",
+      sources: ["opencode"],
+      windows: [
+        {
+          id: "day",
+          label: "Last day",
+          type: "rolling",
+          durationMinutes: 1440,
+          requestLimit: 10,
+          usdBudget: 100,
+        },
+      ],
+    };
+    await writeFile(
+      join(process.env.XDG_CONFIG_HOME, "opencode", "opencode-quota", "quota-toast.json"),
+      JSON.stringify({
+        enabledProviders: ["custom-local"],
+        quotaProviders: [localDefinition],
+        pricingSnapshot: { source: "bundled", autoRefresh: 0 },
+      }),
+    );
+    const beforeLocal = fetches;
+    await evaluate("window.quotaApi.config.reloadQuota()");
+    const local = await evaluate("window.quotaApi.quota.fetch(true)");
+    assert.equal(
+      local.entries.find((entry) => entry.name.includes("observed request estimate"))
+        .percentRemaining,
+      90,
+    );
+    assert.equal(local.entries.find((entry) => entry.name.includes("USD budget")).value, "Unknown");
+    const localAgain = await evaluate("window.quotaApi.quota.fetch(true)");
+    assert.equal(
+      localAgain.entries.find((entry) => entry.name.includes("observed request estimate"))
+        .percentRemaining,
+      90,
+    );
+    assert.equal(fetches, beforeLocal, "local counters must not make provider HTTP requests");
+    await evaluate(
+      "document.querySelector('.filter-select').value='custom-local';document.querySelector('.filter-select').dispatchEvent(new Event('change'));undefined",
+    );
+    assert.equal(await evaluate("document.querySelector('.filter-select').value"), "custom-local");
+    assert.ok(await evaluate("document.body.innerText.includes('observed request estimate')"));
+    assert.ok(
+      await evaluate(
+        "document.querySelector('.filter-select').innerText.includes('All providers (1)')",
+      ),
+    );
+    await waitFor(
+      () => evaluate("document.body.innerText.includes('observed request estimate')"),
+      "installed local estimate rendering",
+    );
+    const binary = fileURLToPath(
+      new URL("../bin/opencode-quota.js", pathToFileURL(process.env.QUOTA_SMOKE_MAIN)),
+    );
+    const text = await new Promise((resolve, reject) =>
+      childProcess.execFile(
+        process.env.OPENCODE_QUOTA_NODE_BINARY,
+        [binary, "show", "--provider", "custom-local", "--details"],
+        { cwd: process.env.HOME, env: process.env, timeout: 10000 },
+        (error, stdout) =>
+          error ? reject(new Error("Installed local CLI consumer failed")) : resolve(stdout),
+      ),
+    );
+    assert.ok(text.includes("90% left"));
+    assert.ok(text.replace(/\s+/gu, "").includes("Pricing/finalusageincomplete"), text);
+    if (process.env.QUOTA_SMOKE_SCREENSHOT_DIR) {
+      win.setMinimumSize(400, 500);
+      win.setSize(480, 820);
+      await evaluate(
+        "document.querySelector('.accounting-details').open=true;document.querySelector('.accounting-details').scrollIntoView(); undefined",
+      );
+      await writeFile(
+        join(process.env.QUOTA_SMOKE_SCREENSHOT_DIR, "local-estimate-narrow.png"),
+        (await win.webContents.capturePage()).toPNG(),
+      );
+    }
+    await evaluate(
+      "document.querySelector('.filter-select').value='all';document.querySelector('.filter-select').dispatchEvent(new Event('change'));undefined",
     );
     // Presentation fixture: provider integration is covered separately by quota IPC tests.
     const { projectAccountingDetails } = await import(

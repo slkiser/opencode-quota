@@ -87,9 +87,7 @@ export async function resolveQuotaRuntimeContext(
   };
 }
 
-export function createQuotaRuntimeRequestContext(
-  runtime: Pick<QuotaRuntimeContext, "session">,
-): {
+export function createQuotaRuntimeRequestContext(runtime: Pick<QuotaRuntimeContext, "session">): {
   sessionID?: string;
   sessionMeta?: QuotaSessionModelContext;
 } {
@@ -114,12 +112,11 @@ export function createQuotaProviderRuntimeContext(
       cursorBillingCycleStartDay: runtime.config.cursorBillingCycleStartDay,
       opencodeGoWindows: runtime.config.opencodeGoWindows,
       requestTimeoutMs: runtime.config.requestTimeoutMs,
+      pricingSnapshot: { ...runtime.config.pricingSnapshot },
       requestTimeoutMsConfigured: Boolean(runtime.configMeta?.settingSources.requestTimeoutMs),
       onlyCurrentModel: runtime.config.onlyCurrentModel,
       enabledProviders:
-        runtime.config.enabledProviders === "auto"
-          ? "auto"
-          : [...runtime.config.enabledProviders],
+        runtime.config.enabledProviders === "auto" ? "auto" : [...runtime.config.enabledProviders],
       currentModel: runtime.session.sessionMeta?.modelID,
       currentProviderID: runtime.session.sessionMeta?.providerID,
     },

@@ -65,7 +65,7 @@ await withConsumer(process.argv[2], async (root) => {
         providerID: "fixture",
         modelID: "no-price",
         tokens: { input: 10, output: 2, cache: { read: 0, write: 0 } },
-        time: { created: timestamp },
+        time: { created: timestamp, completed: timestamp },
       }),
     );
   }

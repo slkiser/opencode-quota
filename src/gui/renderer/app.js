@@ -20,6 +20,7 @@
   // State
   // ===========================================================================
   let activeTab = 0;
+  let quotaProviderFilter = "all";
   let quotaData = null;
   let tokenData = null;
   let alerts = [];
@@ -608,8 +609,14 @@
 
     // Filter
     const filterBar = el("div", { className: "filter-bar" });
-    const sel = el("select", { className: "filter-select", onChange: () => renderContent() });
-    sel.appendChild(el("option", { value: "all" }, "All providers (" + entries.length + ")"));
+    const sel = el("select", {
+      className: "filter-select",
+      onChange: (event) => {
+        quotaProviderFilter = event.target.value;
+        renderContent();
+      },
+    });
+    sel.appendChild(el("option", { value: "all" }, "All providers (" + providerIds.length + ")"));
     providerIds.forEach((id) => sel.appendChild(el("option", { value: id }, id)));
     filterBar.appendChild(
       el(
@@ -628,11 +635,18 @@
     );
     container.appendChild(filterBar);
 
-    const filterVal = sel.value;
+    if (quotaProviderFilter !== "all" && !providerIds.includes(quotaProviderFilter))
+      quotaProviderFilter = "all";
+    sel.value = quotaProviderFilter;
+    const filterVal = quotaProviderFilter;
     const filtered =
       filterVal === "all"
         ? entries
-        : entries.filter((e) => e.name && e.name.toLowerCase().includes(filterVal.toLowerCase()));
+        : entries.filter((e) =>
+            e.providerId
+              ? e.providerId === filterVal
+              : e.name && e.name.toLowerCase().includes(filterVal.toLowerCase()),
+          );
 
     // Group entries that share a `group` (e.g. "Claude", "OpenCode Go (dvtn)")
     // into one card; render the rest as individual cards
@@ -669,8 +683,11 @@
         container.appendChild(renderProviderCard(item.entry));
       }
     }
-    if (quotaData.accountingDetails?.length) {
-      const estimates = quotaData.accountingDetails.filter((row) => row.runway);
+    const selectedDetails = (quotaData.accountingDetails ?? []).filter(
+      (row) => filterVal === "all" || row.providerId === filterVal,
+    );
+    if (selectedDetails.length) {
+      const estimates = selectedDetails.filter((row) => row.runway);
       if (estimates.length) {
         const card = el("div", { className: "card runway-estimates" });
         card.appendChild(el("div", { className: "card-title" }, "Fixed-window estimates"));
@@ -688,7 +705,7 @@
         );
         container.appendChild(card);
       }
-      container.appendChild(renderAccountingRows(quotaData.accountingDetails));
+      container.appendChild(renderAccountingRows(selectedDetails));
     }
 
     if (quotaData.sessionTokens) {

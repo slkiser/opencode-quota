@@ -43,6 +43,8 @@ export interface OpenCodeMessage {
   modelID?: string;
   tokens?: OpenCodeTokens;
   cost?: number;
+  /** Opt-in source metadata for local event accounting; absent is not proof of final usage. */
+  usageComplete?: boolean;
   time?: {
     created?: number;
     completed?: number;
@@ -467,6 +469,31 @@ export async function readAllSessionsIndex(): Promise<Record<string, OpenCodeSes
     }
 
     return idx;
+  } finally {
+    conn.close();
+  }
+}
+
+/** Completed-time query for local counters; missing/corrupt sources are errors, never zero. */
+export async function iterCompletedAssistantMessages(params: {
+  completedSinceMs: number;
+  completedUntilMs: number;
+  providerID: string;
+}): Promise<OpenCodeMessage[]> {
+  const db = openDbOrNull();
+  if (!db) throw new Error("OpenCode usage source unavailable");
+  const conn = await db.open();
+  try {
+    const rows = conn.all<MessageRow>(
+      `SELECT id,session_id,time_created,time_updated,data FROM "message"
+    WHERE json_extract(data,'$.role')='assistant' AND json_extract(data,'$.providerID')=?
+    AND typeof(json_extract(data,'$.time.completed')) IN ('integer','real')
+    AND json_extract(data,'$.time.completed')>=? AND json_extract(data,'$.time.completed')<=?
+    ORDER BY time_created ASC,id ASC LIMIT 100001`,
+      [params.providerID, params.completedSinceMs, params.completedUntilMs],
+    );
+    if (rows.length > 100000) throw new Error("Local completion source limit exceeded");
+    return deduplicateSessionCopies(mapAssistantMessages(rows));
   } finally {
     conn.close();
   }

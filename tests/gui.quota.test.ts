@@ -40,7 +40,9 @@ describe("desktop provider failures", () => {
       errors: [],
     });
     const result = await fetchAllQuota({ ...DEFAULT_CONFIG, enabledProviders: "auto" });
-    expect(result.entries).toEqual([{ name: "OpenAI", percentRemaining: 42 }]);
+    expect(result.entries).toEqual([
+      { name: "OpenAI", percentRemaining: 42, providerId: "openai" },
+    ]);
     expect(result.errors).toEqual([{ label: "Copilot", message: "Quota query failed" }]);
     expect(result.detectedProviderIds).toEqual(["openai"]);
   });

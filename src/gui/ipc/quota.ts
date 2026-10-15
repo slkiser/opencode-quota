@@ -19,7 +19,7 @@ import {
 
 export interface QuotaFetchResult {
   accountingDetails?: AccountingDisplayRow[];
-  entries: QuotaToastEntry[];
+  entries: Array<QuotaToastEntry & { providerId?: string }>;
   errors: QuotaToastError[];
   detectedProviderIds: string[];
   historyDiagnostics?: string[];
@@ -59,7 +59,7 @@ export async function fetchAllQuota(
   const providers = getProviders();
   const ctx = buildMinimalProviderContext(mergedConfig, bypassCache, configMeta);
 
-  const entries: QuotaToastEntry[] = [];
+  const entries: QuotaFetchResult["entries"] = [];
   const errors: QuotaToastError[] = [];
   const detectedProviderIds: string[] = [];
   const providerResults: NonNullable<QuotaFetchResult["providerResults"]> = [];
@@ -101,7 +101,12 @@ export async function fetchAllQuota(
     detectedProviderIds.push(item.providerId);
     providerResults.push({ providerId: item.providerId, result: item.result });
 
-    entries.push(...displayQuotaEntries(item.result));
+    entries.push(
+      ...displayQuotaEntries(item.result).map((entry) => ({
+        ...entry,
+        providerId: item.providerId,
+      })),
+    );
     if (item.result.errors.length > 0) {
       errors.push(...item.result.errors);
     }

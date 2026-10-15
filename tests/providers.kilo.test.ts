@@ -49,7 +49,9 @@ describe("Kilo provider surfaces", () => {
     ])
       expect(text).toContain("USD 12.5");
     const desktop = await fetchAllQuota({ ...DEFAULT_CONFIG, enabledProviders: ["kilo"] }, true);
-    expect(desktop.entries).toEqual(provider.entries);
+    expect(desktop.entries).toEqual(
+      provider.entries.map((entry) => ({ ...entry, providerId: "kilo" })),
+    );
     expect(desktop.entries[0]).not.toHaveProperty("percentRemaining");
     expect(desktop.accountingDetails?.[0].accountIdentity).toBe("unknown");
     expect(JSON.stringify(desktop)).not.toContain("fixture-key");

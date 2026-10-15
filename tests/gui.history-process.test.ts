@@ -10,6 +10,11 @@ import { DashboardApi } from "../src/dashboard/api.js";
 import type { ProviderResultForSnapshot } from "../src/dashboard/quota-snapshot-bridge.js";
 import { openAIAccounting } from "../src/providers/accounting-adapters.js";
 import type { ResetClaim } from "../src/dashboard/reset-events.js";
+import {
+  validateQuotaDefinitions,
+  type LocalQuotaDefinition,
+} from "../src/lib/quota-provider-definitions.js";
+import type { QuotaProviderResult } from "../src/lib/entries.js";
 import type { StoredResetEvent } from "../src/lib/quota-reset-transition.js";
 
 let root: string;
@@ -29,6 +34,7 @@ async function setup() {
     XDG_CACHE_HOME: join(root, "cache"),
     XDG_STATE_HOME: join(root, "state"),
     OPENCODE_CONFIG_DIR: "",
+    OPENCODE_QUOTA_SYNC_DIR: "",
   };
   const make = () => {
     const client = new HistoryHelperClient({
@@ -64,6 +70,119 @@ function observation(id: string, observedAt: number): ProviderResultForSnapshot 
 const pricing = { source: "bundled" as const, autoRefresh: 0 };
 
 describe("installed helper protocol with real SQLite processes", () => {
+  it("journals completed-time usage across helpers, canonical copies, repeated requests and pricing edits", async () => {
+    const { data, make } = await setup();
+    const now = Date.parse("2026-10-15T12:00:00Z"),
+      created = now - 10 * 86400000,
+      completed = now - 1000;
+    const source = await openNativeDashboardDatabase(join(data, "opencode.db"));
+    source.exec(
+      "CREATE TABLE message(id TEXT PRIMARY KEY,session_id TEXT,time_created INTEGER,time_updated INTEGER,data TEXT)",
+    );
+    const payload = {
+      role: "assistant",
+      providerID: "fixture",
+      modelID: "fixture-model",
+      time: { completed },
+      tokens: { input: 1000000, output: 500000, cache: { read: 0, write: 0 } },
+    };
+    const insert = (id: string) =>
+      source
+        .prepare("INSERT INTO message VALUES(?,?,?,?,?)")
+        .run(id, "ses_copy", created, completed, JSON.stringify(payload));
+    insert("original");
+    const config = join(root, "config", "opencode", "opencode-quota");
+    await mkdir(config, { recursive: true });
+    const price = (input: number) => ({
+      version: 1,
+      overrides: {
+        "fixture/fixture-model": {
+          provider: "fixture",
+          model: "fixture-model",
+          rates: { input, output: 4 },
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+    });
+    await writeFile(join(config, "user-pricing.json"), JSON.stringify(price(2)));
+    const definition = validateQuotaDefinitions([
+      {
+        id: "custom-local",
+        providerId: "fixture",
+        label: "Local",
+        mode: "local-estimate",
+        sources: ["opencode"],
+        windows: [{ id: "day", type: "utc-day", requestLimit: 10, usdBudget: 100 }],
+      },
+    ])[0] as LocalQuotaDefinition;
+    const prior = await openNativeDashboardDatabase(join(data, "quota-dashboard.db"));
+    new DashboardApi(prior);
+    prior.exec(
+      "DROP TABLE custom_estimate_events; DROP TABLE custom_estimate_aliases; DELETE FROM schema_version WHERE version=5",
+    );
+    prior.close();
+    const a = make(),
+      b = make();
+    const read = (client: HistoryHelperClient) =>
+      client.request<QuotaProviderResult>({
+        operation: "local-estimate",
+        definition,
+        now,
+        pricing,
+      });
+    const count = (out: QuotaProviderResult) =>
+      (out.accounting!.rows[0].value as any).basis.used.quantity.decimal;
+    const initial = await Promise.all([read(a), read(b)]);
+    const first = initial[0];
+    expect(initial.map(count)).toEqual(["1", "1"]);
+    const upgrades = (await readdir(data)).filter((name) => name.includes("pre-v5"));
+    expect(upgrades).toHaveLength(1);
+    const backup = await openNativeDashboardDatabase(join(data, upgrades[0], "history.sqlite"));
+    expect(
+      backup.prepare("SELECT max(version) AS version FROM schema_version").get(),
+    ).toMatchObject({ version: 4 });
+    expect(backup.prepare("PRAGMA integrity_check").get()).toMatchObject({ integrity_check: "ok" });
+    backup.close();
+    expect((first.accounting!.rows[1].value as any).basis.used.quantity.decimal).toBe("4");
+    insert("zzz-canonical-copy");
+    source.prepare("DELETE FROM message WHERE id=?").run("original");
+    expect(count(await read(b))).toBe("1");
+    insert("aaa-genuine-repeat");
+    const raced = await Promise.all([read(a), read(b)]);
+    expect(raced.map(count)).toEqual(["2", "2"]);
+    await writeFile(join(config, "user-pricing.json"), JSON.stringify(price(3)));
+    a.dispose();
+    b.dispose();
+    const restarted = await read(make());
+    expect(count(restarted)).toBe("2");
+    expect((restarted.accounting!.rows[1].value as any).basis.used.quantity.decimal).toBe("10");
+    source
+      .prepare("UPDATE message SET data=?")
+      .run(JSON.stringify({ ...payload, modelID: "unmapped-source" }));
+    definition.pricingModelMap = { "unmapped-source": "fixture/fixture-model" };
+    const mapped = await read(make());
+    expect(count(mapped)).toBe("2");
+    expect((mapped.accounting!.rows[1].value as any).basis.used.quantity.decimal).toBe("10");
+    const partialPrice = price(3);
+    delete (partialPrice.overrides["fixture/fixture-model"].rates as any).output;
+    await writeFile(join(config, "user-pricing.json"), JSON.stringify(partialPrice));
+    const incomplete = await read(make());
+    expect(count(incomplete)).toBe("2");
+    expect(incomplete.accounting!.rows[1].value).toMatchObject({
+      kind: "status",
+      status: "unknown",
+    });
+    const journal = await openNativeDashboardDatabase(join(data, "quota-dashboard.db"));
+    expect(journal.prepare("SELECT count(*) AS n FROM custom_estimate_events").get()).toMatchObject(
+      { n: 2 },
+    );
+    expect(journal.prepare("PRAGMA integrity_check").get()).toMatchObject({
+      integrity_check: "ok",
+    });
+    journal.close();
+    source.close();
+  });
   it("upgrades two writers concurrently and claims one durable reset across channels and restart", async () => {
     const { data, make } = await setup();
     const file = join(data, "quota-dashboard.db");
@@ -100,7 +219,7 @@ describe("installed helper protocol with real SQLite processes", () => {
     });
     // Exercise a real v2 fixture upgrade, not only steady-state v3 contention.
     db.exec(
-      "DROP TABLE reset_events; DROP TABLE reset_delivery_consumers; DELETE FROM schema_version WHERE version>=3;",
+      "DROP TABLE reset_events; DROP TABLE reset_delivery_consumers; DROP TABLE custom_estimate_events; DROP TABLE custom_estimate_aliases; DELETE FROM schema_version WHERE version>=3;",
     );
     db.close();
     const a = make(),

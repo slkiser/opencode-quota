@@ -59,7 +59,9 @@ describe("OpenRouter shared surfaces", () => {
     expect(desktop.accountingDetails?.find((row) => row.key.endsWith(":usage"))?.value).toBe(
       "USD 250",
     );
-    expect(desktop.entries).toEqual(provider.entries);
+    expect(desktop.entries).toEqual(
+      provider.entries.map((entry) => ({ ...entry, providerId: "openrouter" })),
+    );
     expect(JSON.stringify(desktop)).not.toContain("fixture-key");
     expect(remote).toHaveBeenCalledTimes(2);
   });

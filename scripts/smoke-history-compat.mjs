@@ -1,3 +1,5 @@
+import { syncLocalQuotaEstimate } from "../dist/lib/quota-providers-local.js";
+import { validateQuotaDefinitions } from "../dist/lib/quota-provider-definitions.js";
 /** Real SQLite runtimes: run with both system Node and Bun after build. */
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
@@ -64,6 +66,37 @@ try {
   );
   assert.equal((await readdir(root)).filter((name) => name.includes("pre-v2")).length, 1);
   const now = Date.now();
+  const local = validateQuotaDefinitions([
+    {
+      id: "custom-smoke",
+      providerId: "fixture",
+      label: "Local",
+      mode: "local-estimate",
+      windows: [
+        { id: "hour", type: "rolling", durationMinutes: 60, requestLimit: 10, usdBudget: 10 },
+      ],
+    },
+  ])[0];
+  const completion = {
+    id: "source-a",
+    sessionID: "ses_fixture",
+    role: "assistant",
+    providerID: "fixture",
+    modelID: "fixture",
+    time: { created: now - 2000, completed: now - 1000 },
+    tokens: { input: 1, output: 1, cache: { read: 0, write: 0 } },
+  };
+  const estimate = await syncLocalQuotaEstimate(db, local, now, {
+    readOpenCode: async () => [completion],
+    price: () => 2,
+  });
+  assert.equal(estimate.entries[0].percentRemaining, 90);
+  assert.equal(estimate.entries[1].percentRemaining, 80);
+  await syncLocalQuotaEstimate(db, local, now, {
+    readOpenCode: async () => [{ ...completion, id: "canonical-copy" }],
+    price: () => 2,
+  });
+  assert.equal(db.prepare("SELECT count(*) AS n FROM custom_estimate_events").get().n, 1);
   for (const before of [true, false, false]) {
     const accounting = openAIAccounting({
       success: true,

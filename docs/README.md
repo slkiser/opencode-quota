@@ -33,7 +33,9 @@ These are the completed items with dedicated records. Other completed items have
 
 - [PRO-02 Kilo record](work-items/PRO02_KILO.md): complete in PR #53 with green main CI; live credential unavailable.
 
-- [CUS-01 remote definition record](work-items/CUS01_REMOTE_DEFINITIONS.md): implemented; hosted acceptance pending, two real HTTP fixture protocols.
+- [CUS-01 remote definition record](work-items/CUS01_REMOTE_DEFINITIONS.md): complete in PR #54 with green main CI; two real HTTP fixture protocols.
+
+- [CUS-02 durable local estimate record](work-items/CUS02_DURABLE_LOCAL_ESTIMATES.md): implemented; native journal, pricing coverage and installed CLI/Electron evidence.
 
 ## Architecture decisions
 

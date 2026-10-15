@@ -1,3 +1,8 @@
+import { syncLocalQuotaEstimate } from "../lib/quota-providers-local.js";
+import {
+  validateQuotaDefinitions,
+  type LocalQuotaDefinition,
+} from "../lib/quota-provider-definitions.js";
 /** Private IPC worker launched using system Node. No provider requests. */
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -27,6 +32,12 @@ import {
 } from "../dashboard/reset-events.js";
 
 export type HistoryRequest =
+  | {
+      operation: "local-estimate";
+      definition: LocalQuotaDefinition;
+      now: number;
+      pricing: QuotaToastConfig["pricingSnapshot"];
+    }
   | ({ operation: "reset-desktop" } & Parameters<typeof advertiseResetDesktop>[1])
   | { operation: "reset-retry"; id: string }
   | ({ operation: "reset-claim" } & Parameters<typeof claimResetEvents>[1])
@@ -75,6 +86,11 @@ async function execute(request: HistoryRequest) {
   const db = await openNativeDashboardDatabase(dbPath);
   try {
     const api = new DashboardApi(db);
+    if (request.operation === "local-estimate") {
+      const definition = validateQuotaDefinitions([request.definition])[0];
+      if (definition.mode !== "local-estimate") throw new Error("Invalid local definition");
+      return await syncLocalQuotaEstimate(db, definition, request.now);
+    }
     if (request.operation === "reset-desktop") return advertiseResetDesktop(db, request);
     if (request.operation === "reset-retry") return retryUncertainReset(db, request.id);
     if (request.operation === "reset-claim") return claimResetEvents(db, request);

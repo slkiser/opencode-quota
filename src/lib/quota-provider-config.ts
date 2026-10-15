@@ -4,11 +4,11 @@ import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 import { parseJsonOrJsonc } from "./jsonc.js";
 import {
   isRecord,
-  validateRemoteDefinitions,
-  type RemoteQuotaDefinition,
+  validateQuotaDefinitions,
+  type QuotaDefinition,
 } from "./quota-provider-definitions.js";
 export interface CustomDefinitionLoad {
-  definitions: RemoteQuotaDefinition[];
+  definitions: QuotaDefinition[];
   path?: string;
   issues: Array<{ path: string; key: string; message: string }>;
 }
@@ -38,7 +38,7 @@ export function loadCustomQuotaDefinitions(): CustomDefinitionLoad {
       if (!isRecord(root)) throw new Error("Invalid custom config root");
       const config = path.endsWith("quota-toast.json") ? root : root.experimental?.quotaToast;
       if (!isRecord(config) || !Object.hasOwn(config, "quotaProviders")) continue;
-      return { definitions: validateRemoteDefinitions(config.quotaProviders), path, issues: [] };
+      return { definitions: validateQuotaDefinitions(config.quotaProviders), path, issues: [] };
     } catch {
       return {
         definitions: [],

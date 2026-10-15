@@ -221,3 +221,114 @@ export function validateRemoteDefinitions(value: unknown): RemoteQuotaDefinition
     }) as RemoteQuotaDefinition;
   });
 }
+
+export interface LocalQuotaWindow {
+  id: string;
+  label: string;
+  type: "utc-day" | "rolling";
+  durationMinutes?: number;
+  requestLimit: number;
+  usdBudget?: number;
+}
+export interface LocalQuotaDefinition {
+  id: `custom-${string}`;
+  providerId: string;
+  label: string;
+  mode: "local-estimate";
+  modelIds?: string[];
+  sources: Array<"opencode" | "claude-cli">;
+  windows: LocalQuotaWindow[];
+  pricingModelMap?: Record<string, string>;
+}
+export type QuotaDefinition = RemoteQuotaDefinition | LocalQuotaDefinition;
+export function validateQuotaDefinitions(value: unknown): QuotaDefinition[] {
+  if (!Array.isArray(value) || value.length > 16)
+    throw new Error("Expected at most 16 custom definitions");
+  const ids = new Set<string>();
+  return value.map((item, index) => {
+    if (!isRecord(item) || ids.has(item.id))
+      throw new Error(`Invalid custom definition at index ${index}`);
+    ids.add(item.id);
+    if (item.mode !== "local-estimate") return validateRemoteDefinitions([item])[0];
+    if (
+      !onlyKeys(item, [
+        "id",
+        "providerId",
+        "label",
+        "mode",
+        "modelIds",
+        "sources",
+        "windows",
+        "pricingModelMap",
+      ]) ||
+      typeof item.id !== "string" ||
+      !/^custom-[a-z0-9][a-z0-9-]{0,55}$/u.test(item.id) ||
+      (item.providerId !== undefined &&
+        (typeof item.providerId !== "string" ||
+          !/^[a-z0-9][a-z0-9-]{0,63}$/u.test(item.providerId))) ||
+      (item.label !== undefined && !boundedText(item.label)) ||
+      (item.modelIds !== undefined &&
+        (!Array.isArray(item.modelIds) ||
+          !item.modelIds.length ||
+          item.modelIds.length > 32 ||
+          !item.modelIds.every(
+            (m: unknown) => typeof m === "string" && /^[^\s]{1,200}$/u.test(m),
+          ))) ||
+      (item.sources !== undefined &&
+        (!Array.isArray(item.sources) ||
+          !item.sources.length ||
+          item.sources.length > 2 ||
+          new Set(item.sources).size !== item.sources.length ||
+          !item.sources.every((s: unknown) => ["opencode", "claude-cli"].includes(String(s))))) ||
+      !Array.isArray(item.windows) ||
+      !item.windows.length ||
+      item.windows.length > 16
+    )
+      throw new Error(`Invalid local definition at index ${index}`);
+    const windows = new Set<string>();
+    for (const w of item.windows) {
+      if (
+        !isRecord(w) ||
+        !onlyKeys(w, ["id", "label", "type", "durationMinutes", "requestLimit", "usdBudget"]) ||
+        typeof w.id !== "string" ||
+        !/^[a-z0-9][a-z0-9-]{0,63}$/u.test(w.id) ||
+        windows.has(w.id) ||
+        (w.label !== undefined && !boundedText(w.label)) ||
+        !["utc-day", "rolling"].includes(w.type) ||
+        !Number.isSafeInteger(w.requestLimit) ||
+        w.requestLimit < 1 ||
+        w.requestLimit > 1e9 ||
+        (w.usdBudget !== undefined &&
+          (!boundedNumber(w.usdBudget) || w.usdBudget < 1e-9 || w.usdBudget > 1e9)) ||
+        (w.type === "rolling"
+          ? !Number.isSafeInteger(w.durationMinutes) ||
+            w.durationMinutes < 1 ||
+            w.durationMinutes > 366 * 1440
+          : w.durationMinutes !== undefined)
+      )
+        throw new Error(`Invalid local window at index ${index}`);
+      windows.add(w.id);
+    }
+    if (
+      item.pricingModelMap !== undefined &&
+      (!isRecord(item.pricingModelMap) ||
+        Object.keys(item.pricingModelMap).length > 64 ||
+        !Object.entries(item.pricingModelMap).every(
+          ([key, value]) =>
+            boundedText(key, 200) &&
+            !["__proto__", "constructor", "prototype"].includes(key) &&
+            typeof value === "string" &&
+            /^[a-z0-9-]{1,64}\/[^\s]{1,200}$/u.test(value),
+        ))
+    )
+      throw new Error(`Invalid local pricing map at index ${index}`);
+    if (!clean(item.label ?? item.id, 80)) throw new Error(`Invalid local label at index ${index}`);
+    return structuredClone({
+      ...item,
+      providerId: item.providerId ?? item.id,
+      label: clean(item.label ?? item.id, 80),
+      sources: item.sources ?? ["opencode"],
+      windows: item.windows.map((w: any) => ({ ...w, label: clean(w.label ?? w.id, 80) })),
+    }) as LocalQuotaDefinition;
+  });
+}

@@ -24,6 +24,79 @@ describe("iterClaudeCodeCliMessages", () => {
     return filePath;
   }
 
+  it("exposes stable provider completion ids and verifies final usage only in opt-in event mode", async () => {
+    writeTranscript("fixture", "session", [
+      {
+        type: "assistant",
+        uuid: "chunk-a",
+        timestamp: "2026-10-15T12:00:00Z",
+        message: {
+          id: "completion-a",
+          model: "claude-sonnet-4-6",
+          stop_reason: null,
+          usage: { input_tokens: 10, output_tokens: 1 },
+        },
+      },
+      {
+        type: "assistant",
+        uuid: "chunk-b",
+        timestamp: "2026-10-15T12:00:01Z",
+        message: {
+          id: "completion-a",
+          model: "claude-sonnet-4-6",
+          stop_reason: "end_turn",
+          usage: { input_tokens: 10, output_tokens: 5 },
+        },
+      },
+      {
+        type: "assistant",
+        uuid: "zero-real",
+        timestamp: "2026-10-15T12:00:02Z",
+        message: {
+          id: "completion-zero",
+          model: "claude-sonnet-4-6",
+          stop_reason: "end_turn",
+          usage: { input_tokens: 0, output_tokens: 0 },
+        },
+      },
+      {
+        type: "assistant",
+        uuid: "synthetic",
+        timestamp: "2026-10-15T12:00:02Z",
+        message: { model: "<synthetic>", usage: { input_tokens: 0, output_tokens: 0 } },
+      },
+    ]);
+    const events = await iterClaudeCodeCliMessages({
+      projectsDir,
+      completionEvents: true,
+      strictReads: true,
+    });
+    expect(events.map((event) => event.id)).toEqual([
+      "completion-a",
+      "completion-a",
+      "completion-zero",
+    ]);
+    expect(events.map((event) => event.usageComplete)).toEqual([false, true, true]);
+    const legacy = await iterClaudeCodeCliMessages({ projectsDir });
+    expect(legacy.map((event) => event.id)).toEqual(["chunk-a", "chunk-b"]);
+    expect(legacy.every((event) => event.usageComplete === undefined)).toBe(true);
+  });
+
+  it("does not guess a stable streamed completion from an unrelated chunk UUID", async () => {
+    writeTranscript("fixture", "uncertain", [
+      {
+        type: "assistant",
+        uuid: "chunk-without-message-id",
+        timestamp: "2026-10-15T12:00:00Z",
+        message: { model: "claude-sonnet-4-6", usage: { input_tokens: 1, output_tokens: 1 } },
+      },
+    ]);
+    await expect(
+      iterClaudeCodeCliMessages({ projectsDir, completionEvents: true, strictReads: true }),
+    ).rejects.toThrow("completion identity/time unavailable");
+    expect(await iterClaudeCodeCliMessages({ projectsDir })).toHaveLength(1);
+  });
+
   it("returns [] when the projects directory does not exist", async () => {
     const messages = await iterClaudeCodeCliMessages({
       projectsDir: join(projectsDir, "does-not-exist"),

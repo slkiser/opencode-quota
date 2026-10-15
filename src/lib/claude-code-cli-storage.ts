@@ -35,6 +35,8 @@ interface ClaudeCliTranscriptEntry {
   sessionId?: string;
   timestamp?: string;
   message?: {
+    id?: string;
+    stop_reason?: string | null;
     model?: string;
     usage?: ClaudeCliUsage;
   };
@@ -73,6 +75,7 @@ function toOpenCodeMessage(
   entry: ClaudeCliTranscriptEntry,
   fallbackSessionID: string,
   lineIndex: number,
+  completionEvents = false,
 ): OpenCodeMessage | null {
   if (entry.type !== "assistant" || !entry.message?.usage) return null;
 
@@ -86,12 +89,43 @@ function toOpenCodeMessage(
     (usage.output_tokens ?? 0) +
     (usage.cache_read_input_tokens ?? 0) +
     (usage.cache_creation_input_tokens ?? 0);
-  if (totalTokens === 0) return null;
+  if (completionEvents ? entry.message.model === "<synthetic>" : totalTokens === 0) return null;
 
   const createdMs = entry.timestamp ? Date.parse(entry.timestamp) : NaN;
-
+  const terminal = [
+    "end_turn",
+    "max_tokens",
+    "stop_sequence",
+    "tool_use",
+    "pause_turn",
+    "refusal",
+    "model_context_window_exceeded",
+  ].includes(entry.message.stop_reason ?? "");
+  const providerIdentity =
+    typeof entry.message.id === "string" &&
+    entry.message.id.length > 0 &&
+    entry.message.id.length <= 512
+      ? entry.message.id
+      : undefined;
+  const uuid =
+    typeof entry.uuid === "string" && entry.uuid.length > 0 && entry.uuid.length <= 512
+      ? entry.uuid
+      : undefined;
+  if (
+    completionEvents &&
+    (!Number.isFinite(createdMs) || (!providerIdentity && !(terminal && uuid)))
+  )
+    throw new Error("Claude usage completion identity/time unavailable");
   return {
-    id: entry.uuid ?? `claude-cli:${fallbackSessionID}:${lineIndex}`,
+    id: completionEvents
+      ? (providerIdentity ?? uuid!)
+      : (entry.uuid ?? `claude-cli:${fallbackSessionID}:${lineIndex}`),
+    ...(completionEvents
+      ? {
+          usageComplete:
+            Number.isFinite(usage.input_tokens) && Number.isFinite(usage.output_tokens) && terminal,
+        }
+      : {}),
     sessionID: entry.sessionId ?? fallbackSessionID,
     role: "assistant",
     providerID: "anthropic",
@@ -118,6 +152,7 @@ export async function iterClaudeCodeCliMessages(params: {
   untilMs?: number;
   projectsDir?: string;
   strictReads?: boolean;
+  completionEvents?: boolean;
 }): Promise<OpenCodeMessage[]> {
   const projectsDir = params.projectsDir ?? getClaudeCodeCliProjectsDir();
   const files = await listJsonlFiles(projectsDir, params.strictReads);
@@ -159,7 +194,16 @@ export async function iterClaudeCodeCliMessages(params: {
         continue;
       }
 
-      const message = toOpenCodeMessage(entry, fallbackSessionID, i);
+      if (params.completionEvents && entry.type === "assistant") {
+        const at = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
+        if (
+          Number.isFinite(at) &&
+          ((params.sinceMs !== undefined && at < params.sinceMs) ||
+            (params.untilMs !== undefined && at > params.untilMs))
+        )
+          continue;
+      }
+      const message = toOpenCodeMessage(entry, fallbackSessionID, i, params.completionEvents);
       if (!message) continue;
 
       const createdMs = message.time?.created;

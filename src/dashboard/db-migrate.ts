@@ -36,6 +36,15 @@ const V3 = `CREATE TABLE IF NOT EXISTS reset_events (
 CREATE INDEX IF NOT EXISTS idx_reset_events_pending ON reset_events(state,observed_at);`;
 const V4 = `CREATE TABLE IF NOT EXISTS reset_delivery_consumers (
   consumer_id TEXT PRIMARY KEY, watched TEXT NOT NULL, available_until INTEGER NOT NULL);`;
+const V5 = `CREATE TABLE IF NOT EXISTS custom_estimate_events (
+ definition_id TEXT NOT NULL,source TEXT NOT NULL,event_id TEXT NOT NULL,fingerprint TEXT NOT NULL,
+ completed_at INTEGER NOT NULL,provider_id TEXT NOT NULL,model_id TEXT NOT NULL,tokens TEXT,
+ PRIMARY KEY(definition_id,source,event_id));
+ CREATE INDEX IF NOT EXISTS idx_custom_events_time ON custom_estimate_events(definition_id,source,completed_at);
+ CREATE INDEX IF NOT EXISTS idx_custom_events_fingerprint ON custom_estimate_events(definition_id,source,fingerprint);
+ CREATE TABLE IF NOT EXISTS custom_estimate_aliases (
+ definition_id TEXT NOT NULL,source TEXT NOT NULL,message_key TEXT NOT NULL,event_id TEXT NOT NULL,
+ PRIMARY KEY(definition_id,source,message_key));`;
 function version(db: DatabaseLike): number {
   if (
     !db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'").get()
@@ -46,9 +55,9 @@ function version(db: DatabaseLike): number {
   );
 }
 export function migrateSchema(db: DatabaseLike): void {
-  for (let attempt = 0; attempt < 4; attempt++) {
+  for (let attempt = 0; attempt < 5; attempt++) {
     const initial = version(db);
-    if (initial >= 4) return;
+    if (initial >= 5) return;
     const file = db
       .prepare("PRAGMA database_list")
       .all()
@@ -89,6 +98,7 @@ export function migrateSchema(db: DatabaseLike): void {
         [2, V2],
         [3, V3],
         [4, V4],
+        [5, V5],
       ] as const)
         if (current < target) {
           db.exec(sql);

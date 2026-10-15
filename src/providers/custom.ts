@@ -1,3 +1,5 @@
+import { fetchLocalQuotaEstimate } from "../lib/local-estimate-client.js";
+import { DEFAULT_CONFIG } from "../lib/types.js";
 import { createHash } from "node:crypto";
 import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
 import { loadCustomQuotaDefinitions } from "../lib/quota-provider-config.js";
@@ -11,7 +13,7 @@ import { createResolvedAuthCachePolicy } from "./account-cache.js";
 import { notAttemptedResult } from "./result-helpers.js";
 async function select(id: string, ctx: QuotaProviderContext) {
   const definition = loadCustomQuotaDefinitions().definitions.find((item) => item.id === id);
-  if (!definition) return null;
+  if (!definition || definition.mode !== "remote-api") return null;
   const resolved = await createProviderApiKeyResolver<string>({
     envVars: definition.apiKeyEnv ? [{ name: definition.apiKeyEnv, source: "env" }] : [],
     providerKeys: [definition.providerId],
@@ -33,8 +35,14 @@ async function select(id: string, ctx: QuotaProviderContext) {
 export function getCustomQuotaProviders(): QuotaProvider[] {
   return loadCustomQuotaDefinitions().definitions.map((def) => ({
     id: def.id,
-    cachePolicy: createResolvedAuthCachePolicy(def.id, (ctx) => select(def.id, ctx)),
-    isAvailable: async (ctx) => Boolean(await select(def.id, ctx)),
+    cachePolicy:
+      def.mode === "local-estimate"
+        ? { kind: "uncached" }
+        : createResolvedAuthCachePolicy(def.id, (ctx) => select(def.id, ctx)),
+    isAvailable: async (ctx) => {
+      const current = loadCustomQuotaDefinitions().definitions.find((item) => item.id === def.id);
+      return current?.mode === "local-estimate" || Boolean(await select(def.id, ctx));
+    },
     matchesCurrentModel: (model) => {
       const current = loadCustomQuotaDefinitions().definitions.find((item) => item.id === def.id);
       if (!current || !model.startsWith(`${current.providerId}/`)) return false;
@@ -43,6 +51,12 @@ export function getCustomQuotaProviders(): QuotaProvider[] {
       );
     },
     async fetch(ctx) {
+      const current = loadCustomQuotaDefinitions().definitions.find((item) => item.id === def.id);
+      if (current?.mode === "local-estimate")
+        return fetchLocalQuotaEstimate(
+          current,
+          ctx.config.pricingSnapshot ?? DEFAULT_CONFIG.pricingSnapshot,
+        );
       const selected = await select(def.id, ctx);
       return selected ? selected.fetch() : notAttemptedResult();
     },

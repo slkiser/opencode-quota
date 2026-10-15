@@ -1,6 +1,6 @@
 # CUS-01 — Global remote quota definitions
 
-Issue: [#24](https://github.com/thanhndv212/opencode-quota/issues/24). Status: implemented; local acceptance passed; hosted checks and merge pending. Evidence date: 2026-10-15. Dependencies: ACC-01 and COR-01/02 complete.
+Issue: [#24](https://github.com/thanhndv212/opencode-quota/issues/24). Status: complete. PR #54 merged at `fd90be4`; all six merged-main CI 38755053941 checks passed. Evidence date: 2026-10-15. Dependencies: ACC-01 and COR-01/02 complete.
 
 Adapted from upstream `130d82b` definitions, `f6393b3abb22beecd55b43da483acca6c496f8f6` quota-v1/json-v1 schemas and mature modules at `2733b5bd010f659d1d6007e5d19026e82d51353f`. Reviewed main `0819759854fa65c68daf53296972e890f9ad3f5c`: credential-database auth changes stay under the explicit host compatibility gate. Later plain-decimal text normalization (`5694966`) is not silently imported: this slice accepts JSON numbers, with explicit division, and reports numeric strings unavailable rather than coercing them. Existing fork providers are unchanged.
 

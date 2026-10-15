@@ -332,8 +332,8 @@ export function getQuotaProviderShape(id: string): QuotaProviderShape | undefine
     ? {
         id: custom.id,
         autoSetup: "manual_env_config",
-        authentication: "external_api_key",
-        quota: "remote_api",
+        authentication: custom.mode === "local-estimate" ? "state_only" : "external_api_key",
+        quota: custom.mode === "local-estimate" ? "local_estimation" : "remote_api",
       }
     : undefined;
 }

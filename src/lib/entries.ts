@@ -1,5 +1,5 @@
 import type { ResolvedAuthIdentity } from "./resolved-auth-identity.js";
-import type { CursorQuotaPlan, OpenCodeGoWindowKey } from "./types.js";
+import type { CursorQuotaPlan, OpenCodeGoWindowKey, QuotaToastConfig } from "./types.js";
 import type { AccountingDocument, AccountingRow } from "./accounting.js";
 
 /**
@@ -133,6 +133,7 @@ export interface QuotaProviderContext {
     cursorBillingCycleStartDay?: number;
     opencodeGoWindows?: OpenCodeGoWindowKey[];
     requestTimeoutMs?: number;
+    pricingSnapshot?: QuotaToastConfig["pricingSnapshot"];
     /** True when requestTimeoutMs came from user config rather than DEFAULT_CONFIG. */
     requestTimeoutMsConfigured?: boolean;
     onlyCurrentModel?: boolean;
