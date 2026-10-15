@@ -251,7 +251,8 @@ const REPORT_WORDS: readonly string[] = `
   notices price_list_providers selection_note built-in is used prices ignored valid so one lists
   session has model dropped_row timeout login_expired not_configured bad_response no_data no_plan
   repeated object wrong value id label type method authority prominence account window
-  percentRemaining used limit remaining amount flag resetsAt windowStartedAt
+  percentRemaining used limit remaining amount flag resetsAt windowStartedAt window_hint
+  valid_account_count
 `.split(/\s+/u);
 
 /**

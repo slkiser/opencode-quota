@@ -86,7 +86,8 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     label: "Alibaba Personal Token Plan",
     runtimeIds: ["alibaba-token-plan"],
     synonyms: [],
-    rowKeys: ["five_hour", "weekly"],
+    // Its rows: the personal plan as `personal`.
+    rowKeys: ["personal"],
   },
   {
     id: "google-gemini-cli",

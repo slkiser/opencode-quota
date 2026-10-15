@@ -67,10 +67,8 @@ function capturedSpawn(requests: AlibabaTokenPlanSpawnRequest[]) {
       code: 0,
       stdout: Buffer.from(
         JSON.stringify({
-          per5HourPercentage: 0.25,
-          per5HourResetTime: 1_714_000_000_000,
-          per1WeekPercentage: 0.5,
-          per1WeekResetTime: 1_714_600_000_000,
+          per1MonthPercentage: 0.25,
+          per1MonthResetTime: 1_714_000_000_000,
         }),
       ),
       stderr: Buffer.alloc(0),
@@ -112,76 +110,77 @@ const INVALID_SCHEMA = {
 describe("alibaba token plan parser", () => {
   it.each([
     {
-      name: "official used fractions and epoch-ms resets",
-      payload: {
-        per5HourPercentage: 0.2,
-        per5HourResetTime: Date.parse("2024-04-24T22:13:20.000Z"),
-        per1WeekPercentage: 0.8,
-        per1WeekResetTime: Date.parse("2024-05-01T20:53:20.000Z"),
-      },
+      // The CLI reports the fraction used, so half spent means 50% remaining.
+      name: "the used fraction inverted into the percent remaining",
+      payload: { per1MonthPercentage: 0.5 },
+      expected: { ok: true, monthly: { percentRemaining: 50 } },
+    },
+    {
+      name: "an epoch-ms reset as the right instant, not seconds",
+      payload: { per1MonthPercentage: 0.2, per1MonthResetTime: 1_714_000_000_000 },
       expected: {
         ok: true,
-        fiveHour: { percentRemaining: 80, resetTimeIso: "2024-04-24T22:13:20.000Z" },
-        weekly: { percentRemaining: 20, resetTimeIso: "2024-05-01T20:53:20.000Z" },
+        monthly: {
+          percentRemaining: 80,
+          resetTimeIso: new Date(1_714_000_000_000).toISOString(),
+        },
       },
     },
     {
-      name: "one window without fabricating the missing one",
-      payload: {
-        per1WeekPercentage: 0.4,
-        per1WeekResetTime: Date.parse("2024-05-01T20:53:20.000Z"),
-      },
+      name: "a percentage without a reset, without inventing one",
+      payload: { per1MonthPercentage: 0 },
+      expected: { ok: true, monthly: { percentRemaining: 100 } },
+    },
+    {
+      name: "full exhaustion",
+      payload: { per1MonthPercentage: 1, per1MonthResetTime: 1_714_600_000_000 },
       expected: {
         ok: true,
-        weekly: { percentRemaining: 60, resetTimeIso: "2024-05-01T20:53:20.000Z" },
+        monthly: { percentRemaining: 0, resetTimeIso: "2024-05-01T21:46:40.000Z" },
       },
-    },
-    {
-      name: "a percentage without a reset",
-      payload: { per5HourPercentage: 0 },
-      expected: { ok: true, fiveHour: { percentRemaining: 100 } },
-    },
-    {
-      name: "full exhaustion and unused quota",
-      payload: { per5HourPercentage: 1, per1WeekPercentage: 0 },
-      expected: { ok: true, fiveHour: { percentRemaining: 0 }, weekly: { percentRemaining: 100 } },
     },
     {
       name: "unrounded precision until shared rendering",
-      payload: { per5HourPercentage: 0.123456789 },
-      expected: { ok: true, fiveHour: { percentRemaining: 100 - 0.123456789 * 100 } },
+      payload: { per1MonthPercentage: 0.123456789 },
+      expected: { ok: true, monthly: { percentRemaining: 100 - 0.123456789 * 100 } },
     },
   ])("parses $name", ({ payload, expected }) => {
     expect(parseAlibabaTokenPlanUsageJson(JSON.stringify(payload))).toEqual(expected);
   });
 
+  it("treats an empty payload as a success without a window or a made-up row", () => {
+    expect(parseAlibabaTokenPlanUsageJson("{}")).toEqual({ ok: true });
+  });
+
   it.each([
-    ["a reset without a percentage", { per5HourResetTime: 1_714_000_000_000 }],
-    [
-      "a percentage above 1 next to a valid window",
-      { per5HourPercentage: 1.2, per1WeekPercentage: 0.1, per1WeekResetTime: 1_714_600_000_000 },
-    ],
-    ["a string reset", { per5HourPercentage: 0.2, per5HourResetTime: "1714000000000" }],
-    ["a zero reset", { per5HourPercentage: 0.2, per5HourResetTime: 0 }],
-    ["a negative reset", { per5HourPercentage: 0.2, per5HourResetTime: -1 }],
-    ["a null (non-finite) reset", { per5HourPercentage: 0.2, per5HourResetTime: null }],
-    ["a reset past 2100", { per5HourPercentage: 0.2, per5HourResetTime: 5_000_000_000_000 }],
+    ["a reset without a percentage", { per1MonthResetTime: 1_714_000_000_000 }],
+    ["a percentage above 1", { per1MonthPercentage: 1.2 }],
+    ["a negative percentage", { per1MonthPercentage: -0.1 }],
+    ["a string percentage", { per1MonthPercentage: "0.2" }],
+    ["a string reset", { per1MonthPercentage: 0.2, per1MonthResetTime: "1714000000000" }],
+    ["a zero reset", { per1MonthPercentage: 0.2, per1MonthResetTime: 0 }],
+    ["a negative reset", { per1MonthPercentage: 0.2, per1MonthResetTime: -1 }],
+    ["a null (non-finite) reset", { per1MonthPercentage: 0.2, per1MonthResetTime: null }],
+    ["a reset past 2100", { per1MonthPercentage: 0.2, per1MonthResetTime: 5_000_000_000_000 }],
     ["a non-object root", []],
   ])("rejects %s instead of dropping the window", (_name, payload) => {
     expect(parseAlibabaTokenPlanUsageJson(JSON.stringify(payload))).toEqual(INVALID_SCHEMA);
   });
 
-  it("rejects invalid JSON and a payload without windows", () => {
+  it.each([
+    [
+      "a reply with only the removed 5-hour window",
+      { per5HourPercentage: 0.25, per5HourResetTime: 1_714_000_000_000 },
+      "a CLI older than 2.2.0",
+    ],
+  ])("reads %s as a success with no window, not a failure (%s)", (_name, payload) => {
+    expect(parseAlibabaTokenPlanUsageJson(JSON.stringify(payload))).toEqual({ ok: true });
+  });
+
+  it("rejects invalid JSON", () => {
     expect(parseAlibabaTokenPlanUsageJson("{")).toEqual({
       ok: false,
       error: { kind: "invalid_json", message: "Alibaba Cloud CLI did not return valid JSON." },
-    });
-    expect(parseAlibabaTokenPlanUsageJson("{}")).toEqual({
-      ok: false,
-      error: {
-        kind: "no_data",
-        message: "Alibaba Personal Token Plan usage returned no quota windows.",
-      },
     });
   });
 });
@@ -495,10 +494,8 @@ process.stdin.on("data", (chunk) => { stdin += chunk; });
 process.stdin.on("end", () => {
   fs.writeFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), stdin }));
   process.stdout.write(JSON.stringify({
-    per5HourPercentage: 0.1,
-    per5HourResetTime: 1714000000000,
-    per1WeekPercentage: 0.3,
-    per1WeekResetTime: 1714600000000
+    per1MonthPercentage: 0.1,
+    per1MonthResetTime: 1714000000000
   }));
 });
 `,

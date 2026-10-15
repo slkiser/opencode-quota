@@ -1,7 +1,8 @@
 /**
  * Alibaba Personal Token Plan as one module: a fake Alibaba Cloud CLI (`bl`) on the PATH, a
- * shell script that prints a reply or exits with the CLI's codes. The CLI runs on macOS and Linux
- * only; elsewhere the provider is not set up.
+ * shell script that prints a reply or exits with the CLI's codes. The provider itself runs on
+ * Windows too, but a fake `bl` is a POSIX shell script, so the cases that install one only run
+ * where such a script can be spawned.
  */
 
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -10,11 +11,15 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 
 import { rowsFromProviderResult } from "../src/core/rows.js";
+import { NO_WINDOW_HINT } from "../src/lib/alibaba-token-plan.js";
 import { alibabaTokenPlanProvider } from "../src/providers/alibaba-token-plan.js";
 import { rowSummary } from "./helpers/provider-fetch.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 
+/** The provider's own platforms. */
 const SUPPORTED = process.platform === "darwin" || process.platform === "linux";
+/** A fake `bl` is a POSIX shell script, so the CLI cases need a host that can run one. */
+const FAKE_CLI_HOST = process.platform !== "win32";
 const RESET = "2024-05-01T20:53:20.000Z";
 const PLATFORM = { key: "platform", value: process.platform };
 const originalPath = process.env.PATH;
@@ -96,8 +101,8 @@ describe("alibaba-token-plan provider", () => {
     expect(alibabaTokenPlanProvider.matchesCurrentModel?.(model, context)).toBe(expected);
   });
 
-  it.runIf(SUPPORTED)("never runs a bl from inside the project folder", async () => {
-    installCli(replying({ per1WeekPercentage: 0.4 }), join(project, "bin"));
+  it.runIf(FAKE_CLI_HOST)("never runs a bl from inside the project folder", async () => {
+    installCli(replying({ per1MonthPercentage: 0.4 }), join(project, "bin"));
 
     const fetched = await fetchTokenPlan();
 
@@ -105,27 +110,32 @@ describe("alibaba-token-plan provider", () => {
     expect(fetched.debug).toContainEqual({ key: "failure_kind", value: "executable_not_found" });
   });
 
-  it.runIf(SUPPORTED).each([
+  it.runIf(FAKE_CLI_HOST).each([
     [
-      "both windows",
-      replying({
-        per5HourPercentage: 0.6,
-        per1WeekPercentage: 0.4,
-        per1WeekResetTime: Date.parse(RESET),
-      }),
-      [
-        ["alibaba-token-plan.five_hour", null, "5h", "five_hour", 40, null],
-        ["alibaba-token-plan.weekly", null, "Weekly", "week", 60, RESET],
-      ],
+      "the monthly window, with its reset",
+      replying({ per1MonthPercentage: 0.6, per1MonthResetTime: Date.parse(RESET) }),
+      [["alibaba-token-plan.personal", null, "Monthly", "month", 40, RESET]],
       undefined,
-      [{ key: "cli_available", value: "true" }, PLATFORM, { key: "windows", value: "5h,weekly" }],
+      [{ key: "cli_available", value: "true" }, PLATFORM, { key: "windows", value: "monthly" }],
     ],
     [
-      "only the weekly window, without making up the other",
-      replying({ per1WeekPercentage: 0.4, per1WeekResetTime: Date.parse(RESET) }),
-      [["alibaba-token-plan.weekly", null, "Weekly", "week", 60, RESET]],
+      "a signed-in reply with no window, left blank rather than reported",
+      replying({}),
+      [],
       undefined,
-      [{ key: "cli_available", value: "true" }, PLATFORM, { key: "windows", value: "weekly" }],
+      [
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "windows", value: "(none)" },
+        { key: "window_hint", value: NO_WINDOW_HINT },
+      ],
+    ],
+    [
+      "the monthly window without a reset time",
+      replying({ per1MonthPercentage: 0.5 }),
+      [["alibaba-token-plan.personal", null, "Monthly", "month", 50, null]],
+      undefined,
+      [{ key: "cli_available", value: "true" }, PLATFORM, { key: "windows", value: "monthly" }],
     ],
     [
       "a missing CLI",
@@ -188,6 +198,36 @@ describe("alibaba-token-plan provider", () => {
     else expect(fetched.error).toBeUndefined();
     expect(fetched.debug).toEqual(debug);
   });
+
+  it.runIf(FAKE_CLI_HOST)(
+    "gives the monthly row a start a calendar month before its reset",
+    async () => {
+      installCli(replying({ per1MonthPercentage: 0.6, per1MonthResetTime: Date.parse(RESET) }));
+
+      const fetched = await fetchTokenPlan();
+
+      // The reply says when the month resets; its cycle is anchored on that day, so the start is
+      // the same day a calendar month back.
+      expect(fetched.rows[0]?.windowStartedAt).toBe("2024-04-01T20:53:20.000Z");
+    },
+  );
+
+  it.runIf(FAKE_CLI_HOST)(
+    "clamps the monthly start to the last day of a shorter month",
+    async () => {
+      installCli(
+        replying({
+          per1MonthPercentage: 0.6,
+          per1MonthResetTime: Date.parse("2024-03-31T00:00:00.000Z"),
+        }),
+      );
+
+      const fetched = await fetchTokenPlan();
+
+      // February 2024 has no 31st, so the start lands on the last day it has.
+      expect(fetched.rows[0]?.windowStartedAt).toBe("2024-02-29T00:00:00.000Z");
+    },
+  );
 
   it.runIf(!SUPPORTED)("is not set up on an unsupported platform", async () => {
     const fetched = await fetchTokenPlan();

@@ -44,7 +44,10 @@ import {
 } from "../settings/schema.js";
 import { formatShare, formatTokens } from "../view/format.js";
 import { COUNT_LABELS } from "./accounting-format.js";
-import { ERROR_MESSAGES as ALIBABA_TOKEN_PLAN_ERRORS } from "./alibaba-token-plan.js";
+import {
+  ERROR_MESSAGES as ALIBABA_TOKEN_PLAN_ERRORS,
+  NO_WINDOW_HINT,
+} from "./alibaba-token-plan.js";
 import { API_KEY_VENDORS } from "./api-key-resolver.js";
 import { COPILOT_AUTH_KEYS } from "./copilot.js";
 import { CURSOR_CANONICAL_PLUGIN_PACKAGE } from "./cursor-detection.js";
@@ -1115,7 +1118,8 @@ const DEBUG_DETAILS = {
     cli_available: bool,
     // The provider writes the platform this report runs on.
     platform: oneOf(process.platform),
-    windows: listOf(["5h", "weekly"]),
+    windows: listOf(["monthly"]),
+    window_hint: oneOf(NO_WINDOW_HINT),
     failure_kind: oneOf(...Object.keys(ALIBABA_TOKEN_PLAN_ERRORS)),
   },
   "google-gemini-cli": GOOGLE_DETAILS,

@@ -25,10 +25,8 @@ await writeFile(
 const fs = require("node:fs");
 fs.writeFileSync(${JSON.stringify(argvLog)}, JSON.stringify(process.argv.slice(2)));
 process.stdout.write(JSON.stringify({
-  per5HourPercentage: 0.25,
-  per5HourResetTime: 1714000000000,
-  per1WeekPercentage: 0.5,
-  per1WeekResetTime: 1714600000000
+  per1MonthPercentage: 0.25,
+  per1MonthResetTime: 1714000000000
 }));
 `,
   { mode: 0o755 },
@@ -80,13 +78,12 @@ try {
       },
     });
     assert.equal(live.ok, true);
-    assert.equal(live.fiveHour?.percentRemaining, 75);
-    assert.equal(live.weekly?.percentRemaining, 50);
+    assert.equal(live.monthly?.percentRemaining, 75);
     const argv = JSON.parse(await readFile(argvLog, "utf8"));
     assert.deepEqual(argv, ["usage", "token-plan", "--output", "json"]);
   }
 
-  console.log("Packed Alibaba Personal Token Plan smoke passed.");
+  console.log("Packed Alibaba Token Plan smoke passed.");
 } finally {
   await rm(workdir, { recursive: true, force: true });
 }

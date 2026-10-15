@@ -306,11 +306,6 @@ const PRODUCED: ReadonlyArray<{
   { code: "no_data", from: "src/lib/google-agy.ts", text: "Quota summary API unavailable" },
   {
     code: "no_data",
-    from: "src/lib/alibaba-token-plan.ts",
-    text: "Alibaba Personal Token Plan usage returned no quota windows.",
-  },
-  {
-    code: "no_data",
     from: "src/lib/anthropic.ts",
     text: "Claude CLI auth detected, but quota was unavailable from the local CLI and OAuth credential sources.",
   },

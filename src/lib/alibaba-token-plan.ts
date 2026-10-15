@@ -14,7 +14,7 @@ import { realpath, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { REQUEST_TIMEOUT_MS } from "./http.js";
-import { asRecord } from "./json-guards.js";
+import { asRecord, finiteNumber } from "./json-guards.js";
 
 const ALIBABA_TOKEN_PLAN_COMMAND = "bl";
 const ALIBABA_TOKEN_PLAN_ARGS = ["usage", "token-plan", "--output", "json"] as const;
@@ -75,8 +75,7 @@ type AlibabaTokenPlanErrorKind =
   | "nonzero_exit"
   | "not_authenticated"
   | "invalid_json"
-  | "invalid_schema"
-  | "no_data";
+  | "invalid_schema";
 
 type AlibabaTokenPlanError = {
   kind: AlibabaTokenPlanErrorKind;
@@ -88,8 +87,7 @@ type AlibabaTokenPlanFailure = { ok: false; error: AlibabaTokenPlanError };
 export type AlibabaTokenPlanClosedResult =
   | {
       ok: true;
-      fiveHour?: AlibabaTokenPlanWindow;
-      weekly?: AlibabaTokenPlanWindow;
+      monthly?: AlibabaTokenPlanWindow;
     }
   | AlibabaTokenPlanFailure;
 
@@ -142,8 +140,12 @@ export const ERROR_MESSAGES: Record<AlibabaTokenPlanErrorKind, string> = {
     "Alibaba Cloud console session is missing or expired. Run `bl auth login --console`.",
   invalid_json: "Alibaba Cloud CLI did not return valid JSON.",
   invalid_schema: "Alibaba Cloud CLI returned an invalid Personal Token Plan payload.",
-  no_data: "Alibaba Personal Token Plan usage returned no quota windows.",
 };
+
+/** A reply without a monthly percentage. `bl` renders that case as an unlimited limit, and a CLI
+ * older than bailian-cli 2.2.0 produces it too, so the hint names the CLI's own wording. */
+export const NO_WINDOW_HINT =
+  "no monthly percentage in the reply; the limit may be unlimited — verify in the Bailian Token Plan console";
 
 function fail(kind: AlibabaTokenPlanErrorKind): AlibabaTokenPlanFailure {
   return { ok: false, error: { kind, message: ERROR_MESSAGES[kind] } };
@@ -254,32 +256,21 @@ export async function resolveAlibabaTokenPlanExecutable(params: {
   return fail(sawShellLauncher ? "shell_launcher_rejected" : "executable_not_found");
 }
 
-/** One window: a used fraction 0..1 and an optional epoch-ms reset. A reset alone is invalid. */
+/** The used fraction 0..1 and an optional epoch-ms reset. A reset alone is invalid; neither present
+ * means the plan may be unlimited. */
 function parseWindow(
   payload: Record<string, unknown>,
-  prefix: "per5Hour" | "per1Week",
 ): AlibabaTokenPlanWindow | undefined | "invalid" {
-  const percentageKey = `${prefix}Percentage`;
-  const resetKey = `${prefix}ResetTime`;
-  const resetPresent = Object.hasOwn(payload, resetKey);
-  if (!Object.hasOwn(payload, percentageKey)) return resetPresent ? "invalid" : undefined;
+  const resetPresent = Object.hasOwn(payload, "per1MonthResetTime");
+  if (!Object.hasOwn(payload, "per1MonthPercentage")) return resetPresent ? "invalid" : undefined;
 
-  const used = payload[percentageKey];
-  if (typeof used !== "number" || !Number.isFinite(used) || used < 0 || used > 1) {
-    return "invalid";
-  }
+  const used = finiteNumber(payload.per1MonthPercentage);
+  if (used === undefined || used < 0 || used > 1) return "invalid";
   const percentRemaining = 100 - used * 100;
   if (!resetPresent) return { percentRemaining };
 
-  const reset = payload[resetKey];
-  if (
-    typeof reset !== "number" ||
-    !Number.isFinite(reset) ||
-    reset <= 0 ||
-    reset > MAX_RESET_TIME_MS
-  ) {
-    return "invalid";
-  }
+  const reset = finiteNumber(payload.per1MonthResetTime);
+  if (reset === undefined || reset <= 0 || reset > MAX_RESET_TIME_MS) return "invalid";
   return { percentRemaining, resetTimeIso: new Date(reset).toISOString() };
 }
 
@@ -293,16 +284,10 @@ export function parseAlibabaTokenPlanUsageJson(text: string): AlibabaTokenPlanCl
   const record = asRecord(payload);
   if (!record) return fail("invalid_schema");
 
-  const fiveHour = parseWindow(record, "per5Hour");
-  const weekly = parseWindow(record, "per1Week");
-  if (fiveHour === "invalid" || weekly === "invalid") return fail("invalid_schema");
-  if (!fiveHour && !weekly) return fail("no_data");
-
-  return {
-    ok: true,
-    ...(fiveHour ? { fiveHour } : {}),
-    ...(weekly ? { weekly } : {}),
-  };
+  const monthly = parseWindow(record);
+  if (monthly === "invalid") return fail("invalid_schema");
+  // No window is a valid reply: the CLI itself says the limit may be unlimited.
+  return { ok: true, ...(monthly ? { monthly } : {}) };
 }
 
 function errorCode(error: unknown): string | undefined {
