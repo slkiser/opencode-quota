@@ -1,0 +1,74 @@
+name: Native Linux notification acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_run:
+        description: Successful desktop candidate run containing desktop-candidate-linux
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  native-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.x
+      - name: Activate pinned package manager
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.0.0 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - name: Install isolated desktop test tools
+        run: sudo apt-get update && sudo apt-get install -y dunst dbus-x11 scrot
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-candidate-linux
+          path: candidate
+          run-id: ${{ inputs.artifact_run }}
+          github-token: ${{ github.token }}
+      - name: Verify artifact and launch with a real notification daemon
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd candidate && sha256sum --check SHA256SUMS)
+          node --input-type=module -e '
+            import fs from "node:fs";
+            import { execFileSync } from "node:child_process";
+            const metadata=JSON.parse(fs.readFileSync("candidate/CANDIDATE.json","utf8"));
+            const pkg=JSON.parse(fs.readFileSync("package.json","utf8"));
+            if(metadata.name!==pkg.name || metadata.version!==pkg.version || metadata.os!=="linux") throw new Error("Candidate identity/version/platform mismatch");
+            const tagged=execFileSync("git",["rev-parse",`refs/tags/v${pkg.version}^{commit}`],{encoding:"utf8"}).trim();
+            if(metadata.commit!==tagged) throw new Error("Candidate does not match the tested version tag");
+          '
+          install_dir=$(mktemp -d)
+          trap 'rm -rf "$install_dir"' EXIT
+          deb=$(find candidate -maxdepth 1 -name '*.deb' -print -quit)
+          dpkg-deb --extract "$deb" "$install_dir"
+          binary=$(find "$install_dir/opt" -type f -name opencode-quota -perm -u+x -print -quit)
+          test -n "$binary"
+          mkdir -p native-evidence
+          export QUOTA_NATIVE_BINARY="$binary"
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1280x1024x24' bash -c '
+            set -euo pipefail
+            dunst -conf scripts/fixtures/native-dunstrc > native-evidence/dunst.log 2>&1 &
+            daemon=$!
+            trap "kill $daemon || true" EXIT
+            QUOTA_SMOKE_NATIVE_NOTICES=1 node scripts/smoke-packaged-app.mjs "$QUOTA_NATIVE_BINARY" native-evidence
+          '
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-linux-notification-evidence
+          path: native-evidence/*
+          if-no-files-found: warn

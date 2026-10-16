@@ -1,0 +1,21 @@
+[global]
+    origin = top-right
+    offset = 15x15
+    width = 560
+    height = 100
+    font = Monospace 12
+    format = "<b>%s</b>\n%b"
+    markup = full
+    frame_width = 2
+    frame_color = "#ffffff"
+    background = "#222222"
+    foreground = "#ffffff"
+    follow = none
+    notification_limit = 1
+    mouse_middle_click = do_action
+[urgency_low]
+    timeout = 0
+[urgency_normal]
+    timeout = 0
+[urgency_critical]
+    timeout = 0

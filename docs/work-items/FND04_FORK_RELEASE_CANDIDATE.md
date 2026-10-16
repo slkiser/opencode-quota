@@ -1,6 +1,6 @@
 # FND-04 — Fork release candidate and artifact promotion
 
-Issue: [#7](https://github.com/thanhndv212/opencode-quota/issues/7). Status: in progress. Evidence date: 2026-10-15. Candidate: `3.11.0-rc.1` (version PR before tag). Distribution decision: **GitHub desktop/tarball candidate, without npm publication**. npm authentication is unavailable; no registry rights or package publication are claimed. Optional fork npm publication is manual-only and cannot be triggered by publishing a desktop GitHub release.
+Issue: [#7](https://github.com/thanhndv212/opencode-quota/issues/7). Status: in progress. Evidence date: 2026-10-15. Candidate: `3.11.0-rc.1`. Version PR #57 merged at `b47c9df1b7a906ca42b0fd198c0a14b4283eb93c`; all six main CI 38961725242 checks passed before tag `v3.11.0-rc.1`. Distribution decision: **GitHub desktop/tarball candidate, without npm publication**. npm authentication is unavailable; no registry rights or package publication are claimed. Optional fork npm publication is manual-only and cannot be triggered by publishing a desktop GitHub release.
 
 Package/repository/bugs/homepage/TUI imports/installer remain under `thanhndv212/opencode-quota`, preserving upstream MIT attribution. Linux maintainer metadata now identifies the fork maintainer's GitHub noreply identity rather than an upstream project address. There is no automatic version edit, protected-main push or upstream updater.
 
@@ -28,4 +28,4 @@ Local prerelease validation: Node 22.23.3/pnpm 10.0.0 typecheck, 161 files / 1,6
 
 ## Promotion record
 
-Pending: merge the version/release PR after required checks, verify merged-main CI, tag that tested commit, build candidates from the tag, verify exact artifact checksums/metadata, attach the tested package plus desktop binaries/provenance to a matching **draft prerelease**. Keep external release/OS gates explicit. Do not promote to a stable or signed release while those gates are unverified.
+2026-10-16: version PR and main CI complete; annotated tag points to the tested merged commit. The matching draft prerelease exists. Tagged desktop candidate run 38962026363 is building the exact assets. Pending: verify its installed-artifact checks/checksums/metadata and attach the tested package plus desktop binaries/provenance to the **draft prerelease**. Keep external release/OS gates explicit. Do not promote to a stable or signed release while those gates are unverified.

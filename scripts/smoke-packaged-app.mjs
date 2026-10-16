@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -8,6 +8,9 @@ if (!binary)
   throw new Error(
     "Usage: node scripts/smoke-packaged-app.mjs <installed-app-binary> [evidence-dir]",
   );
+const nativeNotices = process.env.QUOTA_SMOKE_NATIVE_NOTICES === "1";
+if (nativeNotices && process.platform !== "linux")
+  throw new Error("Native daemon smoke is Linux-only; macOS requires observed UI permission.");
 const evidence = path.resolve(process.argv[3] || "/tmp/quota-packaged-evidence");
 await mkdir(evidence, { recursive: true });
 const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
@@ -40,6 +43,15 @@ await writeFile(
   path.join(settings, "quota-toast.json"),
   JSON.stringify({
     enabledProviders: [],
+    ...(nativeNotices
+      ? {
+          resetNotifications: {
+            enabled: true,
+            watched: [{ providerId: "fixture-os-validation", windowId: "hourly" }],
+            preferDesktop: true,
+          },
+        }
+      : {}),
     enableToast: false,
     pricingSnapshot: { source: "bundled", autoRefresh: 0 },
   }),
@@ -52,6 +64,43 @@ db.exec(
   "CREATE TABLE session(id TEXT,title TEXT,parent_id TEXT,time_created INTEGER,time_updated INTEGER);CREATE TABLE message(id TEXT,session_id TEXT,time_created INTEGER,time_updated INTEGER,data TEXT)",
 );
 db.close();
+if (nativeNotices) {
+  const { DashboardApi } = await import("../dist/dashboard/api.js");
+  const journal = new DatabaseSync(path.join(data, "quota-dashboard.db"));
+  const history = new DashboardApi(journal);
+  history.captureSnapshot("fixture-os-validation", {
+    entries: [{ name: "Hourly fixture", percentRemaining: 100 }],
+    errors: [],
+  });
+  const now = Date.now();
+  const event = {
+    id: "b".repeat(64),
+    accountIdentity: "a".repeat(64),
+    providerId: "fixture-os-validation",
+    rowId: "hourly",
+    windowId: "hourly",
+    label: "Isolated Linux native delivery",
+    previousResetAt: now - 1000,
+    resetAt: now + 3600000,
+    observedAt: now,
+    previousRemaining: 5,
+    percentRemaining: 100,
+  };
+  journal
+    .prepare(
+      "INSERT INTO reset_events(id,provider,account_identity,window_id,observed_at,reset_at,event_data,state) VALUES(?,?,?,?,?,?,?,'pending')",
+    )
+    .run(
+      event.id,
+      event.providerId,
+      event.accountIdentity,
+      event.windowId,
+      event.observedAt,
+      event.resetAt,
+      JSON.stringify(event),
+    );
+  journal.close();
+}
 const wait = async (fn, label) => {
   const until = Date.now() + 25000;
   while (Date.now() < until && !exited) {
@@ -156,7 +205,7 @@ try {
       "No budget alerts configured",
       "Pricing Snapshot",
       "Create Key Store",
-      "No quota history yet",
+      nativeNotices ? "Confirmed Reset Events" : "No quota history yet",
     ][index];
     await wait(
       () => evaluate(`document.body.innerText.includes(${JSON.stringify(expected)})`),
@@ -172,6 +221,50 @@ try {
       Buffer.from(png.data, "base64"),
     );
   }
+  let nativeDelivery;
+  if (nativeNotices) {
+    await wait(
+      async () =>
+        (await evaluate("window.quotaApi.resets.events()")).some(
+          (event) =>
+            event.id === "b".repeat(64) &&
+            event.state === "delivered" &&
+            event.deliveredChannel === "desktop",
+        ),
+      "native delivery acknowledgment",
+    );
+    const displayed = Number(
+      execFileSync("dunstctl", ["count", "displayed"], { encoding: "utf8" }).trim(),
+    );
+    assert.equal(displayed, 1, "Expected exactly one native daemon banner");
+    execFileSync("scrot", [path.join(evidence, "native-os-banner.png")]);
+    await evaluate("document.querySelectorAll('.tab-btn')[0].click()");
+    execFileSync("dunstctl", ["action", "0"]);
+    await wait(
+      () =>
+        evaluate(
+          "document.body.innerText.includes('Window: hourly') && document.body.innerText.includes('Quota History')",
+        ),
+      "native daemon action navigates history/window",
+    );
+    const png = await call("Page.captureScreenshot", { format: "png" });
+    await writeFile(
+      path.join(evidence, "native-action-history.png"),
+      Buffer.from(png.data, "base64"),
+    );
+    nativeDelivery = {
+      daemon: execFileSync("dunst", ["--version"], { encoding: "utf8" }).trim(),
+      displayed,
+      action: "dunstctl default action activated; actual OS callback/history navigation",
+      events: await evaluate("window.quotaApi.resets.events()"),
+      classification:
+        "actual Linux X11/D-Bus daemon banner and action; synthetic reset event, not live provider or other desktop certification",
+    };
+    await writeFile(
+      path.join(evidence, "NATIVE-DELIVERY.json"),
+      JSON.stringify(nativeDelivery, null, 2),
+    );
+  }
   assert.equal(exceptions.length, 0, JSON.stringify(exceptions));
   const result = {
     name: pkg.name,
@@ -182,6 +275,7 @@ try {
     renderer: page.url,
     preload: true,
     tabs: 6,
+    nativeDelivery,
     exceptions,
     classification:
       "actual packaged binary; isolated settings/empty usage; no provider or model certification",

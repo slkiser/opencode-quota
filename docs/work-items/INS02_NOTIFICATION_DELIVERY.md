@@ -33,3 +33,11 @@ Node 22.23.3/pnpm 10.0.0: 150 files / 1,548 tests, typecheck, clean installed-ta
 **Linux:** CI's installed Electron smoke exercises startup/IPC/navigation under its fixture environment. No observed desktop notification-daemon delivery, denied-permission session or real system-tray delivery certification. These remain an explicit external acceptance gate on issue #20.
 
 Keep issue #20 open until platform evidence is attached; do not mark M4 or the roadmap complete from unit/fixture checks. Continue INS-03 and M5 independently while these gates are unavailable.
+
+## Native acceptance follow-up — 2026-10-16
+
+The opt-in Linux acceptance workflow downloads the exact successful desktop candidate artifact, verifies its checksums/name/version/platform, extracts its `.deb` into a temporary installation and launches the actual binary under isolated X11/D-Bus with Dunst. A synthetic durable reset event plus its history fixture exercise production claim/show/settle logic. The harness requires one displayed daemon banner, captures the actual OS screen, activates Dunst's default notification action, and checks provider/window History navigation and delivered desktop state. No native Notification callbacks are mocked. This remains pending until the workflow passes and its banner/action evidence is inspected; it will certify that tested Linux X11/Dunst environment, not every Linux desktop or a live provider reset.
+
+The ordinary macOS packaged-app smoke still passes with notifications off. A separate temporary bundle was locally ad-hoc signed for attempted native validation, using a distinct test bundle ID; no distribution signing identity exists. Computer Use inspection returned “Computer Use permissions are not granted”, so no macOS banner/click was observed and no OS setting was changed. Enabling the required UI capability and permitted native delivery remains external evidence needed; a local ad-hoc test would not certify Developer ID signing, notarization or Gatekeeper approval.
+
+Dunst's supported default-action command is documented in its [official manual](https://dunst-project.org/documentation/dunstctl/). The harness explicitly classifies this as OS action activation, not a physical mouse-click or a universal desktop certification. Default-off behavior and all existing fixture failure/uncertain outcomes remain separate tests.
