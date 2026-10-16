@@ -17,7 +17,7 @@ import {
   type ResolvedAuthIdentity,
 } from "../lib/resolved-auth-identity.js";
 
-type ResolvedCredential = {
+export type ResolvedCredential = {
   credential: string;
   principalKind?: "stable-id" | "credential";
   qualifiers?: readonly string[];

@@ -1,19 +1,22 @@
 /**
  * Alibaba Token Plan as one module: a fake Alibaba Cloud CLI (`bl`) on the PATH, declared once and
- * answering each of the provider's commands (`usage token-plan`, `token-plan list-seats`) from its
- * own reply or exiting with the CLI's codes. The declaration drives both arms: a POSIX host runs it
- * as a shell script, and a host where `spawn(..., { shell: false })` cannot start one drives the
- * provider's own process runner through a faked launch instead.
+ * answering each of the provider's commands (`usage token-plan`, `token-plan list-seats`,
+ * `auth status`) from its own reply or exiting with the CLI's codes. The declaration drives both
+ * arms: a POSIX host runs it as a shell script, and a host where `spawn(..., { shell: false })`
+ * cannot start one drives the provider's own process runner through a faked launch instead.
  */
 
 import type { EventEmitter } from "node:events";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { rowsFromProviderResult } from "../src/core/rows.js";
-import { NO_WINDOW_HINT } from "../src/lib/alibaba-token-plan.js";
+import {
+  clearAlibabaTokenPlanIdentityCacheForTests,
+  NO_WINDOW_HINT,
+} from "../src/lib/alibaba-token-plan.js";
 import { alibabaTokenPlanProvider } from "../src/providers/alibaba-token-plan.js";
 import { rowSummary } from "./helpers/provider-fetch.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
@@ -28,14 +31,28 @@ const CONSOLE_NO_AUTH =
   "Alibaba Cloud console session is missing or expired. Run `bl auth login --console`.";
 const SEAT_NO_AUTH =
   "Alibaba Cloud API Key credentials are missing or expired for team seats; this requires login. Run `bl auth login --open-api`, or set ALIBABA_CLOUD_ACCESS_KEY_ID and ALIBABA_CLOUD_ACCESS_KEY_SECRET.";
+
+/** The `bl auth status --output json` replies by which halves they name; `neither` is no account. */
+const AUTH_STATUS = {
+  both: {
+    console: { masked: "9f2c...d41a" },
+    api_key: { masked: "sk-q...Z7m2" },
+    openapi: { access_key_id: "LTAI...k9Pw" },
+  },
+  seatOnly: { openapi: { access_key_id: "LTAI...k9Pw" } },
+  consoleOnly: { console: { masked: "9f2c...d41a" }, api_key: { masked: "sk-q...Z7m2" } },
+  neither: {},
+} as const;
+
 /** What one command's `bl` answers, declared once and rendered for whichever arm runs it. */
 type CliReply =
   | { kind: "prints"; body: unknown; log?: string }
   | { kind: "exits"; code: number }
+  | { kind: "fails"; body: unknown; code: number }
   | { kind: "waits" };
 
-/** The commands the provider runs, each with its own reply. */
-type CliParts = { usage?: CliReply; seats?: CliReply };
+/** The three commands the provider runs, each with its own reply. */
+type CliParts = { usage?: CliReply; seats?: CliReply; auth?: CliReply };
 
 /** One launch as the provider's runner made it, seen at the mock's own boundary. */
 type LaunchCall = {
@@ -79,6 +96,16 @@ const launch = vi.hoisted(() => ({
   pipes: [] as FakePipe[],
 }));
 
+// The identity is mocked so the test reads the principal it was given, not a digest of the key.
+const identityMocks = vi.hoisted(() => ({
+  deriveIdentity: vi.fn(async (params: unknown) => `rai1_${JSON.stringify(params)}`),
+}));
+
+vi.mock("../src/lib/resolved-auth-identity.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/resolved-auth-identity.js")>()),
+  deriveResolvedAuthIdentity: identityMocks.deriveIdentity,
+}));
+
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
   const events = await import("node:events");
@@ -102,7 +129,8 @@ vi.mock("node:child_process", async (importOriginal) => {
 
   /**
    * Answers the child's command from its declared reply, exactly as the POSIX script's own arm
-   * does: a whole document on stdout, or the CLI's exit code, or no answer at all.
+   * does: a whole document on stdout, or the CLI's exit code, or its failure envelope on stderr,
+   * or no answer at all.
    */
   function deliver(child: EventEmitter & FakeChild, reply: CliReply | undefined): void {
     setImmediate(() => {
@@ -111,6 +139,12 @@ vi.mock("node:child_process", async (importOriginal) => {
         return;
       }
       if (reply.kind === "waits") return;
+      if (reply.kind === "fails") {
+        // The CLI writes its failure envelope to stderr and exits with the code it carries.
+        child.stderr.write(JSON.stringify(reply.body));
+        setImmediate(() => child.emit("close", reply.code));
+        return;
+      }
       if (reply.log) files.appendFileSync(reply.log, "auth status\n");
       child.stdout.write(JSON.stringify(reply.body));
       setImmediate(() => child.emit("close", 0));
@@ -131,7 +165,7 @@ vi.mock("node:child_process", async (importOriginal) => {
           ? launch.replies.usage
           : command === "token-plan list-seats"
             ? launch.replies.seats
-            : undefined,
+            : launch.replies.auth,
       );
       return child;
     }) as typeof actual.spawn,
@@ -155,6 +189,9 @@ beforeEach(() => {
   launch.replies = null;
   launch.calls = [];
   launch.pipes = [];
+  // `bl auth status` is memoised per process, so each case must start from its own reply.
+  clearAlibabaTokenPlanIdentityCacheForTests();
+  identityMocks.deriveIdentity.mockClear();
 });
 
 afterEach(() => {
@@ -181,14 +218,15 @@ function seatPage(items: readonly Record<string, unknown>[]): Record<string, unk
 }
 
 /**
- * A `bl` answering its commands from its own arms; any other command prints nothing. The usage
- * command defaults to a signed-in reply with no window rather than no answer at all, and the seat
- * command to an empty page, so a personal-only case sees no seat either way.
+ * A `bl` answering its three commands from its own arms; any other command prints nothing. The
+ * usage command defaults to a signed-in reply with no window, so a seat-only case sees no personal
+ * row either way; the seat command to an empty page, and the identity command to a set-up account.
  */
 function cli(parts: CliParts): Required<CliParts> {
   return {
     usage: parts.usage ?? replying({}),
     seats: parts.seats ?? replying(seatPage([])),
+    auth: parts.auth ?? replying(AUTH_STATUS.both),
   };
 }
 
@@ -197,6 +235,10 @@ function shellReply(reply: CliReply): string {
   if (reply.kind === "exits") return `exit ${reply.code}`;
   // An `exec` replaces the shell, so the runner's signal reaches the command it is waiting on.
   if (reply.kind === "waits") return "exec sleep 5";
+  if (reply.kind === "fails") {
+    // The CLI writes its failure envelope to stderr and exits with the code it carries.
+    return `printf '%s' '${JSON.stringify(reply.body)}' >&2 && exit ${reply.code}`;
+  }
   const print = `printf '%s' '${JSON.stringify(reply.body)}'`;
   return reply.log ? `printf '%s\\n' 'auth status' >> '${reply.log}' && ${print}` : print;
 }
@@ -207,6 +249,7 @@ function shellScript(parts: Required<CliParts>): string {
     'case "$1 $2" in',
     `  "usage token-plan") ${shellReply(parts.usage)} ;;`,
     `  "token-plan list-seats") ${shellReply(parts.seats)} ;;`,
+    `  "auth status") ${shellReply(parts.auth)} ;;`,
     "  *) exit 0 ;;",
     "esac",
   ].join("\n");
@@ -266,6 +309,17 @@ const TEAM_LEAD_ROW = [
   "68 (80000 credit of 250000 credit)",
   SEAT_RESET,
 ];
+
+const IDENTITY_CONTEXT = {
+  workspaceRoot: "/home/user/project",
+  config: { requestTimeoutMs: 5_000 },
+};
+
+function identityPolicy() {
+  const policy = alibabaTokenPlanProvider.cachePolicy;
+  if (policy?.kind !== "resolved-auth") throw new Error("Expected a resolved-auth policy");
+  return policy;
+}
 
 describe("alibaba-token-plan provider", () => {
   it("is available from explicit selection or recognized runtime presence, whatever the PATH holds", async () => {
@@ -369,6 +423,50 @@ describe("alibaba-token-plan provider", () => {
         PLATFORM,
         { key: "failure_kind", value: "not_authenticated" },
         { key: "error", value: `Alibaba Token Plan (personal): ${CONSOLE_NO_AUTH}` },
+        { key: "error_kind", value: "login_expired" },
+      ],
+    ],
+    [
+      "the CLI's own reason for a rejected call, with the exit code as the error kind",
+      cli({
+        usage: {
+          kind: "fails",
+          code: 1,
+          body: { error: { code: 1, message: "COMMON-2001 - the reply was rejected" } },
+        },
+      }),
+      [],
+      { code: "provider_error" },
+      [
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "failure_kind", value: "nonzero_exit" },
+        {
+          key: "error",
+          value: "Alibaba Token Plan (personal): COMMON-2001 - the reply was rejected",
+        },
+        { key: "error_kind", value: "provider_error" },
+      ],
+    ],
+    [
+      "an expired sign-in whose words do not say so, decided by the exit code",
+      cli({
+        usage: {
+          kind: "fails",
+          code: 3,
+          body: { error: { code: 3, message: "the session token was refused" } },
+        },
+      }),
+      [],
+      { code: "login_expired" },
+      [
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "failure_kind", value: "not_authenticated" },
+        {
+          key: "error",
+          value: "Alibaba Token Plan (personal): the session token was refused",
+        },
         { key: "error_kind", value: "login_expired" },
       ],
     ],
@@ -675,6 +773,151 @@ describe("alibaba-token-plan provider", () => {
     ]);
   });
 
+  it.runIf(SUPPORTED)(
+    "leaves out the personal account an AK/SK-only user never set up",
+    async () => {
+      installCli({
+        usage: exits(3),
+        seats: replying(seatPage([TEAM_LEAD])),
+        auth: replying(AUTH_STATUS.seatOnly),
+      });
+
+      const fetched = await fetchTokenPlan();
+
+      expect(rowSummary(fetched.rows)).toEqual([TEAM_LEAD_ROW]);
+      expect(fetched.error).toBeUndefined();
+      expect(fetched.debug).toEqual([
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "failure_kind", value: "not_authenticated" },
+        { key: "seat_windows", value: "credits" },
+      ]);
+    },
+  );
+
+  it.runIf(SUPPORTED)("leaves out the team account a console-only user never set up", async () => {
+    installCli({
+      usage: replying({ per1MonthPercentage: 0.6, per1MonthResetTime: Date.parse(RESET) }),
+      seats: exits(3),
+      auth: replying(AUTH_STATUS.consoleOnly),
+    });
+
+    const fetched = await fetchTokenPlan();
+
+    expect(rowSummary(fetched.rows)).toEqual([
+      ["alibaba-token-plan.personal", "personal", "Monthly", "month", 40, RESET],
+    ]);
+    expect(fetched.error).toBeUndefined();
+    expect(fetched.debug).toEqual([
+      { key: "cli_available", value: "true" },
+      PLATFORM,
+      { key: "windows", value: "monthly" },
+      { key: "seat_failure_kind", value: "seat_not_authenticated" },
+    ]);
+  });
+
+  // `bl auth status` is memoised for 60 s while each command runs live, so a marker can lag the
+  // command it describes: a half it calls absent may still have answered with rows.
+  it.runIf(SUPPORTED)(
+    "shows the personal window a stale identity read called the console half absent",
+    async () => {
+      installCli({
+        usage: replying({ per1MonthPercentage: 0.6, per1MonthResetTime: Date.parse(RESET) }),
+        auth: replying(AUTH_STATUS.seatOnly),
+      });
+
+      const fetched = await fetchTokenPlan();
+
+      expect(rowSummary(fetched.rows)).toEqual([
+        ["alibaba-token-plan.personal", "personal", "Monthly", "month", 40, RESET],
+      ]);
+      expect(fetched.error).toBeUndefined();
+    },
+  );
+
+  it.runIf(SUPPORTED)(
+    "shows the team seats a stale identity read called the OpenAPI half absent",
+    async () => {
+      installCli({
+        seats: replying(seatPage([TEAM_LEAD])),
+        auth: replying(AUTH_STATUS.consoleOnly),
+      });
+
+      const fetched = await fetchTokenPlan();
+
+      expect(rowSummary(fetched.rows)).toEqual([TEAM_LEAD_ROW]);
+      expect(fetched.error).toBeUndefined();
+    },
+  );
+
+  it.runIf(SUPPORTED)(
+    "still reports both halves when the account names neither credential",
+    async () => {
+      // A read that failed looks the same to a provider that cannot tell absence from failure.
+      installCli({ usage: exits(3), seats: exits(3), auth: replying(AUTH_STATUS.neither) });
+
+      const fetched = await fetchTokenPlan();
+
+      expect(rowSummary(fetched.rows)).toEqual([]);
+      expect(fetched.error).toMatchObject({ code: "login_expired" });
+      expect(fetched.debug).toEqual([
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "failure_kind", value: "not_authenticated" },
+        { key: "seat_failure_kind", value: "seat_not_authenticated" },
+        { key: "error", value: `Alibaba Token Plan (personal): ${CONSOLE_NO_AUTH}` },
+        { key: "error_kind", value: "login_expired" },
+        {
+          key: "error",
+          value: `Alibaba Token Plan (team): ${ERROR_MESSAGES.seat_not_authenticated}`,
+        },
+        { key: "error_kind", value: "login_expired" },
+      ]);
+    },
+  );
+
+  it.runIf(SUPPORTED)(
+    "keys the account on the access key id, so a replaced console token keeps the slot",
+    async () => {
+      installCli({ auth: replying(AUTH_STATUS.both) });
+
+      await identityPolicy().resolveIdentity(IDENTITY_CONTEXT as never, {} as never);
+
+      // A key id does not rotate, so the slot survives the console token being replaced.
+      expect(identityMocks.deriveIdentity).toHaveBeenCalledWith({
+        providerId: "alibaba-token-plan",
+        principal: { kind: "stable-id", value: "LTAI...k9Pw" },
+      });
+    },
+  );
+
+  it.runIf(SUPPORTED)(
+    "falls back to the console token when the CLI reports no access key id",
+    async () => {
+      installCli({ auth: replying(AUTH_STATUS.consoleOnly) });
+
+      await identityPolicy().resolveIdentity(IDENTITY_CONTEXT as never, {} as never);
+
+      expect(identityMocks.deriveIdentity).toHaveBeenCalledWith({
+        providerId: "alibaba-token-plan",
+        principal: { kind: "credential", value: "9f2c...d41a" },
+      });
+    },
+  );
+
+  it.runIf(SUPPORTED)(
+    "reads `bl auth status` once for a fetch and the identity together, through the same memo",
+    async () => {
+      const log = join(root, "auth-status.log");
+      installCli({ auth: replying(AUTH_STATUS.both, log) });
+
+      await fetchTokenPlan();
+      await identityPolicy().resolveIdentity(IDENTITY_CONTEXT as never, {} as never);
+
+      expect(readFileSync(log, "utf8").trim().split("\n")).toEqual(["auth status"]);
+    },
+  );
+
   // The seam: the provider spawns through its own `runAlibabaTokenPlanProcess`, so a row appears
   // only after the declared document travelled argv, pipes, parsers and arithmetic.
   it.runIf(SUPPORTED)(
@@ -688,12 +931,12 @@ describe("alibaba-token-plan provider", () => {
 
       const fetched = await fetchTokenPlan();
 
-      // The two commands the provider built, and the runner's own launch options for them.
       const commands = launch.calls.map((call) => call.args.join(" ")).sort();
       expect(commands).toEqual(
         [
           "usage token-plan --output json",
           "token-plan list-seats --status NORMAL --query-assigned true --page-size 100 --output json",
+          "auth status --output json",
         ].sort(),
       );
       for (const call of launch.calls) {

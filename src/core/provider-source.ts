@@ -179,8 +179,8 @@ const processLoginKey = randomBytes(32);
 /**
  * Each login (a source id: an account number, a credential id, often an email) as an opaque id
  * keyed with the install's protected key, so the snapshot file and notice ids can't be matched
- * against guessed emails. Without that key no account identity exists either, so the store
- * keeps such rows in memory only, and a key of this process is enough.
+ * against guessed emails. Without that key no account identity exists, so the store keeps such
+ * rows in memory only and a key of this process is enough.
  */
 export async function keyedLogins(
   providerId: string,

@@ -4,18 +4,27 @@ import type { Amount, DebugDetail, QuotaWindow } from "../core/types.js";
 import { WINDOWS } from "../core/windows.js";
 import {
   type AlibabaTokenPlanClosedResult,
+  type AlibabaTokenPlanCredentialMarkers,
   type AlibabaTokenPlanSeat,
   type AlibabaTokenPlanSeatResult,
   type AlibabaTokenPlanWindow,
+  alibabaTokenPlanCredentialHalves,
   isAlibabaTokenPlanSupportedPlatform,
   NO_WINDOW_HINT,
   queryAlibabaTokenPlanQuota,
   queryAlibabaTokenPlanSeats,
+  resolveAlibabaTokenPlanIdentity,
 } from "../lib/alibaba-token-plan.js";
-import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
+import type {
+  QuotaProvider,
+  QuotaProviderCachePolicy,
+  QuotaProviderContext,
+} from "../lib/entries.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { modelProviderMatchesRuntimeId } from "../lib/provider-model-matching.js";
+import type { CanonicalQuotaProviderId } from "../lib/provider-registration.js";
 import { accountingDecimalFromNumber } from "./accounting-decimal.js";
+import { type ResolvedCredential, resolvedCredentialPolicy } from "./cache-policies.js";
 import {
   type AccountResult,
   failedAccount,
@@ -191,13 +200,42 @@ function statusDetails(
 
 export const alibabaTokenPlanProvider: QuotaProvider = createTokenPlanProvider();
 
+/**
+ * The account the readings belong to: the access key id when the CLI reports one, since the
+ * console token is minted from it and so names the same account, and a key id does not rotate.
+ * The console token's own mask is the fallback: it names the account too, but the CLI replaces
+ * that token when it expires, so an identity built on it moves with the token.
+ */
+function alibabaTokenPlanAccountPrincipal(
+  markers: AlibabaTokenPlanCredentialMarkers,
+): ResolvedCredential | null {
+  if (markers.openapiAccessKeyId) {
+    return { credential: markers.openapiAccessKeyId, principalKind: "stable-id" };
+  }
+  if (markers.consoleMasked) {
+    return { credential: markers.consoleMasked, principalKind: "credential" };
+  }
+  return null;
+}
+
+function alibabaTokenPlanIdentityPolicy(id: CanonicalQuotaProviderId): QuotaProviderCachePolicy {
+  return resolvedCredentialPolicy(id, async (ctx) => {
+    const markers = await resolveAlibabaTokenPlanIdentity({
+      requestTimeoutMs: ctx.config.requestTimeoutMs,
+      runtime: { cwd: ctx.workspaceRoot },
+    });
+    // No credential at all: there is no account to key a slot on.
+    return markers ? alibabaTokenPlanAccountPrincipal(markers) : null;
+  });
+}
+
 function createTokenPlanProvider(): QuotaProvider {
   const id = "alibaba-token-plan";
   const label = GROUP_LABEL;
   const group = personalGroup(label);
   return {
     id,
-    cachePolicy: { kind: "uncached" },
+    cachePolicy: alibabaTokenPlanIdentityPolicy(id),
 
     // Never probes PATH: availability comes from selection or the current runtime identity.
     async isAvailable(ctx: QuotaProviderContext): Promise<boolean> {
@@ -224,9 +262,12 @@ function createTokenPlanProvider(): QuotaProvider {
       const runtime = { cwd: ctx.workspaceRoot };
       const requestTimeoutMs = alibabaRequestTimeoutMs(ctx);
       // Independent commands with different auth: run both, and let each report its own failure.
-      const [personal, seats] = await Promise.all([
+      // `bl auth status` rides along: it is the same memoised read the cache identity comes from,
+      // so it costs no second spawn and both answers come from one reply.
+      const [personal, seats, markers] = await Promise.all([
         queryAlibabaTokenPlanQuota({ requestTimeoutMs, runtime }),
         queryAlibabaTokenPlanSeats({ requestTimeoutMs, runtime }),
+        resolveAlibabaTokenPlanIdentity({ requestTimeoutMs, runtime }),
       ]);
       const debug = statusDetails(personal, seats);
 
@@ -234,26 +275,38 @@ function createTokenPlanProvider(): QuotaProvider {
         return { attempted: false, accounts: [], debug };
       }
 
+      // Gated here because an account with no rows and no errors is invisible to rows.ts, so nothing
+      // is recorded and nothing backs off on a capability the user does not have. A block `bl`
+      // reports is a set-up session that may merely have expired, so a failure there is still real.
+      const halves = alibabaTokenPlanCredentialHalves(markers);
       const accounts: AccountResult[] = [];
-      if (!personal.ok) {
-        accounts.push(failedAccount(group, personal.error.message));
-      } else if (personal.monthly) {
-        accounts.push({ name: group, rows: [windowRow(personal.monthly)], errors: [] });
-      }
-      // A signed-in reply carrying no window is an absence, not a fault: the account may not
-      // sell a personal plan at all, and `window_hint` already carries `bl`'s own wording for
-      // the ambiguity. Nothing is pushed, which leaves it invisible rather than painted red.
-      if (seats.ok) {
-        const keys = seatKeys(seats.seats);
-        for (const [index, seat] of seats.seats.entries()) {
-          accounts.push({
-            name: seatAccountName(label, seat.name),
-            rows: [seatRow(seat, keys[index])],
-            errors: [],
-          });
+      // Suppress a failure, never data: what `bl` actually returned outranks a missing marker,
+      // which `bl auth status` memoises and can lag behind the command it describes.
+      const showConsole = halves.console || (personal.ok && personal.monthly !== undefined);
+      const showSeats = halves.openapi || (seats.ok && seats.seats.length > 0);
+      if (showConsole) {
+        if (!personal.ok) {
+          accounts.push(failedAccount(group, personal.error.message, personal.error.facts));
+        } else if (personal.monthly) {
+          accounts.push({ name: group, rows: [windowRow(personal.monthly)], errors: [] });
         }
-      } else {
-        accounts.push(failedAccount(`${label} (team)`, seats.error.message));
+        // A signed-in reply carrying no window is an absence, not a fault: the account may not
+        // sell a personal plan at all, and `window_hint` already carries `bl`'s own wording for
+        // the ambiguity. Nothing is pushed, which leaves it invisible rather than painted red.
+      }
+      if (showSeats) {
+        if (seats.ok) {
+          const keys = seatKeys(seats.seats);
+          for (const [index, seat] of seats.seats.entries()) {
+            accounts.push({
+              name: seatAccountName(label, seat.name),
+              rows: [seatRow(seat, keys[index])],
+              errors: [],
+            });
+          }
+        } else {
+          accounts.push(failedAccount(`${label} (team)`, seats.error.message, seats.error.facts));
+        }
       }
 
       return { attempted: true, accounts, debug };

@@ -41,7 +41,7 @@ try {
   const providers = getProviders();
   const provider = providers.find((entry) => entry.id === "alibaba-token-plan");
   assert.ok(provider, "packed registry is missing alibaba-token-plan");
-  assert.equal(provider.cachePolicy?.kind, "uncached");
+  assert.equal(provider.cachePolicy?.kind, "resolved-auth");
   assert.equal(
     providers.find((entry) => entry.id === "alibaba-coding-plan")?.id,
     "alibaba-coding-plan",
@@ -59,10 +59,8 @@ try {
     },
   });
   assert.equal(emptyPathResult.ok, false);
-  assert.equal(
-    emptyPathResult.error.kind,
-    process.platform === "win32" ? "unsupported_platform" : "executable_not_found",
-  );
+  // win32 is a supported platform; an empty PATH resolves no executable on any of them.
+  assert.equal(emptyPathResult.error.kind, "executable_not_found");
 
   if (process.platform !== "win32") {
     const live = await queryAlibabaTokenPlanQuota({
