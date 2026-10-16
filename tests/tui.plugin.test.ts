@@ -23,7 +23,7 @@ vi.mock("solid-js", async (importOriginal) => ({
   },
 }));
 
-function provider(label: string, percentRemaining?: number): ProviderSnapshot {
+function provider(label: string, percentRemaining?: number, resetsAt?: string): ProviderSnapshot {
   const providerId = label.toLowerCase();
   return {
     providerId,
@@ -42,6 +42,7 @@ function provider(label: string, percentRemaining?: number): ProviderSnapshot {
               window: "week",
               prominence: "primary",
               percentRemaining,
+              ...(resetsAt ? { resetsAt } : {}),
             },
           ],
     okAtMs: NOW,
@@ -81,6 +82,8 @@ function startToasts(answer: QuotaSnapshot | undefined, change: (d: DisplaySetti
 
 const OK = snapshot([provider("Claude", 80)]);
 const LOW = snapshot([provider("Claude", 10)]);
+/** 60% left with 5 of its 7 days to come: used faster than it refills, but not getting low. */
+const FAST = snapshot([provider("Claude", 60, new Date(NOW + 5 * 86_400_000).toISOString())]);
 
 describe("quota toasts", () => {
   it.each<{
@@ -117,6 +120,16 @@ describe("quota toasts", () => {
       answer: OK,
       change: (display) => {
         display.toast.afterReply = "low";
+      },
+      shown: false,
+    },
+    {
+      name: "not after a reply for a fast pace alone, with the bar colors following pace",
+      trigger: "reply",
+      answer: FAST,
+      change: (display) => {
+        display.toast.afterReply = "low";
+        display.levelBy = "pace";
       },
       shown: false,
     },

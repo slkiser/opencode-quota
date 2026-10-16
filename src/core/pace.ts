@@ -8,7 +8,7 @@ import { WINDOWS } from "./windows.js";
 /** Within this many percentage points of even use counts as on track. */
 const ON_TRACK_POINTS = 5;
 /** Before this share of the window has passed, the pace so far says too little for a run-out time. */
-const MIN_ELAPSED_SHARE = 0.1;
+export const MIN_ELAPSED_SHARE = 0.1;
 
 export type Pace = {
   /** The percent that would be left now with even use: the share of the window still to come. */

@@ -86,6 +86,7 @@ const EXPECTED = {
     statusName: undefined,
     separator: undefined,
     arrows: undefined,
+    levelBy: "left",
     warningBelow: 50,
     lowBelow: 20,
   },

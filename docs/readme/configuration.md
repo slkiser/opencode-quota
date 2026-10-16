@@ -171,10 +171,11 @@ Each section has `show: true`, `runsOut` (`true` for `sidebar` and `toast`, `fal
 
 ### Colors
 
-Roles are `good`, `warning`, `low`, `empty`, `title`, `provider`, `account`, `label`, `percent`, `reset`, `value`, `error`, `statusName`, `separator`, and `arrows`. Each `colors.<role>` follows the theme when unset. Set a role to `text`, `muted`, `accent`, `green`, `yellow`, `red`, `blue`, `bar`, or a `#rrggbb` color. `bar` follows the row's level color. The Colors tab's **Color preset** sets every role at once: `theme colors` unsets them all; `grey` sets `good`, `warning`, `provider`, `label` and `arrows` to `muted` and unsets the rest, so the panel title keeps the theme's text color, the rest is grey, and only almost-out limits and errors are red.
+Roles are `good`, `warning`, `low`, `empty`, `title`, `provider`, `account`, `label`, `percent`, `reset`, `value`, `error`, `statusName`, `separator`, and `arrows`. Each `colors.<role>` follows the theme when unset. Set a role to `text`, `muted`, `accent`, `green`, `yellow`, `red`, `blue`, `bar`, or a `#rrggbb` color. `bar` follows the row's level color: by the share left against `colors.warningBelow` and `colors.lowBelow`, or by pace with `colors.levelBy: "pace"`. The Colors tab's **Color preset** sets every role at once: `theme colors` unsets them all; `grey` sets `good`, `warning`, `provider`, `label` and `arrows` to `muted` and unsets the rest, so the panel title keeps the theme's text color, the rest is grey, and only almost-out limits and errors are red.
 
 | Setting | Default | Values |
 | --- | --- | --- |
+| `colors.levelBy` | `"left"` | `left` or `pace`. With `pace`, the level colors follow how fast a limit is used against even use until its reset: `good` at or under even use (an untouched limit included), `warning` up to 5 points faster than even use, `low` faster than that. Before a tenth of the window has passed, a fast pace says too little, so the row follows the share left, and a nearly used-up limit is still `low`. A row without a reset time or a known window length follows the share left. Toasts after a reply still go by the share left. **Bar colors follow** on the Colors tab. |
 | `colors.warningBelow` | `50` | Whole number 0–100, percent left below which quota is getting low. |
 | `colors.lowBelow` | `20` | Whole number 0–100, percent left below which quota is almost out. |
 

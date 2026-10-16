@@ -41,10 +41,10 @@ const PROVIDERS = [
   provider("openrouter", "OpenRouter", [], { error: { code: "login_expired" } }),
 ];
 
-/** A grouped toast of PROVIDERS, 54 columns wide. */
-function lines() {
+/** A grouped toast of `providers`, 54 columns wide. */
+function lines(providers = PROVIDERS) {
   const display = defaultDisplaySettings();
-  const snapshot = { version: 6, providers: PROVIDERS, resetNotices: [], generatedAtMs: NOW };
+  const snapshot = { version: 6, providers, resetNotices: [], generatedAtMs: NOW };
   return toastLines({
     groups: visibleGroups(snapshot, display, "toast", DEFAULT_WORDS),
     words: DEFAULT_WORDS,
@@ -99,6 +99,60 @@ describe("colored quota toasts", () => {
       ["     runs out in 13h", "yellow", false],
       ["OpenRouter", "text", true],
       ["  Sign in again", "red", false],
+    ]);
+  });
+
+  it("colors the bars by pace when they follow it, and by the share left without a pace", () => {
+    const toast = lines([
+      provider("anthropic", "Claude", [
+        // 15% left 10 minutes before the reset: plenty to spare.
+        quotaRow("anthropic.five_hour", {
+          label: "5h",
+          window: "five_hour",
+          percentRemaining: 15,
+          resetsAt: at(10 * MINUTE),
+        }),
+        // 60% left with 5 of its 7 days to come: used faster than it refills.
+        quotaRow("anthropic.weekly", {
+          label: "Weekly",
+          window: "week",
+          percentRemaining: 60,
+          resetsAt: at(5 * 24 * 60 * MINUTE),
+        }),
+        // No reset, so no pace: 15% left stays almost out.
+        quotaRow("anthropic.monthly", { label: "Monthly", window: "month", percentRemaining: 15 }),
+      ]),
+      provider("zai", "Z.ai", [
+        // 5% left 10 minutes into the window: too early for pace, and nearly used up.
+        quotaRow("zai.five_hour", {
+          label: "5h",
+          window: "five_hour",
+          percentRemaining: 5,
+          resetsAt: at(290 * MINUTE),
+        }),
+      ]),
+    ]);
+    const percentColors = (levelBy: "left" | "pace") =>
+      (
+        coloredMessage(toast, THEME as unknown as Theme, {
+          ...defaultDisplaySettings(),
+          levelBy,
+        }) as Array<string | Node>
+      )
+        .filter((child): child is Node => typeof child !== "string")
+        .filter(({ props }) => String(props.children).endsWith("% left"))
+        .map(({ props }) => [String(props.children).trim(), props.style.fg]);
+    expect(percentColors("left")).toEqual([
+      ["15% left", "red"],
+      ["60% left", "green"],
+      ["15% left", "red"],
+      ["5% left", "red"],
+    ]);
+    expect(percentColors("pace")).toEqual([
+      ["15% left", "green"],
+      ["60% left", "red"],
+      ["15% left", "red"],
+      ["5% left", "red"],
     ]);
   });
 

@@ -137,6 +137,16 @@ describe("row facts", () => {
     ]).toEqual([50, undefined, undefined]);
   });
 
+  it("gives a row with a pace its level by pace, whatever pace words the place shows", () => {
+    const noReset = quotaRow("x.a", { percentRemaining: 30 });
+    expect([
+      factsOf(paced(80)).paceLevel,
+      factsOf(paced(47)).paceLevel,
+      factsOf(paced(30), { pace: "all" }).paceLevel,
+      factsOf(noReset).paceLevel,
+    ]).toEqual(["good", "warning", "low", undefined]);
+  });
+
   it("says a group's last error in the words of `describeError`, with the group's name", () => {
     const failed = { name: "Claude", error: { code: "network" } } as const;
     expect([errorWords(failed, NOW), errorWords({ name: "Claude" }, NOW)]).toEqual([

@@ -39,6 +39,7 @@ type StatusDetail = Settings["statusLine"]["detail"];
 export type DisplaySettings = Settings &
   RowSettings & {
     thresholds: { warningBelow: number; lowBelow: number };
+    levelBy: Settings["colors"]["levelBy"];
     runsOut: Record<Surface, boolean>;
   };
 
@@ -94,6 +95,7 @@ export function displaySettings(settings: Settings): DisplaySettings {
       warningBelow: Math.max(settings.colors.warningBelow, settings.colors.lowBelow),
       lowBelow: settings.colors.lowBelow,
     },
+    levelBy: settings.colors.levelBy,
     runsOut: Object.fromEntries(
       SURFACES.map((surface) => [surface, settings[surface].runsOut]),
     ) as Record<Surface, boolean>,
@@ -289,6 +291,7 @@ const SHOW = {
   models: named({ false: "all", true: "current model's only" }),
   tokens: named({ current: "this session", tree: "with subagents" }),
   limitHit: named({ false: "retry like normal", true: "wait for the reset" }),
+  levelBy: named({ left: "the share left", pace: "your pace" }),
 } satisfies Record<string, Show>;
 // "Getting low" stays at or above "almost out", so ‹ › skip the values that would break that.
 const warningChoices = (settings: DisplaySettings) =>
@@ -329,6 +332,9 @@ export const FIELDS: readonly Field[] = [
   field("toast.sessionTokens", "Session tokens line", SHOW.tokensLine),
   runsOutField("toast", "after the row"),
   ...COLOR_FIELDS.slice(0, 4),
+  field("colors.levelBy", "Bar colors follow", SHOW.levelBy, {
+    note: "pace: at or under even use, a little faster, or faster than it refills; the share left without a reset or in a window's first tenth",
+  }),
   field("colors.warningBelow", "'Getting low' below", percentLeft, {
     values: THRESHOLDS,
     choices: warningChoices,
