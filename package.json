@@ -1,6 +1,6 @@
 {
   "name": "@thanhndv212/opencode-quota",
-  "version": "3.10.1",
+  "version": "3.11.0-rc.1",
   "packageManager": "pnpm@10.0.0",
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -69,7 +69,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "prepublishOnly": "pnpm run build",
-    "prepare": "husky"
+    "prepare": "husky",
+    "smoke:host": "node scripts/smoke-host.mjs"
   },
   "keywords": [
     "opencode",
@@ -83,7 +84,10 @@
     "gemini",
     "claude"
   ],
-  "author": "",
+  "author": {
+    "name": "thanhndv212",
+    "email": "22833373+thanhndv212@users.noreply.github.com"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",

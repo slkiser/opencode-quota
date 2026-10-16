@@ -55,7 +55,7 @@ linux:
   target:
     - AppImage
     - deb
-  maintainer: "opencode-quota@opencode.ai"
+  maintainer: "thanhndv212 <22833373+thanhndv212@users.noreply.github.com>"
 
 win:
   icon: build/icon.ico

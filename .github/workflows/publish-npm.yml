@@ -1,8 +1,6 @@
 name: Publish fork package
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       tag:

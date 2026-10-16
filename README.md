@@ -21,7 +21,7 @@
 
 ## Install
 
-This fork uses the npm name `@thanhndv212/opencode-quota`. If switching from upstream, replace `@slkiser/opencode-quota` (including any version suffix) with this fork's name in both `opencode.json` and `tui.json`, then restart OpenCode. Keep quota settings and usage data in place. The installer preserves an existing upstream/local plugin and warns instead of loading both implementations. The first fork npm release is pending; until it is published, use a source build or a verified fork tarball.
+This fork uses the npm name `@thanhndv212/opencode-quota`. If switching from upstream, replace `@slkiser/opencode-quota` (including any version suffix) with this fork's name in both `opencode.json` and `tui.json`, then restart OpenCode. Keep quota settings and usage data in place. The installer preserves an existing upstream/local plugin and warns instead of loading both implementations. The candidate distribution uses GitHub desktop assets and verified fork tarballs; npm publication remains optional and manual. See the [3.11.0-rc.1 candidate notes](docs/RELEASE_NOTES_3.11.0-rc.1.md) for evidence and unsigned-platform limits.
 
 ```bash
 npx @thanhndv212/opencode-quota init
