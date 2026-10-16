@@ -39,7 +39,9 @@ These are the completed items with dedicated records. Other completed items have
 
 - [CUS-03 guided provider setup](work-items/CUS03_GUIDED_PROVIDER_SETUP.md): complete in PR #56 with green main CI; preview, explicit write, JSONC preservation and rollback.
 
-- [Fork release candidate record](work-items/FND04_FORK_RELEASE_CANDIDATE.md) and [3.11.0-rc.1 notes](RELEASE_NOTES_3.11.0-rc.1.md): distribution identity, exact artifact/runtime evidence and remaining gates.
+- [Fork release candidate record](work-items/FND04_FORK_RELEASE_CANDIDATE.md) and [3.11.0-rc.1 notes](RELEASE_NOTES_3.11.0-rc.1.md): completed draft artifact/identity gate, exact artifact/runtime evidence and remaining OS/release limits.
+
+- [3.11.0-rc.2 follow-up notes](RELEASE_NOTES_3.11.0-rc.2.md): native navigation heading correction; exact candidate acceptance pending.
 
 ## Architecture decisions
 

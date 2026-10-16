@@ -326,7 +326,7 @@
     return el(
       "div",
       { className: "app-header" },
-      el("h1", {}, "Quota Monitor"),
+      el("h1", {}, getActiveTabTitle()),
       el(
         "div",
         { className: "header-actions" },

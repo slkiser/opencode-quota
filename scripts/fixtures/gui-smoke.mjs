@@ -175,6 +175,10 @@ async function smoke() {
       () => evaluate("document.body.innerText.includes('Window: hourly')"),
       "reset notice opens selected window",
     );
+    assert.equal(
+      await evaluate("document.querySelector('.app-header h1').textContent"),
+      "Quota History",
+    );
     assert.ok(await evaluate("document.body.innerText.includes('Confirmed Reset Events')"));
     const initialHistory = await evaluate(
       'window.quotaApi.dashboardHistory.quotaHistory("openai")',

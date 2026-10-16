@@ -63,9 +63,19 @@ jobs:
             set -euo pipefail
             dunst -conf scripts/fixtures/native-dunstrc > native-evidence/dunst.log 2>&1 &
             daemon=$!
-            trap "kill $daemon || true" EXIT
+            dbus-monitor --session > native-evidence/dbus.log 2>&1 &
+            monitor=$!
+            trap "kill $daemon $monitor || true" EXIT
             QUOTA_SMOKE_NATIVE_NOTICES=1 node scripts/smoke-packaged-app.mjs "$QUOTA_NATIVE_BINARY" native-evidence
           '
+      - name: Exercise the exact AppImage in extract-and-run mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          appimage=$(find candidate -maxdepth 1 -name '*.AppImage' -print -quit)
+          test -n "$appimage"
+          chmod u+x "$appimage"
+          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a node scripts/smoke-packaged-app.mjs "$appimage" native-evidence/appimage-runtime
       - uses: actions/upload-artifact@v4
         if: always()
         with:

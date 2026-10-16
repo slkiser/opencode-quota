@@ -1,6 +1,6 @@
 {
   "name": "@thanhndv212/opencode-quota",
-  "version": "3.11.0-rc.1",
+  "version": "3.11.0-rc.2",
   "packageManager": "pnpm@10.0.0",
   "pnpm": {
     "onlyBuiltDependencies": [

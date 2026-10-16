@@ -238,15 +238,35 @@ try {
     );
     assert.equal(displayed, 1, "Expected exactly one native daemon banner");
     execFileSync("scrot", [path.join(evidence, "native-os-banner.png")]);
-    await evaluate("document.querySelectorAll('.tab-btn')[0].click()");
-    execFileSync("dunstctl", ["action", "0"]);
-    await wait(
-      () =>
-        evaluate(
-          "document.body.innerText.includes('Window: hourly') && document.body.innerText.includes('Quota History')",
-        ),
-      "native daemon action navigates history/window",
+    await evaluate(
+      "window.__nativeResetOpen = null; window.quotaApi.resets.onOpen(value => {window.__nativeResetOpen = value}); document.querySelectorAll('.tab-btn')[0].click()",
     );
+    execFileSync("dunstctl", ["action", "0"]);
+    try {
+      await wait(
+        () =>
+          evaluate(
+            "document.body.innerText.includes('Window: hourly') && document.body.innerText.includes('Quota History')",
+          ),
+        "native daemon action navigates history/window",
+      );
+    } catch (error) {
+      const diagnostic = {
+        callback: await evaluate("window.__nativeResetOpen"),
+        body: await evaluate("document.body.innerText"),
+        daemonHistory: execFileSync("dunstctl", ["history"], { encoding: "utf8" }),
+      };
+      await writeFile(
+        path.join(evidence, "NATIVE-ACTION-FAILURE.json"),
+        JSON.stringify(diagnostic, null, 2),
+      );
+      const failurePng = await call("Page.captureScreenshot", { format: "png" });
+      await writeFile(
+        path.join(evidence, "native-action-failure.png"),
+        Buffer.from(failurePng.data, "base64"),
+      );
+      throw error;
+    }
     const png = await call("Page.captureScreenshot", { format: "png" });
     await writeFile(
       path.join(evidence, "native-action-history.png"),

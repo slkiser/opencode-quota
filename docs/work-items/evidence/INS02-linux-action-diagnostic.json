@@ -1,0 +1,9 @@
+{
+  "callback": {
+    "providerId": "fixture-os-validation",
+    "windowId": "hourly",
+    "accountIdentity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "body": "Quota Monitor\n⟳ Refresh\n☾ Dark\n✕\n◉ Dashboard\n⬡ Tokens\n⚠ Alerts\n$ Pricing\n🔑 API Keys\n📈 History\nfixture-os-validation\nAll accounts (separate series)\nUnknown account\nLast 7 days\nLast 30 days\nUnknown observations are kept separate from identified accounts. An account label identifies only observations from the same selected account.\nWindow: hourly · Show all windows\nConfirmed Reset Events\nDesktop delivery is enabled for explicitly watched windows. OS visibility remains subject to system permissions.\nhourly · Account aaaaaaaa · delivered · 10/16/2026, 8:35:41 PM\nQuota Burn-down\nNo history yet for this range.\nLocal usage totals are not filtered by quota account.\nWhat's Burning Your Quota\nLocal sessions ranked by weighted tokens in the last 5 hours (this machine only, approximate).\nNo active sessions in this window.\nModel Cost Breakdown\nNo usage recorded for this range.\nLegacy Reset History (account unknown)\nNo resets recorded yet.",
+  "daemonHistory": "{\n\t\"type\" : \"aa{sv}\",\n\t\"data\" : [\n\t\t[]\n\t]\n}\n"
+}
