@@ -8,6 +8,7 @@ import {
   resolveEditableConfigPath,
   resolveExistingConfigPath,
 } from "./config-file-utils.js";
+import { isRecord } from "./json-guards.js";
 import {
   applyConfigDocumentEdit,
   ConfigDocumentError,
@@ -22,31 +23,27 @@ import {
 } from "./opencode-config-read.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import {
+  getCanonicalQuotaProviderId,
   getQuotaProviderRuntimeIds,
-  getQuotaProviderShape,
   normalizeQuotaProviderId,
 } from "./provider-metadata.js";
 
-export interface LoadConfiguredProviderIdsOptions {
+interface LoadConfiguredProviderIdsOptions {
   configRootDir: string;
 }
 
-export interface ReconcileDetectedProviderConfigOptions {
+interface ReconcileDetectedProviderConfigOptions {
   configRootDir: string;
   detectedProviderIds: readonly string[];
   preferredFormat?: ConfigFileFormat;
   writeText?: (path: string, content: string) => Promise<void>;
 }
 
-export interface ReconcileDetectedProviderConfigResult {
+interface ReconcileDetectedProviderConfigResult {
   path: string | null;
   format: ConfigFileFormat | null;
   addedProviderIds: string[];
   changed: boolean;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function getCandidates(configRootDir: string): OpenCodeConfigCandidate[] {
@@ -169,8 +166,8 @@ export async function reconcileDetectedProvidersInGlobalConfig(
     options.detectedProviderIds
       .map((providerId) => normalizeQuotaProviderId(providerId))
       .filter((providerId) => {
-        const shape = getQuotaProviderShape(providerId);
-        return Boolean(shape && shape.id !== "quota-providers");
+        const canonicalId = getCanonicalQuotaProviderId(providerId);
+        return Boolean(canonicalId && canonicalId !== "quota-providers");
       }),
   );
   const globalConfigDir = getOpencodeRuntimeDirs().configDir;
@@ -196,20 +193,18 @@ export async function reconcileDetectedProvidersInGlobalConfig(
     dir: globalConfigDir,
     kind: "opencode",
     preferredFormat: options.preferredFormat ?? projectFormat,
-    convertJsonToJsonc: false,
   });
 
   if (addedProviderIds.length === 0) {
     return { path: target.path, format: target.format, addedProviderIds, changed: false };
   }
 
-  const raw = target.existed ? await readFile(target.sourcePath, "utf8") : "{}\n";
-  const sourceFormat: ConfigFileFormat = target.sourcePath.endsWith(".jsonc") ? "jsonc" : "json";
-  const root = parseConfigDocument(raw, sourceFormat, target.sourcePath);
+  const raw = target.existed ? await readFile(target.path, "utf8") : "{}\n";
+  const root = parseConfigDocument(raw, target.format, target.path);
   if (root.provider !== undefined && !isRecord(root.provider)) {
     throw new ConfigDocumentError(
-      `Cannot add detected providers because provider is not an object: ${target.sourcePath}`,
-      target.sourcePath,
+      `Cannot add detected providers because provider is not an object: ${target.path}`,
+      target.path,
     );
   }
   const provider = isRecord(root.provider) ? { ...root.provider } : {};

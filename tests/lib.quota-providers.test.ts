@@ -1,11 +1,9 @@
-import { describe, expect, it } from "vitest";
-import {
-  listModelsForProvider,
-  listProviders,
-  listProvidersForModelId,
-} from "../src/lib/modelsdev-pricing.js";
+import { describe, expect, it, vi } from "vite-plus/test";
+import { listProvidersForModelId } from "../src/lib/modelsdev-pricing.js";
 import {
   cloneQuotaProviders,
+  customQuotaProviderDefinitions,
+  describeQuotaProviderRequest,
   normalizeJsonV1Timestamp,
   QUOTA_PROVIDER_MODES,
   QUOTA_PROVIDER_REMOTE_FORMATS,
@@ -18,6 +16,41 @@ import {
   VALID_QUOTA_PROVIDER_INPUTS,
   VALID_QUOTA_PROVIDERS,
 } from "./fixtures/quota-providers.js";
+import { SHIPPED_PRICE_LIST } from "./helpers/shipped-price-list.js";
+
+const M0 = "quotaProviders[0].adapter.mappings[0]";
+
+/** A json-v1 mapping that reports usage; `fields` replace or add to its defaults. */
+function usage(fields: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    resultType: "usage",
+    name: "Usage",
+    metric: { type: "value", valueType: "used", value: { literal: 1 } },
+    ...fields,
+  };
+}
+
+/** A usage mapping whose used value is read from `value`. */
+function usedFrom(value: unknown): Record<string, unknown> {
+  return usage({ metric: { type: "value", valueType: "used", value } });
+}
+
+/** A remote definition whose json-v1 adapter has these mappings. */
+function jsonV1(...mappings: unknown[]): Record<string, unknown> {
+  return quotaProvider({ format: "json-v1", adapter: { mappings } });
+}
+
+/** `levels` objects nested inside each other. */
+function nested(levels: number): Record<string, unknown> {
+  let value: Record<string, unknown> = {};
+  for (let index = 0; index < levels; index += 1) value = { nested: value };
+  return value;
+}
+
+/** 80 code points, different for each index: two names may not give one row id. */
+function maxName(index: number): string {
+  return `${String(index).padStart(2, "0")}${"n".repeat(78)}`;
+}
 
 describe("quotaProviders schema", () => {
   it("keeps provider-wide definitions context-sensitive when no current model is selected", () => {
@@ -100,7 +133,7 @@ describe("quotaProviders schema", () => {
     expect(result.issues.map((issue) => issue.key)).toEqual(
       expect.arrayContaining([
         "quotaProviders[0]",
-        "quotaProviders[1].executableMapping",
+        "quotaProviders[1]",
         "quotaProviders[1].url",
         "quotaProviders[1].format",
         "quotaProviders[2].id",
@@ -117,36 +150,36 @@ describe("quotaProviders schema", () => {
     });
   });
 
-  it("enforces stable id grammar, length, and reserved provider collisions", () => {
-    const validId = "a" + "b".repeat(63);
-    expect(validateQuotaProviders([quotaProvider({ id: validId })]).issues).toEqual([]);
-
-    for (const id of ["Uppercase", "bad_id", "1leading", "a" + "b".repeat(64)]) {
-      expect(validateQuotaProviders([quotaProvider({ id })]).issues[0]?.key).toBe(
-        "quotaProviders[0].id",
-      );
-    }
-
-    for (const id of ["quota-providers", "openai"]) {
-      expect(validateQuotaProviders([quotaProvider({ id })]).issues).toContainEqual(
-        expect.objectContaining({ key: "quotaProviders[0].id" }),
-      );
-    }
-  });
-
-  it("enforces the exact providerId grammar and 64-character limit", () => {
-    expect(
-      validateQuotaProviders([quotaProvider({ providerId: "provider.one_two-3" })]).issues,
-    ).toEqual([]);
-
-    for (const providerId of ["Provider", "provider id", "p".repeat(65)]) {
-      expect(validateQuotaProviders([quotaProvider({ providerId })]).issues[0]?.key).toBe(
-        "quotaProviders[0].providerId",
+  it.each([
+    [
+      "id",
+      "a" + "b".repeat(63),
+      ["Uppercase", "bad_id", "1leading", "a" + "b".repeat(64), "quota-providers", "openai"],
+    ],
+    ["providerId", "provider.one_two-3", ["Provider", "provider id", "p".repeat(65)]],
+    ["label", "x".repeat(80), ["x".repeat(81), "line\nbreak"]],
+    ["apiKeyEnv", "A" + "B".repeat(127), ["lowercase_key", "A" + "B".repeat(128)]],
+  ])("enforces the %s grammar, length limit and reserved values", (field, valid, invalid) => {
+    expect(validateQuotaProviders([quotaProvider({ [field]: valid })]).issues).toEqual([]);
+    for (const value of invalid) {
+      expect(validateQuotaProviders([quotaProvider({ [field]: value })]).issues[0]?.key).toBe(
+        `quotaProviders[0].${field}`,
       );
     }
   });
 
-  it("trims printable Unicode labels, permits duplicates, and enforces 80 code points", () => {
+  // Built-in providers of 4.x and 5.x that this version does not have.
+  it.each(["chutes", "kilo", "nanogpt", "nano-gpt", "synthetic"])(
+    "accepts a custom provider with the id %s",
+    (id) => {
+      const accepted = validateQuotaProviders([quotaProvider({ id })]);
+
+      expect(accepted.issues).toEqual([]);
+      expect(accepted.value?.[0]).toMatchObject({ id, providerId: id });
+    },
+  );
+
+  it("trims printable Unicode labels and permits duplicates", () => {
     const accepted = validateQuotaProviders([
       quotaProvider({ id: "one", label: "  Café 🚀  " }),
       quotaProvider({
@@ -157,39 +190,23 @@ describe("quotaProviders schema", () => {
     ]);
     expect(accepted.issues).toEqual([]);
     expect(accepted.value?.map((definition) => definition.label)).toEqual(["Café 🚀", "Café 🚀"]);
-
-    for (const label of ["x".repeat(81), "line\nbreak"]) {
-      expect(validateQuotaProviders([quotaProvider({ label })]).issues[0]?.key).toBe(
-        "quotaProviders[0].label",
-      );
-    }
   });
 
-  it("enforces the exact apiKeyEnv grammar and 128-character limit", () => {
-    const maxLengthName = "A" + "B".repeat(127);
-    expect(validateQuotaProviders([quotaProvider({ apiKeyEnv: maxLengthName })]).issues).toEqual(
-      [],
-    );
-
-    for (const apiKeyEnv of ["lowercase_key", "A" + "B".repeat(128)]) {
-      expect(validateQuotaProviders([quotaProvider({ apiKeyEnv })]).issues[0]?.key).toBe(
-        "quotaProviders[0].apiKeyEnv",
-      );
-    }
-  });
-
-  it("rejects duplicate remote request identity but keeps format and credential identity explicit", () => {
+  it("rejects duplicate canonical request identity but keeps format and credential identity explicit", () => {
     const duplicate = validateQuotaProviders([
       quotaProvider({
         id: "one",
         providerId: "shared",
         modelIds: ["model-a"],
+        format: "quota-v1",
       }),
       quotaProvider({
         id: "two",
         providerId: "shared",
         label: "Different label",
         modelIds: ["model-b"],
+        // The deprecated alias of quota-v1.
+        format: "accounting-v1",
       }),
     ]);
     expect(duplicate.issues).toContainEqual({
@@ -220,7 +237,7 @@ describe("quotaProviders schema", () => {
     ).toEqual([]);
   });
 
-  it("preserves disjoint model order and rejects provider-wide overlap", () => {
+  it("preserves disjoint model order and validates exact model selectors", () => {
     const disjoint = validateQuotaProviders([
       quotaProvider({
         id: "one",
@@ -236,35 +253,47 @@ describe("quotaProviders schema", () => {
     ]);
     expect(disjoint.issues).toEqual([]);
     expect(disjoint.value?.[0]?.modelIds).toEqual(["model-b", "model-a"]);
-
     expect(
-      validateQuotaProviders([
-        quotaProvider({ id: "wide", providerId: "shared" }),
-        quotaProvider({
-          id: "narrow",
-          providerId: "shared",
-          url: "https://narrow.example/accounting",
-          modelIds: ["model-a"],
-        }),
-      ]).issues,
-    ).toContainEqual(
-      expect.objectContaining({
-        key: "quotaProviders[1].modelIds",
-        message: expect.stringContaining("overlaps"),
-      }),
-    );
+      validateQuotaProviders([quotaProvider({ modelIds: ["model with spaces"] })]).issues[0]?.key,
+    ).toBe("quotaProviders[0].modelIds[0]");
   });
 
-  it("allows HTTPS and loopback HTTP but rejects non-loopback HTTP, credentials, queries, and fragments", () => {
-    for (const url of [
-      "https://provider.example/accounting",
-      "http://localhost:8787/accounting",
-      "http://127.0.0.1:8787/accounting",
-      "http://[::1]:8787/accounting",
-    ]) {
-      expect(validateQuotaProviders([quotaProvider({ url })]).issues).toEqual([]);
-    }
+  it.each([
+    ["provider-wide and model-specific", {}, { modelIds: ["model-a"] }],
+    ["the same model", { modelIds: ["model-a"] }, { modelIds: ["model-a"] }],
+  ])("rejects %s coverage of one providerId", (_name, first, second) => {
+    const result = validateQuotaProviders([
+      quotaProvider({ id: "one", providerId: "shared", ...first }),
+      quotaProvider({
+        id: "two",
+        providerId: "shared",
+        url: "https://two.example/accounting",
+        ...second,
+      }),
+    ]);
+    expect(result.issues).toContainEqual({
+      key: "quotaProviders[1].modelIds",
+      message: 'provider/model coverage overlaps quotaProviders[0] for providerId "shared"',
+    });
+  });
 
+  it.each([
+    ["https://provider.example/accounting", false],
+    ["http://localhost:8787/accounting", false],
+    ["http://127.0.0.1/accounting", false],
+    ["http://127.0.0.1:8787/accounting", false],
+    ["http://[::1]:8787/accounting", false],
+    ["http://127.0.0.2/accounting", true],
+    ["http://quota.localhost/accounting", true],
+  ])("accepts %s and flags plain HTTP off this computer as insecure=%s", (url, insecure) => {
+    const result = validateQuotaProviders([quotaProvider({ url })]);
+    expect(result.issues).toEqual([]);
+    expect(result.value?.map(describeQuotaProviderRequest)).toEqual([
+      expect.objectContaining({ url, insecure }),
+    ]);
+  });
+
+  it("rejects non-loopback HTTP, credentials, queries, and fragments in a URL", () => {
     for (const url of [
       "http://provider.example/accounting",
       "https://user:pass@provider.example/accounting",
@@ -275,25 +304,6 @@ describe("quotaProviders schema", () => {
         "quotaProviders[0].url",
       );
     }
-  });
-
-  it("validates exact model selectors and overlapping provider coverage", () => {
-    const result = validateQuotaProviders([
-      quotaProvider({ id: "one", providerId: "shared", modelIds: ["model-a"] }),
-      quotaProvider({
-        id: "two",
-        providerId: "shared",
-        url: "https://two.example/accounting",
-        modelIds: ["model-a"],
-      }),
-    ]);
-    expect(result.issues).toContainEqual({
-      key: "quotaProviders[1].modelIds",
-      message: 'provider/model coverage overlaps quotaProviders[0] for providerId "shared"',
-    });
-    expect(
-      validateQuotaProviders([quotaProvider({ modelIds: ["model with spaces"] })]).issues[0]?.key,
-    ).toBe("quotaProviders[0].modelIds[0]");
   });
 
   it("accepts bounded UTC-day and rolling request/budget windows", () => {
@@ -356,20 +366,20 @@ describe("quotaProviders schema", () => {
       ]).issues,
     ).toContainEqual(
       expect.objectContaining({
-        key: "quotaProviders[0].pricingModelMap.gpt-4o",
-        message: expect.stringContaining("automatic models.dev matching already resolves"),
+        key: "quotaProviders[0].pricingModelMap",
+        message: expect.stringMatching(/^entry 1: automatic models.dev matching already resolves/),
       }),
     );
   });
 
   it("allows a manual priced fallback when automatic matching is missing or ambiguous", () => {
-    const providers = listProviders();
-    const pricedTargetProvider = providers.find(
-      (provider) => listModelsForProvider(provider).length > 0,
+    const shipped = Object.entries(SHIPPED_PRICE_LIST.providers);
+    const [pricedTargetProvider, models] = shipped.find(
+      ([, models]) => Object.keys(models).length > 0,
     )!;
-    const pricedTargetModel = listModelsForProvider(pricedTargetProvider)[0]!;
-    const ambiguousModel = providers
-      .flatMap((provider) => listModelsForProvider(provider))
+    const pricedTargetModel = Object.keys(models)[0]!;
+    const ambiguousModel = shipped
+      .flatMap(([, models]) => Object.keys(models))
       .find((model) => listProvidersForModelId(model).length > 1);
     const sourceModel = ambiguousModel ?? "private-model-without-modelsdev-match";
 
@@ -390,28 +400,6 @@ describe("quotaProviders schema", () => {
     expect(result.issues).toEqual([]);
     expect(result.value?.[0]).toMatchObject({ format: "quota-v1" });
     expect(JSON.stringify(result.value)).not.toContain("accounting-v1");
-  });
-
-  it("uses canonical format when detecting duplicate request identity", () => {
-    const result = validateQuotaProviders([
-      quotaProvider({
-        id: "one",
-        providerId: "shared",
-        modelIds: ["model-a"],
-        format: "quota-v1",
-      }),
-      quotaProvider({
-        id: "two",
-        providerId: "shared",
-        modelIds: ["model-b"],
-        format: "accounting-v1",
-      }),
-    ]);
-
-    expect(result.issues).toContainEqual({
-      key: "quotaProviders[1].url",
-      message: "duplicates request identity from quotaProviders[0]",
-    });
   });
 
   it("validates, normalizes, and deeply clones a tagged json-v1 adapter", () => {
@@ -468,105 +456,75 @@ describe("quotaProviders schema", () => {
   });
 
   it.each([
-    {
-      name: "missing adapter",
-      definition: quotaProvider({ format: "json-v1" }),
-      key: "quotaProviders[0].adapter",
-    },
-    {
-      name: "adapter on canonical envelope",
-      definition: quotaProvider({ adapter: { mappings: [] } }),
-      key: "quotaProviders[0].adapter",
-    },
-    {
-      name: "forbidden path segment",
-      definition: quotaProvider({
-        format: "json-v1",
-        adapter: {
-          mappings: [
-            {
-              resultType: "usage",
-              name: "Usage",
-              metric: {
-                type: "value",
-                valueType: "used",
-                value: { path: ["__proto__"] },
-              },
-            },
-          ],
-        },
+    ["missing adapter", quotaProvider({ format: "json-v1" }), "quotaProviders[0].adapter"],
+    [
+      "adapter on canonical envelope",
+      quotaProvider({ adapter: { mappings: [] } }),
+      "quotaProviders[0].adapter",
+    ],
+    [
+      "forbidden path segment",
+      jsonV1(usedFrom({ path: ["__proto__"] })),
+      `${M0}.metric.value.path[0]`,
+    ],
+    [
+      "unknown nested field",
+      jsonV1(
+        usage({
+          metric: {
+            type: "value",
+            valueType: "used",
+            value: { literal: 1 },
+            attackerControlledName: "must-not-echo",
+          },
+        }),
+      ),
+      `${M0}.metric.*`,
+    ],
+    ["incompatible result type", jsonV1(usage({ resultType: "status" })), `${M0}.metric.valueType`],
+    [
+      "invalid literal timestamp",
+      jsonV1({
+        resultType: "status",
+        name: "Status",
+        resetTime: { literal: "2026-02-30T00:00:00Z", encoding: "iso-8601" },
+        metric: { type: "status", value: { literal: "Ready" } },
       }),
-      key: "quotaProviders[0].adapter.mappings[0].metric.value.path[0]",
-    },
-    {
-      name: "unknown nested field",
-      definition: quotaProvider({
-        format: "json-v1",
-        adapter: {
-          mappings: [
-            {
-              resultType: "usage",
-              name: "Usage",
-              metric: {
-                type: "value",
-                valueType: "used",
-                value: { literal: 1 },
-                attackerControlledName: "must-not-echo",
-              },
-            },
-          ],
-        },
-      }),
-      key: "quotaProviders[0].adapter.mappings[0].metric.*",
-    },
-    {
-      name: "incompatible result type",
-      definition: quotaProvider({
-        format: "json-v1",
-        adapter: {
-          mappings: [
-            {
-              resultType: "status",
-              name: "Usage",
-              metric: { type: "value", valueType: "used", value: { literal: 1 } },
-            },
-          ],
-        },
-      }),
-      key: "quotaProviders[0].adapter.mappings[0].metric.valueType",
-    },
-    {
-      name: "invalid literal timestamp",
-      definition: quotaProvider({
-        format: "json-v1",
-        adapter: {
-          mappings: [
-            {
-              resultType: "status",
-              name: "Status",
-              resetTime: { literal: "2026-02-30T00:00:00Z", encoding: "iso-8601" },
-              metric: { type: "status", value: { literal: "Ready" } },
-            },
-          ],
-        },
-      }),
-      key: "quotaProviders[0].adapter.mappings[0].resetTime.literal",
-    },
-    {
-      name: "too many mappings",
-      definition: quotaProvider({
-        format: "json-v1",
-        adapter: {
-          mappings: Array.from({ length: 17 }, () => ({
-            resultType: "usage",
-            name: "Usage",
-            metric: { type: "value", valueType: "used", value: { literal: 1 } },
-          })),
-        },
-      }),
-      key: "quotaProviders[0].adapter.mappings",
-    },
-  ])("rejects bounded json-v1 configuration: $name", ({ definition, key }) => {
+      `${M0}.resetTime.literal`,
+    ],
+    [
+      "too many mappings",
+      jsonV1(...Array.from({ length: 17 }, () => usage())),
+      "quotaProviders[0].adapter.mappings",
+    ],
+    ["81-code-point name", jsonV1(usage({ name: "n".repeat(81) })), `${M0}.name`],
+    ["81-code-point label", jsonV1(usage({ label: "l".repeat(81) })), `${M0}.label`],
+    [
+      "33-code-point unit",
+      jsonV1(usage({ unit: "u".repeat(33), unitPosition: "suffix" })),
+      `${M0}.unit`,
+    ],
+    [
+      "nine path segments",
+      jsonV1(usedFrom({ path: Array.from({ length: 9 }, () => "segment") })),
+      `${M0}.metric.value.path`,
+    ],
+    [
+      "65-code-point path segment",
+      jsonV1(usedFrom({ path: ["x".repeat(65)] })),
+      `${M0}.metric.value.path[0]`,
+    ],
+    [
+      "number above magnitude",
+      jsonV1(usedFrom({ literal: 1e15 + 1 })),
+      `${M0}.metric.value.literal`,
+    ],
+    [
+      "structure deeper than eight container levels",
+      jsonV1(usage({ extra: nested(9) })),
+      "quotaProviders[0].adapter",
+    ],
+  ])("rejects bounded json-v1 configuration: %s", (_name, definition, key) => {
     const result = validateQuotaProviders([definition]);
     expect(result.value).toBeUndefined();
     expect(result.issues).toContainEqual(expect.objectContaining({ key }));
@@ -574,15 +532,14 @@ describe("quotaProviders schema", () => {
     expect(JSON.stringify(result.issues)).not.toContain("attackerControlledName");
   });
 
-  it("accepts exact json-v1 path, mapping, static text, unit, and numeric boundaries", () => {
-    const longSegment = "路径".repeat(32);
-    const result = validateQuotaProviders([
-      quotaProvider({
-        format: "json-v1",
-        adapter: {
-          mappings: Array.from({ length: 16 }, (_, index) => ({
-            resultType: "usage",
-            name: "n".repeat(80),
+  const longPath = () => Array.from({ length: 8 }, () => "p".repeat(64));
+  it.each([
+    [
+      "multi-byte paths, number literals and static text",
+      jsonV1(
+        ...Array.from({ length: 16 }, (_, index) =>
+          usage({
+            name: maxName(index),
             unit: "u".repeat(32),
             unitPosition: "suffix",
             metric: {
@@ -590,262 +547,117 @@ describe("quotaProviders schema", () => {
               valueType: "used",
               value:
                 index === 0
-                  ? { path: Array.from({ length: 8 }, () => longSegment) }
+                  ? { path: Array.from({ length: 8 }, () => "路径".repeat(32)) }
                   : { literal: 1e15 },
             },
-          })),
-        },
-      }),
-    ]);
-
-    expect(result.issues).toEqual([]);
-  });
-
-  it("accepts the maximum valid json-v1 schema shape within every structural bound", () => {
-    const path = () => Array.from({ length: 8 }, () => "p".repeat(64));
-    const result = validateQuotaProviders([
+          }),
+        ),
+      ),
+    ],
+    [
+      "every structural bound",
       quotaProvider({
         format: "json-v1",
         adapter: {
-          rowsPath: path(),
-          mappings: Array.from({ length: 16 }, () => ({
+          rowsPath: longPath(),
+          mappings: Array.from({ length: 16 }, (_, index) => ({
             resultType: "quota",
-            name: "n".repeat(80),
+            name: maxName(index),
             label: "l".repeat(80),
             unit: "u".repeat(32),
             unitPosition: "suffix",
-            resetTime: { path: path(), encoding: "iso-8601" },
-            observedTime: { path: path(), encoding: "unix-milliseconds" },
+            resetTime: { path: longPath(), encoding: "iso-8601" },
+            observedTime: { path: longPath(), encoding: "unix-milliseconds" },
             metric: {
               type: "remaining-limit",
-              remaining: { path: path(), divideBy: 100 },
-              limit: { path: path(), divideBy: 1_000_000 },
+              remaining: { path: longPath(), divideBy: 100 },
+              limit: { path: longPath(), divideBy: 1_000_000 },
             },
           })),
         },
       }),
-    ]);
-
-    expect(result.issues).toEqual([]);
+    ],
+  ])("accepts the maximum json-v1 shape with %s", (_name, definition) => {
+    expect(validateQuotaProviders([definition]).issues).toEqual([]);
   });
 
-  it.each([
-    {
-      name: "81-code-point name",
-      mapping: {
-        resultType: "usage",
-        name: "n".repeat(81),
-        metric: { type: "value", valueType: "used", value: { literal: 1 } },
-      },
-      key: "quotaProviders[0].adapter.mappings[0].name",
-    },
-    {
-      name: "81-code-point label",
-      mapping: {
-        resultType: "usage",
-        name: "Usage",
-        label: "l".repeat(81),
-        metric: { type: "value", valueType: "used", value: { literal: 1 } },
-      },
-      key: "quotaProviders[0].adapter.mappings[0].label",
-    },
-    {
-      name: "33-code-point unit",
-      mapping: {
-        resultType: "usage",
-        name: "Usage",
-        unit: "u".repeat(33),
-        unitPosition: "suffix",
-        metric: { type: "value", valueType: "used", value: { literal: 1 } },
-      },
-      key: "quotaProviders[0].adapter.mappings[0].unit",
-    },
-  ])("rejects json-v1 static field bounds: $name", ({ mapping, key }) => {
+  it("rejects two json-v1 mapping names that would give one row id", () => {
     const result = validateQuotaProviders([
-      quotaProvider({
-        format: "json-v1",
-        adapter: { mappings: [mapping] },
-      }),
+      jsonV1(
+        usage({ name: "Daily limit" }),
+        usage({ name: "Daily-limit" }),
+        usage({ name: "日次" }),
+        usage({ name: "Daily_limit" }),
+      ),
     ]);
 
-    expect(result.issues).toContainEqual(expect.objectContaining({ key }));
+    expect(result.value).toBeUndefined();
+    expect(result.issues).toEqual([
+      {
+        key: "quotaProviders[0].adapter.mappings[3].name",
+        message: `gives the same row id as ${M0}.name`,
+      },
+    ]);
   });
 
   it.each([
     ["Cc", "\u0007"],
-    ["Cf", "\u202e"],
-    ["Zl", "\u2028"],
-    ["Zp", "\u2029"],
-  ])("rejects Unicode %s characters in every json-v1 static display field", (_category, character) => {
-    const cases = [
-      {
-        mapping: {
-          resultType: "usage",
-          name: `Us${character}age`,
-          metric: { type: "value", valueType: "used", value: { literal: 1 } },
-        },
-        key: "quotaProviders[0].adapter.mappings[0].name",
-      },
-      {
-        mapping: {
-          resultType: "usage",
-          name: "Usage",
-          label: `Us${character}ed:`,
-          metric: { type: "value", valueType: "used", value: { literal: 1 } },
-        },
-        key: "quotaProviders[0].adapter.mappings[0].label",
-      },
-      {
-        mapping: {
-          resultType: "usage",
-          name: "Usage",
-          unit: `to${character}kens`,
-          unitPosition: "suffix",
-          metric: { type: "value", valueType: "used", value: { literal: 1 } },
-        },
-        key: "quotaProviders[0].adapter.mappings[0].unit",
-      },
-      {
-        mapping: {
-          resultType: "status",
-          name: "Status",
-          metric: { type: "status", value: { literal: `Re${character}ady` } },
-        },
-        key: "quotaProviders[0].adapter.mappings[0].metric.value.literal",
-      },
-    ];
+    ["Cf", "‮"],
+    ["Zl", " "],
+    ["Zp", " "],
+  ])(
+    "rejects Unicode %s characters in every json-v1 static display field",
+    (_category, character) => {
+      const cases = [
+        [usage({ name: `Us${character}age` }), `${M0}.name`],
+        [usage({ label: `Us${character}ed:` }), `${M0}.label`],
+        [usage({ unit: `to${character}kens`, unitPosition: "suffix" }), `${M0}.unit`],
+        [
+          {
+            resultType: "status",
+            name: "Status",
+            metric: { type: "status", value: { literal: `Re${character}ady` } },
+          },
+          `${M0}.metric.value.literal`,
+        ],
+      ] as const;
 
-    for (const item of cases) {
-      const result = validateQuotaProviders([
-        quotaProvider({
-          format: "json-v1",
-          adapter: { mappings: [item.mapping] },
-        }),
-      ]);
-
-      expect(result.value).toBeUndefined();
-      expect(result.issues).toContainEqual(expect.objectContaining({ key: item.key }));
-    }
-  });
+      for (const [mapping, key] of cases) {
+        const result = validateQuotaProviders([jsonV1(mapping)]);
+        expect(result.value).toBeUndefined();
+        expect(result.issues).toContainEqual(expect.objectContaining({ key }));
+      }
+    },
+  );
 
   it("rejects a provider-prefixed json-v1 entry name above 160 code points", () => {
     const result = validateQuotaProviders([
-      quotaProvider({
-        label: "p".repeat(80),
-        format: "json-v1",
-        adapter: {
-          mappings: [
-            {
-              resultType: "usage",
-              name: "n".repeat(80),
-              metric: { type: "value", valueType: "used", value: { literal: 1 } },
-            },
-          ],
-        },
-      }),
+      { ...jsonV1(usage({ name: "n".repeat(80) })), label: "p".repeat(80) },
     ]);
 
     expect(result.issues).toContainEqual({
-      key: "quotaProviders[0].adapter.mappings[0].name",
+      key: `${M0}.name`,
       message: "provider-prefixed name must not exceed 160 code points",
     });
   });
 
   it.each([
-    {
-      name: "nine path segments",
-      value: { path: Array.from({ length: 9 }, () => "segment") },
-      key: "quotaProviders[0].adapter.mappings[0].metric.value.path",
-    },
-    {
-      name: "65-code-point path segment",
-      value: { path: ["x".repeat(65)] },
-      key: "quotaProviders[0].adapter.mappings[0].metric.value.path[0]",
-    },
-    {
-      name: "number above magnitude",
-      value: { literal: 1e15 + 1 },
-      key: "quotaProviders[0].adapter.mappings[0].metric.value.literal",
-    },
-  ])("rejects json-v1 scalar bounds: $name", ({ value, key }) => {
+    ["object count", Array.from({ length: 128 }, () => ({})), "must not exceed 128 objects"],
+    [
+      "property count",
+      Object.fromEntries(Array.from({ length: 380 }, (_, index) => [`field${index}`, index])),
+      "must not exceed 384 object properties",
+    ],
+    [
+      "array element count",
+      Array.from({ length: 640 }, () => 0),
+      "must not exceed 640 total array elements",
+    ],
+  ])("rejects json-v1 adapter structural %s", (_name, padding, message) => {
     const result = validateQuotaProviders([
-      quotaProvider({
-        format: "json-v1",
-        adapter: {
-          mappings: [
-            {
-              resultType: "usage",
-              name: "Usage",
-              metric: { type: "value", valueType: "used", value },
-            },
-          ],
-        },
-      }),
+      quotaProvider({ format: "json-v1", adapter: { mappings: [usage()], padding } }),
     ]);
-    expect(result.issues).toContainEqual(expect.objectContaining({ key }));
-  });
-
-  it.each([
-    {
-      name: "object count",
-      padding: Array.from({ length: 128 }, () => ({})),
-      message: "must not exceed 128 objects",
-    },
-    {
-      name: "property count",
-      padding: Object.fromEntries(
-        Array.from({ length: 380 }, (_, index) => [`field${index}`, index]),
-      ),
-      message: "must not exceed 384 object properties",
-    },
-    {
-      name: "array element count",
-      padding: Array.from({ length: 640 }, () => 0),
-      message: "must not exceed 640 total array elements",
-    },
-  ])("rejects json-v1 adapter structural $name", ({ padding, message }) => {
-    const result = validateQuotaProviders([
-      quotaProvider({
-        format: "json-v1",
-        adapter: {
-          mappings: [
-            {
-              resultType: "usage",
-              name: "Usage",
-              metric: { type: "value", valueType: "used", value: { literal: 1 } },
-            },
-          ],
-          padding,
-        },
-      }),
-    ]);
-    expect(result.issues).toContainEqual({
-      key: "quotaProviders[0].adapter",
-      message,
-    });
-  });
-
-  it("rejects adapter structures deeper than eight container levels", () => {
-    let nested: Record<string, unknown> = {};
-    for (let index = 0; index < 9; index += 1) nested = { nested };
-    const result = validateQuotaProviders([
-      quotaProvider({
-        format: "json-v1",
-        adapter: {
-          mappings: [
-            {
-              resultType: "usage",
-              name: "Usage",
-              metric: { type: "value", valueType: "used", value: { literal: 1 } },
-              extra: nested,
-            },
-          ],
-        },
-      }),
-    ]);
-    expect(result.issues).toContainEqual(
-      expect.objectContaining({ key: "quotaProviders[0].adapter" }),
-    );
+    expect(result.issues).toContainEqual({ key: "quotaProviders[0].adapter", message });
   });
 
   it("normalizes exact json-v1 timestamp encodings and rejects invalid ranges", () => {
@@ -904,5 +716,53 @@ describe("quotaProviders schema", () => {
         },
       ]).issues[0]?.key,
     ).toBe("quotaProviders[0].windows");
+  });
+});
+
+describe("the enabled field of a custom provider", () => {
+  it("is on when missing, keeps false, accepts only true or false, and runs only switched-on providers", () => {
+    const result = validateQuotaProviders([
+      quotaProvider({ id: "on-gateway" }),
+      quotaProvider({ id: "off-gateway", url: "https://off.example/quota", enabled: false }),
+      localQuotaProvider({ id: "off-local", enabled: false }),
+    ]);
+    expect(result.issues).toEqual([]);
+    const definitions = result.value ?? [];
+    expect(definitions[0]).not.toHaveProperty("enabled");
+    expect(definitions.map((definition) => definition.enabled)).toEqual([undefined, false, false]);
+    expect(customQuotaProviderDefinitions(definitions)).toEqual([definitions[0]]);
+
+    expect(validateQuotaProviders([quotaProvider({ enabled: "no" })]).issues).toEqual([
+      { key: "quotaProviders[0].enabled", message: "expected true or false" },
+    ]);
+  });
+
+  it("is described by scheme, host, path and key source, never the key", () => {
+    vi.stubEnv("OFF_GATEWAY_KEY", "off-key-value");
+    const result = validateQuotaProviders([
+      quotaProvider({
+        id: "off-gateway",
+        providerId: "vendor",
+        url: "https://off.example/v1/quota",
+        apiKeyEnv: "OFF_GATEWAY_KEY",
+        enabled: false,
+      }),
+      quotaProvider({ id: "keyless", providerId: "other", url: "https://keyless.example/quota" }),
+      localQuotaProvider({ enabled: false }),
+    ]);
+
+    expect(result.value?.map(describeQuotaProviderRequest)).toEqual([
+      {
+        url: "https://off.example/v1/quota",
+        key: "OFF_GATEWAY_KEY, else OpenCode's vendor key",
+        insecure: false,
+      },
+      {
+        url: "https://keyless.example/quota",
+        key: "OpenCode's other key",
+        insecure: false,
+      },
+      null,
+    ]);
   });
 });

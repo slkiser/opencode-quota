@@ -1,7 +1,7 @@
 import { existsSync } from "fs";
 
 import { getOpenCodeDbPath } from "./opencode-db-path.js";
-import { openOpenCodeSqliteReadOnly } from "./opencode-sqlite.js";
+import { openOpenCodeSqliteReadOnly, type SqliteConn } from "./opencode-sqlite.js";
 
 /**
  * Error thrown when a session is not found.
@@ -21,12 +21,12 @@ export class SessionNotFoundError extends Error {
   }
 }
 
-export interface OpenCodeTokenCache {
+interface OpenCodeTokenCache {
   read: number;
   write: number;
 }
 
-export interface OpenCodeTokens {
+interface OpenCodeTokens {
   input: number;
   output: number;
   reasoning?: number;
@@ -59,7 +59,7 @@ export interface OpenCodeSessionInfo {
   };
 }
 
-export type OpenCodeDbStats = {
+type OpenCodeDbStats = {
   dbPath: string;
   sessionCount: number;
   messageCount: number;
@@ -182,8 +182,8 @@ function chunkArray<T>(items: readonly T[], chunkSize: number): T[][] {
   return chunks;
 }
 
-function guardedJsonScalar(path: string): string {
-  return `CASE WHEN json_valid(data) THEN json_extract(data, '${path}') END`;
+function guardedJsonScalar(path: string, column = "data"): string {
+  return `CASE WHEN json_valid(${column}) THEN json_extract(${column}, '${path}') END`;
 }
 
 const PROJECTED_MESSAGE_COLUMNS = [
@@ -527,6 +527,107 @@ export async function iterAssistantMessagesForSessions(params: {
   }
 }
 
+const USAGE_MESSAGE_COLUMNS = [
+  "message.id AS id",
+  "message.session_id AS session_id",
+  "message.time_created AS time_created",
+  "message.type AS role",
+  // A failed compaction names no model: its usage stays unpriced.
+  `${guardedJsonScalar("$.model.providerID", "message.data")} AS provider_id`,
+  `${guardedJsonScalar("$.model.id", "message.data")} AS model_id`,
+  `${guardedJsonScalar("$.tokens.input", "message.data")} AS tokens_input`,
+  `${guardedJsonScalar("$.tokens.output", "message.data")} AS tokens_output`,
+  `${guardedJsonScalar("$.tokens.reasoning", "message.data")} AS tokens_reasoning`,
+  `${guardedJsonScalar("$.tokens.cache.read", "message.data")} AS tokens_cache_read`,
+  `${guardedJsonScalar("$.tokens.cache.write", "message.data")} AS tokens_cache_write`,
+].join(", ");
+
+const USAGE_MESSAGE_FILTERS = [
+  // Assistant messages, and compactions that recorded usage (a running one has none yet).
+  `(message.type = 'assistant' OR (message.type = 'compaction'` +
+    ` AND ${guardedJsonScalar("$.tokens", "message.data")} IS NOT NULL))`,
+  // A fork starts with copies of its parent's rows, all older than the fork; only the parent
+  // counts them. OpenCode's own usage stats use the same rule.
+  `(session.fork_session_id IS NULL OR message.time_created >= session.time_created)`,
+];
+
+type UsagePageCursor = { timeCreated: number; id: string };
+
+function readUsagePage(
+  conn: SqliteConn,
+  filter: { sinceMs?: number; untilMs?: number; sessionID?: string },
+  after: UsagePageCursor | null,
+  pageSize: number,
+): ProjectedMessageRow[] {
+  const where = [...USAGE_MESSAGE_FILTERS];
+  const args: unknown[] = [];
+  if (filter.sessionID !== undefined) {
+    where.push("message.session_id = ?");
+    args.push(filter.sessionID);
+  }
+  if (typeof filter.sinceMs === "number") {
+    where.push("message.time_created >= ?");
+    args.push(filter.sinceMs);
+  }
+  if (typeof filter.untilMs === "number") {
+    where.push("message.time_created <= ?");
+    args.push(filter.untilMs);
+  }
+  if (after) {
+    // The rows after the last one read, in (time_created, id) order. The first condition
+    // alone lets SQLite start from the creation-time index.
+    where.push("message.time_created >= ? AND (message.time_created > ? OR message.id > ?)");
+    args.push(after.timeCreated, after.timeCreated, after.id);
+  }
+  return conn.all<ProjectedMessageRow>(
+    `SELECT ${USAGE_MESSAGE_COLUMNS} FROM "session_message" AS message` +
+      ` LEFT JOIN "session_v2" AS session ON session.id = message.session_id` +
+      ` WHERE ${where.join(" AND ")}` +
+      ` ORDER BY message.time_created ASC, message.id ASC LIMIT ?`,
+    [...args, pageSize],
+  );
+}
+
+/**
+ * Reads the rows that used tokens, at most `pageSize` at a time so the caller can let other
+ * work run between pages: assistant messages and compactions that recorded usage, by creation
+ * time, without the copies a fork starts with. `role` is the row type ("assistant" or
+ * "compaction"). With `sessionIDs`, reads only those sessions, one after another.
+ */
+export async function* readUsageMessagePages(params: {
+  sinceMs?: number;
+  untilMs?: number;
+  sessionIDs?: readonly string[];
+  pageSize: number;
+}): AsyncGenerator<OpenCodeMessage[]> {
+  const db = openDbOrNull();
+  if (!db) return;
+
+  const conn = await db.open();
+  try {
+    if (!(await hasJsonExtract(conn))) return;
+    const { sinceMs, untilMs, pageSize } = params;
+    const filters =
+      params.sessionIDs === undefined
+        ? [{ sinceMs, untilMs }]
+        : params.sessionIDs.map((sessionID) => ({ sinceMs, untilMs, sessionID }));
+    for (const filter of filters) {
+      let after: UsagePageCursor | null = null;
+      let pageWasFull = true;
+      while (pageWasFull) {
+        const rows = readUsagePage(conn, filter, after, pageSize);
+        const messages = rows.flatMap((row) => mapRowToOpenCodeMessage(row) ?? []);
+        if (messages.length > 0) yield messages;
+        const last = rows.at(-1);
+        if (last) after = { timeCreated: last.time_created, id: last.id };
+        pageWasFull = rows.length === pageSize;
+      }
+    }
+  } finally {
+    conn.close();
+  }
+}
+
 export async function readAllSessionsIndex(): Promise<Record<string, OpenCodeSessionInfo>> {
   const db = openDbOrNull();
   const idx: Record<string, OpenCodeSessionInfo> = {};
@@ -555,4 +656,56 @@ export async function readAllSessionsIndex(): Promise<Record<string, OpenCodeSes
   } finally {
     conn.close();
   }
+}
+
+function compareSessionCreatedAt(a: OpenCodeSessionInfo, b: OpenCodeSessionInfo): number {
+  const aCreated =
+    typeof a.time?.created === "number" && Number.isFinite(a.time.created)
+      ? a.time.created
+      : Number.MAX_SAFE_INTEGER;
+  const bCreated =
+    typeof b.time?.created === "number" && Number.isFinite(b.time.created)
+      ? b.time.created
+      : Number.MAX_SAFE_INTEGER;
+
+  if (aCreated !== bCreated) return aCreated - bCreated;
+  return a.id.localeCompare(b.id);
+}
+
+/** The ids of a session and all its subagent sessions, depth first, children oldest first. */
+export async function resolveSessionTree(rootSessionID: string): Promise<string[]> {
+  if (!rootSessionID.startsWith("ses_")) {
+    throw new SessionNotFoundError(rootSessionID, "(invalid session ID format)");
+  }
+
+  const sessionsIdx = await readAllSessionsIndex();
+  const root = sessionsIdx[rootSessionID];
+  if (!root) {
+    throw new SessionNotFoundError(rootSessionID, getOpenCodeDbPath());
+  }
+
+  const childrenByParentID = new Map<string, OpenCodeSessionInfo[]>();
+  for (const session of Object.values(sessionsIdx)) {
+    if (!session.parentID) continue;
+    const children = childrenByParentID.get(session.parentID);
+    if (children) {
+      children.push(session);
+    } else {
+      childrenByParentID.set(session.parentID, [session]);
+    }
+  }
+
+  for (const children of childrenByParentID.values()) {
+    children.sort(compareSessionCreatedAt);
+  }
+
+  const tree: string[] = [];
+  const visit = (session: OpenCodeSessionInfo): void => {
+    if (tree.includes(session.id)) return;
+    tree.push(session.id);
+    for (const child of childrenByParentID.get(session.id) ?? []) visit(child);
+  };
+
+  visit(root);
+  return tree;
 }

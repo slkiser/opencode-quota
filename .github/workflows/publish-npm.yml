@@ -26,7 +26,7 @@ jobs:
       - name: Activate pnpm
         run: |
           corepack enable
-          corepack prepare pnpm@11.0.0 --activate
+          corepack prepare pnpm@11.7.0 --activate
 
       - name: Assert release ref, tag, and commit match
         env:
@@ -212,7 +212,7 @@ jobs:
       - name: Activate pnpm
         run: |
           corepack enable
-          corepack prepare pnpm@11.0.0 --activate
+          corepack prepare pnpm@11.7.0 --activate
 
       - name: Sync and verify version for repository backfill
         env:

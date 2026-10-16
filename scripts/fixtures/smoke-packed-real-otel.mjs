@@ -17,76 +17,42 @@ const packageRoot = path.resolve(
 );
 
 function packageImport(relativePath) {
-  return import(pathToFileURL(path.join(packageRoot, "dist", "lib", relativePath)));
+  return import(pathToFileURL(path.join(packageRoot, "dist", relativePath)));
 }
 
-const telemetry = await packageImport("quota-telemetry.js");
-const quotaState = await packageImport("quota-state.js");
-const { buildQuotaExport } = await packageImport("quota-export.js");
+const telemetry = await packageImport("lib/quota-telemetry.js");
+const { buildQuotaExportFromSnapshot } = await packageImport("lib/quota-export.js");
 
-function accounting(overrides = {}) {
+/** A v6 quota snapshot of providers that each report one monthly percent row. */
+function quotaSnapshot(providers) {
   return {
-    resultType: "quota",
-    acquisitionMethod: "remote_api",
-    ownership: "user_configured",
-    authority: "provider_reported",
-    ...overrides,
+    version: 6,
+    providers: providers.map(({ providerId, label, account, percentRemaining, okAtMs }) => ({
+      providerId,
+      label: providerId,
+      rows: [
+        {
+          id: `${providerId}.month`,
+          providerId,
+          ...(account ? { account } : {}),
+          label,
+          type: "quota",
+          method: "remote_api",
+          authority: "provider_reported",
+          window: "month",
+          prominence: "primary",
+          percentRemaining,
+        },
+      ],
+      ...(okAtMs !== undefined ? { okAtMs } : {}),
+      refreshing: false,
+      debug: [],
+    })),
+    resetNotices: [],
+    generatedAtMs: Date.now(),
+    serverId: "packed-smoke",
+    revision: 1,
   };
-}
-
-function result({ name, percentRemaining, sourceId, secret }) {
-  return {
-    attempted: true,
-    entries: [
-      {
-        name,
-        label: "Month:",
-        percentRemaining,
-        accounting: accounting({ sourceId }),
-      },
-    ],
-    errors: secret ? [{ label: "sanitized", message: "HTTP 503" }] : [],
-  };
-}
-
-function createContext(token) {
-  return {
-    client: {
-      config: {
-        providers: async () => ({ data: { providers: [] } }),
-        get: async () => ({ data: {} }),
-      },
-    },
-    resolveRuntimeProviderIds: async () => new Set(),
-    config: {
-      cursorPlan: "auto",
-      enabledProviders: "auto",
-      quotaProviders: [],
-      telemetryToken: token,
-    },
-  };
-}
-
-function createProvider(id, providerResult, counter) {
-  return {
-    id,
-    cachePolicy: { kind: "account-neutral" },
-    isAvailable: async () => true,
-    fetch: async () => {
-      counter.count += 1;
-      return providerResult;
-    },
-  };
-}
-
-async function fetchAt({ provider, ctx, timestamp }) {
-  const originalNow = Date.now;
-  Date.now = () => timestamp;
-  try {
-    return await quotaState.fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
-  } finally {
-    Date.now = originalNow;
-  }
 }
 
 function createSdk() {
@@ -134,54 +100,31 @@ async function runHappyPath() {
 
     const base = Date.now();
     const secret = "packed-otel-secret-canary";
-    const counters = [{ count: 0 }, { count: 0 }];
-    const providers = [
-      createProvider(
-        "private-alpha",
-        result({
-          name: `Private ${secret}`,
-          percentRemaining: 60,
-          sourceId: "private-source-alpha",
-        }),
-        counters[0],
-      ),
-      createProvider(
-        "private-beta",
-        result({
-          name: "Private beta",
-          percentRemaining: 20,
-          sourceId: "private-source-beta",
-          secret,
-        }),
-        counters[1],
-      ),
-    ];
-    const ctx = createContext(token);
-
-    await fetchAt({ provider: providers[0], ctx, timestamp: base - 5_000 });
-    await fetchAt({ provider: providers[1], ctx, timestamp: base - 9_000 });
-    assert.deepEqual(
-      counters.map(({ count }) => count),
-      [1, 1],
-    );
-
-    const requestsBeforePassiveReads = counters.map(({ count }) => count);
-    const exported = await buildQuotaExport({ providers, ctx, ttlMs: 60_000, fromCache: true });
-    assert.equal(exported.version, 2);
+    const snapshot = quotaSnapshot([
+      {
+        providerId: "private-alpha",
+        label: `Private ${secret}`,
+        account: secret,
+        percentRemaining: 60,
+        okAtMs: base - 5_000,
+      },
+      {
+        providerId: "private-beta",
+        label: "Private beta",
+        percentRemaining: 20,
+        okAtMs: base - 9_000,
+      },
+    ]);
+    // The export file and the gauges come from the same snapshot.
+    const exported = buildQuotaExportFromSnapshot(snapshot);
+    assert.equal(exported.version, 3);
     assert.equal(exported.providers["private-alpha"].status, "ok");
-    assert.equal(exported.providers["private-beta"].status, "partial");
+    assert.equal(exported.providers["private-beta"].status, "ok");
     assert.equal(exported.providers["private-alpha"].entries[0].percentRemaining, 60);
     assert.equal(exported.providers["private-beta"].entries[0].percentRemaining, 20);
-    assert.deepEqual(
-      counters.map(({ count }) => count),
-      requestsBeforePassiveReads,
-    );
 
+    telemetry.publishQuotaTelemetry(token, snapshot);
     const first = await collect(sdk);
-    assert.deepEqual(
-      counters.map(({ count }) => count),
-      requestsBeforePassiveReads,
-    );
     const consumed = pointsFor(first, "opencode.quota.consumed");
     assert.deepEqual(consumed, [
       {
@@ -200,82 +143,30 @@ async function runHappyPath() {
     assert.ok(Math.abs(firstAge[0].value - exported.cacheAgeSeconds) <= 1);
 
     const metricText = JSON.stringify(first);
-    for (const privateValue of [
-      secret,
-      "private-alpha",
-      "private-beta",
-      "private-source-alpha",
-      "private-source-beta",
-    ]) {
+    for (const privateValue of [secret, "private-alpha", "private-beta"]) {
       assert.ok(!metricText.includes(privateValue));
     }
     assert.ok(JSON.stringify(exported).includes("private-alpha"));
-    assert.ok(JSON.stringify(exported).includes("private-source-alpha"));
 
     await new Promise((resolve) => setTimeout(resolve, 20));
     const second = await collect(sdk);
-    assert.deepEqual(
-      counters.map(({ count }) => count),
-      requestsBeforePassiveReads,
-    );
     assert.ok(pointsFor(second, "opencode.quota.cache.age")[0].value >= firstAge[0].value);
 
-    const orderingResult = result({
-      name: "Ordering",
-      percentRemaining: 50,
-      sourceId: "ordering-private",
-    });
-    telemetry.updateQuotaTelemetrySnapshot({
-      token,
-      snapshotId: "ordering:cached",
-      providerId: "copilot",
-      cacheTimestamp: base - 4_000,
-      result: orderingResult,
-    });
-    telemetry.updateQuotaTelemetrySnapshot({
-      token,
-      snapshotId: "ordering:cached",
-      providerId: "copilot",
-      cacheTimestamp: base - 20_000,
-      result: orderingResult,
-    });
-    let ordering = await collect(sdk);
-    const orderedAge = pointsFor(ordering, "opencode.quota.cache.age").find(
-      ({ attributes }) => attributes["quota.provider"] === "copilot",
-    );
-    assert.ok(orderedAge);
-    assert.ok(orderedAge.value < 10);
-
-    telemetry.updateQuotaTelemetrySnapshot({
-      token,
-      snapshotId: "ordering:uncached",
-      supersededSnapshotIds: ["ordering:cached"],
-      providerId: "copilot",
-      result: orderingResult,
-    });
-    ordering = await collect(sdk);
-    assert.equal(
-      pointsFor(ordering, "opencode.quota.cache.age").some(
+    const copilotAge = async (okAtMs) => {
+      telemetry.publishQuotaTelemetry(
+        token,
+        quotaSnapshot([{ providerId: "copilot", label: "Monthly", percentRemaining: 50, okAtMs }]),
+      );
+      return pointsFor(await collect(sdk), "opencode.quota.cache.age").filter(
         ({ attributes }) => attributes["quota.provider"] === "copilot",
-      ),
-      false,
-    );
-
-    telemetry.updateQuotaTelemetrySnapshot({
-      token,
-      snapshotId: "ordering:cached",
-      supersededSnapshotIds: ["ordering:uncached"],
-      providerId: "copilot",
-      cacheTimestamp: base - 2_000,
-      result: orderingResult,
-    });
-    ordering = await collect(sdk);
-    assert.equal(
-      pointsFor(ordering, "opencode.quota.cache.age").filter(
-        ({ attributes }) => attributes["quota.provider"] === "copilot",
-      ).length,
-      1,
-    );
+      );
+    };
+    const recent = await copilotAge(base - 4_000);
+    assert.equal(recent.length, 1);
+    assert.ok(recent[0].value < 10);
+    // A provider that never answered has no age; each snapshot replaces the last one.
+    assert.equal((await copilotAge(undefined)).length, 0);
+    assert.equal((await copilotAge(base - 2_000)).length, 1);
 
     telemetry.disposeQuotaTelemetryOwner(owner);
     const disposed = await collect(sdk);
@@ -296,22 +187,10 @@ async function runDisabled() {
     assert.equal(token, undefined);
     await telemetry.__flushQuotaTelemetryInitializationForTests();
 
-    const counter = { count: 0 };
-    const provider = createProvider(
-      "private-disabled",
-      result({ name: "Disabled", percentRemaining: 45, sourceId: "disabled-source" }),
-      counter,
+    telemetry.publishQuotaTelemetry(
+      token,
+      quotaSnapshot([{ providerId: "copilot", label: "Disabled", percentRemaining: 45 }]),
     );
-    const ctx = createContext(token);
-    await fetchAt({ provider, ctx, timestamp: Date.now() - 1_000 });
-    const exported = await buildQuotaExport({
-      providers: [provider],
-      ctx,
-      ttlMs: 60_000,
-      fromCache: true,
-    });
-    assert.equal(exported.providers[provider.id].status, "ok");
-    assert.equal(counter.count, 1);
     assert.equal((await collect(sdk)).length, 0);
   } finally {
     await sdk.provider.shutdown();
@@ -328,22 +207,12 @@ async function runNoGlobalProvider() {
   assert.ok(token);
   await telemetry.__flushQuotaTelemetryInitializationForTests();
 
-  const counter = { count: 0 };
-  const provider = createProvider(
-    "private-no-provider",
-    result({ name: "No provider", percentRemaining: 55, sourceId: "no-provider-source" }),
-    counter,
+  assert.doesNotThrow(() =>
+    telemetry.publishQuotaTelemetry(
+      token,
+      quotaSnapshot([{ providerId: "copilot", label: "No provider", percentRemaining: 55 }]),
+    ),
   );
-  const ctx = createContext(token);
-  await fetchAt({ provider, ctx, timestamp: Date.now() - 1_000 });
-  const exported = await buildQuotaExport({
-    providers: [provider],
-    ctx,
-    ttlMs: 60_000,
-    fromCache: true,
-  });
-  assert.equal(exported.providers[provider.id].status, "ok");
-  assert.equal(counter.count, 1);
   telemetry.disposeQuotaTelemetryOwner(owner);
 }
 
@@ -397,13 +266,17 @@ async function runFailingInfrastructure() {
   });
   assert.ok(observerToken);
   await telemetry.__flushQuotaTelemetryInitializationForTests();
-  telemetry.updateQuotaTelemetrySnapshot({
-    token: observerToken,
-    snapshotId: "observer",
-    providerId: "copilot",
-    cacheTimestamp: Date.now() - 1_000,
-    result: result({ name: "Observer", percentRemaining: 30, sourceId: "observer-private" }),
-  });
+  telemetry.publishQuotaTelemetry(
+    observerToken,
+    quotaSnapshot([
+      {
+        providerId: "copilot",
+        label: "Observer",
+        percentRemaining: 30,
+        okAtMs: Date.now() - 1_000,
+      },
+    ]),
+  );
   for (const callback of callbacks) {
     assert.doesNotThrow(() =>
       callback({
@@ -413,58 +286,74 @@ async function runFailingInfrastructure() {
       }),
     );
   }
-
-  const counter = { count: 0 };
-  const provider = createProvider(
-    "private-failing-infrastructure",
-    result({ name: "Still usable", percentRemaining: 35, sourceId: "failure-source" }),
-    counter,
-  );
-  const ctx = createContext(observerToken);
-  await fetchAt({ provider, ctx, timestamp: Date.now() - 1_000 });
-  const exported = await buildQuotaExport({
-    providers: [provider],
-    ctx,
-    ttlMs: 60_000,
-    fromCache: true,
-  });
-  assert.equal(exported.providers[provider.id].status, "ok");
-  assert.equal(counter.count, 1);
   telemetry.disposeQuotaTelemetryOwner(owner);
 }
 
+/**
+ * Saves an OpenRouter snapshot as OpenCode's store does, with the packaged modules and the
+ * real provider (only its quota request is faked), for the packed CLI's `show --json`.
+ */
 async function runSeedProductionOpenRouter() {
-  const { createCliQuotaClient, resolveCliRoots } = await packageImport("cli-show.js");
-  const { createExportProviderContext } = await packageImport("quota-export.js");
-  const { resolveQuotaRuntimeContext } = await packageImport("quota-runtime-context.js");
+  const { createCliQuotaClient } = await packageImport("lib/cli-show.js");
+  const { loadSettings } = await packageImport("settings/index.js");
+  const { PROVIDER_IDS } = await packageImport("settings/schema.js");
+  const { loadProviderSource } = await packageImport("core/provider-source.js");
+  const { createQuotaStore } = await packageImport("core/store.js");
+  const { snapshotFilePath } = await packageImport("core/persist.js");
+  const { getProviders } = await packageImport("providers/registry.js");
   const secret = process.env.OPENROUTER_API_KEY;
   assert.ok(secret);
 
-  const roots = resolveCliRoots(process.cwd());
-  const client = createCliQuotaClient({ configRootDir: roots.configRoot });
-  const runtime = await resolveQuotaRuntimeContext({
-    client,
-    roots,
-    includeSessionMeta: false,
-  });
-  const ctx = createExportProviderContext(runtime);
-  const provider = runtime.providers.find(({ id }) => id === "openrouter");
+  // The smoke folder is not in a git repository, so the terminal command uses it as is.
+  const workspaceRoot = process.cwd();
+  const loaded = await loadSettings({ projectDir: workspaceRoot });
+  // Only OpenRouter is checked, as with `show --provider openrouter`.
+  const settings = {
+    ...loaded.settings,
+    providers: {
+      ...loaded.settings.providers,
+      off: PROVIDER_IDS.filter((id) => id !== "openrouter"),
+    },
+  };
+  const host = {
+    client: createCliQuotaClient({
+      configRootDir: workspaceRoot,
+      anthropicBinaryPath: settings.providers.anthropic.binaryPath,
+    }),
+    workspaceRoot,
+    settings: () => ({ ...loaded, settings }),
+  };
+  const provider = getProviders().find(({ id }) => id === "openrouter");
   assert.ok(provider);
   assert.equal(provider.cachePolicy?.kind, "resolved-auth");
-  provider.fetch = async () =>
-    result({
-      name: "Packed production OpenRouter",
-      percentRemaining: 67,
-      sourceId: "openrouter",
-    });
 
-  await quotaState.fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
-  const exported = await buildQuotaExport({
-    providers: [provider],
-    ctx,
-    ttlMs: 60_000,
-    fromCache: true,
+  // OpenRouter's key endpoint answers a key with a $100 limit and $67 left.
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    assert.equal(String(url), "https://openrouter.ai/api/v1/key");
+    assert.equal(new Headers(init?.headers).get("authorization"), `Bearer ${secret}`);
+    return new Response(JSON.stringify({ data: { usage: 33, limit: 100, limit_remaining: 67 } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const store = createQuotaStore({
+    source: () => loadProviderSource(host),
+    file: snapshotFilePath(),
   });
+  let snapshot;
+  try {
+    snapshot = await store.refresh({ reason: "manual" });
+  } finally {
+    await store.dispose();
+    globalThis.fetch = realFetch;
+  }
+  assert.deepEqual(
+    snapshot.providers.map(({ providerId }) => providerId),
+    ["openrouter"],
+  );
+  const exported = buildQuotaExportFromSnapshot(snapshot);
   assert.equal(exported.providers.openrouter.status, "ok");
   assert.equal(exported.providers.openrouter.entries[0].percentRemaining, 67);
   assert.ok(!JSON.stringify(exported).includes(secret));
@@ -480,6 +369,5 @@ try {
   console.log(`Packed real OpenTelemetry scenario passed: ${scenario}`);
 } finally {
   telemetry.__resetQuotaTelemetryForTests();
-  quotaState.__resetQuotaStateForTests();
   metrics.disable();
 }

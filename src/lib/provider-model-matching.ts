@@ -1,7 +1,7 @@
 import type { CanonicalQuotaProviderId } from "./provider-metadata.js";
 import { QUOTA_PROVIDER_RUNTIME_IDS } from "./provider-metadata.js";
 
-export interface ProviderModelRef {
+interface ProviderModelRef {
   lower: string;
   providerId: string;
   modelId: string;

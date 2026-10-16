@@ -1,13 +1,13 @@
 import { readFileSync } from "node:fs";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 const CURSOR_REFERENCE_ROOT = new URL(
-  "../references/upstream-plugins/cursor-opencode-provider/",
+  "../scripts/upstream-plugins/cursor-opencode-provider/",
   import.meta.url,
 );
 
-const UPSTREAM_LOCK_PATH = new URL("../references/upstream-plugins/lock.json", import.meta.url);
+const UPSTREAM_LOCK_PATH = new URL("../scripts/upstream-plugins/lock.json", import.meta.url);
 
 function readCursorReference(relativePath: string): string {
   return readFileSync(new URL(relativePath, CURSOR_REFERENCE_ROOT), "utf8");
@@ -31,7 +31,7 @@ describe("synced cursor-opencode-provider reference guards", () => {
 
     expect(cursor).toBeTruthy();
     expect(cursor.packageName).toBe(pkg.name);
-    expect(cursor.referenceDir).toBe("references/upstream-plugins/cursor-opencode-provider");
+    expect(cursor.referenceDir).toBe("scripts/upstream-plugins/cursor-opencode-provider");
     expect(cursor.version).toBe(pkg.version);
   });
 

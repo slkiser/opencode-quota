@@ -1,4 +1,4 @@
-export const UPSTREAM_PLUGIN_REFERENCE_ROOT = "references/upstream-plugins";
+export const UPSTREAM_PLUGIN_REFERENCE_ROOT = "scripts/upstream-plugins";
 
 const RAW_UPSTREAM_PLUGIN_SPECS = [
   {

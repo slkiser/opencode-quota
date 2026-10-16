@@ -1,9 +1,13 @@
 import { isIP } from "node:net";
 
-import type { AccountingResultType } from "./entries.js";
+import type { RowType } from "../core/types.js";
+import { classifyWindow } from "../core/windows.js";
+import type { ProviderRow } from "../providers/contract.js";
+import { daysInMonth } from "./calendar-date.js";
+import { isRecord } from "./json-guards.js";
 import { lookupCost } from "./modelsdev-pricing.js";
-import { getQuotaProviderShape } from "./provider-metadata.js";
-import { resolvePricingKey } from "./quota-stats.js";
+import { resolvePricingKey } from "./pricing-key.js";
+import { getCanonicalQuotaProviderId } from "./provider-metadata.js";
 
 export const QUOTA_PROVIDER_REMOTE_FORMATS = ["quota-v1", "openrouter-key-v1", "json-v1"] as const;
 export const QUOTA_PROVIDER_MODES = ["remote-api", "local-estimate"] as const;
@@ -15,10 +19,38 @@ export function isMaintainedQuotaProviderTuning(definition: QuotaProviderDefinit
   return (MAINTAINED_LOCAL_ESTIMATE_IDS as readonly string[]).includes(definition.id);
 }
 
+/**
+ * The custom definitions that run: not maintained tunings, and not switched off. A switched-off
+ * definition is never fetched and its key is never sent.
+ */
 export function customQuotaProviderDefinitions(
   definitions: readonly QuotaProviderDefinition[],
 ): QuotaProviderDefinition[] {
-  return definitions.filter((definition) => !isMaintainedQuotaProviderTuning(definition));
+  return definitions.filter(
+    (definition) => !isMaintainedQuotaProviderTuning(definition) && definition.enabled !== false,
+  );
+}
+
+/** Hosts a plain-HTTP address may use without a warning: this computer only. */
+const LOCAL_HOSTNAMES: ReadonlySet<string> = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * Where a remote custom provider sends its key, for the user to check before switching it on:
+ * the URL's origin and path (the scheme shows http or https), and where the key comes from.
+ * Never the key itself. `insecure` is true for plain HTTP to any host but localhost, 127.0.0.1
+ * or ::1. Null for a local estimate, which sends nothing.
+ */
+export function describeQuotaProviderRequest(
+  definition: QuotaProviderDefinition,
+): { url: string; key: string; insecure: boolean } | null {
+  if (definition.mode !== "remote-api") return null;
+  const url = new URL(definition.url);
+  const saved = `OpenCode's ${definition.providerId} key`;
+  return {
+    url: `${url.origin}${url.pathname}`,
+    key: definition.apiKeyEnv ? `${definition.apiKeyEnv}, else ${saved}` : saved,
+    insecure: url.protocol === "http:" && !LOCAL_HOSTNAMES.has(url.hostname),
+  };
 }
 
 export function resolveQuotaProviderSessionModelIdentity(params: {
@@ -36,6 +68,78 @@ export function resolveQuotaProviderSessionModelIdentity(params: {
   return {
     providerId: params.currentModel.slice(0, slashIndex),
     modelId: params.currentModel.slice(slashIndex + 1),
+  };
+}
+
+/** A short stable hash (32-bit FNV-1a, hex) that tells names apart in row keys. */
+function shortNameHash(text: string): string {
+  let hash = 0x811c9dc5;
+  for (const char of text) {
+    hash ^= char.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+const CUSTOM_ROW_KEY_MAX_LENGTH = 48;
+
+/**
+ * The row key a custom source's mapping or entry name gets: spaces become "_", and the name
+ * stays as it is when that leaves only letters, digits, "_" and "-" ("Daily limit" →
+ * "Daily_limit", "Daily-limit" → "Daily-limit"). Other characters are dropped and a short hash
+ * of the exact name is added, so names stay apart ("日次" → 8 hex digits).
+ */
+export function customRowKey(name: string): string {
+  const spaced = name.trim().replace(/\s+/gu, "_");
+  const kept = spaced.replace(/[^A-Za-z0-9_-]/gu, "").slice(0, CUSTOM_ROW_KEY_MAX_LENGTH);
+  if (kept === spaced && /[A-Za-z0-9]/u.test(kept)) return kept;
+  const hash = shortNameHash(name.trim());
+  return /[A-Za-z0-9]/u.test(kept) ? `${kept}_${hash}` : hash;
+}
+
+/** What a custom row means; custom configs may still say `rate_limit` and `spend` (ADR 0001). */
+export type CustomResultType =
+  | "quota"
+  | "rate_limit"
+  | "usage"
+  | "spend"
+  | "budget"
+  | "balance"
+  | "status";
+
+/** ADR 0001: a custom `rate_limit` is a quota and `spend` is usage. */
+function customRowType(resultType: CustomResultType): RowType {
+  if (resultType === "rate_limit") return "quota";
+  if (resultType === "spend") return "usage";
+  return resultType;
+}
+
+/**
+ * One custom row. `key` is the part of its id after `custom.<definition id>.`; its label is the
+ * configured label without a trailing colon, or else its name; its window is the one its name
+ * or label names ("Daily" → day).
+ */
+export function customRow(params: {
+  key: string;
+  name: string;
+  label?: string;
+  resultType: CustomResultType;
+  method: "remote_api" | "local_estimation";
+  value: { percentRemaining: number } | { text: string };
+  resetsAt?: string;
+}): ProviderRow {
+  const label = (params.label ?? "").replace(/:+$/u, "").trim();
+  const window = classifyWindow(params.name) ?? classifyWindow(label);
+  return {
+    key: params.key,
+    label: label || params.name,
+    type: customRowType(params.resultType),
+    method: params.method,
+    authority: params.method === "remote_api" ? "provider_reported" : "locally_derived",
+    prominence: "primary",
+    ...(window ? { window } : {}),
+    ...params.value,
+    ...(params.resetsAt ? { resetsAt: params.resetsAt } : {}),
   };
 }
 
@@ -73,8 +177,8 @@ export function selectEligibleQuotaProviderDefinitions(params: {
 }
 
 export type QuotaProviderRemoteFormat = (typeof QUOTA_PROVIDER_REMOTE_FORMATS)[number];
-export type QuotaProviderMode = (typeof QUOTA_PROVIDER_MODES)[number];
-export type QuotaProviderWindowType = (typeof QUOTA_PROVIDER_WINDOW_TYPES)[number];
+type QuotaProviderMode = (typeof QUOTA_PROVIDER_MODES)[number];
+type QuotaProviderWindowType = (typeof QUOTA_PROVIDER_WINDOW_TYPES)[number];
 
 export type JsonV1Path = string[];
 
@@ -116,7 +220,7 @@ export type JsonV1Metric =
   | { type: "status"; value: JsonV1TextSource };
 
 export interface JsonV1Mapping {
-  resultType: AccountingResultType;
+  resultType: CustomResultType;
   name: string;
   label?: string;
   unit?: string;
@@ -140,6 +244,12 @@ interface QuotaProviderDefinitionBase {
   mode: QuotaProviderMode;
   /** Exact OpenCode model ids, without a provider prefix. Omission covers the provider. */
   modelIds?: string[];
+  /**
+   * `false` switches the definition off: it is never fetched and its key is never sent (a
+   * maintained tuning is not applied). Omission means on. Agents add definitions switched off;
+   * only the user switches them on.
+   */
+  enabled?: boolean;
 }
 
 interface RemoteApiQuotaProviderDefinitionBase extends QuotaProviderDefinitionBase {
@@ -183,18 +293,22 @@ export type QuotaProviderDefinition =
   | RemoteApiQuotaProviderDefinition
   | LocalEstimateQuotaProviderDefinition;
 
-export interface QuotaProviderValidationIssue {
+interface QuotaProviderValidationIssue {
   key: string;
   message: string;
 }
 
-export type QuotaProvidersValidationResult =
+type QuotaProvidersValidationResult =
   | { value: QuotaProviderDefinition[]; issues: [] }
   | { value?: undefined; issues: QuotaProviderValidationIssue[] };
 
-const BASE_FIELDS = ["id", "providerId", "label", "mode", "modelIds"] as const;
+const BASE_FIELDS = ["id", "providerId", "label", "mode", "modelIds", "enabled"] as const;
 const REMOTE_FIELDS = [...BASE_FIELDS, "url", "format", "apiKeyEnv", "adapter"] as const;
 const LOCAL_FIELDS = [...BASE_FIELDS, "windows", "pricingModelMap"] as const;
+/** Every top-level field a definition can have, in either mode. */
+export const QUOTA_PROVIDER_FIELDS: readonly string[] = [
+  ...new Set([...REMOTE_FIELDS, ...LOCAL_FIELDS]),
+];
 const WINDOW_FIELDS = [
   "id",
   "label",
@@ -218,15 +332,15 @@ const MAX_WINDOWS = 16;
 const MAX_ROLLING_MINUTES = 366 * 24 * 60;
 const MAX_SAFE_REQUEST_LIMIT = 1_000_000_000;
 const MAX_USD_BUDGET = 1_000_000_000;
-export const JSON_V1_MAX_MAPPINGS = 16;
-export const JSON_V1_MAX_ADAPTER_DEPTH = 8;
-export const JSON_V1_MAX_ADAPTER_OBJECTS = 128;
-export const JSON_V1_MAX_ADAPTER_PROPERTIES = 384;
-export const JSON_V1_MAX_ADAPTER_ARRAY_ELEMENTS = 640;
-export const JSON_V1_MAX_PATH_SEGMENTS = 8;
-export const JSON_V1_MAX_PATH_SEGMENT_CODE_POINTS = 64;
-export const JSON_V1_MAX_STATIC_NAME_CODE_POINTS = 80;
-export const JSON_V1_MAX_STATIC_UNIT_CODE_POINTS = 32;
+const JSON_V1_MAX_MAPPINGS = 16;
+const JSON_V1_MAX_ADAPTER_DEPTH = 8;
+const JSON_V1_MAX_ADAPTER_OBJECTS = 128;
+const JSON_V1_MAX_ADAPTER_PROPERTIES = 384;
+const JSON_V1_MAX_ADAPTER_ARRAY_ELEMENTS = 640;
+const JSON_V1_MAX_PATH_SEGMENTS = 8;
+const JSON_V1_MAX_PATH_SEGMENT_CODE_POINTS = 64;
+const JSON_V1_MAX_STATIC_NAME_CODE_POINTS = 80;
+const JSON_V1_MAX_STATIC_UNIT_CODE_POINTS = 32;
 export const JSON_V1_MAX_DISPLAY_CODE_POINTS = 160;
 export const JSON_V1_MAX_NUMBER_MAGNITUDE = 1e15;
 
@@ -237,7 +351,7 @@ const JSON_V1_TIMESTAMP_ENCODINGS = new Set<JsonV1TimestampEncoding>([
   "unix-seconds",
   "unix-milliseconds",
 ]);
-const JSON_V1_RESULT_TYPES = new Set<AccountingResultType>([
+export const CUSTOM_RESULT_TYPES: ReadonlySet<string> = new Set<CustomResultType>([
   "quota",
   "rate_limit",
   "usage",
@@ -248,10 +362,6 @@ const JSON_V1_RESULT_TYPES = new Set<AccountingResultType>([
 ]);
 const JSON_V1_MIN_TIMESTAMP_MS = 0;
 const JSON_V1_MAX_TIMESTAMP_MS = 253_402_300_799_999;
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function hasOwnKey(value: Record<string, unknown>, key: string): boolean {
   return Object.hasOwn(value, key);
@@ -342,21 +452,15 @@ function normalizeRemoteUrl(value: unknown): { value?: string; message?: string 
 }
 
 function cloneDefinition(definition: QuotaProviderDefinition): QuotaProviderDefinition {
+  const modelIds = definition.modelIds ? { modelIds: [...definition.modelIds] } : {};
   if (definition.mode === "remote-api") {
     return definition.format === "json-v1"
-      ? {
-          ...definition,
-          ...(definition.modelIds ? { modelIds: [...definition.modelIds] } : {}),
-          adapter: structuredClone(definition.adapter),
-        }
-      : {
-          ...definition,
-          ...(definition.modelIds ? { modelIds: [...definition.modelIds] } : {}),
-        };
+      ? { ...definition, ...modelIds, adapter: structuredClone(definition.adapter) }
+      : { ...definition, ...modelIds };
   }
   return {
     ...definition,
-    ...(definition.modelIds ? { modelIds: [...definition.modelIds] } : {}),
+    ...modelIds,
     windows: definition.windows.map((window) => ({ ...window })),
     ...(definition.pricingModelMap ? { pricingModelMap: { ...definition.pricingModelMap } } : {}),
   };
@@ -485,13 +589,6 @@ function validateJsonV1Path(
 const JSON_V1_ISO_RE =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(Z|([+-])(\d{2}):(\d{2}))$/;
 
-function daysInMonth(year: number, month: number): number {
-  if (month === 2) {
-    return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28;
-  }
-  return [4, 6, 9, 11].includes(month) ? 30 : 31;
-}
-
 export function normalizeJsonV1Timestamp(
   value: unknown,
   encoding: JsonV1TimestampEncoding,
@@ -553,7 +650,7 @@ function validateJsonV1NumberSource(
   key: string,
   issues: QuotaProviderValidationIssue[],
 ): JsonV1NumberSource | undefined {
-  if (!isPlainObject(value)) {
+  if (!isRecord(value)) {
     adapterIssue(issues, key, "expected a path or literal number source object");
     return undefined;
   }
@@ -609,7 +706,7 @@ function validateJsonV1TextSource(
   key: string,
   issues: QuotaProviderValidationIssue[],
 ): JsonV1TextSource | undefined {
-  if (!isPlainObject(value)) {
+  if (!isRecord(value)) {
     adapterIssue(issues, key, "expected a path or literal text source object");
     return undefined;
   }
@@ -641,7 +738,7 @@ function validateJsonV1TimestampSource(
   key: string,
   issues: QuotaProviderValidationIssue[],
 ): JsonV1TimestampSource | undefined {
-  if (!isPlainObject(value)) {
+  if (!isRecord(value)) {
     adapterIssue(issues, key, "expected a timestamp source object");
     return undefined;
   }
@@ -706,11 +803,11 @@ function requireLiteralNumber(
 
 function validateJsonV1Metric(
   value: unknown,
-  resultType: AccountingResultType | undefined,
+  resultType: CustomResultType | undefined,
   key: string,
   issues: QuotaProviderValidationIssue[],
 ): JsonV1Metric | undefined {
-  if (!isPlainObject(value)) {
+  if (!isRecord(value)) {
     adapterIssue(issues, key, "expected a tagged metric object");
     return undefined;
   }
@@ -819,7 +916,7 @@ function validateJsonV1Metric(
     case "value": {
       validateKnownAdapterFields(value, ["type", "valueType", "value"], key, issues);
       const source = validateJsonV1NumberSource(value.value, `${key}.value`, issues);
-      const allowed: Record<string, readonly AccountingResultType[]> = {
+      const allowed: Record<string, readonly CustomResultType[]> = {
         used: ["quota", "rate_limit", "usage"],
         limit: ["quota", "rate_limit"],
         remaining: ["quota", "rate_limit"],
@@ -875,7 +972,7 @@ function validateJsonV1Mapping(
   providerLabel: string,
   issues: QuotaProviderValidationIssue[],
 ): JsonV1Mapping | undefined {
-  if (!isPlainObject(value)) {
+  if (!isRecord(value)) {
     adapterIssue(issues, key, "expected an object");
     return undefined;
   }
@@ -892,8 +989,8 @@ function validateJsonV1Mapping(
 
   const resultType =
     typeof value.resultType === "string" &&
-    JSON_V1_RESULT_TYPES.has(value.resultType as AccountingResultType)
-      ? (value.resultType as AccountingResultType)
+    CUSTOM_RESULT_TYPES.has(value.resultType as CustomResultType)
+      ? (value.resultType as CustomResultType)
       : undefined;
   if (hasOwnKey(value, "resultType") && !resultType) {
     adapterIssue(issues, `${key}.resultType`, "expected a supported accounting result type");
@@ -986,7 +1083,7 @@ function validateJsonV1Adapter(
   providerLabel: string,
   issues: QuotaProviderValidationIssue[],
 ): JsonV1Adapter | undefined {
-  if (!isPlainObject(value)) {
+  if (!isRecord(value)) {
     adapterIssue(issues, key, "expected an object");
     return undefined;
   }
@@ -1015,6 +1112,8 @@ function validateJsonV1Adapter(
   }
 
   const mappings: JsonV1Mapping[] = [];
+  // Each mapping's rows are keyed by its name, so two names must not give one key.
+  const rowKeys = new Map<string, number>();
   for (let index = 0; index < value.mappings.length; index += 1) {
     const mapping = validateJsonV1Mapping(
       value.mappings[index],
@@ -1022,7 +1121,19 @@ function validateJsonV1Adapter(
       providerLabel,
       issues,
     );
-    if (mapping) mappings.push(mapping);
+    if (!mapping) continue;
+    mappings.push(mapping);
+    const rowKey = customRowKey(mapping.name);
+    const first = rowKeys.get(rowKey);
+    if (first === undefined) {
+      rowKeys.set(rowKey, index);
+    } else {
+      adapterIssue(
+        issues,
+        `${key}.mappings[${index}].name`,
+        `gives the same row id as ${key}.mappings[${first}].name`,
+      );
+    }
   }
 
   return issueStart === issues.length && mappings.length === value.mappings.length
@@ -1033,7 +1144,6 @@ function validateJsonV1Adapter(
 function validateModelIds(params: {
   raw: Record<string, unknown>;
   providerKey: string;
-  providerId: string | undefined;
   issues: QuotaProviderValidationIssue[];
 }): string[] | undefined {
   if (!hasOwnKey(params.raw, "modelIds")) return undefined;
@@ -1094,20 +1204,19 @@ function validateWindows(
   for (let index = 0; index < raw.length; index += 1) {
     const item = raw[index];
     const windowKey = `${providerKey}.windows[${index}]`;
-    if (!isPlainObject(item)) {
+    if (!isRecord(item)) {
       issues.push({ key: windowKey, message: "expected an object" });
       continue;
     }
 
-    for (const field of Object.keys(item).filter(
-      (field) => !(WINDOW_FIELDS as readonly string[]).includes(field),
-    )) {
+    // An unknown field is named by its position: its name is the caller's, never repeated.
+    Object.keys(item).forEach((field, position) => {
+      if ((WINDOW_FIELDS as readonly string[]).includes(field)) return;
       issues.push({
-        key: `${windowKey}.${field}`,
-        message:
-          "unknown field; allowed fields are id, label, type, durationMinutes, requestLimit, usdBudget",
+        key: windowKey,
+        message: `field ${position + 1} is unknown; allowed fields are ${WINDOW_FIELDS.join(", ")}`,
       });
-    }
+    });
     for (const field of ["id", "type", "requestLimit"] as const) {
       if (!hasOwnKey(item, field)) {
         issues.push({ key: `${windowKey}.${field}`, message: "field is required" });
@@ -1246,7 +1355,7 @@ function validatePricingModelMap(
   issues: QuotaProviderValidationIssue[],
 ): Record<string, string> | undefined {
   if (raw === undefined) return undefined;
-  if (!isPlainObject(raw) || Object.keys(raw).length === 0) {
+  if (!isRecord(raw) || Object.keys(raw).length === 0) {
     issues.push({
       key: `${providerKey}.pricingModelMap`,
       message:
@@ -1255,19 +1364,22 @@ function validatePricingModelMap(
     return undefined;
   }
 
+  const key = `${providerKey}.pricingModelMap`;
+  const sourceModelIds = Object.keys(raw);
   const result: Record<string, string> = {};
-  for (const sourceModelId of Object.keys(raw).sort()) {
-    const key = `${providerKey}.pricingModelMap.${sourceModelId}`;
+  for (const sourceModelId of [...sourceModelIds].sort()) {
+    // An entry is named by its position: its source key is the caller's, never repeated.
+    const entry = `entry ${sourceModelIds.indexOf(sourceModelId) + 1}`;
     const target = raw[sourceModelId];
     if (sourceModelId.length === 0 || MODEL_FORBIDDEN_PATTERN.test(sourceModelId)) {
       issues.push({
         key,
-        message: "source key must be an exact model id without whitespace or control characters",
+        message: `${entry}: source key must be an exact model id without whitespace or control characters`,
       });
       continue;
     }
     if (typeof target !== "string") {
-      issues.push({ key, message: "expected a models.dev provider/model string" });
+      issues.push({ key, message: `${entry}: expected a models.dev provider/model string` });
       continue;
     }
 
@@ -1275,7 +1387,7 @@ function validatePricingModelMap(
     if (automatic.ok) {
       issues.push({
         key,
-        message: `automatic models.dev matching already resolves to ${automatic.key.provider}/${automatic.key.model}`,
+        message: `${entry}: automatic models.dev matching already resolves to ${automatic.key.provider}/${automatic.key.model}`,
       });
       continue;
     }
@@ -1286,7 +1398,7 @@ function validatePricingModelMap(
     if (!targetProvider || !targetModel || !lookupCost(targetProvider, targetModel)) {
       issues.push({
         key,
-        message: "target must be an exact priced models.dev provider/model id",
+        message: `${entry}: target must be an exact priced models.dev provider/model id`,
       });
       continue;
     }
@@ -1311,7 +1423,7 @@ export function validateQuotaProviders(value: unknown): QuotaProvidersValidation
   for (let index = 0; index < value.length; index += 1) {
     const raw = value[index];
     const providerKey = `quotaProviders[${index}]`;
-    if (!isPlainObject(raw)) {
+    if (!isRecord(raw)) {
       issues.push({ key: providerKey, message: "expected an object" });
       continue;
     }
@@ -1323,15 +1435,16 @@ export function validateQuotaProviders(value: unknown): QuotaProvidersValidation
         ? LOCAL_FIELDS
         : mode === "remote-api"
           ? REMOTE_FIELDS
-          : [...new Set([...REMOTE_FIELDS, ...LOCAL_FIELDS])];
-    for (const field of Object.keys(raw)
-      .filter((field) => !(allowedFields as readonly string[]).includes(field))
-      .sort()) {
+          : QUOTA_PROVIDER_FIELDS;
+    // An unknown field is named by its position: its name is the caller's, never repeated.
+    const modeName = QUOTA_PROVIDER_MODES.find((known) => known === mode) ?? "quota provider";
+    Object.keys(raw).forEach((field, position) => {
+      if ((allowedFields as readonly string[]).includes(field)) return;
       issues.push({
-        key: `${providerKey}.${field}`,
-        message: `unknown field for ${typeof mode === "string" ? mode : "quota provider"} mode`,
+        key: providerKey,
+        message: `field ${position + 1} is unknown for ${modeName} mode; allowed fields are ${allowedFields.join(", ")}`,
       });
-    }
+    });
 
     for (const field of ["id", "mode"] as const) {
       if (!hasOwnKey(raw, field)) {
@@ -1353,7 +1466,7 @@ export function validateQuotaProviders(value: unknown): QuotaProvidersValidation
           message: `"${QUOTA_PROVIDERS_AGGREGATE_ID}" is reserved for the aggregate provider`,
         });
       }
-      const builtIn = getQuotaProviderShape(id);
+      const builtIn = getCanonicalQuotaProviderId(id);
       if (builtIn && !(MAINTAINED_LOCAL_ESTIMATE_IDS as readonly string[]).includes(id)) {
         issues.push({
           key: `${providerKey}.id`,
@@ -1403,7 +1516,12 @@ export function validateQuotaProviders(value: unknown): QuotaProvidersValidation
       });
     }
 
-    const modelIds = validateModelIds({ raw, providerKey, providerId, issues });
+    const modelIds = validateModelIds({ raw, providerKey, issues });
+    const enabled = raw.enabled;
+    if (hasOwnKey(raw, "enabled") && typeof enabled !== "boolean") {
+      issues.push({ key: `${providerKey}.enabled`, message: "expected true or false" });
+    }
+    const switchField = typeof enabled === "boolean" ? { enabled } : {};
     const modelIdsValid =
       !hasOwnKey(raw, "modelIds") ||
       (Array.isArray(raw.modelIds) && modelIds?.length === raw.modelIds.length);
@@ -1499,6 +1617,7 @@ export function validateQuotaProviders(value: unknown): QuotaProvidersValidation
           url: normalizedUrl.value,
           ...(apiKeyEnv !== undefined ? { apiKeyEnv: apiKeyEnv as string } : {}),
           ...(modelIds ? { modelIds } : {}),
+          ...switchField,
         };
         definitions.push({
           index,
@@ -1533,6 +1652,7 @@ export function validateQuotaProviders(value: unknown): QuotaProvidersValidation
             windows,
             ...(modelIds ? { modelIds } : {}),
             ...(pricingModelMap ? { pricingModelMap } : {}),
+            ...switchField,
           },
         });
       }

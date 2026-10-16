@@ -1,109 +1,122 @@
 /**
- * Generic API key resolution from env vars, config files, and opencode.db.
+ * One API key resolver for every API-key vendor.
  *
- * Used by provider-specific config modules (synthetic-config, chutes-config)
- * to resolve API keys with consistent priority and behavior.
+ * Order (first wins): environment variables, then the trusted global
+ * `opencode.json(c)` (`providers.<id>.settings.apiKey`, or the legacy
+ * `provider.<id>.options.apiKey`, with `{env:NAME}` templates), then OpenCode's
+ * stored logins. Each vendor's spec is its `apiKey` in `provider-registration.ts`.
  */
 
 import { existsSync } from "fs";
 import { sanitizeDisplayText } from "./display-sanitize.js";
 import { resolveEnvTemplate } from "./env-template.js";
+import { asRecord } from "./json-guards.js";
+import {
+  type CredentialRow,
+  credentialRowAuthData,
+  getCredentialDatabasePaths,
+  readAuthFile,
+  readAuthFileCached,
+  readCredentialRows,
+} from "./opencode-auth.js";
 import {
   buildOpenCodeConfigCandidates,
   readOpenCodeConfigCandidate,
 } from "./opencode-config-read.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
+import { QUOTA_PROVIDER_REGISTRATION_SOURCE } from "./provider-registration.js";
+
+/** Where an API key may live for one vendor. */
+export interface ApiKeySpec {
+  /** Checked first, in order. Also the only names allowed in `{env:NAME}` config templates. */
+  envVars: readonly string[];
+  /** Provider ids read from the trusted global `opencode.json(c)`, in order. */
+  providerKeys: readonly string[];
+  /** OpenCode login integration ids, in order. Default: `providerKeys`. */
+  authKeys?: readonly string[];
+  /** Read key logins only: the same integration can also hold an OAuth sign-in. */
+  keyLoginsOnly?: boolean;
+}
+
+/** An API-key vendor; a broken stored login (wrong type, empty key, unreadable) is an error. */
+export interface ApiKeyLoginSpec extends ApiKeySpec {
+  authKeys: readonly string[];
+  /** Used in login errors, e.g. "Z.ai auth entry has invalid shape". */
+  displayName: string;
+  /** Replaces the "Unsupported <name> auth type" error (it would echo the stored type). */
+  unsupportedTypeError?: string;
+  /** A stored login that is not a usable API key is left out instead of shown as an error. */
+  skipBrokenLogins?: boolean;
+}
+
+type ApiKeyVendorId = Extract<
+  (typeof QUOTA_PROVIDER_REGISTRATION_SOURCE)[number],
+  { apiKey: object }
+>["id"];
+
+/** Each API-key vendor's spec, from its `apiKey` in provider-registration.ts. */
+export const API_KEY_VENDORS = Object.fromEntries<ApiKeyLoginSpec>(
+  QUOTA_PROVIDER_REGISTRATION_SOURCE.flatMap((source) => {
+    if (!("apiKey" in source)) return [];
+    const { apiKey } = source;
+    return [[source.id, { displayName: source.label, authKeys: apiKey.providerKeys, ...apiKey }]];
+  }),
+) as Readonly<Record<ApiKeyVendorId, ApiKeyLoginSpec>>;
+
+/** How long a stored login read stays cached, unless the caller asks for another age. */
+const API_KEY_LOGIN_CACHE_MAX_AGE_MS = 5_000;
+
+export type ApiKeySource = `env:${string}` | "opencode.json" | "opencode.jsonc" | "opencode.db";
+
+export interface ApiKeyResult {
+  key: string;
+  source: ApiKeySource;
+}
+
+type ApiKeyLoginResult =
+  | { state: "none" }
+  | { state: "configured"; apiKey: string }
+  | { state: "invalid"; error: string };
+
+type DiagnosticPaths = { checkedPaths: string[]; credentialDatabasePaths: string[] };
+
+export type ApiKeyLoginDiagnostics =
+  | ({ state: "none"; source: null } & DiagnosticPaths)
+  | ({ state: "configured"; source: ApiKeySource } & DiagnosticPaths)
+  | ({ state: "invalid"; source: "opencode.db"; error: string } & DiagnosticPaths);
 
 /** A candidate config file path with its format */
-export interface ConfigCandidate {
+interface ConfigCandidate {
   path: string;
   isJsonc: boolean;
 }
 
-function buildOpencodeConfigCandidates(directories: readonly string[]): ConfigCandidate[] {
-  return buildOpenCodeConfigCandidates({
-    directories,
-    formatOrder: ["jsonc", "json"],
-  }).map((candidate) => ({
-    path: candidate.path,
-    isJsonc: candidate.format === "jsonc",
-  }));
-}
-
 /**
- * Get candidate paths for opencode.json/opencode.jsonc files.
- *
- * Order: local (cwd) first, then global (~/.config/opencode).
- * Within each location, .jsonc takes precedence over .json.
- */
-export function getOpencodeConfigCandidatePaths(): ConfigCandidate[] {
-  const cwd = process.cwd();
-  const { configDir } = getOpencodeRuntimeDirs();
-
-  return [...buildOpencodeConfigCandidates([cwd]), ...buildOpencodeConfigCandidates([configDir])];
-}
-
-/**
- * Get trusted global-only candidate paths for opencode.json/opencode.jsonc files.
- *
- * Provider secrets must not be sourced from repo-local config because the
- * current workspace may be untrusted.
+ * Trusted global-only `opencode.jsonc` / `opencode.json` paths. Provider secrets
+ * are never read from repo-local config: the current workspace may be untrusted.
  */
 export function getGlobalOpencodeConfigCandidatePaths(): ConfigCandidate[] {
   const { configDir } = getOpencodeRuntimeDirs();
-  return buildOpencodeConfigCandidates([configDir]);
+  return buildOpenCodeConfigCandidates({
+    directories: [configDir],
+    formatOrder: ["jsonc", "json"],
+  }).map((candidate) => ({ path: candidate.path, isJsonc: candidate.format === "jsonc" }));
 }
 
-/**
- * Read and parse an opencode config file.
- *
- * @returns Parsed config with metadata, or null if file doesn't exist or is invalid
- */
-export async function readOpencodeConfig(
-  filePath: string,
-  isJsonc: boolean,
-): Promise<{ config: unknown; path: string; isJsonc: boolean } | null> {
+/** The parsed config of one candidate; undefined when it is missing or does not parse. */
+export async function readConfigCandidate(candidate: ConfigCandidate): Promise<unknown> {
   const result = await readOpenCodeConfigCandidate({
-    path: filePath,
-    format: isJsonc ? "jsonc" : "json",
+    path: candidate.path,
+    format: candidate.isJsonc ? "jsonc" : "json",
   });
-  return result.state === "parsed" ? { config: result.value, path: filePath, isJsonc } : null;
-}
-
-/** Result of API key resolution */
-export interface ApiKeyResult<Source extends string> {
-  key: string;
-  source: Source;
-}
-
-/** Environment variable definition for key resolution */
-export interface EnvVarDef<Source extends string> {
-  name: string;
-  source: Source;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+  return result.state === "parsed" ? result.value : undefined;
 }
 
 export function getFirstAuthEntryValue(auth: unknown, authKeys: readonly string[]): unknown {
   const root = asRecord(auth);
   if (!root) return undefined;
-
-  for (const authKey of authKeys) {
-    if (Object.hasOwn(root, authKey)) {
-      return root[authKey];
-    }
-  }
-
-  return undefined;
-}
-
-export function getFirstAuthEntryRecord(
-  auth: unknown,
-  authKeys: readonly string[],
-): Record<string, unknown> | null {
-  return asRecord(getFirstAuthEntryValue(auth, authKeys));
+  const authKey = authKeys.find((key) => Object.hasOwn(root, key));
+  return authKey === undefined ? undefined : root[authKey];
 }
 
 /**
@@ -117,8 +130,11 @@ export function getProviderConfigSettings(
   providerKey: string,
 ): Record<string, unknown> | null {
   const root = asRecord(config);
-  const nativeProvider = asRecord(asRecord(root?.providers)?.[providerKey]);
-  if (nativeProvider) return asRecord(nativeProvider.settings);
+  const nativeProvider = asRecord(root?.providers)?.[providerKey];
+  // Any object here, even a malformed array, replaces the legacy entry.
+  if (typeof nativeProvider === "object" && nativeProvider !== null) {
+    return asRecord((nativeProvider as Record<string, unknown>).settings);
+  }
   return asRecord(asRecord(asRecord(root?.provider)?.[providerKey])?.options);
 }
 
@@ -131,209 +147,95 @@ export async function readGlobalProviderConfigString(
   settingKey: string,
 ): Promise<string | undefined> {
   for (const candidate of getGlobalOpencodeConfigCandidatePaths()) {
-    const result = await readOpencodeConfig(candidate.path, candidate.isJsonc);
-    const value = getProviderConfigSettings(result?.config, providerKey)?.[settingKey];
+    const value = getProviderConfigSettings(await readConfigCandidate(candidate), providerKey)?.[
+      settingKey
+    ];
     if (typeof value === "string" && value.trim().length > 0) return value.trim();
   }
   return undefined;
 }
 
-export function extractProviderOptionsApiKey(
-  config: unknown,
-  params: {
-    providerKeys: readonly string[];
-    allowedEnvVars?: readonly string[];
-  },
-): string | null {
-  for (const providerKey of params.providerKeys) {
+function extractConfigApiKey(config: unknown, spec: ApiKeySpec): string | null {
+  for (const providerKey of spec.providerKeys) {
     const apiKey = getProviderConfigSettings(config, providerKey)?.apiKey;
     if (typeof apiKey !== "string" || apiKey.trim().length === 0) continue;
-
-    const trimmed = apiKey.trim();
-    if (!params.allowedEnvVars) return trimmed;
-
-    const resolved = resolveEnvTemplate(trimmed, params.allowedEnvVars);
+    const resolved = resolveEnvTemplate(apiKey.trim(), spec.envVars);
     if (resolved) return resolved;
+  }
+  return null;
+}
+
+/** Environment variables, then the trusted global config. */
+export async function resolveApiKeyFromEnvAndConfig(
+  spec: ApiKeySpec,
+): Promise<ApiKeyResult | null> {
+  for (const name of spec.envVars) {
+    const value = process.env[name]?.trim();
+    if (value) return { key: value, source: `env:${name}` };
+  }
+
+  for (const candidate of getGlobalOpencodeConfigCandidatePaths()) {
+    const config = await readConfigCandidate(candidate);
+    if (config === undefined) continue;
+    const key = extractConfigApiKey(config, spec);
+    if (key) return { key, source: candidate.isJsonc ? "opencode.jsonc" : "opencode.json" };
   }
 
   return null;
 }
 
-export function extractAuthApiKeyEntry(auth: unknown, authKeys: readonly string[]): string | null {
+/** Env vars that are set and trusted config files that exist (no values). */
+export function getApiKeyCheckedPaths(spec: Pick<ApiKeySpec, "envVars">): string[] {
+  return [
+    ...spec.envVars.filter((name) => process.env[name] !== undefined).map((name) => `env:${name}`),
+    ...getGlobalOpencodeConfigCandidatePaths()
+      .map((candidate) => candidate.path)
+      .filter((path) => existsSync(path)),
+  ];
+}
+
+function loginReadOptions(spec: ApiKeySpec) {
+  return {
+    integrationIds: spec.authKeys ?? spec.providerKeys,
+    ...(spec.keyLoginsOnly ? { methods: ["key" as const] } : {}),
+  };
+}
+
+/** The first stored login among `authKeys` that is a usable API key; others are skipped. */
+function extractStoredApiKey(auth: unknown, authKeys: readonly string[]): string | null {
   for (const authKey of authKeys) {
-    const record = getFirstAuthEntryRecord(auth, [authKey]);
+    const record = asRecord(getFirstAuthEntryValue(auth, [authKey]));
     const key = record?.key;
     if (record?.type === "api" && typeof key === "string" && key.trim().length > 0) {
       return key.trim();
     }
   }
-
   return null;
 }
 
-/** Configuration for resolving an API key from trusted env/config sources */
-export interface ResolveEnvAndConfigApiKeyConfig<Source extends string> {
-  /** Environment variables to check (in order) */
-  envVars: EnvVarDef<Source>[];
+export async function resolveApiKey(spec: ApiKeySpec): Promise<ApiKeyResult | null> {
+  const fromEnvOrConfig = await resolveApiKeyFromEnvAndConfig(spec);
+  if (fromEnvOrConfig) return fromEnvOrConfig;
 
-  /** Extract API key from parsed config object. Returns null if not found. */
-  extractFromConfig: (config: unknown) => string | null;
-
-  /** Source label for opencode.json */
-  configJsonSource: Source;
-
-  /** Source label for opencode.jsonc */
-  configJsoncSource: Source;
-
-  /**
-   * Candidate config file paths to trust for provider-secret lookup.
-   *
-   * Defaults to trusted user/global OpenCode config paths only.
-   */
-  getConfigCandidates?: () => ConfigCandidate[];
+  const auth = await readAuthFile(loginReadOptions(spec));
+  const key = extractStoredApiKey(auth, spec.authKeys ?? spec.providerKeys);
+  return key ? { key, source: "opencode.db" } : null;
 }
 
-/** Configuration for resolving an API key from multiple sources */
-export interface ResolveApiKeyConfig<Source extends string>
-  extends ResolveEnvAndConfigApiKeyConfig<Source> {
-  /** Extract API key from opencode.db data. Returns null if not found. */
-  extractFromAuth: (auth: unknown) => string | null;
-
-  /** Source label for opencode.db */
-  authSource: Source;
+/** Read the vendor's stored logins (cached for 5 seconds). */
+export async function readApiKeyLoginAuth(spec: ApiKeyLoginSpec): Promise<unknown> {
+  return readAuthFileCached({
+    maxAgeMs: API_KEY_LOGIN_CACHE_MAX_AGE_MS,
+    ...loginReadOptions(spec),
+  });
 }
 
-/** Shared configuration for provider-specific API key resolution. */
-export interface ResolveProviderApiKeyBaseConfig<Source extends string> {
-  envVars: EnvVarDef<Source>[];
-  providerKeys: readonly string[];
-  allowedEnvVars?: readonly string[];
-  configJsonSource: Source;
-  configJsoncSource: Source;
-  getConfigCandidates?: () => ConfigCandidate[];
-}
-
-export interface StrictApiKeyAuthConfig<Source extends string> {
-  policy?: "strict-api-key";
-  readAuth: () => Promise<unknown | null>;
-  getCredentialDatabasePaths?: () => string[];
-  authKeys?: readonly string[];
-  authSource: Source;
-}
-
-export interface InvalidAwareApiKeyAuthConfig<AuthSource extends string> {
-  policy: "invalid-aware-api-key";
-  readAuth: (maxAgeMs: number) => Promise<unknown | null>;
-  getCredentialDatabasePaths: () => string[];
-  authKeys: readonly string[];
-  authSource: AuthSource;
-  displayName: string;
-  defaultMaxAgeMs: number;
-  unsupportedTypeError?: string;
-}
-
-/** Configuration for simple nullable API key resolution. */
-export interface ResolveProviderApiKeyConfig<Source extends string>
-  extends ResolveProviderApiKeyBaseConfig<Source> {
-  auth?: StrictApiKeyAuthConfig<Source>;
-}
-
-/** Configuration for providers that surface malformed winning opencode.db entries. */
-export interface ResolveInvalidAwareProviderApiKeyConfig<
-  Source extends string,
-  AuthSource extends Source,
-> extends ResolveProviderApiKeyBaseConfig<Source> {
-  auth: InvalidAwareApiKeyAuthConfig<AuthSource>;
-}
-
-export type InvalidAwareAuthResult =
-  | { state: "none" }
-  | { state: "configured"; apiKey: string }
-  | { state: "invalid"; error: string };
-
-export type InvalidAwareAuthDiagnostics<Source extends string, AuthSource extends Source> =
-  | {
-      state: "none";
-      source: null;
-      checkedPaths: string[];
-      credentialDatabasePaths: string[];
-    }
-  | {
-      state: "configured";
-      source: Source;
-      checkedPaths: string[];
-      credentialDatabasePaths: string[];
-    }
-  | {
-      state: "invalid";
-      source: AuthSource;
-      checkedPaths: string[];
-      credentialDatabasePaths: string[];
-      error: string;
-    };
-
-export interface ProviderApiKeyResolver<Source extends string> {
-  resolve: () => Promise<ApiKeyResult<Source> | null>;
-  has: () => Promise<boolean>;
-  diagnostics: () => Promise<{
-    configured: boolean;
-    source: Source | null;
-    checkedPaths: string[];
-    credentialDatabasePaths: string[];
-  }>;
-}
-
-export interface InvalidAwareProviderApiKeyResolver<
-  Source extends string,
-  AuthSource extends Source,
-> {
-  parseAuth: (auth: unknown) => InvalidAwareAuthResult;
-  resolve: (params?: { maxAgeMs?: number }) => Promise<InvalidAwareAuthResult>;
-  resolveWithDiagnostics: (params?: { maxAgeMs?: number }) => Promise<{
-    auth: InvalidAwareAuthResult;
-    diagnostics: InvalidAwareAuthDiagnostics<Source, AuthSource>;
-  }>;
-  diagnostics: (params?: {
-    maxAgeMs?: number;
-  }) => Promise<InvalidAwareAuthDiagnostics<Source, AuthSource>>;
-}
-
-export interface ApiKeyCheckedPathsConfig {
-  /** Environment variable names to check */
-  envVarNames: string[];
-
-  /**
-   * Candidate config file paths to report for provider-secret lookup.
-   *
-   * Defaults to trusted user/global OpenCode config paths only.
-   */
-  getConfigCandidates?: () => ConfigCandidate[];
-}
-
-function buildProviderEnvAndConfig<Source extends string>(
-  config: ResolveProviderApiKeyBaseConfig<Source>,
-): ResolveEnvAndConfigApiKeyConfig<Source> {
-  return {
-    envVars: config.envVars,
-    extractFromConfig: (candidate) =>
-      extractProviderOptionsApiKey(candidate, {
-        providerKeys: config.providerKeys,
-        allowedEnvVars: config.allowedEnvVars,
-      }),
-    configJsonSource: config.configJsonSource,
-    configJsoncSource: config.configJsoncSource,
-    getConfigCandidates: config.getConfigCandidates,
-  };
-}
-
-function parseInvalidAwareAuth(
-  auth: unknown,
-  config: InvalidAwareApiKeyAuthConfig<string>,
-): InvalidAwareAuthResult {
-  const entry = getFirstAuthEntryValue(auth, config.authKeys);
+/** The first stored login among `authKeys` decides: a broken one is `invalid`, not skipped. */
+export function parseApiKeyLogin(spec: ApiKeyLoginSpec, auth: unknown): ApiKeyLoginResult {
+  const entry = getFirstAuthEntryValue(auth, spec.authKeys);
   if (entry === null || entry === undefined) return { state: "none" };
   if (typeof entry !== "object") {
-    return { state: "invalid", error: `${config.displayName} auth entry has invalid shape` };
+    return { state: "invalid", error: `${spec.displayName} auth entry has invalid shape` };
   }
 
   const record = entry as Record<string, unknown>;
@@ -346,7 +248,7 @@ function parseInvalidAwareAuth(
   if (typeof record.type !== "string") {
     return {
       state: "invalid",
-      error: `${config.displayName} auth entry present but type is missing or invalid`,
+      error: `${spec.displayName} auth entry present but type is missing or invalid`,
     };
   }
   if (record.type !== "api") {
@@ -354,247 +256,91 @@ function parseInvalidAwareAuth(
     return {
       state: "invalid",
       error:
-        config.unsupportedTypeError ??
-        `Unsupported ${config.displayName} auth type: "${(sanitized || "unknown").slice(0, 120)}"`,
+        spec.unsupportedTypeError ??
+        `Unsupported ${spec.displayName} auth type: "${(sanitized || "unknown").slice(0, 120)}"`,
     };
   }
 
   const apiKey = typeof record.key === "string" ? record.key.trim() : "";
   return apiKey
     ? { state: "configured", apiKey }
-    : {
-        state: "invalid",
-        error: `${config.displayName} auth entry present but key is empty`,
-      };
+    : { state: "invalid", error: `${spec.displayName} auth entry present but key is empty` };
 }
 
-function createInvalidAwareProviderApiKeyResolver<Source extends string, AuthSource extends Source>(
-  config: ResolveInvalidAwareProviderApiKeyConfig<Source, AuthSource>,
-): InvalidAwareProviderApiKeyResolver<Source, AuthSource> {
-  const parseAuth = (auth: unknown) => parseInvalidAwareAuth(auth, config.auth);
-  const resolveWithSource = async (params?: { maxAgeMs?: number }) => {
-    const envOrConfig = await resolveApiKeyFromEnvAndConfig(buildProviderEnvAndConfig(config));
-    if (envOrConfig) {
-      return {
-        auth: { state: "configured", apiKey: envOrConfig.key } as InvalidAwareAuthResult,
-        source: envOrConfig.source as Source | AuthSource | null,
-      };
-    }
-
-    const maxAgeMs = Math.max(0, params?.maxAgeMs ?? config.auth.defaultMaxAgeMs);
-    const auth = parseAuth(await config.auth.readAuth(maxAgeMs));
+export async function resolveApiKeyLoginWithDiagnostics(
+  spec: ApiKeyLoginSpec,
+): Promise<{ auth: ApiKeyLoginResult; diagnostics: ApiKeyLoginDiagnostics }> {
+  const fromEnvOrConfig = await resolveApiKeyFromEnvAndConfig(spec);
+  const auth: ApiKeyLoginResult = fromEnvOrConfig
+    ? { state: "configured", apiKey: fromEnvOrConfig.key }
+    : parseApiKeyLogin(spec, await readApiKeyLoginAuth(spec));
+  const paths = {
+    checkedPaths: getApiKeyCheckedPaths(spec),
+    credentialDatabasePaths: getCredentialDatabasePaths(),
+  };
+  if (auth.state === "none")
+    return { auth, diagnostics: { state: "none", source: null, ...paths } };
+  if (auth.state === "invalid") {
     return {
       auth,
-      source: auth.state === "none" ? null : config.auth.authSource,
+      diagnostics: { state: "invalid", source: "opencode.db", error: auth.error, ...paths },
     };
-  };
-
-  const resolveWithDiagnostics = async (params?: { maxAgeMs?: number }) => {
-    const { auth, source } = await resolveWithSource(params);
-    const paths = {
-      checkedPaths: getApiKeyCheckedPaths({
-        envVarNames: config.envVars.map((envVar) => envVar.name),
-        getConfigCandidates: config.getConfigCandidates,
-      }),
-      credentialDatabasePaths: config.auth.getCredentialDatabasePaths(),
-    };
-    if (auth.state === "none")
-      return { auth, diagnostics: { state: "none" as const, source: null, ...paths } };
-    if (auth.state === "invalid") {
-      return {
-        auth,
-        diagnostics: {
-          state: "invalid" as const,
-          source: config.auth.authSource,
-          error: auth.error,
-          ...paths,
-        },
-      };
-    }
-    return {
-      auth,
-      diagnostics: {
-        state: "configured" as const,
-        source: source ?? config.auth.authSource,
-        ...paths,
-      },
-    };
-  };
-
+  }
   return {
-    parseAuth,
-    resolve: async (params) => (await resolveWithSource(params)).auth,
-    resolveWithDiagnostics,
-    diagnostics: async (params) => (await resolveWithDiagnostics(params)).diagnostics,
-  };
-}
-
-export function createProviderApiKeyResolver<Source extends string, AuthSource extends Source>(
-  config: ResolveInvalidAwareProviderApiKeyConfig<Source, AuthSource>,
-): InvalidAwareProviderApiKeyResolver<Source, AuthSource>;
-export function createProviderApiKeyResolver<Source extends string>(
-  config: ResolveProviderApiKeyConfig<Source>,
-): ProviderApiKeyResolver<Source>;
-export function createProviderApiKeyResolver<Source extends string, AuthSource extends Source>(
-  config:
-    | ResolveProviderApiKeyConfig<Source>
-    | ResolveInvalidAwareProviderApiKeyConfig<Source, AuthSource>,
-): ProviderApiKeyResolver<Source> | InvalidAwareProviderApiKeyResolver<Source, AuthSource> {
-  if (config.auth?.policy === "invalid-aware-api-key") {
-    return createInvalidAwareProviderApiKeyResolver<Source, AuthSource>(
-      config as ResolveInvalidAwareProviderApiKeyConfig<Source, AuthSource>,
-    );
-  }
-
-  const simpleConfig = config as ResolveProviderApiKeyConfig<Source>;
-  const resolve = () => resolveProviderApiKey(simpleConfig);
-  return {
-    resolve,
-    has: async () => (await resolve()) !== null,
-    diagnostics: async () => ({
-      ...(await getApiKeyDiagnostics({
-        envVarNames: simpleConfig.envVars.map((envVar) => envVar.name),
-        resolve,
-        getConfigCandidates: simpleConfig.getConfigCandidates,
-      })),
-      credentialDatabasePaths: simpleConfig.auth?.getCredentialDatabasePaths?.() ?? [],
-    }),
-  };
-}
-
-/**
- * Resolve an API key from trusted env vars and config files.
- *
- * Priority (first wins):
- * 1. Environment variables (in order specified)
- * 2. Trusted user/global opencode.json/opencode.jsonc candidates
- */
-export async function resolveApiKeyFromEnvAndConfig<Source extends string>(
-  config: ResolveEnvAndConfigApiKeyConfig<Source>,
-): Promise<ApiKeyResult<Source> | null> {
-  for (const envVar of config.envVars) {
-    const value = process.env[envVar.name]?.trim();
-    if (value && value.length > 0) {
-      return { key: value, source: envVar.source };
-    }
-  }
-
-  const candidates = config.getConfigCandidates?.() ?? getGlobalOpencodeConfigCandidatePaths();
-  for (const candidate of candidates) {
-    const result = await readOpencodeConfig(candidate.path, candidate.isJsonc);
-    if (!result) continue;
-
-    const key = config.extractFromConfig(result.config);
-    if (key) {
-      return {
-        key,
-        source: result.isJsonc ? config.configJsoncSource : config.configJsonSource,
-      };
-    }
-  }
-
-  return null;
-}
-
-export function getApiKeyCheckedPaths(config: ApiKeyCheckedPathsConfig): string[] {
-  const checkedPaths: string[] = [];
-
-  for (const envVarName of config.envVarNames) {
-    if (process.env[envVarName] !== undefined) {
-      checkedPaths.push(`env:${envVarName}`);
-    }
-  }
-
-  const candidates = config.getConfigCandidates?.() ?? getGlobalOpencodeConfigCandidatePaths();
-  for (const candidate of candidates) {
-    if (existsSync(candidate.path)) {
-      checkedPaths.push(candidate.path);
-    }
-  }
-
-  return checkedPaths;
-}
-
-/**
- * Resolve an API key from multiple sources with consistent priority.
- *
- * Priority (first wins):
- * 1. Environment variables (in order specified)
- * 2. Trusted user/global opencode.json/opencode.jsonc
- * 3. opencode.db
- *
- * @returns API key and source, or null if not found
- */
-export async function resolveApiKey<Source extends string>(
-  config: ResolveApiKeyConfig<Source>,
-  readAuth: () => Promise<unknown | null>,
-): Promise<ApiKeyResult<Source> | null> {
-  const resolvedFromEnvOrConfig = await resolveApiKeyFromEnvAndConfig(config);
-  if (resolvedFromEnvOrConfig) {
-    return resolvedFromEnvOrConfig;
-  }
-
-  // 3. Fallback to opencode.db
-  const auth = await readAuth();
-  const key = config.extractFromAuth(auth);
-  if (key) {
-    return { key, source: config.authSource };
-  }
-
-  return null;
-}
-
-export async function resolveProviderApiKey<Source extends string>(
-  config: ResolveProviderApiKeyConfig<Source>,
-): Promise<ApiKeyResult<Source> | null> {
-  const envAndConfig = buildProviderEnvAndConfig(config);
-
-  if (!config.auth) {
-    return resolveApiKeyFromEnvAndConfig(envAndConfig);
-  }
-
-  return resolveApiKey(
-    {
-      ...envAndConfig,
-      extractFromAuth: (auth) =>
-        extractAuthApiKeyEntry(auth, config.auth?.authKeys ?? config.providerKeys),
-      authSource: config.auth.authSource,
+    auth,
+    diagnostics: {
+      state: "configured",
+      source: fromEnvOrConfig?.source ?? "opencode.db",
+      ...paths,
     },
-    config.auth.readAuth,
-  );
+  };
 }
 
-/** Configuration for API key diagnostics */
-export interface DiagnosticsConfig<Source extends string> {
-  /** Environment variable names to check */
-  envVarNames: string[];
-
-  /** Resolver function to get the current key result */
-  resolve: () => Promise<ApiKeyResult<Source> | null>;
-
-  /** Candidate config file paths to report for provider-secret lookup. */
-  getConfigCandidates?: () => ConfigCandidate[];
+export async function resolveApiKeyLogin(spec: ApiKeyLoginSpec): Promise<ApiKeyLoginResult> {
+  const fromEnvOrConfig = await resolveApiKeyFromEnvAndConfig(spec);
+  if (fromEnvOrConfig) return { state: "configured", apiKey: fromEnvOrConfig.key };
+  return parseApiKeyLogin(spec, await readApiKeyLoginAuth(spec));
 }
+
+export async function getApiKeyLoginDiagnostics(
+  spec: ApiKeyLoginSpec,
+): Promise<ApiKeyLoginDiagnostics> {
+  return (await resolveApiKeyLoginWithDiagnostics(spec)).diagnostics;
+}
+
+export type KeyLogin = {
+  row: CredentialRow;
+  auth: Exclude<ApiKeyLoginResult, { state: "none" }>;
+};
 
 /**
- * Get diagnostic info about API key configuration.
- *
- * Reports which sources were checked (env vars that exist, config files that exist)
- * and whether a key was found.
+ * Every key login of the vendor stored in OpenCode, in OpenCode's order, with what each one
+ * holds. `selectRows` narrows the logins further, for example to drop alias duplicates.
  */
-export async function getApiKeyDiagnostics<Source extends string>(
-  config: DiagnosticsConfig<Source>,
-): Promise<{
-  configured: boolean;
-  source: Source | null;
-  checkedPaths: string[];
-}> {
-  const checkedPaths = getApiKeyCheckedPaths(config);
-  const result = await config.resolve();
+export async function readKeyLogins(
+  spec: ApiKeyLoginSpec,
+  options: { selectRows?: (rows: CredentialRow[]) => CredentialRow[] } = {},
+): Promise<KeyLogin[]> {
+  const vendorRows = (await readCredentialRows(spec.authKeys, { methods: ["key"] })).filter((row) =>
+    spec.authKeys.includes(row.integrationId),
+  );
+  const rows = options.selectRows ? options.selectRows(vendorRows) : vendorRows;
+  return rows.flatMap((row) => {
+    const auth = parseApiKeyLogin(spec, credentialRowAuthData(row));
+    if (auth.state === "none") return [];
+    if (auth.state === "invalid" && spec.skipBrokenLogins) return [];
+    return [{ row, auth }];
+  });
+}
 
-  return {
-    configured: result !== null,
-    source: result?.source ?? null,
-    checkedPaths,
-  };
+/** The keys a vendor checks: the env or config key when one is set, else every stored login. */
+export type VendorKeys = { envOrConfig: ApiKeyResult | null; logins: KeyLogin[] };
+
+export async function readVendorKeys(spec: ApiKeyLoginSpec): Promise<VendorKeys> {
+  const envOrConfig = await resolveApiKeyFromEnvAndConfig(spec);
+  return { envOrConfig, logins: envOrConfig ? [] : await readKeyLogins(spec) };
+}
+
+export function hasVendorKey(keys: VendorKeys): boolean {
+  return keys.envOrConfig !== null || keys.logins.length > 0;
 }

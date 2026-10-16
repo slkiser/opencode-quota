@@ -3,13 +3,13 @@ import { readFile } from "fs/promises";
 import { homedir, platform } from "os";
 import { join } from "path";
 import { getPluginSpecFromEntry } from "./config-file-utils.js";
-import { parseJsonOrJsonc } from "./jsonc.js";
+import { asRecord, isRecord } from "./json-guards.js";
 import { getCredentialDatabasePaths, readAuthFile } from "./opencode-auth.js";
+import { parseConfigDocument } from "./opencode-config-editor.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import { getQuotaProviderRuntimeIds } from "./provider-metadata.js";
-import type { CursorAuthData } from "./types.js";
 
-export interface CursorAuthPresence {
+interface CursorAuthPresence {
   state: "missing" | "present" | "invalid";
   selectedPath?: string;
   presentPaths: string[];
@@ -17,7 +17,7 @@ export interface CursorAuthPresence {
   error?: string;
 }
 
-export interface CursorOpenCodeIntegration {
+interface CursorOpenCodeIntegration {
   pluginEnabled: boolean;
   providerConfigured: boolean;
   matchedPaths: string[];
@@ -38,34 +38,20 @@ function dedupe(list: string[]): string[] {
   return [...new Set(list.filter(Boolean))];
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
-}
-
-function getCursorHomeDir(): string {
-  return process.env.CURSOR_ACP_HOME_DIR?.trim() || homedir();
-}
-
-export function getCursorAuthCandidatePaths(): string[] {
-  const home = getCursorHomeDir();
-  const authFiles = ["cli-config.json", "auth.json"];
-  const paths: string[] = [];
-
+function getCursorAuthCandidatePaths(): string[] {
+  const home = process.env.CURSOR_ACP_HOME_DIR?.trim() || homedir();
+  const dirs: string[] = [];
   if (platform() === "darwin") {
-    for (const file of authFiles) paths.push(join(home, ".cursor", file));
-    for (const file of authFiles) paths.push(join(home, ".config", "cursor", file));
+    dirs.push(join(home, ".cursor"), join(home, ".config", "cursor"));
   } else {
-    for (const file of authFiles) paths.push(join(home, ".config", "cursor", file));
-
+    dirs.push(join(home, ".config", "cursor"));
     const xdgConfigHome = process.env.XDG_CONFIG_HOME?.trim();
     if (xdgConfigHome && xdgConfigHome !== join(home, ".config")) {
-      for (const file of authFiles) paths.push(join(xdgConfigHome, "cursor", file));
+      dirs.push(join(xdgConfigHome, "cursor"));
     }
-
-    for (const file of authFiles) paths.push(join(home, ".cursor", file));
+    dirs.push(join(home, ".cursor"));
   }
-
-  return dedupe(paths);
+  return dedupe(dirs.flatMap((dir) => [join(dir, "cli-config.json"), join(dir, "auth.json")]));
 }
 
 function hasNonEmptyString(value: unknown): value is string {
@@ -73,13 +59,12 @@ function hasNonEmptyString(value: unknown): value is string {
 }
 
 /** OpenCode 2 stores Cursor OAuth tokens as `oauth`, and an API key `key` credential that our reader maps to `api`. */
-function isValidCursorCredential(value: unknown): value is CursorAuthData {
-  if (!value || typeof value !== "object") return false;
-  const entry = value as Record<string, unknown>;
-  if (entry.type === "oauth") {
-    return hasNonEmptyString(entry.refresh) || hasNonEmptyString(entry.access);
+function isValidCursorCredential(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (value.type === "oauth") {
+    return hasNonEmptyString(value.refresh) || hasNonEmptyString(value.access);
   }
-  return entry.type === "api" && hasNonEmptyString(entry.key);
+  return value.type === "api" && hasNonEmptyString(value.key);
 }
 
 export async function inspectCursorAuthPresence(): Promise<CursorAuthPresence> {
@@ -88,51 +73,36 @@ export async function inspectCursorAuthPresence(): Promise<CursorAuthPresence> {
   const candidatePaths = dedupe([...credentialDatabasePaths, ...legacyCandidatePaths]);
   const presentPaths = candidatePaths.filter((path) => existsSync(path));
   const credentialDatabasePath = credentialDatabasePaths.find((path) => existsSync(path));
+  const present = (selectedPath: string | undefined): CursorAuthPresence => ({
+    state: "present",
+    selectedPath,
+    presentPaths,
+    candidatePaths,
+  });
   let invalidPath: string | undefined;
   let invalidError: string | undefined;
 
   const cursorAuth = (await readAuthFile({ integrationIds: ["cursor"] }))?.cursor;
-  const cursorResolveError = cursorAuth?.resolveError;
   if (cursorAuth) {
-    if (isValidCursorCredential(cursorAuth)) {
-      return {
-        state: "present",
-        selectedPath: credentialDatabasePath,
-        presentPaths,
-        candidatePaths,
-      };
-    }
+    if (isValidCursorCredential(cursorAuth)) return present(credentialDatabasePath);
 
     invalidPath = credentialDatabasePath;
     invalidError =
-      cursorResolveError !== undefined
-        ? `OpenCode could not read this login: ${cursorResolveError}`
+      cursorAuth.resolveError !== undefined
+        ? `OpenCode could not read this login: ${cursorAuth.resolveError}`
         : "Cursor credential in the OpenCode database is missing a valid OAuth token or API key";
   }
 
   if (hasNonEmptyString(process.env[CURSOR_API_KEY_ENV])) {
-    return {
-      state: "present",
-      selectedPath: `env:${CURSOR_API_KEY_ENV}`,
-      presentPaths,
-      candidatePaths,
-    };
+    return present(`env:${CURSOR_API_KEY_ENV}`);
   }
 
   for (const path of legacyCandidatePaths) {
     if (!existsSync(path)) continue;
 
     try {
-      const raw = await readFile(path, "utf8");
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object") {
-        return {
-          state: "present",
-          selectedPath: path,
-          presentPaths,
-          candidatePaths,
-        };
-      }
+      const parsed = JSON.parse(await readFile(path, "utf8"));
+      if (parsed && typeof parsed === "object") return present(path);
     } catch (error) {
       invalidPath ??= path;
       invalidError ??= error instanceof Error ? error.message : String(error);
@@ -149,41 +119,30 @@ export async function inspectCursorAuthPresence(): Promise<CursorAuthPresence> {
     };
   }
 
-  return {
-    state: "missing",
-    presentPaths,
-    candidatePaths,
-  };
-}
-
-function pluginIncludesCursor(value: unknown): boolean {
-  if (typeof value !== "string") return false;
-  return CURSOR_PLUGIN_SPEC_PATTERN.test(value.trim().toLowerCase());
-}
-
-function providerConfigIncludesCursor(value: unknown): boolean {
-  const providerConfig = asRecord(value);
-  if (!providerConfig) return false;
-  return getQuotaProviderRuntimeIds("cursor").some((id) => Object.hasOwn(providerConfig, id));
+  return { state: "missing", presentPaths, candidatePaths };
 }
 
 /** OpenCode 2 reads both the legacy `plugin`/`provider` keys and the native `plugins`/`providers` keys. */
-function parseOpenCodeConfig(
+function inspectOpenCodeConfig(
   raw: string,
-  isJsonc: boolean,
-): {
-  plugin: unknown[];
-  provider: Record<string, unknown> | null;
-} {
-  const parsed = asRecord(parseJsonOrJsonc(raw, isJsonc));
-  const legacyProvider = asRecord(parsed?.provider);
-  const nativeProviders = asRecord(parsed?.providers);
+  path: string,
+): { matchedPlugin: boolean; matchedProvider: boolean } {
+  // OpenCode reads both file kinds as JSONC.
+  const parsed = parseConfigDocument(raw, "jsonc", path);
+  const pluginSpecs: unknown[] = [
+    ...(Array.isArray(parsed.plugin) ? parsed.plugin : []),
+    ...(Array.isArray(parsed.plugins) ? parsed.plugins.map(getPluginSpecFromEntry) : []),
+  ];
+  const cursorRuntimeIds = getQuotaProviderRuntimeIds("cursor");
   return {
-    plugin: [
-      ...(Array.isArray(parsed?.plugin) ? parsed.plugin : []),
-      ...(Array.isArray(parsed?.plugins) ? parsed.plugins.map(getPluginSpecFromEntry) : []),
-    ],
-    provider: legacyProvider || nativeProviders ? { ...legacyProvider, ...nativeProviders } : null,
+    matchedPlugin: pluginSpecs.some(
+      (spec) =>
+        typeof spec === "string" && CURSOR_PLUGIN_SPEC_PATTERN.test(spec.trim().toLowerCase()),
+    ),
+    matchedProvider: [parsed.provider, parsed.providers].some((value) => {
+      const providers = asRecord(value);
+      return providers !== null && cursorRuntimeIds.some((id) => Object.hasOwn(providers, id));
+    }),
   };
 }
 
@@ -205,10 +164,7 @@ export async function inspectCursorOpenCodeIntegration(): Promise<CursorOpenCode
 
     try {
       const raw = await readFile(path, "utf8");
-      const { plugin, provider } = parseOpenCodeConfig(raw, path.endsWith(".jsonc"));
-
-      const matchedPlugin = plugin.some(pluginIncludesCursor);
-      const matchedProvider = providerConfigIncludesCursor(provider);
+      const { matchedPlugin, matchedProvider } = inspectOpenCodeConfig(raw, path);
       if (matchedPlugin || matchedProvider) {
         matchedPaths.push(path);
       }
@@ -219,10 +175,5 @@ export async function inspectCursorOpenCodeIntegration(): Promise<CursorOpenCode
     }
   }
 
-  return {
-    pluginEnabled,
-    providerConfigured,
-    matchedPaths,
-    checkedPaths,
-  };
+  return { pluginEnabled, providerConfigured, matchedPaths, checkedPaths };
 }

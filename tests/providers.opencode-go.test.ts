@@ -1,983 +1,372 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-import {
-  expectAttemptedWithErrorLabel,
-  expectAttemptedWithNoErrors,
-  expectNotAttempted,
-  visibleEntries,
-} from "./helpers/provider-assertions.js";
-import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
-
-const mocks = vi.hoisted(() => ({
-  resolveOpenCodeGoAuthCached: vi.fn(),
-  resolveOpenCodeGoAuth: vi.fn(),
-  getOpenCodeGoAuthDiagnostics: vi.fn(),
-  queryOpenCodeGoQuota: vi.fn(),
-  queryOpenCodeGoConsoleStatus: vi.fn(),
-  resolveOpenCodeConsoleAuth: vi.fn(),
-}));
-
-vi.mock("../src/lib/opencode-go-auth.js", () => ({
-  DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS: 5_000,
-  OPENCODE_GO_CREDENTIAL_INTEGRATION_IDS: ["opencode-go", "opencode"],
-  resolveOpenCodeGoAuthCached: mocks.resolveOpenCodeGoAuthCached,
-  getOpenCodeGoAuthDiagnostics: mocks.getOpenCodeGoAuthDiagnostics,
-  resolveOpenCodeGoAuth: mocks.resolveOpenCodeGoAuth,
-}));
-
-vi.mock("../src/lib/opencode-go.js", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../src/lib/opencode-go.js")>();
-  return {
-    ...original,
-    queryOpenCodeGoQuota: mocks.queryOpenCodeGoQuota,
-    queryOpenCodeGoConsoleStatus: mocks.queryOpenCodeGoConsoleStatus,
-  };
-});
-
-vi.mock("../src/lib/opencode-console-auth.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/lib/opencode-console-auth.js")>()),
-  resolveOpenCodeConsoleAuth: mocks.resolveOpenCodeConsoleAuth,
-}));
-
-vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/lib/opencode-auth.js")>()),
-  readCredentialRows: vi.fn().mockResolvedValue([]),
-}));
+import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import {
   __resetOpenCodeGoNotSubscribedForTests,
   opencodeGoProvider,
 } from "../src/providers/opencode-go.js";
+import type { CredentialDatabaseRow } from "./helpers/credential-database.js";
+import {
+  fakeHttp,
+  fetchRows,
+  keyLogin,
+  requestHeader,
+  rowSummary,
+  useProviderWorld,
+} from "./helpers/provider-fetch.js";
 
-function successfulResult() {
+const world = useProviderWorld();
+
+beforeEach(() => {
+  __resetOpenCodeGoNotSubscribedForTests();
+});
+
+const GO_USAGE_URL = "https://opencode.ai/zen/go/v1/usage";
+const CONSOLE_SERVER = "https://console.example.test";
+const CONSOLE_STATUS_URL = `${CONSOLE_SERVER}/api/go/status`;
+
+/** The Go API's reply: offset reset times, and a rate-limited weekly window (all used). */
+const USAGE_REPLY = {
+  usage: {
+    rolling: { status: "ok", percent: 12.5, resetsAt: "2026-10-10T12:30:00Z" },
+    weekly: { status: "rate-limited", percent: 42, resetsAt: "2026-10-12T18:00:00+02:00" },
+    monthly: { status: "ok", percent: 80, resetsAt: "2026-11-01T00:00:00-04:00" },
+  },
+};
+const USAGE_ROWS = [
+  ["opencode-go.five_hour", null, "5h", "five_hour", 87.5, "2026-10-10T12:30:00.000Z"],
+  ["opencode-go.weekly", null, "Weekly", "week", 0, "2026-10-12T16:00:00.000Z"],
+  ["opencode-go.monthly", null, "Monthly", "month", 20, "2026-11-01T04:00:00.000Z"],
+];
+
+/** The Console's Go meters: string microcents, a spent zero limit, the plan end as fallback reset. */
+const CONSOLE_REPLY = {
+  access: {
+    endsAt: "2026-11-02T12:00:00Z",
+    meters: {
+      fiveHour: { limitMicroCents: 1000, usedMicroCents: "250", resetsAt: "2026-10-10T15:00:00Z" },
+      week: { limitMicroCents: 0, usedMicroCents: 5 },
+      month: { limitMicroCents: 1000, usedMicroCents: 500, resetsAt: "2026-11-01T00:00:00Z" },
+    },
+  },
+};
+const CONSOLE_ROWS = [
+  ["opencode-go.five_hour", null, "5h", "five_hour", 75, "2026-10-10T15:00:00.000Z"],
+  ["opencode-go.weekly", null, "Weekly", "week", 0, "2026-11-02T12:00:00.000Z"],
+  ["opencode-go.monthly", null, "Monthly", "month", 50, "2026-11-01T00:00:00.000Z"],
+];
+
+const NOT_SUBSCRIBED_DETAIL = { key: "opencode_go_state", value: "not_subscribed" };
+
+/** The Go API's answer for a key without a Go plan. */
+function notSubscribedReply() {
+  const body = { type: "error", error: { type: "EntitlementError", message: "Go required." } };
+  return new Response(JSON.stringify(body), { status: 403 });
+}
+
+/** The Console sign-in as `opencode auth login opencode` stores it, with `value` fields changed. */
+function consoleLogin(value: Record<string, unknown> = {}): CredentialDatabaseRow {
   return {
-    success: true as const,
-    rolling: {
-      status: "ok" as const,
-      usagePercent: 12.5,
-      percentRemaining: 87.5,
-      resetTimeIso: "2026-08-12T12:30:00.000Z",
-    },
-    weekly: {
-      status: "ok" as const,
-      usagePercent: 45,
-      percentRemaining: 55,
-      resetTimeIso: "2026-08-16T16:00:00.000Z",
-    },
-    monthly: {
-      status: "ok" as const,
-      usagePercent: 80,
-      percentRemaining: 20,
-      resetTimeIso: "2026-09-01T04:00:00.000Z",
+    id: "console",
+    integrationId: "opencode",
+    active: 1,
+    updated: 1,
+    value: {
+      type: "oauth",
+      access: "console-access",
+      refresh: "console-refresh",
+      expires: Date.parse("2099-01-01T00:00:00Z"),
+      metadata: { orgID: "wrk_1", server: CONSOLE_SERVER },
+      ...value,
     },
   };
 }
 
-function diagnostics(
-  state: "none" | "configured" | "invalid" = "configured",
-): Record<string, unknown> {
-  return {
-    state,
-    source: state === "none" ? null : "opencode.db",
-    checkedPaths: ["env:OPENCODE_API_KEY", "/tmp/opencode.json"],
-    credentialDatabasePaths: ["/tmp/opencode.db"],
-    ...(state === "invalid" ? { error: "OpenCode Go auth entry present but key is empty" } : {}),
-  };
+/** The Authorization header of each request made so far. */
+function authorizations(http: ReturnType<typeof fakeHttp>) {
+  return http.mock.calls.map(([, init]) => requestHeader(init, "Authorization"));
 }
 
-async function runFetch(
-  opencodeGoWindows: Array<"rolling" | "weekly" | "monthly"> = ["rolling", "weekly", "monthly"],
-  requestTimeoutMs = 5_000,
-) {
-  return opencodeGoProvider.fetch(
-    createProviderAvailabilityContext({
-      configOverrides: { opencodeGoWindows, requestTimeoutMs },
-    }),
-  );
-}
+describe("OpenCode Go with the Console sign-in", () => {
+  it("reads the Go meters from the login's Console server, scoped to its org", async () => {
+    world.storeLogins([consoleLogin()]);
+    const http = fakeHttp(() => CONSOLE_REPLY);
 
-describe("opencode-go provider", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    __resetOpenCodeGoNotSubscribedForTests();
-    mocks.getOpenCodeGoAuthDiagnostics.mockResolvedValue(diagnostics());
-    mocks.resolveOpenCodeGoAuthCached.mockResolvedValue({
-      state: "configured",
-      apiKey: "provider-test-token",
-    });
-    mocks.queryOpenCodeGoQuota.mockResolvedValue(successfulResult());
-    mocks.resolveOpenCodeGoAuth.mockReturnValue({ state: "configured", apiKey: "row-token" });
-    mocks.resolveOpenCodeConsoleAuth.mockResolvedValue({ state: "none" });
-  });
+    const fetched = await fetchRows(opencodeGoProvider);
 
-  function consoleConfigured(): void {
-    mocks.resolveOpenCodeConsoleAuth.mockResolvedValueOnce({
-      state: "configured",
-      credential: { accessToken: "console-access", orgId: "wrk_1" },
-    });
-  }
-
-  function consoleSuccess(): void {
-    mocks.queryOpenCodeGoConsoleStatus.mockResolvedValueOnce({
-      success: true,
-      rolling: {
-        status: "ok",
-        usagePercent: 0,
-        percentRemaining: 100,
-        resetTimeIso: "2026-09-23T18:59:07.061Z",
-      },
-      weekly: {
-        status: "ok",
-        usagePercent: 27,
-        percentRemaining: 73,
-        resetTimeIso: "2026-09-28T00:00:00.000Z",
-      },
-      monthly: {
-        status: "rate-limited",
-        usagePercent: 100,
-        percentRemaining: 0,
-        resetTimeIso: "2026-10-02T12:48:59.000Z",
-      },
-    });
-  }
-
-  it("reads Go windows from the console API when a console credential exists", async () => {
-    consoleConfigured();
-    consoleSuccess();
-
-    const out = await runFetch();
-
-    expect(mocks.queryOpenCodeGoConsoleStatus).toHaveBeenCalledWith(
-      { accessToken: "console-access", orgId: "wrk_1" },
-      { requestTimeoutMs: 5_000 },
-    );
-    expect(mocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
-    expect(out.statusDetails).toEqual(
-      expect.arrayContaining([
-        { key: "go_source", value: "console" },
-        { key: "console_server", value: "https://opencode.ai/console" },
-      ]),
-    );
-    const visible = visibleEntries(out.entries, "opencode-go");
-    expect(visible.map((entry) => entry.name)).toEqual([
-      "OpenCode Go 5h",
-      "OpenCode Go Weekly",
-      "OpenCode Go Monthly",
-    ]);
-  });
-
-  it("reports a console not-subscribed state without errors", async () => {
-    consoleConfigured();
-    mocks.queryOpenCodeGoConsoleStatus.mockResolvedValueOnce({
-      success: false,
-      error: "OpenCode Go subscription not found for this console account (404)",
-      notSubscribed: true,
-    });
-
-    const out = await runFetch();
-
-    expectAttemptedWithNoErrors(out);
-    expect(out.entries).toEqual([]);
-    expect(out.statusDetails).toEqual(
-      expect.arrayContaining([{ key: "opencode_go_state", value: "not_subscribed" }]),
-    );
-    expect(mocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
-  });
-
-  it("falls back to the legacy key path when the console request fails", async () => {
-    consoleConfigured();
-    mocks.queryOpenCodeGoConsoleStatus.mockResolvedValueOnce({
-      success: false,
-      error: "OpenCode Console API error 500 (/api/go/status)",
-      retryable: true,
-    });
-
-    const out = await runFetch();
-
-    expect(mocks.queryOpenCodeGoConsoleStatus).toHaveBeenCalledOnce();
-    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledOnce();
-    expect(out.statusDetails).toEqual(
-      expect.arrayContaining([
-        { key: "go_source", value: "legacy_key" },
-        { key: "console_error", value: "OpenCode Console API error 500 (/api/go/status)" },
-      ]),
-    );
-  });
-
-  it("falls back to the API key after a Console 403", async () => {
-    consoleConfigured();
-    mocks.queryOpenCodeGoConsoleStatus.mockResolvedValueOnce({
-      success: false,
-      error: "OpenCode Console API error 403 (/api/go/status)",
-      retryable: false,
-    });
-
-    const out = await runFetch();
-
-    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledOnce();
-    expectAttemptedWithNoErrors(out);
-    expect(visibleEntries(out.entries, "opencode-go")).toHaveLength(3);
-    expect(out.statusDetails).toEqual(
-      expect.arrayContaining([
-        { key: "go_source", value: "legacy_key" },
-        { key: "console_error", value: "OpenCode Console API error 403 (/api/go/status)" },
-      ]),
-    );
-    expect(out.statusDetails).not.toContainEqual({
-      key: "opencode_go_state",
-      value: "not_subscribed",
-    });
-  });
-
-  it("stays quiet after a Console 403 when there is no API key", async () => {
-    consoleConfigured();
-    mocks.queryOpenCodeGoConsoleStatus.mockResolvedValueOnce({
-      success: false,
-      error: "OpenCode Console API error 403 (/api/go/status)",
-      retryable: false,
-    });
-    mocks.getOpenCodeGoAuthDiagnostics.mockResolvedValueOnce(diagnostics("none"));
-    mocks.resolveOpenCodeGoAuthCached.mockResolvedValueOnce({ state: "none" });
-
-    const out = await runFetch();
-
-    expect(mocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
-    expectNotAttempted(out);
-    expect(out.statusDetails).toEqual(
-      expect.arrayContaining([
-        { key: "console_auth_state", value: "configured" },
-        { key: "console_error", value: "OpenCode Console API error 403 (/api/go/status)" },
-      ]),
-    );
-  });
-
-  it("reports the console server the sign-in belongs to", async () => {
-    mocks.resolveOpenCodeConsoleAuth.mockResolvedValueOnce({
-      state: "configured",
-      credential: { accessToken: "console-access", server: "https://console.example.test" },
-    });
-    consoleSuccess();
-
-    const out = await runFetch();
-
-    expect(out.statusDetails).toContainEqual({
-      key: "console_server",
-      value: "https://console.example.test",
-    });
-  });
-
-  it("uses the legacy key path with the console error when the sign-in cannot be read", async () => {
-    const jwt = `eyJ${"a".repeat(24)}.${"b".repeat(24)}.${"c".repeat(24)}`;
-    mocks.resolveOpenCodeConsoleAuth.mockResolvedValueOnce({
-      state: "invalid",
-      error: `refresh_failed: HTTP 401 ${jwt}`,
-    });
-
-    const out = await runFetch();
-
-    expect(mocks.queryOpenCodeGoConsoleStatus).not.toHaveBeenCalled();
-    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledOnce();
-    expectAttemptedWithNoErrors(out);
-    expect(out.statusDetails).toEqual(
-      expect.arrayContaining([
-        { key: "auth_state", value: "configured" },
-        { key: "console_auth_state", value: "invalid" },
-        { key: "console_error", value: "refresh_failed: HTTP 401 [redacted]" },
-        { key: "go_source", value: "legacy_key" },
-        { key: "selected_windows", value: "rolling,weekly,monthly" },
-      ]),
-    );
-    expect(JSON.stringify(out)).not.toContain(jwt);
-  });
-
-  it("shows the failed Console sign-in as Go's error when there is no API key", async () => {
-    const jwt = `eyJ${"a".repeat(24)}.${"b".repeat(24)}.${"c".repeat(24)}`;
-    mocks.resolveOpenCodeConsoleAuth.mockResolvedValueOnce({
-      state: "invalid",
-      error: `refresh_failed: HTTP 401 ${jwt}`,
-    });
-    mocks.getOpenCodeGoAuthDiagnostics.mockResolvedValueOnce(diagnostics("none"));
-    mocks.resolveOpenCodeGoAuthCached.mockResolvedValueOnce({ state: "none" });
-
-    const out = await runFetch();
-
-    expect(mocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
-    expect(out.attempted).toBe(true);
-    expect(out.entries).toEqual([]);
-    expect(out.errors).toEqual([
-      {
-        label: "OpenCode Go",
-        message:
-          "OpenCode Console sign-in failed: refresh_failed: HTTP 401 [redacted]. Run `opencode auth login opencode`.",
-      },
-    ]);
-    expect(out.statusDetails).toEqual(
-      expect.arrayContaining([
-        { key: "console_auth_state", value: "invalid" },
-        { key: "go_source", value: "legacy_key" },
-      ]),
-    );
-    expect(JSON.stringify(out)).not.toContain(jwt);
+    expect(http).toHaveBeenCalledOnce();
+    const [requestUrl, init] = http.mock.calls[0] ?? [];
+    expect(String(requestUrl)).toBe(CONSOLE_STATUS_URL);
+    expect(requestHeader(init, "Authorization")).toBe("Bearer console-access");
+    expect(requestHeader(init, "x-org-id")).toBe("wrk_1");
+    expect(fetched.error).toBeUndefined();
+    expect(rowSummary(fetched.rows)).toEqual(CONSOLE_ROWS);
+    expect(fetched.rowLogins).toEqual(["console:go", "console:go", "console:go"]);
   });
 
   it.each([
-    ["a 5xx answer", "OpenCode Console API error 500 (/api/go/status)"],
-    ["a network failure", "fetch failed"],
-    ["a timeout", "Request timeout after 5s"],
-  ])("stays quiet after %s from the Console when there is no API key", async (_case, error) => {
-    consoleConfigured();
-    mocks.queryOpenCodeGoConsoleStatus.mockResolvedValueOnce({
-      success: false,
-      error,
-      retryable: true,
-    });
-    mocks.getOpenCodeGoAuthDiagnostics.mockResolvedValueOnce(diagnostics("none"));
-    mocks.resolveOpenCodeGoAuthCached.mockResolvedValueOnce({ state: "none" });
-
-    const out = await runFetch();
-
-    expect(mocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
-    expectNotAttempted(out);
-    expect(out.errors).toEqual([]);
-    expect(out.statusDetails).toEqual(
-      expect.arrayContaining([
-        { key: "console_auth_state", value: "configured" },
-        { key: "console_error", value: error },
-      ]),
-    );
-  });
-
-  it("stays quiet without a Console sign-in or an API key", async () => {
-    mocks.getOpenCodeGoAuthDiagnostics.mockResolvedValueOnce(diagnostics("none"));
-    mocks.resolveOpenCodeGoAuthCached.mockResolvedValueOnce({ state: "none" });
-
-    const out = await runFetch();
-
-    expectNotAttempted(out);
-    expect(out.errors).toEqual([]);
-  });
-
-  it("keeps the plain key path when the opencode login is an API key", async () => {
-    mocks.resolveOpenCodeConsoleAuth.mockResolvedValueOnce({ state: "none", reason: "not_oauth" });
-
-    const out = await runFetch();
-
-    expect(mocks.queryOpenCodeGoConsoleStatus).not.toHaveBeenCalled();
-    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledOnce();
-    expect(out.statusDetails?.map((detail) => detail.key)).not.toContain("console_auth_state");
-  });
-
-  it("returns not attempted for absent auth without calling the API", async () => {
-    mocks.getOpenCodeGoAuthDiagnostics.mockResolvedValueOnce(diagnostics("none"));
-    mocks.resolveOpenCodeGoAuthCached.mockResolvedValueOnce({ state: "none" });
-
-    const out = await runFetch();
-
-    expectNotAttempted(out);
-    expect(mocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
-    expect(out.statusDetails).toEqual(
-      expect.arrayContaining([
-        { key: "auth_state", value: "none" },
-        { key: "auth_source", value: "(none)" },
-        { key: "selected_windows", value: "rolling,weekly,monthly" },
-      ]),
-    );
-  });
-
-  it("returns an attempted error for invalid canonical auth", async () => {
-    const error = "OpenCode Go auth entry present but key is empty";
-    mocks.getOpenCodeGoAuthDiagnostics.mockResolvedValueOnce(diagnostics("invalid"));
-    mocks.resolveOpenCodeGoAuthCached.mockResolvedValueOnce({ state: "invalid", error });
-
-    const out = await runFetch();
-
-    expectAttemptedWithErrorLabel(out, "OpenCode Go");
-    expect(out.errors[0]?.message).toBe(error);
-    expect(out.statusDetails).toContainEqual({ key: "auth_error", value: error });
-    expect(mocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
-  });
-
-  it("keeps a valid inactive duplicate-label database credential when the active row is invalid", async () => {
-    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
-    mocks.getOpenCodeGoAuthDiagnostics.mockResolvedValueOnce(diagnostics("invalid"));
-    mocks.resolveOpenCodeGoAuthCached.mockResolvedValueOnce({
-      state: "invalid",
-      error: "empty key",
-    });
-    (readCredentialRows as any).mockResolvedValueOnce([
-      {
-        id: "bad",
-        integrationId: "opencode-go",
-        label: "shared",
-        active: true,
-        value: { key: "" },
+    {
+      name: "a Console 404 means no Go plan, and the API key is not asked",
+      login: consoleLogin(),
+      consoleStatus: 404,
+      apiKey: true,
+      rows: [],
+      errorCode: undefined,
+      detail: NOT_SUBSCRIBED_DETAIL,
+    },
+    {
+      name: "a Console 500 falls back to the API key",
+      login: consoleLogin(),
+      consoleStatus: 500,
+      apiKey: true,
+      rows: USAGE_ROWS,
+      errorCode: undefined,
+      detail: { key: "console_error", value: "OpenCode Console API error 500 (/api/go/status)" },
+    },
+    {
+      name: "a Console 500 without an API key is Go's error",
+      login: consoleLogin(),
+      consoleStatus: 500,
+      apiKey: false,
+      rows: [],
+      errorCode: "provider_error",
+      detail: {
+        key: "error",
+        value: "OpenCode Go: OpenCode Console API error 500 (/api/go/status)",
       },
-      {
-        id: "good",
-        integrationId: "opencode-go",
-        label: "shared",
-        active: false,
-        value: { key: "ok" },
+    },
+    {
+      name: "an expired sign-in uses the API key",
+      login: consoleLogin({ expires: 1 }),
+      consoleStatus: 500,
+      apiKey: true,
+      rows: USAGE_ROWS,
+      errorCode: undefined,
+      detail: { key: "console_auth_state", value: "expired" },
+    },
+    {
+      name: "a sign-in without a token is Go's error when there is no API key",
+      login: consoleLogin({ access: "" }),
+      consoleStatus: 500,
+      apiKey: false,
+      rows: [],
+      errorCode: "not_configured",
+      detail: {
+        key: "error",
+        value:
+          "OpenCode Go: OpenCode Console sign-in failed: OpenCode Console credential has no access token. Run `opencode auth login opencode`.",
       },
-    ]);
-    mocks.resolveOpenCodeGoAuth.mockImplementation((auth: any) =>
-      auth["opencode-go"].key
-        ? { state: "configured", apiKey: "row-token" }
-        : { state: "invalid", error: "empty key" },
+    },
+  ])("$name", async ({ login, consoleStatus, apiKey, rows, errorCode, detail }) => {
+    world.storeLogins([login]);
+    if (apiKey) process.env.OPENCODE_API_KEY = "go-key";
+    fakeHttp((url) =>
+      url === CONSOLE_STATUS_URL ? new Response("{}", { status: consoleStatus }) : USAGE_REPLY,
     );
 
-    const out = await runFetch();
-    expect(out.errors).toContainEqual({
-      label: "[OpenCode Go shared] (active)",
-      message: "empty key",
-    });
-    expect(out.entries).toContainEqual(
-      expect.objectContaining({
-        group: "[OpenCode Go shared 2]",
-        accounting: expect.objectContaining({ sourceId: "good" }),
-      }),
-    );
-    expect(out.entries).toHaveLength(3);
-    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledOnce();
-  });
+    const fetched = await fetchRows(opencodeGoProvider);
 
-  it("keeps two failed database logins as two error rows", async () => {
-    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
-    const failed = (id: string, label: string, active: boolean) => ({
-      id,
-      integrationId: "opencode-go",
-      label,
-      active,
-      value: { type: "api" },
-      resolveError: "active_failed: database is locked",
-    });
-    (readCredentialRows as any).mockResolvedValueOnce([
-      failed("cred_personal", "Personal", true),
-      failed("cred_work", "Work", false),
-    ]);
-    mocks.resolveOpenCodeGoAuth.mockImplementation((auth: any) => ({
-      state: "invalid",
-      error: `OpenCode could not read this login: ${auth["opencode-go"].resolveError}`,
-    }));
-
-    const out = await runFetch();
-
-    const message = "OpenCode could not read this login: active_failed: database is locked";
-    expect(out.errors).toEqual([
-      { label: "[OpenCode Go Personal] (active)", message },
-      { label: "[OpenCode Go Work]", message },
-    ]);
-    expect(mocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
-  });
-
-  it("reports one Go connection when the same key is stored under both integrations", async () => {
-    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
-    const workspaceCredential = { type: "key", key: "workspace-key" };
-    (readCredentialRows as any).mockResolvedValueOnce([
-      {
-        id: "go-row",
-        integrationId: "opencode-go",
-        label: "default",
-        active: false,
-        value: workspaceCredential,
-      },
-      {
-        id: "zen-row",
-        integrationId: "opencode",
-        label: "default",
-        active: false,
-        value: workspaceCredential,
-      },
-    ]);
-    mocks.resolveOpenCodeGoAuth.mockReturnValue({ state: "configured", apiKey: "row-token" });
-
-    const out = await runFetch(["rolling", "weekly"]);
-
-    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledOnce();
-    expect(visibleEntries(out.entries, "opencode-go").map((entry) => entry.group)).toEqual([
-      "[OpenCode Go]",
-      "[OpenCode Go]",
-    ]);
-    for (const entry of out.entries) {
-      expect(entry.accounting).toMatchObject({ sourceId: "go-row" });
-    }
-  });
-
-  it("does not report another integration's credential as a second Go connection", async () => {
-    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
-    (readCredentialRows as any).mockResolvedValueOnce([
-      {
-        id: "go-row",
-        integrationId: "opencode-go",
-        label: "default",
-        active: false,
-        value: { type: "key", key: "go-key" },
-      },
-      {
-        id: "zen-row",
-        integrationId: "opencode",
-        label: "default",
-        active: false,
-        value: { type: "key", key: "zen-key" },
-      },
-    ]);
-    mocks.resolveOpenCodeGoAuth.mockReturnValue({ state: "configured", apiKey: "row-token" });
-
-    const out = await runFetch(["rolling", "weekly"]);
-
-    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledOnce();
-    for (const entry of out.entries) {
-      expect(entry.accounting).toMatchObject({ sourceId: "go-row" });
-    }
-  });
-
-  it("keeps separate connections for distinct native credentials", async () => {
-    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
-    (readCredentialRows as any).mockResolvedValueOnce([
-      {
-        id: "go-row",
-        integrationId: "opencode-go",
-        label: "default",
-        active: false,
-        value: { type: "key", key: "first-key" },
-      },
-      {
-        id: "second-go-row",
-        integrationId: "opencode-go",
-        label: "default",
-        active: false,
-        value: { type: "key", key: "second-key" },
-      },
-    ]);
-    mocks.resolveOpenCodeGoAuth.mockReturnValue({ state: "configured", apiKey: "row-token" });
-
-    const out = await runFetch(["rolling", "weekly"]);
-
-    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledTimes(2);
-    const groups = visibleEntries(out.entries, "opencode-go").map((entry) => entry.group);
-    expect(groups).toEqual(["[OpenCode Go]", "[OpenCode Go]", "[OpenCode Go]", "[OpenCode Go]"]);
-  });
-
-  it("suppresses non-entitled database connections independently", async () => {
-    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
-    const credentialRows = [
-      {
-        id: "not-subscribed",
-        integrationId: "opencode-go",
-        label: "free",
-        active: true,
-        value: { type: "key", key: "free-key" },
-      },
-      {
-        id: "subscribed",
-        integrationId: "opencode-go",
-        label: "paid",
-        active: false,
-        value: { type: "key", key: "paid-key" },
-      },
-    ];
-    (readCredentialRows as any)
-      .mockResolvedValueOnce(credentialRows)
-      .mockResolvedValueOnce(credentialRows);
-    mocks.resolveOpenCodeGoAuth.mockImplementation((auth: any) => ({
-      state: "configured",
-      apiKey: auth["opencode-go"].key,
-    }));
-    mocks.queryOpenCodeGoQuota.mockImplementation(async (apiKey: string) =>
-      apiKey === "free-key"
-        ? {
-            success: false,
-            error: "OpenCode Go not subscribed (403 EntitlementError)",
-            notSubscribed: true,
-            retryable: false,
-          }
-        : successfulResult(),
-    );
-
-    const first = await runFetch(["rolling"]);
-    const second = await runFetch(["rolling"]);
-
-    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledTimes(3);
-    expect(mocks.queryOpenCodeGoQuota.mock.calls.map(([apiKey]) => apiKey)).toEqual([
-      "free-key",
-      "paid-key",
-      "paid-key",
-    ]);
-    expect(first.entries).toEqual([
-      expect.objectContaining({ accounting: expect.objectContaining({ sourceId: "subscribed" }) }),
-    ]);
-    expect(second.entries).toEqual([
-      expect.objectContaining({ accounting: expect.objectContaining({ sourceId: "subscribed" }) }),
-    ]);
-  });
-
-  it("falls back to legacy alias rows when no native opencode-go row exists", async () => {
-    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
-    (readCredentialRows as any).mockResolvedValueOnce([
-      {
-        id: "alias-row",
-        integrationId: "opencode",
-        label: "default",
-        active: false,
-        value: { type: "key", key: "legacy-key" },
-      },
-    ]);
-    mocks.resolveOpenCodeGoAuth.mockReturnValue({ state: "configured", apiKey: "row-token" });
-
-    const out = await runFetch(["rolling", "weekly"]);
-
-    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledOnce();
-    expect(visibleEntries(out.entries, "opencode-go").map((entry) => entry.group)).toEqual([
-      "[OpenCode Go]",
-      "[OpenCode Go]",
-    ]);
-    for (const entry of out.entries) {
-      expect(entry.accounting).toMatchObject({ sourceId: "alias-row" });
-    }
-  });
-
-  it("passes the resolved token and effective timeout to the API client", async () => {
-    await runFetch(["rolling", "weekly", "monthly"], 12_345);
-
-    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledWith("provider-test-token", {
-      requestTimeoutMs: 12_345,
-    });
-  });
-
-  it("returns canonical entries with remote_api accounting", async () => {
-    const out = await runFetch();
-
-    expectAttemptedWithNoErrors(out);
-    expect(visibleEntries(out.entries, "opencode-go")).toEqual([
-      {
-        name: "OpenCode Go 5h",
-        group: "OpenCode Go",
-        label: "5h:",
-        percentRemaining: 87.5,
-        resetTimeIso: "2026-08-12T12:30:00.000Z",
-      },
-      {
-        name: "OpenCode Go Weekly",
-        group: "OpenCode Go",
-        label: "Weekly:",
-        percentRemaining: 55,
-        resetTimeIso: "2026-08-16T16:00:00.000Z",
-      },
-      {
-        name: "OpenCode Go Monthly",
-        group: "OpenCode Go",
-        label: "Monthly:",
-        percentRemaining: 20,
-        resetTimeIso: "2026-09-01T04:00:00.000Z",
-      },
-    ]);
-    for (const entry of out.entries) {
-      expect(entry.accounting).toEqual({
-        resultType: "quota",
-        acquisitionMethod: "remote_api",
-        ownership: "maintained",
-        authority: "provider_reported",
-      });
-    }
-  });
-
-  it("filters duplicates in canonical order after full-response diagnostics", async () => {
-    const out = await runFetch(["monthly", "rolling", "monthly"]);
-
-    expectAttemptedWithNoErrors(out);
-    expect(out.entries.map((entry) => entry.name)).toEqual([
-      "OpenCode Go 5h",
-      "OpenCode Go Monthly",
-    ]);
-    expect(out.statusDetails).toEqual(
-      expect.arrayContaining([
-        { key: "selected_windows", value: "monthly,rolling,monthly" },
-        {
-          key: "rolling_usage",
-          value:
-            "status=ok percent_used=12.5 percent_remaining=87.5 reset_at=2026-08-12T12:30:00.000Z",
-        },
-        {
-          key: "weekly_usage",
-          value: "status=ok percent_used=45 percent_remaining=55 reset_at=2026-08-16T16:00:00.000Z",
-        },
-        {
-          key: "monthly_usage",
-          value: "status=ok percent_used=80 percent_remaining=20 reset_at=2026-09-01T04:00:00.000Z",
-        },
-      ]),
-    );
-  });
-
-  it("uses only the standard auth diagnostic keys", async () => {
-    const out = await runFetch(["weekly"]);
-    const keys = out.statusDetails?.map((detail) => detail.key) ?? [];
-
-    expect(keys).toEqual([
-      "auth_state",
-      "auth_source",
-      "auth_checked_paths",
-      "credential_database_paths",
-      "selected_windows",
-      "rolling_usage",
-      "weekly_usage",
-      "monthly_usage",
-    ]);
-    expect(keys.some((key) => key.startsWith("config_"))).toBe(false);
-    expect(keys).not.toContain("reset_in_sec");
-  });
-
-  it("returns API failures as attempted errors with live_fetch_error", async () => {
-    mocks.queryOpenCodeGoQuota.mockResolvedValueOnce({
-      success: false,
-      error: "OpenCode Go API error 503: unavailable",
-    });
-
-    const out = await runFetch();
-
-    expectAttemptedWithErrorLabel(out, "OpenCode Go");
-    expect(out.errors[0]?.message).toBe("OpenCode Go API error 503: unavailable");
-    expect(out.statusDetails).toContainEqual({
-      key: "live_fetch_error",
-      value: "OpenCode Go API error 503: unavailable",
-    });
-  });
-
-  it("surfaces a rate-limited monthly window as a valid result", async () => {
-    const result = successfulResult();
-    result.monthly = {
-      status: "rate-limited" as const,
-      usagePercent: 100,
-      percentRemaining: 0,
-      resetTimeIso: "2026-09-01T04:00:00.000Z",
-    };
-    mocks.queryOpenCodeGoQuota.mockResolvedValueOnce(result);
-
-    const out = await runFetch();
-
-    expectAttemptedWithNoErrors(out);
-    expect(out.statusDetails).toContainEqual({
-      key: "monthly_usage",
-      value:
-        "status=rate-limited percent_used=100 percent_remaining=0 reset_at=2026-09-01T04:00:00.000Z",
-    });
-    expect(
-      out.entries.find((entry) => entry.name === "OpenCode Go Monthly")?.percentRemaining,
-    ).toBe(0);
-  });
-
-  it("keeps healthy sibling rows when one window is exhausted", async () => {
-    const result = successfulResult();
-    result.weekly = {
-      status: "rate-limited" as const,
-      usagePercent: 100,
-      percentRemaining: 0,
-      resetTimeIso: "2026-08-16T16:00:00.000Z",
-    };
-    mocks.queryOpenCodeGoQuota.mockResolvedValueOnce(result);
-
-    const out = await runFetch();
-
-    expectAttemptedWithNoErrors(out);
-    expect(visibleEntries(out.entries, "opencode-go")).toEqual([
-      {
-        name: "OpenCode Go 5h",
-        group: "OpenCode Go",
-        label: "5h:",
-        percentRemaining: 87.5,
-        resetTimeIso: "2026-08-12T12:30:00.000Z",
-      },
-      {
-        name: "OpenCode Go Weekly",
-        group: "OpenCode Go",
-        label: "Weekly:",
-        percentRemaining: 0,
-        resetTimeIso: "2026-08-16T16:00:00.000Z",
-      },
-      {
-        name: "OpenCode Go Monthly",
-        group: "OpenCode Go",
-        label: "Monthly:",
-        percentRemaining: 20,
-        resetTimeIso: "2026-09-01T04:00:00.000Z",
-      },
-    ]);
-    expect(out.statusDetails).toEqual(
-      expect.arrayContaining([
-        {
-          key: "rolling_usage",
-          value:
-            "status=ok percent_used=12.5 percent_remaining=87.5 reset_at=2026-08-12T12:30:00.000Z",
-        },
-        {
-          key: "weekly_usage",
-          value:
-            "status=rate-limited percent_used=100 percent_remaining=0 reset_at=2026-08-16T16:00:00.000Z",
-        },
-        {
-          key: "monthly_usage",
-          value: "status=ok percent_used=80 percent_remaining=20 reset_at=2026-09-01T04:00:00.000Z",
-        },
-      ]),
-    );
-  });
-
-  it("omits an unselected exhausted window from entries while keeping live diagnostics", async () => {
-    const result = successfulResult();
-    result.weekly = {
-      status: "rate-limited" as const,
-      usagePercent: 100,
-      percentRemaining: 0,
-      resetTimeIso: "2026-08-16T16:00:00.000Z",
-    };
-    mocks.queryOpenCodeGoQuota.mockResolvedValueOnce(result);
-
-    const out = await runFetch(["rolling", "monthly"]);
-
-    expectAttemptedWithNoErrors(out);
-    expect(out.entries.map((entry) => entry.name)).toEqual([
-      "OpenCode Go 5h",
-      "OpenCode Go Monthly",
-    ]);
-    expect(out.entries.some((entry) => entry.name === "OpenCode Go Weekly")).toBe(false);
-    expect(out.statusDetails).toEqual(
-      expect.arrayContaining([
-        { key: "selected_windows", value: "rolling,monthly" },
-        {
-          key: "weekly_usage",
-          value:
-            "status=rate-limited percent_used=100 percent_remaining=0 reset_at=2026-08-16T16:00:00.000Z",
-        },
-      ]),
-    );
-  });
-
-  it("suppresses repeat requests after a not-subscribed response", async () => {
-    mocks.queryOpenCodeGoQuota.mockResolvedValue({
-      success: false,
-      error: "OpenCode Go not subscribed (403 EntitlementError)",
-      notSubscribed: true,
-      retryable: false,
-    });
-
-    const first = await runFetch();
-    const second = await runFetch();
-
-    expectAttemptedWithNoErrors(first);
-    expectAttemptedWithNoErrors(second);
-    expect(first.entries).toEqual([]);
-    expect(second.entries).toEqual([]);
-    expect(first.statusDetails).toContainEqual({
-      key: "opencode_go_state",
-      value: "not_subscribed",
-    });
-    expect(second.statusDetails).toContainEqual({
-      key: "opencode_go_state",
-      value: "not_subscribed",
-    });
-    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledTimes(1);
-  });
-
-  it("queries again after the credential changes, including when the original returns", async () => {
-    mocks.queryOpenCodeGoQuota.mockResolvedValueOnce({
-      success: false,
-      error: "OpenCode Go not subscribed (403 EntitlementError)",
-      notSubscribed: true,
-      retryable: false,
-    });
-    await expect(opencodeGoProvider.isAvailable(createProviderAvailabilityContext())).resolves.toBe(
-      true,
-    );
-    await runFetch();
-
-    mocks.resolveOpenCodeGoAuthCached.mockResolvedValue({
-      state: "configured",
-      apiKey: "new-provider-test-token",
-    });
-    await runFetch();
-
-    mocks.resolveOpenCodeGoAuthCached.mockResolvedValue({
-      state: "configured",
-      apiKey: "provider-test-token",
-    });
-    await runFetch();
-
-    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledTimes(3);
-    expect(mocks.queryOpenCodeGoQuota).toHaveBeenNthCalledWith(2, "new-provider-test-token", {
-      requestTimeoutMs: 5_000,
-    });
-    expect(mocks.queryOpenCodeGoQuota).toHaveBeenLastCalledWith("provider-test-token", {
-      requestTimeoutMs: 5_000,
-    });
-  });
-
-  it.each([
-    ["missing", { state: "none" }],
-    ["invalid", { state: "invalid", error: "OpenCode Go auth entry present but key is empty" }],
-  ])("queries again after production availability sees %s auth", async (_name, auth) => {
-    mocks.queryOpenCodeGoQuota.mockResolvedValueOnce({
-      success: false,
-      error: "OpenCode Go not subscribed (403 EntitlementError)",
-      notSubscribed: true,
-      retryable: false,
-    });
-    await runFetch();
-
-    mocks.resolveOpenCodeGoAuthCached.mockResolvedValueOnce(auth);
-    await expect(opencodeGoProvider.isAvailable(createProviderAvailabilityContext())).resolves.toBe(
-      false,
-    );
-    await runFetch();
-
-    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledTimes(2);
-    expect(mocks.queryOpenCodeGoQuota).toHaveBeenLastCalledWith("provider-test-token", {
-      requestTimeoutMs: 5_000,
-    });
-  });
-
-  it("does not copy the resolved token into provider output", async () => {
-    const out = await runFetch();
-    expect(JSON.stringify(out)).not.toContain("provider-test-token");
+    expect(rowSummary(fetched.rows)).toEqual(rows);
+    expect(fetched.error?.code).toBe(errorCode);
+    expect(fetched.debug).toContainEqual(detail);
   });
 });
 
-describe("opencode-go availability and model matching", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    __resetOpenCodeGoNotSubscribedForTests();
+describe("OpenCode Go with an API key", () => {
+  it("is not configured without a sign-in or a key, and asks nothing", async () => {
+    const http = fakeHttp(() => USAGE_REPLY);
+
+    const fetched = await fetchRows(opencodeGoProvider);
+
+    expect(fetched.rows).toEqual([]);
+    expect(fetched.error).toEqual({ code: "not_configured" });
+    expect(http).not.toHaveBeenCalled();
+  });
+
+  it("asks the Go API with the env key and shows every window", async () => {
+    process.env.OPENCODE_API_KEY = "go-key";
+    const http = fakeHttp(() => USAGE_REPLY);
+
+    const fetched = await fetchRows(opencodeGoProvider);
+
+    expect(http).toHaveBeenCalledOnce();
+    const [requestUrl, init] = http.mock.calls[0] ?? [];
+    expect(String(requestUrl)).toBe(GO_USAGE_URL);
+    expect(requestHeader(init, "Authorization")).toBe("Bearer go-key");
+    expect(fetched.error).toBeUndefined();
+    expect(rowSummary(fetched.rows)).toEqual(USAGE_ROWS);
   });
 
   it.each([
-    [{ state: "configured", apiKey: "key" }, true],
-    [{ state: "invalid", error: "bad auth" }, false],
-    [{ state: "none" }, false],
-  ])("maps auth state %j to availability %s without a request", async (auth, expected) => {
-    mocks.resolveOpenCodeGoAuthCached.mockResolvedValueOnce(auth);
+    {
+      reply: () => new Response("unavailable", { status: 503 }),
+      code: "provider_error",
+      message: "OpenCode Go API error 503: unavailable",
+    },
+    {
+      reply: () => new Response('{"error":"forbidden"}', { status: 403 }),
+      code: "provider_error",
+      message: 'OpenCode Go API error 403: {"error":"forbidden"}',
+    },
+    {
+      reply: () => new Response("bad key go-key", { status: 401 }),
+      code: "login_expired",
+      message: "OpenCode Go API error 401: bad key [redacted]",
+    },
+    {
+      reply: () => ({
+        usage: {
+          ...USAGE_REPLY.usage,
+          weekly: { status: "ok", percent: 1, resetsAt: "2026-10-12" },
+        },
+      }),
+      code: "bad_response",
+      message:
+        "Invalid OpenCode Go API response: weekly resetsAt must be an offset-qualified ISO timestamp",
+    },
+  ])("shows $code for: $message", async ({ reply, code, message }) => {
+    process.env.OPENCODE_API_KEY = "go-key";
+    fakeHttp(reply);
 
-    await expect(opencodeGoProvider.isAvailable(createProviderAvailabilityContext())).resolves.toBe(
-      expected,
-    );
-    expect(mocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
+    const fetched = await fetchRows(opencodeGoProvider);
+
+    expect(fetched.rows).toEqual([]);
+    expect(fetched.error?.code).toBe(code);
+    expect(fetched.debug).toContainEqual({ key: "error", value: `OpenCode Go: ${message}` });
+    expect(JSON.stringify(fetched)).not.toContain("go-key");
   });
 
-  it("stays available for a failed Console sign-in without an API key", async () => {
-    mocks.resolveOpenCodeConsoleAuth.mockResolvedValueOnce({
-      state: "invalid",
-      error: "refresh_failed: HTTP 401",
-    });
-    mocks.resolveOpenCodeGoAuthCached.mockResolvedValueOnce({ state: "none" });
+  it("does not ask again for a key without a Go plan, until the key changes", async () => {
+    process.env.OPENCODE_API_KEY = "free-key";
+    const http = fakeHttp(() => notSubscribedReply());
 
-    await expect(opencodeGoProvider.isAvailable(createProviderAvailabilityContext())).resolves.toBe(
-      true,
+    for (const fetched of [
+      await fetchRows(opencodeGoProvider),
+      await fetchRows(opencodeGoProvider),
+    ]) {
+      expect(fetched.rows).toEqual([]);
+      expect(fetched.error).toBeUndefined();
+      expect(fetched.debug).toContainEqual(NOT_SUBSCRIBED_DETAIL);
+    }
+    process.env.OPENCODE_API_KEY = "other-key";
+    await fetchRows(opencodeGoProvider);
+    process.env.OPENCODE_API_KEY = "free-key";
+    await fetchRows(opencodeGoProvider);
+
+    expect(authorizations(http)).toEqual([
+      "Bearer free-key",
+      "Bearer other-key",
+      "Bearer free-key",
+    ]);
+  });
+
+  it("asks again after the availability check found no key", async () => {
+    process.env.OPENCODE_API_KEY = "free-key";
+    const http = fakeHttp(() => notSubscribedReply());
+    await fetchRows(opencodeGoProvider);
+
+    delete process.env.OPENCODE_API_KEY;
+    await expect(opencodeGoProvider.isAvailable({ config: {} } as never)).resolves.toBe(false);
+    process.env.OPENCODE_API_KEY = "free-key";
+    await fetchRows(opencodeGoProvider);
+
+    expect(http).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("OpenCode Go with stored keys", () => {
+  it("queries each key as its own account: a broken login first, a key without Go hidden", async () => {
+    world.storeLogins([
+      keyLogin("work", "opencode-go", "work-key", { label: "Work", updated: 4 }),
+      keyLogin("free", "opencode-go", "free-key", { label: "Free", updated: 3 }),
+      keyLogin("down", "opencode-go", "down-key", { label: "Down", updated: 2 }),
+      keyLogin("broken", "opencode-go", "", { label: "Broken", updated: 1 }),
+    ]);
+    fakeHttp((_url, init) => {
+      const authorization = requestHeader(init, "Authorization");
+      if (authorization === "Bearer free-key") return notSubscribedReply();
+      if (authorization === "Bearer down-key") return new Response("unavailable", { status: 503 });
+      return USAGE_REPLY;
+    });
+
+    const fetched = await fetchRows(opencodeGoProvider);
+
+    expect(rowSummary(fetched.rows)).toEqual(
+      USAGE_ROWS.map((row) => [row[0], "Work", ...row.slice(2)]),
     );
+    expect(fetched.rowLogins).toEqual(["work", "work", "work"]);
+    // The broken login comes first, so its error is the one shown.
+    expect(fetched.error?.code).toBe("not_configured");
+    expect(fetched.debug.filter((item) => item.key === "error")).toEqual([
+      {
+        key: "error",
+        value: "[OpenCode Go Broken]: OpenCode Go auth entry present but key is empty",
+      },
+      { key: "error", value: "[OpenCode Go Down]: OpenCode Go API error 503: unavailable" },
+    ]);
+  });
+
+  it.each([
+    {
+      name: "a key under both `opencode-go` and the legacy `opencode` id is one account",
+      logins: [
+        keyLogin("go", "opencode-go", "shared-key", { updated: 2 }),
+        keyLogin("alias", "opencode", "shared-key", { updated: 1 }),
+      ],
+      login: "go",
+    },
+    {
+      name: "a key under the legacy `opencode` id alone is used",
+      logins: [keyLogin("alias", "opencode", "legacy-key")],
+      login: "alias",
+    },
+  ])("$name", async ({ logins, login }) => {
+    world.storeLogins(logins);
+    const http = fakeHttp(() => USAGE_REPLY);
+
+    const fetched = await fetchRows(opencodeGoProvider);
+
+    expect(http).toHaveBeenCalledOnce();
+    expect(fetched.rowLogins).toEqual([login, login, login]);
+  });
+});
+
+describe("OpenCode Go availability and models", () => {
+  it.each([
+    { name: "a Console sign-in", logins: [consoleLogin()], apiKey: false, available: true },
+    {
+      name: "an expired sign-in",
+      logins: [consoleLogin({ expires: 1 })],
+      apiKey: false,
+      available: true,
+    },
+    {
+      name: "a sign-in without a token",
+      logins: [consoleLogin({ access: "" })],
+      apiKey: false,
+      available: true,
+    },
+    { name: "an env key", logins: [], apiKey: true, available: true },
+    {
+      name: "only a broken stored key",
+      logins: [keyLogin("broken", "opencode-go", "")],
+      apiKey: false,
+      available: false,
+    },
+    { name: "nothing", logins: [], apiKey: false, available: false },
+  ])("is available with $name: $available", async ({ logins, apiKey, available }) => {
+    world.storeLogins(logins);
+    if (apiKey) process.env.OPENCODE_API_KEY = "go-key";
+    const http = fakeHttp(() => USAGE_REPLY);
+
+    await expect(opencodeGoProvider.isAvailable({ config: {} } as never)).resolves.toBe(available);
+    expect(http).not.toHaveBeenCalled();
   });
 
   it.each([
     ["opencode-go/some-model", true],
     ["opencode-go-subscription/any", true],
     ["openai/gpt-4", false],
-    ["copilot/gpt-4", false],
-  ])("matchesCurrentModel(%s) -> %s", (model, expected) => {
+  ])("matches the model %s: %s", (model, expected) => {
     expect(opencodeGoProvider.matchesCurrentModel?.(model)).toBe(expected);
   });
 });

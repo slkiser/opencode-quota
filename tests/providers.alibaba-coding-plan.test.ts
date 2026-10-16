@@ -1,235 +1,173 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+
+import { readAlibabaCodingPlanQuotaState } from "../src/lib/alibaba-coding-plan-local-quota.js";
 import { alibabaCodingPlanProvider } from "../src/providers/alibaba-coding-plan.js";
-import {
-  expectAttemptedWithErrorLabel,
-  expectAttemptedWithNoErrors,
-  expectNotAttempted,
-  visibleEntries,
-} from "./helpers/provider-assertions.js";
+import { fetchRows, keyLogin, rowSummary, useProviderWorld } from "./helpers/provider-fetch.js";
 
-vi.mock("../src/lib/opencode-auth.js", () => ({
-  getCredentialDatabasePaths: () => ["/tmp/opencode.db"],
-  readAuthFileCached: vi.fn(),
-}));
-
-vi.mock("fs", () => ({
-  existsSync: vi.fn(() => false),
-}));
-
-vi.mock("fs/promises", () => ({
-  readFile: vi.fn(),
-}));
-
-vi.mock("../src/lib/alibaba-coding-plan-local-quota.js", () => ({
-  ALIBABA_CODING_PLAN_STATE_VERSION: 1,
-  getAlibabaCodingPlanQuotaPath: () => "/tmp/alibaba-quota.json",
+vi.mock("../src/lib/alibaba-coding-plan-local-quota.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/alibaba-coding-plan-local-quota.js")>()),
   readAlibabaCodingPlanQuotaState: vi.fn(),
-  computeAlibabaCodingPlanQuota: vi.fn(),
 }));
+
+const NOW = Date.parse("2026-02-24T12:00:00.000Z");
+const HOUR = 3_600_000;
+const world = useProviderWorld();
+
+beforeEach(() => {
+  vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+  // One request an hour ago, one two days ago.
+  vi.mocked(readAlibabaCodingPlanQuotaState).mockResolvedValue({
+    version: 1,
+    recent: [NOW - 48 * HOUR, NOW - HOUR],
+    updatedAt: NOW,
+  });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+const FIVE_HOUR_RESET = new Date(NOW + 4 * HOUR).toISOString();
+const WEEKLY_RESET = new Date(NOW + 5 * 24 * HOUR).toISOString();
+const MONTHLY_RESET = new Date(NOW + 28 * 24 * HOUR).toISOString();
+
+function windows(account: string, limits: [number, number, number]) {
+  const [fiveHour, weekly, monthly] = limits;
+  // The percent left rounds to 100 for so few requests.
+  const value = (used: number, limit: number) => `100 (${used} request of ${limit} request)`;
+  return [
+    [
+      "alibaba-coding-plan.five_hour",
+      account,
+      "5h",
+      "five_hour",
+      value(1, fiveHour),
+      FIVE_HOUR_RESET,
+    ],
+    ["alibaba-coding-plan.weekly", account, "Weekly", "week", value(2, weekly), WEEKLY_RESET],
+    ["alibaba-coding-plan.monthly", account, "Monthly", "month", value(2, monthly), MONTHLY_RESET],
+  ];
+}
+
+const TUNING = {
+  quotaProviders: [
+    {
+      id: "alibaba-coding-plan",
+      providerId: "alibaba-coding-plan",
+      label: "alibaba-coding-plan",
+      mode: "local-estimate",
+      windows: [
+        { id: "five-hour", label: "5h", type: "rolling", durationMinutes: 300, requestLimit: 2000 },
+        {
+          id: "weekly",
+          label: "Weekly",
+          type: "rolling",
+          durationMinutes: 10080,
+          requestLimit: 10000,
+        },
+        {
+          id: "monthly",
+          label: "Monthly",
+          type: "rolling",
+          durationMinutes: 43200,
+          requestLimit: 20000,
+        },
+      ],
+    },
+  ],
+};
 
 describe("alibaba-coding-plan provider", () => {
-  const originalEnv = process.env;
+  it.each([
+    [
+      "an environment key, on the Lite limits",
+      { env: "env-key" },
+      {},
+      windows("Lite", [1200, 9000, 18000]),
+    ],
+    [
+      "a stored login without a tier, on the Lite limits",
+      { login: { key: "dashscope-key" } },
+      {},
+      windows("Lite", [1200, 9000, 18000]),
+    ],
+    [
+      "a stored Pro login",
+      { login: { key: "dashscope-key", tier: "pro" } },
+      {},
+      windows("Pro", [6000, 45000, 90000]),
+    ],
+    [
+      "configured request limits",
+      { login: { key: "dashscope-key", tier: "pro" } },
+      TUNING,
+      windows("Pro", [2000, 10000, 20000]),
+    ],
+    [
+      "switched-off request limits, on the tier's own limits",
+      { login: { key: "dashscope-key", tier: "pro" } },
+      { quotaProviders: [{ ...TUNING.quotaProviders[0], enabled: false }] },
+      windows("Pro", [6000, 45000, 90000]),
+    ],
+  ])("estimates the windows for %s", async (_name, setup, config, rows) => {
+    if ("env" in setup) process.env.ALIBABA_API_KEY = setup.env;
+    if ("login" in setup) {
+      const { key, ...fields } = setup.login;
+      world.storeLogins([
+        { ...keyLogin("ali-id", "alibaba", key), value: { type: "api", key, ...fields } },
+      ]);
+    }
 
-  beforeEach(() => {
-    vi.clearAllMocks();
-    process.env = { ...originalEnv };
-    delete process.env.ALIBABA_CODING_PLAN_API_KEY;
-    delete process.env.ALIBABA_API_KEY;
+    const fetched = await fetchRows(alibabaCodingPlanProvider, config);
+
+    expect(fetched.error).toBeUndefined();
+    expect(rowSummary(fetched.rows)).toEqual(rows);
   });
 
-  afterEach(() => {
-    process.env = originalEnv;
-  });
-
-  it("returns attempted:false when no alibaba coding plan is configured", async () => {
-    const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
-    (readAuthFileCached as any).mockResolvedValue({});
-
-    const out = await alibabaCodingPlanProvider.fetch({ config: {} } as any);
-    expectNotAttempted(out);
-  });
-
-  it("uses the maintained lite fallback when auth omits a tier", async () => {
-    process.env.ALIBABA_API_KEY = "env-key";
-
-    const { computeAlibabaCodingPlanQuota, readAlibabaCodingPlanQuotaState } = await import(
-      "../src/lib/alibaba-coding-plan-local-quota.js"
-    );
-
-    (readAlibabaCodingPlanQuotaState as any).mockResolvedValue({});
-    (computeAlibabaCodingPlanQuota as any).mockReturnValue({
-      tier: "pro",
-      fiveHour: { used: 0, limit: 6000, percentRemaining: 100 },
-      weekly: { used: 0, limit: 45000, percentRemaining: 100 },
-      monthly: { used: 0, limit: 90000, percentRemaining: 100 },
-    });
-
-    const out = await alibabaCodingPlanProvider.fetch({
-      config: { quotaProviders: [] },
-    } as any);
-
-    expectAttemptedWithNoErrors(out);
-    expect(computeAlibabaCodingPlanQuota as any).toHaveBeenCalledWith({ state: {}, tier: "lite" });
-  });
-
-  it("supports the alibaba-coding-plan auth key without a standalone tier setting", async () => {
-    const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
-    const { computeAlibabaCodingPlanQuota, readAlibabaCodingPlanQuotaState } = await import(
-      "../src/lib/alibaba-coding-plan-local-quota.js"
-    );
-
-    (readAuthFileCached as any).mockResolvedValue({
-      "alibaba-coding-plan": { type: "api", key: "dashscope-key" },
-    });
-    (readAlibabaCodingPlanQuotaState as any).mockResolvedValue({});
-    (computeAlibabaCodingPlanQuota as any).mockReturnValue({
-      tier: "lite",
-      fiveHour: { used: 0, limit: 1200, percentRemaining: 100 },
-      weekly: { used: 0, limit: 9000, percentRemaining: 100 },
-      monthly: { used: 0, limit: 18000, percentRemaining: 100 },
-    });
-
-    const out = await alibabaCodingPlanProvider.fetch({
-      config: { quotaProviders: [] },
-    } as any);
-
-    expectAttemptedWithNoErrors(out);
-    expect(computeAlibabaCodingPlanQuota as any).toHaveBeenCalledWith({ state: {}, tier: "lite" });
-  });
-
-  it("passes quotaProviders request-limit tuning to the maintained provider", async () => {
-    const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
-    const { computeAlibabaCodingPlanQuota, readAlibabaCodingPlanQuotaState } = await import(
-      "../src/lib/alibaba-coding-plan-local-quota.js"
-    );
-    (readAuthFileCached as any).mockResolvedValue({
-      "alibaba-coding-plan": { type: "api", key: "dashscope-key", tier: "pro" },
-    });
-    (readAlibabaCodingPlanQuotaState as any).mockResolvedValue({});
-    (computeAlibabaCodingPlanQuota as any).mockReturnValue({
-      tier: "pro",
-      fiveHour: { used: 0, limit: 2000, percentRemaining: 100 },
-      weekly: { used: 0, limit: 10000, percentRemaining: 100 },
-      monthly: { used: 0, limit: 20000, percentRemaining: 100 },
-    });
-
-    await alibabaCodingPlanProvider.fetch({
-      config: {
-        quotaProviders: [
-          {
-            id: "alibaba-coding-plan",
-            providerId: "alibaba-coding-plan",
-            label: "alibaba-coding-plan",
-            mode: "local-estimate",
-            windows: [
-              {
-                id: "five-hour",
-                label: "5h",
-                type: "rolling",
-                durationMinutes: 300,
-                requestLimit: 2000,
-              },
-              {
-                id: "weekly",
-                label: "Weekly",
-                type: "rolling",
-                durationMinutes: 10080,
-                requestLimit: 10000,
-              },
-              {
-                id: "monthly",
-                label: "Monthly",
-                type: "rolling",
-                durationMinutes: 43200,
-                requestLimit: 20000,
-              },
-            ],
-          },
-        ],
-      },
-    } as any);
-
-    expect(computeAlibabaCodingPlanQuota as any).toHaveBeenCalledWith({
-      state: {},
-      tier: "pro",
-      limits: { fiveHour: 2000, weekly: 10000, monthly: 20000 },
-    });
-  });
-
-  it("surfaces invalid auth when alibaba-coding-plan exists without usable credentials", async () => {
-    const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
-    const { computeAlibabaCodingPlanQuota } = await import(
-      "../src/lib/alibaba-coding-plan-local-quota.js"
-    );
-
-    (readAuthFileCached as any).mockResolvedValue({
-      "alibaba-coding-plan": { type: "api", key: "   " },
-      alibaba: { type: "api", key: "dashscope-key", tier: "pro" },
-    });
-
-    const out = await alibabaCodingPlanProvider.fetch({ config: {} } as any);
-
-    expectAttemptedWithErrorLabel(out, "Alibaba Coding Plan");
-    expect(out.errors[0]?.message).toContain(
+  it.each([
+    ["no key", [], { code: "not_configured" }, undefined],
+    [
+      "an empty key",
+      [keyLogin("ali-id", "alibaba-coding-plan", "   ")],
+      { code: "not_configured" },
       "Alibaba Coding Plan auth entry present but key is empty",
-    );
-    expect(computeAlibabaCodingPlanQuota as any).not.toHaveBeenCalled();
+    ],
+    [
+      "an unknown tier",
+      [
+        {
+          ...keyLogin("ali-id", "alibaba", "dashscope-key"),
+          value: { type: "api", key: "dashscope-key", tier: "max" },
+        },
+      ],
+      { code: "not_configured" },
+      "Unsupported Alibaba Coding Plan tier: max",
+    ],
+  ])("shows %s without estimating", async (_name, logins, error, message) => {
+    world.storeLogins(logins);
+
+    const fetched = await fetchRows(alibabaCodingPlanProvider);
+
+    expect(fetched.rows).toEqual([]);
+    expect(fetched.error).toMatchObject(error);
+    if (message) {
+      expect(fetched.debug).toContainEqual({
+        key: "error",
+        value: `Alibaba Coding Plan: ${message}`,
+      });
+    }
+    expect(readAlibabaCodingPlanQuotaState).not.toHaveBeenCalled();
   });
 
-  it("surfaces invalid alibaba tier errors", async () => {
-    const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
-    (readAuthFileCached as any).mockResolvedValue({
-      alibaba: { type: "api", key: "dashscope-key", tier: "max" },
-    });
-
-    const out = await alibabaCodingPlanProvider.fetch({ config: {} } as any);
-    expectAttemptedWithErrorLabel(out, "Alibaba Coding Plan");
-    expect(out.errors[0]?.message).toContain("Unsupported Alibaba Coding Plan tier");
-  });
-
-  it("maps all rolling windows into grouped entries", async () => {
-    const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
-    const { computeAlibabaCodingPlanQuota, readAlibabaCodingPlanQuotaState } = await import(
-      "../src/lib/alibaba-coding-plan-local-quota.js"
-    );
-
-    (readAuthFileCached as any).mockResolvedValue({
-      alibaba: { type: "api", key: "dashscope-key", tier: "pro" },
-    });
-    (readAlibabaCodingPlanQuotaState as any).mockResolvedValue({});
-    (computeAlibabaCodingPlanQuota as any).mockReturnValue({
-      tier: "pro",
-      fiveHour: {
-        used: 120,
-        limit: 6000,
-        percentRemaining: 98,
-        resetTimeIso: "2026-02-24T15:00:00.000Z",
-      },
-      weekly: {
-        used: 500,
-        limit: 45000,
-        percentRemaining: 99,
-        resetTimeIso: "2026-03-01T12:00:00.000Z",
-      },
-      monthly: {
-        used: 1000,
-        limit: 90000,
-        percentRemaining: 99,
-        resetTimeIso: "2026-03-26T12:00:00.000Z",
-      },
-    });
-
-    const out = await alibabaCodingPlanProvider.fetch({ config: {} } as any);
-
-    expectAttemptedWithNoErrors(out);
-    expect(out.entries).toHaveLength(3);
-    expect(out.entries[0]).toMatchObject({
-      name: "Alibaba Coding Plan (Pro) 5h",
-      group: "Alibaba Coding Plan (Pro)",
-      label: "5h:",
-      right: "120/6000",
-      percentRemaining: 98,
-    });
-    expect(out.presentation).toBeUndefined();
+  it.each([
+    ["alibaba/qwen3-coder", undefined, true],
+    ["alibaba-cn/qwen3-coder", undefined, true],
+    ["openai/gpt-5", undefined, false],
+    ["anything", "alibaba", true],
+    ["anything", "alibaba-coding-plan", true],
+    ["alibaba/qwen3-coder", "alibaba-token-plan", false],
+  ])("matchesCurrentModel(%s, provider %s) -> %s", (model, currentProviderID, expected) => {
+    const context = currentProviderID ? ({ currentProviderID } as never) : undefined;
+    expect(alibabaCodingPlanProvider.matchesCurrentModel?.(model, context)).toBe(expected);
   });
 });

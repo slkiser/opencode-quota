@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { readMarkdownSection } from "./helpers/markdown-document.js";
 
 function read(path: string): string {
@@ -12,9 +12,30 @@ function headingIndex(document: string, heading: string): number {
   return index;
 }
 
+/** Every place v6 shows quota; PRs report each one the change can reach. */
+const V6_SURFACES = [
+  "TUI sidebar (open and collapsed)",
+  "status line below the message input",
+  "toasts",
+  "`/quota` window tabs (Usage, Limits, Plugin, Settings)",
+  "Web and Desktop text commands",
+  "CLI `show`/`status`",
+  "export, telemetry, or agent tools",
+];
+/** v5 surfaces that v6 no longer has. */
+const V5_SURFACES = [
+  "prompt bar",
+  "compact line",
+  "/tokens_",
+  "/pricing_refresh",
+  "/quota_announcements",
+  "command dialog",
+  "wizard",
+];
+
 describe("contribution guidance", () => {
   const prTemplate = read(".github/pull_request_template.md");
-  const contributing = read("CONTRIBUTING.md");
+  const contributing = read(".github/CONTRIBUTING.md");
 
   it("places Before-and-after evidence after OpenCode Validation and before Quality Checklist", () => {
     const openCodeValidation = headingIndex(prTemplate, "OpenCode Validation");
@@ -30,11 +51,7 @@ describe("contribution guidance", () => {
   it("requires matching screenshots, four-surface reports, redaction, and justified Not applicable", () => {
     const templateEvidence = readMarkdownSection(prTemplate, /^Before-and-after evidence$/);
     expect(templateEvidence).toContain("matching before-and-after screenshots");
-    expect(templateEvidence).toContain("Web output");
-    expect(templateEvidence).toContain("TUI sidebar");
-    expect(templateEvidence).toContain("toast");
-    expect(templateEvidence).toContain("compact line below the message input");
-    expect(templateEvidence).toContain("prompt bar or command dialog when relevant");
+    for (const surface of V6_SURFACES) expect(templateEvidence).toContain(surface);
     expect(templateEvidence).toContain("unchanged or untested");
     expect(templateEvidence).toMatch(
       /redact credentials, account identifiers, private paths, and other sensitive information/i,
@@ -49,10 +66,7 @@ describe("contribution guidance", () => {
     );
     expect(contributingEvidence).toContain("must include before-and-after screenshots");
     expect(contributingEvidence).toContain("same config, model, theme, and window size");
-    expect(contributingEvidence).toContain(
-      "Web, TUI sidebar, toast, and the compact line under the message input",
-    );
-    expect(contributingEvidence).toContain("prompt bar or command dialog if relevant");
+    for (const surface of V6_SURFACES) expect(contributingEvidence).toContain(surface);
     expect(contributingEvidence).toContain("Say which ones you didn't test");
     expect(contributingEvidence).toContain(
       "credentials, account identifiers, and private paths hidden",
@@ -63,6 +77,13 @@ describe("contribution guidance", () => {
     expect(readMarkdownSection(contributing, /^PR checklist$/)).toContain(
       "Before-and-after screenshots and surface results, or `Not applicable`",
     );
+  });
+
+  it("names no v5 surface", () => {
+    for (const surface of V5_SURFACES) {
+      expect(prTemplate).not.toContain(surface);
+      expect(contributing).not.toContain(surface);
+    }
   });
 
   it("uses canonical pnpm verify and keeps production-version and focused-change requirements", () => {

@@ -11,7 +11,7 @@
 
 import type { Plugin } from "@opencode/plugin";
 
-import { sanitizeSingleLineDisplayText } from "./display-sanitize.js";
+import { safeErrorText } from "../core/redact.js";
 import { getOpenCodeDbPath } from "./opencode-db-path.js";
 
 import type { AuthData } from "./types.js";
@@ -36,23 +36,27 @@ export type CredentialRow = {
   /**
    * Why OpenCode could not return this login (for example a failed token
    * refresh), as `<category>: <scrubbed detail>`. A failed row keeps its id,
-   * label and position, but its `value` is only `{ type: "api" | "oauth" }`;
+   * label and position, but its `value` is only `{ type: "api" | "oauth" | "external" }`;
    * consumers show `resolveError` as a per-account error.
    */
   resolveError?: string;
 };
 
-/** OpenCode 2 connection methods: a stored API key or an OAuth sign-in. */
+/**
+ * The OpenCode 2 connection methods a read can ask for: a stored API key or an OAuth
+ * sign-in. OpenCode's third method, `external` (an AWS profile, Azure CLI or gcloud
+ * login), keeps its secrets outside OpenCode, so no read asks for it.
+ */
 export type CredentialMethod = "key" | "oauth";
 
-export type ReadCredentialRowsOptions = {
+type ReadCredentialRowsOptions = {
   /** Keep only connections using one of these methods; checked before OpenCode resolves them. */
   methods?: readonly CredentialMethod[];
   /** Read only the active connection of each integration id. */
   firstOnly?: boolean;
 };
 
-export type CredentialReadRequest = ReadCredentialRowsOptions & {
+type CredentialReadRequest = ReadCredentialRowsOptions & {
   integrationIds: readonly string[];
 };
 
@@ -68,7 +72,7 @@ export type CredentialSource = {
 };
 
 /** The parts of the server plugin's `ctx.integration` the reader uses. */
-export type CredentialIntegration = Pick<Plugin.Context["integration"], "list" | "connection">;
+type CredentialIntegration = Pick<Plugin.Context["integration"], "list" | "connection">;
 
 type Connection = NonNullable<Awaited<ReturnType<CredentialIntegration["connection"]["active"]>>>;
 type CredentialConnection = Extract<Connection, { type: "credential" }>;
@@ -91,14 +95,7 @@ export type CredentialSourceDiagnostics = (
   | { state: "unbound" }
 ) & {
   lastListError?: { at: number; detail: string };
-  failures: Array<{
-    integrationId: string;
-    connectionId: string;
-    label: string;
-    category: CredentialFailureCategory;
-    detail: string;
-    at: number;
-  }>;
+  failures: Array<CredentialFailure & { connectionId: string }>;
 };
 
 /** A failed login is resolved again at most this often. */
@@ -154,7 +151,7 @@ export function formatCredentialDisplayNames(
       .trim()
       .replace(/^\((.*)\)$/u, "$1")
       .trim();
-    const aliasKey = aliases[index]!;
+    const aliasKey = aliases[index];
     const shouldNumber = Boolean(aliasKey) || numberUnnamed;
     let duplicate = shouldNumber ? (counts.get(aliasKey) ?? 0) + 1 : 1;
     let numberedAlias = duplicate === 1 ? aliasKey : `${aliasKey} ${duplicate}`.trim();
@@ -227,22 +224,6 @@ export function getCredentialSourceDiagnostics(): CredentialSourceDiagnostics {
   };
 }
 
-/**
- * Error text that is safe to show and to store: one sanitized line with
- * JWT-shaped and long opaque strings (tokens) replaced, at most 120 characters.
- */
-export function scrubCredentialErrorText(message: string): string {
-  // Redact before cutting to length, so a token cut at the limit cannot leave a readable part.
-  return sanitizeSingleLineDisplayText(message)
-    .replace(/eyJ[A-Za-z0-9_-]{10,}(\.[A-Za-z0-9_-]+)*/gu, "[redacted]")
-    .replace(/[A-Za-z0-9_-]{32,}/gu, "[redacted]")
-    .slice(0, 120);
-}
-
-function credentialErrorDetail(error: unknown): string {
-  return scrubCredentialErrorText(error instanceof Error ? error.message : String(error));
-}
-
 type ConnectionSlot =
   | { integrationId: string; connection: CredentialConnection }
   | { integrationId: string; activeFailure: CredentialFailure };
@@ -263,7 +244,7 @@ async function activeConnectionSlots(
     const activeFailure: CredentialFailure = {
       at: Date.now(),
       category: "active_failed",
-      detail: credentialErrorDetail(error),
+      detail: safeErrorText(error),
       integrationId,
       label: "",
     };
@@ -271,18 +252,6 @@ async function activeConnectionSlots(
     return [{ integrationId, activeFailure }];
   }
 }
-
-/** The listed rows of the requested ids, plus per id the connection `active()` reports. */
-type ListedConnectionSlots = {
-  slots: ConnectionSlot[];
-  /**
-   * Per id: the stored connection `active()` reports, when it read one. For an
-   * id `list()` does not show this is its fallback row itself; for a listed id
-   * it is looked up separately, and a failed lookup or an active env connection
-   * marks none of that id's listed rows.
-   */
-  activeConnections: Map<string, CredentialConnection>;
-};
 
 /**
  * The stored connection `active()` reports for a listed id, without recording
@@ -303,13 +272,15 @@ async function activeListedConnection(
 
 /**
  * Every connection of the requested ids: all of them for ids `list()` shows
- * (registered integrations), the active one for any other id. For listed ids,
- * `active()` also says which of them OpenCode uses.
+ * (registered integrations), the active one for any other id. Per id,
+ * `activeConnections` holds the stored connection `active()` reports: for an
+ * unlisted id its one row itself; for a listed id a separate lookup, where a
+ * failed lookup or an active env connection marks none of its rows.
  */
 async function listedConnectionSlots(
   integration: CredentialIntegration,
   integrationIds: readonly string[],
-): Promise<ListedConnectionSlots> {
+): Promise<{ slots: ConnectionSlot[]; activeConnections: Map<string, CredentialConnection> }> {
   let listed: Map<string, readonly Connection[]> | undefined;
   try {
     const { data } = await integration.list();
@@ -317,7 +288,7 @@ async function listedConnectionSlots(
     lastListError = undefined;
   } catch (error) {
     // One malformed login anywhere makes list() fail; each id's active login still reads.
-    lastListError = { at: Date.now(), detail: credentialErrorDetail(error) };
+    lastListError = { at: Date.now(), detail: safeErrorText(error) };
   }
 
   const slots: ConnectionSlot[] = [];
@@ -331,17 +302,13 @@ async function listedConnectionSlots(
       }
       continue;
     }
-    let listedCredentials = 0;
-    for (const connection of connections) {
-      if (connection.type === "credential") {
-        slots.push({ integrationId, connection });
-        listedCredentials += 1;
-      }
-    }
-    if (listedCredentials > 0) {
-      const active = await activeListedConnection(integration, integrationId);
-      if (active) activeConnections.set(integrationId, active);
-    }
+    const credentials = connections.filter(
+      (connection): connection is CredentialConnection => connection.type === "credential",
+    );
+    if (credentials.length === 0) continue;
+    for (const connection of credentials) slots.push({ integrationId, connection });
+    const active = await activeListedConnection(integration, integrationId);
+    if (active) activeConnections.set(integrationId, active);
   }
   return { slots, activeConnections };
 }
@@ -386,7 +353,7 @@ function resolveCredentialConnection(
     } catch (error) {
       return recordResolveFailure(connection, {
         category: "refresh_failed",
-        detail: credentialErrorDetail(error),
+        detail: safeErrorText(error),
         integrationId,
       });
     }
@@ -425,23 +392,19 @@ async function credentialRowForSlot(
 
   const { connection } = slot;
   const outcome = await resolveCredentialConnection(integration, slot.integrationId, connection);
-  if ("value" in outcome) {
-    return {
-      id: connection.id,
-      integrationId: slot.integrationId,
-      label: connection.label,
-      active: false,
-      value: credentialRowValue(outcome.value),
-    };
-  }
-  return {
+  const row = {
     id: connection.id,
     integrationId: slot.integrationId,
     label: connection.label,
     active: false,
-    value: { type: connection.method === "key" ? "api" : "oauth" },
-    resolveError: `${outcome.failure.category}: ${outcome.failure.detail}`,
   };
+  return "value" in outcome
+    ? { ...row, value: credentialRowValue(outcome.value) }
+    : {
+        ...row,
+        value: { type: connection.method === "key" ? "api" : connection.method },
+        resolveError: `${outcome.failure.category}: ${outcome.failure.detail}`,
+      };
 }
 
 /**
@@ -458,19 +421,21 @@ async function credentialRowsForSlots(
   activeConnections?: ReadonlyMap<string, CredentialConnection>,
 ): Promise<CredentialRow[]> {
   const wanted = slots.filter(
-    (slot) => !methods || !("connection" in slot) || methods.includes(slot.connection.method),
+    (slot) =>
+      !methods ||
+      !("connection" in slot) ||
+      (slot.connection.method !== "external" && methods.includes(slot.connection.method)),
   );
-  const pairs = await Promise.all(
-    wanted.map(async (slot) => ({
-      slot,
-      row: await credentialRowForSlot(integration, slot, methods),
-    })),
+  return Promise.all(
+    wanted.map(async (slot, index) => {
+      const row = await credentialRowForSlot(integration, slot, methods);
+      const active = activeConnections
+        ? "connection" in slot &&
+          slot.connection.id === activeConnections.get(slot.integrationId)?.id
+        : index === 0;
+      return { ...row, active };
+    }),
   );
-  return pairs.map(({ slot, row }, index) => {
-    if (!activeConnections) return { ...row, active: index === 0 };
-    const activeConnection = activeConnections.get(slot.integrationId);
-    return { ...row, active: "connection" in slot && slot.connection.id === activeConnection?.id };
-  });
 }
 
 /** The credential source backed by the server plugin's `ctx.integration`. */
@@ -507,6 +472,21 @@ export function credentialRowAuthEntry(row: CredentialRow): Record<string, unkno
     : { ...row.value, resolveError: row.resolveError };
 }
 
+/** One login as the auth map resolvers read: its integration id and its auth entry. */
+export function credentialRowAuthData(row: CredentialRow): AuthData {
+  return { [row.integrationId]: credentialRowAuthEntry(row) } as AuthData;
+}
+
+/**
+ * The first login of each integration id as the auth map resolvers read, or null without
+ * logins. Rows come active first, so these are the logins OpenCode uses.
+ */
+export function activeCredentialRowsAuthData(rows: readonly CredentialRow[]): AuthData | null {
+  const auth: Record<string, unknown> = {};
+  for (const row of rows) auth[row.integrationId] ??= credentialRowAuthEntry(row);
+  return Object.keys(auth).length > 0 ? (auth as AuthData) : null;
+}
+
 /**
  * Map of the first (active) login per requested integration id. With `methods`,
  * an active login using another method is left out without OpenCode resolving it.
@@ -515,15 +495,9 @@ export async function readAuthFile(params: {
   integrationIds: readonly string[];
   methods?: readonly CredentialMethod[];
 }): Promise<AuthData | null> {
-  const rows = await readCredentialRows(params.integrationIds, {
-    methods: params.methods,
-    firstOnly: true,
-  });
-  const auth: Record<string, unknown> = {};
-  for (const row of rows) {
-    if (!(row.integrationId in auth)) auth[row.integrationId] = credentialRowAuthEntry(row);
-  }
-  return Object.keys(auth).length > 0 ? (auth as AuthData) : null;
+  return activeCredentialRowsAuthData(
+    await readCredentialRows(params.integrationIds, { methods: params.methods, firstOnly: true }),
+  );
 }
 
 /**
@@ -548,19 +522,19 @@ export async function readCredentialRows(
   return source.readRows({ integrationIds, ...options });
 }
 
+/** JSON-like text of `value` with object keys sorted, so key order does not matter. */
 function canonicalCredentialValueKey(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map((item) => canonicalCredentialValueKey(item)).join(",")}]`;
   }
   if (value !== null && typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
-      a < b ? -1 : a > b ? 1 : 0,
-    );
-    return `{${entries
-      .map(([key, nested]) => `${JSON.stringify(key)}:${canonicalCredentialValueKey(nested)}`)
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalCredentialValueKey(record[key])}`)
       .join(",")}}`;
   }
-  return value === undefined ? "undefined" : JSON.stringify(value);
+  return JSON.stringify(value) ?? "undefined";
 }
 
 /**

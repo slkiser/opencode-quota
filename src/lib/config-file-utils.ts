@@ -1,63 +1,22 @@
 import { existsSync } from "fs";
 import { dirname, join } from "path";
 
-export type ConfigFileKind = "opencode";
+type ConfigFileKind = "opencode";
 export type ConfigFileFormat = "json" | "jsonc";
 
 export interface EditableConfigPath {
   path: string;
-  sourcePath: string;
   format: ConfigFileFormat;
   existed: boolean;
-  removeSourcePath?: string;
 }
 
-export interface RuntimeContextRootHints {
-  workspaceRoot?: string | null;
-  worktreeRoot?: string | null;
-  activeDirectory?: string | null;
-  configRoot?: string | null;
-  fallbackDirectory: string;
-}
-
-export interface RuntimeContextRoots {
+interface RuntimeContextRoots {
   workspaceRoot: string;
   configRoot: string;
 }
 
 export function dedupeNonEmptyStrings(items: string[]): string[] {
   return [...new Set(items.map((item) => item.trim()).filter(Boolean))];
-}
-
-function pickFirstNonEmptyString(items: Array<string | null | undefined>): string | null {
-  for (const item of items) {
-    if (typeof item !== "string") {
-      continue;
-    }
-
-    const trimmed = item.trim();
-    if (trimmed) {
-      return trimmed;
-    }
-  }
-
-  return null;
-}
-
-export function resolveRuntimeContextRoots(params: RuntimeContextRootHints): RuntimeContextRoots {
-  const workspaceRoot =
-    pickFirstNonEmptyString([
-      params.workspaceRoot,
-      params.worktreeRoot,
-      params.activeDirectory,
-      params.fallbackDirectory,
-    ]) ?? params.fallbackDirectory;
-  const explicitConfigRoot = pickFirstNonEmptyString([params.configRoot]);
-  const computedConfigRoot =
-    pickFirstNonEmptyString([workspaceRoot, params.activeDirectory]) ?? workspaceRoot;
-  const configRoot = explicitConfigRoot ?? computedConfigRoot;
-
-  return { workspaceRoot, configRoot };
 }
 
 export function findGitWorktreeRoot(startDir: string): string | null {
@@ -87,7 +46,7 @@ export function resolveOpenCodeLocationRoots(
   return { workspaceRoot, configRoot: workspaceRoot, fallbackDirectory: directory };
 }
 
-export function getConfigFileCandidatePaths(dir: string, kind: ConfigFileKind): string[] {
+function getConfigFileCandidatePaths(dir: string, kind: ConfigFileKind): string[] {
   return [join(dir, `${kind}.jsonc`), join(dir, `${kind}.json`)];
 }
 
@@ -99,46 +58,19 @@ export function resolveEditableConfigPath(params: {
   dir: string;
   kind: ConfigFileKind;
   preferredFormat?: ConfigFileFormat;
-  convertJsonToJsonc?: boolean;
 }): EditableConfigPath {
   const jsoncPath = join(params.dir, `${params.kind}.jsonc`);
   if (existsSync(jsoncPath)) {
-    return {
-      path: jsoncPath,
-      sourcePath: jsoncPath,
-      format: "jsonc",
-      existed: true,
-    };
+    return { path: jsoncPath, format: "jsonc", existed: true };
   }
 
   const jsonPath = join(params.dir, `${params.kind}.json`);
   if (existsSync(jsonPath)) {
-    if (params.preferredFormat === "jsonc" && params.convertJsonToJsonc) {
-      return {
-        path: jsoncPath,
-        sourcePath: jsonPath,
-        format: "jsonc",
-        existed: true,
-        removeSourcePath: jsonPath,
-      };
-    }
-
-    return {
-      path: jsonPath,
-      sourcePath: jsonPath,
-      format: "json",
-      existed: true,
-    };
+    return { path: jsonPath, format: "json", existed: true };
   }
 
   const format = params.preferredFormat ?? "jsonc";
-  const path = join(params.dir, `${params.kind}.${format}`);
-  return {
-    path,
-    sourcePath: path,
-    format,
-    existed: false,
-  };
+  return { path: join(params.dir, `${params.kind}.${format}`), format, existed: false };
 }
 
 /** Reads the package spec from a legacy `plugin` entry or an OpenCode 2 native `plugins` entry. */
@@ -207,18 +139,4 @@ export function extractProviderIdsFromParsedConfig(parsed: unknown): string[] {
   }
 
   return dedupeNonEmptyStrings(providerIds);
-}
-
-export function isQuotaPluginSpec(spec: string): boolean {
-  const normalized = spec.replace(/\\/g, "/").toLowerCase();
-
-  if (normalized.includes("@slkiser/opencode-quota")) {
-    return true;
-  }
-
-  if (normalized.includes("/opencode-quota") && !normalized.includes("/opencode-quota/dist/")) {
-    return true;
-  }
-
-  return normalized.includes("opencode-quota/dist/index.js");
 }

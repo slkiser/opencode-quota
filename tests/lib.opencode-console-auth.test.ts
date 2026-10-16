@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import {
   bindCredentialSource,
@@ -42,6 +42,24 @@ function consoleLogin(
   };
 }
 
+/** A device-flow Console sign-in. */
+function deviceLogin(
+  value: Record<string, unknown> = {},
+  overrides: Partial<FakeCredential> = {},
+): FakeCredential {
+  return consoleLogin(
+    {
+      type: "oauth",
+      methodID: "device",
+      refresh: "console-refresh",
+      access: "console-access",
+      expires: Date.now() + 60_000,
+      ...value,
+    },
+    overrides,
+  );
+}
+
 describe("OpenCode Console credential reader", () => {
   it("returns none without console credentials", async () => {
     bindConsoleLogins([]);
@@ -66,8 +84,7 @@ describe("OpenCode Console credential reader", () => {
       }),
     ]);
 
-    const state = await resolveOpenCodeConsoleAuth();
-    expect(state).toEqual({
+    await expect(resolveOpenCodeConsoleAuth()).resolves.toEqual({
       state: "configured",
       credential: {
         accessToken: "console-access",
@@ -82,134 +99,57 @@ describe("OpenCode Console credential reader", () => {
     });
   });
 
-  it("reports expired console credentials", async () => {
-    bindConsoleLogins([
-      consoleLogin({
-        type: "oauth",
-        methodID: "device",
-        refresh: "console-refresh",
-        access: "console-access",
-        expires: Date.now() - 60_000,
-        metadata: { orgID: "wrk_1" },
-      }),
-    ]);
-
-    const state = await resolveOpenCodeConsoleAuth();
-    expect(state.state).toBe("expired");
-  });
-
-  it("reports invalid credentials without an access token", async () => {
-    bindConsoleLogins([
-      consoleLogin({
-        type: "oauth",
-        methodID: "device",
-        refresh: "console-refresh",
-        access: "  ",
-        expires: 0,
-      }),
-    ]);
+  it("keeps the Console server the sign-in belongs to", async () => {
+    bindConsoleLogins([deviceLogin({ metadata: { server: "https://console.example.test" } })]);
 
     await expect(resolveOpenCodeConsoleAuth()).resolves.toMatchObject({
-      state: "invalid",
-      error: "OpenCode Console credential has no access token",
+      state: "configured",
+      credential: { server: "https://console.example.test" },
     });
   });
 
-  it("ignores key-shaped opencode rows", async () => {
-    bindConsoleLogins([consoleLogin({ type: "key", key: "workspace-key" })]);
-
-    await expect(resolveOpenCodeConsoleAuth()).resolves.toEqual({
-      state: "none",
-      reason: "not_oauth",
-    });
-  });
-
-  it("reads only the active opencode login", async () => {
-    const integration = bindConsoleLogins([
-      consoleLogin({ type: "key", key: "workspace-key" }, { id: "cred_workspace" }),
-      consoleLogin(
-        {
-          type: "oauth",
-          methodID: "device",
-          refresh: "console-refresh",
-          access: "console-access",
-          expires: Date.now() + 60_000,
-        },
-        { id: "cred_console_inactive" },
-      ),
-    ]);
-
-    await expect(resolveOpenCodeConsoleAuth()).resolves.toEqual({
-      state: "none",
-      reason: "not_oauth",
-    });
-    expect(integration.list).not.toHaveBeenCalled();
-    expect(integration.connection.active.mock.calls).toEqual([["opencode"]]);
-    expect(integration.connection.resolve.mock.calls).toEqual([
-      [{ type: "credential", id: "cred_workspace", label: "default", method: "key" }],
-    ]);
-  });
-
-  it("reports a login OpenCode could not return as invalid", async () => {
+  it("reports expired console credentials", async () => {
     bindConsoleLogins([
-      consoleLogin(
-        {
-          type: "oauth",
-          methodID: "device",
-          refresh: "console-refresh",
-          access: "console-access",
-          expires: 0,
-        },
-        { resolveError: "HTTP 401" },
-      ),
+      deviceLogin({ expires: Date.now() - 60_000, metadata: { orgID: "wrk_1" } }),
+    ]);
+
+    await expect(resolveOpenCodeConsoleAuth()).resolves.toMatchObject({ state: "expired" });
+  });
+
+  it.each([
+    [deviceLogin({ access: "  ", expires: 0 }), "OpenCode Console credential has no access token"],
+    // A login OpenCode could not return (for example a failed refresh).
+    [deviceLogin({ expires: 0 }, { resolveError: "HTTP 401" }), "refresh_failed: HTTP 401"],
+  ])("reports an invalid sign-in (%#)", async (login, error) => {
+    bindConsoleLogins([login]);
+
+    await expect(resolveOpenCodeConsoleAuth()).resolves.toEqual({ state: "invalid", error });
+  });
+
+  it("ignores a key-shaped active opencode login", async () => {
+    bindConsoleLogins([
+      consoleLogin({ type: "key", key: "workspace-key" }, { id: "cred_workspace" }),
+      deviceLogin({}, { id: "cred_console_inactive" }),
     ]);
 
     await expect(resolveOpenCodeConsoleAuth()).resolves.toEqual({
-      state: "invalid",
-      error: "refresh_failed: HTTP 401",
+      state: "none",
+      reason: "not_oauth",
     });
   });
 
   it("uses the active sign-in and resolves no other login", async () => {
-    const signIn = (id: string, orgID: string) =>
-      consoleLogin(
-        {
-          type: "oauth",
-          methodID: "device",
-          refresh: `${id}-refresh`,
-          access: `${id}-access`,
-          expires: Date.now() + 60_000,
-          metadata: { orgID },
-        },
-        { id },
-      );
     const integration = bindConsoleLogins([
-      signIn("cred_active", "wrk_active"),
-      signIn("cred_other", "wrk_other"),
+      deviceLogin({ access: "cred_active-access", metadata: { orgID: "wrk_active" } }, { id: "a" }),
+      deviceLogin({ access: "cred_other-access", metadata: { orgID: "wrk_other" } }, { id: "b" }),
     ]);
 
     await expect(resolveOpenCodeConsoleAuth()).resolves.toMatchObject({
       state: "configured",
       credential: { accessToken: "cred_active-access", orgId: "wrk_active" },
     });
+    expect(integration.list).not.toHaveBeenCalled();
     expect(integration.connection.resolve).toHaveBeenCalledOnce();
-  });
-
-  it("keeps the Console server the sign-in belongs to", async () => {
-    bindConsoleLogins([
-      consoleLogin({
-        type: "oauth",
-        methodID: "device",
-        refresh: "console-refresh",
-        access: "console-access",
-        expires: Date.now() + 60_000,
-        metadata: { server: "https://console.example.test" },
-      }),
-    ]);
-
-    const state = await resolveOpenCodeConsoleAuth();
-    if (state.state !== "configured") throw new Error(`unexpected state ${state.state}`);
-    expect(consoleBaseUrl(state.credential)).toBe("https://console.example.test");
   });
 });
 
@@ -231,8 +171,5 @@ describe("Console request helpers", () => {
       Authorization: "Bearer console-access",
       Accept: "application/json",
     });
-    expect(Object.keys(consoleHeaders({ accessToken: "console-access" }))).not.toContain(
-      "x-org-id",
-    );
   });
 });

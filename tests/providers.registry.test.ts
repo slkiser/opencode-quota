@@ -1,6 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
-import { QUOTA_PROVIDER_RUNTIME_IDS } from "../src/lib/provider-metadata.js";
 import { QUOTA_PROVIDER_REGISTRATION_SOURCE } from "../src/lib/provider-registration.js";
 import { getProviders } from "../src/providers/registry.js";
 
@@ -9,17 +8,13 @@ const EXPECTED_PROVIDER_ORDER = [
   "copilot",
   "openai",
   "openrouter",
-  "kilo",
   "cursor",
   "alibaba-coding-plan",
   "alibaba-token-plan",
-  "synthetic",
-  "chutes",
   "google-gemini-cli",
   "google-agy",
   "zai",
   "zhipu",
-  "nanogpt",
   "minimax-coding-plan",
   "minimax-china-coding-plan",
   "kimi-code-plan-global",
@@ -43,7 +38,6 @@ describe("provider registry", () => {
     expect(ids).toEqual(EXPECTED_PROVIDER_ORDER);
     expect(second.map((provider) => provider.id)).toEqual(EXPECTED_PROVIDER_ORDER);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(new Set(ids)).toEqual(new Set(Object.keys(QUOTA_PROVIDER_RUNTIME_IDS)));
     expect(second).not.toBe(first);
     expect(second).toHaveLength(first.length);
     first.forEach((provider, index) => {

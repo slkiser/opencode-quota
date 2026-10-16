@@ -16,7 +16,7 @@ If no issue exists, include a short rationale/scope summary.
 
 Does this change affect visible UI or human-readable output? If yes, attach matching before-and-after screenshots for each affected surface, using the same configuration, model/provider, theme, and window size.
 
-For quota changes, report the result for Web output, TUI sidebar, toast, and the compact line below the message input. Identify unchanged or untested surfaces explicitly. Include the prompt bar or command dialog when relevant.
+Report the result for each surface the change can reach: TUI sidebar (open and collapsed), status line below the message input, toasts, `/quota` window tabs (Usage, Limits, Plugin, Settings), Web and Desktop text commands, and CLI `show`/`status`. For export, telemetry, or agent tools, include the output before and after. Identify unchanged or untested surfaces explicitly.
 
 Redact credentials, account identifiers, private paths, and other sensitive information. For text-formatting changes, include the relevant text output as well as screenshots.
 
@@ -36,4 +36,4 @@ Surface checks:
 - [ ] This change is focused and avoids unrelated behavior changes
 - [ ] I updated or added tests when behavior changed
 - [ ] I updated docs when user-facing workflow, command, or config behavior changed
-- [ ] For provider changes, I followed [Provider Changes](https://github.com/slkiser/opencode-quota/blob/main/CONTRIBUTING.md#provider-changes), or this does not apply
+- [ ] For provider changes, I followed [Provider Changes](https://github.com/slkiser/opencode-quota/blob/main/.github/CONTRIBUTING.md#provider-changes), or this does not apply

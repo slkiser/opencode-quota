@@ -15,8 +15,8 @@
 
 import { readCredentialRows } from "./opencode-auth.js";
 
-export const OPENCODE_CONSOLE_BASE_URL = "https://opencode.ai/console";
-export const OPENCODE_CONSOLE_INTEGRATION_ID = "opencode";
+const OPENCODE_CONSOLE_BASE_URL = "https://opencode.ai/console";
+const OPENCODE_CONSOLE_INTEGRATION_ID = "opencode";
 
 export interface OpenCodeConsoleCredential {
   accessToken: string;
@@ -29,7 +29,7 @@ export interface OpenCodeConsoleCredential {
   server?: string;
 }
 
-export type OpenCodeConsoleAuthState =
+type OpenCodeConsoleAuthState =
   | { state: "none"; reason?: "not_oauth" }
   | { state: "configured"; credential: OpenCodeConsoleCredential }
   | { state: "expired"; credential: OpenCodeConsoleCredential }

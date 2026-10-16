@@ -12,18 +12,14 @@ import { join } from "node:path";
 
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 
-export interface GoogleAccessTokenCacheEntry {
+type GoogleAccessTokenCacheEntry = {
   accessToken: string;
   expiresAt: number;
-}
+};
 
 const PROCESS_CACHE_KEY = randomBytes(32);
 const memoryTokens = new Map<string, GoogleAccessTokenCacheEntry>();
 let operationQueue: Promise<void> = Promise.resolve();
-
-export function getGoogleTokenCachePath(): string {
-  return join(getOpencodeRuntimeDirs().cacheDir, "opencode-quota", "google-access-tokens.json");
-}
 
 export function makeAccountCacheKey(params: { refreshToken: string; projectId: string }): string {
   return `gat1_${createHmac("sha256", PROCESS_CACHE_KEY)
@@ -44,7 +40,12 @@ function enqueue<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 async function removeLegacyCache(): Promise<void> {
-  await rm(getGoogleTokenCachePath(), { force: true }).catch(() => undefined);
+  const legacyPath = join(
+    getOpencodeRuntimeDirs().cacheDir,
+    "opencode-quota",
+    "google-access-tokens.json",
+  );
+  await rm(legacyPath, { force: true }).catch(() => undefined);
 }
 
 export async function getCachedAccessToken(params: {
@@ -71,16 +72,4 @@ export async function setCachedAccessToken(params: {
     await removeLegacyCache();
     memoryTokens.set(params.key, { ...params.entry });
   });
-}
-
-export async function clearGoogleTokenCache(): Promise<void> {
-  return enqueue(async () => {
-    memoryTokens.clear();
-    await removeLegacyCache();
-  });
-}
-
-export function __resetGoogleTokenCacheForTests(): void {
-  memoryTokens.clear();
-  operationQueue = Promise.resolve();
 }

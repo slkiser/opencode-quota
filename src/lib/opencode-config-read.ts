@@ -3,14 +3,14 @@ import { readFile } from "fs/promises";
 import { join } from "path";
 
 import type { ConfigFileFormat } from "./config-file-utils.js";
-import { parseJsonOrJsonc } from "./jsonc.js";
+import { parseConfigDocument } from "./opencode-config-editor.js";
 
 export interface OpenCodeConfigCandidate {
   path: string;
   format: ConfigFileFormat;
 }
 
-export type ReadOpenCodeConfigResult =
+type ReadOpenCodeConfigResult =
   | { state: "missing"; candidate: OpenCodeConfigCandidate }
   | { state: "invalid"; candidate: OpenCodeConfigCandidate }
   | { state: "parsed"; candidate: OpenCodeConfigCandidate; value: unknown };
@@ -45,7 +45,8 @@ export async function readOpenCodeConfigCandidate(
     return {
       state: "parsed",
       candidate,
-      value: parseJsonOrJsonc(content, candidate.format === "jsonc"),
+      // OpenCode reads both file kinds as JSONC.
+      value: parseConfigDocument(content, "jsonc", candidate.path),
     };
   } catch {
     return { state: "invalid", candidate };

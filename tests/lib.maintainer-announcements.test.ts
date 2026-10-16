@@ -1,84 +1,94 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   BUNDLED_MAINTAINER_ANNOUNCEMENTS,
-  evaluateMaintainerAnnouncements,
-  formatMaintainerAnnouncementHomeCountLine,
-  getActiveMaintainerAnnouncements,
   getMaintainerAnnouncementsSummary,
-  getMaintainerAnnouncementTargetProviderIds,
   type MaintainerAnnouncement,
 } from "../src/lib/maintainer-announcements.js";
 
 const NOW_MS = Date.parse("2026-05-21T12:00:00.000Z");
-const BUNDLED_NOW_MS = Date.parse("2026-07-22T12:00:00.000Z");
 
 const BASE_ANNOUNCEMENT = {
   id: "copilot-credits",
   message: "If you use Copilot, GitHub billing is moving to AI Credits.",
   url: "https://github.blog/example",
+  endsAt: "2026-07-01T00:00:00.000Z",
 } satisfies MaintainerAnnouncement;
 
-const ecosystemAnnouncement = {
-  id: "opencode-ecosystem-listing-support",
-  message: "Support OpenCode Quota's ecosystem listing: review the issue and add a thumbs-up.",
-  url: "https://github.com/anomalyco/opencode/issues/38281",
-  startsAt: "2026-07-22T00:00:00.000Z",
-  endsAt: "2026-08-22T00:00:00.000Z",
-} satisfies MaintainerAnnouncement;
-const openCode2FeedbackAnnouncement = {
-  id: "opencode-2-feedback",
-  message: "OpenCode Quota 5.0 runs on OpenCode 2. Ideas for the next version? Tell us!",
-  url: "https://github.com/slkiser/opencode-quota/issues/293",
-  startsAt: "2026-09-25T00:00:00.000Z",
-  endsAt: "2026-11-25T00:00:00.000Z",
-} satisfies MaintainerAnnouncement;
-const ecosystemThumbsUpAnnouncement = {
-  id: "opencode-ecosystem-listing-thumbs-up",
-  message: "Help OpenCode list this plugin: add a thumbs-up to issue #38281.",
-  url: "https://github.com/anomalyco/opencode/issues/38281",
-  startsAt: "2026-09-26T00:00:00.000Z",
-  endsAt: "2026-10-26T00:00:00.000Z",
-} satisfies MaintainerAnnouncement;
-const geminiAnnouncement = {
-  id: "google-gemini-cli-org-only",
-  message:
-    "Gemini CLI quota support stays. It only works with Gemini Code Assist Standard or Enterprise (organization) accounts because Google ended personal accounts on 2026-06-18. Personal Google users should use Google AGY.",
-  providerIds: ["google-gemini-cli"],
-} satisfies MaintainerAnnouncement;
+function evaluate(
+  announcements: readonly MaintainerAnnouncement[],
+  enabledProviders: string[] | "auto",
+) {
+  return getMaintainerAnnouncementsSummary({ nowMs: NOW_MS, enabledProviders, announcements })
+    .evaluations;
+}
 
 describe("maintainer announcements", () => {
-  it("filters active announcements by date, validation, and provider ids", () => {
-    const evaluations = evaluateMaintainerAnnouncements({
-      nowMs: NOW_MS,
-      enabledProviders: ["copilot"],
+  it("gives every bundled notice a valid end date", () => {
+    expect(BUNDLED_MAINTAINER_ANNOUNCEMENTS).toHaveLength(2);
+    for (const announcement of BUNDLED_MAINTAINER_ANNOUNCEMENTS) {
+      expect(typeof announcement.endsAt).toBe("string");
+      expect(Number.isFinite(Date.parse(announcement.endsAt))).toBe(true);
+      if (announcement.startsAt) {
+        expect(Date.parse(announcement.endsAt)).toBeGreaterThan(Date.parse(announcement.startsAt));
+      }
+    }
+  });
+
+  it.each([
+    ["2026-05-21T11:59:59.999Z", false],
+    ["2026-05-21T12:00:00.000Z", true],
+    ["2026-05-22T11:59:59.999Z", true],
+    ["2026-05-22T12:00:00.000Z", false],
+  ])("shows a notice only within its dates at %s", (now, active) => {
+    const summary = getMaintainerAnnouncementsSummary({
       announcements: [
+        {
+          ...BASE_ANNOUNCEMENT,
+          startsAt: "2026-05-21T12:00:00.000Z",
+          endsAt: "2026-05-22T12:00:00.000Z",
+        },
+      ],
+      nowMs: Date.parse(now),
+    });
+    expect(summary.evaluations[0].active).toBe(active);
+  });
+
+  it("keeps an announcement inactive for each reason it fails", () => {
+    const evaluations = evaluate(
+      [
         BASE_ANNOUNCEMENT,
         { ...BASE_ANNOUNCEMENT, id: "future", startsAt: "2026-06-01T00:00:00.000Z" },
         { ...BASE_ANNOUNCEMENT, id: "expired", endsAt: "2026-05-01T00:00:00.000Z" },
         { ...BASE_ANNOUNCEMENT, id: "invalid-url", url: "http://example.com" },
+        { ...BASE_ANNOUNCEMENT, id: "invalid-end", endsAt: "not a date" },
+        { ...BASE_ANNOUNCEMENT, id: "wrong-provider", providerIds: ["openai"] },
+        { ...BASE_ANNOUNCEMENT, id: "targeted", providerIds: ["copilot"] },
         {
           ...BASE_ANNOUNCEMENT,
-          id: "wrong-provider",
-          providerIds: ["openai"],
+          id: "future-alias",
+          startsAt: "2026-06-01T00:00:00.000Z",
+          providerIds: ["gemini-cli" as never, "unknown-provider" as never],
         },
-        {
-          ...BASE_ANNOUNCEMENT,
-          id: "targeted",
-          providerIds: ["copilot"],
-        },
+        { ...BASE_ANNOUNCEMENT, id: "invalid-message", message: "", providerIds: ["openai"] },
+        { ...BASE_ANNOUNCEMENT, id: "invalid-only", providerIds: ["unknown-provider" as never] },
       ],
-    });
+      ["copilot"],
+    );
 
     expect(
       Object.fromEntries(evaluations.map((item) => [item.announcement.id, item.reasons])),
-    ).toMatchObject({
+    ).toEqual({
       "copilot-credits": [],
       future: ["not_started"],
       expired: ["ended"],
       "invalid-url": ["invalid_url"],
+      "invalid-end": ["invalid_ends_at"],
       "wrong-provider": ["provider_mismatch"],
       targeted: [],
+      "future-alias": ["not_started", "provider_mismatch"],
+      "invalid-message": ["invalid_message", "provider_mismatch"],
+      "invalid-only": ["invalid_provider_ids"],
     });
     expect(evaluations.filter((item) => item.active).map((item) => item.announcement.id)).toEqual([
       "copilot-credits",
@@ -86,205 +96,49 @@ describe("maintainer announcements", () => {
     ]);
   });
 
-  it("discovers the ordered union of valid canonical targets from every announcement", () => {
-    const announcements: readonly MaintainerAnnouncement[] = [
-      { ...BASE_ANNOUNCEMENT, id: "untargeted" },
-      {
-        ...BASE_ANNOUNCEMENT,
-        id: "future-alias",
-        startsAt: "2026-06-01T00:00:00.000Z",
-        providerIds: ["gemini-cli" as never, "unknown-provider" as never],
-      },
-      {
-        ...BASE_ANNOUNCEMENT,
-        id: "expired",
-        endsAt: "2026-05-01T00:00:00.000Z",
-        providerIds: ["copilot"],
-      },
-      {
-        ...BASE_ANNOUNCEMENT,
-        id: "invalid-message",
-        message: "",
-        providerIds: ["openai", "google-gemini-cli"],
-      },
-      {
-        ...BASE_ANNOUNCEMENT,
-        id: "invalid-only",
-        providerIds: ["unknown-provider" as never],
-      },
-    ];
-
-    expect(getMaintainerAnnouncementTargetProviderIds({ announcements })).toEqual([
-      "google-gemini-cli",
-      "copilot",
-      "openai",
-    ]);
-
-    const reasonsById = Object.fromEntries(
-      evaluateMaintainerAnnouncements({
-        announcements,
-        enabledProviders: [],
-        nowMs: NOW_MS,
-      }).map((evaluation) => [evaluation.announcement.id, evaluation.reasons]),
-    );
-    expect(reasonsById).toMatchObject({
-      "future-alias": ["not_started", "provider_mismatch"],
-      expired: ["ended", "provider_mismatch"],
-      "invalid-message": ["invalid_message", "provider_mismatch"],
-      "invalid-only": ["invalid_provider_ids"],
-    });
-  });
-
-  it("uses bundled targets by default and returns no target for untargeted or invalid-only input", () => {
-    expect(getMaintainerAnnouncementTargetProviderIds()).toEqual(["google-gemini-cli"]);
-    expect(
-      getMaintainerAnnouncementTargetProviderIds({
-        announcements: [
-          BASE_ANNOUNCEMENT,
-          { ...BASE_ANNOUNCEMENT, id: "invalid-only", providerIds: ["invalid" as never] },
-        ],
-      }),
-    ).toEqual([]);
-  });
-
   it("requires concrete provider ids for provider-targeted announcements", () => {
-    const autoEvaluations = evaluateMaintainerAnnouncements({
-      nowMs: NOW_MS,
-      enabledProviders: "auto",
-      announcements: [
-        {
-          ...BASE_ANNOUNCEMENT,
-          providerIds: ["copilot"],
-        },
-      ],
-    });
-    const active = getActiveMaintainerAnnouncements({
-      nowMs: NOW_MS,
-      enabledProviders: ["copilot"],
-      announcements: [
-        {
-          ...BASE_ANNOUNCEMENT,
-          providerIds: ["copilot"],
-        },
-      ],
-    });
+    const targeted = [{ ...BASE_ANNOUNCEMENT, providerIds: ["copilot" as const] }];
 
-    expect(autoEvaluations).toMatchObject([{ active: false, reasons: ["provider_mismatch"] }]);
-    expect(active).toHaveLength(1);
+    expect(evaluate(targeted, "auto")).toMatchObject([
+      { active: false, reasons: ["provider_mismatch"] },
+    ]);
+    expect(evaluate(targeted, ["copilot"])).toMatchObject([{ active: true }]);
   });
 
-  it("preserves the global OpenCode ecosystem announcement beside the Gemini notice", () => {
-    const active = getActiveMaintainerAnnouncements({
-      nowMs: BUNDLED_NOW_MS,
-      enabledProviders: "auto",
+  it.each([
+    ["2026-07-22T12:00:00.000Z", "auto", []],
+    ["2026-07-22T12:00:00.000Z", ["gemini-cli"], ["google-gemini-cli-org-only"]],
+    ["2026-07-22T12:00:00.000Z", ["google-agy"], []],
+    ["2026-09-25T23:59:59.999Z", "auto", []],
+    ["2026-09-26T00:00:00.000Z", "auto", ["opencode-ecosystem-listing-thumbs-up"]],
+    [
+      "2026-10-15T12:00:00.000Z",
+      ["google-gemini-cli"],
+      ["opencode-ecosystem-listing-thumbs-up", "google-gemini-cli-org-only"],
+    ],
+    ["2026-10-25T23:59:59.999Z", ["google-agy"], ["opencode-ecosystem-listing-thumbs-up"]],
+    ["2026-10-26T00:00:00.000Z", "auto", []],
+    ["2026-12-31T23:59:59.999Z", ["google-gemini-cli"], ["google-gemini-cli-org-only"]],
+    ["2027-01-01T00:00:00.000Z", ["google-gemini-cli"], []],
+  ] as const)("shows the bundled notices active at %s for %o", (iso, enabledProviders, ids) => {
+    const summary = getMaintainerAnnouncementsSummary({
+      nowMs: Date.parse(iso),
+      enabledProviders: enabledProviders === "auto" ? "auto" : [...enabledProviders],
     });
 
-    expect(BUNDLED_MAINTAINER_ANNOUNCEMENTS).toEqual([
-      ecosystemAnnouncement,
-      openCode2FeedbackAnnouncement,
-      ecosystemThumbsUpAnnouncement,
-      geminiAnnouncement,
-    ]);
-    expect(active).toEqual([
-      {
-        announcement: ecosystemAnnouncement,
-        active: true,
-        reasons: [],
-      },
-    ]);
-  });
-
-  it("targets the Gemini CLI organization-only notice to Gemini configurations and aliases", () => {
-    const getActiveIds = (enabledProviders: string[]) =>
-      getActiveMaintainerAnnouncements({
-        nowMs: BUNDLED_NOW_MS,
-        enabledProviders,
-      }).map((item) => item.announcement.id);
-
-    expect(getActiveIds(["google-gemini-cli"])).toEqual([
-      "opencode-ecosystem-listing-support",
-      "google-gemini-cli-org-only",
-    ]);
-    expect(getActiveIds(["gemini-cli"])).toEqual([
-      "opencode-ecosystem-listing-support",
-      "google-gemini-cli-org-only",
-    ]);
-    expect(getActiveIds(["google-agy"])).toEqual(["opencode-ecosystem-listing-support"]);
-  });
-
-  it("shows the OpenCode 2 feedback notice to everyone only during its two-month window", () => {
-    const evaluateAt = (iso: string, enabledProviders: string[] | "auto" = "auto") =>
-      evaluateMaintainerAnnouncements({ nowMs: Date.parse(iso), enabledProviders }).find(
-        (item) => item.announcement.id === "opencode-2-feedback",
-      );
-    const getActiveIds = (iso: string, enabledProviders: string[] | "auto") =>
-      getActiveMaintainerAnnouncements({ nowMs: Date.parse(iso), enabledProviders }).map(
-        (item) => item.announcement.id,
-      );
-
-    expect(evaluateAt("2026-09-24T23:59:59.999Z")?.reasons).toEqual(["not_started"]);
-    expect(evaluateAt("2026-09-25T00:00:00.000Z")).toEqual({
-      announcement: openCode2FeedbackAnnouncement,
-      active: true,
-      reasons: [],
-    });
-    expect(evaluateAt("2026-11-24T23:59:59.999Z", ["google-agy"])?.active).toBe(true);
-    expect(evaluateAt("2026-11-25T00:00:00.000Z")?.reasons).toEqual(["ended"]);
-
-    expect(getActiveIds("2026-10-26T12:00:00.000Z", "auto")).toEqual(["opencode-2-feedback"]);
-    expect(getActiveIds("2026-10-26T12:00:00.000Z", ["google-gemini-cli"])).toEqual([
-      "opencode-2-feedback",
-      "google-gemini-cli-org-only",
-    ]);
-    expect(getActiveIds("2026-11-25T00:00:00.000Z", "auto")).toEqual([]);
-  });
-
-  it("shows the ecosystem listing thumbs-up notice to everyone for one month beside the feedback notice", () => {
-    const evaluateAt = (iso: string, enabledProviders: string[] | "auto" = "auto") =>
-      evaluateMaintainerAnnouncements({ nowMs: Date.parse(iso), enabledProviders }).find(
-        (item) => item.announcement.id === "opencode-ecosystem-listing-thumbs-up",
-      );
-    const getActiveIds = (iso: string, enabledProviders: string[] | "auto") =>
-      getActiveMaintainerAnnouncements({ nowMs: Date.parse(iso), enabledProviders }).map(
-        (item) => item.announcement.id,
-      );
-
-    expect(evaluateAt("2026-09-25T23:59:59.999Z")?.reasons).toEqual(["not_started"]);
-    expect(evaluateAt("2026-09-26T00:00:00.000Z")).toEqual({
-      announcement: ecosystemThumbsUpAnnouncement,
-      active: true,
-      reasons: [],
-    });
-    expect(evaluateAt("2026-10-25T23:59:59.999Z", ["google-agy"])?.active).toBe(true);
-    expect(evaluateAt("2026-10-26T00:00:00.000Z")?.reasons).toEqual(["ended"]);
-
-    expect(getActiveIds("2026-10-15T12:00:00.000Z", "auto")).toEqual([
-      "opencode-ecosystem-listing-thumbs-up",
-      "opencode-2-feedback",
-    ]);
-    expect(getActiveIds("2026-10-15T12:00:00.000Z", ["google-gemini-cli"])).toEqual([
-      "opencode-ecosystem-listing-thumbs-up",
-      "opencode-2-feedback",
-      "google-gemini-cli-org-only",
-    ]);
-    expect(
-      getMaintainerAnnouncementsSummary({
-        nowMs: Date.parse("2026-10-15T12:00:00.000Z"),
-        enabledProviders: "auto",
-      }).activeCount,
-    ).toBe(2);
+    expect(summary.activeAnnouncements.map((item) => item.announcement.id)).toEqual(ids);
   });
 
   it("sorts active announcements before inactive, then by end date and id", () => {
-    const evaluations = evaluateMaintainerAnnouncements({
-      nowMs: NOW_MS,
-      announcements: [
+    const evaluations = evaluate(
+      [
         { ...BASE_ANNOUNCEMENT, id: "z-last", endsAt: "2026-06-10T00:00:00.000Z" },
         { ...BASE_ANNOUNCEMENT, id: "inactive", startsAt: "2026-06-01T00:00:00.000Z" },
         { ...BASE_ANNOUNCEMENT, id: "a-first", endsAt: "2026-06-01T00:00:00.000Z" },
         { ...BASE_ANNOUNCEMENT, id: "b-first", endsAt: "2026-06-01T00:00:00.000Z" },
       ],
-    });
+      "auto",
+    );
 
     expect(evaluations.map((item) => item.announcement.id)).toEqual([
       "a-first",
@@ -316,15 +170,5 @@ describe("maintainer announcements", () => {
     expect(summary.activeAnnouncements.map((item) => item.announcement.id)).toEqual([
       "copilot-credits",
     ]);
-  });
-
-  it("formats PRD-exact count-only TUI home lines", () => {
-    expect(formatMaintainerAnnouncementHomeCountLine(0)).toBe("");
-    expect(formatMaintainerAnnouncementHomeCountLine(1)).toBe(
-      "Notice: Maintainer announcement available. Run /quota_announcements.",
-    );
-    expect(formatMaintainerAnnouncementHomeCountLine(3)).toBe(
-      "Notice: 3 maintainer announcements available. Run /quota_announcements.",
-    );
   });
 });

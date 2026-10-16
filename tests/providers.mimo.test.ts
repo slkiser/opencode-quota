@@ -1,378 +1,273 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { join } from "node:path";
 
-import {
-  expectAttemptedWithErrorLabel,
-  expectAttemptedWithNoErrors,
-  expectNotAttempted,
-  visibleEntries,
-} from "./helpers/provider-assertions.js";
-
-const mocks = vi.hoisted(() => ({
-  resolveMimoConfigCached: vi.fn(),
-  queryMimoDashboard: vi.fn(),
-}));
-
-vi.mock("../src/lib/mimo-config.js", () => ({
-  DEFAULT_MIMO_CONFIG_CACHE_MAX_AGE_MS: 30_000,
-  resolveMimoConfigCached: mocks.resolveMimoConfigCached,
-  getMimoConfigDiagnostics: vi.fn(async () => ({
-    state: "none",
-    source: null,
-    error: null,
-    checkedPaths: [],
-  })),
-}));
-
-vi.mock("../src/lib/mimo.js", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../src/lib/mimo.js")>();
-  return {
-    ...original,
-    queryMimoDashboard: mocks.queryMimoDashboard,
-  };
-});
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { xiaomiProvider } from "../src/providers/mimo.js";
+import {
+  fakeHttp,
+  fetchRows,
+  requestHeader,
+  rowSummary,
+  useProviderWorld,
+} from "./helpers/provider-fetch.js";
 
-const quotaAccounting = {
-  resultType: "quota",
-  acquisitionMethod: "dashboard_scrape",
-  ownership: "maintained",
-  authority: "provider_reported",
-} as const;
-const balanceAccounting = {
-  resultType: "balance",
-  acquisitionMethod: "dashboard_scrape",
-  ownership: "maintained",
-  authority: "provider_reported",
-} as const;
+const MIMO_API = "https://platform.xiaomimimo.com/api/v1";
+const COOKIE = "api-platform_serviceToken=service-secret; userId=user-secret";
 
-function context(config: Record<string, unknown> = {}): any {
-  return { config };
-}
-
-function configured(): void {
-  mocks.resolveMimoConfigCached.mockResolvedValueOnce({
-    state: "configured",
-    source: "env:MIMO_USAGE_COOKIE",
-    config: {
-      cookie: "api-platform_serviceToken=service-secret; userId=user-secret",
+const USAGE = {
+  code: 0,
+  data: {
+    monthUsage: {
+      items: [
+        { name: "plan_total_token", used: 1, limit: 2 },
+        { name: "month_total_token", used: 10_100_158, limit: 200_000_000 },
+      ],
     },
-  });
-}
+  },
+};
+const DETAIL = {
+  code: 0,
+  data: { planName: "Standard", planCode: "standard_monthly", expired: false },
+};
+const BALANCE = {
+  code: 0,
+  data: { balance: "50.00", cashBalance: "30.00", giftBalance: "20.00", currency: "USD" },
+};
 
-function dashboard(overrides: Record<string, unknown> = {}): void {
-  mocks.queryMimoDashboard.mockResolvedValueOnce({
-    usage: { state: "success", data: { used: 10_100_158, limit: 200_000_000 } },
-    detail: {
-      state: "success",
-      data: { planName: "Standard", planCode: "standard_monthly", expired: false },
-    },
-    balance: {
-      state: "success",
-      data: { total: 50, cash: 30, gift: 20, currency: "USD" },
-    },
+type Endpoint = "usage" | "detail" | "balance";
+const ENDPOINT_PATHS: Record<string, Endpoint> = {
+  "/tokenPlan/usage": "usage",
+  "/tokenPlan/detail": "detail",
+  "/balance": "balance",
+};
+
+/**
+ * Answers the three dashboard endpoints with the payloads above, or with `overrides[endpoint]`:
+ * a JSON body, or a function that builds the Response.
+ */
+function mimoHttp(overrides: Partial<Record<Endpoint, unknown>> = {}) {
+  const replies: Record<Endpoint, unknown> = {
+    usage: USAGE,
+    detail: DETAIL,
+    balance: BALANCE,
     ...overrides,
+  };
+  return fakeHttp((url) => {
+    const endpoint = ENDPOINT_PATHS[url.slice(MIMO_API.length)];
+    if (!url.startsWith(MIMO_API) || !endpoint) throw new Error(`unexpected url ${url}`);
+    const reply = replies[endpoint];
+    return typeof reply === "function" ? reply() : reply;
   });
 }
+
+const loginRedirect = () =>
+  new Response(null, { status: 302, headers: { location: "https://example.test/login" } });
+
+const TOKENS = "94.949921 (10100158 token of 200000000 token)";
+const MONTHLY_ROW = ["xiaomi.monthly_tokens", "Standard", "Monthly", "month", TOKENS, null];
+
+function errorDebug(fetched: { debug: Array<{ key: string; value: string }> }): string[] {
+  return fetched.debug.filter((item) => item.key === "error").map((item) => item.value);
+}
+
+/** The resolved cookie is cached for 30 s, so each test starts a minute after the last one. */
+let clock = Date.parse("2026-05-01T00:00:00.000Z");
 
 describe("Xiaomi MiMo provider", () => {
+  const world = useProviderWorld();
+  const configPath = () => join(world.configDir, "opencode-quota", "mimo.json");
+
   beforeEach(() => {
-    vi.clearAllMocks();
+    clock += 60_000;
+    vi.useFakeTimers({ now: clock, toFake: ["Date"] });
   });
 
-  it("uses canonical xiaomi provider identity", () => {
-    expect(xiaomiProvider.id).toBe("xiaomi");
+  it("is not configured without a cookie", async () => {
+    const http = mimoHttp();
+
+    await expect(fetchRows(xiaomiProvider)).resolves.toEqual({
+      rows: [],
+      error: { code: "not_configured" },
+      debug: [
+        { key: "config_state", value: "none" },
+        { key: "config_source", value: "(none)" },
+        { key: "config_checked_paths", value: configPath() },
+      ],
+    });
+    expect(http).not.toHaveBeenCalled();
   });
 
   it.each([
-    [{ state: "configured", config: { cookie: "filtered" }, source: "env" }, true],
-    [{ state: "invalid", source: "env", error: "Invalid cookie header" }, false],
-    [{ state: "none" }, false],
-  ])("reports availability for config state %j", async (configState, expected) => {
-    mocks.resolveMimoConfigCached.mockResolvedValueOnce(configState);
-    await expect(xiaomiProvider.isAvailable(context())).resolves.toBe(expected);
+    [
+      "a cookie variable that lacks the service token, even with a valid file",
+      "Cookie: userId=private-user",
+      JSON.stringify({ cookie: COOKIE }),
+      "Invalid cookie header",
+    ],
+    ["a cookie variable with a line break", `${COOKIE}\nx=1`, undefined, "Invalid cookie header"],
+    ["a config file that is not JSON", undefined, "{", "Failed to parse JSON"],
+    [
+      "a config file with more than the cookie",
+      undefined,
+      JSON.stringify({ cookie: COOKIE, endpoint: "https://example.test" }),
+      "Config file must contain only the cookie field",
+    ],
+  ])("reports %s as invalid config", async (_name, envCookie, file, problem) => {
+    if (envCookie !== undefined) process.env.MIMO_USAGE_COOKIE = envCookie;
+    if (file !== undefined) world.writeConfigFile("opencode-quota/mimo.json", file);
+    const http = mimoHttp();
+
+    const fetched = await fetchRows(xiaomiProvider);
+
+    const source = envCookie === undefined ? configPath() : "env:MIMO_USAGE_COOKIE";
+    expect(fetched.rows).toEqual([]);
+    expect(fetched.error?.code).toBe("not_configured");
+    expect(errorDebug(fetched)).toEqual([`Xiaomi MiMo: Invalid config (${source}): ${problem}`]);
+    expect(fetched.debug).toContainEqual({ key: "config_error", value: problem });
+    expect(JSON.stringify(fetched)).not.toMatch(/private-user|secret/);
+    expect(http).not.toHaveBeenCalled();
+  });
+
+  it("sends only the dashboard cookies from the variable to the three endpoints", async () => {
+    process.env.MIMO_USAGE_COOKIE =
+      " Cookie: other=drop; userId=user=part; api-platform_slh=slh; api-platform_serviceToken=service ";
+    const http = mimoHttp();
+
+    const fetched = await fetchRows(xiaomiProvider);
+
+    expect(fetched.rows).toHaveLength(4);
+    expect(http.mock.calls.map(([url]) => url)).toEqual([
+      `${MIMO_API}/tokenPlan/usage`,
+      `${MIMO_API}/tokenPlan/detail`,
+      `${MIMO_API}/balance`,
+    ]);
+    for (const [, init] of http.mock.calls) {
+      expect(requestHeader(init, "Cookie")).toBe(
+        "api-platform_serviceToken=service; userId=user=part; api-platform_slh=slh",
+      );
+      expect(init?.redirect).toBe("manual");
+    }
+  });
+
+  it("shows the monthly tokens and balances of the plan, with the cookie from the config file", async () => {
+    world.writeConfigFile("opencode-quota/mimo.json", JSON.stringify({ cookie: COOKIE }));
+    mimoHttp();
+
+    const fetched = await fetchRows(xiaomiProvider);
+
+    expect(rowSummary(fetched.rows)).toEqual([
+      MONTHLY_ROW,
+      ["xiaomi.total_balance", "Standard", "Balance", null, "50 USD", null],
+      ["xiaomi.cash_balance", "Standard", "Cash", null, "30 USD", null],
+      ["xiaomi.gift_balance", "Standard", "Gift", null, "20 USD", null],
+    ]);
+    expect(fetched.error).toBeUndefined();
+    expect(fetched.debug).toContainEqual({ key: "config_source", value: configPath() });
+  });
+
+  it.each([
+    [
+      "an expired plan as balances only",
+      { detail: { code: 0, data: { planName: "Old", planCode: "old", expired: true } } },
+      [
+        ["xiaomi.total_balance", null, "Balance", null, "50 USD", null],
+        ["xiaomi.cash_balance", null, "Cash", null, "30 USD", null],
+        ["xiaomi.gift_balance", null, "Gift", null, "20 USD", null],
+      ],
+    ],
+    [
+      "number and missing balances in a lower-case currency",
+      { balance: { code: 0, data: { balance: 0, giftBalance: "2.50", currency: "eur" } } },
+      [
+        MONTHLY_ROW,
+        ["xiaomi.total_balance", "Standard", "Balance", null, "0 EUR", null],
+        ["xiaomi.gift_balance", "Standard", "Gift", null, "2.5 EUR", null],
+      ],
+    ],
+    [
+      "balances without a currency as credits",
+      { balance: { code: 0, data: { balance: "12.50", currency: "US$" } } },
+      [MONTHLY_ROW, ["xiaomi.total_balance", "Standard", "Balance", null, "12.5 credit", null]],
+    ],
+  ])("shows %s", async (_name, overrides, rows) => {
+    process.env.MIMO_USAGE_COOKIE = COOKIE;
+    mimoHttp(overrides);
+
+    const fetched = await fetchRows(xiaomiProvider);
+
+    expect(rowSummary(fetched.rows)).toEqual(rows);
+    expect(fetched.error).toBeUndefined();
+  });
+
+  it.each([
+    [
+      "an expired cookie (every endpoint redirects to sign-in)",
+      { usage: loginRedirect, detail: loginRedirect, balance: loginRedirect },
+      [],
+      "login_expired",
+      [
+        "Xiaomi MiMo usage request requires login",
+        "Xiaomi MiMo detail request requires login",
+        "Xiaomi MiMo balance request requires login",
+      ],
+    ],
+    [
+      "a failed plan request, keeping the tokens without a plan name",
+      {
+        detail: () => new Response("private body", { status: 503 }),
+        balance: { code: 0, data: {} },
+      },
+      [["xiaomi.monthly_tokens", null, "Monthly", "month", TOKENS, null]],
+      "provider_error",
+      ["Xiaomi MiMo detail request failed (HTTP 503)"],
+    ],
+    [
+      "a usage reply with a zero limit",
+      {
+        usage: {
+          code: 0,
+          data: { monthUsage: { items: [{ name: "month_total_token", used: 5, limit: 0 }] } },
+        },
+        balance: { code: 0, data: {} },
+      },
+      [],
+      "bad_response",
+      ["Xiaomi MiMo usage response did not match the expected schema"],
+    ],
+    [
+      "a negative balance",
+      { balance: { code: 0, data: { balance: "-1" } } },
+      [MONTHLY_ROW],
+      "bad_response",
+      ["Xiaomi MiMo balance response did not match the expected schema"],
+    ],
+  ])("reports %s", async (_name, overrides, rows, code, messages) => {
+    process.env.MIMO_USAGE_COOKIE = COOKIE;
+    mimoHttp(overrides);
+
+    const fetched = await fetchRows(xiaomiProvider);
+
+    expect(rowSummary(fetched.rows)).toEqual(rows);
+    expect(fetched.error?.code).toBe(code);
+    expect(errorDebug(fetched)).toEqual(messages.map((message) => `Xiaomi MiMo: ${message}`));
+    expect(JSON.stringify(fetched)).not.toMatch(/private|example\.test/);
+  });
+
+  it.each([
+    ["a valid cookie", COOKIE, true],
+    ["an invalid cookie", "userId=user-secret", false],
+    ["no cookie", undefined, false],
+  ])("is available with %s", async (_name, envCookie, expected) => {
+    if (envCookie !== undefined) process.env.MIMO_USAGE_COOKIE = envCookie;
+
+    await expect(xiaomiProvider.isAvailable({ config: {} } as never)).resolves.toBe(expected);
   });
 
   it.each([
     ["xiaomi/mimo-v2", true],
     ["xiaomi-token-plan-cn/mimo-v2", true],
-    ["xiaomi-token-plan-ams/mimo-v2", true],
-    ["xiaomi-token-plan-sgp/mimo-v2", true],
-    ["XIAOMI/MIMO-V2", true],
-    ["mimo/mimo-v2", false],
     ["xiaomi-mimo/mimo-v2", false],
-    ["openai/gpt-5", false],
-  ])("matchesCurrentModel(%s) -> %s", (model, expected) => {
+  ])("matches model %s: %s", (model, expected) => {
     expect(xiaomiProvider.matchesCurrentModel?.(model)).toBe(expected);
-  });
-
-  it("does not attempt a request without trusted configuration", async () => {
-    mocks.resolveMimoConfigCached.mockResolvedValueOnce({ state: "none" });
-
-    expectNotAttempted(await xiaomiProvider.fetch(context()));
-    expect(mocks.queryMimoDashboard).not.toHaveBeenCalled();
-  });
-
-  it("projects invalid configuration as a safe attempted error", async () => {
-    mocks.resolveMimoConfigCached.mockResolvedValueOnce({
-      state: "invalid",
-      source: "/tmp/config/opencode-quota/mimo.json",
-      error: "Invalid cookie header",
-    });
-
-    const result = await xiaomiProvider.fetch(context());
-
-    expectAttemptedWithErrorLabel(result, "Xiaomi MiMo");
-    expect(result.errors[0]?.message).toBe(
-      "Invalid config (/tmp/config/opencode-quota/mimo.json): Invalid cookie header",
-    );
-    expect(JSON.stringify(result)).not.toContain("api-platform_serviceToken");
-    expect(JSON.stringify(result)).not.toContain("userId");
-  });
-
-  it("maps the named monthly quota and provider-reported balances", async () => {
-    configured();
-    dashboard();
-
-    const result = await xiaomiProvider.fetch(context());
-
-    expectAttemptedWithNoErrors(result);
-    expect(result.entries).toHaveLength(4);
-    expect(result.entries[0]).toEqual({
-      accounting: quotaAccounting,
-      name: "Xiaomi MiMo: Standard [standard_monthly] Monthly",
-      group: "Xiaomi MiMo: Standard [standard_monthly]",
-      percentRemaining: 94.949921,
-      semantic: {
-        metric: { kind: "window", window: "month" },
-        prominence: "primary",
-      },
-      basis: {
-        used: {
-          quantity: { decimal: "10100158", unit: { kind: "count", unit: "token" } },
-          authority: "provider_reported",
-        },
-        limit: {
-          quantity: { decimal: "200000000", unit: { kind: "count", unit: "token" } },
-          authority: "provider_reported",
-        },
-      },
-    });
-    expect(result.entries[0]).not.toHaveProperty("resetTimeIso");
-    expect(result.entries.slice(1)).toEqual([
-      {
-        accounting: balanceAccounting,
-        kind: "quantity",
-        name: "xiaomi-mimo-total_balance",
-        group: "Xiaomi MiMo: Standard [standard_monthly]",
-        semantic: {
-          metric: { kind: "component", component: "total_balance" },
-          prominence: "primary",
-        },
-        quantity: { decimal: "50", unit: { kind: "currency", code: "USD" } },
-      },
-      {
-        accounting: balanceAccounting,
-        kind: "quantity",
-        name: "xiaomi-mimo-cash_balance",
-        group: "Xiaomi MiMo: Standard [standard_monthly]",
-        semantic: {
-          metric: { kind: "component", component: "cash_balance" },
-          prominence: "supplementary",
-        },
-        quantity: { decimal: "30", unit: { kind: "currency", code: "USD" } },
-      },
-      {
-        accounting: balanceAccounting,
-        kind: "quantity",
-        name: "xiaomi-mimo-gift_balance",
-        group: "Xiaomi MiMo: Standard [standard_monthly]",
-        semantic: {
-          metric: { kind: "component", component: "gift_balance" },
-          prominence: "supplementary",
-        },
-        quantity: { decimal: "20", unit: { kind: "currency", code: "USD" } },
-      },
-    ]);
-    expect(result.entries.every((entry) => !("right" in entry))).toBe(true);
-    expect(result.entries.every((entry) => entry.kind !== "value")).toBe(true);
-    visibleEntries(result.entries, "xiaomi");
-  });
-
-  it("uses sanitized plan labels only as display enrichment", async () => {
-    configured();
-    dashboard({
-      detail: {
-        state: "success",
-        data: {
-          planName: "\u001b]2;title\u0007Premium\nPlan",
-          planCode: "premium\u0007",
-          expired: false,
-        },
-      },
-      balance: { state: "success", data: { total: 1, cash: null, gift: null, currency: "EUR" } },
-    });
-
-    const result = await xiaomiProvider.fetch(context());
-
-    expect(result.entries[0]?.group).toBe("Xiaomi MiMo: Premium Plan [premium]");
-    expect(result.entries[1]).toMatchObject({
-      kind: "quantity",
-      quantity: { decimal: "1", unit: { kind: "currency", code: "EUR" } },
-    });
-    expect(JSON.stringify(result)).not.toContain("\u001b");
-    expect(JSON.stringify(result)).not.toContain("\u0007");
-  });
-
-  it("suppresses an explicitly expired plan without hiding balances", async () => {
-    configured();
-    dashboard({
-      detail: {
-        state: "success",
-        data: { planName: "Old plan", planCode: "old", expired: true },
-      },
-    });
-
-    const result = await xiaomiProvider.fetch(context());
-
-    expectAttemptedWithNoErrors(result);
-    expect(result.entries).toHaveLength(3);
-    expect(result.entries.every((entry) => entry.accounting.resultType === "balance")).toBe(true);
-    expect(result.entries.every((entry) => entry.group === "Xiaomi MiMo")).toBe(true);
-  });
-
-  it("keeps monthly quota when detail fails and returns a partial result", async () => {
-    configured();
-    dashboard({
-      detail: {
-        state: "error",
-        error: "Xiaomi MiMo detail response did not match the expected schema",
-      },
-      balance: {
-        state: "error",
-        error: "Xiaomi MiMo balance request failed (HTTP 503)",
-      },
-    });
-
-    const result = await xiaomiProvider.fetch(context());
-
-    expect(result.attempted).toBe(true);
-    expect(result.entries).toEqual([
-      {
-        accounting: quotaAccounting,
-        name: "Xiaomi MiMo Monthly",
-        group: "Xiaomi MiMo",
-        percentRemaining: 94.949921,
-        semantic: {
-          metric: { kind: "window", window: "month" },
-          prominence: "primary",
-        },
-        basis: {
-          used: {
-            quantity: { decimal: "10100158", unit: { kind: "count", unit: "token" } },
-            authority: "provider_reported",
-          },
-          limit: {
-            quantity: { decimal: "200000000", unit: { kind: "count", unit: "token" } },
-            authority: "provider_reported",
-          },
-        },
-      },
-    ]);
-    expect(result.errors).toEqual([
-      {
-        label: "Xiaomi MiMo",
-        message: "Xiaomi MiMo detail response did not match the expected schema",
-      },
-      {
-        label: "Xiaomi MiMo",
-        message: "Xiaomi MiMo balance request failed (HTTP 503)",
-      },
-    ]);
-  });
-
-  it("preserves zero optional balances and their deterministic order", async () => {
-    configured();
-    dashboard({
-      usage: { state: "error", error: "usage unavailable" },
-      balance: {
-        state: "success",
-        data: { total: 0, cash: null, gift: 0, currency: null },
-      },
-    });
-
-    const result = await xiaomiProvider.fetch(context());
-
-    expect(visibleEntries(result.entries, "xiaomi")).toEqual([
-      {
-        kind: "quantity",
-        name: "xiaomi-mimo-total_balance",
-        group: "Xiaomi MiMo: Standard [standard_monthly]",
-        semantic: {
-          metric: { kind: "component", component: "total_balance" },
-          prominence: "primary",
-        },
-        quantity: { decimal: "0", unit: { kind: "count", unit: "credit" } },
-      },
-      {
-        kind: "quantity",
-        name: "xiaomi-mimo-gift_balance",
-        group: "Xiaomi MiMo: Standard [standard_monthly]",
-        semantic: {
-          metric: { kind: "component", component: "gift_balance" },
-          prominence: "supplementary",
-        },
-        quantity: { decimal: "0", unit: { kind: "count", unit: "credit" } },
-      },
-    ]);
-    expect(result.errors).toEqual([{ label: "Xiaomi MiMo", message: "usage unavailable" }]);
-  });
-
-  it("returns all endpoint errors in fixed order when no data is available", async () => {
-    configured();
-    mocks.queryMimoDashboard.mockResolvedValueOnce({
-      usage: { state: "error", error: "usage failed" },
-      detail: { state: "error", error: "detail failed" },
-      balance: { state: "error", error: "balance failed" },
-    });
-
-    const result = await xiaomiProvider.fetch(context());
-
-    expect(result).toEqual({
-      attempted: true,
-      entries: [],
-      errors: [
-        { label: "Xiaomi MiMo", message: "usage failed" },
-        { label: "Xiaomi MiMo", message: "detail failed" },
-        { label: "Xiaomi MiMo", message: "balance failed" },
-      ],
-      statusDetails: [
-        { key: "config_state", value: "none" },
-        { key: "config_source", value: "(none)" },
-        { key: "config_checked_paths", value: "(none)" },
-      ],
-    });
-  });
-
-  it("passes a configured timeout and otherwise keeps the client default", async () => {
-    configured();
-    dashboard();
-    await xiaomiProvider.fetch(
-      context({ requestTimeoutMs: 7_654, requestTimeoutMsConfigured: true }),
-    );
-    expect(mocks.queryMimoDashboard).toHaveBeenLastCalledWith(
-      "api-platform_serviceToken=service-secret; userId=user-secret",
-      { requestTimeoutMs: 7_654 },
-    );
-
-    configured();
-    dashboard();
-    await xiaomiProvider.fetch(
-      context({ requestTimeoutMs: 5_000, requestTimeoutMsConfigured: false }),
-    );
-    expect(mocks.queryMimoDashboard).toHaveBeenLastCalledWith(
-      "api-platform_serviceToken=service-secret; userId=user-secret",
-      { requestTimeoutMs: undefined },
-    );
   });
 });

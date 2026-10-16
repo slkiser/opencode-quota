@@ -1,33 +1,32 @@
-import type {
-  AccountingAcquisitionMethod,
-  AccountingAuthority,
-  AccountingOwnership,
-  AccountingResultType,
-} from "./entries.js";
+import type { RowAuthority, RowMethod, RowType } from "../core/types.js";
 
 /**
  * Export types for external tool consumption.
  *
  * These types define the schema for the periodic JSON export file
- * written when `config.export.enabled` is true, and for the
+ * written when the `system.exportFile` setting is on, and for the
  * `show --json` CLI output.
  */
 
 interface QuotaExportEntryBase {
-  /** Human-readable row label (same as QuotaToastEntry.name after projection). */
+  /**
+   * The row id, `${providerId}.${key}`, e.g. "copilot.allowance" or
+   * "quota-providers.custom.<definition id>.<key>". It never changes for a row; the rows of
+   * two accounts of one provider share it, and `account` tells them apart.
+   */
+  id: string;
+  /** Provider label, account and row label, e.g. "Copilot (pro) Premium requests". */
   name: string;
-  /** Provider-neutral accounting meaning. */
-  resultType: AccountingResultType;
-  /** How the value was acquired. */
-  acquisitionMethod: AccountingAcquisitionMethod;
+  /** The row's account as the TUI shows it, e.g. "pro"; logins sharing one are "pro", "pro 2". */
+  account?: string;
+  /** What the number means (ADR 0001). */
+  resultType: RowType;
+  /** How the value was acquired (ADR 0001). */
+  acquisitionMethod: RowMethod;
   /** Whether the source definition is maintained or user-configured. */
-  ownership: AccountingOwnership;
+  ownership: "maintained" | "user_configured";
   /** Whether the value was provider-reported or locally derived. */
-  authority: AccountingAuthority;
-  /** Stable configured source identity for rows from an aggregate provider. */
-  sourceId?: string;
-  /** Unix seconds when the source observed the value. */
-  observedAt?: number;
+  authority: RowAuthority;
   /**
    * Normalized window label when the entry has one: "Monthly", "Weekly", "5h", "RPM", etc.
    * Absent when there is only one window for the provider.
@@ -37,7 +36,7 @@ interface QuotaExportEntryBase {
   resetAt?: number;
 }
 
-/** A single normalized accounting row in the v2 export document. */
+/** One row in the version 3 export document. */
 export type QuotaExportEntry =
   | (QuotaExportEntryBase & {
       renderType: "percent";
@@ -48,23 +47,18 @@ export type QuotaExportEntry =
       value: string;
     });
 
-/** Ordered configured-source identity and coarse cached status. */
 export type QuotaExportError = {
   label: string;
   message: string;
 };
 
-export type QuotaExportRawDetail = {
-  key: string;
-  value: string;
-};
-
-export type QuotaExportSource = {
-  id: string;
-  providerId: string;
-  status: "ok" | "error" | "unavailable";
-  entryCount: number;
-};
+/**
+ * A configured custom definition's identity and coarse status, in configured order. A
+ * switched-off definition is never checked, so it has `enabled: false` instead of a status.
+ */
+export type QuotaExportSource =
+  | { id: string; providerId: string; status: "ok" | "error" | "unavailable"; entryCount: number }
+  | { id: string; providerId: string; entryCount: 0; enabled: false };
 
 /**
  * Per-provider export status.
@@ -85,14 +79,12 @@ export type QuotaExportProvider = (
 ) & {
   /** Present for aggregate providers; preserves configured source order. */
   sources?: QuotaExportSource[];
-  /** Optional safe provider-owned facts that are intentionally hidden from human quota rows. */
-  rawDetails?: QuotaExportRawDetail[];
 };
 
-/** Top-level v2 export document assembled from all configured providers. */
+/** The version 3 export document, assembled from all configured providers. */
 export interface QuotaExport {
   /** Schema version. */
-  version: 2;
+  version: 3;
   /** Unix seconds when this document was assembled. */
   exportedAt: number;
   /** True when data was read from disk cache without a live fetch. */

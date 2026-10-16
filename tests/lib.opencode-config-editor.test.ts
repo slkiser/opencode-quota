@@ -1,9 +1,20 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
+import { writeTextAtomic } from "../src/lib/atomic-json.js";
 import { resolveEditableConfigPath } from "../src/lib/config-file-utils.js";
 import {
   applyConfigDocumentEdit,
@@ -24,57 +35,45 @@ afterEach(() => {
   }
 });
 
-describe("OpenCode JSON/JSONC config editor", () => {
-  it("previews JSON to JSONC conversion, preserves settings, and removes JSON only after success", async () => {
-    const dir = makeTempDir();
-    const jsonPath = join(dir, "opencode.json");
-    const jsoncPath = join(dir, "opencode.jsonc");
-    const original = {
-      theme: "dark",
-      provider: {
-        openrouter: {
-          options: {
-            apiKey: "{env:OPENROUTER_API_KEY}",
-          },
-        },
-      },
-    };
-    writeFileSync(jsonPath, JSON.stringify(original, null, 2) + "\n", "utf8");
+const EMPTY_PLUGINS = '{"plugin":[]}\n';
 
-    const target = resolveEditableConfigPath({
-      dir,
-      kind: "opencode",
-      preferredFormat: "jsonc",
-      convertJsonToJsonc: true,
-    });
-    const plan = await planConfigDocumentEdit({
-      target,
-      desiredData: {
-        ...original,
-        plugin: ["@slkiser/opencode-quota@latest"],
-      },
-      managedComments: [
-        {
-          path: ["plugin"],
-          text: "// OpenCode Quota: loads the server plugin for slash commands and quota checks.",
-        },
-      ],
-    });
+type ManagedComments = Parameters<typeof planConfigDocumentEdit>[0]["managedComments"];
 
-    expect(plan.path).toBe(jsoncPath);
-    expect(plan.removeSourcePath).toBe(jsonPath);
-    expect(existsSync(jsonPath)).toBe(true);
-    expect(existsSync(jsoncPath)).toBe(false);
-    expect(plan.updated).toContain('"theme": "dark"');
-    expect(plan.updated).toContain("// OpenCode Quota:");
-
-    await applyConfigDocumentEdit(plan);
-
-    expect(existsSync(jsonPath)).toBe(false);
-    expect(existsSync(jsoncPath)).toBe(true);
-    expect(readFileSync(jsoncPath, "utf8")).toContain("{env:OPENROUTER_API_KEY}");
+/** Plans an edit of the OpenCode config in `dir`; `preferredFormat` names a new file. */
+function planEdit(
+  dir: string,
+  desiredData: Record<string, unknown>,
+  preferredFormat: "json" | "jsonc" = "json",
+  managedComments?: ManagedComments,
+) {
+  return planConfigDocumentEdit({
+    target: resolveEditableConfigPath({ dir, kind: "opencode", preferredFormat }),
+    desiredData,
+    managedComments,
   });
+}
 
+/** Plans and applies an edit of the OpenCode config in `dir`, and returns its path. */
+async function editConfig(
+  dir: string,
+  desiredData: Record<string, unknown>,
+  preferredFormat: "json" | "jsonc" = "json",
+): Promise<string> {
+  const plan = await planEdit(dir, desiredData, preferredFormat);
+  await applyConfigDocumentEdit(plan);
+  return plan.path;
+}
+
+/** Makes `<root>/config` with `name` as a symlink to `linkText`. */
+function linkConfig(root: string, linkText: string, name = "opencode.json") {
+  const configDir = join(root, "config");
+  mkdirSync(configDir, { recursive: true });
+  const link = join(configDir, name);
+  symlinkSync(linkText, link);
+  return { configDir, link };
+}
+
+describe("OpenCode JSON/JSONC config editor", () => {
   it("preserves JSONC comments and trailing commas without duplicating managed comments", async () => {
     const dir = makeTempDir();
     const path = join(dir, "opencode.jsonc");
@@ -89,13 +88,6 @@ describe("OpenCode JSON/JSONC config editor", () => {
 `,
       "utf8",
     );
-
-    const target = resolveEditableConfigPath({
-      dir,
-      kind: "opencode",
-      preferredFormat: "jsonc",
-      convertJsonToJsonc: true,
-    });
     const desiredData = {
       theme: "dark",
       plugin: ["other-plugin", "@slkiser/opencode-quota@latest"],
@@ -107,141 +99,156 @@ describe("OpenCode JSON/JSONC config editor", () => {
       },
     ];
 
-    const first = await planConfigDocumentEdit({
-      target,
-      desiredData,
-      managedComments: comments,
-    });
-    await applyConfigDocumentEdit(first);
+    await applyConfigDocumentEdit(await planEdit(dir, desiredData, "jsonc", comments));
 
     const updated = readFileSync(path, "utf8");
     expect(updated).toContain("// user-owned setting");
     expect(updated).toContain('"other-plugin",');
     expect(updated.match(/OpenCode Quota: loads the server plugin/g)).toHaveLength(1);
 
-    const second = await planConfigDocumentEdit({
-      target: resolveEditableConfigPath({
-        dir,
-        kind: "opencode",
-        preferredFormat: "jsonc",
-        convertJsonToJsonc: true,
-      }),
-      desiredData,
-      managedComments: comments,
-    });
+    const second = await planEdit(dir, desiredData, "jsonc", comments);
     expect(second.changed).toBe(false);
   });
 
-  it("keeps an existing JSONC filename when JSON is selected later", async () => {
+  it.each([
+    { existing: "opencode.jsonc", preferredFormat: "json", format: "jsonc" },
+    { existing: "opencode.json", preferredFormat: "jsonc", format: "json" },
+  ] as const)(
+    "keeps the existing $existing file when $preferredFormat is preferred",
+    ({ existing, preferredFormat, format }) => {
+      const dir = makeTempDir();
+      const path = join(dir, existing);
+      writeFileSync(path, '{"plugin":["other"]}\n', "utf8");
+
+      expect(resolveEditableConfigPath({ dir, kind: "opencode", preferredFormat })).toEqual({
+        path,
+        format,
+        existed: true,
+      });
+    },
+  );
+
+  it("creates a missing config as a regular strict-JSON file without comments", async () => {
     const dir = makeTempDir();
-    const path = join(dir, "opencode.jsonc");
-    writeFileSync(path, '{\n  // keep\n  "plugin": ["other"],\n}\n', "utf8");
-
-    const target = resolveEditableConfigPath({
-      dir,
-      kind: "opencode",
-      preferredFormat: "json",
-      convertJsonToJsonc: true,
-    });
-
-    expect(target).toMatchObject({
-      path,
-      sourcePath: path,
-      format: "jsonc",
-      existed: true,
-    });
-    expect(target.removeSourcePath).toBeUndefined();
-  });
-
-  it("writes valid strict JSON without comments when JSON is selected", async () => {
-    const dir = makeTempDir();
-    const target = resolveEditableConfigPath({
-      dir,
-      kind: "opencode",
-      preferredFormat: "json",
-      convertJsonToJsonc: true,
-    });
-    const plan = await planConfigDocumentEdit({
-      target,
-      desiredData: {
-        $schema: "https://opencode.ai/config.json",
-        plugin: ["@slkiser/opencode-quota@latest"],
-      },
-      managedComments: [
-        {
-          path: ["plugin"],
-          text: "// OpenCode Quota: this must not appear in strict JSON.",
-        },
-      ],
-    });
+    const desiredData = {
+      $schema: "https://opencode.ai/config.json",
+      plugin: ["@slkiser/opencode-quota@latest"],
+    };
+    const plan = await planEdit(dir, desiredData, "json", [
+      { path: ["plugin"], text: "// OpenCode Quota: this must not appear in strict JSON." },
+    ]);
 
     expect(plan.path).toBe(join(dir, "opencode.json"));
-    expect(() => JSON.parse(plan.updated)).not.toThrow();
+    expect(JSON.parse(plan.updated)).toEqual(desiredData);
     expect(plan.updated).not.toMatch(/^\s*\/\//m);
 
     await applyConfigDocumentEdit(plan);
-    expect(() => JSON.parse(readFileSync(plan.path, "utf8"))).not.toThrow();
+    expect(lstatSync(plan.path).isFile()).toBe(true);
+    expect(lstatSync(plan.path).isSymbolicLink()).toBe(false);
+    expect(JSON.parse(readFileSync(plan.path, "utf8"))).toEqual(desiredData);
+  });
+});
+
+describe("config symlink-preserving writes", () => {
+  it("updates a relative symlink target and leaves the link in place", async () => {
+    const root = makeTempDir();
+    const real = join(root, "dotfiles", "opencode.json");
+    mkdirSync(join(root, "dotfiles"));
+    writeFileSync(real, EMPTY_PLUGINS);
+    const { configDir, link } = linkConfig(root, "../dotfiles/opencode.json");
+
+    await editConfig(configDir, { plugin: ["a"] });
+
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(JSON.parse(readFileSync(real, "utf8"))).toEqual({ plugin: ["a"] });
   });
 
-  it("keeps the original JSON when the atomic target write fails", async () => {
-    const dir = makeTempDir();
-    const jsonPath = join(dir, "opencode.json");
-    writeFileSync(jsonPath, '{"theme":"dark"}\n', "utf8");
-    const plan = await planConfigDocumentEdit({
-      target: resolveEditableConfigPath({
-        dir,
-        kind: "opencode",
-        preferredFormat: "jsonc",
-        convertJsonToJsonc: true,
-      }),
-      desiredData: {
-        theme: "dark",
-        plugin: ["@slkiser/opencode-quota@latest"],
-      },
-    });
+  it("updates an absolute symlink and a chained pair", async () => {
+    const root = makeTempDir();
+    const real = join(root, "real.json");
+    const middle = join(root, "middle.json");
+    writeFileSync(real, EMPTY_PLUGINS);
+    symlinkSync(real, middle);
+    const { configDir, link } = linkConfig(root, middle);
 
-    await expect(
-      applyConfigDocumentEdit(plan, {
-        writeText: async () => {
-          throw new Error("write failed");
-        },
-      }),
-    ).rejects.toThrow("write failed");
+    await editConfig(configDir, { plugin: ["chained"] });
 
-    expect(readFileSync(jsonPath, "utf8")).toBe('{"theme":"dark"}\n');
-    expect(existsSync(join(dir, "opencode.jsonc"))).toBe(false);
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(lstatSync(middle).isSymbolicLink()).toBe(true);
+    expect(JSON.parse(readFileSync(real, "utf8"))).toEqual({ plugin: ["chained"] });
   });
 
-  it("rolls back the new JSONC target when removing the converted JSON fails", async () => {
+  it("preserves JSONC comments when writing through a symlink", async () => {
+    const root = makeTempDir();
+    const real = join(root, "dotfiles", "opencode.jsonc");
+    mkdirSync(join(root, "dotfiles"));
+    writeFileSync(
+      real,
+      `{
+  // keep
+  "plugin": ["other"],
+}
+`,
+    );
+    const { configDir, link } = linkConfig(root, real, "opencode.jsonc");
+
+    await editConfig(configDir, { plugin: ["other", "@slkiser/opencode-quota@latest"] }, "jsonc");
+
+    const updated = readFileSync(real, "utf8");
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(updated).toContain("// keep");
+    expect(updated).toContain("@slkiser/opencode-quota@latest");
+  });
+
+  it("fails closed when the link is retargeted after preview", async () => {
+    const root = makeTempDir();
+    const real = join(root, "real.json");
+    const other = join(root, "other.json");
+    writeFileSync(real, EMPTY_PLUGINS);
+    writeFileSync(other, EMPTY_PLUGINS);
+    const { configDir, link } = linkConfig(root, real);
+
+    const plan = await planEdit(configDir, { plugin: ["a"] });
+    unlinkSync(link);
+    symlinkSync(other, link);
+
+    await expect(applyConfigDocumentEdit(plan)).rejects.toThrow(/write target changed/);
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(readFileSync(real, "utf8")).toBe(EMPTY_PLUGINS);
+    expect(readFileSync(other, "utf8")).toBe(EMPTY_PLUGINS);
+  });
+
+  it("fails closed when destination bytes change after preview", async () => {
+    const root = makeTempDir();
+    const real = join(root, "real.json");
+    writeFileSync(real, EMPTY_PLUGINS);
+    const { configDir, link } = linkConfig(root, real);
+
+    const plan = await planEdit(configDir, { plugin: ["a"] });
+    writeFileSync(real, '{"plugin":[],"raced":true}\n');
+
+    await expect(applyConfigDocumentEdit(plan)).rejects.toThrow(/changed since preview/);
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(readFileSync(real, "utf8")).toContain('"raced":true');
+  });
+
+  it("fails closed on a dangling configured symlink instead of replacing it", async () => {
     const dir = makeTempDir();
-    const jsonPath = join(dir, "opencode.json");
-    const jsoncPath = join(dir, "opencode.jsonc");
-    writeFileSync(jsonPath, '{"theme":"dark"}\n', "utf8");
-    const plan = await planConfigDocumentEdit({
-      target: resolveEditableConfigPath({
-        dir,
-        kind: "opencode",
-        preferredFormat: "jsonc",
-        convertJsonToJsonc: true,
-      }),
-      desiredData: {
-        theme: "dark",
-        plugin: ["@slkiser/opencode-quota@latest"],
-      },
-    });
+    symlinkSync(join(dir, "missing.json"), join(dir, "opencode.json"));
+    await expect(editConfig(dir, { plugin: ["x"] })).rejects.toThrow(/Dangling config symlink/);
+    expect(lstatSync(join(dir, "opencode.json")).isSymbolicLink()).toBe(true);
+    expect(existsSync(join(dir, "missing.json"))).toBe(false);
+  });
 
-    await expect(
-      applyConfigDocumentEdit(plan, {
-        removePath: async (path) => {
-          if (path === jsonPath) {
-            throw new Error("remove failed");
-          }
-          rmSync(path, { force: true });
-        },
-      }),
-    ).rejects.toThrow("Failed removing converted config source");
-
-    expect(existsSync(jsonPath)).toBe(true);
-    expect(existsSync(jsoncPath)).toBe(false);
+  it("leaves writeTextAtomic replacing a symlink for non-config callers", async () => {
+    const dir = makeTempDir();
+    const real = join(dir, "state.json");
+    const link = join(dir, "alias.json");
+    writeFileSync(real, "{}\n");
+    symlinkSync(real, link);
+    await writeTextAtomic(link, '{"ok":true}\n');
+    expect(lstatSync(link).isSymbolicLink()).toBe(false);
+    expect(JSON.parse(readFileSync(link, "utf8"))).toEqual({ ok: true });
+    expect(readFileSync(real, "utf8")).toBe("{}\n");
   });
 });

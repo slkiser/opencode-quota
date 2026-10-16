@@ -1,47 +1,18 @@
 import { readFile } from "fs/promises";
-
+import type { DebugDetail } from "../core/types.js";
+import {
+  type ApiKeySpec,
+  getApiKeyCheckedPaths,
+  hasVendorKey,
+  type VendorKeys,
+} from "../lib/api-key-resolver.js";
 import { sanitizeDisplayText } from "../lib/display-sanitize.js";
-import type {
-  AccountingMetadata,
-  FixedWindowProjectionEvidence,
-  QuotaProviderPresentation,
-  QuotaProviderResult,
-  QuotaProviderStatusDetail,
-  QuotaToastEntry,
-  QuotaToastError,
-} from "../lib/entries.js";
-
-export function notAttemptedResult(): QuotaProviderResult {
-  return { attempted: false, entries: [], errors: [] };
-}
-
-export function attemptedResult(
-  entries: QuotaToastEntry[],
-  errors: QuotaToastError[] = [],
-  presentation?: QuotaProviderPresentation,
-): QuotaProviderResult {
-  return {
-    attempted: true,
-    entries,
-    errors,
-    ...(presentation ? { presentation } : {}),
-  };
-}
-
-export function attemptedErrorResult(
-  label: string,
-  message: string,
-  options: { retryable?: boolean } = {},
-): QuotaProviderResult {
-  return attemptedResult(
-    [],
-    [{ label, message, ...(options.retryable === true ? { retryable: true } : {}) }],
-  );
-}
+import { asRecord } from "../lib/json-guards.js";
+import { getCredentialDatabasePaths } from "../lib/opencode-auth.js";
 
 export function statusDetailsFromRecord(
   values: Readonly<Record<string, string | undefined>>,
-): QuotaProviderStatusDetail[] {
+): DebugDetail[] {
   return Object.entries(values).flatMap(([key, value]) =>
     value === undefined ? [] : [{ key, value }],
   );
@@ -53,7 +24,7 @@ export function configStatusDetails(diagnostics: {
   checkedPaths: readonly string[];
   missing?: string | null;
   error?: string | null;
-}): QuotaProviderStatusDetail[] {
+}): DebugDetail[] {
   return statusDetailsFromRecord({
     config_state: diagnostics.state,
     config_source: diagnostics.source ?? "(none)",
@@ -68,12 +39,22 @@ export function simpleApiKeyStatusDetails(diagnostics: {
   source: string | null;
   checkedPaths: readonly string[];
   credentialDatabasePaths: readonly string[];
-}): QuotaProviderStatusDetail[] {
+}): DebugDetail[] {
   return statusDetailsFromRecord({
     api_key_configured: diagnostics.configured ? "true" : "false",
     api_key_source: diagnostics.source ?? "(none)",
     api_key_checked_paths: diagnostics.checkedPaths.join(" | ") || "(none)",
     api_key_credential_database_paths: diagnostics.credentialDatabasePaths.join(" | ") || "(none)",
+  });
+}
+
+/** Where a vendor's API key was looked for, and whether one was found. */
+export function vendorKeyDetails(spec: ApiKeySpec, keys: VendorKeys): DebugDetail[] {
+  return simpleApiKeyStatusDetails({
+    configured: hasVendorKey(keys),
+    source: keys.envOrConfig?.source ?? (keys.logins.length > 0 ? "opencode.db" : null),
+    checkedPaths: getApiKeyCheckedPaths(spec),
+    credentialDatabasePaths: getCredentialDatabasePaths(),
   });
 }
 
@@ -83,7 +64,7 @@ export function apiKeyStatusDetails(diagnostics: {
   checkedPaths: readonly string[];
   credentialDatabasePaths: readonly string[];
   error?: string;
-}): QuotaProviderStatusDetail[] {
+}): DebugDetail[] {
   return statusDetailsFromRecord({
     auth_state: diagnostics.state,
     api_key_configured: diagnostics.state === "configured" ? "true" : "false",
@@ -92,16 +73,6 @@ export function apiKeyStatusDetails(diagnostics: {
     api_key_credential_database_paths: diagnostics.credentialDatabasePaths.join(" | ") || "(none)",
     auth_error: diagnostics.error ? sanitizeDisplayText(diagnostics.error) : undefined,
   });
-}
-
-export function withStatusDetails(
-  result: QuotaProviderResult,
-  statusDetails: readonly QuotaProviderStatusDetail[],
-): QuotaProviderResult {
-  return {
-    ...result,
-    statusDetails: statusDetails.map((detail) => ({ ...detail })),
-  };
 }
 
 export async function inspectGeneratedCounterFile(
@@ -115,10 +86,7 @@ export async function inspectGeneratedCounterFile(
 }> {
   try {
     const parsed = JSON.parse(await readFile(path, "utf8")) as unknown;
-    const record =
-      parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
-        : null;
+    const record = asRecord(parsed);
     const version = typeof record?.version === "number" ? record.version : null;
     const updatedAt =
       typeof record?.updatedAt === "number" && Number.isFinite(record.updatedAt)
@@ -146,65 +114,4 @@ export async function inspectGeneratedCounterFile(
     }
     return { exists: true, health: "malformed", version: null, lastUpdatedAt: null };
   }
-}
-
-export function mapNullableProviderResult<
-  TResult extends { success: true } | { success: false; error: string; retryable?: boolean } | null,
->(
-  result: TResult,
-  params: {
-    errorLabel: string;
-    onSuccess: (result: Extract<TResult, { success: true }>) => QuotaProviderResult;
-  },
-): QuotaProviderResult {
-  if (!result) {
-    return notAttemptedResult();
-  }
-
-  if (!result.success) {
-    return attemptedErrorResult(params.errorLabel, result.error, { retryable: result.retryable });
-  }
-
-  return params.onSuccess(result as Extract<TResult, { success: true }>);
-}
-
-export function groupedPercentWindowEntries(params: {
-  group: string;
-  accounting: AccountingMetadata;
-  windows: Array<{
-    window?: {
-      percentRemaining: number;
-      resetTimeIso?: string;
-      fixedWindow?: FixedWindowProjectionEvidence;
-    };
-    suffix: string;
-    label: string;
-  }>;
-  fallbackWhenEmpty?: boolean;
-}): QuotaToastEntry[] {
-  const entries: QuotaToastEntry[] = [];
-
-  for (const { window, suffix, label } of params.windows) {
-    if (!window) continue;
-
-    entries.push({
-      accounting: { ...params.accounting },
-      name: `${params.group} ${suffix}`,
-      group: params.group,
-      label,
-      percentRemaining: window.percentRemaining,
-      resetTimeIso: window.resetTimeIso,
-      ...(window.fixedWindow ? { fixedWindow: { ...window.fixedWindow } } : {}),
-    });
-  }
-
-  if (entries.length === 0 && params.fallbackWhenEmpty !== false) {
-    entries.push({
-      accounting: { ...params.accounting },
-      name: params.group,
-      percentRemaining: 0,
-    });
-  }
-
-  return entries;
 }

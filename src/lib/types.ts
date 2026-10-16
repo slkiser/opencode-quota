@@ -1,14 +1,6 @@
 /**
- * Type definitions for opencode-quota plugin
+ * The legacy provider data types: logins read from OpenCode and each provider's fetch result.
  */
-
-import type { QuotaFormatStyle } from "./quota-format-style.js";
-import { DEFAULT_QUOTA_FORMAT_STYLE } from "./quota-format-style.js";
-import type { QuotaProviderDefinition } from "./quota-providers.js";
-
-// =============================================================================
-// Configuration Types
-// =============================================================================
 
 export type GeminiCliAuthSourceKey =
   | "google-gemini-cli"
@@ -17,292 +9,6 @@ export type GeminiCliAuthSourceKey =
   | "gemini"
   | "google";
 export type GoogleAgyAuthSourceKey = "google-agy" | "opencode-agy-auth" | "google-agy-auth";
-export type CursorQuotaPlan = "none" | "pro" | "pro-plus" | "ultra";
-export type PricingSnapshotSource = "auto" | "bundled" | "runtime";
-export type PercentDisplayMode = "remaining" | "used";
-export type PercentLabelStyle = "full" | "bare";
-export type AccountingDetail = "summary" | "detailed";
-export type SessionTokenScope = "current" | "tree";
-export type OpenCodeGoWindowKey = "rolling" | "weekly" | "monthly";
-export type QuotaResetWindow = "fiveHour" | "hourly" | "daily" | "weekly" | "monthly" | "yearly";
-
-export interface QuotaResetNotificationsConfig {
-  /** Whether successful quota-window resets emit a one-shot toast. */
-  enabled: boolean;
-  /** Window classes eligible for reset notifications. */
-  windows: QuotaResetWindow[];
-}
-
-export interface PricingSnapshotConfig {
-  source: PricingSnapshotSource;
-  autoRefresh: number;
-}
-
-export interface TuiSidebarPanelConfig {
-  enabled: boolean;
-  /** Per-surface formatStyle override. Falls back to root formatStyle when absent. */
-  formatStyle?: QuotaFormatStyle;
-  /** Preferred OpenCode Go window for the collapsed sidebar row. */
-  opencodeGoPreferredWindow?: OpenCodeGoWindowKey;
-}
-
-export interface TuiCompactStatusConfig {
-  enabled: boolean;
-  homeBottom: boolean;
-  sessionPrompt: boolean;
-  maxWidth: number;
-  /** Per-surface formatStyle override. Falls back to root formatStyle when absent. */
-  formatStyle?: QuotaFormatStyle;
-}
-
-export interface TuiPromptBarConfig {
-  enabled: boolean;
-}
-
-export interface QuotaExportConfig {
-  /** Whether to write the export file after each background refresh. Default: false. */
-  enabled: boolean;
-  /**
-   * Absolute path or ~/… path for the export file.
-   * Empty string means use the XDG default:
-   *   $XDG_CACHE_HOME/opencode/quota-export.json
-   */
-  path: string;
-}
-
-export interface QuotaTelemetryConfig {
-  /** Whether to publish quota gauges through the global OpenTelemetry MeterProvider. */
-  enabled: boolean;
-}
-
-/** How often Home shows the notice: on the first Home screen of each day, or every time. */
-export type MaintainerAnnouncementHomeFrequency = "daily" | "always";
-
-export interface MaintainerAnnouncementsConfig {
-  enabled: boolean;
-  home: boolean;
-  homeFrequency: MaintainerAnnouncementHomeFrequency;
-}
-
-export type TuiCommandDisplay = "inline" | "dialog";
-
-/** Request timeout in milliseconds */
-export const REQUEST_TIMEOUT_MS = 5000;
-
-/** Plugin configuration from opencode-quota/quota-toast.json or legacy experimental.quotaToast. */
-export interface QuotaToastConfig {
-  enabled: boolean;
-
-  /** If false, never show popup toasts (commands/tools still work). */
-  enableToast: boolean;
-
-  /** Opt-in, persisted notifications when selected quota windows reset. */
-  resetNotifications: QuotaResetNotificationsConfig;
-
-  /**
-   * Where TUI quota slash command reports appear: "dialog" shows only the popup,
-   * "inline" keeps the report in the chat. Web and Desktop always show it in the chat.
-   */
-  tuiCommandDisplay: TuiCommandDisplay;
-
-  /**
-   * Shared quota-row formatting style for popup toasts and the TUI sidebar.
-   *
-   * Canonical values:
-   * - "singleWindow": collapse each provider to a single displayable quota window
-   * - "allWindows": render all quota windows
-   *
-   * Legacy aliases "classic" and "grouped" remain accepted for backward compatibility.
-   */
-  formatStyle: QuotaFormatStyle;
-  /** Shared percent meaning for popup toasts and the TUI sidebar. */
-  percentDisplayMode: PercentDisplayMode;
-  /** Optional fixed-window quota exhaustion projection. Unset keeps it disabled. */
-  quotaProjection?: "runway";
-  /** Optional suffix style for percentage labels. Unset preserves full labels. */
-  percentLabelStyle?: PercentLabelStyle;
-  /** Whether human surfaces include supplementary semantic accounting rows. */
-  accountingDetail: AccountingDetail;
-  /**
-   * Decimal places for a largest-unit reset countdown override.
-   * Unset uses the default exact-to-minute days, hours, and minutes display.
-   */
-  resetTimeDecimals?: number;
-  /** Whether exact multi-unit reset countdowns include spaces between units. Defaults to true. */
-  resetTimeSpaced?: boolean;
-  minIntervalMs: number;
-
-  /** Request timeout in milliseconds for remote provider API calls. */
-  requestTimeoutMs: number;
-
-  /**
-   * Debug mode for troubleshooting.
-   *
-   * When enabled, the plugin appends a short debug footer to the toast.
-   * If the plugin would normally show no toast (e.g. enabledProviders empty),
-   * it will show a debug-only toast explaining why.
-   */
-  debug: boolean;
-
-  /**
-   * Provider ids to query.
-   *
-   * Keep this list short and user-friendly; each provider advertises a stable id.
-   * Example: ["copilot", "google-agy"].
-   *
-   * When set to "auto" (or left unconfigured), the plugin will auto-enable
-   * all providers whose `isAvailable()` returns true at runtime.
-   */
-  enabledProviders: string[] | "auto";
-
-  /**
-   * Ordered global-only remote accounting and local-estimate definitions.
-   * Executed by the single explicit quota-providers aggregate provider.
-   */
-  quotaProviders: QuotaProviderDefinition[];
-
-  /** Path or command name for the local Claude CLI used by Anthropic probing. */
-  anthropicBinaryPath: string;
-
-  cursorPlan: CursorQuotaPlan;
-  /**
-   * Which OpenCode Go usage windows to display.
-   * Defaults to ["rolling", "weekly", "monthly"].
-   */
-  opencodeGoWindows: OpenCodeGoWindowKey[];
-  /** Optional OpenCode Zen monthly budget override in USD. */
-  opencodeMonthlyLimit?: number;
-  cursorIncludedApiUsd?: number;
-  cursorBillingCycleStartDay?: number;
-  pricingSnapshot: PricingSnapshotConfig;
-  showOnIdle: boolean;
-  showOnQuestion: boolean;
-  showOnCompact: boolean;
-  showOnBothFail: boolean;
-  /** Toast duration in milliseconds */
-  toastDurationMs: number;
-
-  /** If true, only show quota for current model */
-  onlyCurrentModel: boolean;
-
-  /**
-   * If true, a request that hit a provider limit waits until the used-up quota window of that
-   * model's provider resets, instead of OpenCode's normal retry timing.
-   */
-  waitForQuotaReset: boolean;
-
-  /**
-   * If true, show the Session input/output tokens section in quota displays when session token data is available.
-   * "allWindows" keeps per-model rows on toast + sidebar; "singleWindow"
-   * uses a one-line total summary.
-   * The `/quota` command keeps its detailed per-model rendering.
-   */
-  showSessionTokens: boolean;
-
-  /** Sessions included in the displayed session input/output token totals. */
-  sessionTokenScope: SessionTokenScope;
-
-  /** TUI sidebar panel visibility when the TUI plugin is installed. */
-  tuiSidebarPanel: TuiSidebarPanelConfig;
-
-  /** Opt-in compact quota/status text for TUI prompt/home surfaces. */
-  tuiCompactStatus: TuiCompactStatusConfig;
-
-  /** Quota progress bar rendered under the TUI prompt. */
-  tuiPromptBar: TuiPromptBarConfig;
-
-  /** Bundled-only maintainer announcement surfaces. */
-  maintainerAnnouncements: MaintainerAnnouncementsConfig;
-
-  /** Opt-in periodic JSON export for external tool consumption. */
-  export: QuotaExportConfig;
-
-  /** Opt-in quota metrics through the host's global OpenTelemetry MeterProvider. */
-  telemetry: QuotaTelemetryConfig;
-
-  /** Responsive toast layout breakpoints (not used by the fixed-width TUI sidebar). */
-  layout: {
-    /** Default max width target for toast formatting */
-    maxWidth: number;
-    /** If toast max width is <= this, use compact layout */
-    narrowAt: number;
-    /** If toast max width is <= this, use ultra-compact layout */
-    tinyAt: number;
-  };
-}
-
-/** Default configuration values */
-export const DEFAULT_CONFIG: QuotaToastConfig = {
-  enabled: true,
-
-  enableToast: true,
-  resetNotifications: {
-    enabled: false,
-    windows: ["weekly"],
-  },
-  tuiCommandDisplay: "dialog",
-  formatStyle: DEFAULT_QUOTA_FORMAT_STYLE,
-  percentDisplayMode: "remaining",
-  accountingDetail: "summary",
-  resetTimeSpaced: true,
-  minIntervalMs: 300000, // 5 minutes
-  requestTimeoutMs: REQUEST_TIMEOUT_MS,
-
-  debug: false,
-
-  // Providers are auto-detected by default; set to explicit list to opt-in manually.
-  enabledProviders: "auto" as const,
-  quotaProviders: [],
-
-  anthropicBinaryPath: "claude",
-
-  cursorPlan: "none",
-  opencodeGoWindows: ["rolling", "weekly", "monthly"],
-  opencodeMonthlyLimit: undefined,
-  pricingSnapshot: {
-    source: "auto",
-    autoRefresh: 7,
-  },
-
-  showOnIdle: true,
-  showOnQuestion: true,
-  showOnCompact: true,
-  showOnBothFail: true,
-  toastDurationMs: 9000,
-  onlyCurrentModel: false,
-  waitForQuotaReset: true,
-  showSessionTokens: true,
-  sessionTokenScope: "current",
-  tuiSidebarPanel: {
-    enabled: true,
-  },
-  tuiCompactStatus: {
-    enabled: false,
-    homeBottom: true,
-    sessionPrompt: true,
-    maxWidth: 96,
-  },
-  tuiPromptBar: {
-    enabled: false,
-  },
-  maintainerAnnouncements: {
-    enabled: true,
-    home: true,
-    homeFrequency: "daily",
-  },
-  export: {
-    enabled: false,
-    path: "",
-  },
-  telemetry: {
-    enabled: false,
-  },
-  layout: {
-    maxWidth: 50,
-    narrowAt: 42,
-    tinyAt: 32,
-  },
-};
 
 // =============================================================================
 // Auth Data Types (from ~/.local/share/opencode/opencode.db)
@@ -322,18 +28,8 @@ export interface CopilotAuthData {
 
 export type AlibabaCodingPlanTier = "lite" | "pro";
 
-export interface CursorAuthData {
-  type: string;
-  access?: string;
-  refresh?: string;
-  expires?: number;
-  key?: string;
-  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
-  resolveError?: string;
-  [key: string]: unknown;
-}
-
-export interface AnthropicOAuthAuthData {
+/** An OAuth login as OpenCode stores it; providers read the fields they know. */
+interface OAuthAuthData {
   type: string;
   access?: string;
   refresh?: string;
@@ -343,32 +39,7 @@ export interface AnthropicOAuthAuthData {
   [key: string]: unknown;
 }
 
-export interface OpenAIOAuthData {
-  type: string;
-  access?: string;
-  refresh?: string;
-  expires?: number;
-  accountId?: string;
-  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
-  resolveError?: string;
-  [key: string]: unknown;
-}
-
-export interface XaiOAuthData {
-  type: string;
-  access?: string;
-  refresh?: string;
-  expires?: number;
-  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
-  resolveError?: string;
-  [key: string]: unknown;
-}
-
-export interface GeminiCliOAuthAuthData {
-  type: string;
-  access?: string;
-  refresh?: string;
-  expires?: number;
+interface GeminiCliOAuthAuthData extends OAuthAuthData {
   projectId?: string;
   /** Legacy spelling used by some companion/runtime variants */
   projectID?: string;
@@ -377,48 +48,6 @@ export interface GeminiCliOAuthAuthData {
   email?: string;
   accountEmail?: string;
   login?: string;
-  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
-  resolveError?: string;
-  [key: string]: unknown;
-}
-
-export interface AlibabaAuthData {
-  type: string;
-  key?: string;
-  access?: string;
-  tier?: string;
-  plan?: string;
-  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
-  resolveError?: string;
-  [key: string]: unknown;
-}
-
-export interface NanoGptAuthData {
-  type: "api";
-  key: string;
-}
-
-export interface DeepSeekAuthData {
-  type: "api";
-  key: string;
-}
-
-export interface SyntheticAuthData {
-  type: "api";
-  key: string;
-}
-
-export interface OpenCodeGoAuthData {
-  type: "api";
-  key: string;
-}
-
-export interface MiniMaxAuthData {
-  type: string;
-  key?: string;
-  access?: string;
-  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
-  resolveError?: string;
 }
 
 /**
@@ -472,7 +101,7 @@ export interface CopilotQuotaConfig {
 
 /** Full opencode.db structure (partial - only what we need) */
 export interface AuthData {
-  anthropic?: AnthropicOAuthAuthData;
+  anthropic?: OAuthAuthData;
   "github-copilot"?: CopilotAuthData;
   copilot?: CopilotAuthData;
   "copilot-chat"?: CopilotAuthData;
@@ -487,124 +116,20 @@ export interface AuthData {
   "google-agy"?: GeminiCliOAuthAuthData;
   "opencode-agy-auth"?: GeminiCliOAuthAuthData;
   "google-agy-auth"?: GeminiCliOAuthAuthData;
-  openai?: OpenAIOAuthData;
+  openai?: OAuthAuthData & { accountId?: string };
   // Some OpenCode installs store ChatGPT auth under "codex".
-  codex?: OpenAIOAuthData;
+  codex?: OAuthAuthData & { accountId?: string };
   // Some OpenCode installs store ChatGPT auth under "chatgpt".
-  chatgpt?: OpenAIOAuthData;
-  // Canonical OpenCode key. Go uses the API record; older OpenAI auth data may also exist here.
-  opencode?: OpenCodeGoAuthData | OpenAIOAuthData;
-  synthetic?: SyntheticAuthData;
-  chutes?: {
-    type: string;
-    key?: string;
-  };
-  nanogpt?: NanoGptAuthData;
-  "nano-gpt"?: NanoGptAuthData;
-  deepseek?: DeepSeekAuthData;
-  cursor?: CursorAuthData;
-  alibaba?: AlibabaAuthData;
-  "alibaba-coding-plan"?: AlibabaAuthData;
-  "zai-coding-plan"?: {
-    type: "api";
-    key: string;
-  };
-  "zhipu-coding-plan"?: {
-    type: "api";
-    key: string;
-  };
-  "minimax-coding-plan"?: MiniMaxAuthData;
-  "minimax-china-coding-plan"?: MiniMaxAuthData;
-  "minimax-cn-coding-plan"?: MiniMaxAuthData;
-  "kimi-code-plan-global"?: KimiAuthData;
-  "kimi-code-plan-cn"?: KimiAuthData;
-  "kimi-for-coding"?: KimiAuthData;
-  "kimi-code"?: KimiAuthData;
-  kimi?: KimiAuthData;
-  xai?: XaiOAuthData;
-}
-
-// =============================================================================
-// Kimi Types
-// =============================================================================
-
-/** Kimi auth entry in opencode.db */
-export interface KimiAuthData {
-  type: "api";
-  key: string;
-}
-
-/** Kimi quota window */
-export interface KimiQuotaWindow {
-  label: string;
-  used: number;
-  limit: number;
-  percentRemaining: number;
-  resetTimeIso?: string;
-}
-
-/** Result from fetching Kimi quota */
-export interface KimiQuotaResult {
-  success: true;
-  label: string;
-  windows: KimiQuotaWindow[];
-}
-
-export type KimiResult = KimiQuotaResult | QuotaError;
-
-// =============================================================================
-// Z.ai Types
-// =============================================================================
-
-/** Z.ai auth entry in opencode.db */
-export interface ZaiAuthData {
-  type: "api";
-  key: string;
-}
-
-/** Z.ai quota limit entry from API */
-export interface ZaiQuotaLimit {
-  type: string;
-  unit: number;
-  number: number;
-  usage: number;
-  currentValue?: number;
-  remaining?: number;
-  percentage: number;
-  nextResetTime?: number;
-  usageDetails?: Array<{
-    modelCode: string;
-    usage: number;
-  }>;
-}
-
-/** Z.ai API response */
-export interface ZaiQuotaResponse {
-  code: number;
-  msg: string;
-  data: {
-    limits: ZaiQuotaLimit[];
-    level: string;
-  };
-  success: boolean;
-}
-
-/** Result from fetching Z.ai quota */
-export interface ZaiQuotaResult {
-  success: true;
-  label: string;
-  windows: {
-    fiveHour?: { percentRemaining: number; resetTimeIso?: string };
-    weekly?: { percentRemaining: number; resetTimeIso?: string };
-    mcp?: { percentRemaining: number; resetTimeIso?: string };
-  };
+  chatgpt?: OAuthAuthData & { accountId?: string };
+  cursor?: OAuthAuthData & { key?: string };
+  xai?: OAuthAuthData;
 }
 
 // =============================================================================
 // Quota Result Types
 // =============================================================================
 
-export type CopilotResultAuthority = "provider_reported" | "locally_derived";
+type CopilotResultAuthority = "provider_reported" | "locally_derived";
 
 export interface CopilotBudgetResult {
   amountUsd: number;
@@ -689,12 +214,6 @@ export interface CopilotEnterpriseUsageResult {
   resetTimeIso?: string;
 }
 
-/** Error for a single account */
-export interface GoogleAccountError {
-  email: string;
-  error: string;
-}
-
 export interface GeminiCliQuotaBucket {
   modelId: string;
   displayName: string;
@@ -704,12 +223,6 @@ export interface GeminiCliQuotaBucket {
   tokenType?: string;
   accountEmail?: string;
   sourceKey?: GeminiCliAuthSourceKey;
-}
-
-export interface GeminiCliQuotaResult {
-  success: true;
-  buckets: GeminiCliQuotaBucket[];
-  errors?: GoogleAccountError[];
 }
 
 export interface GoogleAgyQuotaSummaryBucket {
@@ -724,7 +237,7 @@ export interface GoogleAgyQuotaSummaryBucket {
   resetTime?: string;
 }
 
-export interface GoogleAgyQuotaSummaryGroup {
+interface GoogleAgyQuotaSummaryGroup {
   displayName?: string;
   description?: string;
   buckets?: GoogleAgyQuotaSummaryBucket[];
@@ -747,24 +260,13 @@ export interface GoogleAgyQuotaBucket {
   resetTimeIso?: string;
   remainingAmount?: string;
   accountEmail?: string;
-  accountIndex: number;
   sourceKey: GoogleAgyAuthSourceKey;
 }
-
-export interface GoogleAgyQuotaResult {
-  success: true;
-  buckets: GoogleAgyQuotaBucket[];
-  errors?: GoogleAccountError[];
-}
-
-export type GoogleAgyResult = GoogleAgyQuotaResult | QuotaError | null;
 
 /** Error result */
 export interface QuotaError {
   success: false;
   error: string;
-  /** Whether retrying later may succeed without changing credentials or configuration. */
-  retryable?: boolean;
 }
 
 /** Combined quota result */
@@ -775,87 +277,8 @@ export type CopilotResult =
   | CopilotEnterpriseUsageResult
   | QuotaError
   | null;
-export type GeminiCliResult = GeminiCliQuotaResult | QuotaError | null;
-export type ZaiResult = ZaiQuotaResult | QuotaError | null;
-/** Single entry in a MiniMax quota result */
-export interface MiniMaxResultEntry {
-  window: "five_hour" | "weekly";
-  name: string;
-  group?: string;
-  label?: string;
-  right?: string;
-  percentRemaining: number;
-  resetTimeIso?: string;
-}
 
-export type MiniMaxResult =
-  | {
-      success: true;
-      entries: MiniMaxResultEntry[];
-    }
-  | QuotaError;
-export type ChutesResult =
-  | {
-      success: true;
-      percentRemaining: number;
-      resetTimeIso?: string;
-    }
-  | QuotaError
-  | null;
-export interface SyntheticQuotaWindow {
-  limit: number;
-  used: number;
-  percentRemaining: number;
-  resetTimeIso?: string;
-}
-export type SyntheticResult =
-  | {
-      success: true;
-      windows: {
-        fiveHour: SyntheticQuotaWindow;
-        weekly: SyntheticQuotaWindow;
-      };
-    }
-  | QuotaError
-  | null;
-
-/** Session or weekly limit of a legacy plan from the Ollama Cloud balance API */
-export interface OllamaCloudWindow {
-  /** Provider-reported remaining percentage [0..100] */
-  percentRemaining: number;
-  /** Next reset, when the API returns a valid one */
-  resetTimeIso?: string;
-}
-
-/** Included credits of a credit plan from the Ollama Cloud balance API */
-export interface OllamaCloudIncludedCredits {
-  /** Remaining included credits in USD */
-  balanceUsd: number;
-  /** Included credits for the whole period in USD */
-  allowanceUsd: number;
-  /** Remaining percentage [0..100]; undefined when the allowance is 0 */
-  percentRemaining?: number;
-  /** End of the included period, when the API returns a valid one */
-  resetTimeIso?: string;
-}
-
-/** Result from the Ollama Cloud balance API */
-export type OllamaCloudResult =
-  | {
-      success: true;
-      /** Included credits on credit plans */
-      includedCredits?: OllamaCloudIncludedCredits;
-      /** Session limit on legacy plans */
-      session?: OllamaCloudWindow;
-      /** Weekly limit on legacy plans */
-      weekly?: OllamaCloudWindow;
-      /** Remaining unexpired purchased credits in USD */
-      purchasedUsd?: number;
-      /** Independent response fields that could not be used */
-      rowErrors?: string[];
-    }
-  | QuotaError
-  | null;
+export type OpenCodeGoWindowKey = "rolling" | "weekly" | "monthly";
 
 /** Single normalized usage window from the OpenCode Go API. */
 export interface OpenCodeGoWindow {
@@ -878,9 +301,3 @@ export type OpenCodeGoResult =
       monthly: OpenCodeGoWindow;
     }
   | (QuotaError & { notSubscribed?: true });
-
-/** Cached toast data */
-export interface CachedToast {
-  message: string;
-  timestamp: number;
-}

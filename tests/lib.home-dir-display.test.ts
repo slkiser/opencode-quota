@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import {
   replaceHomeDirWithTilde,
   replaceHomeDirWithTildeInDocument,
@@ -94,6 +94,15 @@ describe("replaceHomeDirWithTilde", () => {
     );
   });
 
+  it.each([
+    ["\\\\?\\C:\\Users\\Name\\x", "~\\x"],
+    ["path=\\\\.\\C:\\Users\\Name\\x", "path=~\\x"],
+    ["//?/c:/users/name/x", "~/x"],
+    [JSON.stringify("\\\\?\\C:\\Users\\Name\\x"), '"~\\\\x"'],
+  ])("handles a Windows device path to the home dir: %s", (text, shown) => {
+    expect(replaceHomeDirWithTilde(text, "C:\\Users\\Name")).toBe(shown);
+  });
+
   it("does nothing when the home dir is empty or a filesystem root", () => {
     expect(replaceHomeDirWithTilde("/etc/hosts", "/")).toBe("/etc/hosts");
     expect(replaceHomeDirWithTilde("/etc/hosts", "")).toBe("/etc/hosts");
@@ -104,7 +113,7 @@ describe("replaceHomeDirWithTilde", () => {
 describe("replaceHomeDirWithTildeInDocument", () => {
   it("replaces the home dir in every kind of block", () => {
     const document: ReportDocument = {
-      heading: { line: "# /Users/alice/title", subtitle: "/Users/alice" },
+      heading: "# /Users/alice/title",
       sections: [
         {
           id: "s",
@@ -115,26 +124,13 @@ describe("replaceHomeDirWithTildeInDocument", () => {
               lines: ["- configPaths: /Users/alice/.config/opencode/opencode.json"],
             },
             { kind: "kv", rows: [{ key: "opencode.db", value: "path=/Users/alice/x.db" }] },
-            {
-              kind: "table",
-              headers: ["path"],
-              rows: [["/Users/alice/a"]],
-              aligns: ["left"],
-            },
-            {
-              kind: "quota",
-              provider: "p",
-              percentMode: "remaining",
-              lines: ["/Users/alice/q"],
-              rows: [{ label: "l", value: "v", notes: ["/Users/alice/n"] }],
-            },
           ],
         },
       ],
     };
 
     expect(replaceHomeDirWithTildeInDocument(document, HOME)).toEqual({
-      heading: { line: "# ~/title", subtitle: "~" },
+      heading: "# ~/title",
       sections: [
         {
           id: "s",
@@ -142,14 +138,6 @@ describe("replaceHomeDirWithTildeInDocument", () => {
           blocks: [
             { kind: "lines", lines: ["- configPaths: ~/.config/opencode/opencode.json"] },
             { kind: "kv", rows: [{ key: "opencode.db", value: "path=~/x.db" }] },
-            { kind: "table", headers: ["path"], rows: [["~/a"]], aligns: ["left"] },
-            {
-              kind: "quota",
-              provider: "p",
-              percentMode: "remaining",
-              lines: ["~/q"],
-              rows: [{ label: "l", value: "v", notes: ["~/n"] }],
-            },
           ],
         },
       ],
@@ -162,17 +150,7 @@ describe("replaceHomeDirWithTildeInDocument", () => {
       sections: [
         {
           id: "s",
-          blocks: [
-            { kind: "kv", rows: [{ key: "/Users/alice/a" }] },
-            { kind: "table", headers: ["path"], rows: [["/Users/alice/b"]], aligns: ["left"] },
-            {
-              kind: "quota",
-              provider: "p",
-              percentMode: "remaining",
-              lines: [],
-              rows: [{ label: "l", value: "/Users/alice/c", notes: [] }],
-            },
-          ],
+          blocks: [{ kind: "kv", rows: [{ key: "/Users/alice/a" }] }],
         },
       ],
     };

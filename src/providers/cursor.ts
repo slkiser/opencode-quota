@@ -1,3 +1,4 @@
+import type { Amount } from "../core/types.js";
 import {
   CURSOR_CANONICAL_PLUGIN_PACKAGE,
   inspectCursorAuthPresence,
@@ -10,41 +11,50 @@ import {
   isCursorProviderId,
 } from "../lib/cursor-pricing.js";
 import { getCurrentCursorUsageSummary } from "../lib/cursor-usage.js";
-import type {
-  AccountingMetadata,
-  QuotaProvider,
-  QuotaProviderContext,
-  QuotaProviderResult,
-  QuotaToastEntry,
-} from "../lib/entries.js";
+import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
 import { fmtUsdAmount } from "../lib/format-utils.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { accountingDecimalFromNumber } from "./accounting-decimal.js";
 import {
-  attemptedResult,
-  notAttemptedResult,
-  statusDetailsFromRecord,
-  withStatusDetails,
-} from "./result-helpers.js";
+  type AccountResult,
+  failedAccount,
+  type ProviderFetchResult,
+  type ProviderRow,
+} from "./contract.js";
+import { statusDetailsFromRecord } from "./result-helpers.js";
 
-const BUDGET_ACCOUNTING: AccountingMetadata = {
-  resultType: "budget",
-  acquisitionMethod: "local_runtime_accounting",
-  ownership: "maintained",
-  authority: "locally_derived",
-};
-const SPEND_ACCOUNTING: AccountingMetadata = {
-  ...BUDGET_ACCOUNTING,
-  resultType: "spend",
-};
-const USD_UNIT = { kind: "currency", code: "USD" } as const;
+function usd(amount: number): Amount {
+  return { decimal: accountingDecimalFromNumber(amount), unit: { kind: "currency", code: "USD" } };
+}
 
-function buildCursorGroup(plan: string | null): string {
-  return plan ? `Cursor (${plan})` : "Cursor";
+/** A month of Cursor spend estimated from local history: API or Auto+Composer. */
+function spendRow(
+  key: "api" | "auto_composer",
+  label: string,
+  costUsd: number,
+  resetsAt: string,
+  prominence: ProviderRow["prominence"],
+): ProviderRow {
+  return {
+    key,
+    label,
+    type: "usage",
+    method: "local_estimation",
+    authority: "locally_derived",
+    window: "month",
+    prominence,
+    amount: usd(costUsd),
+    resetsAt,
+  };
+}
+
+function formatUsage(bucket: { costUsd: number; messageCount: number }): string {
+  return `${fmtUsdAmount(bucket.costUsd)} across ${bucket.messageCount.toLocaleString("en-US")} messages`;
 }
 
 export const cursorProvider: QuotaProvider = {
   id: "cursor",
+  cachePolicy: { kind: "uncached" },
 
   async isAvailable(ctx: QuotaProviderContext): Promise<boolean> {
     const availableViaProviderConfig = await isCanonicalProviderAvailable({
@@ -64,9 +74,8 @@ export const cursorProvider: QuotaProvider = {
     return isCursorModelId(model);
   },
 
-  async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
+  async fetch(ctx: QuotaProviderContext): Promise<ProviderFetchResult> {
     const planLabel = getCursorPlanDisplayName(ctx.config.cursorPlan);
-    const group = buildCursorGroup(planLabel);
     const includedApiUsd = getEffectiveCursorIncludedApiUsd({
       plan: ctx.config.cursorPlan,
       overrideUsd: ctx.config.cursorIncludedApiUsd,
@@ -78,9 +87,7 @@ export const cursorProvider: QuotaProvider = {
       inspectCursorAuthPresence(),
       inspectCursorOpenCodeIntegration(),
     ]);
-    const formatUsage = (costUsd: number, messageCount: number): string =>
-      `${fmtUsdAmount(costUsd)} across ${Math.trunc(messageCount).toLocaleString("en-US")} messages`;
-    const statusDetails = statusDetailsFromRecord({
+    const debug = statusDetailsFromRecord({
       plan: planLabel ?? "none",
       included_api_usd:
         typeof includedApiUsd === "number" ? fmtUsdAmount(includedApiUsd) : "(none)",
@@ -100,116 +107,68 @@ export const cursorProvider: QuotaProvider = {
       config_checked_paths: integration.checkedPaths.join(" | ") || "(none)",
       cycle_source: usage.window.source,
       cycle_reset_at: usage.window.resetTimeIso,
-      api_usage: formatUsage(usage.api.costUsd, usage.api.messageCount),
-      auto_composer_usage: formatUsage(usage.autoComposer.costUsd, usage.autoComposer.messageCount),
-      total_cursor_usage: formatUsage(usage.total.costUsd, usage.total.messageCount),
-      unknown_cursor_models: Math.trunc(usage.unknownModels.length).toLocaleString("en-US"),
+      api_usage: formatUsage(usage.api),
+      auto_composer_usage: formatUsage(usage.autoComposer),
+      total_cursor_usage: formatUsage(usage.total),
+      unknown_cursor_models: usage.unknownModels.length.toLocaleString("en-US"),
     });
 
     if (usage.total.messageCount === 0 && includedApiUsd === undefined) {
-      return withStatusDetails(notAttemptedResult(), statusDetails);
+      return { attempted: false, accounts: [], debug };
     }
 
     const hasPartialApiCoverage = usage.unknownModels.length > 0;
     const hasPositiveAllowance = includedApiUsd !== undefined && includedApiUsd > 0;
-    const errors = hasPartialApiCoverage
-      ? [
-          {
-            label: "Cursor",
-            message: "Unknown Cursor model ids present in local history (see /quota_status)",
-          },
-        ]
-      : [];
-    const entries: QuotaToastEntry[] = [];
-    const resetTimeIso = usage.window.resetTimeIso;
-    const fixedWindow =
-      usage.window.source === "configured_day" &&
-      usage.window.sinceMs < usage.observedAtMs &&
-      usage.observedAtMs < usage.window.untilMs
-        ? ({
-            kind: "fixed_window",
-            startedAtIso: new Date(usage.window.sinceMs).toISOString(),
-            observedAtIso: new Date(usage.observedAtMs).toISOString(),
-            endsAtIso: new Date(usage.window.untilMs).toISOString(),
-            fullReset: true,
-          } as const)
-        : undefined;
-
+    const resetsAt = usage.window.resetTimeIso;
+    const rows: ProviderRow[] = [];
     if (hasPositiveAllowance && !hasPartialApiCoverage) {
-      const remainingUsd = Math.max(0, includedApiUsd - usage.api.costUsd);
-      entries.push({
-        accounting: BUDGET_ACCOUNTING,
-        name: planLabel ? `Cursor API (${planLabel})` : "Cursor API",
-        group,
+      // A billing cycle from the configured start day is a fixed window.
+      const fixedWindow =
+        usage.window.source === "configured_day" &&
+        usage.window.sinceMs < usage.observedAtMs &&
+        usage.observedAtMs < usage.window.untilMs;
+      rows.push({
+        key: "api",
+        label: "API",
+        type: "budget",
+        method: "local_estimation",
+        authority: "locally_derived",
+        window: "month",
+        prominence: "primary",
         percentRemaining: 100 - (usage.api.costUsd / includedApiUsd) * 100,
-        resetTimeIso,
-        ...(fixedWindow ? { fixedWindow } : {}),
-        semantic: {
-          metric: { kind: "named", name: "API" },
-          prominence: "primary",
-        },
-        basis: {
-          used: {
-            quantity: {
-              decimal: accountingDecimalFromNumber(usage.api.costUsd),
-              unit: USD_UNIT,
-            },
-            authority: "locally_derived",
-          },
-          limit: {
-            quantity: {
-              decimal: accountingDecimalFromNumber(includedApiUsd),
-              unit: USD_UNIT,
-            },
-            authority:
-              ctx.config.cursorIncludedApiUsd === undefined ? "locally_derived" : "user_configured",
-          },
-          remaining: {
-            quantity: {
-              decimal: accountingDecimalFromNumber(remainingUsd),
-              unit: USD_UNIT,
-            },
-            authority: "locally_derived",
-          },
-        },
+        used: usd(usage.api.costUsd),
+        limit: usd(includedApiUsd),
+        remaining: usd(Math.max(0, includedApiUsd - usage.api.costUsd)),
+        resetsAt,
+        ...(fixedWindow ? { windowStartedAt: new Date(usage.window.sinceMs).toISOString() } : {}),
       });
     } else {
-      const metricName = hasPartialApiCoverage ? "Known API" : "API";
-      entries.push({
-        kind: "quantity",
-        accounting: SPEND_ACCOUNTING,
-        name: `cursor-${hasPartialApiCoverage ? "known-api" : "api"}-spend`,
-        group,
-        resetTimeIso,
-        semantic: {
-          metric: { kind: "named", name: metricName },
-          prominence: "primary",
-        },
-        quantity: {
-          decimal: accountingDecimalFromNumber(usage.api.costUsd),
-          unit: USD_UNIT,
-        },
-      });
+      const label = hasPartialApiCoverage ? "Known API" : "API";
+      rows.push(spendRow("api", label, usage.api.costUsd, resetsAt, "primary"));
     }
-
     if (usage.autoComposer.messageCount > 0 || includedApiUsd !== undefined) {
-      entries.push({
-        kind: "quantity",
-        accounting: SPEND_ACCOUNTING,
-        name: "cursor-auto-composer-spend",
-        group,
-        resetTimeIso,
-        semantic: {
-          metric: { kind: "named", name: "Auto+Composer" },
-          prominence: "supplementary",
-        },
-        quantity: {
-          decimal: accountingDecimalFromNumber(usage.autoComposer.costUsd),
-          unit: USD_UNIT,
-        },
-      });
+      rows.push(
+        spendRow(
+          "auto_composer",
+          "Auto+Composer",
+          usage.autoComposer.costUsd,
+          resetsAt,
+          "supplementary",
+        ),
+      );
     }
 
-    return withStatusDetails(attemptedResult(entries, errors), statusDetails);
+    const accounts: AccountResult[] = [
+      { name: planLabel ? `Cursor (${planLabel})` : "Cursor", rows, errors: [] },
+    ];
+    if (hasPartialApiCoverage) {
+      accounts.push(
+        failedAccount(
+          "Cursor",
+          "Unknown Cursor model ids present in local history (see /quota_status)",
+        ),
+      );
+    }
+    return { attempted: true, accounts, debug };
   },
 };

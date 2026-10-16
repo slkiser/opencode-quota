@@ -10,6 +10,7 @@
 
 import { existsSync } from "fs";
 
+import { isRecord } from "./json-guards.js";
 import {
   type CredentialMethod,
   type CredentialRow,
@@ -64,23 +65,21 @@ async function readCredentialDatabase(path: string): Promise<CredentialRow[]> {
   }
 }
 
+/** The stored JSON value with metadata fields on top and a `key` login as `api`. */
 function parseCredentialValue(value: string): Record<string, unknown> | null {
+  let credential: unknown;
   try {
-    const parsed = JSON.parse(value);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    const credential = parsed as Record<string, unknown>;
-    const metadata = credential.metadata;
-    const authEntry = {
-      ...(metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : {}),
-      ...credential,
-    };
-    if (authEntry.type === "key" && typeof authEntry.key === "string") {
-      authEntry.type = "api";
-    }
-    return authEntry;
+    credential = JSON.parse(value);
   } catch {
     return null;
   }
+  if (!isRecord(credential)) return null;
+  const authEntry = {
+    ...(isRecord(credential.metadata) ? credential.metadata : {}),
+    ...credential,
+  };
+  if (authEntry.type === "key" && typeof authEntry.key === "string") authEntry.type = "api";
+  return authEntry;
 }
 
 /**
@@ -91,22 +90,18 @@ function parseCredentialValue(value: string): Record<string, unknown> | null {
 export function createSqliteCredentialSource(): CredentialSource {
   return {
     kind: "sqlite",
-    async readRows(request) {
+    async readRows({ integrationIds, firstOnly, methods }) {
       const [path] = getCredentialDatabasePaths();
-      const rows = (path ? await readCredentialDatabase(path) : []).filter((row) =>
-        request.integrationIds.includes(row.integrationId),
-      );
       const seenIntegrationIds = new Set<string>();
-      const firstRows = request.firstOnly
-        ? rows.filter((row) => {
-            if (seenIntegrationIds.has(row.integrationId)) return false;
-            seenIntegrationIds.add(row.integrationId);
-            return true;
-          })
-        : rows;
-      const methods = request.methods;
-      if (!methods) return firstRows;
-      return firstRows.filter((row) => {
+      return (path ? await readCredentialDatabase(path) : []).filter((row) => {
+        if (!integrationIds.includes(row.integrationId)) return false;
+        // firstOnly keeps each id's first row before the method filter, so an
+        // active login of another method yields nothing for that id.
+        if (firstOnly) {
+          if (seenIntegrationIds.has(row.integrationId)) return false;
+          seenIntegrationIds.add(row.integrationId);
+        }
+        if (!methods) return true;
         const method = credentialMethod(row.value);
         return method !== undefined && methods.includes(method);
       });

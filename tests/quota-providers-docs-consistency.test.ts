@@ -1,5 +1,5 @@
 import { readFileSync } from "fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { validateQuotaProviders } from "../src/lib/quota-providers.js";
 import {
@@ -58,12 +58,13 @@ describe("quota provider Phase 7 documentation consistency", () => {
     const troubleshootingProviderFixes = readMarkdownSection(troubleshooting, /^Provider fixes$/);
     const externalJsonBasics = readMarkdownSection(external, /^JSON basics$/);
 
-    const providerAddCommand = "npx @slkiser/opencode-quota@latest provider add";
-    expect(readmeCommands).toContain(providerAddCommand);
-    expect(readmeCustomProviders).toContain(providerAddCommand);
+    expect(readmeCommands).not.toContain("provider add");
+    expect(readmeCustomProviders).toContain("Ask your agent to add a custom provider");
     expect(
       hasMarkdownLinkTo(readmeCustomProviders, "docs/readme/providers.md#custom-providers"),
     ).toBe(true);
+    expect(providerGuideCustomProviders).toContain("Ask your agent to add a custom provider");
+    expect(providerGuideCustomProviders).toContain("docs/readme/providers.md#custom-providers");
     expect(readme).not.toContain("experimental.quotaToast");
     expect(readme).not.toContain("apiKeyEnv");
 
@@ -78,27 +79,35 @@ describe("quota provider Phase 7 documentation consistency", () => {
       expect(document).not.toContain("accounting-v1");
     }
 
-    expect(configuration).toContain("provider add");
-    expect(configuration).toContain("experimental.quotaToast");
-    expect(configuration).toContain("quotaProviders");
-    expect(configuration).toContain("JSONC");
-    expect(configuration).toContain("do not duplicate it in a second file");
+    expect(configuration).toContain("Ask your agent to add a custom provider");
+    expect(configuration).not.toContain("experimental.quotaToast");
+    expect(configuration).not.toContain("quotaProviders");
+    expect(configuration).toContain("settings.jsonc");
+    expect(configuration).toContain("There are no project settings.");
 
     for (const document of [configuration, providers]) {
       expect(document).toContain("apiKeyEnv");
       expect(document).toContain("provider.<providerId>.options.apiKey");
       expect(document).toContain("opencode.db");
-      expect(document).toContain("quota-providers");
+      expect(document).toContain("providers.custom");
     }
 
-    expect(configurationCustomProviders).toContain("global-only");
+    // Keys are still read on this computer to hide them from agent answers, so the docs promise
+    // only that a switched-off provider's key is never sent; the file is how to switch it on.
+    for (const section of [configurationCustomProviders, providerGuideCustomProviders]) {
+      expect(section).not.toMatch(/key is never read|nothing reads its key/);
+      expect(section).toContain("its key is never sent");
+      expect(section).toContain('"enabled": true` in `opencode-quota/settings.jsonc`');
+    }
+
+    expect(configurationCustomProviders).toContain("`providers.custom` in `settings.jsonc`");
     expect(
       readMarkdownParagraphContaining(
         configurationCustomProviders,
         "`modelIds`",
-        "`onlyCurrentModel`",
+        "`words.onlyCurrentModel`",
       ),
-    ).toMatch(/`modelIds`[\s\S]*\bonly\b[\s\S]*`onlyCurrentModel`/);
+    ).toMatch(/`modelIds`[\s\S]*\bonly\b[\s\S]*`words.onlyCurrentModel`/);
     const pricingMapRule = readMarkdownParagraphContaining(
       configurationCustomProviders,
       "pricingModelMap",
@@ -164,12 +173,13 @@ describe("quota provider Phase 7 documentation consistency", () => {
     expect(hiddenDiagnostics).toMatch(
       /\b(?:hide|hides|hidden|exclude|excludes)\b[\s\S]*URLs[\s\S]*request\/response contents[\s\S]*raw errors/i,
     );
-    expect(externalJsonBasics).toContain('"version": 2');
+    expect(externalJsonBasics).toContain('"version": 3');
     expect(externalJsonBasics).toContain('providers["quota-providers"]');
-    expect(externalJsonBasics).toContain("configured `quotaProviders` definition");
+    expect(externalJsonBasics).toContain("`providers.custom` definition");
     expect(external).not.toContain("custom-sources");
     expect(external).not.toContain("Custom-provider");
-    expect(externalJsonBasics).toContain('"sourceId": "openrouter-primary"');
+    expect(external).not.toContain("quotaProviders");
+    expect(externalJsonBasics).toContain('"name": "Custom providers (OpenRouter primary) Monthly"');
     expect(externalJsonBasics).toContain('"sources": [');
     expect(externalJsonBasics).toContain('"id": "openrouter-primary"');
     expect(externalJsonBasics).toContain('"entryCount": 1');
@@ -230,10 +240,11 @@ describe("quota provider Phase 7 documentation consistency", () => {
 
   it("keeps surface formatters generic", () => {
     for (const path of [
-      "src/lib/quota-command-format.ts",
-      "src/lib/toast-format-grouped.ts",
-      "src/lib/tui-sidebar-format.ts",
-      "src/lib/tui-compact-format.ts",
+      "src/view/select.ts",
+      "src/view/text.ts",
+      "src/tui/sidebar.tsx",
+      "src/tui/status-line.tsx",
+      "src/tui/window/limits.ts",
     ]) {
       const formatter = read(path);
       expect(formatter).not.toContain("quota-providers");

@@ -1,6 +1,6 @@
 import type { CostBuckets } from "./modelsdev-pricing.js";
 
-export interface TokenBucketLike {
+interface TokenBucketLike {
   input: number;
   output: number;
   reasoning: number;

@@ -1,16 +1,19 @@
-import { rm } from "node:fs/promises";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-provider-cache-tests";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { QuotaProviderContext } from "../src/lib/entries.js";
+import { bindCredentialSource } from "../src/lib/opencode-auth.js";
 import type {
   QuotaProviderDefinition,
   RemoteApiQuotaProviderDefinition,
 } from "../src/lib/quota-providers.js";
 import { createRuntimeProviderIdResolver } from "../src/lib/runtime-provider-ids.js";
+import type { ProviderFetchResult, ProviderRow } from "../src/providers/contract.js";
 
 const runtimeMocks = vi.hoisted(() => ({
+  root: "",
   resolveQuotaProviderApiKey: vi.fn(),
   fetchRemoteQuotaProvider: vi.fn(),
   collectLocalQuotaProviderEstimate: vi.fn(),
@@ -19,10 +22,10 @@ const runtimeMocks = vi.hoisted(() => ({
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
   getOpencodeRuntimeDirs: () => ({
-    dataDir: `${TEST_RUNTIME_ROOT}/data`,
-    configDir: `${TEST_RUNTIME_ROOT}/config`,
-    cacheDir: `${TEST_RUNTIME_ROOT}/cache`,
-    stateDir: `${TEST_RUNTIME_ROOT}/state`,
+    dataDir: `${runtimeMocks.root}/data`,
+    configDir: `${runtimeMocks.root}/config`,
+    cacheDir: `${runtimeMocks.root}/cache`,
+    stateDir: `${runtimeMocks.root}/state`,
   }),
 }));
 
@@ -51,13 +54,7 @@ vi.mock("../src/lib/resolved-auth-identity.js", () => ({
   ),
 }));
 
-import { __resetQuotaStateForTests, fetchQuotaProviderResult } from "../src/lib/quota-state.js";
-import {
-  QUOTA_PROVIDERS_PROVIDER_ID,
-  quotaProvidersProvider,
-  selectEligibleQuotaProviders,
-} from "../src/providers/quota-providers.js";
-import { getProviders } from "../src/providers/registry.js";
+import { quotaProvidersProvider } from "../src/providers/quota-providers.js";
 
 function remote(
   id: string,
@@ -69,10 +66,42 @@ function remote(
     providerId,
     label: id,
     mode: "remote-api",
-    url: "https://" + id + ".example/accounting",
+    url: `https://${id}.example/accounting`,
     format: "quota-v1",
     ...(modelIds ? { modelIds } : {}),
   };
+}
+
+function local(id: string, label = id): QuotaProviderDefinition {
+  return {
+    id,
+    providerId: id,
+    label,
+    mode: "local-estimate",
+    windows: [{ id: "daily", label: "Daily", type: "utc-day", requestLimit: 10 }],
+  };
+}
+
+/** A remote row; an adapter keys it by its name, the provider adds `custom.<definition id>.`. */
+function adapterRow(
+  key: string,
+  value: { percentRemaining: number } | { text: string },
+  label = key,
+) {
+  return {
+    key,
+    label,
+    type: "quota",
+    method: "remote_api",
+    authority: "provider_reported",
+    prominence: "primary",
+    ...value,
+  } satisfies ProviderRow;
+}
+
+/** Each definition's check, as /quota_status shows it. */
+function checks(result: ProviderFetchResult): string[] {
+  return result.debug.map((item) => `${item.key}: ${item.value}`);
 }
 
 function context(
@@ -85,7 +114,6 @@ function context(
       providers: async () => ({
         data: { providers: availableProviderIds.map((id) => ({ id })) },
       }),
-      get: async () => ({ data: {} }),
     },
   };
   return {
@@ -94,7 +122,6 @@ function context(
     config: {
       anthropicBinaryPath: "claude",
       cursorPlan: "none",
-      opencodeGoWindows: ["rolling", "weekly", "monthly"],
       enabledProviders: "auto",
       quotaProviders: definitions,
       ...overrides,
@@ -103,9 +130,8 @@ function context(
 }
 
 describe("quota-providers aggregate provider", () => {
-  beforeEach(async () => {
-    __resetQuotaStateForTests();
-    await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
+  beforeEach(() => {
+    runtimeMocks.root = mkdtempSync(join(tmpdir(), "opencode-quota-provider-cache-"));
     runtimeMocks.resolveQuotaProviderApiKey.mockReset().mockResolvedValue({
       key: "secret",
       source: "opencode.db",
@@ -114,17 +140,11 @@ describe("quota-providers aggregate provider", () => {
     });
     runtimeMocks.fetchRemoteQuotaProvider.mockReset().mockResolvedValue({
       success: true,
-      entries: [],
+      rows: [],
     });
     runtimeMocks.collectLocalQuotaProviderEstimate.mockReset().mockResolvedValue({
-      entries: [],
-      state: {
-        version: 1,
-        definitionId: "local",
-        providerId: "local",
-        updatedAt: 1,
-        messages: [],
-      },
+      rows: [],
+      state: { version: 1, definitionId: "local", providerId: "local", updatedAt: 1, messages: [] },
       unpricedMessageCount: 0,
     });
     runtimeMocks.inspectLocalQuotaProviderState.mockReset().mockResolvedValue({
@@ -136,148 +156,120 @@ describe("quota-providers aggregate provider", () => {
     });
   });
 
-  afterEach(async () => {
-    await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
+  afterEach(() => {
+    rmSync(runtimeMocks.root, { recursive: true, force: true });
   });
 
-  it("uses one stable aggregate identity", () => {
-    expect(QUOTA_PROVIDERS_PROVIDER_ID).toBe("quota-providers");
-    expect(quotaProvidersProvider.id).toBe("quota-providers");
-  });
+  const alibabaTuning: QuotaProviderDefinition = {
+    id: "alibaba-coding-plan",
+    providerId: "alibaba-coding-plan",
+    label: "alibaba-coding-plan",
+    mode: "local-estimate",
+    windows: (
+      [
+        ["five-hour", 300, 1200],
+        ["weekly", 10080, 9000],
+        ["monthly", 43200, 18000],
+      ] as const
+    ).map(([id, durationMinutes, requestLimit]) => ({
+      id,
+      label: id,
+      type: "rolling",
+      durationMinutes,
+      requestLimit,
+    })),
+  };
 
-  it("reuses the request-scoped runtime provider snapshot", async () => {
-    const ctx = context([remote("stable", "provider-one")], ["provider-one"]);
-    const providers = vi.spyOn(ctx.client.config, "providers");
-
-    await expect(
-      Promise.all([
-        quotaProvidersProvider.isAvailable(ctx),
-        quotaProvidersProvider.isAvailable(ctx),
-      ]),
-    ).resolves.toEqual([true, true]);
-    expect(providers).toHaveBeenCalledOnce();
-  });
-
-  it("requires exact runtime availability and fails closed for inconsistent session or catalog identity", async () => {
-    const definitions = [remote("stable", "provider-one", ["model-a"])];
-
-    await expect(
-      quotaProvidersProvider.isAvailable(context(definitions, ["unrelated"])),
-    ).resolves.toBe(false);
-    await expect(
-      quotaProvidersProvider.isAvailable(context(definitions, ["provider-one"])),
-    ).resolves.toBe(true);
-
-    expect(
-      selectEligibleQuotaProviders({
-        definitions,
-        availableProviderIds: new Set(["provider-one"]),
+  it.each([
+    ["no runtime match", [remote("stable", "provider-one", ["model-a"])], ["unrelated"], {}, []],
+    [
+      "an exact runtime match",
+      [remote("stable", "provider-one", ["model-a"])],
+      ["provider-one"],
+      {},
+      ["stable"],
+    ],
+    [
+      "a session provider that disagrees with the model prefix",
+      [remote("stable", "provider-one", ["model-a"])],
+      ["provider-one"],
+      {
         onlyCurrentModel: true,
         currentModel: "provider-one/model-a",
         currentProviderID: "provider-two",
-      }),
-    ).toEqual([]);
+      },
+      [],
+    ],
+    [
+      "project providers as read-only matching inputs",
+      [
+        remote("stable-one", "project-provider", ["model-a"]),
+        remote("stable-two", "other-provider"),
+      ],
+      ["project-provider"],
+      {},
+      ["stable-one"],
+    ],
+    [
+      "the current model of a project provider",
+      [
+        remote("stable-one", "project-provider", ["model-a"]),
+        remote("stable-two", "other-provider"),
+      ],
+      ["project-provider"],
+      { onlyCurrentModel: true, currentProviderID: "project-provider", currentModel: "model-a" },
+      ["stable-one"],
+    ],
+    [
+      "a slash-containing model id when the provider is supplied",
+      [remote("openrouter-usage", "openrouter", ["openai/gpt-4o"])],
+      ["openrouter"],
+      { onlyCurrentModel: true, currentProviderID: "openrouter", currentModel: "openai/gpt-4o" },
+      ["openrouter-usage"],
+    ],
+    [
+      "maintained Alibaba tuning, which is skipped",
+      [alibabaTuning, remote("custom")],
+      ["alibaba-coding-plan", "custom"],
+      {},
+      ["custom"],
+    ],
+  ] as const)(
+    "selects definitions for %s",
+    async (_name, definitions, ids, overrides, expected) => {
+      const ctx = context([...definitions], [...ids], overrides);
+      await expect(quotaProvidersProvider.isAvailable(ctx)).resolves.toBe(expected.length > 0);
+      const result = await quotaProvidersProvider.fetch(ctx);
+      expect(result.accounts.map((account) => account.login)).toEqual(expected);
+    },
+  );
 
-    const brokenCatalog = context(definitions, ["provider-one"]);
+  it("treats a slash-containing current model as opaque when matching the session", () => {
+    expect(
+      quotaProvidersProvider.matchesCurrentModel?.("openai/gpt-4o", {
+        enabledProviders: "auto",
+        currentProviderID: "openrouter",
+        quotaProviders: [remote("openrouter-usage", "openrouter", ["openai/gpt-4o"])],
+      }),
+    ).toBe(true);
+  });
+
+  it("fails closed when the runtime provider catalog cannot be read", async () => {
+    const brokenCatalog = context([remote("stable", "provider-one")], ["provider-one"]);
     brokenCatalog.client.config.providers = async () => {
       throw new Error("catalog unavailable");
     };
     await expect(quotaProvidersProvider.fetch(brokenCatalog)).resolves.toEqual({
       attempted: true,
-      entries: [],
-      errors: [
+      accounts: [
         {
-          label: "Quota providers",
-          message: "Failed to read exact runtime provider identities",
+          name: "Custom providers",
+          rows: [],
+          errors: [{ message: "Failed to read exact runtime provider identities" }],
         },
       ],
+      debug: [],
     });
-  });
-
-  it("uses effective project provider declarations only as read-only matching inputs", () => {
-    const definitions = [
-      remote("stable-one", "project-provider", ["model-a"]),
-      remote("stable-two", "other-provider"),
-    ];
-    expect(
-      selectEligibleQuotaProviders({
-        definitions,
-        availableProviderIds: new Set(["project-provider"]),
-      }).map((definition) => definition.id),
-    ).toEqual(["stable-one"]);
-
-    expect(
-      selectEligibleQuotaProviders({
-        definitions,
-        availableProviderIds: new Set(["project-provider"]),
-        onlyCurrentModel: true,
-        currentProviderID: "project-provider",
-        currentModel: "model-a",
-      }).map((definition) => definition.id),
-    ).toEqual(["stable-one"]);
-  });
-
-  it("treats slash-containing currentModel as an opaque model id when provider is supplied", () => {
-    const definitions = [remote("openrouter-usage", "openrouter", ["openai/gpt-4o"])];
-
-    expect(
-      selectEligibleQuotaProviders({
-        definitions,
-        availableProviderIds: new Set(["openrouter"]),
-        onlyCurrentModel: true,
-        currentProviderID: "openrouter",
-        currentModel: "openai/gpt-4o",
-      }).map((definition) => definition.id),
-    ).toEqual(["openrouter-usage"]);
-
-    expect(
-      quotaProvidersProvider.matchesCurrentModel?.("openai/gpt-4o", {
-        enabledProviders: "auto",
-        currentProviderID: "openrouter",
-        quotaProviders: definitions,
-      }),
-    ).toBe(true);
-  });
-
-  it("skips maintained Alibaba tuning in the aggregate", () => {
-    const definitions: QuotaProviderDefinition[] = [
-      {
-        id: "alibaba-coding-plan",
-        providerId: "alibaba-coding-plan",
-        label: "alibaba-coding-plan",
-        mode: "local-estimate",
-        windows: [
-          {
-            id: "five-hour",
-            label: "five-hour",
-            type: "rolling",
-            durationMinutes: 300,
-            requestLimit: 1200,
-          },
-          {
-            id: "weekly",
-            label: "weekly",
-            type: "rolling",
-            durationMinutes: 10080,
-            requestLimit: 9000,
-          },
-          {
-            id: "monthly",
-            label: "monthly",
-            type: "rolling",
-            durationMinutes: 43200,
-            requestLimit: 18000,
-          },
-        ],
-      },
-      remote("custom"),
-    ];
-    expect(
-      selectEligibleQuotaProviders({
-        definitions,
-        availableProviderIds: new Set(["alibaba-coding-plan", "custom"]),
-      }).map((definition) => definition.id),
-    ).toEqual(["custom"]);
   });
 
   it("runs selected definitions in config order even when completion order differs", async () => {
@@ -285,180 +277,85 @@ describe("quota-providers aggregate provider", () => {
     runtimeMocks.fetchRemoteQuotaProvider.mockImplementation(
       async (definition: RemoteApiQuotaProviderDefinition) => {
         if (definition.id === "first") await new Promise((resolve) => setTimeout(resolve, 10));
-        return {
-          success: true,
-          entries: [
-            {
-              accounting: {
-                resultType: "quota",
-                acquisitionMethod: "remote_api",
-                ownership: "user_configured",
-                authority: "provider_reported",
-              },
-              name: definition.id,
-              percentRemaining: 50,
-            },
-          ],
-        };
+        return { success: true, rows: [adapterRow("Monthly", { percentRemaining: 50 })] };
       },
     );
 
     const result = await quotaProvidersProvider.fetch(context(definitions, ["first", "second"]));
-    expect(result.entries.map((entry) => entry.name)).toEqual(["first", "second"]);
-    expect(result.diagnostics?.map((diagnostic) => diagnostic.sourceId)).toEqual([
-      "first",
-      "second",
+    expect(result.accounts.flatMap((account) => account.rows.map((row) => row.key))).toEqual([
+      "custom.first.Monthly",
+      "custom.second.Monthly",
     ]);
-    expect(result.statusDetails).toBeUndefined();
-  });
-
-  it("isolates the production nested remote cache by the winning credential", async () => {
-    const definition = remote("accounted", "provider-one");
-    const ctx = context([definition], ["provider-one"], { providerCacheTtlMs: 60_000 });
-    const provider = getProviders().find((candidate) => candidate.id === "quota-providers");
-    if (!provider) throw new Error("Expected aggregate provider");
-
-    let credential = "account-one";
-    runtimeMocks.resolveQuotaProviderApiKey.mockImplementation(async () => ({
-      key: credential,
-      source: "opencode.db",
-      checkedPaths: [],
-      credentialDatabasePaths: ["/trusted/opencode.db"],
-    }));
-    runtimeMocks.fetchRemoteQuotaProvider.mockImplementation(async (_definition, key) => ({
-      success: true,
-      entries: [
-        {
-          accounting: {
-            resultType: "quota",
-            acquisitionMethod: "remote_api",
-            ownership: "user_configured",
-            authority: "provider_reported",
-          },
-          name: key === "account-one" ? "Account one" : "Account two",
-          percentRemaining: key === "account-one" ? 70 : 30,
-        },
-      ],
-    }));
-
-    const first = await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
-    const cached = await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
-    credential = "account-two";
-    const second = await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
-
-    expect(first.entries[0]?.name).toBe("Account one");
-    expect(cached.entries[0]?.name).toBe("Account one");
-    expect(second.entries[0]?.name).toBe("Account two");
-    expect(runtimeMocks.fetchRemoteQuotaProvider).toHaveBeenCalledTimes(2);
-  });
-
-  it("refreshes mixed local data while retaining remote definition caching", async () => {
-    const definitions: QuotaProviderDefinition[] = [
-      remote("mixed-remote"),
-      {
-        id: "mixed-local",
-        providerId: "mixed-local",
-        label: "Mixed Local",
-        mode: "local-estimate",
-        windows: [{ id: "daily", label: "Daily", type: "utc-day", requestLimit: 10 }],
-      },
-    ];
-    runtimeMocks.fetchRemoteQuotaProvider.mockResolvedValue({
-      success: true,
-      entries: [
-        {
-          accounting: {
-            resultType: "balance",
-            acquisitionMethod: "remote_api",
-            ownership: "user_configured",
-            authority: "provider_reported",
-          },
-          kind: "value",
-          name: "Remote",
-          value: "$5.00",
-        },
-      ],
-    });
-    let localCall = 0;
-    runtimeMocks.collectLocalQuotaProviderEstimate.mockImplementation(async () => {
-      localCall += 1;
-      return {
-        entries: [
-          {
-            accounting: {
-              resultType: "rate_limit",
-              acquisitionMethod: "local_estimation",
-              ownership: "user_configured",
-              authority: "locally_derived",
-            },
-            name: "Local",
-            percentRemaining: 100 - localCall,
-          },
-        ],
-        state: {
-          version: 1,
-          definitionId: "mixed-local",
-          providerId: "mixed-local",
-          updatedAt: localCall,
-          messages: [],
-        },
-        unpricedMessageCount: 0,
-      };
-    });
-    const ctx = context(definitions, ["mixed-remote", "mixed-local"], {
-      providerCacheTtlMs: 0,
-    });
-
-    const first = await quotaProvidersProvider.fetch(ctx);
-    ctx.config.providerCacheTtlMs = 60_000;
-    const second = await quotaProvidersProvider.fetch(ctx);
-
-    expect(runtimeMocks.fetchRemoteQuotaProvider).toHaveBeenCalledTimes(1);
-    expect(runtimeMocks.collectLocalQuotaProviderEstimate).toHaveBeenCalledTimes(2);
-    expect(first.entries.map((entry) => entry.name)).toEqual(["Remote", "Local"]);
-    expect(second.entries.find((entry) => entry.name === "Local")?.percentRemaining).toBe(98);
+    expect(result.debug.map((item) => item.key)).toEqual([
+      "custom_first_check",
+      "custom_second_check",
+    ]);
   });
 
   it("preserves successful entries when another definition fails", async () => {
-    const definitions = [remote("good"), remote("bad")];
     runtimeMocks.fetchRemoteQuotaProvider.mockImplementation(
       async (definition: RemoteApiQuotaProviderDefinition) =>
         definition.id === "bad"
           ? { success: false, error: "HTTP 503" }
-          : {
-              success: true,
-              entries: [
-                {
-                  accounting: {
-                    resultType: "balance",
-                    acquisitionMethod: "remote_api",
-                    ownership: "user_configured",
-                    authority: "provider_reported",
-                  },
-                  kind: "value",
-                  name: "good",
-                  value: "$5.00",
-                },
-              ],
-            },
+          : { success: true, rows: [adapterRow("Balance", { text: "$5.00" })] },
     );
 
-    const result = await quotaProvidersProvider.fetch(context(definitions, ["good", "bad"]));
-    expect(result.entries).toHaveLength(1);
-    expect(result.errors).toEqual([{ label: "bad", message: "HTTP 503" }]);
-    expect(result.diagnostics?.map((diagnostic) => diagnostic.outcome)).toEqual([
-      "success",
-      "http_error",
+    const result = await quotaProvidersProvider.fetch(
+      context([remote("good"), remote("bad")], ["good", "bad"]),
+    );
+    expect(result.accounts).toEqual([
+      {
+        name: "good",
+        login: "good",
+        rows: [adapterRow("custom.good.Balance", { text: "$5.00" }, "Balance")],
+        errors: [],
+      },
+      { name: "bad", login: "bad", rows: [], errors: [{ message: "HTTP 503" }] },
+    ]);
+    expect(result.debug.map((item) => item.value.split(" ")[0])).toEqual([
+      "outcome=success",
+      "outcome=http_error",
     ]);
   });
 
-  it("propagates json-v1 row errors as partial output while keeping source diagnostics successful", async () => {
+  it.each([
+    ["HTTP 503", "outcome=http_error http_status=503"],
+    ["Redirect rejected", "outcome=redirect_error"],
+    ["Request timeout after 5s", "outcome=timeout"],
+    ["Response exceeded 262144 bytes", "outcome=body_too_large"],
+    ["Expected a JSON response", "outcome=invalid_content_type"],
+    ["Invalid JSON response", "outcome=invalid_json"],
+    ["Invalid quota-v1 response", "outcome=invalid_response"],
+    ["Failed to read accounting data", "outcome=network_error"],
+  ])("classifies the remote error %j in the check", async (error, outcome) => {
+    runtimeMocks.fetchRemoteQuotaProvider.mockResolvedValue({ success: false, error });
+    const result = await quotaProvidersProvider.fetch(context([remote("bad")], ["bad"]));
+    expect(result.accounts).toEqual([
+      { name: "bad", login: "bad", rows: [], errors: [{ message: error }] },
+    ]);
+    expect(checks(result)).toEqual([
+      `custom_bad_check: ${outcome} credential_source=opencode_db checked_paths=/trusted/opencode.json | /trusted/opencode.db`,
+    ]);
+  });
+
+  it("reports a missing API key without calling the endpoint", async () => {
+    runtimeMocks.resolveQuotaProviderApiKey.mockResolvedValue({
+      source: null,
+      checkedPaths: ["/trusted/opencode.json"],
+      credentialDatabasePaths: [],
+    });
+    const result = await quotaProvidersProvider.fetch(context([remote("keyless")], ["keyless"]));
+    expect(result.accounts[0]?.errors).toEqual([{ message: "API key not configured" }]);
+    expect(checks(result)).toEqual([
+      "custom_keyless_check: outcome=missing_credential credential_source=(none) checked_paths=/trusted/opencode.json",
+    ]);
+    expect(runtimeMocks.fetchRemoteQuotaProvider).not.toHaveBeenCalled();
+  });
+
+  it("propagates json-v1 row errors as partial output while keeping the check successful", async () => {
     const definition: RemoteApiQuotaProviderDefinition = {
-      id: "json-partial",
-      providerId: "json-provider",
+      ...remote("json-partial", "json-provider"),
       label: "JSON Partial",
-      mode: "remote-api",
-      url: "https://json-provider.example/quota",
       format: "json-v1",
       adapter: {
         mappings: [
@@ -472,73 +369,121 @@ describe("quota-providers aggregate provider", () => {
     };
     runtimeMocks.fetchRemoteQuotaProvider.mockResolvedValue({
       success: true,
-      entries: [
-        {
-          accounting: {
-            resultType: "usage",
-            acquisitionMethod: "remote_api",
-            ownership: "user_configured",
-            authority: "provider_reported",
-          },
-          kind: "value",
-          name: "JSON Partial Usage",
-          value: "0",
-        },
-      ],
+      rows: [adapterRow("Usage", { text: "0" })],
       rowErrors: ["adapter.mappings[0].metric.value was null at row 1"],
     });
 
     const result = await quotaProvidersProvider.fetch(context([definition], ["json-provider"]));
 
-    expect(result.entries[0]?.accounting.sourceId).toBe("json-partial");
-    expect(result.errors).toEqual([
+    expect(result.accounts).toEqual([
       {
-        label: "JSON Partial",
-        message: "adapter.mappings[0].metric.value was null at row 1",
+        name: "JSON Partial",
+        login: "json-partial",
+        rows: [adapterRow("custom.json-partial.Usage", { text: "0" }, "Usage")],
+        errors: [{ message: "adapter.mappings[0].metric.value was null at row 1" }],
       },
     ]);
-    expect(result.diagnostics?.[0]).toMatchObject({
-      sourceId: "json-partial",
-      format: "json-v1",
-      outcome: "success",
-      entryCount: 1,
-    });
+    expect(checks(result)[0]).toMatch(/^custom_json-partial_check: outcome=success /u);
   });
 
-  it("reports stable cache/diagnostic identity without secret values", async () => {
-    const result = await quotaProvidersProvider.fetch(
-      context([remote("stable", "runtime-provider")], ["runtime-provider"]),
-    );
-    expect(result.diagnostics?.[0]).toMatchObject({
-      sourceId: "stable",
-      providerId: "runtime-provider",
-      mode: "remote-api",
-      format: "quota-v1",
-      credentialSource: "opencode_db",
+  it.each([
+    ["opencode.db", "opencode_db"],
+    ["opencode.json", "global_opencode_json"],
+    ["opencode.jsonc", "global_opencode_jsonc"],
+    ["env", "explicit_env"],
+  ])("reports where a %s key came from without the key", async (source, credentialSource) => {
+    runtimeMocks.resolveQuotaProviderApiKey.mockResolvedValue({
+      key: "secret",
+      source,
       checkedPaths: ["/trusted/opencode.json"],
       credentialDatabasePaths: ["/trusted/opencode.db"],
     });
-    expect(JSON.stringify(result.diagnostics)).not.toContain("secret");
+    const result = await quotaProvidersProvider.fetch(
+      context([remote("stable", "runtime-provider")], ["runtime-provider"]),
+    );
+    expect(checks(result)).toEqual([
+      `custom_stable_check: outcome=success credential_source=${credentialSource} checked_paths=/trusted/opencode.json | /trusted/opencode.db`,
+    ]);
+    expect(JSON.stringify(result)).not.toContain("secret");
   });
 
   it("returns a local-state error without blocking other definitions", async () => {
-    const local: QuotaProviderDefinition = {
-      id: "local",
-      providerId: "local",
-      label: "Local",
-      mode: "local-estimate",
-      windows: [{ id: "daily", label: "Daily", type: "utc-day", requestLimit: 10 }],
-    };
     runtimeMocks.collectLocalQuotaProviderEstimate.mockRejectedValue(new Error("disk"));
 
-    const result = await quotaProvidersProvider.fetch(context([local], ["local"]));
-    expect(result.errors).toEqual([
-      { label: "Local", message: "Failed to update local accounting state" },
+    const result = await quotaProvidersProvider.fetch(
+      context([local("local", "Local")], ["local"]),
+    );
+    expect(result.accounts).toEqual([
+      {
+        name: "Local",
+        login: "local",
+        rows: [],
+        errors: [{ message: "Failed to update local accounting state" }],
+      },
     ]);
-    expect(result.diagnostics?.[0]).toMatchObject({
-      sourceId: "local",
-      outcome: "local_state_error",
-      statePath: "/state/local.json",
+    expect(checks(result)).toEqual([
+      "custom_local_check: outcome=local_state_error state_health=healthy state_version=1 state_last_update=1970-01-01T00:00:00.001Z",
+    ]);
+  });
+
+  it("makes no request and reads no key or login for switched-off definitions", async () => {
+    // The real key lookup and request, so every key and login read is seen.
+    const actual = await vi.importActual<typeof import("../src/lib/quota-providers-remote.js")>(
+      "../src/lib/quota-providers-remote.js",
+    );
+    runtimeMocks.resolveQuotaProviderApiKey.mockImplementation(actual.resolveQuotaProviderApiKey);
+    runtimeMocks.fetchRemoteQuotaProvider.mockImplementation(actual.fetchRemoteQuotaProvider);
+    const fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ version: "quota-v1", entries: [] }), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    vi.stubEnv("ON_GATEWAY_KEY", "on-key");
+    vi.stubEnv("OFF_GATEWAY_KEY", "off-key");
+    const on = { ...remote("on-gateway"), apiKeyEnv: "ON_GATEWAY_KEY" };
+    const ctx = context(
+      [
+        on,
+        { ...remote("off-gateway"), apiKeyEnv: "OFF_GATEWAY_KEY", enabled: false },
+        { ...local("off-local"), enabled: false },
+      ],
+      ["on-gateway", "off-gateway", "off-local"],
+    );
+    const loginReads: string[] = [];
+    const variableReads: string[] = [];
+    const unbind = bindCredentialSource({
+      kind: "sqlite",
+      async readRows({ integrationIds }) {
+        loginReads.push(...integrationIds);
+        return [];
+      },
     });
+    const realEnv = process.env;
+    process.env = new Proxy(realEnv, {
+      get(target, name) {
+        if (typeof name === "string") variableReads.push(name);
+        return Reflect.get(target, name);
+      },
+    });
+
+    let result: ProviderFetchResult;
+    try {
+      result = await quotaProvidersProvider.fetch(ctx);
+    } finally {
+      process.env = realEnv;
+      unbind();
+    }
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith(on.url, expect.anything());
+    expect(variableReads).toContain("ON_GATEWAY_KEY");
+    expect(variableReads).not.toContain("OFF_GATEWAY_KEY");
+    expect(loginReads).not.toContain("off-gateway");
+    expect(runtimeMocks.collectLocalQuotaProviderEstimate).not.toHaveBeenCalled();
+    expect(runtimeMocks.inspectLocalQuotaProviderState).not.toHaveBeenCalled();
+    expect(result.accounts.map((account) => account.login)).toEqual(["on-gateway"]);
+    expect(result.debug.map((item) => item.key)).toEqual(["custom_on-gateway_check"]);
   });
 });

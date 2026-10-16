@@ -1,7 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { QUOTA_DIALOG_COMMANDS } from "../src/lib/quota-dialog-command-specs.js";
-import tuiPlugin from "../src/tui-v2.js";
+import tuiPlugin from "../src/tui/index.js";
 import { createFakeIntegration } from "./helpers/fake-integration.js";
 
 // The TUI must never read logins or build reports itself: the server plugin does both.
@@ -24,14 +23,41 @@ vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
 
 // Canned answers of the server plugin's quota RPC.
 const rpc = {
-  surface: vi.fn(),
-  footer: vi.fn(),
-  writeExport: vi.fn(),
-  command: vi.fn(),
+  snapshot: vi.fn(),
+  refresh: vi.fn(),
+  notices: vi.fn(),
+  events: { on: vi.fn(() => () => {}) },
+};
+const SNAPSHOT = {
+  version: 6,
+  providers: [
+    {
+      providerId: "copilot",
+      label: "Copilot",
+      rows: [
+        {
+          id: "copilot.allowance",
+          providerId: "copilot",
+          label: "Plan",
+          type: "quota",
+          method: "remote_api",
+          authority: "provider_reported",
+          prominence: "primary",
+          percentRemaining: 81,
+        },
+      ],
+      okAtMs: 1,
+      refreshing: false,
+      debug: [],
+    },
+  ],
+  settings: { values: { "toast.afterReply": "always" }, providers: [], custom: [] },
+  resetNotices: [],
+  generatedAtMs: 1,
 };
 
 function startTui() {
-  const commands = new Map<string, { run: () => Promise<void>; slash?: unknown }>();
+  const commands = new Map<string, { run: () => Promise<void>; slash?: { name: string } }>();
   const listeners = new Map<string, (event: { data?: Record<string, unknown> }) => void>();
   const show = vi.fn((_render: () => unknown, onClose?: () => void) => onClose?.());
   const set = vi.fn();
@@ -41,7 +67,11 @@ function startTui() {
   const context = {
     location: { directory: process.cwd() },
     client: { rpc: vi.fn(() => rpc) },
+    renderer: { width: 120 },
     theme: { text: { base: "base", muted: "muted" } },
+    storage: {
+      store: (_key: string, options: { initial: unknown }) => [options.initial, async () => {}],
+    },
     data: {
       session: { get: vi.fn() },
       on: vi.fn((name: string, callback: (event: { data?: Record<string, unknown> }) => void) => {
@@ -54,7 +84,7 @@ function startTui() {
         (
           build: () => {
             mode?: string;
-            commands: Array<{ id: string; run: () => Promise<void>; slash?: unknown }>;
+            commands: Array<{ id: string; run: () => Promise<void>; slash?: { name: string } }>;
           },
         ) => {
           // The palette layer; the typed-command Enter layer has no mode.
@@ -83,89 +113,25 @@ function startTui() {
 
 describe("V2 CLI command boundary", () => {
   beforeEach(() => {
-    rpc.surface.mockReset().mockResolvedValue({
-      quota: { message: "Copilot 81%", duration: 5000, activeProviderCount: 1 },
-    });
-    rpc.footer.mockReset().mockResolvedValue({ lines: ["Copilot 81%"] });
-    rpc.writeExport.mockReset().mockResolvedValue({ written: false });
-    rpc.command.mockReset().mockResolvedValue({
-      state: "output",
-      command: "quota",
-      title: "Quota",
-      output: "Quota ready",
-      dialogSize: "large",
-    });
+    rpc.snapshot.mockReset().mockResolvedValue({ snapshot: SNAPSHOT });
+    rpc.refresh.mockReset().mockResolvedValue({ snapshot: SNAPSHOT });
+    rpc.notices.mockReset().mockResolvedValue({ homeLine: "" });
   });
 
-  it("registers the 12 palette commands without slash entries, not V1 server command hooks", () => {
+  it("registers the palette commands, a slash entry only for the TUI-only one, not V1 server command hooks", () => {
     const tui = startTui();
-    expect(tui.commands.size).toBe(12);
-    expect([...tui.commands.keys()]).toEqual(
-      QUOTA_DIALOG_COMMANDS.map((item) => `quota.${item.id}`),
+    expect([...tui.commands.keys()]).toEqual([
+      "quota.limits",
+      "quota.usage",
+      "quota.status",
+      "quota.settings",
+    ]);
+    // The server lists /quota, /quota_usage and /quota_status in the "/" list.
+    const slashNames = [...tui.commands.values()].flatMap((item) =>
+      item.slash ? [item.slash.name] : [],
     );
-    expect([...tui.commands.values()].some((item) => item.slash !== undefined)).toBe(false);
-    expect(new Set(QUOTA_DIALOG_COMMANDS.map((item) => item.id)).size).toBe(12);
+    expect(slashNames).toEqual(["quota_settings"]);
     expect(tui.context.ui.slot).toHaveBeenCalledWith(expect.objectContaining({ append: "app" }));
-    tui.dispose?.();
-  });
-
-  it("isolates commands from the model transcript and presents quota output locally", async () => {
-    const tui = startTui();
-    await tui.commands.get("quota.quota")?.run();
-    expect(rpc.command).toHaveBeenCalledWith(
-      { command: "quota", sessionID: undefined, arguments: undefined },
-      expect.objectContaining({ location: { directory: process.cwd() } }),
-    );
-    expect(tui.show).toHaveBeenCalledOnce();
-    expect(tui.set).toHaveBeenCalledWith({ size: "large" });
-    expect(tui.context.data.session.get).not.toHaveBeenCalled();
-    tui.dispose?.();
-  });
-
-  it("passes the prompted /tokens_between range to the deterministic output builder", async () => {
-    const tui = startTui();
-    tui.prompt.mockResolvedValue("not-a-date-range");
-    await tui.commands.get("quota.tokens_between")?.run();
-    expect(rpc.command).toHaveBeenCalledWith(
-      expect.objectContaining({
-        command: "tokens_between",
-        arguments: "not-a-date-range",
-      }),
-      expect.anything(),
-    );
-    tui.dispose?.();
-  });
-
-  it("prompts for missing date ranges and does not invoke the command when cancelled", async () => {
-    const tui = startTui();
-    await tui.commands.get("quota.tokens_between")?.run();
-    expect(tui.prompt).toHaveBeenCalledWith(
-      expect.objectContaining({ placeholder: "YYYY-MM-DD YYYY-MM-DD" }),
-    );
-    expect(rpc.command).not.toHaveBeenCalled();
-    tui.dispose?.();
-  });
-
-  it("returns without a dialog when quota is disabled", async () => {
-    rpc.command.mockResolvedValue({ state: "noop", command: "quota", reason: "disabled" });
-    const tui = startTui();
-    await tui.commands.get("quota.quota")?.run();
-    expect(tui.show).not.toHaveBeenCalled();
-    expect(tui.toast).not.toHaveBeenCalled();
-    tui.dispose?.();
-  });
-
-  it("shows command failures as sanitized TUI error toasts rather than injecting a message", async () => {
-    rpc.command.mockRejectedValue({ type: "rpc.internal", message: "quota unavailable" });
-    const tui = startTui();
-    await tui.commands.get("quota.quota")?.run();
-    expect(tui.toast).toHaveBeenCalledWith(
-      expect.objectContaining({
-        variant: "error",
-        message: "quota unavailable",
-      }),
-    );
-    expect(tui.show).not.toHaveBeenCalled();
     tui.dispose?.();
   });
 
@@ -180,16 +146,22 @@ describe("V2 CLI command boundary", () => {
     tui.slots.get("home.footer.status")?.render();
     tui.listeners.get("session.execution.succeeded")?.({ data: { sessionID: "ses_1" } });
     for (const command of tui.commands.values()) await command.run();
-    await vi.waitFor(() => expect(tui.toast).toHaveBeenCalledOnce());
-    await vi.waitFor(() => expect(rpc.writeExport).toHaveBeenCalledOnce());
+    // On Home the quota window only says to open a session, and the reply toast shows the quota.
+    const toastMessages = () => tui.toast.mock.calls.map(([toast]) => toast.message as string);
+    await vi.waitFor(() =>
+      expect(
+        toastMessages().filter((message) => message.startsWith("Copilot\n  Plan ")),
+      ).toHaveLength(1),
+    );
 
-    expect(rpc.surface.mock.calls.map(([input]) => input)).toEqual([
-      { surface: "sidebar", sessionID: "ses_1" },
-      { surface: "idle", sessionID: "ses_1" },
+    // The surfaces read the server's snapshot over the RPC; one call serves both of ses_1's.
+    expect(rpc.snapshot.mock.calls.filter(([input]) => input.sessionID === "ses_1")).toHaveLength(
+      1,
+    );
+    expect(rpc.refresh.mock.calls.map(([input]) => input)).toEqual([
+      { reason: "turn", sessionID: "ses_1" },
     ]);
-    expect(rpc.footer).toHaveBeenCalledTimes(2);
-    // /tokens_between stops at its date prompt, which this fake cancels.
-    expect(rpc.command).toHaveBeenCalledTimes(QUOTA_DIALOG_COMMANDS.length - 1);
+    expect(rpc.notices).toHaveBeenCalledOnce();
     expect(mocks.readAuthFile).not.toHaveBeenCalled();
     expect(mocks.readAuthFileCached).not.toHaveBeenCalled();
     expect(mocks.readCredentialRows).not.toHaveBeenCalled();

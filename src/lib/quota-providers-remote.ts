@@ -1,12 +1,13 @@
-import {
-  createProviderApiKeyResolver,
-  getApiKeyCheckedPaths,
-  getGlobalOpencodeConfigCandidatePaths,
-} from "./api-key-resolver.js";
+import { isIsoTime } from "../core/validate.js";
+import type { ProviderRow } from "../providers/contract.js";
+import { type ApiKeySpec, getApiKeyCheckedPaths, resolveApiKey } from "./api-key-resolver.js";
 import { sanitizeSingleLineDisplayText } from "./display-sanitize.js";
-import type { AccountingResultType, QuotaToastEntry } from "./entries.js";
-import { getCredentialDatabasePaths, readAuthFile } from "./opencode-auth.js";
+import { fmtUsdAmount } from "./format-utils.js";
+import { REQUEST_TIMEOUT_MS } from "./http.js";
+import { hasOnlyKeys, isRecord } from "./json-guards.js";
+import { getCredentialDatabasePaths } from "./opencode-auth.js";
 import type {
+  CustomResultType,
   JsonV1Mapping,
   JsonV1NumberSource,
   JsonV1Path,
@@ -15,30 +16,34 @@ import type {
   RemoteApiQuotaProviderDefinition,
 } from "./quota-providers.js";
 import {
+  CUSTOM_RESULT_TYPES,
+  customRow,
+  customRowKey,
   JSON_V1_MAX_DISPLAY_CODE_POINTS,
   JSON_V1_MAX_NUMBER_MAGNITUDE,
   normalizeJsonV1Timestamp,
 } from "./quota-providers.js";
-import { REQUEST_TIMEOUT_MS } from "./types.js";
 
 export const QUOTA_PROVIDER_MAX_BODY_BYTES = 256 * 1024;
-export const QUOTA_PROVIDER_MAX_REMOTE_ROWS = 100;
-export const JSON_V1_MAX_RESPONSE_DEPTH = 32;
-export const JSON_V1_MAX_CANDIDATES = 1_600;
-export const JSON_V1_MAX_ENTRIES = 100;
-export const JSON_V1_MAX_DETAILED_ERRORS = 16;
-export const QUOTA_PROVIDER_CONCURRENCY = 4;
+const MAX_REMOTE_ROWS = 100;
+const JSON_V1_MAX_RESPONSE_DEPTH = 32;
+const JSON_V1_MAX_CANDIDATES = 1_600;
+const JSON_V1_MAX_ENTRIES = 100;
+const JSON_V1_MAX_DETAILED_ERRORS = 16;
 
-const RESULT_TYPES = new Set<AccountingResultType>([
-  "quota",
-  "rate_limit",
-  "usage",
-  "spend",
-  "budget",
-  "balance",
-  "status",
-]);
-const ISO_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+const PERCENT_RESULT_TYPES = new Set<CustomResultType>(["quota", "rate_limit", "budget"]);
+/** `right` and `observedAtIso` are checked but not shown. */
+const QUOTA_V1_ROW_KEYS = [
+  "kind",
+  "name",
+  "resultType",
+  "percentRemaining",
+  "value",
+  "label",
+  "right",
+  "resetTimeIso",
+  "observedAtIso",
+];
 const JSON_V1_DECIMAL_TEXT_RE = /^-?\d+(?:\.\d+)?$/;
 
 export type QuotaProviderAuthSource = "env" | "opencode.json" | "opencode.jsonc" | "opencode.db";
@@ -50,24 +55,10 @@ export interface QuotaProviderAuthResolution {
   credentialDatabasePaths: string[];
 }
 
+/** The rows of one reply; each key is the part of the row id after `custom.<definition id>.`. */
 export type RemoteQuotaProviderResult =
-  | { success: true; entries: QuotaToastEntry[]; rowErrors?: string[] }
+  | { success: true; rows: ProviderRow[]; rowErrors?: string[] }
   | { success: false; error: string };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
-  const allowedSet = new Set(allowed);
-  return Object.keys(value).every((key) => allowedSet.has(key));
-}
-
-function isIsoTimestamp(value: unknown): value is string {
-  return (
-    typeof value === "string" && ISO_TIMESTAMP_RE.test(value) && Number.isFinite(Date.parse(value))
-  );
-}
 
 function boundedDisplayText(value: unknown, maxCodePoints: number): string | null {
   if (typeof value !== "string") return null;
@@ -76,223 +67,179 @@ function boundedDisplayText(value: unknown, maxCodePoints: number): string | nul
   return length >= 1 && length <= maxCodePoints ? normalized : null;
 }
 
-function formatUsd(value: number): string {
-  return `$${value.toFixed(2)}`;
-}
-
-function accountingMetadata(
-  resultType: AccountingResultType,
-  observedAtIso?: string,
-): QuotaToastEntry["accounting"] {
-  return {
-    resultType,
-    acquisitionMethod: "remote_api",
-    ownership: "user_configured",
-    authority: "provider_reported",
-    ...(observedAtIso ? { observedAtIso } : {}),
-  };
-}
-
 export async function resolveQuotaProviderApiKey(
   source: RemoteApiQuotaProviderDefinition,
 ): Promise<QuotaProviderAuthResolution> {
-  const resolver = createProviderApiKeyResolver<QuotaProviderAuthSource>({
-    envVars: source.apiKeyEnv ? [{ name: source.apiKeyEnv, source: "env" }] : [],
+  // A switched-off provider's key is never read, whoever asks.
+  if (source.enabled === false) {
+    return { source: null, checkedPaths: [], credentialDatabasePaths: [] };
+  }
+  const spec: ApiKeySpec = {
+    envVars: source.apiKeyEnv ? [source.apiKeyEnv] : [],
     providerKeys: [source.providerId],
-    allowedEnvVars: source.apiKeyEnv ? [source.apiKeyEnv] : [],
-    configJsonSource: "opencode.json",
-    configJsoncSource: "opencode.jsonc",
-    getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
-    auth: {
-      // Key logins only: `providerId` can name an integration with OAuth sign-ins
-      // (for example `opencode`), and resolving one could refresh its token for nothing.
-      readAuth: () => readAuthFile({ integrationIds: [source.providerId], methods: ["key"] }),
-      authKeys: [source.providerId],
-      authSource: "opencode.db",
-    },
-  });
-
-  const resolved = await resolver.resolve();
+    // Key logins only: `providerId` can name an integration with OAuth sign-ins
+    // (for example `opencode`), and resolving one could refresh its token for nothing.
+    keyLoginsOnly: true,
+  };
+  const resolved = await resolveApiKey(spec);
   return {
     ...(resolved ? { key: resolved.key } : {}),
-    source: resolved?.source ?? null,
-    checkedPaths: getApiKeyCheckedPaths({
-      envVarNames: source.apiKeyEnv ? [source.apiKeyEnv] : [],
-      getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
-    }),
+    // Custom providers report every environment variable source as plain "env".
+    source: !resolved
+      ? null
+      : resolved.source.startsWith("env:")
+        ? "env"
+        : (resolved.source as QuotaProviderAuthSource),
+    checkedPaths: getApiKeyCheckedPaths(spec),
     credentialDatabasePaths: getCredentialDatabasePaths(),
   };
 }
 
-async function readBoundedJson(response: Response): Promise<unknown> {
-  const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
-  if (
-    !contentType ||
-    (contentType !== "application/json" &&
-      !(contentType.startsWith("application/") && contentType.endsWith("+json")))
-  ) {
-    throw new Error("Expected a JSON response");
+function isJsonContentType(response: Response): boolean {
+  const type = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (!type) return false;
+  return type === "application/json" || (type.startsWith("application/") && type.endsWith("+json"));
+}
+
+/** Reads at most QUOTA_PROVIDER_MAX_BODY_BYTES, so a huge reply never sits in memory. */
+async function readBoundedJson(
+  response: Response,
+): Promise<{ ok: true; body: unknown } | { ok: false; error: string }> {
+  const tooLarge = {
+    ok: false,
+    error: `Response exceeded ${QUOTA_PROVIDER_MAX_BODY_BYTES} bytes`,
+  } as const;
+  if (!isJsonContentType(response)) return { ok: false, error: "Expected a JSON response" };
+
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > QUOTA_PROVIDER_MAX_BODY_BYTES) {
+    return tooLarge;
   }
 
-  const contentLength = response.headers.get("content-length");
-  if (contentLength) {
-    const parsedLength = Number(contentLength);
-    if (Number.isFinite(parsedLength) && parsedLength > QUOTA_PROVIDER_MAX_BODY_BYTES) {
-      throw new Error("Response exceeded 262144 bytes");
-    }
-  }
-
-  let bytes: Uint8Array;
+  let text = "";
   if (response.body) {
     const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
+    const decoder = new TextDecoder();
     let total = 0;
     try {
-      while (true) {
-        const next = await reader.read();
-        if (next.done) break;
+      for (let next = await reader.read(); !next.done; next = await reader.read()) {
         total += next.value.byteLength;
         if (total > QUOTA_PROVIDER_MAX_BODY_BYTES) {
           await reader.cancel();
-          throw new Error("Response exceeded 262144 bytes");
+          return tooLarge;
         }
-        chunks.push(next.value);
+        text += decoder.decode(next.value, { stream: true });
       }
+      text += decoder.decode();
     } finally {
       reader.releaseLock();
     }
-    bytes = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-      bytes.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-  } else {
-    const buffer = new Uint8Array(await response.arrayBuffer());
-    if (buffer.byteLength > QUOTA_PROVIDER_MAX_BODY_BYTES) {
-      throw new Error("Response exceeded 262144 bytes");
-    }
-    bytes = buffer;
   }
 
   try {
-    return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+    return { ok: true, body: JSON.parse(text) as unknown };
   } catch {
-    throw new Error("Invalid JSON response");
+    return { ok: false, error: "Invalid JSON response" };
   }
 }
 
-function parseQuotaV1(
-  source: RemoteApiQuotaProviderDefinition,
-  body: unknown,
-): RemoteQuotaProviderResult {
+/** A quota-v1 row keyed by its name. */
+function parseQuotaV1Row(raw: unknown): ProviderRow | null {
+  if (!isRecord(raw) || !hasOnlyKeys(raw, QUOTA_V1_ROW_KEYS)) return null;
+
+  const name = boundedDisplayText(raw.name, 80);
+  const resultType =
+    typeof raw.resultType === "string" &&
+    CUSTOM_RESULT_TYPES.has(raw.resultType as CustomResultType)
+      ? (raw.resultType as CustomResultType)
+      : null;
+  // Optional fields are undefined when absent and null when present but invalid.
+  const label = raw.label === undefined ? undefined : boundedDisplayText(raw.label, 80);
+  const right = raw.right === undefined ? undefined : boundedDisplayText(raw.right, 160);
+  const resetTimeIso =
+    raw.resetTimeIso === undefined
+      ? undefined
+      : isIsoTime(raw.resetTimeIso)
+        ? raw.resetTimeIso
+        : null;
+  const observedAtIso =
+    raw.observedAtIso === undefined
+      ? undefined
+      : isIsoTime(raw.observedAtIso)
+        ? raw.observedAtIso
+        : null;
+  if (
+    !name ||
+    !resultType ||
+    label === null ||
+    right === null ||
+    resetTimeIso === null ||
+    observedAtIso === null
+  ) {
+    return null;
+  }
+
+  const row = (value: { percentRemaining: number } | { text: string }): ProviderRow =>
+    customRow({
+      key: customRowKey(name),
+      name,
+      label,
+      resultType,
+      method: "remote_api",
+      value,
+      resetsAt: resetTimeIso,
+    });
+
+  if (
+    raw.kind === "percent" &&
+    typeof raw.percentRemaining === "number" &&
+    Number.isFinite(raw.percentRemaining) &&
+    raw.percentRemaining <= 100 &&
+    PERCENT_RESULT_TYPES.has(resultType) &&
+    raw.value === undefined
+  ) {
+    return row({ percentRemaining: raw.percentRemaining });
+  }
+
+  const value = boundedDisplayText(raw.value, 160);
+  if (raw.kind === "value" && value !== null && raw.percentRemaining === undefined) {
+    return row({ text: value });
+  }
+  return null;
+}
+
+function parseQuotaV1(body: unknown): RemoteQuotaProviderResult {
+  const invalid = { success: false, error: "Invalid quota-v1 response" } as const;
   if (
     !isRecord(body) ||
     !hasOnlyKeys(body, ["version", "entries"]) ||
     body.version !== "quota-v1" ||
-    !Array.isArray(body.entries)
+    !Array.isArray(body.entries) ||
+    body.entries.length < 1 ||
+    body.entries.length > MAX_REMOTE_ROWS
   ) {
-    return { success: false, error: "Invalid quota-v1 response" };
-  }
-  if (body.entries.length < 1 || body.entries.length > QUOTA_PROVIDER_MAX_REMOTE_ROWS) {
-    return { success: false, error: "Invalid quota-v1 response" };
+    return invalid;
   }
 
-  const entries: QuotaToastEntry[] = [];
+  const rows: ProviderRow[] = [];
   for (const raw of body.entries) {
-    if (
-      !isRecord(raw) ||
-      !hasOnlyKeys(raw, [
-        "kind",
-        "name",
-        "resultType",
-        "percentRemaining",
-        "value",
-        "label",
-        "right",
-        "resetTimeIso",
-        "observedAtIso",
-      ])
-    ) {
-      return { success: false, error: "Invalid quota-v1 response" };
-    }
-
-    const name = boundedDisplayText(raw.name, 80);
-    const resultType =
-      typeof raw.resultType === "string" && RESULT_TYPES.has(raw.resultType as AccountingResultType)
-        ? (raw.resultType as AccountingResultType)
-        : null;
-    const label = raw.label === undefined ? undefined : boundedDisplayText(raw.label, 80);
-    const right = raw.right === undefined ? undefined : boundedDisplayText(raw.right, 160);
-    const resetTimeIso =
-      raw.resetTimeIso === undefined
-        ? undefined
-        : isIsoTimestamp(raw.resetTimeIso)
-          ? raw.resetTimeIso
-          : null;
-    const observedAtIso =
-      raw.observedAtIso === undefined
-        ? undefined
-        : isIsoTimestamp(raw.observedAtIso)
-          ? raw.observedAtIso
-          : null;
-
-    if (
-      !name ||
-      !resultType ||
-      (raw.label !== undefined && label === null) ||
-      (raw.right !== undefined && right === null) ||
-      resetTimeIso === null ||
-      observedAtIso === null
-    ) {
-      return { success: false, error: "Invalid quota-v1 response" };
-    }
-
-    const common = {
-      accounting: accountingMetadata(resultType, observedAtIso),
-      name: `${source.label} ${name}`,
-      group: source.label,
-      ...(label ? { label } : {}),
-      ...(right ? { right } : {}),
-      ...(resetTimeIso ? { resetTimeIso } : {}),
-    };
-
-    if (
-      raw.kind === "percent" &&
-      typeof raw.percentRemaining === "number" &&
-      Number.isFinite(raw.percentRemaining) &&
-      raw.percentRemaining <= 100 &&
-      ["quota", "rate_limit", "budget"].includes(resultType) &&
-      raw.value === undefined
-    ) {
-      entries.push({ ...common, kind: "percent", percentRemaining: raw.percentRemaining });
-      continue;
-    }
-
-    const value = boundedDisplayText(raw.value, 160);
-    if (raw.kind === "value" && value !== null && raw.percentRemaining === undefined) {
-      entries.push({ ...common, kind: "value", value });
-      continue;
-    }
-
-    return { success: false, error: "Invalid quota-v1 response" };
+    const row = parseQuotaV1Row(raw);
+    if (!row) return invalid;
+    rows.push(row);
   }
-
-  return { success: true, entries };
+  return { success: true, rows };
 }
-
-type JsonV1PathResolution =
-  | { state: "value"; value: unknown }
-  | { state: "missing" | "null" | "wrong-type" };
 
 type JsonV1Resolved<T> = { ok: true; value: T } | { ok: false; issue: string };
 
-function isJsonV1ResponseDepthValid(value: unknown): boolean {
-  if (!value || typeof value !== "object") return true;
+type JsonV1Candidate = { row: ProviderRow } | { error: string };
+
+function exceedsJsonDepth(value: unknown, maxDepth: number): boolean {
+  if (!value || typeof value !== "object") return false;
   const stack: Array<{ value: object; depth: number }> = [{ value, depth: 1 }];
   while (stack.length > 0) {
     const current = stack.pop()!;
-    if (current.depth > JSON_V1_MAX_RESPONSE_DEPTH) return false;
+    if (current.depth > maxDepth) return true;
     const children = Array.isArray(current.value) ? current.value : Object.values(current.value);
     for (const child of children) {
       if (child && typeof child === "object") {
@@ -300,98 +247,72 @@ function isJsonV1ResponseDepthValid(value: unknown): boolean {
       }
     }
   }
-  return true;
+  return false;
 }
 
-function resolveJsonV1Path(root: unknown, path: JsonV1Path): JsonV1PathResolution {
+function resolveJsonV1Path(root: unknown, path: JsonV1Path): JsonV1Resolved<unknown> {
   let current = root;
-  for (let index = 0; index < path.length; index += 1) {
-    if (!isRecord(current)) return { state: "wrong-type" };
-    const segment = path[index]!;
-    if (!Object.hasOwn(current, segment)) return { state: "missing" };
+  for (const segment of path) {
+    if (!isRecord(current)) return { ok: false, issue: "had wrong type" };
+    if (!Object.hasOwn(current, segment)) return { ok: false, issue: "was missing" };
     current = current[segment];
-    if (current === null) return { state: "null" };
-    if (index < path.length - 1 && !isRecord(current)) return { state: "wrong-type" };
+    if (current === null) return { ok: false, issue: "was null" };
   }
-  return { state: "value", value: current };
+  return { ok: true, value: current };
 }
 
-function jsonV1SourceValue(
+function resolveJsonV1Source(
   row: Record<string, unknown>,
   source: { path: JsonV1Path } | { literal: unknown },
-): JsonV1PathResolution {
-  if ("literal" in source) {
-    return source.literal === null ? { state: "null" } : { state: "value", value: source.literal };
-  }
-  return resolveJsonV1Path(row, source.path);
-}
-
-function jsonV1ResolutionIssue(
-  resolution: Exclude<JsonV1PathResolution, { state: "value" }>,
-): string {
-  switch (resolution.state) {
-    case "missing":
-      return "was missing";
-    case "null":
-      return "was null";
-    case "wrong-type":
-      return "had wrong type";
-  }
+): JsonV1Resolved<unknown> {
+  return "literal" in source
+    ? { ok: true, value: source.literal }
+    : resolveJsonV1Path(row, source.path);
 }
 
 function resolveJsonV1Number(
   row: Record<string, unknown>,
   source: JsonV1NumberSource,
 ): JsonV1Resolved<number> {
-  const resolution = jsonV1SourceValue(row, source);
-  if (resolution.state !== "value") {
-    return { ok: false, issue: jsonV1ResolutionIssue(resolution) };
-  }
+  const resolved = resolveJsonV1Source(row, source);
+  if (!resolved.ok) return resolved;
   // Some APIs write numbers as text (`"95.50"`); only a plain decimal is read as a number.
   const raw =
-    typeof resolution.value === "string" && JSON_V1_DECIMAL_TEXT_RE.test(resolution.value.trim())
-      ? Number(resolution.value.trim())
-      : resolution.value;
+    typeof resolved.value === "string" && JSON_V1_DECIMAL_TEXT_RE.test(resolved.value.trim())
+      ? Number(resolved.value.trim())
+      : resolved.value;
   if (typeof raw !== "number" || !Number.isFinite(raw)) {
     return { ok: false, issue: "had wrong type" };
   }
   if (Math.abs(raw) > JSON_V1_MAX_NUMBER_MAGNITUDE) {
     return { ok: false, issue: "exceeded the numeric magnitude limit" };
   }
-  const value = "path" in source && source.divideBy !== undefined ? raw / source.divideBy : raw;
-  return Number.isFinite(value)
-    ? { ok: true, value }
-    : { ok: false, issue: "did not resolve to a finite number" };
+  const divideBy = "path" in source ? source.divideBy : undefined;
+  return { ok: true, value: divideBy === undefined ? raw : raw / divideBy };
 }
 
 function resolveJsonV1Text(
   row: Record<string, unknown>,
   source: JsonV1TextSource,
 ): JsonV1Resolved<string> {
-  const resolution = jsonV1SourceValue(row, source);
-  if (resolution.state !== "value") {
-    return { ok: false, issue: jsonV1ResolutionIssue(resolution) };
-  }
-  if (typeof resolution.value !== "string") {
-    return { ok: false, issue: "had wrong type" };
-  }
-  const normalized = boundedDisplayText(resolution.value, JSON_V1_MAX_DISPLAY_CODE_POINTS);
-  return normalized
-    ? { ok: true, value: normalized }
+  const resolved = resolveJsonV1Source(row, source);
+  if (!resolved.ok) return resolved;
+  if (typeof resolved.value !== "string") return { ok: false, issue: "had wrong type" };
+  const text = boundedDisplayText(resolved.value, JSON_V1_MAX_DISPLAY_CODE_POINTS);
+  return text
+    ? { ok: true, value: text }
     : { ok: false, issue: "did not resolve to bounded display text" };
 }
 
-function resolveJsonV1TimestampSource(
+function resolveJsonV1Timestamp(
   row: Record<string, unknown>,
   source: JsonV1TimestampSource,
 ): JsonV1Resolved<string> {
-  const resolution = jsonV1SourceValue(row, source);
-  if (resolution.state !== "value") {
-    return { ok: false, issue: jsonV1ResolutionIssue(resolution) };
-  }
-  const normalized = normalizeJsonV1Timestamp(resolution.value, source.encoding);
-  return normalized
-    ? { ok: true, value: normalized }
+  const resolved = resolveJsonV1Source(row, source);
+  if (!resolved.ok) return resolved;
+  const timestamp = normalizeJsonV1Timestamp(resolved.value, source.encoding);
+  return timestamp
+    ? { ok: true, value: timestamp }
     : { ok: false, issue: "did not resolve to a valid timestamp" };
 }
 
@@ -405,177 +326,114 @@ function jsonV1CandidateError(
 }
 
 function formatJsonV1Value(value: number, mapping: JsonV1Mapping): string {
-  const text = String(value);
-  if (!mapping.unit) return text;
-  return mapping.unitPosition === "prefix" ? `${mapping.unit}${text}` : `${text} ${mapping.unit}`;
+  if (!mapping.unit) return `${value}`;
+  return mapping.unitPosition === "prefix" ? `${mapping.unit}${value}` : `${value} ${mapping.unit}`;
 }
 
-function formatJsonV1Pair(left: number, right: number, mapping: JsonV1Mapping): string {
-  const pair = `${String(left)}/${String(right)}`;
-  if (!mapping.unit) return pair;
-  return mapping.unitPosition === "prefix"
-    ? `${mapping.unit}${String(left)}/${mapping.unit}${String(right)}`
-    : `${pair} ${mapping.unit}`;
-}
-
-function jsonV1DerivedPercentageIssue(value: number): string | null {
-  if (!Number.isFinite(value)) return "produced a non-finite percentage";
-  if (Math.abs(value) > JSON_V1_MAX_NUMBER_MAGNITUDE) {
-    return "produced a percentage beyond the numeric magnitude limit";
-  }
-  return null;
-}
-
+/** One mapping applied to one reply row: a row keyed by the mapping's name, or why not. */
 function mapJsonV1Candidate(
-  source: Extract<RemoteApiQuotaProviderDefinition, { format: "json-v1" }>,
   row: Record<string, unknown>,
   rowIndex: number,
   mapping: JsonV1Mapping,
   mappingIndex: number,
-): { entry: QuotaToastEntry } | { error: string } {
-  const fail = (field: string, issue: string): { error: string } => ({
+): JsonV1Candidate {
+  const fail = (field: string, issue: string): JsonV1Candidate => ({
     error: jsonV1CandidateError(mappingIndex, field, issue, rowIndex),
   });
 
   let resetTimeIso: string | undefined;
   if (mapping.resetTime) {
-    const resolved = resolveJsonV1TimestampSource(row, mapping.resetTime);
+    const resolved = resolveJsonV1Timestamp(row, mapping.resetTime);
     if (!resolved.ok) return fail("resetTime", resolved.issue);
     resetTimeIso = resolved.value;
   }
 
-  let observedAtIso: string | undefined;
+  // The observed time is checked but not shown.
   if (mapping.observedTime) {
-    const resolved = resolveJsonV1TimestampSource(row, mapping.observedTime);
+    const resolved = resolveJsonV1Timestamp(row, mapping.observedTime);
     if (!resolved.ok) return fail("observedTime", resolved.issue);
-    observedAtIso = resolved.value;
   }
 
-  const common = {
-    accounting: accountingMetadata(mapping.resultType, observedAtIso),
-    name: `${source.label} ${mapping.name}`,
-    group: source.label,
-    ...(mapping.label ? { label: mapping.label } : {}),
-    ...(resetTimeIso ? { resetTimeIso } : {}),
+  const mapped = (value: { percentRemaining: number } | { text: string }): JsonV1Candidate => ({
+    row: customRow({
+      key: customRowKey(mapping.name),
+      name: mapping.name,
+      label: mapping.label,
+      resultType: mapping.resultType,
+      method: "remote_api",
+      value,
+      resetsAt: resetTimeIso,
+    }),
+  });
+
+  // Shared by used-limit, remaining-limit, spend-budget and remaining-budget:
+  // an amount (used, spent, or remaining) out of a positive total.
+  const share = (
+    amountKey: "used" | "spend" | "remaining",
+    amountSource: JsonV1NumberSource,
+    totalKey: "limit" | "budget",
+    totalSource: JsonV1NumberSource,
+  ): JsonV1Candidate => {
+    const amountField = `metric.${amountKey}`;
+    const totalField = `metric.${totalKey}`;
+    const amountIsRemaining = amountKey === "remaining";
+    const amount = resolveJsonV1Number(row, amountSource);
+    if (!amount.ok) return fail(amountField, amount.issue);
+    const total = resolveJsonV1Number(row, totalSource);
+    if (!total.ok) return fail(totalField, total.issue);
+    if (!amountIsRemaining && amount.value < 0) return fail(amountField, "must be non-negative");
+    if (total.value <= 0) return fail(totalField, "must be greater than zero");
+    if (amountIsRemaining && amount.value > total.value) {
+      return fail(amountField, `must not exceed ${totalKey}`);
+    }
+    const percentRemaining = amountIsRemaining
+      ? (amount.value / total.value) * 100
+      : ((total.value - amount.value) / total.value) * 100;
+    // Finite operands can still overflow, for example a tiny literal total.
+    if (!Number.isFinite(percentRemaining)) {
+      return fail(totalField, "produced a non-finite percentage");
+    }
+    if (Math.abs(percentRemaining) > JSON_V1_MAX_NUMBER_MAGNITUDE) {
+      return fail(totalField, "produced a percentage beyond the numeric magnitude limit");
+    }
+    return mapped({ percentRemaining });
   };
 
-  switch (mapping.metric.type) {
+  const { metric } = mapping;
+  switch (metric.type) {
     case "percentage": {
-      const percentage = resolveJsonV1Number(row, mapping.metric.percentage);
+      const percentage = resolveJsonV1Number(row, metric.percentage);
       if (!percentage.ok) return fail("metric.percentage", percentage.issue);
-      if (mapping.metric.meaning === "remaining" && percentage.value > 100) {
+      if (metric.meaning === "remaining" && percentage.value > 100) {
         return fail("metric.percentage", "must not exceed 100 for remaining meaning");
       }
-      if (mapping.metric.meaning === "used" && percentage.value < 0) {
+      if (metric.meaning === "used" && percentage.value < 0) {
         return fail("metric.percentage", "must be non-negative for used meaning");
       }
-      return {
-        entry: {
-          ...common,
-          kind: "percent",
-          percentRemaining:
-            mapping.metric.meaning === "remaining" ? percentage.value : 100 - percentage.value,
-        },
-      };
+      const percentRemaining =
+        metric.meaning === "remaining" ? percentage.value : 100 - percentage.value;
+      return mapped({ percentRemaining });
     }
-    case "used-limit": {
-      const used = resolveJsonV1Number(row, mapping.metric.used);
-      if (!used.ok) return fail("metric.used", used.issue);
-      const limit = resolveJsonV1Number(row, mapping.metric.limit);
-      if (!limit.ok) return fail("metric.limit", limit.issue);
-      if (used.value < 0) return fail("metric.used", "must be non-negative");
-      if (limit.value <= 0) return fail("metric.limit", "must be greater than zero");
-      const percentRemaining = ((limit.value - used.value) / limit.value) * 100;
-      const percentageIssue = jsonV1DerivedPercentageIssue(percentRemaining);
-      if (percentageIssue) return fail("metric.limit", percentageIssue);
-      return {
-        entry: {
-          ...common,
-          kind: "percent",
-          percentRemaining,
-          right: formatJsonV1Pair(used.value, limit.value, mapping),
-        },
-      };
-    }
-    case "remaining-limit": {
-      const remaining = resolveJsonV1Number(row, mapping.metric.remaining);
-      if (!remaining.ok) return fail("metric.remaining", remaining.issue);
-      const limit = resolveJsonV1Number(row, mapping.metric.limit);
-      if (!limit.ok) return fail("metric.limit", limit.issue);
-      if (limit.value <= 0) return fail("metric.limit", "must be greater than zero");
-      if (remaining.value > limit.value) {
-        return fail("metric.remaining", "must not exceed limit");
-      }
-      const percentRemaining = (remaining.value / limit.value) * 100;
-      const percentageIssue = jsonV1DerivedPercentageIssue(percentRemaining);
-      if (percentageIssue) return fail("metric.limit", percentageIssue);
-      return {
-        entry: {
-          ...common,
-          kind: "percent",
-          percentRemaining,
-          right: formatJsonV1Pair(remaining.value, limit.value, mapping),
-        },
-      };
-    }
-    case "spend-budget": {
-      const spend = resolveJsonV1Number(row, mapping.metric.spend);
-      if (!spend.ok) return fail("metric.spend", spend.issue);
-      const budget = resolveJsonV1Number(row, mapping.metric.budget);
-      if (!budget.ok) return fail("metric.budget", budget.issue);
-      if (spend.value < 0) return fail("metric.spend", "must be non-negative");
-      if (budget.value <= 0) return fail("metric.budget", "must be greater than zero");
-      const percentRemaining = ((budget.value - spend.value) / budget.value) * 100;
-      const percentageIssue = jsonV1DerivedPercentageIssue(percentRemaining);
-      if (percentageIssue) return fail("metric.budget", percentageIssue);
-      return {
-        entry: {
-          ...common,
-          kind: "percent",
-          percentRemaining,
-          right: formatJsonV1Pair(spend.value, budget.value, mapping),
-        },
-      };
-    }
-    case "remaining-budget": {
-      const remaining = resolveJsonV1Number(row, mapping.metric.remaining);
-      if (!remaining.ok) return fail("metric.remaining", remaining.issue);
-      const budget = resolveJsonV1Number(row, mapping.metric.budget);
-      if (!budget.ok) return fail("metric.budget", budget.issue);
-      if (budget.value <= 0) return fail("metric.budget", "must be greater than zero");
-      if (remaining.value > budget.value) {
-        return fail("metric.remaining", "must not exceed budget");
-      }
-      const percentRemaining = (remaining.value / budget.value) * 100;
-      const percentageIssue = jsonV1DerivedPercentageIssue(percentRemaining);
-      if (percentageIssue) return fail("metric.budget", percentageIssue);
-      return {
-        entry: {
-          ...common,
-          kind: "percent",
-          percentRemaining,
-          right: formatJsonV1Pair(remaining.value, budget.value, mapping),
-        },
-      };
-    }
+    case "used-limit":
+      return share("used", metric.used, "limit", metric.limit);
+    case "remaining-limit":
+      return share("remaining", metric.remaining, "limit", metric.limit);
+    case "spend-budget":
+      return share("spend", metric.spend, "budget", metric.budget);
+    case "remaining-budget":
+      return share("remaining", metric.remaining, "budget", metric.budget);
     case "value": {
-      const value = resolveJsonV1Number(row, mapping.metric.value);
+      const value = resolveJsonV1Number(row, metric.value);
       if (!value.ok) return fail("metric.value", value.issue);
-      if (!["remaining", "balance"].includes(mapping.metric.valueType) && value.value < 0) {
-        return fail("metric.value", "must be non-negative");
-      }
-      return {
-        entry: {
-          ...common,
-          kind: "value",
-          value: formatJsonV1Value(value.value, mapping),
-        },
-      };
+      // Remaining and balance values may legitimately be negative (overdrawn).
+      const mayBeNegative = metric.valueType === "remaining" || metric.valueType === "balance";
+      if (!mayBeNegative && value.value < 0) return fail("metric.value", "must be non-negative");
+      return mapped({ text: formatJsonV1Value(value.value, mapping) });
     }
     case "status": {
-      const value = resolveJsonV1Text(row, mapping.metric.value);
+      const value = resolveJsonV1Text(row, metric.value);
       if (!value.ok) return fail("metric.value", value.issue);
-      return { entry: { ...common, kind: "value", value: value.value } };
+      return mapped({ text: value.value });
     }
   }
 }
@@ -589,7 +447,7 @@ function parseJsonV1(
     error: `Invalid json-v1 response: ${message}`,
   });
 
-  if (!isJsonV1ResponseDepthValid(body)) {
+  if (exceedsJsonDepth(body, JSON_V1_MAX_RESPONSE_DEPTH)) {
     return invalid(`nesting depth exceeded ${JSON_V1_MAX_RESPONSE_DEPTH}`);
   }
 
@@ -597,9 +455,7 @@ function parseJsonV1(
   if (source.adapter.rowsPath) {
     if (!isRecord(body)) return invalid("adapter.rowsPath requires an object root");
     const resolved = resolveJsonV1Path(body, source.adapter.rowsPath);
-    if (resolved.state !== "value") {
-      return invalid(`adapter.rowsPath ${jsonV1ResolutionIssue(resolved)}`);
-    }
+    if (!resolved.ok) return invalid(`adapter.rowsPath ${resolved.issue}`);
     if (!Array.isArray(resolved.value)) {
       return invalid("adapter.rowsPath did not resolve to an array");
     }
@@ -612,14 +468,15 @@ function parseJsonV1(
     return invalid("expected an object or array root");
   }
 
-  if (rows.length < 1 || rows.length > QUOTA_PROVIDER_MAX_REMOTE_ROWS) {
-    return invalid(`selected rows must contain 1-${QUOTA_PROVIDER_MAX_REMOTE_ROWS} elements`);
+  if (rows.length < 1 || rows.length > MAX_REMOTE_ROWS) {
+    return invalid(`selected rows must contain 1-${MAX_REMOTE_ROWS} elements`);
   }
-  if (rows.length * source.adapter.mappings.length > JSON_V1_MAX_CANDIDATES) {
+  const { mappings } = source.adapter;
+  if (rows.length * mappings.length > JSON_V1_MAX_CANDIDATES) {
     return invalid(`candidate count exceeded ${JSON_V1_MAX_CANDIDATES}`);
   }
 
-  const entries: QuotaToastEntry[] = [];
+  const mappedRows: ProviderRow[] = [];
   const rowErrors: string[] = [];
   let errorCount = 0;
   const recordError = (error: string): void => {
@@ -627,34 +484,27 @@ function parseJsonV1(
     if (rowErrors.length < JSON_V1_MAX_DETAILED_ERRORS) rowErrors.push(error);
   };
 
-  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
-    const row = rows[rowIndex];
-    for (let mappingIndex = 0; mappingIndex < source.adapter.mappings.length; mappingIndex += 1) {
+  for (const [rowIndex, row] of rows.entries()) {
+    for (const [mappingIndex, mapping] of mappings.entries()) {
       if (!isRecord(row)) {
         recordError(
           jsonV1CandidateError(mappingIndex, "metric", "requires an object row", rowIndex),
         );
         continue;
       }
-      const mapped = mapJsonV1Candidate(
-        source,
-        row,
-        rowIndex,
-        source.adapter.mappings[mappingIndex]!,
-        mappingIndex,
-      );
+      const mapped = mapJsonV1Candidate(row, rowIndex, mapping, mappingIndex);
       if ("error" in mapped) {
         recordError(mapped.error);
         continue;
       }
-      entries.push(mapped.entry);
-      if (entries.length > JSON_V1_MAX_ENTRIES) {
+      mappedRows.push(mapped.row);
+      if (mappedRows.length > JSON_V1_MAX_ENTRIES) {
         return invalid(`more than ${JSON_V1_MAX_ENTRIES} entries were produced`);
       }
     }
   }
 
-  if (entries.length === 0) {
+  if (mappedRows.length === 0) {
     return invalid(rowErrors[0] ?? "no mappings produced entries");
   }
   if (errorCount > rowErrors.length) {
@@ -662,75 +512,68 @@ function parseJsonV1(
   }
   return {
     success: true,
-    entries,
+    rows: mappedRows,
     ...(rowErrors.length > 0 ? { rowErrors } : {}),
   };
 }
 
-function parseOpenRouterKeyV1(
-  source: RemoteApiQuotaProviderDefinition,
-  body: unknown,
-): RemoteQuotaProviderResult {
-  if (!isRecord(body) || !isRecord(body.data)) {
-    return { success: false, error: "Invalid openrouter-key-v1 response" };
-  }
+/**
+ * The key's budget (percent left), or its spend when the key has no limit: this month's
+ * (`usage_monthly`, the current UTC month) when the reply has it, else all time.
+ */
+function parseOpenRouterKeyV1(body: unknown): RemoteQuotaProviderResult {
+  const invalid = { success: false, error: "Invalid openrouter-key-v1 response" } as const;
+  if (!isRecord(body) || !isRecord(body.data)) return invalid;
 
-  const data = body.data;
-  const usage = data.usage;
-  const limit = data.limit;
-  const remaining = data.limit_remaining;
-  if (
-    typeof usage !== "number" ||
-    !Number.isFinite(usage) ||
-    usage < 0 ||
-    (limit !== null &&
-      limit !== undefined &&
-      (typeof limit !== "number" || !Number.isFinite(limit) || limit < 0)) ||
-    (remaining === null && limit !== null) ||
-    (remaining !== null &&
-      remaining !== undefined &&
-      (typeof remaining !== "number" || !Number.isFinite(remaining)))
-  ) {
-    return { success: false, error: "Invalid openrouter-key-v1 response" };
-  }
+  const { usage, usage_monthly: usageMonthly, limit, limit_remaining: remaining } = body.data;
+  const isValidUsage = typeof usage === "number" && Number.isFinite(usage) && usage >= 0;
+  const isValidLimit =
+    limit === null ||
+    limit === undefined ||
+    (typeof limit === "number" && Number.isFinite(limit) && limit >= 0);
+  // A null remaining is valid only for a key without a limit (free tier).
+  const isValidRemaining =
+    remaining === undefined ||
+    (remaining === null
+      ? limit === null
+      : typeof remaining === "number" && Number.isFinite(remaining));
+  if (!isValidUsage || !isValidLimit || !isValidRemaining) return invalid;
 
   if (typeof limit === "number" && limit > 0) {
-    const remainingValue = typeof remaining === "number" ? remaining : limit - usage;
-    if (remainingValue > limit) {
-      return {
-        success: false,
-        error: "Invalid openrouter-key-v1 response",
-      };
-    }
-    const percentRemaining = (remainingValue / limit) * 100;
-    const usedUsd = typeof remaining === "number" ? limit - remainingValue : usage;
+    // `limit_remaining` covers the current limit window, while `usage` is the key's lifetime total.
+    const remainingUsd = typeof remaining === "number" ? remaining : limit - usage;
+    if (remainingUsd > limit) return invalid;
+    const percentRemaining = (remainingUsd / limit) * 100;
     return {
       success: true,
-      entries: [
-        {
-          accounting: accountingMetadata("budget"),
-          kind: "percent",
-          name: `${source.label} budget`,
-          group: source.label,
-          label: "Budget:",
-          right: `${formatUsd(usedUsd)}/${formatUsd(limit)}`,
-          percentRemaining,
-        },
+      rows: [
+        customRow({
+          key: "budget",
+          name: "budget",
+          label: "Budget",
+          resultType: "budget",
+          method: "remote_api",
+          value: { percentRemaining },
+        }),
       ],
     };
   }
 
+  // A reply without a usable monthly figure (an older or compatible endpoint) keeps the
+  // all-time spend.
+  const hasMonthly =
+    typeof usageMonthly === "number" && Number.isFinite(usageMonthly) && usageMonthly >= 0;
   return {
     success: true,
-    entries: [
-      {
-        accounting: accountingMetadata("spend"),
-        kind: "value",
-        name: `${source.label} spend`,
-        group: source.label,
-        label: "Spend:",
-        value: formatUsd(usage),
-      },
+    rows: [
+      customRow({
+        key: "spend",
+        name: "spend",
+        label: hasMonthly ? "This month" : "Spend",
+        resultType: "spend",
+        method: "remote_api",
+        value: { text: fmtUsdAmount(hasMonthly ? usageMonthly : usage) },
+      }),
     ],
   };
 }
@@ -740,6 +583,8 @@ export async function fetchRemoteQuotaProvider(
   apiKey: string,
   requestTimeoutMs?: number,
 ): Promise<RemoteQuotaProviderResult> {
+  // A switched-off provider is never sent a request or its key, whoever asks.
+  if (source.enabled === false) return { success: false, error: "Provider is switched off" };
   const timeoutMs = requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -762,14 +607,15 @@ export async function fetchRemoteQuotaProvider(
       return { success: false, error: `HTTP ${response.status}` };
     }
 
-    const body = await readBoundedJson(response);
+    const read = await readBoundedJson(response);
+    if (!read.ok) return { success: false, error: read.error };
     switch (source.format) {
       case "quota-v1":
-        return parseQuotaV1(source, body);
+        return parseQuotaV1(read.body);
       case "openrouter-key-v1":
-        return parseOpenRouterKeyV1(source, body);
+        return parseOpenRouterKeyV1(read.body);
       case "json-v1":
-        return parseJsonV1(source, body);
+        return parseJsonV1(source, read.body);
     }
   } catch (error) {
     if (controller.signal.aborted || (error instanceof Error && error.name === "AbortError")) {
@@ -778,16 +624,7 @@ export async function fetchRemoteQuotaProvider(
         error: `Request timeout after ${Math.round(timeoutMs / 1000)}s`,
       };
     }
-    if (
-      error instanceof Error &&
-      [
-        "Response exceeded 262144 bytes",
-        "Expected a JSON response",
-        "Invalid JSON response",
-      ].includes(error.message)
-    ) {
-      return { success: false, error: error.message };
-    }
+    // Never echo thrown text: it can contain the endpoint or response data.
     return { success: false, error: "Failed to read accounting data" };
   } finally {
     clearTimeout(timeoutId);

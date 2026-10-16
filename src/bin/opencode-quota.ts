@@ -4,21 +4,13 @@ import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runInitInstaller } from "../lib/init-installer.js";
-
 const USAGE = [
   "Usage:",
-  "  npx @slkiser/opencode-quota init [--dry-run] [--sync-legacy-config]",
   "  npx @slkiser/opencode-quota show [--provider <provider-id>] [--json] [--threshold <pct>]",
   "  npx @slkiser/opencode-quota status [--provider <provider-id>] [--json]",
-  "  npx @slkiser/opencode-quota update [--dry-run] [--yes]",
-  "  npx @slkiser/opencode-quota provider add [--dry-run]",
   "  npx @slkiser/opencode-quota --help",
   "",
   "Commands:",
-  "  init    Run the interactive quota installer",
-  "          --dry-run            Preview validated changes without writing files",
-  "          --sync-legacy-config also writes experimental.quotaToast",
   "  show    Print a quick quota glance",
   "          --json               Machine-readable JSON output (reads from cache)",
   "          --threshold <pct>    With --json, exit 1 if below <pct>%, 2 if incomplete/not comparable",
@@ -26,13 +18,6 @@ const USAGE = [
   "  status  Print Quota Status diagnostics (same data as /quota_status)",
   "          --json               Machine-readable JSON output",
   "          --provider <id>      Filter to one provider",
-  "  update  Preview safe setting/package-cache changes and report legacy credential findings",
-  "          Credential-specific audit sources and values are not read",
-  "          Values encountered in normal config parsing are never printed, copied, or modified",
-  "          --dry-run            Print the full responsible preview without changing anything",
-  "          --yes                Apply only safe setting/cache work after printing the preview",
-  "  provider add  Add or update one global quotaProviders definition",
-  "          --dry-run            Preview the exact global OpenCode config without writing",
 ].join("\n");
 
 function printUsage(): void {
@@ -91,34 +76,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     return 0;
   }
 
-  if (command === "init") {
-    const allowed = new Set(["--dry-run", "--sync-legacy-config"]);
-    if (rest.every((arg) => allowed.has(arg)) && new Set(rest).size === rest.length) {
-      return await runInitInstaller({
-        ...(rest.includes("--dry-run") ? { dryRun: true } : {}),
-        ...(rest.includes("--sync-legacy-config") ? { syncLegacyConfig: true } : {}),
-      });
-    }
-  }
-
   if (command === "show") {
     const { runCliShowCommand } = await import("../lib/cli-show.js");
     return await runCliShowCommand({ argv: rest });
   }
 
   if (command === "status") {
-    const { runCliStatusCommand } = await import("../lib/cli-status.js");
+    const { runCliStatusCommand } = await import("../lib/cli-show.js");
     return await runCliStatusCommand({ argv: rest });
-  }
-
-  if (command === "update") {
-    const { runScopedUpdateCommand } = await import("../lib/scoped-update.js");
-    return await runScopedUpdateCommand({ argv: rest });
-  }
-
-  if (command === "provider" && rest[0] === "add") {
-    const { runProviderAddCommand } = await import("../lib/provider-add-command.js");
-    return await runProviderAddCommand({ argv: rest.slice(1) });
   }
 
   printUsage();

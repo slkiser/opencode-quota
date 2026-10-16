@@ -1,5 +1,6 @@
 import { sanitizeDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
+import { asRecord } from "./json-guards.js";
 import {
   consoleBaseUrl,
   consoleHeaders,
@@ -9,23 +10,19 @@ import type { OpenCodeGoResult, OpenCodeGoWindow, OpenCodeGoWindowKey } from "./
 
 const OPENCODE_GO_USAGE_URL = "https://opencode.ai/zen/go/v1/usage";
 const OPENCODE_GO_WINDOW_ORDER: OpenCodeGoWindowKey[] = ["rolling", "weekly", "monthly"];
+const CONSOLE_METER_KEYS: Record<OpenCodeGoWindowKey, string> = {
+  rolling: "fiveHour",
+  weekly: "week",
+  monthly: "month",
+};
 const OFFSET_ISO_TIMESTAMP =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/;
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function redactToken(text: string, accessToken: string): string {
-  return accessToken ? text.replaceAll(accessToken, "[redacted]") : text;
-}
-
-function sanitizeMessage(text: string, accessToken: string, maxLength = 120): string {
-  const redacted = redactToken(text, accessToken);
+/** Redact the token, strip control characters, collapse whitespace, cap at 120 characters. */
+function sanitizeMessage(text: string, accessToken: string): string {
+  const redacted = accessToken ? text.replaceAll(accessToken, "[redacted]") : text;
   const sanitized = sanitizeDisplayText(redacted).replace(/\s+/g, " ").trim();
-  return (sanitized || "unknown").slice(0, maxLength);
+  return (sanitized || "unknown").slice(0, 120);
 }
 
 function errorMessage(error: unknown, accessToken: string): string {
@@ -36,31 +33,14 @@ function contractError(message: string): OpenCodeGoResult {
   return { success: false, error: `Invalid OpenCode Go API response: ${message}` };
 }
 
-function isRetryableHttpStatus(status: number): boolean {
-  return status === 408 || status === 425 || status === 429 || status >= 500;
-}
-
+/** A real calendar date and time with `Z` or a `±HH:MM` offset. */
 function isValidOffsetIsoTimestamp(value: string): boolean {
   const match = OFFSET_ISO_TIMESTAMP.exec(value);
   if (!match) return false;
 
-  const [
-    ,
-    yearText,
-    monthText,
-    dayText,
-    hourText,
-    minuteText,
-    secondText,
-    offsetHour,
-    offsetMinute,
-  ] = match;
-  const year = Number(yearText);
-  const month = Number(monthText);
-  const day = Number(dayText);
-  const hour = Number(hourText);
-  const minute = Number(minuteText);
-  const second = Number(secondText);
+  const [year, month, day, hour, minute, second, offsetHour, offsetMinute] = match
+    .slice(1)
+    .map((part) => Number(part ?? 0));
   const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
   const daysInMonth = [0, 31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
@@ -72,9 +52,27 @@ function isValidOffsetIsoTimestamp(value: string): boolean {
     hour <= 23 &&
     minute <= 59 &&
     second <= 59 &&
-    (offsetHour === undefined || Number(offsetHour) <= 23) &&
-    (offsetMinute === undefined || Number(offsetMinute) <= 59)
+    offsetHour <= 23 &&
+    offsetMinute <= 59
   );
+}
+
+/** All three windows in order; the first invalid window fails the whole response. */
+function normalizeWindows(
+  normalize: (windowKey: OpenCodeGoWindowKey) => OpenCodeGoWindow | OpenCodeGoResult,
+): OpenCodeGoResult {
+  const windows = {} as Record<OpenCodeGoWindowKey, OpenCodeGoWindow>;
+  for (const windowKey of OPENCODE_GO_WINDOW_ORDER) {
+    const window = normalize(windowKey);
+    if ("success" in window) return window;
+    windows[windowKey] = window;
+  }
+  return {
+    success: true,
+    rolling: windows.rolling,
+    weekly: windows.weekly,
+    monthly: windows.monthly,
+  };
 }
 
 function normalizeWindow(
@@ -103,39 +101,12 @@ function normalizeWindow(
     return contractError(`${windowKey} resetsAt must be an offset-qualified ISO timestamp`);
   }
 
-  const resetTime = Date.parse(resetsAt);
-  if (!Number.isFinite(resetTime)) {
-    return contractError(`${windowKey} resetsAt must be a valid timestamp`);
-  }
-
   const exhausted = window.status === "rate-limited";
   return {
-    status: window.status as "ok" | "rate-limited",
+    status: window.status,
     usagePercent: exhausted ? 100 : percent,
     percentRemaining: exhausted ? 0 : 100 - percent,
-    resetTimeIso: new Date(resetTime).toISOString(),
-  };
-}
-
-function normalizeResponse(payload: unknown, accessToken: string): OpenCodeGoResult {
-  const root = asRecord(payload);
-  if (!root) return contractError("root must be an object");
-
-  const usage = asRecord(root.usage);
-  if (!usage) return contractError("usage must be an object");
-
-  const normalized = {} as Record<OpenCodeGoWindowKey, OpenCodeGoWindow>;
-  for (const windowKey of OPENCODE_GO_WINDOW_ORDER) {
-    const window = normalizeWindow(windowKey, usage[windowKey], accessToken);
-    if ("success" in window) return window;
-    normalized[windowKey] = window;
-  }
-
-  return {
-    success: true,
-    rolling: normalized.rolling,
-    weekly: normalized.weekly,
-    monthly: normalized.monthly,
+    resetTimeIso: new Date(Date.parse(resetsAt)).toISOString(),
   };
 }
 
@@ -173,7 +144,6 @@ export async function queryOpenCodeGoQuota(
             return {
               success: false,
               error: `OpenCode Go API error ${response.status}: ${errorMessage(error, accessToken)}`,
-              retryable: isRetryableHttpStatus(response.status),
             };
           }
           if (isNotSubscribedResponse(response.status, text)) {
@@ -181,13 +151,11 @@ export async function queryOpenCodeGoQuota(
               success: false,
               error: "OpenCode Go not subscribed (403 EntitlementError)",
               notSubscribed: true,
-              retryable: false,
             };
           }
           return {
             success: false,
             error: `OpenCode Go API error ${response.status}: ${sanitizeMessage(text, accessToken)}`,
-            retryable: isRetryableHttpStatus(response.status),
           };
         }
 
@@ -197,11 +165,17 @@ export async function queryOpenCodeGoQuota(
         } catch (error) {
           return contractError(`body is not valid JSON: ${errorMessage(error, accessToken)}`);
         }
-        return normalizeResponse(payload, accessToken);
+        const root = asRecord(payload);
+        if (!root) return contractError("root must be an object");
+        const usage = asRecord(root.usage);
+        if (!usage) return contractError("usage must be an object");
+        return normalizeWindows((windowKey) =>
+          normalizeWindow(windowKey, usage[windowKey], accessToken),
+        );
       },
     });
   } catch (error) {
-    return { success: false, error: errorMessage(error, accessToken), retryable: true };
+    return { success: false, error: errorMessage(error, accessToken) };
   }
 }
 
@@ -230,7 +204,8 @@ function normalizeConsoleMeter(
       : Math.min(100, Math.max(0, Math.round((used / limit) * 100)));
   const resetsAt =
     typeof meter.resetsAt === "string" && meter.resetsAt ? meter.resetsAt : fallbackResetsAtIso;
-  if (!resetsAt || !Number.isFinite(Date.parse(resetsAt))) {
+  const resetTime = resetsAt ? Date.parse(resetsAt) : Number.NaN;
+  if (!Number.isFinite(resetTime)) {
     return contractError(`console ${windowKey} resetsAt is missing or invalid`);
   }
 
@@ -238,7 +213,7 @@ function normalizeConsoleMeter(
     status: percent >= 100 ? "rate-limited" : "ok",
     usagePercent: percent,
     percentRemaining: 100 - percent,
-    resetTimeIso: new Date(Date.parse(resetsAt)).toISOString(),
+    resetTimeIso: new Date(resetTime).toISOString(),
   };
 }
 
@@ -277,7 +252,6 @@ export async function queryOpenCodeGoConsoleStatus(
           return {
             success: false,
             error: `OpenCode Console API error ${response.status} (/api/go/status)`,
-            retryable: isRetryableHttpStatus(response.status),
           };
         }
 
@@ -303,30 +277,15 @@ export async function queryOpenCodeGoConsoleStatus(
         if (!meters) return contractError("console access meters are missing");
 
         const endsAt = typeof access.endsAt === "string" ? access.endsAt : null;
-        const normalized = {} as Record<OpenCodeGoWindowKey, OpenCodeGoWindow>;
-        const meterByKey: Array<[OpenCodeGoWindowKey, string]> = [
-          ["rolling", "fiveHour"],
-          ["weekly", "week"],
-          ["monthly", "month"],
-        ];
-        for (const [windowKey, meterKey] of meterByKey) {
-          const meter = meters[meterKey];
-          const meterRecord = asRecord(meter);
-          if (!meterRecord) return contractError(`console ${meterKey} meter is missing`);
-          const window = normalizeConsoleMeter(windowKey, meterRecord, endsAt);
-          if ("success" in window) return window;
-          normalized[windowKey] = window;
-        }
-
-        return {
-          success: true,
-          rolling: normalized.rolling,
-          weekly: normalized.weekly,
-          monthly: normalized.monthly,
-        };
+        return normalizeWindows((windowKey) => {
+          const meterKey = CONSOLE_METER_KEYS[windowKey];
+          const meter = asRecord(meters[meterKey]);
+          if (!meter) return contractError(`console ${meterKey} meter is missing`);
+          return normalizeConsoleMeter(windowKey, meter, endsAt);
+        });
       },
     });
   } catch (error) {
-    return { success: false, error: errorMessage(error, credential.accessToken), retryable: true };
+    return { success: false, error: errorMessage(error, credential.accessToken) };
   }
 }

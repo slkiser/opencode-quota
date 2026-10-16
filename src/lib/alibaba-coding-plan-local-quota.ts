@@ -12,7 +12,7 @@ const FIVE_HOUR_WINDOW_MS = 5 * 60 * 60 * 1000;
 const WEEKLY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const MONTHLY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
-export const ALIBABA_CODING_PLAN_LIMITS: Readonly<
+const ALIBABA_CODING_PLAN_LIMITS: Readonly<
   Record<AlibabaCodingPlanTier, { fiveHour: number; weekly: number; monthly: number }>
 > = {
   lite: {
@@ -31,7 +31,7 @@ const MAX_ALIBABA_MONTHLY_LIMIT = Math.max(
   ...Object.values(ALIBABA_CODING_PLAN_LIMITS).map((limits) => limits.monthly),
 );
 
-export interface AlibabaCodingPlanStateFileV1 {
+interface AlibabaCodingPlanStateFileV1 {
   version: 1;
   recent: number[];
   updatedAt: number;

@@ -18,6 +18,9 @@ const HOME_DIR_END = "(?=$|[/\\\\\\s|,;:)\\]\"'`])";
  */
 const HOME_DIR_START = "(?<=^|[\\s\"'`=(\\[:,|])";
 
+/** A Windows device-path prefix before the drive: `\\?\C:\…`, `\\.\C:\…`, JSON-escaped too. */
+const DEVICE_PREFIX = "(?:[/\\\\]{2,4}[?.][/\\\\]{1,2})?";
+
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
@@ -32,9 +35,23 @@ function normalizeHomeDir(homeDir: string): string | null {
   return trimmed;
 }
 
-function replaceWholeHomeDir(text: string, home: string): string {
-  const pattern = new RegExp(`${HOME_DIR_START}${escapeRegExp(home)}${HOME_DIR_END}`, "gu");
-  return text.replace(pattern, "~");
+/**
+ * The home dir as a pattern. Spaces in it match any run of whitespace. A Windows home
+ * (C:\Users\Alice) also matches in any letter case, with "/", "\" or JSON's escaped "\\"
+ * between its parts, and after a device prefix, as programs and JSON print it:
+ * c:/users/alice, "C:\\Users\\Alice", \\?\C:\Users\Alice.
+ */
+function homeDirPattern(home: string): RegExp {
+  const literal = (part: string) => escapeRegExp(part).replace(/\s+/gu, "\\s+");
+  const windows = /^[A-Za-z]:/u.test(home) || home.includes("\\");
+  const body = windows
+    ? DEVICE_PREFIX +
+      home
+        .split(/[/\\]+/u)
+        .map(literal)
+        .join("(?:\\\\\\\\|[/\\\\])")
+    : literal(home);
+  return new RegExp(`${HOME_DIR_START}${body}${HOME_DIR_END}`, windows ? "giu" : "gu");
 }
 
 /**
@@ -44,13 +61,7 @@ function replaceWholeHomeDir(text: string, home: string): string {
  */
 export function replaceHomeDirWithTilde(text: string, homeDir: string): string {
   const home = normalizeHomeDir(homeDir);
-  if (!home) return text;
-  // A JSON-quoted Windows path doubles its backslashes, e.g. a quoted command in
-  // checked_commands: "C:\\Users\\Alice Smith\\.local\\bin\\claude" -> "~\\.local\\bin\\claude".
-  const jsonEscapedHome = home.replace(/\\/gu, "\\\\");
-  const withoutEscapedHome =
-    jsonEscapedHome === home ? text : replaceWholeHomeDir(text, jsonEscapedHome);
-  return replaceWholeHomeDir(withoutEscapedHome, home);
+  return home ? text.replace(homeDirPattern(home), "~") : text;
 }
 
 // Optional fields are only set when the input has them. An optional field set to `undefined`
@@ -70,27 +81,6 @@ function replaceHomeDirInBlock(block: ReportBlock, homeDir: string): ReportBlock
           ...(row.value !== undefined && { value: tilde(row.value) }),
         })),
       };
-    case "table":
-      return {
-        ...block,
-        headers: block.headers.map(tilde),
-        ...(block.fullHeaders !== undefined && { fullHeaders: block.fullHeaders.map(tilde) }),
-        rows: block.rows.map((row) => row.map(tilde)),
-      };
-    case "quota":
-      return {
-        ...block,
-        provider: tilde(block.provider),
-        lines: block.lines.map(tilde),
-        rows: block.rows.map((row) => ({
-          ...row,
-          label: tilde(row.label),
-          value: tilde(row.value),
-          ...(row.usage !== undefined && { usage: tilde(row.usage) }),
-          ...(row.reset !== undefined && { reset: tilde(row.reset) }),
-          notes: row.notes.map(tilde),
-        })),
-      };
   }
 }
 
@@ -100,17 +90,10 @@ export function replaceHomeDirWithTildeInDocument(
   homeDir: string,
 ): ReportDocument {
   const tilde = (text: string) => replaceHomeDirWithTilde(text, homeDir);
-  const heading = document.heading;
 
   return {
     ...document,
-    ...(heading !== undefined && {
-      heading: {
-        ...heading,
-        line: tilde(heading.line),
-        ...(heading.subtitle !== undefined && { subtitle: tilde(heading.subtitle) }),
-      },
-    }),
+    ...(document.heading !== undefined && { heading: tilde(document.heading) }),
     sections: document.sections.map((section) => ({
       ...section,
       ...(section.title !== undefined && { title: tilde(section.title) }),

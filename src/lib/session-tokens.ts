@@ -1,72 +1,95 @@
 /**
- * Shared session-token fetching helper.
- *
- * Consolidates the duplicated try/catch + error-capture logic that was
- * previously inlined in both `fetchQuotaMessage()` and
- * `fetchQuotaCommandMessage()` in plugin.ts.
+ * The tokens a session used so far, for the quota snapshot: its own messages, or with
+ * `scope: "tree"` its subagent sessions' messages too.
  */
-
-import type { SessionTokensData } from "./entries.js";
+import type { SessionModelInput, Words } from "../core/types.js";
 import {
-  getSessionTokenSummary,
-  getSessionTreeTokenSummary,
-  SessionNotFoundError,
-} from "./quota-stats.js";
-import type { SessionTokenError } from "./quota-status.js";
-import type { SessionTokenScope } from "./types.js";
+  iterAssistantMessagesForSession,
+  iterAssistantMessagesForSessions,
+  type OpenCodeMessage,
+  resolveSessionTree,
+} from "./opencode-storage.js";
 
-export interface SessionTokenFetchResult {
-  sessionTokens?: SessionTokensData;
-  error?: SessionTokenError;
+/**
+ * A session's new input, cache-read input and output tokens, and each model's input tokens by
+ * kind (one entry per provider and model, like the Usage tab's model rows).
+ */
+interface SessionTokensData {
+  totalInput: number;
+  totalCachedInput: number;
+  totalOutput: number;
+  models: SessionModelInput[];
 }
 
 /**
- * Fetch session token summary for display.
- *
- * @returns `sessionTokens` on success (undefined if no data),
- *          `error` on failure (for diagnostics).
- *          When both are undefined the feature was disabled or sessionID missing.
+ * The token totals of the messages that used a token, or undefined unless some model's own
+ * input (new plus cached) or output adds up to more than zero.
+ */
+function sumSessionTokens(messages: readonly OpenCodeMessage[]): SessionTokensData | undefined {
+  let totalInput = 0;
+  let totalCachedInput = 0;
+  let totalOutput = 0;
+  const byModel = new Map<string, { input: number; output: number }>();
+  const inputByModel = new Map<string, SessionModelInput>();
+
+  for (const message of messages) {
+    const { tokens } = message;
+    if (!tokens) continue;
+    const input = typeof tokens.input === "number" ? tokens.input : 0;
+    const cachedInput = typeof tokens.cache?.read === "number" ? tokens.cache.read : 0;
+    const cacheWrite = typeof tokens.cache?.write === "number" ? tokens.cache.write : 0;
+    const output = typeof tokens.output === "number" ? tokens.output : 0;
+    if (input + cachedInput === 0 && output === 0) continue;
+
+    totalInput += input;
+    totalCachedInput += cachedInput;
+    totalOutput += output;
+    const modelID = message.modelID ?? "unknown";
+    const model = byModel.get(modelID) ?? { input: 0, output: 0 };
+    model.input += input + cachedInput;
+    model.output += output;
+    byModel.set(modelID, model);
+
+    if (input + cachedInput + cacheWrite <= 0) continue;
+    const inputKey = `${message.providerID ?? "unknown"}\n${modelID}`;
+    const modelInput = inputByModel.get(inputKey) ?? {
+      modelID,
+      input: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+    };
+    modelInput.input += input;
+    modelInput.cacheRead += cachedInput;
+    modelInput.cacheWrite += cacheWrite;
+    inputByModel.set(inputKey, modelInput);
+  }
+
+  const used = [...byModel.values()].some((model) => model.input > 0 || model.output > 0);
+  return used
+    ? { totalInput, totalCachedInput, totalOutput, models: [...inputByModel.values()] }
+    : undefined;
+}
+
+/**
+ * The session's token totals. `sessionTokens` is undefined without a session, when no message
+ * used a token, and when the session or OpenCode's database can't be read.
  */
 export async function fetchSessionTokensForDisplay(params: {
-  enabled: boolean;
   sessionID?: string;
-  scope: SessionTokenScope;
-}): Promise<SessionTokenFetchResult> {
-  if (!params.enabled || !params.sessionID) return {};
+  scope: Words["sessionTokens"];
+}): Promise<{ sessionTokens?: SessionTokensData }> {
+  const { sessionID } = params;
+  if (!sessionID) return {};
 
   try {
-    const summary =
+    const messages =
       params.scope === "tree"
-        ? await getSessionTreeTokenSummary(params.sessionID)
-        : await getSessionTokenSummary(params.sessionID);
-    if (summary && summary.models.length > 0) {
-      return {
-        sessionTokens: {
-          models: summary.models,
-          totalInput: summary.totalInput,
-          totalCachedInput: summary.totalCachedInput,
-          totalCombinedInput: summary.totalCombinedInput,
-          totalOutput: summary.totalOutput,
-        },
-      };
-    }
-    // Success but no data — clear any previous error
+        ? await iterAssistantMessagesForSessions({
+            sessionIDs: await resolveSessionTree(sessionID),
+          })
+        : await iterAssistantMessagesForSession({ sessionID });
+    return { sessionTokens: sumSessionTokens(messages) };
+  } catch {
     return {};
-  } catch (err) {
-    if (err instanceof SessionNotFoundError) {
-      return {
-        error: {
-          sessionID: err.sessionID,
-          error: err.message,
-          checkedPath: err.checkedPath,
-        },
-      };
-    }
-    return {
-      error: {
-        sessionID: params.sessionID,
-        error: err instanceof Error ? err.message : String(err),
-      },
-    };
   }
 }

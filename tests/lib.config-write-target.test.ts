@@ -1,6 +1,5 @@
 import {
   chmodSync,
-  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -15,14 +14,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import {
   assertSameConfigWriteTarget,
   MAX_CONFIG_SYMLINK_HOPS,
   NEW_CONFIG_FILE_MODE,
   resolveConfigWriteTarget,
-  writeConfiguredJsonAtomic,
   writeResolvedConfigText,
 } from "../src/lib/config-write-target.js";
 
@@ -138,24 +136,32 @@ describe("resolveConfigWriteTarget", () => {
     });
   });
 
-  it("fails closed on a dangling symlink", async () => {
-    const dir = makeTempDir();
-    const missing = join(dir, "missing.json");
-    const link = join(dir, "link.json");
-    symlinkSync(missing, link);
-    await expect(resolveConfigWriteTarget(link)).rejects.toMatchObject({
+  it.each([
+    {
       reason: "dangling",
+      link: (dir: string) => symlinkSync(join(dir, "missing.json"), join(dir, "link.json")),
+    },
+    {
+      reason: "loop",
+      link: (dir: string) => {
+        symlinkSync(join(dir, "other.json"), join(dir, "link.json"));
+        symlinkSync(join(dir, "link.json"), join(dir, "other.json"));
+      },
+    },
+    {
+      reason: "non-regular",
+      link: (dir: string) => {
+        mkdirSync(join(dir, "target-dir"));
+        symlinkSync(join(dir, "target-dir"), join(dir, "link.json"));
+      },
+    },
+  ])("fails closed on a $reason symlink", async ({ reason, link }) => {
+    const dir = makeTempDir();
+    link(dir);
+    await expect(resolveConfigWriteTarget(join(dir, "link.json"))).rejects.toMatchObject({
+      reason,
       name: "ConfigWriteTargetError",
     });
-  });
-
-  it("fails closed on a symlink loop", async () => {
-    const dir = makeTempDir();
-    const a = join(dir, "a.json");
-    const b = join(dir, "b.json");
-    symlinkSync(b, a);
-    symlinkSync(a, b);
-    await expect(resolveConfigWriteTarget(a)).rejects.toMatchObject({ reason: "loop" });
   });
 
   it("accepts a 40-hop chain and rejects a 41st hop", async () => {
@@ -176,15 +182,6 @@ describe("resolveConfigWriteTarget", () => {
     const extra = join(dir, "link-extra.json");
     symlinkSync(current, extra);
     await expect(resolveConfigWriteTarget(extra)).rejects.toMatchObject({ reason: "depth" });
-  });
-
-  it("rejects a non-regular terminal target", async () => {
-    const dir = makeTempDir();
-    const targetDir = join(dir, "target-dir");
-    const link = join(dir, "link.json");
-    mkdirSync(targetDir);
-    symlinkSync(targetDir, link);
-    await expect(resolveConfigWriteTarget(link)).rejects.toMatchObject({ reason: "non-regular" });
   });
 
   it("rejects a terminal it cannot inspect", async () => {
@@ -231,6 +228,14 @@ describe("assertSameConfigWriteTarget", () => {
 });
 
 describe("writeResolvedConfigText", () => {
+  /** A write target for a path that is not a symlink. */
+  const plainTarget = (path: string, terminalExisted: boolean) => ({
+    configuredPath: path,
+    writePath: path,
+    hops: [],
+    terminalExisted,
+  });
+
   it("preserves an existing file mode and creates new files restrictively", async () => {
     const dir = makeTempDir();
     const existing = join(dir, "existing.json");
@@ -238,29 +243,13 @@ describe("writeResolvedConfigText", () => {
     if (process.platform !== "win32") {
       chmodSync(existing, 0o640);
     }
-    await writeResolvedConfigText(
-      {
-        configuredPath: existing,
-        writePath: existing,
-        hops: [],
-        terminalExisted: true,
-      },
-      '{"ok":true}\n',
-    );
+    await writeResolvedConfigText(plainTarget(existing, true), '{"ok":true}\n');
     if (process.platform !== "win32") {
       expect(lstatSync(existing).mode & 0o777).toBe(0o640);
     }
 
     const created = join(dir, "created.json");
-    await writeResolvedConfigText(
-      {
-        configuredPath: created,
-        writePath: created,
-        hops: [],
-        terminalExisted: false,
-      },
-      '{"ok":true}\n',
-    );
+    await writeResolvedConfigText(plainTarget(created, false), '{"ok":true}\n');
     if (process.platform !== "win32") {
       expect(lstatSync(created).mode & 0o777).toBe(NEW_CONFIG_FILE_MODE);
     }
@@ -273,36 +262,11 @@ describe("writeResolvedConfigText", () => {
     writeFileSync(join(dest, "keep.txt"), "safe\n");
 
     await expect(
-      writeResolvedConfigText(
-        {
-          configuredPath: dest,
-          writePath: dest,
-          hops: [],
-          terminalExisted: false,
-        },
-        '{"ok":true}\n',
-      ),
+      writeResolvedConfigText(plainTarget(dest, false), '{"ok":true}\n'),
     ).rejects.toThrow();
 
     expect(lstatSync(dest).isDirectory()).toBe(true);
     expect(readFileSync(join(dest, "keep.txt"), "utf8")).toBe("safe\n");
     expect(readdirSync(dir).filter((name) => name.includes(".tmp-"))).toEqual([]);
-    expect(existsSync(dest)).toBe(true);
-  });
-});
-
-describe("writeConfiguredJsonAtomic", () => {
-  it("writes through a symlink without replacing the link", async () => {
-    const dir = makeTempDir();
-    const real = join(dir, "dotfiles", "opencode.json");
-    const link = join(dir, "opencode.json");
-    mkdirSync(join(dir, "dotfiles"), { recursive: true });
-    writeFileSync(real, '{"plugin":[]}\n');
-    symlinkSync(real, link);
-
-    await writeConfiguredJsonAtomic(link, { plugin: ["a"] }, { trailingNewline: true });
-
-    expect(lstatSync(link).isSymbolicLink()).toBe(true);
-    expect(JSON.parse(readFileSync(real, "utf8"))).toEqual({ plugin: ["a"] });
   });
 });

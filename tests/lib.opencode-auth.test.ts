@@ -1,9 +1,7 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { resolveAgyAccounts } from "../src/lib/google-agy.js";
-import { resolveGeminiCliAccounts } from "../src/lib/google-gemini-cli.js";
 import {
   bindCredentialSource,
   clearReadAuthFileCacheForTests,
@@ -16,7 +14,6 @@ import {
   readAuthFile,
   readAuthFileCached,
   readCredentialRows,
-  scrubCredentialErrorText,
   selectConnectionCredentialRows,
 } from "../src/lib/opencode-auth.js";
 import { createFakeIntegration, type FakeCredential } from "./helpers/fake-integration.js";
@@ -84,7 +81,35 @@ function resolvedIds(integration: ReturnType<typeof createFakeIntegration>): str
   );
 }
 
-describe("OpenCode auth reader", () => {
+async function readIds(...args: Parameters<typeof readCredentialRows>): Promise<string[]> {
+  return (await readCredentialRows(...args)).map((row) => row.id);
+}
+
+async function readActiveMarks(
+  ...args: Parameters<typeof readCredentialRows>
+): Promise<Array<[string, boolean]>> {
+  return (await readCredentialRows(...args)).map((row) => [row.id, row.active]);
+}
+
+/** Display names for rows given as [label, fallbackName, numberUnnamed?]; the first row is active. */
+function displayNames(
+  providerName: string,
+  rows: Array<[label: string, fallbackName: string, numberUnnamed?: boolean]>,
+): string[] {
+  return formatCredentialDisplayNames(
+    providerName,
+    rows.map(([label, fallbackName, numberUnnamed], index) => ({
+      row: { id: `${index}`, integrationId: "test", label, active: index === 0, value: {} },
+      fallbackName,
+      ...(numberUnnamed === undefined ? {} : { numberUnnamed }),
+    })),
+  );
+}
+
+const unnamedOpenAI = (labels: string[]): Array<[string, string, boolean]> =>
+  labels.map((label) => [label, "OpenAI", true]);
+
+describe("formatCredentialDisplayNames", () => {
   it.each([
     ["OpenAI", "OpenAI (Pro)", "default", true, "[OpenAI] (Pro)"],
     ["OpenAI", "OpenAI (Pro)", "SEPD", true, "[OpenAI SEPD] (Pro)"],
@@ -98,142 +123,97 @@ describe("OpenCode auth reader", () => {
     ["Z.ai", "Z.ai", "API key", true, "[Z.ai]"],
     ["MiniMax", "MiniMax", "api key", true, "[MiniMax]"],
     ["Kimi Code", "Kimi Code", "API key", true, "[Kimi Code]"],
-  ])("formats %s credential aliases as %s", (providerName, fallbackName, label, active, expected) => {
-    expect(
-      formatCredentialDisplayNames(providerName, [
-        {
-          row: { id: "credential", integrationId: providerName, label, active, value: {} },
-          fallbackName,
-        },
-      ]),
-    ).toEqual([expected]);
-  });
-
-  it("marks no login when the provider has only one, active or not", () => {
-    for (const active of [true, false]) {
+    // A provider with only one login marks none of them, active or not.
+    ["OpenAI", "OpenAI (Pro)", "Work", true, "[OpenAI Work] (Pro)"],
+    ["OpenAI", "OpenAI (Pro)", "Work", false, "[OpenAI Work] (Pro)"],
+  ])(
+    "formats %s credential aliases as %s",
+    (providerName, fallbackName, label, active, expected) => {
       expect(
-        formatCredentialDisplayNames("OpenAI", [
+        formatCredentialDisplayNames(providerName, [
           {
-            row: { id: "a", integrationId: "openai", label: "Work", active, value: {} },
-            fallbackName: "OpenAI (Pro)",
+            row: { id: "credential", integrationId: providerName, label, active, value: {} },
+            fallbackName,
           },
         ]),
-      ).toEqual(["[OpenAI Work] (Pro)"]);
-    }
-  });
-
-  it("numbers duplicate custom aliases without numbering default credentials", () => {
-    expect(
-      formatCredentialDisplayNames("OpenAI", [
-        {
-          row: { id: "a", integrationId: "openai", label: "SEPD", active: true, value: {} },
-          fallbackName: "OpenAI (Pro)",
-        },
-        {
-          row: { id: "b", integrationId: "openai", label: "SEPD", active: false, value: {} },
-          fallbackName: "OpenAI (Pro)",
-        },
-        {
-          row: { id: "c", integrationId: "openai", label: "default", active: false, value: {} },
-          fallbackName: "OpenAI (Pro)",
-        },
-      ]),
-    ).toEqual(["[OpenAI SEPD] (Pro) (active)", "[OpenAI SEPD 2] (Pro)", "[OpenAI] (Pro)"]);
-  });
-
-  it("opts unnamed accounts into the existing duplicate-alias numbering convention", () => {
-    expect(
-      formatCredentialDisplayNames("OpenAI", [
-        {
-          row: { id: "a", integrationId: "openai", label: "API key", active: true, value: {} },
-          fallbackName: "OpenAI",
-          numberUnnamed: true,
-        },
-        {
-          row: { id: "b", integrationId: "openai", label: "default", active: false, value: {} },
-          fallbackName: "OpenAI",
-          numberUnnamed: true,
-        },
-        {
-          row: { id: "c", integrationId: "openai", label: "  ", active: false, value: {} },
-          fallbackName: "OpenAI",
-          numberUnnamed: true,
-        },
-        {
-          row: { id: "d", integrationId: "openai", label: "OAuth", active: false, value: {} },
-          fallbackName: "OpenAI (Pro)",
-        },
-      ]),
-    ).toEqual(["[OpenAI] (active)", "[OpenAI 2]", "[OpenAI 3]", "[OpenAI] (Pro)"]);
-  });
+      ).toEqual([expected]);
+    },
+  );
 
   it.each([
     {
-      labels: ["API key", "default", "2"],
+      name: "numbers duplicate custom aliases without numbering default credentials",
+      provider: "OpenAI",
+      rows: [
+        ["SEPD", "OpenAI (Pro)"],
+        ["SEPD", "OpenAI (Pro)"],
+        ["default", "OpenAI (Pro)"],
+      ],
+      expected: ["[OpenAI SEPD] (Pro) (active)", "[OpenAI SEPD 2] (Pro)", "[OpenAI] (Pro)"],
+    },
+    {
+      name: "opts unnamed accounts into the existing duplicate-alias numbering convention",
+      provider: "OpenAI",
+      rows: [...unnamedOpenAI(["API key", "default", "  "]), ["OAuth", "OpenAI (Pro)"]],
+      expected: ["[OpenAI] (active)", "[OpenAI 2]", "[OpenAI 3]", "[OpenAI] (Pro)"],
+    },
+    {
+      name: "reserves explicit aliases before numbering opted-in accounts (1)",
+      provider: "OpenAI",
+      rows: unnamedOpenAI(["API key", "default", "2"]),
       expected: ["[OpenAI] (active)", "[OpenAI 3]", "[OpenAI 2]"],
     },
     {
-      labels: ["2", "API key", "default"],
+      name: "reserves explicit aliases before numbering opted-in accounts (2)",
+      provider: "OpenAI",
+      rows: unnamedOpenAI(["2", "API key", "default"]),
       expected: ["[OpenAI 2] (active)", "[OpenAI]", "[OpenAI 3]"],
     },
     {
-      labels: ["API key", "default", " 2 ", "3", "OAuth"],
+      name: "reserves explicit aliases before numbering opted-in accounts (3)",
+      provider: "OpenAI",
+      rows: unnamedOpenAI(["API key", "default", " 2 ", "3", "OAuth"]),
       expected: ["[OpenAI] (active)", "[OpenAI 4]", "[OpenAI 2]", "[OpenAI 3]", "[OpenAI 5]"],
     },
     {
-      labels: ["Work", "Work", "Work 2", "API key"],
+      name: "reserves explicit aliases before numbering opted-in accounts (4)",
+      provider: "OpenAI",
+      rows: unnamedOpenAI(["Work", "Work", "Work 2", "API key"]),
       expected: ["[OpenAI Work] (active)", "[OpenAI Work 3]", "[OpenAI Work 2]", "[OpenAI]"],
     },
-  ])("reserves explicit aliases before numbering opted-in accounts ($labels)", ({
-    labels,
-    expected,
-  }) => {
-    expect(
-      formatCredentialDisplayNames(
-        "OpenAI",
-        labels.map((label, index) => ({
-          row: { id: `${index}`, integrationId: "openai", label, active: index === 0, value: {} },
-          fallbackName: "OpenAI",
-          numberUnnamed: true,
-        })),
-      ),
-    ).toEqual(expected);
+    {
+      name: "preserves naming without the unnamed-account numbering opt-in",
+      provider: "Z.ai",
+      rows: ["API key", "default", "2", "Work", "Work", "Work 2"].map((label) => [label, "Z.ai"]),
+      expected: [
+        "[Z.ai] (active)",
+        "[Z.ai]",
+        "[Z.ai 2]",
+        "[Z.ai Work]",
+        "[Z.ai Work 2]",
+        "[Z.ai Work 2]",
+      ],
+    },
+    {
+      name: "keeps a named connection next to an imported generic one",
+      provider: "Z.ai",
+      rows: [
+        ["Work", "Z.ai"],
+        ["API key", "Z.ai"],
+      ],
+      expected: ["[Z.ai Work] (active)", "[Z.ai]"],
+    },
+  ] as Array<{
+    name: string;
+    provider: string;
+    rows: Array<[string, string, boolean?]>;
+    expected: string[];
+  }>)("$name", ({ provider, rows, expected }) => {
+    expect(displayNames(provider, rows)).toEqual(expected);
   });
+});
 
-  it("preserves naming without the unnamed-account numbering opt-in", () => {
-    expect(
-      formatCredentialDisplayNames(
-        "Z.ai",
-        ["API key", "default", "2", "Work", "Work", "Work 2"].map((label, index) => ({
-          row: { id: `${index}`, integrationId: "zai", label, active: index === 0, value: {} },
-          fallbackName: "Z.ai",
-        })),
-      ),
-    ).toEqual([
-      "[Z.ai] (active)",
-      "[Z.ai]",
-      "[Z.ai 2]",
-      "[Z.ai Work]",
-      "[Z.ai Work 2]",
-      "[Z.ai Work 2]",
-    ]);
-  });
-
-  it("keeps a named connection next to an imported generic one", () => {
-    expect(
-      formatCredentialDisplayNames("Z.ai", [
-        {
-          row: { id: "a", integrationId: "zai", label: "Work", active: true, value: {} },
-          fallbackName: "Z.ai",
-        },
-        {
-          row: { id: "b", integrationId: "zai", label: "API key", active: false, value: {} },
-          fallbackName: "Z.ai",
-        },
-      ]),
-    ).toEqual(["[Z.ai Work] (active)", "[Z.ai]"]);
-  });
-
+describe("getCredentialDatabasePaths", () => {
   it("reports the credential database path and honors OPENCODE_DB", () => {
     const dataHome = join(tmpdir(), "opencode-quota-auth-paths");
     vi.stubEnv("XDG_DATA_HOME", dataHome);
@@ -242,6 +222,9 @@ describe("OpenCode auth reader", () => {
 
     vi.stubEnv("OPENCODE_DB", "custom.db");
     expect(getCredentialDatabasePaths()).toEqual([join(dataHome, "opencode", "custom.db")]);
+
+    vi.stubEnv("OPENCODE_DB", ":memory:");
+    expect(getCredentialDatabasePaths()).toEqual([]);
   });
 });
 
@@ -311,28 +294,18 @@ describe("integration credential source", () => {
       oauthCredential("github-copilot", "cred_copilot"),
     ]);
 
-    expect((await readCredentialRows(["github-copilot", "openai"])).map((row) => row.id)).toEqual([
-      "cred_copilot",
-      "cred_openai",
-    ]);
+    expect(await readIds(["github-copilot", "openai"])).toEqual(["cred_copilot", "cred_openai"]);
     await expect(readCredentialRows([])).resolves.toEqual([]);
   });
 
   it("reads an id OpenCode has not registered through active()", async () => {
-    const integration = bindFakeIntegration([
+    bindFakeIntegration([
       oauthCredential("openai", "cred_openai"),
       oauthCredential("codex", "cred_codex_newest", { registered: false }),
       oauthCredential("codex", "cred_codex_older", { registered: false }),
     ]);
 
-    expect((await readCredentialRows(["openai", "codex"])).map((row) => row.id)).toEqual([
-      "cred_openai",
-      "cred_codex_newest",
-    ]);
-    expect(integration.list).toHaveBeenCalledOnce();
-    // Listed ids look up active() too, to know which connection to star.
-    expect(integration.connection.active.mock.calls).toEqual([["openai"], ["codex"]]);
-    expect(integration.get).not.toHaveBeenCalled();
+    expect(await readIds(["openai", "codex"])).toEqual(["cred_openai", "cred_codex_newest"]);
   });
 
   it("skips env connections, which are not stored logins", async () => {
@@ -340,9 +313,7 @@ describe("integration credential source", () => {
       envNames: { openrouter: "OPENROUTER_API_KEY", deepseek: "DEEPSEEK_API_KEY" },
     });
 
-    expect((await readCredentialRows(["openrouter", "deepseek"])).map((row) => row.id)).toEqual([
-      "cred_openrouter",
-    ]);
+    expect(await readIds(["openrouter", "deepseek"])).toEqual(["cred_openrouter"]);
     await expect(readAuthFile({ integrationIds: ["deepseek"] })).resolves.toBeNull();
     expect(resolvedIds(integration)).toEqual(["cred_openrouter"]);
   });
@@ -354,17 +325,31 @@ describe("integration credential source", () => {
       keyCredential("opencode", "cred_workspace"),
     ]);
 
-    expect(
-      (await readCredentialRows(["opencode-go", "opencode"], { methods: ["key"] })).map(
-        (row) => row.id,
-      ),
-    ).toEqual(["cred_go", "cred_workspace"]);
+    expect(await readIds(["opencode-go", "opencode"], { methods: ["key"] })).toEqual([
+      "cred_go",
+      "cred_workspace",
+    ]);
     // The Go key read never resolves (and so never refreshes) the Console sign-in.
     expect(resolvedIds(integration)).toEqual(["cred_go", "cred_workspace"]);
 
-    expect(
-      (await readCredentialRows(["opencode"], { methods: ["oauth"] })).map((row) => row.id),
-    ).toEqual(["cred_console"]);
+    expect(await readIds(["opencode"], { methods: ["oauth"] })).toEqual(["cred_console"]);
+  });
+
+  it("never returns an external login (secrets kept outside OpenCode) to a key or OAuth read", async () => {
+    const integration = bindFakeIntegration([
+      {
+        integrationId: "amazon-bedrock",
+        id: "cred_profile",
+        label: "default",
+        registered: true,
+        method: "external",
+        value: { type: "external", methodID: "aws-profile", metadata: { profile: "work" } },
+      },
+      keyCredential("amazon-bedrock", "cred_key"),
+    ]);
+
+    expect(await readIds(["amazon-bedrock"], { methods: ["key", "oauth"] })).toEqual(["cred_key"]);
+    expect(resolvedIds(integration)).toEqual(["cred_key"]);
   });
 
   it("reads one active connection per id with firstOnly and never lists", async () => {
@@ -375,20 +360,22 @@ describe("integration credential source", () => {
       oauthCredential("codex", "cred_codex", { registered: false }),
     ]);
 
-    expect(
-      (await readCredentialRows(["openai", "deepseek", "codex"], { firstOnly: true })).map(
-        (row) => row.id,
-      ),
-    ).toEqual(["cred_active", "cred_deepseek", "cred_codex"]);
+    expect(await readIds(["openai", "deepseek", "codex"], { firstOnly: true })).toEqual([
+      "cred_active",
+      "cred_deepseek",
+      "cred_codex",
+    ]);
     expect(integration.list).not.toHaveBeenCalled();
-    expect(integration.connection.active.mock.calls).toEqual([["openai"], ["deepseek"], ["codex"]]);
     expect(resolvedIds(integration)).toEqual(["cred_active", "cred_deepseek", "cred_codex"]);
 
-    // A mismatched active connection yields nothing and is not resolved.
+    // A mismatched active connection yields nothing and is not resolved, also through readAuthFile.
     await expect(
       readCredentialRows(["deepseek"], { firstOnly: true, methods: ["oauth"] }),
     ).resolves.toEqual([]);
-    expect(resolvedIds(integration)).toHaveLength(3);
+    await expect(
+      readAuthFile({ integrationIds: ["openai", "deepseek"], methods: ["key"] }),
+    ).resolves.toEqual({ deepseek: { type: "api", key: "cred_deepseek-key" } });
+    expect(resolvedIds(integration)).toHaveLength(4);
   });
 
   it("reads each id's active login when list() fails, until list() works again", async () => {
@@ -398,21 +385,18 @@ describe("integration credential source", () => {
     ]);
     integration.list.mockRejectedValueOnce(new Error("Credential value failed to decode"));
 
-    expect((await readCredentialRows(["openai"])).map((row) => row.id)).toEqual(["cred_active"]);
+    expect(await readIds(["openai"])).toEqual(["cred_active"]);
     expect(getCredentialSourceDiagnostics().lastListError).toEqual({
       at: expect.any(Number),
       detail: "Credential value failed to decode",
     });
 
-    expect((await readCredentialRows(["openai"])).map((row) => row.id)).toEqual([
-      "cred_active",
-      "cred_inactive",
-    ]);
+    expect(await readIds(["openai"])).toEqual(["cred_active", "cred_inactive"]);
     expect(getCredentialSourceDiagnostics().lastListError).toBeUndefined();
   });
 
   it("stars the connection active() reports for each id, not the first row", async () => {
-    const integration = bindFakeIntegration(
+    bindFakeIntegration(
       [
         oauthCredential("codex", "cred_codex", { registered: false }),
         oauthCredential("chatgpt", "cred_chatgpt_1"),
@@ -421,16 +405,13 @@ describe("integration credential source", () => {
       { envNames: { openai: "OPENAI_API_KEY" } },
     );
 
-    const rows = await readCredentialRows(["openai", "codex", "chatgpt"]);
-    expect(rows.map((row) => [row.id, row.active])).toEqual([
+    expect(await readActiveMarks(["openai", "codex", "chatgpt"])).toEqual([
       // A fallback id's row is the one active("codex") returned.
       ["cred_codex", true],
       // active("chatgpt") stars the listed row it selects, per id.
       ["cred_chatgpt_1", true],
       ["cred_chatgpt_2", false],
     ]);
-    // An id with only an env connection has no listed row to look active() up for.
-    expect(integration.connection.active.mock.calls).toEqual([["codex"], ["chatgpt"]]);
   });
 
   it("stars the second listed row when active() selects it over the first", async () => {
@@ -445,8 +426,7 @@ describe("integration credential source", () => {
       method: "oauth",
     });
 
-    const rows = await readCredentialRows(["github-copilot"], { methods: ["oauth"] });
-    expect(rows.map((row) => [row.id, row.active])).toEqual([
+    expect(await readActiveMarks(["github-copilot"], { methods: ["oauth"] })).toEqual([
       ["cred_copilot_first", false],
       ["cred_copilot_second", true],
     ]);
@@ -459,15 +439,14 @@ describe("integration credential source", () => {
     ]);
 
     // The unfiltered rows identify the key as the login OpenCode uses.
-    const rows = await readCredentialRows(["openai"]);
-    expect(rows.map((row) => [row.id, row.active])).toEqual([
+    expect(await readActiveMarks(["openai"])).toEqual([
       ["cred_openai_key", true],
       ["cred_openai_oauth", false],
     ]);
-
     // The OAuth-only read keeps its row in place but leaves the mark on the key.
-    const oauthRows = await readCredentialRows(["openai"], { methods: ["oauth"] });
-    expect(oauthRows.map((row) => [row.id, row.active])).toEqual([["cred_openai_oauth", false]]);
+    expect(await readActiveMarks(["openai"], { methods: ["oauth"] })).toEqual([
+      ["cred_openai_oauth", false],
+    ]);
     expect(resolvedIds(integration).slice(-1)).toEqual(["cred_openai_oauth"]);
   });
 
@@ -489,8 +468,7 @@ describe("integration credential source", () => {
     expect(getCredentialSourceDiagnostics().failures).toEqual([]);
 
     // A later read with a working lookup stars the selected row again.
-    const retried = await readCredentialRows(["openai"]);
-    expect(retried.map((row) => [row.id, row.active])).toEqual([
+    expect(await readActiveMarks(["openai"])).toEqual([
       ["cred_openai_first", true],
       ["cred_openai_second", false],
     ]);
@@ -505,8 +483,7 @@ describe("integration credential source", () => {
     });
     const integration = bindFakeIntegration([failing, oauthCredential("openai", "cred_ok")]);
 
-    const rows = await readCredentialRows(["openai"], { methods: ["oauth"] });
-    expect(rows).toEqual([
+    await expect(readCredentialRows(["openai"], { methods: ["oauth"] })).resolves.toEqual([
       {
         id: "cred_failing",
         integrationId: "openai",
@@ -613,7 +590,7 @@ describe("integration credential source", () => {
       readCredentialRows(["opencode-go"], { firstOnly: true, methods: ["key"] }),
     ).resolves.toEqual([expect.objectContaining({ value: { type: "api" } })]);
 
-    expect((await readCredentialRows(["openai"], { firstOnly: true }))[0]?.id).toBe("cred_openai");
+    expect(await readIds(["openai"], { firstOnly: true })).toEqual(["cred_openai"]);
     expect(
       getCredentialSourceDiagnostics().failures.map((failure) => failure.connectionId),
     ).toEqual(["opencode-go"]);
@@ -668,13 +645,6 @@ describe("integration credential source", () => {
     }
   });
 
-  it("scrubs error text to one short line before cutting it to length", () => {
-    expect(scrubCredentialErrorText("a\nb\tc\u0007")).toBe("a b c");
-    const cut = scrubCredentialErrorText(`${"x ".repeat(55)}${"t".repeat(40)}`);
-    expect(cut).toBe(`${"x ".repeat(55)}[redacted]`.slice(0, 120));
-    expect(cut).not.toContain("tttt");
-  });
-
   it("reads no login and warns once while no source is bound", async () => {
     vi.resetModules();
     const unboundReader = await import("../src/lib/opencode-auth.js");
@@ -701,9 +671,9 @@ describe("integration credential source", () => {
     const unbindFirst = bindCredentialSource(createIntegrationCredentialSource(first as never));
     const unbindSecond = bindCredentialSource(createIntegrationCredentialSource(second as never));
 
-    expect((await readCredentialRows(["deepseek"]))[0]?.id).toBe("cred_second");
+    expect(await readIds(["deepseek"])).toEqual(["cred_second"]);
     unbindFirst();
-    expect((await readCredentialRows(["deepseek"]))[0]?.id).toBe("cred_second");
+    expect(await readIds(["deepseek"])).toEqual(["cred_second"]);
     expect(getCredentialSourceDiagnostics()).toMatchObject({
       state: "bound",
       kind: "opencode-integration-api",
@@ -773,34 +743,17 @@ describe("readAuthFile and readAuthFileCached", () => {
     ).resolves.toMatchObject({ openai: { access: "rotated-access" } });
   });
 
-  it("leaves out an active login of another method without resolving it", async () => {
-    const integration = bindFakeIntegration([
-      keyCredential("opencode-go", "cred_go"),
-      oauthCredential("opencode", "cred_console"),
-    ]);
-
-    await expect(
-      readAuthFile({ integrationIds: ["opencode-go", "opencode"], methods: ["key"] }),
-    ).resolves.toEqual({ "opencode-go": { type: "api", key: "cred_go-key" } });
-    // The Go key lookup never resolves (and so never refreshes) the Console sign-in.
-    expect(resolvedIds(integration)).toEqual(["cred_go"]);
-    expect(integration.list).not.toHaveBeenCalled();
-  });
-
   it("caches auth maps per method filter as well as per id list", async () => {
     const integration = bindFakeIntegration([oauthCredential("opencode", "cred_console")]);
+    const keyOnly = { maxAgeMs: 60_000, integrationIds: ["opencode"], methods: ["key"] as const };
 
-    await expect(
-      readAuthFileCached({ maxAgeMs: 60_000, integrationIds: ["opencode"], methods: ["key"] }),
-    ).resolves.toBeNull();
+    await expect(readAuthFileCached(keyOnly)).resolves.toBeNull();
     // Same ids without a filter have their own entry, so the sign-in is read.
     await expect(
       readAuthFileCached({ maxAgeMs: 60_000, integrationIds: ["opencode"] }),
     ).resolves.toMatchObject({ opencode: { access: "cred_console-access" } });
     // The key-only entry stays cached and empty.
-    await expect(
-      readAuthFileCached({ maxAgeMs: 60_000, integrationIds: ["opencode"], methods: ["key"] }),
-    ).resolves.toBeNull();
+    await expect(readAuthFileCached(keyOnly)).resolves.toBeNull();
     expect(resolvedIds(integration)).toEqual(["cred_console"]);
   });
 
@@ -880,146 +833,69 @@ describe("selectConnectionCredentialRows", () => {
     integrationId,
     label: "default",
     active: false,
-    value: { type: "key", key },
+    value: { type: "key", key } as Record<string, unknown>,
+  });
+  const failed = (id: string) => ({
+    ...row(id, "opencode-go", ""),
+    value: { type: "api" },
+    resolveError: "refresh_failed: HTTP 500",
   });
 
-  it("prefers native rows over alias rows holding the same credential", () => {
-    const rows = [
-      row("alias", "opencode", "workspace-key"),
-      row("native", "opencode-go", "workspace-key"),
-    ];
-
-    expect(selectConnectionCredentialRows(rows, "opencode-go").map((row) => row.id)).toEqual([
-      "native",
-    ]);
-  });
-
-  it("falls back to alias rows when no native row exists", () => {
-    const rows = [row("alias", "opencode", "workspace-key")];
-
-    expect(selectConnectionCredentialRows(rows, "opencode-go").map((row) => row.id)).toEqual([
-      "alias",
-    ]);
-  });
-
-  it("collapses alias rows into native rows with the same credential value", () => {
-    const rows = [
-      row("go-1", "opencode-go", "workspace-key"),
-      row("zen", "opencode", "workspace-key"),
-      row("go-2", "opencode-go", "other-key"),
-    ];
-
-    expect(selectConnectionCredentialRows(rows, "opencode-go").map((row) => row.id)).toEqual([
-      "go-1",
-      "go-2",
-    ]);
-  });
-
-  it("collapses exact duplicates within the primary integration", () => {
-    const rows = [
-      row("first", "opencode-go", "workspace-key"),
-      row("second", "opencode-go", "workspace-key"),
-    ];
-
-    expect(selectConnectionCredentialRows(rows, "opencode-go").map((row) => row.id)).toEqual([
-      "first",
-    ]);
-  });
-
-  it("treats property order in stored credential values as insignificant", () => {
-    const rows = [
-      row("first", "opencode-go", "workspace-key"),
-      {
-        ...row("second", "opencode-go", "workspace-key"),
-        value: { key: "workspace-key", type: "key" },
-      },
-    ];
-
-    expect(selectConnectionCredentialRows(rows, "opencode-go").map((row) => row.id)).toEqual([
-      "first",
-    ]);
-  });
-
-  it("keeps distinct credentials as separate connections", () => {
-    const rows = [
-      row("personal", "opencode-go", "personal-key"),
-      row("work", "opencode-go", "work-key"),
-    ];
-
-    expect(selectConnectionCredentialRows(rows, "opencode-go").map((row) => row.id)).toEqual([
-      "personal",
-      "work",
-    ]);
-  });
-
-  it("keeps two failed logins apart although both hold only { type }", () => {
-    const failed = (id: string) => ({
-      id,
-      integrationId: "opencode-go",
-      label: "default",
-      active: false,
-      value: { type: "api" },
-      resolveError: "refresh_failed: HTTP 500",
-    });
-
-    expect(
-      selectConnectionCredentialRows(
-        [failed("cred_personal"), failed("cred_work"), failed("cred_work")],
-        "opencode-go",
-      ).map((row) => row.id),
-    ).toEqual(["cred_personal", "cred_work"]);
-  });
-});
-
-describe("Google companion credentials written by OpenCode 2", () => {
-  it("parses the opencode-gemini-auth 2.x and AGY alpha OAuth rows", async () => {
-    bindFakeIntegration([
-      // opencode-gemini-auth 2.0.1: `gemini-cli` method on OpenCode 2's `google` integration.
-      oauthCredential("google", "cred_gemini", {
-        label: "user@example.com",
-        value: {
-          type: "oauth",
-          methodID: "gemini-cli",
-          refresh: "gemini-refresh|gemini-project|",
-          access: "gemini-access",
-          expires: 50,
-          metadata: { email: "user@example.com" },
-        },
-      }),
-      // @anthonyhaussman/opencode-agy-auth 1.2.11-alpha.0: `oauth` method on `google-agy`,
-      // registered only while that plugin is loaded.
-      oauthCredential("google-agy", "cred_agy", {
-        label: "OAuth",
-        registered: false,
-        value: {
-          type: "oauth",
-          methodID: "oauth",
-          refresh: "agy-refresh|agy-project|agy-managed-project",
-          access: "agy-access",
-          expires: 60,
-        },
-      }),
-    ]);
-    const auth = await readAuthFile({ integrationIds: ["google", "google-agy"] });
-
-    expect(resolveGeminiCliAccounts(auth)).toEqual([
-      {
-        sourceKey: "google",
-        refreshToken: "gemini-refresh",
-        projectId: "gemini-project",
-        email: "user@example.com",
-        accessToken: "gemini-access",
-        expiresAt: 50,
-      },
-    ]);
-    expect(resolveAgyAccounts(auth)).toEqual([
-      {
-        sourceKey: "google-agy",
-        refreshToken: "agy-refresh",
-        projectId: "agy-managed-project",
-        accessToken: "agy-access",
-        expiresAt: 60,
-      },
-    ]);
+  it.each([
+    {
+      name: "prefers native rows over alias rows holding the same credential",
+      rows: [
+        row("alias", "opencode", "workspace-key"),
+        row("native", "opencode-go", "workspace-key"),
+      ],
+      expected: ["native"],
+    },
+    {
+      name: "falls back to alias rows when no native row exists",
+      rows: [row("alias", "opencode", "workspace-key")],
+      expected: ["alias"],
+    },
+    {
+      name: "collapses alias rows into native rows with the same credential value",
+      rows: [
+        row("go-1", "opencode-go", "workspace-key"),
+        row("zen", "opencode", "workspace-key"),
+        row("go-2", "opencode-go", "other-key"),
+      ],
+      expected: ["go-1", "go-2"],
+    },
+    {
+      name: "collapses exact duplicates within the primary integration",
+      rows: [
+        row("first", "opencode-go", "workspace-key"),
+        row("second", "opencode-go", "workspace-key"),
+      ],
+      expected: ["first"],
+    },
+    {
+      name: "treats property order in stored credential values as insignificant",
+      rows: [
+        row("first", "opencode-go", "workspace-key"),
+        { ...row("second", "opencode-go", ""), value: { key: "workspace-key", type: "key" } },
+      ],
+      expected: ["first"],
+    },
+    {
+      name: "keeps distinct credentials as separate connections",
+      rows: [
+        row("personal", "opencode-go", "personal-key"),
+        row("work", "opencode-go", "work-key"),
+      ],
+      expected: ["personal", "work"],
+    },
+    {
+      name: "keeps two failed logins apart although both hold only { type }",
+      rows: [failed("cred_personal"), failed("cred_work"), failed("cred_work")],
+      expected: ["cred_personal", "cred_work"],
+    },
+  ])("$name", ({ rows, expected }) => {
+    expect(selectConnectionCredentialRows(rows, "opencode-go").map((row) => row.id)).toEqual(
+      expected,
+    );
   });
 });

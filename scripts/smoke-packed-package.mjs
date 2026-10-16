@@ -71,8 +71,14 @@ try {
     const tuiExportUrl = import.meta.resolve("@slkiser/opencode-quota/tui");
     const tuiExportPath = fileURLToPath(tuiExportUrl);
     assert.match(tuiExportPath, /node_modules\\/\\@slkiser\\/opencode-quota\\/dist\\/tui\\.js$/);
-    const tuiSource = await readFile(tuiExportPath, "utf8");
-    assert.ok(tuiSource.includes("@slkiser/opencode-quota"));
+    // dist/tui.js re-exports the TUI plugin from dist/tui/index.js.
+    const tuiEntry = await readFile(tuiExportPath, "utf8");
+    assert.equal(tuiEntry.trim(), 'export { default } from "./tui/index.js";');
+    const tuiSource = await readFile(
+      path.join(path.dirname(tuiExportPath), "tui", "index.js"),
+      "utf8",
+    );
+    assert.ok(tuiSource.includes('id: "slkiser.opencode-quota"'));
     assert.ok(tuiSource.includes("Plugin.define"));
     assert.ok(tuiSource.includes("prompt.footer"));
     assert.ok(!tuiSource.includes("jsx-dev-runtime"));
@@ -139,12 +145,7 @@ try {
     "opencode-quota.js",
   );
   const cliOutput = run(process.execPath, [cliPath, "--help"], workdir);
-  for (const expected of [
-    "Usage:",
-    "opencode-quota init",
-    "opencode-quota show",
-    "opencode-quota update",
-  ]) {
+  for (const expected of ["Usage:", "opencode-quota show", "opencode-quota status"]) {
     if (!cliOutput.includes(expected)) {
       throw new Error(`Packed CLI help is missing: ${expected}`);
     }
@@ -156,14 +157,19 @@ try {
     workdir,
     { env: openRouterEnv },
   );
+  // `show --json` prints the saved OpenRouter row (the key's budget) as export JSON version 3.
   const cachedOpenRouter = JSON.parse(cachedOpenRouterOutput);
+  assert.equal(cachedOpenRouter.version, 3);
   assert.equal(cachedOpenRouter.fromCache, true);
+  assert.deepEqual(Object.keys(cachedOpenRouter.providers), ["openrouter"]);
   assert.equal(cachedOpenRouter.providers.openrouter.status, "ok");
-  assert.equal(
-    cachedOpenRouter.providers.openrouter.entries[0].name,
-    "Packed production OpenRouter",
-  );
-  assert.equal(cachedOpenRouter.providers.openrouter.entries[0].percentRemaining, 67);
+  assert.equal(cachedOpenRouter.providers.openrouter.entries.length, 1);
+  const [openRouterEntry] = cachedOpenRouter.providers.openrouter.entries;
+  assert.equal(openRouterEntry.id, "openrouter.key");
+  assert.equal(openRouterEntry.name, "OpenRouter Budget");
+  assert.equal(openRouterEntry.resultType, "budget");
+  assert.equal(openRouterEntry.renderType, "percent");
+  assert.equal(openRouterEntry.percentRemaining, 67);
 
   const readTree = async (directory) => {
     const chunks = [];

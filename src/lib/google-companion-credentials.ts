@@ -1,15 +1,19 @@
 import { type Dirent, readdirSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { readFile } from "fs/promises";
 
+import { nonEmptyString } from "./json-guards.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 
 const require = createRequire(import.meta.url);
 
-type RelativePath = readonly string[];
-type ReadErrorPolicy = "fallthrough-all" | "fallthrough-missing";
+/**
+ * Google AGY and Gemini CLI quota requests reuse the OAuth client of the
+ * companion OpenCode plugin that created the login. This module finds that
+ * plugin and reads its client id and secret.
+ */
 
 export type GoogleCompanionPresence =
   | { state: "present"; importSpecifier: string; resolvedPath: string }
@@ -28,7 +32,7 @@ export type GoogleCompanionConfiguredCredentials = {
   resolvedPath: string;
 };
 
-export type GoogleCompanionClientCredentials =
+type GoogleCompanionClientCredentials =
   | GoogleCompanionConfiguredCredentials
   | {
       state: "missing" | "invalid";
@@ -36,101 +40,73 @@ export type GoogleCompanionClientCredentials =
       resolvedPath?: string;
     };
 
-type ResolvedCompanionState = {
+export type GoogleCompanionResolver = {
+  inspect: () => Promise<GoogleCompanionPresence>;
+  resolveCredentials: () => Promise<GoogleCompanionClientCredentials>;
+  clearCacheForTests: () => void;
+};
+
+type GoogleCompanion = {
+  packageName: string;
+  clientIdExport: string;
+  clientSecretExport: string;
+  /** Quota name in the "install the plugin" message. */
+  quotaName: string;
+};
+
+type CompanionState = {
   presence: GoogleCompanionPresence;
   credentials: GoogleCompanionClientCredentials;
 };
 
-type ResolutionContext = { packageFound: boolean };
+/** Set when a resolver error shows the package is installed but blocks the subpath. */
+type Lookup = { packageFound: boolean };
 
-export type GoogleCompanionResolutionStage =
-  | { kind: "dynamic-import"; specifiers: readonly string[] }
-  | {
-      kind: "runtime-files";
-      importSpecifier: string;
-      candidatePaths: readonly RelativePath[];
-      readErrors: ReadErrorPolicy;
-    }
-  | {
-      kind: "source-specifier";
-      importSpecifier: string;
-      searchRuntimePaths: boolean;
-      readErrors: ReadErrorPolicy;
-    }
-  | {
-      kind: "package-json";
-      importSpecifier: string;
-      candidateImportSpecifier: string;
-      candidatePaths: readonly RelativePath[];
-      readErrors: ReadErrorPolicy;
-      resolutionErrorImportSpecifier: string;
-      exhaustedInvalidPath: "package-json" | "first-candidate";
-    }
-  | {
-      kind: "package-entry";
-      importSpecifier: string;
-      readErrors: ReadErrorPolicy;
-    };
+const RUNTIME_CANDIDATES = [
+  ["src", "constants.ts"],
+  ["src", "constants.js"],
+  ["dist", "src", "constants.js"],
+  ["dist", "index.js"],
+] as const;
+const PACKAGE_JSON_CANDIDATES = [
+  ["src", "constants.ts"],
+  ["dist", "index.js"],
+] as const;
 
-export type GoogleCompanionDescriptor = {
-  packageName: string;
-  packageScan: "scoped" | "unscoped";
-  clientIdExport: string;
-  clientSecretExport: string;
-  missingImportSpecifier: string;
-  missingError: string;
-  invalidError: string;
-  stages: readonly GoogleCompanionResolutionStage[];
-};
-
-function isModuleNotFoundError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  if ("code" in error && error.code === "MODULE_NOT_FOUND") return true;
-  return error instanceof Error && error.message.includes("Cannot find module");
+function hasErrorCode(error: unknown, code: string): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === code);
 }
 
-function isPackagePathNotExportedError(error: unknown): boolean {
-  return Boolean(
-    error &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "ERR_PACKAGE_PATH_NOT_EXPORTED",
+/** "Not installed" or "subpath not exported": the next lookup may still find it. */
+function isNotFoundError(error: unknown): boolean {
+  return (
+    hasErrorCode(error, "MODULE_NOT_FOUND") ||
+    hasErrorCode(error, "ERR_PACKAGE_PATH_NOT_EXPORTED") ||
+    (error instanceof Error && error.message.includes("Cannot find module"))
   );
 }
 
-function isFallthroughResolutionError(error: unknown): boolean {
-  return isModuleNotFoundError(error) || isPackagePathNotExportedError(error);
-}
-
-function isMissingFileError(error: unknown): boolean {
-  if (!error || typeof error !== "object" || !("code" in error)) return false;
-  return error.code === "ENOENT" || error.code === "ENOTDIR";
-}
-
-function markPackageFound(error: unknown, context: ResolutionContext): void {
-  if (isPackagePathNotExportedError(error)) context.packageFound = true;
-}
-
-function resolveSpecifier(
+/**
+ * Where Node resolves `specifier`, then (with `searchCache`) where it resolves
+ * it from OpenCode's cache directory. `failed` marks any other resolver error.
+ */
+function resolveModulePath(
   specifier: string,
-  searchRuntimePaths: boolean,
-  context: ResolutionContext,
-): string {
-  try {
-    return require.resolve(specifier);
-  } catch (error) {
-    markPackageFound(error, context);
-    if (!searchRuntimePaths || !isFallthroughResolutionError(error)) throw error;
-
+  lookup: Lookup,
+  searchCache: boolean,
+): { path: string | null; failed: boolean } {
+  const attempt = (resolve: () => string): { path: string | null; failed: boolean } => {
     try {
-      return require.resolve(specifier, {
-        paths: [getOpencodeRuntimeDirs().cacheDir],
-      });
-    } catch (runtimeError) {
-      markPackageFound(runtimeError, context);
-      throw runtimeError;
+      return { path: resolve(), failed: false };
+    } catch (error) {
+      if (hasErrorCode(error, "ERR_PACKAGE_PATH_NOT_EXPORTED")) lookup.packageFound = true;
+      return { path: null, failed: !isNotFoundError(error) };
     }
-  }
+  };
+
+  const fromProcess = attempt(() => require.resolve(specifier));
+  if (fromProcess.path || fromProcess.failed || !searchCache) return fromProcess;
+  return attempt(() => require.resolve(specifier, { paths: [getOpencodeRuntimeDirs().cacheDir] }));
 }
 
 /**
@@ -141,16 +117,10 @@ function resolveSpecifier(
  * `@latest` and `@alpha`) the most recent install comes first.
  */
 function getOpencode2NpmPackageRoots(
-  cacheDir: string,
-  descriptor: GoogleCompanionDescriptor,
+  specsDir: string,
+  name: string,
+  packageName: string,
 ): string[] {
-  const [scope, name] =
-    descriptor.packageScan === "scoped"
-      ? descriptor.packageName.split("/")
-      : [undefined, descriptor.packageName];
-  const specsDir = scope ? join(cacheDir, "npm", scope) : join(cacheDir, "npm");
-  const installs: { generation: number; packageRoot: string }[] = [];
-
   let specEntries: Dirent[];
   try {
     specEntries = readdirSync(specsDir, { withFileTypes: true });
@@ -159,6 +129,7 @@ function getOpencode2NpmPackageRoots(
     return [];
   }
 
+  const installs: { generation: number; packageRoot: string }[] = [];
   for (const entry of specEntries) {
     if (!entry.isDirectory() || !entry.name.startsWith(`${name}@`)) continue;
     const specDir = join(specsDir, entry.name);
@@ -174,7 +145,7 @@ function getOpencode2NpmPackageRoots(
     if (!generation) continue;
     installs.push({
       generation: Number(generation),
-      packageRoot: join(specDir, generation, "node_modules", descriptor.packageName),
+      packageRoot: join(specDir, generation, "node_modules", packageName),
     });
   }
 
@@ -183,36 +154,26 @@ function getOpencode2NpmPackageRoots(
     .map((install) => install.packageRoot);
 }
 
-function getRuntimePackageRoots(descriptor: GoogleCompanionDescriptor): string[] {
+function getRuntimePackageRoots(packageName: string): string[] {
   const { cacheDir } = getOpencodeRuntimeDirs();
+  // Installs of "@scope/name" live in a scope folder, unscoped ones in the parent folder.
+  const [scope, name] = packageName.startsWith("@")
+    ? (packageName.split("/") as [string, string])
+    : ["", packageName];
   const packageRoots = [
-    ...getOpencode2NpmPackageRoots(cacheDir, descriptor),
+    ...getOpencode2NpmPackageRoots(join(cacheDir, "npm", scope), name, packageName),
     // OpenCode 1 layouts. OpenCode 2 shares this cache directory and never
     // removes them, so companions installed before the upgrade still provide
     // the OAuth client for logins that OpenCode 2 imported from auth.json.
-    join(cacheDir, "node_modules", descriptor.packageName),
+    join(cacheDir, "node_modules", packageName),
   ];
 
+  const packagesDir = join(cacheDir, "packages", scope);
   try {
-    const packagesDir = join(cacheDir, "packages");
-    if (descriptor.packageScan === "scoped") {
-      const [scope, name] = descriptor.packageName.split("/");
-      const scopeDir = join(packagesDir, scope!);
-      for (const entry of readdirSync(scopeDir, { withFileTypes: true })) {
-        if (entry.isDirectory() && entry.name.startsWith(name!)) {
-          const packagePath = join(scopeDir, entry.name);
-          packageRoots.push(packagePath);
-          packageRoots.push(join(packagePath, "node_modules", descriptor.packageName));
-        }
-      }
-    } else {
-      for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
-        if (entry.isDirectory() && entry.name.startsWith(descriptor.packageName)) {
-          const packagePath = join(packagesDir, entry.name);
-          packageRoots.push(packagePath);
-          packageRoots.push(join(packagePath, "node_modules", descriptor.packageName));
-        }
-      }
+    for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !entry.name.startsWith(name)) continue;
+      const packagePath = join(packagesDir, entry.name);
+      packageRoots.push(packagePath, join(packagePath, "node_modules", packageName));
     }
   } catch {
     // A missing runtime packages directory is not an installed companion.
@@ -221,249 +182,185 @@ function getRuntimePackageRoots(descriptor: GoogleCompanionDescriptor): string[]
   return packageRoots;
 }
 
-function buildConfiguredState(params: {
-  importSpecifier: string;
-  resolvedPath: string;
-  clientId: string;
-  clientSecret: string;
-}): ResolvedCompanionState {
-  return {
-    presence: {
-      state: "present",
-      importSpecifier: params.importSpecifier,
-      resolvedPath: params.resolvedPath,
-    },
-    credentials: {
-      state: "configured",
-      clientId: params.clientId,
-      clientSecret: params.clientSecret,
-      resolvedPath: params.resolvedPath,
-    },
-  };
-}
-
-function buildInvalidState(
-  descriptor: GoogleCompanionDescriptor,
-  importSpecifier: string,
-  resolvedPath?: string,
-): ResolvedCompanionState {
-  return {
-    presence: {
-      state: "invalid",
-      importSpecifier,
-      ...(resolvedPath ? { resolvedPath } : {}),
-      error: descriptor.invalidError,
-    },
-    credentials: {
-      state: "invalid",
-      ...(resolvedPath ? { resolvedPath } : {}),
-      error: descriptor.invalidError,
-    },
-  };
-}
-
-function parseSourceCredentials(
-  descriptor: GoogleCompanionDescriptor,
-  content: string,
-): { clientId: string; clientSecret: string } | null {
-  const readConstant = (name: string): string => {
-    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return (
-      content
-        .match(
-          new RegExp(`(?:export\\s+const|const|var)\\s+${escapedName}\\s*=\\s*["']([^"']+)["']`),
-        )?.[1]
-        ?.trim() ?? ""
-    );
-  };
-
-  const clientId = readConstant(descriptor.clientIdExport);
-  const clientSecret = readConstant(descriptor.clientSecretExport);
-  return clientId && clientSecret ? { clientId, clientSecret } : null;
-}
-
-async function readCredentialsPath(
-  descriptor: GoogleCompanionDescriptor,
+function configuredState(
   importSpecifier: string,
   resolvedPath: string,
-  readErrors: ReadErrorPolicy,
-): Promise<ResolvedCompanionState | null> {
-  let content: string;
-  try {
-    content = await readFile(resolvedPath, "utf8");
-  } catch (error) {
-    if (readErrors === "fallthrough-all" || isMissingFileError(error)) return null;
-    return buildInvalidState(descriptor, importSpecifier, resolvedPath);
-  }
-
-  const credentials = parseSourceCredentials(descriptor, content);
-  return credentials
-    ? buildConfiguredState({ importSpecifier, resolvedPath, ...credentials })
-    : buildInvalidState(descriptor, importSpecifier, resolvedPath);
+  client: { clientId: string; clientSecret: string },
+): CompanionState {
+  return {
+    presence: { state: "present", importSpecifier, resolvedPath },
+    credentials: { state: "configured", ...client, resolvedPath },
+  };
 }
 
-async function resolveStage(
-  descriptor: GoogleCompanionDescriptor,
-  stage: GoogleCompanionResolutionStage,
-  context: ResolutionContext,
-): Promise<ResolvedCompanionState | null> {
-  if (stage.kind === "dynamic-import") {
-    for (const importSpecifier of stage.specifiers) {
-      let resolvedPath: string;
-      try {
-        resolvedPath = resolveSpecifier(importSpecifier, true, context);
-      } catch (error) {
-        if (isFallthroughResolutionError(error)) continue;
-        return buildInvalidState(descriptor, importSpecifier);
-      }
+function invalidState(
+  companion: GoogleCompanion,
+  importSpecifier: string,
+  resolvedPath?: string,
+): CompanionState {
+  const error = `Installed ${companion.packageName} package is incompatible`;
+  const path = resolvedPath ? { resolvedPath } : {};
+  return {
+    presence: { state: "invalid", importSpecifier, ...path, error },
+    credentials: { state: "invalid", ...path, error },
+  };
+}
 
-      let companionModule: Record<string, unknown>;
-      try {
-        companionModule = (await import(pathToFileURL(resolvedPath).href)) as Record<
-          string,
-          unknown
-        >;
-      } catch {
-        return buildInvalidState(descriptor, importSpecifier, resolvedPath);
-      }
-
-      const clientId = companionModule[descriptor.clientIdExport];
-      const clientSecret = companionModule[descriptor.clientSecretExport];
-      if (
-        typeof clientId !== "string" ||
-        !clientId.trim() ||
-        typeof clientSecret !== "string" ||
-        !clientSecret.trim()
-      ) {
-        return buildInvalidState(descriptor, importSpecifier, resolvedPath);
-      }
-      return buildConfiguredState({
-        importSpecifier,
-        resolvedPath,
-        clientId: clientId.trim(),
-        clientSecret: clientSecret.trim(),
-      });
-    }
-    return null;
-  }
-
-  if (stage.kind === "runtime-files") {
-    for (const packageRoot of getRuntimePackageRoots(descriptor)) {
-      for (const parts of stage.candidatePaths) {
-        const resolved = await readCredentialsPath(
-          descriptor,
-          stage.importSpecifier,
-          join(packageRoot, ...parts),
-          stage.readErrors,
-        );
-        if (resolved) return resolved;
-      }
-    }
-    return null;
-  }
-
-  if (stage.kind === "source-specifier") {
-    let resolvedPath: string;
-    try {
-      resolvedPath = resolveSpecifier(stage.importSpecifier, stage.searchRuntimePaths, context);
-    } catch (error) {
-      return isFallthroughResolutionError(error)
-        ? null
-        : buildInvalidState(descriptor, stage.importSpecifier);
-    }
-    return (
-      (await readCredentialsPath(
-        descriptor,
-        stage.importSpecifier,
-        resolvedPath,
-        stage.readErrors,
-      )) ?? buildInvalidState(descriptor, stage.importSpecifier, resolvedPath)
-    );
-  }
-
-  if (stage.kind === "package-json") {
-    let packageJsonPath: string;
-    try {
-      packageJsonPath = resolveSpecifier(stage.importSpecifier, true, context);
-    } catch (error) {
-      return isFallthroughResolutionError(error)
-        ? null
-        : buildInvalidState(descriptor, stage.resolutionErrorImportSpecifier);
-    }
-
-    const packageRoot = dirname(packageJsonPath);
-    for (const parts of stage.candidatePaths) {
-      const resolved = await readCredentialsPath(
-        descriptor,
-        stage.candidateImportSpecifier,
-        join(packageRoot, ...parts),
-        stage.readErrors,
-      );
-      if (resolved) return resolved;
-    }
-
-    const invalidPath =
-      stage.exhaustedInvalidPath === "package-json"
-        ? packageJsonPath
-        : join(packageRoot, ...stage.candidatePaths[0]!);
-    return buildInvalidState(descriptor, stage.candidateImportSpecifier, invalidPath);
-  }
-
-  let packageEntryPath: string;
-  try {
-    packageEntryPath = resolveSpecifier(stage.importSpecifier, true, context);
-  } catch (error) {
-    return isFallthroughResolutionError(error)
-      ? null
-      : buildInvalidState(descriptor, stage.importSpecifier);
-  }
+function readStringConstant(content: string, name: string): string {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return (
-    (await readCredentialsPath(
-      descriptor,
-      stage.importSpecifier,
-      packageEntryPath,
-      stage.readErrors,
-    )) ?? buildInvalidState(descriptor, stage.importSpecifier, packageEntryPath)
+    content
+      .match(
+        new RegExp(`(?:export\\s+const|const|var)\\s+${escapedName}\\s*=\\s*["']([^"']+)["']`),
+      )?.[1]
+      ?.trim() ?? ""
   );
 }
 
-export function createGoogleCompanionCredentialResolver(descriptor: GoogleCompanionDescriptor): {
-  inspect: () => Promise<GoogleCompanionPresence>;
-  resolveCredentials: () => Promise<GoogleCompanionClientCredentials>;
-  clearCacheForTests: () => void;
-} {
-  let resolvedStatePromise: Promise<ResolvedCompanionState> | null = null;
-
-  async function getResolvedState(): Promise<ResolvedCompanionState> {
-    if (!resolvedStatePromise) {
-      resolvedStatePromise = (async () => {
-        const context: ResolutionContext = { packageFound: false };
-        for (const stage of descriptor.stages) {
-          const resolved = await resolveStage(descriptor, stage, context);
-          if (resolved) return resolved;
-        }
-
-        if (context.packageFound) {
-          return buildInvalidState(descriptor, descriptor.packageName);
-        }
-        return {
-          presence: {
-            state: "missing",
-            importSpecifier: descriptor.missingImportSpecifier,
-            error: descriptor.missingError,
-          },
-          credentials: { state: "missing", error: descriptor.missingError },
-        };
-      })();
-    }
-    return resolvedStatePromise;
+/** The client in a source or bundle file; null when the file cannot be read. */
+async function readConstantsFile(
+  companion: GoogleCompanion,
+  importSpecifier: string,
+  path: string,
+): Promise<CompanionState | null> {
+  let content: string;
+  try {
+    content = await readFile(path, "utf8");
+  } catch {
+    return null;
   }
+  const clientId = readStringConstant(content, companion.clientIdExport);
+  const clientSecret = readStringConstant(content, companion.clientSecretExport);
+  return clientId && clientSecret
+    ? configuredState(importSpecifier, path, { clientId, clientSecret })
+    : invalidState(companion, importSpecifier, path);
+}
 
+/** Imports the compiled constants module and reads its named exports. */
+async function fromCompiledModule(
+  companion: GoogleCompanion,
+  lookup: Lookup,
+): Promise<CompanionState | null> {
+  const { packageName } = companion;
+  for (const specifier of [
+    `${packageName}/dist/src/constants.js`,
+    `${packageName}/src/constants.js`,
+  ]) {
+    const { path, failed } = resolveModulePath(specifier, lookup, true);
+    if (failed) return invalidState(companion, specifier);
+    if (!path) continue;
+
+    let exports: Record<string, unknown>;
+    try {
+      exports = (await import(pathToFileURL(path).href)) as Record<string, unknown>;
+    } catch {
+      return invalidState(companion, specifier, path);
+    }
+    const clientId = nonEmptyString(exports[companion.clientIdExport]);
+    const clientSecret = nonEmptyString(exports[companion.clientSecretExport]);
+    return clientId && clientSecret
+      ? configuredState(specifier, path, { clientId, clientSecret })
+      : invalidState(companion, specifier, path);
+  }
+  return null;
+}
+
+/** Reads the file a specifier resolves to; an unreadable file is an incompatible package. */
+async function fromResolvedFile(
+  companion: GoogleCompanion,
+  specifier: string,
+  lookup: Lookup,
+  searchCache: boolean,
+): Promise<CompanionState | null> {
+  const { path, failed } = resolveModulePath(specifier, lookup, searchCache);
+  if (failed) return invalidState(companion, specifier);
+  if (!path) return null;
+  return (
+    (await readConstantsFile(companion, specifier, path)) ??
+    invalidState(companion, specifier, path)
+  );
+}
+
+async function fromRuntimeCache(
+  companion: GoogleCompanion,
+  sourceSpecifier: string,
+): Promise<CompanionState | null> {
+  for (const packageRoot of getRuntimePackageRoots(companion.packageName)) {
+    for (const parts of RUNTIME_CANDIDATES) {
+      const state = await readConstantsFile(
+        companion,
+        sourceSpecifier,
+        join(packageRoot, ...parts),
+      );
+      if (state) return state;
+    }
+  }
+  return null;
+}
+
+async function fromPackageJson(
+  companion: GoogleCompanion,
+  sourceSpecifier: string,
+  lookup: Lookup,
+): Promise<CompanionState | null> {
+  const { path, failed } = resolveModulePath(`${companion.packageName}/package.json`, lookup, true);
+  if (failed) return invalidState(companion, sourceSpecifier);
+  if (!path) return null;
+
+  const packageRoot = dirname(path);
+  for (const parts of PACKAGE_JSON_CANDIDATES) {
+    const state = await readConstantsFile(companion, sourceSpecifier, join(packageRoot, ...parts));
+    if (state) return state;
+  }
+  return invalidState(companion, sourceSpecifier, join(packageRoot, ...PACKAGE_JSON_CANDIDATES[0]));
+}
+
+async function resolveCompanionState(companion: GoogleCompanion): Promise<CompanionState> {
+  const { packageName } = companion;
+  const sourceSpecifier = `${packageName}/src/constants.ts`;
+  const lookup: Lookup = { packageFound: false };
+
+  const found =
+    (await fromCompiledModule(companion, lookup)) ??
+    (await fromResolvedFile(companion, sourceSpecifier, lookup, false)) ??
+    (await fromRuntimeCache(companion, sourceSpecifier)) ??
+    (await fromPackageJson(companion, sourceSpecifier, lookup)) ??
+    (await fromResolvedFile(companion, packageName, lookup, true));
+  if (found) return found;
+  if (lookup.packageFound) return invalidState(companion, packageName);
+
+  const error = `Install ${packageName} separately to enable ${companion.quotaName} quota`;
   return {
-    inspect: async () => (await getResolvedState()).presence,
-    resolveCredentials: async () => (await getResolvedState()).credentials,
+    presence: { state: "missing", importSpecifier: sourceSpecifier, error },
+    credentials: { state: "missing", error },
+  };
+}
+
+function createCompanionResolver(companion: GoogleCompanion): GoogleCompanionResolver {
+  let statePromise: Promise<CompanionState> | null = null;
+  const getState = (): Promise<CompanionState> => {
+    statePromise ??= resolveCompanionState(companion);
+    return statePromise;
+  };
+  return {
+    inspect: async () => (await getState()).presence,
+    resolveCredentials: async () => (await getState()).credentials,
     clearCacheForTests: () => {
-      resolvedStatePromise = null;
+      statePromise = null;
     },
   };
 }
+
+export const agyCompanion = createCompanionResolver({
+  packageName: "@anthonyhaussman/opencode-agy-auth",
+  clientIdExport: "AGY_CLIENT_ID",
+  clientSecretExport: "AGY_CLIENT_SECRET",
+  quotaName: "Google AGY",
+});
+
+export const geminiCliCompanion = createCompanionResolver({
+  packageName: "opencode-gemini-auth",
+  clientIdExport: "GEMINI_CLIENT_ID",
+  clientSecretExport: "GEMINI_CLIENT_SECRET",
+  quotaName: "Gemini CLI",
+});

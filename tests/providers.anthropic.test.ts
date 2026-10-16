@@ -1,11 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
-import { anthropicProvider } from "../src/providers/anthropic.js";
+import { describe, expect, it, vi } from "vite-plus/test";
+import { rowsFromProviderResult } from "../src/core/rows.js";
+import type { QuotaRow } from "../src/core/types.js";
 import {
-  expectAttemptedWithErrorLabel,
-  expectAttemptedWithNoErrors,
-  expectNotAttempted,
-  visibleEntries,
-} from "./helpers/provider-assertions.js";
+  getAnthropicDiagnostics,
+  hasAnthropicCredentialsConfigured,
+  queryAnthropicQuota,
+  queryAnthropicQuotaWithOAuth,
+} from "../src/lib/anthropic.js";
+import type { QuotaProviderContext } from "../src/lib/entries.js";
+import { readCredentialRows } from "../src/lib/opencode-auth.js";
+import { anthropicProvider } from "../src/providers/anthropic.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 
 vi.mock("../src/lib/anthropic.js", () => ({
@@ -20,64 +24,92 @@ vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
   readCredentialRows: vi.fn().mockResolvedValue([]),
 }));
 
+const diagnosticsMock = vi.mocked(getAnthropicDiagnostics);
+const quotaMock = vi.mocked(queryAnthropicQuota);
+const oauthQuotaMock = vi.mocked(queryAnthropicQuotaWithOAuth);
+const credentialsConfiguredMock = vi.mocked(hasAnthropicCredentialsConfigured);
+const NO_CONFIG_CTX = {} as QuotaProviderContext;
+const NOW_MS = Date.parse("2026-07-21T12:00:00.000Z");
+const FIVE_HOUR_RESET = "2026-07-21T14:10:00.268Z";
+const WEEKLY_RESET = "2026-07-27T07:00:00.268Z";
+
+function mockDiagnostics(diagnostics: Record<string, unknown>): void {
+  diagnosticsMock.mockResolvedValueOnce({
+    installed: true,
+    version: "1.2.3",
+    authStatus: "authenticated",
+    checkedCommands: ["claude --version"],
+    ...diagnostics,
+  } as never);
+}
+
+async function fetchRows(ctx: QuotaProviderContext = NO_CONFIG_CTX) {
+  return rowsFromProviderResult("anthropic", await anthropicProvider.fetch(ctx), NOW_MS);
+}
+
+/** id, account, label, window, method, percent left, reset. */
+function summary(rows: QuotaRow[]) {
+  return rows.map((row) => [
+    row.id,
+    row.account ?? null,
+    row.label,
+    row.window ?? null,
+    row.method,
+    row.percentRemaining,
+    row.resetsAt ?? null,
+  ]);
+}
+
 describe("anthropic provider", () => {
-  it("fans out to a valid inactive database credential when the active credential is expired", async () => {
-    const { getAnthropicDiagnostics, queryAnthropicQuota, queryAnthropicQuotaWithOAuth } =
-      await import("../src/lib/anthropic.js");
-    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
-    (readCredentialRows as any).mockResolvedValueOnce([
+  it.each([
+    [
+      "local CLI windows as local CLI rows",
+      "claude-auth-status-json",
+      {},
+      [
+        ["anthropic.five_hour", null, "5h", "five_hour", "local_cli", 43, FIVE_HOUR_RESET],
+        ["anthropic.weekly", null, "Weekly", "week", "local_cli", 88, WEEKLY_RESET],
+      ],
+    ],
+    [
+      "Usage Credits and Fable weekly from the OAuth API as remote rows",
+      "opencode-auth-oauth-api",
       {
-        id: "expired-active",
-        integrationId: "anthropic",
-        label: "default",
-        active: true,
-        value: { type: "oauth", access: "expired", expires: 0 },
+        extra_usage: { percentRemaining: 62 },
+        fable_weekly: { percentRemaining: 98, resetTimeIso: WEEKLY_RESET },
       },
-      {
-        id: "valid-inactive",
-        integrationId: "anthropic",
-        label: "Work",
-        active: false,
-        value: { type: "oauth", access: "valid" },
-      },
-    ]);
-    (getAnthropicDiagnostics as any).mockResolvedValueOnce({
-      installed: true,
-      authStatus: "authenticated",
-      quotaSupported: true,
-      quotaSource: "claude-auth-status-json",
-      checkedCommands: [],
-      quota: {
-        success: true,
-        five_hour: { percentRemaining: 1 },
-        seven_day: { percentRemaining: 1 },
-      },
-    });
-    (queryAnthropicQuotaWithOAuth as any).mockResolvedValueOnce({
-      success: true,
-      five_hour: { percentRemaining: 80 },
-      seven_day: { percentRemaining: 70 },
-      extra_usage: { percentRemaining: 60 },
-      fable_weekly: { percentRemaining: 50 },
-    });
+      [
+        ["anthropic.five_hour", null, "5h", "five_hour", "remote_api", 43, FIVE_HOUR_RESET],
+        ["anthropic.weekly", null, "Weekly", "week", "remote_api", 88, WEEKLY_RESET],
+        ["anthropic.extra_usage", null, "Extra usage", "month", "remote_api", 62, null],
+        ["anthropic.weekly_fable", null, "Fable", "week", "remote_api", 98, WEEKLY_RESET],
+      ],
+    ],
+  ])("maps %s", async (_name, quotaSource, extra, expected) => {
+    const quota = {
+      success: true as const,
+      five_hour: { percentRemaining: 43, resetTimeIso: FIVE_HOUR_RESET },
+      seven_day: { percentRemaining: 88, resetTimeIso: WEEKLY_RESET },
+      ...extra,
+    };
+    mockDiagnostics({ quotaSupported: true, quotaSource, quota });
+    quotaMock.mockResolvedValueOnce(quota);
 
-    const out = await anthropicProvider.fetch({} as any);
+    const fetched = await fetchRows();
 
-    expect(queryAnthropicQuotaWithOAuth).toHaveBeenCalledWith("valid", undefined);
-    expect(queryAnthropicQuota).not.toHaveBeenCalled();
-    expect(out.entries.map((entry) => [entry.group, entry.accounting.sourceId])).toEqual([
-      ["[Claude Work]", "valid-inactive"],
-      ["[Claude Work]", "valid-inactive"],
-      ["[Claude Work] Usage Credits", "valid-inactive"],
-      ["[Claude Work]", "valid-inactive"],
-    ]);
+    expect(summary(fetched.rows)).toEqual(expected);
+    expect(fetched.rows.every((row) => row.type === "quota" && row.prominence === "primary")).toBe(
+      true,
+    );
+    expect(fetched.error).toBeUndefined();
+    expect(fetched.debug).toContainEqual({
+      key: "five_hour_remaining",
+      value: `43% reset_at=${FIVE_HOUR_RESET}`,
+    });
   });
 
-  it("shows a login OpenCode could not read as its own error row", async () => {
-    const { getAnthropicDiagnostics, queryAnthropicQuota, queryAnthropicQuotaWithOAuth } =
-      await import("../src/lib/anthropic.js");
-    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
-    (readCredentialRows as any).mockResolvedValueOnce([
+  it("queries each stored Claude login and shows one OpenCode could not read as an error", async () => {
+    vi.mocked(readCredentialRows).mockResolvedValueOnce([
       {
         id: "failed-active",
         integrationId: "anthropic",
@@ -93,392 +125,139 @@ describe("anthropic provider", () => {
         active: false,
         value: { type: "oauth", access: "valid" },
       },
-    ]);
-    (getAnthropicDiagnostics as any).mockResolvedValueOnce({
-      installed: false,
-      authStatus: "unknown",
-      quotaSupported: false,
-      quotaSource: "none",
-      checkedCommands: [],
-    });
-    (queryAnthropicQuotaWithOAuth as any).mockResolvedValueOnce({
+    ] as never);
+    mockDiagnostics({ quotaSupported: false, quotaSource: "none", checkedCommands: [] });
+    oauthQuotaMock.mockResolvedValueOnce({
       success: true,
       five_hour: { percentRemaining: 80 },
       seven_day: { percentRemaining: 70 },
+      extra_usage: { percentRemaining: 60 },
+      fable_weekly: { percentRemaining: 50 },
     });
 
-    const out = await anthropicProvider.fetch({} as any);
+    const fetched = await fetchRows({ config: { requestTimeoutMs: 2500 } } as QuotaProviderContext);
 
-    expect(queryAnthropicQuotaWithOAuth).toHaveBeenCalledOnce();
-    expect(queryAnthropicQuotaWithOAuth).toHaveBeenCalledWith("valid", undefined);
-    expect(queryAnthropicQuota).not.toHaveBeenCalled();
-    expect(out.errors).toEqual([
-      {
-        label: "[Claude] (active)",
-        message:
-          "Anthropic sign-in could not be read: refresh_failed: HTTP 500. Run `opencode auth login anthropic`.",
-      },
+    expect(oauthQuotaMock).toHaveBeenCalledExactlyOnceWith("valid", 2500);
+    expect(quotaMock).not.toHaveBeenCalled();
+    expect(summary(fetched.rows)).toEqual([
+      ["anthropic.five_hour", "Work", "5h", "five_hour", "remote_api", 80, null],
+      ["anthropic.weekly", "Work", "Weekly", "week", "remote_api", 70, null],
+      ["anthropic.extra_usage", "Work", "Extra usage", "month", "remote_api", 60, null],
+      ["anthropic.weekly_fable", "Work", "Fable", "week", "remote_api", 50, null],
     ]);
-    expect(out.entries.map((entry) => [entry.group, entry.accounting.sourceId])).toEqual([
-      ["[Claude Work]", "valid-inactive"],
-      ["[Claude Work]", "valid-inactive"],
+    expect(fetched.rowLogins).toEqual(Array(4).fill("valid-inactive"));
+    expect(fetched.error).toMatchObject({ code: "login_expired" });
+    expect(fetched.debug).toContainEqual({
+      key: "error",
+      value:
+        "[Claude] (active): Anthropic sign-in could not be read: refresh_failed: HTTP 500. Run `opencode auth login anthropic`.",
+    });
+  });
+
+  it.each([
+    [
+      "a failed query as the error",
+      {
+        success: false,
+        error: "Invalid or expired Anthropic token; re-authenticate Claude Code",
+      },
+      { rows: [], error: { code: "bad_response" } },
+      "Claude: Invalid or expired Anthropic token; re-authenticate Claude Code",
+    ],
+    ["no Claude login as not set up", null, { rows: [], error: { code: "not_configured" } }, null],
+  ])("reports %s", async (_name, result, expected, errorLine) => {
+    diagnosticsMock.mockRejectedValueOnce(new Error("probe \u001b[31mboom"));
+    quotaMock.mockResolvedValueOnce(result as never);
+
+    const fetched = await fetchRows();
+
+    expect(fetched).toMatchObject(expected);
+    expect(fetched.debug.slice(0, 2)).toEqual([
+      { key: "cli_installed", value: "false" },
+      { key: "message", value: "failed to probe Claude CLI: probe boom" },
     ]);
+    if (errorLine) expect(fetched.debug).toContainEqual({ key: "error", value: errorLine });
   });
 
-  it("reports the credential store that answered the usage probe", async () => {
-    const { getAnthropicDiagnostics, queryAnthropicQuota } = await import(
-      "../src/lib/anthropic.js"
-    );
-    (getAnthropicDiagnostics as any).mockResolvedValueOnce({
-      installed: true,
-      version: "1.2.3",
-      authStatus: "authenticated",
-      quotaSupported: true,
-      quotaSource: "opencode-auth-oauth-api",
-      oauthCredentialSource: "opencode-auth",
-      binaryPath: "/opt/homebrew/bin/claude",
-      checkedCommands: ["claude --version", "/opt/homebrew/bin/claude --version"],
-      quota: {
-        success: true,
-        five_hour: { percentRemaining: 80 },
-        seven_day: { percentRemaining: 70 },
-      },
-    });
-    (queryAnthropicQuota as any).mockResolvedValueOnce({
-      success: true,
-      five_hour: { percentRemaining: 80 },
-      seven_day: { percentRemaining: 70 },
-    });
-
-    const out = await anthropicProvider.fetch({} as any);
-    expect(out.statusDetails).toContainEqual({
-      key: "oauth_credential_source",
-      value: "opencode-auth",
-    });
-    expect(out.statusDetails).toContainEqual({
-      key: "binary_path",
-      value: "/opt/homebrew/bin/claude",
-    });
-    expect(out.statusDetails).toContainEqual({
-      key: "quota_source",
-      value: "opencode-auth-oauth-api",
-    });
-    expect(out.entries).toHaveLength(2);
-    expect(out.entries.every((entry) => entry.accounting.acquisitionMethod === "remote_api")).toBe(
-      true,
-    );
-  });
-
-  it("reports no credential store when the OAuth probe was never reached", async () => {
-    const { getAnthropicDiagnostics, queryAnthropicQuota } = await import(
-      "../src/lib/anthropic.js"
-    );
-    (getAnthropicDiagnostics as any).mockResolvedValueOnce({
-      installed: true,
-      version: "1.2.3",
-      authStatus: "authenticated",
-      quotaSupported: false,
-      quotaSource: "none",
-      binaryPath: null,
-      checkedCommands: ["claude --version"],
-    });
-    (queryAnthropicQuota as any).mockResolvedValueOnce(null);
-
-    const out = await anthropicProvider.fetch({} as any);
-    expect(out.statusDetails).toContainEqual({
-      key: "oauth_credential_source",
-      value: "(none)",
-    });
-    expect(out.statusDetails).toContainEqual({ key: "binary_path", value: "(none)" });
-  });
-
-  it("adds the Fable weekly row and diagnostic when the OAuth response reports it", async () => {
-    const { getAnthropicDiagnostics, queryAnthropicQuota } = await import(
-      "../src/lib/anthropic.js"
-    );
-    const quota = {
-      success: true,
-      five_hour: { percentRemaining: 58, resetTimeIso: "2026-07-21T14:10:00.268Z" },
-      seven_day: { percentRemaining: 72, resetTimeIso: "2026-07-27T07:00:00.268Z" },
-      fable_weekly: {
-        percentRemaining: 98,
-        resetTimeIso: "2026-07-27T07:00:00.268Z",
-      },
-    };
-    (getAnthropicDiagnostics as any).mockResolvedValueOnce({
-      installed: true,
-      version: "2.1.258",
-      authStatus: "authenticated",
-      quotaSupported: true,
-      quotaSource: "opencode-auth-oauth-api",
-      oauthCredentialSource: "opencode-auth",
-      checkedCommands: ["claude --version"],
-      quota,
-    });
-    (queryAnthropicQuota as any).mockResolvedValueOnce(quota);
-
-    const out = await anthropicProvider.fetch({} as any);
-
-    expectAttemptedWithNoErrors(out);
-    expect(out.statusDetails).toContainEqual({
-      key: "fable_weekly_remaining",
-      value: "98% reset_at=2026-07-27T07:00:00.268Z",
-    });
-    expect(visibleEntries(out.entries, "anthropic")).toEqual([
+  it.each([
+    [
+      "the credential store that answered the usage probe",
       {
-        name: "Claude 5h",
-        group: "Claude",
-        label: "5h:",
-        percentRemaining: 58,
-        resetTimeIso: "2026-07-21T14:10:00.268Z",
+        oauthCredentialSource: "opencode-auth",
+        binaryPath: "/opt/homebrew/bin/claude",
+        quotaSupported: true,
+        quotaSource: "opencode-auth-oauth-api",
       },
-      {
-        name: "Claude Weekly",
-        group: "Claude",
-        label: "Weekly:",
-        percentRemaining: 72,
-        resetTimeIso: "2026-07-27T07:00:00.268Z",
-      },
-      {
-        name: "Claude Fable Weekly",
-        group: "Claude",
-        label: "Fable:",
-        semantic: {
-          metric: { kind: "named", name: "Fable weekly" },
-          prominence: "primary",
-        },
-        percentRemaining: 98,
-        resetTimeIso: "2026-07-27T07:00:00.268Z",
-      },
-    ]);
-    expect(out.entries.map((entry) => entry.accounting)).toEqual(
-      Array.from({ length: 3 }, () => ({
-        resultType: "quota",
-        acquisitionMethod: "remote_api",
-        ownership: "maintained",
-        authority: "provider_reported",
-      })),
-    );
+      [
+        { key: "oauth_credential_source", value: "opencode-auth" },
+        { key: "binary_path", value: "/opt/homebrew/bin/claude" },
+        { key: "quota_source", value: "opencode-auth-oauth-api" },
+      ],
+    ],
+    [
+      "no credential store when the OAuth probe was never reached",
+      { binaryPath: null, quotaSupported: false, quotaSource: "none" },
+      [
+        { key: "oauth_credential_source", value: "(none)" },
+        { key: "binary_path", value: "(none)" },
+      ],
+    ],
+  ])("reports %s", async (_label, diagnostics, expectedDetails) => {
+    mockDiagnostics(diagnostics);
+    quotaMock.mockResolvedValueOnce(null);
+
+    const { debug } = await fetchRows();
+
+    for (const detail of expectedDetails) expect(debug).toContainEqual(detail);
   });
 
-  it("returns attempted:false when Anthropic quota is unavailable locally", async () => {
-    const { queryAnthropicQuota } = await import("../src/lib/anthropic.js");
-    (queryAnthropicQuota as any).mockResolvedValueOnce(null);
-
-    const out = await anthropicProvider.fetch({} as any);
-    expectNotAttempted(out);
+  it.each([
+    ["anthropic/claude-sonnet-4-6", true],
+    ["ANTHROPIC/claude-haiku-4-5", true],
+    ["openai/gpt-5", false],
+    ["copilot/claude-sonnet-4-5", false],
+  ])("matches model id %s: %s", (model, expected) => {
+    expect(anthropicProvider.matchesCurrentModel?.(model)).toBe(expected);
   });
 
-  it("maps local CLI quota windows into canonical grouped-capable rows", async () => {
-    const { getAnthropicDiagnostics, queryAnthropicQuota } = await import(
-      "../src/lib/anthropic.js"
-    );
-    (getAnthropicDiagnostics as any).mockResolvedValueOnce({
-      installed: true,
-      version: "1.2.3",
-      authStatus: "authenticated",
-      quotaSupported: true,
-      quotaSource: "claude-auth-status-json",
-      checkedCommands: ["claude --version"],
-      quota: {
-        success: true,
-        five_hour: { percentRemaining: 43 },
-        seven_day: { percentRemaining: 88 },
-      },
-    });
-    (queryAnthropicQuota as any).mockResolvedValueOnce({
-      success: true,
-      five_hour: { percentRemaining: 43, resetTimeIso: "2026-03-25T18:00:00.000Z" },
-      seven_day: { percentRemaining: 88, resetTimeIso: "2026-04-01T00:00:00.000Z" },
-    });
+  it.each([
+    [["anthropic"], true, true],
+    [["copilot", "anthropic"], true, true],
+    [["claude"], true, false],
+    [["anthropic"], false, false],
+  ])(
+    "with provider ids %j and Claude auth ready=%s is available=%s",
+    async (providerIds, credentialsConfigured, expected) => {
+      credentialsConfiguredMock.mockResolvedValue(credentialsConfigured);
 
-    const out = await anthropicProvider.fetch({} as any);
-    expectAttemptedWithNoErrors(out);
-    expect(visibleEntries(out.entries, "anthropic")).toEqual([
-      {
-        name: "Claude 5h",
-        group: "Claude",
-        label: "5h:",
-        percentRemaining: 43,
-        resetTimeIso: "2026-03-25T18:00:00.000Z",
-      },
-      {
-        name: "Claude Weekly",
-        group: "Claude",
-        label: "Weekly:",
-        percentRemaining: 88,
-        resetTimeIso: "2026-04-01T00:00:00.000Z",
-      },
-    ]);
-    expect(out.entries.every((entry) => entry.accounting.acquisitionMethod === "local_cli")).toBe(
-      true,
-    );
-    expect(out.presentation).toBeUndefined();
-  });
-
-  it("reports enabled Usage Credits as a third remote API quota row", async () => {
-    const { getAnthropicDiagnostics, queryAnthropicQuota } = await import(
-      "../src/lib/anthropic.js"
-    );
-    (getAnthropicDiagnostics as any).mockResolvedValueOnce({
-      installed: true,
-      version: "1.2.3",
-      authStatus: "authenticated",
-      quotaSupported: true,
-      quotaSource: "opencode-auth-oauth-api",
-      oauthCredentialSource: "opencode-auth",
-      checkedCommands: ["claude --version"],
-      quota: {
-        success: true,
-        five_hour: { percentRemaining: 43 },
-        seven_day: { percentRemaining: 88 },
-        extra_usage: { percentRemaining: 62 },
-      },
-    });
-    (queryAnthropicQuota as any).mockResolvedValueOnce({
-      success: true,
-      five_hour: { percentRemaining: 43, resetTimeIso: "2026-03-25T18:00:00.000Z" },
-      seven_day: { percentRemaining: 88, resetTimeIso: "2026-04-01T00:00:00.000Z" },
-      extra_usage: { percentRemaining: 62 },
-    });
-
-    const out = await anthropicProvider.fetch({} as any);
-
-    expect(visibleEntries(out.entries, "anthropic")).toEqual([
-      {
-        name: "Claude 5h",
-        group: "Claude",
-        label: "5h:",
-        percentRemaining: 43,
-        resetTimeIso: "2026-03-25T18:00:00.000Z",
-      },
-      {
-        name: "Claude Weekly",
-        group: "Claude",
-        label: "Weekly:",
-        percentRemaining: 88,
-        resetTimeIso: "2026-04-01T00:00:00.000Z",
-      },
-      {
-        name: "Claude Usage Credits",
-        group: "Claude Usage Credits",
-        label: "Monthly:",
-        percentRemaining: 62,
-      },
-    ]);
-    expect(out.entries.every((entry) => entry.accounting.acquisitionMethod === "remote_api")).toBe(
-      true,
-    );
-  });
-
-  it("defaults to canonical grouped-capable rows when no style is specified", async () => {
-    const { queryAnthropicQuota } = await import("../src/lib/anthropic.js");
-    (queryAnthropicQuota as any).mockResolvedValueOnce({
-      success: true,
-      five_hour: { percentRemaining: 50, resetTimeIso: "2026-03-25T18:00:00.000Z" },
-      seven_day: { percentRemaining: 70, resetTimeIso: "2026-04-01T00:00:00.000Z" },
-    });
-
-    const out = await anthropicProvider.fetch({} as any);
-    expectAttemptedWithNoErrors(out);
-    expect(out.entries).toHaveLength(2);
-    expect(visibleEntries(out.entries, "anthropic")).toEqual([
-      {
-        name: "Claude 5h",
-        group: "Claude",
-        label: "5h:",
-        percentRemaining: 50,
-        resetTimeIso: "2026-03-25T18:00:00.000Z",
-      },
-      {
-        name: "Claude Weekly",
-        group: "Claude",
-        label: "Weekly:",
-        percentRemaining: 70,
-        resetTimeIso: "2026-04-01T00:00:00.000Z",
-      },
-    ]);
-  });
-
-  it("maps errors into toast errors", async () => {
-    const { queryAnthropicQuota } = await import("../src/lib/anthropic.js");
-    (queryAnthropicQuota as any).mockResolvedValueOnce({
-      success: false,
-      error:
-        "Invalid or expired Anthropic token; re-authenticate Claude Code or update CLAUDE_CODE_OAUTH_TOKEN",
-    });
-
-    const out = await anthropicProvider.fetch({} as any);
-    expectAttemptedWithErrorLabel(out, "Claude");
-  });
-
-  it("matches anthropic/ model ids", () => {
-    expect(anthropicProvider.matchesCurrentModel?.("anthropic/claude-sonnet-4-6")).toBe(true);
-    expect(anthropicProvider.matchesCurrentModel?.("anthropic/claude-opus-4-6")).toBe(true);
-    expect(anthropicProvider.matchesCurrentModel?.("ANTHROPIC/claude-haiku-4-5")).toBe(true);
-    expect(anthropicProvider.matchesCurrentModel?.("openai/gpt-5")).toBe(false);
-    expect(anthropicProvider.matchesCurrentModel?.("copilot/claude-sonnet-4-5")).toBe(false);
-  });
-
-  it("is available only when provider ids include anthropic and Claude CLI auth is ready", async () => {
-    const { hasAnthropicCredentialsConfigured } = await import("../src/lib/anthropic.js");
-    (hasAnthropicCredentialsConfigured as any).mockResolvedValue(true);
-
-    await expect(
-      anthropicProvider.isAvailable(
-        createProviderAvailabilityContext({ providerIds: ["anthropic"] }),
-      ),
-    ).resolves.toBe(true);
-    await expect(
-      anthropicProvider.isAvailable(createProviderAvailabilityContext({ providerIds: ["claude"] })),
-    ).resolves.toBe(false);
-    await expect(
-      anthropicProvider.isAvailable(createProviderAvailabilityContext({ providerIds: ["openai"] })),
-    ).resolves.toBe(false);
-    await expect(
-      anthropicProvider.isAvailable(
-        createProviderAvailabilityContext({ providerIds: ["copilot", "anthropic"] }),
-      ),
-    ).resolves.toBe(true);
-  });
-
-  it("passes the configured Claude binary path through Anthropic probes", async () => {
-    const { hasAnthropicCredentialsConfigured, queryAnthropicQuota } = await import(
-      "../src/lib/anthropic.js"
-    );
-    (hasAnthropicCredentialsConfigured as any).mockResolvedValue(true);
-    (queryAnthropicQuota as any).mockResolvedValueOnce(null);
-
-    const ctx = createProviderAvailabilityContext({
-      providerIds: ["anthropic"],
-      configOverrides: {
-        anthropicBinaryPath: "/opt/claude/bin/claude",
-      },
-    });
-
-    await expect(anthropicProvider.isAvailable(ctx)).resolves.toBe(true);
-    expect(hasAnthropicCredentialsConfigured).toHaveBeenCalledWith({
-      binaryPath: "/opt/claude/bin/claude",
-    });
-
-    await anthropicProvider.fetch(ctx);
-    expect(queryAnthropicQuota).toHaveBeenCalledWith({
-      binaryPath: "/opt/claude/bin/claude",
-    });
-  });
-
-  it("is not available when Claude CLI auth is missing even if provider id exists", async () => {
-    const { hasAnthropicCredentialsConfigured } = await import("../src/lib/anthropic.js");
-    (hasAnthropicCredentialsConfigured as any).mockResolvedValue(false);
-
-    const ctx = createProviderAvailabilityContext({ providerIds: ["anthropic"] });
-
-    await expect(anthropicProvider.isAvailable(ctx)).resolves.toBe(false);
-  });
+      await expect(
+        anthropicProvider.isAvailable(createProviderAvailabilityContext({ providerIds })),
+      ).resolves.toBe(expected);
+    },
+  );
 
   it("is not available when provider lookup throws", async () => {
     const ctx = createProviderAvailabilityContext({ providersError: new Error("boom") });
 
     await expect(anthropicProvider.isAvailable(ctx)).resolves.toBe(false);
+  });
+
+  it("passes the configured Claude binary path and timeout through Anthropic probes", async () => {
+    credentialsConfiguredMock.mockResolvedValue(true);
+    quotaMock.mockResolvedValueOnce(null);
+    const ctx = createProviderAvailabilityContext({
+      providerIds: ["anthropic"],
+      configOverrides: { anthropicBinaryPath: "/opt/claude/bin/claude", requestTimeoutMs: 2500 },
+    });
+
+    await expect(anthropicProvider.isAvailable(ctx)).resolves.toBe(true);
+    expect(credentialsConfiguredMock).toHaveBeenCalledWith({
+      binaryPath: "/opt/claude/bin/claude",
+    });
+
+    await anthropicProvider.fetch(ctx);
+    const options = { binaryPath: "/opt/claude/bin/claude", requestTimeoutMs: 2500 };
+    expect(diagnosticsMock).toHaveBeenLastCalledWith(options);
+    expect(quotaMock).toHaveBeenCalledWith(options);
   });
 });

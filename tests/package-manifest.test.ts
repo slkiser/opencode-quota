@@ -4,7 +4,7 @@ import { access, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { parse } from "yaml";
 
 interface WorkflowStep {
@@ -22,9 +22,7 @@ interface WorkflowJob {
   needs?: string | string[];
   permissions?: Record<string, string>;
   steps?: WorkflowStep[];
-  strategy?: {
-    matrix?: Record<string, unknown[]>;
-  };
+  strategy?: { matrix?: Record<string, unknown[]> };
 }
 
 interface Workflow {
@@ -32,95 +30,22 @@ interface Workflow {
   jobs: Record<string, WorkflowJob>;
 }
 
-const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
-  main?: string;
-  bin?: Record<string, string>;
-  exports?: Record<string, { default?: string; types?: string }>;
-  "oc-plugin"?: string[];
-  dependencies?: Record<string, string>;
-  devDependencies?: Record<string, string>;
-  optionalDependencies?: Record<string, string>;
-  peerDependencies?: Record<string, string>;
-  peerDependenciesMeta?: Record<string, { optional?: boolean }>;
-  engines?: Record<string, string>;
-  files?: string[];
-  packageManager?: string;
-  scripts?: Record<string, string>;
-  pnpm?: {
-    peerDependencyRules?: unknown;
-    strictPeerDependencies?: boolean;
-  };
-};
+const text = (path: string) => readFile(new URL(path, import.meta.url), "utf8");
+const pkg = JSON.parse(await text("../package.json"));
+const pnpmWorkspace = await text("../pnpm-workspace.yaml");
+const tsconfig = JSON.parse(await text("../tsconfig.json"));
+const viteConfig = await text("../vite.config.ts");
+const lefthookConfig = parse(await text("../lefthook.yml"));
+const ciWorkflow = parse(await text("../.github/workflows/ci.yml")) as Workflow;
+const publishWorkflow = parse(await text("../.github/workflows/publish-npm.yml")) as Workflow;
+const packedSmoke = await text("../scripts/smoke-packed-package.mjs");
 
-const pnpmWorkspace = await readFile(new URL("../pnpm-workspace.yaml", import.meta.url), "utf8");
-const pnpmWorkspaceConfig = parse(pnpmWorkspace) as {
-  allowBuilds?: Record<string, boolean>;
-};
-const tsconfig = JSON.parse(
-  await readFile(new URL("../tsconfig.json", import.meta.url), "utf8"),
-) as {
-  compilerOptions?: { types?: string[] };
-};
-const typescriptValidator = await readFile(
-  new URL("../scripts/verify-typescript-version.mjs", import.meta.url),
-  "utf8",
-);
-const biomeConfig = JSON.parse(
-  await readFile(new URL("../biome.json", import.meta.url), "utf8"),
-) as {
-  $schema?: string;
-  linter?: {
-    domains?: Record<string, string>;
-    rules?: { recommended?: boolean };
-  };
-  overrides?: Array<{
-    includes?: string[];
-    linter?: { domains?: Record<string, string> };
-  }>;
-};
-const lefthookConfig = parse(
-  await readFile(new URL("../lefthook.yml", import.meta.url), "utf8"),
-) as Record<
-  "pre-commit" | "pre-push",
-  {
-    commands?: Record<string, { glob?: string; run?: string; stage_fixed?: boolean }>;
-  }
->;
-const packageScriptSources = await Promise.all(
-  [
-    "../scripts/pack-release-package.mjs",
-    "../scripts/verify-package-contents.mjs",
-    "../scripts/verify-release-package.mjs",
-  ].map((path) => readFile(new URL(path, import.meta.url), "utf8")),
-);
-const ciWorkflow = parse(
-  await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8"),
-) as Workflow;
-const publishWorkflow = parse(
-  await readFile(new URL("../.github/workflows/publish-npm.yml", import.meta.url), "utf8"),
-) as Workflow;
-const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
-const packedSmoke = await readFile(
-  new URL("../scripts/smoke-packed-package.mjs", import.meta.url),
-  "utf8",
-);
-const packedRealOtelFixture = await readFile(
-  new URL("../scripts/fixtures/smoke-packed-real-otel.mjs", import.meta.url),
-  "utf8",
-);
+// Pinned to a commit; Vite+ installs the pnpm named in package.json `packageManager`.
+const SETUP_VP = "voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af";
 
+// The build's `tsc` is the type check, and `pnpm test` runs the cross-surface test.
 const VERIFY_COMMAND =
-  "pnpm run check && pnpm run verify:typescript-version && pnpm run verify:v4-history && pnpm run typecheck && pnpm run build && pnpm test && pnpm run test:four-surfaces && pnpm run verify:package-contents";
-const VERIFY_COMPONENT_COMMANDS = [
-  "pnpm run check",
-  "pnpm run verify:typescript-version",
-  "pnpm run verify:v4-history",
-  "pnpm run typecheck",
-  "pnpm run build",
-  "pnpm test",
-  "pnpm run test:four-surfaces",
-  "pnpm run verify:package-contents",
-];
+  "pnpm run check && pnpm run verify:typescript-version && pnpm run verify:v4-history && pnpm run build && pnpm test && pnpm run verify:package-contents";
 
 function namedStep(job: WorkflowJob, name: string): WorkflowStep {
   const step = job.steps?.find((candidate) => candidate.name === name);
@@ -128,213 +53,259 @@ function namedStep(job: WorkflowJob, name: string): WorkflowStep {
   return step as WorkflowStep;
 }
 
-function stepIndex(job: WorkflowJob, name: string): number {
-  return job.steps?.findIndex((candidate) => candidate.name === name) ?? -1;
+function usesStep(job: WorkflowJob, action: string): WorkflowStep | undefined {
+  return job.steps?.find((step) => step.uses === action);
 }
 
+/** Every named step exists, in this order. */
+function expectOrdered(job: WorkflowJob, names: string[]): void {
+  const indexes = names.map((name) => job.steps?.findIndex((step) => step.name === name) ?? -1);
+  expect(
+    indexes.every((index) => index >= 0),
+    `Missing one of: ${names.join(", ")}`,
+  ).toBe(true);
+  expect(indexes).toEqual([...indexes].sort((a, b) => a - b));
+}
+
+/** `pnpm verify` runs exactly once, and none of the commands it already runs is repeated. */
 function expectCanonicalVerificationOnly(job: WorkflowJob): void {
   const runLines =
     job.steps?.flatMap((step) =>
-      step.run
-        ? step.run
-            .split("\n")
-            .map((line) => line.trim())
-            .filter(Boolean)
-        : [],
+      (step.run ?? "")
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean),
     ) ?? [];
   expect(runLines.filter((line) => line === "pnpm verify")).toEqual(["pnpm verify"]);
-  for (const component of VERIFY_COMPONENT_COMMANDS) {
+  for (const component of VERIFY_COMMAND.split(" && ")) {
     expect(runLines).not.toContain(component);
   }
 }
 
+function expectSinglePack(job: WorkflowJob): void {
+  const packs = job.steps?.filter((step) => step.run?.includes("pnpm run pack:release-package"));
+  expect(packs).toHaveLength(1);
+}
+
 describe("package manifest compatibility", () => {
-  it("requires pnpm 11+ development tooling while requiring Node 22+ at runtime", () => {
-    const packageManagerMatch = pkg.packageManager?.match(/^pnpm@(\d+)\.\d+\.\d+(?:[+-].*)?$/);
-
-    expect(packageManagerMatch).not.toBeNull();
-    expect(Number(packageManagerMatch?.[1])).toBeGreaterThanOrEqual(11);
-    expect(pkg.engines?.node).toBe("^22.13.0 || >=23.4.0");
-    expect(pkg.devDependencies?.typescript).toBe("7.0.2");
-    expect(pkg.devDependencies?.yaml).toBe("^2.8.3");
-  });
-
-  it("reflects the local OpenCode V2 plugin dependency override", () => {
-    expect(pkg.peerDependencies?.["@opencode/plugin"]).toBe("2.0.16");
-    expect(pkg.devDependencies?.["@opencode/plugin"]).toBe("2.0.16");
-    expect(pkg.dependencies?.["@opentui/core"]).toBe("^0.5.10");
-    expect(pkg.dependencies?.["@opentui/solid"]).toBe("^0.5.10");
-    expect(readme).toContain("Node.js `22.13+` or `23.4+`");
-    expect(readme).not.toContain("OpenCode `>= 1.4.3`");
-    expect(pkg.engines).not.toHaveProperty("opencode");
-  });
-
-  it("keeps the TypeScript 7 toolchain explicit without suppressing the known peer mismatch", () => {
-    expect(tsconfig.compilerOptions?.types).toEqual(["node"]);
-    expect(typescriptValidator).toContain('const EXPECTED_TYPESCRIPT_VERSION = "7.0.2";');
-    expect(typescriptValidator).toContain('const EXPECTED_PLUGIN_VERSION = "2.0.16";');
-    expect(typescriptValidator).toContain('const EXPECTED_OPENTUI_SPECIFIER = "^0.5.10";');
-    expect(typescriptValidator).toContain('const EXPECTED_OPENTUI_VERSION = "0.5.10";');
-    expect(typescriptValidator).toContain('const BUN_FFI_STRUCTS_VERSION = "0.3.1";');
-    expect(typescriptValidator).toContain('const BUN_FFI_TYPESCRIPT_PEER = "^5";');
-    expect(typescriptValidator).toContain("Known unmet peer:");
-    expect(typescriptValidator).not.toMatch(/TypeScript v4 freeze|\^5\.9/);
-    expect(pkg.pnpm?.peerDependencyRules).toBeUndefined();
+  it("pins the runtime, toolchain, entrypoints and published files in package.json", () => {
+    const pnpmMajor = String(pkg.packageManager).match(/^pnpm@(\d+)\.\d+\.\d+(?:[+-].*)?$/)?.[1];
+    expect(Number(pnpmMajor)).toBeGreaterThanOrEqual(11);
+    expect(pkg.scripts?.build).toContain("node scripts/clean-dist.mjs && tsc");
     expect(pkg.pnpm?.strictPeerDependencies).not.toBe(false);
-    expect(pnpmWorkspace).not.toMatch(
-      /peerDependencyRules|allowedVersions|ignoreMissing|strictPeerDependencies:\s*false/,
-    );
-  });
 
-  it("uses pinned Biome as the sole formatter and linter", async () => {
-    expect(pkg.devDependencies?.["@biomejs/biome"]).toBe("2.3.11");
-    expect(pkg.devDependencies).not.toHaveProperty("prettier");
-    expect(pkg.devDependencies).not.toHaveProperty("eslint");
-
-    expect(pkg.scripts?.format).toBe("biome format --write .");
-    expect(pkg.scripts?.["format:check"]).toBe("biome format .");
-    expect(pkg.scripts?.lint).toBe("biome lint .");
-    expect(pkg.scripts?.check).toBe("biome check .");
-    expect(pkg.scripts).not.toHaveProperty("verify:v4-formatting");
-
-    expect(biomeConfig.$schema).toBe("https://biomejs.dev/schemas/2.3.11/schema.json");
-    expect(biomeConfig.linter?.rules?.recommended).toBe(true);
-    expect(biomeConfig.linter?.domains?.solid).toBe("recommended");
-    expect(
-      biomeConfig.overrides?.some(
-        (override) =>
-          override.includes?.includes("tests/**/*.test.ts") &&
-          override.linter?.domains?.test === "recommended",
-      ),
-    ).toBe(true);
-
-    for (const path of [
-      "../.prettierignore",
-      "../.prettierrc.json",
-      "../scripts/verify-v4-formatting.mjs",
-    ]) {
-      await expect(access(new URL(path, import.meta.url))).rejects.toThrow();
+    const entry = (main: string) => ({
+      default: `./dist/${main}.js`,
+      types: `./dist/${main}.d.ts`,
+    });
+    const expected: Array<[section: string, key: string | null, value: unknown]> = [
+      ["engines", "node", "^22.13.0 || >=23.4.0"],
+      ["engines", "opencode", undefined],
+      ["devDependencies", "typescript", "7.0.2"],
+      ["devDependencies", "yaml", "^2.8.3"],
+      ["peerDependencies", "@opencode/plugin", "2.0.28"],
+      ["devDependencies", "@opencode/plugin", "2.0.28"],
+      ["dependencies", "@opentui/core", "^0.5.10"],
+      ["dependencies", "@opentui/solid", "^0.5.10"],
+      ["pnpm", "peerDependencyRules", undefined],
+      // Vite+ is the only formatter and linter; Lefthook the only hook runner.
+      ["devDependencies", "vite-plus", "1.2.0"],
+      ["devDependencies", "@biomejs/biome", undefined],
+      ["devDependencies", "prettier", undefined],
+      ["devDependencies", "eslint", undefined],
+      ["devDependencies", "oxlint", undefined],
+      ["scripts", "format", "vp fmt"],
+      ["scripts", "format:check", undefined],
+      ["scripts", "lint", "vp lint"],
+      ["scripts", "check", "vp check"],
+      // Vite+ runs the tests too (Vitest 5 inside vite-plus); no separate Vitest.
+      ["devDependencies", "vitest", undefined],
+      ["scripts", "test", "vp test run"],
+      ["scripts", "test:watch", "vp test watch"],
+      ["scripts", "verify:v4-formatting", undefined],
+      ["devDependencies", "lefthook", "2.0.15"],
+      ["devDependencies", "husky", undefined],
+      ["devDependencies", "lint-staged", undefined],
+      ["scripts", "prepare", "lefthook install"],
+      // The OpenTelemetry API ships; the metrics SDK stays host-owned.
+      ["optionalDependencies", null, undefined],
+      ["dependencies", "@opentelemetry/api", "^1.9.1"],
+      ["devDependencies", "@opentelemetry/api", undefined],
+      ["peerDependencies", "@opentelemetry/api", undefined],
+      ["peerDependenciesMeta", "@opentelemetry/api", undefined],
+      ["devDependencies", "@opentelemetry/sdk-metrics", "2.10.0"],
+      ["dependencies", "@opentelemetry/sdk-metrics", undefined],
+      ["peerDependencies", "@opentelemetry/sdk-metrics", undefined],
+      // One ordered repository gate, and a release-only alias on top of it.
+      ["scripts", "verify", VERIFY_COMMAND],
+      ["scripts", "release:check", "pnpm verify && pnpm run verify:release-version"],
+      ["scripts", "build:check", undefined],
+      ["scripts", "test:four-surfaces", undefined],
+      // `pnpm run upstream:prepare-review` still runs the standalone type check.
+      ["scripts", "typecheck", "tsc --noEmit"],
+      ["main", null, "./dist/index.js"],
+      ["bin", null, { "opencode-quota": "./dist/bin/opencode-quota.js" }],
+      ["oc-plugin", null, undefined],
+      ["exports", ".", entry("index")],
+      ["exports", "./server", entry("index")],
+      ["exports", "./tui", entry("tui")],
+      ["files", null, ["dist", "README.md", "LICENSE"]],
+      ["scripts", "verify:package-contents", "node scripts/verify-package-contents.mjs"],
+      ["scripts", "pack:release-package", "node scripts/pack-release-package.mjs"],
+      ["scripts", "verify:release-package", "node scripts/verify-release-package.mjs"],
+    ];
+    for (const [section, key, value] of expected) {
+      const actual = key === null ? pkg[section] : pkg[section]?.[key];
+      expect(actual, `package.json ${section} ${key ?? ""}`).toEqual(value);
     }
   });
 
-  it("uses Lefthook for staged Biome fixes and canonical pre-push verification", async () => {
-    expect(pkg.devDependencies?.lefthook).toBe("2.0.15");
-    expect(pkg.devDependencies).not.toHaveProperty("husky");
-    expect(pkg.devDependencies).not.toHaveProperty("lint-staged");
-    expect(pkg.scripts?.prepare).toBe("lefthook install");
-
+  it("keeps the tool configs the gates rely on, and none of the removed tools", async () => {
+    expect(tsconfig.compilerOptions?.types).toEqual(["node"]);
+    expect(viteConfig).toContain('import { defineConfig } from "vite-plus";');
+    expect(viteConfig).toContain('categories: { correctness: "error" }');
+    // The build's tsc, on the pinned TypeScript, is the only type check.
+    expect(viteConfig).not.toMatch(/typeAware|typeCheck/);
     expect(lefthookConfig["pre-commit"]?.commands).toEqual({
-      biome: {
+      check: {
         glob: "**/*.{js,cjs,mjs,jsx,ts,tsx,json,jsonc,css}",
-        run: "pnpm exec biome check --write --no-errors-on-unmatched {staged_files}",
+        run: "pnpm exec vp check --fix --no-error-on-unmatched-pattern {staged_files}",
         stage_fixed: true,
       },
     });
-    expect(lefthookConfig["pre-push"]?.commands).toEqual({
-      verify: {
-        run: "pnpm verify",
-      },
-    });
-
-    const packageScripts = packageScriptSources.join("\n");
-    expect(packageScripts).not.toContain("HUSKY");
-    expect(packageScripts).not.toContain("LEFTHOOK");
-
-    for (const path of ["../.husky", "../.lintstagedrc"]) {
-      await expect(access(new URL(path, import.meta.url))).rejects.toThrow();
-    }
-  });
-
-  it("ships the OpenTelemetry API while keeping the metrics SDK host-owned", () => {
-    expect(pkg).not.toHaveProperty("optionalDependencies");
-    expect(pkg.dependencies?.["@opentelemetry/api"]).toBe("^1.9.1");
-    for (const dependencyType of [pkg.devDependencies, pkg.peerDependencies]) {
-      expect(dependencyType).not.toHaveProperty("@opentelemetry/api");
-    }
-    expect(pkg.peerDependenciesMeta?.["@opentelemetry/api"]).toBeUndefined();
-
-    expect(pkg.devDependencies?.["@opentelemetry/sdk-metrics"]).toBe("2.10.0");
-    for (const dependencyType of [pkg.dependencies, pkg.peerDependencies]) {
-      expect(dependencyType).not.toHaveProperty("@opentelemetry/sdk-metrics");
-    }
-  });
-
-  it("hardens pnpm dependency resolution against fresh-package supply-chain attacks", () => {
-    expect(pnpmWorkspace).toContain("minimumReleaseAge: 1440");
-    expect(pnpmWorkspace).toContain("minimumReleaseAgeStrict: true");
-    expect(pnpmWorkspace).toContain("minimumReleaseAgeIgnoreMissingTime: false");
-    expect(pnpmWorkspace).toContain("blockExoticSubdeps: true");
-    expect(pnpmWorkspaceConfig.allowBuilds).toEqual({
+    expect(lefthookConfig["pre-push"]?.commands).toEqual({ verify: { run: "pnpm verify" } });
+    // Hardens dependency resolution against fresh-package supply-chain attacks.
+    expect(parse(pnpmWorkspace).allowBuilds).toEqual({
       esbuild: true,
       lefthook: true,
       "msgpackr-extract": true,
       protobufjs: false,
     });
-  });
 
-  it("defines one ordered canonical repository gate and a release-only compatibility alias", () => {
-    expect(pkg.scripts?.build).toContain("node scripts/clean-dist.mjs && tsc");
-    expect(pkg.scripts?.verify).toBe(VERIFY_COMMAND);
-    expect(pkg.scripts?.verify).not.toContain("verify:release-version");
-    expect(pkg.scripts?.verify).not.toContain("verify:release-package");
-    expect(pkg.scripts?.["release:check"]).toBe("pnpm verify && pnpm run verify:release-version");
-  });
-
-  it("ships explicit server, tui, and init bin entrypoints for OpenCode", () => {
-    expect(pkg.main).toBe("./dist/index.js");
-    expect(pkg.bin).toEqual({
-      "opencode-quota": "./dist/bin/opencode-quota.js",
-    });
-    expect(pkg["oc-plugin"]).toBeUndefined();
-    expect(pkg.dependencies?.["@clack/prompts"]).toBeTruthy();
-    expect(pkg.exports?.["."]).toEqual({
-      default: "./dist/index.js",
-      types: "./dist/index.d.ts",
-    });
-    expect(pkg.exports?.["./server"]).toEqual({
-      default: "./dist/index.js",
-      types: "./dist/index.d.ts",
-    });
-    expect(pkg.exports?.["./tui"]).toEqual({
-      default: "./dist/tui.js",
-      types: "./dist/tui.d.ts",
-    });
-  });
-
-  it("keeps the legacy MiniMax result types in generated public declarations", async () => {
-    const [indexDeclarations, typesDeclarations] = await Promise.all([
-      readFile(new URL("../dist/index.d.ts", import.meta.url), "utf8"),
-      readFile(new URL("../dist/lib/types.d.ts", import.meta.url), "utf8"),
-    ]);
-
-    expect(indexDeclarations).toMatch(/MiniMaxResult[\s\S]*MiniMaxResultEntry/u);
-    expect(typesDeclarations).toContain("export interface MiniMaxResultEntry {");
-    expect(typesDeclarations).toContain('window: "five_hour" | "weekly";');
-    expect(typesDeclarations).toContain("export type MiniMaxResult = {");
-    expect(typesDeclarations).toContain("entries: MiniMaxResultEntry[];");
-  });
-
-  it("does not leave stale Crof generated artifacts in active dist", async () => {
-    const staleCrofDistPaths = [
-      "../dist/lib/crof-config.d.ts",
-      "../dist/lib/crof-config.d.ts.map",
-      "../dist/lib/crof-config.js",
-      "../dist/lib/crof-config.js.map",
-      "../dist/lib/crof.d.ts",
-      "../dist/lib/crof.d.ts.map",
-      "../dist/lib/crof.js",
-      "../dist/lib/crof.js.map",
-      "../dist/providers/crof.d.ts",
-      "../dist/providers/crof.d.ts.map",
-      "../dist/providers/crof.js",
-      "../dist/providers/crof.js.map",
-    ];
-
-    await Promise.all(
-      staleCrofDistPaths.map(async (path) => {
-        await expect(access(new URL(path, import.meta.url))).rejects.toThrow();
-      }),
+    const staleCrof = ["lib/crof-config", "lib/crof", "providers/crof"].flatMap((base) =>
+      [".d.ts", ".d.ts.map", ".js", ".js.map"].map((ext) => `../dist/${base}${ext}`),
     );
+    const removed = [
+      "../.prettierignore",
+      "../.prettierrc.json",
+      "../scripts/verify-v4-formatting.mjs",
+      "../.husky",
+      "../.lintstagedrc",
+      "../biome.json",
+      "../vitest.config.ts",
+      ...staleCrof,
+    ];
+    for (const path of removed) {
+      await expect(access(new URL(path, import.meta.url)), path).rejects.toThrow();
+    }
+  });
+
+  it.each([
+    [
+      "the TypeScript version check (peer mismatch reported, not suppressed)",
+      "../scripts/verify-typescript-version.mjs",
+      [
+        'const EXPECTED_TYPESCRIPT_VERSION = "7.0.2";',
+        'const EXPECTED_PLUGIN_VERSION = "2.0.28";',
+        'const EXPECTED_OPENTUI_SPECIFIER = "^0.5.10";',
+        'const EXPECTED_OPENTUI_VERSION = "0.5.10";',
+        'const BUN_FFI_STRUCTS_VERSION = "0.3.1";',
+        'const BUN_FFI_TYPESCRIPT_PEER = "^5";',
+        "Known unmet peer:",
+      ],
+      [/TypeScript v4 freeze|\^5\.9/],
+    ],
+    [
+      "pnpm-workspace.yaml",
+      "../pnpm-workspace.yaml",
+      [
+        "minimumReleaseAge: 1440",
+        "minimumReleaseAgeStrict: true",
+        "minimumReleaseAgeIgnoreMissingTime: false",
+        "blockExoticSubdeps: true",
+        "vite@*: npm:@voidzero-dev/vite-plus-core@1.2.0",
+      ],
+      [
+        /peerDependencyRules|allowedVersions|ignoreMissing|strictPeerDependencies:\s*false/,
+        /minimumReleaseAgeExclude/,
+      ],
+    ],
+    ["the README", "../README.md", ["Node.js `22.13+` or `23.4+`"], ["OpenCode `>= 1.4.3`"]],
+    ["the pack script", "../scripts/pack-release-package.mjs", [], ["HUSKY", "LEFTHOOK"]],
+    ["the contents check", "../scripts/verify-package-contents.mjs", [], ["HUSKY", "LEFTHOOK"]],
+    ["the release check", "../scripts/verify-release-package.mjs", [], ["HUSKY", "LEFTHOOK"]],
+    [
+      "the packed-package smoke (public imports, CLI, compiled TUI, OpenTelemetry)",
+      "../scripts/smoke-packed-package.mjs",
+      [
+        'await import("@slkiser/opencode-quota");',
+        'await import("@slkiser/opencode-quota/server");',
+        '"opencode-quota show"',
+        '"opencode-quota status"',
+        "@slkiser/opencode-quota/tui",
+        'import.meta.resolve("@slkiser/opencode-quota/tui")',
+        'readFile(tuiExportPath, "utf8")',
+        "dist\\\\/tui\\\\.js",
+        'const { metrics } = await import("@opentelemetry/api");',
+        'assert.equal(typeof metrics.getMeter, "function");',
+        'assert.equal(pkg.dependencies?.["@opentelemetry/api"], "^1.9.1");',
+        '["devDependencies", "optionalDependencies", "peerDependencies"]',
+        'assert.equal(pkg.peerDependenciesMeta?.["@opentelemetry/api"], undefined);',
+        'rootPackage.devDependencies?.["@opentelemetry/sdk-metrics"]',
+        '["install", "--omit=dev", `@opentelemetry/sdk-metrics@${sdkMetricsVersion}`]',
+        "smoke-packed-real-otel.mjs",
+        '"happy"',
+        '"disabled"',
+        '"no-global-provider"',
+        '"failing-infrastructure"',
+        'identity: "packed-runtime-dependency"',
+      ],
+      [
+        '"opencode-quota init"',
+        '"opencode-quota update"',
+        'await import("@slkiser/opencode-quota/tui")',
+        "@opentelemetry/api@",
+        'assert.rejects(import("@opentelemetry/api"))',
+        'identity: "packed-absent"',
+        "absentOptionalDependencySmoke",
+        '"node_modules", "@opentelemetry", "api"',
+      ],
+    ],
+    [
+      "the real OpenTelemetry smoke fixture",
+      "../scripts/fixtures/smoke-packed-real-otel.mjs",
+      [
+        "new MeterProvider({ readers: [reader] })",
+        "new PeriodicExportingMetricReader",
+        "new InMemoryMetricExporter",
+        "metrics.setGlobalMeterProvider(provider)",
+        "await provider.forceFlush()",
+        "await sdk.provider.shutdown()",
+        "buildQuotaExport",
+        "disposeQuotaTelemetryOwner",
+      ],
+      [],
+    ],
+  ])(
+    "keeps %s",
+    async (_name, path, has: Array<string | RegExp>, lacks: Array<string | RegExp>) => {
+      const source = await text(path);
+      for (const pattern of has) expect(source).toMatch(pattern);
+      for (const pattern of lacks) expect(source).not.toMatch(pattern);
+    },
+  );
+
+  it("smokes the packed package after installing it, then installs the metrics SDK", () => {
+    const tarballInstall = packedSmoke.indexOf(
+      'run("npm", ["install", "--omit=dev", tarball], workdir);',
+    );
+    const moduleSmoke = packedSmoke.indexOf(
+      'run(process.execPath, ["--input-type=module", "--eval", moduleSmoke], workdir);',
+    );
+    const sdkInstall = packedSmoke.indexOf("`@opentelemetry/sdk-metrics@${sdkMetricsVersion}`");
+    expect(tarballInstall).toBeGreaterThanOrEqual(0);
+    expect(moduleSmoke).toBeGreaterThan(tarballInstall);
+    expect(sdkInstall).toBeGreaterThan(moduleSmoke);
   });
 
   it("runs canonical verification on Ubuntu and Windows before exact-artifact smoke", () => {
@@ -343,45 +314,31 @@ describe("package manifest compatibility", () => {
       "runtime-smoke",
       "windows-verify",
     ]);
-
     const quality = ciWorkflow.jobs["pnpm-quality"];
-    const checkout = quality.steps?.find((step) => step.uses === "actions/checkout@v6");
-    expect(checkout?.with?.["fetch-depth"]).toBe(0);
-    expect(
-      quality.steps?.find((step) => step.uses === "actions/setup-node@v6")?.with?.["node-version"],
-    ).toBe("24.x");
-
-    for (const [name, run] of [
-      ["Install dependencies", "pnpm install --frozen-lockfile"],
-      ["Run canonical verification", "pnpm verify"],
-      ["Pack and audit exact npm artifact once", "pnpm run pack:release-package package-artifacts"],
-    ]) {
-      expect(namedStep(quality, name).run).toBe(run);
-    }
-
-    expectCanonicalVerificationOnly(quality);
-    expect(stepIndex(quality, "Run canonical verification")).toBeGreaterThan(
-      stepIndex(quality, "Install dependencies"),
-    );
-    expect(stepIndex(quality, "Pack and audit exact npm artifact once")).toBeGreaterThan(
-      stepIndex(quality, "Run canonical verification"),
-    );
-    expect(
-      quality.steps?.filter((step) => step.run?.includes("pnpm run pack:release-package")),
-    ).toHaveLength(1);
-
     const windows = ciWorkflow.jobs["windows-verify"];
     expect(windows["runs-on"]).toBe("windows-latest");
-    expect(
-      windows.steps?.find((step) => step.uses === "actions/checkout@v6")?.with?.["fetch-depth"],
-    ).toBe(0);
-    expect(
-      windows.steps?.find((step) => step.uses === "actions/setup-node@v6")?.with?.["node-version"],
-    ).toBe("24.x");
-    expect(namedStep(windows, "Install dependencies").run).toBe("pnpm install --frozen-lockfile");
-    expect(namedStep(windows, "Run canonical verification").run).toBe("pnpm verify");
-    expectCanonicalVerificationOnly(windows);
+    for (const job of [quality, windows]) {
+      expect(usesStep(job, "actions/checkout@v6")?.with?.["fetch-depth"]).toBe(0);
+      expect(usesStep(job, "actions/setup-node@v6")?.with?.["node-version"]).toBe("24.x");
+      expect(namedStep(job, "Install dependencies")).toEqual(
+        expect.objectContaining({
+          uses: SETUP_VP,
+          with: {
+            "node-manager": false,
+            cache: true,
+            "run-install": 'args: ["--frozen-lockfile"]\n',
+          },
+        }),
+      );
+      expect(job.steps?.some((step) => step.run?.includes("corepack"))).toBe(false);
+      expect(namedStep(job, "Run canonical verification").run).toBe("pnpm verify");
+      expectCanonicalVerificationOnly(job);
+    }
 
+    const pack = "Pack and audit exact npm artifact once";
+    expect(namedStep(quality, pack).run).toBe("pnpm run pack:release-package package-artifacts");
+    expectOrdered(quality, ["Install dependencies", "Run canonical verification", pack]);
+    expectSinglePack(quality);
     expect(namedStep(quality, "Upload exact npm artifact")).toEqual(
       expect.objectContaining({
         uses: "actions/upload-artifact@v7",
@@ -405,83 +362,8 @@ describe("package manifest compatibility", () => {
     ).toBe("node scripts/smoke-packed-package.mjs package-artifacts");
   });
 
-  it("keeps npm publication on a strict root allowlist", () => {
-    expect(pkg.files).toEqual(["dist", "README.md", "LICENSE"]);
-    expect(pkg.scripts?.["verify:package-contents"]).toBe(
-      "node scripts/verify-package-contents.mjs",
-    );
-    expect(pkg.scripts?.["pack:release-package"]).toBe("node scripts/pack-release-package.mjs");
-    expect(pkg.scripts?.["verify:release-package"]).toBe("node scripts/verify-release-package.mjs");
-  });
-
-  it("smoke-tests public imports, CLI commands, and the compiled TUI export", () => {
-    expect(packedSmoke).toContain('await import("@slkiser/opencode-quota");');
-    expect(packedSmoke).toContain('await import("@slkiser/opencode-quota/server");');
-    expect(packedSmoke).toContain('"opencode-quota init"');
-    expect(packedSmoke).toContain('"opencode-quota show"');
-    expect(packedSmoke).toContain('"opencode-quota update"');
-    expect(packedSmoke).toContain("@slkiser/opencode-quota/tui");
-    expect(packedSmoke).toContain('import.meta.resolve("@slkiser/opencode-quota/tui")');
-    expect(packedSmoke).toContain('readFile(tuiExportPath, "utf8")');
-    expect(packedSmoke).toContain("dist\\\\/tui\\\\.js");
-    expect(packedSmoke).not.toContain('await import("@slkiser/opencode-quota/tui")');
-    expect(packedSmoke).toContain('const { metrics } = await import("@opentelemetry/api");');
-    expect(packedSmoke).toContain('assert.equal(typeof metrics.getMeter, "function");');
-    expect(packedSmoke).toContain(
-      'assert.equal(pkg.dependencies?.["@opentelemetry/api"], "^1.9.1");',
-    );
-    expect(packedSmoke).toContain(
-      '["devDependencies", "optionalDependencies", "peerDependencies"]',
-    );
-    expect(packedSmoke).toContain(
-      'assert.equal(pkg.peerDependenciesMeta?.["@opentelemetry/api"], undefined);',
-    );
-    expect(packedSmoke).toContain('rootPackage.devDependencies?.["@opentelemetry/sdk-metrics"]');
-    expect(packedSmoke).toContain(
-      '["install", "--omit=dev", `@opentelemetry/sdk-metrics@${sdkMetricsVersion}`]',
-    );
-    expect(packedSmoke).toContain("smoke-packed-real-otel.mjs");
-    expect(packedSmoke).toContain('"happy"');
-    expect(packedSmoke).toContain('"disabled"');
-    expect(packedSmoke).toContain('"no-global-provider"');
-    expect(packedSmoke).toContain('"failing-infrastructure"');
-    expect(packedSmoke).toContain('identity: "packed-runtime-dependency"');
-
-    const tarballInstallIndex = packedSmoke.indexOf(
-      'run("npm", ["install", "--omit=dev", tarball], workdir);',
-    );
-    const moduleSmokeRunIndex = packedSmoke.indexOf(
-      'run(process.execPath, ["--input-type=module", "--eval", moduleSmoke], workdir);',
-    );
-    const sdkInstallIndex = packedSmoke.indexOf(
-      "`@opentelemetry/sdk-metrics@${sdkMetricsVersion}`",
-    );
-    expect(tarballInstallIndex).toBeGreaterThanOrEqual(0);
-    expect(moduleSmokeRunIndex).toBeGreaterThan(tarballInstallIndex);
-    expect(sdkInstallIndex).toBeGreaterThan(moduleSmokeRunIndex);
-
-    expect(packedSmoke).not.toContain("@opentelemetry/api@");
-    expect(packedSmoke).not.toContain('assert.rejects(import("@opentelemetry/api"))');
-    expect(packedSmoke).not.toContain('identity: "packed-absent"');
-    expect(packedSmoke).not.toContain("absentOptionalDependencySmoke");
-    expect(packedSmoke).not.toContain('"node_modules", "@opentelemetry", "api"');
-
-    expect(packedRealOtelFixture).toContain("new MeterProvider({ readers: [reader] })");
-    expect(packedRealOtelFixture).toContain("new PeriodicExportingMetricReader");
-    expect(packedRealOtelFixture).toContain("new InMemoryMetricExporter");
-    expect(packedRealOtelFixture).toContain("metrics.setGlobalMeterProvider(provider)");
-    expect(packedRealOtelFixture).toContain("await provider.forceFlush()");
-    expect(packedRealOtelFixture).toContain("await sdk.provider.shutdown()");
-    expect(packedRealOtelFixture).toContain("buildQuotaExport");
-    expect(packedRealOtelFixture).toContain("disposeQuotaTelemetryOwner");
-  });
-
   it("publishes only a release-tag artifact after both exact-artifact smoke jobs", () => {
-    expect(publishWorkflow.on).toEqual({
-      release: {
-        types: ["published"],
-      },
-    });
+    expect(publishWorkflow.on).toEqual({ release: { types: ["published"] } });
     expect(Object.keys(publishWorkflow.jobs).sort()).toEqual([
       "backfill-version",
       "point-next-at-stable",
@@ -489,22 +371,21 @@ describe("package manifest compatibility", () => {
       "release-package",
       "runtime-smoke",
     ]);
-
     const releasePackage = publishWorkflow.jobs["release-package"];
-    const releaseCheckout = namedStep(releasePackage, "Checkout release tag");
-    expect(releaseCheckout.uses).toBe("actions/checkout@v6");
-    expect(releaseCheckout.with).toEqual({
+    const smoke = publishWorkflow.jobs["runtime-smoke"];
+    const publish = publishWorkflow.jobs.publish;
+    const backfill = publishWorkflow.jobs["backfill-version"];
+    const artifact = { name: "release-package", path: "package-artifacts" };
+
+    const checkout = namedStep(releasePackage, "Checkout release tag");
+    expect(checkout.uses).toBe("actions/checkout@v6");
+    expect(checkout.with).toEqual({
       ref: "${{ github.sha }}",
       "fetch-depth": 0,
       "fetch-tags": true,
     });
-    expect(
-      releasePackage.steps?.find((step) => step.uses === "actions/setup-node@v6")?.with?.[
-        "node-version"
-      ],
-    ).toBe(24);
-
-    const orderedSteps = [
+    expect(usesStep(releasePackage, "actions/setup-node@v6")?.with?.["node-version"]).toBe(24);
+    expectOrdered(releasePackage, [
       "Assert release ref, tag, and commit match",
       "Sync package version from release tag",
       "Verify package version matches release tag",
@@ -512,63 +393,42 @@ describe("package manifest compatibility", () => {
       "Run canonical verification",
       "Pack and audit the release artifact once",
       "Upload exact release artifact",
-    ];
-    for (const name of orderedSteps) {
-      expect(
-        stepIndex(releasePackage, name),
-        `Missing ordered release step: ${name}`,
-      ).toBeGreaterThanOrEqual(0);
-    }
-    for (let index = 1; index < orderedSteps.length; index += 1) {
-      expect(stepIndex(releasePackage, orderedSteps[index])).toBeGreaterThan(
-        stepIndex(releasePackage, orderedSteps[index - 1]),
-      );
-    }
-
+    ]);
+    const identityRun = namedStep(releasePackage, "Assert release ref, tag, and commit match").run;
+    expect(identityRun).toContain('CHECKED_OUT_SHA="$(git rev-parse HEAD)"');
+    expect(identityRun).toContain('TAG_SHA="$(git rev-parse "$RELEASE_TAG^{commit}")"');
     expect(namedStep(releasePackage, "Sync package version from release tag").run).toContain(
       'pnpm version "$VERSION" --no-git-tag-version --allow-same-version',
     );
-    expect(namedStep(releasePackage, "Verify package version matches release tag").run).toBe(
-      "pnpm run verify:release-version",
-    );
-    expect(namedStep(releasePackage, "Run canonical verification").run).toBe("pnpm verify");
+    for (const [name, run] of [
+      ["Verify package version matches release tag", "pnpm run verify:release-version"],
+      ["Run canonical verification", "pnpm verify"],
+      [
+        "Pack and audit the release artifact once",
+        "pnpm run pack:release-package package-artifacts",
+      ],
+    ]) {
+      expect(namedStep(releasePackage, name).run).toBe(run);
+    }
     expectCanonicalVerificationOnly(releasePackage);
-    expect(namedStep(releasePackage, "Pack and audit the release artifact once").run).toBe(
-      "pnpm run pack:release-package package-artifacts",
-    );
-    expect(
-      releasePackage.steps?.filter((step) => step.run?.includes("pnpm run pack:release-package")),
-    ).toHaveLength(1);
+    expectSinglePack(releasePackage);
     expect(namedStep(releasePackage, "Upload exact release artifact").with).toEqual({
       name: "release-package",
       path: "package-artifacts/*",
       "if-no-files-found": "error",
     });
 
-    const smoke = publishWorkflow.jobs["runtime-smoke"];
     expect(smoke.needs).toBe("release-package");
     expect(smoke.strategy?.matrix?.["node-version"]).toEqual(["22.x", "24.x"]);
-    expect(namedStep(smoke, "Download exact release artifact").with).toEqual({
-      name: "release-package",
-      path: "package-artifacts",
-    });
+    expect(namedStep(smoke, "Download exact release artifact").with).toEqual(artifact);
     expect(
       namedStep(smoke, "Smoke exact release artifact on Node ${{ matrix.node-version }}").run,
     ).toBe("node scripts/smoke-packed-package.mjs package-artifacts");
 
-    const publish = publishWorkflow.jobs.publish;
     expect(publish.needs).toEqual(["release-package", "runtime-smoke"]);
-    expect(publish.permissions).toEqual({
-      contents: "read",
-      "id-token": "write",
-    });
-    expect(namedStep(publish, "Download exact release artifact").with).toEqual({
-      name: "release-package",
-      path: "package-artifacts",
-    });
-    expect(stepIndex(publish, "Choose npm dist-tag")).toBeLessThan(
-      stepIndex(publish, "Verify and publish exact release artifact"),
-    );
+    expect(publish.permissions).toEqual({ contents: "read", "id-token": "write" });
+    expect(namedStep(publish, "Download exact release artifact").with).toEqual(artifact);
+    expectOrdered(publish, ["Choose npm dist-tag", "Verify and publish exact release artifact"]);
     const publishStep = namedStep(publish, "Verify and publish exact release artifact");
     expect(publishStep.env).toEqual({ DIST_TAG: "${{ steps.dist-tag.outputs.dist-tag }}" });
     const publishRun = publishStep.run ?? "";
@@ -576,41 +436,37 @@ describe("package manifest compatibility", () => {
     expect(publishRun).toContain(
       'npm publish "./${TARBALLS[0]}" --tag "$DIST_TAG" --access public --provenance --ignore-scripts',
     );
-    expect(publishRun).not.toContain('npm publish "${TARBALLS[0]}"');
-    expect(publishRun).not.toContain("pnpm pack");
-    expect(publishRun).not.toContain("pnpm run build");
+    for (const forbidden of ['npm publish "${TARBALLS[0]}"', "pnpm pack", "pnpm run build"]) {
+      expect(publishRun).not.toContain(forbidden);
+    }
 
-    const backfill = publishWorkflow.jobs["backfill-version"];
     for (const job of [releasePackage, smoke, publish, backfill]) {
       const checkouts = job.steps?.filter((step) => step.uses === "actions/checkout@v6") ?? [];
       expect(checkouts.length).toBeGreaterThan(0);
-      for (const checkout of checkouts) {
-        expect(checkout.with?.ref).toBe("${{ github.sha }}");
-      }
+      for (const step of checkouts) expect(step.with?.ref).toBe("${{ github.sha }}");
     }
-
-    const releaseIdentityRun =
-      namedStep(releasePackage, "Assert release ref, tag, and commit match").run ?? "";
-    expect(releaseIdentityRun).toContain('CHECKED_OUT_SHA="$(git rev-parse HEAD)"');
-    expect(releaseIdentityRun).toContain('TAG_SHA="$(git rev-parse "$RELEASE_TAG^{commit}")"');
 
     expect(backfill.needs).toBe("publish");
     expect(backfill.permissions).toEqual({ contents: "write" });
     expect(namedStep(backfill, "Sync and verify version for repository backfill").run).toContain(
       "pnpm run verify:release-version",
     );
-    const backfillCommitRun =
-      namedStep(backfill, "Commit synced version back to repository").run ?? "";
-    expect(backfillCommitRun).toContain('git push origin HEAD:"$BRANCH"');
+    const backfillRun = namedStep(backfill, "Commit synced version back to repository").run ?? "";
+    expect(backfillRun).toContain('git push origin HEAD:"$BRANCH"');
     // A beta targets the v5 branch; never write its version onto a branch without the release commit.
-    const ancestryCheck = backfillCommitRun.indexOf(
+    const ancestryCheck = backfillRun.indexOf(
       'git merge-base --is-ancestor "$GITHUB_SHA" "origin/$BRANCH"',
     );
     expect(ancestryCheck).toBeGreaterThanOrEqual(0);
-    expect(ancestryCheck).toBeLessThan(backfillCommitRun.indexOf("git commit"));
+    expect(ancestryCheck).toBeLessThan(backfillRun.indexOf("git commit"));
   });
 
-  it("publishes prereleases to the npm next tag and stable releases to latest", () => {
+  it.each([
+    ["v5.0.0-beta.1", "true", "next"],
+    ["v5.0.0-beta.1", "false", "next"],
+    ["v5.0.0", "true", "next"],
+    ["v5.0.0", "false", "latest"],
+  ])("publishes %s (prerelease %s) to the npm %s tag", (tag, prerelease, distTag) => {
     const chooseTag = namedStep(publishWorkflow.jobs.publish, "Choose npm dist-tag");
     expect(chooseTag.id).toBe("dist-tag");
     expect(chooseTag.env).toEqual({
@@ -618,28 +474,18 @@ describe("package manifest compatibility", () => {
       RELEASE_PRERELEASE: "${{ github.event.release.prerelease }}",
     });
 
-    const distTagFor = (tag: string, prerelease: string): string => {
-      const dir = mkdtempSync(join(tmpdir(), "opencode-quota-dist-tag-"));
-      try {
-        const output = join(dir, "github-output");
-        execFileSync("bash", ["-e", "-c", chooseTag.run ?? "exit 1"], {
-          env: {
-            ...process.env,
-            RELEASE_TAG: tag,
-            RELEASE_PRERELEASE: prerelease,
-            GITHUB_OUTPUT: output,
-          },
-          stdio: "ignore",
-        });
-        return readFileSync(output, "utf8");
-      } finally {
-        rmSync(dir, { recursive: true, force: true });
-      }
-    };
-    expect(distTagFor("v5.0.0-beta.1", "true")).toBe("dist-tag=next\n");
-    expect(distTagFor("v5.0.0-beta.1", "false")).toBe("dist-tag=next\n");
-    expect(distTagFor("v5.0.0", "true")).toBe("dist-tag=next\n");
-    expect(distTagFor("v5.0.0", "false")).toBe("dist-tag=latest\n");
+    const dir = mkdtempSync(join(tmpdir(), "opencode-quota-dist-tag-"));
+    try {
+      const output = join(dir, "github-output");
+      const env = { RELEASE_TAG: tag, RELEASE_PRERELEASE: prerelease, GITHUB_OUTPUT: output };
+      execFileSync("bash", ["-e", "-c", chooseTag.run ?? "exit 1"], {
+        env: { ...process.env, ...env },
+        stdio: "ignore",
+      });
+      expect(readFileSync(output, "utf8")).toBe(`dist-tag=${distTag}\n`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("points next at each stable release unless next is already newer", () => {

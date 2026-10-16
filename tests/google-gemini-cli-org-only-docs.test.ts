@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 function read(path: string): string {
   return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -59,14 +59,12 @@ describe("Gemini CLI organization-only documentation", () => {
     expect(providerSection).toContain("[Google AGY](#google-agy-quick-setup)");
     expect(providerSection).toContain("opencode-gemini-auth");
     expect(providerSection).toContain("opencode auth login google");
-    expect(providerSection).toContain("include `google-gemini-cli` in `enabledProviders`");
+    expect(providerSection).toContain("Remove it from `providers.off`");
   });
 
   it("keeps repair guidance and keeps Gemini CLI out of new configuration examples", () => {
-    expect(configuration).toContain('"enabledProviders": ["copilot", "openai", "google-agy"]');
-    expect(configuration).not.toContain(
-      '"enabledProviders": ["copilot", "openai", "google-gemini-cli"]',
-    );
+    expect(configuration).toContain('"off": ["openai"]');
+    expect(configuration).not.toContain("google-gemini-cli");
 
     const troubleshootingSection = section(
       troubleshooting,
@@ -75,7 +73,7 @@ describe("Gemini CLI organization-only documentation", () => {
     );
     expect(troubleshootingSection).toContain(ORG_ONLY);
     expect(troubleshootingSection).toContain("opencode-gemini-auth");
-    expect(troubleshootingSection).toContain("Include `google-gemini-cli` in `enabledProviders`");
+    expect(troubleshootingSection).toContain("Remove `google-gemini-cli` from `providers.off`");
     expect(troubleshootingSection).toContain("opencode auth login google");
     for (const projectIdSource of [
       "provider.google.options.projectId",

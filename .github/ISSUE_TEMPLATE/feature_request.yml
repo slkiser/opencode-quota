@@ -38,7 +38,7 @@ body:
     attributes:
       label: Your plugin version
       description: Run `/quota_status` in OpenCode. The version is in the first line. If it has `beta` in it, update first, because it may already work.
-      placeholder: 5.0.1
+      placeholder: 6.0.0
     validations:
       required: true
 
