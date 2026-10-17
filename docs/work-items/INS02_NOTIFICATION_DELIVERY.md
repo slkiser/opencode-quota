@@ -1,6 +1,6 @@
 # INS-02 — Desktop and plugin reset notices
 
-Issue: [#20](https://github.com/thanhndv212/opencode-quota/issues/20). Status: implemented; local acceptance passed; [PR #50](https://github.com/thanhndv212/opencode-quota/pull/50) merged at `7e1d60e`; [main CI 38745556505](https://github.com/thanhndv212/opencode-quota/actions/runs/38745556505) passed all six checks; observed OS delivery gates remain open. Evidence date: 2026-10-15. Dependencies: INS-01 and GUI-02 complete.
+Issue: [#20](https://github.com/thanhndv212/opencode-quota/issues/20). Status: implemented; local acceptance passed; [PR #50](https://github.com/thanhndv212/opencode-quota/pull/50) merged at `7e1d60e`; [main CI 38745556505](https://github.com/thanhndv212/opencode-quota/actions/runs/38745556505) passed all six checks; Linux X11/Dunst native acceptance passed; macOS observation remains open. Latest evidence: 2026-10-17. Dependencies: INS-01 and GUI-02 complete.
 
 Upstream provenance: mature reset notification policy at `2733b5bd010f659d1d6007e5d19026e82d51353f`, following `c2dca3c` and `cedee73`. Delivery is adapted to the fork's native history writers and separate Electron process.
 
@@ -30,7 +30,7 @@ Node 22.23.3/pnpm 10.0.0: 150 files / 1,548 tests, typecheck, clean installed-ta
 
 **macOS:** installed Electron navigation/preload and mocked native callback behavior verified. No observed OS notification delivery or signed artifact certification. Current [Electron Notification documentation](https://www.electronjs.org/docs/latest/api/notification) states macOS native notification delivery requires code signing; unsigned binaries emit failure. A signed build, user-permitted delivery and an observed click remain required evidence.
 
-**Linux:** CI's installed Electron smoke exercises startup/IPC/navigation under its fixture environment. No observed desktop notification-daemon delivery, denied-permission session or real system-tray delivery certification. These remain an explicit external acceptance gate on issue #20.
+**Linux (initial 2026-10-15 checkpoint):** installed Electron fixture smoke preceded native-daemon acceptance. See the subsequent exact rc.2 evidence below. No claim covers every desktop, denied-permission session or real system-tray integration.
 
 Keep issue #20 open until platform evidence is attached; do not mark M4 or the roadmap complete from unit/fixture checks. Continue INS-03 and M5 independently while these gates are unavailable.
 
@@ -47,3 +47,15 @@ PR #58 merged at `c6b10f91eeed9e8a0859dcdbcccb812317ca9e7b`; all six merged-main
 Native diagnostics in run 38963252079 confirm Dunst emitted ActionInvoked(default), Electron delivered the exact provider/account/window callback, and the correct window was rendered. The assertion failed because full render() rebuilt the heading as Quota Monitor. The follow-up fixes renderHeader() to derive its title from the selected tab and adds an installed renderer regression assertion. Version 3.11.0-rc.2 is prepared in a PR before a new tag; v3.11.0-rc.1 is preserved. Native acceptance will rerun against the new exact artifact; macOS visual permission remains unavailable.
 
 Local rc.2 validation: Node 22.23.3/pnpm 10.0.0 typecheck, 161 files / 1,671 tests, clean installed tarball/editor CLI, account-cache process smoke, native Node/Bun 1.3.14 compatibility and installed macOS Electron 42.5.0 passed. The installed reset-navigation regression now checks the History heading as well as the selected window. No native delivery assertion was removed.
+
+PR #59 merged at `da2464424b4c06aec94e24ac8b1d2905dd3020c1`; all six main CI 38964213629 checks passed before tag v3.11.0-rc.2. Exact tagged desktop run 38964538508 and subsequent native acceptance will supply the rc.2 artifact evidence. Preserve the rc.1 failure/diagnostic records; no assertions were relaxed.
+
+## Exact rc.2 acceptance — 2026-10-17
+
+Tagged desktop build [38964538508](https://github.com/thanhndv212/opencode-quota/actions/runs/38964538508) passed both platforms. Native Linux/AppImage run [38964954082](https://github.com/thanhndv212/opencode-quota/actions/runs/38964954082) passed all assertions against those exact checksummed artifacts: actual Dunst banner count, persisted desktop delivery, real default-action callback, selected provider/account/window and History heading. The [action capture](evidence/INS02-linux-rc2-native-action-history.png) was inspected. The exact AppImage also passed six-tab/preload/version/no-exception checks using extract-and-run; FUSE mounting and general desktop integration are not certified.
+
+The first rc.2 root screenshot was a partial redraw. Capture follow-up 38965561481 produced the [inspected visible OS banner](evidence/INS02-linux-rc2-native-banner.png), then failed after successful assertions while deleting a still-changing Chromium cache. The harness now forces X11 repaint, delays capture one second and retries bounded profile cleanup. These changes affect acceptance tooling only; candidate binaries and tag remain unchanged.
+
+macOS remains the only required external acceptance gate: a permitted native banner and its activation must be observed on the target system. Computer Use returned “Computer Use permissions are not granted”; no OS setting was changed. Do not repeat unchanged UI attempts until that capability changes. The ordinary exact downloaded macOS ZIP and CI-mounted DMG both passed isolated packaged runtime checks, which do not supply native banner/click evidence. Keep #20, M4 and the roadmap open, with the five-hour schedule active. No live reset, Developer ID, notarization or stable-release certification is claimed.
+
+Final follow-up [38993028075](https://github.com/thanhndv212/opencode-quota/actions/runs/38993028075) passed both exact-deb native acceptance and exact-AppImage runtime, including cleanup. Its action capture was inspected and versioned. Its root capture was again a partial redraw; the separately inspected visible banner from 38965561481 is retained with that run provenance. Both complete native/AppImage evidence archives are attached to the rc.2 draft. Root capture remains best-effort under Xvfb; the observed banner and successful action/runtime checks are separate evidence.

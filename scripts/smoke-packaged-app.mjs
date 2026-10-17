@@ -237,7 +237,9 @@ try {
       execFileSync("dunstctl", ["count", "displayed"], { encoding: "utf8" }).trim(),
     );
     assert.equal(displayed, 1, "Expected exactly one native daemon banner");
-    execFileSync("scrot", [path.join(evidence, "native-os-banner.png")]);
+    // Force X11 exposure and allow native windows to repaint before collecting OS evidence.
+    execFileSync("xrefresh", []);
+    execFileSync("scrot", ["--delay", "1", path.join(evidence, "native-os-banner.png")]);
     await evaluate(
       "window.__nativeResetOpen = null; window.quotaApi.resets.onOpen(value => {window.__nativeResetOpen = value}); document.querySelectorAll('.tab-btn')[0].click()",
     );
@@ -321,5 +323,6 @@ try {
       });
     });
   }
-  await rm(root, { recursive: true, force: true });
+  // Chromium helpers can finish cache writes just after the main process exits.
+  await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 }

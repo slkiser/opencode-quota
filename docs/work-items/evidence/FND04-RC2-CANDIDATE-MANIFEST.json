@@ -1,0 +1,42 @@
+{
+  "name": "@thanhndv212/opencode-quota",
+  "version": "3.11.0-rc.2",
+  "tag": "v3.11.0-rc.2",
+  "commit": "da2464424b4c06aec94e24ac8b1d2905dd3020c1",
+  "mergedMainCI": 38964213629,
+  "desktopCandidateCI": 38964538508,
+  "status": "draft unsigned prerelease; Linux X11/Dunst action and AppImage extract-and-run passed; macOS native observation remains open",
+  "artifacts": [
+    {
+      "platform": "mac",
+      "name": "OpenCode.Quota-3.11.0-rc.2-arm64-mac.zip",
+      "ciArtifactName": "OpenCode Quota-3.11.0-rc.2-arm64-mac.zip",
+      "sha256": "1fbaf0ce9c96724be4b03db35c7f5040a84263386a57317f02c771156acb8ec1"
+    },
+    {
+      "platform": "mac",
+      "name": "OpenCode.Quota-3.11.0-rc.2-arm64.dmg",
+      "ciArtifactName": "OpenCode Quota-3.11.0-rc.2-arm64.dmg",
+      "sha256": "500ca112604790a76e7bb35a1fede5240f11d103096774c129fd4b4e8ef15dcf"
+    },
+    {
+      "platform": "linux",
+      "name": "opencode-quota-3.11.0-rc.2-amd64.deb",
+      "ciArtifactName": "opencode-quota-3.11.0-rc.2-amd64.deb",
+      "sha256": "2804b9ae47920cce0cd17702de61e01080103ab925355c4208989ecbdca656fd"
+    },
+    {
+      "platform": "linux",
+      "name": "opencode-quota-3.11.0-rc.2-x86_64.AppImage",
+      "ciArtifactName": "opencode-quota-3.11.0-rc.2-x86_64.AppImage",
+      "sha256": "9c67fa5f3eebd266a7f4783ba607556985d17507081264a3b55337995100c14b"
+    },
+    {
+      "platform": "node20-node22",
+      "name": "thanhndv212-opencode-quota-3.11.0-rc.2.tgz",
+      "ciArtifactName": "thanhndv212-opencode-quota-3.11.0-rc.2.tgz",
+      "sha256": "bbb839c648cec1b5906eae2d60754610d1ad722bb054cf7b08a1f405007032ae"
+    }
+  ],
+  "nativeLinuxAcceptanceCI": 38993028075
+}
