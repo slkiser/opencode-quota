@@ -1,0 +1,56 @@
+{
+  "name": "@thanhndv212/token-watcher",
+  "version": "3.11.0-rc.3",
+  "tag": "v3.11.0-rc.3",
+  "commit": "5974d9e221b78161f42d6f930947cbec5e02694b",
+  "mergedMainCI": 39059331795,
+  "desktopCandidateCI": 39059504400,
+  "status": "public unsigned prerelease; new-identity OS notification and Developer ID/notarization gates unverified",
+  "artifacts": [
+    {
+      "platform": "mac",
+      "name": "Token.Watcher-3.11.0-rc.3-arm64-mac.zip",
+      "ciArtifactName": "Token Watcher-3.11.0-rc.3-arm64-mac.zip",
+      "sha256": "31637ca1a044e94bf61fa8aefbe84ecad45d4bf888f77f3bb86efd90307fac59"
+    },
+    {
+      "platform": "mac",
+      "name": "Token.Watcher-3.11.0-rc.3-arm64.dmg",
+      "ciArtifactName": "Token Watcher-3.11.0-rc.3-arm64.dmg",
+      "sha256": "adc1b0644a4b3b7af766430b5aba1e9c1538b87d0ebee05383a26b43398138fc"
+    },
+    {
+      "platform": "linux",
+      "name": "token-watcher-3.11.0-rc.3-amd64.deb",
+      "ciArtifactName": "token-watcher-3.11.0-rc.3-amd64.deb",
+      "sha256": "9f48be45d2d4177acc2fe9687b59b611872b7e97e7ad50bc494fc8897c8b241f"
+    },
+    {
+      "platform": "linux",
+      "name": "token-watcher-3.11.0-rc.3-x86_64.AppImage",
+      "ciArtifactName": "token-watcher-3.11.0-rc.3-x86_64.AppImage",
+      "sha256": "87a51bbf05146c0617009e158df2aa67082e0ad914170f8751343e6889689aca"
+    },
+    {
+      "platform": "node20-node22",
+      "name": "thanhndv212-token-watcher-3.11.0-rc.3.tgz",
+      "ciArtifactName": "thanhndv212-token-watcher-3.11.0-rc.3.tgz",
+      "sha256": "6ec25ac4dcda6c57894c4808edb449f9f7c5872b61e7dbecc8574ac279d4465a"
+    }
+  ],
+  "releaseUrl": "https://github.com/thanhndv212/opencode-quota/releases/tag/v3.11.0-rc.3",
+  "releaseAssetDigests": "All five runtime assets match GitHub server-recorded SHA256 digests",
+  "localInstallation": {
+    "path": "/Applications/Token Watcher.app",
+    "version": "3.11.0-rc.3",
+    "bundleIdentifier": "io.github.thanhndv212.tokenwatcher",
+    "sourceZipSha256": "31637ca1a044e94bf61fa8aefbe84ecad45d4bf888f77f3bb86efd90307fac59",
+    "signing": "local ad-hoc hardened runtime; strict deep verification passed; not Developer ID or notarized",
+    "actualUI": "Computer Use observed installed Token Watcher window, Dashboard and six navigation tabs",
+    "isolatedRuntime": "six tabs, preload, correct version and no exceptions on separately signed exact CI payload",
+    "payloadEquality": "installed app.asar and renderer match signed source",
+    "rollback": "CRC-verified previous OpenCode Quota rc.2 ZIP; private local release/install-backups record retained",
+    "data": "legacy Electron profile and config/history namespaces retained; no settings or credential files edited",
+    "limits": "New-identity native notifications, live provider responses and Gatekeeper certification unverified"
+  }
+}
