@@ -50,12 +50,6 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
   getOpencodeRuntimeDirs: () => runtimeDirs.value,
 }));
 
-// The real status report, watched so a test can see its arguments or make it fail.
-vi.mock("../src/lib/quota-dialog-commands.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/lib/quota-dialog-commands.js")>();
-  return { ...actual, buildStatusReportData: vi.fn(actual.buildStatusReportData) };
-});
-
 import { snapshotFilePath } from "../src/core/persist.js";
 import { loadProviderSource } from "../src/core/provider-source.js";
 import { createQuotaStore } from "../src/core/store.js";
@@ -70,7 +64,6 @@ import {
   getCredentialSourceDiagnostics,
   readCredentialRows,
 } from "../src/lib/opencode-auth.js";
-import { buildStatusReportData } from "../src/lib/quota-dialog-commands.js";
 import { loadSettings } from "../src/settings/index.js";
 import { writeCredentialDatabase } from "./helpers/credential-database.js";
 
@@ -135,7 +128,6 @@ beforeEach(() => {
   };
   vi.stubEnv("OPENCODE_DB", join(tempDir, "opencode.db"));
   mockProviders.length = 0;
-  vi.mocked(buildStatusReportData).mockClear();
   writeSettings({
     providers: { off: CONFIG_PROVIDER_IDS.filter((id) => !["zai"].includes(id)) },
   });
@@ -190,13 +182,16 @@ describe("show and status arguments", () => {
     ],
     ["status", ["--json", "--threshold=10"], "--threshold is not supported by status"],
   ] as const)("%s %j exits 1 with the error and the usage", async (command, argv, error) => {
+    const provider = zai();
+    mockProviders.push(provider);
+
     const result = await run(command, [...argv]);
 
     expect(result.code).toBe(1);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain(error);
     expect(result.stderr).toContain(`opencode-quota ${command}`);
-    expect(buildStatusReportData).not.toHaveBeenCalled();
+    expect(provider.isAvailable).not.toHaveBeenCalled();
   });
 
   it.each(["show", "status"] as const)(
@@ -210,11 +205,12 @@ describe("show and status arguments", () => {
       expect(result).toEqual({ code: 1, stdout: "", stderr: "Unknown provider: not-a-provider\n" });
       expect(provider.isAvailable).not.toHaveBeenCalled();
       expect(provider.fetch).not.toHaveBeenCalled();
-      expect(buildStatusReportData).not.toHaveBeenCalled();
     },
   );
 
   it("prints help without starting a report", async () => {
+    const provider = zai();
+    mockProviders.push(provider);
     const show = await run("show", ["--help"]);
     expect(show.code).toBe(0);
     expect(show.stderr).toBe("");
@@ -227,7 +223,7 @@ describe("show and status arguments", () => {
     expect(status.stderr).toBe("");
     expect(status.stdout).toContain("opencode-quota status");
     expect(status.stdout).toContain("Exit codes:");
-    expect(buildStatusReportData).not.toHaveBeenCalled();
+    expect(provider.isAvailable).not.toHaveBeenCalled();
   });
 });
 
@@ -420,27 +416,22 @@ describe("runCliStatusCommand", () => {
   it.each([
     [["--provider", "zai"], "zai"],
     [["--provider", "  CLAUDE  "], "anthropic"],
-  ])("%j filters the report to %s", async (argv, providerFilterId) => {
-    mockProviders.push(zai());
+  ])("%j filters the report to %s", async (argv, providerId) => {
+    mockProviders.push(zai(), { ...zai(), id: "anthropic" });
     const result = await run("status", argv);
 
     expect(result.code).toBe(0);
     expect(result.stderr).toBe("");
-    expect(buildStatusReportData).toHaveBeenCalledWith(
-      expect.objectContaining({ providerFilterId }),
-    );
+    expect(result.stdout).toMatch(new RegExp(`\nproviders:\n- ${providerId}: [^\n]+\n\n`, "u"));
   });
 
-  it("--provider --json forwards the provider filter and still emits JSON", async () => {
-    mockProviders.push(zai());
+  it("--provider --json lists only that provider and still emits JSON", async () => {
+    mockProviders.push(zai(), { ...zai(), id: "anthropic" });
     const result = await run("status", ["--json", "--provider", "zai"]);
 
     expect(result.code).toBe(0);
-    expect(buildStatusReportData).toHaveBeenCalledWith(
-      expect.objectContaining({ providerFilterId: "zai" }),
-    );
     const parsed = JSON.parse(result.stdout);
-    expect(parsed.providers).toHaveLength(1);
+    expect(parsed.providers.map((provider: { id: string }) => provider.id)).toEqual(["zai"]);
     expect(parsed).not.toHaveProperty("providerFilterId");
   });
 
@@ -461,7 +452,11 @@ describe("runCliStatusCommand", () => {
   });
 
   it("returns non-zero when report building throws", async () => {
-    vi.mocked(buildStatusReportData).mockRejectedValueOnce(new Error("boom"));
+    mockProviders.push({
+      get id(): string {
+        throw new Error("boom");
+      },
+    });
     const result = await run("status", []);
 
     expect(result.code).toBe(1);

@@ -29,7 +29,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import type { QuotaExportProvider } from "../lib/quota-export-types.js";
-import { classifyError } from "./errors.js";
+import { classifyError, RETRY_WAIT_MAX_MS } from "./errors.js";
 import {
   joinNotices,
   type LoginRow,
@@ -196,7 +196,11 @@ function isDue(
   let waitMs = reason === "turn" ? Math.min(minIntervalMs, TURN_MIN_INTERVAL_MS) : minIntervalMs;
   if (entry.failures > 0) waitMs = Math.max(waitMs, backoffMs(entry.failures));
   if (nowMs - entry.checkedAtMs < waitMs) return false;
-  return entry.error?.retryAtMs === undefined || nowMs >= entry.error.retryAtMs;
+  // A retry time waits at most a day (the most a reply can ask), so a far one never stalls checks.
+  const retryAtMs = entry.error?.retryAtMs;
+  return (
+    retryAtMs === undefined || nowMs >= Math.min(retryAtMs, entry.checkedAtMs + RETRY_WAIT_MAX_MS)
+  );
 }
 
 /** Each fetched row with its login, shortened to a hash of the keyed id it arrives as. */

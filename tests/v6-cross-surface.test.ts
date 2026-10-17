@@ -1,13 +1,8 @@
-import { DEFAULT_USAGE_RANGE, USAGE_RANGES, usageRangeLabel } from "../src/core/usage-ranges.js";
 import { QUOTA_PROVIDER_CATALOG } from "../src/lib/provider-metadata.js";
 
 const CONFIG_PROVIDER_IDS = Object.keys(QUOTA_PROVIDER_CATALOG).map((id) =>
   id === "quota-providers" ? "custom" : id,
 );
-
-/** The range list's line under the default range, where ↓ goes from it. */
-const RANGE_AFTER_DEFAULT =
-  USAGE_RANGES[USAGE_RANGES.findIndex((item) => item.range === DEFAULT_USAGE_RANGE) + 1]?.label;
 
 /**
  * The v6 surfaces end to end: the real server plugin (`src/plugin.ts`) and the real TUI plugin
@@ -29,16 +24,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { ProviderRow } from "../src/providers/contract.js";
 import { answer, percentRow } from "./helpers/fake-answers.js";
 import { createFakeIntegration } from "./helpers/fake-integration.js";
-import { findAll, type Node, THEME, textLines } from "./helpers/jsx-tree.js";
+import { createFakeTuiHost, stubJsx } from "./helpers/fake-tui-host.js";
+import {
+  activeLabels,
+  clickable,
+  findAll,
+  settingLine,
+  THEME,
+  textLines,
+  words,
+} from "./helpers/jsx-tree.js";
 import {
   createAlibabaAuthModuleMock,
   createProvidersRegistryModuleMock,
-  createSessionTokensModuleMock,
+  createSessionUsageModuleMock,
   seedDefaultPluginBootstrapMocks,
   writePluginTestSettings,
 } from "./helpers/plugin-test-harness.js";
 import { createQuotaRpcBridge, createQuotaRpcEvents } from "./helpers/quota-rpc-bridge.js";
 import { writeSessionDatabase } from "./helpers/session-database.js";
+import { localDate, writeUsageHistory } from "./helpers/usage-history.js";
 
 const CANARIES = {
   teamKey: "v6-team-key-secret-canary",
@@ -51,7 +56,7 @@ const mocks = vi.hoisted(() => ({
   terminal: { width: 120, height: 40 },
   getProviders: vi.fn(),
   resolveAlibabaCodingPlanAuthCached: vi.fn(),
-  fetchSessionTokensForDisplay: vi.fn(),
+  sessionUsage: vi.fn(),
 }));
 
 vi.mock("@opentui/solid", () => ({
@@ -60,8 +65,8 @@ vi.mock("@opentui/solid", () => ({
 vi.mock("../src/providers/registry.js", () =>
   createProvidersRegistryModuleMock(mocks.getProviders),
 );
-vi.mock("../src/lib/session-tokens.js", () =>
-  createSessionTokensModuleMock(mocks.fetchSessionTokensForDisplay),
+vi.mock("../src/core/usage.js", async (importOriginal) =>
+  createSessionUsageModuleMock(await importOriginal(), mocks.sessionUsage),
 );
 vi.mock("../src/lib/alibaba-auth.js", () =>
   createAlibabaAuthModuleMock(mocks.resolveAlibabaCodingPlanAuthCached),
@@ -135,159 +140,14 @@ function httpFetch(url: string, init?: RequestInit): Response {
   throw new Error(`unexpected URL: ${url}`);
 }
 
-type Listener = (event: { data: Record<string, unknown> }) => void;
 type ServerCommand = {
   name: string;
   execute(invocation: { sessionID: string; prompt: { text: string } }): Promise<void>;
 };
 
-/** The text lines with runs of spaces as one space, so layout tweaks don't break the checks. */
-function words(node: unknown): string[] {
-  return textLines(node).map((line) => line.replace(/\s+/gu, " ").trim());
-}
-
-/** The labels of the active choices: the tab, Cost or Tokens, the range (without its ›), Model or Day. */
-function activeLabels(node: unknown): string[] {
-  return findAll(node, (item) => item.type === "text" && item.props.fg === "selected").map((item) =>
-    (textLines(item)[0] ?? "").trim().replace(/^› /u, ""),
-  );
-}
-
-/** The ids of the Usage tab's lit model rows. */
-function litUsageLines(node: unknown): string[] {
-  return findAll(node, (item) => String(item.props?.id ?? "").startsWith("quota-usage-"))
-    .filter(
-      (item) =>
-        item.props.backgroundColor === "action-bg" ||
-        findAll(item.props.children, (child) => child.props?.style?.bg === "action-bg").length > 0,
-    )
-    .map((item) => String(item.props.id));
-}
-
-/** The local date `days` calendar days from today, like "2026-10-01". */
-function localDate(days: number): string {
-  const date = new Date();
-  date.setDate(date.getDate() + days);
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  return `${date.getFullYear()}-${month}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-/** OpenTUI inputs as the Usage tab uses them: a value, and focus with its events. */
-function fakeInputs(values: string[]) {
-  type FakeInput = {
-    value: string;
-    focused: boolean;
-    on(name: string, listener: () => void): void;
-    focus(): void;
-    moveCursorLeft(): void;
-    moveCursorRight(): void;
-  };
-  const listeners = new Map<FakeInput, Map<string, () => void>>();
-  const inputs: FakeInput[] = values.map((value) => {
-    const input: FakeInput = {
-      value,
-      focused: false,
-      on: (name, listener) => listeners.get(input)?.set(name, listener),
-      focus: () => {
-        for (const other of inputs) {
-          if (other === input || !other.focused) continue;
-          other.focused = false;
-          listeners.get(other)?.get("blurred")?.();
-        }
-        input.focused = true;
-        listeners.get(input)?.get("focused")?.();
-      },
-      moveCursorLeft: () => {},
-      moveCursorRight: () => {},
-    };
-    listeners.set(input, new Map());
-    return input;
-  });
-  return inputs;
-}
-
-/**
- * OpenCode's history for the Usage tab: this session a minute ago with `modelID`, and an older
- * session 10 days ago with an unpriced model.
- */
-function writeUsageHistory(modelID = "claude-sonnet-4-5"): void {
-  const now = Date.now();
-  const old = now - 10 * 24 * 60 * 60_000;
-  writeSessionDatabase(join(mocks.root, "data", "opencode.db"), {
-    sessions: [
-      { id: "ses_1", created: now - 3_600_000 },
-      { id: "ses_old", created: old },
-    ],
-    messages: [
-      {
-        id: "msg_1",
-        sessionID: "ses_1",
-        created: now - 60_000,
-        completed: now - 59_000,
-        providerID: "anthropic",
-        modelID,
-        tokens: { input: 1_000_000, output: 100_000 },
-      },
-      {
-        id: "msg_old",
-        sessionID: "ses_old",
-        created: old,
-        completed: old + 1_000,
-        providerID: "acme",
-        modelID: "mystery-old",
-        tokens: { output: 500_000 },
-      },
-    ],
-  });
-}
-
 function expectNoCanary(...outputs: unknown[]): void {
   const text = JSON.stringify(outputs);
   for (const canary of Object.values(CANARIES)) expect(text).not.toContain(canary);
-}
-
-type KeyLayer = {
-  mode?: string;
-  priority?: number;
-  enabled?: () => boolean;
-  target?: () => unknown;
-  commands: Array<{ bind?: string; run: () => unknown }>;
-};
-
-/** A line on a node that a click uses: its text is `text` (a list's chosen item has › before it). */
-function clickable(tree: unknown, text: string): Node {
-  return findAll(
-    tree,
-    (node) =>
-      typeof node.props?.onMouseUp === "function" &&
-      textLines(node).join("").trim().replace(/^› /u, "") === text,
-  )[0]!;
-}
-
-/** The ids of the window's lit Settings lines, after their "quota-settings." prefix. */
-function litSettingLines(tree: unknown): string[] {
-  return findAll(
-    tree,
-    (node) =>
-      String(node.props?.id ?? "").startsWith("quota-settings.") &&
-      node.props.backgroundColor === "action-bg",
-  ).map((node) => String(node.props.id).slice("quota-settings.".length));
-}
-
-/** Layout's page list: the box around its pages. */
-function pageList(tree: unknown): Node | undefined {
-  return findAll(
-    tree,
-    (node) =>
-      node.type === "box" &&
-      findAll(node.props.children, (child) => child.props?.id === "quota-layout-page-layout")
-        .length > 0,
-  ).at(-1);
-}
-
-/** The lines of the window's Settings line with this setting path (or id). */
-function settingLine(tree: unknown, id: string): Node[] {
-  return findAll(tree, (node) => node.props?.id === `quota-settings.${id}`);
 }
 
 async function startHosts() {
@@ -322,131 +182,25 @@ async function startHosts() {
     Parameters<typeof createQuotaRpcBridge>[0],
   ];
 
-  // OpenCode's plugin storage: one live object per key. A toast after every reply.
-  const stored = new Map<string, any>();
-  const storage = {
-    store: (key: string, options: { initial: any }) => {
-      if (!stored.has(key)) stored.set(key, structuredClone(options.initial));
-      const value = stored.get(key);
-      return [value, async (mutation: (draft: any) => void) => mutation(value)];
-    },
-  };
-  const listeners = new Map<string, Listener>();
-  const renderers = new Map<string, (props?: { sessionID?: string }) => unknown>();
-  let commands: Array<{ id: string; run: () => Promise<void> }> = [];
-  // Every keymap layer, newest last: the Usage tab adds its own each time it renders.
-  const layers: KeyLayer[] = [];
-  let focused: unknown;
-  const renderer: {
-    currentFocusedEditor: { plainText: string; clear(): void } | null;
-    width: number;
-    on(): void;
-    off(): void;
-  } = { currentFocusedEditor: null, width: 120, on: () => {}, off: () => {} };
-  const toast = vi.fn();
-  const dispatch = vi.fn();
-  const dialog = { show: vi.fn(), clear: vi.fn(), prompt: vi.fn(), set: vi.fn() };
   // Like OpenCode's prompt, the TUI client runs a server slash command in a session.
   const sessionCommand = vi.fn(async (input: { sessionID: string; name: string; text: string }) =>
     serverCommands
       .find((command) => command.name === input.name)
       ?.execute({ sessionID: input.sessionID, prompt: { text: input.text } }),
   );
-  vi.stubGlobal("React", {
-    createElement: (
-      type: unknown,
-      props: Record<string, unknown> | null,
-      ...children: unknown[]
-    ) => {
-      const all = { ...props, children: children.length > 1 ? children : children[0] };
-      if (typeof type === "function") return type(all);
-      // A renderable, enough for refs: it takes the keyboard (at once when `focused`). A test
-      // hands an input its own renderable through `ref`.
-      const node = {
-        type,
-        props: all,
-        focus: () => {
-          focused = node;
-        },
-        on: () => {},
-        scrollTo: () => {},
-        scrollBy: () => {},
-        scrollChildIntoView: () => {},
-      };
-      if (typeof all.ref === "function" && type !== "input") all.ref(node);
-      if (all.focused === true) node.focus();
-      return node;
-    },
-  });
-  const { default: tuiPlugin } = await import("../src/tui/index.tsx");
-  const disposeTui = tuiPlugin.setup({
-    location: { directory: process.cwd() },
-    renderer,
-    client: { rpc: createQuotaRpcBridge(handlers, events), session: { command: sessionCommand } },
+  const tui = createFakeTuiHost({
+    rpc: createQuotaRpcBridge(handlers, events),
+    route: { type: "session", sessionID: "ses_1" },
+    sessionCommand,
     theme: THEME,
-    storage,
-    data: {
-      on: (name: string, listener: Listener) => {
-        listeners.set(name, listener);
-        return () => listeners.delete(name);
-      },
-      session: { get: () => ({}) },
-      location: { default: () => ({ directory: process.cwd() }) },
-    },
-    keymap: {
-      layer: (build: () => KeyLayer) => {
-        const layer = build();
-        layers.push(layer);
-        if (layer.mode === "global") commands = layer.commands as typeof commands;
-      },
-      dispatch,
-    },
-    ui: {
-      slot: (claim: { append: string; render: (props?: { sessionID?: string }) => unknown }) => {
-        renderers.set(claim.append, claim.render);
-        if (claim.append === "app") claim.render();
-        return () => {};
-      },
-      toast: { show: toast },
-      router: { current: () => ({ type: "session", sessionID: "ses_1" }) },
-      dialog,
-    },
-  } as never);
+  });
+  stubJsx({ renderables: tui });
+  const { default: tuiPlugin } = await import("../src/tui/index.tsx");
+  const disposeTui = tuiPlugin.setup(tui.context as never);
   return {
-    render: (slot: string, props?: { sessionID?: string }) => renderers.get(slot)?.(props),
-    emit: (name: string, data: Record<string, unknown>) => listeners.get(name)?.({ data }),
-    command: (id: string) => commands.find((command) => command.id === `quota.${id}`)!,
-    /** The last layer registered with this priority. */
-    layer: (priority: number) => layers.filter((layer) => layer.priority === priority).at(-1)!,
-    focused: () => focused,
-    /** OpenCode gives the keyboard to the message box. */
-    focusMessageBox: () => {
-      focused = "message box";
-    },
-    /** The open dialog, drawn again. */
-    renderDialog: () => (dialog.show.mock.calls.at(-1)![0] as () => unknown)(),
-    /** Presses a key of the open dialog (its newest modal layer). */
-    pressDialog: (bind: string) =>
-      layers
-        .findLast((layer) => layer.mode === "modal")
-        ?.commands.find((key) => key.bind === bind)
-        ?.run(),
-    /** Types `text` in the message box and presses enter. */
-    typed: (text: string) => {
-      renderer.currentFocusedEditor = {
-        plainText: text,
-        clear: () => {
-          renderer.currentFocusedEditor = null;
-        },
-      };
-      return layers.find((layer) => layer.priority === 1)?.commands[0]?.run();
-    },
-    /** Presses `bind` in the newest layer of `priority`: the Usage tab's keys are 11. */
-    press: (priority: number, bind: string) =>
-      layers
-        .findLast((layer) => layer.priority === priority)
-        ?.commands.find((command) => command.bind === bind)
-        ?.run(),
+    ...tui,
+    /** The renderable that has the keyboard. */
+    focused: () => tui.keyboard.current,
     /** The server's RPC handlers, looked up on each call: a test can wrap one. */
     handlers: handlers as Record<string, (input: unknown, context: unknown) => Promise<unknown>>,
     /** Runs a Web and Desktop slash command; `posted` gets its chat message. */
@@ -454,12 +208,8 @@ async function startHosts() {
       serverCommands
         .find((command) => command.name === name)!
         .execute({ sessionID, prompt: { text } }),
-    dialog,
     sessionCommand,
     posted,
-    toast,
-    dispatch,
-    stored,
     dispose: async () => {
       (disposeTui as () => void)();
       await (disposeServer as unknown as () => Promise<void>)?.();
@@ -509,8 +259,20 @@ describe("v6 surfaces on the quota snapshot", () => {
     process.env.V6_FAILING_KEY = CANARIES.failingKey;
     seedDefaultPluginBootstrapMocks(mocks, { resetPluginState: true });
     writePluginTestSettings(mocks.root, {
-      toast: { afterReply: "always" },
-      statusLine: { detail: "one", withSidebar: true },
+      // Pinned, so a new default changes no expected text here.
+      layout: {
+        bar: "blocks",
+        barWidth: "fill",
+        evenUse: false,
+        indent: 1,
+        labelWidth: 8,
+        providerGap: 1,
+        separator: " · ",
+      },
+      sidebar: { runsOut: true },
+      collapsed: { runsOut: false },
+      toast: { afterReply: "always", layout: "grouped", runsOut: true },
+      statusLine: { detail: "one", withSidebar: true, runsOut: false },
       words: { sessionTokens: "current" },
       providers: {
         off: CONFIG_PROVIDER_IDS.filter(
@@ -525,13 +287,11 @@ describe("v6 surfaces on the quota snapshot", () => {
         telemetry: true,
       },
     });
-    mocks.fetchSessionTokensForDisplay.mockResolvedValue({
-      sessionTokens: {
-        totalInput: 1200,
-        totalCachedInput: 300,
-        totalOutput: 45,
-        models: [{ modelID: "gpt-5", input: 1200, cacheRead: 300, cacheWrite: 0 }],
-      },
+    mocks.sessionUsage.mockResolvedValue({
+      input: 1200,
+      cachedInput: 300,
+      output: 45,
+      models: [{ modelID: "gpt-5", input: 1200, cacheRead: 300, cacheWrite: 0 }],
     });
     const { quotaProvidersProvider } = await import("../src/providers/quota-providers.js");
     mocks.getProviders.mockReturnValue([
@@ -779,10 +539,7 @@ describe("v6 surfaces on the quota snapshot", () => {
       const windowTree = () => tui.render("session.composer.top", { sessionID: "ses_1" });
       // The tab bar shows the tabs around the current one; tab steps on to the others.
       for (let step = 0; step < 12 && !clickable(windowTree(), tab); step += 1) {
-        tui
-          .layer(10)
-          .commands.find((command) => command.bind === "tab")
-          ?.run();
+        tui.press("window", "tab");
       }
       clickable(windowTree(), tab).props.onMouseUp();
       if (page) clickable(windowTree(), page).props.onMouseUp();
@@ -844,7 +601,7 @@ describe("v6 surfaces on the quota snapshot", () => {
         await tui.handlers.refresh!({ reason: "manual", sessionID: "ses_1" }, {});
         await tui.command("settings").run();
         for (let step = 0; step < 12 && !clickable(windowTree(), "Providers"); step += 1)
-          tui.press(10, "tab");
+          tui.press("window", "tab");
         clickable(windowTree(), "Providers").props.onMouseUp();
         await vi.waitFor(() =>
           expect(words(settingLine(windowTree(), "provider.cursor"))).not.toContain("not set up"),
@@ -913,10 +670,7 @@ describe("v6 surfaces on the quota snapshot", () => {
         await tui.command("settings").run();
         const windowTree = () => tui.render("session.composer.top", { sessionID: "ses_1" });
         for (let step = 0; step < 12 && !clickable(windowTree(), "Status line"); step += 1) {
-          tui
-            .layer(10)
-            .commands.find((command) => command.bind === "tab")
-            ?.run();
+          tui.press("window", "tab");
         }
         clickable(windowTree(), "Status line").props.onMouseUp();
         await vi.waitFor(() => expect(words(windowTree())).not.toContain("Loading settings…"));
@@ -934,226 +688,6 @@ describe("v6 surfaces on the quota snapshot", () => {
       } finally {
         await tui.dispose();
       }
-    });
-
-    it.each([
-      { page: "All places", heading: " Preset", line: "Layout preset" },
-      {
-        page: "Sidebar",
-        toggle: "   [x] Show the Quota panel in the session sidebar",
-        heading: " What it shows",
-        line: "Session tokens line",
-      },
-      {
-        page: "Collapsed",
-        toggle: "   [x] When the panel is collapsed, show one line per provider",
-        heading: " What it shows",
-        line: "Runs out in …",
-      },
-      {
-        page: "Status line",
-        toggle: "   [x] Show the quota line under the message box",
-        heading: " When it shows",
-        line: "Next to the sidebar",
-      },
-      {
-        page: "Toast",
-        toggle: "   [x] Show quota toasts",
-        heading: " Preset",
-        line: "When toasts show",
-      },
-    ])(
-      "puts $page's first lines under a heading, and its switch under Enable/disable",
-      async ({ page, toggle, heading, line }) => {
-        const { tui, windowTree } = await openSettings("Layout", page);
-        try {
-          await vi.waitFor(() => expect(textLines(windowTree())).toContain(heading));
-          const lines = textLines(windowTree());
-          if (toggle) expect(lines[lines.indexOf(toggle) - 1]).toBe(" Enable/disable");
-          const at = lines.findIndex((text) => text.startsWith(`   ${line}`));
-          expect(at).toBeGreaterThan(0);
-          expect(lines[at - 1]).toBe(heading);
-        } finally {
-          await tui.dispose();
-        }
-      },
-    );
-
-    it("closes with unsaved changes only after Save or Discard", async () => {
-      const { tui, windowTree } = await openSettings("Layout", "All places");
-      clickable(settingLine(windowTree(), "layout.barWidth"), "›").props.onMouseUp();
-      clickable(windowTree(), "esc").props.onMouseUp();
-      clickable(windowTree(), "esc").props.onMouseUp();
-      expect(words(windowTree())).toContain("Keep your changes?");
-      expect(tui.stored.has("settings")).toBe(false);
-      clickable(windowTree(), "Discard").props.onMouseUp();
-      expect(windowTree()).toBe("");
-      await tui.dispose();
-    });
-
-    it("gives the typed text's keys to its input, and the window its keys back on a tab change", async () => {
-      const { tui, windowTree } = await openSettings("Colors");
-      const press = () =>
-        settingLine(windowTree(), "colors.good")[0]?.props.onMouseDown({ button: 0 });
-      press();
-      press();
-      const input = findAll(windowTree(), (node) => node.type === "input")[0];
-      input?.props.ref(input);
-      expect([tui.layer(20).enabled?.(), tui.layer(20).target?.()]).toEqual([true, input]);
-      expect(tui.layer(10).enabled?.()).toBe(false);
-
-      // Each render makes new nodes, so the window box is "the focusable box".
-      clickable(windowTree(), "Layout").props.onMouseUp();
-      expect(tui.layer(10).enabled?.()).toBe(true);
-      expect(tui.focused()).toMatchObject({ type: "box", props: { focusable: true } });
-      await tui.dispose();
-    });
-
-    it("lists Layout's pages left of the body: ↑↓ change the page, → or enter go to its lines, ↑ on the first line goes back", async () => {
-      const { tui, windowTree } = await openSettings("Layout");
-      // /quota_settings opens Layout on All places; its page list has the keyboard, so no line
-      // is lit.
-      expect(activeLabels(windowTree())).toEqual(expect.arrayContaining(["Layout", "All places"]));
-      await vi.waitFor(() => expect(settingLine(windowTree(), "words.detail")).not.toEqual([]));
-      expect(litSettingLines(windowTree())).toEqual([]);
-
-      // The pages are a column with a line at its right, left of the scrolling body, like
-      // Usage's ranges.
-      const tree = windowTree();
-      const list = pageList(tree);
-      expect(textLines(list).map((line) => line.trim())).toEqual([
-        "› All places",
-        "Sidebar",
-        "Collapsed",
-        "Status line",
-        "Toast",
-      ]);
-      // The chosen page's › in the title's column, every label two columns in, as wide as
-      // Usage's range list. The page's lines start right after the list's line: they carry their
-      // own indent.
-      expect(textLines(list).slice(0, 2)).toEqual(["› All places   ", "  Sidebar      "]);
-      expect(list?.props.width).toBe(16);
-      expect(list?.props).toMatchObject({
-        marginRight: 0,
-        flexDirection: "column",
-        border: ["right"],
-        overflow: "hidden",
-      });
-      const row = findAll(
-        tree,
-        (node) => Array.isArray(node.props?.children) && node.props.children.includes(list),
-      )[0];
-      expect(row?.props.flexDirection).toBe("row");
-      const rightOfList = row?.props.children.slice(row.props.children.indexOf(list) + 1);
-      expect(findAll(rightOfList, (node) => node.type === "scrollbox")).toHaveLength(1);
-      // On a short window the switch and warning above the body end at the bottom line too.
-      expect(rightOfList?.[0]?.props.overflow).toBe("hidden");
-
-      // All places: the layout lines, Wording above the words lines it sets, then What shows.
-      const lineIds = findAll(windowTree(), (node) =>
-        String(node.props?.id ?? "").startsWith("quota-settings."),
-      ).map((node) => String(node.props.id).slice("quota-settings.".length));
-      expect(lineIds).toEqual([
-        "preset.layout",
-        "layout.bar",
-        "layout.barWidth",
-        "layout.evenUse",
-        "layout.indent",
-        "layout.labelWidth",
-        "layout.providerGap",
-        "layout.separator",
-        "preset.words",
-        "words.percent",
-        "words.reset",
-        "words.resetDecimals",
-        "words.rowNames",
-        "words.detail",
-        "words.onlyCurrentModel",
-        "words.sessionTokens",
-      ]);
-      expect(words(windowTree())).toEqual(expect.arrayContaining(["Words", "What shows"]));
-      expect(words(settingLine(windowTree(), "preset.words"))).toContain(
-        "sets Percent, Reset times and Row names",
-      );
-      expect(words(settingLine(windowTree(), "preset.layout"))).toContain(
-        "sets Bar width and the 3 Spacing lines",
-      );
-
-      // ↓ shows the next page at once, ↑ the one before; above the first page ↑ stays there.
-      tui.press(11, "down");
-      expect(activeLabels(windowTree())).toContain("Sidebar");
-      tui.press(11, "down");
-      expect(activeLabels(windowTree())).toContain("Collapsed");
-      tui.press(11, "up");
-      expect(activeLabels(windowTree())).toContain("Sidebar");
-
-      // → goes to the page's first line, its switch; ↑ there goes back to the list.
-      tui.press(11, "right");
-      expect(litSettingLines(windowTree())).toEqual(["surface"]);
-      tui.press(11, "up");
-      expect(litSettingLines(windowTree())).toEqual([]);
-      tui.press(11, "up");
-      expect(activeLabels(windowTree())).toContain("All places");
-      tui.press(11, "up");
-      expect(activeLabels(windowTree())).toContain("All places");
-
-      // Enter goes to All places' first line, its first option; ←/→ there change its value.
-      tui.press(11, "return");
-      expect(litSettingLines(windowTree())).toEqual(["preset.layout"]);
-      const preset = words(settingLine(windowTree(), "preset.layout"));
-      tui.press(11, "right");
-      expect(words(settingLine(windowTree(), "preset.layout"))).not.toEqual(preset);
-      expect(activeLabels(windowTree())).toContain("All places");
-      tui.press(11, "down");
-      expect(litSettingLines(windowTree())).toEqual(["layout.bar"]);
-      tui.press(11, "up");
-      tui.press(11, "up");
-      expect(litSettingLines(windowTree())).toEqual([]);
-
-      // A click on a page shows it and gives the list the keyboard, even on the page shown.
-      tui.press(11, "return");
-      clickable(windowTree(), "All places").props.onMouseUp();
-      expect(litSettingLines(windowTree())).toEqual([]);
-      clickable(windowTree(), "Toast").props.onMouseUp();
-      expect(activeLabels(windowTree())).toContain("Toast");
-      tui.press(11, "up");
-      expect(activeLabels(windowTree())).toContain("Status line");
-      tui.press(11, "down");
-
-      // Back on Layout from another tab: the page shown last.
-      clickable(windowTree(), "Colors").props.onMouseUp();
-      clickable(windowTree(), "Layout").props.onMouseUp();
-      expect(activeLabels(windowTree())).toContain("Toast");
-      expect(words(windowTree())).toContain("Reset page");
-      await tui.dispose();
-    });
-
-    it("has no /quota form setting on the Layout tab", async () => {
-      const { tui, windowTree } = await openSettings("Layout", "All places");
-      expect(words(windowTree())).not.toContain("/quota shows");
-      expect(tui.stored.has("settings")).toBe(false);
-      await tui.dispose();
-    });
-
-    it("opens OpenCode's theme list from the theme line's ▸", async () => {
-      const { tui, windowTree } = await openSettings("Colors");
-      clickable(settingLine(windowTree(), "theme"), "▸").props.onMouseUp();
-      expect(tui.dispatch).toHaveBeenCalledWith("theme.switch");
-      await tui.dispose();
-    });
-
-    it("takes the keyboard back after Light or dark gives it to the message box", async () => {
-      const { tui, windowTree } = await openSettings("Colors");
-      const windowBox = { type: "box", props: { focusable: true } };
-      await vi.waitFor(() => expect(tui.focused()).toMatchObject(windowBox));
-      // OpenCode's switch closes its dialogs, which focuses the message box a moment later.
-      tui.dispatch.mockImplementationOnce(() => setTimeout(tui.focusMessageBox, 1));
-      clickable(settingLine(windowTree(), "themeMode"), "›").props.onMouseUp();
-      expect(tui.dispatch).toHaveBeenCalledWith("theme.switch_mode");
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      expect(tui.focused()).toBe("message box");
-      await vi.waitFor(() => expect(tui.focused()).toMatchObject(windowBox));
-      await tui.dispose();
     });
 
     it("saves the words on All places and a custom provider switched on in Providers to settings.jsonc, then fetches it", async () => {
@@ -1333,7 +867,7 @@ describe("v6 surfaces on the quota snapshot", () => {
   });
 
   it("starts the Usage tab on the range typed after /quota_usage, and says why one is wrong", async () => {
-    writeUsageHistory();
+    writeUsageHistory(join(mocks.root, "data", "opencode.db"));
     const tui = await startHosts();
     const usageTab = () => tui.render("session.composer.top", { sessionID: "ses_1" });
 
@@ -1346,7 +880,7 @@ describe("v6 surfaces on the quota snapshot", () => {
     await vi.waitFor(() => expect(activeLabels(usageTab())).toContain("Between"));
     // d puts the typed dates in two boxes to change them.
     expect(findAll(usageTab(), (node) => node.type === "input")).toEqual([]);
-    tui.press(11, "d");
+    tui.press("tab", "d");
     expect(
       findAll(usageTab(), (node) => node.type === "input").map((node) => node.props.value),
     ).toEqual([localDate(-12), localDate(-8)]);
@@ -1383,7 +917,7 @@ describe("v6 surfaces on the quota snapshot", () => {
   });
 
   it("runs the 4.x and 5.x /tokens_* names, on by default, names the new command while the Plugin switch is off, and runs them again once it is back on", async () => {
-    writeUsageHistory();
+    writeUsageHistory(join(mocks.root, "data", "opencode.db"));
     const tui = await startHosts();
     const windowTree = () => tui.render("session.composer.top", { sessionID: "ses_1" });
 
@@ -1395,7 +929,7 @@ describe("v6 surfaces on the quota snapshot", () => {
     await vi.waitFor(() => expect(activeLabels(windowTree())).toContain("All time"));
     tui.typed(`/tokens_between ${localDate(-12)} ${localDate(-8)}`);
     await vi.waitFor(() => expect(activeLabels(windowTree())).toContain("Between"));
-    tui.press(11, "d");
+    tui.press("tab", "d");
     expect(
       findAll(windowTree(), (node) => node.type === "input").map((node) => node.props.value),
     ).toEqual([localDate(-12), localDate(-8)]);
@@ -1435,283 +969,21 @@ describe("v6 surfaces on the quota snapshot", () => {
     await vi.waitFor(() => expect(activeLabels(windowTree())).toContain("30 days"));
     tui.typed(`/tokens_between ${localDate(-6)} ${localDate(-3)}`);
     await vi.waitFor(() => expect(activeLabels(windowTree())).toContain("Between"));
-    tui.press(11, "d");
+    tui.press("tab", "d");
     expect(
       findAll(windowTree(), (node) => node.type === "input").map((node) => node.props.value),
     ).toEqual([localDate(-6), localDate(-3)]);
     await tui.dispose();
   });
 
-  it("keeps the newest range when an older answer arrives last", async () => {
-    writeUsageHistory();
-    const tui = await startHosts();
-    const usageTab = () => tui.render("session.composer.top", { sessionID: "ses_1" });
-    const usage = tui.handlers.usage;
-    let releaseFirst = () => {};
-    const firstHeld = new Promise<void>((resolve) => {
-      releaseFirst = resolve;
-    });
-    let calls = 0;
-    tui.handlers.usage = async (input, context) => {
-      calls += 1;
-      const answer = await usage(input, context);
-      if (calls === 1) await firstHeld;
-      return answer;
-    };
-
-    await tui.command("usage").run();
-    clickable(usageTab(), "30 days").props.onMouseUp();
-    await vi.waitFor(() =>
-      expect(words(usageTab())).toContainEqual(expect.stringMatching(/ 2 sessions · /u)),
-    );
-    // Today's answer, asked first, arrives now; the tab keeps the last 30 days.
-    releaseFirst();
-    await vi.waitFor(() => expect(calls).toBe(2));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(words(usageTab())).toContainEqual(expect.stringMatching(/ 2 sessions · /u));
-    expect(activeLabels(usageTab())).toContain("30 days");
-    await tui.dispose();
-  });
-
-  it("applies two Between dates typed in the tab, and warns about dates out of order", async () => {
-    writeUsageHistory();
-    const tui = await startHosts();
-    const usageTab = () => tui.render("session.composer.top", { sessionID: "ses_1" });
-    await tui.command("usage").run();
-    await vi.waitFor(() => expect(words(usageTab())).toContain("Breakdown"));
-
-    clickable(usageTab(), "Between").props.onMouseUp();
-    const [from, to] = fakeInputs([localDate(-12), localDate(-14)]);
-    for (const [index, node] of findAll(usageTab(), (item) => item.type === "input").entries()) {
-      node.props.ref([from, to][index]);
-    }
-    await vi.waitFor(() => expect(from?.focused).toBe(true));
-    // While a date has the keyboard, the window's bottom line names the keys there.
-    expect(words(usageTab())).toContain("enter next date tab other date esc back");
-
-    tui.press(11, "return");
-    expect(to?.focused).toBe(true);
-    expect(words(usageTab())).toContain("enter apply tab other date esc back");
-    // A click on a date box stays with it: the window under it does not take the keyboard back.
-    const click = { stopPropagation: vi.fn() };
-    findAll(usageTab(), (item) => item.type === "input")[1]?.props.onMouseDown(click);
-    expect(click.stopPropagation).toHaveBeenCalledOnce();
-    expect(to?.focused).toBe(true);
-    tui.press(11, "return");
-    expect(tui.toast).toHaveBeenCalledWith(
-      expect.objectContaining({
-        variant: "warning",
-        message: "Type two dates like 2026-09-01, the first one not after the second.",
-      }),
-    );
-
-    if (to) to.value = localDate(-8);
-    tui.press(11, "return");
-    await vi.waitFor(() =>
-      expect(words(usageTab())).toContainEqual(expect.stringMatching(/^1 ● mystery-old /u)),
-    );
-    expect(words(usageTab())).not.toContainEqual(expect.stringContaining("claude-sonnet-4-5"));
-    // The boxes give way to the dates after the range's name.
-    expect(findAll(usageTab(), (node) => node.type === "input")).toEqual([]);
-    expect(words(usageTab())).toContainEqual(
-      expect.stringMatching(/^\w{3} \d{1,2}(, \d{4})? – \w{3} \d{1,2}(, \d{4})?$/u),
-    );
-    await tui.dispose();
-  });
-
-  it("picks a range with ↑↓, walks the model rows after →, and switches what it shows with c, t and b", async () => {
-    writeUsageHistory();
-    const tui = await startHosts();
-    const usageTab = () => tui.render("session.composer.top", { sessionID: "ses_1" });
-    tui.typed("/quota_usage 30d");
-    await vi.waitFor(() => expect(words(usageTab())).toContain("Breakdown"));
-    // Headings are bold: a span takes `bold` from its style (it ignores `attributes`).
-    expect(
-      findAll(
-        usageTab(),
-        (node) => node.type === "span" && node.props.children === "Breakdown",
-      ).map((node) => node.props.style.bold),
-    ).toEqual([true]);
-    // On a short window the range list cuts its lines instead of drawing over the key line.
-    const rangeList = findAll(
-      usageTab(),
-      (node) =>
-        node.type === "box" &&
-        findAll(node.props.children, (child) => child.props?.id === "quota-usage-range-today")
-          .length > 0,
-    ).at(-1);
-    expect(rangeList?.props.overflow).toBe("hidden");
-    // The chosen range's › in the title's column, every label two columns in, as wide as
-    // Layout's page list; the content starts one column after the list's line.
-    expect(textLines(rangeList)).toEqual(
-      expect.arrayContaining(["  Today        ", "› 30 days      ", "  This session "]),
-    );
-    expect(rangeList?.props.width).toBe(16);
-    expect(rangeList?.props.marginRight).toBe(1);
-
-    // The range list has the keyboard: ↑ shows 7 days at once, ↓ 30 days again. No row is lit.
-    expect(litUsageLines(usageTab())).toEqual([]);
-    tui.press(11, "up");
-    expect(activeLabels(usageTab())).toContain("7 days");
-    tui.press(11, "down");
-    expect(activeLabels(usageTab())).toContain("30 days");
-    await vi.waitFor(() =>
-      expect(words(usageTab())).toContainEqual(expect.stringMatching(/ 2 sessions · /u)),
-    );
-
-    // → gives the model rows the keyboard, each lit alone; past the last one ↓ scrolls the
-    // window. Enter opens the lit one's details.
-    tui.press(11, "right");
-    expect(litUsageLines(usageTab())).toEqual(["quota-usage-model-0"]);
-    tui.press(11, "down");
-    expect(litUsageLines(usageTab())).toEqual(["quota-usage-model-1"]);
-    expect(tui.press(11, "down")).toBe(false);
-    tui.press(11, "return");
-    expect(tui.dialog.show).toHaveBeenCalledOnce();
-    expect(words(tui.dialog.show.mock.calls[0]?.[0]())).toContain("● mystery-old");
-
-    // t shows tokens and c cost, from the first row again; b breaks down by day, which has no
-    // model rows, then by model again.
-    tui.press(11, "t");
-    expect(activeLabels(usageTab())).toContain("Tokens");
-    expect(litUsageLines(usageTab())).toEqual(["quota-usage-model-0"]);
-    tui.press(11, "c");
-    expect(activeLabels(usageTab())).toContain("Cost");
-    tui.press(11, "b");
-    expect(activeLabels(usageTab())).toContain("Day");
-    expect(litUsageLines(usageTab())).toEqual([]);
-    tui.press(11, "b");
-    expect(activeLabels(usageTab())).toContain("Model");
-
-    // ← gives the range list the keyboard back.
-    tui.press(11, "left");
-    expect(litUsageLines(usageTab())).toEqual([]);
-    tui.press(11, "up");
-    expect(activeLabels(usageTab())).toContain("7 days");
-    await tui.dispose();
-  });
-
-  it("gives the range list the keyboard when the tab shows again, and keeps it there without model rows", async () => {
-    writeUsageHistory();
-    const tui = await startHosts();
-    const usageTab = () => tui.render("session.composer.top", { sessionID: "ses_1" });
-    tui.typed("/quota_usage 30d");
-    await vi.waitFor(() => expect(words(usageTab())).toContain("Breakdown"));
-    tui.press(11, "right");
-    expect(litUsageLines(usageTab())).toEqual(["quota-usage-model-0"]);
-
-    // Away to Limits and back: the reload fails, so there is no Breakdown line nor model rows.
-    tui.handlers.usage = async () => {
-      throw new Error("usage history unreadable");
-    };
-    tui.press(10, "tab");
-    usageTab();
-    tui.press(10, "shift+tab");
-    await vi.waitFor(() =>
-      expect(words(usageTab())).toContainEqual(expect.stringContaining("Couldn't load the usage")),
-    );
-    expect(litUsageLines(usageTab())).toEqual([]);
-    expect(tui.press(11, "right")).toBe(false);
-    tui.press(11, "down");
-    expect(activeLabels(usageTab())).toContain(RANGE_AFTER_DEFAULT);
-    await tui.dispose();
-  });
-
-  it("shows the default range whenever you switch to the Usage tab, and keeps Cost or Tokens and Model or Day", async () => {
-    writeUsageHistory();
-    const tui = await startHosts();
-    const usageTab = () => tui.render("session.composer.top", { sessionID: "ses_1" });
-    const defaultLabel = usageRangeLabel(DEFAULT_USAGE_RANGE);
-    tui.typed("/quota_usage 30d");
-    await vi.waitFor(() => expect(words(usageTab())).toContain("Breakdown"));
-    expect(activeLabels(usageTab())).toContain("30 days");
-    tui.press(11, "t");
-    tui.press(11, "b");
-
-    // tab and shift+tab: back on Usage, the default range, still Tokens by day.
-    tui.press(10, "tab");
-    usageTab();
-    tui.press(10, "shift+tab");
-    expect(activeLabels(usageTab())).toEqual(
-      expect.arrayContaining(["Usage", defaultLabel, "Tokens"]),
-    );
-    expect(activeLabels(usageTab())).not.toContain("30 days");
-    await vi.waitFor(() => expect(activeLabels(usageTab())).toContain("Day"));
-
-    // A click on the tab bar's Usage.
-    clickable(usageTab(), "30 days").props.onMouseUp();
-    expect(activeLabels(usageTab())).toContain("30 days");
-    clickable(usageTab(), "Limits").props.onMouseUp();
-    clickable(usageTab(), "Usage").props.onMouseUp();
-    expect(activeLabels(usageTab())).toContain(defaultLabel);
-
-    // The window opening on Usage from the command palette.
-    clickable(usageTab(), "30 days").props.onMouseUp();
-    await tui.command("limits").run();
-    await tui.command("usage").run();
-    expect(activeLabels(usageTab())).toContain(defaultLabel);
-
-    // A command that names a range still shows it.
-    tui.typed("/quota_usage 30d");
-    expect(activeLabels(usageTab())).toContain("30 days");
-    await vi.waitFor(() =>
-      expect(words(usageTab())).toContainEqual(expect.stringMatching(/ 2 sessions · /u)),
-    );
-
-    // Model and Day sit at the right end of the Breakdown line, as Cost and Tokens do on the
-    // first line: a spacer that grows sits between them and the heading.
-    const optionsLine = (first: string) =>
-      findAll(
-        usageTab(),
-        (node) =>
-          node.type === "box" && node.props.flexDirection === "row" && textLines(node)[0] === first,
-      ).at(-1)?.props.children as Node[];
-    expect(optionsLine("Breakdown").map((child) => child.props.flexGrow)).toEqual([
-      undefined,
-      1,
-      undefined,
-    ]);
-    expect(textLines(optionsLine("Breakdown").at(-1))).toEqual(["Model", "Day"]);
-    expect(textLines(optionsLine("30 days").slice(-2))).toEqual(["Cost", "Tokens"]);
-    expect(optionsLine("30 days").at(-3)?.props.flexGrow).toBe(1);
-    await tui.dispose();
-  });
-
-  it("keeps the model popup's esc whole on a 32 × 16 terminal", async () => {
-    mocks.terminal = { width: 32, height: 16 };
-    writeUsageHistory("claude-sonnet-4-5-with-a-very-long-model-name");
-    const tui = await startHosts();
-    const usageTab = () => tui.render("session.composer.top", { sessionID: "ses_1" });
-    await tui.command("usage").run();
-    await vi.waitFor(() => expect(words(usageTab())).toContain("Breakdown"));
-
-    findAll(
-      usageTab(),
-      (node) => node.type === "text" && textLines(node)[0]?.includes("claude-sonnet-4-5") === true,
-    )
-      .find((node) => typeof node.props.onMouseUp === "function")
-      ?.props.onMouseUp();
-    const popup = tui.dialog.show.mock.calls[0]?.[0]();
-    const header = findAll(
-      popup,
-      (node) => node.type === "box" && node.props.flexDirection === "row",
-    )[0];
-    const [title = "", close] = textLines(header);
-    // The dialog is 30 columns on this terminal; its paddings leave 26 for the title and " esc".
-    expect(close).toBe("esc");
-    expect(title).toMatch(/^● claude-sonnet-4-5-.*…$/u);
-    expect([...title].length + " esc".length).toBeLessThanOrEqual(26);
-    await tui.dispose();
-  });
-
   it("says why a price download failed", async () => {
-    writeUsageHistory();
+    writeUsageHistory(join(mocks.root, "data", "opencode.db"));
     const tui = await startHosts();
     const usageTab = () => tui.render("session.composer.top", { sessionID: "ses_1" });
     await tui.command("usage").run();
     await vi.waitFor(() => expect(words(usageTab())).toContain("Breakdown"));
 
-    tui.press(11, "p");
+    tui.press("tab", "p");
 
     await vi.waitFor(() =>
       expect(tui.toast).toHaveBeenCalledWith({
@@ -1837,7 +1109,7 @@ describe("an agent tool replacing an active custom provider", () => {
     await rm(mocks.root, { recursive: true, force: true, maxRetries: 3 });
   });
 
-  it("sends no further request with the old definition or key once the settings reload", async () => {
+  it("sends no further request with the old definition or key once the agent tool answers", async () => {
     server = await startServer();
     await server.refresh();
     expect(requests).toEqual([{ url: ACTIVE_SOURCE.url, authorization: `Bearer ${OLD_TEAM_KEY}` }]);
@@ -1853,20 +1125,11 @@ describe("an agent tool replacing an active custom provider", () => {
     expect(content).not.toContain(OLD_TEAM_KEY);
     expect(content).not.toContain(NEW_TEAM_KEY);
     const sentBefore = requests.length;
-    const changedBefore = server.changed.length;
 
-    // The same server, no restart: the settings watch reads the saved file, and the next
-    // snapshot has no custom provider left to check.
-    await vi.waitFor(
-      () =>
-        expect(
-          server?.changed
-            .slice(changedBefore)
-            .some(({ snapshot }) => snapshot.providers.length === 0),
-        ).toBe(true),
-      { timeout: 10_000 },
-    );
-    await server.refresh();
+    // The same server, no restart: it holds the saved settings once the tool answers, so the
+    // next snapshot has no custom provider left to check.
+    const { snapshot } = (await server.refresh()) as { snapshot: { providers: unknown[] } };
+    expect(snapshot.providers).toEqual([]);
     await server.refresh();
 
     // The replacement is switched off: neither the old address and key nor the new ones.

@@ -4,23 +4,23 @@
  */
 
 import { isCanonicalAccountingDecimal } from "../lib/accounting-format.js";
-import { API_KEY_VENDORS, hasVendorKey, readVendorKeys } from "../lib/api-key-resolver.js";
+import { API_KEY_VENDORS, readVendorKeys } from "../lib/api-key-resolver.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "../lib/display-sanitize.js";
 import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
-import { fetchWithTimeout } from "../lib/http.js";
+import { failureFacts, requestJson } from "../lib/http.js";
 import { isRecord, nonEmptyString } from "../lib/json-guards.js";
-import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { modelProviderIncludesAny } from "../lib/provider-model-matching.js";
 import type { QuotaError } from "../lib/types.js";
 import { vendorKeysPolicy } from "./cache-policies.js";
 import {
   type AccountResult,
   failedAccount,
-  fetchKeyLogins,
+  fetchError,
   keySlug,
   type ProviderFetchResult,
   type ProviderRow,
 } from "./contract.js";
+import { fetchStoredKeys, isKeyVendorAvailable } from "./key-vendor.js";
 import { vendorKeyDetails } from "./result-helpers.js";
 
 const LABEL = "DeepSeek";
@@ -92,24 +92,25 @@ async function queryDeepSeekBalance(
   apiKey: string,
   requestTimeoutMs?: number,
 ): Promise<DeepSeekBalance | QuotaError> {
+  const reply = await requestJson(DEEPSEEK_BALANCE_URL, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${apiKey}`, "User-Agent": USER_AGENT },
+    secrets: [apiKey],
+    timeoutMs: requestTimeoutMs,
+  });
+  if (!reply.ok) {
+    const { failure } = reply;
+    return {
+      success: false,
+      error:
+        failure.kind === "http"
+          ? `DeepSeek API error ${failure.status}: ${sanitizeDisplaySnippet(failure.detail, 120)}`
+          : failure.detail,
+      facts: failureFacts(failure),
+    };
+  }
   try {
-    return await fetchWithTimeout(DEEPSEEK_BALANCE_URL, {
-      request: {
-        method: "GET",
-        headers: { Authorization: `Bearer ${apiKey}`, "User-Agent": USER_AGENT },
-      },
-      timeoutMs: requestTimeoutMs,
-      consume: async (response): Promise<DeepSeekBalance | QuotaError> => {
-        if (!response.ok) {
-          const text = await response.text();
-          return {
-            success: false,
-            error: `DeepSeek API error ${response.status}: ${sanitizeDisplaySnippet(text, 120)}`,
-          };
-        }
-        return parseDeepSeekBalance(await response.json());
-      },
-    });
+    return parseDeepSeekBalance(reply.json);
   } catch (err) {
     return {
       success: false,
@@ -133,14 +134,12 @@ export const deepseekProvider: QuotaProvider = {
   cachePolicy: vendorKeysPolicy("deepseek"),
 
   async isAvailable(ctx: QuotaProviderContext): Promise<boolean> {
-    const providerAvailable = await isCanonicalProviderAvailable({
+    return await isKeyVendorAvailable({
       ctx,
       providerId: "deepseek",
-      fallbackOnError: false,
+      availability: "listed-or-key",
+      readKeys: () => readVendorKeys(SPEC),
     });
-    if (providerAvailable) return true;
-
-    return hasVendorKey(await readVendorKeys(SPEC));
   },
 
   matchesCurrentModel(model: string): boolean {
@@ -156,17 +155,17 @@ export const deepseekProvider: QuotaProvider = {
       const result = await query(keys.envOrConfig.key);
       const accounts = result.success
         ? deepseekAccounts(result)
-        : [failedAccount(LABEL, result.error)];
+        : [failedAccount(LABEL, result.error, result.facts)];
       return { attempted: true, accounts, debug };
     }
 
-    const accounts = await fetchKeyLogins({
+    const { attempted, accounts } = await fetchStoredKeys({
       providerName: LABEL,
-      logins: keys.logins,
+      keys,
       brokenFirst: false,
-      async fetchLogin({ auth }) {
-        const result = await query(auth.apiKey);
-        if (!result.success) return { rows: [], errors: [{ message: result.error }] };
+      async fetchKey(apiKey) {
+        const result = await query(apiKey);
+        if (!result.success) return { rows: [], errors: [fetchError(result.error, result.facts)] };
         return {
           rows: result.rows,
           errors: result.parseIssues.map((issue) => ({
@@ -175,6 +174,6 @@ export const deepseekProvider: QuotaProvider = {
         };
       },
     });
-    return { attempted: keys.logins.length > 0, accounts, debug };
+    return { attempted, accounts, debug };
   },
 };

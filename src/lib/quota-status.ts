@@ -22,7 +22,13 @@ import {
   isQuotaErrorCode,
   LOCAL_TOOLS,
 } from "../core/errors.js";
-import type { Amount, ProviderSnapshot, QuotaError, QuotaRow } from "../core/types.js";
+import type {
+  Amount,
+  ProviderSnapshot,
+  QuotaError,
+  QuotaRow,
+  SessionModel,
+} from "../core/types.js";
 import type { UsageReport } from "../core/usage.js";
 import { isQuotaWindow } from "../core/windows.js";
 import { isV5SettingKey } from "../settings/convert.js";
@@ -45,7 +51,7 @@ import { CURSOR_CANONICAL_PLUGIN_PACKAGE } from "./cursor-detection.js";
 import { sanitizeSingleLineDisplayText } from "./display-sanitize.js";
 import { AGY_AUTH_KEYS } from "./google-agy.js";
 import { GEMINI_CLI_AUTH_KEYS } from "./google-gemini-cli.js";
-import { replaceHomeDirWithTildeInDocument } from "./home-dir-display.js";
+import { replaceHomeDirWithTilde } from "./home-dir-display.js";
 import type { MaintainerAnnouncementsSummary } from "./maintainer-announcements.js";
 import {
   describePriceList,
@@ -69,12 +75,6 @@ import {
   isMaintainedQuotaProviderTuning,
   type QuotaProviderDefinition,
 } from "./quota-providers.js";
-import {
-  type ReportDocument,
-  type ReportKvRow,
-  type ReportSection,
-  renderPlainTextReport,
-} from "./report-document.js";
 import { getPackageVersion } from "./version.js";
 
 /** Rows listed per provider section; the rest are counted. */
@@ -132,7 +132,6 @@ export const KNOWN_FILE_NAMES: ReadonlySet<string> = new Set([
   ".credentials.json",
   "copilot-quota-token.json",
   "mimo.json",
-  "alibaba-coding-plan-local-quota.json",
   "modelsdev-pricing.runtime.min.json",
   "modelsdev-pricing.refresh-state.json",
   "snapshot-v6.json",
@@ -180,6 +179,7 @@ const ORIGINS: Readonly<Record<StatusOrigin, string>> = {
   cli: "opencode-quota status (CLI)",
 };
 
+/** What the report is made from: the facts gathered once, for the text and the JSON payload. */
 export type QuotaStatusReportParams = {
   origin: StatusOrigin;
   /** OpenCode's version and release channel; the CLI runs without OpenCode. */
@@ -190,15 +190,8 @@ export type QuotaStatusReportParams = {
   conversion?: V5Conversion;
   /** The project folder quota is computed for. */
   workspaceRoot: string;
-  enabledProviders: string[] | "auto";
-  /** The provider ids switched off in settings.jsonc. */
-  offProviders: readonly string[];
-  quotaProviders?: readonly QuotaProviderDefinition[];
-  pricingSnapshotSource: PricingSnapshotSource;
-  currentModel?: string;
-  currentProviderID?: string;
-  /** Whether a session was available for model lookup */
-  sessionModelLookup?: "ok" | "not_found" | "no_session";
+  /** The session's model; undefined without a session. */
+  sessionModel?: SessionModel;
   /** Every known provider, enabled or not: one section each, in this order. */
   providerAvailability: ProviderAvailability[];
   /**
@@ -273,8 +266,12 @@ function joinOrNone(values: readonly string[]): string {
   return values.length > 0 ? values.join(" | ") : "(none)";
 }
 
+/** One line of a section: "- key: value", or "  - key: value" under the line before it. */
+type ReportKvRow = { key: string; value?: string; indent?: 1 };
+type ReportSection = { title: string; rows: ReportKvRow[] };
+
 function kvSection(id: string, rows: ReportKvRow[]): ReportSection {
-  return { id, title: `${id}:`, blocks: [{ kind: "kv", rows }] };
+  return { title: `${id}:`, rows };
 }
 
 /** "1 other detail not shown", "3 other details not shown". */
@@ -294,7 +291,10 @@ function numbering(): (value: string) => number {
 /** The 1-based place of each custom definition id, as the settings section lists them. */
 function customNumbers(params: QuotaStatusReportParams): Map<string, number> {
   return new Map(
-    (params.quotaProviders ?? []).map((definition, index) => [definition.id, index + 1]),
+    params.settings.settings.providers.custom.map((definition, index) => [
+      definition.id,
+      index + 1,
+    ]),
   );
 }
 
@@ -343,7 +343,9 @@ function currentModelText(
   params: QuotaStatusReportParams,
   priceList: PriceListDescription,
 ): string {
-  const { currentModel, currentProviderID } = params;
+  const { sessionModel } = params;
+  if (!sessionModel) return "(no session)";
+  const { id: currentModel, providerID: currentProviderID } = sessionModel;
   if (currentModel) {
     const provider =
       currentProviderID === undefined
@@ -357,9 +359,7 @@ function currentModelText(
       : "(model not in the shipped price list)";
     return `${provider}/${model}`;
   }
-  if (params.sessionModelLookup === "not_found") return "(the session has no model yet)";
-  if (params.sessionModelLookup === "no_session") return "(no session)";
-  return "(unknown)";
+  return "(the session has no model yet)";
 }
 
 /** Known provider ids joined, and how many others there were. */
@@ -616,13 +616,14 @@ function settingsSection(
     const paths = params.settings.notRead.map((path) => sourceFileText(path, homeDir));
     rows.push({ key: "not_read", value: joinOrNone(paths) });
   }
+  const { providers } = params.settings.settings;
   rows.push(
-    { key: "providers.off", value: providerIdsText(params.offProviders) },
+    { key: "providers.off", value: providerIdsText(providers.off) },
     ...changedSettingRows(params.settings.settings, homeDir),
     { key: "current_model", value: currentModelText(params, priceList) },
     { key: "workspace_root", value: pathText(params.workspaceRoot, homeDir) },
   );
-  (params.quotaProviders ?? []).forEach((definition, index) => {
+  providers.custom.forEach((definition, index) => {
     rows.push({ key: "providers.custom", value: customProviderText(definition, index + 1) });
   });
   return kvSection("settings", rows);
@@ -1013,7 +1014,6 @@ const GOOGLE_DETAILS: DebugRules = {
   companion_package_path: pathList,
   auth_error: present,
 };
-const STATE_HEALTH = ["missing", "healthy", "malformed", "version_mismatch"] as const;
 const CONSOLE_AUTH_STATES = ["none", "configured", "expired", "invalid"] as const;
 
 /**
@@ -1098,14 +1098,11 @@ const DEBUG_DETAILS = {
     unknown_cursor_models: count,
   },
   "alibaba-coding-plan": {
-    ...each(bool, "alibaba auth configured", "local_state_exists"),
+    "alibaba auth configured": bool,
     alibaba_api_key_source: keySource,
-    ...each(pathList, "alibaba_api_key_checked_paths", "local_state_path"),
+    alibaba_api_key_checked_paths: pathList,
     alibaba_api_key_credential_database_paths: pathList,
     alibaba_coding_plan: oneOf("lite", "pro", "invalid"),
-    local_state_health: oneOf(...STATE_HEALTH),
-    local_state_version: count,
-    local_state_last_update: time,
   },
   "alibaba-token-plan": {
     cli_available: bool,
@@ -1131,8 +1128,6 @@ const DEBUG_DETAILS = {
     config_checked_paths: pathList,
   },
   "opencode-go": {
-    auth_source: keySource,
-    ...each(pathList, "auth_checked_paths", "credential_database_paths"),
     console_auth_state: oneOf(...CONSOLE_AUTH_STATES),
     console_error: present,
     go_source: oneOf("console", "legacy_key"),
@@ -1173,7 +1168,7 @@ const SETUP_DETAILS: DebugRules = {
 /** A numbered live error ("live_error_1"), shown as its kind like `live_fetch_error`. */
 const LIVE_ERROR_KEY = /^live_error_\d{1,2}$/u;
 
-/** A custom definition's check: outcome, login source, files read, local counter state. */
+/** A custom definition's check: outcome, login source, files read. */
 const CUSTOM_CHECK: DebugRule = fields({
   outcome: oneOf(
     "missing_credential",
@@ -1186,7 +1181,7 @@ const CUSTOM_CHECK: DebugRule = fields({
     "invalid_json",
     "invalid_response",
     "network_error",
-    "local_state_error",
+    "local_read_error",
   ),
   http_status: status,
   credential_source: oneOf(
@@ -1196,9 +1191,6 @@ const CUSTOM_CHECK: DebugRule = fields({
     "opencode_db",
   ),
   checked_paths: pathList,
-  state_health: oneOf(...STATE_HEALTH),
-  state_version: count,
-  state_last_update: time,
 });
 
 /** "custom 2 check" for the debug key of the second custom definition's check. */
@@ -1247,16 +1239,16 @@ function debugRows(
 
 /**
  * "disabled" (turned off in the settings, never fetched) and "unavailable" (only local setup
- * details) win over the state of a check. With "auto" no provider is turned off; with a list,
- * `availability.enabled` says whether the provider is in it.
+ * details) win over the state of a check. With no provider off none is disabled; else
+ * `availability.enabled` says whether the provider is on.
  */
 function sectionState(
   availability: ProviderAvailability,
   provider: ProviderSnapshot | undefined,
-  enabledProviders: QuotaStatusReportParams["enabledProviders"],
+  off: readonly string[],
   nowMs: number,
 ): string {
-  if (enabledProviders !== "auto" && !availability.enabled) return "disabled";
+  if (off.length > 0 && !availability.enabled) return "disabled";
   if (!availability.available) return "unavailable";
   return provider ? providerState(provider, nowMs) : "not checked";
 }
@@ -1273,7 +1265,8 @@ function providerSection(
   homeDir: string,
 ): ReportSection {
   const nowMs = params.generatedAtMs ?? Date.now();
-  const state = sectionState(availability, provider, params.enabledProviders, nowMs);
+  const off = params.settings.settings.providers.off;
+  const state = sectionState(availability, provider, off, nowMs);
   const title = providerIdText(availability.id);
   const rows: ReportKvRow[] = [{ key: "state", value: state }];
   if (!provider) return kvSection(title, rows);
@@ -1355,7 +1348,7 @@ const PRICING_SOURCE_NAMES: Readonly<Record<string, string>> = {
 const PRICING_SELECTIONS = new Set(["auto", "bundled", "runtime"]);
 
 /** The active price list as fixed words: where it came from, its date and its units. */
-export function publicPricingMeta(priceList: Pick<PriceListDescription, "source" | "meta">): {
+function publicPricingMeta(priceList: Pick<PriceListDescription, "source" | "meta">): {
   source: string;
   generatedAt: string;
   units: string;
@@ -1375,9 +1368,8 @@ function pricingSection(
 ): ReportSection {
   const meta = publicPricingMeta(priceList);
   const { health, paths, refreshState } = priceList;
-  const configured = PRICING_SELECTIONS.has(params.pricingSnapshotSource)
-    ? params.pricingSnapshotSource
-    : "(other)";
+  const selection = params.settings.settings.providers.pricing.source;
+  const configured = PRICING_SELECTIONS.has(selection) ? selection : "(other)";
 
   const rows: ReportKvRow[] = [
     {
@@ -1431,29 +1423,107 @@ function pricingSection(
   return kvSection("pricing_snapshot", rows);
 }
 
-/** A path as the report shows it, for the status payload. */
-export function statusPathText(path: string, homeDir: string = homedir()): string {
-  return pathText(path, homeDir);
-}
+/** `opencode-quota status --json`: the format version, then what the report says, as data. */
+export type QuotaStatusPayload = {
+  version: "6";
+  generatedAt: string;
+  /** Where the settings come from and what they say about providers and prices. */
+  config: {
+    settingsPath: string;
+    settingsFileExists: boolean;
+    /** The `providers.off` ids that are on, or "auto" when none is off. */
+    enabledProviders: string[] | "auto";
+    onlyCurrentModel: boolean;
+    pricingSnapshotSource: PricingSnapshotSource;
+  };
+  providers: ProviderAvailability[];
+  pricing: {
+    selection: PricingSnapshotSource;
+    activeSource: string;
+    snapshot: { source: string; generatedAt: string | null; units: string };
+    snapshotPath: string;
+    refreshStatePath: string;
+  };
+  /** One per enabled and available provider: ok when its check had no error. */
+  liveProbes: Array<{ id: string; ok: boolean }>;
+};
 
-/** The provider ids this plugin knows, for the status payload. */
-export function knownProviderIds(ids: string[] | "auto"): string[] | "auto" {
-  return ids === "auto" ? ids : ids.filter((id) => PROVIDER_IDS.has(id));
-}
-
-export async function buildQuotaStatusReport(params: QuotaStatusReportParams): Promise<string> {
-  return renderPlainTextReport(await buildQuotaStatusReportDocument(params));
-}
-
-export async function buildQuotaStatusReportDocument(
+/** The payload follows the report's closed vocabulary: known ids, fixed words, known paths. */
+function statusPayload(
   params: QuotaStatusReportParams,
-): Promise<ReportDocument> {
+  checked: readonly ProviderSnapshot[],
+  priceList: PriceListDescription,
+  homeDir: string,
+  nowMs: number,
+): QuotaStatusPayload {
+  const { settings } = params.settings;
+  const { off } = settings.providers;
+  const pricingMeta = publicPricingMeta(priceList);
+  return {
+    version: "6",
+    generatedAt: new Date(nowMs).toISOString(),
+    config: {
+      settingsPath: pathText(params.settings.path, homeDir),
+      settingsFileExists: params.settings.exists,
+      enabledProviders:
+        off.length === 0 ? "auto" : SETTINGS_PROVIDER_IDS.filter((id) => !off.includes(id)),
+      onlyCurrentModel: settings.words.onlyCurrentModel,
+      pricingSnapshotSource: settings.providers.pricing.source,
+    },
+    providers: params.providerAvailability,
+    pricing: {
+      selection: settings.providers.pricing.source,
+      activeSource: priceList.source,
+      snapshot: {
+        source: pricingMeta.source,
+        // "(none)" and "(invalid date)" are no time.
+        generatedAt: /^\d/u.test(pricingMeta.generatedAt) ? pricingMeta.generatedAt : null,
+        units: pricingMeta.units,
+      },
+      snapshotPath: pathText(priceList.paths.snapshot, homeDir),
+      refreshStatePath: pathText(priceList.paths.refreshState, homeDir),
+    },
+    liveProbes: checked.map((provider) => ({
+      id: provider.providerId,
+      ok: provider.error === undefined,
+    })),
+  };
+}
+
+/** The report as text: the heading, then each section's title and rows, a blank line between. */
+function reportText(heading: string, sections: readonly ReportSection[]): string {
+  const lines = [heading];
+  for (const section of sections) {
+    lines.push("", section.title);
+    for (const row of section.rows) {
+      const indent = row.indent === 1 ? "  " : "";
+      lines.push(`${indent}- ${row.key}${row.value === undefined ? "" : `: ${row.value}`}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+export type QuotaStatusReport = {
+  text: string;
+  json: QuotaStatusPayload;
+  /** True when an enabled and available provider's check returned a row. */
+  hasComparableProviderData: boolean;
+};
+
+/**
+ * The report as text, with the home dir shown as "~", and as the `status --json` payload, from
+ * one set of facts.
+ */
+export async function renderQuotaStatusReport(
+  params: QuotaStatusReportParams,
+): Promise<QuotaStatusReport> {
   const homeDir = params.homeDir ?? homedir();
+  const nowMs = params.generatedAtMs ?? Date.now();
   const pluginVersion = (await getPackageVersion()) ?? "unknown";
   const snapshots = new Map(params.providers.map((provider) => [provider.providerId, provider]));
   const priceList = await describePriceList();
   const sections: ReportSection[] = [
-    environmentSection(params, params.generatedAtMs ?? Date.now()),
+    environmentSection(params, nowMs),
     settingsSection(params, priceList, homeDir),
     providerListSection(params.providerAvailability),
     ...(params.maintainerAnnouncements ? [noticesSection(params.maintainerAnnouncements)] : []),
@@ -1464,12 +1534,17 @@ export async function buildQuotaStatusReportDocument(
     ),
     pricingSection(params, priceList, homeDir),
   ];
+  const heading = `# Quota Status (opencode-quota v${pluginVersion})`;
 
-  return replaceHomeDirWithTildeInDocument(
-    {
-      heading: `# Quota Status (opencode-quota v${pluginVersion})`,
-      sections,
-    },
-    homeDir,
+  const checkedIds = new Set(
+    params.providerAvailability
+      .filter((provider) => provider.enabled && provider.available)
+      .map((provider) => provider.id),
   );
+  const checked = params.providers.filter((provider) => checkedIds.has(provider.providerId));
+  return {
+    text: replaceHomeDirWithTilde(reportText(heading, sections), homeDir),
+    json: statusPayload(params, checked, priceList, homeDir, nowMs),
+    hasComparableProviderData: checked.some((provider) => provider.rows.length > 0),
+  };
 }

@@ -1,5 +1,3 @@
-import type { ReportBlock, ReportDocument } from "./report-document.js";
-
 /**
  * Characters that may end a home-dir match: a path separator (the path goes on below home),
  * whitespace, or punctuation the reports put around paths. Anything else, e.g. the "s" in
@@ -62,42 +60,4 @@ function homeDirPattern(home: string): RegExp {
 export function replaceHomeDirWithTilde(text: string, homeDir: string): string {
   const home = normalizeHomeDir(homeDir);
   return home ? text.replace(homeDirPattern(home), "~") : text;
-}
-
-// Optional fields are only set when the input has them. An optional field set to `undefined`
-// is not a JSON value, and OpenCode rejects a command result that contains one.
-function replaceHomeDirInBlock(block: ReportBlock, homeDir: string): ReportBlock {
-  const tilde = (text: string) => replaceHomeDirWithTilde(text, homeDir);
-
-  switch (block.kind) {
-    case "lines":
-      return { ...block, lines: block.lines.map(tilde) };
-    case "kv":
-      return {
-        ...block,
-        rows: block.rows.map((row) => ({
-          ...row,
-          key: tilde(row.key),
-          ...(row.value !== undefined && { value: tilde(row.value) }),
-        })),
-      };
-  }
-}
-
-/** The same document with the home dir shown as "~" in every piece of text it displays. */
-export function replaceHomeDirWithTildeInDocument(
-  document: ReportDocument,
-  homeDir: string,
-): ReportDocument {
-  const tilde = (text: string) => replaceHomeDirWithTilde(text, homeDir);
-
-  return {
-    ...document,
-    ...(document.heading !== undefined && { heading: tilde(document.heading) }),
-    sections: document.sections.map((section) => ({
-      ...section,
-      ...(section.title !== undefined && { title: tilde(section.title) }),
-      blocks: section.blocks.map((block) => replaceHomeDirInBlock(block, homeDir)),
-    })),
-  };
 }

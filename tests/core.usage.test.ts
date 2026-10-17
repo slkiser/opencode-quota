@@ -5,8 +5,9 @@ import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { type UsageQuery, type UsageRow, usageReport } from "../src/core/usage.js";
+import { sessionUsage, type UsageQuery, type UsageRow, usageReport } from "../src/core/usage.js";
 import { usePricingSettings } from "../src/lib/modelsdev-pricing.js";
+import { resolveSessionTree } from "../src/lib/opencode-storage.js";
 import {
   type SessionDatabaseMessage,
   type SessionDatabaseSession,
@@ -356,6 +357,26 @@ describe("usage report sessions", () => {
     expect(report.sessionID).toBe(item.query.sessionID);
   });
 
+  it("lists a session's tree depth first, children oldest first", async () => {
+    writeHistory(
+      [],
+      [
+        { id: "ses_root", created: 1 },
+        { id: "ses_child_b", parentID: "ses_root", created: 30 },
+        { id: "ses_grandchild", parentID: "ses_child_a", created: 20 },
+        { id: "ses_child_a", parentID: "ses_root", created: 10 },
+        { id: "ses_other", created: 5 },
+      ],
+    );
+
+    await expect(resolveSessionTree("ses_root")).resolves.toEqual([
+      "ses_root",
+      "ses_child_a",
+      "ses_grandchild",
+      "ses_child_b",
+    ]);
+  });
+
   describe("forks", () => {
     // A fork made at 09:30 from ses_parent, and the fork's own subagent.
     const forkSessions = [
@@ -428,6 +449,105 @@ describe("usage report sessions", () => {
         expect(report.totals.costUsd).toBeCloseTo((item.tokens * 10) / M, 10);
       },
     );
+  });
+});
+
+describe("session usage (the sidebar's session line)", () => {
+  // ses_root has a subagent; ses_fork was forked from ses_root after its first two rows.
+  const sessions = [
+    { id: "ses_root", created: at(0, 7) },
+    { id: "ses_child", parentID: "ses_root", created: at(0, 8) },
+    { id: "ses_fork", forkOf: "ses_root", created: at(0, 9, 30) },
+    { id: "ses_other", created: at(0, 6) },
+  ];
+  const history = () => {
+    const root = [
+      message({
+        sessionID: "ses_root",
+        created: at(0, 8),
+        tokens: { input: 10, output: 5, reasoning: 3, cacheRead: 4, cacheWrite: 6 },
+      }),
+      message({
+        type: "compaction",
+        sessionID: "ses_root",
+        created: at(0, 9),
+        tokens: { input: 7 },
+      }),
+    ];
+    const copies = root.map((original, index) => ({
+      ...original,
+      id: `msg_fork_copy_${index}`,
+      sessionID: "ses_fork",
+    }));
+    return [
+      ...root,
+      ...copies,
+      message({
+        sessionID: "ses_child",
+        modelID: "claude-plain",
+        created: at(0, 10),
+        tokens: { input: 2, output: 1, cacheRead: 8 },
+      }),
+      message({ sessionID: "ses_other", created: at(0, 11), tokens: { input: 100 } }),
+    ];
+  };
+
+  it.each([
+    {
+      scope: "current" as const,
+      // In: input and cache writes, out: output and reasoning, and the compaction counts.
+      tokens: {
+        input: 10 + 6 + 7,
+        cachedInput: 4,
+        output: 5 + 3,
+        models: [{ modelID: "claude-test", input: 17, cacheRead: 4, cacheWrite: 6 }],
+      },
+    },
+    {
+      scope: "tree" as const,
+      tokens: {
+        input: 10 + 6 + 7 + 2,
+        cachedInput: 4 + 8,
+        output: 5 + 3 + 1,
+        models: [
+          { modelID: "claude-test", input: 17, cacheRead: 4, cacheWrite: 6 },
+          { modelID: "claude-plain", input: 2, cacheRead: 8, cacheWrite: 0 },
+        ],
+      },
+    },
+  ])("counts $scope as the Usage tab counts", async ({ scope, tokens }) => {
+    writeHistory(history(), sessions);
+
+    await expect(sessionUsage("ses_root", scope)).resolves.toEqual(tokens);
+  });
+
+  it("leaves out a fork's copies of its parent's messages", async () => {
+    writeHistory(history(), sessions);
+
+    await expect(sessionUsage("ses_fork", "current")).resolves.toBeUndefined();
+  });
+
+  it("has no tokens for an unknown session or without a database", async () => {
+    await expect(sessionUsage("ses_root", "tree")).resolves.toBeUndefined();
+    writeHistory(history(), sessions);
+
+    await expect(sessionUsage("ses_missing", "tree")).resolves.toBeUndefined();
+    await expect(sessionUsage("ses_missing", "current")).resolves.toBeUndefined();
+  });
+
+  it("agrees with Usage's This session on the same database, with subagents", async () => {
+    writeHistory(history(), sessions);
+
+    for (const sessionID of ["ses_root", "ses_fork", "ses_child"]) {
+      const report = await usageReport({ range: "session", sessionID }, NOW);
+      const sidebar = await sessionUsage(sessionID, "tree");
+      const { cachedInput, uncachedInput, output } = report.totals.tokens;
+      expect(sidebar ?? { input: 0, cachedInput: 0, output: 0 }, sessionID).toMatchObject({
+        input: uncachedInput,
+        cachedInput,
+        output,
+      });
+    }
   });
 });
 

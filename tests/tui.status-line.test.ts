@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { convertV5 } from "../src/settings/index.js";
 import { displaySettings } from "../src/tui/display.js";
 import type { SurfaceHost } from "../src/tui/sidebar.js";
+import { stubJsx } from "./helpers/fake-tui-host.js";
 import { findAll } from "./helpers/jsx-tree.js";
 
 let root: string;
@@ -19,16 +20,7 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "quota-tui-status-line-"));
   vi.stubEnv("OPENCODE_CONFIG_DIR", join(root, "config"));
   vi.stubEnv("XDG_STATE_HOME", join(root, "state"));
-  vi.stubGlobal("React", {
-    createElement: (
-      type: unknown,
-      props: Record<string, unknown> | null,
-      ...children: unknown[]
-    ) => ({
-      type,
-      props: { ...props, children: children.length > 1 ? children : children[0] },
-    }),
-  });
+  stubJsx({ components: "keep" });
 });
 
 afterEach(async () => {

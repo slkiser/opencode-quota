@@ -1,20 +1,15 @@
 /** MiniMax Token Plan quota (international and China endpoints), one canonical model per account. */
 
+import type { ErrorFacts } from "../core/errors.js";
 import type { Amount } from "../core/types.js";
-import {
-  API_KEY_VENDORS,
-  type ApiKeyLoginSpec,
-  readKeyLogins,
-  resolveApiKeyLogin,
-  resolveApiKeyLoginWithDiagnostics,
-} from "../lib/api-key-resolver.js";
+import { API_KEY_VENDORS, type ApiKeyLoginSpec, readVendorKeys } from "../lib/api-key-resolver.js";
 import { sanitizeDisplayText } from "../lib/display-sanitize.js";
 import type {
   QuotaProvider,
   QuotaProviderContext,
   QuotaProviderMatchContext,
 } from "../lib/entries.js";
-import { fetchWithTimeout } from "../lib/http.js";
+import { failureFacts, requestJson } from "../lib/http.js";
 import { asRecord } from "../lib/json-guards.js";
 import {
   isAnyProviderIdAvailable,
@@ -26,13 +21,14 @@ import { vendorKeysPolicy } from "./cache-policies.js";
 import {
   FIVE_HOUR,
   failedAccount,
-  fetchKeyLogins,
+  fetchError,
   type ProviderFetchResult,
   type ProviderRow,
   quotaRow,
   WEEKLY,
 } from "./contract.js";
-import { apiKeyStatusDetails, statusDetailsFromRecord } from "./result-helpers.js";
+import { fetchStoredKeys, isKeyVendorAvailable } from "./key-vendor.js";
+import { statusDetailsFromRecord, vendorKeyDetails, vendorKeyState } from "./result-helpers.js";
 
 const USER_AGENT = "OpenCode-Quota-Toast/1.0";
 const REQUEST_UNIT = { kind: "count", unit: "request" } as const;
@@ -220,40 +216,38 @@ async function queryMiniMaxQuota(
   apiKey: string,
   endpointId: MiniMaxQuotaEndpointId,
   requestTimeoutMs: number | undefined,
-): Promise<{ rows: ProviderRow[] } | { error: string }> {
+): Promise<{ rows: ProviderRow[] } | { error: string; facts?: ErrorFacts }> {
+  const reply = await requestJson(MINIMAX_ENDPOINTS[endpointId].quotaUrl, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${apiKey}`, "User-Agent": USER_AGENT },
+    secrets: [apiKey],
+    timeoutMs: requestTimeoutMs,
+  });
+  if (!reply.ok) {
+    const { failure } = reply;
+    return {
+      error:
+        failure.kind === "http"
+          ? `MiniMax API error ${failure.status}: ${sanitizeMiniMaxMessage(failure.detail)}`
+          : sanitizeMiniMaxMessage(failure.detail),
+      facts: failureFacts(failure),
+    };
+  }
+
   try {
-    return await fetchWithTimeout(MINIMAX_ENDPOINTS[endpointId].quotaUrl, {
-      request: {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "User-Agent": USER_AGENT,
-        },
-      },
-      timeoutMs: requestTimeoutMs,
-      consume: async (response) => {
-        if (!response.ok) {
-          const text = await response.text();
-          return {
-            error: `MiniMax API error ${response.status}: ${sanitizeMiniMaxMessage(text)}`,
-          };
-        }
+    const payload = reply.json as MiniMaxApiResponse;
+    if (payload.base_resp?.status_code !== 0) {
+      return {
+        error: `MiniMax API error: ${sanitizeMiniMaxMessage(payload.base_resp?.status_msg ?? "unknown")}`,
+      };
+    }
 
-        const payload = (await response.json()) as MiniMaxApiResponse;
-        if (payload.base_resp?.status_code !== 0) {
-          return {
-            error: `MiniMax API error: ${sanitizeMiniMaxMessage(payload.base_resp?.status_msg ?? "unknown")}`,
-          };
-        }
-
-        const matchingModels = (payload.model_remains ?? []).filter(
-          (model): model is MiniMaxModelRemain =>
-            isMiniMaxModelRecord(model) && isMiniMaxCodingModelName(model.model_name),
-        );
-        const canonicalModel = selectCanonicalMiniMaxModel(matchingModels, endpointId);
-        return { rows: canonicalModel ? minimaxRows(canonicalModel, endpointId) : [] };
-      },
-    });
+    const matchingModels = (payload.model_remains ?? []).filter(
+      (model): model is MiniMaxModelRemain =>
+        isMiniMaxModelRecord(model) && isMiniMaxCodingModelName(model.model_name),
+    );
+    const canonicalModel = selectCanonicalMiniMaxModel(matchingModels, endpointId);
+    return { rows: canonicalModel ? minimaxRows(canonicalModel, endpointId) : [] };
   } catch (err) {
     return { error: sanitizeMiniMaxMessage(err instanceof Error ? err.message : String(err)) };
   }
@@ -283,47 +277,38 @@ async function fetchMiniMaxQuota(
   spec: MiniMaxSpec,
   ctx: QuotaProviderContext,
 ): Promise<ProviderFetchResult> {
-  const { auth, diagnostics } = await resolveApiKeyLoginWithDiagnostics(spec.auth);
-  const configured = diagnostics.state === "configured";
+  const keys = await readVendorKeys(spec.auth);
+  const configured = vendorKeyState(keys).state === "configured";
   const debug = [
-    ...apiKeyStatusDetails(diagnostics),
+    ...vendorKeyDetails(spec.auth, keys),
     ...statusDetailsFromRecord({
       api_endpoint: configured ? spec.endpoint : undefined,
       api_base_url: configured ? MINIMAX_ENDPOINTS[spec.endpoint].apiBaseUrl : undefined,
     }),
   ];
-  if (auth.state === "none") return { attempted: false, accounts: [], debug };
-
   const query = (apiKey: string) =>
     queryMiniMaxQuota(apiKey, spec.endpoint, ctx.config?.requestTimeoutMs);
 
-  if (diagnostics.source === "opencode.db") {
-    const logins = await readKeyLogins(spec.auth);
-    if (logins.length > 0) {
-      const accounts = await fetchKeyLogins({
-        providerName: spec.label,
-        logins,
-        brokenFirst: true,
-        async fetchLogin({ auth: login }) {
-          const result = await query(login.apiKey);
-          return "error" in result
-            ? { rows: [], errors: [{ message: result.error }] }
-            : { rows: result.rows, errors: [] };
-        },
-      });
-      return { attempted: true, accounts, debug };
-    }
+  if (!keys.envOrConfig) {
+    const stored = await fetchStoredKeys({
+      providerName: spec.label,
+      keys,
+      brokenFirst: true,
+      async fetchKey(apiKey) {
+        const result = await query(apiKey);
+        return "error" in result
+          ? { rows: [], errors: [fetchError(result.error, result.facts)] }
+          : { rows: result.rows, errors: [] };
+      },
+    });
+    return { ...stored, debug };
   }
 
-  if (auth.state === "invalid") {
-    return { attempted: true, accounts: [failedAccount(spec.label, auth.error)], debug };
-  }
-
-  const result = await query(auth.apiKey);
+  const result = await query(keys.envOrConfig.key);
   if ("error" in result) {
     return {
       attempted: true,
-      accounts: [failedAccount(spec.label, result.error)],
+      accounts: [failedAccount(spec.label, result.error, result.facts)],
       debug: [...debug, { key: "live_fetch_error", value: result.error }],
     };
   }
@@ -350,23 +335,26 @@ function minimaxProvider(spec: MiniMaxSpec): QuotaProvider {
     cachePolicy: vendorKeysPolicy(spec.id, spec.endpoint),
 
     async isAvailable(ctx: QuotaProviderContext): Promise<boolean> {
-      const providerAvailable =
-        (await isCanonicalProviderAvailable({
-          ctx,
-          providerId: spec.id,
-          fallbackOnError: false,
-        })) ||
-        (spec.id === "minimax-china-coding-plan" &&
-          isMiniMaxChinaExplicitlyEnabled(ctx.config) &&
-          (await isAnyProviderIdAvailable({
+      return await isKeyVendorAvailable({
+        ctx,
+        providerId: spec.id,
+        availability: "listed-and-key",
+        readKeys: () => readVendorKeys(spec.auth),
+        // The China plan also counts OpenCode's `minimax` when the user enabled the China plan.
+        isListed: async () =>
+          (await isCanonicalProviderAvailable({
             ctx,
-            candidateIds: ["minimax"],
+            providerId: spec.id,
             fallbackOnError: false,
-          })));
-      if (!providerAvailable) return false;
-
-      const auth = await resolveApiKeyLogin(spec.auth);
-      return auth.state === "configured" || auth.state === "invalid";
+          })) ||
+          (spec.id === "minimax-china-coding-plan" &&
+            isMiniMaxChinaExplicitlyEnabled(ctx.config) &&
+            (await isAnyProviderIdAvailable({
+              ctx,
+              candidateIds: ["minimax"],
+              fallbackOnError: false,
+            }))),
+      });
     },
 
     matchesCurrentModel(model: string, context?: QuotaProviderMatchContext): boolean {

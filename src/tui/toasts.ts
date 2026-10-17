@@ -12,7 +12,7 @@
  */
 import type { QuotaSnapshot, ResetNotice, SessionTokens, Words } from "../core/types.js";
 import { WINDOWS } from "../core/windows.js";
-import { DEFAULT_WORDS, levelOf } from "../view/format.js";
+import { levelOf } from "../view/format.js";
 import { type Group, visibleGroups } from "../view/select.js";
 import { type Line, lineText, toastLines } from "../view/text.js";
 import type { QuotaClient } from "./client.js";
@@ -104,7 +104,7 @@ export function quotaToastLines(
   nowMs: number,
   terminalWidth: number,
 ): Line[] {
-  const words = snapshot.words ?? DEFAULT_WORDS;
+  const words = display.words;
   const groups = visibleGroups(snapshot, display, "toast", words);
   const tokens = toastTokens(snapshot, display);
   return layoutLines(groups, words, display, nowMs, terminalWidth, tokens);
@@ -151,7 +151,7 @@ export function createToasts(host: ToastHost): Toasts {
     const snapshot = await host.quota.refresh("turn", sessionID);
     const display = host.display();
     if (!snapshot || !display.surfaces.toast.enabled) return;
-    const words = snapshot.words ?? DEFAULT_WORDS;
+    const words = display.words;
     const nowMs = now();
     const groups = visibleGroups(snapshot, display, "toast", words);
     const allFail =

@@ -2,6 +2,8 @@
  * The legacy provider data types: logins read from OpenCode and each provider's fetch result.
  */
 
+import type { ErrorFacts } from "../core/errors.js";
+
 export type GeminiCliAuthSourceKey =
   | "google-gemini-cli"
   | "gemini-cli"
@@ -267,6 +269,8 @@ export interface GoogleAgyQuotaBucket {
 export interface QuotaError {
   success: false;
   error: string;
+  /** The facts of the request that failed, when it gave them. */
+  facts?: ErrorFacts;
 }
 
 /** Combined quota result */

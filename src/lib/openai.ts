@@ -8,7 +8,7 @@
 import { sanitizeDisplayText } from "./display-sanitize.js";
 import type { FixedWindowProjectionEvidence } from "./entries.js";
 import { clampPercent } from "./format-utils.js";
-import { fetchWithTimeout } from "./http.js";
+import { failureFacts, requestJson } from "./http.js";
 import { finiteNumber, isRecord } from "./json-guards.js";
 import {
   type CredentialRow,
@@ -236,10 +236,10 @@ const OPENAI_ERROR_CODE = /^[A-Za-z0-9_.-]{1,64}$/u;
  * Only OpenAI's short error code, never the free-text body, which can echo
  * account details.
  */
-async function readOpenAIErrorCode(resp: Response): Promise<string | undefined> {
+function openAIErrorCode(body: string): string | undefined {
   try {
-    const body = (await resp.json()) as { error?: { code?: unknown } } | null;
-    const code = body?.error?.code;
+    const parsed = JSON.parse(body) as { error?: { code?: unknown } } | null;
+    const code = parsed?.error?.code;
     return typeof code === "string" && OPENAI_ERROR_CODE.test(code) ? code : undefined;
   } catch {
     return undefined;
@@ -312,21 +312,24 @@ export async function queryOpenAIQuota(options: {
     "User-Agent": "OpenCode-Quota-Toast/1.0",
     ...(auth.accountId ? { "ChatGPT-Account-Id": auth.accountId } : {}),
   };
+  const reply = await requestJson(OPENAI_USAGE_URL, {
+    headers,
+    secrets: [auth.accessToken, auth.accountId],
+    timeoutMs: options.requestTimeoutMs,
+  });
+  if (!reply.ok) {
+    const { failure } = reply;
+    const facts = failureFacts(failure);
+    if (failure.kind !== "http") return { success: false, error: failure.detail, facts };
+    const code = openAIErrorCode(failure.detail);
+    return {
+      success: false,
+      error: `OpenAI API error ${failure.status}${code ? ` (${code})` : ""}`,
+      facts,
+    };
+  }
   try {
-    return await fetchWithTimeout(OPENAI_USAGE_URL, {
-      request: { headers },
-      timeoutMs: options.requestTimeoutMs,
-      consume: async (resp): Promise<OpenAIResult> => {
-        if (!resp.ok) {
-          const code = await readOpenAIErrorCode(resp);
-          return {
-            success: false,
-            error: `OpenAI API error ${resp.status}${code ? ` (${code})` : ""}`,
-          };
-        }
-        return parseUsageResponse((await resp.json()) as OpenAIUsageResponse);
-      },
-    });
+    return parseUsageResponse(reply.json as OpenAIUsageResponse);
   } catch (err) {
     return {
       success: false,

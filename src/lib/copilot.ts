@@ -8,12 +8,9 @@
 
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import {
-  sanitizeDisplaySnippet,
-  sanitizeDisplayText,
-  sanitizeSingleLineDisplaySnippet,
-} from "./display-sanitize.js";
-import { fetchWithTimeout } from "./http.js";
+import type { ErrorFacts } from "../core/errors.js";
+import { sanitizeDisplaySnippet, sanitizeSingleLineDisplaySnippet } from "./display-sanitize.js";
+import { failureFacts, RequestFailedError, requestJson, thrownFacts } from "./http.js";
 import { finiteNumber } from "./json-guards.js";
 import {
   activeCredentialRowsAuthData,
@@ -226,8 +223,8 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function toQuotaError(message: string): QuotaError {
-  return { success: false, error: message };
+function toQuotaError(message: string, facts?: ErrorFacts): QuotaError {
+  return facts ? { success: false, error: message, facts } : { success: false, error: message };
 }
 
 function validateEnterpriseHost(value: unknown): { host?: string; error?: string } {
@@ -563,25 +560,19 @@ export function getCopilotQuotaAuthDiagnostics(logins: CopilotLogins): CopilotQu
   };
 }
 
-function redactSecret(text: string, secret: string): string {
-  const redacted = sanitizeDisplayText(text).replaceAll(secret, "[redacted]");
-  const sanitizedSecret = sanitizeDisplayText(secret);
-  return sanitizedSecret ? redacted.replaceAll(sanitizedSecret, "[redacted]") : redacted;
-}
-
-async function readGitHubErrorMessage(response: Response, token: string): Promise<string> {
-  const text = await response.text();
+/** GitHub's JSON error message (and its documentation link), else a bounded plain-text snippet. */
+function gitHubErrorMessage(body: string): string {
   try {
-    const parsed = JSON.parse(text) as Record<string, unknown>;
+    const parsed = JSON.parse(body) as Record<string, unknown>;
     const message = typeof parsed.message === "string" ? parsed.message : null;
     const documentationUrl =
       typeof parsed.documentation_url === "string" ? parsed.documentation_url : null;
-    if (message && documentationUrl) return redactSecret(`${message} (${documentationUrl})`, token);
-    if (message) return redactSecret(message, token);
+    if (message && documentationUrl) return `${message} (${documentationUrl})`;
+    if (message) return message;
   } catch {
     // Fall through to a bounded plain-text snippet.
   }
-  return sanitizeDisplaySnippet(redactSecret(text, token), 160);
+  return sanitizeDisplaySnippet(body, 160);
 }
 
 /** GET a GitHub JSON endpoint; failures become errors that never contain `token`. */
@@ -592,28 +583,30 @@ async function fetchGitHubJson<T>(params: {
   token: string;
   requestTimeoutMs?: number;
 }): Promise<T> {
-  const { apiName, token } = params;
-  return await fetchWithTimeout(params.url, {
-    request: { headers: params.headers },
+  const { apiName } = params;
+  const reply = await requestJson(params.url, {
+    headers: params.headers,
+    secrets: [params.token],
     timeoutMs: params.requestTimeoutMs,
-    consume: async (response) => {
-      if (!response.ok) {
-        const message = await readGitHubErrorMessage(response, token);
-        const rateLimit =
-          apiName === "GitHub API" &&
-          response.status === 403 &&
-          response.headers.get("x-ratelimit-remaining") === "0"
-            ? " (GitHub API rate limit exhausted)"
-            : "";
-        throw new Error(`${apiName} error ${response.status}: ${message}${rateLimit}`);
-      }
-      try {
-        return (await response.json()) as T;
-      } catch {
-        throw new Error(`${apiName} returned malformed JSON`);
-      }
-    },
   });
+  if (reply.ok) return reply.json as T;
+  const { failure } = reply;
+  if (failure.kind === "http") {
+    const rateLimit =
+      apiName === "GitHub API" &&
+      failure.status === 403 &&
+      failure.headers?.get("x-ratelimit-remaining") === "0"
+        ? " (GitHub API rate limit exhausted)"
+        : "";
+    throw new RequestFailedError(
+      `${apiName} error ${failure.status}: ${gitHubErrorMessage(failure.detail)}${rateLimit}`,
+      failureFacts(failure, rateLimit ? "rate_limited" : failure.code),
+    );
+  }
+  if (failure.kind === "invalid_json") {
+    throw new RequestFailedError(`${apiName} returned malformed JSON`, failureFacts(failure));
+  }
+  throw new RequestFailedError(failure.detail, failureFacts(failure));
 }
 
 async function fetchGitHubRestJson<T>(
@@ -1073,7 +1066,7 @@ async function queryCopilotOAuthQuota(
     }
     return parseCopilotInternalUser(response);
   } catch (error) {
-    return toQuotaError(errorText(error));
+    return toQuotaError(errorText(error), thrownFacts(error));
   }
 }
 
@@ -1117,7 +1110,7 @@ export async function queryCopilotQuota(
           requestTimeoutMs: options.requestTimeoutMs,
         });
   } catch (error) {
-    return toQuotaError(errorText(error));
+    return toQuotaError(errorText(error), thrownFacts(error));
   }
 }
 

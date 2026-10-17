@@ -14,6 +14,7 @@ import { normalizeQuotaProviderId, QUOTA_PROVIDER_CATALOG } from "../lib/provide
 import {
   describeQuotaProviderRequest,
   isMaintainedQuotaProviderTuning,
+  QUOTA_PROVIDERS_AGGREGATE_ID,
   type QuotaProviderDefinition,
   validateQuotaProviders,
 } from "../lib/quota-providers.js";
@@ -261,10 +262,17 @@ export function keysUnder(group: string): string[] {
   return [...new Set(names)];
 }
 
+/**
+ * A provider's id as `providers.off` stores it: the same id, except "custom" for the custom
+ * providers, which the registry and their rows call "quota-providers".
+ */
+export function offProviderId(providerId: string): string {
+  return providerId === QUOTA_PROVIDERS_AGGREGATE_ID ? "custom" : providerId;
+}
+
 /** Provider ids `providers.off` accepts; `custom` switches all custom providers off. */
-export const PROVIDER_IDS: readonly string[] = Object.keys(QUOTA_PROVIDER_CATALOG).map((id) =>
-  id === "quota-providers" ? "custom" : id,
-);
+export const PROVIDER_IDS: readonly string[] =
+  Object.keys(QUOTA_PROVIDER_CATALOG).map(offProviderId);
 
 /**
  * Built-in provider ids of 4.x and 5.x that this version does not have. `providers.off` and the
@@ -280,8 +288,7 @@ const FORMER_PROVIDER_IDS: ReadonlySet<string> = new Set([
 
 /** A provider id or one of its aliases ("claude", "quota-providers") as `providers.off` stores it. */
 function canonicalProviderId(id: string): string | undefined {
-  const normalized = normalizeQuotaProviderId(id);
-  const canonical = normalized === "quota-providers" ? "custom" : normalized;
+  const canonical = offProviderId(normalizeQuotaProviderId(id));
   return PROVIDER_IDS.includes(canonical) ? canonical : undefined;
 }
 

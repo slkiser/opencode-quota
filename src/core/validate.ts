@@ -30,8 +30,9 @@ const PROMINENCES = ["primary", "supplementary"] as const;
 /** Row key after the provider id: lower-case first segment, then dotted segments. */
 const ROW_KEY_RE = /^[a-z0-9_]+(?:\.[A-Za-z0-9_-]+)*$/u;
 const ROW_ID_MAX_LENGTH = 160;
-const LABEL_MAX_LENGTH = 64;
-const TEXT_MAX_LENGTH = 200;
+/** Longest label or account, in code points. Custom provider names and labels use it too. */
+export const LABEL_MAX_CODE_POINTS = 80;
+const TEXT_MAX_CODE_POINTS = 200;
 const ISO_TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u;
 const COUNT_UNIT_RE = /^[a-z_]{1,32}$/u;
 const CUSTOM_SYMBOL_RE = /^[\p{L}\p{N}._-]{1,16}$/u;
@@ -44,11 +45,16 @@ export function isIsoTime(value: unknown): value is string {
   return typeof value === "string" && ISO_TIME_RE.test(value) && Number.isFinite(Date.parse(value));
 }
 
-/** Scrubbed single-line text, or undefined when it is empty or too long. */
-function cleanText(value: unknown, maxLength: number): string | undefined {
+/** A text's length in Unicode code points, the way every row text limit counts. */
+export function codePointLength(text: string): number {
+  return Array.from(text).length;
+}
+
+/** Scrubbed single-line text, or undefined when it is empty or longer than `maxCodePoints`. */
+function cleanText(value: unknown, maxCodePoints: number): string | undefined {
   if (typeof value !== "string") return undefined;
   const text = sanitizeSingleLineDisplayText(value);
-  return text && text.length <= maxLength ? text : undefined;
+  return text && codePointLength(text) <= maxCodePoints ? text : undefined;
 }
 
 function cleanUnit(value: unknown): AmountUnit | undefined {
@@ -92,7 +98,7 @@ function checkRow(providerId: string, value: unknown): QuotaRow | string {
     return "invalid id";
   }
   if (value.providerId !== providerId) return "wrong provider";
-  const label = cleanText(value.label, LABEL_MAX_LENGTH);
+  const label = cleanText(value.label, LABEL_MAX_CODE_POINTS);
   if (!label) return "invalid label";
   if (!isOneOf(value.type, ROW_TYPES)) return "invalid type";
   if (!isOneOf(value.method, ROW_METHODS)) return "invalid method";
@@ -109,7 +115,7 @@ function checkRow(providerId: string, value: unknown): QuotaRow | string {
     prominence: value.prominence,
   };
   if (value.account !== undefined) {
-    const account = cleanText(value.account, LABEL_MAX_LENGTH);
+    const account = cleanText(value.account, LABEL_MAX_CODE_POINTS);
     if (!account) return "invalid account";
     row.account = account;
   }
@@ -134,7 +140,7 @@ function checkRow(providerId: string, value: unknown): QuotaRow | string {
     row.flag = value.flag;
   }
   if (value.text !== undefined) {
-    const text = cleanText(value.text, TEXT_MAX_LENGTH);
+    const text = cleanText(value.text, TEXT_MAX_CODE_POINTS);
     if (!text) return "invalid text";
     row.text = text;
   }

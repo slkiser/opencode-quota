@@ -8,7 +8,7 @@ import { sanitizeSingleLineDisplaySnippet } from "../lib/display-sanitize.js";
 import { getQuotaProviderGroupBrands } from "../lib/provider-metadata.js";
 import { QUOTA_PROVIDERS_AGGREGATE_ID } from "../lib/quota-providers.js";
 import type { ProviderFetchResult } from "../providers/contract.js";
-import { classifyError, errorKind } from "./errors.js";
+import { errorKind, providerError } from "./errors.js";
 import { publicDebugValue } from "./redact.js";
 import type { ProviderFetch } from "./store.js";
 import type { DebugDetail, QuotaRow } from "./types.js";
@@ -119,17 +119,19 @@ export function rowsFromProviderResult(
   const logins = rowLogins.some(Boolean) ? { rowLogins } : {};
 
   const errors = result.accounts.flatMap((account) =>
-    account.errors.map((error) => ({ account: account.name, message: error.message })),
+    account.errors.map((error) => ({
+      account: account.name,
+      message: error.message,
+      // Read from the message alone, so a number or word in the account name is never its kind.
+      error: providerError(error.message, error.facts, nowMs),
+    })),
   );
   for (const error of errors) {
     debug.push(detail("error", `${error.account}: ${error.message}`));
-    // Read from the message alone, so a number or word in the account name is never its kind.
-    debug.push(detail("error_kind", errorKind(classifyError(error.message, nowMs))));
+    debug.push(detail("error_kind", errorKind(error.error)));
   }
   const [firstError] = errors;
-  if (firstError) {
-    return { rows, ...logins, error: classifyError(firstError.message, nowMs), debug };
-  }
+  if (firstError) return { rows, ...logins, error: firstError.error, debug };
   if (!result.attempted && rows.length === 0) {
     return { rows: [], error: { code: "not_configured" }, debug };
   }

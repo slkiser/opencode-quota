@@ -9,15 +9,15 @@ import {
   isAlibabaModelId,
   resolveAlibabaCodingPlanAuthCached,
 } from "../lib/alibaba-auth.js";
-import {
-  ALIBABA_CODING_PLAN_STATE_VERSION,
-  type AlibabaCodingPlanComputedQuota,
-  computeAlibabaCodingPlanQuota,
-  getAlibabaCodingPlanQuotaPath,
-  readAlibabaCodingPlanQuotaState,
-} from "../lib/alibaba-coding-plan-local-quota.js";
 import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
-import { findQuotaProviderDefinition } from "../lib/quota-providers.js";
+import { clampPercent } from "../lib/format-utils.js";
+import {
+  countRequestWindows,
+  type ReadCompletedMessages,
+  type WindowCount,
+} from "../lib/quota-providers-local.js";
+import { findQuotaProviderDefinition, type LocalEstimateWindow } from "../lib/quota-providers.js";
+import type { AlibabaCodingPlanTier } from "../lib/types.js";
 import { resolvedCredentialPolicy } from "./cache-policies.js";
 import {
   FIVE_HOUR,
@@ -27,11 +27,60 @@ import {
   type ProviderRow,
   WEEKLY,
 } from "./contract.js";
-import { inspectGeneratedCounterFile, statusDetailsFromRecord } from "./result-helpers.js";
+import { statusDetailsFromRecord } from "./result-helpers.js";
 
 const LABEL = "Alibaba Coding Plan";
 
-type EstimatedWindow = AlibabaCodingPlanComputedQuota["fiveHour"];
+/** OpenCode's provider ids for Alibaba models; requests to either count against the plan. */
+const ALIBABA_PROVIDER_IDS = ["alibaba-coding-plan", "alibaba"];
+
+type PlanLimits = { fiveHour: number; weekly: number; monthly: number };
+
+const PLAN_LIMITS: Readonly<Record<AlibabaCodingPlanTier, PlanLimits>> = {
+  lite: { fiveHour: 1200, weekly: 9000, monthly: 18000 },
+  pro: { fiveHour: 6000, weekly: 45000, monthly: 90000 },
+};
+
+/**
+ * The plan as a built-in local estimate: rolling 5-hour, 7-day and 30-day request windows,
+ * in the order and with the ids a tuning in settings must use.
+ */
+function planWindows(limits: PlanLimits): LocalEstimateWindow[] {
+  return [
+    {
+      id: "five-hour",
+      label: "5h",
+      type: "rolling",
+      durationMinutes: 300,
+      requestLimit: limits.fiveHour,
+    },
+    {
+      id: "weekly",
+      label: "Weekly",
+      type: "rolling",
+      durationMinutes: 10_080,
+      requestLimit: limits.weekly,
+    },
+    {
+      id: "monthly",
+      label: "Monthly",
+      type: "rolling",
+      durationMinutes: 43_200,
+      requestLimit: limits.monthly,
+    },
+  ];
+}
+
+/** The limits a switched-on tuning in settings sets, else the tier's own. */
+function planLimits(ctx: QuotaProviderContext, tier: AlibabaCodingPlanTier): PlanLimits {
+  const tuning = findQuotaProviderDefinition(
+    ctx.config.quotaProviders ?? [],
+    "alibaba-coding-plan",
+  );
+  if (tuning?.mode !== "local-estimate" || tuning.enabled === false) return PLAN_LIMITS[tier];
+  const limit = (id: string) => tuning.windows.find((window) => window.id === id)!.requestLimit;
+  return { fiveHour: limit("five-hour"), weekly: limit("weekly"), monthly: limit("monthly") };
+}
 
 /** A whole request count as an amount; none for anything else. */
 function requests(count: number): Amount | undefined {
@@ -42,20 +91,41 @@ function requests(count: number): Amount | undefined {
 
 function estimateRow(
   slot: typeof FIVE_HOUR | typeof WEEKLY | typeof MONTHLY,
-  window: EstimatedWindow,
+  { window, requests: counted, resetsAt }: WindowCount,
 ): ProviderRow {
-  const used = requests(window.used);
-  const limit = requests(window.limit);
+  const used = requests(counted.length);
+  const limit = requests(window.requestLimit);
   return {
     ...slot,
     type: "quota",
     method: "local_estimation",
     authority: "locally_derived",
     prominence: "primary",
-    percentRemaining: window.percentRemaining,
-    ...(window.resetTimeIso ? { resetsAt: window.resetTimeIso } : {}),
+    percentRemaining: clampPercent(
+      ((window.requestLimit - counted.length) / window.requestLimit) * 100,
+    ),
+    ...(resetsAt ? { resetsAt } : {}),
     ...(used && limit ? { used, limit } : {}),
   };
+}
+
+/** The plan's three windows as rows, counted from this machine's requests. */
+export async function alibabaCodingPlanRows(params: {
+  limits: PlanLimits;
+  nowMs?: number;
+  readMessages?: ReadCompletedMessages;
+}): Promise<ProviderRow[]> {
+  const [fiveHour, weekly, monthly] = await countRequestWindows({
+    providerIds: ALIBABA_PROVIDER_IDS,
+    windows: planWindows(params.limits),
+    nowMs: params.nowMs ?? Date.now(),
+    readMessages: params.readMessages,
+  });
+  return [
+    estimateRow(FIVE_HOUR, fiveHour!),
+    estimateRow(WEEKLY, weekly!),
+    estimateRow(MONTHLY, monthly!),
+  ];
 }
 
 export const alibabaCodingPlanProvider: QuotaProvider = {
@@ -81,10 +151,6 @@ export const alibabaCodingPlanProvider: QuotaProvider = {
 
   async fetch(ctx: QuotaProviderContext): Promise<ProviderFetchResult> {
     const plan = await getAlibabaCodingPlanAuthDiagnostics();
-    const statePath = getAlibabaCodingPlanQuotaPath();
-    const state = await inspectGeneratedCounterFile(statePath, ALIBABA_CODING_PLAN_STATE_VERSION);
-    const lastUpdate =
-      state.lastUpdatedAt === null ? "(none)" : new Date(state.lastUpdatedAt).toISOString();
     const authError = plan.state === "invalid" ? plan.error : undefined;
     const debug = statusDetailsFromRecord({
       "alibaba auth configured": plan.state === "none" ? "false" : "true",
@@ -96,41 +162,13 @@ export const alibabaCodingPlanProvider: QuotaProvider = {
         plan.state === "configured" ? plan.tier : plan.state === "invalid" ? "invalid" : "(none)",
       alibaba_auth_error: authError,
       "alibaba coding plan error": authError,
-      "alibaba coding plan local quota": `path=${statePath} exists=${state.exists ? "true" : "false"} health=${state.health} version=${state.version ?? "(none)"} last_update=${lastUpdate}`,
-      local_state_path: statePath,
-      local_state_exists: state.exists ? "true" : "false",
-      local_state_health: state.health,
-      local_state_version: String(state.version ?? "(none)"),
-      local_state_last_update: lastUpdate,
     });
     if (plan.state === "none") return { attempted: false, accounts: [], debug };
     if (plan.state === "invalid") {
       return { attempted: true, accounts: [failedAccount(LABEL, plan.error)], debug };
     }
 
-    const tuning = findQuotaProviderDefinition(
-      ctx.config.quotaProviders ?? [],
-      "alibaba-coding-plan",
-    );
-    // A switched-off tuning is not applied; the tier's own limits count.
-    const limits =
-      tuning?.mode === "local-estimate" && tuning.enabled !== false
-        ? {
-            fiveHour: tuning.windows.find((window) => window.id === "five-hour")!.requestLimit,
-            weekly: tuning.windows.find((window) => window.id === "weekly")!.requestLimit,
-            monthly: tuning.windows.find((window) => window.id === "monthly")!.requestLimit,
-          }
-        : undefined;
-    const quota = computeAlibabaCodingPlanQuota({
-      state: await readAlibabaCodingPlanQuotaState(),
-      tier: plan.tier,
-      ...(limits ? { limits } : {}),
-    });
-    const rows = [
-      estimateRow(FIVE_HOUR, quota.fiveHour),
-      estimateRow(WEEKLY, quota.weekly),
-      estimateRow(MONTHLY, quota.monthly),
-    ];
+    const rows = await alibabaCodingPlanRows({ limits: planLimits(ctx, plan.tier) });
     const tier = plan.tier === "pro" ? "Pro" : "Lite";
     return { attempted: true, accounts: [{ name: `${LABEL} (${tier})`, rows, errors: [] }], debug };
   },

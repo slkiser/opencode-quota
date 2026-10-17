@@ -17,7 +17,6 @@ const runtimeMocks = vi.hoisted(() => ({
   resolveQuotaProviderApiKey: vi.fn(),
   fetchRemoteQuotaProvider: vi.fn(),
   collectLocalQuotaProviderEstimate: vi.fn(),
-  inspectLocalQuotaProviderState: vi.fn(),
 }));
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
@@ -40,7 +39,6 @@ vi.mock("../src/lib/quota-providers-remote.js", async (importOriginal) => {
 
 vi.mock("../src/lib/quota-providers-local.js", () => ({
   collectLocalQuotaProviderEstimate: runtimeMocks.collectLocalQuotaProviderEstimate,
-  inspectLocalQuotaProviderState: runtimeMocks.inspectLocalQuotaProviderState,
 }));
 
 vi.mock("../src/lib/resolved-auth-identity.js", () => ({
@@ -142,18 +140,7 @@ describe("quota-providers aggregate provider", () => {
       success: true,
       rows: [],
     });
-    runtimeMocks.collectLocalQuotaProviderEstimate.mockReset().mockResolvedValue({
-      rows: [],
-      state: { version: 1, definitionId: "local", providerId: "local", updatedAt: 1, messages: [] },
-      unpricedMessageCount: 0,
-    });
-    runtimeMocks.inspectLocalQuotaProviderState.mockReset().mockResolvedValue({
-      path: "/state/local.json",
-      exists: true,
-      health: "healthy",
-      version: 1,
-      lastUpdatedAt: 1,
-    });
+    runtimeMocks.collectLocalQuotaProviderEstimate.mockReset().mockResolvedValue({ rows: [] });
   });
 
   afterEach(() => {
@@ -407,8 +394,8 @@ describe("quota-providers aggregate provider", () => {
     expect(JSON.stringify(result)).not.toContain("secret");
   });
 
-  it("returns a local-state error without blocking other definitions", async () => {
-    runtimeMocks.collectLocalQuotaProviderEstimate.mockRejectedValue(new Error("disk"));
+  it("returns a local read error without blocking other definitions", async () => {
+    runtimeMocks.collectLocalQuotaProviderEstimate.mockRejectedValue(new Error("database locked"));
 
     const result = await quotaProvidersProvider.fetch(
       context([local("local", "Local")], ["local"]),
@@ -418,12 +405,10 @@ describe("quota-providers aggregate provider", () => {
         name: "Local",
         login: "local",
         rows: [],
-        errors: [{ message: "Failed to update local accounting state" }],
+        errors: [{ message: "Failed to read OpenCode's messages" }],
       },
     ]);
-    expect(checks(result)).toEqual([
-      "custom_local_check: outcome=local_state_error state_health=healthy state_version=1 state_last_update=1970-01-01T00:00:00.001Z",
-    ]);
+    expect(checks(result)).toEqual(["custom_local_check: outcome=local_read_error"]);
   });
 
   it("makes no request and reads no key or login for switched-off definitions", async () => {
@@ -482,7 +467,6 @@ describe("quota-providers aggregate provider", () => {
     expect(variableReads).not.toContain("OFF_GATEWAY_KEY");
     expect(loginReads).not.toContain("off-gateway");
     expect(runtimeMocks.collectLocalQuotaProviderEstimate).not.toHaveBeenCalled();
-    expect(runtimeMocks.inspectLocalQuotaProviderState).not.toHaveBeenCalled();
     expect(result.accounts.map((account) => account.login)).toEqual(["on-gateway"]);
     expect(result.debug.map((item) => item.key)).toEqual(["custom_on-gateway_check"]);
   });

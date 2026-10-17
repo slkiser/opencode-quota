@@ -8,7 +8,6 @@
 import type { BoxRenderable } from "@opentui/core";
 import type { JSX } from "@opentui/solid";
 import { createSignal, onCleanup, Show } from "solid-js";
-import { DEFAULT_WORDS } from "../view/format.js";
 import { type Surface, visibleGroups } from "../view/select.js";
 import {
   type ColorRole,
@@ -41,7 +40,10 @@ export type SurfaceEditing = {
 /** What every always-on surface reads. */
 export type SurfaceHost = {
   theme: () => Theme;
-  /** The saved display settings, or the draft while the Settings tabs edit it. */
+  /**
+   * The saved display settings, or the draft while the Settings tabs edit it. Surfaces take
+   * their words from here, so unsaved words show while you edit them.
+   */
   display: () => DisplaySettings;
   quota: QuotaClient;
   editing: SurfaceEditing;
@@ -105,7 +107,7 @@ export function SidebarPanel(props: {
 
   const display = () => host.display();
   const snapshot = () => host.quota.snapshot(props.sessionID);
-  const words = () => snapshot()?.words ?? DEFAULT_WORDS;
+  const words = () => display().words;
   const groups = (surface: "sidebar" | "collapsed") => {
     const current = snapshot();
     return current ? visibleGroups(current, display(), surface, words()) : [];

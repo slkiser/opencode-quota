@@ -1,5 +1,5 @@
-import { sanitizeDisplayText } from "./display-sanitize.js";
-import { fetchWithTimeout } from "./http.js";
+import type { ErrorFacts } from "../core/errors.js";
+import { failureFacts, requestJson } from "./http.js";
 import { asRecord } from "./json-guards.js";
 import {
   consoleBaseUrl,
@@ -62,7 +62,7 @@ interface OpenCodeZenBillingData {
  */
 type OpenCodeZenResult =
   | { success: true; data: OpenCodeZenBillingData; errors: string[] }
-  | { success: false; error: string };
+  | { success: false; error: string; facts?: ErrorFacts };
 
 type ConsoleRoute =
   | "billing/status"
@@ -71,7 +71,9 @@ type ConsoleRoute =
   | "policies/members"
   | "usage/cost-by-day";
 
-type ConsoleRouteResult<T> = { success: true; data: T } | { success: false; error: string };
+type ConsoleRouteResult<T> =
+  | { success: true; data: T }
+  | { success: false; error: string; facts?: ErrorFacts };
 
 /** Console micro-cent amounts arrive as decimal strings; numbers are accepted too. */
 function parseMicroCents(value: unknown): number | null {
@@ -266,24 +268,17 @@ function nextUtcMonthStartIso(now: Date): string {
 }
 
 /**
- * Single-line error text with the token, org id and account id redacted. The member route
- * puts the trimmed, URL-encoded account id in its path, so both forms are redacted.
+ * The token, org id and account id. The member route puts the trimmed, URL-encoded account id
+ * in its path, so both forms are secrets.
  */
-function redactedErrorText(error: unknown, credential: OpenCodeConsoleCredential): string {
-  let text = sanitizeDisplayText(error instanceof Error ? error.message : String(error))
-    .replace(/\s+/g, " ")
-    .trim();
+function consoleSecrets(credential: OpenCodeConsoleCredential): Array<string | undefined> {
   const accountId = credential.accountId?.trim();
-  const secrets = [
+  return [
     credential.accessToken,
     credential.orgId,
     accountId,
     accountId && encodeURIComponent(accountId),
   ];
-  for (const secret of secrets) {
-    if (secret) text = text.split(secret).join("[redacted]");
-  }
-  return (text || "unknown").slice(0, 120);
 }
 
 async function fetchConsoleRoute<T>(params: {
@@ -296,48 +291,49 @@ async function fetchConsoleRoute<T>(params: {
   parse: (json: unknown) => T;
 }): Promise<ConsoleRouteResult<T>> {
   const path = params.path ?? params.route;
-  try {
-    return await fetchWithTimeout(`${consoleBaseUrl(params.credential)}/api/${path}`, {
-      request: {
-        method: "GET",
-        redirect: "manual",
-        headers: consoleHeaders(params.credential),
-      },
-      timeoutMs: params.timeoutMs,
-      consume: async (response): Promise<ConsoleRouteResult<T>> => {
-        // Redirects and 401 mean the whole session is gone; a 403 is treated as
-        // a per-route failure so optional routes can fall back gracefully.
-        if ((response.status >= 300 && response.status < 400) || response.status === 401) {
-          return { success: false, error: SESSION_ERROR };
-        }
-        if (!response.ok) {
-          return {
-            success: false,
-            error: `OpenCode Console ${params.route} error ${response.status}`,
-          };
-        }
-        if (response.headers.get("content-type")?.includes("text/html")) {
-          return { success: false, error: SESSION_ERROR };
-        }
-
-        const text = await response.text();
-        try {
-          // An empty body carries no value, so the route parser sees it as JSON null.
-          const json: unknown = text.trim() === "" ? null : JSON.parse(text);
-          return { success: true, data: params.parse(json) };
-        } catch {
-          return {
-            success: false,
-            error: `Could not parse OpenCode Console ${params.route} response`,
-          };
-        }
-      },
-    });
-  } catch (error) {
+  const reply = await requestJson(`${consoleBaseUrl(params.credential)}/api/${path}`, {
+    method: "GET",
+    redirect: "manual",
+    headers: consoleHeaders(params.credential),
+    secrets: consoleSecrets(params.credential),
+    timeoutMs: params.timeoutMs,
+    // An empty body carries no value, so the route parser sees it as JSON null.
+    blankAsNull: true,
+  });
+  const status = reply.ok ? reply.status : reply.failure.status;
+  const headers = reply.ok ? reply.headers : reply.failure.headers;
+  // Redirects and 401 mean the whole session is gone; a 403 is treated as
+  // a per-route failure so optional routes can fall back gracefully.
+  if (status !== undefined && ((status >= 300 && status < 400) || status === 401)) {
+    return { success: false, error: SESSION_ERROR };
+  }
+  if (!reply.ok && reply.failure.kind === "http") {
     return {
       success: false,
-      error: `OpenCode Console ${params.route} request failed: ${redactedErrorText(error, params.credential)}`,
+      error: `OpenCode Console ${params.route} error ${status}`,
+      facts: failureFacts(reply.failure),
     };
+  }
+  if (headers?.get("content-type")?.includes("text/html")) {
+    return { success: false, error: SESSION_ERROR };
+  }
+  if (!reply.ok && (reply.failure.kind === "timeout" || reply.failure.kind === "network")) {
+    const detail = reply.failure.detail.replace(/\s+/g, " ").trim();
+    return {
+      success: false,
+      error: `OpenCode Console ${params.route} request failed: ${(detail || "unknown").slice(0, 120)}`,
+      facts: failureFacts(reply.failure),
+    };
+  }
+  const notParsed = {
+    success: false as const,
+    error: `Could not parse OpenCode Console ${params.route} response`,
+  };
+  if (!reply.ok) return notParsed;
+  try {
+    return { success: true, data: params.parse(reply.json) };
+  } catch {
+    return notParsed;
   }
 }
 

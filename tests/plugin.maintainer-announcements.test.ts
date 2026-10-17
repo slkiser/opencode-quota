@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { answer, percentRow } from "./helpers/fake-answers.js";
+import { createFakeTuiHost, stubJsx } from "./helpers/fake-tui-host.js";
 import {
   createAlibabaAuthModuleMock,
   createPluginRuntimePathsMockModule,
@@ -113,10 +114,7 @@ function configureQuestionQuotaToast(): void {
 
 /** Starts the server plugin and the TUI plugin, joined by the quota RPC. */
 async function startCli() {
-  vi.stubGlobal("React", {
-    createElement: (type: unknown, props: Record<string, unknown> | null) =>
-      typeof type === "function" ? type(props ?? {}) : { type, props },
-  });
+  stubJsx();
   const { default: server } = await import("../src/plugin.js");
   const { ctx } = createServerContext({ openCodeProviders: ["copilot"] });
   const disposeServer = await server.setup(ctx as never);
@@ -128,42 +126,18 @@ async function startCli() {
   const notices = vi.fn(serverHandlers.notices);
   const handlers = { ...serverHandlers, notices };
   const { default: plugin } = await import("../src/tui/index.js");
-  const listeners = new Map<string, (event: { data: Record<string, unknown> }) => void>();
-  const renderers = new Map<string, () => unknown>();
-  const toast = vi.fn();
-  const context = {
-    location: { directory: process.cwd() },
-    client: { rpc: createQuotaRpcBridge(handlers) },
-    renderer: { width: 120 },
+  const tui = createFakeTuiHost({
+    rpc: createQuotaRpcBridge(handlers),
     theme: { text: { base: "base", muted: "muted" } },
-    storage: {
-      store: (_key: string, options: { initial: unknown }) => [options.initial, async () => {}],
-    },
-    data: {
-      session: { get: vi.fn(() => undefined) },
-      on: vi.fn((name: string, listener: (event: { data: Record<string, unknown> }) => void) => {
-        listeners.set(name, listener);
-        return () => listeners.delete(name);
-      }),
-    },
-    keymap: { layer: vi.fn() },
-    ui: {
-      slot: vi.fn((claim: { append: string; render: () => unknown }) => {
-        renderers.set(claim.append, claim.render);
-        if (claim.append === "app") claim.render();
-        return vi.fn();
-      }),
-      toast: { show: toast },
-    },
-  };
-  const disposeTui = plugin.setup(context as never);
-  const renderHome = () => renderers.get("home.footer.status")?.();
+  });
+  const disposeTui = plugin.setup(tui.context as never);
+  const renderHome = () => tui.render("home.footer.status");
   // Stops the TUI, then the server's store with its fetches and file writes.
   const dispose = async () => {
     (disposeTui as unknown as () => void)?.();
     await (disposeServer as unknown as () => Promise<void>)?.();
   };
-  return { listeners, toast, renderHome, notices, dispose };
+  return { listeners: tui.listeners, toast: tui.toast, renderHome, notices, dispose };
 }
 
 async function flushMaintainerFallbackWork(): Promise<void> {

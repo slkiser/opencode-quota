@@ -1,13 +1,16 @@
 /**
  * The settings a running server holds, and what each change of them asks of it. At the start it
  * writes the v5 settings into settings.jsonc once, reads the file, and gives the price list its
- * pricing settings. It holds each save made through it and, once followed, each edit of the file.
+ * pricing settings. It holds each save and edit made through it and, once followed, each edit of
+ * the file.
  */
 import { safeErrorText } from "../core/redact.js";
 import { usePricingSettings } from "../lib/modelsdev-pricing.js";
 import type { V5Conversion } from "./convert.js";
 import {
   convertV5,
+  editSettings,
+  editSettingsFile,
   type LoadedSettings,
   loadSettings,
   type SaveResult,
@@ -23,7 +26,7 @@ import {
  */
 type LiveSettingsChange = { recheck: boolean; oldCommands: boolean };
 
-type LiveSettings = {
+export type LiveSettings = {
   /** What converting the v5 settings at the start did; undefined when it had nothing to do. */
   readonly conversion: V5Conversion | undefined;
   /** The settings held now. */
@@ -32,6 +35,10 @@ type LiveSettings = {
   converted(): boolean;
   /** `saveSettings`, then the file is read again and held, before this resolves. */
   save(patch: unknown, options: Parameters<typeof saveSettings>[1]): Promise<SaveResult>;
+  /** `editSettings`, then the file is read again and held, before this resolves. */
+  edit(...args: Parameters<typeof editSettings>): Promise<SaveResult>;
+  /** `editSettingsFile`, then the file is read again and held, before this resolves. */
+  editFile(...args: Parameters<typeof editSettingsFile>): Promise<SaveResult>;
   /**
    * From now on, calls `onChange` once per change of the settings or of the keys the file sets:
    * each save and each edit of the file (watched; close the returned watch to stop). A change
@@ -92,20 +99,25 @@ export async function createLiveSettings({
     });
   }
 
+  // The watch sees the write too; reading the file now holds the new settings at once.
+  async function written(write: () => Promise<SaveResult>): Promise<SaveResult> {
+    const converting = !current.exists && Boolean(current.conversion);
+    const result = await write();
+    if (result.ok) {
+      const next = await loadSettings({ projectDir });
+      if (converting && next.exists) converted = true;
+      await hold(next);
+    }
+    return result;
+  }
+
   return {
     conversion,
     current: () => current,
     converted: () => converted,
-    // The watch sees the save too; reading the file now holds the new settings at once.
-    async save(patch, saveOptions) {
-      const converting = !current.exists && Boolean(current.conversion);
-      const result = await saveSettings(patch, saveOptions);
-      if (result.ok) {
-        if (converting) converted = true;
-        await hold(await loadSettings({ projectDir }));
-      }
-      return result;
-    },
+    save: (patch, saveOptions) => written(() => saveSettings(patch, saveOptions)),
+    edit: (...args) => written(() => editSettings(...args)),
+    editFile: (...args) => written(() => editSettingsFile(...args)),
     async follow(listener) {
       if (onChange) throw new Error("the settings are followed already");
       onChange = listener;

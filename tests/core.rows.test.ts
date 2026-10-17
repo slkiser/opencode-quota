@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { accountFromGroup, rowsFromProviderResult } from "../src/core/rows.js";
 import type { DebugDetail, QuotaRow } from "../src/core/types.js";
-import { computeLocalQuotaProviderEstimate } from "../src/lib/quota-providers-local.js";
+import { collectLocalQuotaProviderEstimate } from "../src/lib/quota-providers-local.js";
 import { fetchRemoteQuotaProvider } from "../src/lib/quota-providers-remote.js";
 import type {
   JsonV1Mapping,
@@ -82,6 +82,22 @@ async function remoteRows(
 }
 
 describe("rowsFromProviderResult", () => {
+  it("counts labels and accounts in code points, up to 80", () => {
+    const longest = "😀".repeat(80);
+    const result = contractRows(
+      "openai",
+      answer({
+        name: longest,
+        rows: [percentRow("kept", longest, 50), percentRow("long", "x".repeat(81), 50)],
+      }),
+    );
+    expect(summary(result.rows)).toEqual([["openai.kept", longest, longest, null]]);
+    expect(result.debug).toContainEqual({
+      key: "dropped_row",
+      value: "openai.long: invalid label",
+    });
+  });
+
   it("gives each row its id, provider and its account's account text", () => {
     const result = contractRows(
       "openai",
@@ -479,23 +495,16 @@ describe("rowsFromProviderResult: the custom providers", () => {
     };
   }
 
-  function localRows(definition: LocalEstimateQuotaProviderDefinition) {
-    const { rows } = computeLocalQuotaProviderEstimate({
-      definition,
-      state: {
-        version: 1,
-        definitionId: definition.id,
-        providerId: definition.providerId,
-        updatedAt: NOW_MS,
-        messages: [],
-      },
+  async function localRows(definition: LocalEstimateQuotaProviderDefinition) {
+    const { rows } = await collectLocalQuotaProviderEstimate(definition, {
       nowMs: NOW_MS,
+      readMessages: async () => [],
     });
     return customRows(definition, rows).rows;
   }
 
-  it("keys local windows by their ids and reads their used requests and dollars", () => {
-    const rows = localRows(
+  it("keys local windows by their ids and reads their used requests and dollars", async () => {
+    const rows = await localRows(
       localDefinition([
         { id: "daily", label: "Daily", type: "utc-day", requestLimit: 10, usdBudget: 5 },
         { id: "hourly", label: "Daily", type: "rolling", durationMinutes: 60, requestLimit: 4 },
@@ -510,7 +519,7 @@ describe("rowsFromProviderResult: the custom providers", () => {
       ["quota-providers.custom.private-gateway.daily_budget", "Daily budget", usd("0"), usd("5")],
       ["quota-providers.custom.private-gateway.hourly", "Daily", requests("0"), requests("4")],
     ]);
-    // A UTC day the state was saved in keeps its start for the pace marker.
+    // A UTC day keeps its start for the pace marker.
     expect(rows.map((row) => row.windowStartedAt)).toEqual([
       "2026-10-10T00:00:00.000Z",
       "2026-10-10T00:00:00.000Z",
@@ -518,7 +527,7 @@ describe("rowsFromProviderResult: the custom providers", () => {
     ]);
 
     // Renaming a window keeps its row id, so hide/rename/order settings still apply.
-    const renamed = localRows(
+    const renamed = await localRows(
       localDefinition([
         { id: "daily", label: "Per day", type: "utc-day", requestLimit: 10, usdBudget: 5 },
       ]),

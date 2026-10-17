@@ -1,5 +1,5 @@
 import { sanitizeDisplayText } from "./display-sanitize.js";
-import { fetchWithTimeout } from "./http.js";
+import { failureFacts, requestJson } from "./http.js";
 import { asRecord } from "./json-guards.js";
 import {
   consoleBaseUrl,
@@ -23,10 +23,6 @@ function sanitizeMessage(text: string, accessToken: string): string {
   const redacted = accessToken ? text.replaceAll(accessToken, "[redacted]") : text;
   const sanitized = sanitizeDisplayText(redacted).replace(/\s+/g, " ").trim();
   return (sanitized || "unknown").slice(0, 120);
-}
-
-function errorMessage(error: unknown, accessToken: string): string {
-  return sanitizeMessage(error instanceof Error ? error.message : String(error), accessToken);
 }
 
 function contractError(message: string): OpenCodeGoResult {
@@ -125,58 +121,46 @@ export async function queryOpenCodeGoQuota(
   accessToken: string,
   options: { requestTimeoutMs?: number } = {},
 ): Promise<OpenCodeGoResult> {
-  try {
-    return await fetchWithTimeout(OPENCODE_GO_USAGE_URL, {
-      request: {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          Accept: "application/json",
-        },
-      },
-      timeoutMs: options.requestTimeoutMs,
-      consume: async (response) => {
-        if (!response.ok) {
-          let text: string;
-          try {
-            text = await response.text();
-          } catch (error) {
-            return {
-              success: false,
-              error: `OpenCode Go API error ${response.status}: ${errorMessage(error, accessToken)}`,
-            };
-          }
-          if (isNotSubscribedResponse(response.status, text)) {
-            return {
-              success: false,
-              error: "OpenCode Go not subscribed (403 EntitlementError)",
-              notSubscribed: true,
-            };
-          }
-          return {
-            success: false,
-            error: `OpenCode Go API error ${response.status}: ${sanitizeMessage(text, accessToken)}`,
-          };
-        }
-
-        let payload: unknown;
-        try {
-          payload = await response.json();
-        } catch (error) {
-          return contractError(`body is not valid JSON: ${errorMessage(error, accessToken)}`);
-        }
-        const root = asRecord(payload);
-        if (!root) return contractError("root must be an object");
-        const usage = asRecord(root.usage);
-        if (!usage) return contractError("usage must be an object");
-        return normalizeWindows((windowKey) =>
-          normalizeWindow(windowKey, usage[windowKey], accessToken),
-        );
-      },
-    });
-  } catch (error) {
-    return { success: false, error: errorMessage(error, accessToken) };
+  const reply = await requestJson(OPENCODE_GO_USAGE_URL, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+    secrets: [accessToken],
+    timeoutMs: options.requestTimeoutMs,
+  });
+  if (!reply.ok) {
+    const { failure } = reply;
+    if (failure.kind === "http" && failure.status !== undefined) {
+      if (isNotSubscribedResponse(failure.status, failure.detail)) {
+        return {
+          success: false,
+          error: "OpenCode Go not subscribed (403 EntitlementError)",
+          facts: failureFacts(failure, "no_plan"),
+          notSubscribed: true,
+        };
+      }
+      return {
+        success: false,
+        error: `OpenCode Go API error ${failure.status}: ${sanitizeMessage(failure.detail, accessToken)}`,
+        facts: failureFacts(failure),
+      };
+    }
+    if (failure.kind === "invalid_json") {
+      return contractError(
+        `body is not valid JSON: ${sanitizeMessage(failure.detail, accessToken)}`,
+      );
+    }
+    return {
+      success: false,
+      error: sanitizeMessage(failure.detail, accessToken),
+      facts: failureFacts(failure),
+    };
   }
+
+  const root = asRecord(reply.json);
+  if (!root) return contractError("root must be an object");
+  const usage = asRecord(root.usage);
+  if (!usage) return contractError("usage must be an object");
+  return normalizeWindows((windowKey) => normalizeWindow(windowKey, usage[windowKey], accessToken));
 }
 
 function asMicroCents(value: unknown): number | null {
@@ -229,63 +213,61 @@ export async function queryOpenCodeGoConsoleStatus(
   credential: OpenCodeConsoleCredential,
   options: { requestTimeoutMs?: number } = {},
 ): Promise<OpenCodeGoResult> {
-  try {
-    return await fetchWithTimeout(`${consoleBaseUrl(credential)}/api/go/status`, {
-      request: {
-        method: "GET",
-        headers: consoleHeaders(credential),
-      },
-      timeoutMs: options.requestTimeoutMs,
-      consume: async (response) => {
-        if (!response.ok) {
-          // 404 on this member-scoped route is read as "no Go subscription".
-          // 403 is kept ambiguous (it could be an access/permission issue on
-          // the console side rather than a subscription state), so callers
-          // fall back instead of showing a not-subscribed state.
-          if (response.status === 404) {
-            return {
-              success: false,
-              error: "OpenCode Go subscription not found for this console account (404)",
-              notSubscribed: true,
-            };
-          }
-          return {
-            success: false,
-            error: `OpenCode Console API error ${response.status} (/api/go/status)`,
-          };
-        }
-
-        let payload: unknown;
-        try {
-          payload = JSON.parse(await response.text());
-        } catch {
-          return contractError("console response is not valid JSON");
-        }
-        const root = asRecord(payload);
-        if (!root) return contractError("console root must be an object");
-
-        const access = asRecord(root.access);
-        if (!access) {
-          return {
-            success: false,
-            error: "OpenCode Go subscription is not active",
-            notSubscribed: true,
-          };
-        }
-
-        const meters = asRecord(access.meters);
-        if (!meters) return contractError("console access meters are missing");
-
-        const endsAt = typeof access.endsAt === "string" ? access.endsAt : null;
-        return normalizeWindows((windowKey) => {
-          const meterKey = CONSOLE_METER_KEYS[windowKey];
-          const meter = asRecord(meters[meterKey]);
-          if (!meter) return contractError(`console ${meterKey} meter is missing`);
-          return normalizeConsoleMeter(windowKey, meter, endsAt);
-        });
-      },
-    });
-  } catch (error) {
-    return { success: false, error: errorMessage(error, credential.accessToken) };
+  const reply = await requestJson(`${consoleBaseUrl(credential)}/api/go/status`, {
+    method: "GET",
+    headers: consoleHeaders(credential),
+    secrets: [credential.accessToken],
+    timeoutMs: options.requestTimeoutMs,
+  });
+  if (!reply.ok) {
+    const { failure } = reply;
+    // 404 on this member-scoped route is read as "no Go subscription".
+    // 403 is kept ambiguous (it could be an access/permission issue on
+    // the console side rather than a subscription state), so callers
+    // fall back instead of showing a not-subscribed state.
+    if (failure.kind === "http" && failure.status === 404) {
+      return {
+        success: false,
+        error: "OpenCode Go subscription not found for this console account (404)",
+        facts: failureFacts(failure, "no_plan"),
+        notSubscribed: true,
+      };
+    }
+    if (failure.kind === "http") {
+      return {
+        success: false,
+        error: `OpenCode Console API error ${failure.status} (/api/go/status)`,
+        facts: failureFacts(failure),
+      };
+    }
+    if (failure.kind === "invalid_json") return contractError("console response is not valid JSON");
+    return {
+      success: false,
+      error: sanitizeMessage(failure.detail, credential.accessToken),
+      facts: failureFacts(failure),
+    };
   }
+
+  const root = asRecord(reply.json);
+  if (!root) return contractError("console root must be an object");
+
+  const access = asRecord(root.access);
+  if (!access) {
+    return {
+      success: false,
+      error: "OpenCode Go subscription is not active",
+      notSubscribed: true,
+    };
+  }
+
+  const meters = asRecord(access.meters);
+  if (!meters) return contractError("console access meters are missing");
+
+  const endsAt = typeof access.endsAt === "string" ? access.endsAt : null;
+  return normalizeWindows((windowKey) => {
+    const meterKey = CONSOLE_METER_KEYS[windowKey];
+    const meter = asRecord(meters[meterKey]);
+    if (!meter) return contractError(`console ${meterKey} meter is missing`);
+    return normalizeConsoleMeter(windowKey, meter, endsAt);
+  });
 }

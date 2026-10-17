@@ -19,6 +19,7 @@ import {
   type AccountResult,
   FIVE_HOUR,
   failedAccount,
+  fetchError,
   fetchEachLogin,
   MONTHLY,
   type ProviderFetchResult,
@@ -133,7 +134,7 @@ async function fetchActiveLoginQuota(
   if (auth.state === "none") return { attempted: false, accounts: [] };
   const result = await queryOpenAIQuota({ requestTimeoutMs, auth });
   if (!result.success) {
-    return { attempted: true, accounts: [failedAccount("OpenAI", result.error)] };
+    return { attempted: true, accounts: [failedAccount("OpenAI", result.error, result.facts)] };
   }
   return {
     attempted: true,
@@ -198,7 +199,7 @@ export const openaiProvider: QuotaProvider = {
           auth: login,
           loginLabel: row.label,
         });
-        if (!result.success) return { rows: [], errors: [{ message: result.error }] };
+        if (!result.success) return { rows: [], errors: [fetchError(result.error, result.facts)] };
         return { rows: quotaWindowRows(result), errors: [], fallbackName: result.label };
       },
     });

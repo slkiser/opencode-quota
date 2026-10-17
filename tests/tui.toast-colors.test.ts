@@ -13,6 +13,7 @@ import { DEFAULT_WORDS } from "../src/view/format.js";
 import { visibleGroups } from "../src/view/select.js";
 import { toastLines } from "../src/view/text.js";
 import { providerSnapshot, quotaRow } from "./helpers/fake-answers.js";
+import { stubJsx } from "./helpers/fake-tui-host.js";
 import { type Node, THEME } from "./helpers/jsx-tree.js";
 
 const NOW = Date.parse("2026-10-10T12:00:00.000Z");
@@ -64,16 +65,7 @@ function spansText(spans: unknown): string {
 }
 
 beforeEach(() => {
-  vi.stubGlobal("React", {
-    createElement: (
-      type: unknown,
-      props: Record<string, unknown> | null,
-      ...children: unknown[]
-    ) => ({
-      type,
-      props: { ...props, children: children.length > 1 ? children : children[0] },
-    }),
-  });
+  stubJsx({ components: "keep" });
 });
 
 describe("colored quota toasts", () => {

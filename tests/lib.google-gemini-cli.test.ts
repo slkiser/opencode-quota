@@ -1,14 +1,5 @@
 // Gemini CLI quota parsing. The OAuth flow it shares with Google AGY is in lib.google-agy.test.ts.
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
-
-const mocks = vi.hoisted(() => ({ fetchResponse: vi.fn() }));
-
-vi.mock("../src/lib/http.js", () => ({
-  fetchWithTimeout: async (
-    url: string,
-    options: { request: RequestInit; consume: (response: unknown) => Promise<unknown> },
-  ) => options.consume(await mocks.fetchResponse(url, options.request)),
-}));
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 vi.mock("../src/lib/google-token-cache.js", () => ({
   makeAccountCacheKey: () => "cache-key",
   getCachedAccessToken: async () => ({ accessToken: "cached-access-token" }),
@@ -33,17 +24,27 @@ function queryGeminiCliQuota(authData: unknown) {
   return queryGoogleQuota(GEMINI_CLI_FLAVOR, { authData: authData as AuthData });
 }
 
+/** The quota reply, as each `fetch` answers. */
+const fetchResponse = vi.fn<(url: string, init: RequestInit) => Promise<Response>>();
+
 function quotaResponse(buckets: unknown[]) {
-  return { ok: true, status: 200, json: async () => ({ buckets }) };
+  return Response.json({ buckets });
 }
 
 describe("Gemini CLI quota buckets", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: RequestInfo | URL, init: RequestInit = {}) => fetchResponse(String(url), init)),
+    );
     // Set, so the configured-project lookup never reads a real OpenCode config.
     vi.stubEnv("OPENCODE_GEMINI_PROJECT_ID", "env-project");
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
   it("aggregates known Gemini CLI buckets by quality tier and keeps unknown models", async () => {
     const auth = {
       google: {
@@ -52,7 +53,7 @@ describe("Gemini CLI quota buckets", () => {
         email: "alice@example.com",
       },
     };
-    mocks.fetchResponse.mockResolvedValueOnce(
+    fetchResponse.mockResolvedValueOnce(
       quotaResponse([
         {
           modelId: "gemini-3.1-pro-preview",
@@ -127,11 +128,7 @@ describe("Gemini CLI quota buckets", () => {
     const auth = {
       google: { type: "oauth", refresh: "refresh-token|project-1|", email: "alice@example.com" },
     };
-    mocks.fetchResponse.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({ buckets: {} }),
-    });
+    fetchResponse.mockResolvedValueOnce(Response.json({ buckets: {} }));
 
     await expect(queryGeminiCliQuota(auth)).resolves.toEqual({
       success: false,
@@ -143,7 +140,7 @@ describe("Gemini CLI quota buckets", () => {
     const auth = {
       google: { type: "oauth", refresh: "refresh-token|project-1" },
     };
-    mocks.fetchResponse.mockResolvedValueOnce(quotaResponse([]));
+    fetchResponse.mockResolvedValueOnce(quotaResponse([]));
 
     await expect(queryGeminiCliQuota(auth)).resolves.toEqual({
       success: false,

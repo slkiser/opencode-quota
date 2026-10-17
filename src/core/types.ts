@@ -171,7 +171,10 @@ export type QuotaSnapshot = {
    * (`quota-providers.custom.<definition id>.`); absent without custom definitions.
    */
   customRowProviders?: Record<string, string>;
-  /** The server's words; clients use their defaults until the server sends them. */
+  /**
+   * The server's words, for the text the server and CLI print (absent means the default words).
+   * The TUI takes its words from its settings store instead.
+   */
   words?: Words;
   /** All editable file settings, refreshed with every settings change. */
   settings?: ClientSettings;

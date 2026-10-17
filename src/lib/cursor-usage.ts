@@ -1,19 +1,12 @@
-import {
-  isCursorModelId,
-  isCursorProviderId,
-  lookupCursorLocalCost,
-  resolveCursorModel,
-} from "./cursor-pricing.js";
-import { lookupCost } from "./modelsdev-pricing.js";
+import { isCursorModelId, isCursorProviderId } from "./cursor-pricing.js";
 import { iterAssistantMessages } from "./opencode-storage.js";
-import { resolvePricingKey } from "./pricing-key.js";
+import { priceMessage } from "./pricing-key.js";
 import {
   addTokenBuckets,
   emptyTokenBuckets,
   type TokenBuckets,
   tokenBucketsFromMessage,
 } from "./token-buckets.js";
-import { calculateUsdFromTokenBuckets } from "./token-cost.js";
 
 interface CursorCycleWindow {
   sinceMs: number;
@@ -93,31 +86,13 @@ export async function getCurrentCursorUsageSummary(params?: {
 
     const sourceModelID = msg.modelID ?? "unknown";
     const tokens = tokenBucketsFromMessage(msg);
-    const resolved = resolveCursorModel(sourceModelID);
-
-    if (resolved.kind === "local") {
-      const cost = lookupCursorLocalCost(resolved.model);
-      if (!cost) continue;
-      const costUsd = calculateUsdFromTokenBuckets(cost, tokens);
-      accumulateBucket(autoComposer, tokens, costUsd);
-      accumulateBucket(total, tokens, costUsd);
+    // Priced as the Usage tab prices it: Cursor's own table is Auto+Composer, any other price
+    // (Cursor's aliases, else models.dev's normal match) the API pool.
+    const price = priceMessage({ providerID: msg.providerID, modelID: msg.modelID }, tokens);
+    if (price.kind === "priced") {
+      accumulateBucket(price.key.provider === "cursor" ? autoComposer : api, tokens, price.usd);
+      accumulateBucket(total, tokens, price.usd);
       continue;
-    }
-
-    if (resolved.kind === "official") {
-      const mapped = resolvePricingKey({
-        providerID: resolved.providerHint,
-        modelID: `${resolved.providerHint}/${resolved.modelHint}`,
-      });
-      if (mapped.ok) {
-        const cost = lookupCost(mapped.key.provider, mapped.key.model);
-        if (cost) {
-          const costUsd = calculateUsdFromTokenBuckets(cost, tokens);
-          accumulateBucket(api, tokens, costUsd);
-          accumulateBucket(total, tokens, costUsd);
-          continue;
-        }
-      }
     }
 
     // Unknown models count toward the total messages and tokens, but have no cost.

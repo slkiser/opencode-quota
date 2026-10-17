@@ -20,7 +20,7 @@ export {
   settingsPath,
   watchSettings,
 } from "./file.js";
-export { createLiveSettings } from "./live.js";
+export { createLiveSettings, type LiveSettings } from "./live.js";
 export {
   type ClientSettings,
   type CustomProviderSwitch,

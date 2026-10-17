@@ -6,7 +6,7 @@ import {
   resolveCursorModel,
 } from "../src/lib/cursor-pricing.js";
 import { lookupCost, usePricingSettings } from "../src/lib/modelsdev-pricing.js";
-import { resolvePricingKey } from "../src/lib/pricing-key.js";
+import { priceMessage, resolvePricingKey } from "../src/lib/pricing-key.js";
 import { SHIPPED_PRICE_LIST } from "./helpers/shipped-price-list.js";
 
 // Price not confirmed, so these stay unknown: models.dev rates differ from Cursor's for the
@@ -171,5 +171,72 @@ describe("resolvePricingKey snapshot coverage", () => {
       })
       .filter((failure) => failure !== null);
     expect(failures).toEqual([]);
+  });
+});
+
+describe("priceMessage", () => {
+  beforeEach(() => {
+    usePricingSettings(() => ({ source: "bundled", autoRefreshDays: 7 }));
+  });
+
+  const MILLION = {
+    input: 1_000_000,
+    output: 1_000_000,
+    reasoning: 0,
+    cache_read: 0,
+    cache_write: 0,
+  };
+
+  it.each([
+    ["constructor", "constructor"],
+    ["openai", "constructor"],
+    ["__proto__", "toString"],
+    ["cursor", "cursor/constructor"],
+    ["cursor", "hasOwnProperty"],
+  ])("knows no price for the object key %s/%s", (providerID, modelID) => {
+    expect(priceMessage({ providerID, modelID }, MILLION, { modelMap: {} })).toEqual({
+      kind: "unknown",
+    });
+  });
+
+  it("prices Cursor's Auto from Cursor's own table, whatever the provider id", () => {
+    const price = priceMessage({ providerID: "cursor", modelID: "auto" }, MILLION);
+    expect(price).toMatchObject({ kind: "priced", key: { provider: "cursor", model: "auto" } });
+    expect(price.kind === "priced" && price.usd).toBeCloseTo(7.25, 6);
+  });
+
+  it("prices each token kind, with cache savings against the input price", () => {
+    const price = priceMessage(
+      { providerID: "openai", modelID: "gpt-5" },
+      { input: 1_000_000, output: 0, reasoning: 1_000_000, cache_read: 1_000_000, cache_write: 0 },
+    );
+    if (price.kind !== "priced") throw new Error(price.kind);
+    expect(price.byKind).toEqual({
+      input: 1.25,
+      output: 0,
+      reasoning: 10,
+      cache_read: 0.125,
+      cache_write: 0,
+    });
+    expect(price.usd).toBeCloseTo(11.375, 9);
+    expect(price.cacheSavingsUsd).toBeCloseTo(1.125, 9);
+  });
+
+  it("uses a model map only for a model automatic matching cannot price", () => {
+    const modelMap = { "private-model": "openai/gpt-5", "gpt-5": "anthropic/claude-opus-4-5" };
+    const mapped = priceMessage({ providerID: "gateway", modelID: "private-model" }, MILLION, {
+      modelMap,
+    });
+    const automatic = priceMessage({ providerID: "openai", modelID: "gpt-5" }, MILLION, {
+      modelMap,
+    });
+    expect(mapped).toMatchObject({ kind: "priced", key: { provider: "openai", model: "gpt-5" } });
+    expect(automatic).toMatchObject({
+      kind: "priced",
+      key: { provider: "openai", model: "gpt-5" },
+    });
+    expect(priceMessage({ providerID: "gateway", modelID: "private-model" }, MILLION)).toEqual({
+      kind: "unknown",
+    });
   });
 });

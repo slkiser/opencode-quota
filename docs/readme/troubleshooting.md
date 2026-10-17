@@ -141,14 +141,14 @@ Check the `copilot` section: `pat_state`, `pat_organization` and `pat_enterprise
 <details>
 <summary><strong>Alibaba Coding Plan</strong></summary>
 
-Check the `alibaba-coding-plan` section: the login, tier (`alibaba_coding_plan`), state-file path (`local_state_path`), and live check.
+Check the `alibaba-coding-plan` section: the login, tier (`alibaba_coding_plan`), and live check.
 
 | Symptom              | Fix |
 | -------------------- | --- |
 | API key not detected | See [API keys](providers.md#api-keys). Repo-local provider secrets are ignored. |
 | Limits need tuning   | Add a local-estimate [custom provider](providers.md#custom-providers) with the `alibaba-coding-plan` id and its five-hour, weekly, and monthly rolling windows. |
-| Counters do not move | Make sure the current model is `alibaba/*` or `alibaba-cn/*`. |
-| Quota seems stale    | Check the state-file path shown in `/quota_status`. |
+| Counters do not move | Make sure the requests use OpenCode's `alibaba-coding-plan` or `alibaba` provider. |
+| Quota seems stale    | Counters only count this machine's OpenCode requests; other machines and tools are not seen. |
 
 </details>
 
@@ -231,11 +231,11 @@ Check the `opencode-go` section:
 
 | Symptom                           | Fix |
 | --------------------------------- | --- |
-| Provider not detected             | Run `opencode auth login opencode`, or set an API key ([order](providers.md#opencode-go)). Then rerun `/quota_status`; once Go is detected, `auth_state`, `auth_source`, and `auth_checked_paths` show which key it uses. |
+| Provider not detected             | Run `opencode auth login opencode`, or set an API key ([order](providers.md#opencode-go)). Then rerun `/quota_status`; once Go is detected, `auth_state`, `api_key_source`, and `api_key_checked_paths` show which key it uses. |
 | `auth_state` is `invalid`         | Run `opencode auth login opencode-go`. A broken `opencode-go` login blocks the legacy `opencode` fallback. |
 | Console sign-in failed            | `console_auth_state` is not `configured`; shown only when no API key is set. Run `opencode auth login opencode`, or set an API key. |
 | No Go quota, `console_error` set  | The Console request failed and no API key is set (`Not configured` in manual mode). Retry, or set an API key. |
-| API returns 401 or 403            | The usage API rejected the key. Update the source shown by `auth_source`, wait briefly for the credential cache to expire, and rerun `/quota_status`. |
+| API returns 401 or 403            | The usage API rejected the key. Update the source shown by `api_key_source`, wait briefly for the credential cache to expire, and rerun `/quota_status`. |
 | Invalid API response              | `state` shows `Unexpected reply (bad_response)`. 5h, Weekly, and Monthly must all be valid; one bad window rejects the whole response. |
 | Request times out or fails        | Check the error's kind in `state`, make sure `https://opencode.ai/zen/go/v1/usage` is reachable, and retry. Raise `providers.checking.requestTimeoutMs` only for timeouts. |
 | Provider switched off | Remove `opencode-go` from `providers.off`. |

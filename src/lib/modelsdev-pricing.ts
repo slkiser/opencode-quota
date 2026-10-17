@@ -24,8 +24,8 @@ const DEFAULT_MODELSDEV_PROVIDERS = ["anthropic", "google", "moonshotai", "opena
 const API_COST_KEYS = ["input", "output", "cache_read", "cache_write"] as const;
 const SNAPSHOT_COST_KEYS = [...API_COST_KEYS, "reasoning"] as const;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-/** Without pricing settings: the "auto" list, due for a download after 3 days. */
-const DEFAULT_SETTINGS: PricingSettings = { source: "auto", autoRefreshDays: 3 };
+/** Without pricing settings: the settings' defaults, the "auto" list due after 7 days. */
+const DEFAULT_SETTINGS: PricingSettings = { source: "auto", autoRefreshDays: 7 };
 const REFRESH_MIN_ATTEMPT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const REFRESH_TIMEOUT_MS = 6_000;
 /** How long a check waits for a due download before it goes on with the list in use. */
@@ -111,7 +111,7 @@ let BUNDLED_IDS: Pick<PriceListDescription, "bundledProviderIds" | "bundledModel
 /**
  * Follows the pricing settings `current` gives, read each time they matter (which list and how
  * many days old it may get before a download), until the returned function unbinds them.
- * Unbinding removes only this binding; the last binding still bound wins, else "auto", 3 days.
+ * Unbinding removes only this binding; the last binding still bound wins, else "auto", 7 days.
  */
 export function usePricingSettings(current: () => PricingSettings): () => void {
   const binding = { current };
@@ -271,7 +271,7 @@ function activeList(): LoadedList {
   return LOADED;
 }
 
-/** Days after which the list counts as stale; not a positive number means 3 days. */
+/** Days after which the list counts as stale; not a positive number means 7 days. */
 function maxAgeMs(): number {
   const days = pricingSettings().autoRefreshDays;
   return Number.isFinite(days) && days > 0
@@ -501,12 +501,16 @@ export async function describePriceList(): Promise<PriceListDescription> {
   };
 }
 
+/** A model's prices; own keys only, so "constructor" or "__proto__" is never a model. */
 export function lookupCost(providerId: string, modelId: string): CostBuckets | null {
-  return activeList().snapshot.providers[providerId]?.[modelId] ?? null;
+  const { providers } = activeList().snapshot;
+  if (!Object.hasOwn(providers, providerId)) return null;
+  const models = providers[providerId]!;
+  return Object.hasOwn(models, modelId) ? models[modelId]! : null;
 }
 
 export function hasProvider(providerId: string): boolean {
-  return !!activeList().snapshot.providers[providerId];
+  return Object.hasOwn(activeList().snapshot.providers, providerId);
 }
 
 export function hasModel(providerId: string, modelId: string): boolean {

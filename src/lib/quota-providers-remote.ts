@@ -1,4 +1,4 @@
-import { isIsoTime } from "../core/validate.js";
+import { codePointLength, isIsoTime, LABEL_MAX_CODE_POINTS } from "../core/validate.js";
 import type { ProviderRow } from "../providers/contract.js";
 import { type ApiKeySpec, getApiKeyCheckedPaths, resolveApiKey } from "./api-key-resolver.js";
 import { sanitizeSingleLineDisplayText } from "./display-sanitize.js";
@@ -20,6 +20,7 @@ import {
   customRow,
   customRowKey,
   JSON_V1_MAX_DISPLAY_CODE_POINTS,
+  JSON_V1_MAX_ITEMS,
   JSON_V1_MAX_NUMBER_MAGNITUDE,
   normalizeJsonV1Timestamp,
 } from "./quota-providers.js";
@@ -28,7 +29,6 @@ export const QUOTA_PROVIDER_MAX_BODY_BYTES = 256 * 1024;
 const MAX_REMOTE_ROWS = 100;
 const JSON_V1_MAX_RESPONSE_DEPTH = 32;
 const JSON_V1_MAX_CANDIDATES = 1_600;
-const JSON_V1_MAX_ENTRIES = 100;
 const JSON_V1_MAX_DETAILED_ERRORS = 16;
 
 const PERCENT_RESULT_TYPES = new Set<CustomResultType>(["quota", "rate_limit", "budget"]);
@@ -63,7 +63,7 @@ export type RemoteQuotaProviderResult =
 function boundedDisplayText(value: unknown, maxCodePoints: number): string | null {
   if (typeof value !== "string") return null;
   const normalized = sanitizeSingleLineDisplayText(value);
-  const length = Array.from(normalized).length;
+  const length = codePointLength(normalized);
   return length >= 1 && length <= maxCodePoints ? normalized : null;
 }
 
@@ -147,14 +147,15 @@ async function readBoundedJson(
 function parseQuotaV1Row(raw: unknown): ProviderRow | null {
   if (!isRecord(raw) || !hasOnlyKeys(raw, QUOTA_V1_ROW_KEYS)) return null;
 
-  const name = boundedDisplayText(raw.name, 80);
+  const name = boundedDisplayText(raw.name, LABEL_MAX_CODE_POINTS);
   const resultType =
     typeof raw.resultType === "string" &&
     CUSTOM_RESULT_TYPES.has(raw.resultType as CustomResultType)
       ? (raw.resultType as CustomResultType)
       : null;
   // Optional fields are undefined when absent and null when present but invalid.
-  const label = raw.label === undefined ? undefined : boundedDisplayText(raw.label, 80);
+  const label =
+    raw.label === undefined ? undefined : boundedDisplayText(raw.label, LABEL_MAX_CODE_POINTS);
   const right = raw.right === undefined ? undefined : boundedDisplayText(raw.right, 160);
   const resetTimeIso =
     raw.resetTimeIso === undefined
@@ -330,10 +331,16 @@ function formatJsonV1Value(value: number, mapping: JsonV1Mapping): string {
   return mapping.unitPosition === "prefix" ? `${mapping.unit}${value}` : `${value} ${mapping.unit}`;
 }
 
-/** One mapping applied to one reply row: a row keyed by the mapping's name, or why not. */
+/**
+ * One mapping applied to one reply item: a row keyed by the mapping's name, or why not. In a
+ * list of more than one item, item n's label ends in " n" and, from item 2 on, its key in ".n";
+ * item 1 keeps the key a single item has. The label is clipped so the longest number in the list
+ * still fits the row gate.
+ */
 function mapJsonV1Candidate(
   row: Record<string, unknown>,
   rowIndex: number,
+  itemCount: number,
   mapping: JsonV1Mapping,
   mappingIndex: number,
 ): JsonV1Candidate {
@@ -354,8 +361,9 @@ function mapJsonV1Candidate(
     if (!resolved.ok) return fail("observedTime", resolved.issue);
   }
 
-  const mapped = (value: { percentRemaining: number } | { text: string }): JsonV1Candidate => ({
-    row: customRow({
+  const itemNumber = rowIndex + 1;
+  const mapped = (value: { percentRemaining: number } | { text: string }): JsonV1Candidate => {
+    const row = customRow({
       key: customRowKey(mapping.name),
       name: mapping.name,
       label: mapping.label,
@@ -363,8 +371,18 @@ function mapJsonV1Candidate(
       method: "remote_api",
       value,
       resetsAt: resetTimeIso,
-    }),
-  });
+    });
+    if (itemCount === 1) return { row };
+    const labelRoom = LABEL_MAX_CODE_POINTS - ` ${itemCount}`.length;
+    const clippedLabel = Array.from(row.label).slice(0, labelRoom).join("").trimEnd();
+    return {
+      row: {
+        ...row,
+        key: itemNumber === 1 ? row.key : `${row.key}.${itemNumber}`,
+        label: `${clippedLabel} ${itemNumber}`,
+      },
+    };
+  };
 
   // Shared by used-limit, remaining-limit, spend-budget and remaining-budget:
   // an amount (used, spent, or remaining) out of a positive total.
@@ -468,8 +486,8 @@ function parseJsonV1(
     return invalid("expected an object or array root");
   }
 
-  if (rows.length < 1 || rows.length > MAX_REMOTE_ROWS) {
-    return invalid(`selected rows must contain 1-${MAX_REMOTE_ROWS} elements`);
+  if (rows.length < 1 || rows.length > JSON_V1_MAX_ITEMS) {
+    return invalid(`selected rows must contain 1-${JSON_V1_MAX_ITEMS} elements`);
   }
   const { mappings } = source.adapter;
   if (rows.length * mappings.length > JSON_V1_MAX_CANDIDATES) {
@@ -492,15 +510,12 @@ function parseJsonV1(
         );
         continue;
       }
-      const mapped = mapJsonV1Candidate(row, rowIndex, mapping, mappingIndex);
+      const mapped = mapJsonV1Candidate(row, rowIndex, rows.length, mapping, mappingIndex);
       if ("error" in mapped) {
         recordError(mapped.error);
         continue;
       }
       mappedRows.push(mapped.row);
-      if (mappedRows.length > JSON_V1_MAX_ENTRIES) {
-        return invalid(`more than ${JSON_V1_MAX_ENTRIES} entries were produced`);
-      }
     }
   }
 

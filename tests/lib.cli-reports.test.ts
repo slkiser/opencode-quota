@@ -25,18 +25,11 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
   getOpencodeRuntimeDirs: () => runtimeDirs.value,
 }));
 
-// The real report, watched so a test can see its arguments.
-vi.mock("../src/lib/quota-dialog-commands.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/lib/quota-dialog-commands.js")>();
-  return { ...actual, buildStatusReportData: vi.fn(actual.buildStatusReportData) };
-});
-
 const { snapshotFilePath } = await import("../src/core/persist.js");
 const { loadProviderSource } = await import("../src/core/provider-source.js");
 const { createQuotaStore } = await import("../src/core/store.js");
 const { buildCliShowJson, buildCliShowText, buildCliStatus } =
   await import("../src/lib/cli-reports.js");
-const { buildStatusReportData } = await import("../src/lib/quota-dialog-commands.js");
 const { loadSettings } = await import("../src/settings/index.js");
 type ProviderSourceHost = import("../src/core/provider-source.js").ProviderSourceHost;
 
@@ -106,7 +99,6 @@ describe("CLI reports", () => {
     };
     vi.stubEnv("OPENCODE_DB", join(tempDir, "opencode.db"));
     mockProviders.length = 0;
-    vi.mocked(buildStatusReportData).mockClear();
   });
 
   afterEach(() => {
@@ -416,9 +408,6 @@ describe("CLI reports", () => {
       );
       expect(report.stdout).toContain("\nzai:\n- state: ok");
       expect(report.stdout.endsWith("\n")).toBe(true);
-      expect(buildStatusReportData).toHaveBeenCalledWith(
-        expect.objectContaining({ providerFilterId: undefined }),
-      );
     });
 
     it("emits a structured JSON payload and returns zero when live probes exist", async () => {
@@ -466,8 +455,137 @@ describe("CLI reports", () => {
       expect(JSON.parse(report.stdout).liveProbes).toEqual([{ id: "zai", ok: false }]);
     });
 
-    it("forwards the provider filter and still emits JSON", async () => {
+    /** The whole `status --json` payload users script against, for a few settings. */
+    const NOW = Date.UTC(2026, 9, 10, 12, 0, 0);
+    const PRICING_PATHS = {
+      snapshotPath: "(custom path)/modelsdev-pricing.runtime.min.json",
+      refreshStatePath: "(custom path)/modelsdev-pricing.refresh-state.json",
+    };
+    const BUNDLED_SNAPSHOT = {
+      source: "bundled",
+      generatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u),
+      units: "USD per 1M tokens",
+    };
+
+    it.each([
+      {
+        name: "a provider list that keeps the custom providers on",
+        settings: {
+          providers: {
+            off: CONFIG_PROVIDER_IDS.filter((id) => !["openai", "zai", "custom"].includes(id)),
+            pricing: { source: "bundled" },
+          },
+        },
+        providerId: undefined,
+        payload: {
+          version: "6",
+          generatedAt: new Date(NOW).toISOString(),
+          config: {
+            settingsPath: "(custom path)/settings.jsonc",
+            settingsFileExists: true,
+            enabledProviders: ["openai", "zai", "custom"],
+            onlyCurrentModel: false,
+            pricingSnapshotSource: "bundled",
+          },
+          providers: [
+            { id: "zai", enabled: true, available: true },
+            { id: "openai", enabled: true, available: false },
+            { id: "quota-providers", enabled: true, available: true },
+            { id: "deepseek", enabled: false, available: true },
+          ],
+          pricing: {
+            selection: "bundled",
+            activeSource: "bundled",
+            snapshot: BUNDLED_SNAPSHOT,
+            ...PRICING_PATHS,
+          },
+          liveProbes: [
+            { id: "zai", ok: false },
+            { id: "quota-providers", ok: true },
+          ],
+        },
+      },
+      {
+        name: "no provider off, only the current model",
+        settings: {
+          providers: { off: [], pricing: { source: "runtime" } },
+          words: { onlyCurrentModel: true },
+        },
+        providerId: undefined,
+        payload: {
+          version: "6",
+          generatedAt: new Date(NOW).toISOString(),
+          config: {
+            settingsPath: "(custom path)/settings.jsonc",
+            settingsFileExists: true,
+            enabledProviders: "auto",
+            onlyCurrentModel: true,
+            pricingSnapshotSource: "runtime",
+          },
+          providers: [
+            { id: "zai", enabled: true, available: true },
+            { id: "openai", enabled: true, available: false },
+            { id: "quota-providers", enabled: true, available: true },
+            { id: "deepseek", enabled: true, available: true },
+          ],
+          pricing: {
+            selection: "runtime",
+            activeSource: "bundled",
+            snapshot: BUNDLED_SNAPSHOT,
+            ...PRICING_PATHS,
+          },
+          liveProbes: [
+            { id: "zai", ok: false },
+            { id: "quota-providers", ok: true },
+            { id: "deepseek", ok: true },
+          ],
+        },
+      },
+      {
+        name: "one provider asked for, the custom providers off",
+        settings: { providers: { off: ["custom", "anthropic"] } },
+        providerId: "deepseek",
+        payload: {
+          version: "6",
+          generatedAt: new Date(NOW).toISOString(),
+          config: {
+            settingsPath: "(custom path)/settings.jsonc",
+            settingsFileExists: true,
+            enabledProviders: CONFIG_PROVIDER_IDS.filter(
+              (id) => !["custom", "anthropic"].includes(id),
+            ),
+            onlyCurrentModel: false,
+            pricingSnapshotSource: "auto",
+          },
+          providers: [{ id: "deepseek", enabled: true, available: true }],
+          pricing: {
+            selection: "auto",
+            activeSource: "bundled",
+            snapshot: BUNDLED_SNAPSHOT,
+            ...PRICING_PATHS,
+          },
+          liveProbes: [{ id: "deepseek", ok: true }],
+        },
+      },
+    ])("prints the whole JSON payload: $name", async ({ settings, providerId, payload }) => {
+      vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+      mockProviders.push(
+        fakeProvider({ name: "Z.ai", rows: [WEEKLY], errors: [FAILED] }, "zai"),
+        { ...fakeProvider({ name: "OpenAI" }, "openai"), isAvailable: vi.fn(async () => false) },
+        fakeProvider({ name: "Team", rows: [WEEKLY] }, "quota-providers"),
+        fakeProvider({ name: "DeepSeek", rows: [WEEKLY] }, "deepseek"),
+      );
+      writeSettings(settings);
+
+      const report = await buildCliStatus({ host: await hostFor(), providerId, json: true });
+
+      expect(JSON.parse(report.stdout)).toEqual(payload);
+    });
+
+    it("lists and checks only the provider asked for, and still emits JSON", async () => {
       useZai([WEEKLY]);
+      const deepseek = fakeProvider({ name: "DeepSeek", rows: [WEEKLY] }, "deepseek");
+      mockProviders.push(deepseek);
 
       const report = await buildCliStatus({
         host: await hostFor(),
@@ -476,11 +594,9 @@ describe("CLI reports", () => {
       });
 
       expect(report.exitCode).toBe(0);
-      expect(buildStatusReportData).toHaveBeenCalledWith(
-        expect.objectContaining({ providerFilterId: "zai" }),
-      );
+      expect(deepseek.fetch).not.toHaveBeenCalled();
       const parsed = JSON.parse(report.stdout);
-      expect(parsed.providers).toHaveLength(1);
+      expect(parsed.providers).toEqual([{ id: "zai", enabled: true, available: true }]);
       expect(parsed).not.toHaveProperty("providerFilterId");
     });
   });

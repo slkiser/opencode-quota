@@ -50,6 +50,7 @@ import {
   usageView,
 } from "../../view/usage.js";
 import { errorToast, quotaCallOptions, rpcErrorMessage } from "../client.js";
+import { KEY_LAYERS } from "../key-layers.js";
 import { Rail, railRoom } from "./rail.js";
 import type { KeyHint, WindowHost, WindowKey, WindowTheme } from "./shell.js";
 
@@ -615,7 +616,7 @@ export function createUsageTab(
     // Above the window's own keys; the window's target also covers the inputs inside it.
     api.keymap.layer(() => ({
       target: props.keyTarget,
-      priority: 11,
+      priority: KEY_LAYERS.tab,
       commands: keys.map((key) => ({
         bind: key.bind,
         title: key.title,

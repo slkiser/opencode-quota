@@ -13,10 +13,13 @@ import {
   QUOTA_PROVIDER_MAX_BODY_BYTES,
   resolveQuotaProviderApiKey,
 } from "../src/lib/quota-providers-remote.js";
-import type {
-  JsonV1Mapping,
-  RemoteApiQuotaProviderDefinition,
+import {
+  type JsonV1Mapping,
+  type RemoteApiQuotaProviderDefinition,
+  validateQuotaProviders,
 } from "../src/lib/quota-providers.js";
+import type { ProviderRow } from "../src/providers/contract.js";
+import { customRows } from "../src/providers/quota-providers.js";
 import {
   NEURALWATT_LIKE_ADAPTER,
   NEURALWATT_LIKE_RESPONSE,
@@ -80,6 +83,15 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
 function fetchBody(body: unknown, definition = source()) {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(body)));
   return fetchRemoteQuotaProvider(definition, "secret");
+}
+
+/** The rows of a successful reply that reach the screen, and why any were dropped. */
+function shown(
+  definition: RemoteApiQuotaProviderDefinition,
+  result: { success: true; rows: ProviderRow[] } | { success: false; error: string },
+) {
+  if (!result.success) throw new Error(result.error);
+  return customRows(definition, result.rows);
 }
 
 /** A json-v1 body nested `levels` objects deep around `{ used: 1 }`. */
@@ -275,9 +287,11 @@ describe("quota-v1", () => {
       Array.from({ length: 100 }, (_, i) => ({ ...valueRow, name: `Usage ${i}` })),
     ],
     ["exact display bounds", [exactBoundsRow]],
-  ])("accepts %s", async (_name, entries) => {
+  ])("shows %s", async (_name, entries) => {
     const result = await fetchBody({ version: "quota-v1", entries });
-    expect(result.success && result.rows).toHaveLength(entries.length);
+    const screen = shown(source(), result);
+    expect(screen.rows).toHaveLength(entries.length);
+    expect(screen.problems).toEqual([]);
   });
 
   const quotaV1 = (...entries: unknown[]) => ({ version: "quota-v1", entries });
@@ -422,6 +436,62 @@ describe("openrouter-key-v1", () => {
 });
 
 describe("json-v1", () => {
+  it("shows every row of a definition that passed the checker with the longest label and names", async () => {
+    const longest = "😀".repeat(80);
+    const checked = validateQuotaProviders([
+      {
+        ...source({ label: longest }),
+        format: "json-v1",
+        adapter: {
+          mappings: [
+            { resultType: "usage", name: longest, metric: usedValue() },
+            { resultType: "usage", name: "Other", label: longest, metric: usedValue() },
+          ],
+        },
+      },
+    ]);
+    const definition = checked.value?.[0];
+    if (definition?.mode !== "remote-api") throw new Error(JSON.stringify(checked.issues));
+
+    const screen = shown(definition, await fetchBody({ used: 3 }, definition));
+    expect(screen.problems).toEqual([]);
+    expect(screen.rows.map((row) => [row.account, row.label, row.text])).toEqual([
+      [longest, longest, "3"],
+      [longest, longest, "3"],
+    ]);
+
+    // In a list, the label is cut so the longest item number still fits.
+    const items = Array.from({ length: 100 }, () => ({ used: 3 }));
+    const list = shown(definition, await fetchBody(items, definition));
+    expect(list.problems).toEqual([]);
+    expect(list.rows).toHaveLength(200);
+    const cut = "😀".repeat(76);
+    expect([list.rows[0]?.label, list.rows.at(-1)?.label]).toEqual([`${cut} 1`, `${cut} 100`]);
+  });
+
+  it("shows each item of a list as its own numbered row; one item keeps the plain name", async () => {
+    const adapter: JsonV1Source["adapter"] = {
+      rowsPath: ["plans"],
+      mappings: [{ resultType: "usage", name: "Daily", label: "Daily:", metric: usedValue() }],
+    };
+    const plans = [{ used: 1 }, { used: 2 }, { used: 3 }];
+    const list = shown(jsonSource(adapter), await fetchBody({ plans }, jsonSource(adapter)));
+    expect(list.problems).toEqual([]);
+    expect(list.rows.map((row) => [row.id, row.label, row.text])).toEqual([
+      ["quota-providers.custom.source-one.Daily", "Daily 1", "1"],
+      ["quota-providers.custom.source-one.Daily.2", "Daily 2", "2"],
+      ["quota-providers.custom.source-one.Daily.3", "Daily 3", "3"],
+    ]);
+
+    const one = shown(
+      jsonSource(adapter),
+      await fetchBody({ plans: [{ used: 1 }] }, jsonSource(adapter)),
+    );
+    expect(one.rows.map((row) => [row.id, row.label])).toEqual([
+      ["quota-providers.custom.source-one.Daily", "Daily"],
+    ]);
+  });
+
   it("maps the sanitized Neuralwatt-like fixture with zero, units, timestamps, and partial errors", async () => {
     const result = await fetchBody(NEURALWATT_LIKE_RESPONSE, jsonSource());
     if (!result.success) throw new Error(result.error);
@@ -431,19 +501,24 @@ describe("json-v1", () => {
       expect.arrayContaining([
         remoteRow({
           key: "Tokens",
-          label: "Used",
+          label: "Used 1",
           type: "quota",
           percentRemaining: 100,
           resetsAt: "2026-07-31T22:00:00.000Z",
         }),
-        expect.objectContaining({ key: "Used_percent", type: "budget", percentRemaining: -25 }),
-        expect.objectContaining({ key: "Spend_budget", percentRemaining: -20 }),
+        expect.objectContaining({ key: "Used_percent.2", type: "budget", percentRemaining: -25 }),
+        expect.objectContaining({ key: "Spend_budget.2", percentRemaining: -20 }),
         expect.objectContaining({ key: "Balance", type: "balance", text: "$-3.5" }),
         expect.objectContaining({ key: "Spend", type: "usage" }),
         expect.objectContaining({ key: "Requests", type: "quota" }),
         expect.objectContaining({ key: "Status", type: "status", text: "Ready" }),
+        expect.objectContaining({ key: "Status.3", label: "Status 3", text: "Partial" }),
       ]),
     );
+    // Each plan's rows are numbered, so every one is shown.
+    const screen = shown(jsonSource(), result);
+    expect(screen.rows).toHaveLength(21);
+    expect(screen.problems).toEqual([]);
     expect(result.rowErrors).toHaveLength(15);
     expect(result.rowErrors).toEqual(
       expect.arrayContaining([
@@ -580,10 +655,16 @@ describe("json-v1", () => {
 
   it.each([
     [
-      "exactly 100 successful entries",
+      "a list of exactly 100 items",
       mappings(usedValue()),
       Array.from({ length: 100 }, (_, used) => ({ used })),
       100,
+    ],
+    [
+      "a row for every item and mapping, past 100 rows",
+      mappings(usedValue(), { type: "value", valueType: "limit", value: { path: ["limit"] } }),
+      Array.from({ length: 51 }, () => ({ used: 0, limit: 10 })),
+      102,
     ],
     [
       "exactly 32 container levels",
@@ -612,12 +693,6 @@ describe("json-v1", () => {
       rowsAt("data", "rows"),
       { data: { rows: Array.from({ length: 101 }, () => ({ used: 0 })) } },
       "selected rows must contain 1-100 elements",
-    ],
-    [
-      "a 101st successful entry instead of truncating",
-      mappings(usedValue(), { type: "value", valueType: "limit", value: { path: ["limit"] } }),
-      Array.from({ length: 51 }, () => ({ used: 0, limit: 10 })),
-      "more than 100 entries were produced",
     ],
     [
       "non-finite percentages derived from finite operands",

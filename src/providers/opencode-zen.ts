@@ -135,7 +135,7 @@ export const opencodeZenProvider: QuotaProvider = {
     if (!result.success) {
       return {
         attempted: true,
-        accounts: [failedAccount(OPENCODE_ZEN_GROUP, result.error)],
+        accounts: [failedAccount(OPENCODE_ZEN_GROUP, result.error, result.facts)],
         debug: [...statusDetails, { key: "live_fetch_error", value: result.error }],
       };
     }

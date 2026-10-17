@@ -15,7 +15,7 @@
  */
 import type { QuotaSnapshot, Words } from "../../core/types.js";
 import { columnsOf, padEndColumns, padStartColumns, sliceColumns } from "../../view/columns.js";
-import { type BarShape, DEFAULT_WORDS, fit } from "../../view/format.js";
+import { type BarShape, fit } from "../../view/format.js";
 import { errorWords, type Place, type RowFacts, rowFacts } from "../../view/row-facts.js";
 import { type Group, type RowSettings, visibleGroups } from "../../view/select.js";
 import { barSegments, type Layout, type Line, type Segment, trimEnd } from "../../view/text.js";
@@ -52,8 +52,8 @@ type Grid = {
 
 export type LimitsInput = {
   snapshot: QuotaSnapshot;
-  /** The display settings: row names, the sidebar's order and the bar shape. */
-  display: RowSettings & { layout: Pick<Layout, "bar"> };
+  /** The display settings: row names, the sidebar's order, the bar shape and the words. */
+  display: RowSettings & { layout: Pick<Layout, "bar">; words: Words };
   nowMs: number;
   /** Columns inside the window. */
   width: number;
@@ -179,7 +179,7 @@ function providerLine(group: Group): Line {
 export function limitsLines(input: LimitsInput): Line[] {
   const { snapshot, display, nowMs, width } = input;
   // Every row: the supplementary ones too, and none hidden.
-  const words: Words = { ...(snapshot.words ?? DEFAULT_WORDS), detail: "detailed" };
+  const words: Words = { ...display.words, detail: "detailed" };
   const sidebar = { ...display.surfaces.sidebar, hidden: [] };
   const settings: RowSettings = { ...display, surfaces: { ...display.surfaces, sidebar } };
   const groups = visibleGroups(snapshot, settings, "sidebar", {

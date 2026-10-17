@@ -28,6 +28,7 @@ import { QuotaRpc } from "../../rpc.js";
 import { columnsOf } from "../../view/columns.js";
 import { type ClientHost, errorToast, quotaCallOptions, rpcErrorMessage } from "../client.js";
 import type { SettingsTab } from "../display.js";
+import { KEY_LAYERS } from "../key-layers.js";
 import type { SurfaceHost } from "../sidebar.js";
 import type { Theme } from "../theme.js";
 import {
@@ -374,7 +375,8 @@ export function createQuotaWindow(
       });
       return;
     }
-    copyWithToast(quotaLimitsText(snapshot, Date.now()), "Limits", {
+    const words = host.display().words;
+    copyWithToast(quotaLimitsText({ ...snapshot, words }, Date.now()), "Limits", {
       copied: "Copied the limits report",
       failed: "This terminal doesn't allow copying.",
     });
@@ -520,7 +522,7 @@ export function createQuotaWindow(
     // Keys work only while this box has the keyboard; the message box keeps its own keys.
     api.keymap.layer(() => ({
       target: () => windowBox,
-      priority: 10,
+      priority: KEY_LAYERS.window,
       // While a Settings line takes typed text, the keys go to its input.
       enabled: () => !settings.typing(),
       commands: [

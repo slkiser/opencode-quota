@@ -1,17 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { rowsFromProviderResult } from "../src/core/rows.js";
 import type { QuotaRow } from "../src/core/types.js";
-import { queryOpenAIQuota } from "../src/lib/openai.js";
 import { type CredentialRow, readCredentialRows } from "../src/lib/opencode-auth.js";
 import { quotaReportLines } from "../src/lib/quota-dialog-commands.js";
 import type { ProviderFetchResult } from "../src/providers/contract.js";
 import { openaiProvider } from "../src/providers/openai.js";
+import { fakeHttp, requestHeader } from "./helpers/provider-fetch.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
-
-vi.mock("../src/lib/openai.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/lib/openai.js")>()),
-  queryOpenAIQuota: vi.fn(),
-}));
 
 vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/opencode-auth.js")>()),
@@ -19,8 +14,8 @@ vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
 }));
 
 const readRows = vi.mocked(readCredentialRows);
-const query = vi.mocked(queryOpenAIQuota);
 const NOW_MS = Date.parse("2026-01-01T00:00:00.000Z");
+const DAY_SECONDS = 86_400;
 
 function oauthRow(id: string, overrides: Partial<CredentialRow> = {}): CredentialRow {
   return {
@@ -37,8 +32,23 @@ function keyRow(id: string, overrides: Partial<CredentialRow> = {}): CredentialR
   return oauthRow(id, { value: { type: "api", key: "sk-test" }, ...overrides });
 }
 
-function hourlyQuota(label: string) {
-  return { success: true as const, label, windows: { hourly: { percentRemaining: 42 } } };
+/** ChatGPT's usage reply: a 5h window with 42% left that resets at 03:00, on `plan`. */
+function hourlyReply(plan = "pro") {
+  return {
+    plan_type: plan,
+    rate_limit: {
+      primary_window: { used_percent: 58, limit_window_seconds: 18_000, reset_at: 1_767_236_400 },
+    },
+  };
+}
+
+/** Each ChatGPT usage request's bearer token, answered with `reply`. */
+function chatgptHttp(reply: unknown = hourlyReply()) {
+  const http = fakeHttp(() => reply);
+  return {
+    http,
+    tokens: () => http.mock.calls.map(([, init]) => requestHeader(init, "Authorization")),
+  };
 }
 
 async function fetchRows(rows: CredentialRow[], config: Record<string, unknown> = {}) {
@@ -79,35 +89,34 @@ function quotaCommandText(rows: QuotaRow[]): string {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ now: NOW_MS, toFake: ["Date"] });
   readRows.mockReset().mockResolvedValue([]);
-  query.mockReset();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe("openai provider", () => {
   it("keeps the 5h window's start for the pace marker", async () => {
-    const fixedWindow = { startedAtIso: "2025-12-31T22:00:00.000Z" };
-    query.mockResolvedValueOnce({
-      success: true,
-      label: "OpenAI (Pro)",
-      windows: {
-        hourly: { percentRemaining: 42, resetTimeIso: "2026-01-01T03:00:00.000Z", fixedWindow },
-      },
-    });
+    chatgptHttp();
     readRows.mockResolvedValueOnce([oauthRow("work-id", { label: "Work" })]);
 
     const result = (await openaiProvider.fetch({ config: {} } as never)) as ProviderFetchResult;
 
     expect(rowsFromProviderResult("openai", result, NOW_MS).rows[0]?.windowStartedAt).toBe(
-      fixedWindow.startedAtIso,
+      "2025-12-31T22:00:00.000Z",
     );
   });
 
   it("is not set up without a stored login", async () => {
+    const { http } = chatgptHttp();
     const fetched = await fetchRows([]);
 
     expect(fetched.rows).toEqual([]);
     expect(fetched.error).toEqual({ code: "not_configured" });
-    expect(query).not.toHaveBeenCalled();
+    expect(http).not.toHaveBeenCalled();
     expect(fetched.debug).toEqual([
       { key: "auth_configured", value: "false" },
       { key: "auth_source", value: "(none)" },
@@ -117,42 +126,50 @@ describe("openai provider", () => {
     ]);
   });
 
+  it("passes the request timeout to the usage request", async () => {
+    fakeHttp(
+      (_url, init) =>
+        new Promise((_resolve, reject) =>
+          init.signal?.addEventListener("abort", () => reject(new Error("aborted"))),
+        ),
+    );
+
+    const fetched = await fetchRows([oauthRow("work-id", { active: true })], {
+      requestTimeoutMs: 20,
+    });
+
+    expect(fetched.error).toMatchObject({ code: "timeout" });
+  });
+
   it("queries and names every stored login independently", async () => {
-    query.mockResolvedValue({
-      success: true,
-      label: "OpenAI (Business)",
-      windows: {
-        hourly: { percentRemaining: 42, resetTimeIso: "2026-01-01T03:00:00.000Z" },
-        weekly: { percentRemaining: 80, resetTimeIso: "2026-01-07T00:00:00.000Z" },
-        monthly: { percentRemaining: 67, resetTimeIso: "2026-02-01T00:00:00.000Z" },
-        codeReview: { percentRemaining: 55, resetTimeIso: "2026-01-02T00:00:00.000Z" },
+    const { tokens } = chatgptHttp({
+      plan_type: "business",
+      rate_limit: {
+        primary_window: { used_percent: 58, limit_window_seconds: 18_000, reset_at: 1_767_236_400 },
+        secondary_window: {
+          used_percent: 20,
+          limit_window_seconds: 7 * DAY_SECONDS,
+          reset_after_seconds: 6 * DAY_SECONDS,
+        },
+      },
+      code_review_rate_limit: {
+        primary_window: { used_percent: 45, reset_after_seconds: DAY_SECONDS },
+      },
+      spend_control: {
+        individual_limit: { remaining_percent: 67, reset_after_seconds: 31 * DAY_SECONDS },
       },
     });
 
-    const fetched = await fetchRows(
-      [
-        oauthRow("active-id", {
-          label: "Work",
-          active: true,
-          value: { type: "oauth", access: "a" },
-        }),
-        oauthRow("other-id", { label: "Work", value: { type: "oauth", access: "o" } }),
-      ],
-      { requestTimeoutMs: 12000 },
-    );
-
-    expect(query.mock.calls.map(([options]) => options)).toEqual([
-      {
-        requestTimeoutMs: 12000,
-        auth: { state: "configured", sourceKey: "openai", accessToken: "a" },
-        loginLabel: "Work",
-      },
-      {
-        requestTimeoutMs: 12000,
-        auth: { state: "configured", sourceKey: "openai", accessToken: "o" },
-        loginLabel: "Work",
-      },
+    const fetched = await fetchRows([
+      oauthRow("active-id", {
+        label: "Work",
+        active: true,
+        value: { type: "oauth", access: "a" },
+      }),
+      oauthRow("other-id", { label: "Work", value: { type: "oauth", access: "o" } }),
     ]);
+
+    expect(tokens()).toEqual(["Bearer a", "Bearer o"]);
     expect(fetched.error).toBeUndefined();
     expect(
       fetched.rows.map((row) => [row.id, row.account, row.label, row.window, row.resetsAt]),
@@ -174,11 +191,7 @@ describe("openai provider", () => {
   });
 
   it("shows a login OpenCode could not return as its own error next to working ones", async () => {
-    const actual =
-      await vi.importActual<typeof import("../src/lib/openai.js")>("../src/lib/openai.js");
-    query
-      .mockImplementationOnce(actual.queryOpenAIQuota)
-      .mockResolvedValueOnce(hourlyQuota("OpenAI (Pro)"));
+    const { tokens } = chatgptHttp();
 
     const fetched = await fetchRows([
       oauthRow("work-id", {
@@ -193,6 +206,7 @@ describe("openai provider", () => {
     expect(readRows).toHaveBeenLastCalledWith(["openai", "codex", "chatgpt"], {
       methods: ["oauth", "key"],
     });
+    expect(tokens()).toEqual(["Bearer home-token"]);
     expect(summary(fetched.rows)).toEqual([["openai.five_hour", "Home (Pro)", "5h", 42]]);
     expect(fetched.rowLogins).toEqual(["home-id"]);
     expect(fetched.debug).toEqual(
@@ -250,9 +264,10 @@ describe("openai provider", () => {
       ],
     },
   ])("reports $name without querying ChatGPT", async ({ row, rows, debug }) => {
+    const { http } = chatgptHttp();
     const fetched = await fetchRows([row]);
 
-    expect(query).not.toHaveBeenCalled();
+    expect(http).not.toHaveBeenCalled();
     expect(fetched.rows).toEqual(rows);
     expect(fetched.debug).toEqual(
       expect.arrayContaining([
@@ -291,14 +306,14 @@ describe("openai provider", () => {
   ])(
     "lists the session's active login first ($rows, $config)",
     async ({ rows, config, logins, source }) => {
-      query.mockResolvedValueOnce(hourlyQuota("OpenAI"));
+      const { http } = chatgptHttp();
       const key = keyRow("key-id", { label: "API key", active: true });
       const oauth = oauthRow("oauth-id", { integrationId: "codex", label: "Work", active: true });
 
       const fetched = await fetchRows(rows === "key, oauth" ? [key, oauth] : [oauth, key], config);
 
       expect(fetched.rowLogins).toEqual(logins);
-      expect(query).toHaveBeenCalledOnce();
+      expect(http).toHaveBeenCalledOnce();
       expect(fetched.debug).toContainEqual({ key: "auth_source", value: source });
     },
   );
@@ -346,7 +361,7 @@ describe("openai provider", () => {
   });
 
   it("reports unknown active auth when no stored login is marked active", async () => {
-    query.mockResolvedValueOnce(hourlyQuota("OpenAI"));
+    chatgptHttp();
     const fetched = await fetchRows([
       keyRow("key-id", { label: "Key" }),
       oauthRow("oauth-id", { label: "Work" }),

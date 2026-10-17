@@ -115,6 +115,26 @@ describe.each(REGIONS)("Kimi Code $region", ({ provider, envVar, integrationId, 
     ]);
   });
 
+  it("shows a stored login that is not a key as its one error, without a request", async () => {
+    world.storeLogins([
+      { id: "oauth", integrationId, active: null, updated: 1, value: { type: "oauth" } },
+    ]);
+    const http = fakeHttp(() => weeklyReply(10));
+    const ctx = { config: {}, resolveRuntimeProviderIds: async () => new Set([id]) };
+
+    await expect(provider.isAvailable(ctx as never)).resolves.toBe(true);
+    const fetched = await fetchRows(provider);
+
+    expect(http).not.toHaveBeenCalled();
+    expect(fetched.rows).toEqual([]);
+    expect(fetched.debug).toEqual(
+      expect.arrayContaining([
+        { key: "auth_state", value: "invalid" },
+        { key: "error", value: `${name}: Unsupported Kimi auth type: "oauth"` },
+      ]),
+    );
+  });
+
   it("asks only the env key when keys are also stored", async () => {
     process.env[envVar] = "env-key";
     world.storeLogins([keyLogin("work", integrationId, "work-key", { label: "Work" })]);

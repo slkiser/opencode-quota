@@ -27,6 +27,7 @@ import type {
 import {
   type AccountResult,
   failedAccount,
+  fetchError,
   fetchEachLogin,
   type ProviderFetchResult,
   type ProviderRow,
@@ -293,7 +294,7 @@ function fetchPerCredential(
         authData: credentialRowAuthData(row),
       });
       if (!result) return null;
-      if (!result.success) return { rows: [], errors: [{ message: result.error }] };
+      if (!result.success) return { rows: [], errors: [fetchError(result.error, result.facts)] };
       return {
         rows: resultRows(result),
         errors: resultWarnings(result).map((message) => ({ message })),
@@ -343,7 +344,11 @@ export const copilotProvider: QuotaProvider = {
     const result = await queryCopilotQuota({ requestTimeoutMs });
     if (!result) return { attempted: false, accounts: [], debug };
     if (!result.success) {
-      return { attempted: true, accounts: [failedAccount("Copilot", result.error)], debug };
+      return {
+        attempted: true,
+        accounts: [failedAccount("Copilot", result.error, result.facts)],
+        debug,
+      };
     }
     const group = getCopilotGroup(result.mode, "plan" in result ? result.plan : undefined);
     const warnings = resultWarnings(result).map((message) => ({ message }));

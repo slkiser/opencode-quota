@@ -4,11 +4,12 @@
  * Kimi Code and MiniMax, which also need a key, share the "without a key" check.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { QuotaProvider } from "../src/lib/entries.js";
 import { isCanonicalProviderAvailable } from "../src/lib/provider-availability.js";
 import { deepseekProvider } from "../src/providers/deepseek.js";
+import { zaiProvider } from "../src/providers/glm-coding-plan.js";
 import { kimiCodePlanCnProvider, kimiCodePlanGlobalProvider } from "../src/providers/kimi-code.js";
 import {
   minimaxChinaCodingPlanProvider,
@@ -183,6 +184,34 @@ const OLLAMA_LEGACY_PLAN = {
 
 const OLLAMA_PURCHASED_ROW = ["ollama-cloud.purchased", null, "Purchased", null, "25 USD", null];
 const OLLAMA_NO_DATA = "Ollama Cloud: Ollama Cloud returned no limits or balance";
+
+describe("a vendor's Retry-After", () => {
+  const NOW = Date.parse("2026-10-17T12:00:00.000Z");
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it.each([
+    [deepseekProvider, "DEEPSEEK_API_KEY"],
+    [ollamaCloudProvider, "OLLAMA_API_KEY"],
+    [kimiCodePlanGlobalProvider, "KIMI_GLOBAL_API_KEY"],
+    [minimaxCodingPlanProvider, "MINIMAX_CODING_PLAN_API_KEY"],
+    [zaiProvider, "ZAI_API_KEY"],
+  ] as const)("reaches %s's error as its retry time", async (provider, keyEnv) => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    process.env[keyEnv] = KEY;
+    fakeHttp(() => new Response("slow down", { status: 429, headers: { "Retry-After": "120" } }));
+
+    const fetched = await fetchRows(provider);
+
+    expect(fetched.error).toMatchObject({
+      code: "rate_limited",
+      status: 429,
+      retryAtMs: NOW + 120_000,
+    });
+  });
+});
 
 describeVendor("ollama-cloud", [
   {

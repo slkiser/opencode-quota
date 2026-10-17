@@ -3,22 +3,26 @@
  * stored in OpenCode, or of the login the Claude CLI or its credentials file holds.
  */
 
-import { readAnthropicLogins } from "../lib/anthropic-auth.js";
+import type { DebugDetail } from "../core/types.js";
 import {
+  type AnthropicDiagnostics,
+  type AnthropicLogin,
   type AnthropicQuotaResult,
   anthropicLoginsIdentity,
   getAnthropicDiagnostics,
   hasAnthropicCredentialsConfigured,
-  queryAnthropicQuota,
   queryAnthropicQuotaWithOAuth,
+  readAnthropicLogins,
 } from "../lib/anthropic.js";
 import { sanitizeDisplayText } from "../lib/display-sanitize.js";
 import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import {
   FIVE_HOUR,
+  type FetchError,
   failedAccount,
   fetchEachLogin,
+  fetchError,
   type ProviderFetchResult,
   type ProviderRow,
   quotaRow,
@@ -72,6 +76,110 @@ function quotaRows(quota: AnthropicQuotaResult, method: ProviderRow["method"]): 
   return rows.map((row) => ({ ...row, method }));
 }
 
+const LOGIN_HINT = "Run `opencode auth login anthropic`.";
+
+/** One OpenCode login's rows: one usage request for a usable token, else why it has none. */
+async function fetchOpenCodeLogin(
+  auth: AnthropicLogin["auth"],
+  requestTimeoutMs: number | undefined,
+): Promise<{ rows: ProviderRow[]; errors: FetchError[]; rejected?: true }> {
+  if (auth.state === "failed") {
+    return {
+      rows: [],
+      errors: [{ message: `Anthropic sign-in could not be read: ${auth.error}. ${LOGIN_HINT}` }],
+    };
+  }
+  if (auth.state === "expired") {
+    return { rows: [], errors: [{ message: `Anthropic sign-in expired. ${LOGIN_HINT}` }] };
+  }
+  const result = await queryAnthropicQuotaWithOAuth(auth.accessToken, requestTimeoutMs);
+  if (!result.success) {
+    return {
+      rows: [],
+      errors: [fetchError(result.error, result.facts)],
+      ...(result.rejected ? { rejected: true } : {}),
+    };
+  }
+  return { rows: quotaRows(result, "remote_api"), errors: [] };
+}
+
+/** The Claude CLI's details for /quota_status. */
+function cliStatusDetails(diagnostics: AnthropicDiagnostics) {
+  const quota = diagnostics.quota;
+  return statusDetailsFromRecord({
+    cli_installed: diagnostics.installed ? "true" : "false",
+    cli_version: diagnostics.version ?? "(none)",
+    binary_path: diagnostics.binaryPath ?? "(none)",
+    auth_status: diagnostics.authStatus,
+    quota_supported: diagnostics.quotaSupported ? "true" : "false",
+    quota_source: diagnostics.quotaSource === "none" ? "(none)" : diagnostics.quotaSource,
+    oauth_credential_source: diagnostics.oauthCredentialSource ?? "(none)",
+    checked_commands: diagnostics.checkedCommands.join(" | ") || "(none)",
+    message: diagnostics.message,
+    five_hour_remaining: formatWindowDetail(quota?.five_hour),
+    seven_day_remaining: formatWindowDetail(quota?.seven_day),
+    fable_weekly_remaining: formatWindowDetail(quota?.fable_weekly),
+  });
+}
+
+/** The Claude CLI's diagnostics, or the status details and error of a probe that threw. */
+async function probeClaudeCli(options: {
+  binaryPath?: string;
+  requestTimeoutMs?: number;
+}): Promise<AnthropicDiagnostics | { failure: string; debug: DebugDetail[] }> {
+  try {
+    return await getAnthropicDiagnostics(options);
+  } catch (error) {
+    const message = sanitizeDisplayText(error instanceof Error ? error.message : String(error));
+    return {
+      failure: `Claude CLI probe failed: ${message}`,
+      debug: statusDetailsFromRecord({
+        cli_installed: "false",
+        message: `failed to probe Claude CLI: ${message}`,
+      }),
+    };
+  }
+}
+
+/**
+ * Without an OpenCode login: the Claude CLI's own quota, or the usage endpoint asked with
+ * Claude's own credentials. Not set up when the CLI is missing or signed out.
+ */
+async function fetchFromClaudeCli(options: {
+  binaryPath?: string;
+  requestTimeoutMs?: number;
+}): Promise<ProviderFetchResult> {
+  const diagnostics = await probeClaudeCli(options);
+  if ("failure" in diagnostics) {
+    return {
+      attempted: true,
+      accounts: [failedAccount("Claude", diagnostics.failure)],
+      debug: diagnostics.debug,
+    };
+  }
+
+  const debug = cliStatusDetails(diagnostics);
+  if (diagnostics.quota) {
+    const method =
+      diagnostics.quotaSource === "claude-auth-status-json" ? "local_cli" : "remote_api";
+    return {
+      attempted: true,
+      accounts: [{ name: "Claude", rows: quotaRows(diagnostics.quota, method), errors: [] }],
+      debug,
+    };
+  }
+  const signedIn =
+    diagnostics.authStatus === "authenticated" || diagnostics.oauthCredentialSource !== undefined;
+  if (signedIn && diagnostics.message) {
+    return {
+      attempted: true,
+      accounts: [failedAccount("Claude", diagnostics.message, diagnostics.facts)],
+      debug,
+    };
+  }
+  return { attempted: false, accounts: [], debug };
+}
+
 export const anthropicProvider: QuotaProvider = {
   id: "anthropic",
   cachePolicy: {
@@ -100,69 +208,39 @@ export const anthropicProvider: QuotaProvider = {
   },
 
   async fetch(ctx: QuotaProviderContext): Promise<ProviderFetchResult> {
-    const options = {
+    const cliOptions = {
       binaryPath: ctx.config?.anthropicBinaryPath,
       requestTimeoutMs: ctx.config?.requestTimeoutMs,
     };
-    let debug;
-    let method: ProviderRow["method"] = "local_cli";
     const logins = await readAnthropicLogins();
-    try {
-      const diagnostics = await getAnthropicDiagnostics(options);
-      const quota = diagnostics.quotaSupported ? diagnostics.quota : undefined;
-      if (diagnostics.quotaSupported && diagnostics.quotaSource !== "claude-auth-status-json") {
-        method = "remote_api";
-      }
-      debug = statusDetailsFromRecord({
-        cli_installed: diagnostics.installed ? "true" : "false",
-        cli_version: diagnostics.version ?? "(none)",
-        binary_path: diagnostics.binaryPath ?? "(none)",
-        auth_status: diagnostics.authStatus,
-        quota_supported: diagnostics.quotaSupported ? "true" : "false",
-        quota_source: diagnostics.quotaSource === "none" ? "(none)" : diagnostics.quotaSource,
-        oauth_credential_source: diagnostics.oauthCredentialSource ?? "(none)",
-        checked_commands: diagnostics.checkedCommands.join(" | ") || "(none)",
-        message: diagnostics.message,
-        five_hour_remaining: formatWindowDetail(quota?.five_hour),
-        seven_day_remaining: formatWindowDetail(quota?.seven_day),
-        fable_weekly_remaining: formatWindowDetail(quota?.fable_weekly),
-      });
-    } catch (error) {
-      debug = statusDetailsFromRecord({
-        cli_installed: "false",
-        message: `failed to probe Claude CLI: ${sanitizeDisplayText(error instanceof Error ? error.message : String(error))}`,
-      });
-    }
+    if (logins.length === 0) return await fetchFromClaudeCli(cliOptions);
 
-    if (logins.length > 0) {
-      const accounts = await fetchEachLogin({
-        providerName: "Claude",
-        logins,
-        async fetchLogin({ auth }) {
-          const result =
-            auth.state === "failed"
-              ? {
-                  success: false as const,
-                  error: `Anthropic sign-in could not be read: ${auth.error}. Run \`opencode auth login anthropic\`.`,
-                }
-              : await queryAnthropicQuotaWithOAuth(auth.accessToken, options.requestTimeoutMs);
-          if (!result) return null;
-          if (!result.success) return { rows: [], errors: [{ message: result.error }] };
-          return { rows: quotaRows(result, "remote_api"), errors: [] };
-        },
-      });
+    // Only the OpenCode logins are checked, so the Claude CLI starts only when Anthropic
+    // rejects one of them: its details then say whether Claude's own credentials still work.
+    let rejected = false;
+    const accounts = await fetchEachLogin({
+      providerName: "Claude",
+      logins,
+      async fetchLogin({ auth }) {
+        const fetched = await fetchOpenCodeLogin(auth, cliOptions.requestTimeoutMs);
+        if (fetched.rejected) rejected = true;
+        return fetched;
+      },
+    });
+    if (rejected) {
+      const diagnostics = await probeClaudeCli(cliOptions);
+      const debug = "failure" in diagnostics ? diagnostics.debug : cliStatusDetails(diagnostics);
       return { attempted: true, accounts, debug };
     }
-
-    const result = await queryAnthropicQuota(options);
-    if (!result) return { attempted: false, accounts: [], debug };
-    if (!result.success) {
-      return { attempted: true, accounts: [failedAccount("Claude", result.error)], debug };
-    }
+    const quotaSupported = accounts.some((account) => account.rows.length > 0);
     return {
       attempted: true,
-      accounts: [{ name: "Claude", rows: quotaRows(result, method), errors: [] }],
-      debug,
+      accounts,
+      debug: statusDetailsFromRecord({
+        quota_supported: quotaSupported ? "true" : "false",
+        quota_source: quotaSupported ? "opencode-auth-oauth-api" : "(none)",
+        oauth_credential_source: "opencode-auth",
+      }),
     };
   },
 };

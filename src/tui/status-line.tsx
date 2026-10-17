@@ -8,7 +8,6 @@
 import type { BoxRenderable, MouseEvent } from "@opentui/core";
 import type { JSX } from "@opentui/solid";
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
-import { DEFAULT_WORDS } from "../view/format.js";
 import { visibleGroups } from "../view/select.js";
 import {
   bigStatusLine,
@@ -33,7 +32,7 @@ export function StatusLine(props: { host: SurfaceHost; sessionID?: string }): JS
   const input = (): StatusInput | undefined => {
     const snapshot = host.quota.snapshot(props.sessionID);
     if (!snapshot) return undefined;
-    const words = snapshot.words ?? DEFAULT_WORDS;
+    const words = display().words;
     return {
       groups: visibleGroups(snapshot, display(), "statusLine", words),
       layout: display().layout,

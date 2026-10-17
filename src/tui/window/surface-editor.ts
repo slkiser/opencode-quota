@@ -4,7 +4,6 @@
  * moves with its rows; a row moves only among its own provider's rows. Pure.
  */
 import type { ProviderSnapshot, QuotaRow, QuotaSnapshot } from "../../core/types.js";
-import { DEFAULT_WORDS } from "../../view/format.js";
 import { errorWords, type Place, rowFacts } from "../../view/row-facts.js";
 import {
   type Group,
@@ -120,7 +119,7 @@ export function surfaceEditor(surface: Surface, snapshot?: QuotaSnapshot) {
       const shown = settings.surfaces[surface];
       const names = settings[namesKey].names;
       const windows = settings[windowsKey].window;
-      const words = snapshot?.words ?? DEFAULT_WORDS;
+      const words = settings.words;
       const place: Place = { words, nowMs, names: "label", percent: "words" };
       /** A row's percent and reset as the Web text shows them. */
       const summary = (row: QuotaRow): string => {

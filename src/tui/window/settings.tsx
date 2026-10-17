@@ -20,7 +20,7 @@ import { ALL_PROVIDERS, WINDOWS } from "../../core/windows.js";
 import type { CustomProviderSwitch } from "../../settings/index.js";
 import { CHANGED_SINCE_REVIEW } from "../../settings/schema.js";
 import { columnsOf } from "../../view/columns.js";
-import { DEFAULT_WORDS, fit } from "../../view/format.js";
+import { fit } from "../../view/format.js";
 import type { Surface, WindowChoice } from "../../view/select.js";
 import type { ColorRole } from "../../view/text.js";
 import { rpcErrorMessage } from "../client.js";
@@ -42,6 +42,7 @@ import {
   typedColor,
   typedNumber,
 } from "../display.js";
+import { KEY_LAYERS } from "../key-layers.js";
 import { foundProviderIds, isTicked, PROVIDERS_KEY, withTick } from "../server-settings.js";
 import type { SurfaceHost } from "../sidebar.js";
 import { namedColor, roleColor } from "../theme.js";
@@ -936,7 +937,7 @@ export function createSettingsEditor(
     // Keys work only while the window has the keyboard; they win over the window's own.
     api.keymap.layer(() => ({
       target: props.box,
-      priority: 11,
+      priority: KEY_LAYERS.tab,
       enabled: () => typing() === undefined && !confirming(),
       commands: [
         { bind: "up", title: "Previous line", group: KEYS, run: () => select(-1) },
@@ -961,7 +962,7 @@ export function createSettingsEditor(
     // While typing, the input has the keyboard: Esc only stops typing, Enter keeps the text.
     api.keymap.layer(() => ({
       target: () => typingInput,
-      priority: 20,
+      priority: KEY_LAYERS.typing,
       enabled: () => typing() !== undefined,
       commands: [
         { bind: "escape", title: "Stop typing", group: KEYS, run: stopTyping },
@@ -1153,14 +1154,14 @@ export function createSettingsEditor(
 
     api.keymap.layer(() => ({
       target: props.box,
-      priority: 12,
+      priority: KEY_LAYERS.save,
       enabled: () => typing() === undefined && (settingsTab() !== undefined || dirty()),
       commands: [{ bind: "ctrl+s", title: "Save", group: KEYS, run: () => void save() }],
     }));
     // While the bottom bar asks about unsaved changes: d drops them, Esc goes back to editing.
     api.keymap.layer(() => ({
       target: props.box,
-      priority: 15,
+      priority: KEY_LAYERS.confirmClose,
       enabled: () => confirming() && typing() === undefined,
       commands: [
         { bind: "d", title: "Discard the changes", group: KEYS, run: discardChanges },
@@ -1233,12 +1234,6 @@ export function createSettingsEditor(
     saveSwitch: (key: string, on: boolean): Promise<void> => server.saveNow(key, on),
     /** Reads the saved settings again, for Plugin's switches. */
     loadSaved: (): Promise<void> => server.load(),
-    /** The snapshot with All places' unsaved words, which every surface shows while you edit. */
-    withDraftWords(snapshot: QuotaSnapshot | undefined): QuotaSnapshot | undefined {
-      const words = server.draftWords();
-      if (!snapshot || Object.keys(words).length === 0) return snapshot;
-      return { ...snapshot, words: { ...(snapshot.words ?? DEFAULT_WORDS), ...words } };
-    },
     /**
      * The window shows `next`; undefined when it closed, which drops the changes. Any tab
      * change stops typing, so the window gets its keys back.

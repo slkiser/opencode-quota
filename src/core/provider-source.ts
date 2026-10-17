@@ -23,6 +23,7 @@ import { deriveResolvedAuthIdentity } from "../lib/resolved-auth-identity.js";
 import { createRuntimeProviderIdResolver } from "../lib/runtime-provider-ids.js";
 import { getProviders } from "../providers/registry.js";
 import type { LoadedSettings, Settings } from "../settings/index.js";
+import { offProviderId } from "../settings/schema.js";
 import { rowsFromProviderResult } from "./rows.js";
 import { matchesQuotaProviderCurrentSelection } from "./selection.js";
 import type { CheckForExport, ProviderIdentity, StoreProvider, StoreSource } from "./store.js";
@@ -54,7 +55,7 @@ export type ServerSettings = {
 function registryProviderIds(off: Settings["providers"]["off"]): string[] {
   return getProviders()
     .map((provider) => provider.id)
-    .filter((id) => !off.includes(id === QUOTA_PROVIDERS_AGGREGATE_ID ? "custom" : id));
+    .filter((id) => !off.includes(offProviderId(id)));
 }
 
 /** What every provider reads from the settings when it checks its quota. */

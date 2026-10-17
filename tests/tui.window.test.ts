@@ -17,6 +17,7 @@ import { createUsageTab } from "../src/tui/window/usage.tsx";
 import { noticeItems, statusLines } from "../src/tui/window/views.tsx";
 import { columnsOf } from "../src/view/columns.js";
 import { lineText } from "../src/view/text.js";
+import { createFakeTuiHost, stubJsx } from "./helpers/fake-tui-host.js";
 import { findAll, THEME, textLines } from "./helpers/jsx-tree.js";
 
 const NOW = Date.parse("2026-10-10T12:00:00.000Z");
@@ -324,16 +325,7 @@ describe("quota window: Settings lines", () => {
 
   /** What an OptionRow draws for `line`, `width` columns wide. */
   function drawRow(line: OptionLine, width: number, active = false): unknown {
-    vi.stubGlobal("React", {
-      createElement: (
-        type: unknown,
-        props: Record<string, unknown> | null,
-        ...children: unknown[]
-      ) => {
-        const all = { ...props, children: children.length > 1 ? children : children[0] };
-        return typeof type === "function" ? type(all) : { type, props: all };
-      },
-    });
+    stubJsx();
     // Show hands back a function; call it to get what it draws.
     const drawn = (node: unknown): unknown =>
       typeof node === "function"
@@ -480,41 +472,21 @@ function twoModelReport(): UsageReport {
 
 describe("quota window: Usage keys", () => {
   it("names the keys for where the keyboard is, and says so while prices update", async () => {
-    vi.stubGlobal("React", {
-      createElement: (
-        type: unknown,
-        props: Record<string, unknown> | null,
-        ...children: unknown[]
-      ) => {
-        const all = { ...props, children: children.length > 1 ? children : children[0] };
-        return typeof type === "function" ? type(all) : { type, props: all };
-      },
-    });
-    type Key = { bind: string; run: () => unknown };
-    const layers: Array<{ commands: Key[] }> = [];
+    stubJsx();
     let answerPrices = (_answer: { ok: boolean; message: string }) => {};
-    const api = {
-      location: { directory: "/project" },
-      theme: THEME,
-      client: {
-        rpc: () => ({
-          usage: async () => ({ report: twoModelReport() }),
-          downloadPrices: () =>
-            new Promise((resolve) => {
-              answerPrices = resolve;
-            }),
-        }),
+    const tui = createFakeTuiHost({
+      rpc: {
+        usage: async () => ({ report: twoModelReport() }),
+        downloadPrices: () =>
+          new Promise((resolve) => {
+            answerPrices = resolve;
+          }),
       },
-      keymap: { layer: (build: () => { commands: Key[] }) => layers.push(build()) },
-      ui: { toast: { show: vi.fn() }, dialog: { show: vi.fn(), set: vi.fn(), clear: vi.fn() } },
-    };
-    const usage = createUsageTab(api as never, () => undefined);
+      theme: THEME,
+    });
+    const usage = createUsageTab(tui.context as never, () => undefined);
     createRoot(() => usage.View({ width: 100, keyTarget: () => undefined }));
-    const press = (bind: string) =>
-      layers
-        .at(-1)
-        ?.commands.find((key) => key.bind === bind)
-        ?.run();
+    const press = (bind: string) => tui.press("tab", bind);
     const hints = () =>
       usage
         .hints()

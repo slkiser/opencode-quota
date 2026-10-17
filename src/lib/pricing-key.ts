@@ -1,6 +1,6 @@
 /**
  * How an OpenCode source model (provider id + model id) maps to a models.dev (or Cursor) price
- * key, and the rates for it.
+ * key, and what one message of it costs (`priceMessage`).
  */
 import {
   isCursorModelId,
@@ -9,12 +9,14 @@ import {
   resolveCursorModel,
 } from "./cursor-pricing.js";
 import {
+  activePriceList,
   type CostBuckets,
   hasModel,
   hasProvider,
   listProvidersForModelId,
   lookupCost,
 } from "./modelsdev-pricing.js";
+import type { TokenBuckets } from "./token-buckets.js";
 
 type PricedKey = {
   provider: string;
@@ -119,12 +121,15 @@ function normalizeSourceProviderId(raw?: string): string | undefined {
   for (let i = candidates.length - 1; i >= 0; i--) {
     const candidate = candidates[i]!;
     if (hasProvider(candidate)) return candidate;
-    const alias = SOURCE_PROVIDER_ALIASES[candidate];
+    const alias = Object.hasOwn(SOURCE_PROVIDER_ALIASES, candidate)
+      ? SOURCE_PROVIDER_ALIASES[candidate]
+      : undefined;
     if (alias && hasProvider(alias)) return alias;
   }
 
-  const directAlias = SOURCE_PROVIDER_ALIASES[lowered];
-  return directAlias ?? lowered;
+  return Object.hasOwn(SOURCE_PROVIDER_ALIASES, lowered)
+    ? SOURCE_PROVIDER_ALIASES[lowered]
+    : lowered;
 }
 
 function inferOfficialProviderFromModelId(modelId: string): string | null {
@@ -387,15 +392,12 @@ export function resolvePricingKey(source: {
  * How an OpenCode source model is priced: its rates, a known model without a price
  * ("unpriced"), or no usable match ("unknown").
  */
-export type ModelPricing =
+type ModelPricing =
   | { kind: "priced"; key: PricedKey; rates: CostBuckets }
   | { kind: "unpriced"; key: PricedKey; reason: string }
   | { kind: "unknown"; unknown: UnknownKey };
 
-export function resolveModelPricing(source: {
-  providerID?: string;
-  modelID?: string;
-}): ModelPricing {
+function resolveModelPricing(source: { providerID?: string; modelID?: string }): ModelPricing {
   const mapping = resolvePricingKey(source);
   if (!mapping.ok) return { kind: "unknown", unknown: mapping.unknown };
 
@@ -446,4 +448,89 @@ function classifyMissingPricing(params: {
 
   // Provider exists but model key missing from snapshot.
   return { kind: "unknown" };
+}
+
+/**
+ * What one message costs: in USD in all and per token kind, with what its cache reads saved
+ * against the plain input price. "unpriced" is a known model without a price, "unknown" no
+ * usable match.
+ */
+export type MessagePrice =
+  | {
+      kind: "priced";
+      key: PricedKey;
+      usd: number;
+      byKind: TokenBuckets;
+      cacheSavingsUsd: number;
+    }
+  | { kind: "unpriced"; key: PricedKey }
+  | { kind: "unknown" };
+
+/** Each source model's pricing, per price list: lists change only by a new load. */
+const PRICING_BY_LIST = new WeakMap<object, Map<string, ModelPricing>>();
+
+function cachedModelPricing(source: { providerID?: string; modelID?: string }): ModelPricing {
+  const list = activePriceList().meta;
+  let byModel = PRICING_BY_LIST.get(list);
+  if (!byModel) {
+    byModel = new Map();
+    PRICING_BY_LIST.set(list, byModel);
+  }
+  const key = JSON.stringify([source.providerID, source.modelID]);
+  let pricing = byModel.get(key);
+  if (!pricing) {
+    pricing = resolveModelPricing(source);
+    byModel.set(key, pricing);
+  }
+  return pricing;
+}
+
+function usdPerToken(usdPer1M: number | undefined): number {
+  return typeof usdPer1M === "number" ? usdPer1M / 1_000_000 : 0;
+}
+
+/** A missing cache rate costs as input, a missing reasoning rate as output. */
+function pricedMessage(key: PricedKey, rates: CostBuckets, tokens: TokenBuckets): MessagePrice {
+  const inputRate = usdPerToken(rates.input);
+  const byKind: TokenBuckets = {
+    input: tokens.input * inputRate,
+    output: tokens.output * usdPerToken(rates.output),
+    reasoning: tokens.reasoning * usdPerToken(rates.reasoning ?? rates.output),
+    cache_read: tokens.cache_read * usdPerToken(rates.cache_read ?? rates.input),
+    cache_write: tokens.cache_write * usdPerToken(rates.cache_write ?? rates.input),
+  };
+  return {
+    kind: "priced",
+    key,
+    usd: byKind.input + byKind.output + byKind.cache_read + byKind.cache_write + byKind.reasoning,
+    byKind,
+    cacheSavingsUsd: tokens.cache_read * inputRate - byKind.cache_read,
+  };
+}
+
+/**
+ * What one message of `source` costs. Automatic matching (models.dev, Cursor's own table)
+ * wins; `modelMap` (exact source model id → models.dev "provider/model") prices only a model
+ * automatic matching cannot.
+ */
+export function priceMessage(
+  source: { providerID?: string; modelID?: string },
+  tokens: TokenBuckets,
+  options: { modelMap?: Readonly<Record<string, string>> } = {},
+): MessagePrice {
+  const pricing = cachedModelPricing(source);
+  if (pricing.kind === "priced") return pricedMessage(pricing.key, pricing.rates, tokens);
+
+  const { modelMap } = options;
+  const target =
+    modelMap && source.modelID && Object.hasOwn(modelMap, source.modelID)
+      ? modelMap[source.modelID]!
+      : "";
+  const slash = target.indexOf("/");
+  if (slash > 0) {
+    const key = { provider: target.slice(0, slash), model: target.slice(slash + 1) };
+    const rates = lookupCost(key.provider, key.model);
+    if (rates) return pricedMessage(key, rates, tokens);
+  }
+  return pricing.kind === "unpriced" ? { kind: "unpriced", key: pricing.key } : { kind: "unknown" };
 }

@@ -12,7 +12,8 @@
  *   model without a price adds tokens but no cost; its tokens are the unpriced share. A failed
  *   compaction names no model, so its tokens are unpriced too (provider and model "unknown").
  * - Sessions count conversations: a subagent session counts as part of its top parent.
- * - "session" reads the session and its subagent sessions.
+ * - "session" reads the session and its subagent sessions. The sidebar's session line
+ *   (`sessionUsage`) counts with these same rules.
  * - Ranges and days are local calendar days: "7d" is today and the 6 days before it, and
  *   "between" includes both dates. "24h" is the rolling last 24 hours. "all" has no window.
  * - Token kinds: cached input = cache reads; uncached input = input + cache writes;
@@ -22,7 +23,7 @@
  *   questions share one read: see `usageReport`.
  */
 import { parseCalendarDate } from "../lib/calendar-date.js";
-import { activePriceList, type CostBuckets } from "../lib/modelsdev-pricing.js";
+import { activePriceList } from "../lib/modelsdev-pricing.js";
 import { getOpenCodeDbPath } from "../lib/opencode-db-path.js";
 import {
   type OpenCodeSessionInfo,
@@ -30,13 +31,9 @@ import {
   readUsageMessagePages,
   resolveSessionTree,
 } from "../lib/opencode-storage.js";
-import { type ModelPricing, resolveModelPricing } from "../lib/pricing-key.js";
-import {
-  emptyTokenBuckets,
-  type TokenBuckets,
-  tokenBucketsFromMessage,
-} from "../lib/token-buckets.js";
-import { calculateUsdFromTokenBuckets } from "../lib/token-cost.js";
+import { type MessagePrice, priceMessage } from "../lib/pricing-key.js";
+import { type TokenBuckets, tokenBucketsFromMessage } from "../lib/token-buckets.js";
+import type { SessionModelInput, SessionTokens, Words } from "./types.js";
 import type { UsageRange } from "./usage-ranges.js";
 
 export {
@@ -230,47 +227,47 @@ function topSessionID(sessionID: string, index: Record<string, OpenCodeSessionIn
   return current;
 }
 
-function messageUse(buckets: TokenBuckets, rates: CostBuckets | null): MessageUse {
-  const tokens = {
-    cachedInput: buckets.cache_read,
-    uncachedInput: buckets.input + buckets.cache_write,
-    output: buckets.output + buckets.reasoning,
+/** A message's tokens by the kinds the report counts (see the rules above). */
+function tokenUse(buckets: TokenBuckets): Pick<MessageUse, "tokens" | "tokensByType"> {
+  const cachedInput = buckets.cache_read;
+  const uncachedInput = buckets.input + buckets.cache_write;
+  const output = buckets.output + buckets.reasoning;
+  return {
+    tokens: { processed: cachedInput + uncachedInput + output, cachedInput, uncachedInput, output },
+    tokensByType: {
+      input: buckets.input,
+      cacheRead: buckets.cache_read,
+      cacheWrite: buckets.cache_write,
+      output,
+    },
   };
-  const processed = tokens.cachedInput + tokens.uncachedInput + tokens.output;
-  const tokensByType = {
-    input: buckets.input,
-    cacheRead: buckets.cache_read,
-    cacheWrite: buckets.cache_write,
-    output: buckets.output + buckets.reasoning,
-  };
-  if (!rates) {
+}
+
+function messageUse(buckets: TokenBuckets, price: MessagePrice): MessageUse {
+  const { tokens, tokensByType } = tokenUse(buckets);
+  if (price.kind !== "priced") {
     return {
       priced: false,
-      tokens: { processed, ...tokens },
+      tokens,
       tokensByType,
       costByType: emptyByType(),
       costUsd: 0,
       cacheSavingsUsd: 0,
     };
   }
-  // Each kind through the one cost formula, so its rate fallbacks apply (a missing cache rate
-  // costs as input, a missing reasoning rate as output).
-  const costOf = (bucket: keyof TokenBuckets, count: number) =>
-    calculateUsdFromTokenBuckets(rates, { ...emptyTokenBuckets(), [bucket]: count });
-  const costByType = {
-    input: costOf("input", buckets.input),
-    cacheRead: costOf("cache_read", buckets.cache_read),
-    cacheWrite: costOf("cache_write", buckets.cache_write),
-    output: costOf("output", buckets.output) + costOf("reasoning", buckets.reasoning),
-  };
+  const { byKind } = price;
   return {
     priced: true,
-    tokens: { processed, ...tokens },
+    tokens,
     tokensByType,
-    costByType,
-    costUsd: costByType.input + costByType.cacheRead + costByType.cacheWrite + costByType.output,
-    // Cache savings: the cache reads at the plain input price, minus what they cost as reads.
-    cacheSavingsUsd: costOf("input", buckets.cache_read) - costByType.cacheRead,
+    costByType: {
+      input: byKind.input,
+      cacheRead: byKind.cache_read,
+      cacheWrite: byKind.cache_write,
+      output: byKind.output + byKind.reasoning,
+    },
+    costUsd: price.usd,
+    cacheSavingsUsd: price.cacheSavingsUsd,
   };
 }
 
@@ -394,7 +391,6 @@ async function buildUsageReport(query: UsageQuery, nowMs: number): Promise<Usage
   let cacheSavingsUsd = 0;
   const sessions = new Set<string>();
   const topSessionIDs = new Map<string, string>();
-  const pricingByModel = new Map<string, ModelPricing>();
   const providers = new Map<string, { tally: Tally; sessions: Set<string> }>();
   const models = new Map<string, ModelTally>();
   const days = new Map<string, Tally>();
@@ -410,12 +406,10 @@ async function buildUsageReport(query: UsageQuery, nowMs: number): Promise<Usage
       const providerID = message.providerID ?? "unknown";
       const modelID = message.modelID ?? "unknown";
       const modelKey = `${providerID}\n${modelID}`;
-      const pricing = entryFor(pricingByModel, modelKey, () =>
-        resolveModelPricing({ providerID: message.providerID, modelID: message.modelID }),
-      );
+      const buckets = tokenBucketsFromMessage(message);
       const use = messageUse(
-        tokenBucketsFromMessage(message),
-        pricing.kind === "priced" ? pricing.rates : null,
+        buckets,
+        priceMessage({ providerID: message.providerID, modelID: message.modelID }, buckets),
       );
       const topSession = entryFor(topSessionIDs, message.sessionID, () =>
         topSessionID(message.sessionID, sessionsIndex),
@@ -509,4 +503,51 @@ async function buildUsageReport(query: UsageQuery, nowMs: number): Promise<Usage
       ),
     days: dayList.map((date) => ({ date, ...toRow(days.get(date) ?? emptyTally(), rowTotal) })),
   };
+}
+
+/**
+ * The tokens a session used so far, counted as the Usage tab counts them: "in" is uncached
+ * input (cache writes included), "out" is output with reasoning, compactions that recorded
+ * usage count, and a fork's copies of its parent's messages don't. `scope: "tree"` adds its
+ * subagent sessions. `models` holds each model's input by kind for the low cache line.
+ * Undefined when no message used a token, or the session or OpenCode's database can't be read.
+ */
+export async function sessionUsage(
+  sessionID: string,
+  scope: Words["sessionTokens"],
+): Promise<SessionTokens | undefined> {
+  try {
+    const sessionIDs = scope === "tree" ? await resolveSessionTree(sessionID) : [sessionID];
+    const total = { input: 0, cachedInput: 0, output: 0, processed: 0 };
+    const models = new Map<string, SessionModelInput>();
+    for await (const page of readUsageMessagePages({ sessionIDs, pageSize: PAGE_ROWS })) {
+      for (const message of page) {
+        const { tokens, tokensByType } = tokenUse(tokenBucketsFromMessage(message));
+        total.input += tokens.uncachedInput;
+        total.cachedInput += tokens.cachedInput;
+        total.output += tokens.output;
+        total.processed += tokens.processed;
+        if (tokensByType.input + tokensByType.cacheRead + tokensByType.cacheWrite === 0) continue;
+        const modelID = message.modelID ?? "unknown";
+        const model = entryFor(models, `${message.providerID ?? "unknown"}\n${modelID}`, () => ({
+          modelID,
+          input: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+        }));
+        model.input += tokensByType.input;
+        model.cacheRead += tokensByType.cacheRead;
+        model.cacheWrite += tokensByType.cacheWrite;
+      }
+    }
+    if (total.processed === 0) return undefined;
+    return {
+      input: total.input,
+      cachedInput: total.cachedInput,
+      output: total.output,
+      ...(models.size > 0 ? { models: [...models.values()] } : {}),
+    };
+  } catch {
+    return undefined;
+  }
 }

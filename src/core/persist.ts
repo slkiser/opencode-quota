@@ -15,7 +15,7 @@ import { getOpencodeRuntimeDirs } from "../lib/opencode-runtime-paths.js";
 import { isQuotaErrorCode } from "./errors.js";
 import { safeDebugValue, safeDetail } from "./redact.js";
 import type { DebugDetail, QuotaError, QuotaRow, ResetNotice } from "./types.js";
-import { validateRows } from "./validate.js";
+import { LABEL_MAX_CODE_POINTS, validateRows } from "./validate.js";
 import { isQuotaWindow } from "./windows.js";
 
 const FILE_VERSION = 2;
@@ -135,6 +135,13 @@ function parseEntry(key: string, value: unknown): SavedEntry | undefined {
   };
 }
 
+/** A saved notice's label or account, scrubbed and cut to the row gate's code-point limit. */
+function savedLabel(text: string): string {
+  return Array.from(safeDetail(text, Number.POSITIVE_INFINITY))
+    .slice(0, LABEL_MAX_CODE_POINTS)
+    .join("");
+}
+
 function parseNotice(entryProviderId: string, value: unknown): ResetNotice | undefined {
   if (!isRecord(value)) return undefined;
   const { id, rowId, providerId, account, label, window, percentRemaining, atMs } = value;
@@ -156,8 +163,8 @@ function parseNotice(entryProviderId: string, value: unknown): ResetNotice | und
     id,
     rowId,
     providerId: entryProviderId,
-    ...(account === undefined ? {} : { account: safeDetail(account, 64) }),
-    label: safeDetail(label, 64),
+    ...(account === undefined ? {} : { account: savedLabel(account) }),
+    label: savedLabel(label),
     window,
     percentRemaining,
     atMs,

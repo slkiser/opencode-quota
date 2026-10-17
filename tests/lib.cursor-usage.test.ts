@@ -62,6 +62,15 @@ describe("getCurrentCursorUsageSummary", () => {
       { auto: [2, 23], api: [1, 30], total: 4, unknown: ["gpt-5.5-1m"] },
     ],
     [
+      "models outside Cursor's alias list at their models.dev price, as the Usage tab prices them",
+      [
+        message("cursor", "cursor/gpt-5", 1_000_000, 1_000_000),
+        message("cursor", "constructor", 10, 20),
+        message("cursor", "cursor/__proto__", 10, 20),
+      ],
+      { auto: [0, 0], api: [1, 11.25], total: 3, unknown: ["constructor", "cursor/__proto__"] },
+    ],
+    [
       "a Cursor official fallback alias",
       [message("cursor", "cursor/gpt-5.3-codex-spark-preview", 1_000_000, 1_000_000)],
       { auto: [0, 0], api: [1, 15.75], total: 1, unknown: [] },

@@ -8,7 +8,7 @@ import { quotaAgentTools } from "../src/agent-tools.js";
 import { bindCredentialSource, type CredentialRow } from "../src/lib/opencode-auth.js";
 import { resolveQuotaProviderApiKey } from "../src/lib/quota-providers-remote.js";
 import type { RemoteApiQuotaProviderDefinition } from "../src/lib/quota-providers.js";
-import { loadSettings, settingsPath } from "../src/settings/index.js";
+import { createLiveSettings, loadSettings, settingsPath } from "../src/settings/index.js";
 
 let root: string;
 let openCodeProviderIds: string[];
@@ -77,14 +77,18 @@ type Answer = {
   [key: string]: unknown;
 };
 
-/** Runs one tool the way OpenCode does and reads its JSON answer. */
+/** Runs one tool the way OpenCode does, with the settings a server holds, and reads its answer. */
 async function call(name: string, input: unknown): Promise<Answer> {
-  const tool = quotaAgentTools({ openCodeProviderIds: async () => openCodeProviderIds }).find(
-    (item) => item.name === name,
-  );
-  if (!tool) throw new Error(`tool not registered: ${name}`);
-  const { content } = await tool.execute(input);
-  return { ...JSON.parse(content), text: content };
+  const settings = await createLiveSettings({ projectDir: root });
+  try {
+    const host = { openCodeProviderIds: async () => openCodeProviderIds, settings };
+    const tool = quotaAgentTools(host).find((item) => item.name === name);
+    if (!tool) throw new Error(`tool not registered: ${name}`);
+    const { content } = await tool.execute(input);
+    return { ...JSON.parse(content), text: content };
+  } finally {
+    settings.dispose();
+  }
 }
 
 function writeSettings(text: string): void {
@@ -452,10 +456,18 @@ describe("quota_settings_set", () => {
     expect(settingsText()).toBe(FILE_WITH_COMMENTS);
   });
 
-  it("claims nothing applies live until the server reloads the file", () => {
-    const tools = quotaAgentTools({ openCodeProviderIds: async () => [] });
+  it("is in the settings the server holds once it answers", async () => {
+    const settings = await createLiveSettings({ projectDir: root });
+    try {
+      const tools = quotaAgentTools({ openCodeProviderIds: async () => [], settings });
+      const set = tools.find((tool) => tool.name === "quota_settings_set");
 
-    expect(tools.map((tool) => tool.description).join("\n")).not.toMatch(/live/i);
+      await set?.execute({ patch: { providers: { checking: { minIntervalMs: 600_000 } } } });
+
+      expect(settings.current().settings.providers.checking.minIntervalMs).toBe(600_000);
+    } finally {
+      settings.dispose();
+    }
   });
 });
 
@@ -593,10 +605,6 @@ describe("quota_provider_add", () => {
     expect(fetch).not.toHaveBeenCalled();
     expect(parse(settingsText()).providers.custom[0].enabled).toBe(false);
     expect((await savedProviders()).map((item) => item.enabled)).toEqual([false]);
-    // A local estimate that ran would have written its state file.
-    expect(existsSync(join(root, "state", "opencode", "opencode-quota", "quota-providers"))).toBe(
-      false,
-    );
   });
 
   it("answers the same whether or not OpenCode has a key saved for the provider", async () => {

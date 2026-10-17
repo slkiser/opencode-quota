@@ -38,11 +38,11 @@ const PROFILE_JWT = jwt({
   "https://api.openai.com/auth": { chatgpt_account_id: "acct_jwt" },
 });
 
-/** Queries a valid login; the usage reply is passed through as-is, so NaN stays NaN. */
+/** Queries a valid login that gets `usage` as its JSON reply. */
 function queryUsage(usage: unknown) {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => ({ ok: true, json: async () => usage })),
+    vi.fn(async () => Response.json(usage)),
   );
   return queryOpenAIQuota({ auth: LOGIN });
 }
@@ -229,7 +229,7 @@ describe("queryOpenAIQuota", () => {
   });
 
   it("sends the bearer token and the ChatGPT account id", async () => {
-    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
+    const fetchMock = vi.fn(async () => Response.json({}));
     vi.stubGlobal("fetch", fetchMock);
 
     await queryOpenAIQuota({ auth: { ...LOGIN, accountId: "acct_1" } });
@@ -249,6 +249,7 @@ describe("queryOpenAIQuota", () => {
       403,
       { error: "account alice@example.com account-id-123 access-secret" },
       "OpenAI API error 403",
+      { code: "provider_error", status: 403 },
     ],
     // #316: only OpenAI's short error code is added.
     [
@@ -261,16 +262,22 @@ describe("queryOpenAIQuota", () => {
         },
       },
       "OpenAI API error 401 (no_matching_rule)",
+      { code: "login_expired", status: 401 },
     ],
-    [401, { error: { code: "alice@example.com is blocked" } }, "OpenAI API error 401"],
-  ])("reports HTTP %i without echoing the body", async (status, body, error) => {
+    [
+      401,
+      { error: { code: "alice@example.com is blocked" } },
+      "OpenAI API error 401",
+      { code: "login_expired", status: 401 },
+    ],
+  ])("reports HTTP %i without echoing the body", async (status, body, error, facts) => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response(JSON.stringify(body), { status })),
     );
 
     const result = await queryOpenAIQuota({ auth: LOGIN });
-    expect(result).toEqual({ success: false, error });
+    expect(result).toEqual({ success: false, error, facts });
     expect(JSON.stringify(result)).not.toMatch(/alice@example\.com|account-id-123|access-secret/u);
   });
 
@@ -415,11 +422,6 @@ describe("queryOpenAIQuota", () => {
     { name: "missing value", spendControl: { individual_limit: {} } },
     { name: "null value", spendControl: { individual_limit: { remaining_percent: null } } },
     { name: "wrong type", spendControl: { individual_limit: { remaining_percent: "50" } } },
-    { name: "NaN", spendControl: { individual_limit: { remaining_percent: Number.NaN } } },
-    {
-      name: "infinite",
-      spendControl: { individual_limit: { remaining_percent: Number.POSITIVE_INFINITY } },
-    },
   ])("omits $name while preserving personal and code-review paths", async ({ spendControl }) => {
     const out = await queryUsage({
       plan_type: "plus",
@@ -436,6 +438,25 @@ describe("queryOpenAIQuota", () => {
         hourly: HOURLY_80,
         codeReview: { percentRemaining: 95, resetTimeIso: "2026-01-01T00:01:00.000Z" },
       },
+    });
+  });
+
+  it("omits a remaining_percent too large to be a number (1e999 in the reply)", async () => {
+    const usage = {
+      plan_type: "plus",
+      rate_limit: { primary_window: HOURLY_20_USED },
+      spend_control: { individual_limit: { remaining_percent: "INFINITE" } },
+    };
+    const body = JSON.stringify(usage).replace('"INFINITE"', "1e999");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(body)),
+    );
+
+    await expect(queryOpenAIQuota({ auth: LOGIN })).resolves.toEqual({
+      success: true,
+      label: "OpenAI (Plus)",
+      windows: { hourly: HOURLY_80 },
     });
   });
 

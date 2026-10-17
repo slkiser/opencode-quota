@@ -14,16 +14,6 @@ const mocks = vi.hoisted(() => {
   });
   return {
     fetchResponse,
-    fetchWithTimeout: vi.fn(
-      async (
-        url: string,
-        options: {
-          request: RequestInit;
-          timeoutMs?: number;
-          consume: (response: Response, signal: AbortSignal) => Promise<unknown> | unknown;
-        },
-      ) => options.consume(await fetchResponse(url, options.request), new AbortController().signal),
-    ),
     getCachedAccessToken: vi.fn(),
     setCachedAccessToken: vi.fn(),
     agyCompanion: companion(),
@@ -31,7 +21,6 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("../src/lib/http.js", () => ({ fetchWithTimeout: mocks.fetchWithTimeout }));
 vi.mock("../src/lib/google-token-cache.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/google-token-cache.js")>()),
   getCachedAccessToken: mocks.getCachedAccessToken,
@@ -55,18 +44,29 @@ import type { AuthData } from "../src/lib/types.js";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
+/** A reply that never comes: the request times out. */
+const NO_REPLY = Symbol("no reply");
+
 function jsonResponse(data: unknown, status = 200) {
-  return { ok: status >= 200 && status < 300, status, json: async () => data };
+  return new Response(JSON.stringify(data), { status });
 }
 
 function notJsonResponse(status: number) {
-  return {
-    ok: false,
-    status,
-    json: async () => {
-      throw new SyntaxError("Unexpected token");
-    },
-  };
+  return new Response("Unexpected token", { status });
+}
+
+/** Each `fetch` takes the next `mocks.fetchResponse` answer; NO_REPLY waits for the abort. */
+function stubFetch() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: RequestInfo | URL, init: RequestInit = {}) => {
+      const answer = await mocks.fetchResponse(String(url), init);
+      if (answer !== NO_REPLY) return answer;
+      return await new Promise<Response>((_resolve, reject) =>
+        init.signal?.addEventListener("abort", () => reject(new Error("aborted"))),
+      );
+    }),
+  );
 }
 
 function authAccount(
@@ -218,6 +218,7 @@ beforeEach(() => {
     vi.stubEnv(name, undefined);
   }
   vi.clearAllMocks();
+  stubFetch();
   mocks.getCachedAccessToken.mockResolvedValue({ accessToken: "cached-access-token" });
   for (const companion of [mocks.agyCompanion, mocks.geminiCliCompanion]) {
     companion.inspect.mockResolvedValue({ state: "present", resolvedPath: "/plugin" });
@@ -231,6 +232,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   rmSync(configDir, { recursive: true, force: true });
 });
 
@@ -341,18 +343,15 @@ describe.each(FLAVORS)("$name OAuth quota flow", (flavor) => {
     await expect(flavor.query(auth, { requestTimeoutMs: 12_345 })).resolves.toMatchObject({
       success: true,
     });
-    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(flavor.quotaUrl, {
-      request: {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer cached-access-token",
-          ...flavor.quotaHeaders,
-        },
-        body: JSON.stringify({ project: "project-1" }),
+    expect(mocks.fetchResponse).toHaveBeenCalledWith(flavor.quotaUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer cached-access-token",
+        ...flavor.quotaHeaders,
       },
-      timeoutMs: 12_345,
-      consume: expect.any(Function),
+      body: JSON.stringify({ project: "project-1" }),
+      signal: expect.any(AbortSignal),
     });
   });
 
@@ -397,24 +396,46 @@ describe.each(FLAVORS)("$name OAuth quota flow", (flavor) => {
   });
 
   it.each([
-    ["revoked grant", jsonResponse({ error: "invalid_grant" }, 400), "Token revoked"],
-    ["error description", jsonResponse({ error_description: "Bad client" }, 401), "Bad client"],
-    ["non-JSON error", notJsonResponse(500), "HTTP 500"],
-    ["timeout", new Error("Request timeout after 8s"), "Token refresh timeout"],
-    ["network error", new Error("socket hang up"), "Token refresh failed"],
-  ])("reports a failed token refresh (%s) as an account error", async (_case, outcome, error) => {
-    mocks.getCachedAccessToken.mockResolvedValue(null);
-    const auth = {
-      [firstKey]: authAccount("refresh", "project"),
-    };
-    if (outcome instanceof Error) mocks.fetchResponse.mockRejectedValueOnce(outcome);
-    else mocks.fetchResponse.mockResolvedValueOnce(outcome);
+    [
+      "revoked grant",
+      jsonResponse({ error: "invalid_grant" }, 400),
+      "Token revoked",
+      { code: "login_expired", status: 400 },
+    ],
+    [
+      "error description",
+      jsonResponse({ error_description: "Bad client" }, 401),
+      "Bad client",
+      { code: "login_expired", status: 401 },
+    ],
+    ["non-JSON error", notJsonResponse(500), "HTTP 500", { code: "provider_error", status: 500 }],
+    ["timeout", NO_REPLY, "Token refresh timeout", { code: "timeout" }],
+    ["network error", new Error("socket hang up"), "Token refresh failed", undefined],
+  ])(
+    "reports a failed token refresh (%s) as an account error",
+    async (_case, outcome, error, facts) => {
+      mocks.getCachedAccessToken.mockResolvedValue(null);
+      const auth = {
+        [firstKey]: authAccount("refresh", "project"),
+      };
+      if (outcome instanceof Error) mocks.fetchResponse.mockRejectedValueOnce(outcome);
+      else mocks.fetchResponse.mockResolvedValueOnce(outcome);
 
-    await expect(flavor.query(auth)).resolves.toEqual({ success: false, error });
-  });
+      await expect(flavor.query(auth, { requestTimeoutMs: 20 })).resolves.toEqual({
+        success: false,
+        error,
+        ...(facts ? { facts } : {}),
+      });
+    },
+  );
 
   it.each([
-    ["server error", [jsonResponse({}, 500)], `${flavor.name} quota API error: 500`],
+    [
+      "server error",
+      [jsonResponse({}, 500)],
+      `${flavor.name} quota API error: 500`,
+      { code: "provider_error", status: 500 },
+    ],
     [
       "auth error after the retry",
       [
@@ -423,19 +444,26 @@ describe.each(FLAVORS)("$name OAuth quota flow", (flavor) => {
         jsonResponse({}, 403),
       ],
       `${flavor.name} quota auth error: 403`,
+      { code: "login_expired", status: 403 },
     ],
-    ["timeout", [new Error("Request timeout after 6s")], "API timeout"],
-  ])("reports a failed quota request (%s) as an account error", async (_case, outcomes, error) => {
-    const auth = {
-      [firstKey]: authAccount("refresh", "project"),
-    };
-    for (const outcome of outcomes) {
-      if (outcome instanceof Error) mocks.fetchResponse.mockRejectedValueOnce(outcome);
-      else mocks.fetchResponse.mockResolvedValueOnce(outcome);
-    }
+    ["timeout", [NO_REPLY], "API timeout", { code: "timeout" }],
+  ])(
+    "reports a failed quota request (%s) as an account error",
+    async (_case, outcomes, error, facts) => {
+      const auth = {
+        [firstKey]: authAccount("refresh", "project"),
+      };
+      for (const outcome of outcomes) {
+        mocks.fetchResponse.mockResolvedValueOnce(outcome);
+      }
 
-    await expect(flavor.query(auth)).resolves.toEqual({ success: false, error });
-  });
+      await expect(flavor.query(auth, { requestTimeoutMs: 20 })).resolves.toEqual({
+        success: false,
+        error,
+        facts,
+      });
+    },
+  );
 });
 
 const AGY_AUTH_KEYS = ["google-agy", "opencode-agy-auth", "google-agy-auth"] as const;

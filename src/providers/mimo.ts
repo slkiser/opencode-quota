@@ -4,10 +4,11 @@
  * Its usage, plan and balance endpoints are read at once; each one that fails is its own error.
  */
 
+import type { ErrorFacts } from "../core/errors.js";
 import type { AmountUnit } from "../core/types.js";
 import { sanitizeSingleLineDisplaySnippet } from "../lib/display-sanitize.js";
 import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
-import { fetchWithTimeout } from "../lib/http.js";
+import { failureFacts, requestJson } from "../lib/http.js";
 import { isRecord } from "../lib/json-guards.js";
 import {
   DEFAULT_MIMO_CONFIG_CACHE_MAX_AGE_MS,
@@ -50,7 +51,9 @@ interface MimoBalance {
   currency: string | null;
 }
 
-type MimoEndpointResult<T> = { state: "success"; data: T } | { state: "error"; error: string };
+type MimoEndpointResult<T> =
+  | { state: "success"; data: T }
+  | { state: "error"; error: string; facts?: ErrorFacts };
 
 interface MimoDashboardResult {
   usage: MimoEndpointResult<MimoMonthlyQuota>;
@@ -129,42 +132,6 @@ function parseMimoBalanceResponse(json: unknown): MimoBalance {
   };
 }
 
-async function readBoundedJson(response: Response): Promise<unknown> {
-  if (!response.body) throw new Error("empty response");
-
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let byteLength = 0;
-
-  try {
-    const contentLength = Number(response.headers.get("content-length"));
-    if (Number.isFinite(contentLength) && contentLength > MIMO_RESPONSE_MAX_BYTES) {
-      throw new Error("response too large");
-    }
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      byteLength += value.byteLength;
-      if (byteLength > MIMO_RESPONSE_MAX_BYTES) {
-        throw new Error("response too large");
-      }
-      chunks.push(value);
-    }
-  } catch (error) {
-    try {
-      await reader.cancel();
-    } catch {
-      // Preserve the original read or size-limit error.
-    }
-    throw error;
-  } finally {
-    reader.releaseLock();
-  }
-
-  return JSON.parse(new TextDecoder().decode(Buffer.concat(chunks)));
-}
-
 function formatMimoDashboardTimeZone(timezoneOffsetMinutes?: number): string {
   const javascriptOffset = timezoneOffsetMinutes ?? new Date().getTimezoneOffset();
   const utcOffset = -javascriptOffset;
@@ -175,17 +142,9 @@ function formatMimoDashboardTimeZone(timezoneOffsetMinutes?: number): string {
   return `UTC${sign}${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
-/** Redacts the whole cookie and each cookie value, since request errors can echo them. */
-function sanitizeRequestError(error: unknown, cookie: string): string {
-  const cookieValues = cookie
-    .split(";")
-    .map((part) => part.slice(part.indexOf("=") + 1).trim())
-    .filter(Boolean);
-  let message = error instanceof Error ? error.message : String(error);
-  for (const secret of [cookie, ...cookieValues]) {
-    message = message.split(secret).join("[redacted]");
-  }
-  return sanitizeSingleLineDisplaySnippet(message, 120) || "request failed";
+/** The whole cookie and each cookie value, since request errors can echo them. */
+function cookieSecrets(cookie: string): string[] {
+  return [cookie, ...cookie.split(";").map((part) => part.slice(part.indexOf("=") + 1).trim())];
 }
 
 async function fetchMimoEndpoint<T>(
@@ -194,49 +153,48 @@ async function fetchMimoEndpoint<T>(
   parse: (json: unknown) => T,
   context: MimoRequestContext,
 ): Promise<MimoEndpointResult<T>> {
-  const fail = (problem: string): MimoEndpointResult<T> => ({
+  const fail = (problem: string, facts?: ErrorFacts): MimoEndpointResult<T> => ({
     state: "error",
     error: `Xiaomi MiMo ${name} ${problem}`,
+    ...(facts ? { facts } : {}),
   });
 
+  const reply = await requestJson(`${MIMO_ORIGIN}/api/v1${path}`, {
+    method: "GET",
+    redirect: "manual",
+    headers: {
+      Accept: "application/json, text/plain, */*",
+      "Accept-Language": "en-US,en;q=0.9",
+      Cookie: context.cookie,
+      Origin: MIMO_ORIGIN,
+      Referer: `${MIMO_ORIGIN}/#/console/balance`,
+      "User-Agent": MIMO_USER_AGENT,
+      "x-timeZone": context.timeZone,
+    },
+    secrets: cookieSecrets(context.cookie),
+    timeoutMs: context.timeoutMs,
+    maxBytes: MIMO_RESPONSE_MAX_BYTES,
+  });
+  if (!reply.ok) {
+    const { failure } = reply;
+    if (failure.kind === "http" && failure.status !== undefined) {
+      // A redirect goes to the sign-in page.
+      if (failure.status >= 300 && failure.status < 400) {
+        return fail("request requires login", failureFacts(failure, "login_expired"));
+      }
+      return fail(`request failed (HTTP ${failure.status})`, failureFacts(failure));
+    }
+    if (failure.kind === "too_large" || failure.kind === "invalid_json") {
+      return fail("response could not be parsed", failureFacts(failure));
+    }
+    const detail = sanitizeSingleLineDisplaySnippet(failure.detail, 120) || "request failed";
+    return fail(`request failed: ${detail}`, failureFacts(failure));
+  }
+
   try {
-    return await fetchWithTimeout(`${MIMO_ORIGIN}/api/v1${path}`, {
-      request: {
-        method: "GET",
-        redirect: "manual",
-        headers: {
-          Accept: "application/json, text/plain, */*",
-          "Accept-Language": "en-US,en;q=0.9",
-          Cookie: context.cookie,
-          Origin: MIMO_ORIGIN,
-          Referer: `${MIMO_ORIGIN}/#/console/balance`,
-          "User-Agent": MIMO_USER_AGENT,
-          "x-timeZone": context.timeZone,
-        },
-      },
-      timeoutMs: context.timeoutMs,
-      consume: async (response, timeoutSignal): Promise<MimoEndpointResult<T>> => {
-        if (response.status >= 300 && response.status < 400) return fail("request requires login");
-        if (!response.ok) return fail(`request failed (HTTP ${response.status})`);
-
-        let json: unknown;
-        try {
-          json = await readBoundedJson(response);
-        } catch (error) {
-          // Let a timeout reach the outer catch so it is reported as a timeout.
-          if (timeoutSignal.aborted) throw error;
-          return fail("response could not be parsed");
-        }
-
-        try {
-          return { state: "success", data: parse(json) };
-        } catch {
-          return fail("response did not match the expected schema");
-        }
-      },
-    });
-  } catch (error) {
-    return fail(`request failed: ${sanitizeRequestError(error, context.cookie)}`);
+    return { state: "success", data: parse(reply.json) };
+  } catch {
+    return fail("response did not match the expected schema");
   }
 }
 
@@ -329,7 +287,7 @@ function mimoAccounts(result: MimoDashboardResult): AccountResult[] {
   return [
     { name: plan ? `${MIMO_LABEL}: ${plan}` : MIMO_LABEL, rows, errors: [] },
     ...[result.usage, result.detail, result.balance].flatMap((endpoint) =>
-      endpoint.state === "error" ? [failedAccount(MIMO_LABEL, endpoint.error)] : [],
+      endpoint.state === "error" ? [failedAccount(MIMO_LABEL, endpoint.error, endpoint.facts)] : [],
     ),
   ];
 }

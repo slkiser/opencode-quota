@@ -1,7 +1,8 @@
 /**
- * One error vocabulary for every surface: `classifyError` turns a provider's free-text failure
- * into a `QuotaError`, and `describeError` gives the short words users see. The raw text is
- * kept in `detail`, scrubbed by `publicDetail`; /quota_status shows the code, status and words.
+ * One error vocabulary for every surface: `providerError` turns a provider's failure into a
+ * `QuotaError` (from the facts its request gave, else by reading its words with
+ * `classifyError`), and `describeError` gives the short words users see. The raw text is kept
+ * in `detail`, scrubbed by `publicDetail`; /quota_status shows the code, status and words.
  */
 import { publicDetail } from "./redact.js";
 import type { QuotaError, QuotaErrorCode } from "./types.js";
@@ -59,7 +60,7 @@ const RULES: ReadonlyArray<readonly [QuotaErrorCode, RegExp]> = [
   ],
   [
     "login_expired",
-    /token (?:expired|revoked)|token refresh failed|sign-in could not be|sign-in expired|session (?:is missing or )?expired|requires login|could not read this login|invalid api key|login fail|\b401\b|unauthorized/i,
+    /token (?:expired|revoked)|token refresh failed|sign-in could not be|sign-in expired|session (?:is missing or )?expired|requires login|could not read this login|invalid api key|login fail|\bauth error\b|\b401\b|unauthorized/i,
   ],
   [
     "not_configured",
@@ -69,10 +70,13 @@ const RULES: ReadonlyArray<readonly [QuotaErrorCode, RegExp]> = [
     "network",
     /fetch failed|\beconn(?:refused|reset|aborted)\b|\benotfound\b|\beai_again\b|socket hang up|request failed:/i,
   ],
-  ["provider_error", /\b(?:http|api error|error|status)\s*\(?\d{3}\b|\(http \d{3}\)/i],
+  [
+    "provider_error",
+    /\b(?:http|api error|error|status):?\s*\(?\d{3}\b|\(http \d{3}\)|\breturned [3-5]\d{2}\b/i,
+  ],
   [
     "bad_response",
-    /invalid|parse|valid json|unexpected response|response missing|exceeded \d+ bytes|redirect rejected|expected a json|did not match/i,
+    /invalid|parse|valid json|unexpected\b.*\bresponse|response shape|response missing|exceeded \d+ bytes|redirect rejected|expected a json|did not match/i,
   ],
   [
     "no_data",
@@ -91,8 +95,12 @@ function findRetryAtMs(message: string, nowMs: number): number | undefined {
   return match ? nowMs + Number(match[1]) * 1000 : undefined;
 }
 
+function codeFromWords(message: string): QuotaErrorCode {
+  return RULES.find(([, pattern]) => pattern.test(message))?.[0] ?? "internal";
+}
+
 export function classifyError(message: string, nowMs: number = Date.now()): QuotaError {
-  const code = RULES.find(([, pattern]) => pattern.test(message))?.[0] ?? "internal";
+  const code = codeFromWords(message);
   // Hidden before it is cut, so a cut never leaves part of an email address or home dir.
   const detail = publicDetail(message, DETAIL_MAX_LENGTH);
   const error: QuotaError = { code, ...(detail ? { detail } : {}) };
@@ -110,6 +118,47 @@ export function classifyError(message: string, nowMs: number = Date.now()): Quot
     if (/not found|not supported/i.test(message)) error.missing = true;
   }
   return error;
+}
+
+/** What a failed request says about itself: its code, HTTP status and when to try again. */
+export type ErrorFacts = Pick<QuotaError, "code" | "status" | "retryAtMs">;
+
+/** The latest retry time a provider's reply may set: a daily quota resets within it. */
+export const RETRY_WAIT_MAX_MS = 24 * 60 * 60_000;
+
+/**
+ * Codes the words name more exactly than a bare status: a 403 that says "secondary rate limit"
+ * or "not subscribed", a 504 "Gateway Timeout".
+ */
+const CODES_OVER_PROVIDER_ERROR: ReadonlySet<QuotaErrorCode> = new Set([
+  "rate_limited",
+  "no_plan",
+  "login_expired",
+  "timeout",
+]);
+
+/**
+ * A provider's failure: its own facts when its request gave them, else read from its words.
+ * When the facts only say `provider_error`, words that name a rate limit, a missing plan, an
+ * expired login or a timeout win; the status and retry time stay.
+ */
+export function providerError(
+  message: string,
+  facts: ErrorFacts | undefined,
+  nowMs: number = Date.now(),
+): QuotaError {
+  if (!facts || !isQuotaErrorCode(facts.code)) return classifyError(message, nowMs);
+  const wordsCode = facts.code === "provider_error" ? codeFromWords(message) : undefined;
+  const code =
+    wordsCode !== undefined && CODES_OVER_PROVIDER_ERROR.has(wordsCode) ? wordsCode : facts.code;
+  const detail = publicDetail(message, DETAIL_MAX_LENGTH);
+  const status = httpStatus(facts.status);
+  return {
+    code,
+    ...(detail ? { detail } : {}),
+    ...(status !== undefined ? { status } : {}),
+    ...(facts.retryAtMs !== undefined ? { retryAtMs: facts.retryAtMs } : {}),
+  };
 }
 
 function formatWait(ms: number): string {

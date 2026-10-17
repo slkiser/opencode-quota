@@ -4,13 +4,15 @@
  * adding each row's id, provider and account.
  */
 
+import type { ErrorFacts } from "../core/errors.js";
 import type { DebugDetail, QuotaRow, QuotaWindow } from "../core/types.js";
 import { type CredentialRow, formatCredentialDisplayNames } from "../lib/opencode-auth.js";
 
 /** One row as a provider reports it; `key` is the part of the row id after the provider id. */
 export type ProviderRow = Omit<QuotaRow, "id" | "providerId" | "account"> & { key: string };
 
-export type FetchError = { message: string };
+/** One error: its words, and the facts of the request that failed when it gave them. */
+export type FetchError = { message: string; facts?: ErrorFacts };
 
 /**
  * One account's rows and errors. `name` is its display name, for example
@@ -97,12 +99,17 @@ export function windowRows(
 }
 
 /** An account with one error and no rows. */
-export function failedAccount(name: string, message: string): AccountResult {
-  return { name, rows: [], errors: [{ message }] };
+export function failedAccount(name: string, message: string, facts?: ErrorFacts): AccountResult {
+  return { name, rows: [], errors: [fetchError(message, facts)] };
+}
+
+/** An error with its request's facts, when there are some. */
+export function fetchError(message: string, facts?: ErrorFacts): FetchError {
+  return facts ? { message, facts } : { message };
 }
 
 /** What one login gave: its rows and errors, or null when it had nothing to query. */
-type LoginFetch = {
+export type LoginFetch = {
   rows: ProviderRow[];
   errors: FetchError[];
   /** The name of a login without an alias of its own, for example "Copilot (pro)". */
@@ -142,40 +149,4 @@ export async function fetchEachLogin<Login extends { row: CredentialRow }>(param
       },
     ];
   });
-}
-
-/** A stored key login OpenCode could not use: what `readKeyLogins` gives for a broken one. */
-type BrokenKeyLogin = { state: "invalid"; error: string };
-
-/**
- * Fetches each stored key login of an API-key vendor (see `readKeyLogins`). A broken login is
- * an account with its error; `brokenFirst` lists those before the fetched ones.
- */
-export async function fetchKeyLogins<Auth extends { state: string }>(params: {
-  providerName: string;
-  logins: ReadonlyArray<{ row: CredentialRow; auth: Auth }>;
-  brokenFirst: boolean;
-  fetchLogin: (login: {
-    row: CredentialRow;
-    auth: Exclude<Auth, BrokenKeyLogin>;
-  }) => Promise<LoginFetch>;
-}): Promise<AccountResult[]> {
-  const accounts = await fetchEachLogin({
-    providerName: params.providerName,
-    logins: params.logins,
-    async fetchLogin({ row, auth }) {
-      if (auth.state === "invalid") {
-        return { rows: [], errors: [{ message: (auth as unknown as BrokenKeyLogin).error }] };
-      }
-      return params.fetchLogin({ row, auth: auth as Exclude<Auth, BrokenKeyLogin> });
-    },
-  });
-  if (!params.brokenFirst) return accounts;
-  const broken = new Set(
-    params.logins.filter(({ auth }) => auth.state === "invalid").map(({ row }) => row.id),
-  );
-  return [
-    ...accounts.filter((account) => broken.has(account.login ?? "")),
-    ...accounts.filter((account) => !broken.has(account.login ?? "")),
-  ];
 }

@@ -333,14 +333,31 @@ export async function readKeyLogins(
   });
 }
 
-/** The keys a vendor checks: the env or config key when one is set, else every stored login. */
-export type VendorKeys = { envOrConfig: ApiKeyResult | null; logins: KeyLogin[] };
+/**
+ * The keys a vendor checks: the env or config key when one is set, else every stored login.
+ * `broken` is the error of the first stored login when it is not a usable key and no stored
+ * key login is listed (for example an OAuth login of a key-only vendor); vendors that skip
+ * broken logins never have one.
+ */
+export type VendorKeys = {
+  envOrConfig: ApiKeyResult | null;
+  logins: KeyLogin[];
+  broken: string | null;
+};
 
-export async function readVendorKeys(spec: ApiKeyLoginSpec): Promise<VendorKeys> {
+export async function readVendorKeys(
+  spec: ApiKeyLoginSpec,
+  options: { selectRows?: (rows: CredentialRow[]) => CredentialRow[] } = {},
+): Promise<VendorKeys> {
   const envOrConfig = await resolveApiKeyFromEnvAndConfig(spec);
-  return { envOrConfig, logins: envOrConfig ? [] : await readKeyLogins(spec) };
+  if (envOrConfig) return { envOrConfig, logins: [], broken: null };
+  const logins = await readKeyLogins(spec, options);
+  if (logins.length > 0 || spec.skipBrokenLogins) return { envOrConfig, logins, broken: null };
+  const first = parseApiKeyLogin(spec, await readApiKeyLoginAuth(spec));
+  return { envOrConfig, logins, broken: first.state === "invalid" ? first.error : null };
 }
 
+/** True when the vendor has a key to check, or a broken login to show. */
 export function hasVendorKey(keys: VendorKeys): boolean {
-  return keys.envOrConfig !== null || keys.logins.length > 0;
+  return keys.envOrConfig !== null || keys.logins.length > 0 || keys.broken !== null;
 }

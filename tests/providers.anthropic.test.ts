@@ -1,214 +1,293 @@
-import { describe, expect, it, vi } from "vite-plus/test";
-import { rowsFromProviderResult } from "../src/core/rows.js";
-import type { QuotaRow } from "../src/core/types.js";
+/**
+ * Claude through the provider world: logins in a temp `opencode.db`, fake HTTP, and a fake
+ * `claude` script (POSIX only) that records each run. Claude's own Keychain and credentials
+ * file are never reached: every fake CLI either reports quota or is signed out.
+ */
+
+import { chmodSync, existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { beforeEach, describe, expect, it } from "vite-plus/test";
+
+import { clearAnthropicDiagnosticsCacheForTests } from "../src/lib/anthropic.js";
 import {
-  getAnthropicDiagnostics,
-  hasAnthropicCredentialsConfigured,
-  queryAnthropicQuota,
-  queryAnthropicQuotaWithOAuth,
-} from "../src/lib/anthropic.js";
-import type { QuotaProviderContext } from "../src/lib/entries.js";
-import { readCredentialRows } from "../src/lib/opencode-auth.js";
+  bindCredentialSource,
+  createIntegrationCredentialSource,
+} from "../src/lib/opencode-auth.js";
 import { anthropicProvider } from "../src/providers/anthropic.js";
+import fableWeeklyUsage from "./fixtures/anthropic/fable-weekly.sanitized.json";
+import type { CredentialDatabaseRow } from "./helpers/credential-database.js";
+import { createFakeIntegration } from "./helpers/fake-integration.js";
+import {
+  fakeHttp,
+  fetchRows,
+  requestHeader,
+  rowSummary,
+  useProviderWorld,
+} from "./helpers/provider-fetch.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 
-vi.mock("../src/lib/anthropic.js", () => ({
-  getAnthropicDiagnostics: vi.fn(),
-  hasAnthropicCredentialsConfigured: vi.fn(),
-  queryAnthropicQuota: vi.fn(),
-  queryAnthropicQuotaWithOAuth: vi.fn(),
-}));
-
-vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/lib/opencode-auth.js")>()),
-  readCredentialRows: vi.fn().mockResolvedValue([]),
-}));
-
-const diagnosticsMock = vi.mocked(getAnthropicDiagnostics);
-const quotaMock = vi.mocked(queryAnthropicQuota);
-const oauthQuotaMock = vi.mocked(queryAnthropicQuotaWithOAuth);
-const credentialsConfiguredMock = vi.mocked(hasAnthropicCredentialsConfigured);
-const NO_CONFIG_CTX = {} as QuotaProviderContext;
-const NOW_MS = Date.parse("2026-07-21T12:00:00.000Z");
+const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const FIVE_HOUR_RESET = "2026-07-21T14:10:00.268Z";
 const WEEKLY_RESET = "2026-07-27T07:00:00.268Z";
+const POSIX = process.platform !== "win32";
 
-function mockDiagnostics(diagnostics: Record<string, unknown>): void {
-  diagnosticsMock.mockResolvedValueOnce({
-    installed: true,
-    version: "1.2.3",
-    authStatus: "authenticated",
-    checkedCommands: ["claude --version"],
-    ...diagnostics,
-  } as never);
+const world = useProviderWorld();
+
+beforeEach(() => {
+  clearAnthropicDiagnosticsCacheForTests();
+});
+
+/** A stored Claude OAuth login; `value` fields replace the defaults. */
+function claudeLogin(id: string, value: Record<string, unknown> = {}): CredentialDatabaseRow {
+  return {
+    id,
+    integrationId: "anthropic",
+    label: id,
+    active: null,
+    updated: 1,
+    value: { type: "oauth", access: `token-${id}`, expires: Date.now() + 3_600_000, ...value },
+  };
 }
 
-async function fetchRows(ctx: QuotaProviderContext = NO_CONFIG_CTX) {
-  return rowsFromProviderResult("anthropic", await anthropicProvider.fetch(ctx), NOW_MS);
+/** A path where no Claude CLI is. */
+function missingClaude(): string {
+  return join(world.configDir, "no-claude");
 }
 
-/** id, account, label, window, method, percent left, reset. */
-function summary(rows: QuotaRow[]) {
-  return rows.map((row) => [
-    row.id,
-    row.account ?? null,
-    row.label,
-    row.window ?? null,
-    row.method,
-    row.percentRemaining,
-    row.resetsAt ?? null,
-  ]);
+/** A fake `claude` that prints `authStatus` as its `auth status --json` and logs each run. */
+function fakeClaude(authStatus: unknown): { path: string; runs: () => string[] } {
+  const log = join(world.configDir, "claude-runs.log");
+  world.writeConfigFile(
+    "claude",
+    [
+      "#!/bin/sh",
+      `echo "$*" >> '${log}'`,
+      'if [ "$1" = "--version" ]; then echo "2.1.0 (Claude Code)"; exit 0; fi',
+      "cat <<'JSON'",
+      JSON.stringify(authStatus),
+      "JSON",
+      "",
+    ].join("\n"),
+  );
+  const path = join(world.configDir, "claude");
+  chmodSync(path, 0o755);
+  return {
+    path,
+    runs: () => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : []),
+  };
+}
+
+const CLI_QUOTA = {
+  authenticated: true,
+  quota: {
+    five_hour: { used_percentage: 57, resets_at: FIVE_HOUR_RESET },
+    seven_day: { used_percentage: 12, resets_at: WEEKLY_RESET },
+  },
+};
+
+function errorDebug(fetched: { debug: Array<{ key: string; value: string }> }): string[] {
+  return fetched.debug.filter((item) => item.key === "error").map((item) => item.value);
 }
 
 describe("anthropic provider", () => {
-  it.each([
-    [
-      "local CLI windows as local CLI rows",
-      "claude-auth-status-json",
-      {},
-      [
-        ["anthropic.five_hour", null, "5h", "five_hour", "local_cli", 43, FIVE_HOUR_RESET],
-        ["anthropic.weekly", null, "Weekly", "week", "local_cli", 88, WEEKLY_RESET],
-      ],
-    ],
-    [
-      "Usage Credits and Fable weekly from the OAuth API as remote rows",
-      "opencode-auth-oauth-api",
-      {
-        extra_usage: { percentRemaining: 62 },
-        fable_weekly: { percentRemaining: 98, resetTimeIso: WEEKLY_RESET },
-      },
-      [
-        ["anthropic.five_hour", null, "5h", "five_hour", "remote_api", 43, FIVE_HOUR_RESET],
-        ["anthropic.weekly", null, "Weekly", "week", "remote_api", 88, WEEKLY_RESET],
-        ["anthropic.extra_usage", null, "Extra usage", "month", "remote_api", 62, null],
-        ["anthropic.weekly_fable", null, "Fable", "week", "remote_api", 98, WEEKLY_RESET],
-      ],
-    ],
-  ])("maps %s", async (_name, quotaSource, extra, expected) => {
-    const quota = {
-      success: true as const,
-      five_hour: { percentRemaining: 43, resetTimeIso: FIVE_HOUR_RESET },
-      seven_day: { percentRemaining: 88, resetTimeIso: WEEKLY_RESET },
-      ...extra,
-    };
-    mockDiagnostics({ quotaSupported: true, quotaSource, quota });
-    quotaMock.mockResolvedValueOnce(quota);
+  it("asks each OpenCode login once and never starts the Claude CLI", async () => {
+    world.storeLogins([claudeLogin("work")]);
+    const http = fakeHttp(() => ({
+      ...fableWeeklyUsage,
+      extra_usage: { is_enabled: true, utilization: 37.8 },
+    }));
 
-    const fetched = await fetchRows();
+    const fetched = await fetchRows(anthropicProvider, { anthropicBinaryPath: missingClaude() });
 
-    expect(summary(fetched.rows)).toEqual(expected);
-    expect(fetched.rows.every((row) => row.type === "quota" && row.prominence === "primary")).toBe(
-      true,
-    );
-    expect(fetched.error).toBeUndefined();
-    expect(fetched.debug).toContainEqual({
-      key: "five_hour_remaining",
-      value: `43% reset_at=${FIVE_HOUR_RESET}`,
-    });
-  });
-
-  it("queries each stored Claude login and shows one OpenCode could not read as an error", async () => {
-    vi.mocked(readCredentialRows).mockResolvedValueOnce([
-      {
-        id: "failed-active",
-        integrationId: "anthropic",
-        label: "default",
-        active: true,
-        value: { type: "oauth" },
-        resolveError: "refresh_failed: HTTP 500",
-      },
-      {
-        id: "valid-inactive",
-        integrationId: "anthropic",
-        label: "Work",
-        active: false,
-        value: { type: "oauth", access: "valid" },
-      },
-    ] as never);
-    mockDiagnostics({ quotaSupported: false, quotaSource: "none", checkedCommands: [] });
-    oauthQuotaMock.mockResolvedValueOnce({
-      success: true,
-      five_hour: { percentRemaining: 80 },
-      seven_day: { percentRemaining: 70 },
-      extra_usage: { percentRemaining: 60 },
-      fable_weekly: { percentRemaining: 50 },
-    });
-
-    const fetched = await fetchRows({ config: { requestTimeoutMs: 2500 } } as QuotaProviderContext);
-
-    expect(oauthQuotaMock).toHaveBeenCalledExactlyOnceWith("valid", 2500);
-    expect(quotaMock).not.toHaveBeenCalled();
-    expect(summary(fetched.rows)).toEqual([
-      ["anthropic.five_hour", "Work", "5h", "five_hour", "remote_api", 80, null],
-      ["anthropic.weekly", "Work", "Weekly", "week", "remote_api", 70, null],
-      ["anthropic.extra_usage", "Work", "Extra usage", "month", "remote_api", 60, null],
-      ["anthropic.weekly_fable", "Work", "Fable", "week", "remote_api", 50, null],
+    expect(http).toHaveBeenCalledOnce();
+    expect(http.mock.calls[0]?.[0]).toBe(USAGE_URL);
+    expect(requestHeader(http.mock.calls[0]?.[1], "Authorization")).toBe("Bearer token-work");
+    expect(rowSummary(fetched.rows)).toEqual([
+      ["anthropic.five_hour", "work", "5h", "five_hour", 58, FIVE_HOUR_RESET],
+      ["anthropic.weekly", "work", "Weekly", "week", 72, WEEKLY_RESET],
+      ["anthropic.extra_usage", "work", "Extra usage", "month", 62, null],
+      ["anthropic.weekly_fable", "work", "Fable", "week", 98, WEEKLY_RESET],
     ]);
-    expect(fetched.rowLogins).toEqual(Array(4).fill("valid-inactive"));
-    expect(fetched.error).toMatchObject({ code: "login_expired" });
-    expect(fetched.debug).toContainEqual({
-      key: "error",
-      value:
-        "[Claude] (active): Anthropic sign-in could not be read: refresh_failed: HTTP 500. Run `opencode auth login anthropic`.",
-    });
+    expect(fetched.rows.every((row) => row.method === "remote_api")).toBe(true);
+    expect(fetched.debug).toEqual([
+      { key: "quota_supported", value: "true" },
+      { key: "quota_source", value: "opencode-auth-oauth-api" },
+      { key: "oauth_credential_source", value: "opencode-auth" },
+    ]);
   });
 
-  it.each([
-    [
-      "a failed query as the error",
-      {
-        success: false,
-        error: "Invalid or expired Anthropic token; re-authenticate Claude Code",
-      },
-      { rows: [], error: { code: "bad_response" } },
-      "Claude: Invalid or expired Anthropic token; re-authenticate Claude Code",
-    ],
-    ["no Claude login as not set up", null, { rows: [], error: { code: "not_configured" } }, null],
-  ])("reports %s", async (_name, result, expected, errorLine) => {
-    diagnosticsMock.mockRejectedValueOnce(new Error("probe \u001b[31mboom"));
-    quotaMock.mockResolvedValueOnce(result as never);
+  it.runIf(POSIX)("leaves an installed Claude CLI alone while a login works", async () => {
+    world.storeLogins([claudeLogin("work")]);
+    fakeHttp(() => ({ five_hour: { utilization: 10 }, seven_day: { utilization: 20 } }));
+    const claude = fakeClaude(CLI_QUOTA);
 
-    const fetched = await fetchRows();
+    const fetched = await fetchRows(anthropicProvider, { anthropicBinaryPath: claude.path });
 
-    expect(fetched).toMatchObject(expected);
+    expect(fetched.rows).toHaveLength(2);
+    expect(claude.runs()).toEqual([]);
+  });
+
+  it.runIf(POSIX)("shows the Claude CLI's own windows without an OpenCode login", async () => {
+    const http = fakeHttp(() => ({}));
+    const claude = fakeClaude(CLI_QUOTA);
+
+    const fetched = await fetchRows(anthropicProvider, { anthropicBinaryPath: claude.path });
+
+    expect(rowSummary(fetched.rows)).toEqual([
+      ["anthropic.five_hour", null, "5h", "five_hour", 43, FIVE_HOUR_RESET],
+      ["anthropic.weekly", null, "Weekly", "week", 88, WEEKLY_RESET],
+    ]);
+    expect(fetched.rows.every((row) => row.method === "local_cli")).toBe(true);
+    expect(http).not.toHaveBeenCalled();
+    expect(claude.runs()).toEqual(["--version", "auth status --json"]);
+    expect(fetched.debug).toEqual(
+      expect.arrayContaining([
+        { key: "cli_installed", value: "true" },
+        { key: "cli_version", value: "2.1.0" },
+        { key: "binary_path", value: claude.path },
+        { key: "quota_source", value: "claude-auth-status-json" },
+        { key: "oauth_credential_source", value: "(none)" },
+        { key: "five_hour_remaining", value: `43% reset_at=${FIVE_HOUR_RESET}` },
+      ]),
+    );
+  });
+
+  it("is not set up without an OpenCode login or a Claude CLI", async () => {
+    const http = fakeHttp(() => ({}));
+
+    const fetched = await fetchRows(anthropicProvider, { anthropicBinaryPath: missingClaude() });
+
+    expect(fetched).toMatchObject({ rows: [], error: { code: "not_configured" } });
+    expect(fetched.debug).toContainEqual({ key: "cli_installed", value: "false" });
+    expect(http).not.toHaveBeenCalled();
+  });
+
+  it("reports a Claude CLI probe that throws as a local tool failure", async () => {
+    const fetched = await fetchRows(anthropicProvider, { anthropicBinaryPath: "bad\0claude" });
+
+    expect(fetched.error).toMatchObject({ code: "local_tool", tool: "Claude CLI" });
     expect(fetched.debug.slice(0, 2)).toEqual([
       { key: "cli_installed", value: "false" },
-      { key: "message", value: "failed to probe Claude CLI: probe boom" },
+      { key: "message", value: expect.stringMatching(/^failed to probe Claude CLI: /u) },
     ]);
-    if (errorLine) expect(fetched.debug).toContainEqual({ key: "error", value: errorLine });
   });
 
-  it.each([
-    [
-      "the credential store that answered the usage probe",
+  it("asks for sign-in again for an expired login, without asking Anthropic", async () => {
+    world.storeLogins([claudeLogin("work", { expires: Date.now() - 1 })]);
+    const http = fakeHttp(() => ({}));
+    const ctx = createProviderAvailabilityContext({
+      providerIds: ["anthropic"],
+      configOverrides: { anthropicBinaryPath: missingClaude() },
+    });
+
+    await expect(anthropicProvider.isAvailable(ctx)).resolves.toBe(true);
+    const fetched = await fetchRows(anthropicProvider, { anthropicBinaryPath: missingClaude() });
+
+    expect(fetched).toMatchObject({ rows: [], error: { code: "login_expired" } });
+    expect(errorDebug(fetched)).toEqual([
+      "[Claude work]: Anthropic sign-in expired. Run `opencode auth login anthropic`.",
+    ]);
+    expect(http).not.toHaveBeenCalled();
+  });
+
+  it("shows each login's rows, and a login OpenCode could not return as its error", async () => {
+    const integration = createFakeIntegration([
       {
-        oauthCredentialSource: "opencode-auth",
-        binaryPath: "/opt/homebrew/bin/claude",
-        quotaSupported: true,
-        quotaSource: "opencode-auth-oauth-api",
+        integrationId: "anthropic",
+        id: "failed-active",
+        label: "default",
+        registered: true,
+        method: "oauth",
+        value: { type: "oauth", access: "old" },
+        resolveError: "HTTP 500",
       },
-      [
-        { key: "oauth_credential_source", value: "opencode-auth" },
-        { key: "binary_path", value: "/opt/homebrew/bin/claude" },
-        { key: "quota_source", value: "opencode-auth-oauth-api" },
-      ],
-    ],
-    [
-      "no credential store when the OAuth probe was never reached",
-      { binaryPath: null, quotaSupported: false, quotaSource: "none" },
-      [
-        { key: "oauth_credential_source", value: "(none)" },
-        { key: "binary_path", value: "(none)" },
-      ],
-    ],
-  ])("reports %s", async (_label, diagnostics, expectedDetails) => {
-    mockDiagnostics(diagnostics);
-    quotaMock.mockResolvedValueOnce(null);
+      {
+        integrationId: "anthropic",
+        id: "valid",
+        label: "Work",
+        registered: true,
+        method: "oauth",
+        value: { type: "oauth", access: "valid" },
+      },
+    ]);
+    const unbind = bindCredentialSource(createIntegrationCredentialSource(integration as never));
+    const http = fakeHttp(() => ({
+      five_hour: { utilization: 20 },
+      seven_day: { utilization: 30 },
+    }));
 
-    const { debug } = await fetchRows();
+    try {
+      const fetched = await fetchRows(anthropicProvider, { anthropicBinaryPath: missingClaude() });
 
-    for (const detail of expectedDetails) expect(debug).toContainEqual(detail);
+      expect(rowSummary(fetched.rows)).toEqual([
+        ["anthropic.five_hour", "Work", "5h", "five_hour", 80, null],
+        ["anthropic.weekly", "Work", "Weekly", "week", 70, null],
+      ]);
+      expect(fetched.rowLogins).toEqual(["valid", "valid"]);
+      expect(fetched.error).toMatchObject({ code: "login_expired" });
+      expect(errorDebug(fetched)).toEqual([
+        "[Claude] (active): Anthropic sign-in could not be read: refresh_failed: HTTP 500. Run `opencode auth login anthropic`.",
+      ]);
+      expect(http.mock.calls.map(([, init]) => requestHeader(init, "Authorization"))).toEqual([
+        "Bearer valid",
+      ]);
+    } finally {
+      unbind();
+    }
+  });
+
+  it.runIf(POSIX)(
+    "starts the Claude CLI for its details when Anthropic rejects a login",
+    async () => {
+      world.storeLogins([claudeLogin("work")]);
+      const http = fakeHttp(() => new Response("revoked token-work", { status: 401 }));
+      const claude = fakeClaude({ authenticated: false });
+
+      const fetched = await fetchRows(anthropicProvider, { anthropicBinaryPath: claude.path });
+
+      expect(fetched).toMatchObject({
+        rows: [],
+        error: { code: "login_expired", detail: expect.stringContaining("[redacted]") },
+      });
+      expect(http).toHaveBeenCalledOnce();
+      expect(claude.runs()).toEqual(["--version", "auth status --json"]);
+      expect(fetched.debug).toEqual(
+        expect.arrayContaining([
+          { key: "cli_installed", value: "true" },
+          { key: "auth_status", value: "unauthenticated" },
+          { key: "quota_source", value: "(none)" },
+        ]),
+      );
+    },
+  );
+
+  it("reports an empty 503 as a provider error, with its Retry-After", async () => {
+    world.storeLogins([claudeLogin("work")]);
+    fakeHttp(() => new Response("", { status: 503, headers: { "Retry-After": "60" } }));
+    const before = Date.now();
+
+    const fetched = await fetchRows(anthropicProvider, { anthropicBinaryPath: missingClaude() });
+
+    expect(fetched.error).toMatchObject({ code: "provider_error", status: 503 });
+    expect(fetched.error?.retryAtMs).toBeGreaterThanOrEqual(before + 60_000);
+    expect(errorDebug(fetched)).toEqual(["[Claude work]: Anthropic API returned 503"]);
+  });
+
+  it("passes the request timeout to the usage request", async () => {
+    world.storeLogins([claudeLogin("work")]);
+    fakeHttp(
+      (_url, init) =>
+        new Promise((_resolve, reject) =>
+          init.signal?.addEventListener("abort", () => reject(new Error("aborted"))),
+        ),
+    );
+
+    const fetched = await fetchRows(anthropicProvider, {
+      anthropicBinaryPath: missingClaude(),
+      requestTimeoutMs: 20,
+    });
+
+    expect(fetched.error).toMatchObject({ code: "timeout" });
   });
 
   it.each([
@@ -226,38 +305,22 @@ describe("anthropic provider", () => {
     [["claude"], true, false],
     [["anthropic"], false, false],
   ])(
-    "with provider ids %j and Claude auth ready=%s is available=%s",
-    async (providerIds, credentialsConfigured, expected) => {
-      credentialsConfiguredMock.mockResolvedValue(credentialsConfigured);
+    "with provider ids %j and a stored login=%s is available=%s",
+    async (providerIds, hasLogin, expected) => {
+      world.storeLogins(hasLogin ? [claudeLogin("work")] : []);
+      const ctx = createProviderAvailabilityContext({
+        providerIds,
+        configOverrides: { anthropicBinaryPath: missingClaude() },
+      });
 
-      await expect(
-        anthropicProvider.isAvailable(createProviderAvailabilityContext({ providerIds })),
-      ).resolves.toBe(expected);
+      await expect(anthropicProvider.isAvailable(ctx)).resolves.toBe(expected);
     },
   );
 
   it("is not available when provider lookup throws", async () => {
+    world.storeLogins([claudeLogin("work")]);
     const ctx = createProviderAvailabilityContext({ providersError: new Error("boom") });
 
     await expect(anthropicProvider.isAvailable(ctx)).resolves.toBe(false);
-  });
-
-  it("passes the configured Claude binary path and timeout through Anthropic probes", async () => {
-    credentialsConfiguredMock.mockResolvedValue(true);
-    quotaMock.mockResolvedValueOnce(null);
-    const ctx = createProviderAvailabilityContext({
-      providerIds: ["anthropic"],
-      configOverrides: { anthropicBinaryPath: "/opt/claude/bin/claude", requestTimeoutMs: 2500 },
-    });
-
-    await expect(anthropicProvider.isAvailable(ctx)).resolves.toBe(true);
-    expect(credentialsConfiguredMock).toHaveBeenCalledWith({
-      binaryPath: "/opt/claude/bin/claude",
-    });
-
-    await anthropicProvider.fetch(ctx);
-    const options = { binaryPath: "/opt/claude/bin/claude", requestTimeoutMs: 2500 };
-    expect(diagnosticsMock).toHaveBeenLastCalledWith(options);
-    expect(quotaMock).toHaveBeenCalledWith(options);
   });
 });

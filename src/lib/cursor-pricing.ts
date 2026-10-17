@@ -147,7 +147,9 @@ export function getEffectiveCursorIncludedApiUsd(params: {
 }
 
 export function lookupCursorLocalCost(model: string): CostBuckets | null {
-  return CURSOR_LOCAL_PRICING[model as CursorLocalPricingModel] ?? null;
+  return Object.hasOwn(CURSOR_LOCAL_PRICING, model)
+    ? CURSOR_LOCAL_PRICING[model as CursorLocalPricingModel]
+    : null;
 }
 
 export function resolveCursorModel(rawModelId?: string): CursorResolvedModel {
@@ -166,6 +168,7 @@ export function resolveCursorModel(rawModelId?: string): CursorResolvedModel {
     return { kind: "local", model: localModel as CursorLocalPricingModel, pool: "auto_composer" };
   }
 
-  const official = CURSOR_OFFICIAL_MODEL_ALIASES[model];
-  return official ? { kind: "official", ...official, pool: "api" } : { kind: "unknown" };
+  return Object.hasOwn(CURSOR_OFFICIAL_MODEL_ALIASES, model)
+    ? { kind: "official", ...CURSOR_OFFICIAL_MODEL_ALIASES[model]!, pool: "api" }
+    : { kind: "unknown" };
 }

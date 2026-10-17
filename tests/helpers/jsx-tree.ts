@@ -29,6 +29,33 @@ export function findAll(node: unknown, match: (node: Node) => boolean): Node[] {
   return [...(match(element) ? [element] : []), ...findAll(element.props?.children, match)];
 }
 
+/** The text lines with runs of spaces as one space, so layout tweaks don't break the checks. */
+export function words(node: unknown): string[] {
+  return textLines(node).map((line) => line.replace(/\s+/gu, " ").trim());
+}
+
+/** The labels of the active choices: the tab, Cost or Tokens, the range (without its ›), Model or Day. */
+export function activeLabels(node: unknown): string[] {
+  return findAll(node, (item) => item.type === "text" && item.props.fg === "selected").map((item) =>
+    (textLines(item)[0] ?? "").trim().replace(/^› /u, ""),
+  );
+}
+
+/** A line on a node that a click uses: its text is `text` (a list's chosen item has › before it). */
+export function clickable(tree: unknown, text: string): Node {
+  return findAll(
+    tree,
+    (node) =>
+      typeof node.props?.onMouseUp === "function" &&
+      textLines(node).join("").trim().replace(/^› /u, "") === text,
+  )[0]!;
+}
+
+/** The lines of the window's Settings line with this setting path (or id). */
+export function settingLine(tree: unknown, id: string): Node[] {
+  return findAll(tree, (node) => node.props?.id === `quota-settings.${id}`);
+}
+
 /** The theme tokens the TUI reads, each a name a test can look for. */
 export const THEME = {
   text: {

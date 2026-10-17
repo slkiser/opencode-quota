@@ -5,11 +5,11 @@ import type { CredentialRow } from "../src/lib/opencode-auth.js";
 import {
   FIVE_HOUR,
   fetchEachLogin,
-  fetchKeyLogins,
   type ProviderFetchResult,
   type ProviderRow,
   quotaRow,
 } from "../src/providers/contract.js";
+import { fetchStoredKeys } from "../src/providers/key-vendor.js";
 
 const NOW_MS = Date.parse("2026-01-01T12:00:00.000Z");
 
@@ -47,7 +47,7 @@ describe("fetchEachLogin", () => {
   });
 });
 
-describe("fetchKeyLogins", () => {
+describe("fetchStoredKeys", () => {
   const logins = [
     { row: login("a", "Work").row, auth: { state: "configured" as const, apiKey: "good" } },
     { row: login("b", "").row, auth: { state: "invalid" as const, error: "key is empty" } },
@@ -58,21 +58,39 @@ describe("fetchKeyLogins", () => {
     [false, ["[Kimi Work]", "[Kimi]", "[Kimi Home]"]],
     [true, ["[Kimi]", "[Kimi Work]", "[Kimi Home]"]],
   ])("with brokenFirst %s lists the accounts %j", async (brokenFirst, names) => {
-    const accounts = await fetchKeyLogins({
+    const { attempted, accounts } = await fetchStoredKeys({
       providerName: "Kimi",
-      logins,
+      keys: { envOrConfig: null, logins, broken: null },
       brokenFirst,
-      async fetchLogin({ auth }) {
-        return auth.apiKey === "bad"
+      async fetchKey(apiKey) {
+        return apiKey === "bad"
           ? { rows: [], errors: [{ message: "HTTP 500" }] }
           : { rows: [FIVE_HOUR_ROW], errors: [] };
       },
     });
 
+    expect(attempted).toBe(true);
     expect(accounts.map((account) => account.name)).toEqual(names);
     expect(accounts.find((account) => account.login === "b")?.errors).toEqual([
       { message: "key is empty" },
     ]);
+  });
+
+  it.each([
+    ["the broken first login as the one error", 'Unsupported Kimi auth type: "oauth"', true],
+    ["nothing to attempt without a login", null, false],
+  ])("shows %s", async (_name, broken, attempted) => {
+    const fetched = await fetchStoredKeys({
+      providerName: "Kimi",
+      keys: { envOrConfig: null, logins: [], broken },
+      brokenFirst: true,
+      fetchKey: async () => ({ rows: [FIVE_HOUR_ROW], errors: [] }),
+    });
+
+    expect(fetched).toEqual({
+      attempted,
+      accounts: broken ? [{ name: "Kimi", rows: [], errors: [{ message: broken }] }] : [],
+    });
   });
 });
 

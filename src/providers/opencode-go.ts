@@ -4,10 +4,9 @@ import { safeErrorText } from "../core/redact.js";
 import type { DebugDetail } from "../core/types.js";
 import {
   API_KEY_VENDORS,
-  type ApiKeyLoginDiagnostics,
-  getApiKeyLoginDiagnostics,
-  readKeyLogins,
-  resolveApiKeyLogin,
+  hasVendorKey,
+  readVendorKeys,
+  type VendorKeys,
 } from "../lib/api-key-resolver.js";
 import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
 import { selectConnectionCredentialRows } from "../lib/opencode-auth.js";
@@ -20,14 +19,15 @@ import {
   type FetchError,
   FIVE_HOUR,
   failedAccount,
-  fetchKeyLogins,
+  fetchError,
   MONTHLY,
   type ProviderFetchResult,
   type ProviderRow,
   quotaRow,
   WEEKLY,
 } from "./contract.js";
-import { statusDetailsFromRecord } from "./result-helpers.js";
+import { fetchStoredKeys } from "./key-vendor.js";
+import { vendorKeyDetails, vendorKeyState } from "./result-helpers.js";
 
 const LABEL = "OpenCode Go";
 const OPENCODE_GO_AUTH = API_KEY_VENDORS["opencode-go"];
@@ -53,13 +53,19 @@ function retainCurrentCredentialFingerprints(current: ReadonlySet<string>): void
   }
 }
 
-function authStatusDetails(diagnostics: ApiKeyLoginDiagnostics): DebugDetail[] {
-  return statusDetailsFromRecord({
-    auth_state: diagnostics.state,
-    auth_source: diagnostics.source ?? "(none)",
-    auth_checked_paths: diagnostics.checkedPaths.join(" | ") || "(none)",
-    credential_database_paths: diagnostics.credentialDatabasePaths.join(" | ") || "(none)",
-    auth_error: diagnostics.state === "invalid" ? diagnostics.error : undefined,
+/**
+ * Go's one key list. `opencode` is a legacy alias of the `opencode-go` integration in the
+ * credential database (see API_KEY_VENDORS). Alias rows must not become additional
+ * connections: prefer native rows and collapse rows holding the same credential (e.g. Zen + Go
+ * sharing a workspace key). Console OAuth credentials cannot authorize this API and are skipped.
+ */
+async function readGoKeys(): Promise<VendorKeys> {
+  return await readVendorKeys(OPENCODE_GO_AUTH, {
+    selectRows: (rows) =>
+      selectConnectionCredentialRows(
+        rows.filter((row) => row.value.type !== "oauth"),
+        "opencode-go",
+      ),
   });
 }
 
@@ -86,8 +92,7 @@ export const opencodeGoProvider: QuotaProvider = {
     // Any Console sign-in counts, even a failed one, so fetch() can show its error when there
     // is no API key.
     if ((await resolveOpenCodeConsoleAuth()).state !== "none") return true;
-    const auth = await resolveApiKeyLogin(OPENCODE_GO_AUTH);
-    if (auth.state === "configured") return true;
+    if (vendorKeyState(await readGoKeys()).state === "configured") return true;
     notSubscribedCredentialFingerprints.clear();
     return false;
   },
@@ -103,9 +108,9 @@ export const opencodeGoProvider: QuotaProvider = {
     const consoleAuth = await resolveOpenCodeConsoleAuth();
 
     if (consoleAuth.state === "none") {
-      const diagnostics = await getApiKeyLoginDiagnostics(OPENCODE_GO_AUTH);
-      return await fetchWithApiKey(ctx, diagnostics, [
-        ...authStatusDetails(diagnostics),
+      const keys = await readGoKeys();
+      return await fetchWithApiKey(ctx, keys, [
+        ...vendorKeyDetails(OPENCODE_GO_AUTH, keys),
         selectedWindowsDetail,
       ]);
     }
@@ -113,7 +118,7 @@ export const opencodeGoProvider: QuotaProvider = {
     if (consoleAuth.state === "expired") {
       // OpenCode refreshes the console token when it is read, so this is rare;
       // fall back to the API-key path, which also still accepts workspace API keys.
-      return await fetchWithApiKey(ctx, await getApiKeyLoginDiagnostics(OPENCODE_GO_AUTH), [
+      return await fetchWithApiKey(ctx, await readGoKeys(), [
         { key: "console_auth_state", value: "expired" },
         { key: "go_source", value: "legacy_key" },
       ]);
@@ -151,7 +156,7 @@ export const opencodeGoProvider: QuotaProvider = {
         };
       }
       consoleError = consoleResult.error;
-      consoleFailure = { message: consoleError };
+      consoleFailure = fetchError(consoleError, consoleResult.facts);
     } else {
       consoleError = safeErrorText(consoleAuth.error);
       consoleFailure = {
@@ -161,12 +166,12 @@ export const opencodeGoProvider: QuotaProvider = {
 
     // The Console request or sign-in failed: fall back to the API-key path and surface the
     // console error in diagnostics. Without an API key the failure is Go's one error row.
-    const diagnostics = await getApiKeyLoginDiagnostics(OPENCODE_GO_AUTH);
+    const keys = await readGoKeys();
     return await fetchWithApiKey(
       ctx,
-      diagnostics,
+      keys,
       [
-        ...authStatusDetails(diagnostics),
+        ...vendorKeyDetails(OPENCODE_GO_AUTH, keys),
         { key: "console_auth_state", value: consoleAuth.state },
         { key: "console_error", value: consoleError },
         { key: "go_source", value: "legacy_key" },
@@ -183,7 +188,7 @@ export const opencodeGoProvider: QuotaProvider = {
  */
 async function fetchWithApiKey(
   ctx: QuotaProviderContext,
-  diagnostics: ApiKeyLoginDiagnostics,
+  keys: VendorKeys,
   debug: DebugDetail[],
   consoleFailure?: FetchError,
 ): Promise<ProviderFetchResult> {
@@ -193,77 +198,57 @@ async function fetchWithApiKey(
     accounts: [],
     debug: [...debug, NOT_SUBSCRIBED_DETAIL],
   };
-  const auth = await resolveApiKeyLogin(OPENCODE_GO_AUTH);
 
-  if (auth.state === "none") {
-    notSubscribedCredentialFingerprints.clear();
-    return consoleFailure
-      ? {
-          attempted: true,
-          accounts: [failedAccount(LABEL, consoleFailure.message)],
-          debug,
-        }
-      : { attempted: false, accounts: [], debug };
-  }
-
-  if (diagnostics.source === "opencode.db") {
-    // `opencode` is a legacy alias of the `opencode-go` integration in the
-    // credential database (see API_KEY_VENDORS). Alias rows must not
-    // become additional connections: prefer native rows and collapse rows
-    // holding the same credential (e.g. Zen + Go sharing a workspace key).
-    // Console OAuth credentials cannot authorize this API and are skipped.
-    const logins = await readKeyLogins(OPENCODE_GO_AUTH, {
-      selectRows: (rows) =>
-        selectConnectionCredentialRows(
-          rows.filter((row) => row.value.type !== "oauth"),
-          "opencode-go",
-        ),
-    });
-    if (logins.length > 0) {
-      const keys = logins.flatMap(({ auth: login }) =>
-        login.state === "configured" ? [login.apiKey] : [],
-      );
-      retainCurrentCredentialFingerprints(new Set(keys.map(fingerprintCredential)));
-      // A not-subscribed key gives no account at all.
-      const accounts = await fetchKeyLogins({
-        providerName: LABEL,
-        logins,
-        brokenFirst: true,
-        async fetchLogin({ auth: login }) {
-          const fingerprint = fingerprintCredential(login.apiKey);
-          if (notSubscribedCredentialFingerprints.has(fingerprint)) return null;
-          const result = await queryOpenCodeGoQuota(login.apiKey, {
-            requestTimeoutMs: ctx.config.requestTimeoutMs,
-          });
-          if (result.success) return { rows: goRows(result, windows), errors: [] };
-          if (result.notSubscribed === true) {
-            notSubscribedCredentialFingerprints.add(fingerprint);
-            return null;
+  if (!keys.envOrConfig) {
+    const storedKeys = keys.logins.flatMap(({ auth }) =>
+      auth.state === "configured" ? [auth.apiKey] : [],
+    );
+    retainCurrentCredentialFingerprints(new Set(storedKeys.map(fingerprintCredential)));
+    if (!hasVendorKey(keys)) {
+      return consoleFailure
+        ? {
+            attempted: true,
+            accounts: [{ name: LABEL, rows: [], errors: [consoleFailure] }],
+            debug,
           }
-          return { rows: [], errors: [{ message: result.error }] };
-        },
-      });
-      const nothingShown = accounts.every(
-        (account) => account.rows.length === 0 && account.errors.length === 0,
-      );
-      return {
-        attempted: true,
-        accounts,
-        debug: nothingShown && keys.length > 0 ? [...debug, NOT_SUBSCRIBED_DETAIL] : debug,
-      };
+        : { attempted: false, accounts: [], debug };
     }
+
+    // A not-subscribed key gives no account at all.
+    const { accounts } = await fetchStoredKeys({
+      providerName: LABEL,
+      keys,
+      brokenFirst: true,
+      async fetchKey(apiKey) {
+        const fingerprint = fingerprintCredential(apiKey);
+        if (notSubscribedCredentialFingerprints.has(fingerprint)) return null;
+        const result = await queryOpenCodeGoQuota(apiKey, {
+          requestTimeoutMs: ctx.config.requestTimeoutMs,
+        });
+        if (result.success) return { rows: goRows(result, windows), errors: [] };
+        if (result.notSubscribed === true) {
+          notSubscribedCredentialFingerprints.add(fingerprint);
+          return null;
+        }
+        return { rows: [], errors: [fetchError(result.error, result.facts)] };
+      },
+    });
+    const nothingShown = accounts.every(
+      (account) => account.rows.length === 0 && account.errors.length === 0,
+    );
+    return {
+      attempted: true,
+      accounts,
+      debug: nothingShown && storedKeys.length > 0 ? [...debug, NOT_SUBSCRIBED_DETAIL] : debug,
+    };
   }
 
-  if (auth.state === "invalid") {
-    notSubscribedCredentialFingerprints.clear();
-    return { attempted: true, accounts: [failedAccount(LABEL, auth.error)], debug };
-  }
-
-  const fingerprint = fingerprintCredential(auth.apiKey);
+  const apiKey = keys.envOrConfig.key;
+  const fingerprint = fingerprintCredential(apiKey);
   retainCurrentCredentialFingerprints(new Set([fingerprint]));
   if (notSubscribedCredentialFingerprints.has(fingerprint)) return notSubscribed;
 
-  const result = await queryOpenCodeGoQuota(auth.apiKey, {
+  const result = await queryOpenCodeGoQuota(apiKey, {
     requestTimeoutMs: ctx.config.requestTimeoutMs,
   });
   if (!result.success && result.notSubscribed === true) {
@@ -273,7 +258,7 @@ async function fetchWithApiKey(
   if (!result.success) {
     return {
       attempted: true,
-      accounts: [failedAccount(LABEL, result.error)],
+      accounts: [failedAccount(LABEL, result.error, result.facts)],
       debug: [...debug, { key: "live_fetch_error", value: result.error }],
     };
   }

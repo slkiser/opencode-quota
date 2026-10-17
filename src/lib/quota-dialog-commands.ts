@@ -1,5 +1,5 @@
 /**
- * The /quota_status report of the slash command, the `quota_status` tool and
+ * The /quota_status report of the slash command, the `quota_status` tool, the TUI and
  * `opencode-quota status`, and the quota lines of `opencode-quota show`. Each reads the server
  * settings the host holds now.
  */
@@ -20,7 +20,6 @@ import {
   vendorKeyDetails,
 } from "../providers/result-helpers.js";
 import type { V5Conversion } from "../settings/index.js";
-import { PROVIDER_IDS } from "../settings/schema.js";
 import { DEFAULT_WORDS } from "../view/format.js";
 import { type RowSettings, type SurfaceRows, visibleGroups } from "../view/select.js";
 import { plainLines } from "../view/text.js";
@@ -35,21 +34,14 @@ import { isCursorProviderId } from "./cursor-pricing.js";
 import { sanitizeDisplayText } from "./display-sanitize.js";
 import type { QuotaProvider, QuotaProviderContext } from "./entries.js";
 import { getMaintainerAnnouncementsSummary } from "./maintainer-announcements.js";
-import {
-  describePriceList,
-  type PricingSnapshotSource,
-  refreshPricesIfDue,
-} from "./modelsdev-pricing.js";
+import { refreshPricesIfDue } from "./modelsdev-pricing.js";
 import { getCredentialSourceDiagnostics } from "./opencode-auth.js";
 import { getQuotaProviderDisplayLabel, getQuotaProviderRuntimeIds } from "./provider-metadata.js";
 import {
-  buildQuotaStatusReportDocument,
-  knownProviderIds,
-  publicPricingMeta,
+  type QuotaStatusReport,
+  renderQuotaStatusReport,
   type StatusOrigin,
-  statusPathText,
 } from "./quota-status.js";
-import { renderPlainTextReport } from "./report-document.js";
 
 /** `opencode-quota show` lists every row of every provider. */
 const EVERY_ROW: SurfaceRows = { enabled: true, hidden: [], providerOrder: [], rowOrder: {} };
@@ -71,35 +63,6 @@ export function quotaReportLines(snapshot: QuotaSnapshot, nowMs: number): string
   return plainLines({ groups, words, nowMs, runsOut: true, ...sessionTokens }).map(
     sanitizeDisplayText,
   );
-}
-
-/** `opencode-quota status --json`: the format version, then what the report says, as data. */
-interface QuotaStatusReportPayload {
-  version: "6";
-  generatedAt: string;
-  /** Where the settings come from and what they say about providers and prices. */
-  config: {
-    settingsPath: string;
-    settingsFileExists: boolean;
-    enabledProviders: string[] | "auto";
-    onlyCurrentModel: boolean;
-    pricingSnapshotSource: PricingSnapshotSource;
-  };
-  providers: Array<{
-    id: string;
-    enabled: boolean;
-    available: boolean;
-    matchesCurrentModel?: boolean;
-  }>;
-  pricing: {
-    selection: PricingSnapshotSource;
-    activeSource: string;
-    snapshot: { source: string; generatedAt: string | null; units: string };
-    snapshotPath: string;
-    refreshStatePath: string;
-  };
-  /** One per enabled and available provider: ok when its check had no error. */
-  liveProbes: Array<{ id: string; ok: boolean }>;
 }
 
 /**
@@ -207,11 +170,11 @@ async function localSetupDetails(
  */
 async function checkKnownProviders(
   host: ProviderSourceHost,
+  ctx: QuotaProviderContext,
   providerId: string | undefined,
 ): Promise<{ checks: ProviderCheck[]; snapshots: ProviderSnapshot[] }> {
   const source = await loadProviderSource(host);
   const sourceIds = new Set(source.providers.map((provider) => provider.id));
-  const ctx = providerContext(host);
   const { enabledProviders } = ctx.config;
   const turnedOn = (id: string) => enabledProviders === "auto" || enabledProviders.includes(id);
   const known = getProviders().filter((provider) => !providerId || provider.id === providerId);
@@ -252,46 +215,39 @@ async function readRecentUsage(nowMs: number): Promise<UsageReport | null> {
   }
 }
 
-export async function buildStatusReportData(params: {
-  host: ProviderSourceHost;
-  origin: StatusOrigin;
-  /** OpenCode's version and release channel; the CLI runs without OpenCode. */
-  opencode?: { version: string; channel: string };
-  sessionID?: string;
-  /** The session's model; undefined without a session. */
-  sessionModel?: SessionModel;
-  /** The v5 settings conversion this server wrote when it started. */
-  conversion?: V5Conversion;
-  generatedAtMs: number;
-  onDetectedProviderIds?: (providerIds: string[]) => Promise<void>;
-  /** When set, restrict provider availability and live checks to this provider id. */
-  providerFilterId?: string;
-}): Promise<{
-  output: string;
-  payload: QuotaStatusReportPayload;
-  hasComparableProviderData: boolean;
-}> {
-  const { host } = params;
+/**
+ * The Quota Status report of /quota_status, the `quota_status` tool, the TUI Plugin tab and
+ * `opencode-quota status`: the settings read once, every known provider (or only
+ * `onlyProviderId`) checked fresh, then the text and the `status --json` payload made from
+ * the same facts.
+ */
+export async function statusReport(
+  host: ProviderSourceHost,
+  options: {
+    origin: StatusOrigin;
+    /** OpenCode's version and release channel; the CLI runs without OpenCode. */
+    opencode?: { version: string; channel: string };
+    /** The session's model; undefined without a session. */
+    sessionModel?: SessionModel;
+    /** The v5 settings conversion this server wrote when it started. */
+    conversion?: V5Conversion;
+    /** Only this provider is listed and checked. */
+    onlyProviderId?: string;
+    nowMs: number;
+  },
+): Promise<QuotaStatusReport> {
   const loaded = host.settings();
-  const { settings } = loaded;
+  const held: ProviderSourceHost = { ...host, settings: () => loaded };
   await refreshPricesIfDue();
 
-  const currentModel = params.sessionModel?.id;
-  const currentProviderID = params.sessionModel?.providerID;
-  const sessionModelLookup: "ok" | "not_found" | "no_session" = !params.sessionID
-    ? "no_session"
-    : currentModel
-      ? "ok"
-      : "not_found";
-
-  const { enabledProviders, automaticDiscovery, quotaProviders } = providerContext(
-    host,
-    loaded,
-  ).config;
+  const ctx = providerContext(held, loaded);
+  const { enabledProviders, automaticDiscovery, quotaProviders } = ctx.config;
   const [{ checks, snapshots }, usage] = await Promise.all([
-    checkKnownProviders(host, params.providerFilterId),
-    readRecentUsage(params.generatedAtMs),
+    checkKnownProviders(held, ctx, options.onlyProviderId),
+    readRecentUsage(options.nowMs),
   ]);
+  const currentModel = options.sessionModel?.id;
+  const currentProviderID = options.sessionModel?.providerID;
   const availability = checks.map(({ provider, enabled, available }) => ({
     id: provider.id,
     enabled,
@@ -308,118 +264,24 @@ export async function buildStatusReportData(params: {
           })
         : undefined,
   }));
-
-  await params.onDetectedProviderIds?.(
-    availability.filter((item) => item.enabled && item.available).map((item) => item.id),
-  );
-  const checkedIds = new Set(
-    availability.filter((item) => item.enabled && item.available).map((item) => item.id),
-  );
-  const checked = snapshots.filter((provider) => checkedIds.has(provider.providerId));
-
-  const announcementProviderIds = availability
+  const checkedIds = availability
     .filter((item) => item.enabled && item.available)
     .map((item) => item.id);
-  const maintainerAnnouncementsSummary = getMaintainerAnnouncementsSummary({
-    enabledProviders: announcementProviderIds,
-  });
 
-  const document = await buildQuotaStatusReportDocument({
-    origin: params.origin,
-    opencode: params.opencode,
+  return renderQuotaStatusReport({
+    origin: options.origin,
+    opencode: options.opencode,
     settings: loaded,
-    conversion: loaded.conversion ?? params.conversion,
+    conversion: loaded.conversion ?? options.conversion,
     workspaceRoot: host.workspaceRoot,
-    enabledProviders:
-      settings.providers.off.length === 0
-        ? "auto"
-        : PROVIDER_IDS.filter((id) => !settings.providers.off.includes(id)),
-    offProviders: settings.providers.off,
-    quotaProviders: settings.providers.custom,
-    pricingSnapshotSource: settings.providers.pricing.source,
-    currentModel,
-    currentProviderID,
-    sessionModelLookup,
+    sessionModel: options.sessionModel,
     providerAvailability: availability,
     providers: snapshots,
     credentialSource: getCredentialSourceDiagnostics(),
     maintainerAnnouncements: {
-      summary: maintainerAnnouncementsSummary,
+      summary: getMaintainerAnnouncementsSummary({ enabledProviders: checkedIds }),
     },
     usage,
-    generatedAtMs: params.generatedAtMs,
+    generatedAtMs: options.nowMs,
   });
-
-  // The payload follows the report's closed vocabulary: known ids, fixed words, known paths.
-  const priceList = await describePriceList();
-  const pricingMeta = publicPricingMeta(priceList);
-  const payload: QuotaStatusReportPayload = {
-    version: "6",
-    generatedAt: new Date(params.generatedAtMs).toISOString(),
-    config: {
-      settingsPath: statusPathText(loaded.path),
-      settingsFileExists: loaded.exists,
-      enabledProviders: knownProviderIds(
-        settings.providers.off.length === 0
-          ? "auto"
-          : PROVIDER_IDS.filter((id) => !settings.providers.off.includes(id)),
-      ),
-      onlyCurrentModel: settings.words.onlyCurrentModel,
-      pricingSnapshotSource: settings.providers.pricing.source,
-    },
-    providers: availability,
-    pricing: {
-      selection: settings.providers.pricing.source,
-      activeSource: priceList.source,
-      snapshot: {
-        source: pricingMeta.source,
-        // "(none)" and "(invalid date)" are no time.
-        generatedAt: /^\d/u.test(pricingMeta.generatedAt) ? pricingMeta.generatedAt : null,
-        units: pricingMeta.units,
-      },
-      snapshotPath: statusPathText(priceList.paths.snapshot),
-      refreshStatePath: statusPathText(priceList.paths.refreshState),
-    },
-    liveProbes: checked.map((provider) => ({
-      id: provider.providerId,
-      ok: provider.error === undefined,
-    })),
-  };
-
-  return {
-    output: renderPlainTextReport(document),
-    payload,
-    hasComparableProviderData: checked.some((provider) => provider.rows.length > 0),
-  };
-}
-
-/** The /quota_status report as text. */
-export async function buildQuotaDialogCommandOutput(params: {
-  host: ProviderSourceHost;
-  origin: StatusOrigin;
-  opencode?: { version: string; channel: string };
-  sessionID?: string;
-  /** The session's model, for /quota_status. */
-  resolveSessionModel?: (sessionID: string) => Promise<SessionModel>;
-  /** The v5 settings conversion this server wrote when it started. */
-  conversion?: V5Conversion;
-  generatedAtMs?: number;
-  onDetectedProviderIds?: (providerIds: string[]) => Promise<void>;
-}): Promise<{ output: string }> {
-  const generatedAtMs = params.generatedAtMs ?? Date.now();
-  const sessionModel =
-    params.sessionID && params.resolveSessionModel
-      ? await params.resolveSessionModel(params.sessionID)
-      : undefined;
-  const data = await buildStatusReportData({
-    host: params.host,
-    origin: params.origin,
-    opencode: params.opencode,
-    sessionID: params.sessionID,
-    sessionModel,
-    conversion: params.conversion,
-    generatedAtMs,
-    onDetectedProviderIds: params.onDetectedProviderIds,
-  });
-  return { output: data.output };
 }

@@ -153,7 +153,7 @@ describe("refreshPricesIfDue", () => {
   it.each([
     { days: 7, maxAgeDays: 7, due: false },
     { days: 1, maxAgeDays: 1, due: true },
-    { days: 0, maxAgeDays: 3, due: true }, // not a positive number: 3 days
+    { days: 0, maxAgeDays: 7, due: false }, // not a positive number: the 7-day default
   ])(
     "downloads a 4-day-old list after $days configured days: $due",
     async ({ days, maxAgeDays, due }) => {

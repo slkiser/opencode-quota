@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { readAlibabaCodingPlanQuotaState } from "../src/lib/alibaba-coding-plan-local-quota.js";
+import { iterCompletedAssistantMessages } from "../src/lib/opencode-storage.js";
 import { alibabaCodingPlanProvider } from "../src/providers/alibaba-coding-plan.js";
 import { fetchRows, keyLogin, rowSummary, useProviderWorld } from "./helpers/provider-fetch.js";
 
-vi.mock("../src/lib/alibaba-coding-plan-local-quota.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/lib/alibaba-coding-plan-local-quota.js")>()),
-  readAlibabaCodingPlanQuotaState: vi.fn(),
+vi.mock("../src/lib/opencode-storage.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/opencode-storage.js")>()),
+  iterCompletedAssistantMessages: vi.fn(),
 }));
 
 const NOW = Date.parse("2026-02-24T12:00:00.000Z");
@@ -15,12 +15,21 @@ const world = useProviderWorld();
 
 beforeEach(() => {
   vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
-  // One request an hour ago, one two days ago.
-  vi.mocked(readAlibabaCodingPlanQuotaState).mockResolvedValue({
-    version: 1,
-    recent: [NOW - 48 * HOUR, NOW - HOUR],
-    updatedAt: NOW,
+  // One request an hour ago, one two days ago (seen twice), and one to another provider.
+  const request = (id: string, providerID: string, completed: number) => ({
+    id,
+    sessionID: "session",
+    role: "assistant" as const,
+    providerID,
+    modelID: "qwen3-coder-plus",
+    time: { created: completed - 1_000, completed },
   });
+  vi.mocked(iterCompletedAssistantMessages).mockResolvedValue([
+    request("old", "alibaba-coding-plan", NOW - 48 * HOUR),
+    request("old", "alibaba-coding-plan", NOW - 48 * HOUR),
+    request("recent", "alibaba", NOW - HOUR),
+    request("other", "openai", NOW - HOUR),
+  ]);
 });
 
 afterEach(() => {
@@ -156,7 +165,7 @@ describe("alibaba-coding-plan provider", () => {
         value: `Alibaba Coding Plan: ${message}`,
       });
     }
-    expect(readAlibabaCodingPlanQuotaState).not.toHaveBeenCalled();
+    expect(iterCompletedAssistantMessages).not.toHaveBeenCalled();
   });
 
   it.each([

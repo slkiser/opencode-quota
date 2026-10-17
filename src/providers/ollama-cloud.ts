@@ -4,24 +4,26 @@
  * as its own account; an env or config key is used alone.
  */
 
+import type { ErrorFacts } from "../core/errors.js";
 import type { Amount, DebugDetail } from "../core/types.js";
-import { API_KEY_VENDORS, hasVendorKey, readVendorKeys } from "../lib/api-key-resolver.js";
+import { API_KEY_VENDORS, readVendorKeys } from "../lib/api-key-resolver.js";
 import { sanitizeSingleLineDisplayText } from "../lib/display-sanitize.js";
 import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
-import { fetchWithTimeout } from "../lib/http.js";
+import { failureFacts, requestJson } from "../lib/http.js";
 import { finiteNumber, isRecord } from "../lib/json-guards.js";
 import { modelProviderMatchesRuntimeId } from "../lib/provider-model-matching.js";
 import { accountingDecimalFromNumber } from "./accounting-decimal.js";
 import { vendorKeysPolicy } from "./cache-policies.js";
 import {
   type FetchError,
-  fetchKeyLogins,
+  fetchError,
   MONTHLY,
   type ProviderFetchResult,
   type ProviderRow,
   quotaRow,
   WEEKLY,
 } from "./contract.js";
+import { fetchStoredKeys, isKeyVendorAvailable } from "./key-vendor.js";
 import { statusDetailsFromRecord, vendorKeyDetails } from "./result-helpers.js";
 
 const LABEL = "Ollama Cloud";
@@ -46,41 +48,9 @@ type IncludedCredits = {
 /** One key's rows and errors, and the details its reply gave. */
 type KeyFetch = { rows: ProviderRow[]; errors: FetchError[]; debug: DebugDetail[] };
 
-function sanitizeMessage(text: string, secret?: string, maxLength = 200): string {
-  const redacted = secret ? text.split(secret).join("[redacted]") : text;
-  const sanitized = sanitizeSingleLineDisplayText(redacted).replace(/\p{Cf}/gu, "");
+function sanitizeMessage(text: string, maxLength = 200): string {
+  const sanitized = sanitizeSingleLineDisplayText(text).replace(/\p{Cf}/gu, "");
   return (sanitized || "unknown").slice(0, maxLength);
-}
-
-async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
-  if (!response.body) {
-    const text = await response.text();
-    if (new TextEncoder().encode(text).byteLength > maxBytes) {
-      throw new Error(`Ollama Cloud balance API response exceeded ${maxBytes} bytes`);
-    }
-    return text;
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let text = "";
-  let byteLength = 0;
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      byteLength += value.byteLength;
-      if (byteLength > maxBytes) {
-        await reader.cancel();
-        throw new Error(`Ollama Cloud balance API response exceeded ${maxBytes} bytes`);
-      }
-      text += decoder.decode(value, { stream: true });
-    }
-    return text + decoder.decode();
-  } finally {
-    reader.releaseLock();
-  }
 }
 
 /** Canonical ISO time, or undefined when the value is not a parseable time. */
@@ -152,8 +122,8 @@ function includedCreditsRow(included: IncludedCredits, percentRemaining: number)
   };
 }
 
-function failedKeyFetch(message: string): KeyFetch {
-  return { rows: [], errors: [{ message }], debug: [] };
+function failedKeyFetch(message: string, facts?: ErrorFacts): KeyFetch {
+  return { rows: [], errors: [fetchError(message, facts)], debug: [] };
 }
 
 /** One balance reply as rows; a field that could not be used is an error next to them. */
@@ -251,28 +221,37 @@ function parseOllamaCloudBalance(payload: unknown): KeyFetch {
 }
 
 /** The Ollama Cloud limits and balance of one API key. */
-async function queryOllamaCloudQuota(apiKey: string, requestTimeoutMs?: number) {
-  try {
-    return await fetchWithTimeout(OLLAMA_CLOUD_BALANCE_URL, {
-      request: {
-        method: "GET",
-        headers: { Accept: "application/json", Authorization: `Bearer ${apiKey}` },
-        redirect: "manual",
-      },
-      timeoutMs: requestTimeoutMs,
-      consume: async (response): Promise<KeyFetch> => {
-        const text = await readBoundedText(response, MAX_RESPONSE_BYTES);
-        if (!response.ok) {
-          const snippet = sanitizeMessage(text, apiKey);
-          return failedKeyFetch(`Ollama Cloud balance API error ${response.status}: ${snippet}`);
-        }
-        return parseOllamaCloudBalance(JSON.parse(text) as unknown);
-      },
-    });
-  } catch (error) {
+async function queryOllamaCloudQuota(apiKey: string, requestTimeoutMs?: number): Promise<KeyFetch> {
+  const reply = await requestJson(OLLAMA_CLOUD_BALANCE_URL, {
+    method: "GET",
+    headers: { Accept: "application/json", Authorization: `Bearer ${apiKey}` },
+    redirect: "manual",
+    secrets: [apiKey],
+    timeoutMs: requestTimeoutMs,
+    maxBytes: MAX_RESPONSE_BYTES,
+  });
+  if (!reply.ok) {
+    const { failure } = reply;
+    if (failure.kind === "http") {
+      const snippet = sanitizeMessage(failure.detail);
+      return failedKeyFetch(
+        `Ollama Cloud balance API error ${failure.status}: ${snippet}`,
+        failureFacts(failure),
+      );
+    }
     return failedKeyFetch(
-      sanitizeMessage(error instanceof Error ? error.message : String(error), apiKey),
+      sanitizeMessage(
+        failure.kind === "too_large"
+          ? `Ollama Cloud balance API ${failure.detail}`
+          : failure.detail,
+      ),
+      failureFacts(failure),
     );
+  }
+  try {
+    return parseOllamaCloudBalance(reply.json);
+  } catch (error) {
+    return failedKeyFetch(sanitizeMessage(error instanceof Error ? error.message : String(error)));
   }
 }
 
@@ -280,8 +259,13 @@ export const ollamaCloudProvider: QuotaProvider = {
   id: "ollama-cloud",
   cachePolicy: vendorKeysPolicy("ollama-cloud"),
 
-  async isAvailable(_ctx: QuotaProviderContext): Promise<boolean> {
-    return hasVendorKey(await readVendorKeys(SPEC));
+  async isAvailable(ctx: QuotaProviderContext): Promise<boolean> {
+    return await isKeyVendorAvailable({
+      ctx,
+      providerId: "ollama-cloud",
+      availability: "key",
+      readKeys: () => readVendorKeys(SPEC),
+    });
   },
 
   matchesCurrentModel(model: string): boolean {
@@ -303,18 +287,18 @@ export const ollamaCloudProvider: QuotaProvider = {
     }
 
     const debugByLogin = new Map<string, DebugDetail[]>();
-    const accounts = await fetchKeyLogins({
+    const { attempted, accounts } = await fetchStoredKeys({
       providerName: LABEL,
-      logins: keys.logins,
+      keys,
       brokenFirst: false,
-      async fetchLogin({ row, auth }) {
-        const { rows, errors, debug } = await query(auth.apiKey);
+      async fetchKey(apiKey, row) {
+        const { rows, errors, debug } = await query(apiKey);
         debugByLogin.set(row.id, debug);
         return { rows, errors };
       },
     });
     return {
-      attempted: keys.logins.length > 0,
+      attempted,
       accounts,
       debug: [...keyDetails, ...keys.logins.flatMap(({ row }) => debugByLogin.get(row.id) ?? [])],
     };

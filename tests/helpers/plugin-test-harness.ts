@@ -7,7 +7,7 @@ type MockFunction = ReturnType<typeof vi.fn>;
 
 interface PluginBootstrapMocks {
   getProviders?: MockFunction;
-  fetchSessionTokensForDisplay?: MockFunction;
+  sessionUsage?: MockFunction;
   resolveAlibabaCodingPlanAuthCached?: MockFunction;
 }
 
@@ -15,8 +15,9 @@ export function createProvidersRegistryModuleMock(getProviders: MockFunction) {
   return { getProviders };
 }
 
-export function createSessionTokensModuleMock(fetchSessionTokensForDisplay: MockFunction) {
-  return { fetchSessionTokensForDisplay };
+/** core/usage.js as it is, with `sessionUsage` replaced. */
+export function createSessionUsageModuleMock(actual: object, sessionUsage: MockFunction) {
+  return { ...actual, sessionUsage };
 }
 
 export function createAlibabaAuthModuleMock(resolveAlibabaCodingPlanAuthCached: MockFunction) {
@@ -61,7 +62,7 @@ export function seedDefaultPluginBootstrapMocks(
   if (options.resetPluginState) vi.resetModules();
 
   mocks.getProviders?.mockReturnValue([]);
-  mocks.fetchSessionTokensForDisplay?.mockResolvedValue({});
+  mocks.sessionUsage?.mockResolvedValue(undefined);
   mocks.resolveAlibabaCodingPlanAuthCached?.mockResolvedValue({ state: "none" });
 }
 

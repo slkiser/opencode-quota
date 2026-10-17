@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 const buildOutput = vi.hoisted(() => vi.fn());
 vi.mock("../src/lib/quota-dialog-commands.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/quota-dialog-commands.js")>()),
-  buildQuotaDialogCommandOutput: buildOutput,
+  statusReport: buildOutput,
 }));
 const resolveRetryDelay = vi.hoisted(() => vi.fn());
 vi.mock("../src/lib/quota-retry-wait.js", () => ({
@@ -71,7 +71,7 @@ describe("V2 server plugin", () => {
 
   it("registers the quota diagnostics tool without a server toast dependency or V1 command hooks", async () => {
     const { ctx, tools } = createContext();
-    buildOutput.mockResolvedValue({ output: "Quota ready" });
+    buildOutput.mockResolvedValue({ text: "Quota ready", json: { providers: [] } });
 
     await plugin.setup(ctx as never);
     expect(tools.map((tool) => tool.name)).toEqual([
@@ -85,21 +85,20 @@ describe("V2 server plugin", () => {
     const quotaStatus = tools.find((tool) => tool.name === "quota_status");
     const output = await quotaStatus?.execute({}, { sessionID: "session-test" });
     expect(output).toEqual({ content: "Quota ready" });
-    expect(buildOutput).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionID: "session-test" }),
-    );
     expect(ctx.provider.list).toHaveBeenCalledTimes(0);
-    // The report reads the session's model from OpenCode and gets no agent settings.
-    const [params] = buildOutput.mock.calls[0];
-    await expect(params.resolveSessionModel("session-test")).resolves.toEqual({
-      id: "gpt-5",
-      providerID: "openai",
-    });
+    // The report gets the session's model from OpenCode and no agent settings.
     expect(ctx.session.get).toHaveBeenCalledWith({ sessionID: "session-test" });
-    expect(buildOutput).toHaveBeenCalledWith(
-      expect.not.objectContaining({ agent: expect.anything(), default_agent: expect.anything() }),
-    );
+    const [, options] = buildOutput.mock.calls[0];
+    expect(options).toMatchObject({
+      origin: "tool",
+      sessionModel: { id: "gpt-5", providerID: "openai" },
+    });
+    expect(options).not.toHaveProperty("agent");
+    expect(options).not.toHaveProperty("default_agent");
+    expect(ctx.tool.transform).toHaveBeenCalledOnce();
+    expect(ctx.command.transform).toHaveBeenCalledOnce();
     expect((plugin as Record<string, unknown>)["command.execute.before"]).toBeUndefined();
+    expect((plugin as Record<string, unknown>).config).toBeUndefined();
   });
 
   it("registers /quota, /quota_status, /quota_usage and the /tokens_* names for Web and Desktop", async () => {
@@ -155,13 +154,17 @@ describe("V2 server plugin", () => {
 
   it("posts the report as a user message that never starts a model turn", async () => {
     const { ctx, commands } = createContext();
-    buildOutput.mockResolvedValue({ output: "# Quota\nopenai 42%\u001b[31m" });
+    buildOutput.mockResolvedValue({
+      text: "# Quota\nopenai 42%\u001b[31m",
+      json: { providers: [] },
+    });
     vi.spyOn(Date, "now").mockReturnValue(1_790_000_000_000);
 
     await plugin.setup(ctx as never);
     await runCommand(commands, "quota_status");
 
-    expect(buildOutput).toHaveBeenCalledWith(expect.objectContaining({ sessionID: "session-web" }));
+    expect(ctx.session.get).toHaveBeenCalledWith({ sessionID: "session-web" });
+    expect(buildOutput).toHaveBeenCalledOnce();
     expect(ctx.session.wait).toHaveBeenCalledExactlyOnceWith({ sessionID: "session-web" });
     expect(ctx.session.wait).toHaveBeenCalledBefore(ctx.session.prompt);
     expect(ctx.session.prompt).toHaveBeenCalledTimes(1);

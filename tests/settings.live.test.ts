@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { activePriceList } from "../src/lib/modelsdev-pricing.js";
-import { createLiveSettings } from "../src/settings/index.js";
+import { createLiveSettings, type LiveSettings } from "../src/settings/index.js";
 
 let configDir: string;
 const cleanups: Array<() => void> = [];
@@ -106,6 +106,26 @@ describe("createLiveSettings", () => {
   });
 
   it.each([
+    {
+      name: "an edit",
+      write: (live: LiveSettings) => live.edit(() => ({ words: { percent: "used" } })),
+    },
+    {
+      name: "a file edit",
+      write: (live: LiveSettings) =>
+        live.editFile(() => [{ path: ["words", "percent"], value: "used" }]),
+    },
+  ])("holds $name before it answers, like a save", async ({ write }) => {
+    writeSettings(BASE);
+    const { live, changes } = await start({ follow: true, debounceMs: 200 });
+
+    expect((await write(live)).ok).toBe(true);
+
+    expect(live.current().settings.words.percent).toBe("used");
+    expect(changes).toEqual([NEW_SNAPSHOT]);
+  });
+
+  it.each([
     { name: "a v5 file, written at the start", atStart: true, afterSave: true, files: {} },
     {
       name: "a v5 file that does not parse, written by the first save",
@@ -129,6 +149,17 @@ describe("createLiveSettings", () => {
 
     expect(live.converted()).toBe(afterSave);
     expect(live.current().settings.words.reset).toBe("compact");
+  });
+
+  it("says nothing was converted after an edit that changes nothing", async () => {
+    writeConfig("opencode.json", { experimental: { quotaToast: { percentDisplayMode: "used" } } });
+    writeConfig("opencode-quota/quota-toast.jsonc", "{ broken");
+    const { live } = await start();
+
+    expect((await live.edit(() => undefined)).ok).toBe(true);
+
+    expect(live.converted()).toBe(false);
+    expect(live.current().exists).toBe(false);
   });
 
   it("gives the price list its settings from the start, and takes them back on dispose", async () => {

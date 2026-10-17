@@ -123,7 +123,9 @@ describe("quota provider Phase 7 documentation consistency", () => {
         "unavailable",
       ),
     ).toMatch(/budget percentage[\s\S]*\b(?:reported|shown|marked) unavailable\b/i);
-    expect(configurationCustomProviders).toContain("~/.local/state/opencode/opencode-quota/");
+    expect(configurationCustomProviders).toContain(
+      "counts the completed requests in OpenCode's own messages",
+    );
     expect(providerGuideCustomProviders).toContain("limited to 256 KiB");
     expect(providerGuideCustomProviders).toContain("limited to 100 rows");
     expect(providerGuideCustomProviders).toContain(

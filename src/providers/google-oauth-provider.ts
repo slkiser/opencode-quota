@@ -11,7 +11,12 @@ import {
   readGoogleLogins,
 } from "../lib/google-oauth-quota.js";
 import { credentialRowAuthData } from "../lib/opencode-auth.js";
-import { fetchEachLogin, type ProviderFetchResult, type ProviderRow } from "./contract.js";
+import {
+  fetchEachLogin,
+  fetchError,
+  type ProviderFetchResult,
+  type ProviderRow,
+} from "./contract.js";
 import { statusDetailsFromRecord } from "./result-helpers.js";
 
 /** The parts in which the Google AGY and Gemini CLI providers differ. */
@@ -98,7 +103,7 @@ export async function fetchGoogleProviderQuota<Key extends GoogleAuthSourceKey, 
               authData: credentialRowAuthData(row),
             });
       if (!result) return null;
-      if (!result.success) return { rows: [], errors: [{ message: result.error }] };
+      if (!result.success) return { rows: [], errors: [fetchError(result.error, result.facts)] };
       const buckets = flavor.compareBuckets
         ? [...result.buckets].sort(flavor.compareBuckets)
         : result.buckets;

@@ -5,7 +5,7 @@
 import { resolve } from "node:path";
 import type { ProviderSourceHost } from "../core/provider-source.js";
 import { loadSettings } from "../settings/index.js";
-import { PROVIDER_IDS } from "../settings/schema.js";
+import { offProviderId, PROVIDER_IDS } from "../settings/schema.js";
 import { hasAnthropicCredentialsConfigured } from "./anthropic.js";
 import { API_KEY_VENDORS, resolveApiKeyLogin } from "./api-key-resolver.js";
 import {
@@ -203,7 +203,7 @@ function withOnlyProvider(
   const loaded = host.settings();
   const providers = {
     ...loaded.settings.providers,
-    off: PROVIDER_IDS.filter((id) => (id === "custom" ? "quota-providers" : id) !== providerId),
+    off: PROVIDER_IDS.filter((id) => id !== offProviderId(providerId)),
   };
   const only = { ...loaded, settings: { ...loaded.settings, providers } };
   return { ...host, settings: () => only };

@@ -278,6 +278,26 @@ describe("quota store", () => {
     expect(copilot.fetch).toHaveBeenCalledTimes(3);
   });
 
+  it.each([
+    { name: "hours away", retryInMs: 3 * 60 * MINUTE, waitMs: 3 * 60 * MINUTE },
+    { name: "days away, at most a day", retryInMs: 3 * 24 * 60 * MINUTE, waitMs: 24 * 60 * MINUTE },
+  ])("waits for a retry time $name", async ({ retryInMs, waitMs }) => {
+    const copilot = fakeProvider();
+    copilot.fetch.mockResolvedValue({
+      rows: [],
+      error: { code: "rate_limited", retryAtMs: START_MS + retryInMs },
+      debug: [],
+    });
+    const store = makeStore([copilot.provider], 0);
+    await store.refresh({ reason: "poll" });
+    clock += waitMs - SECOND;
+    await store.refresh({ reason: "poll" });
+    expect(copilot.fetch).toHaveBeenCalledTimes(1);
+    clock += SECOND;
+    await store.refresh({ reason: "poll" });
+    expect(copilot.fetch).toHaveBeenCalledTimes(2);
+  });
+
   it.each([true, false])(
     "after a settings change (recheck %s), shows a new snapshot and checks a failed provider again only for a recheck",
     async (recheck) => {
@@ -389,6 +409,17 @@ describe("quota store", () => {
 
     clock += HOUR;
     expect((await store.refresh({ reason: "poll" })).resetNotices).toEqual([]);
+  });
+
+  it("keeps a reset notice's full 80-character label and account in the file", async () => {
+    const long = "😀".repeat(80);
+    const copilot = fakeProvider();
+    const store = await storePastWeeklyReset(copilot, { label: long, account: long });
+    copilot.fetch.mockResolvedValue(refilled({ label: long, account: long }));
+    await store.refresh({ reason: "poll" });
+
+    const [notice] = (await makeStore([copilot.provider], 0).snapshot()).resetNotices;
+    expect(notice).toMatchObject({ label: long, account: long });
   });
 
   it("gives no reset notice for windows that don't refill or rows that didn't reset", async () => {

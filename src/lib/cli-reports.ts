@@ -6,11 +6,7 @@
 import { snapshotFilePath } from "../core/persist.js";
 import { loadProviderSource, type ProviderSourceHost } from "../core/provider-source.js";
 import { createQuotaStore } from "../core/store.js";
-import {
-  buildStatusReportData,
-  checkProviders,
-  quotaReportLines,
-} from "./quota-dialog-commands.js";
+import { checkProviders, quotaReportLines, statusReport } from "./quota-dialog-commands.js";
 import type { QuotaExport } from "./quota-export-types.js";
 import { buildQuotaExportFromSnapshot } from "./quota-export.js";
 
@@ -21,7 +17,7 @@ function line(message: string): string {
 }
 
 /**
- * `show`: live quota rows as text, the same lines as `/quota`, then one line per provider
+ * `show`: live quota rows as text, a line per row with its reset, then one line per provider
  * problem. Exit 1 when no provider returned a row.
  */
 export async function buildCliShowText(host: ProviderSourceHost): Promise<CliReport> {
@@ -107,20 +103,19 @@ export async function buildCliStatus(params: {
   providerId?: string;
   json: boolean;
 }): Promise<CliReport> {
-  const data = await buildStatusReportData({
-    host: params.host,
+  const report = await statusReport(params.host, {
     origin: "cli",
-    generatedAtMs: Date.now(),
-    providerFilterId: params.providerId,
+    onlyProviderId: params.providerId,
+    nowMs: Date.now(),
   });
 
   if (params.json) {
     return {
-      exitCode: data.hasComparableProviderData ? 0 : 2,
-      stdout: line(JSON.stringify(data.payload, null, 2)),
+      exitCode: report.hasComparableProviderData ? 0 : 2,
+      stdout: line(JSON.stringify(report.json, null, 2)),
       stderr: "",
     };
   }
 
-  return { exitCode: 0, stdout: line(data.output), stderr: "" };
+  return { exitCode: 0, stdout: line(report.text), stderr: "" };
 }
