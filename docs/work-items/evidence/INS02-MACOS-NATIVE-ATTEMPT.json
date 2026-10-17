@@ -1,0 +1,53 @@
+{
+  "evidenceDate": "2026-10-17",
+  "platform": "macOS arm64",
+  "candidateVersion": "3.11.0-rc.2",
+  "sourceZipSha256": "1fbaf0ce9c96724be4b03db35c7f5040a84263386a57317f02c771156acb8ec1",
+  "testBundleIdentifier": "ai.opencode.quota.validation.rc2",
+  "testChanges": [
+    "bundle identifier/display name",
+    "local ad-hoc signing",
+    "later Finder-launch environment metadata attempt"
+  ],
+  "productionJavaScriptChanged": false,
+  "computerUseAccess": "granted and native UI inspected",
+  "nativeCallbacksMocked": false,
+  "observedHistoryStatus": "Desktop delivery failed or was denied; plugin fallback remains available. Reload settings to retry desktop delivery.",
+  "fixtureEvent": {
+    "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "providerId": "fixture-os-validation",
+    "windowId": "hourly",
+    "state": "delivered",
+    "deliveredAt": 1792247624948,
+    "deliveredChannel": "desktop"
+  },
+  "osDiagnostics": {
+    "entitlementCheck": "matching bundle identifiers succeeded",
+    "addRequest": "hasError: 1",
+    "specificErrorCause": "not established",
+    "clientValidation": "Temporary-path/Finder attempt: failed to find or validate client before authorization"
+  },
+  "validCodeSigningIdentities": 0,
+  "visibleNativeBannerObserved": false,
+  "nativeActivationObserved": false,
+  "acceptance": "PARTIAL / visible native card and activation remain open",
+  "limitations": [
+    "Synthetic reset; no live-provider evidence",
+    "Metadata-modified local ad-hoc copy, not unchanged release artifact certification",
+    "Finder reopen lacked explicit isolated Electron user-data-dir and is excluded from isolated acceptance",
+    "No Developer ID, notarization or Gatekeeper certification"
+  ],
+  "cleanup": "At this intermediate checkpoint the standard-location instance was still running; final acceptance record documents permission restoration, quit and uninstall",
+  "followUp": {
+    "testLocation": "/Applications/Quota Validation rc2.app",
+    "existingAppReplaced": false,
+    "privateXdgAndExplicitElectronUserDataDir": true,
+    "nativeShowAcknowledged": true,
+    "visibleCardObserved": false,
+    "activationObserved": false,
+    "classification": "show acknowledgement only; not observed OS delivery certification",
+    "remainingUiAction": "User asked to open Notification Center after zero-size agent capture and unsupported Fn key"
+  },
+  "checkpoint": "Intermediate failed/acknowledgement-only phases; superseded by final observed acceptance",
+  "finalRecord": "INS02-MACOS-NATIVE-ACCEPTANCE.json"
+}

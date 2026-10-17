@@ -1,0 +1,63 @@
+{
+  "evidenceDate": "2026-10-17",
+  "platform": "macOS 26.6.2",
+  "architecture": "arm64",
+  "electronVersion": "42.5.0",
+  "candidateVersion": "3.11.0-rc.2",
+  "candidateCommit": "da2464424b4c06aec94e24ac8b1d2905dd3020c1",
+  "sourceZipSha256": "1fbaf0ce9c96724be4b03db35c7f5040a84263386a57317f02c771156acb8ec1",
+  "testBundleIdentifier": "ai.opencode.quota.validation.rc2",
+  "testLocation": "/Applications/Quota Validation rc2.app",
+  "productionJavaScriptChanged": false,
+  "appAsarSha256": "7d42c48705e13884fbd3086d93efeb24ff4170484b721b814e0d44826f8749e4",
+  "historyHelperSha256": "5bc0b02a74d0900e1f22add422e79dbae6c5ef1f13f02dc0b9e84503bd08476b",
+  "localChanges": [
+    "distinct bundle identifier/display name",
+    "local ad-hoc signature",
+    "Finder-launch environment metadata attempt"
+  ],
+  "signingClassification": "local ad-hoc only; zero valid Developer ID/code-signing identities",
+  "nativeCallbacksMocked": false,
+  "computerUseAccess": "user granted; native UI inspected",
+  "permissionEvidence": [
+    "macOS Allow notifications for Quota Validation rc2 initially off",
+    "User explicitly authorized enabling only this test app",
+    "Allow notifications on verified before fresh synthetic event",
+    "Restored Allow notifications off after validation"
+  ],
+  "fixtureEvent": {
+    "id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "providerId": "fixture-os-validation",
+    "accountIdentity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "windowId": "hourly",
+    "observedAtIso": "2026-10-17T15:05:23.906Z",
+    "classification": "synthetic durable reset; no live provider calls"
+  },
+  "nativeCardObserved": {
+    "application": "Quota Validation rc2",
+    "title": "Quota reset",
+    "body": "fixture-os-validation / hourly: quota replenished (100% remaining).",
+    "surface": "actual macOS Notification Center; inspected through Computer Use accessibility tree"
+  },
+  "activation": {
+    "mechanism": "Computer Use click on the freshly observed native notification card",
+    "heading": "Quota History",
+    "selectedProvider": "fixture-os-validation",
+    "selectedAccountLabel": "Account aaaaaaaa",
+    "windowFilter": "Window: hourly \u00b7 Show all windows",
+    "visibleEventState": "hourly \u00b7 Account aaaaaaaa \u00b7 delivered \u00b7 10/17/2026, 5:05:23 PM",
+    "accountFixtureNote": "Matching synthetic accounting observation added after initial card activation; refresh exposed the account option while retaining the callback account selection"
+  },
+  "result": "PASS for local permitted macOS native card and activation acceptance",
+  "limits": [
+    "Local metadata-modified ad-hoc copy; unchanged unsigned draft artifact native delivery is not certified",
+    "No Developer ID, notarization, Gatekeeper, stable promotion or live-provider certification",
+    "Finder launch without explicit Electron user-data-dir excluded from isolated-profile evidence",
+    "Earlier failed/acknowledgement-only phases are retained separately; show callback alone did not establish visibility"
+  ],
+  "cleanup": [
+    "Test app quit",
+    "Temporary test notification permission restored off",
+    "Unique Applications test copy removed; no pre-existing app replaced"
+  ]
+}

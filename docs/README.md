@@ -25,7 +25,7 @@ These are the completed items with dedicated records. Other completed items have
 - [ACC-03 accounting surface record](work-items/ACC03_ACCOUNTING_SURFACES.md): complete in PR #48 with green main CI; shared details and account-separated history.
 - [INS-01 durable reset record](work-items/INS01_DURABLE_RESETS.md): complete in PR #49 with green main CI; qualified transitions, atomic dedup and delivery state.
 
-- [INS-02 notification delivery record](work-items/INS02_NOTIFICATION_DELIVERY.md): Linux X11/Dunst banner/action accepted; macOS observation remains open.
+- [INS-02 notification delivery record](work-items/INS02_NOTIFICATION_DELIVERY.md): complete: Linux X11/Dunst and permitted local macOS native card/action accepted; distribution limits recorded.
 
 - [INS-03 fixed-window runway record](work-items/INS03_FIXED_WINDOW_RUNWAY.md): complete in PR #51 with green main CI; strict eligibility and shared estimates.
 
@@ -41,7 +41,7 @@ These are the completed items with dedicated records. Other completed items have
 
 - [Fork release candidate record](work-items/FND04_FORK_RELEASE_CANDIDATE.md) and [3.11.0-rc.2 notes](RELEASE_NOTES_3.11.0-rc.2.md): completed draft artifact/identity gate, exact artifact/runtime evidence and remaining OS/release limits.
 
-- [3.11.0-rc.2 follow-up notes](RELEASE_NOTES_3.11.0-rc.2.md): native navigation heading correction; exact Linux native/AppImage acceptance passed, macOS observation open.
+- [3.11.0-rc.2 follow-up notes](RELEASE_NOTES_3.11.0-rc.2.md): native navigation heading correction; exact Linux native/AppImage and scoped local macOS native acceptance passed.
 
 ## Architecture decisions
 
