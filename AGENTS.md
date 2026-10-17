@@ -48,7 +48,7 @@ Key directories:
 - `src/tui.tsx` — TUI plugin entry (sidebar, compact line, dialogs)
 - `src/providers/` — one file per quota provider (22 providers), plus `registry.ts`
 - `src/lib/` — internal libraries (config, auth, formatting, pricing, etc.)
-- `src/bin/opencode-quota.ts` — CLI binary
+- `src/bin/token-watcher.ts` — primary CLI; `src/bin/opencode-quota.ts` retains the compatibility entrypoint
 - `src/gui/` — Electron menubar app
 - `contributing/provider-template/` — template for adding new API-key providers
 
@@ -99,11 +99,11 @@ Key boundary tests to keep passing:
 ## Useful Commands
 
 ```bash
-npx @thanhndv212/opencode-quota init      # Interactive installer
-opencode-quota show                    # Terminal quota summary
-opencode-quota show --json             # Machine-readable output
-opencode-quota show --json --threshold 5  # CI gate (exit 1 if <5%)
-opencode-quota gui                     # Launch Electron app from PATH
+npx @thanhndv212/token-watcher init      # Interactive installer
+token-watcher show                    # Terminal quota summary
+token-watcher show --json             # Machine-readable output
+token-watcher show --json --threshold 5  # CI gate (exit 1 if <5%)
+token-watcher gui                     # Launch Electron app from PATH
 pnpm run pricing:refresh               # Fetch latest models.dev pricing
 pnpm run build:package:mac             # Build macOS .dmg
 pnpm run build:package:linux           # Build Linux .AppImage/.deb

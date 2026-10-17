@@ -1,10 +1,12 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   OpenCode Quota — Menubar App Styles
+   Token Watcher — Menubar App Styles
    Minimal, dark theme. No CSS framework dependencies.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ── Reset & Base ──────────────────────────────────── */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
@@ -65,7 +67,8 @@ html[data-theme="light"] {
   --danger: #dc2626;
 }
 
-html, body {
+html,
+body {
   height: 100%;
   width: 100%;
   overflow: hidden;
@@ -118,7 +121,9 @@ html, body {
   cursor: pointer;
   font-family: var(--font-sans);
   border-bottom: 2px solid transparent;
-  transition: color 0.15s, border-color 0.15s;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
   -webkit-app-region: no-drag;
 }
 
@@ -191,7 +196,9 @@ html, body {
   font-size: 11px;
   font-family: var(--font-sans);
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
 }
 
 .btn:hover {
@@ -283,7 +290,9 @@ html, body {
 .percent-bar-fill {
   height: 100%;
   border-radius: 3px;
-  transition: width 0.3s ease, background 0.3s ease;
+  transition:
+    width 0.3s ease,
+    background 0.3s ease;
 }
 
 .percent-bar-fill.good {
@@ -606,7 +615,9 @@ html, body {
 
 /* ── Spinner ───────────────────────────────────────── */
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .spinner {
@@ -698,8 +709,14 @@ html, body {
 }
 
 @keyframes slideUp {
-  from { transform: translateY(10px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 .toast-success {

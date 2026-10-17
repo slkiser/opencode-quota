@@ -43,7 +43,7 @@ describe("tui dist packaging", () => {
     const mod = await import("../dist/tui.tsx");
 
     expect(mod.default).toMatchObject({
-      id: "@thanhndv212/opencode-quota",
+      id: "@thanhndv212/token-watcher",
     });
     expect(typeof mod.default.tui).toBe("function");
   });

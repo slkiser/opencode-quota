@@ -1,7 +1,7 @@
 /**
- * Generate app icons for OpenCode Quota.
+ * Generate app icons for Token Watcher.
  *
- * Creates a 512x512 PNG with a "Q" design on a blue gradient background.
+ * Creates a 512x512 PNG with a "TW" monogram on a blue gradient background.
  * electron-builder will auto-generate .icns (macOS) and .ico (Windows) from this PNG.
  *
  * Run: node scripts/generate-icons.mjs
@@ -41,8 +41,8 @@ function createPng(width, height, pixels) {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width, 0);
   ihdr.writeUInt32BE(height, 4);
-  ihdr[8] = 8;  // bit depth
-  ihdr[9] = 6;  // color type: RGBA
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 6; // color type: RGBA
   ihdr[10] = 0; // compression
   ihdr[11] = 0; // filter
   ihdr[12] = 0; // interlace
@@ -55,7 +55,7 @@ function createPng(width, height, pixels) {
     rawData.push(0); // filter: none
     for (let x = 0; x < width; x++) {
       const idx = (y * width + x) * 4;
-      rawData.push(pixels[idx]);     // R
+      rawData.push(pixels[idx]); // R
       rawData.push(pixels[idx + 1]); // G
       rawData.push(pixels[idx + 2]); // B
       rawData.push(pixels[idx + 3]); // A
@@ -118,7 +118,8 @@ function deflateRaw(data) {
 }
 
 function adler32(data) {
-  let a = 1, b = 0;
+  let a = 1,
+    b = 0;
   for (let i = 0; i < data.length; i++) {
     a = (a + data[i]) % 65521;
     b = (b + a) % 65521;
@@ -132,8 +133,6 @@ function adler32(data) {
 
 function createIconPixels(size) {
   const pixels = Buffer.alloc(size * size * 4);
-  const cx = size / 2;
-  const cy = size / 2;
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
@@ -146,99 +145,49 @@ function createIconPixels(size) {
       if (inRect) {
         // Gradient background (blue-purple)
         const t = y / size;
-        pixels[idx] = Math.round(60 + t * 40);     // R
+        pixels[idx] = Math.round(60 + t * 40); // R
         pixels[idx + 1] = Math.round(100 + t * 40); // G
         pixels[idx + 2] = Math.round(180 + t * 40); // B
-        pixels[idx + 3] = 255;                       // A
+        pixels[idx + 3] = 255; // A
       } else {
         pixels[idx + 3] = 0; // transparent
       }
     }
   }
 
-  // Draw "Q" letter shape in white
-  const fontSize = size * 0.45;
-  drawQ(pixels, size, cx - fontSize * 0.45, cy - fontSize * 0.35, fontSize);
+  // Token Watcher monogram, generated locally with no font dependency.
+  drawTW(pixels, size);
 
   return pixels;
 }
 
 function isInRoundedRect(x, y, w, h, r) {
-  // Outside the rectangle bounds
   if (x < 0 || x >= w || y < 0 || y >= h) return false;
-
-  // Corners: check if outside the rounded corner
-  const corners = [
-    { cx: r, cy: r },                     // top-left
-    { cx: w - r - 1, cy: r },             // top-right
-    { cx: r, cy: h - r - 1 },             // bottom-left
-    { cx: w - r - 1, cy: h - r - 1 },     // bottom-right
-  ];
-
-  for (const { cx: cornerX, cy: cornerY } of corners) {
-    if (
-      (x < r && y < r) ||
-      (x >= w - r && y < r) ||
-      (x < r && y >= h - r) ||
-      (x >= w - r && y >= h - r)
-    ) {
-      const dx = x - cornerX;
-      const dy = y - cornerY;
-      if (Math.sqrt(dx * dx + dy * dy) > r) return false;
-    }
-  }
-
-  return true;
+  if ((x >= r && x < w - r) || (y >= r && y < h - r)) return true;
+  const cornerX = x < r ? r : w - r - 1;
+  const cornerY = y < r ? r : h - r - 1;
+  return (x - cornerX) ** 2 + (y - cornerY) ** 2 <= r ** 2;
 }
 
-function drawQ(pixels, size, ox, oy, fontSize) {
-  const thickness = fontSize * 0.18;
-
-  // Draw the "O" part of Q (circle)
-  const circleCx = ox + fontSize * 0.5;
-  const circleCy = oy + fontSize * 0.45;
-  const outerR = fontSize * 0.42;
-  const innerR = outerR - thickness;
-
+function drawTW(pixels, size) {
+  const strokes = [
+    [0.18, 0.3, 0.42, 0.3],
+    [0.3, 0.3, 0.3, 0.7],
+    [0.48, 0.3, 0.54, 0.7],
+    [0.54, 0.7, 0.65, 0.48],
+    [0.65, 0.48, 0.76, 0.7],
+    [0.76, 0.7, 0.82, 0.3],
+  ];
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const dx = x - circleCx;
-      const dy = y - circleCy;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-
-      if (dist <= outerR && dist >= innerR) {
-        // Check if this point is NOT in the tail area (bottom-right gap for Q tail)
-        const angle = Math.atan2(dy, dx);
-        // Gap for the tail: between -45° and -20° (bottom-right)
-        const tailAngle = -0.5; // ~ -30°
-        const tailWidth = 0.25;
-
-        if (!(angle > tailAngle - tailWidth && angle < tailAngle + tailWidth && dist > innerR - thickness * 0.5)) {
-          const idx = (Math.round(y) * size + Math.round(x)) * 4;
-          pixels[idx] = 255;
-          pixels[idx + 1] = 255;
-          pixels[idx + 2] = 255;
-          pixels[idx + 3] = 255;
-        }
-      }
-    }
-  }
-
-  // Draw the Q tail (diagonal stroke from bottom-right of circle)
-  const tailStartX = circleCx + Math.cos(-0.5) * outerR * 0.85;
-  const tailStartY = circleCy + Math.sin(-0.5) * outerR * 0.85;
-  const tailEndX = tailStartX + fontSize * 0.35;
-  const tailEndY = tailStartY + fontSize * 0.35;
-
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const dist = distToLineSegment(x, y, tailStartX, tailStartY, tailEndX, tailEndY);
-      if (dist < thickness * 0.7) {
-        const idx = (y * size + x) * 4;
-        pixels[idx] = 255;
-        pixels[idx + 1] = 255;
-        pixels[idx + 2] = 255;
-        pixels[idx + 3] = 255;
+      if (
+        strokes.some(
+          ([a, b, c, d]) =>
+            distToLineSegment(x, y, a * size, b * size, c * size, d * size) <= size * 0.027,
+        )
+      ) {
+        const i = (y * size + x) * 4;
+        pixels[i] = pixels[i + 1] = pixels[i + 2] = pixels[i + 3] = 255;
       }
     }
   }

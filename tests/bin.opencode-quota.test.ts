@@ -74,7 +74,7 @@ describe("opencode-quota bin", () => {
 
     expect(code).toBe(0);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("Usage:"));
-    expect(log).toHaveBeenCalledWith(expect.stringContaining("opencode-quota show"));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("token-watcher show"));
     log.mockRestore();
   });
 
@@ -86,7 +86,7 @@ describe("opencode-quota bin", () => {
 
     expect(code).toBe(1);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("Usage:"));
-    expect(log).toHaveBeenCalledWith(expect.stringContaining("opencode-quota show"));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("token-watcher show"));
     log.mockRestore();
   });
 
@@ -98,16 +98,14 @@ describe("opencode-quota bin", () => {
 
     expect(code).toBe(1);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("Usage:"));
-    expect(log).toHaveBeenCalledWith(expect.stringContaining("opencode-quota show"));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("token-watcher show"));
     log.mockRestore();
   });
 
   it("treats symlinked bin paths as direct CLI execution", async () => {
     const { cliShouldRunMain } = await import("../src/bin/opencode-quota.js");
 
-    const modulePath = fileURLToPath(
-      new URL("../src/bin/opencode-quota.ts", import.meta.url),
-    );
+    const modulePath = fileURLToPath(new URL("../src/bin/opencode-quota.ts", import.meta.url));
     const tempDir = mkdtempSync(join(tmpdir(), "opencode-quota-bin-"));
     const symlinkPath = join(tempDir, "opencode-quota");
 

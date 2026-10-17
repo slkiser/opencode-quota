@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * OpenCode Quota — Menubar GUI App
+ * Token Watcher — Menubar GUI App
  *
  * A minimal, cross-platform (macOS + Linux) menubar/tray app that
  * visualizes quota, token usage, pricing, budget alerts, and API keys.
  *
  * Usage:
- *   opencode-quota-gui              # Launch the menubar app
- *   opencode-quota gui              # Alternative invocation
+ *   token-watcher gui              # Launch the menubar app
+ *   token-watcher gui              # Alternative invocation
  */
 
 import {
@@ -59,7 +59,14 @@ import * as dashboardHistoryIpc from "./ipc/dashboard-history.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const APP_NAME = "OpenCode Quota";
+import { PRODUCT_NAME, desktopUserDataPath } from "../lib/product-identity.js";
+
+const APP_NAME = PRODUCT_NAME;
+app.setName(PRODUCT_NAME);
+app.setPath(
+  "userData",
+  desktopUserDataPath(app.getPath("appData"), app.commandLine.getSwitchValue("user-data-dir")),
+);
 const RENDERER_HTML = "renderer/index.html";
 
 // =============================================================================
@@ -126,7 +133,7 @@ function createTrayIcon(): Electron.NativeImage {
   const size = 16;
   const canvas = Buffer.alloc(size * size * 4);
 
-  // Draw a simple "Q" shape (filled circle)
+  // Draw a simple token indicator (filled circle)
   const cx = size / 2;
   const cy = size / 2;
   const r = 5;
@@ -666,7 +673,7 @@ app
     mainWindow.show();
   })
   .catch((err: unknown) => {
-    console.error("OpenCode Quota GUI failed to start:", err);
+    console.error("Token Watcher GUI failed to start:", err);
     app.quit();
   });
 

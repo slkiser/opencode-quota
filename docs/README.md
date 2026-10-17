@@ -17,6 +17,9 @@ These are the completed items with dedicated records. Other completed items have
 
 ## Delivery and provenance
 
+- [Token Watcher rename and migration](work-items/TOKEN_WATCHER_RENAME.md): package/app identity, preserved user data and renamed release acceptance.
+- [Token Watcher 3.11.0-rc.3 release notes](RELEASE_NOTES_3.11.0-rc.3.md): renamed desktop and package distribution.
+
 - [Upstream delivery plan](UPSTREAM_DELIVERY_PLAN.md): authoritative work-item status, dependencies and acceptance/release gates.
 - [Upstream adoption ledger](UPSTREAM_ADOPTION.md): source-to-fork provenance and capability mapping.
 - [GUI-03 history and budget runtime record](work-items/GUI03_HISTORY_BUDGET_DESIGN.md): complete in PR #43; merged-main CI passed.

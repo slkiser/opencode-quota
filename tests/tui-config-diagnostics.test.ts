@@ -51,7 +51,7 @@ describe("inspectTuiConfig", () => {
       join(projectDir, "tui.jsonc"),
       `{
         // local project tui config
-        "plugin": ["@thanhndv212/opencode-quota"]
+        "plugin": ["@thanhndv212/token-watcher"]
       }`,
       "utf8",
     );
@@ -119,7 +119,7 @@ describe("inspectTuiConfig", () => {
 
     writeFileSync(
       join(projectDir, ".opencode", "tui.json"),
-      JSON.stringify({ plugin: ["@thanhndv212/opencode-quota"] }),
+      JSON.stringify({ plugin: ["@thanhndv212/token-watcher"] }),
       "utf8",
     );
 
@@ -142,7 +142,7 @@ describe("inspectTuiConfig", () => {
 
     writeFileSync(
       join(projectDir, ".opencode", "tui.json"),
-      JSON.stringify({ plugin: ["@thanhndv212/opencode-quota"] }),
+      JSON.stringify({ plugin: ["@thanhndv212/token-watcher"] }),
       "utf8",
     );
 
@@ -164,7 +164,7 @@ describe("inspectTuiConfig", () => {
 
     writeFileSync(
       join(projectDir, ".opencode", "tui.json"),
-      JSON.stringify({ plugin: ["@thanhndv212/opencode-quota"] }),
+      JSON.stringify({ plugin: ["@thanhndv212/token-watcher"] }),
       "utf8",
     );
 

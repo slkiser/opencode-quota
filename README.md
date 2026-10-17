@@ -1,30 +1,29 @@
 <p align="center">
   <a href="https://github.com/thanhndv212/opencode-quota">
     <picture>
-      <source srcset="opencode-quota-logo-dark.svg" media="(prefers-color-scheme: dark)">
-      <source srcset="opencode-quota-logo-light.svg" media="(prefers-color-scheme: light)">
-      <img src="opencode-quota-logo-light.svg" alt="OpenCode Quota logo">
+      <source srcset="token-watcher-logo-dark.svg" media="(prefers-color-scheme: dark)">
+      <source srcset="token-watcher-logo-light.svg" media="(prefers-color-scheme: light)">
+      <img src="token-watcher-logo-light.svg" alt="Token Watcher logo">
     </picture>
   </a>
 </p>
 <p align="center">Quota, usage, and token visibility for OpenCode.</p>
 <p align="center">
-  <a href="https://www.npmjs.com/package/@thanhndv212/opencode-quota"><img alt="npm" src="https://img.shields.io/npm/v/%40thanhndv212%2Fopencode-quota?style=flat-square" /></a>
-  <a href="https://www.npmjs.com/package/@thanhndv212/opencode-quota"><img alt="npm downloads" src="https://img.shields.io/npm/dm/%40thanhndv212%2Fopencode-quota?style=flat-square" /></a>
   <a href="https://github.com/thanhndv212/opencode-quota/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/thanhndv212/opencode-quota/ci.yml?style=flat-square&branch=main&label=CI" /></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" /></a>
 </p>
 
-[![OpenCode Quota sidebar](https://shawnkiser.com/opencode-quota/opencode-quota-sidebar.webp)](https://github.com/thanhndv212/opencode-quota)
+[![Upstream reference sidebar](https://shawnkiser.com/opencode-quota/opencode-quota-sidebar.webp)](https://github.com/thanhndv212/opencode-quota)
 
 ---
 
 ## Install
 
-This fork uses the npm name `@thanhndv212/opencode-quota`. If switching from upstream, replace `@slkiser/opencode-quota` (including any version suffix) with this fork's name in both `opencode.json` and `tui.json`, then restart OpenCode. Keep quota settings and usage data in place. The installer preserves an existing upstream/local plugin and warns instead of loading both implementations. The candidate distribution uses GitHub desktop assets and verified fork tarballs; npm publication remains optional and manual. See the [3.11.0-rc.2 candidate notes](docs/RELEASE_NOTES_3.11.0-rc.2.md) for evidence and unsigned-platform limits.
+Token Watcher uses the package identity `@thanhndv212/token-watcher` and the `token-watcher` command. The GitHub repository remains `thanhndv212/opencode-quota` for release continuity and upstream provenance. The new npm identity has not been published to the registry; install the release tarball locally before using CLI commands. Existing `opencode-quota` settings, caches, credentials, history paths and Electron profile remain compatible. The previous `opencode-quota` CLI is retained as an alias. If switching from an older quota package, replace `@slkiser/opencode-quota` or `@thanhndv212/opencode-quota` (including any version suffix) with this fork's name in both `opencode.json` and `tui.json`, then restart OpenCode. Keep quota settings and usage data in place. The installer preserves an existing upstream/local plugin and warns instead of loading both implementations. The candidate distribution uses GitHub desktop assets and verified fork tarballs; npm publication remains optional and manual. See the [Token Watcher rename and migration](docs/work-items/TOKEN_WATCHER_RENAME.md) for evidence and unsigned-platform limits.
 
 ```bash
-npx @thanhndv212/opencode-quota init
+npm install -g ./thanhndv212-token-watcher-3.11.0-rc.3.tgz
+token-watcher init
 ```
 
 > [!IMPORTANT]
@@ -47,8 +46,8 @@ The installer adds missing plugin/config entries and keeps your unrelated settin
 ### After install
 
 1. Restart OpenCode.
-2. Run `/quota` in OpenCode, or use `opencode-quota show` from your terminal.
-3. If something looks wrong, run `/quota_status` in OpenCode or `opencode-quota show` from your terminal.
+2. Run `/quota` in OpenCode, or use `token-watcher show` from your terminal.
+3. If something looks wrong, run `/quota_status` in OpenCode or `token-watcher show` from your terminal.
 4. If you kept maintainer announcements enabled and installed the TUI plugin, the home screen can show `Notice: Maintainer announcement available. Run /quota_announcements.` or the plural count form. Without the TUI plugin, the same count-only notice can appear once after the first visible quota toast. Run `/quota_announcements` to read active notices.
 5. If you enabled the Sidebar panel, open the session sidebar and look for `Quota`.
 6. If you enabled Compact status line, look for the home-bottom quota line and the chat/session prompt quota line.
@@ -58,13 +57,13 @@ The installer adds missing plugin/config entries and keeps your unrelated settin
 Run without installing the binary first:
 
 ```bash
-npx @thanhndv212/opencode-quota show
+token-watcher show
 ```
 
 Or, if `opencode-quota` is already on your `PATH`:
 
 ```bash
-opencode-quota show --provider copilot
+token-watcher show --provider copilot
 ```
 
 ## What you get
@@ -83,10 +82,10 @@ opencode-quota show --provider copilot
 <table>
   <tr>
     <td width="50%">
-      <img src="https://shawnkiser.com/opencode-quota/opencode-quota-sidebar.webp" alt="OpenCode Quota TUI sidebar panel" />
+      <img src="https://shawnkiser.com/opencode-quota/opencode-quota-sidebar.webp" alt="Upstream reference TUI sidebar panel" />
     </td>
     <td width="50%">
-      <img src="https://shawnkiser.com/opencode-quota/opencode-quota-toast.webp" alt="OpenCode Quota popup toast" />
+      <img src="https://shawnkiser.com/opencode-quota/opencode-quota-toast.webp" alt="Upstream reference popup toast" />
     </td>
   </tr>
   <tr>
@@ -95,10 +94,10 @@ opencode-quota show --provider copilot
   </tr>
   <tr>
     <td width="50%">
-      <img src="https://shawnkiser.com/opencode-quota/opencode-quota-statusbar.webp" alt="OpenCode Quota TUI status line" />
+      <img src="https://shawnkiser.com/opencode-quota/opencode-quota-statusbar.webp" alt="Upstream reference TUI status line" />
     </td>
     <td width="50%">
-      <img src="https://shawnkiser.com/opencode-quota/opencode-quota-tokens-command.webp" alt="OpenCode Quota token report" />
+      <img src="https://shawnkiser.com/opencode-quota/opencode-quota-tokens-command.webp" alt="Upstream reference token report" />
     </td>
   </tr>
   <tr>
@@ -122,7 +121,7 @@ This enables providers, terminal checks, popup toasts, web/desktop slash command
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["@thanhndv212/opencode-quota"],
+  "plugin": ["@thanhndv212/token-watcher"],
 }
 ```
 
@@ -133,7 +132,7 @@ Add this to `tui.json` or `tui.jsonc` for local `/quota`, `/quota_status`, `/quo
 ```jsonc
 {
   "$schema": "https://opencode.ai/tui.json",
-  "plugin": ["@thanhndv212/opencode-quota"],
+  "plugin": ["@thanhndv212/token-watcher"],
 }
 ```
 
@@ -165,7 +164,7 @@ Start with this, then adjust the UI choices in the next section:
 ```
 
 > [!TIP]
-> Run `/quota_status` to see the exact config paths OpenCode Quota loaded.
+> Run `/quota_status` to see the exact config paths Token Watcher loaded.
 
 ## Choose your UI surfaces
 
@@ -179,7 +178,7 @@ All UI surfaces use the same quota data. Put these settings in `opencode-quota/q
 | Maintainer announcement notice | `maintainerAnnouncements.enabled: true`, `maintainerAnnouncements.home: true`             | Prefers the TUI home notice when the quota TUI plugin is configured. Without the TUI plugin, shows the same count-only notice once after the first visible quota toast.                                                                   |
 | Web/desktop slash commands     | Server plugin entry in `opencode.json`                                                    | `/quota`, `/quota_status`, `/quota_announcements`, `/pricing_refresh`, and `/tokens_*` show deterministic ignored/no-reply output without calling the model.                                                                              |
 | Dialog slash commands          | TUI plugin entry in `tui.json`                                                            | The same commands open local TUI dialogs. They do not call the model and do not write command output to the OpenCode session transcript.                                                                                                  |
-| No automatic UI surfaces       | `enableToast: false`, `tuiSidebarPanel.enabled: false`, `tuiCompactStatus.enabled: false` | Skips toast/sidebar/compact/TUI dialog surfaces while keeping server web/desktop slash commands and `opencode-quota show` available. Maintainer announcements use the separate installer question/config and can be opted out if desired. |
+| No automatic UI surfaces       | `enableToast: false`, `tuiSidebarPanel.enabled: false`, `tuiCompactStatus.enabled: false` | Skips toast/sidebar/compact/TUI dialog surfaces while keeping server web/desktop slash commands and `token-watcher show` available. Maintainer announcements use the separate installer question/config and can be opted out if desired. |
 
 Selecting Compact status line in the installer enables both compact surfaces by default. To keep compact status home-only, set `tuiCompactStatus.sessionPrompt: false`.
 
@@ -196,9 +195,9 @@ Slash commands are deterministic and do not invoke a model. With the server plug
 
 | Command                                        | What it shows                                                                                                                                                |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `opencode-quota show`                          | Terminal quota-only quick glance                                                                                                                             |
-| `opencode-quota show --json`                   | Machine-readable JSON output for external tools                                                                                                              |
-| `opencode-quota show --json --threshold <pct>` | Exit `1` if cached quota is below `<pct>%`; exit `2` if none can be compared                                                                                 |
+| `token-watcher show`                          | Terminal quota-only quick glance                                                                                                                             |
+| `token-watcher show --json`                   | Machine-readable JSON output for external tools                                                                                                              |
+| `token-watcher show --json --threshold <pct>` | Exit `1` if cached quota is below `<pct>%`; exit `2` if none can be compared                                                                                 |
 | `/quota`                                       | Detailed quota report                                                                                                                                        |
 | `/quota_status`                                | Config, provider, auth, pricing, `enabled`/`home` announcement config, `source=bundled_only`, `network=false`, and active/future/expired announcement counts |
 | `/quota_announcements`                         | List active bundled maintainer notices                                                                                                                       |
@@ -219,12 +218,12 @@ Launch a standalone desktop tray app for visualizing quota, token usage, pricing
 ### Quick launch (no install)
 
 ```bash
-opencode-quota gui
+token-watcher gui
 ```
 
 This spawns Electron from your `node_modules` or `PATH`. If Electron isn't found, install it first: `npm install -g electron`.
 
-Standalone quota settings use the same `opencode-quota/quota-toast.json` loader as the plugin. By default, the GUI reads global configuration candidates only; its launch directory does not select a project. To include project settings, run `opencode-quota gui --project-dir /absolute/path/to/project`. An absolute `OPENCODE_CONFIG_DIR` also selects a configuration root. Project settings override global settings, but provider secrets still come from trusted auth, global config, or environment variables.
+Standalone quota settings use the same `opencode-quota/quota-toast.json` loader as the plugin. By default, the GUI reads global configuration candidates only; its launch directory does not select a project. To include project settings, run `token-watcher gui --project-dir /absolute/path/to/project`. An absolute `OPENCODE_CONFIG_DIR` also selects a configuration root. Project settings override global settings, but provider secrets still come from trusted auth, global config, or environment variables.
 
 Settings load at startup and reload when you click Refresh. The preload APIs `quotaApi.config.quota()` and `quotaApi.config.reloadQuota()` expose effective quota settings, their source paths, and validation issues. Malformed sidecars produce configuration errors in the Dashboard and retain validated defaults; they do not activate the legacy config fallback.
 
@@ -236,7 +235,7 @@ On **Linux**, `--no-sandbox` is auto-appended unless you already pass it via `EL
 
 #### macOS
 
-Download the latest `.dmg` from [GitHub Releases](https://github.com/thanhndv212/opencode-quota/releases), open it, and drag **OpenCode Quota** to `/Applications`.
+Download the latest `.dmg` from [GitHub Releases](https://github.com/thanhndv212/opencode-quota/releases), open it, and drag **Token Watcher** to `/Applications`.
 
 Or build from source:
 
@@ -245,7 +244,7 @@ git clone https://github.com/thanhndv212/opencode-quota
 cd opencode-quota
 npm install
 npm run build:package:mac
-# Open release/OpenCode Quota-*.dmg
+# Open release/Token Watcher-*.dmg
 ```
 
 The app lives in your **menubar** (top-right). Click the tray icon to open the quota dashboard.
@@ -264,7 +263,7 @@ chmod +x OpenCode-Quota-*.AppImage
 **.deb** (system-wide install):
 
 ```bash
-sudo dpkg -i opencode-quota_*.deb
+sudo dpkg -i token-watcher-*.deb
 ```
 
 The app runs in your **system tray**. Click the icon to open the quota dashboard. If your desktop environment does not support system trays (e.g. vanilla Gnome, bare Wayland compositor), the app falls back to window-only mode automatically.
@@ -288,14 +287,14 @@ pnpm run build:package:linux
 ```bash
 pnpm run build
 pnpm run build:gui
-opencode-quota gui
+token-watcher gui
 # or directly: npx electron dist/gui/main.js
 ```
 
 The CLI auto-detects Linux and appends `--no-sandbox`. You can pass extra Electron flags with `ELECTRON_ARGS`:
 
 ```bash
-ELECTRON_ARGS="--disable-gpu --enable-features=WaylandWindowDecorations" opencode-quota gui
+ELECTRON_ARGS="--disable-gpu --enable-features=WaylandWindowDecorations" token-watcher gui
 ```
 
 **Linux-specific notes:**
@@ -322,7 +321,7 @@ History and budget evaluation use system Node with SQLite support (Node 22 built
 
 ## API Key Management
 
-OpenCode Quota includes an encrypted API key store that supplements the existing `auth.json` mechanism. Store your own API keys for any provider and share them securely across machines.
+Token Watcher includes an encrypted API key store that supplements the existing `auth.json` mechanism. Store your own API keys for any provider and share them securely across machines.
 
 ### Security
 
@@ -406,7 +405,7 @@ Most providers work automatically. If a provider has a “Needs setup” link, o
 
 Add global-only `quotaProviders` definitions to the shared quota-toast.json sidecar. Both authenticated quota-v1 envelopes and bounded json-v1 mappings use the same desktop, CLI and plugin presentation as built-ins. Use IDs beginning with `custom-`; keep credentials in the declared env variable, trusted global provider config or existing key login. Workspace/SDK definitions cannot supply endpoints. See [schema, examples and security boundaries](docs/work-items/CUS01_REMOTE_DEFINITIONS.md).
 
-For guided desktop or terminal setup, use `opencode-quota provider add ./definition.json` to preview the complete changed field, then repeat with `--write --expect <preview-sha256>`. The editor preserves JSONC comments, permissions and symlinks and retains a private rollback copy. `provider status` diagnoses definitions without quota requests. [Setup and recovery instructions](docs/work-items/CUS03_GUIDED_PROVIDER_SETUP.md) also cover [durable local estimates](docs/work-items/CUS02_DURABLE_LOCAL_ESTIMATES.md).
+For guided desktop or terminal setup, use `token-watcher provider add ./definition.json` to preview the complete changed field, then repeat with `--write --expect <preview-sha256>`. The editor preserves JSONC comments, permissions and symlinks and retains a private rollback copy. `provider status` diagnoses definitions without quota requests. [Setup and recovery instructions](docs/work-items/CUS03_GUIDED_PROVIDER_SETUP.md) also cover [durable local estimates](docs/work-items/CUS02_DURABLE_LOCAL_ESTIMATES.md).
 
 ## Common configuration
 
@@ -550,7 +549,7 @@ Writes a JSON file after each TUI background refresh for consumption by external
 By default, the installer writes quota settings only to `opencode-quota/quota-toast.json`. If you also want it to write the legacy OpenCode block, run:
 
 ```bash
-npx @thanhndv212/opencode-quota init --sync-legacy-config
+token-watcher init --sync-legacy-config
 ```
 
 This is only for users who intentionally want `experimental.quotaToast` mirrored into `opencode.json` / `opencode.jsonc`.
@@ -646,7 +645,7 @@ Quota data is available to external tools via two surfaces that emit the same JS
 ### CLI: `show --json`
 
 ```
-opencode-quota show --json [--threshold <pct>] [--provider <id>]
+token-watcher show --json [--threshold <pct>] [--provider <id>]
 ```
 
 | Flag                | Behavior                                                                                                                                      |
@@ -728,7 +727,7 @@ Optional fields: `window` is present only when a provider row reports one, `perc
 **CI gate — abort if quota is low:**
 
 ```bash
-npx @thanhndv212/opencode-quota show --json --threshold 5
+token-watcher show --json --threshold 5
 # exits 1 if any comparable cached provider is below 5% remaining
 # exits 2 if there is no cached percentage to compare
 ```
@@ -736,7 +735,7 @@ npx @thanhndv212/opencode-quota show --json --threshold 5
 **Shell script — branch on remaining quota:**
 
 ```bash
-PCT=$(opencode-quota show --json | jq '.providers["copilot"].entries[0].percentRemaining')
+PCT=$(token-watcher show --json | jq '.providers["copilot"].entries[0].percentRemaining')
 (( ${PCT%.*} < 10 )) && echo "Low quota, skipping." && exit 0
 ```
 
@@ -753,7 +752,7 @@ set -g status-right '#(jq -r "[.providers|to_entries[]|select(.value.status==\"o
 ```toml
 # starship.toml
 [custom.quota]
-command = "opencode-quota show --json 2>/dev/null | jq -r '[.providers|to_entries[]|select(.value.status==\"ok\")|(.value.entries[0].percentRemaining|floor|tostring)+\"%\"]|join(\" \")'"
+command = "token-watcher show --json 2>/dev/null | jq -r '[.providers|to_entries[]|select(.value.status==\"ok\")|(.value.entries[0].percentRemaining|floor|tostring)+\"%\"]|join(\" \")'"
 when = "true"
 interval = 60
 ```
@@ -842,7 +841,7 @@ If the OAuth usage endpoint returns HTTP 429, probes for the same credential pau
 <details>
 <summary><strong>Cursor</strong></summary>
 
-Use companion plugin [`@playwo/opencode-cursor-oauth`](https://github.com/PoolPirate/opencode-cursor#readme). Add it before `@thanhndv212/opencode-quota` in `opencode.json`, then authenticate once:
+Use companion plugin [`@playwo/opencode-cursor-oauth`](https://github.com/PoolPirate/opencode-cursor#readme). Add it before `@thanhndv212/token-watcher` in `opencode.json`, then authenticate once:
 
 ```bash
 opencode auth login --provider cursor
@@ -855,7 +854,7 @@ opencode auth login --provider cursor
 <details>
 <summary><strong>Qwen Code</strong></summary>
 
-Use companion plugin [`opencode-qwencode-auth`](https://github.com/gustavodiasdev/opencode-qwencode-auth#readme). Add it before `@thanhndv212/opencode-quota` in `opencode.json`.
+Use companion plugin [`opencode-qwencode-auth`](https://github.com/gustavodiasdev/opencode-qwencode-auth#readme). Add it before `@thanhndv212/token-watcher` in `opencode.json`.
 
 </details>
 
@@ -864,7 +863,7 @@ Use companion plugin [`opencode-qwencode-auth`](https://github.com/gustavodiasde
 <details>
 <summary><strong>Google Antigravity</strong></summary>
 
-Use companion plugin [`opencode-antigravity-auth`](https://github.com/NoeFabris/opencode-antigravity-auth#readme). Add it before `@thanhndv212/opencode-quota` in `opencode.json`.
+Use companion plugin [`opencode-antigravity-auth`](https://github.com/NoeFabris/opencode-antigravity-auth#readme). Add it before `@thanhndv212/token-watcher` in `opencode.json`.
 
 </details>
 
@@ -873,7 +872,7 @@ Use companion plugin [`opencode-antigravity-auth`](https://github.com/NoeFabris/
 <details>
 <summary><strong>Google AGY</strong></summary>
 
-Use companion plugin [`@anthonyhaussman/opencode-agy-auth`](https://www.npmjs.com/package/@anthonyhaussman/opencode-agy-auth). Add it before `@thanhndv212/opencode-quota` in `opencode.json`, then authenticate Google once:
+Use companion plugin [`@anthonyhaussman/opencode-agy-auth`](https://www.npmjs.com/package/@anthonyhaussman/opencode-agy-auth). Add it before `@thanhndv212/token-watcher` in `opencode.json`, then authenticate Google once:
 
 ```bash
 opencode auth login --provider google-agy
@@ -908,7 +907,7 @@ If the AGY auth entry does not include a project id, set `OPENCODE_AGY_PROJECT_I
 <details>
 <summary><strong>Gemini CLI</strong></summary>
 
-Use companion plugin [`opencode-gemini-auth`](https://github.com/jenslys/opencode-gemini-auth#readme). Add it before `@thanhndv212/opencode-quota` in `opencode.json`, then authenticate Google once:
+Use companion plugin [`opencode-gemini-auth`](https://github.com/jenslys/opencode-gemini-auth#readme). Add it before `@thanhndv212/token-watcher` in `opencode.json`, then authenticate Google once:
 
 ```bash
 opencode auth login --provider google
@@ -1003,9 +1002,9 @@ Use `opencodeGoWindows` to choose **5h**, **Weekly**, and/or **Monthly** windows
 
 Start here when quota or token data looks wrong.
 
-1. Run `/quota_status`, or start with `opencode-quota show` for a terminal quota summary.
+1. Run `/quota_status`, or start with `token-watcher show` for a terminal quota summary.
 2. Confirm the expected provider appears in the detected provider list.
-3. Confirm companion auth plugins are before `@thanhndv212/opencode-quota` in `opencode.json`.
+3. Confirm companion auth plugins are before `@thanhndv212/token-watcher` in `opencode.json`.
 4. If token reports are empty, start OpenCode once so it creates `opencode.db`, then run a session with model usage.
 5. Use the provider-specific table below for the failing provider.
 
@@ -1013,13 +1012,13 @@ Start here when quota or token data looks wrong.
 
 | Symptom                                                | Try this                                                                                                                                                                                                                                                 |
 | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/quota` or other slash commands do not appear         | For web/desktop commands, confirm `opencode.json` includes `@thanhndv212/opencode-quota`. For local TUI dialogs, confirm `tui.json` includes it. Restart OpenCode after changes.                                                                         |
-| `/quota` shows no providers                            | Run `/quota_status`, then check provider detection and auth. You can also use `opencode-quota show` for a terminal quota summary.                                                                                                                        |
-| Sidebar panel does not appear                          | Confirm `tui.json` includes `@thanhndv212/opencode-quota`, restart OpenCode, and check `tuiSidebarPanel.enabled`.                                                                                                                                        |
-| Compact status line does not appear anywhere           | Confirm `tui.json` includes `@thanhndv212/opencode-quota`, restart OpenCode, check `tuiCompactStatus.enabled`, and check whether `tuiCompactStatus.suppressWhenNativeProviderQuota` is hiding it because OpenCode exposes native provider-quota support. |
+| `/quota` or other slash commands do not appear         | For web/desktop commands, confirm `opencode.json` includes `@thanhndv212/token-watcher`. For local TUI dialogs, confirm `tui.json` includes it. Restart OpenCode after changes.                                                                         |
+| `/quota` shows no providers                            | Run `/quota_status`, then check provider detection and auth. You can also use `token-watcher show` for a terminal quota summary.                                                                                                                        |
+| Sidebar panel does not appear                          | Confirm `tui.json` includes `@thanhndv212/token-watcher`, restart OpenCode, and check `tuiSidebarPanel.enabled`.                                                                                                                                        |
+| Compact status line does not appear anywhere           | Confirm `tui.json` includes `@thanhndv212/token-watcher`, restart OpenCode, check `tuiCompactStatus.enabled`, and check whether `tuiCompactStatus.suppressWhenNativeProviderQuota` is hiding it because OpenCode exposes native provider-quota support. |
 | Compact status appears on home but not in chat/session | Check `tuiCompactStatus.sessionPrompt`; set it to `true` to show the chat/session prompt line.                                                                                                                                                           |
 | Popup toasts do not appear                             | Check `enableToast`, `showOnIdle`, `showOnQuestion`, and `showOnCompact`.                                                                                                                                                                                |
-| Announcement home notice does not appear               | Confirm `tui.json` includes `@thanhndv212/opencode-quota`, restart OpenCode, then check `maintainerAnnouncements.enabled`, `maintainerAnnouncements.home`, and the active count in the `maintainer_announcements` section of `/quota_status`.            |
+| Announcement home notice does not appear               | Confirm `tui.json` includes `@thanhndv212/token-watcher`, restart OpenCode, then check `maintainerAnnouncements.enabled`, `maintainerAnnouncements.home`, and the active count in the `maintainer_announcements` section of `/quota_status`.            |
 | Token reports are empty                                | Start OpenCode once so `opencode.db` exists, then run a session with model usage.                                                                                                                                                                        |
 | Pricing looks stale                                    | Run `/pricing_refresh`.                                                                                                                                                                                                                                  |
 | `/tokens_between` needs dates                          | Run `/tokens_between YYYY-MM-DD YYYY-MM-DD`; if your OpenCode build does not pass slash arguments to TUI commands, the dialog shows the expected format.                                                                                                 |
@@ -1074,7 +1073,7 @@ Run `/quota_status` and check the Cursor section.
 
 | Symptom                                   | Fix                                                                                                     |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Cursor not detected                       | Put `@playwo/opencode-cursor-oauth` before `@thanhndv212/opencode-quota` in `opencode.json`.            |
+| Cursor not detected                       | Put `@playwo/opencode-cursor-oauth` before `@thanhndv212/token-watcher` in `opencode.json`.            |
 | Cursor auth missing                       | Run `opencode auth login --provider cursor`.                                                            |
 | Quota appears but no remaining percentage | Set `cursorPlan` or `cursorIncludedApiUsd` in `opencode-quota/quota-toast.json`.                        |
 | Billing cycle looks wrong                 | Set `cursorBillingCycleStartDay` in `opencode-quota/quota-toast.json` to your local billing anchor day. |
@@ -1089,7 +1088,7 @@ Run `/quota_status` and check `qwen_oauth_source`, `qwen_local_plan`, and the `q
 
 | Symptom              | Fix                                                                                                          |
 | -------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Qwen not detected    | Put `opencode-qwencode-auth` before `@thanhndv212/opencode-quota` in `opencode.json`.                        |
+| Qwen not detected    | Put `opencode-qwencode-auth` before `@thanhndv212/token-watcher` in `opencode.json`.                        |
 | Auth missing         | Complete the Qwen companion plugin auth flow.                                                                |
 | Counters do not move | Confirm the current model is `qwen-code/*`; Qwen quota is local request estimation for matching model usage. |
 | Usage looks stale    | Check the local state file path shown by `/quota_status`.                                                    |
@@ -1138,7 +1137,7 @@ Run `/quota_status` and check the `google_antigravity` section.
 
 | Symptom                  | Fix                                                                                      |
 | ------------------------ | ---------------------------------------------------------------------------------------- |
-| Companion missing        | Put `opencode-antigravity-auth` before `@thanhndv212/opencode-quota` in `opencode.json`. |
+| Companion missing        | Put `opencode-antigravity-auth` before `@thanhndv212/token-watcher` in `opencode.json`. |
 | Accounts not found       | Check the selected `antigravity-accounts.json` path shown by `/quota_status`.            |
 | Refresh tokens invalid   | Re-authenticate with the companion plugin.                                               |
 | Provider returns no rows | Check `live_probe`, `live_entry_*`, and `live_error_*` in `/quota_status`.               |
@@ -1152,7 +1151,7 @@ Run `/quota_status` and check the `google_agy` section.
 
 | Symptom                             | Fix                                                                                               |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Companion missing                   | Put `@anthonyhaussman/opencode-agy-auth` before `@thanhndv212/opencode-quota` in `opencode.json`. |
+| Companion missing                   | Put `@anthonyhaussman/opencode-agy-auth` before `@thanhndv212/token-watcher` in `opencode.json`. |
 | Provider not enabled in manual mode | Include `google-agy` in `enabledProviders` in `opencode-quota/quota-toast.json`.                  |
 | Auth missing                        | Run `opencode auth login --provider google-agy`.                                                  |
 | Project missing                     | Set `OPENCODE_AGY_PROJECT_ID` or `provider.google-agy.options.projectId`.                         |
@@ -1167,7 +1166,7 @@ Run `/quota_status` and check the Gemini CLI live probe rows.
 
 | Symptom                             | Fix                                                                                                                          |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Companion missing                   | Put `opencode-gemini-auth` before `@thanhndv212/opencode-quota` in `opencode.json`.                                          |
+| Companion missing                   | Put `opencode-gemini-auth` before `@thanhndv212/token-watcher` in `opencode.json`.                                          |
 | Provider not enabled in manual mode | Include `google-gemini-cli` in `enabledProviders` in `opencode-quota/quota-toast.json`.                                      |
 | Auth missing                        | Run `opencode auth login --provider google`.                                                                                 |
 | Project missing                     | Set `provider.google.options.projectId`, `OPENCODE_GEMINI_PROJECT_ID`, `GOOGLE_CLOUD_PROJECT`, or `GOOGLE_CLOUD_PROJECT_ID`. |
@@ -1205,7 +1204,7 @@ Run `/quota_status` and check pricing snapshot health plus OpenCode database pat
 
 ## Contributors
 
-Thanks to everyone who has contributed to OpenCode Quota.
+Thanks to everyone who has contributed to Token Watcher.
 
 <a href="https://github.com/thanhndv212/opencode-quota/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=thanhndv212/opencode-quota" />
@@ -1217,7 +1216,7 @@ MIT
 
 ## Remarks
 
-OpenCode Quota is not built by the OpenCode team and is not affiliated with OpenCode or any provider listed above.
+Token Watcher is not built by the OpenCode team and is not affiliated with OpenCode or any provider listed above.
 
 ## Star history
 
@@ -1225,4 +1224,4 @@ OpenCode Quota is not built by the OpenCode team and is not affiliated with Open
 
 ### Accounting details
 
-Use `opencode-quota show --details` or `/quota` for typed balances, usage operands, source authority and observation times. The desktop Dashboard and History tabs expose the same facts under **Balances and usage details**; History separates identified accounts from unknown observations. Compact rows retain their existing presentation, and `show --json` remains schema v1. Source/account details are available only where a provider adapter establishes them.
+Use `token-watcher show --details` or `/quota` for typed balances, usage operands, source authority and observation times. The desktop Dashboard and History tabs expose the same facts under **Balances and usage details**; History separates identified accounts from unknown observations. Compact rows retain their existing presentation, and `show --json` remains schema v1. Source/account details are available only where a provider adapter establishes them.

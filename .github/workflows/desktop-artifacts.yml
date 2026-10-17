@@ -44,7 +44,7 @@ jobs:
             import fs from "node:fs";
             import { execFileSync } from "node:child_process";
             const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
-            if (pkg.name !== "@thanhndv212/opencode-quota" || pkg.repository.url !== "git+https://github.com/thanhndv212/opencode-quota.git") throw new Error("Unexpected fork identity");
+            if (pkg.name !== "@thanhndv212/token-watcher" || pkg.repository.url !== "git+https://github.com/thanhndv212/opencode-quota.git") throw new Error("Unexpected fork identity");
             const ref = process.env.CANDIDATE_REF;
             if (/^v[0-9]/.test(ref)) {
               execFileSync(process.execPath, ["scripts/verify-release-version.mjs"], {stdio:"inherit", env:{...process.env, RELEASE_TAG:ref}});
@@ -84,13 +84,13 @@ jobs:
             dmg=$(find release -maxdepth 1 -name '*.dmg' -print -quit)
             hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mount_dir"
             trap 'hdiutil detach "$mount_dir" || true; rm -rf "$install_dir" "$mount_dir"' EXIT
-            ditto "$mount_dir/OpenCode Quota.app" "$install_dir/OpenCode Quota.app"
-            node scripts/smoke-packaged-app.mjs "$install_dir/OpenCode Quota.app/Contents/MacOS/OpenCode Quota" release/installed-smoke
+            ditto "$mount_dir/Token Watcher.app" "$install_dir/Token Watcher.app"
+            node scripts/smoke-packaged-app.mjs "$install_dir/Token Watcher.app/Contents/MacOS/Token Watcher" release/installed-smoke
           else
             trap 'rm -rf "$install_dir"' EXIT
             deb=$(find release -maxdepth 1 -name '*.deb' -print -quit)
             dpkg-deb --extract "$deb" "$install_dir"
-            binary=$(find "$install_dir/opt" -type f -name opencode-quota -perm -u+x -print -quit)
+            binary=$(find "$install_dir/opt" -type f -name token-watcher -perm -u+x -print -quit)
             test -n "$binary"
             xvfb-run -a node scripts/smoke-packaged-app.mjs "$binary" release/installed-smoke
           fi

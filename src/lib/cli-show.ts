@@ -41,7 +41,7 @@ type ParsedShowArgs =
 
 const SHOW_USAGE = [
   "Usage:",
-  "  npx @thanhndv212/opencode-quota show [--provider <provider-id>] [--json] [--threshold <pct>]",
+  "  npx @thanhndv212/token-watcher show [--provider <provider-id>] [--json] [--threshold <pct>]",
   "",
   "Options:",
   "  --provider <provider-id>  Show quota for one provider",

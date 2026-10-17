@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build and install OpenCode Quota on Linux
+# Build and install Token Watcher on Linux
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -50,29 +50,29 @@ if [ -n "$DEB_FILE" ]; then
     rm -f "$STALE_APPIMAGE"
   fi
 
-  echo "==> Installed. Run with: opencode-quota gui"
+  echo "==> Installed. Run with: token-watcher gui"
 elif [ -n "$APPIMAGE_FILE" ]; then
   echo "==> Found .AppImage: $APPIMAGE_FILE"
   INSTALL_DIR="${HOME}/.local/bin"
-  INSTALL_PATH="${INSTALL_DIR}/opencode-quota"
+  INSTALL_PATH="${INSTALL_DIR}/token-watcher"
   mkdir -p "$INSTALL_DIR"
   cp "$APPIMAGE_FILE" "$INSTALL_PATH"
   chmod +x "$INSTALL_PATH"
 
   # Create/update user-local desktop entry so the app launcher works.
   DESKTOP_DIR="${HOME}/.local/share/applications"
-  DESKTOP_FILE="${DESKTOP_DIR}/opencode-quota.desktop"
+  DESKTOP_FILE="${DESKTOP_DIR}/token-watcher.desktop"
   mkdir -p "$DESKTOP_DIR"
   cat > "$DESKTOP_FILE" <<DESKTOPEOF
 [Desktop Entry]
-Name=OpenCode Quota
+Name=Token Watcher
 Comment=Quota, usage, and token visibility for OpenCode
 Exec=${INSTALL_PATH}
-Icon=opencode-quota
+Icon=token-watcher
 Type=Application
 Categories=Development;
 Terminal=false
-StartupWMClass=OpenCode Quota
+StartupWMClass=Token Watcher
 DESKTOPEOF
   echo "==> Wrote desktop entry: $DESKTOP_FILE"
 
@@ -91,7 +91,7 @@ DESKTOPEOF
   fi
 
   echo "==> Installed to: $INSTALL_PATH"
-  echo "==> Run with: opencode-quota gui"
+  echo "==> Run with: token-watcher gui"
 else
   echo "ERROR: No .deb or .AppImage found in $RELEASE_DIR"
   exit 1

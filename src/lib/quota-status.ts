@@ -1861,7 +1861,7 @@ export async function buildQuotaStatusReport(params: {
     });
   return renderPlainTextReport({
     heading: {
-      title: `Quota Status (opencode-quota v${v}) (/quota_status)`,
+      title: `Token Watcher Status (v${v}) (/quota_status)`,
       generatedAtMs: params.generatedAtMs,
     },
     sections,

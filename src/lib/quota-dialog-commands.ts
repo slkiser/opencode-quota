@@ -65,10 +65,10 @@ async function buildQuotaDashboardCommandOutput(): Promise<string> {
   const lines: string[] = [];
   const startInstructions = [
     "View history in the menubar app:",
-    "  opencode-quota gui                (then open the History tab)",
+    "  token-watcher gui                (then open the History tab)",
     "",
     "Or query the headless JSON API directly (no UI):",
-    "  opencode-quota dashboard          (if linked globally: pnpm link --global)",
+    "  token-watcher dashboard          (if linked globally: pnpm link --global)",
     "  node dist/bin/dashboard.js        (from the opencode-quota repo)",
     `  curl http://localhost:${DASHBOARD_DEFAULT_PORT}/api/dashboard/summary`,
   ];
@@ -257,7 +257,7 @@ export const QUOTA_DIALOG_COMMANDS: readonly QuotaDialogCommandSpec[] = [
   {
     id: "quota",
     slashName: "quota",
-    title: "OpenCode Quota",
+    title: "Token Watcher",
     description: "Show deterministic quota output.",
     dialogSize: "xlarge",
     requiresSession: true,
@@ -265,7 +265,7 @@ export const QUOTA_DIALOG_COMMANDS: readonly QuotaDialogCommandSpec[] = [
   {
     id: "quota_status",
     slashName: "quota_status",
-    title: "OpenCode Quota Status",
+    title: "Token Watcher Status",
     description: "Diagnostics for quota, TUI, pricing, and local storage.",
     dialogSize: "xlarge",
     requiresSession: true,
@@ -274,7 +274,7 @@ export const QUOTA_DIALOG_COMMANDS: readonly QuotaDialogCommandSpec[] = [
   {
     id: "quota_announcements",
     slashName: "quota_announcements",
-    title: "OpenCode Quota Announcements",
+    title: "Token Watcher Announcements",
     description: "List active bundled maintainer announcements.",
     dialogSize: "xlarge",
     acceptsArguments: true,
@@ -282,14 +282,14 @@ export const QUOTA_DIALOG_COMMANDS: readonly QuotaDialogCommandSpec[] = [
   {
     id: "quota_dashboard",
     slashName: "quota_dashboard",
-    title: "OpenCode Quota Dashboard",
+    title: "Token Watcher Dashboard",
     description: "Show dashboard snapshot status and how to view quota history in the menubar app.",
     dialogSize: "xlarge",
   },
   {
     id: "pricing_refresh",
     slashName: "pricing_refresh",
-    title: "OpenCode Quota Pricing Refresh",
+    title: "Token Watcher Pricing Refresh",
     description: "Refresh the local runtime pricing snapshot from models.dev.",
     dialogSize: "xlarge",
     acceptsArguments: true,
@@ -298,7 +298,7 @@ export const QUOTA_DIALOG_COMMANDS: readonly QuotaDialogCommandSpec[] = [
     (spec): QuotaDialogCommandSpec => ({
       id: spec.id,
       slashName: spec.id,
-      title: spec.kind === "between" ? "OpenCode Quota Token Report" : spec.metadataTitle,
+      title: spec.kind === "between" ? "Token Watcher Token Report" : spec.metadataTitle,
       description: spec.description,
       dialogSize: "xlarge",
       requiresSession: spec.kind === "session" || spec.kind === "session_tree",

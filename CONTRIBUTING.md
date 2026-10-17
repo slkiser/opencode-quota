@@ -1,4 +1,4 @@
-# Contributing to opencode-quota
+# Contributing to Token Watcher
 
 Thanks for contributing. This repo has strict local-only behavior and regression guardrails, so please follow this workflow.
 
@@ -73,7 +73,7 @@ PR and `main` pushes trigger `.github/workflows/ci.yml` (`CI` workflow):
 - `desktop-smoke` launches the installed package on Linux and macOS and verifies the real main/preload/renderer, six tabs, version, manual refresh, hidden-window tray refresh and quitting. Provider data is fixture-backed; this is not live quota validation.
 - `required-gate` fails when any quality, consumer or desktop job fails or is skipped.
 
-Release workflow `.github/workflows/publish-npm.yml` publishes only `@thanhndv212/opencode-quota` from an existing version-matching tag. It tests and smokes the exact tarball before publishing it with provenance, using `next` for prereleases. Configure npm trusted publishing for this repository/workflow/environment before enabling publication. Version changes belong in a reviewed PR before tagging; the workflow never edits versions or pushes commits.
+Release workflow `.github/workflows/publish-npm.yml` publishes only `@thanhndv212/token-watcher` from an existing version-matching tag. It tests and smokes the exact tarball before publishing it with provenance, using `next` for prereleases. Configure npm trusted publishing for this repository/workflow/environment before enabling publication. Version changes belong in a reviewed PR before tagging; the workflow never edits versions or pushes commits.
 
 `.github/workflows/desktop-artifacts.yml` prepares unsigned desktop candidates and checksums for review from a selected commit/tag. It does not publish a GitHub release or install over the maintainer's application. Artifact generation is distinct from signed/notarized release validation.
 

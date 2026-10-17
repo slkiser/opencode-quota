@@ -1,5 +1,5 @@
 /**
- * OpenCode Quota — Menubar App Renderer
+ * Token Watcher — Menubar App Renderer
  *
  * Self-contained vanilla JavaScript application.
  * Uses the quotaApi exposed via Electron contextBridge.

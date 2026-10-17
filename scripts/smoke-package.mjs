@@ -16,7 +16,8 @@ await withConsumer(process.argv[2], async (root) => {
     import path from "node:path";
     import { fileURLToPath } from "node:url";
     const name = ${JSON.stringify(pkg.name)};
-    await import(name);
+    const exported = await import(name);
+    assert.equal(exported.default.id, name);
     await import(name + "/server");
     const tui = fileURLToPath(import.meta.resolve(name + "/tui"));
     assert.ok(tui.endsWith("/dist/tui.tsx"));
@@ -32,6 +33,10 @@ await withConsumer(process.argv[2], async (root) => {
     assert.equal(manifest.name, name);
     assert.equal(manifest.version, ${JSON.stringify(pkg.version)});
     assert.equal(manifest.engines.node, ">=20.0.0");
+    assert.ok(manifest.bin["token-watcher"]);
+    assert.ok(manifest.bin["opencode-quota"]);
+    for (const cli of Object.values(manifest.bin)) await access(path.join(packageRoot, cli));
+    assert.ok((await readFile(tui, "utf8")).includes("PACKAGE_NAME"));
     console.log("Installed package exports and GUI payload passed on " + process.version);
   `,
   );
@@ -41,13 +46,13 @@ await withConsumer(process.argv[2], async (root) => {
     [
       fileURLToPath(new URL("fixtures/provider-editor-smoke.mjs", import.meta.url)),
       root,
-      path.join(root, "node_modules", pkg.name, "dist/bin/opencode-quota.js"),
+      path.join(root, "node_modules", pkg.name, "dist/bin/token-watcher.js"),
     ],
     { cwd: root },
   );
   await run(
     process.execPath,
-    [path.join(root, "node_modules", pkg.name, "dist/bin/opencode-quota.js"), "--help"],
+    [path.join(root, "node_modules", pkg.name, "dist/bin/token-watcher.js"), "--help"],
     {
       cwd: root,
     },

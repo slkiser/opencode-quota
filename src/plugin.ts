@@ -1,5 +1,5 @@
 /**
- * OpenCode Quota Toast Plugin
+ * Token Watcher Toast Plugin
  *
  * Shows a minimal quota status toast without LLM invocation.
  * Triggers on session.idle, session.compacted, and question tool completion.
@@ -755,7 +755,7 @@ export const QuotaToastPlugin: Plugin = async ({ client }) => {
     const paths = configMeta.paths.length > 0 ? configMeta.paths.join(" | ") : "(none)";
 
     return [
-      `Quota Toast Debug (opencode-quota)`,
+      `Token Watcher Debug`,
       `trigger=${params.trigger} reason=${params.reason}`,
       `configSource=${configMeta.source} paths=${paths}`,
       `enabled=${config.enabled} providers=${providers}${modelPart}`,

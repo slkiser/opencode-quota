@@ -7,6 +7,7 @@
 
 export const COMMAND_HANDLED_SENTINEL = "__QUOTA_COMMAND_HANDLED__" as const;
 
+// Keep the shared legacy brand so old/new package copies recognize handled aborts.
 const COMMAND_HANDLED_ERROR_BRAND = Symbol.for("@thanhndv212/opencode-quota/command-handled");
 
 function createCommandHandledError(): Error {

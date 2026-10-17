@@ -20,7 +20,7 @@ export async function runCliProvider(argv: string[]): Promise<number> {
   }
   if (action !== "add" || !input) {
     console.error(
-      "Usage: opencode-quota provider add <definition.json> [--write --expect <preview-sha256>] | provider status",
+      "Usage: token-watcher provider add <definition.json> [--write --expect <preview-sha256>] | provider status",
     );
     return 1;
   }

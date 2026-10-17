@@ -76,7 +76,10 @@ await withConsumer(process.argv[2], async (root) => {
     path.join(root, "opencode-quota", "quota-toast.json"),
     JSON.stringify({ enabledProviders: ["cursor"] }),
   );
-  const args = [fileURLToPath(new URL("fixtures/gui-smoke.mjs", import.meta.url))];
+  const args = [
+    `--user-data-dir=${path.join(profile, "electron")}`,
+    fileURLToPath(new URL("fixtures/gui-smoke.mjs", import.meta.url)),
+  ];
   if (process.platform === "linux") args.push("--no-sandbox");
   await run(electron, args, { cwd: root, env, timeout: 60_000 });
 });

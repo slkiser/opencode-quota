@@ -1,4 +1,5 @@
 /** @jsxImportSource @opentui/solid */
+import { PACKAGE_NAME } from "./lib/product-identity.js";
 import type { JSX } from "@opentui/solid";
 import type {
   TuiPlugin,
@@ -41,7 +42,7 @@ import {
   type QuotaDialogCommandId,
 } from "./lib/quota-dialog-commands.js";
 
-const id = "@thanhndv212/opencode-quota";
+const id = PACKAGE_NAME;
 // Place Quota near the top so variable-height built-in sections
 // (MCP/LSP/Todo/Files) do not push it below the visible fold.
 const SIDEBAR_ORDER = 150;
@@ -245,7 +246,7 @@ function createHomeBottomResource(api: TuiPluginApi): HomeBottomResource {
         // Fire-and-forget: write export file if enabled. A failed write must
         // never affect TUI rendering, so log a warning and continue.
         void writeTuiQuotaExportIfEnabled({ api }).catch((err) => {
-          console.warn(`[opencode-quota] quota export write failed: ${String(err)}`);
+          console.warn(`[token-watcher] quota export write failed: ${String(err)}`);
         });
       })
       .catch(() => {
@@ -534,7 +535,7 @@ function CommandErrorDialog(props: { api: TuiPluginApi; title: string; error: un
       <text fg={props.api.theme.current.text}>
         <b>{props.title}</b>
       </text>
-      <text fg={props.api.theme.current.text}>OpenCode Quota command failed.</text>
+      <text fg={props.api.theme.current.text}>Token Watcher command failed.</text>
       <text fg={props.api.theme.current.textMuted} wrapMode="none">
         {message || "Unknown error"}
       </text>
@@ -552,7 +553,7 @@ function TokensBetweenPromptDialog(props: {
   if (DialogPrompt) {
     return (
       <DialogPrompt
-        title="OpenCode Quota Token Range"
+        title="Token Watcher Token Range"
         placeholder="YYYY-MM-DD YYYY-MM-DD"
         description={() => (
           <text fg={props.api.theme.current.textMuted} wrapMode="none">
@@ -568,7 +569,7 @@ function TokensBetweenPromptDialog(props: {
   return (
     <CommandOutputDialog
       api={props.api}
-      title="OpenCode Quota Token Range"
+      title="Token Watcher Token Range"
       output={
         "Missing arguments for /tokens_between\n\nExpected: /tokens_between YYYY-MM-DD YYYY-MM-DD\nExample: /tokens_between 2026-01-01 2026-01-15"
       }
@@ -666,7 +667,7 @@ async function runQuotaDialogCommandAsync(
     ));
     (api as any).ui?.toast?.({
       variant: "error",
-      message: "OpenCode Quota command failed",
+      message: "Token Watcher command failed",
     });
   }
 }
@@ -691,7 +692,7 @@ function registerQuotaDialogCommands(api: TuiPluginApi): void {
       name: `opencode-quota.${spec.id}`,
       title: spec.title,
       desc: spec.description,
-      category: "OpenCode Quota",
+      category: "Token Watcher",
       slashName: spec.slashName,
       run(input?: unknown) {
         runQuotaDialogCommand(api, spec.id, input, commandState);

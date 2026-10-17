@@ -41,7 +41,9 @@ describe("maintainer announcements", () => {
       ],
     });
 
-    expect(Object.fromEntries(evaluations.map((item) => [item.announcement.id, item.reasons]))).toMatchObject({
+    expect(
+      Object.fromEntries(evaluations.map((item) => [item.announcement.id, item.reasons])),
+    ).toMatchObject({
       "copilot-credits": [],
       future: ["not_started"],
       expired: ["ended"],
@@ -112,7 +114,7 @@ describe("maintainer announcements", () => {
     ]);
     expect(copilotActive[0]?.announcement).toMatchObject({
       message:
-        "Copilot billing update: usage-based billing with GitHub AI Credits is live as of June 1, 2026. Tell us what opencode-quota should track next.",
+        "Copilot billing update: usage-based billing with GitHub AI Credits is live as of June 1, 2026. Tell us what Token Watcher should track next.",
       url: "https://github.com/thanhndv212/opencode-quota/issues/126",
       startsAt: "2026-06-01T00:00:00.000Z",
       endsAt: "2026-08-01T00:00:00.000Z",
@@ -159,7 +161,9 @@ describe("maintainer announcements", () => {
       futureCount: 1,
       expiredCount: 1,
     });
-    expect(summary.activeAnnouncements.map((item) => item.announcement.id)).toEqual(["copilot-credits"]);
+    expect(summary.activeAnnouncements.map((item) => item.announcement.id)).toEqual([
+      "copilot-credits",
+    ]);
   });
 
   it("formats PRD-exact count-only TUI home lines", () => {

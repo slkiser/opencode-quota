@@ -52,14 +52,14 @@ vi.mock("../src/lib/quota-dialog-commands.js", () => ({
     {
       id: "quota",
       slashName: "quota",
-      title: "OpenCode Quota",
+      title: "Token Watcher",
       description: "Show quota output",
       dialogSize: "xlarge",
     },
     {
       id: "quota_status",
       slashName: "quota_status",
-      title: "OpenCode Quota Status",
+      title: "Token Watcher Status",
       description: "Show quota status",
       dialogSize: "xlarge",
       acceptsArguments: true,
@@ -67,7 +67,7 @@ vi.mock("../src/lib/quota-dialog-commands.js", () => ({
     {
       id: "tokens_between",
       slashName: "tokens_between",
-      title: "OpenCode Quota Token Report",
+      title: "Token Watcher Token Report",
       description: "Show token usage for a date range",
       dialogSize: "xlarge",
       acceptsArguments: true,
@@ -216,7 +216,7 @@ describe("tui plugin smoke", () => {
     buildQuotaDialogCommandOutput.mockResolvedValue({
       state: "output",
       command: "quota",
-      title: "OpenCode Quota",
+      title: "Token Watcher",
       output: "Quota line 1\n\nQuota line 3",
       dialogSize: "xlarge",
     });
@@ -273,13 +273,13 @@ describe("tui plugin smoke", () => {
           namespace: "palette",
           name: "opencode-quota.quota",
           slashName: "quota",
-          category: "OpenCode Quota",
+          category: "Token Watcher",
         }),
         expect.objectContaining({
           namespace: "palette",
           name: "opencode-quota.quota_status",
           slashName: "quota_status",
-          category: "OpenCode Quota",
+          category: "Token Watcher",
         }),
       ]),
     );
@@ -366,7 +366,7 @@ describe("tui plugin smoke", () => {
     buildQuotaDialogCommandOutput.mockResolvedValueOnce({
       state: "output",
       command: "quota_status",
-      title: "OpenCode Quota Status",
+      title: "Token Watcher Status",
       output: "sessionModelLookup: no_session",
       dialogSize: "xlarge",
     });
@@ -418,7 +418,7 @@ describe("tui plugin smoke", () => {
         return {
           state: "output",
           command: "quota",
-          title: "OpenCode Quota",
+          title: "Token Watcher",
           output: "Quota output",
           dialogSize: "xlarge",
         };
@@ -427,7 +427,7 @@ describe("tui plugin smoke", () => {
       return {
         state: "output",
         command: "quota_status",
-        title: "OpenCode Quota Status",
+        title: "Token Watcher Status",
         output: "Status output",
         dialogSize: "xlarge",
       };
@@ -540,7 +540,7 @@ describe("tui plugin smoke", () => {
       expect.objectContaining({
         type: "DialogPrompt",
         props: expect.objectContaining({
-          title: "OpenCode Quota Token Range",
+          title: "Token Watcher Token Range",
           placeholder: "YYYY-MM-DD YYYY-MM-DD",
         }),
       }),
@@ -713,7 +713,10 @@ describe("tui plugin smoke", () => {
     sidebarRegistration!.slots.sidebar_content({}, { session_id: "session-1" });
     await Promise.resolve();
 
-    const rendered = sidebarRegistration!.slots.sidebar_content({}, { session_id: "session-1" }) as any;
+    const rendered = sidebarRegistration!.slots.sidebar_content(
+      {},
+      { session_id: "session-1" },
+    ) as any;
     const header = rendered.props.children[0];
     expect(header.props.children[0].props.children.props.children).toBe("Quota");
     expect(rendered.props.children[1].props.children[0].props.children).toBe("Unavailable");

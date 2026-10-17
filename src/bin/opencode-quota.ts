@@ -8,13 +8,13 @@ import { runInitInstaller } from "../lib/init-installer.js";
 
 const USAGE = [
   "Usage:",
-  "  npx @thanhndv212/opencode-quota init [--sync-legacy-config]",
-  "  npx @thanhndv212/opencode-quota show [--provider <provider-id>] [--json] [--threshold <pct>]",
-  "  npx @thanhndv212/opencode-quota dashboard [--port <port>]",
-  "  npx @thanhndv212/opencode-quota gui",
-  "  npx @thanhndv212/opencode-quota provider add <definition.json> [--write --expect <preview-sha256>]",
-  "  npx @thanhndv212/opencode-quota provider status",
-  "  npx @thanhndv212/opencode-quota --help",
+  "  npx @thanhndv212/token-watcher init [--sync-legacy-config]",
+  "  npx @thanhndv212/token-watcher show [--provider <provider-id>] [--json] [--threshold <pct>]",
+  "  npx @thanhndv212/token-watcher dashboard [--port <port>]",
+  "  npx @thanhndv212/token-watcher gui",
+  "  npx @thanhndv212/token-watcher provider add <definition.json> [--write --expect <preview-sha256>]",
+  "  npx @thanhndv212/token-watcher provider status",
+  "  npx @thanhndv212/token-watcher --help",
   "",
   "Commands:",
   "  init      Run the interactive quota installer",
@@ -98,7 +98,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const portIndex = rest.indexOf("--port");
     const port = portIndex !== -1 ? rest[portIndex + 1] : "3939";
 
-    console.log(`Starting OpenCode Quota Dashboard on http://localhost:${port}...`);
+    console.log(`Starting Token Watcher Dashboard on http://localhost:${port}...`);
     console.log("Press Ctrl+C to stop the server.");
 
     // Plain "node" — when this command is spawned by the packaged Electron app
@@ -167,7 +167,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
     const spawnArgs = [...electronArgs, guiMainPath, ...rest];
 
-    console.log("Launching OpenCode Quota GUI...");
+    console.log("Launching Token Watcher GUI...");
     console.log(`  Electron: ${electronCmd}`);
     if (electronArgs.length) console.log(`  Args:     ${electronArgs.join(" ")}`);
     console.log(`  Main:     ${guiMainPath}`);

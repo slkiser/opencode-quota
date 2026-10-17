@@ -1,3 +1,4 @@
+import { PACKAGE_NAME } from "./product-identity.js";
 import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { basename } from "path";
@@ -28,7 +29,7 @@ import {
 import { getQuotaToastConfigPath, QUOTA_TOAST_CONFIG_RELATIVE_PATH } from "./config.js";
 import type { QuotaToastConfig } from "./types.js";
 
-const QUOTA_PLUGIN_SPEC = "@thanhndv212/opencode-quota";
+const QUOTA_PLUGIN_SPEC = PACKAGE_NAME;
 const OPENCODE_SCHEMA_URL = "https://opencode.ai/config.json";
 const TUI_SCHEMA_URL = "https://opencode.ai/tui.json";
 const GITHUB_REPO_URL = "https://github.com/thanhndv212/opencode-quota";
@@ -290,11 +291,13 @@ function appendQuotaPluginIfMissing(params: {
   if (alreadyConfigured) {
     if (
       params.container.some((entry) =>
-        getPluginSpecFromEntry(entry)?.includes("@slkiser/opencode-quota"),
+        ["@slkiser/opencode-quota", "@thanhndv212/opencode-quota"].some((legacy) =>
+          getPluginSpecFromEntry(entry)?.includes(legacy),
+        ),
       )
     ) {
       params.edit.warnings.push(
-        `Existing upstream quota plugin preserved. Replace @slkiser/opencode-quota with ${QUOTA_PLUGIN_SPEC} in both opencode and tui configs to switch to this fork.`,
+        `Existing quota plugin preserved. Replace @slkiser/opencode-quota or @thanhndv212/opencode-quota with ${QUOTA_PLUGIN_SPEC} in both opencode and tui configs to switch to this fork.`,
       );
     }
     params.edit.skippedValues.push(`${params.pathLabel} already includes ${QUOTA_PLUGIN_SPEC}`);
@@ -824,9 +827,15 @@ async function planTuiEdit(params: {
 
   const existingPluginSpecs = extractPluginSpecsFromParsedConfig(root);
   if (existingPluginSpecs.some((spec) => isQuotaPluginSpec(spec, "tui"))) {
-    if (existingPluginSpecs.some((spec) => spec.includes("@slkiser/opencode-quota"))) {
+    if (
+      existingPluginSpecs.some((spec) =>
+        ["@slkiser/opencode-quota", "@thanhndv212/opencode-quota"].some((legacy) =>
+          spec.includes(legacy),
+        ),
+      )
+    ) {
       edit.warnings.push(
-        `Existing upstream TUI plugin preserved. Replace @slkiser/opencode-quota with ${QUOTA_PLUGIN_SPEC} to switch to this fork.`,
+        `Existing quota TUI plugin preserved. Replace @slkiser/opencode-quota or @thanhndv212/opencode-quota with ${QUOTA_PLUGIN_SPEC} to switch to this fork.`,
       );
     }
     edit.skippedValues.push(`tui config already includes ${QUOTA_PLUGIN_SPEC}`);
@@ -1163,7 +1172,7 @@ export async function runInitInstaller(params?: {
 }): Promise<number> {
   const prompts = params?.prompts ?? ((await import("@clack/prompts")) as unknown as PromptAdapter);
 
-  prompts.intro("Configure @thanhndv212/opencode-quota");
+  prompts.intro("Configure @thanhndv212/token-watcher");
 
   try {
     const selections = await promptForSelections(prompts);

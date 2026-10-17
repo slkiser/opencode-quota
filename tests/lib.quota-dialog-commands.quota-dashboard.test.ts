@@ -93,8 +93,8 @@ describe("/quota_dashboard command", () => {
     mocks.getDashboardApi.mockResolvedValue(null);
     const output = await runQuotaDashboardCommand();
     expect(output).toContain("Dashboard database is not reachable");
-    expect(output).toContain("opencode-quota gui");
-    expect(output).toContain("opencode-quota dashboard");
+    expect(output).toContain("token-watcher gui");
+    expect(output).toContain("token-watcher dashboard");
     expect(output).toContain("http://localhost:3939");
   });
 

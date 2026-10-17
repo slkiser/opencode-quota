@@ -4,7 +4,7 @@
  * CLI entry point for the headless dashboard JSON API server (no UI - use
  * the menubar app to view quota history; this is for programmatic/headless
  * access to the same data).
- * Usage: opencode-quota dashboard [--port 3939]
+ * Usage: token-watcher dashboard [--port 3939]
  */
 
 import { startDashboardServer } from "../dashboard/server.js";
@@ -41,7 +41,10 @@ async function main() {
       await backfillUsageHistory(dashboardApi, USAGE_HISTORY_BACKFILL_DAYS);
       console.log("✓ Usage history up to date");
     } catch (err) {
-      console.error("Usage history backfill failed (dashboard will still work with older data):", err);
+      console.error(
+        "Usage history backfill failed (dashboard will still work with older data):",
+        err,
+      );
     }
 
     const server = await startDashboardServer({

@@ -1,5 +1,5 @@
-appId: ai.opencode.quota
-productName: "OpenCode Quota"
+appId: io.github.thanhndv212.tokenwatcher
+productName: "Token Watcher"
 copyright: "MIT"
 
 directories:
@@ -38,7 +38,7 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
 
 dmg:
-  title: "OpenCode Quota"
+  title: "Token Watcher"
   contents:
     - x: 130
       y: 220
@@ -48,8 +48,8 @@ dmg:
       path: /Applications
 
 linux:
-  executableName: opencode-quota
-  artifactName: "opencode-quota-${version}-${arch}.${ext}"
+  executableName: token-watcher
+  artifactName: "token-watcher-${version}-${arch}.${ext}"
   category: Development
   icon: build/icons
   target:

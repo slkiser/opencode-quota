@@ -1,10 +1,12 @@
 /**
- * OpenCode Quota Plugin
+ * Token Watcher Plugin
  *
  * Shows quota status in OpenCode without LLM invocation.
  *
  * @packageDocumentation
  */
+
+import { PACKAGE_NAME } from "./lib/product-identity.js";
 
 import { QuotaToastPlugin } from "./plugin.js";
 
@@ -18,7 +20,7 @@ type V1PluginModule = {
 // loader, which iterates Object.values(mod) and can conflict with other
 // plugins that also use the legacy path.
 const pluginModule = {
-  id: "@thanhndv212/opencode-quota",
+  id: PACKAGE_NAME,
   server: QuotaToastPlugin,
 } satisfies V1PluginModule;
 

@@ -55,7 +55,7 @@ jobs:
           trap 'rm -rf "$install_dir"' EXIT
           deb=$(find candidate -maxdepth 1 -name '*.deb' -print -quit)
           dpkg-deb --extract "$deb" "$install_dir"
-          binary=$(find "$install_dir/opt" -type f -name opencode-quota -perm -u+x -print -quit)
+          binary=$(find "$install_dir/opt" -type f -name token-watcher -perm -u+x -print -quit)
           test -n "$binary"
           mkdir -p native-evidence
           export QUOTA_NATIVE_BINARY="$binary"

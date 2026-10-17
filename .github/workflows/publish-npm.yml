@@ -44,7 +44,7 @@ jobs:
           node --input-type=module -e '
             import fs from "node:fs";
             const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
-            if (pkg.name !== "@thanhndv212/opencode-quota") throw new Error("Unexpected npm publishing target");
+            if (pkg.name !== "@thanhndv212/token-watcher") throw new Error("Unexpected npm publishing target");
           '
           test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
       - name: Activate pnpm

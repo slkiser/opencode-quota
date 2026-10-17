@@ -116,6 +116,8 @@ async function smoke() {
       },
     );
     await import(pathToFileURL(process.env.QUOTA_SMOKE_MAIN).href);
+    assert.equal(app.getName(), "Token Watcher");
+    assert.equal(app.getPath("userData"), app.commandLine.getSwitchValue("user-data-dir"));
     await waitFor(() => BrowserWindow.getAllWindows().length > 0, "main window");
     const win = BrowserWindow.getAllWindows()[0];
     const evaluate = (code) => win.webContents.executeJavaScript(code);

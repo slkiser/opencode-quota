@@ -27,9 +27,7 @@ export interface DashboardServerOptions {
  * Note: Requires express to be installed. Add to package.json:
  *   "express": "^4.18.2"
  */
-export async function startDashboardServer(
-  options: DashboardServerOptions
-): Promise<Server> {
+export async function startDashboardServer(options: DashboardServerOptions): Promise<Server> {
   const { port, dashboardApi } = options;
 
   if (!dashboardApi) {
@@ -43,7 +41,7 @@ export async function startDashboardServer(
   } catch {
     throw new Error(
       "Express not installed. Run: pnpm add express\n" +
-        "Also add types: pnpm add -D @types/express"
+        "Also add types: pnpm add -D @types/express",
     );
   }
 
@@ -104,8 +102,10 @@ export async function startDashboardServer(
   });
 
   const server = app.listen(port, "127.0.0.1", () => {
-    console.log(`📊 OpenCode Quota dashboard API running at http://localhost:${port}`);
-    console.log(`   Headless JSON API only — see /api/dashboard/* routes. Use the menubar app for a UI.`);
+    console.log(`📊 Token Watcher dashboard API running at http://localhost:${port}`);
+    console.log(
+      `   Headless JSON API only — see /api/dashboard/* routes. Use the menubar app for a UI.`,
+    );
   });
 
   return server;

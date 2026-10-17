@@ -54,7 +54,7 @@ export const BUNDLED_MAINTAINER_ANNOUNCEMENTS: readonly MaintainerAnnouncement[]
   {
     id: "copilot-github-ai-credits-feedback",
     message:
-      "Copilot billing update: usage-based billing with GitHub AI Credits is live as of June 1, 2026. Tell us what opencode-quota should track next.",
+      "Copilot billing update: usage-based billing with GitHub AI Credits is live as of June 1, 2026. Tell us what Token Watcher should track next.",
     url: "https://github.com/thanhndv212/opencode-quota/issues/126",
     startsAt: "2026-06-01T00:00:00.000Z",
     endsAt: "2026-08-01T00:00:00.000Z",

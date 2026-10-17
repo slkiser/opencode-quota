@@ -189,13 +189,17 @@ export function isQuotaPluginSpec(spec: string, kind: ConfigFileKind): boolean {
   const normalized = spec.replace(/\\/g, "/").toLowerCase();
 
   if (
+    normalized.includes("@thanhndv212/token-watcher") ||
     normalized.includes("@thanhndv212/opencode-quota") ||
     normalized.includes("@slkiser/opencode-quota")
   ) {
     return true;
   }
 
-  if (normalized.includes("/opencode-quota") && !normalized.includes("/opencode-quota/dist/")) {
+  if (
+    normalized.includes("/token-watcher") ||
+    (normalized.includes("/opencode-quota") && !normalized.includes("/opencode-quota/dist/"))
+  ) {
     return true;
   }
 

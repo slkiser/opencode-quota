@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { access, readFile } from "node:fs/promises";
 
 const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
+  name?: string;
   main?: string;
   bin?: Record<string, string>;
   exports?: Record<string, { default?: string; types?: string }>;
@@ -44,7 +45,9 @@ describe("package manifest compatibility", () => {
 
   it("ships explicit server, tui, gui, and init bin entrypoints for OpenCode", () => {
     expect(pkg.main).toBe("./dist/index.js");
+    expect(pkg.name).toBe("@thanhndv212/token-watcher");
     expect(pkg.bin).toEqual({
+      "token-watcher": "./dist/bin/token-watcher.js",
       "opencode-quota": "./dist/bin/opencode-quota.js",
     });
     expect(pkg["oc-plugin"]).toEqual(["server", "tui", "gui"]);
