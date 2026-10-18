@@ -10,6 +10,14 @@
  * `message.model` and `message.usage` per assistant turn, and mapping them
  * into the same `OpenCodeMessage` shape the rest of the aggregation pipeline
  * (`quota-stats.ts`) already understands.
+ *
+ * Subagent work is written to `<project>/<session>/subagents/*.jsonl`, with
+ * `isSidechain: true` and the parent's `sessionId`; those files are read too.
+ *
+ * A response with several content blocks is written as several lines that
+ * share `message.id`, each repeating the response's usage. Legacy (non-event)
+ * reads keep one message per `message.id`, using the last line, which carries
+ * the final usage; summing every line would count the response repeatedly.
  */
 
 import { homedir } from "os";
@@ -34,6 +42,8 @@ interface ClaudeCliTranscriptEntry {
   uuid?: string;
   sessionId?: string;
   timestamp?: string;
+  cwd?: string;
+  isSidechain?: boolean;
   message?: {
     id?: string;
     stop_reason?: string | null;
@@ -65,10 +75,27 @@ async function listJsonlFiles(projectsDir: string, strictReads = false): Promise
     for (const entry of entries) {
       if (entry.isFile() && entry.name.endsWith(".jsonl")) {
         files.push(join(projectPath, entry.name));
+      } else if (entry.isDirectory()) {
+        files.push(...(await listSubagentFiles(join(projectPath, entry.name), strictReads)));
       }
     }
   }
   return files;
+}
+
+async function listSubagentFiles(sessionDir: string, strictReads: boolean): Promise<string[]> {
+  const dir = join(sessionDir, "subagents");
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (strictReads && code !== "ENOENT" && code !== "ENOTDIR") throw error;
+    return [];
+  }
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
+    .map((entry) => join(dir, entry.name));
 }
 
 function toOpenCodeMessage(
@@ -116,6 +143,8 @@ function toOpenCodeMessage(
     (!Number.isFinite(createdMs) || (!providerIdentity && !(terminal && uuid)))
   )
     throw new Error("Claude usage completion identity/time unavailable");
+  const sessionID = entry.sessionId ?? fallbackSessionID;
+  const subagent = entry.isSidechain === true;
   return {
     id: completionEvents
       ? (providerIdentity ?? uuid!)
@@ -126,7 +155,7 @@ function toOpenCodeMessage(
             Number.isFinite(usage.input_tokens) && Number.isFinite(usage.output_tokens) && terminal,
         }
       : {}),
-    sessionID: entry.sessionId ?? fallbackSessionID,
+    sessionID,
     role: "assistant",
     providerID: "anthropic",
     modelID: entry.message.model,
@@ -139,7 +168,15 @@ function toOpenCodeMessage(
       },
     },
     time: Number.isFinite(createdMs) ? { created: createdMs } : undefined,
+    ...(typeof entry.cwd === "string" && entry.cwd ? { directory: entry.cwd } : {}),
+    subagent,
+    ...(subagent ? { parentSessionID: sessionID } : {}),
   };
+}
+
+function completionKey(entry: ClaudeCliTranscriptEntry, message: OpenCodeMessage): string {
+  const id = entry.message?.id;
+  return typeof id === "string" && id.length > 0 && id.length <= 512 ? `id:${id}` : message.id;
 }
 
 /**
@@ -157,6 +194,8 @@ export async function iterClaudeCodeCliMessages(params: {
   const projectsDir = params.projectsDir ?? getClaudeCodeCliProjectsDir();
   const files = await listJsonlFiles(projectsDir, params.strictReads);
   const messages: OpenCodeMessage[] = [];
+  // Legacy reads: one message per response, the last line winning (see file comment).
+  const responses = new Map<string, OpenCodeMessage>();
 
   for (const file of files) {
     // Cheap prune: an append-only transcript's mtime is its newest entry's
@@ -210,9 +249,16 @@ export async function iterClaudeCodeCliMessages(params: {
       if (params.sinceMs != null && (createdMs == null || createdMs < params.sinceMs)) continue;
       if (params.untilMs != null && createdMs != null && createdMs > params.untilMs) continue;
 
-      messages.push(message);
+      if (params.completionEvents) {
+        messages.push(message);
+      } else {
+        const key = completionKey(entry, message);
+        // Re-insert so a response sorts where its final line was written.
+        responses.delete(key);
+        responses.set(key, message);
+      }
     }
   }
 
-  return messages;
+  return params.completionEvents ? messages : [...responses.values()];
 }

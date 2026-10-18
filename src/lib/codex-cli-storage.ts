@@ -17,6 +17,9 @@
  * `token_count` contributes the increase in its cumulative total, so repeated
  * events add nothing and missed events are still covered by the next total.
  *
+ * Review/subagent threads are their own rollouts, naming `parent_thread_id`;
+ * their messages are marked `subagent` with that parent.
+ *
  * Codex reports cached/cache-write input as part of `input_tokens` and
  * reasoning as part of `output_tokens`. Token buckets are exclusive and priced
  * separately, so those subsets are moved out of input/output here.
@@ -50,6 +53,9 @@ interface CodexRolloutEntry {
     id?: string;
     model?: string;
     model_provider?: string;
+    cwd?: string;
+    parent_thread_id?: string;
+    source?: unknown;
     turn_id?: string;
     thread_id?: string;
     response_id?: string;
@@ -145,6 +151,15 @@ function rolloutMessages(entries: CodexRolloutEntry[]): OpenCodeMessage[] {
   const sessionID = typeof meta?.id === "string" && meta.id ? meta.id : undefined;
   if (!sessionID) return [];
   const providerID = meta?.model_provider || "openai";
+  // Subagent (e.g. review) threads name their parent and a `source.subagent`.
+  const parentSessionID =
+    typeof meta?.parent_thread_id === "string" && meta.parent_thread_id
+      ? meta.parent_thread_id
+      : undefined;
+  const subagent =
+    parentSessionID !== undefined ||
+    (typeof meta?.source === "object" && meta.source !== null && "subagent" in meta.source);
+  const directory = typeof meta?.cwd === "string" && meta.cwd ? meta.cwd : undefined;
 
   const useRecords = entries.some((entry) => entry.type === "token_usage_record");
   const modelByTurn = new Map<string, string>();
@@ -202,6 +217,9 @@ function rolloutMessages(entries: CodexRolloutEntry[]): OpenCodeMessage[] {
       modelID,
       tokens,
       time: Number.isFinite(createdMs) ? { created: createdMs } : undefined,
+      ...(directory ? { directory } : {}),
+      subagent,
+      ...(parentSessionID ? { parentSessionID } : {}),
     });
   }
   return messages;

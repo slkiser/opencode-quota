@@ -10,6 +10,7 @@ const USAGE = [
   "Usage:",
   "  npx @thanhndv212/token-watcher init [--sync-legacy-config]",
   "  npx @thanhndv212/token-watcher show [--provider <provider-id>] [--json] [--threshold <pct>]",
+  "  npx @thanhndv212/token-watcher sessions [--since <YYYY-MM-DD|Nd>] [--until <date>] [--json]",
   "  npx @thanhndv212/token-watcher dashboard [--port <port>]",
   "  npx @thanhndv212/token-watcher gui",
   "  npx @thanhndv212/token-watcher provider add <definition.json> [--write --expect <preview-sha256>]",
@@ -23,6 +24,9 @@ const USAGE = [
   "            --json               Machine-readable JSON output (reads from cache)",
   "            --threshold <pct>    With --json, exit 1 if below <pct>%, 2 if no cached quota",
   "            --provider <id>      Filter to one provider",
+  "  sessions  Per-session usage, weekly trends and session-length buckets for",
+  "            Claude Code, OpenCode and Codex on this machine (default: last 28 days)",
+  "            --json               Print the full report as JSON",
   "  dashboard Start the headless quota dashboard JSON API server (no UI —",
   "            use `gui` for that; this is for programmatic/headless access)",
   "            --port <port>        Port to listen on (default: 3939)",
@@ -83,6 +87,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (command === "show") {
     const { runCliShowCommand } = await import("../lib/cli-show.js");
     return await runCliShowCommand({ argv: rest });
+  }
+
+  if (command === "sessions") {
+    const { runCliSessionsCommand } = await import("../lib/cli-sessions.js");
+    return await runCliSessionsCommand({ argv: rest });
   }
 
   if (command === "dashboard") {

@@ -51,6 +51,12 @@ export interface OpenCodeMessage {
   };
   agent?: string;
   mode?: string;
+  /** Working directory the session ran in, when the source records it. */
+  directory?: string;
+  /** Whether this response came from a subagent; absent when the source does not say. */
+  subagent?: boolean;
+  /** The session a subagent response belongs to, when the source records it. */
+  parentSessionID?: string;
 }
 
 export interface OpenCodeSessionInfo {

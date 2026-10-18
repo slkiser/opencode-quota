@@ -78,7 +78,9 @@ describe("iterClaudeCodeCliMessages", () => {
     ]);
     expect(events.map((event) => event.usageComplete)).toEqual([false, true, true]);
     const legacy = await iterClaudeCodeCliMessages({ projectsDir });
-    expect(legacy.map((event) => event.id)).toEqual(["chunk-a", "chunk-b"]);
+    // Legacy reads keep one message per response: the last chunk, with the final usage.
+    expect(legacy.map((event) => event.id)).toEqual(["chunk-b"]);
+    expect(legacy[0]!.tokens).toEqual({ input: 10, output: 5, cache: { read: 0, write: 0 } });
     expect(legacy.every((event) => event.usageComplete === undefined)).toBe(true);
   });
 
@@ -139,6 +141,7 @@ describe("iterClaudeCodeCliMessages", () => {
           cache: { read: 19541, write: 21522 },
         },
         time: { created: Date.parse("2026-07-01T00:00:01.000Z") },
+        subagent: false,
       },
     ]);
   });
@@ -279,5 +282,84 @@ describe("iterClaudeCodeCliMessages", () => {
   it("ignores non-directory metadata while preserving strict transcript errors", async () => {
     writeFileSync(join(projectsDir, ".DS_Store"), "metadata");
     expect(await iterClaudeCodeCliMessages({ projectsDir, strictReads: true })).toEqual([]);
+  });
+
+  it("collapses a response written as several content-block lines into one message", async () => {
+    const usage = { input_tokens: 3, output_tokens: 40, cache_read_input_tokens: 1000 };
+    writeTranscript("-Users-alice-repo", "blocks", [
+      ...["thinking", "text", "tool"].map((block, i) => ({
+        type: "assistant",
+        uuid: `${block}-line`,
+        sessionId: "blocks",
+        timestamp: `2026-07-01T00:00:0${i}.000Z`,
+        message: { id: "msg_one", model: "claude-opus-4-6", usage },
+      })),
+      {
+        type: "assistant",
+        uuid: "second-response",
+        sessionId: "blocks",
+        timestamp: "2026-07-01T00:00:05.000Z",
+        message: { id: "msg_two", model: "claude-opus-4-6", usage },
+      },
+    ]);
+
+    const messages = await iterClaudeCodeCliMessages({ projectsDir });
+
+    expect(messages.map((m) => m.id)).toEqual(["tool-line", "second-response"]);
+    expect(messages.reduce((sum, m) => sum + (m.tokens?.output ?? 0), 0)).toBe(80);
+  });
+
+  it("reads subagent transcripts and marks them with their parent session", async () => {
+    writeTranscript("-Users-alice-repo", "parent", [
+      {
+        type: "assistant",
+        uuid: "main",
+        sessionId: "parent",
+        cwd: "/Users/alice/repo",
+        timestamp: "2026-07-01T00:00:00.000Z",
+        message: {
+          id: "msg_main",
+          model: "claude-opus-4-6",
+          usage: { input_tokens: 5, output_tokens: 5 },
+        },
+      },
+    ]);
+    const subagentDir = join(projectsDir, "-Users-alice-repo", "parent", "subagents");
+    mkdirSync(subagentDir, { recursive: true });
+    writeFileSync(
+      join(subagentDir, "agent-a1.jsonl"),
+      JSON.stringify({
+        type: "assistant",
+        uuid: "sub",
+        sessionId: "parent",
+        isSidechain: true,
+        cwd: "/Users/alice/repo",
+        timestamp: "2026-07-01T00:00:01.000Z",
+        message: {
+          id: "msg_sub",
+          model: "claude-haiku-4-5",
+          usage: { input_tokens: 2, output_tokens: 2 },
+        },
+      }) + "\n",
+    );
+    // Other files in a session directory are not transcripts.
+    mkdirSync(join(projectsDir, "-Users-alice-repo", "parent", "tool-results"), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(projectsDir, "-Users-alice-repo", "parent", "tool-results", "x.jsonl"),
+      "{}\n",
+    );
+
+    const messages = await iterClaudeCodeCliMessages({ projectsDir });
+
+    expect(
+      messages
+        .map((m) => [m.id, m.sessionID, m.subagent, m.parentSessionID, m.directory])
+        .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+    ).toEqual([
+      ["main", "parent", false, undefined, "/Users/alice/repo"],
+      ["sub", "parent", true, "parent", "/Users/alice/repo"],
+    ]);
   });
 });

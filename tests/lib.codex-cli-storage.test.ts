@@ -110,6 +110,7 @@ describe("iterCodexCliMessages", () => {
         modelID: "gpt-6.1-sol",
         tokens: { input: 300, output: 150, reasoning: 50, cache: { read: 600, write: 100 } },
         time: { created: Date.parse("2026-10-15T12:00:02Z") },
+        subagent: false,
       },
       {
         id: "codex:resp-2",
@@ -119,6 +120,7 @@ describe("iterCodexCliMessages", () => {
         modelID: "gpt-6-luna",
         tokens: { input: 100, output: 80, reasoning: 0, cache: { read: 400, write: 0 } },
         time: { created: Date.parse("2026-10-15T12:01:05Z") },
+        subagent: false,
       },
     ]);
     // Exclusive buckets add back up to Codex's own total_tokens.
@@ -190,16 +192,23 @@ describe("iterCodexCliMessages", () => {
       record("parent", "t1", "p1", usage(50, 0, 5, 0)),
     ]);
     writeRollout("child", [
-      meta("child", { parent_thread_id: "parent", thread_source: "guardian_review" }),
+      meta("child", {
+        parent_thread_id: "parent",
+        thread_source: "guardian_review",
+        source: { subagent: {} },
+        cwd: "/work/repo",
+      }),
       turn("t1", "codex-auto-review"),
       record("child", "t1", "c1", usage(20, 0, 2, 0)),
     ]);
 
     const messages = await iterCodexCliMessages({ sessionsDir });
 
-    expect(messages.map((m) => [m.sessionID, m.modelID])).toEqual([
-      ["child", "codex-auto-review"],
-      ["parent", "gpt-6.1-sol"],
+    expect(
+      messages.map((m) => [m.sessionID, m.modelID, m.subagent, m.parentSessionID, m.directory]),
+    ).toEqual([
+      ["child", "codex-auto-review", true, "parent", "/work/repo"],
+      ["parent", "gpt-6.1-sol", false, undefined, undefined],
     ]);
   });
 
