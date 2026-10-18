@@ -241,7 +241,7 @@ jobs:
               "",
               `You may also add the missing details in a follow-up comment and ping @${context.repo.owner} to request a manual reopen.`,
               "",
-              "You can open a new issue here: https://github.com/thanhndv212/opencode-quota/issues/new/choose"
+              "You can open a new issue here: https://github.com/thanhndv212/token-watcher/issues/new/choose"
             ].join("\n");
 
             await github.rest.issues.createComment({

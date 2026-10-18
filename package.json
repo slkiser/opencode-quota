@@ -92,12 +92,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/thanhndv212/opencode-quota.git"
+    "url": "git+https://github.com/thanhndv212/token-watcher.git"
   },
   "bugs": {
-    "url": "https://github.com/thanhndv212/opencode-quota/issues"
+    "url": "https://github.com/thanhndv212/token-watcher/issues"
   },
-  "homepage": "https://github.com/thanhndv212/opencode-quota#readme",
+  "homepage": "https://github.com/thanhndv212/token-watcher#readme",
   "devDependencies": {
     "@opencode-ai/plugin": "^1.4.3",
     "@types/express": "^4.17.21",

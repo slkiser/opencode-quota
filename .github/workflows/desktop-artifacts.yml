@@ -44,7 +44,7 @@ jobs:
             import fs from "node:fs";
             import { execFileSync } from "node:child_process";
             const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
-            if (pkg.name !== "@thanhndv212/token-watcher" || pkg.repository.url !== "git+https://github.com/thanhndv212/opencode-quota.git") throw new Error("Unexpected fork identity");
+            if (pkg.name !== "@thanhndv212/token-watcher" || pkg.repository.url !== "git+https://github.com/thanhndv212/token-watcher.git") throw new Error("Unexpected fork identity");
             const ref = process.env.CANDIDATE_REF;
             if (/^v[0-9]/.test(ref)) {
               execFileSync(process.execPath, ["scripts/verify-release-version.mjs"], {stdio:"inherit", env:{...process.env, RELEASE_TAG:ref}});

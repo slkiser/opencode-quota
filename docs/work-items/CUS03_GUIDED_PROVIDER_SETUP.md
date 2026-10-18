@@ -1,6 +1,6 @@
 # CUS-03 — Guided provider setup
 
-Issue: [#26](https://github.com/thanhndv212/opencode-quota/issues/26). Status: complete. PR #56 merged at `2b327ee`; all six merged-main CI 38762381385 checks passed. Evidence date: 2026-10-15. Dependency: CUS-01 complete; local definitions use CUS-02.
+Issue: [#26](https://github.com/thanhndv212/token-watcher/issues/26). Status: complete. PR #56 merged at `2b327ee`; all six merged-main CI 38762381385 checks passed. Evidence date: 2026-10-15. Dependency: CUS-01 complete; local definitions use CUS-02.
 
 Adapted from upstream provider-add capability at `2733b5bd010f659d1d6007e5d19026e82d51353f`, including the reviewed command/questionnaire and provider-add modules. Later history on release/4.x includes `338503d` formatting and `2a6b919` status integration. The fork deliberately uses an explicit definition file, complete changed-field preview and a separate digest-bound write command. It does not adopt a scoped updater or change host compatibility.
 

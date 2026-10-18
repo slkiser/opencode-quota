@@ -32,7 +32,7 @@ import type { QuotaToastConfig } from "./types.js";
 const QUOTA_PLUGIN_SPEC = PACKAGE_NAME;
 const OPENCODE_SCHEMA_URL = "https://opencode.ai/config.json";
 const TUI_SCHEMA_URL = "https://opencode.ai/tui.json";
-const GITHUB_REPO_URL = "https://github.com/thanhndv212/opencode-quota";
+const GITHUB_REPO_URL = "https://github.com/thanhndv212/token-watcher";
 const GITHUB_STAR_NOTE = `if this helps, stars are appreciated: ${GITHUB_REPO_URL}`;
 
 export type InitInstallerScope = "project" | "global";

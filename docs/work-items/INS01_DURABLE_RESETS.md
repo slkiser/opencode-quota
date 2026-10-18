@@ -1,6 +1,6 @@
 # INS-01 durable quota reset transitions
 
-Issue: [#19](https://github.com/thanhndv212/opencode-quota/issues/19). Status: complete in [PR #49](https://github.com/thanhndv212/opencode-quota/pull/49), merged at `ef2abeb`; [main CI 38744283981](https://github.com/thanhndv212/opencode-quota/actions/runs/38744283981) passed all six checks. Evidence date: 2026-10-15. Dependency: ACC-02 complete.
+Issue: [#19](https://github.com/thanhndv212/token-watcher/issues/19). Status: complete in [PR #49](https://github.com/thanhndv212/token-watcher/pull/49), merged at `ef2abeb`; [main CI 38744283981](https://github.com/thanhndv212/token-watcher/actions/runs/38744283981) passed all six checks. Evidence date: 2026-10-15. Dependency: ACC-02 complete.
 
 ## Detection contract
 

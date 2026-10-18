@@ -1,6 +1,6 @@
 # GUI-01 standalone configuration
 
-Issue: [#13](https://github.com/thanhndv212/opencode-quota/issues/13). Branch: `fix/gui-01-standalone-config`. Reviewed: 2026-10-09. Status: complete; [PR #40](https://github.com/thanhndv212/opencode-quota/pull/40) merged at `f11e8fb`, with [green main CI 37852563879](https://github.com/thanhndv212/opencode-quota/actions/runs/37852563879).
+Issue: [#13](https://github.com/thanhndv212/token-watcher/issues/13). Branch: `fix/gui-01-standalone-config`. Reviewed: 2026-10-09. Status: complete; [PR #40](https://github.com/thanhndv212/token-watcher/pull/40) merged at `f11e8fb`, with [green main CI 37852563879](https://github.com/thanhndv212/token-watcher/actions/runs/37852563879).
 
 ## Behavior
 

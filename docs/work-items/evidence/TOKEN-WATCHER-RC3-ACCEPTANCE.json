@@ -38,7 +38,7 @@
       "sha256": "6ec25ac4dcda6c57894c4808edb449f9f7c5872b61e7dbecc8574ac279d4465a"
     }
   ],
-  "releaseUrl": "https://github.com/thanhndv212/opencode-quota/releases/tag/v3.11.0-rc.3",
+  "releaseUrl": "https://github.com/thanhndv212/token-watcher/releases/tag/v3.11.0-rc.3",
   "releaseAssetDigests": "All five runtime assets match GitHub server-recorded SHA256 digests",
   "localInstallation": {
     "path": "/Applications/Token Watcher.app",

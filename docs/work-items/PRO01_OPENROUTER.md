@@ -1,6 +1,6 @@
 # PRO-01 — OpenRouter key caps and spend
 
-Issue: [#22](https://github.com/thanhndv212/opencode-quota/issues/22). Status: complete in [PR #52](https://github.com/thanhndv212/opencode-quota/pull/52), merged at `8b1f045`; [main CI 38748654091](https://github.com/thanhndv212/opencode-quota/actions/runs/38748654091) passed all six checks. Evidence date: 2026-10-15. Dependencies: ACC-03 and COR-01 complete.
+Issue: [#22](https://github.com/thanhndv212/token-watcher/issues/22). Status: complete in [PR #52](https://github.com/thanhndv212/token-watcher/pull/52), merged at `8b1f045`; [main CI 38748654091](https://github.com/thanhndv212/token-watcher/actions/runs/38748654091) passed all six checks. Evidence date: 2026-10-15. Dependencies: ACC-03 and COR-01 complete.
 
 Upstream review: initial `adee0361dd49fd18002cf7fad733c8b47a46c4b9`, diagnostic hardening `81244a9d32698072202a4c027a8a905b525675c4`, mature adapter at `2733b5bd010f659d1d6007e5d19026e82d51353f`, and main at `0819759854fa65c68daf53296972e890f9ad3f5c` (credential-database diagnostic changes only for this adapter). This fork uses its existing structured accounting and resolved-auth cache contracts rather than importing upstream's custom-provider engine or newer host auth path.
 

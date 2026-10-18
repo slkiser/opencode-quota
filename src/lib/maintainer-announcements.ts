@@ -46,7 +46,7 @@ export const BUNDLED_MAINTAINER_ANNOUNCEMENTS: readonly MaintainerAnnouncement[]
     id: "gemini-cli-antigravity-transition-feedback",
     message:
       "Gemini CLI transition: Google is deprecating Gemini CLI consumer/free/Pro/Ultra access on June 18, 2026. Treat Gemini CLI quota as temporary and move new Google quota setups to Antigravity.",
-    url: "https://github.com/thanhndv212/opencode-quota/issues/125",
+    url: "https://github.com/thanhndv212/token-watcher/issues/125",
     startsAt: "2026-06-13T00:00:00.000Z",
     endsAt: "2026-07-01T00:00:00.000Z",
     providerIds: ["google-gemini-cli"],
@@ -55,7 +55,7 @@ export const BUNDLED_MAINTAINER_ANNOUNCEMENTS: readonly MaintainerAnnouncement[]
     id: "copilot-github-ai-credits-feedback",
     message:
       "Copilot billing update: usage-based billing with GitHub AI Credits is live as of June 1, 2026. Tell us what Token Watcher should track next.",
-    url: "https://github.com/thanhndv212/opencode-quota/issues/126",
+    url: "https://github.com/thanhndv212/token-watcher/issues/126",
     startsAt: "2026-06-01T00:00:00.000Z",
     endsAt: "2026-08-01T00:00:00.000Z",
     providerIds: ["copilot"],

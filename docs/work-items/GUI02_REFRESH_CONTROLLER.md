@@ -1,6 +1,6 @@
 # GUI-02 standalone refresh controller
 
-Issue: [#14](https://github.com/thanhndv212/opencode-quota/issues/14). Branch: `fix/gui-02-refresh-controller`. Reviewed: 2026-10-09. Status: complete; [PR #41](https://github.com/thanhndv212/opencode-quota/pull/41) merged at `0139dd8`, with [green main CI 37853670522](https://github.com/thanhndv212/opencode-quota/actions/runs/37853670522).
+Issue: [#14](https://github.com/thanhndv212/token-watcher/issues/14). Branch: `fix/gui-02-refresh-controller`. Reviewed: 2026-10-09. Status: complete; [PR #41](https://github.com/thanhndv212/token-watcher/pull/41) merged at `0139dd8`, with [green main CI 37853670522](https://github.com/thanhndv212/token-watcher/actions/runs/37853670522).
 
 ## Behavior and boundaries
 

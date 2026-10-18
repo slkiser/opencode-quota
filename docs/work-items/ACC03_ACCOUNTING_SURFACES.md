@@ -1,6 +1,6 @@
 # ACC-03 shared accounting presentation
 
-Issue: [#18](https://github.com/thanhndv212/opencode-quota/issues/18). Status: complete; PR #48 merged at `88e3329` and [main CI 38738877462](https://github.com/thanhndv212/opencode-quota/actions/runs/38738877462) passed all six checks. Evidence date: 2026-10-15. Dependencies: ACC-01/02 complete.
+Issue: [#18](https://github.com/thanhndv212/token-watcher/issues/18). Status: complete; PR #48 merged at `88e3329` and [main CI 38738877462](https://github.com/thanhndv212/token-watcher/actions/runs/38738877462) passed all six checks. Evidence date: 2026-10-15. Dependencies: ACC-01/02 complete.
 
 ## Behavior
 

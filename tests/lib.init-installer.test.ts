@@ -951,7 +951,7 @@ describe("init installer planning and merge behavior", () => {
 
     expect(code).toBe(0);
     expect(prompts.outroCalls).toContain(
-      "Quota init complete — if this helps, stars are appreciated: https://github.com/thanhndv212/opencode-quota",
+      "Quota init complete — if this helps, stars are appreciated: https://github.com/thanhndv212/token-watcher",
     );
     expect(prompts.multiselectCalls[0]).toMatchObject({
       message: "Quota UI",

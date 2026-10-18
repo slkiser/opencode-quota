@@ -1,6 +1,6 @@
 # INS-03 — Fixed-window exhaustion estimates
 
-Issue: [#21](https://github.com/thanhndv212/opencode-quota/issues/21). Status: complete in [PR #51](https://github.com/thanhndv212/opencode-quota/pull/51), merged at `aeb7f53`; [main CI 38747014658](https://github.com/thanhndv212/opencode-quota/actions/runs/38747014658) passed all six checks. Evidence date: 2026-10-15. Dependency: ACC-03 complete.
+Issue: [#21](https://github.com/thanhndv212/token-watcher/issues/21). Status: complete in [PR #51](https://github.com/thanhndv212/token-watcher/pull/51), merged at `aeb7f53`; [main CI 38747014658](https://github.com/thanhndv212/token-watcher/actions/runs/38747014658) passed all six checks. Evidence date: 2026-10-15. Dependency: ACC-03 complete.
 
 Adapted from upstream `08dd8eadb0d29c48174e3971af2df51277e0ba0e` and mature `quota-exhaustion-projection.ts` at `2733b5bd010f659d1d6007e5d19026e82d51353f`. The fork uses its structured accounting document rather than adding estimate fields to stable legacy exports.
 

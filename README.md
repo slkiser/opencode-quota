@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://github.com/thanhndv212/opencode-quota">
+  <a href="https://github.com/thanhndv212/token-watcher">
     <picture>
       <source srcset="token-watcher-logo-dark.svg" media="(prefers-color-scheme: dark)">
       <source srcset="token-watcher-logo-light.svg" media="(prefers-color-scheme: light)">
@@ -9,11 +9,11 @@
 </p>
 <p align="center">Quota, usage, and token visibility for OpenCode.</p>
 <p align="center">
-  <a href="https://github.com/thanhndv212/opencode-quota/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/thanhndv212/opencode-quota/ci.yml?style=flat-square&branch=main&label=CI" /></a>
+  <a href="https://github.com/thanhndv212/token-watcher/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/thanhndv212/token-watcher/ci.yml?style=flat-square&branch=main&label=CI" /></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" /></a>
 </p>
 
-[![Upstream reference sidebar](https://shawnkiser.com/opencode-quota/opencode-quota-sidebar.webp)](https://github.com/thanhndv212/opencode-quota)
+[![Upstream reference sidebar](https://shawnkiser.com/opencode-quota/opencode-quota-sidebar.webp)](https://github.com/thanhndv212/token-watcher)
 
 ---
 
@@ -235,13 +235,13 @@ On **Linux**, `--no-sandbox` is auto-appended unless you already pass it via `EL
 
 #### macOS
 
-Download the latest `.dmg` from [GitHub Releases](https://github.com/thanhndv212/opencode-quota/releases), open it, and drag **Token Watcher** to `/Applications`.
+Download the latest `.dmg` from [GitHub Releases](https://github.com/thanhndv212/token-watcher/releases), open it, and drag **Token Watcher** to `/Applications`.
 
 Or build from source:
 
 ```bash
-git clone https://github.com/thanhndv212/opencode-quota
-cd opencode-quota
+git clone https://github.com/thanhndv212/token-watcher
+cd token-watcher
 npm install
 npm run build:package:mac
 # Open release/Token Watcher-*.dmg
@@ -251,7 +251,7 @@ The app lives in your **menubar** (top-right). Click the tray icon to open the q
 
 #### Linux
 
-**Install a prebuilt package** from [GitHub Releases](https://github.com/thanhndv212/opencode-quota/releases):
+**Install a prebuilt package** from [GitHub Releases](https://github.com/thanhndv212/token-watcher/releases):
 
 **.AppImage** (portable, no root needed):
 
@@ -271,8 +271,8 @@ The app runs in your **system tray**. Click the icon to open the quota dashboard
 **Build from source:**
 
 ```bash
-git clone https://github.com/thanhndv212/opencode-quota
-cd opencode-quota
+git clone https://github.com/thanhndv212/token-watcher
+cd token-watcher
 corepack enable
 pnpm install
 pnpm run build           # compiles TypeScript
@@ -1206,8 +1206,8 @@ Run `/quota_status` and check pricing snapshot health plus OpenCode database pat
 
 Thanks to everyone who has contributed to Token Watcher.
 
-<a href="https://github.com/thanhndv212/opencode-quota/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=thanhndv212/opencode-quota" />
+<a href="https://github.com/thanhndv212/token-watcher/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=thanhndv212/token-watcher" />
 </a>
 
 ## License

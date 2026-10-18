@@ -1,6 +1,6 @@
 # PRO-02 — Kilo personal balance and Pass facts
 
-Issue: [#23](https://github.com/thanhndv212/opencode-quota/issues/23). Status: complete in [PR #53](https://github.com/thanhndv212/opencode-quota/pull/53), merged at `4e16d7a`; [main CI 38751113522](https://github.com/thanhndv212/opencode-quota/actions/runs/38751113522) passed all six checks. Evidence date: 2026-10-15. Dependency: PRO-01 complete.
+Issue: [#23](https://github.com/thanhndv212/token-watcher/issues/23). Status: complete in [PR #53](https://github.com/thanhndv212/token-watcher/pull/53), merged at `4e16d7a`; [main CI 38751113522](https://github.com/thanhndv212/token-watcher/actions/runs/38751113522) passed all six checks. Evidence date: 2026-10-15. Dependency: PRO-01 complete.
 
 Selected Kilo as the next self-contained Gateway adapter. This does not imply the user has a Kilo subscription. OpenCode Zen's current Console integration is not replaced with obsolete billing-page scraping or a new host/auth migration. The existing OpenCode API-key login alone does not certify a compatible Console session.
 

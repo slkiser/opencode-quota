@@ -1,6 +1,6 @@
 # COR-05 provider payload and window contracts
 
-Issue: #12. PR: [#39](https://github.com/thanhndv212/opencode-quota/pull/39). Branch: `fix/cor-05-provider-contracts`. Status: complete; PR #39 merged at `377c5a3`, with [green main CI 37820466327](https://github.com/thanhndv212/opencode-quota/actions/runs/37820466327). Reviewed 2026-10-09.
+Issue: #12. PR: [#39](https://github.com/thanhndv212/token-watcher/pull/39). Branch: `fix/cor-05-provider-contracts`. Status: complete; PR #39 merged at `377c5a3`, with [green main CI 37820466327](https://github.com/thanhndv212/token-watcher/actions/runs/37820466327). Reviewed 2026-10-09.
 
 ## Provenance and adaptation
 
