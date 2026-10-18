@@ -10,7 +10,7 @@
 import { execFile } from "child_process";
 import { createHmac, randomBytes } from "crypto";
 import { readFile } from "fs/promises";
-import { homedir } from "os";
+import { homedir, userInfo } from "os";
 import { join } from "path";
 
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
@@ -467,11 +467,14 @@ async function readClaudeCredentialsAccessTokenFromMacOSKeychain(): Promise<Clau
   }
 
   const location = getClaudeKeychainLocation();
+  const account = process.env.USER || userInfo().username || "claude-user";
   const result = await runCredentialCommand("security", [
     "find-generic-password",
+    "-a",
+    account,
+    "-w",
     "-s",
     CLAUDE_CODE_CREDENTIALS_SERVICE,
-    "-w",
   ]);
 
   if (result.code !== 0) {

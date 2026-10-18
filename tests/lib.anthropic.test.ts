@@ -485,6 +485,20 @@ describe("Claude CLI diagnostics", () => {
     expect(diagnostics.quotaSource).toBe("claude-credentials-oauth-api");
     expect(diagnostics.quota?.five_hour.percentRemaining).toBe(75);
     expect(diagnostics.quota?.seven_day.percentRemaining).toBe(60);
+    expect(execFileMock).toHaveBeenNthCalledWith(
+      3,
+      "security",
+      [
+        "find-generic-password",
+        "-a",
+        expect.any(String),
+        "-w",
+        "-s",
+        "Claude Code-credentials",
+      ],
+      expect.any(Object),
+      expect.any(Function),
+    );
     expect(fetchWithTimeoutMock).toHaveBeenCalledWith(
       ANTHROPIC_USAGE_URL,
       {
