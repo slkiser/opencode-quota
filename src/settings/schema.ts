@@ -126,6 +126,11 @@ export const SETTINGS_SCHEMA = {
   "colors.statusName": { kind: "color", default: undefined },
   "colors.separator": { kind: "color", default: undefined },
   "colors.arrows": { kind: "color", default: undefined },
+  /**
+   * What the bar colors follow: "left", the share left against the two levels below; "pace", how
+   * fast the limit is used against even use until its reset (the share left without a reset).
+   */
+  "colors.levelBy": choice(["left", "pace"], "left"),
   "colors.warningBelow": { ...whole(0, 100), default: 50 },
   "colors.lowBelow": { ...whole(0, 100), default: 20 },
   "layout.bar": choice(["blocks", "shades", "line", "squares", "dots", "none"], "blocks"),

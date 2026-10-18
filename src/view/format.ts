@@ -4,6 +4,7 @@
  * Money, token counts and shares are written the way T3 Code's usage page writes them, always
  * in US English, so the text is the same on every machine.
  */
+import { MIN_ELAPSED_SHARE, type Pace } from "../core/pace.js";
 import type { Amount, QuotaRow, SessionTokens, Words } from "../core/types.js";
 import type { Settings } from "../settings/schema.js";
 import { columnsOf, padEndColumns, sliceColumns } from "./columns.js";
@@ -136,6 +137,21 @@ export function levelOf(percentRemaining: number, thresholds: Thresholds): Level
   const left = clampPercent(percentRemaining);
   if (left < thresholds.lowBelow) return "low";
   return left < thresholds.warningBelow ? "warning" : "good";
+}
+
+/**
+ * The level for a pace: "good" at or under even use, "warning" up to 5 points faster, "low"
+ * faster than that. At a window's start even use leaves about 100%, so an untouched limit is
+ * on track; it reads as good, not as a warning. Before a tenth of the window has passed, one
+ * burst of use reads as fast, so a fast pace gives no level and the row keeps the share-left
+ * colors: a nearly used-up limit is still "low" then.
+ */
+export function paceLevel(pace: Pace, percentRemaining: number): Level | undefined {
+  if (pace.kind === "spare") return "good";
+  if (pace.kind === "on_track") {
+    return clampPercent(percentRemaining) >= pace.evenLeft ? "good" : "warning";
+  }
+  return pace.evenLeft > (1 - MIN_ELAPSED_SHARE) * 100 ? undefined : "low";
 }
 
 function groupDigits(integer: string): string {

@@ -13,6 +13,7 @@ import {
   cacheHit,
   evenUseCell,
   fit,
+  type Level,
   LOW_CACHE_MARK,
   percentWord,
   sessionTokensText,
@@ -40,9 +41,24 @@ export type ColorRole =
 
 /**
  * A piece of a line. `role` "bar" is the filled part of a bar, drawn in its level color.
- * `percent` is the row's percent left, for roles that follow the bar color.
+ * `percent` is the row's percent left, for roles that follow the bar color, and `paceLevel` its
+ * level by pace, for when the bar colors follow pace.
  */
-export type Segment = { text: string; role: ColorRole | "bar"; percent?: number; bold?: boolean };
+export type Segment = {
+  text: string;
+  role: ColorRole | "bar";
+  percent?: number;
+  paceLevel?: Level;
+  bold?: boolean;
+};
+
+/** `segments` with the row's level by pace on each one that follows the bar color. */
+export function withPaceLevel(segments: Segment[], paceLevel: Level | undefined): Segment[] {
+  if (!paceLevel) return segments;
+  return segments.map((segment) =>
+    segment.percent === undefined ? segment : { ...segment, paceLevel },
+  );
+}
 
 /** A line of a surface. `id` is the provider or row it shows ("" for a spacer). */
 export type Line = { id: string; segments: Segment[] };
@@ -294,12 +310,15 @@ export function sidebarLines(input: SidebarInput): Line[] {
     const labelText = `${" ".repeat(layout.indent)}${fit(row.name, nameWidth)} `;
     return {
       id: row.id,
-      segments: [
-        { text: labelText, role: "label", percent },
-        ...barSegments(layout.bar, percent, barWidth, row.evenLeft),
-        { text: row.value.padStart(5), role: "percent", percent },
-        { text: row.reset.padStart(resetWidth), role: "reset", percent },
-      ],
+      segments: withPaceLevel(
+        [
+          { text: labelText, role: "label", percent },
+          ...barSegments(layout.bar, percent, barWidth, row.evenLeft),
+          { text: row.value.padStart(5), role: "percent", percent },
+          { text: row.reset.padStart(resetWidth), role: "reset", percent },
+        ],
+        row.paceLevel,
+      ),
     };
   };
 
@@ -382,15 +401,18 @@ export function collapsedLines(input: CollapsedInput): Line[] {
     return {
       id: group.providerId,
       segments: clip(
-        [
-          name,
-          { text: `${fit(picked.name, 4)} `, role: "label", percent },
-          ...barSegments(layout.bar, percent, barWidth, picked.evenLeft),
-          { text: picked.value.padStart(percentWidth), role: "percent", percent },
-          error
-            ? { text: `  ${error}`, role: "error" }
-            : { text: ` ${picked.reset.padStart(resetWidth)}`, role: "reset", percent },
-        ],
+        withPaceLevel(
+          [
+            name,
+            { text: `${fit(picked.name, 4)} `, role: "label", percent },
+            ...barSegments(layout.bar, percent, barWidth, picked.evenLeft),
+            { text: picked.value.padStart(percentWidth), role: "percent", percent },
+            error
+              ? { text: `  ${error}`, role: "error" }
+              : { text: ` ${picked.reset.padStart(resetWidth)}`, role: "reset", percent },
+          ],
+          picked.paceLevel,
+        ),
         input.width,
       ),
     };
@@ -453,18 +475,21 @@ function statusSegment(input: StatusInput, group: Group, level: StatusLevel): Li
       : undefined;
   return {
     id: group.providerId,
-    segments: [
-      name,
-      ...(withBar
-        ? [
-            { text: " ", role: "separator" as const },
-            ...barSegments(layout.bar, percent, STATUS_BAR_WIDTH, picked.evenLeft),
-          ]
-        : []),
-      { text: ` ${picked.value}`, role: "percent", percent },
-      ...(after ? [after] : []),
-      ...(picked.pace ? [{ text: ` (${picked.pace.words})`, role: "warning" as const }] : []),
-    ],
+    segments: withPaceLevel(
+      [
+        name,
+        ...(withBar
+          ? [
+              { text: " ", role: "separator" as const },
+              ...barSegments(layout.bar, percent, STATUS_BAR_WIDTH, picked.evenLeft),
+            ]
+          : []),
+        { text: ` ${picked.value}`, role: "percent", percent },
+        ...(after ? [after] : []),
+        ...(picked.pace ? [{ text: ` (${picked.pace.words})`, role: "warning" as const }] : []),
+      ],
+      picked.paceLevel,
+    ),
   };
 }
 
@@ -551,13 +576,16 @@ export function bigStatusLine(input: StatusInput, width?: number): Line | undefi
     : picked.reset
       ? { text: ` · ${picked.reset}`, role: "reset", percent }
       : undefined;
-  const segments: Segment[] = [
-    { text: `${statusName(input, group)} ${picked.name} `, role: "statusName", percent },
-    ...barSegments(input.layout.bar, percent, 10, picked.evenLeft),
-    { text: ` ${picked.value}`, role: "percent", percent },
-    ...(after ? [after] : []),
-    ...(picked.pace ? [{ text: ` · ${picked.pace.words}`, role: "warning" as const }] : []),
-  ];
+  const segments = withPaceLevel(
+    [
+      { text: `${statusName(input, group)} ${picked.name} `, role: "statusName", percent },
+      ...barSegments(input.layout.bar, percent, 10, picked.evenLeft),
+      { text: ` ${picked.value}`, role: "percent", percent },
+      ...(after ? [after] : []),
+      ...(picked.pace ? [{ text: ` · ${picked.pace.words}`, role: "warning" as const }] : []),
+    ],
+    picked.paceLevel,
+  );
   return { id: group.providerId, segments: width === undefined ? segments : clip(segments, width) };
 }
 
@@ -681,16 +709,19 @@ function groupedToastLines(input: ToastInput): Line[] {
     }
     const name = `${" ".repeat(GROUPED_INDENT)}${fit(row.name, nameWidth)} `;
     const number = row.value.padStart(4);
-    const segments: Segment[] = [
-      { text: name, role: "label", percent },
-      ...(withBar ? barSegments(layout.bar, percent, barWidth, row.evenLeft) : []),
-      {
-        text: `${withBar ? " " : ""}${word ? `${number} ${word}` : number}`,
-        role: "percent",
-        percent,
-      },
-      ...(row.reset ? [{ text: `  ${row.reset}`, role: "reset" as const, percent }] : []),
-    ];
+    const segments = withPaceLevel(
+      [
+        { text: name, role: "label", percent },
+        ...(withBar ? barSegments(layout.bar, percent, barWidth, row.evenLeft) : []),
+        {
+          text: `${withBar ? " " : ""}${word ? `${number} ${word}` : number}`,
+          role: "percent",
+          percent,
+        },
+        ...(row.reset ? [{ text: `  ${row.reset}`, role: "reset" as const, percent }] : []),
+      ],
+      row.paceLevel,
+    );
     const line: Line = { id: row.id, segments: clip(segments, room) };
     return row.pace ? [line, runsOutLine(row.id, row.pace.words, barColumn, room)] : [line];
   };
@@ -746,14 +777,12 @@ function detailedToastLines(input: ToastInput): Line[] {
             { text: `  ${percentWords}`, role: "percent", percent },
           ]
         : [{ text: percentWords.padStart(room), role: "percent", percent }];
+    const nameLine = row.reset
+      ? spread(name, { text: row.reset, role: "reset", percent }, room)
+      : clip([name], room);
     return [
-      {
-        id: row.id,
-        segments: row.reset
-          ? spread(name, { text: row.reset, role: "reset", percent }, room)
-          : clip([name], room),
-      },
-      { id: row.id, segments: clip(bar, room) },
+      { id: row.id, segments: withPaceLevel(nameLine, row.paceLevel) },
+      { id: row.id, segments: withPaceLevel(clip(bar, room), row.paceLevel) },
       ...(row.pace ? [runsOutLine(row.id, row.pace.words, 0, room)] : []),
     ];
   };

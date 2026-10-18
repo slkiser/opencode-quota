@@ -8,7 +8,7 @@ import { describeError } from "../core/errors.js";
 import { type Pace, paceOf } from "../core/pace.js";
 import type { Words } from "../core/types.js";
 import { WINDOWS } from "../core/windows.js";
-import { formatDuration, percentText, rowValueText } from "./format.js";
+import { formatDuration, type Level, paceLevel, percentText, rowValueText } from "./format.js";
 import type { Group, VisibleRow } from "./select.js";
 
 /** How one place shows rows. */
@@ -44,6 +44,8 @@ export type RowFacts = {
   name: string;
   /** Its percent left as the row has it, for bars and level colors; undefined without one. */
   percent?: number;
+  /** Its level by pace, for the bar colors when they follow pace; undefined without a pace. */
+  paceLevel?: Level;
   /** Its percent in the place's style, or the value of a row without one ("$1,240.50 left"). */
   value: string;
   /** The time until it resets in the place's style ("2h 14m", "3.2d"); "" without a percent. */
@@ -97,10 +99,12 @@ export function rowFacts(item: VisibleRow, group: Pick<Group, "rows">, place: Pl
   const resetIn = (style: Words["reset"]) =>
     Number.isFinite(resetMs) ? formatDuration(resetMs - nowMs, style, words.resetDecimals) : "";
   const pace = paceOf(row, nowMs);
+  const level = pace && paceLevel(pace, percent);
   return {
     id: row.id,
     name,
     percent,
+    ...(level ? { paceLevel: level } : {}),
     value: percentText(words, percent, withWord),
     reset: resetIn(times),
     shortReset: resetIn("short"),

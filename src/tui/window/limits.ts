@@ -18,7 +18,14 @@ import { columnsOf, padEndColumns, padStartColumns, sliceColumns } from "../../v
 import { type BarShape, fit } from "../../view/format.js";
 import { errorWords, type Place, type RowFacts, rowFacts } from "../../view/row-facts.js";
 import { type Group, type RowSettings, visibleGroups } from "../../view/select.js";
-import { barSegments, type Layout, type Line, type Segment, trimEnd } from "../../view/text.js";
+import {
+  barSegments,
+  type Layout,
+  type Line,
+  type Segment,
+  trimEnd,
+  withPaceLevel,
+} from "../../view/text.js";
 
 /** Before a provider's name. */
 const HEADING_INDENT = " ";
@@ -122,6 +129,7 @@ function rowLines(row: RowFacts, grid: Grid, width: number, shape: BarShape): Li
     const value = padStartColumns(fit(row.value, room).trimEnd(), room);
     return [{ id, segments: [label, { text: value, role: "value" }] }];
   }
+  const tag = (segments: Segment[]) => withPaceLevel(segments, row.paceLevel);
   const bar = barSegments(shape, percent, grid.bar, row.evenLeft);
   const percentSegment: Segment = {
     text: `${GAP}${padStartColumns(row.value, grid.percent)}`,
@@ -140,18 +148,18 @@ function rowLines(row: RowFacts, grid: Grid, width: number, shape: BarShape): Li
       segments.push({ text, role: "reset", percent });
     }
     if (pace) segments.push({ ...pace, text: `${WIDE_GAP}${pace.text}` });
-    return [{ id, segments: trimEnd(segments) }];
+    return [{ id, segments: tag(trimEnd(segments)) }];
   }
   const under: Segment = { text: " ".repeat(grid.barColumn), role: "label" };
-  const lines: Line[] = [{ id, segments: [label, ...bar, percentSegment] }];
+  const lines: Line[] = [{ id, segments: tag([label, ...bar, percentSegment]) }];
   const resetSegment: Segment = { text: reset, role: "reset", percent };
   const together = grid.barColumn + columnsOf(reset) + 3 + columnsOf(pace?.text ?? "");
   if (reset && pace && together <= width) {
     const dot: Segment = { text: " · ", role: "reset", percent };
-    lines.push({ id, segments: [under, resetSegment, dot, pace] });
+    lines.push({ id, segments: tag([under, resetSegment, dot, pace]) });
     return lines;
   }
-  if (reset) lines.push({ id, segments: [under, resetSegment] });
+  if (reset) lines.push({ id, segments: tag([under, resetSegment]) });
   if (pace) lines.push({ id, segments: [under, pace] });
   return lines;
 }

@@ -4,7 +4,7 @@
  * call, so a surface that colors inside its JSX follows a theme or light/dark switch at once.
  */
 import { RGBA } from "@opentui/core";
-import { levelOf } from "../view/format.js";
+import { type Level, levelOf } from "../view/format.js";
 import type { ColorRole, Segment } from "../view/text.js";
 import { type ColorChoice, type ColorName, type DisplaySettings, THEME_COLORS } from "./display.js";
 
@@ -51,9 +51,18 @@ function choiceFor(display: DisplaySettings, role: ColorRole): ColorChoice {
   return display.colors[role] ?? THEME_COLORS[role];
 }
 
-/** The bar color for a percent left: plenty left, getting low, or almost out. */
-export function levelColor(theme: Theme, display: DisplaySettings, percent: number): RGBA {
-  const role = levelOf(percent, display.thresholds);
+/**
+ * The bar color for a percent left: plenty left, getting low, or almost out. With the bar colors
+ * following pace, a row's level by pace wins; a row without one falls back to its percent.
+ */
+export function levelColor(
+  theme: Theme,
+  display: DisplaySettings,
+  percent: number,
+  paceLevel?: Level,
+): RGBA {
+  const role =
+    display.levelBy === "pace" && paceLevel ? paceLevel : levelOf(percent, display.thresholds);
   return fixedColor(theme, choiceFor(display, role), THEME_COLORS[role] as ColorName);
 }
 
@@ -63,14 +72,17 @@ export function roleColor(
   display: DisplaySettings,
   role: ColorRole,
   percent = 100,
+  paceLevel?: Level,
 ): RGBA {
   const choice = choiceFor(display, role);
-  return choice === "bar" ? levelColor(theme, display, percent) : fixedColor(theme, choice, "text");
+  return choice === "bar"
+    ? levelColor(theme, display, percent, paceLevel)
+    : fixedColor(theme, choice, "text");
 }
 
 /** The color of one line segment. */
 export function segmentColor(theme: Theme, display: DisplaySettings, segment: Segment): RGBA {
   return segment.role === "bar"
-    ? levelColor(theme, display, segment.percent ?? 100)
-    : roleColor(theme, display, segment.role, segment.percent);
+    ? levelColor(theme, display, segment.percent ?? 100, segment.paceLevel)
+    : roleColor(theme, display, segment.role, segment.percent, segment.paceLevel);
 }
