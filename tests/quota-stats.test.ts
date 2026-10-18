@@ -27,6 +27,10 @@ vi.mock("../src/lib/claude-code-cli-storage.js", () => ({
   iterClaudeCodeCliMessages: vi.fn(() => Promise.resolve([])),
 }));
 
+vi.mock("../src/lib/codex-cli-storage.js", () => ({
+  iterCodexCliMessages: vi.fn(() => Promise.resolve([])),
+}));
+
 vi.mock("../src/lib/modelsdev-pricing.js", () => ({
   hasCost: vi.fn(
     (providerID: string, modelID: string) => providerID === "openai" && modelID === "gpt-5",
@@ -368,5 +372,39 @@ describe("aggregateUsage global view merges Claude Code CLI messages", () => {
     await aggregateUsage({ sessionID: "ses_root" });
 
     expect(claudeCliStorage.iterClaudeCodeCliMessages).not.toHaveBeenCalled();
+  });
+
+  it("folds Codex CLI rollout usage into the global aggregate only", async () => {
+    const storage = await import("../src/lib/opencode-storage.js");
+    const claudeCliStorage = await import("../src/lib/claude-code-cli-storage.js");
+    const codexCliStorage = await import("../src/lib/codex-cli-storage.js");
+
+    (storage.readAllSessionsIndex as any).mockResolvedValue({});
+    (storage.iterAssistantMessages as any).mockResolvedValue([]);
+    (claudeCliStorage.iterClaudeCodeCliMessages as any).mockResolvedValue([]);
+    (storage.iterAssistantMessagesForSession as any).mockResolvedValue([]);
+    (codexCliStorage.iterCodexCliMessages as any).mockResolvedValue([
+      {
+        id: "codex:resp-1",
+        sessionID: "thread-a",
+        role: "assistant",
+        providerID: "openai",
+        modelID: "gpt-5",
+        tokens: { input: 30, output: 7, reasoning: 3, cache: { read: 60, write: 0 } },
+      },
+    ]);
+
+    const result = await aggregateUsage({ sinceMs: 100, untilMs: 200 });
+
+    expect(codexCliStorage.iterCodexCliMessages).toHaveBeenCalledWith({
+      sinceMs: 100,
+      untilMs: 200,
+    });
+    expect(result.totals.messageCount).toBe(1);
+    expect(result.totals.sessionCount).toBe(1);
+
+    vi.clearAllMocks();
+    await aggregateUsage({ sessionID: "ses_root" });
+    expect(codexCliStorage.iterCodexCliMessages).not.toHaveBeenCalled();
   });
 });

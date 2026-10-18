@@ -38,6 +38,8 @@ These are the completed items with dedicated records. Other completed items have
 
 - [CUS-01 remote definition record](work-items/CUS01_REMOTE_DEFINITIONS.md): complete in PR #54 with green main CI; two real HTTP fixture protocols.
 
+- [UA-TW-02 Codex session reader record](work-items/UA_TW02_CODEX_SESSION_READER.md): in progress; native Codex rollout usage in token reports.
+
 - [CUS-02 durable local estimate record](work-items/CUS02_DURABLE_LOCAL_ESTIMATES.md): complete in PR #55 with green main CI; native journal, pricing coverage and installed CLI/Electron evidence.
 
 - [CUS-03 guided provider setup](work-items/CUS03_GUIDED_PROVIDER_SETUP.md): complete in PR #56 with green main CI; preview, explicit write, JSONC preservation and rollback.

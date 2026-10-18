@@ -13,6 +13,9 @@ const claudeMocks = vi.hoisted(() => ({
   iterClaudeCodeCliMessages: vi.fn(async (): Promise<OpenCodeMessage[]> => []),
 }));
 vi.mock("../src/lib/claude-code-cli-storage.js", () => claudeMocks);
+vi.mock("../src/lib/codex-cli-storage.js", () => ({
+  iterCodexCliMessages: vi.fn(async (): Promise<OpenCodeMessage[]> => []),
+}));
 
 vi.mock("fs", async (importOriginal) => {
   const mod = await importOriginal<typeof import("fs")>();
