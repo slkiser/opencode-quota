@@ -88,6 +88,11 @@ function statusDetailsFromResult(result: AlibabaTokenPlanClosedResult) {
   });
 }
 
+/** The user's own request timeout when they set one; none otherwise, so the CLI's own applies. */
+function alibabaRequestTimeoutMs(ctx: QuotaProviderContext): number | undefined {
+  return ctx.config?.requestTimeoutMsConfigured ? ctx.config.requestTimeoutMs : undefined;
+}
+
 export const alibabaTokenPlanProvider: QuotaProvider = {
   id: "alibaba-token-plan",
   cachePolicy: { kind: "uncached" },
@@ -115,7 +120,7 @@ export const alibabaTokenPlanProvider: QuotaProvider = {
 
   async fetch(ctx: QuotaProviderContext): Promise<ProviderFetchResult> {
     const result = await queryAlibabaTokenPlanQuota({
-      requestTimeoutMs: ctx.config.requestTimeoutMs,
+      requestTimeoutMs: alibabaRequestTimeoutMs(ctx),
       runtime: { cwd: ctx.workspaceRoot },
     });
     const debug = statusDetailsFromResult(result);

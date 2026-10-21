@@ -172,8 +172,9 @@ Check the `alibaba-token-plan` section (separate from Alibaba Coding Plan).
 
 | Symptom                 | Fix |
 | ----------------------- | --- |
-| CLI not detected        | Install `bailian-cli` so `bl` is in an absolute folder on the [service `PATH`](#service-environment), outside the project folder (for example `/opt/homebrew/bin`, `~/.local/bin`, or an nvm folder). On Windows, use WSL. See [setup](providers.md#alibaba-personal-token-plan). |
+| CLI not detected        | Install `bailian-cli` so `bl` is in an absolute folder on the [service `PATH`](#service-environment), outside the project folder (for example `/opt/homebrew/bin`, `~/.local/bin`, an nvm folder, or `%LOCALAPPDATA%\Programs`). A native `bl` is run directly; npm's `bl.cmd` shim is resolved to the package's node entry and run with `node`. Other launchers (`.ps1`, `.bat`, a `bl` linking to `cmd.exe`) are refused. See [setup](providers.md#alibaba-personal-token-plan). |
 | Console session expired | Run `bl auth login --console`. A Coding Plan API key cannot sign in to this provider. |
+| The wrong plan, or no monthly row | The command carries no region or account: you see the plan `bl` is signed in to. `bl auth status` reports which account, region and site that is. |
 | No monthly row          | `bl` reported no monthly percentage, so the plan may be unlimited — or the subscription has expired, which prints the same reply. Verify it in the Bailian Token Plan console. OpenCode Quota does not invent a row. `/quota_status` says the same under `window_hint`. |
 | Old `bl`, nothing shown | `bailian-cli` 2.2.0 replaced the five-hour and weekly windows with one monthly window; older builds report only the removed ones, so the reply parses as no window. Upgrade with `npm install -g bailian-cli`. |
 | JSON export empty       | `show --json` is cache-only, and this provider is not cached, so a separate CLI process reports it unavailable instead of running `bl`. |

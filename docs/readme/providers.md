@@ -423,10 +423,11 @@ bl auth login --console
 ```
 
 - OpenCode Quota runs only `bl usage token-plan --output json`. It never installs `bl`, opens a login, reads console cookies, or runs a custom command.
+- The command carries no region or account, so which plan you see is the one `bl` is signed in to. `bl auth login --console` binds it to that console's account, and `bl auth status` says which account, region and site that is. Change it there, not in OpenCode Quota.
 - It reports one **Monthly** row, keyed `personal`: the percent of the monthly plan still left, and its reset time when `bl` gives one. A signed-in reply with no percentage leaves the row out — an account that sells no personal plan is not a fault — and `/quota_status` says so in `window_hint`, using `bl`'s own wording; nothing is invented.
-- On macOS and Linux, `bl` must be in an absolute folder on the `PATH` (the OpenCode service's inside OpenCode, your shell's in the terminal). Relative entries are ignored, and so is anything inside the project folder, including a `bl` that links into it. Your home folder is not a project, so `~/.local/bin` and nvm folders work.
-- On Windows, use WSL. Native `bl.exe` and `.cmd` shims are not supported.
-- Team plans, China-only `alibaba-token-plan-cn` runtimes, and cookie-based console scraping are not supported.
+- `bl` must be in an absolute folder on the [service `PATH`](#service-environment) (the OpenCode service's inside OpenCode, your shell's in the terminal). Relative entries are ignored, and so is anything inside the project folder, including a `bl` that links into it. Your home folder is not a project, so `~/.local/bin` and nvm folders work.
+- A native `bl` executable is run directly. An npm `bl.cmd` shim is resolved to the package's own node entry and run with `node`, so no shell is involved. Other launchers (`.ps1`, `.bat`, a `bl` linking to `cmd.exe`) are refused.
+- Team plans and cookie-based console scraping are not supported.
 - After switching the CLI's console account, restart OpenCode or wait for the next live check.
 - Remove `alibaba-token-plan` from `providers.off` if it is switched off.
 

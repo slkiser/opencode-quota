@@ -1,32 +1,37 @@
 /**
- * Alibaba Personal Token Plan quota from the official `bl` CLI.
- *
- * Production invocation is exactly:
- *   bl usage token-plan --output json
- *
- * Console authentication belongs to the CLI. This module never installs `bl`,
- * never runs login, never reads credential stores, and never uses a shell.
- * Only darwin and linux are supported, so all paths use POSIX semantics.
+ * Alibaba Personal Token Plan quota from the official `bl` CLI, whose production invocation is
+ * exactly:
+ *   bl usage token-plan --output json          (console; the personal monthly window)
+ * Console auth belongs to the CLI: this module never installs `bl`, logs in, reads credential
+ * stores or uses a shell, and takes POSIX or win32 path semantics from the platform it targets.
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import { realpath, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
-import { REQUEST_TIMEOUT_MS } from "./http.js";
-import { asRecord, finiteNumber } from "./json-guards.js";
+import { asRecord, finiteNumber, nonEmptyString } from "./json-guards.js";
 
 const ALIBABA_TOKEN_PLAN_COMMAND = "bl";
 const ALIBABA_TOKEN_PLAN_ARGS = ["usage", "token-plan", "--output", "json"] as const;
 const ALIBABA_TOKEN_PLAN_STDOUT_LIMIT_BYTES = 256 * 1024;
 const ALIBABA_TOKEN_PLAN_STDERR_LIMIT_BYTES = 16 * 1024;
 const ALIBABA_TOKEN_PLAN_KILL_GRACE_MS = 250;
+/** The CLI's own budget: a local program that has to start and answer, not a remote request. */
+const ALIBABA_TOKEN_PLAN_REQUEST_TIMEOUT_MS = 10_000;
 const AUTH_EXIT_CODE = 3;
 
-const SUPPORTED_PLATFORMS = new Set<NodeJS.Platform>(["darwin", "linux"]);
+const SUPPORTED_PLATFORMS = new Set<NodeJS.Platform>(["darwin", "linux", "win32"]);
 const MAX_RESET_TIME_MS = 4_102_444_800_000;
-/** `bl.cmd` and `bl.bat` are probed only so a found launcher reports "shell launcher rejected". */
-const EXECUTABLE_NAMES = [ALIBABA_TOKEN_PLAN_COMMAND, "bl.cmd", "bl.bat"];
+/** `bl.cmd` is probed because npm's shim wraps the package; there is no `bl.bat`, since cmd-shim
+ * writes only `<name>`, `<name>.cmd` and `<name>.ps1`, so a `.bat` is some other installer's. */
+const EXECUTABLE_NAMES = [ALIBABA_TOKEN_PLAN_COMMAND, "bl.cmd"];
+/** Windows installs the CLI as `bl.exe`. No bare `bl`: CreateProcess appends `.exe` to a name with
+ * no extension, so an extensionless file is never what Windows would run, and npm ships one. */
+const WINDOWS_EXECUTABLE_NAMES = ["bl.exe", "bl.cmd"];
+/** npm's global layout: the wrapped package sits in `node_modules` beside its shims. */
+const SHIM_PACKAGE_NAME = "bailian-cli";
+const SHIM_EXTENSION = ".cmd";
 const SHELL_LAUNCHER_NAMES = new Set([
   "bash",
   "bash.exe",
@@ -105,6 +110,8 @@ export type AlibabaTokenPlanSpawnRequest = {
 };
 
 type AlibabaTokenPlanSpawnResult = {
+  /** stdout held a whole document, so the exit code was never waited for. */
+  complete?: true;
   code: number | null;
   stdout: Buffer;
   stderr: Buffer;
@@ -113,7 +120,15 @@ type AlibabaTokenPlanSpawnResult = {
   spawnErrorCode?: string;
 };
 
-type AlibabaTokenPlanExecutableResolution = { ok: true; file: string } | AlibabaTokenPlanFailure;
+type AlibabaTokenPlanExecutableResolution =
+  | {
+      ok: true;
+      file: string;
+      /** Set when `file` is `node`: `[entry, ...ALIBABA_TOKEN_PLAN_ARGS]`; callers slice that tail
+       * off, so it must stay exactly `ALIBABA_TOKEN_PLAN_ARGS`. */
+      args?: readonly string[];
+    }
+  | AlibabaTokenPlanFailure;
 
 type AlibabaTokenPlanRuntime = {
   platform?: NodeJS.Platform;
@@ -129,7 +144,8 @@ type AlibabaTokenPlanRuntime = {
 export const ERROR_MESSAGES: Record<AlibabaTokenPlanErrorKind, string> = {
   unsupported_platform: "Alibaba Personal Token Plan is not supported on this platform.",
   executable_not_found: "Alibaba Cloud CLI (bl) was not found on the trusted PATH.",
-  shell_launcher_rejected: "Alibaba Personal Token Plan refused a shell launcher for bl.",
+  shell_launcher_rejected:
+    "Alibaba Personal Token Plan refused a shell launcher for bl. Install it with `npm install -g bailian-cli`, whose shim resolves to the package's node entry.",
   workspace_path_rejected:
     "Alibaba Personal Token Plan ignored workspace and relative PATH entries.",
   spawn_failed: "Could not start Alibaba Cloud CLI.",
@@ -151,17 +167,29 @@ function fail(kind: AlibabaTokenPlanErrorKind): AlibabaTokenPlanFailure {
   return { ok: false, error: { kind, message: ERROR_MESSAGES[kind] } };
 }
 
+/** Chosen from the platform the check targets, not `process.platform`, so an override decides the
+ * separators, the delimiter and whether comparisons are case-insensitive. */
+function pathModuleFor(platform: NodeJS.Platform): path.PlatformPath {
+  return platform === "win32" ? path.win32 : path.posix;
+}
+
+function executableNamesFor(platform: NodeJS.Platform): readonly string[] {
+  return platform === "win32" ? WINDOWS_EXECUTABLE_NAMES : EXECUTABLE_NAMES;
+}
+
 export function isAlibabaTokenPlanSupportedPlatform(
   platform: NodeJS.Platform = process.platform,
 ): boolean {
   return SUPPORTED_PLATFORMS.has(platform);
 }
 
-function isPathInside(parent: string, candidate: string): boolean {
-  const relative = path.posix.relative(parent, candidate);
+/** `path.win32.relative` compares without case, matching NTFS, so `C:\Project` and `c:\project`
+ * refuse an executor alike. */
+function isPathInside(paths: path.PlatformPath, parent: string, candidate: string): boolean {
+  const relative = paths.relative(parent, candidate);
   return (
     relative === "" ||
-    (relative !== ".." && !relative.startsWith("../") && !path.posix.isAbsolute(relative))
+    (relative !== ".." && !relative.startsWith(`..${paths.sep}`) && !paths.isAbsolute(relative))
   );
 }
 
@@ -182,33 +210,38 @@ function stripPathQuotes(value: string): string {
  * computed for. For OpenCode opened at the home folder, and for the terminal command, that is
  * the home folder. The home folder is not a project, so it gives none.
  */
-function untrustedProjectFolder(cwd: string, home: string | undefined): string | null {
-  const resolved = path.posix.resolve(cwd);
-  return resolved === path.posix.resolve(home ?? homedir()) ? null : resolved;
+function untrustedProjectFolder(
+  paths: path.PlatformPath,
+  cwd: string,
+  home: string | undefined,
+): string | null {
+  const resolved = paths.resolve(cwd);
+  return resolved === paths.resolve(home ?? homedir()) ? null : resolved;
 }
 
 /** Absolute PATH directories outside the project folder, deduplicated, in PATH order. */
 function listTrustedPathDirectories(
+  paths: path.PlatformPath,
   pathEnv: string | undefined,
   cwd: string,
   home: string | undefined,
 ): string[] {
-  const projectFolder = untrustedProjectFolder(cwd, home);
+  const projectFolder = untrustedProjectFolder(paths, cwd, home);
   const trusted = new Set<string>();
-  for (const rawEntry of (pathEnv ?? "").split(":")) {
+  for (const rawEntry of (pathEnv ?? "").split(paths.delimiter)) {
     const entry = stripPathQuotes(rawEntry);
-    if (!path.posix.isAbsolute(entry)) continue;
-    const resolved = path.posix.resolve(entry);
-    if (projectFolder !== null && isPathInside(projectFolder, resolved)) continue;
+    if (!paths.isAbsolute(entry)) continue;
+    const resolved = paths.resolve(entry);
+    if (projectFolder !== null && isPathInside(paths, projectFolder, resolved)) continue;
     trusted.add(resolved);
   }
   return [...trusted];
 }
 
-function isShellLauncherPath(file: string): boolean {
+function isShellLauncherPath(paths: path.PlatformPath, file: string): boolean {
   return (
-    SHELL_LAUNCHER_EXTENSIONS.has(path.posix.extname(file).toLowerCase()) ||
-    SHELL_LAUNCHER_NAMES.has(path.posix.basename(file).toLowerCase())
+    SHELL_LAUNCHER_EXTENSIONS.has(paths.extname(file).toLowerCase()) ||
+    SHELL_LAUNCHER_NAMES.has(paths.basename(file).toLowerCase())
   );
 }
 
@@ -221,33 +254,111 @@ async function isRegularFile(file: string): Promise<boolean> {
   }
 }
 
+/** Read what an npm `bl.cmd` shim wraps instead of running it: the package manifest declares its
+ * bin, so the `.cmd` text is never needed. Failures stay silent, since a parse error would leak
+ * file contents. */
+async function resolveNodeShim(
+  paths: path.PlatformPath,
+  shimFile: string,
+  packageName: string,
+): Promise<string | null> {
+  const packageRoot = paths.join(paths.dirname(shimFile), "node_modules", packageName);
+  const shimCommand = paths.basename(shimFile, paths.extname(shimFile)).toLowerCase();
+
+  let contents: string;
+  try {
+    contents = await readFile(paths.join(packageRoot, "package.json"), "utf8");
+  } catch {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contents);
+  } catch {
+    return null;
+  }
+  const manifest = asRecord(parsed);
+  if (!manifest) return null;
+
+  const bin = manifest.bin;
+  let relative: string | undefined;
+  if (typeof bin === "string") {
+    // npm's string form: the shim we found is proof it installs the command. Accept it as written.
+    relative = nonEmptyString(bin);
+  } else {
+    const binRecord = asRecord(bin);
+    // Only a package that declares this shim's own command may be adopted.
+    if (!binRecord || !Object.hasOwn(binRecord, shimCommand)) return null;
+    relative = nonEmptyString(binRecord[shimCommand]);
+  }
+  if (!relative) return null;
+
+  const entry = paths.join(packageRoot, relative);
+  return (await isRegularFile(entry)) ? entry : null;
+}
+
+/** The node that runs a shim's entry: resolved as `bl` is, so `bl` and node come from one install. */
+async function resolveNodeExecutable(
+  paths: path.PlatformPath,
+  platform: NodeJS.Platform,
+  trusted: readonly string[],
+): Promise<string> {
+  const name = platform === "win32" ? "node.exe" : "node";
+  for (const directory of trusted) {
+    const candidate = paths.join(directory, name);
+    if (await isRegularFile(candidate)) return candidate;
+  }
+  return process.execPath;
+}
+
 export async function resolveAlibabaTokenPlanExecutable(params: {
   pathEnv?: string;
   cwd: string;
   homedir?: string;
   platform?: NodeJS.Platform;
 }): Promise<AlibabaTokenPlanExecutableResolution> {
-  if (!isAlibabaTokenPlanSupportedPlatform(params.platform)) {
+  const platform = params.platform ?? process.platform;
+  if (!isAlibabaTokenPlanSupportedPlatform(platform)) {
     return fail("unsupported_platform");
   }
 
-  const projectFolder = untrustedProjectFolder(params.cwd, params.homedir);
+  const paths = pathModuleFor(platform);
+  const projectFolder = untrustedProjectFolder(paths, params.cwd, params.homedir);
   const trusted = listTrustedPathDirectories(
+    paths,
     params.pathEnv ?? process.env.PATH,
     params.cwd,
     params.homedir,
   );
   let sawShellLauncher = false;
   for (const directory of trusted) {
-    for (const name of EXECUTABLE_NAMES) {
-      const candidate = path.posix.join(directory, name);
+    for (const name of executableNamesFor(platform)) {
+      const candidate = paths.join(directory, name);
       if (!(await isRegularFile(candidate))) continue;
       const resolved = await realpath(candidate).catch(() => candidate);
-      if (isShellLauncherPath(candidate) || isShellLauncherPath(resolved)) {
+      if (isShellLauncherPath(paths, candidate) || isShellLauncherPath(paths, resolved)) {
+        // npm's Windows `bl.cmd` is a shell launcher by extension but only forwards to the
+        // package's node entry. Running node directly keeps the child the CLI (killable, with the
+        // pipes) rather than cmd.exe or a shell.
+        if (
+          platform === "win32" &&
+          paths.extname(candidate).toLowerCase() === SHIM_EXTENSION &&
+          !SHELL_LAUNCHER_NAMES.has(paths.basename(resolved).toLowerCase()) &&
+          !(projectFolder !== null && isPathInside(paths, projectFolder, resolved))
+        ) {
+          const entry = await resolveNodeShim(paths, candidate, SHIM_PACKAGE_NAME);
+          if (entry !== null) {
+            return {
+              ok: true,
+              file: await resolveNodeExecutable(paths, platform, trusted),
+              args: [entry, ...ALIBABA_TOKEN_PLAN_ARGS],
+            };
+          }
+        }
         sawShellLauncher = true;
         continue;
       }
-      if (projectFolder !== null && isPathInside(projectFolder, resolved)) {
+      if (projectFolder !== null && isPathInside(paths, projectFolder, resolved)) {
         return fail("workspace_path_rejected");
       }
       return { ok: true, file: resolved };
@@ -310,10 +421,7 @@ function signalProcessGroup(child: ChildProcess, signal: NodeJS.Signals): void {
   }
 }
 
-/**
- * Run the CLI without a shell, with stdin ignored and stdout/stderr capped. A timeout or an
- * overflow sends SIGTERM to the process group, then SIGKILL after `killGraceMs`.
- */
+/** A timeout or an overflow stops the process group: SIGTERM, then SIGKILL after `killGraceMs`. */
 export async function runAlibabaTokenPlanProcess(
   request: AlibabaTokenPlanSpawnRequest,
 ): Promise<AlibabaTokenPlanSpawnResult> {
@@ -326,6 +434,10 @@ export async function runAlibabaTokenPlanProcess(
         argv0: request.file,
         shell: false,
         detached: true,
+        // OpenCode is a GUI process and `bl` is a console program, so without this every check
+        // opens a window. A launcher that spawns node itself (bun's global shim) still opens one,
+        // so the shim route resolves to node when it can.
+        windowsHide: true,
         stdio: ["ignore", "pipe", "pipe"],
       });
     } catch (error) {
@@ -350,7 +462,13 @@ export async function runAlibabaTokenPlanProcess(
     function stop(): void {
       if (killTimer !== undefined) return;
       signalProcessGroup(child, "SIGTERM");
-      killTimer = setTimeout(() => signalProcessGroup(child, "SIGKILL"), request.killGraceMs);
+      // `close` waits on the stdout pipe, which a killed child's grandchild may still hold, so a
+      // timed-out check could never answer and the store's read timeout would key the rows under
+      // `memory-`. Answer here once escalated: `timedOut` is set, so this reads as a timeout.
+      killTimer = setTimeout(() => {
+        signalProcessGroup(child, "SIGKILL");
+        finish(null);
+      }, request.killGraceMs);
     }
 
     function collect(chunks: Buffer[], limit: number): (chunk: Buffer) => void {
@@ -371,7 +489,7 @@ export async function runAlibabaTokenPlanProcess(
       };
     }
 
-    function finish(code: number | null, spawnErrorCode?: string): void {
+    function finish(code: number | null, spawnErrorCode?: string, complete = false): void {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
@@ -382,6 +500,7 @@ export async function runAlibabaTokenPlanProcess(
         stderr: Buffer.concat(stderrChunks),
         timedOut,
         truncated,
+        ...(complete ? { complete: true } : {}),
         ...(spawnErrorCode ? { spawnErrorCode } : {}),
       });
     }
@@ -391,7 +510,33 @@ export async function runAlibabaTokenPlanProcess(
       stop();
     }, request.timeoutMs);
 
-    child.stdout?.on("data", collect(stdoutChunks, request.stdoutLimitBytes));
+    /**
+     * `bl` keeps running after it has answered: it waits on an npm update check it fires once a
+     * day, against a registry with no mirror, and only then exits. The answer is already in the
+     * pipe, so a whole document ends the wait. Exit-code failures still need the real code, and
+     * a document that never completes falls through to the timeout.
+     */
+    function wholeDocument(): boolean {
+      if (settled || timedOut || truncated) return false;
+      const text = Buffer.concat(stdoutChunks).toString("utf8");
+      if (!text.trim()) return false;
+      try {
+        JSON.parse(text);
+      } catch {
+        return false;
+      }
+      return true;
+    }
+
+    const collectStdout = collect(stdoutChunks, request.stdoutLimitBytes);
+    child.stdout?.on("data", (chunk) => {
+      collectStdout(chunk);
+      if (wholeDocument()) {
+        // The CLI keeps its own socket open after it has answered, so it is killed outright.
+        signalProcessGroup(child, "SIGKILL");
+        finish(null, undefined, true);
+      }
+    });
     child.stderr?.on("data", collect(stderrChunks, request.stderrLimitBytes));
     child.on("error", (error) => finish(null, errorCode(error)));
     child.on("close", (code) => finish(code));
@@ -408,6 +553,23 @@ function mapSpawnResult(result: AlibabaTokenPlanSpawnResult): AlibabaTokenPlanCl
   return parseAlibabaTokenPlanUsageJson(result.stdout.toString("utf8"));
 }
 
+/** The child gets exactly one PATH: the filtered list. Windows reads environment names without case
+ * and a parent can carry both `Path` and `PATH`, so every case variant is dropped first. */
+function envWithTrustedPath(
+  env: NodeJS.ProcessEnv,
+  trusted: readonly string[],
+  paths: path.PlatformPath,
+): NodeJS.ProcessEnv {
+  const result: NodeJS.ProcessEnv = {};
+  for (const [name, value] of Object.entries(env)) {
+    if (name.toLowerCase() === "path") continue;
+    result[name] = value;
+  }
+  result.PATH = trusted.join(paths.delimiter);
+  return result;
+}
+
+/** The personal window `bl usage token-plan` reports, or why it could not be read. */
 export async function queryAlibabaTokenPlanQuota(options: {
   requestTimeoutMs?: number;
   runtime: AlibabaTokenPlanRuntime;
@@ -418,7 +580,8 @@ export async function queryAlibabaTokenPlanQuota(options: {
     return fail("unsupported_platform");
   }
 
-  const cwd = path.posix.resolve(runtime.cwd);
+  const paths = pathModuleFor(platform);
+  const cwd = paths.resolve(runtime.cwd);
   const home = runtime.homedir ?? homedir();
   const pathEnv = runtime.pathEnv ?? runtime.env?.PATH ?? process.env.PATH;
   const resolved = await resolveAlibabaTokenPlanExecutable({
@@ -432,17 +595,18 @@ export async function queryAlibabaTokenPlanQuota(options: {
   // Run outside the project folder so the CLI never picks up project files.
   const processCwd =
     [runtime.tmpdir ?? tmpdir(), home]
-      .map((candidate) => path.posix.resolve(candidate))
-      .find((candidate) => !isPathInside(cwd, candidate)) ?? "/";
+      .map((candidate) => paths.resolve(candidate))
+      .find((candidate) => !isPathInside(paths, cwd, candidate)) ?? paths.parse(cwd).root;
   const request: AlibabaTokenPlanSpawnRequest = {
     file: resolved.file,
-    args: ALIBABA_TOKEN_PLAN_ARGS,
+    args: resolved.args ?? ALIBABA_TOKEN_PLAN_ARGS,
     cwd: processCwd,
-    env: {
-      ...(runtime.env ?? process.env),
-      PATH: listTrustedPathDirectories(pathEnv, cwd, home).join(":"),
-    },
-    timeoutMs: options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
+    env: envWithTrustedPath(
+      runtime.env ?? process.env,
+      listTrustedPathDirectories(paths, pathEnv, cwd, home),
+      paths,
+    ),
+    timeoutMs: options.requestTimeoutMs ?? ALIBABA_TOKEN_PLAN_REQUEST_TIMEOUT_MS,
     stdoutLimitBytes: ALIBABA_TOKEN_PLAN_STDOUT_LIMIT_BYTES,
     stderrLimitBytes: ALIBABA_TOKEN_PLAN_STDERR_LIMIT_BYTES,
     stdin: "ignore",
@@ -451,7 +615,12 @@ export async function queryAlibabaTokenPlanQuota(options: {
   };
   const run = runtime.spawn ?? runAlibabaTokenPlanProcess;
   try {
-    return mapSpawnResult(await run(request));
+    const result = await run(request);
+    // The early exit stops the child once it has written a whole document, so there is no exit
+    // code left to read: what it wrote is the answer, and the parser turns a failure envelope
+    // inside it into the right kind.
+    if (result.complete) return parseAlibabaTokenPlanUsageJson(result.stdout.toString("utf8"));
+    return mapSpawnResult(result);
   } catch {
     return fail("spawn_failed");
   }

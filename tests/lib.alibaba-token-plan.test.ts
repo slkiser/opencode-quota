@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   type AlibabaTokenPlanSpawnRequest,
+  isAlibabaTokenPlanSupportedPlatform,
   parseAlibabaTokenPlanUsageJson,
   queryAlibabaTokenPlanQuota,
   resolveAlibabaTokenPlanExecutable,
@@ -20,7 +21,12 @@ const KILL_GRACE_MS = 250;
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const fs = await importOriginal<typeof import("node:fs/promises")>();
-  return { ...fs, stat: vi.fn(fs.stat), realpath: vi.fn(fs.realpath) };
+  return {
+    ...fs,
+    stat: vi.fn(fs.stat),
+    realpath: vi.fn(fs.realpath),
+    readFile: vi.fn(fs.readFile),
+  };
 });
 
 const created: string[] = [];
@@ -28,6 +34,7 @@ const created: string[] = [];
 afterEach(async () => {
   vi.mocked(stat).mockReset();
   vi.mocked(realpath).mockReset();
+  vi.mocked(readFile).mockReset();
   await Promise.all(created.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
@@ -58,6 +65,21 @@ async function mockExecutable(file = "/trusted/bin/bl", target = file): Promise<
   vi.mocked(realpath).mockImplementation(async (candidate) =>
     candidate === file ? target : String(candidate),
   );
+}
+
+/** Fake win32 filesystem; `path.win32` keys keep these cases runnable on a POSIX runner too. */
+async function mockWin32Files(files: Record<string, string>): Promise<void> {
+  const stats = await stat(process.execPath);
+  vi.mocked(stat).mockImplementation(async (candidate) => {
+    if (String(candidate) in files) return stats;
+    throw new Error("File does not exist");
+  });
+  vi.mocked(realpath).mockImplementation(async (candidate) => String(candidate));
+  vi.mocked(readFile).mockImplementation(async (candidate) => {
+    const contents = files[String(candidate)];
+    if (contents === undefined) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    return contents;
+  });
 }
 
 function capturedSpawn(requests: AlibabaTokenPlanSpawnRequest[]) {
@@ -188,7 +210,7 @@ describe("alibaba token plan parser", () => {
 describe("alibaba token plan executable resolution", () => {
   const NVM_BL = "/home/user/.nvm/versions/node/v22.0.0/lib/node_modules/bailian-cli/bin/bl";
 
-  it("names the rejected shell launcher in its error", async () => {
+  it("names the rejected shell launcher and its remedy in the error", async () => {
     await mockExecutable("/trusted/bin/bl.cmd");
     expect(
       await resolveAlibabaTokenPlanExecutable({
@@ -200,14 +222,20 @@ describe("alibaba token plan executable resolution", () => {
       ok: false,
       error: {
         kind: "shell_launcher_rejected",
-        message: "Alibaba Personal Token Plan refused a shell launcher for bl.",
+        message:
+          "Alibaba Personal Token Plan refused a shell launcher for bl. Install it with `npm install -g bailian-cli`, whose shim resolves to the package's node entry.",
       },
     });
   });
 
   // PATH is /trusted/bin and quota is computed for /workspace unless a row says otherwise.
   it.each([
-    { name: "a bl.bat launcher", file: "/trusted/bin/bl.bat", kind: "shell_launcher_rejected" },
+    {
+      // `.bat` is no longer probed: npm's cmd-shim never writes one, so a stray one is never run.
+      name: "a bl.bat launcher, which is no longer probed and so counts as absent",
+      file: "/trusted/bin/bl.bat",
+      kind: "executable_not_found",
+    },
     {
       name: "a symlink to a shell",
       file: "/trusted/bin/bl",
@@ -293,12 +321,264 @@ describe("alibaba token plan executable resolution", () => {
     },
   );
 
-  it.each(["aix", "win32"] as const)("rejects %s instead of probing PATH", async (platform) => {
+  it.each(["aix", "freebsd"] as const)("rejects %s instead of probing PATH", async (platform) => {
     const expected = { ok: false, error: { kind: "unsupported_platform" } };
     const params = { platform, cwd: "/workspace", pathEnv: "/usr/bin" };
     expect(await resolveAlibabaTokenPlanExecutable(params)).toMatchObject(expected);
     expect(await queryAlibabaTokenPlanQuota({ runtime: params })).toMatchObject(expected);
     expect(stat).not.toHaveBeenCalled();
+  });
+});
+
+describe("alibaba token plan Windows resolution", () => {
+  const W = path.win32;
+  const TRUSTED_BIN = W.join("C:\\", "trusted", "bin");
+  const WORKSPACE = W.join("C:\\", "workspace");
+  const SAFE_TMP = W.join("C:\\", "safe-tmp");
+  const HOME = W.join("C:\\", "home", "user");
+  const LAUNCHER_ERROR = {
+    ok: false,
+    error: {
+      kind: "shell_launcher_rejected",
+      message:
+        "Alibaba Personal Token Plan refused a shell launcher for bl. Install it with `npm install -g bailian-cli`, whose shim resolves to the package's node entry.",
+    },
+  };
+
+  // The npm shim layout: `<prefix>\bl.cmd` beside `<prefix>\node_modules\bailian-cli\`.
+  const PACKAGE_ROOT = W.join(TRUSTED_BIN, "node_modules", "bailian-cli");
+  const MANIFEST = W.join(PACKAGE_ROOT, "package.json");
+  const ENTRY = W.join(PACKAGE_ROOT, "dist", "bailian.mjs");
+  const SHIM = W.join(TRUSTED_BIN, "bl.cmd");
+  const SHIM_ARGS = [ENTRY, ...BL_ARGS];
+
+  function manifest(bin: unknown): string {
+    return JSON.stringify({ name: "bailian-cli", version: "2.3.0", bin });
+  }
+
+  it("supports win32", () => {
+    expect(isAlibabaTokenPlanSupportedPlatform("win32")).toBe(true);
+  });
+
+  it("accepts the native bl.exe a Windows install ships", async () => {
+    const file = W.join(TRUSTED_BIN, "bl.exe");
+    await mockExecutable(file);
+    expect(
+      await resolveAlibabaTokenPlanExecutable({
+        platform: "win32",
+        cwd: WORKSPACE,
+        homedir: HOME,
+        pathEnv: TRUSTED_BIN,
+      }),
+    ).toEqual({ ok: true, file });
+  });
+
+  it("refuses an extensionless bl, which Windows cannot execute", async () => {
+    // Node appends .exe to a name with no extension and never tries the bare name, so probing
+    // this file would only resolve a name the child process cannot start.
+    await mockExecutable(W.join(TRUSTED_BIN, "bl"));
+    expect(
+      await resolveAlibabaTokenPlanExecutable({
+        platform: "win32",
+        cwd: WORKSPACE,
+        homedir: HOME,
+        pathEnv: TRUSTED_BIN,
+      }),
+    ).toMatchObject({ ok: false, error: { kind: "executable_not_found" } });
+  });
+
+  it.each([
+    {
+      name: "a stray bl.bat, no longer probed",
+      file: W.join(TRUSTED_BIN, "bl.bat"),
+      kind: "executable_not_found",
+    },
+    {
+      name: "a bl.exe linking to cmd.exe",
+      file: W.join(TRUSTED_BIN, "bl.exe"),
+      target: W.join("C:\\", "Windows", "System32", "cmd.exe"),
+    },
+  ])("still refuses $name instead of running it", async ({ file, target, kind }) => {
+    await mockExecutable(file, target);
+    expect(
+      await resolveAlibabaTokenPlanExecutable({
+        platform: "win32",
+        cwd: WORKSPACE,
+        homedir: HOME,
+        pathEnv: TRUSTED_BIN,
+      }),
+    ).toEqual(kind ? { ok: false, error: { kind, message: expect.any(String) } } : LAUNCHER_ERROR);
+  });
+
+  it.each([
+    {
+      name: "an object naming bl",
+      bin: { bailian: "dist/bailian.mjs", bl: "dist/bailian.mjs" },
+    },
+    { name: "an object naming only bl", bin: { bl: "dist/bailian.mjs" } },
+    { name: "a plain string bin", bin: "dist/bailian.mjs" },
+  ])("resolves the npm bl.cmd shim ($name) to the package entry through node", async ({ bin }) => {
+    await mockWin32Files({ [SHIM]: "npm shim text", [MANIFEST]: manifest(bin), [ENTRY]: "cli" });
+    expect(
+      await resolveAlibabaTokenPlanExecutable({
+        platform: "win32",
+        cwd: WORKSPACE,
+        homedir: HOME,
+        pathEnv: TRUSTED_BIN,
+      }),
+    ).toEqual({ ok: true, file: process.execPath, args: SHIM_ARGS });
+  });
+
+  it("runs the resolved shim entry with the fixed argv, no shell, and ignored stdin", async () => {
+    await mockWin32Files({
+      [SHIM]: "npm shim text",
+      [MANIFEST]: manifest({ bl: "dist/bailian.mjs" }),
+      [ENTRY]: "cli",
+    });
+    const requests: AlibabaTokenPlanSpawnRequest[] = [];
+    const result = await queryAlibabaTokenPlanQuota({
+      runtime: {
+        platform: "win32",
+        cwd: WORKSPACE,
+        homedir: HOME,
+        pathEnv: TRUSTED_BIN,
+        tmpdir: SAFE_TMP,
+        spawn: capturedSpawn(requests),
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(requests[0]?.file).toBe(process.execPath);
+    expect(requests[0]?.args).toEqual(SHIM_ARGS);
+    expect(requests[0]?.shell).toBe(false);
+    expect(requests[0]?.stdin).toBe("ignore");
+    expect(requests[0]?.cwd).toBe(SAFE_TMP);
+  });
+
+  it.each([
+    {
+      name: "a manifest whose bin does not declare bl",
+      files: { [MANIFEST]: manifest({ "bailian-cli": "dist/bailian.mjs" }) },
+    },
+    { name: "no manifest at all" },
+    { name: "a manifest with no bin field", files: { [MANIFEST]: manifest(undefined) } },
+    { name: "a manifest that names no entry", files: { [MANIFEST]: manifest({ bl: "  " }) } },
+    {
+      name: "an entry the package declares but does not ship",
+      files: { [MANIFEST]: manifest({ bl: "dist/bailian.mjs" }) },
+    },
+  ])("falls back to refusing the shim on $name", async ({ files }) => {
+    await mockWin32Files({ [SHIM]: "npm shim text", ...files });
+    expect(
+      await resolveAlibabaTokenPlanExecutable({
+        platform: "win32",
+        cwd: WORKSPACE,
+        homedir: HOME,
+        pathEnv: TRUSTED_BIN,
+      }),
+    ).toEqual(LAUNCHER_ERROR);
+  });
+
+  it("refuses a malformed manifest without leaking any of it", async () => {
+    const secret = "token=super-secret-manifest";
+    await mockWin32Files({ [SHIM]: "npm shim text", [MANIFEST]: `{ ${secret}` });
+    const result = await resolveAlibabaTokenPlanExecutable({
+      platform: "win32",
+      cwd: WORKSPACE,
+      homedir: HOME,
+      pathEnv: TRUSTED_BIN,
+    });
+    expect(result).toEqual(LAUNCHER_ERROR);
+    expect(JSON.stringify(result)).not.toContain(secret);
+  });
+
+  it("still refuses a bl.exe whose realpath is a .bat launcher", async () => {
+    const file = W.join(TRUSTED_BIN, "bl.exe");
+    await mockExecutable(file, W.join(TRUSTED_BIN, "launcher.bat"));
+    expect(
+      await resolveAlibabaTokenPlanExecutable({
+        platform: "win32",
+        cwd: WORKSPACE,
+        homedir: HOME,
+        pathEnv: TRUSTED_BIN,
+      }),
+    ).toEqual(LAUNCHER_ERROR);
+  });
+
+  it("reports a missing CLI when the folder holds neither executable nor launcher", async () => {
+    await mockExecutable(W.join("C:\\", "elsewhere", "bl.exe"));
+    expect(
+      await resolveAlibabaTokenPlanExecutable({
+        platform: "win32",
+        cwd: WORKSPACE,
+        homedir: HOME,
+        pathEnv: TRUSTED_BIN,
+      }),
+    ).toMatchObject({ ok: false, error: { kind: "executable_not_found" } });
+  });
+
+  it.each([
+    {
+      name: "the project folder",
+      target: W.join(WORKSPACE, "bin", "bl.exe"),
+      expected: { ok: false, error: { kind: "workspace_path_rejected" } },
+    },
+    {
+      name: "a sibling of the project folder",
+      target: W.join("C:\\", "workspace-sibling", "bl.exe"),
+      expected: { ok: true, file: W.join("C:\\", "workspace-sibling", "bl.exe") },
+    },
+    {
+      name: "another drive",
+      target: W.join("D:\\", "bin", "bl.exe"),
+      expected: { ok: true, file: W.join("D:\\", "bin", "bl.exe") },
+    },
+  ])("classifies a bl.exe realpath in $name by drive and folder", async ({ target, expected }) => {
+    await mockExecutable(W.join(TRUSTED_BIN, "bl.exe"), target);
+    expect(
+      await resolveAlibabaTokenPlanExecutable({
+        platform: "win32",
+        cwd: WORKSPACE,
+        homedir: HOME,
+        pathEnv: TRUSTED_BIN,
+      }),
+    ).toMatchObject(expected);
+  });
+
+  // NTFS reads names without case, so a folder reached as c:\WORKSPACE is still the project folder.
+  it("refuses a project folder that differs from the cwd only in case", async () => {
+    await mockExecutable(
+      W.join(TRUSTED_BIN, "bl.exe"),
+      W.join("c:\\", "WORKSPACE", "bin", "bl.exe"),
+    );
+    expect(
+      await resolveAlibabaTokenPlanExecutable({
+        platform: "win32",
+        cwd: WORKSPACE,
+        homedir: HOME,
+        pathEnv: TRUSTED_BIN,
+      }),
+    ).toMatchObject({ ok: false, error: { kind: "workspace_path_rejected" } });
+  });
+
+  it("runs bl.exe with a semicolon PATH of only the trusted absolute folders", async () => {
+    const file = W.join(TRUSTED_BIN, "bl.exe");
+    await mockExecutable(file);
+    const requests: AlibabaTokenPlanSpawnRequest[] = [];
+    const result = await queryAlibabaTokenPlanQuota({
+      runtime: {
+        platform: "win32",
+        cwd: WORKSPACE,
+        homedir: HOME,
+        pathEnv: [W.join(WORKSPACE, "bin"), ".", "relative", TRUSTED_BIN, TRUSTED_BIN].join(";"),
+        tmpdir: SAFE_TMP,
+        env: { Path: W.join(WORKSPACE, "bin"), TEST_ENV: "preserved" },
+        spawn: capturedSpawn(requests),
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(requests[0]?.file).toBe(file);
+    expect(requests[0]?.cwd).toBe(SAFE_TMP);
+    expect(requests[0]?.env).toEqual({ TEST_ENV: "preserved", PATH: TRUSTED_BIN });
   });
 });
 
@@ -559,6 +839,67 @@ setInterval(() => {}, 30000);
     },
   );
 
+  it("runner answers on a whole document instead of waiting for a child that will not exit", async () => {
+    // `bl` writes its answer and then waits on an npm update check before exiting. A child that
+    // answers and lingers must not hold the quota check open.
+    const result = await runAlibabaTokenPlanProcess(
+      spawnRequest(process.execPath, {
+        args: [
+          "-e",
+          `process.stdout.write(JSON.stringify({ per1MonthPercentage: 0.5 }));
+setInterval(() => {}, 30000);
+`,
+        ],
+        timeoutMs: 30_000,
+        cwd: process.cwd(),
+      }),
+    );
+    expect(result.complete).toBe(true);
+    expect(result.timedOut).toBe(false);
+    expect(parseAlibabaTokenPlanUsageJson(result.stdout.toString("utf8"))).toEqual({
+      ok: true,
+      monthly: { percentRemaining: 50 },
+    });
+  });
+
+  it("runner answers on the kill escalation when nothing else can close the pipe", async () => {
+    // The child leaves a grandchild holding the stdout it handed down, so `close` never comes.
+    // Answering only from `close` would let the store's read timeout fire first, which keys the
+    // rows under `memory-`; the grandchild also outlives the guard below.
+    const grandchild = `
+const { spawn } = require("node:child_process");
+spawn(process.execPath, ["-e", "setTimeout(() => process.exit(0), 8000)"], {
+  detached: true, stdio: ["ignore", "inherit", "inherit"],
+}).unref();
+setInterval(() => {}, 30000);
+`;
+    const answered = await Promise.race([
+      runAlibabaTokenPlanProcess(
+        spawnRequest(process.execPath, {
+          args: ["-e", `process.on("SIGTERM", () => {});\n${grandchild}`],
+          timeoutMs: 300,
+          cwd: process.cwd(),
+        }),
+      ).then((result) => ({ result })),
+      new Promise((resolve) => setTimeout(() => resolve({ result: undefined }), 3_000)),
+    ]);
+    expect(answered.result).toBeDefined();
+    expect(answered.result?.timedOut).toBe(true);
+    expect(answered.result?.code).toBeNull();
+    expect(answered.result?.complete).toBeUndefined();
+  });
+
+  it("runner still waits for the exit code when no whole document arrives", async () => {
+    const result = await runAlibabaTokenPlanProcess(
+      spawnRequest(process.execPath, {
+        args: ["-e", `process.stdout.write("not json"); process.exit(3);`],
+        timeoutMs: 30_000,
+        cwd: await makeDir(),
+      }),
+    );
+    expect(result.complete).toBeUndefined();
+    expect(result.code).toBe(3);
+  });
   it.runIf(process.platform !== "win32").each(["stdout", "stderr"] as const)(
     "runner treats real %s overflow as truncated and stops the child",
     async (stream) => {
@@ -583,4 +924,29 @@ setInterval(() => {}, 30000);
       expect(result[stream].toString("utf8")).toBe("x".repeat(32));
     },
   );
+
+  it("runner adds the limit up across chunks, so many small writes overflow too", async () => {
+    // Each write is far under the limit, so only a cumulative size detects the overflow: a counter
+    // rebuilt per `data` event restarts at 0. `process.execPath` keeps it real on every platform.
+    const script = `
+const { setTimeout: delay } = require("node:timers/promises");
+(async () => {
+  for (let i = 0; i < 32; i += 1) {
+    process.stdout.write("x".repeat(32));
+    await delay(5);
+  }
+  setInterval(() => {}, 30000);
+})();
+`;
+    const result = await runAlibabaTokenPlanProcess(
+      spawnRequest(process.execPath, {
+        args: ["-e", script],
+        cwd: await makeDir(),
+        stdoutLimitBytes: 256,
+        timeoutMs: 5_000,
+      }),
+    );
+    expect(result.truncated).toBe(true);
+    expect(result.stdout.length).toBe(256);
+  });
 });
