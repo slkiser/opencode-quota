@@ -34,9 +34,11 @@ if (manifestPath) {
   if (!pnpmCliPath) {
     throw new Error("pnpm CLI path is unavailable; run this script through pnpm.");
   }
+  const args = ["--config.ignore-scripts=true", "pack", "--json", "--dry-run"];
+  const isJavaScript = /\.(?:c?js|mjs)$/u.test(pnpmCliPath);
   const result = spawnSync(
-    process.execPath,
-    [pnpmCliPath, "--config.ignore-scripts=true", "pack", "--json", "--dry-run"],
+    isJavaScript ? process.execPath : pnpmCliPath,
+    isJavaScript ? [pnpmCliPath, ...args] : args,
     {
       cwd: repoRoot,
       encoding: "utf8",
