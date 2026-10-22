@@ -117,6 +117,37 @@ describe("synthetic provider", () => {
     ]);
   });
 
+  it("maps only the weekly row when Synthetic reports no 5-hour window", async () => {
+    const { querySyntheticQuota } = await import("../src/lib/synthetic.js");
+    (querySyntheticQuota as any).mockResolvedValueOnce({
+      success: true,
+      windows: {
+        weekly: {
+          limit: 24,
+          used: 21.98,
+          percentRemaining: 8,
+          resetTimeIso: "2026-01-27T18:12:03.000Z",
+        },
+      },
+    });
+
+    const out = await syntheticProvider.fetch({} as any);
+    expectAttemptedWithNoErrors(out);
+    expect(visibleEntries(out.entries, "synthetic")).toEqual([
+      {
+        name: "Synthetic Weekly",
+        group: "Synthetic",
+        label: "Weekly:",
+        percentRemaining: 8,
+        right: "$22/$24",
+        resetTimeIso: "2026-01-27T18:12:03.000Z",
+      },
+    ]);
+    expect(out.presentation).toEqual({
+      singleWindowShowRight: true,
+    });
+  });
+
   it("maps errors into toast errors", async () => {
     const { querySyntheticQuota } = await import("../src/lib/synthetic.js");
     (querySyntheticQuota as any).mockResolvedValueOnce({

@@ -184,6 +184,8 @@ These providers use trusted env vars, trusted user/global OpenCode config, or na
 | DeepSeek                 | Use `DEEPSEEK_API_KEY`, trusted user/global config under `provider.deepseek.options.apiKey`, or OpenCode auth. This provider shows balance only because DeepSeek does not expose a quota reset window.                                |
 | OpenRouter               | Use `OPENROUTER_API_KEY`, trusted user/global config, or OpenCode auth. `/quota_status` has an `openrouter:` section with the trusted key source and the live probe, including errors such as HTTP 401.                               |
 
+Synthetic shows a `5h` row only when the plan has a 5-hour limit. Plans with only a weekly limit show just the `Weekly` row.
+
 If Synthetic is authenticated and the quota endpoint returns HTTP 200 `{}`, `/quota` and `/quota_status` report `Synthetic returned no quota data for this account.` That is not an invalid API key or a Clerk/browser requirement. The plugin does not invent 5h or Weekly rows. `/quota_status` shows it on `live_error_*`.
 
 For security, repo-local `opencode.json` / `opencode.jsonc` is ignored for provider secrets in these integrations. Put secrets in environment variables or trusted user/global config. OpenCode auth fallbacks for API-key providers require `{ "type": "api", "key": "..." }` entries.
