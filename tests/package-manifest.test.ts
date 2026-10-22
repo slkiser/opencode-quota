@@ -238,7 +238,8 @@ describe("package manifest compatibility", () => {
   });
 
   it("ships the OpenTelemetry API while keeping the metrics SDK host-owned", () => {
-    expect(pkg.dependencies?.["@opentelemetry/api"]).toBe("^1.9.1");
+    // The API stays on 1.9.x so it uses a host provider registered by API 1.9 or newer.
+    expect(pkg.dependencies?.["@opentelemetry/api"]).toBe("~1.9.1");
     for (const dependencyType of [
       pkg.devDependencies,
       pkg.optionalDependencies,
@@ -427,7 +428,7 @@ describe("package manifest compatibility", () => {
     expect(packedSmoke).toContain('const { metrics } = await import("@opentelemetry/api");');
     expect(packedSmoke).toContain('assert.equal(typeof metrics.getMeter, "function");');
     expect(packedSmoke).toContain(
-      'assert.equal(pkg.dependencies?.["@opentelemetry/api"], "^1.9.1");',
+      'assert.equal(pkg.dependencies?.["@opentelemetry/api"], "~1.9.1");',
     );
     expect(packedSmoke).toContain(
       '["devDependencies", "optionalDependencies", "peerDependencies"]',
