@@ -25,12 +25,6 @@ vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
 }));
 
 import {
-  getAlibabaCodingPlanAuthDiagnostics,
-  isAlibabaModelId,
-  resolveAlibabaCodingPlanAuth,
-  resolveAlibabaCodingPlanAuthCached,
-} from "../src/lib/alibaba-auth.js";
-import {
   API_KEY_VENDORS,
   type ApiKeyLoginSpec,
   getApiKeyLoginDiagnostics,
@@ -119,12 +113,6 @@ const EXPECTED_API_KEY_VENDORS: Record<string, ApiKeyLoginSpec> = {
       "minimax-china",
     ],
     authKeys: ["minimax-china-coding-plan", "minimax-cn-coding-plan"],
-  },
-  "alibaba-coding-plan": {
-    displayName: "Alibaba Coding Plan",
-    envVars: ["ALIBABA_CODING_PLAN_API_KEY", "ALIBABA_API_KEY"],
-    providerKeys: ["alibaba-coding-plan", "alibaba"],
-    authKeys: ["alibaba-coding-plan", "alibaba"],
   },
 };
 
@@ -560,64 +548,6 @@ describe("per-vendor differences", () => {
     await expect(
       resolveApiKeyLogin(API_KEY_VENDORS["minimax-china-coding-plan"], PROJECT),
     ).resolves.toEqual({ state: "configured", apiKey: "china-key" });
-  });
-
-  it.each([
-    [{}, "lite"],
-    [{ tier: "PRO" }, "pro"],
-    [{ planTier: "professional" }, "pro"],
-    [{ plan_tier: "lite" }, "lite"],
-    [{ subscriptionTier: " pro " }, "pro"],
-  ])("reads the Alibaba plan tier from %j", (tierFields, tier) => {
-    expect(
-      resolveAlibabaCodingPlanAuth(
-        asRows({ alibaba: { type: "api", key: "k", ...tierFields } })[0],
-      ),
-    ).toEqual({
-      state: "configured",
-      apiKey: "k",
-      tier,
-    });
-  });
-
-  it.each([
-    [
-      { type: "api", key: "k", tier: "max" },
-      { state: "invalid", error: "Unsupported Alibaba Coding Plan tier: max", rawTier: "max" },
-    ],
-    [
-      { type: "api", access: "token" },
-      { state: "invalid", error: "Alibaba Coding Plan auth entry present but key is empty" },
-    ],
-  ])("reports the unusable Alibaba login %j", (entry, expected) => {
-    expect(resolveAlibabaCodingPlanAuth(asRows({ alibaba: entry })[0])).toEqual(expected);
-  });
-
-  it("uses the fallback Alibaba tier for env keys and reports a bad stored tier", async () => {
-    process.env.ALIBABA_API_KEY = "env-key";
-    await expect(
-      resolveAlibabaCodingPlanAuthCached(PROJECT, { fallbackTier: "pro" }),
-    ).resolves.toEqual({
-      state: "configured",
-      apiKey: "env-key",
-      tier: "pro",
-    });
-    expect(mocks.readActiveCredentialRowsCached).not.toHaveBeenCalled();
-
-    delete process.env.ALIBABA_API_KEY;
-    mocks.readActiveCredentialRowsCached.mockResolvedValue(
-      asRows({ alibaba: { type: "api", key: "k", tier: "max" } }),
-    );
-    await expect(getAlibabaCodingPlanAuthDiagnostics(PROJECT)).resolves.toEqual({
-      state: "invalid",
-      source: "opencode.db",
-      error: "Unsupported Alibaba Coding Plan tier: max",
-      rawTier: "max",
-      checkedPaths: [],
-      credentialDatabasePaths: DB_PATHS,
-    });
-    expect(isAlibabaModelId("Alibaba-CN/qwen3-coder-plus")).toBe(true);
-    expect(isAlibabaModelId("openai/gpt-5")).toBe(false);
   });
 
   it("never resolves the OpenCode Console sign-in while looking for an OpenCode Go key", async () => {

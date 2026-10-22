@@ -36,12 +36,6 @@ const PRODUCED: ReadonlyArray<{
   },
   {
     code: "not_configured",
-    from: "src/lib/alibaba-auth.ts",
-    text: "Unsupported Alibaba Coding Plan tier: ",
-    message: "Unsupported Alibaba Coding Plan tier: max",
-  },
-  {
-    code: "not_configured",
     from: "src/lib/google-oauth-quota.ts",
     text: "OAuth auth is missing a refresh token or project id",
     message: "Google AGY OAuth auth is missing a refresh token or project id",
@@ -101,12 +95,12 @@ const PRODUCED: ReadonlyArray<{
   },
   {
     code: "login_expired",
-    from: "src/lib/alibaba-token-plan.ts",
+    from: "src/lib/alibaba.ts",
     text: "Alibaba Cloud console session is missing or expired. Run `bl auth login --console`.",
   },
   {
     code: "login_expired",
-    from: "src/lib/alibaba-token-plan.ts",
+    from: "src/lib/alibaba.ts",
     text: "Alibaba Cloud API Key credentials are missing or expired for team seats; this requires login. Run `bl auth login --open-api`, or set ALIBABA_CLOUD_ACCESS_KEY_ID and ALIBABA_CLOUD_ACCESS_KEY_SECRET.",
   },
   {
@@ -164,7 +158,7 @@ const PRODUCED: ReadonlyArray<{
   { code: "timeout", from: "src/lib/google-oauth-quota.ts", text: "Token refresh timeout" },
   {
     code: "timeout",
-    from: "src/lib/alibaba-token-plan.ts",
+    from: "src/lib/alibaba.ts",
     text: "Timed out while running the Alibaba Cloud CLI.",
   },
   {
@@ -293,12 +287,12 @@ const PRODUCED: ReadonlyArray<{
   },
   {
     code: "bad_response",
-    from: "src/lib/alibaba-token-plan.ts",
+    from: "src/lib/alibaba.ts",
     text: "Alibaba Cloud CLI did not return valid JSON.",
   },
   {
     code: "bad_response",
-    from: "src/lib/alibaba-token-plan.ts",
+    from: "src/lib/alibaba.ts",
     text: "Alibaba Cloud CLI returned an invalid team seat payload.",
   },
   { code: "no_data", from: "src/providers/xai.ts", text: "No quota data" },
@@ -321,12 +315,12 @@ const PRODUCED: ReadonlyArray<{
   },
   {
     code: "local_tool",
-    from: "src/lib/alibaba-token-plan.ts",
+    from: "src/lib/alibaba.ts",
     text: "Alibaba Cloud CLI (bl) was not found on the trusted PATH.",
   },
   {
     code: "local_tool",
-    from: "src/lib/alibaba-token-plan.ts",
+    from: "src/lib/alibaba.ts",
     text: "Could not start Alibaba Cloud CLI.",
   },
   {
@@ -337,7 +331,7 @@ const PRODUCED: ReadonlyArray<{
   },
   {
     code: "local_tool",
-    from: "src/lib/alibaba-token-plan.ts",
+    from: "src/lib/alibaba.ts",
     text: "Alibaba Token Plan is not supported on this platform.",
   },
   {

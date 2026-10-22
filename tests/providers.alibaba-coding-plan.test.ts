@@ -1,182 +1,212 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+/** Alibaba Coding Plan from the shared fake `bl`: one console command, rows from the windows it reports. */
 
-import { iterCompletedAssistantMessages } from "../src/lib/opencode-storage.js";
-import { alibabaCodingPlanProvider } from "../src/providers/alibaba-coding-plan.js";
-import { fetchRows, keyLogin, rowSummary, useProviderWorld } from "./helpers/provider-fetch.js";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-vi.mock("../src/lib/opencode-storage.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/lib/opencode-storage.js")>()),
-  iterCompletedAssistantMessages: vi.fn(),
-}));
+import { rowsFromProviderResult } from "../src/core/rows.js";
+import { clearAlibabaIdentityCacheForTests, ERROR_MESSAGES } from "../src/lib/alibaba.js";
+import { alibabaCodingPlanProvider } from "../src/providers/alibaba.js";
+import {
+  exits,
+  installCli,
+  launch,
+  PLATFORM,
+  paths,
+  replying,
+  SUPPORTED,
+  useAlibabaCliFixture,
+} from "./helpers/alibaba-cli-fixture.js";
+import { isLedgerRowKey } from "./helpers/provider-assertions.js";
+import { rowSummary } from "./helpers/provider-fetch.js";
+import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 
-const NOW = Date.parse("2026-02-24T12:00:00.000Z");
-const HOUR = 3_600_000;
-const world = useProviderWorld();
+vi.mock("node:child_process", () =>
+  import("./helpers/alibaba-cli-fixture.js").then((fixture) => fixture.mockChildProcess()),
+);
+
+useAlibabaCliFixture();
 
 beforeEach(() => {
-  vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
-  // One request an hour ago, one two days ago (seen twice), and one to another provider.
-  const request = (id: string, providerID: string, completed: number) => ({
-    id,
-    sessionID: "session",
-    role: "assistant" as const,
-    providerID,
-    modelID: "qwen3-coder-plus",
-    time: { created: completed - 1_000, completed },
-  });
-  vi.mocked(iterCompletedAssistantMessages).mockResolvedValue([
-    request("old", "alibaba-coding-plan", NOW - 48 * HOUR),
-    request("old", "alibaba-coding-plan", NOW - 48 * HOUR),
-    request("recent", "alibaba", NOW - HOUR),
-    request("other", "openai", NOW - HOUR),
-  ]);
+  // `bl auth status` is memoised per process, so each case must start from its own reply.
+  clearAlibabaIdentityCacheForTests();
 });
 
-afterEach(() => {
-  vi.useRealTimers();
-});
+const FIVE_HOUR_RESET = "2026-08-04T15:00:00.000Z";
+const WEEKLY_RESET = "2026-08-09T00:00:00.000Z";
+const MONTHLY_RESET = "2026-09-01T00:00:00.000Z";
 
-const FIVE_HOUR_RESET = new Date(NOW + 4 * HOUR).toISOString();
-const WEEKLY_RESET = new Date(NOW + 5 * 24 * HOUR).toISOString();
-const MONTHLY_RESET = new Date(NOW + 28 * 24 * HOUR).toISOString();
-
-function windows(account: string, limits: [number, number, number]) {
-  const [fiveHour, weekly, monthly] = limits;
-  // The percent left rounds to 100 for so few requests.
-  const value = (used: number, limit: number) => `100 (${used} request of ${limit} request)`;
-  return [
-    [
-      "alibaba-coding-plan.five_hour",
-      account,
-      "5h",
-      "five_hour",
-      value(1, fiveHour),
-      FIVE_HOUR_RESET,
-    ],
-    ["alibaba-coding-plan.weekly", account, "Weekly", "week", value(2, weekly), WEEKLY_RESET],
-    ["alibaba-coding-plan.monthly", account, "Monthly", "month", value(2, monthly), MONTHLY_RESET],
-  ];
-}
-
-const TUNING = {
-  quotaProviders: [
-    {
-      id: "alibaba-coding-plan",
-      providerId: "alibaba-coding-plan",
-      label: "alibaba-coding-plan",
-      mode: "local-estimate",
-      windows: [
-        { id: "five-hour", label: "5h", type: "rolling", durationMinutes: 300, requestLimit: 2000 },
-        {
-          id: "weekly",
-          label: "Weekly",
-          type: "rolling",
-          durationMinutes: 10080,
-          requestLimit: 10000,
-        },
-        {
-          id: "monthly",
-          label: "Monthly",
-          type: "rolling",
-          durationMinutes: 43200,
-          requestLimit: 20000,
-        },
-      ],
-    },
-  ],
+/** The CLI's own reply shape, invented values: the three windows and the plan tier. */
+const USAGE = {
+  instanceType: "pro",
+  per5Hour: {
+    usedQuota: 38,
+    totalQuota: 100,
+    percentage: 0.38,
+    resetTime: Date.parse(FIVE_HOUR_RESET),
+  },
+  perWeek: {
+    usedQuota: 500,
+    totalQuota: 1000,
+    percentage: 0.5,
+    resetTime: Date.parse(WEEKLY_RESET),
+  },
+  perBillMonth: {
+    usedQuota: 950,
+    totalQuota: 1000,
+    percentage: 0.95,
+    resetTime: Date.parse(MONTHLY_RESET),
+  },
 };
 
+const USAGE_ROWS = [
+  [
+    "alibaba-coding-plan.five_hour",
+    "Pro",
+    "5h",
+    "five_hour",
+    "62 (38 request of 100 request)",
+    FIVE_HOUR_RESET,
+  ],
+  [
+    "alibaba-coding-plan.weekly",
+    "Pro",
+    "Weekly",
+    "week",
+    "50 (500 request of 1000 request)",
+    WEEKLY_RESET,
+  ],
+  [
+    "alibaba-coding-plan.monthly",
+    "Pro",
+    "Monthly",
+    "month",
+    "5 (950 request of 1000 request)",
+    MONTHLY_RESET,
+  ],
+];
+
+/** The provider's fetch, rows and accounts both: one call, with the shared ledger-row-key check. */
+async function fetchCodingPlan(requestTimeoutMs = 5_000) {
+  const result = await alibabaCodingPlanProvider.fetch({
+    workspaceRoot: paths.project,
+    config: { requestTimeoutMs, requestTimeoutMsConfigured: true },
+  } as never);
+  const fetched = rowsFromProviderResult("alibaba-coding-plan", result);
+  for (const row of fetched.rows) {
+    expect(
+      isLedgerRowKey("alibaba-coding-plan", row.id.slice("alibaba-coding-plan".length + 1)),
+      row.id,
+    ).toBe(true);
+  }
+  return { ...fetched, accounts: result.accounts };
+}
+
 describe("alibaba-coding-plan provider", () => {
-  it.each([
-    [
-      "an environment key, on the Lite limits",
-      { env: "env-key" },
-      {},
-      windows("Lite", [1200, 9000, 18000]),
-    ],
-    [
-      "a stored login without a tier, on the Lite limits",
-      { login: { key: "dashscope-key" } },
-      {},
-      windows("Lite", [1200, 9000, 18000]),
-    ],
-    [
-      "a stored Pro login",
-      { login: { key: "dashscope-key", tier: "pro" } },
-      {},
-      windows("Pro", [6000, 45000, 90000]),
-    ],
-    [
-      "configured request limits",
-      { login: { key: "dashscope-key", tier: "pro" } },
-      TUNING,
-      windows("Pro", [2000, 10000, 20000]),
-    ],
-    [
-      "switched-off request limits, on the tier's own limits",
-      { login: { key: "dashscope-key", tier: "pro" } },
-      { quotaProviders: [{ ...TUNING.quotaProviders[0], enabled: false }] },
-      windows("Pro", [6000, 45000, 90000]),
-    ],
-  ])("estimates the windows for %s", async (_name, setup, config, rows) => {
-    if ("env" in setup) process.env.ALIBABA_API_KEY = setup.env;
-    if ("login" in setup) {
-      const { key, ...fields } = setup.login;
-      world.storeLogins([
-        { ...keyLogin("ali-id", "alibaba", key), value: { type: "api", key, ...fields } },
-      ]);
-    }
+  it("is available from explicit selection or an Alibaba model, never from the PATH", async () => {
+    const selected = createProviderAvailabilityContext({
+      providerIds: ["alibaba-coding-plan"],
+    });
+    await expect(alibabaCodingPlanProvider.isAvailable(selected)).resolves.toBe(SUPPORTED);
 
-    const fetched = await fetchRows(alibabaCodingPlanProvider, config);
+    const other = createProviderAvailabilityContext({ providerIds: ["openai"] });
+    await expect(alibabaCodingPlanProvider.isAvailable(other)).resolves.toBe(false);
 
-    expect(fetched.error).toBeUndefined();
-    expect(rowSummary(fetched.rows)).toEqual(rows);
-  });
-
-  it.each([
-    ["no key", [], { code: "not_configured" }, undefined],
-    [
-      "an empty key",
-      [keyLogin("ali-id", "alibaba-coding-plan", "   ")],
-      { code: "not_configured" },
-      "Alibaba Coding Plan auth entry present but key is empty",
-    ],
-    [
-      "an unknown tier",
-      [
-        {
-          ...keyLogin("ali-id", "alibaba", "dashscope-key"),
-          value: { type: "api", key: "dashscope-key", tier: "max" },
-        },
-      ],
-      { code: "not_configured" },
-      "Unsupported Alibaba Coding Plan tier: max",
-    ],
-  ])("shows %s without estimating", async (_name, logins, error, message) => {
-    world.storeLogins(logins);
-
-    const fetched = await fetchRows(alibabaCodingPlanProvider);
-
-    expect(fetched.rows).toEqual([]);
-    expect(fetched.error).toMatchObject(error);
-    if (message) {
-      expect(fetched.debug).toContainEqual({
-        key: "error",
-        value: `Alibaba Coding Plan: ${message}`,
-      });
-    }
-    expect(iterCompletedAssistantMessages).not.toHaveBeenCalled();
+    const model = createProviderAvailabilityContext({
+      configOverrides: { currentModel: "alibaba/qwen3-coder-plus" },
+    });
+    await expect(alibabaCodingPlanProvider.isAvailable(model)).resolves.toBe(SUPPORTED);
   });
 
   it.each([
     ["alibaba/qwen3-coder", undefined, true],
     ["alibaba-cn/qwen3-coder", undefined, true],
     ["openai/gpt-5", undefined, false],
-    ["anything", "alibaba", true],
     ["anything", "alibaba-coding-plan", true],
+    ["anything", "alibaba-coding-plan-cn", true],
+    ["anything", "alibaba", true],
     ["alibaba/qwen3-coder", "alibaba-token-plan", false],
   ])("matchesCurrentModel(%s, provider %s) -> %s", (model, currentProviderID, expected) => {
     const context = currentProviderID ? ({ currentProviderID } as never) : undefined;
     expect(alibabaCodingPlanProvider.matchesCurrentModel?.(model, context)).toBe(expected);
+  });
+
+  it.runIf(SUPPORTED)("shows the three windows as request rows of the CLI's tier", async () => {
+    installCli({ codingPlan: replying(USAGE) });
+
+    const fetched = await fetchCodingPlan();
+
+    expect(rowSummary(fetched.rows)).toEqual(USAGE_ROWS);
+    expect(fetched.rows.map((row) => row.account)).toEqual(["Pro", "Pro", "Pro"]);
+    // The account name is the CLI's own plan tier, read from the same fetch as the rows.
+    expect(fetched.accounts.map((account) => account.name)).toEqual(["Alibaba Coding Plan (Pro)"]);
+    expect(fetched.error).toBeUndefined();
+    expect(fetched.debug).toEqual([
+      { key: "cli_available", value: "true" },
+      PLATFORM,
+      { key: "windows", value: "five_hour,weekly,monthly" },
+    ]);
+  });
+
+  it.runIf(SUPPORTED)(
+    "gives a window its start, so its span is exact, and a billing month a calendar month back",
+    async () => {
+      installCli({ codingPlan: replying(USAGE) });
+
+      const fetched = await fetchCodingPlan();
+
+      // A 5-hour and a 7-day window have a known length, so the start is the refresh minus it.
+      expect(fetched.rows.map((row) => row.windowStartedAt)).toEqual([
+        new Date(Date.parse(FIVE_HOUR_RESET) - 5 * 60 * 60_000).toISOString(),
+        new Date(Date.parse(WEEKLY_RESET) - 7 * 24 * 60 * 60_000).toISOString(),
+        // A billing month has no length to subtract, but its cycle is anchored on the day it
+        // resets, so the start is the same day a calendar month back.
+        "2026-08-01T00:00:00.000Z",
+      ]);
+    },
+  );
+
+  it.runIf(SUPPORTED)("stays silent when the account has no Coding Plan", async () => {
+    // The CLI prints `{}` and exits 0 for an account without a Coding Plan subscription.
+    installCli({ codingPlan: replying({}) });
+
+    const fetched = await fetchCodingPlan();
+
+    expect(fetched.rows).toEqual([]);
+    expect(fetched.error).toBeUndefined();
+    expect(fetched.debug).toEqual([
+      { key: "cli_available", value: "true" },
+      PLATFORM,
+      { key: "windows", value: "(none)" },
+    ]);
+  });
+
+  it.runIf(SUPPORTED)("runs the Coding Plan command beside the shared identity read", async () => {
+    installCli({ codingPlan: replying(USAGE) });
+
+    await fetchCodingPlan();
+
+    // The fixture clears the memoised identity read, so the read is always here.
+    const commands = launch.calls.map((call) => call.args.join(" ")).sort();
+    expect(commands).toEqual(
+      ["auth status --output json", "usage coding-plan --output json"].sort(),
+    );
+  });
+
+  it.runIf(SUPPORTED)("reports an expired console session as a sign-in failure", async () => {
+    installCli({ codingPlan: exits(3) });
+
+    const fetched = await fetchCodingPlan();
+
+    expect(fetched.rows).toEqual([]);
+    expect(fetched.error).toMatchObject({ code: "login_expired" });
+    expect(fetched.debug).toEqual([
+      { key: "cli_available", value: "true" },
+      PLATFORM,
+      { key: "failure_kind", value: "not_authenticated" },
+      {
+        key: "error",
+        value: `Alibaba Coding Plan: ${ERROR_MESSAGES.not_authenticated}`,
+      },
+      { key: "error_kind", value: "login_expired" },
+    ]);
   });
 });

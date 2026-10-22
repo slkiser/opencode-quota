@@ -36,7 +36,7 @@ await writeFile(argvLog, "");
 
 try {
   const { getProviders } = await packageImport("providers/registry.js");
-  const { queryAlibabaTokenPlanQuota } = await packageImport("lib/alibaba-token-plan.js");
+  const { queryAlibabaTokenPlanQuota } = await packageImport("lib/alibaba.js");
 
   const providers = getProviders();
   const provider = providers.find((entry) => entry.id === "alibaba-token-plan");

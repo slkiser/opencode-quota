@@ -212,7 +212,7 @@ function storeProvider(
   return {
     id: provider.id,
     label: getQuotaProviderDisplayLabel(provider.id),
-    // Cursor and Alibaba Coding Plan count OpenCode's own history: cheap, and stale at once.
+    // Cursor counts OpenCode's own history: cheap, and stale at once.
     ...(isLiveLocalUsageProviderId(provider.id) ? { minIntervalMs: 0 } : {}),
     async identity(): Promise<ProviderIdentity> {
       const account = await accountIdentity(provider, ctx, await cacheContextFor(provider, ctx));

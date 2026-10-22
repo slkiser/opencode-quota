@@ -15,21 +15,29 @@ export const QUOTA_PROVIDER_REMOTE_FORMATS = ["quota-v1", "openrouter-key-v1", "
 export const QUOTA_PROVIDER_MODES = ["remote-api", "local-estimate"] as const;
 export const QUOTA_PROVIDER_WINDOW_TYPES = ["utc-day", "rolling"] as const;
 export const QUOTA_PROVIDERS_AGGREGATE_ID = "quota-providers";
-export const MAINTAINED_LOCAL_ESTIMATE_IDS = ["alibaba-coding-plan"] as const;
 
-export function isMaintainedQuotaProviderTuning(definition: QuotaProviderDefinition): boolean {
-  return (MAINTAINED_LOCAL_ESTIMATE_IDS as readonly string[]).includes(definition.id);
+/**
+ * The built-in of this id reads the official CLI now, so a leftover tuning tunes nothing: it is
+ * ignored rather than left to collide with the built-in, which would void every other definition.
+ */
+const RETIRED_MAINTAINED_ESTIMATE_IDS: ReadonlySet<string> = new Set(["alibaba-coding-plan"]);
+
+export function isRetiredMaintainedEstimateTuning(definition: {
+  id: string;
+  mode: unknown;
+}): boolean {
+  return definition.mode === "local-estimate" && RETIRED_MAINTAINED_ESTIMATE_IDS.has(definition.id);
 }
 
 /**
- * The custom definitions that run: not maintained tunings, and not switched off. A switched-off
- * definition is never fetched and its key is never sent.
+ * The custom definitions that run: not switched off. A switched-off definition is never fetched
+ * and its key is never sent.
  */
 export function customQuotaProviderDefinitions(
   definitions: readonly QuotaProviderDefinition[],
 ): QuotaProviderDefinition[] {
   return definitions.filter(
-    (definition) => !isMaintainedQuotaProviderTuning(definition) && definition.enabled !== false,
+    (definition) => definition.enabled !== false && !isRetiredMaintainedEstimateTuning(definition),
   );
 }
 
@@ -247,9 +255,8 @@ interface QuotaProviderDefinitionBase {
   /** Exact OpenCode model ids, without a provider prefix. Omission covers the provider. */
   modelIds?: string[];
   /**
-   * `false` switches the definition off: it is never fetched and its key is never sent (a
-   * maintained tuning is not applied). Omission means on. Agents add definitions switched off;
-   * only the user switches them on.
+   * `false` switches the definition off: it is never fetched and its key is never sent. Omission
+   * means on. Agents add definitions switched off; only the user switches them on.
    */
   enabled?: boolean;
 }
@@ -1299,40 +1306,6 @@ function validateWindows(
   return windows.length === raw.length ? windows : undefined;
 }
 
-function validateMaintainedWindows(
-  id: string,
-  windows: LocalEstimateWindow[] | undefined,
-  providerKey: string,
-  issues: QuotaProviderValidationIssue[],
-): void {
-  if (!windows || !(MAINTAINED_LOCAL_ESTIMATE_IDS as readonly string[]).includes(id)) return;
-  const expected = [
-    { id: "five-hour", type: "rolling" as const, durationMinutes: 300 },
-    { id: "weekly", type: "rolling" as const, durationMinutes: 10_080 },
-    { id: "monthly", type: "rolling" as const, durationMinutes: 43_200 },
-  ];
-
-  if (
-    windows.length !== expected.length ||
-    expected.some((item, index) => {
-      const window = windows[index];
-      return (
-        !window ||
-        window.id !== item.id ||
-        window.type !== item.type ||
-        window.durationMinutes !== item.durationMinutes ||
-        window.usdBudget !== undefined
-      );
-    })
-  ) {
-    issues.push({
-      key: `${providerKey}.windows`,
-      message:
-        "alibaba-coding-plan tuning requires ordered five-hour, weekly, and monthly rolling request windows",
-    });
-  }
-}
-
 function validatePricingModelMap(
   raw: unknown,
   providerKey: string,
@@ -1455,7 +1428,7 @@ export function validateQuotaProviders(value: unknown): QuotaProvidersValidation
         });
       }
       const builtIn = getCanonicalQuotaProviderId(id);
-      if (builtIn && !(MAINTAINED_LOCAL_ESTIMATE_IDS as readonly string[]).includes(id)) {
+      if (builtIn && !isRetiredMaintainedEstimateTuning({ id, mode })) {
         issues.push({
           key: `${providerKey}.id`,
           message: `collides with built-in quota provider id "${id}"`,
@@ -1508,17 +1481,6 @@ export function validateQuotaProviders(value: unknown): QuotaProvidersValidation
     const modelIdsValid =
       !hasOwnKey(raw, "modelIds") ||
       (Array.isArray(raw.modelIds) && modelIds?.length === raw.modelIds.length);
-
-    if (
-      idValid &&
-      (MAINTAINED_LOCAL_ESTIMATE_IDS as readonly string[]).includes(id) &&
-      mode !== "local-estimate"
-    ) {
-      issues.push({
-        key: `${providerKey}.mode`,
-        message: `${id} tuning must use local-estimate mode`,
-      });
-    }
 
     if (mode === "remote-api") {
       for (const field of ["url", "format"] as const) {
@@ -1618,7 +1580,6 @@ export function validateQuotaProviders(value: unknown): QuotaProvidersValidation
         issues.push({ key: `${providerKey}.windows`, message: "field is required" });
       }
       const windows = validateWindows(raw.windows, providerKey, issues);
-      if (idValid) validateMaintainedWindows(id, windows, providerKey, issues);
       const pricingModelMap =
         providerId && hasOwnKey(raw, "pricingModelMap")
           ? validatePricingModelMap(raw.pricingModelMap, providerKey, providerId, issues)

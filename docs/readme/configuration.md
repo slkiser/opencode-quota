@@ -73,7 +73,7 @@ On Providers, every provider is ticked unless its id is in `providers.off`. A ti
 
 ## Custom providers
 
-A custom provider connects OpenCode Quota to a provider that is not built in, or tunes a maintained local estimate. Ask your agent to add a custom provider: [Custom providers](providers.md#custom-providers) has a copy-paste prompt.
+A custom provider connects OpenCode Quota to a provider that is not built in. Ask your agent to add a custom provider: [Custom providers](providers.md#custom-providers) has a copy-paste prompt.
 
 To edit it yourself, add the definition to `providers.custom` in `settings.jsonc`. `/quota_status` (or the `quota_status` tool) checks it with the same validator the plugin uses.
 
@@ -89,8 +89,8 @@ Rules:
 - Credentials resolve from `apiKeyEnv`, `provider.<providerId>.options.apiKey` in the [OpenCode config files](troubleshooting.md#opencode-config-files), then API-key logins saved in OpenCode 2 (`opencode.db`).
 - `"enabled": false` switches a definition off: it is never fetched, its key is never sent, and `/quota_status` shows it as off. Without `enabled` (or with `true`) it is on. Providers an agent adds start switched off; switch one on by setting `"enabled": true` in `opencode-quota/settings.jsonc`, or in `/quota_settings` → **Providers**, which shows each custom provider's web address and the key it sends (and warns about plain `http`) next to its switch.
 - Definitions run when `custom` is absent from `providers.off`. Adding `custom` there skips every custom definition. Each definition also has its own `enabled` switch.
-- To tune maintained estimates, use the reserved `alibaba-coding-plan` ID and its window shape. Do not add a duplicate normal provider block.
-- Not accepted: scripts, methods, custom headers, templates, executable mappings, regular expressions, JSONPath, and automatic endpoint discovery.
+- The `alibaba-coding-plan` ID belongs to the built-in Coding Plan provider, which reads the official CLI. A local estimate left over from the older maintained estimate is ignored: it tunes nothing, and it never runs. Delete it from `providers.custom`.
+- Not accepted: project secrets, scripts, methods, custom headers, templates, executable mappings, regular expressions, JSONPath, and automatic endpoint discovery.
 - A custom model provider still needs its normal OpenCode `provider` block in `opencode.json`: that block tells OpenCode how to use the model, and `providers.custom` tells OpenCode Quota how to measure it.
 - `/quota_status` shows each definition as `custom 1`, `custom 2`, … with its mode, model count, check outcome and credential source, never its id, URLs, keys, headers, response bodies, or raw errors.
 
@@ -218,7 +218,7 @@ In the TUI, they are on **Layout → All places**, since every place follows the
 | `providers.cursor.billingCycleStartDay` | `null` | The day of the month your Cursor bill renews, 1–28. Unset uses the calendar month. |
 | `providers.opencode.monthlyLimitUsd` | `null` | Positive monthly USD amount, used instead of the Console's budget or credit limit. |
 | `providers.checking.minIntervalMs` | `300000` | Positive milliseconds between provider checks. |
-| `providers.checking.requestTimeoutMs` | unset | Positive request timeout in milliseconds, for every provider. Unset, each provider uses its own: `5000`, except OpenCode Zen and Xiaomi MiMo `10000`, the Alibaba Token Plan `10000` for the local CLI it runs, and Google AGY and Gemini CLI `8000` to sign in and `6000` for the quota. So a set `8000` shortens Zen, MiMo and the Alibaba plan. xAI's plan-label lookup waits at most `2000`, also when this is higher. |
+| `providers.checking.requestTimeoutMs` | unset | Positive request timeout in milliseconds, for every provider. Unset, each provider uses its own: `5000`, except OpenCode Zen and Xiaomi MiMo `10000`, the Alibaba Token Plan and Coding Plan `10000` for the local CLI they run, and Google AGY and Gemini CLI `8000` to sign in and `6000` for the quota. So a set `8000` shortens Zen, MiMo and the Alibaba plans. xAI's plan-label lookup waits at most `2000`, also when this is higher. |
 | `providers.checking.waitForQuotaReset` | `true` | On a model limit error, wait until 1 minute after the earliest exhausted window resets, at most 5 hours. `false` keeps normal retry timing. |
 | `providers.pricing.source` | `"auto"` | `auto`, `bundled`, `runtime`. |
 | `providers.pricing.autoRefreshDays` | `7` | Whole number of days, at least 1. |

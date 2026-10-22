@@ -18,11 +18,6 @@ vi.mock("../src/lib/resolved-auth-identity.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/lib/alibaba-token-plan.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/lib/alibaba-token-plan.js")>()),
-  resolveAlibabaTokenPlanIdentity: cachePolicyMocks.resolveAlibabaIdentity,
-}));
-
 import type { QuotaProviderCachePolicy } from "../src/lib/entries.js";
 import { composeResolvedAuthIdentities } from "../src/lib/resolved-auth-identity.js";
 import { getProviders } from "../src/providers/registry.js";
@@ -44,8 +39,8 @@ describe("provider cache policies", () => {
       kind: "account-neutral",
     });
 
-    // The Alibaba plan names its account through the repo's own derivation.
     expect(PROVIDER_CACHE_POLICIES["alibaba-token-plan"]?.kind).toBe("resolved-auth");
+    expect(PROVIDER_CACHE_POLICIES["alibaba-coding-plan"]?.kind).toBe("resolved-auth");
 
     const uncached = Object.entries(PROVIDER_CACHE_POLICIES)
       .filter(([, policy]) => policy.kind === "uncached")

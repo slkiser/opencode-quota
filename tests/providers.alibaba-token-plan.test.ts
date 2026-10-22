@@ -1,100 +1,36 @@
-/**
- * Alibaba Token Plan as one module: a fake Alibaba Cloud CLI (`bl`) on the PATH, declared once and
- * answering each of the provider's commands (`usage token-plan`, `token-plan list-seats`,
- * `auth status`) from its own reply or exiting with the CLI's codes. The declaration drives both
- * arms: a POSIX host runs it as a shell script, and a host where `spawn(..., { shell: false })`
- * cannot start one drives the provider's own process runner through a faked launch instead.
- */
+/** Alibaba Token Plan as one module: the shared fake `bl` answers its usage, seat and auth commands. */
 
-import type { EventEmitter } from "node:events";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { rowsFromProviderResult } from "../src/core/rows.js";
 import {
-  clearAlibabaTokenPlanIdentityCacheForTests,
+  clearAlibabaIdentityCacheForTests,
+  ERROR_MESSAGES,
   NO_WINDOW_HINT,
-} from "../src/lib/alibaba-token-plan.js";
-import { alibabaTokenPlanProvider } from "../src/providers/alibaba-token-plan.js";
+} from "../src/lib/alibaba.js";
+import { alibabaTokenPlanProvider } from "../src/providers/alibaba.js";
+import {
+  AUTH_STATUS,
+  exits,
+  installCli,
+  launch,
+  PLATFORM,
+  paths,
+  replying,
+  seatPage,
+  SUPPORTED,
+  useAlibabaCliFixture,
+  WAITS,
+} from "./helpers/alibaba-cli-fixture.js";
+import { isLedgerRowKey } from "./helpers/provider-assertions.js";
 import { rowSummary } from "./helpers/provider-fetch.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 
-/** The provider's own platforms, Windows included. */
-const SUPPORTED = ["darwin", "linux", "win32"].includes(process.platform);
-/** Whether a fake `bl` can really be a shell script here; otherwise the launch below is faked. */
-const POSIX_HOST = process.platform !== "win32";
-const RESET = "2024-05-01T20:53:20.000Z";
-const PLATFORM = { key: "platform", value: process.platform };
-const CONSOLE_NO_AUTH =
-  "Alibaba Cloud console session is missing or expired. Run `bl auth login --console`.";
-const SEAT_NO_AUTH =
-  "Alibaba Cloud API Key credentials are missing or expired for team seats; this requires login. Run `bl auth login --open-api`, or set ALIBABA_CLOUD_ACCESS_KEY_ID and ALIBABA_CLOUD_ACCESS_KEY_SECRET.";
-
-/** The `bl auth status --output json` replies by which halves they name; `neither` is no account. */
-const AUTH_STATUS = {
-  both: {
-    console: { masked: "9f2c...d41a" },
-    api_key: { masked: "sk-q...Z7m2" },
-    openapi: { access_key_id: "LTAI...k9Pw" },
-  },
-  seatOnly: { openapi: { access_key_id: "LTAI...k9Pw" } },
-  consoleOnly: { console: { masked: "9f2c...d41a" }, api_key: { masked: "sk-q...Z7m2" } },
-  neither: {},
-} as const;
-
-/** What one command's `bl` answers, declared once and rendered for whichever arm runs it. */
-type CliReply =
-  | { kind: "prints"; body: unknown; log?: string }
-  | { kind: "exits"; code: number }
-  | { kind: "fails"; body: unknown; code: number }
-  | { kind: "waits" };
-
-/** The three commands the provider runs, each with its own reply. */
-type CliParts = { usage?: CliReply; seats?: CliReply; auth?: CliReply };
-
-/** One launch as the provider's runner made it, seen at the mock's own boundary. */
-type LaunchCall = {
-  file: string;
-  args: readonly string[];
-  options: {
-    cwd?: string;
-    env?: NodeJS.ProcessEnv;
-    shell?: boolean;
-    detached?: boolean;
-    windowsHide?: boolean;
-  };
-};
-
-/** The pieces of a child pipe this test touches: the runner's reader and the fake's writer. */
-type FakePipe = {
-  write(chunk: string): unknown;
-  on(event: string, listener: () => void): unknown;
-  listenerCount(event: string): number;
-};
-
-/** The pieces of a child process the provider's runner touches. */
-type FakeChild = {
-  stdout: FakePipe;
-  stderr: FakePipe;
-  pid: number;
-  kill: () => boolean;
-  unref: () => void;
-};
-
-/**
- * The one thing replaced for the faked arm: `spawn` from `node:child_process`. Everything past it
- * is the provider's own code — the argv it builds, the stdout byte limit, the timeout, the
- * process-group signal, the whole-document exit, `mapSpawnResult`, the JSON parsers, the
- * percentage arithmetic and the row construction — so a case declares only what the CLI prints.
- * A POSIX host leaves `replies` null and every call goes to the real launch.
- */
-const launch = vi.hoisted(() => ({
-  replies: null as null | Required<CliParts>,
-  calls: [] as LaunchCall[],
-  pipes: [] as FakePipe[],
-}));
+vi.mock("node:child_process", () =>
+  import("./helpers/alibaba-cli-fixture.js").then((fixture) => fixture.mockChildProcess()),
+);
 
 // The identity is mocked so the test reads the principal it was given, not a digest of the key.
 const identityMocks = vi.hoisted(() => ({
@@ -106,186 +42,34 @@ vi.mock("../src/lib/resolved-auth-identity.js", async (importOriginal) => ({
   deriveResolvedAuthIdentity: identityMocks.deriveIdentity,
 }));
 
-vi.mock("node:child_process", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:child_process")>();
-  const events = await import("node:events");
-  const streams = await import("node:stream");
-  const files = await import("node:fs");
+const RESET = "2024-05-01T20:53:20.000Z";
 
-  /** A fake child process: an EventEmitter with the two pipes the provider's runner reads. */
-  function fakeChild(): EventEmitter & FakeChild {
-    const child = new events.EventEmitter() as EventEmitter & FakeChild;
-    child.stdout = new streams.PassThrough();
-    child.stderr = new streams.PassThrough();
-    // There is no process group of ours to signal; the real kill path belongs to the lib test.
-    child.pid = 0;
-    child.kill = () => true;
-    child.unref = () => {};
-    // A real pipe fails no write either, so a late one into a destroyed pipe stays silent.
-    child.stdout.on("error", () => {});
-    child.stderr.on("error", () => {});
-    return child;
-  }
-
-  /**
-   * Answers the child's command from its declared reply, exactly as the POSIX script's own arm
-   * does: a whole document on stdout, or the CLI's exit code, or its failure envelope on stderr,
-   * or no answer at all.
-   */
-  function deliver(child: EventEmitter & FakeChild, reply: CliReply | undefined): void {
-    setImmediate(() => {
-      if (reply === undefined || reply.kind === "exits") {
-        child.emit("close", reply?.code ?? 0);
-        return;
-      }
-      if (reply.kind === "waits") return;
-      if (reply.kind === "fails") {
-        // The CLI writes its failure envelope to stderr and exits with the code it carries.
-        child.stderr.write(JSON.stringify(reply.body));
-        setImmediate(() => child.emit("close", reply.code));
-        return;
-      }
-      if (reply.log) files.appendFileSync(reply.log, "auth status\n");
-      child.stdout.write(JSON.stringify(reply.body));
-      setImmediate(() => child.emit("close", 0));
-    });
-  }
-
-  return {
-    ...actual,
-    spawn: ((file: string, args: readonly string[], options: LaunchCall["options"]) => {
-      launch.calls.push({ file, args: [...args], options });
-      if (launch.replies === null) return actual.spawn(file, args as string[], options as never);
-      const child = fakeChild();
-      launch.pipes.push(child.stdout);
-      const command = `${args[0]} ${args[1]}`;
-      deliver(
-        child,
-        command === "usage token-plan"
-          ? launch.replies.usage
-          : command === "token-plan list-seats"
-            ? launch.replies.seats
-            : launch.replies.auth,
-      );
-      return child;
-    }) as typeof actual.spawn,
-  };
-});
-
-const originalPath = process.env.PATH;
-
-let root = "";
-let project = "";
+useAlibabaCliFixture();
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "opencode-quota-alibaba-token-plan-"));
-  project = join(root, "project");
-  mkdirSync(project);
-  // An empty folder, so no `bl` installed on this machine is found.
-  const emptyBin = join(root, "empty-bin");
-  mkdirSync(emptyBin);
-  process.env.PATH = emptyBin;
-  // Each case declares its own replies, and nothing carries over from the case before it.
-  launch.replies = null;
-  launch.calls = [];
-  launch.pipes = [];
   // `bl auth status` is memoised per process, so each case must start from its own reply.
-  clearAlibabaTokenPlanIdentityCacheForTests();
+  clearAlibabaIdentityCacheForTests();
   identityMocks.deriveIdentity.mockClear();
 });
 
-afterEach(() => {
-  process.env.PATH = originalPath;
-  rmSync(root, { recursive: true, force: true });
-});
-
-/** `bl` prints this JSON and exits 0: the CLI's own reply, never a value fed to the parser. */
-function replying(body: unknown, log?: string): CliReply {
-  return { kind: "prints", body, ...(log ? { log } : {}) };
-}
-
-/** `bl` exits with this code and prints nothing, as it does for a credential it is missing. */
-function exits(code: number): CliReply {
-  return { kind: "exits", code };
-}
-
-/** A `bl` that never answers, so the runner's own timeout is what ends the command. */
-const WAITS: CliReply = { kind: "waits" };
-
-/** The seat command's own envelope: `{ Success: true, Data: { Items, Total } }`. */
-function seatPage(items: readonly Record<string, unknown>[]): Record<string, unknown> {
-  return { Success: true, Data: { Items: items, Total: items.length } };
-}
-
-/**
- * A `bl` answering its three commands from its own arms; any other command prints nothing. The
- * usage command defaults to a signed-in reply with no window, so a seat-only case sees no personal
- * row either way; the seat command to an empty page, and the identity command to a set-up account.
- */
-function cli(parts: CliParts): Required<CliParts> {
-  return {
-    usage: parts.usage ?? replying({}),
-    seats: parts.seats ?? replying(seatPage([])),
-    auth: parts.auth ?? replying(AUTH_STATUS.both),
-  };
-}
-
-/** The POSIX arm's rendering of one declared reply, as that script's own arm. */
-function shellReply(reply: CliReply): string {
-  if (reply.kind === "exits") return `exit ${reply.code}`;
-  // An `exec` replaces the shell, so the runner's signal reaches the command it is waiting on.
-  if (reply.kind === "waits") return "exec sleep 5";
-  if (reply.kind === "fails") {
-    // The CLI writes its failure envelope to stderr and exits with the code it carries.
-    return `printf '%s' '${JSON.stringify(reply.body)}' >&2 && exit ${reply.code}`;
-  }
-  const print = `printf '%s' '${JSON.stringify(reply.body)}'`;
-  return reply.log ? `printf '%s\\n' 'auth status' >> '${reply.log}' && ${print}` : print;
-}
-
-/** The fake script: each arm answers from the same declaration the faked launch reads. */
-function shellScript(parts: Required<CliParts>): string {
-  return [
-    'case "$1 $2" in',
-    `  "usage token-plan") ${shellReply(parts.usage)} ;;`,
-    `  "token-plan list-seats") ${shellReply(parts.seats)} ;;`,
-    `  "auth status") ${shellReply(parts.auth)} ;;`,
-    "  *) exit 0 ;;",
-    "esac",
-  ].join("\n");
-}
-
-/**
- * Puts a `bl` first on the PATH that answers the provider's commands as `parts` declares: a shell
- * script where one can be spawned, and on Windows a real file for the executable probe beside the
- * faked launch that feeds the same replies. `folder` sits below the temp root, never in the project.
- */
-function installCli(parts: CliParts, folder = join(root, "bin")): void {
-  mkdirSync(folder, { recursive: true });
-  const declared = cli(parts);
-  if (!POSIX_HOST) {
-    // Windows probes `bl.exe`, and the file only has to exist for the probe; the launch is faked.
-    writeFileSync(join(folder, "bl.exe"), "");
-    process.env.PATH = folder;
-    launch.replies = declared;
-    return;
-  }
-  const file = join(folder, "bl");
-  writeFileSync(file, `#!/bin/sh\n${shellScript(declared)}\n`);
-  chmodSync(file, 0o755);
-  process.env.PATH = `${folder}:/usr/bin:/bin`;
-}
-
+/** The provider's fetch, with the ledger-row-key check every provider fetch shares. */
 async function fetchTokenPlan(requestTimeoutMs = 5_000) {
-  return rowsFromProviderResult(
+  const fetched = rowsFromProviderResult(
     "alibaba-token-plan",
     await alibabaTokenPlanProvider.fetch({
-      workspaceRoot: project,
-      locationDirectory: project,
+      workspaceRoot: paths.project,
+      locationDirectory: paths.project,
       // The provider takes the user's timeout only when the settings say one is set.
       config: { requestTimeoutMs, requestTimeoutMsConfigured: true },
     } as never),
   );
+  for (const row of fetched.rows) {
+    expect(
+      isLedgerRowKey("alibaba-token-plan", row.id.slice("alibaba-token-plan".length + 1)),
+      row.id,
+    ).toBe(true);
+  }
+  return fetched;
 }
 
 function seatJson(name: string, equity?: Record<string, number>): Record<string, unknown> {
@@ -322,7 +106,7 @@ function identityPolicy() {
 }
 
 describe("alibaba-token-plan provider", () => {
-  it("is available from explicit selection or recognized runtime presence, whatever the PATH holds", async () => {
+  it("is available from explicit selection or recognized runtime presence, never from the PATH", async () => {
     const selected = createProviderAvailabilityContext({
       providerIds: ["alibaba-token-plan"],
     });
@@ -356,7 +140,7 @@ describe("alibaba-token-plan provider", () => {
   });
 
   it.runIf(SUPPORTED)("never runs a bl from inside the project folder", async () => {
-    installCli(cli({ usage: replying({ per1MonthPercentage: 0.4 }) }), join(project, "bin"));
+    installCli({ usage: replying({ per1MonthPercentage: 0.4 }) }, join(paths.project, "bin"));
 
     const fetched = await fetchTokenPlan();
 
@@ -367,7 +151,7 @@ describe("alibaba-token-plan provider", () => {
   it.runIf(SUPPORTED).each([
     [
       "the monthly window, with its reset",
-      cli({ usage: replying({ per1MonthPercentage: 0.6, per1MonthResetTime: Date.parse(RESET) }) }),
+      { usage: replying({ per1MonthPercentage: 0.6, per1MonthResetTime: Date.parse(RESET) }) },
       [["alibaba-token-plan.personal", "personal", "Monthly", "month", 40, RESET]],
       undefined,
       [{ key: "cli_available", value: "true" }, PLATFORM, { key: "windows", value: "monthly" }],
@@ -381,7 +165,7 @@ describe("alibaba-token-plan provider", () => {
     ],
     [
       "a signed-in reply with no window, left blank rather than reported",
-      cli({ usage: replying({}) }),
+      { usage: replying({}) },
       [],
       undefined,
       [
@@ -415,26 +199,29 @@ describe("alibaba-token-plan provider", () => {
     ],
     [
       "an expired console sign-in, leaving the seats alone",
-      cli({ usage: exits(3) }),
+      { usage: exits(3) },
       [],
       { code: "login_expired" },
       [
         { key: "cli_available", value: "true" },
         PLATFORM,
         { key: "failure_kind", value: "not_authenticated" },
-        { key: "error", value: `Alibaba Token Plan (personal): ${CONSOLE_NO_AUTH}` },
+        {
+          key: "error",
+          value: `Alibaba Token Plan (personal): ${ERROR_MESSAGES.not_authenticated}`,
+        },
         { key: "error_kind", value: "login_expired" },
       ],
     ],
     [
       "the CLI's own reason for a rejected call, with the exit code as the error kind",
-      cli({
+      {
         usage: {
           kind: "fails",
           code: 1,
           body: { error: { code: 1, message: "COMMON-2001 - the reply was rejected" } },
         },
-      }),
+      },
       [],
       { code: "provider_error" },
       [
@@ -450,13 +237,13 @@ describe("alibaba-token-plan provider", () => {
     ],
     [
       "an expired sign-in whose words do not say so, decided by the exit code",
-      cli({
+      {
         usage: {
           kind: "fails",
           code: 3,
           body: { error: { code: 3, message: "the session token was refused" } },
         },
-      }),
+      },
       [],
       { code: "login_expired" },
       [
@@ -472,7 +259,7 @@ describe("alibaba-token-plan provider", () => {
     ],
     [
       "a timeout",
-      cli({ usage: WAITS }),
+      { usage: WAITS },
       [],
       { code: "timeout" },
       [
@@ -489,7 +276,6 @@ describe("alibaba-token-plan provider", () => {
   ])("shows %s", async (name, script, rows, error, debug) => {
     if (script !== undefined) installCli(script);
 
-    // Only the timeout case waits out a short limit; the others get time to start the CLI.
     const fetched = await fetchTokenPlan(name === "a timeout" ? 300 : undefined);
 
     expect(rowSummary(fetched.rows)).toEqual(rows);
@@ -501,11 +287,9 @@ describe("alibaba-token-plan provider", () => {
   it.runIf(SUPPORTED)(
     "gives the monthly row a start a calendar month before its reset",
     async () => {
-      installCli(
-        cli({
-          usage: replying({ per1MonthPercentage: 0.6, per1MonthResetTime: Date.parse(RESET) }),
-        }),
-      );
+      installCli({
+        usage: replying({ per1MonthPercentage: 0.6, per1MonthResetTime: Date.parse(RESET) }),
+      });
 
       const fetched = await fetchTokenPlan();
 
@@ -516,31 +300,17 @@ describe("alibaba-token-plan provider", () => {
   );
 
   it.runIf(SUPPORTED)("clamps the monthly start to the last day of a shorter month", async () => {
-    installCli(
-      cli({
-        usage: replying({
-          per1MonthPercentage: 0.6,
-          per1MonthResetTime: Date.parse("2024-03-31T00:00:00.000Z"),
-        }),
+    installCli({
+      usage: replying({
+        per1MonthPercentage: 0.6,
+        per1MonthResetTime: Date.parse("2024-03-31T00:00:00.000Z"),
       }),
-    );
+    });
 
     const fetched = await fetchTokenPlan();
 
     // February 2024 has no 31st, so the start lands on the last day it has.
     expect(fetched.rows[0]?.windowStartedAt).toBe("2024-02-29T00:00:00.000Z");
-  });
-
-  it.runIf(!SUPPORTED)("is not set up on an unsupported platform", async () => {
-    const fetched = await fetchTokenPlan();
-
-    expect(fetched.rows).toEqual([]);
-    expect(fetched.error).toMatchObject({ code: "not_configured" });
-    expect(fetched.debug).toEqual([
-      { key: "cli_available", value: "true" },
-      PLATFORM,
-      { key: "failure_kind", value: "unsupported_platform" },
-    ]);
   });
 
   it.runIf(SUPPORTED)(
@@ -562,19 +332,6 @@ describe("alibaba-token-plan provider", () => {
         { key: "window_hint", value: NO_WINDOW_HINT },
         { key: "seat_windows", value: "credits" },
       ]);
-    },
-  );
-
-  it.runIf(SUPPORTED)(
-    "gives a seat row the cycle's start, so its window has an exact span",
-    async () => {
-      installCli({ seats: replying(seatPage([TEAM_LEAD])) });
-
-      const fetched = await fetchTokenPlan();
-
-      // A month-long window has no fixed length, so the pace of a row needs the start it reports.
-      expect(fetched.rows[0]?.windowStartedAt).toBe(SEAT_CYCLE_START);
-      expect(fetched.rows[0]?.resetsAt).toBe(SEAT_RESET);
     },
   );
 
@@ -768,7 +525,7 @@ describe("alibaba-token-plan provider", () => {
       PLATFORM,
       { key: "failure_kind", value: "not_authenticated" },
       { key: "seat_windows", value: "credits" },
-      { key: "error", value: `Alibaba Token Plan (personal): ${CONSOLE_NO_AUTH}` },
+      { key: "error", value: `Alibaba Token Plan (personal): ${ERROR_MESSAGES.not_authenticated}` },
       { key: "error_kind", value: "login_expired" },
     ]);
   });
@@ -792,6 +549,19 @@ describe("alibaba-token-plan provider", () => {
         { key: "failure_kind", value: "not_authenticated" },
         { key: "seat_windows", value: "credits" },
       ]);
+    },
+  );
+
+  it.runIf(SUPPORTED)(
+    "gives a seat row the cycle's start, so its window has an exact span",
+    async () => {
+      installCli({ seats: replying(seatPage([TEAM_LEAD])) });
+
+      const fetched = await fetchTokenPlan();
+
+      // A month-long window has no fixed length, so the pace of a row needs the start it reports.
+      expect(fetched.rows[0]?.windowStartedAt).toBe(SEAT_CYCLE_START);
+      expect(fetched.rows[0]?.resetsAt).toBe(SEAT_RESET);
     },
   );
 
@@ -865,7 +635,10 @@ describe("alibaba-token-plan provider", () => {
         PLATFORM,
         { key: "failure_kind", value: "not_authenticated" },
         { key: "seat_failure_kind", value: "seat_not_authenticated" },
-        { key: "error", value: `Alibaba Token Plan (personal): ${CONSOLE_NO_AUTH}` },
+        {
+          key: "error",
+          value: `Alibaba Token Plan (personal): ${ERROR_MESSAGES.not_authenticated}`,
+        },
         { key: "error_kind", value: "login_expired" },
         {
           key: "error",
@@ -906,9 +679,46 @@ describe("alibaba-token-plan provider", () => {
   );
 
   it.runIf(SUPPORTED)(
+    "keeps the account when the console token rotates, and moves it when the account does",
+    async () => {
+      const principalFor = async (markers: Record<string, unknown>) => {
+        installCli({ auth: replying(markers) });
+        clearAlibabaIdentityCacheForTests();
+        identityMocks.deriveIdentity.mockClear();
+        await identityPolicy().resolveIdentity(IDENTITY_CONTEXT as never, {} as never);
+        return identityMocks.deriveIdentity.mock.calls[0]?.[0];
+      };
+
+      const original = await principalFor(AUTH_STATUS.both);
+      // The CLI replaces the console token when it expires; the account behind it does not move.
+      expect(await principalFor({ ...AUTH_STATUS.both, console: { masked: "rotated" } })).toEqual(
+        original,
+      );
+      expect(await principalFor({ ...AUTH_STATUS.both, api_key: { masked: "other" } })).toEqual(
+        original,
+      );
+      expect(
+        await principalFor({ ...AUTH_STATUS.both, openapi: { access_key_id: "other" } }),
+      ).not.toEqual(original);
+    },
+  );
+
+  it.runIf(SUPPORTED)(
+    "has no identity without a credential, so the store keeps the rows in memory only",
+    async () => {
+      installCli({ auth: replying(AUTH_STATUS.neither) });
+
+      await expect(
+        identityPolicy().resolveIdentity(IDENTITY_CONTEXT as never, {} as never),
+      ).resolves.toBeNull();
+      expect(identityMocks.deriveIdentity).not.toHaveBeenCalled();
+    },
+  );
+
+  it.runIf(SUPPORTED)(
     "reads `bl auth status` once for a fetch and the identity together, through the same memo",
     async () => {
-      const log = join(root, "auth-status.log");
+      const log = join(paths.root, "auth-status.log");
       installCli({ auth: replying(AUTH_STATUS.both, log) });
 
       await fetchTokenPlan();
@@ -923,11 +733,9 @@ describe("alibaba-token-plan provider", () => {
   it.runIf(SUPPORTED)(
     "drives the provider's own process runner from the declared replies",
     async () => {
-      installCli(
-        cli({
-          usage: replying({ per1MonthPercentage: 0.25, per1MonthResetTime: Date.parse(RESET) }),
-        }),
-      );
+      installCli({
+        usage: replying({ per1MonthPercentage: 0.25, per1MonthResetTime: Date.parse(RESET) }),
+      });
 
       const fetched = await fetchTokenPlan();
 
@@ -942,7 +750,7 @@ describe("alibaba-token-plan provider", () => {
       for (const call of launch.calls) {
         expect(call.options.shell).toBe(false);
         expect(call.options.detached).toBe(true);
-        expect(call.options.env?.PATH).toContain(join(root, "bin"));
+        expect(call.options.env?.PATH).toContain(join(paths.root, "bin"));
       }
       // Only the provider's runner attaches a stdout reader, so a pipe with one is the runner reading
       // the declared chunks. The POSIX path spawns a real `bl`, so there are no fake pipes to check.

@@ -8,8 +8,7 @@ import {
   type CanonicalQuotaProviderId,
   QUOTA_PROVIDER_REGISTRATION_SOURCE,
 } from "../lib/provider-registration.js";
-import { alibabaCodingPlanProvider } from "./alibaba-coding-plan.js";
-import { alibabaTokenPlanProvider } from "./alibaba-token-plan.js";
+import { alibabaCodingPlanProvider, alibabaTokenPlanProvider } from "./alibaba.js";
 import { anthropicProvider } from "./anthropic.js";
 import { copilotProvider } from "./copilot.js";
 import { cursorProvider } from "./cursor.js";

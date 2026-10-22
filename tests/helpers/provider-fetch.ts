@@ -24,10 +24,15 @@ const PROVIDER_ENV_NAMES = [
   "OPENCODE_DB",
   "MIMO_USAGE_COOKIE",
   "OPENROUTER_API_KEY",
+  // The Alibaba CLI reads these for the seat command; a test must not inherit a real one.
+  "ALIBABA_CLOUD_ACCESS_KEY_ID",
+  "ALIBABA_CLOUD_ACCESS_KEY_SECRET",
   ...Object.values(API_KEY_VENDORS).flatMap((spec) => spec.envVars),
 ];
 
 export type ProviderWorld = {
+  /** The temp folder that holds the OpenCode folders; a test may put other files here too. */
+  readonly root: string;
   /** OpenCode's config folder (`opencode.json`, `opencode-quota/…`). */
   readonly configDir: string;
   /** Stores these logins in OpenCode's database, replacing any stored before. */
@@ -45,6 +50,7 @@ export function useProviderWorld(): ProviderWorld {
   let unbind = () => {};
 
   const world: ProviderWorld = {
+    root: folders.root,
     configDir: folders.configDir,
     storeLogins(rows) {
       const databasePath = join(folders.dataDir, "opencode.db");

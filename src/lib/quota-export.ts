@@ -24,7 +24,7 @@ import type {
   QuotaExportSource,
 } from "./quota-export-types.js";
 import {
-  MAINTAINED_LOCAL_ESTIMATE_IDS,
+  isRetiredMaintainedEstimateTuning,
   QUOTA_PROVIDERS_AGGREGATE_ID,
   type QuotaProviderDefinition,
 } from "./quota-providers.js";
@@ -84,14 +84,15 @@ function toExportError(error: { label: string; message: string }): QuotaExportEr
  * Each custom definition in its configured order, never its URL, key or format. Its account in
  * this check (the definition id is the account's login) gives its status: "error" when it gave
  * only errors, "ok" otherwise, and "unavailable" when it was not checked. A switched-off
- * definition is never checked: it says `enabled: false` instead.
+ * definition is never checked: it says `enabled: false` instead. A retired tuning is never run,
+ * so it is left out entirely rather than exported as an unavailable source.
  */
 function customSourceStatuses(
   definitions: readonly QuotaProviderDefinition[],
   accounts: readonly AccountResult[],
 ): QuotaExportSource[] {
   return definitions
-    .filter((source) => !(MAINTAINED_LOCAL_ESTIMATE_IDS as readonly string[]).includes(source.id))
+    .filter((definition) => !isRetiredMaintainedEstimateTuning(definition))
     .map((source): QuotaExportSource => {
       const identity = { id: source.id, providerId: source.providerId };
       if (source.enabled === false) return { ...identity, entryCount: 0, enabled: false };

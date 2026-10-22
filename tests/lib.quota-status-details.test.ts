@@ -16,8 +16,7 @@ const source = (path: string) => readFileSync(fileURLToPath(new URL(path, SRC)),
 
 /** Each provider file, by the ids of the providers it makes. */
 const PROVIDER_FILES: Readonly<Record<string, readonly string[]>> = {
-  "alibaba-coding-plan.ts": ["alibaba-coding-plan"],
-  "alibaba-token-plan.ts": ["alibaba-token-plan"],
+  "alibaba.ts": ["alibaba-coding-plan", "alibaba-token-plan"],
   "anthropic.ts": ["anthropic"],
   "copilot.ts": ["copilot"],
   "cursor.ts": ["cursor"],
@@ -149,10 +148,16 @@ describe("/quota_status debug detail rules", () => {
     expect(writers.filter((file) => !Object.hasOwn(PROVIDER_FILES, file))).toEqual([]);
   });
 
-  it.each([...writtenByProvider.keys()])("has a rule for every key %s writes", (id) => {
-    const { shared, own } = debugDetailRules(id);
-    const unruled = [...(writtenByProvider.get(id) ?? [])].filter(
-      (key) => !Object.hasOwn(own, key) && !Object.hasOwn(shared, key) && !shapeOf(key),
+  it.each(Object.entries(PROVIDER_FILES))("has a rule for every key %s writes", ([, ids]) => {
+    // A file can hold more than one provider (`alibaba.ts`), and each of them rules only the
+    // keys it writes, so the file's keys are ruled by the ids that file makes between them.
+    const written = writtenByProvider.get(ids[0] ?? "") ?? new Set<string>();
+    const unruled = [...written].filter(
+      (key) =>
+        !ids.some((id) => {
+          const { shared, own } = debugDetailRules(id);
+          return Object.hasOwn(own, key) || Object.hasOwn(shared, key);
+        }) && !shapeOf(key),
     );
     expect(unruled).toEqual([]);
   });

@@ -319,7 +319,7 @@ const NUMBER_LINES: readonly RegExp[] = [
   String.raw`- conversion: from .+ \(${SMALL} converted, ${SMALL} dropped, ${SMALL} invalid\); .+`,
   String.raw`- conversion_\w+: .*\(\+${SMALL} unknown keys?\)|- conversion_\w+: ${SMALL} unknown keys?`,
   String.raw`- providers\.off: .+ \(\+${SMALL} unknown ids?\)`,
-  String.raw`- providers\.custom: custom ${SMALL} (?:off .+|\([\w-]+, (?:${SMALL} models?|all models)(?:, tunes [\w-]+)?\))`,
+  String.raw`- providers\.custom: custom ${SMALL} (?:off .+|\([\w-]+, (?:${SMALL} models?|all models)\))`,
   String.raw`- (?:active|future|expired): ${SMALL}`,
   String.raw`- (?:checked_at|token_expires_at|cycle_reset_at|reset_at|billing_period_end|grace_until): ${TIME}(?: \(rows from ${TIME}\))?`,
   String.raw`- (?:list_error|failures): .*`,
@@ -376,7 +376,7 @@ const FIELD_FORMS: ReadonlyArray<readonly [RegExp, RegExp]> = (
     ],
     [
       /^- providers\.custom: /u,
-      String.raw`- providers\.custom: custom ${SMALL} (?:off \(switch on in /quota_settings → Providers\)|\((?:remote-api|local-estimate), (?:${SMALL} models?|all models)(?:, tunes [\w-]+)?\))`,
+      String.raw`- providers\.custom: custom ${SMALL} (?:off \(switch on in /quota_settings → Providers\)|\((?:remote-api|local-estimate), (?:${SMALL} models?|all models)\))`,
     ],
     [
       /^- current_model: /u,
@@ -1712,8 +1712,8 @@ describe("renderQuotaStatusReport", () => {
           snapshot("openai", { debug: [{ key: "token_expires_at", value: RESET }] }),
           snapshot("alibaba-coding-plan", {
             debug: [
-              { key: "alibaba auth configured", value: "true" },
-              { key: "alibaba_coding_plan", value: "pro" },
+              { key: "cli_available", value: "true" },
+              { key: "windows", value: "five_hour,weekly,monthly" },
             ],
           }),
         ],
@@ -1727,7 +1727,7 @@ describe("renderQuotaStatusReport", () => {
         "- account_count: 2",
         "- selected_windows: rolling,weekly\n- console_error: (text not shown)",
         `- token_expires_at: ${RESET}`,
-        "- alibaba auth configured: true\n- alibaba_coding_plan: pro",
+        "- cli_available: true\n- windows: five_hour,weekly,monthly",
       ],
     },
     {
@@ -1904,27 +1904,11 @@ describe("renderQuotaStatusReport", () => {
             mode: "local-estimate",
             windows: [{ id: "day", label: "Day", type: "utc-day", requestLimit: 50 }],
           },
-          {
-            id: "alibaba-coding-plan",
-            providerId: "alibaba-coding-plan",
-            label: "Alibaba",
-            mode: "local-estimate",
-            windows: [
-              {
-                id: "five-hour",
-                label: "5h",
-                type: "rolling",
-                durationMinutes: 300,
-                requestLimit: 1000,
-              },
-            ],
-          },
         ],
       },
       lines: [
         "- providers.custom: custom 1 (remote-api, 1 model)",
         "- providers.custom: custom 2 (local-estimate, all models)",
-        "- providers.custom: custom 3 (local-estimate, all models, tunes alibaba-coding-plan)",
       ],
       absent: ["team", "seats", "gateway", "TEAM_KEY", "model-a", "private"],
     },
@@ -2431,7 +2415,6 @@ describe("statusReport", () => {
     "kimi-code-plan-cn",
     "minimax-coding-plan",
     "minimax-china-coding-plan",
-    "alibaba-coding-plan",
     "openrouter",
     "cursor",
   ];

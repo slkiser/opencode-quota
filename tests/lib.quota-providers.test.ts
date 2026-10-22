@@ -191,6 +191,33 @@ describe("quotaProviders schema", () => {
     },
   );
 
+  // v6 retired this id's maintained estimate; a leftover tuning must not void other definitions.
+  it("ignores a leftover tuning of the retired maintained estimate", () => {
+    const leftover = localQuotaProvider({ id: "alibaba-coding-plan" });
+    const other = quotaProvider({ id: "other-provider" });
+
+    const accepted = validateQuotaProviders([leftover, other]);
+
+    expect(accepted.issues).toEqual([]);
+    expect(accepted.value?.map((definition) => definition.id)).toEqual([
+      "alibaba-coding-plan",
+      "other-provider",
+    ]);
+    // It tunes nothing now, so it never runs: the built-in of that id reads the official CLI.
+    expect(
+      customQuotaProviderDefinitions(accepted.value ?? []).map((definition) => definition.id),
+    ).toEqual(["other-provider"]);
+  });
+
+  it("still rejects the retired estimate's id in the shape a new definition takes", () => {
+    const result = validateQuotaProviders([quotaProvider({ id: "alibaba-coding-plan" })]);
+
+    expect(result.issues).toContainEqual({
+      key: "quotaProviders[0].id",
+      message: 'collides with built-in quota provider id "alibaba-coding-plan"',
+    });
+  });
+
   it("trims printable Unicode labels and permits duplicates", () => {
     const accepted = validateQuotaProviders([
       quotaProvider({ id: "one", label: "  Café 🚀  " }),
@@ -706,32 +733,6 @@ describe("quotaProviders schema", () => {
     expect(normalizeJsonV1Timestamp(1.5, "unix-seconds")).toBeNull();
     expect(normalizeJsonV1Timestamp(253_402_300_800, "unix-seconds")).toBeNull();
     expect(normalizeJsonV1Timestamp(253_402_300_800_000, "unix-milliseconds")).toBeNull();
-  });
-
-  it("accepts only the exact maintained Alibaba tuning windows", () => {
-    expect(
-      validateQuotaProviders([
-        {
-          id: "alibaba-coding-plan",
-          mode: "local-estimate",
-          windows: [
-            { id: "five-hour", type: "rolling", durationMinutes: 300, requestLimit: 2000 },
-            { id: "weekly", type: "rolling", durationMinutes: 10080, requestLimit: 10000 },
-            { id: "monthly", type: "rolling", durationMinutes: 43200, requestLimit: 20000 },
-          ],
-        },
-      ]).issues,
-    ).toEqual([]);
-
-    expect(
-      validateQuotaProviders([
-        {
-          id: "alibaba-coding-plan",
-          mode: "local-estimate",
-          windows: [{ id: "five-hour", type: "rolling", durationMinutes: 300, requestLimit: 2000 }],
-        },
-      ]).issues[0]?.key,
-    ).toBe("quotaProviders[0].windows");
   });
 });
 

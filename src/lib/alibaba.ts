@@ -1,11 +1,5 @@
-/**
- * Alibaba Token Plan quota from the official `bl` CLI, whose production invocations are exactly:
- *   bl usage token-plan --output json                        (console; the personal monthly window)
- *   bl token-plan list-seats --status NORMAL --query-assigned true --page-size 100 --output json
- *                                                            (OpenAPI; team seats)
- * Console auth belongs to the CLI: this module never installs `bl`, logs in, reads credential
- * stores or uses a shell, and takes POSIX or win32 path semantics from the platform it targets.
- */
+/** Alibaba Token Plan and Coding Plan quota from the official `bl` CLI. Console auth belongs to the
+ * CLI: this module never installs `bl`, logs in, reads credential stores or uses a shell. */
 
 import { type ChildProcess, spawn } from "node:child_process";
 import { readFile, realpath, stat } from "node:fs/promises";
@@ -16,10 +10,10 @@ import { publicDetail } from "../core/redact.js";
 import { asRecord, finiteNumber, nonEmptyString } from "./json-guards.js";
 
 const ALIBABA_TOKEN_PLAN_COMMAND = "bl";
-const ALIBABA_TOKEN_PLAN_ARGS = ["usage", "token-plan", "--output", "json"] as const;
+export const ALIBABA_TOKEN_PLAN_ARGS = ["usage", "token-plan", "--output", "json"] as const;
 /** The server caps a page at 100 and answers a larger `--page-size` with COMMON-1004 (exit 1). */
 const ALIBABA_TOKEN_PLAN_SEAT_PAGE_SIZE = 100;
-/** The server-side filters select the seats rendered here; the parser still re-checks each item. */
+/** The server filters by status; the parser still re-checks each item. */
 const ALIBABA_TOKEN_PLAN_SEAT_ARGS = [
   "token-plan",
   "list-seats",
@@ -32,14 +26,11 @@ const ALIBABA_TOKEN_PLAN_SEAT_ARGS = [
   "--output",
   "json",
 ] as const;
-/** The identity command; its reply carries the console, model-API and OpenAPI credential markers. */
 const ALIBABA_TOKEN_PLAN_AUTH_STATUS_ARGS = ["auth", "status", "--output", "json"] as const;
 /** A reply whose `Total` never arrives must not page forever. */
 const ALIBABA_TOKEN_PLAN_SEAT_MAX_PAGES = 50;
-/**
- * The whole paging loop's budget: 30 s, half the store's 60 s fetch timeout (`core/store.ts`), so a
- * long seat list cannot push the provider past the store's read and lose every row it gathered.
- */
+/** Half the store's 60 s fetch timeout (`core/store.ts`), so a long seat list cannot lose the whole
+ * provider read and every row it gathered. */
 const ALIBABA_TOKEN_PLAN_SEAT_BUDGET_MS = 30_000;
 const ALIBABA_TOKEN_PLAN_STDOUT_LIMIT_BYTES = 256 * 1024;
 const ALIBABA_TOKEN_PLAN_STDERR_LIMIT_BYTES = 16 * 1024;
@@ -58,9 +49,8 @@ const ALIBABA_TOKEN_PLAN_ERROR_MAX_LENGTH = 300;
 
 const SUPPORTED_PLATFORMS = new Set<NodeJS.Platform>(["darwin", "linux", "win32"]);
 const MAX_RESET_TIME_MS = 4_102_444_800_000;
-/** `bl.cmd` is probed so npm's shim can be resolved to the package it wraps; see resolveNodeShim.
- * There is no `bl.bat`: cmd-shim writes only `<name>`, `<name>.cmd` and `<name>.ps1`, so a `.bat`
- * is some other installer's and is only ever refused. */
+/** `bl.cmd` is probed because npm's shim wraps the package; there is no `bl.bat`, since cmd-shim
+ * writes only `<name>`, `<name>.cmd` and `<name>.ps1`, so a `.bat` is some other installer's. */
 const EXECUTABLE_NAMES = [ALIBABA_TOKEN_PLAN_COMMAND, "bl.cmd"];
 /** Windows installs the CLI as `bl.exe`. No bare `bl`: CreateProcess appends `.exe` to a name with
  * no extension, so an extensionless file is never what Windows would run, and npm ships one. */
@@ -105,33 +95,24 @@ export type AlibabaTokenPlanWindow = {
   resetTimeIso?: string;
 };
 
-/**
- * One team seat: the account it belongs to and its current credit cycle, when `bl` reported one.
- * Every field is optional in the CLI's own reply, so each is guarded on its own here.
- */
+/** One `NORMAL` team seat; every field is optional in the CLI's reply, so each is guarded alone. */
 export type AlibabaTokenPlanSeat = {
-  /** The seat's `AccountName`; a seat without one cannot be keyed and is left out. */
   name: string;
-  /** Credits left in the cycle (`CycleSurplusValue`), full precision. */
+  /** `CycleSurplusValue`, full precision. */
   surplus?: number;
-  /** Credits the cycle granted (`CycleTotalValue`), full precision. */
   total?: number;
   /** 0..100 of the cycle still left; only when the cycle granted a positive total. */
   percentRemaining?: number;
-  /** Credits spent this cycle (`total - surplus`), floored at 0; only when both are reported. */
   used?: number;
-  /** ISO instant of `CycleEndTime`, when it is a sane epoch-ms value. */
   resetsAt?: string;
-  /** ISO instant of `CycleStartTime`, when it is a sane epoch-ms value. */
   startedAt?: string;
 };
 
-/** The seat command's reply: the `NORMAL` seats, or why the command failed. */
 export type AlibabaTokenPlanSeatResult =
   | { ok: true; seats: AlibabaTokenPlanSeat[] }
-  | AlibabaTokenPlanFailure;
+  | AlibabaFailure;
 
-type AlibabaTokenPlanErrorKind =
+export type AlibabaErrorKind =
   | "unsupported_platform"
   | "executable_not_found"
   | "shell_launcher_rejected"
@@ -144,25 +125,44 @@ type AlibabaTokenPlanErrorKind =
   | "seat_not_authenticated"
   | "seat_command_failed"
   | "seat_invalid_schema"
+  | "coding_plan_command_failed"
+  | "coding_plan_invalid_schema"
   | "invalid_json"
   | "invalid_schema";
 
 type AlibabaTokenPlanError = {
-  kind: AlibabaTokenPlanErrorKind;
+  kind: AlibabaErrorKind;
   message: string;
-  /** The CLI's own exit code, which decides the error kind the user sees. */
   facts?: ErrorFacts;
 };
 
-type AlibabaTokenPlanFailure = { ok: false; error: AlibabaTokenPlanError };
+type AlibabaFailure = { ok: false; error: AlibabaTokenPlanError };
 
 export type AlibabaTokenPlanClosedResult =
   | {
       ok: true;
-      /** The monthly window; absent when the CLI reported none. */
       monthly?: AlibabaTokenPlanWindow;
     }
-  | AlibabaTokenPlanFailure;
+  | AlibabaFailure;
+
+/** One Coding Plan window; every field of every window is optional in the CLI's reply. */
+export type AlibabaCodingPlanWindow = {
+  used?: number;
+  limit?: number;
+  /** 0..100 of the window still left, derived the way `bl` derives its own `percentage`
+   * (used / total) and inverted; absent when the total is 0 or either number is missing. */
+  percentRemaining?: number;
+  resetTimeIso?: string;
+};
+
+export type AlibabaCodingPlanUsage = {
+  instanceType: string;
+  fiveHour?: AlibabaCodingPlanWindow;
+  weekly?: AlibabaCodingPlanWindow;
+  monthly?: AlibabaCodingPlanWindow;
+};
+
+type AlibabaCodingPlanResult = { ok: true; usage?: AlibabaCodingPlanUsage } | AlibabaFailure;
 
 export type AlibabaTokenPlanSpawnRequest = {
   file: string;
@@ -192,19 +192,15 @@ type AlibabaTokenPlanExecutableResolution =
   | {
       ok: true;
       file: string;
-      /**
-       * Set when `file` is `node`: `[entry, ...ALIBABA_TOKEN_PLAN_ARGS]`, so it already carries the
-       * fixed personal arguments at its end. `resolveAlibabaTokenPlanInvocation` slices those off
-       * for a caller's own command, so the trailing count must stay `ALIBABA_TOKEN_PLAN_ARGS`.
-       */
+      /** Set when `file` is `node`: `[entry, ...ALIBABA_TOKEN_PLAN_ARGS]`; callers slice that tail
+       * off, so it must stay exactly `ALIBABA_TOKEN_PLAN_ARGS`. */
       args?: readonly string[];
     }
-  | AlibabaTokenPlanFailure;
+  | AlibabaFailure;
 
 type AlibabaTokenPlanRuntime = {
   platform?: NodeJS.Platform;
   pathEnv?: string;
-  /** The project folder quota is computed for. */
   cwd: string;
   tmpdir?: string;
   homedir?: string;
@@ -212,7 +208,7 @@ type AlibabaTokenPlanRuntime = {
   spawn?: (request: AlibabaTokenPlanSpawnRequest) => Promise<AlibabaTokenPlanSpawnResult>;
 };
 
-export const ERROR_MESSAGES: Record<AlibabaTokenPlanErrorKind, string> = {
+export const ERROR_MESSAGES: Record<AlibabaErrorKind, string> = {
   unsupported_platform: "Alibaba Token Plan is not supported on this platform.",
   executable_not_found: "Alibaba Cloud CLI (bl) was not found on the trusted PATH.",
   shell_launcher_rejected:
@@ -228,32 +224,28 @@ export const ERROR_MESSAGES: Record<AlibabaTokenPlanErrorKind, string> = {
     "Alibaba Cloud API Key credentials are missing or expired for team seats; this requires login. Run `bl auth login --open-api`, or set ALIBABA_CLOUD_ACCESS_KEY_ID and ALIBABA_CLOUD_ACCESS_KEY_SECRET.",
   seat_command_failed: "Could not read Alibaba Token Plan team seats.",
   seat_invalid_schema: "Alibaba Cloud CLI returned an invalid team seat payload.",
+  coding_plan_command_failed: "Could not read Alibaba Coding Plan quota.",
+  coding_plan_invalid_schema: "Alibaba Cloud CLI returned an invalid Alibaba Coding Plan payload.",
   invalid_json: "Alibaba Cloud CLI did not return valid JSON.",
   invalid_schema: "Alibaba Cloud CLI returned an invalid Alibaba Token Plan payload.",
 };
 
-/**
- * A reply without a monthly percentage. `bl` renders the same case as an unlimited limit, and a
- * CLI older than bailian-cli 2.2.0 produces it too (it answers with the windows it dropped), so the
- * hint names the CLI's own wording rather than guessing which one it is.
- */
+/** A reply without a monthly percentage. `bl` renders that case as an unlimited limit, and a CLI
+ * older than bailian-cli 2.2.0 produces it too, so the hint says so in OpenCode Quota's own
+ * words. */
 export const NO_WINDOW_HINT =
-  "no monthly percentage in the reply; the limit may be unlimited — verify in the Bailian Token Plan console";
+  "no monthly percentage in the reply; the limit may be unlimited, so verify in the Bailian Token Plan console";
 
-function fail(kind: AlibabaTokenPlanErrorKind): AlibabaTokenPlanFailure {
+function fail(kind: AlibabaErrorKind): AlibabaFailure {
   return { ok: false, error: { kind, message: ERROR_MESSAGES[kind] } };
 }
 
-/**
- * POSIX semantics for darwin and linux, win32 semantics for Windows. Chosen from the platform the
- * check targets, never from `process.platform`, so a platform override decides the separators,
- * the delimiter, and whether comparisons are case-insensitive.
- */
+/** Chosen from the platform the check targets, not `process.platform`, so an override decides the
+ * separators, the delimiter and whether comparisons are case-insensitive. */
 function pathModuleFor(platform: NodeJS.Platform): path.PlatformPath {
   return platform === "win32" ? path.win32 : path.posix;
 }
 
-/** Windows probes `bl.exe`; the other platforms keep the POSIX list. */
 function executableNamesFor(platform: NodeJS.Platform): readonly string[] {
   return platform === "win32" ? WINDOWS_EXECUTABLE_NAMES : EXECUTABLE_NAMES;
 }
@@ -264,10 +256,8 @@ export function isAlibabaTokenPlanSupportedPlatform(
   return SUPPORTED_PLATFORMS.has(platform);
 }
 
-/**
- * `path.win32.relative` compares without case, which matches NTFS: a folder reached as `C:\Project`
- * and named `c:\project` is the same folder, so an executor inside it is still refused.
- */
+/** `path.win32.relative` compares without case, matching NTFS, so `C:\Project` and `c:\project`
+ * refuse an executor alike. */
 function isPathInside(paths: path.PlatformPath, parent: string, candidate: string): boolean {
   const relative = paths.relative(parent, candidate);
   return (
@@ -288,11 +278,8 @@ function stripPathQuotes(value: string): string {
   return trimmed;
 }
 
-/**
- * The folder whose PATH entries and executables are not trusted: the project folder quota is
- * computed for. For OpenCode opened at the home folder, and for the terminal command, that is
- * the home folder. The home folder is not a project, so it gives none.
- */
+/** The folder whose PATH entries and executables are not trusted: the project folder quota is
+ * computed for. The home folder is not a project, so it gives none. */
 function untrustedProjectFolder(
   paths: path.PlatformPath,
   cwd: string,
@@ -302,7 +289,6 @@ function untrustedProjectFolder(
   return resolved === paths.resolve(home ?? homedir()) ? null : resolved;
 }
 
-/** Absolute PATH directories outside the project folder, deduplicated, in PATH order. */
 function listTrustedPathDirectories(
   paths: path.PlatformPath,
   pathEnv: string | undefined,
@@ -328,7 +314,6 @@ function isShellLauncherPath(paths: path.PlatformPath, file: string): boolean {
   );
 }
 
-/** True for a regular file, following symlinks; false when missing or broken. */
 async function isRegularFile(file: string): Promise<boolean> {
   try {
     return (await stat(file)).isFile();
@@ -337,11 +322,9 @@ async function isRegularFile(file: string): Promise<boolean> {
   }
 }
 
-/**
- * Read what an npm `bl.cmd` shim wraps instead of running it. The package's own manifest declares
- * its bin, so the layout needs no reading of the `.cmd` text. Every failure is silent: a raw parse
- * error would leak file contents, and the caller reports the fixed `shell_launcher_rejected`.
- */
+/** Read what an npm `bl.cmd` shim wraps instead of running it: the package manifest declares its
+ * bin, so the `.cmd` text is never needed. Failures stay silent, since a parse error would leak
+ * file contents. */
 async function resolveNodeShim(
   paths: path.PlatformPath,
   shimFile: string,
@@ -368,11 +351,10 @@ async function resolveNodeShim(
   const bin = manifest.bin;
   let relative: string | undefined;
   if (typeof bin === "string") {
-    // npm's string form; the shim we found is proof it installs a command. Accept it as written.
+    // npm's string form: the shim we found is proof it installs the command. Accept it as written.
     relative = nonEmptyString(bin);
   } else {
     const binRecord = asRecord(bin);
-    // Only a package that declares this shim's own command may be adopted.
     if (!binRecord || !Object.hasOwn(binRecord, shimCommand)) return null;
     relative = nonEmptyString(binRecord[shimCommand]);
   }
@@ -384,7 +366,7 @@ async function resolveNodeShim(
   return (await isRegularFile(entry)) ? entry : null;
 }
 
-/** The node that runs a shim's entry: this box's own `node`, resolved as `bl` is, or this process. */
+/** The node that runs a shim's entry: resolved as `bl` is, so `bl` and node come from one install. */
 async function resolveNodeExecutable(
   paths: path.PlatformPath,
   platform: NodeJS.Platform,
@@ -424,9 +406,9 @@ export async function resolveAlibabaTokenPlanExecutable(params: {
       if (!(await isRegularFile(candidate))) continue;
       const resolved = await realpath(candidate).catch(() => candidate);
       if (isShellLauncherPath(paths, candidate) || isShellLauncherPath(paths, resolved)) {
-        // npm's Windows `bl.cmd` is a shell launcher by extension, but its content only forwards
-        // to the package's node entry. Resolve that entry and run node directly, so the child is
-        // still the CLI (killable, with the pipes) rather than cmd.exe or a shell.
+        // npm's Windows `bl.cmd` is a shell launcher by extension but only forwards to the
+        // package's node entry. Running node directly keeps the child the CLI (killable, with the
+        // pipes) rather than cmd.exe or a shell.
         if (
           platform === "win32" &&
           paths.extname(candidate).toLowerCase() === SHIM_EXTENSION &&
@@ -454,10 +436,8 @@ export async function resolveAlibabaTokenPlanExecutable(params: {
   return fail(sawShellLauncher ? "shell_launcher_rejected" : "executable_not_found");
 }
 
-/**
- * The monthly window: the used fraction 0..1 and an optional epoch-ms reset. A reset alone is
- * invalid; neither present means the plan may be unlimited.
- */
+/** The used fraction 0..1 and an optional epoch-ms reset. A reset alone is invalid; neither present
+ * means the plan may be unlimited. */
 function parseWindow(
   payload: Record<string, unknown>,
 ): AlibabaTokenPlanWindow | undefined | "invalid" {
@@ -492,13 +472,77 @@ export function parseAlibabaTokenPlanUsageJson(text: string): AlibabaTokenPlanCl
   return { ok: true, ...(monthly ? { monthly } : {}) };
 }
 
+function requestCount(value: unknown): number | undefined {
+  const count = finiteNumber(value);
+  return count !== undefined && count >= 0 ? count : undefined;
+}
+
+/** `percentage` is not read: `bl` derives it from the two counts, and deriving it here keeps one
+ * owner, so a row's percent can never disagree with its used and limit. */
+function parseCodingPlanWindow(value: unknown): AlibabaCodingPlanWindow | undefined | "invalid" {
+  if (value === undefined) return undefined;
+  const record = asRecord(value);
+  if (!record) return "invalid";
+  const used = requestCount(record.usedQuota);
+  const limit = requestCount(record.totalQuota);
+  const reset = finiteNumber(record.resetTime);
+  const percentRemaining =
+    used !== undefined && limit !== undefined && limit > 0
+      ? // A used count above the limit is the console's own overrun, not a negative quota.
+        Math.min(100, Math.max(0, 100 - (used / limit) * 100))
+      : undefined;
+  const resetTimeIso =
+    reset !== undefined && reset > 0 && reset <= MAX_RESET_TIME_MS
+      ? new Date(reset).toISOString()
+      : undefined;
+  const window: AlibabaCodingPlanWindow = {
+    ...(used !== undefined ? { used } : {}),
+    ...(limit !== undefined ? { limit } : {}),
+    ...(percentRemaining !== undefined ? { percentRemaining } : {}),
+    ...(resetTimeIso !== undefined ? { resetTimeIso } : {}),
+  };
+  return Object.keys(window).length > 0 ? window : undefined;
+}
+
+/** `{ instanceType, per5Hour, perWeek, perBillMonth }`. `{}` is the CLI's "this account has no
+ * Coding Plan" and stays a silent absence; windows without a tier are dropped with it. */
+export function parseAlibabaCodingPlanUsageJson(text: string): AlibabaCodingPlanResult {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    return fail("invalid_json");
+  }
+  const record = asRecord(payload);
+  if (!record) return fail("coding_plan_invalid_schema");
+  const envelopeFailure = errorEnvelopeFailure(record, CODING_PLAN_SPAWN_KINDS);
+  if (envelopeFailure) return envelopeFailure;
+
+  const fiveHour = parseCodingPlanWindow(record.per5Hour);
+  const weekly = parseCodingPlanWindow(record.perWeek);
+  const monthly = parseCodingPlanWindow(record.perBillMonth);
+  if (fiveHour === "invalid" || weekly === "invalid" || monthly === "invalid") {
+    return fail("coding_plan_invalid_schema");
+  }
+  const instanceType = nonEmptyString(record.instanceType);
+  if (!instanceType) return { ok: true };
+  return {
+    ok: true,
+    usage: {
+      instanceType,
+      ...(fiveHour ? { fiveHour } : {}),
+      ...(weekly ? { weekly } : {}),
+      ...(monthly ? { monthly } : {}),
+    },
+  };
+}
+
 function errorCode(error: unknown): string | undefined {
   return error && typeof error === "object" && "code" in error
     ? String((error as { code?: unknown }).code)
     : undefined;
 }
 
-/** Signal the child's whole process group, falling back to the child alone. */
 function signalProcessGroup(child: ChildProcess, signal: NodeJS.Signals): void {
   if (!child.pid) return;
   try {
@@ -512,7 +556,6 @@ function signalProcessGroup(child: ChildProcess, signal: NodeJS.Signals): void {
   }
 }
 
-/** A timeout or an overflow stops the process group: SIGTERM, then SIGKILL after `killGraceMs`. */
 export async function runAlibabaTokenPlanProcess(
   request: AlibabaTokenPlanSpawnRequest,
 ): Promise<AlibabaTokenPlanSpawnResult> {
@@ -526,8 +569,8 @@ export async function runAlibabaTokenPlanProcess(
         shell: false,
         detached: true,
         // OpenCode is a GUI process and `bl` is a console program, so without this every check
-        // opens a window. Only covers the process we start: a launcher that spawns node itself
-        // (bun's global shim) still opens one, so the shim route resolves to node when it can.
+        // opens a window. A launcher that spawns node itself (bun's global shim) still opens one,
+        // so the shim route resolves to node when it can.
         windowsHide: true,
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -553,12 +596,9 @@ export async function runAlibabaTokenPlanProcess(
     function stop(): void {
       if (killTimer !== undefined) return;
       signalProcessGroup(child, "SIGTERM");
-      // The answer can only be settled by `close`, and `close` waits on the stdout pipe, which a
-      // grandchild of the killed child may still hold — so a timed-out check that did not get a
-      // whole document would never answer, and the store's own read timeout would fire instead,
-      // keying the rows under `memory-` and losing them from the display. Answer here, after the
-      // escalation has run: `timedOut` is already set, so `mapSpawnResult` reads this as a timeout
-      // rather than as a missing exit code.
+      // `close` waits on the stdout pipe, which a killed child's grandchild may still hold, so a
+      // timed-out check could never answer and the store's read timeout would key the rows under
+      // `memory-`. Answer here once escalated: `timedOut` is set, so this reads as a timeout.
       killTimer = setTimeout(() => {
         signalProcessGroup(child, "SIGKILL");
         finish(null);
@@ -588,10 +628,7 @@ export async function runAlibabaTokenPlanProcess(
       settled = true;
       clearTimeout(timeout);
       if (complete) {
-        // The early exit returns while a child that ignored SIGTERM still lives: drop the pipe
-        // handles it holds and unref it, so it cannot keep the parent's event loop alive. The
-        // SIGKILL timer from stop() stays armed; clearing it here would cancel the escalation and
-        // leak one live child per early-exited check.
+        // Drop the pipes and unref the dying child, so it cannot keep the parent's event loop alive.
         child.stdout?.destroy();
         child.stderr?.destroy();
         child.unref();
@@ -614,12 +651,9 @@ export async function runAlibabaTokenPlanProcess(
       stop();
     }, request.timeoutMs);
 
-    /**
-     * `bl` keeps running after it has answered: it waits on an npm update check it fires once a
-     * day, against a registry with no mirror, and only then exits. The answer is already in the
-     * pipe, so a whole document ends the wait without its exit code; a failure that prints one is
-     * read by the parser instead, and a document that never completes falls through to the timeout.
-     */
+    /** `bl` holds its HTTPS connection open after answering, so a whole document in the pipe ends the
+     * wait without an exit code; a failure document is left to the parser, an incomplete one falls
+     * through to the timeout. */
     function wholeDocument(): boolean {
       if (settled || timedOut || truncated) return false;
       const text = Buffer.concat(stdoutChunks).toString("utf8");
@@ -636,7 +670,6 @@ export async function runAlibabaTokenPlanProcess(
     child.stdout?.on("data", (chunk) => {
       collectStdout(chunk);
       if (wholeDocument()) {
-        // The CLI keeps its own socket open after it has answered, so it is killed outright.
         signalProcessGroup(child, "SIGKILL");
         finish(null, undefined, true);
       }
@@ -647,18 +680,14 @@ export async function runAlibabaTokenPlanProcess(
   });
 }
 
-/**
- * How a finished child maps to a failure, before its stdout reaches a parser. The two commands
- * differ only in the kinds they report: exit 3 means "its own credential is missing" for both, and
- * names a different credential each time.
- */
+/** How a finished child maps to a failure. The commands differ only in kind: exit 3 names a
+ * different credential each time. */
 function mapSpawnResult(
   result: AlibabaTokenPlanSpawnResult,
-  kinds: { auth: AlibabaTokenPlanErrorKind; nonzero: AlibabaTokenPlanErrorKind },
-): AlibabaTokenPlanFailure | null {
+  kinds: { auth: AlibabaErrorKind; nonzero: AlibabaErrorKind },
+): AlibabaFailure | null {
   if (result.truncated) return fail("output_truncated");
-  // The child was stopped once it had written a whole document, so there may be no exit code to
-  // read: `code` stays null, and `null !== 0` below would report every success as a failure.
+  // A child stopped on a whole document leaves `code` null, which `!== 0` would fail every time.
   if (result.complete) return null;
   if (result.timedOut) return fail("timeout");
   if (result.spawnErrorCode === "ENOENT") return fail("executable_not_found");
@@ -676,18 +705,22 @@ function mapSpawnResult(
 export const USAGE_SPAWN_KINDS = {
   auth: "not_authenticated",
   nonzero: "nonzero_exit",
-} as const satisfies { auth: AlibabaTokenPlanErrorKind; nonzero: AlibabaTokenPlanErrorKind };
+} as const satisfies { auth: AlibabaErrorKind; nonzero: AlibabaErrorKind };
 
 const SEAT_SPAWN_KINDS = {
   auth: "seat_not_authenticated",
   nonzero: "seat_command_failed",
-} as const satisfies { auth: AlibabaTokenPlanErrorKind; nonzero: AlibabaTokenPlanErrorKind };
+} as const satisfies { auth: AlibabaErrorKind; nonzero: AlibabaErrorKind };
 
-/**
- * One `NORMAL` team seat, or undefined for a `RELEASE` seat or one that cannot be keyed. A
- * `RELEASE` seat counts toward `Data.Total` but carries no `Cycle*` field at all, so `Status`
- * is read before `EquityList`; every field is guarded on its own.
- */
+/** The Coding Plan reads the same console session as the personal plan, so exit 3 means the same. */
+export const CODING_PLAN_SPAWN_KINDS = {
+  auth: "not_authenticated",
+  nonzero: "coding_plan_command_failed",
+} as const satisfies { auth: AlibabaErrorKind; nonzero: AlibabaErrorKind };
+
+/** One `NORMAL` team seat, or undefined for a `RELEASE` seat or one that cannot be keyed. A
+ * `RELEASE` seat counts toward `Data.Total` but carries no `Cycle*` field, so `Status` is read
+ * before `EquityList`. */
 function parseSeat(value: unknown): AlibabaTokenPlanSeat | undefined {
   const record = asRecord(value);
   if (!record || record.Status !== "NORMAL") return undefined;
@@ -701,8 +734,8 @@ function parseSeat(value: unknown): AlibabaTokenPlanSeat | undefined {
     total !== undefined && total > 0 && surplus !== undefined
       ? Math.min(100, Math.max(0, (surplus / total) * 100))
       : undefined;
-  // The cycle's spent credits are computed here beside the percentage: one owner, so the two cannot
-  // drift. The floor keeps a surplus above the total from reporting negative spend.
+  // Computed beside the percentage so the two cannot drift; the floor keeps a surplus above the
+  // total from reporting negative spend.
   const used =
     total !== undefined && surplus !== undefined ? Math.max(0, total - surplus) : undefined;
   const endTime = equity ? finiteNumber(equity.CycleEndTime) : undefined;
@@ -710,8 +743,7 @@ function parseSeat(value: unknown): AlibabaTokenPlanSeat | undefined {
     endTime !== undefined && endTime > 0 && endTime <= MAX_RESET_TIME_MS
       ? new Date(endTime).toISOString()
       : undefined;
-  // The cycle's own start, so the window's span is known exactly: a seat's cycle is not a calendar
-  // month, and the pace of a row needs to know when the window began.
+  // A seat's cycle is not a calendar month, so the row's pace needs when the window began.
   const startTime = equity ? finiteNumber(equity.CycleStartTime) : undefined;
   const startedAt =
     startTime !== undefined && startTime > 0 && startTime < MAX_RESET_TIME_MS
@@ -729,17 +761,16 @@ function parseSeat(value: unknown): AlibabaTokenPlanSeat | undefined {
   };
 }
 
-/** One page of seats: the `NORMAL` ones, the raw item count, and the reply's own `Total`. */
 type AlibabaTokenPlanSeatPage =
   | { ok: true; seats: AlibabaTokenPlanSeat[]; itemCount: number; total?: number }
-  | AlibabaTokenPlanFailure;
+  | AlibabaFailure;
 
 /** `bl`'s failure envelope `{ error: { code, message, hint } }` inside a successful reply. Its
  * `code` is the CLI's exit code, the only signal trusted for the kind. */
 function errorEnvelopeFailure(
   record: Record<string, unknown>,
-  kinds: { auth: AlibabaTokenPlanErrorKind; nonzero: AlibabaTokenPlanErrorKind },
-): AlibabaTokenPlanFailure | null {
+  kinds: { auth: AlibabaErrorKind; nonzero: AlibabaErrorKind },
+): AlibabaFailure | null {
   const envelope = asRecord(record.error);
   if (!envelope) return null;
   const kind = finiteNumber(envelope.code) === AUTH_EXIT_CODE ? kinds.auth : kinds.nonzero;
@@ -750,8 +781,8 @@ function errorEnvelopeFailure(
  * server's to write. */
 function envelopeFailure(
   envelope: Record<string, unknown>,
-  kind: AlibabaTokenPlanErrorKind,
-): AlibabaTokenPlanFailure {
+  kind: AlibabaErrorKind,
+): AlibabaFailure {
   const said = publicDetail(
     [nonEmptyString(envelope.message), nonEmptyString(envelope.hint)].filter(Boolean).join(" "),
     ALIBABA_TOKEN_PLAN_ERROR_MAX_LENGTH,
@@ -770,10 +801,7 @@ function envelopeFailure(
 }
 
 /** The envelope where it really arrives: on stderr with an empty stdout, on the exit code it carries. */
-function stderrEnvelopeFailure(
-  stderr: Buffer,
-  kind: AlibabaTokenPlanErrorKind,
-): AlibabaTokenPlanFailure | null {
+function stderrEnvelopeFailure(stderr: Buffer, kind: AlibabaErrorKind): AlibabaFailure | null {
   const text = stderr.toString("utf8").trim();
   if (!text) return null;
   let payload: unknown;
@@ -787,10 +815,6 @@ function stderrEnvelopeFailure(
   return envelope ? envelopeFailure(envelope, kind) : null;
 }
 
-/**
- * The seat command's own envelope on stdout: `{ Success: true, Data: { Items, PageNo, PageSize,
- * Total } }`. `Total` counts every status and is absent on a malformed reply.
- */
 function parseAlibabaTokenPlanSeatPage(text: string): AlibabaTokenPlanSeatPage {
   let payload: unknown;
   try {
@@ -817,7 +841,6 @@ function parseAlibabaTokenPlanSeatPage(text: string): AlibabaTokenPlanSeatPage {
   };
 }
 
-/** The `NORMAL` seats in the reply. The seat command exits 3 for its own auth failure, as personal. */
 export function parseAlibabaTokenPlanSeatsJson(text: string): AlibabaTokenPlanSeatResult {
   const page = parseAlibabaTokenPlanSeatPage(text);
   return page.ok ? { ok: true, seats: page.seats } : page;
@@ -830,11 +853,8 @@ function mapSeatSpawnResult(result: AlibabaTokenPlanSpawnResult): AlibabaTokenPl
   );
 }
 
-/**
- * The child gets exactly one PATH: the filtered trusted list. Windows reads environment names
- * without case and a parent environment can carry both `Path` and `PATH`, so every case variant is
- * dropped first; otherwise the child could read an unfiltered PATH that still names the workspace.
- */
+/** The child gets exactly one PATH: the filtered list. Windows reads environment names without case
+ * and a parent can carry both `Path` and `PATH`, so every case variant is dropped first. */
 function envWithTrustedPath(
   env: NodeJS.ProcessEnv,
   trusted: readonly string[],
@@ -849,12 +869,6 @@ function envWithTrustedPath(
   return result;
 }
 
-/**
- * Everything a command needs to spawn `bl`: the resolved executable, the argv prefix ahead of the
- * command's own arguments, a cwd outside the project folder, and the trusted-PATH environment.
- * The npm shim route resolves with the personal command already in its args, so only the
- * `node <entry>` prefix is kept here and each caller appends the command it wants.
- */
 type AlibabaTokenPlanInvocation = {
   ok: true;
   file: string;
@@ -866,7 +880,7 @@ type AlibabaTokenPlanInvocation = {
 
 async function resolveAlibabaTokenPlanInvocation(
   runtime: AlibabaTokenPlanRuntime,
-): Promise<AlibabaTokenPlanInvocation | AlibabaTokenPlanFailure> {
+): Promise<AlibabaTokenPlanInvocation | AlibabaFailure> {
   const platform = runtime.platform ?? process.platform;
   if (!isAlibabaTokenPlanSupportedPlatform(platform)) return fail("unsupported_platform");
 
@@ -922,47 +936,55 @@ function spawnRequestFor(
   };
 }
 
-/** The personal window `bl usage token-plan` reports, or why it could not be read. */
-export async function queryAlibabaTokenPlanQuota(options: {
+/** The kinds a command's own failures report: exit 3 names the credential that command needs. */
+export type AlibabaSpawnKinds = { auth: AlibabaErrorKind; nonzero: AlibabaErrorKind };
+
+type AlibabaReply = { ok: true; text: string } | AlibabaFailure;
+
+/** A failure envelope inside a successful stdout is left to the command's own parser. */
+export async function queryAlibabaReply(options: {
+  args: readonly string[];
+  kinds: AlibabaSpawnKinds;
   requestTimeoutMs?: number;
   runtime: AlibabaTokenPlanRuntime;
-}): Promise<AlibabaTokenPlanClosedResult> {
+}): Promise<AlibabaReply> {
   const timeoutMs = options.requestTimeoutMs ?? ALIBABA_TOKEN_PLAN_REQUEST_TIMEOUT_MS;
   const invocation = await resolveAlibabaTokenPlanInvocation(options.runtime);
   if (!invocation.ok) return invocation;
   try {
-    const result = await invocation.spawn(
-      spawnRequestFor(invocation, ALIBABA_TOKEN_PLAN_ARGS, timeoutMs),
-    );
-    const failure = mapSpawnResult(result, USAGE_SPAWN_KINDS);
-    // A child stopped on a whole document has no exit code left: what it wrote is the answer.
-    return failure ?? parseAlibabaTokenPlanUsageJson(result.stdout.toString("utf8"));
+    const result = await invocation.spawn(spawnRequestFor(invocation, options.args, timeoutMs));
+    const failure = mapSpawnResult(result, options.kinds);
+    return failure ?? { ok: true, text: result.stdout.toString("utf8") };
   } catch {
     return fail("spawn_failed");
   }
 }
 
-/**
- * The credential markers `bl auth status --output json` reports: the masked console id
- * (`console.masked`), the masked model-API key (`api_key.masked`) and the OpenAPI access key id
- * (`openapi.access_key_id`). Each is `null` when `bl` reports no such block, kept distinct from an
- * empty string so an absent credential cannot collide with a present one; every one is already
- * masked by `bl` and never surfaced to a user, a log, an error message or an export.
- */
-export type AlibabaTokenPlanCredentialMarkers = {
+export async function queryAlibabaTokenPlanQuota(options: {
+  requestTimeoutMs?: number;
+  runtime: AlibabaTokenPlanRuntime;
+}): Promise<AlibabaTokenPlanClosedResult> {
+  const reply = await queryAlibabaReply({
+    args: ALIBABA_TOKEN_PLAN_ARGS,
+    kinds: USAGE_SPAWN_KINDS,
+    requestTimeoutMs: options.requestTimeoutMs,
+    runtime: options.runtime,
+  });
+  return reply.ok ? parseAlibabaTokenPlanUsageJson(reply.text) : reply;
+}
+
+/** The masked credential markers `bl auth status` reports, each `null` when absent so it cannot
+ * collide with a present credential. `bl` already masks them; they never reach a user, log or
+ * export. */
+export type AlibabaCredentialMarkers = {
   consoleMasked: string | null;
   apiKeyMasked: string | null;
   openapiAccessKeyId: string | null;
 };
 
-/**
- * The credential markers from a `bl auth status` reply. Null for invalid JSON, a non-object reply,
- * or a reply that reports no credential at all: with no marker there is nothing to key an account
- * on. The caller keeps such rows in memory only then.
- */
-function parseAlibabaTokenPlanCredentialMarkers(
-  text: string,
-): AlibabaTokenPlanCredentialMarkers | null {
+/** With no marker there is nothing to key an account on, so the caller keeps those rows in memory
+ * only. */
+function parseAlibabaCredentialMarkers(text: string): AlibabaCredentialMarkers | null {
   let payload: unknown;
   try {
     payload = JSON.parse(text);
@@ -974,7 +996,7 @@ function parseAlibabaTokenPlanCredentialMarkers(
   const consoleRecord = asRecord(record.console);
   const apiKeyRecord = asRecord(record.api_key);
   const openapiRecord = asRecord(record.openapi);
-  const markers: AlibabaTokenPlanCredentialMarkers = {
+  const markers: AlibabaCredentialMarkers = {
     consoleMasked: (consoleRecord ? nonEmptyString(consoleRecord.masked) : undefined) ?? null,
     apiKeyMasked: (apiKeyRecord ? nonEmptyString(apiKeyRecord.masked) : undefined) ?? null,
     openapiAccessKeyId:
@@ -984,15 +1006,13 @@ function parseAlibabaTokenPlanCredentialMarkers(
   return anyMarker === null ? null : markers;
 }
 
-/**
- * Which halves to report, from the same `bl auth status` read the cache identity comes from. A half
- * whose credential block is absent was never set up, so it is left out entirely: no rows, no errors,
- * no backoff. A block `bl` reports is a set-up session, expired or not, so its failure is real; a
- * read that failed reports both halves, since absence cannot be told from failure there.
- */
-export function alibabaTokenPlanCredentialHalves(
-  markers: AlibabaTokenPlanCredentialMarkers | null,
-): { console: boolean; openapi: boolean } {
+/** A half whose credential block is absent was never set up, so it is left out entirely: no rows,
+ * no errors, no backoff. A block `bl` reports is a set-up session, expired or not, so its failure is
+ * real; a failed read reports both halves, since absence cannot be told from failure there. */
+export function alibabaCredentialHalves(markers: AlibabaCredentialMarkers | null): {
+  console: boolean;
+  openapi: boolean;
+} {
   if (markers === null) return { console: true, openapi: true };
   return {
     console: markers.consoleMasked !== null,
@@ -1000,30 +1020,22 @@ export function alibabaTokenPlanCredentialHalves(
   };
 }
 
-/** How long one read of `bl auth status` is reused before the next caller reads it again. */
 const ALIBABA_TOKEN_PLAN_IDENTITY_TTL_MS = 60_000;
 
-/**
- * The read in flight, or the last markers read, with when it started; null until the first caller
- * reads. The promise is held, not its value, so a caller arriving mid-read joins that read instead
- * of spawning its own.
- */
+/** The read in flight, or the last markers read with when it started. The promise is held, not its
+ * value, so a caller arriving mid-read joins that read instead of spawning its own. */
 let consoleIdentityCache: {
   timestamp: number;
-  value: Promise<AlibabaTokenPlanCredentialMarkers | null>;
+  value: Promise<AlibabaCredentialMarkers | null>;
 } | null = null;
 
-/**
- * The credential markers `bl auth status --output json` reports, read through the same invocation
- * machinery as the quota commands. One read is reused for ALIBABA_TOKEN_PLAN_IDENTITY_TTL_MS and a
- * caller arriving mid-flight joins it; any failure returns null, so those rows stay in memory only.
- * An account change inside `bl` reaches the next refresh, not `store.ts`'s post-fetch re-check,
- * which reads the same value; replacing rows under the old digest needs a successful fetch.
- */
-export async function resolveAlibabaTokenPlanIdentity(options: {
+/** The markers `bl auth status` reports, read through the same machinery as the quota commands. One
+ * read is reused for ALIBABA_TOKEN_PLAN_IDENTITY_TTL_MS and a mid-flight caller joins it; an account
+ * change inside `bl` reaches the next refresh, not the store's post-fetch re-check. */
+export async function resolveAlibabaIdentity(options: {
   requestTimeoutMs?: number;
   runtime: AlibabaTokenPlanRuntime;
-}): Promise<AlibabaTokenPlanCredentialMarkers | null> {
+}): Promise<AlibabaCredentialMarkers | null> {
   const cached = consoleIdentityCache;
   if (cached !== null && Date.now() - cached.timestamp < ALIBABA_TOKEN_PLAN_IDENTITY_TTL_MS) {
     return await cached.value;
@@ -1039,15 +1051,14 @@ export async function resolveAlibabaTokenPlanIdentity(options: {
   }
 }
 
-/** Clears the per-process console identity, so the next call reads `bl auth status` again. */
-export function clearAlibabaTokenPlanIdentityCacheForTests(): void {
+export function clearAlibabaIdentityCacheForTests(): void {
   consoleIdentityCache = null;
 }
 
 async function loadConsoleIdentity(options: {
   requestTimeoutMs?: number;
   runtime: AlibabaTokenPlanRuntime;
-}): Promise<AlibabaTokenPlanCredentialMarkers | null> {
+}): Promise<AlibabaCredentialMarkers | null> {
   const timeoutMs = options.requestTimeoutMs ?? ALIBABA_TOKEN_PLAN_REQUEST_TIMEOUT_MS;
   const invocation = await resolveAlibabaTokenPlanInvocation(options.runtime);
   if (!invocation.ok) return null;
@@ -1057,23 +1068,18 @@ async function loadConsoleIdentity(options: {
     );
     // Only whether the spawn failed matters here; the kind is a quota command's wording.
     if (mapSpawnResult(result, USAGE_SPAWN_KINDS)) return null;
-    return parseAlibabaTokenPlanCredentialMarkers(result.stdout.toString("utf8"));
+    return parseAlibabaCredentialMarkers(result.stdout.toString("utf8"));
   } catch {
     return null;
   }
 }
 
-function seatArgsForPage(pageNo: number): readonly string[] {
-  return pageNo === 1
-    ? ALIBABA_TOKEN_PLAN_SEAT_ARGS
-    : [...ALIBABA_TOKEN_PLAN_SEAT_ARGS, "--page-no", String(pageNo)];
+function seatArgsForPage(base: readonly string[], pageNo: number): readonly string[] {
+  return pageNo === 1 ? base : [...base, "--page-no", String(pageNo)];
 }
 
-/**
- * The team seats, one page at a time. `Total` counts every status, so the loop compares the raw
- * item count against it; a reply without `Total` stops on a short page. Independent of the
- * personal command: its own auth, its own failure.
- */
+/** The team seats, one page at a time. `Total` counts every status, so the loop compares the raw
+ * item count against it; a reply without `Total` stops on a short page. */
 export async function queryAlibabaTokenPlanSeats(options: {
   requestTimeoutMs?: number;
   runtime: AlibabaTokenPlanRuntime;
@@ -1088,16 +1094,19 @@ export async function queryAlibabaTokenPlanSeats(options: {
   // budget discards the whole provider fetch, the personal row included.
   const deadline = Date.now() + ALIBABA_TOKEN_PLAN_SEAT_BUDGET_MS;
   for (let pageNo = 1; pageNo <= ALIBABA_TOKEN_PLAN_SEAT_MAX_PAGES; pageNo += 1) {
-    // The budget is the whole loop's, so a page gets what is left of it: no page can outlive the
-    // budget and cost the store's fetch cap. A list cut short cannot be told from a whole one, so
-    // the seats are reported as failed rather than as a roster that quietly misses seats.
+    // The budget is the whole loop's, so a page gets what is left. A list cut short cannot be told from
+    // a whole one, so the seats are reported as failed rather than as a roster quietly missing seats.
     const remaining = deadline - Date.now();
     if (remaining <= 0) return fail("timeout");
     let page: AlibabaTokenPlanSeatPage;
     try {
       page = mapSeatSpawnResult(
         await invocation.spawn(
-          spawnRequestFor(invocation, seatArgsForPage(pageNo), Math.min(timeoutMs, remaining)),
+          spawnRequestFor(
+            invocation,
+            seatArgsForPage(ALIBABA_TOKEN_PLAN_SEAT_ARGS, pageNo),
+            Math.min(timeoutMs, remaining),
+          ),
         ),
       );
     } catch {

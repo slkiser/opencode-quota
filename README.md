@@ -152,7 +152,7 @@ Gemini CLI works only with Gemini Code Assist Standard or Enterprise (organizati
 
 | Provider                      | Auth/setup                                                                   | Data from      | Reports            |
 | ----------------------------- | ---------------------------------------------------------------------------- | -------------- | ------------------ |
-| Alibaba Coding Plan           | Automatic                                                                    | Local estimate | Quota              |
+| Alibaba Coding Plan           | [Needs setup](docs/readme/providers.md#alibaba-coding-plan)                  | Official CLI   | Quota              |
 | Alibaba Token Plan            | [Needs setup](docs/readme/providers.md#alibaba-token-plan)                   | Official CLI   | Quota and credits  |
 | DeepSeek                      | Automatic                                                                    | Remote API     | Balance and status |
 | Kimi Code                     | Automatic                                                                    | Remote API     | Quota              |
@@ -168,15 +168,16 @@ Gemini CLI works only with Gemini Code Assist Standard or Enterprise (organizati
 <details>
 <summary><strong>Business / Team</strong></summary>
 
-| Provider                 | Auth/setup | Data from  | Reports |
-| ------------------------ | ---------- | ---------- | ------- |
-| Kimi Code                | Automatic  | Remote API | Quota   |
-| Kimi Code (CN)           | Automatic  | Remote API | Quota   |
-| MiniMax Token Plan       | Automatic  | Remote API | Quota   |
-| MiniMax Token Plan (CN)  | Automatic  | Remote API | Quota   |
-| Zhipu Coding Plan        | Automatic  | Remote API | Quota   |
+| Provider                 | Auth/setup                                                    | Data from    | Reports |
+| ------------------------ | ------------------------------------------------------------- | ------------ | ------- |
+| Alibaba Token Plan       | [Needs setup](docs/readme/providers.md#alibaba-token-plan)    | Official CLI | Credits |
+| Kimi Code                | Automatic                                                     | Remote API   | Quota   |
+| Kimi Code (CN)           | Automatic                                                     | Remote API   | Quota   |
+| MiniMax Token Plan       | Automatic                                                     | Remote API   | Quota   |
+| MiniMax Token Plan (CN)  | Automatic                                                     | Remote API   | Quota   |
+| Zhipu Coding Plan        | Automatic                                                     | Remote API   | Quota   |
 
-These show only your own member API key's usage, not the whole organization's.
+Except for Alibaba Token Plan, which reports one Credits row per team seat, these show only your own member API key's usage, not the whole organization's.
 
 </details>
 

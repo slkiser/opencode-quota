@@ -946,7 +946,7 @@ describe("server quota RPC", () => {
         fetch: vi.fn().mockResolvedValue(
           answer({
             name: "Alibaba Coding Plan",
-            errors: ["Unsupported Alibaba Coding Plan tier: max"],
+            errors: ["The provider reply could not be read"],
           }),
         ),
         line: "Alibaba Coding Plan",
@@ -1051,23 +1051,11 @@ describe("server quota RPC", () => {
       expect(second).toContain("95% left");
     });
 
-    it.each([
-      {
-        id: "alibaba-coding-plan",
-        entry: (percentRemaining: number) =>
-          answer({
-            name: "Alibaba Coding Plan (Lite)",
-            rows: [percentRow("weekly", "Weekly", percentRemaining)],
-          }),
-      },
-      {
-        id: "cursor",
-        entry: (percentRemaining: number) =>
-          answer({ name: "Cursor (Pro)", rows: [percentRow("api", "API", percentRemaining)] }),
-      },
-    ])("counts $id usage again on every /quota", async ({ id, entry }) => {
+    it("counts Cursor usage again on every /quota", async () => {
+      const entry = (percentRemaining: number) =>
+        answer({ name: "Cursor (Pro)", rows: [percentRow("api", "API", percentRemaining)] });
       const fetch = vi.fn().mockResolvedValueOnce(entry(70)).mockResolvedValueOnce(entry(60));
-      mocks.getProviders.mockReturnValue([provider(id, fetch)]);
+      mocks.getProviders.mockReturnValue([provider("cursor", fetch)]);
       const { quota } = await setupServer();
 
       await quota();

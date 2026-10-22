@@ -44,10 +44,7 @@ import {
 } from "../settings/schema.js";
 import { formatShare, formatTokens } from "../view/format.js";
 import { COUNT_LABELS } from "./accounting-format.js";
-import {
-  ERROR_MESSAGES as ALIBABA_TOKEN_PLAN_ERRORS,
-  NO_WINDOW_HINT,
-} from "./alibaba-token-plan.js";
+import { ERROR_MESSAGES as ALIBABA_TOKEN_PLAN_ERRORS, NO_WINDOW_HINT } from "./alibaba.js";
 import { API_KEY_VENDORS } from "./api-key-resolver.js";
 import { COPILOT_AUTH_KEYS } from "./copilot.js";
 import { CURSOR_CANONICAL_PLUGIN_PACKAGE } from "./cursor-detection.js";
@@ -74,10 +71,7 @@ import {
   QUOTA_PROVIDER_CATALOG,
   QUOTA_PROVIDER_RUNTIME_IDS,
 } from "./provider-metadata.js";
-import {
-  isMaintainedQuotaProviderTuning,
-  type QuotaProviderDefinition,
-} from "./quota-providers.js";
+import type { QuotaProviderDefinition } from "./quota-providers.js";
 import { getPackageVersion } from "./version.js";
 
 /** Rows listed per provider section; the rest are counted. */
@@ -379,8 +373,7 @@ function providerIdsText(ids: readonly string[]): string {
 /**
  * A custom provider definition as its number, mode and model count: "custom 1 (remote-api,
  * 3 models)". Its id, provider id, URL, key, env variable and model ids are never shown. A
- * definition that tunes a maintained provider names that provider. A switched-off definition
- * says so and where to switch it on.
+ * switched-off definition says so and where to switch it on.
  */
 function customProviderText(definition: QuotaProviderDefinition, number: number): string {
   if (definition.enabled === false) {
@@ -390,11 +383,7 @@ function customProviderText(definition: QuotaProviderDefinition, number: number)
   const models = definition.modelIds
     ? countText(definition.modelIds.length, "model", "models")
     : "all models";
-  const tunes =
-    isMaintainedQuotaProviderTuning(definition) && PROVIDER_IDS.has(definition.id)
-      ? `, tunes ${definition.id}`
-      : "";
-  return `custom ${number} (${mode}, ${models}${tunes})`;
+  return `custom ${number} (${mode}, ${models})`;
 }
 
 function settingsFileText(params: QuotaStatusReportParams, homeDir: string): string {
@@ -1026,12 +1015,24 @@ const GOOGLE_DETAILS: DebugRules = {
 };
 const CONSOLE_AUTH_STATES = ["none", "configured", "expired", "invalid"] as const;
 
-/** One id with two accepted spellings; its personal and seat commands share one kinds vocabulary. */
-const ALIBABA_TOKEN_PLAN_DETAILS: DebugRules = {
+/** Both plans write the same availability, platform and failure kind, so they share these rules. */
+const ALIBABA_PROVIDER_DETAILS: DebugRules = {
   cli_available: bool,
   platform: oneOf(process.platform),
-  windows: listOf(["monthly"]),
   failure_kind: oneOf(...Object.keys(ALIBABA_TOKEN_PLAN_ERRORS)),
+};
+
+const ALIBABA_TOKEN_PLAN_DETAILS: DebugRules = {
+  ...ALIBABA_PROVIDER_DETAILS,
+  window_hint: oneOf(NO_WINDOW_HINT),
+  seat_windows: listOf(["credits"]),
+  seat_failure_kind: oneOf(...Object.keys(ALIBABA_TOKEN_PLAN_ERRORS)),
+  windows: listOf(["monthly"]),
+};
+
+const ALIBABA_CODING_PLAN_DETAILS: DebugRules = {
+  ...ALIBABA_PROVIDER_DETAILS,
+  windows: listOf(["five_hour", "weekly", "monthly"]),
 };
 
 /**
@@ -1115,13 +1116,7 @@ const DEBUG_DETAILS = {
     cycle_reset_at: time,
     unknown_cursor_models: count,
   },
-  "alibaba-coding-plan": {
-    "alibaba auth configured": bool,
-    alibaba_api_key_source: keySource,
-    alibaba_api_key_checked_paths: pathList,
-    alibaba_api_key_credential_database_paths: pathList,
-    alibaba_coding_plan: oneOf("lite", "pro", "invalid"),
-  },
+  "alibaba-coding-plan": ALIBABA_CODING_PLAN_DETAILS,
   "alibaba-token-plan": ALIBABA_TOKEN_PLAN_DETAILS,
   "google-gemini-cli": GOOGLE_DETAILS,
   "google-agy": GOOGLE_DETAILS,

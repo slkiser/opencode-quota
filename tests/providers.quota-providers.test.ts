@@ -133,26 +133,6 @@ describe("quota-providers aggregate provider", () => {
     runtimeMocks.collectLocalQuotaProviderEstimate.mockReset().mockResolvedValue({ rows: [] });
   });
 
-  const alibabaTuning: QuotaProviderDefinition = {
-    id: "alibaba-coding-plan",
-    providerId: "alibaba-coding-plan",
-    label: "alibaba-coding-plan",
-    mode: "local-estimate",
-    windows: (
-      [
-        ["five-hour", 300, 1200],
-        ["weekly", 10080, 9000],
-        ["monthly", 43200, 18000],
-      ] as const
-    ).map(([id, durationMinutes, requestLimit]) => ({
-      id,
-      label: id,
-      type: "rolling",
-      durationMinutes,
-      requestLimit,
-    })),
-  };
-
   it.each([
     ["no runtime match", [remote("stable", "provider-one", ["model-a"])], ["unrelated"], {}, []],
     [
@@ -199,13 +179,6 @@ describe("quota-providers aggregate provider", () => {
       ["openrouter"],
       { onlyCurrentModel: true, currentProviderID: "openrouter", currentModel: "openai/gpt-4o" },
       ["openrouter-usage"],
-    ],
-    [
-      "maintained Alibaba tuning, which is skipped",
-      [alibabaTuning, remote("custom")],
-      ["alibaba-coding-plan", "custom"],
-      {},
-      ["custom"],
     ],
   ] as const)(
     "selects definitions for %s",

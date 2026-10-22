@@ -69,7 +69,8 @@ const DROPPED: ReadonlyMap<string, string> = new Map(
     "layout.narrowAt": "OpenCode sizes toasts",
     "layout.tinyAt": "OpenCode sizes toasts",
     "tuiCompactStatus.maxWidth": "the status line uses the room the footer leaves free",
-    alibabaCodingPlanTier: 'removed in v4; tune Alibaba through "providers.custom"',
+    alibabaCodingPlanTier:
+      "removed in v4; the alibaba-coding-plan id now belongs to the built-in CLI provider, so a leftover tuning tunes nothing",
     customSources: 'removed in v4; use "providers.custom"',
   }),
 );
