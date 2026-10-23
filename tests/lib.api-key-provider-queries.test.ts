@@ -172,6 +172,46 @@ describe("simple API-key provider queries", () => {
     });
 
     it.each([
+      [
+        "absent",
+        (() => {
+          const { rollingFiveHourLimit: _rolling, ...payload } = syntheticPayload();
+          return payload;
+        })(),
+      ],
+      ["null", syntheticPayload({ rollingFiveHourLimit: null })],
+    ] as const)("maps only the weekly window when rollingFiveHourLimit is %s", async (_name, payload) => {
+      stubJsonFetch(payload);
+      await expect(querySyntheticQuota()).resolves.toEqual({
+        success: true,
+        windows: {
+          weekly: {
+            limit: 24,
+            used: 21.98,
+            percentRemaining: 8,
+            resetTimeIso: "2026-01-27T18:12:03.000Z",
+          },
+        },
+      });
+    });
+
+    it("maps only the 5-hour window when weeklyTokenLimit is absent", async () => {
+      const { weeklyTokenLimit: _weekly, ...payload } = syntheticPayload();
+      stubJsonFetch(payload);
+      await expect(querySyntheticQuota()).resolves.toEqual({
+        success: true,
+        windows: {
+          fiveHour: {
+            limit: 100,
+            used: 25.5,
+            percentRemaining: 75,
+            resetTimeIso: "2026-01-20T18:12:03.000Z",
+          },
+        },
+      });
+    });
+
+    it.each([
       "bad-value",
       -5,
       150,
@@ -303,7 +343,8 @@ describe("simple API-key provider queries", () => {
       stubJsonFetch(payload);
       await expect(querySyntheticQuota()).resolves.toEqual({
         success: false,
-        error: "Synthetic API response missing rollingFiveHourLimit quota window",
+        error:
+          "Synthetic API response missing rollingFiveHourLimit and weeklyTokenLimit quota windows",
       });
     });
 
@@ -325,9 +366,11 @@ describe("simple API-key provider queries", () => {
         "Synthetic API response missing weeklyTokenLimit quota window",
       ],
       [
-        "a missing weekly top-level window",
+        "malformed weeklyTokenLimit payloads without a 5-hour window",
         (() => {
-          const { weeklyTokenLimit: _weekly, ...payload } = syntheticPayload();
+          const { rollingFiveHourLimit: _rolling, ...payload } = syntheticPayload({
+            weeklyTokenLimit: "$24.00",
+          });
           return payload;
         })(),
         "Synthetic API response missing weeklyTokenLimit quota window",
@@ -335,7 +378,7 @@ describe("simple API-key provider queries", () => {
       [
         "legacy subscription-only payloads",
         { subscription: { limit: 200, requests: 50 } },
-        "Synthetic API response missing rollingFiveHourLimit quota window",
+        "Synthetic API response missing rollingFiveHourLimit and weeklyTokenLimit quota windows",
       ],
     ] as const)("rejects %s", async (_name, payload, error) => {
       stubJsonFetch(payload);

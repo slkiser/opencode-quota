@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { access, chmod, lstat, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -47,6 +47,20 @@ async function writeUnixExecutable(
   await writeFile(file, source, { encoding: "utf8", mode: 0o755 });
   await chmod(file, 0o755);
   return file;
+}
+
+// Captured before any test installs fake timers, so polling keeps real time.
+const realSetTimeout = globalThis.setTimeout;
+
+async function waitForFile(file: string): Promise<void> {
+  for (;;) {
+    try {
+      await access(file);
+      return;
+    } catch {
+      await new Promise((resolve) => realSetTimeout(resolve, 10));
+    }
+  }
 }
 
 async function mockExecutable(file = "/trusted/bin/bl", target = file): Promise<void> {
@@ -650,13 +664,19 @@ process.stdin.on("end", () => {
     "runner kills a POSIX child process group after the 250ms grace",
     async () => {
       const bin = await makeDir();
+      const readySeen = path.join(bin, "ready.flag");
       const termSeen = path.join(bin, "term.flag");
-      const started = Date.now();
-      const result = await runAlibabaTokenPlanProcess(
-        spawnRequest(process.execPath, {
-          args: [
-            "-e",
-            `const fs = require("node:fs");
+      const cwd = await makeDir();
+      // The runner's timers run on a fake clock, so its timeout cannot fire before
+      // the child has registered its SIGTERM handler, however slowly the child starts.
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const kill = vi.spyOn(process, "kill");
+      try {
+        const running = runAlibabaTokenPlanProcess(
+          spawnRequest(process.execPath, {
+            args: [
+              "-e",
+              `const fs = require("node:fs");
 const { spawn } = require("node:child_process");
 process.on("SIGTERM", () => {
   fs.writeFileSync(${JSON.stringify(termSeen)}, "term");
@@ -665,18 +685,29 @@ spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); setInterval(() 
   detached: false,
   stdio: "ignore",
 });
+fs.writeFileSync(${JSON.stringify(readySeen)}, "ready");
 setInterval(() => {}, 30000);
 `,
-          ],
-          timeoutMs: 80,
-          cwd: await makeDir(),
-        }),
-      );
-      const elapsed = Date.now() - started;
-      expect(result.timedOut).toBe(true);
-      expect(result.truncated).toBe(false);
-      expect(elapsed).toBeGreaterThanOrEqual(ALIBABA_TOKEN_PLAN_KILL_GRACE_MS);
-      expect(await (await import("node:fs/promises")).readFile(termSeen, "utf8")).toBe("term");
+            ],
+            timeoutMs: 80,
+            cwd,
+          }),
+        );
+        await waitForFile(readySeen);
+        vi.advanceTimersByTime(80);
+        await waitForFile(termSeen);
+        vi.advanceTimersByTime(ALIBABA_TOKEN_PLAN_KILL_GRACE_MS - 1);
+        expect(kill.mock.calls.map(([, signal]) => signal)).toEqual(["SIGTERM"]);
+        vi.advanceTimersByTime(1);
+        const result = await running;
+        expect(kill.mock.calls.map(([, signal]) => signal)).toEqual(["SIGTERM", "SIGKILL"]);
+        expect(result.timedOut).toBe(true);
+        expect(result.truncated).toBe(false);
+        expect(await (await import("node:fs/promises")).readFile(termSeen, "utf8")).toBe("term");
+      } finally {
+        kill.mockRestore();
+        vi.useRealTimers();
+      }
     },
   );
 

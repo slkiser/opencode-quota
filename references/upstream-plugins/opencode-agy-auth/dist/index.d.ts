@@ -1,7 +1,8 @@
 import { AgyCLIOAuthPlugin, GoogleOAuthPlugin } from "./src/plugin";
+import { setupOpenCodeV2, v2PluginDefinition } from "./src/plugin/v2";
+import type { DualOpenCodePlugin } from "./src/plugin/types";
 export { AgyCLIOAuthPlugin, GoogleOAuthPlugin };
-declare const _default: {
-    id: string;
-    server: typeof AgyCLIOAuthPlugin;
-};
-export default _default;
+export { setupOpenCodeV2, v2PluginDefinition };
+export * from "./src/plugin/types";
+declare const dualPlugin: DualOpenCodePlugin;
+export default dualPlugin;

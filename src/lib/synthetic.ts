@@ -18,6 +18,8 @@ import type { QuotaError, SyntheticQuotaWindow, SyntheticResult } from "./types.
 
 const SYNTHETIC_QUOTA_URL = "https://api.synthetic.new/v2/quotas";
 const SYNTHETIC_CREDIT_AMOUNT_PATTERN = /^\$(\d+)(?:\.(\d{1,2}))?$/;
+const SYNTHETIC_MISSING_WINDOWS_ERROR =
+  "Synthetic API response missing rollingFiveHourLimit and weeklyTokenLimit quota windows";
 
 export {
   getSyntheticKeyDiagnostics,
@@ -27,6 +29,10 @@ export {
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function isAbsent(value: unknown): boolean {
+  return value === undefined || value === null;
 }
 
 function isEmptyPlainObject(value: unknown): boolean {
@@ -89,9 +95,14 @@ function parseSyntheticCreditAmount(value: unknown): number | null {
   return normalizeSyntheticAmount((whole * 100 + fractional) / 100);
 }
 
+/** Plans without a 5-hour limit omit `rollingFiveHourLimit`; that yields no window. */
 function buildRollingFiveHourWindow(
   payload: Record<string, unknown>,
-): SyntheticQuotaWindow | QuotaError {
+): SyntheticQuotaWindow | QuotaError | undefined {
+  if (isAbsent(payload.rollingFiveHourLimit)) {
+    return undefined;
+  }
+
   const rolling = asRecord(payload.rollingFiveHourLimit);
   if (!rolling) {
     return invalidSyntheticResponse(
@@ -131,7 +142,11 @@ function buildRollingFiveHourWindow(
 
 function buildWeeklyTokenWindow(
   payload: Record<string, unknown>,
-): SyntheticQuotaWindow | QuotaError {
+): SyntheticQuotaWindow | QuotaError | undefined {
+  if (isAbsent(payload.weeklyTokenLimit)) {
+    return undefined;
+  }
+
   const weekly = asRecord(payload.weeklyTokenLimit);
   if (!weekly) {
     return invalidSyntheticResponse("Synthetic API response missing weeklyTokenLimit quota window");
@@ -198,26 +213,28 @@ export async function querySyntheticQuota(
 
         const record = asRecord(data);
         if (!record) {
-          return invalidSyntheticResponse(
-            "Synthetic API response missing rollingFiveHourLimit quota window",
-          );
+          return invalidSyntheticResponse(SYNTHETIC_MISSING_WINDOWS_ERROR);
         }
 
         const rollingFiveHour = buildRollingFiveHourWindow(record);
-        if (!("limit" in rollingFiveHour)) {
+        if (rollingFiveHour && !("limit" in rollingFiveHour)) {
           return rollingFiveHour;
         }
 
         const weekly = buildWeeklyTokenWindow(record);
-        if (!("limit" in weekly)) {
+        if (weekly && !("limit" in weekly)) {
           return weekly;
+        }
+
+        if (!rollingFiveHour && !weekly) {
+          return invalidSyntheticResponse(SYNTHETIC_MISSING_WINDOWS_ERROR);
         }
 
         return {
           success: true,
           windows: {
-            fiveHour: rollingFiveHour,
-            weekly,
+            ...(rollingFiveHour ? { fiveHour: rollingFiveHour } : {}),
+            ...(weekly ? { weekly } : {}),
           },
         };
       },

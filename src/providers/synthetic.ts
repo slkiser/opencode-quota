@@ -80,26 +80,31 @@ export const syntheticProvider: QuotaProvider = {
     const result = await querySyntheticQuota({ requestTimeoutMs: ctx.config?.requestTimeoutMs });
     const providerResult = mapNullableProviderResult(result, {
       errorLabel: "Synthetic",
-      onSuccess: (result) =>
-        attemptedResult(
-          [
+      onSuccess: (result) => {
+        const entries: QuotaToastEntry[] = [];
+        if (result.windows.fiveHour) {
+          entries.push(
             toSyntheticEntry({
               window: result.windows.fiveHour,
               suffix: "5h",
               label: "5h:",
             }),
+          );
+        }
+        if (result.windows.weekly) {
+          entries.push(
             toSyntheticEntry({
               window: result.windows.weekly,
               suffix: "Weekly",
               label: "Weekly:",
               currency: true,
             }),
-          ],
-          [],
-          {
-            singleWindowShowRight: true,
-          },
-        ),
+          );
+        }
+        return attemptedResult(entries, [], {
+          singleWindowShowRight: true,
+        });
+      },
     });
     const detail = `configured=${diagnostics.configured ? "true" : "false"}${diagnostics.source ? ` source=${diagnostics.source}` : ""}${diagnostics.checkedPaths.length > 0 ? ` checked=${diagnostics.checkedPaths.join(" | ")}` : ""}`;
     return withStatusDetails(providerResult, [{ key: "synthetic api key", value: detail }]);
