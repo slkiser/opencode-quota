@@ -1,259 +1,203 @@
-import { describe, expect, it, vi } from "vitest";
+/**
+ * Alibaba Personal Token Plan as one module: a fake Alibaba Cloud CLI (`bl`) on the PATH, a
+ * shell script that prints a reply or exits with the CLI's codes. The CLI runs on macOS and Linux
+ * only; elsewhere the provider is not set up.
+ */
 
-import type { QuotaToastEntry } from "../src/lib/entries.js";
-import { modelProviderMatchesRuntimeId } from "../src/lib/provider-model-matching.js";
-import { matchesQuotaProviderCurrentSelection } from "../src/lib/quota-render-data.js";
-import { alibabaCodingPlanProvider } from "../src/providers/alibaba-coding-plan.js";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
+
+import { rowsFromProviderResult } from "../src/core/rows.js";
 import { alibabaTokenPlanProvider } from "../src/providers/alibaba-token-plan.js";
-import { renderAccountingFourSurfaces } from "./helpers/accounting-four-surface.js";
-import {
-  expectAttemptedWithErrorLabel,
-  expectAttemptedWithNoErrors,
-  expectNotAttempted,
-  visibleEntries,
-} from "./helpers/provider-assertions.js";
+import { rowSummary } from "./helpers/provider-fetch.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 
-vi.mock("../src/lib/alibaba-token-plan.js", async () => {
-  const actual = await vi.importActual<typeof import("../src/lib/alibaba-token-plan.js")>(
-    "../src/lib/alibaba-token-plan.js",
+const SUPPORTED = process.platform === "darwin" || process.platform === "linux";
+const RESET = "2024-05-01T20:53:20.000Z";
+const PLATFORM = { key: "platform", value: process.platform };
+const originalPath = process.env.PATH;
+
+let root = "";
+let project = "";
+
+beforeEach(() => {
+  root = mkdtempSync(join(tmpdir(), "opencode-quota-alibaba-token-plan-"));
+  project = join(root, "project");
+  mkdirSync(project);
+  // An empty folder, so no `bl` installed on this machine is found.
+  const emptyBin = join(root, "empty-bin");
+  mkdirSync(emptyBin);
+  process.env.PATH = emptyBin;
+});
+
+afterEach(() => {
+  process.env.PATH = originalPath;
+  rmSync(root, { recursive: true, force: true });
+});
+
+/** Puts a `bl` running `script` first on the PATH, in `folder` (below the temp root). */
+function installCli(script: string, folder = join(root, "bin")): void {
+  mkdirSync(folder, { recursive: true });
+  const file = join(folder, "bl");
+  writeFileSync(file, `#!/bin/sh\n${script}\n`);
+  chmodSync(file, 0o755);
+  process.env.PATH = `${folder}:/usr/bin:/bin`;
+}
+
+/** A CLI that prints this usage reply. */
+function replying(usage: Record<string, unknown>): string {
+  return `printf '%s' '${JSON.stringify(usage)}'`;
+}
+
+async function fetchTokenPlan(requestTimeoutMs = 5_000) {
+  return rowsFromProviderResult(
+    "alibaba-token-plan",
+    await alibabaTokenPlanProvider.fetch({
+      workspaceRoot: project,
+      locationDirectory: project,
+      config: { requestTimeoutMs },
+    } as never),
   );
-  return {
-    ...actual,
-    resolveAlibabaTokenPlanExecutable: vi.fn(actual.resolveAlibabaTokenPlanExecutable),
-    queryAlibabaTokenPlanQuota: vi.fn(actual.queryAlibabaTokenPlanQuota),
-  };
-});
-
-vi.mock("../src/lib/alibaba-coding-plan-local-quota.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/lib/alibaba-coding-plan-local-quota.js")>();
-  return {
-    ...actual,
-    readAlibabaCodingPlanQuotaState: vi.fn(actual.readAlibabaCodingPlanQuotaState),
-  };
-});
-
-const accounting = {
-  resultType: "quota" as const,
-  acquisitionMethod: "local_cli" as const,
-  ownership: "maintained" as const,
-  authority: "provider_reported" as const,
-};
+}
 
 describe("alibaba-token-plan provider", () => {
-  it("is available from explicit selection or recognized runtime presence without probing PATH", async () => {
-    const { resolveAlibabaTokenPlanExecutable } = await import("../src/lib/alibaba-token-plan.js");
-    const supported = process.platform === "darwin" || process.platform === "linux";
+  it("is available from explicit selection or recognized runtime presence, whatever the PATH holds", async () => {
     const selected = createProviderAvailabilityContext({
       providerIds: ["alibaba-token-plan"],
     });
-    await expect(alibabaTokenPlanProvider.isAvailable(selected)).resolves.toBe(supported);
-    expect(resolveAlibabaTokenPlanExecutable).not.toHaveBeenCalled();
+    await expect(alibabaTokenPlanProvider.isAvailable(selected)).resolves.toBe(SUPPORTED);
 
     const codingPlanOnly = createProviderAvailabilityContext({
       providerIds: ["alibaba", "alibaba-coding-plan"],
     });
     await expect(alibabaTokenPlanProvider.isAvailable(codingPlanOnly)).resolves.toBe(false);
-    expect(resolveAlibabaTokenPlanExecutable).not.toHaveBeenCalled();
 
     const runtime = createProviderAvailabilityContext({
       configOverrides: { currentProviderID: "alibaba-token-plan" },
     });
-    await expect(alibabaTokenPlanProvider.isAvailable(runtime)).resolves.toBe(supported);
+    await expect(alibabaTokenPlanProvider.isAvailable(runtime)).resolves.toBe(SUPPORTED);
 
     const model = createProviderAvailabilityContext({
       configOverrides: { currentModel: "alibaba-token-plan/qwen3" },
     });
-    await expect(alibabaTokenPlanProvider.isAvailable(model)).resolves.toBe(supported);
+    await expect(alibabaTokenPlanProvider.isAvailable(model)).resolves.toBe(SUPPORTED);
   });
 
-  it("matches only its own runtime identity and never Coding Plan models", () => {
-    expect(
-      alibabaTokenPlanProvider.matchesCurrentModel("alibaba-token-plan/qwen3", {
-        currentProviderID: "alibaba-token-plan",
-      } as any),
-    ).toBe(true);
-    expect(
-      alibabaTokenPlanProvider.matchesCurrentModel("alibaba/qwen3-coder", {
-        currentProviderID: "alibaba",
-      } as any),
-    ).toBe(false);
-    expect(
-      alibabaTokenPlanProvider.matchesCurrentModel("alibaba-coding-plan/qwen3", {
-        currentProviderID: "alibaba-coding-plan",
-      } as any),
-    ).toBe(false);
-    expect(alibabaTokenPlanProvider.matchesCurrentModel("alibaba/qwen3-coder")).toBe(false);
-    expect(modelProviderMatchesRuntimeId("alibaba/qwen3", "alibaba-token-plan")).toBe(false);
-    expect(modelProviderMatchesRuntimeId("alibaba-token-plan/qwen3", "alibaba-coding-plan")).toBe(
-      false,
-    );
-    expect(modelProviderMatchesRuntimeId("alibaba-token-plan/qwen3", "alibaba-token-plan")).toBe(
-      true,
-    );
+  it.each([
+    ["alibaba-token-plan/qwen3", "alibaba-token-plan", true],
+    ["alibaba/qwen3-coder", "alibaba", false],
+    ["alibaba-coding-plan/qwen3", "alibaba-coding-plan", false],
+    ["alibaba-token-plan/qwen3", undefined, true],
+    ["alibaba/qwen3-coder", undefined, false],
+  ])("matchesCurrentModel(%s, provider %s) -> %s", (model, currentProviderID, expected) => {
+    const context = currentProviderID ? ({ currentProviderID } as never) : undefined;
+    expect(alibabaTokenPlanProvider.matchesCurrentModel?.(model, context)).toBe(expected);
   });
 
-  it("probes bl for the project folder quota is computed for", async () => {
-    const { queryAlibabaTokenPlanQuota } = await import("../src/lib/alibaba-token-plan.js");
-    vi.mocked(queryAlibabaTokenPlanQuota).mockResolvedValue({
-      ok: true,
-      weekly: { percentRemaining: 60 },
-    });
+  it.runIf(SUPPORTED)("never runs a bl from inside the project folder", async () => {
+    installCli(replying({ per1WeekPercentage: 0.4 }), join(project, "bin"));
 
-    await alibabaTokenPlanProvider.fetch({
-      workspaceRoot: "/home/user/project",
-      config: { requestTimeoutMs: 5000 },
-    } as never);
+    const fetched = await fetchTokenPlan();
 
-    expect(queryAlibabaTokenPlanQuota).toHaveBeenLastCalledWith({
-      requestTimeoutMs: 5000,
-      runtime: { cwd: "/home/user/project" },
-    });
+    expect(fetched.rows).toEqual([]);
+    expect(fetched.debug).toContainEqual({ key: "failure_kind", value: "executable_not_found" });
   });
 
-  it("returns a fixed attempted setup failure when the CLI is absent", async () => {
-    const { queryAlibabaTokenPlanQuota } = await import("../src/lib/alibaba-token-plan.js");
-    vi.mocked(queryAlibabaTokenPlanQuota).mockResolvedValue({
-      ok: false,
-      error: {
-        kind: "executable_not_found",
-        message: "Alibaba Cloud CLI (bl) was not found on the trusted PATH.",
-      },
-    });
-    const out = await alibabaTokenPlanProvider.fetch({ config: {} } as any);
-    expectAttemptedWithErrorLabel(out, "Alibaba Personal Token Plan");
-    expect(out.errors[0]?.message).toBe(
-      "Alibaba Cloud CLI (bl) was not found on the trusted PATH.",
-    );
-  });
-
-  it("returns not-attempted on unsupported platforms", async () => {
-    const { queryAlibabaTokenPlanQuota } = await import("../src/lib/alibaba-token-plan.js");
-    vi.mocked(queryAlibabaTokenPlanQuota).mockResolvedValue({
-      ok: false,
-      error: {
-        kind: "unsupported_platform",
-        message: "Alibaba Personal Token Plan is not supported on this platform.",
-      },
-    });
-    const out = await alibabaTokenPlanProvider.fetch({ config: {} } as any);
-    expectNotAttempted(out);
-  });
-
-  it("maps official windows without fabricating a sibling", async () => {
-    const { queryAlibabaTokenPlanQuota } = await import("../src/lib/alibaba-token-plan.js");
-    vi.mocked(queryAlibabaTokenPlanQuota).mockResolvedValue({
-      ok: true,
-      weekly: {
-        percentRemaining: 60,
-        resetTimeIso: "2024-05-01T20:53:20.000Z",
-      },
-    });
-    const out = await alibabaTokenPlanProvider.fetch({ config: { requestTimeoutMs: 5000 } } as any);
-    expectAttemptedWithNoErrors(out);
-    expect(visibleEntries(out.entries, "alibaba-token-plan")).toEqual([
-      {
-        name: "Alibaba Personal Token Plan Weekly",
-        group: "Alibaba Personal Token Plan",
-        label: "Weekly:",
-        percentRemaining: 60,
-        resetTimeIso: "2024-05-01T20:53:20.000Z",
-      },
-    ]);
-    expect(out.entries.some((entry) => entry.label === "5h:")).toBe(false);
-    expect(
-      matchesQuotaProviderCurrentSelection({
-        provider: alibabaTokenPlanProvider,
-        currentProviderID: "alibaba-token-plan",
-        currentModel: "alibaba-token-plan/qwen3",
+  it.runIf(SUPPORTED).each([
+    [
+      "both windows",
+      replying({
+        per5HourPercentage: 0.6,
+        per1WeekPercentage: 0.4,
+        per1WeekResetTime: Date.parse(RESET),
       }),
-    ).toBe(true);
-    expect(
-      matchesQuotaProviderCurrentSelection({
-        provider: alibabaCodingPlanProvider,
-        currentProviderID: "alibaba-token-plan",
-        currentModel: "alibaba-token-plan/qwen3",
-      }),
-    ).toBe(false);
-  });
-
-  it("keeps Coding Plan fetch successful while Token Plan fails", async () => {
-    const originalKey = process.env.ALIBABA_API_KEY;
-    process.env.ALIBABA_API_KEY = "coding-plan-non-regression-key";
-    try {
-      const { queryAlibabaTokenPlanQuota } = await import("../src/lib/alibaba-token-plan.js");
-      vi.mocked(queryAlibabaTokenPlanQuota).mockResolvedValue({
-        ok: false,
-        error: {
-          kind: "not_authenticated",
-          message:
-            "Alibaba Cloud console session is missing or expired. Run `bl auth login --console`.",
+      [
+        ["alibaba-token-plan.five_hour", null, "5h", "five_hour", 40, null],
+        ["alibaba-token-plan.weekly", null, "Weekly", "week", 60, RESET],
+      ],
+      undefined,
+      [{ key: "cli_available", value: "true" }, PLATFORM, { key: "windows", value: "5h,weekly" }],
+    ],
+    [
+      "only the weekly window, without making up the other",
+      replying({ per1WeekPercentage: 0.4, per1WeekResetTime: Date.parse(RESET) }),
+      [["alibaba-token-plan.weekly", null, "Weekly", "week", 60, RESET]],
+      undefined,
+      [{ key: "cli_available", value: "true" }, PLATFORM, { key: "windows", value: "weekly" }],
+    ],
+    [
+      "a missing CLI",
+      undefined,
+      [],
+      { code: "local_tool" },
+      [
+        { key: "cli_available", value: "false" },
+        PLATFORM,
+        { key: "failure_kind", value: "executable_not_found" },
+        {
+          key: "error",
+          value:
+            "Alibaba Personal Token Plan: Alibaba Cloud CLI (bl) was not found on the trusted PATH.",
         },
-      });
-      const tokenOut = await alibabaTokenPlanProvider.fetch({ config: {} } as any);
-      expectAttemptedWithErrorLabel(tokenOut, "Alibaba Personal Token Plan");
+        { key: "error_kind", value: "local_tool" },
+      ],
+    ],
+    [
+      "an expired console sign-in",
+      "exit 3",
+      [],
+      { code: "login_expired" },
+      [
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "failure_kind", value: "not_authenticated" },
+        {
+          key: "error",
+          value:
+            "Alibaba Personal Token Plan: Alibaba Cloud console session is missing or expired. Run `bl auth login --console`.",
+        },
+        { key: "error_kind", value: "login_expired" },
+      ],
+    ],
+    [
+      "a timeout",
+      "exec sleep 5",
+      [],
+      { code: "timeout" },
+      [
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "failure_kind", value: "timeout" },
+        {
+          key: "error",
+          value: "Alibaba Personal Token Plan: Timed out while running the Alibaba Cloud CLI.",
+        },
+        { key: "error_kind", value: "timeout" },
+      ],
+    ],
+  ])("shows %s", async (name, script, rows, error, debug) => {
+    if (script !== undefined) installCli(script);
 
-      const { readAlibabaCodingPlanQuotaState } = await import(
-        "../src/lib/alibaba-coding-plan-local-quota.js"
-      );
-      vi.mocked(readAlibabaCodingPlanQuotaState).mockResolvedValue({
-        version: 1,
-        recent: [],
-        updatedAt: Date.now(),
-      });
-      const codingOut = await alibabaCodingPlanProvider.fetch({
-        config: { quotaProviders: [] },
-      } as any);
-      expectAttemptedWithNoErrors(codingOut);
-      expect(visibleEntries(codingOut.entries, "alibaba-coding-plan").length).toBeGreaterThan(0);
-      expect(JSON.stringify(codingOut)).not.toContain("Alibaba Personal Token Plan");
-      expect(JSON.stringify(codingOut)).not.toContain("bl auth login");
-    } finally {
-      if (originalKey === undefined) delete process.env.ALIBABA_API_KEY;
-      else process.env.ALIBABA_API_KEY = originalKey;
-    }
+    // Only the timeout case waits out a short limit; the others get time to start the CLI.
+    const fetched = await fetchTokenPlan(name === "a timeout" ? 300 : undefined);
+
+    expect(rowSummary(fetched.rows)).toEqual(rows);
+    if (error) expect(fetched.error).toMatchObject(error);
+    else expect(fetched.error).toBeUndefined();
+    expect(fetched.debug).toEqual(debug);
   });
 
-  it("surfaces sanitized console-auth failure as an attempted error", async () => {
-    const { queryAlibabaTokenPlanQuota } = await import("../src/lib/alibaba-token-plan.js");
-    vi.mocked(queryAlibabaTokenPlanQuota).mockResolvedValue({
-      ok: false,
-      error: {
-        kind: "not_authenticated",
-        message:
-          "Alibaba Cloud console session is missing or expired. Run `bl auth login --console`.",
-      },
-    });
-    const out = await alibabaTokenPlanProvider.fetch({ config: {} } as any);
-    expectAttemptedWithErrorLabel(out, "Alibaba Personal Token Plan");
-    expect(out.errors[0]?.message).toContain("bl auth login --console");
-    expect(JSON.stringify(out)).not.toContain("stderr");
-  });
-});
+  it.runIf(!SUPPORTED)("is not set up on an unsupported platform", async () => {
+    const fetched = await fetchTokenPlan();
 
-describe("alibaba-token-plan four-surface formatting", () => {
-  it("renders only returned windows across command, toast, sidebar, and compact", () => {
-    const entries: QuotaToastEntry[] = [
-      {
-        accounting,
-        name: "Alibaba Personal Token Plan Weekly",
-        group: "Alibaba Personal Token Plan",
-        label: "Weekly:",
-        percentRemaining: 60,
-      },
-    ];
-    const outputs = renderAccountingFourSurfaces({
-      data: { entries, errors: [] },
-      accountingDetail: "summary",
-      toastMaxWidth: 80,
-      toastNarrowAt: 44,
-      compactMaxWidth: 160,
-    });
-    for (const output of Object.values(outputs)) {
-      expect(output).toContain("Alibaba Personal Token Plan");
-      expect(output).toContain("60%");
-      expect(output).not.toContain("Alibaba Coding Plan");
-    }
+    expect(fetched.rows).toEqual([]);
+    expect(fetched.error).toMatchObject({ code: "not_configured" });
+    expect(fetched.debug).toEqual([
+      { key: "cli_available", value: "true" },
+      PLATFORM,
+      { key: "failure_kind", value: "unsupported_platform" },
+    ]);
   });
 });

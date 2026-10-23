@@ -1,11 +1,10 @@
 /**
  * Anthropic Claude quota probing.
  *
- * Uses the local Claude CLI/runtime to detect install/auth state first. When
- * Claude auth is confirmed but local quota windows are missing, it falls back
- * to Anthropic's OAuth usage endpoint using the first usable OAuth access
- * token: OpenCode's own Anthropic login, then Claude OAuth credentials (macOS
- * Keychain first, then the local credentials file).
+ * Each Claude login stored in OpenCode is asked once at Anthropic's OAuth usage endpoint.
+ * Without one, the local Claude CLI/runtime is probed for install/auth state; when Claude auth
+ * is confirmed but local quota windows are missing, the usage endpoint is asked with Claude's
+ * own OAuth credentials (macOS Keychain first, then the local credentials file).
  */
 
 import { execFile } from "child_process";
@@ -15,12 +14,14 @@ import { readFile } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
 
-import { resolveAnthropicOAuthCached } from "./anthropic-auth.js";
+import type { ErrorFacts } from "../core/errors.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
-import { fetchWithTimeout } from "./http.js";
+import { failureFacts, parseRetryAfterMs, requestJson } from "./http.js";
+import { asRecord, finiteNumber, nonEmptyString } from "./json-guards.js";
+import { type CredentialRow, readCredentialRows, readOAuthLogin } from "./opencode-auth.js";
 import {
-  composeResolvedAuthIdentities,
   deriveResolvedAuthIdentity,
+  loginListIdentity,
   type ResolvedAuthIdentity,
 } from "./resolved-auth-identity.js";
 
@@ -35,36 +36,46 @@ const ANTHROPIC_OAUTH_COOLDOWN_MAX_ENTRIES = 16;
 const ANTHROPIC_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const ANTHROPIC_BETA_HEADER = "oauth-2025-04-20";
 const CLAUDE_CODE_CREDENTIALS_SERVICE = "Claude Code-credentials";
+const CLAUDE_KEYCHAIN_LOCATION = `macOS Keychain service ${CLAUDE_CODE_CREDENTIALS_SERVICE}`;
+const CLAUDE_NOT_AUTHENTICATED_MESSAGE =
+  "Claude is not authenticated. Run `claude auth login` and try again.";
 const CLAUDE_NO_LOCAL_QUOTA_MESSAGE =
   "Claude CLI auth detected, but local quota windows were not exposed.";
 const ANTHROPIC_NO_QUOTA_MESSAGE =
   "Claude CLI auth detected, but quota was unavailable from the local CLI and OAuth credential sources.";
 
-export interface AnthropicQuotaWindow {
-  utilization?: number;
-  used_percentage?: number;
-  usedPercentage?: number;
-  used_percent?: number;
-  usedPercent?: number;
-  percent_used?: number;
-  percentUsed?: number;
-  resets_at?: string;
-  resetsAt?: string;
-  reset_at?: string;
-  resetAt?: string;
-}
-
-export interface AnthropicExtraUsage {
-  is_enabled?: boolean;
-  utilization?: number;
-}
-
-export interface AnthropicUsageResponse {
-  five_hour: AnthropicQuotaWindow;
-  seven_day: AnthropicQuotaWindow;
-  extra_usage?: AnthropicExtraUsage;
-  limits?: unknown[];
-}
+const USED_PERCENT_KEYS = [
+  "utilization",
+  "used_percentage",
+  "usedPercentage",
+  "used_percent",
+  "usedPercent",
+  "percent_used",
+  "percentUsed",
+];
+const NESTED_USAGE_KEYS = [
+  "quota",
+  "usage",
+  "rate_limits",
+  "rateLimits",
+  "oauth_usage",
+  "oauthUsage",
+];
+const UNSUPPORTED_COMMAND_TEXT = ["unknown command", "unrecognized command", "unexpected argument"];
+const UNAUTHENTICATED_TEXT = [
+  "not logged in",
+  "login required",
+  "authentication required",
+  "run `claude login`",
+  "run `claude auth login`",
+  "run claude login",
+  "run claude auth login",
+];
+const COMMAND_MISSING_TEXT = [
+  "command not found",
+  "not recognized as an internal or external command",
+  "no such file or directory",
+];
 
 export interface AnthropicQuotaResult {
   success: true;
@@ -74,31 +85,26 @@ export interface AnthropicQuotaResult {
   fable_weekly?: { percentRemaining: number; resetTimeIso?: string };
 }
 
-export interface AnthropicUsageParseOptions {
-  includeExtraUsage?: boolean;
-}
-
-export interface AnthropicQuotaError {
+interface AnthropicQuotaError {
   success: false;
   error: string;
+  facts?: ErrorFacts;
+  /** Anthropic rejected the token (HTTP 401 or 403). */
+  rejected?: true;
 }
 
-export type AnthropicResult = AnthropicQuotaResult | AnthropicQuotaError | null;
-export type AnthropicAuthStatus = "authenticated" | "unauthenticated" | "unknown";
-export type AnthropicQuotaSource =
-  | "claude-auth-status-json"
-  | "claude-credentials-oauth-api"
-  | "opencode-auth-oauth-api"
-  | "none";
+type AnthropicAuthStatus = "authenticated" | "unauthenticated" | "unknown";
+type AnthropicQuotaSource = "claude-auth-status-json" | "claude-credentials-oauth-api" | "none";
 
+/** What the Claude CLI and Claude's own credentials gave, without OpenCode's logins. */
 export interface AnthropicDiagnostics {
   installed: boolean;
   version: string | null;
   authStatus: AnthropicAuthStatus;
   quotaSupported: boolean;
   quotaSource: AnthropicQuotaSource;
-  /** Credential store that supplied the OAuth token for the usage probe. */
-  oauthCredentialSource?: AnthropicCredentialSource;
+  /** Set when Claude's own OAuth token was read for the usage probe. */
+  oauthCredentialSource?: "claude-credentials";
   /**
    * The Claude CLI the probe ran: the configured path, `claude (PATH)`, or an
    * install-folder path. Null when no Claude CLI was found.
@@ -106,33 +112,31 @@ export interface AnthropicDiagnostics {
   binaryPath: string | null;
   checkedCommands: string[];
   message?: string;
+  /** The facts of the usage request that failed. */
+  facts?: ErrorFacts;
   quota?: AnthropicQuotaResult;
 }
 
-export interface AnthropicProbeOptions {
+interface AnthropicProbeOptions {
   binaryPath?: string;
   requestTimeoutMs?: number;
 }
 
-type ClaudeCommandResult = {
+type ClaudeCommandInvocation = {
+  file: string;
+  args: string[];
+  display: string;
+};
+
+type QuotaWindow = { percentRemaining: number; resetTimeIso?: string };
+
+type CommandResult = {
   code: number | null;
   stdout: string;
   stderr: string;
   timedOut: boolean;
   spawnErrorCode?: number | string;
   errorMessage?: string;
-};
-
-export type ClaudeCommandInvocation = {
-  file: string;
-  args: string[];
-  display: string;
-};
-
-type AnthropicDiagnosticsCacheEntry = {
-  timestamp: number;
-  value: AnthropicDiagnostics | null;
-  inFlight?: Promise<AnthropicDiagnostics>;
 };
 
 type AnthropicLocalDiagnostics = {
@@ -145,71 +149,83 @@ type AnthropicLocalDiagnostics = {
   localQuota?: AnthropicQuotaResult;
 };
 
-type AnthropicLocalDiagnosticsCacheEntry = {
-  timestamp: number;
-  value: AnthropicLocalDiagnostics | null;
-  inFlight?: Promise<AnthropicLocalDiagnostics>;
-};
-
-type AnthropicOAuthCooldown = {
-  failureCount: number;
-  blockedUntilMs: number;
-};
-
-/** Which credential store provided the OAuth access token used for the usage probe. */
-export type AnthropicCredentialSource = "opencode-auth" | "claude-credentials";
+type ProbeCacheEntry<T> = { value: T; timestamp: number } | { inFlight: Promise<T> };
 
 type AnthropicCredentialsAccess =
-  | {
-      state: "configured";
-      accessToken: string;
-      source: AnthropicCredentialSource;
-    }
-  | {
-      state: "unavailable";
-      detail?: string;
-    };
+  | { state: "configured"; accessToken: string }
+  | { state: "unavailable"; detail: string };
 
 type ClaudeCredentialSourceResult =
-  | {
-      state: "configured";
-      accessToken: string;
-    }
-  | {
-      state: "not-found";
-      location: string;
-    }
-  | {
-      state: "unavailable";
-      detail: string;
-    };
+  | { state: "configured"; accessToken: string }
+  | { state: "not-found"; location: string }
+  | { state: "unavailable"; detail: string };
 
 type AnthropicFallbackQuota =
-  | {
-      state: "success";
-      quota: AnthropicQuotaResult;
-    }
-  | {
-      state: "unavailable";
-      detail?: string;
-      failureKind?: "authentication";
-    };
+  | { state: "success"; quota: AnthropicQuotaResult }
+  | { state: "unavailable"; detail: string; facts?: ErrorFacts; rejected?: true };
 
 type ParsedAuthProbe = {
   authStatus: AnthropicAuthStatus;
   message?: string;
+  /** The parsed `auth status --json` output, kept when it confirms auth. */
   jsonPayload?: unknown;
   unsupportedCommand?: boolean;
 };
 
-const diagnosticsCache = new Map<string, AnthropicDiagnosticsCacheEntry>();
-const localDiagnosticsCache = new Map<string, AnthropicLocalDiagnosticsCacheEntry>();
-const anthropicOAuthCooldowns = new Map<string, AnthropicOAuthCooldown>();
+const diagnosticsCache = new Map<string, ProbeCacheEntry<AnthropicDiagnostics>>();
+const localDiagnosticsCache = new Map<string, ProbeCacheEntry<AnthropicLocalDiagnostics>>();
+const anthropicOAuthCooldowns = new Map<string, { failureCount: number; blockedUntilMs: number }>();
 const anthropicOAuthInFlight = new Map<string, Promise<AnthropicFallbackQuota>>();
 
-export function resolveAnthropicBinaryPath(binaryPath?: string): string {
-  const trimmed = binaryPath?.trim();
-  return trimmed ? trimmed : DEFAULT_CLAUDE_BINARY;
+type ResolvedAnthropicOAuth =
+  | { state: "none" }
+  | { state: "failed"; error: string }
+  | { state: "expired"; expiresAt: number }
+  | { state: "configured"; accessToken: string; expiresAt?: number };
+
+/** A Claude sign-in's state; `none` for a row that is not an OAuth login or has no token. */
+export function resolveAnthropicOAuth(
+  row: CredentialRow,
+  options: { nowMs?: number } = {},
+): ResolvedAnthropicOAuth {
+  const login = readOAuthLogin(row);
+  if (!login) return { state: "none" };
+  if (login.state === "failed") return { state: "failed", error: login.error };
+
+  const { accessToken, expiresAt } = login;
+  if (!accessToken) return { state: "none" };
+  if (expiresAt !== undefined && expiresAt <= (options.nowMs ?? Date.now())) {
+    return { state: "expired", expiresAt };
+  }
+
+  return expiresAt === undefined
+    ? { state: "configured", accessToken }
+    : { state: "configured", accessToken, expiresAt };
+}
+
+export type AnthropicLogin = {
+  row: CredentialRow;
+  auth: Exclude<ResolvedAnthropicOAuth, { state: "none" }>;
+};
+
+/**
+ * Every OpenCode Claude sign-in with a token, in OpenCode's order (the one it uses first). A
+ * sign-in OpenCode could not return, or whose token expired, stays, so it shows as its own error.
+ */
+export async function readAnthropicLogins(): Promise<AnthropicLogin[]> {
+  return (await readCredentialRows(["anthropic"], { methods: ["oauth"] })).flatMap((row) => {
+    if (row.integrationId !== "anthropic") return [];
+    const auth = resolveAnthropicOAuth(row);
+    return auth.state === "none" ? [] : [{ row, auth }];
+  });
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function resolveAnthropicBinaryPath(binaryPath?: string): string {
+  return binaryPath?.trim() || DEFAULT_CLAUDE_BINARY;
 }
 
 /**
@@ -232,22 +248,9 @@ function formatCommandDisplayArg(value: string): string {
   return /[\s"]/u.test(sanitized) ? JSON.stringify(sanitized) : sanitized;
 }
 
-function formatCommandDisplay(parts: string[]): string {
-  return parts.map(formatCommandDisplayArg).join(" ");
-}
-
 function quoteWindowsCmdArg(value: string): string {
   const escaped = value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, "$1$1");
   return `"${escaped}"`;
-}
-
-function shouldBridgeClaudeCommandThroughWindowsShell(binaryPath: string): boolean {
-  const normalized = binaryPath.trim().toLowerCase();
-  if (!/[\\/]/u.test(normalized)) {
-    return true;
-  }
-
-  return /\.(?:cmd|bat)$/u.test(normalized);
 }
 
 export function buildClaudeCommandInvocation(
@@ -256,12 +259,12 @@ export function buildClaudeCommandInvocation(
   runtime: { platform?: NodeJS.Platform; comspec?: string } = {},
 ): ClaudeCommandInvocation {
   const resolvedBinaryPath = resolveAnthropicBinaryPath(binaryPath);
-  const display = formatCommandDisplay([resolvedBinaryPath, ...args]);
+  const display = [resolvedBinaryPath, ...args].map(formatCommandDisplayArg).join(" ");
+  // On Windows, PATH lookups and .cmd/.bat shims only run through cmd.exe.
+  const needsWindowsShell =
+    !/[\\/]/u.test(resolvedBinaryPath) || /\.(?:cmd|bat)$/iu.test(resolvedBinaryPath);
 
-  if (
-    (runtime.platform ?? process.platform) === "win32" &&
-    shouldBridgeClaudeCommandThroughWindowsShell(resolvedBinaryPath)
-  ) {
+  if ((runtime.platform ?? process.platform) === "win32" && needsWindowsShell) {
     return {
       file: runtime.comspec?.trim() || process.env["ComSpec"]?.trim() || "cmd.exe",
       args: ["/d", "/s", "/c", [resolvedBinaryPath, ...args].map(quoteWindowsCmdArg).join(" ")],
@@ -269,162 +272,57 @@ export function buildClaudeCommandInvocation(
     };
   }
 
-  return {
-    file: resolvedBinaryPath,
-    args: [...args],
-    display,
-  };
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
+  return { file: resolvedBinaryPath, args: [...args], display };
 }
 
 function normalizeResetTimeIso(value: unknown): string | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-
-  const parsed = Date.parse(trimmed);
-  if (!Number.isFinite(parsed)) {
-    return undefined;
-  }
-
-  return new Date(parsed).toISOString();
+  const text = nonEmptyString(value);
+  if (!text) return undefined;
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : undefined;
 }
 
+/** A finite number, or a numeric string such as "35". */
 function normalizeUsagePercent(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return undefined;
-    }
-
-    const parsed = Number(trimmed);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  }
-
-  return undefined;
+  if (typeof value !== "string") return finiteNumber(value);
+  const text = nonEmptyString(value);
+  return text === undefined ? undefined : finiteNumber(Number(text));
 }
 
-function getWindowUsedPercent(window: Record<string, unknown>): number | undefined {
-  const candidates = [
-    window["utilization"],
-    window["used_percentage"],
-    window["usedPercentage"],
-    window["used_percent"],
-    window["usedPercent"],
-    window["percent_used"],
-    window["percentUsed"],
-  ];
-
-  for (const candidate of candidates) {
-    const normalized = normalizeUsagePercent(candidate);
-    if (normalized !== undefined) {
-      return normalized;
-    }
-  }
-
-  return undefined;
-}
-
-function getWindowResetTimeIso(window: Record<string, unknown>): string | undefined {
-  return normalizeResetTimeIso(
-    window["resets_at"] ?? window["resetsAt"] ?? window["reset_at"] ?? window["resetAt"],
-  );
-}
-
-function parseQuotaWindow(
-  window: unknown,
-): { percentRemaining: number; resetTimeIso?: string } | null {
+function parseQuotaWindow(window: unknown): QuotaWindow | null {
   const record = asRecord(window);
-  if (!record) {
-    return null;
-  }
+  if (!record) return null;
 
-  const used = getWindowUsedPercent(record);
-  if (used === undefined) {
-    return null;
-  }
+  const used = USED_PERCENT_KEYS.map((key) => normalizeUsagePercent(record[key])).find(
+    (percent) => percent !== undefined,
+  );
+  if (used === undefined) return null;
 
   return {
     percentRemaining: Math.min(100, Math.round(100 - used)),
-    resetTimeIso: getWindowResetTimeIso(record),
+    resetTimeIso: normalizeResetTimeIso(
+      record["resets_at"] ?? record["resetsAt"] ?? record["reset_at"] ?? record["resetAt"],
+    ),
   };
 }
 
 function parseExtraUsageQuota(extraUsage: unknown): { percentRemaining: number } | undefined {
   const record = asRecord(extraUsage);
-  if (!record || record["is_enabled"] !== true) {
+  const used = finiteNumber(record?.["utilization"]);
+  if (record?.["is_enabled"] !== true || used === undefined || used < 0 || used > 100) {
     return undefined;
   }
-
-  const used = record["utilization"];
-  if (typeof used !== "number" || !Number.isFinite(used) || used < 0 || used > 100) {
-    return undefined;
-  }
-
   return { percentRemaining: Math.round(100 - used) };
 }
 
-function getUsageRoots(data: unknown): Record<string, unknown>[] {
-  const root = asRecord(data);
-  if (!root) {
-    return [];
-  }
-
-  const candidates = [
-    root,
-    asRecord(root["quota"]),
-    asRecord(root["usage"]),
-    asRecord(root["rate_limits"]),
-    asRecord(root["rateLimits"]),
-    asRecord(root["oauth_usage"]),
-    asRecord(root["oauthUsage"]),
-  ];
-
-  const seen = new Set<Record<string, unknown>>();
-  const roots: Record<string, unknown>[] = [];
-
-  for (const candidate of candidates) {
-    if (!candidate || seen.has(candidate)) {
-      continue;
-    }
-    seen.add(candidate);
-    roots.push(candidate);
-  }
-
-  return roots;
-}
-
-function parseFableWeeklyWindow(
-  limits: unknown,
-): { percentRemaining: number; resetTimeIso?: string } | undefined {
-  if (!Array.isArray(limits)) {
-    return undefined;
-  }
+/** The `weekly_scoped` limit for the Fable model in the OAuth usage `limits` list. */
+function parseFableWeeklyWindow(limits: unknown): QuotaWindow | undefined {
+  if (!Array.isArray(limits)) return undefined;
 
   for (const value of limits) {
     const limit = asRecord(value);
-    if (!limit || limit["kind"] !== "weekly_scoped") {
-      continue;
-    }
-
-    const scope = asRecord(limit["scope"]);
-    const model = asRecord(scope?.["model"]);
-    const displayName = model?.["display_name"];
-    if (displayName !== "Fable") {
+    const model = asRecord(asRecord(limit?.["scope"])?.["model"]);
+    if (!limit || limit["kind"] !== "weekly_scoped" || model?.["display_name"] !== "Fable") {
       continue;
     }
 
@@ -432,83 +330,52 @@ function parseFableWeeklyWindow(
       utilization: limit["percent"],
       resets_at: limit["resets_at"],
     });
-    if (window) {
-      return window;
-    }
+    if (window) return window;
   }
 
   return undefined;
 }
 
-function parseUsageResponse(
+/** The first of the response root and its nested usage objects that has both the 5h and 7d windows. */
+function findUsageWindows(
   data: unknown,
-  options: AnthropicUsageParseOptions = {},
-): AnthropicQuotaResult | null {
-  for (const root of getUsageRoots(data)) {
-    const fiveHour = parseQuotaWindow(root["five_hour"] ?? root["fiveHour"]);
-    const sevenDay = parseQuotaWindow(root["seven_day"] ?? root["sevenDay"]);
+): { root: Record<string, unknown>; fiveHour: QuotaWindow; sevenDay: QuotaWindow } | null {
+  const root = asRecord(data);
+  if (!root) return null;
 
-    if (!fiveHour || !sevenDay) {
-      continue;
-    }
-
-    const extraUsage = options.includeExtraUsage
-      ? parseExtraUsageQuota(root["extra_usage"])
-      : undefined;
-
-    return {
-      success: true,
-      five_hour: fiveHour,
-      seven_day: sevenDay,
-      ...(extraUsage ? { extra_usage: extraUsage } : {}),
-    };
+  const candidates = [root, ...NESTED_USAGE_KEYS.map((key) => asRecord(root[key]))];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const fiveHour = parseQuotaWindow(candidate["five_hour"] ?? candidate["fiveHour"]);
+    const sevenDay = parseQuotaWindow(candidate["seven_day"] ?? candidate["sevenDay"]);
+    if (fiveHour && sevenDay) return { root: candidate, fiveHour, sevenDay };
   }
 
   return null;
 }
 
+/** Quota from Claude CLI `auth status --json`: only the 5h and 7d windows. */
+function parseUsageResponse(data: unknown): AnthropicQuotaResult | null {
+  const windows = findUsageWindows(data);
+  return windows
+    ? { success: true, five_hour: windows.fiveHour, seven_day: windows.sevenDay }
+    : null;
+}
+
+/** Quota from the OAuth usage endpoint: the 5h and 7d windows, Usage Credits and Fable weekly. */
 function parseOAuthUsageResponse(data: unknown): AnthropicQuotaResult | null {
-  for (const root of getUsageRoots(data)) {
-    const fiveHour = parseQuotaWindow(root["five_hour"] ?? root["fiveHour"]);
-    const sevenDay = parseQuotaWindow(root["seven_day"] ?? root["sevenDay"]);
+  const windows = findUsageWindows(data);
+  if (!windows) return null;
 
-    if (!fiveHour || !sevenDay) {
-      continue;
-    }
-
-    const extraUsage = parseExtraUsageQuota(root["extra_usage"]);
-    const fableWeekly = parseFableWeeklyWindow(root["limits"]);
-    return {
-      success: true,
-      five_hour: fiveHour,
-      seven_day: sevenDay,
-      ...(extraUsage ? { extra_usage: extraUsage } : {}),
-      ...(fableWeekly ? { fable_weekly: fableWeekly } : {}),
-    };
-  }
-
-  return null;
-}
-
-function getClaudeCredentialsPath(): string {
-  return join(homedir(), ".claude", ".credentials.json");
-}
-
-function getClaudeKeychainLocation(): string {
-  return `macOS Keychain service ${sanitizeDisplayText(CLAUDE_CODE_CREDENTIALS_SERVICE)}`;
-}
-
-function getClaudeCredentialsNotFoundDetail(locations: string[]): string {
-  if (locations.length === 0) {
-    return "Claude OAuth credentials were not found.";
-  }
-
-  if (locations.length === 1) {
-    return `Claude OAuth credentials not found in ${locations[0]}.`;
-  }
-
-  const [head, ...tail] = locations;
-  return `Claude OAuth credentials not found in ${head} or ${tail.join(" or ")}.`;
+  const extraUsage = parseExtraUsageQuota(windows.root["extra_usage"]);
+  const fableWeekly = parseFableWeeklyWindow(windows.root["limits"]);
+  return {
+    success: true,
+    five_hour: windows.fiveHour,
+    seven_day: windows.sevenDay,
+    ...(extraUsage ? { extra_usage: extraUsage } : {}),
+    ...(fableWeekly ? { fable_weekly: fableWeekly } : {}),
+  };
 }
 
 function buildAnthropicNoQuotaDiagnosticsMessage(detail?: string): string {
@@ -518,265 +385,161 @@ function buildAnthropicNoQuotaDiagnosticsMessage(detail?: string): string {
     : ANTHROPIC_NO_QUOTA_MESSAGE;
 }
 
-function extractClaudeCredentialsAccessToken(data: unknown): string {
+function extractClaudeCredentialsAccessToken(data: unknown): string | undefined {
   const root = asRecord(data);
-  if (!root) {
-    return "";
-  }
-
-  for (const candidate of [asRecord(root["claudeAiOauth"]), asRecord(root["oauth"]), root]) {
-    if (!candidate) {
-      continue;
-    }
-
+  for (const candidate of [asRecord(root?.["claudeAiOauth"]), asRecord(root?.["oauth"]), root]) {
     for (const key of ["accessToken", "access_token", "token"]) {
-      const token = candidate[key];
-      if (typeof token === "string" && token.trim()) {
-        return token.trim();
-      }
+      const token = nonEmptyString(candidate?.[key]);
+      if (token) return token;
     }
   }
-
-  return "";
+  return undefined;
 }
 
-function parseClaudeCredentialsAccessToken(
+/** Reads the access token from stored Claude credentials; the Keychain may hold the bare token. */
+function parseClaudeCredentials(
   content: string,
-  options: { allowPlainText: boolean },
-): { accessToken?: string; error?: string } {
+  source: { location: string; parseFailureLabel: string; allowPlainText: boolean },
+): ClaudeCredentialSourceResult {
+  const missing: ClaudeCredentialSourceResult = {
+    state: "unavailable",
+    detail: `Claude OAuth access token missing in ${source.location}.`,
+  };
   const trimmed = content.trim();
-  if (!trimmed) {
-    return { error: "missing" };
-  }
-
   if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
-    return options.allowPlainText ? { accessToken: trimmed } : { error: "missing" };
+    return source.allowPlainText && trimmed
+      ? { state: "configured", accessToken: trimmed }
+      : missing;
   }
 
   try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    const accessToken = extractClaudeCredentialsAccessToken(parsed);
-    return accessToken ? { accessToken } : { error: "missing" };
+    const accessToken = extractClaudeCredentialsAccessToken(JSON.parse(trimmed));
+    return accessToken ? { state: "configured", accessToken } : missing;
   } catch (error) {
     return {
-      error: sanitizeDisplayText(error instanceof Error ? error.message : String(error)),
+      state: "unavailable",
+      detail: `Could not parse ${source.parseFailureLabel}: ${sanitizeDisplayText(errorText(error))}.`,
     };
   }
 }
 
-async function runCredentialCommand(file: string, args: string[]): Promise<ClaudeCommandResult> {
-  return await new Promise<ClaudeCommandResult>((resolve, reject) => {
-    try {
-      execFile(
-        file,
-        args,
-        {
-          encoding: "utf8",
-          timeout: CLAUDE_COMMAND_TIMEOUT_MS,
-          maxBuffer: 1024 * 1024,
-        },
-        (error: Error | null, stdout: string | Buffer, stderr: string | Buffer) => {
-          const stdoutText = typeof stdout === "string" ? stdout : stdout.toString("utf8");
-          const stderrText = typeof stderr === "string" ? stderr : stderr.toString("utf8");
+async function runCommand(file: string, args: string[]): Promise<CommandResult> {
+  return await new Promise<CommandResult>((resolve) => {
+    execFile(
+      file,
+      args,
+      { encoding: "utf8", timeout: CLAUDE_COMMAND_TIMEOUT_MS, maxBuffer: 1024 * 1024 },
+      (error, stdout, stderr) => {
+        if (!error) {
+          resolve({ code: 0, stdout, stderr, timedOut: false });
+          return;
+        }
 
-          if (!error) {
-            resolve({
-              code: 0,
-              stdout: stdoutText,
-              stderr: stderrText,
-              timedOut: false,
-            });
-            return;
-          }
-
-          const execError = error as Error & { code?: number | string; killed?: boolean };
-          resolve({
-            code: typeof execError.code === "number" ? execError.code : null,
-            stdout: stdoutText,
-            stderr: stderrText,
-            timedOut: isTimedOutError(execError),
-            spawnErrorCode: execError.code,
-            errorMessage: execError.message,
-          });
-        },
-      );
-    } catch (error) {
-      reject(error);
-    }
+        const execError = error as Error & { code?: number | string; killed?: boolean };
+        resolve({
+          code: typeof execError.code === "number" ? execError.code : null,
+          stdout,
+          stderr,
+          timedOut:
+            execError.code === "ETIMEDOUT" ||
+            execError.killed === true ||
+            execError.message.toLowerCase().includes("timed out"),
+          spawnErrorCode: execError.code,
+          errorMessage: execError.message,
+        });
+      },
+    );
   });
 }
 
-async function readClaudeCredentialsAccessTokenFromMacOSKeychain(): Promise<ClaudeCredentialSourceResult | null> {
-  if (process.platform !== "darwin") {
-    return null;
-  }
+async function readClaudeCredentialsFromMacOSKeychain(): Promise<ClaudeCredentialSourceResult | null> {
+  if (process.platform !== "darwin") return null;
 
-  const location = getClaudeKeychainLocation();
-  const result = await runCredentialCommand("security", [
+  const result = await runCommand("security", [
     "find-generic-password",
     "-s",
     CLAUDE_CODE_CREDENTIALS_SERVICE,
     "-w",
   ]);
+  if (result.code !== 0) return { state: "not-found", location: CLAUDE_KEYCHAIN_LOCATION };
 
-  if (result.code !== 0) {
+  return parseClaudeCredentials(result.stdout, {
+    location: CLAUDE_KEYCHAIN_LOCATION,
+    parseFailureLabel: `Claude OAuth credentials from ${CLAUDE_KEYCHAIN_LOCATION}`,
+    allowPlainText: true,
+  });
+}
+
+async function readClaudeCredentialsFromFile(): Promise<ClaudeCredentialSourceResult> {
+  const credentialsPath = join(homedir(), ".claude", ".credentials.json");
+  const location = sanitizeDisplayText(credentialsPath);
+
+  let content: string;
+  try {
+    content = await readFile(credentialsPath, "utf8");
+  } catch (error) {
+    if ((error as { code?: unknown } | null)?.code === "ENOENT") {
+      return { state: "not-found", location };
+    }
     return {
-      state: "not-found",
-      location,
+      state: "unavailable",
+      detail: `Could not read Claude credentials file: ${sanitizeDisplayText(errorText(error))}`,
     };
   }
 
-  const parsed = parseClaudeCredentialsAccessToken(result.stdout, { allowPlainText: true });
-  if (parsed.accessToken) {
-    return {
-      state: "configured",
-      accessToken: parsed.accessToken,
-    };
+  return parseClaudeCredentials(content, {
+    location,
+    parseFailureLabel: `Claude credentials file ${location}`,
+    allowPlainText: false,
+  });
+}
+
+async function readClaudeOAuthAccessToken(): Promise<AnthropicCredentialsAccess> {
+  const notFoundLocations: string[] = [];
+  const unavailableDetails: string[] = [];
+  for (const readSource of [
+    readClaudeCredentialsFromMacOSKeychain,
+    readClaudeCredentialsFromFile,
+  ]) {
+    const result = await readSource();
+    if (result?.state === "configured") return result;
+    if (result?.state === "unavailable") unavailableDetails.push(result.detail);
+    if (result?.state === "not-found") notFoundLocations.push(result.location);
   }
 
   return {
     state: "unavailable",
     detail:
-      parsed.error && parsed.error !== "missing"
-        ? `Could not parse Claude OAuth credentials from ${location}: ${parsed.error}.`
-        : `Claude OAuth access token missing in ${location}.`,
+      unavailableDetails[0] ??
+      `Claude OAuth credentials not found in ${notFoundLocations.join(" or ")}.`,
   };
 }
 
-async function readClaudeCredentialsAccessTokenFromFile(): Promise<ClaudeCredentialSourceResult> {
-  const credentialsPath = getClaudeCredentialsPath();
-
-  try {
-    const content = await readFile(credentialsPath, "utf8");
-    const parsed = parseClaudeCredentialsAccessToken(content, { allowPlainText: false });
-    const accessToken = parsed.accessToken?.trim() ?? "";
-
-    if (!accessToken) {
-      return {
-        state: "unavailable",
-        detail:
-          parsed.error && parsed.error !== "missing"
-            ? `Could not parse Claude credentials file ${sanitizeDisplayText(credentialsPath)}: ${parsed.error}.`
-            : `Claude OAuth access token missing in ${sanitizeDisplayText(credentialsPath)}.`,
-      };
-    }
-
-    return {
-      state: "configured",
-      accessToken,
-    };
-  } catch (error) {
-    const code =
-      error && typeof error === "object" && "code" in error
-        ? (error as { code?: string | number }).code
-        : undefined;
-
-    if (code === "ENOENT") {
-      return {
-        state: "not-found",
-        location: sanitizeDisplayText(credentialsPath),
-      };
-    }
-
-    return {
-      state: "unavailable",
-      detail: `Could not read Claude credentials file: ${sanitizeDisplayText(
-        error instanceof Error ? error.message : String(error),
-      )}`,
-    };
-  }
-}
-
-async function readClaudeOAuthAccessToken(): Promise<AnthropicCredentialsAccess> {
-  const locationsChecked: string[] = [];
-  const unavailableDetails: string[] = [];
-  const keychainCredentials = await readClaudeCredentialsAccessTokenFromMacOSKeychain();
-  if (keychainCredentials?.state === "configured") {
-    return { ...keychainCredentials, source: "claude-credentials" };
-  }
-  if (keychainCredentials?.state === "unavailable") {
-    unavailableDetails.push(keychainCredentials.detail);
-  }
-  if (keychainCredentials?.state === "not-found") {
-    locationsChecked.push(keychainCredentials.location);
-  }
-
-  const fileCredentials = await readClaudeCredentialsAccessTokenFromFile();
-  if (fileCredentials.state === "configured") {
-    return { ...fileCredentials, source: "claude-credentials" };
-  }
-  if (fileCredentials.state === "unavailable") {
-    unavailableDetails.push(fileCredentials.detail);
-  }
-  if (fileCredentials.state === "not-found") {
-    locationsChecked.push(fileCredentials.location);
-  }
-  return {
-    state: "unavailable",
-    detail: unavailableDetails[0] ?? getClaudeCredentialsNotFoundDetail(locationsChecked),
-  };
-}
-
-async function readAnthropicOAuthAccessToken(options: {
-  includeClaudeCredentials: boolean;
-}): Promise<AnthropicCredentialsAccess> {
-  const opencodeCredentials = await resolveAnthropicOAuthCached();
-  if (opencodeCredentials.state === "configured") {
-    return {
-      state: "configured",
-      accessToken: opencodeCredentials.accessToken,
-      source: "opencode-auth",
-    };
-  }
-
-  return options.includeClaudeCredentials
-    ? await readClaudeOAuthAccessToken()
-    : { state: "unavailable" };
-}
-
-function fingerprintAccessToken(accessToken: string): string {
-  return createHash("sha256").update(accessToken).digest("hex");
-}
-
-function parseRetryAfterMs(value: string | null, nowMs: number): number | undefined {
-  const trimmed = value?.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-
-  if (/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/u.test(trimmed)) {
-    const seconds = Number(trimmed);
-    return Number.isFinite(seconds) && seconds > 0 ? seconds * 1_000 : undefined;
-  }
-
-  const retryAtMs = Date.parse(trimmed);
-  const durationMs = retryAtMs - nowMs;
-  return Number.isFinite(durationMs) && durationMs > 0 ? durationMs : undefined;
-}
-
-function getAnthropicOAuthCooldownDurationMs(
-  failureCount: number,
-  retryAfter: string | null,
-  nowMs: number,
-): number {
-  const exponentialMs = Math.min(
+/** Records a 429 for this token and returns how long the usage probe stays paused. */
+function startAnthropicOAuthCooldown(tokenFingerprint: string, retryAfter: string | null): number {
+  const nowMs = Date.now();
+  const failureCount = anthropicOAuthCooldowns.get(tokenFingerprint)?.failureCount ?? 0;
+  // Exponential backoff from 30s, raised to Retry-After, capped at 15 minutes.
+  const durationMs = Math.min(
     ANTHROPIC_OAUTH_COOLDOWN_MAX_MS,
-    ANTHROPIC_OAUTH_BACKOFF_BASE_MS * 2 ** Math.min(failureCount, 30),
+    Math.max(
+      ANTHROPIC_OAUTH_BACKOFF_BASE_MS * 2 ** failureCount,
+      parseRetryAfterMs(retryAfter, nowMs) ?? 0,
+    ),
   );
-  const retryAfterMs = Math.min(
-    ANTHROPIC_OAUTH_COOLDOWN_MAX_MS,
-    parseRetryAfterMs(retryAfter, nowMs) ?? 0,
-  );
-  return Math.max(exponentialMs, retryAfterMs);
+  anthropicOAuthCooldowns.set(tokenFingerprint, {
+    failureCount: failureCount + 1,
+    blockedUntilMs: nowMs + durationMs,
+  });
+  return durationMs;
 }
 
 function getAnthropicOAuthCooldownMessage(remainingMs: number): string {
-  const boundedRemainingMs = Math.min(ANTHROPIC_OAUTH_COOLDOWN_MAX_MS, Math.max(0, remainingMs));
-  return `Anthropic OAuth usage probe paused after HTTP 429; retry in ${Math.ceil(
-    boundedRemainingMs / 1_000,
-  )}s.`;
+  const seconds = Math.ceil(Math.min(ANTHROPIC_OAUTH_COOLDOWN_MAX_MS, remainingMs) / 1_000);
+  return `Anthropic OAuth usage probe paused after HTTP 429; retry in ${seconds}s.`;
 }
 
+/** Bounds the cooldown map, evicting the soonest-expiring entries other than this token. */
 function retainAnthropicOAuthCooldownForToken(tokenFingerprint: string): void {
   const targetSize = anthropicOAuthCooldowns.has(tokenFingerprint)
     ? ANTHROPIC_OAUTH_COOLDOWN_MAX_ENTRIES
@@ -790,131 +553,68 @@ function retainAnthropicOAuthCooldownForToken(tokenFingerprint: string): void {
   }
 }
 
-function redactAccessTokenFromSanitizedDetail(detail: string, accessToken: string): string {
-  const sanitizedDetail = sanitizeDisplayText(detail);
-  const sanitizedAccessToken = sanitizeDisplayText(accessToken);
-  const redactedDetail = sanitizedDetail.split(accessToken).join("[redacted]");
-  return sanitizedAccessToken
-    ? redactedDetail.split(sanitizedAccessToken).join("[redacted]")
-    : redactedDetail;
-}
-
-function sanitizeAnthropicApiDetail(detail: string, accessToken: string): string {
-  return redactAccessTokenFromSanitizedDetail(detail, accessToken).slice(0, 120);
-}
-
-function sanitizeAnthropicRequestError(detail: string, accessToken: string): string {
-  return redactAccessTokenFromSanitizedDetail(detail, accessToken);
-}
-
 async function performAnthropicOAuthUsageRequest(
   accessToken: string,
   tokenFingerprint: string,
   requestTimeoutMs?: number,
 ): Promise<AnthropicFallbackQuota> {
-  try {
-    return await fetchWithTimeout(ANTHROPIC_USAGE_URL, {
-      request: {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "anthropic-beta": ANTHROPIC_BETA_HEADER,
-        },
-      },
-      timeoutMs: requestTimeoutMs,
-      consume: async (response, timeoutSignal): Promise<AnthropicFallbackQuota> => {
-        if (response.status === 429) {
-          const nowMs = Date.now();
-          const previousFailureCount =
-            anthropicOAuthCooldowns.get(tokenFingerprint)?.failureCount ?? 0;
-          const durationMs = getAnthropicOAuthCooldownDurationMs(
-            previousFailureCount,
-            response.headers?.get?.("Retry-After") ?? null,
-            nowMs,
-          );
-          anthropicOAuthCooldowns.set(tokenFingerprint, {
-            failureCount: previousFailureCount + 1,
-            blockedUntilMs: nowMs + durationMs,
-          });
-
-          let detail = "";
-          try {
-            detail = sanitizeAnthropicApiDetail(await response.text(), accessToken);
-          } catch (error) {
-            if (timeoutSignal.aborted) throw error;
-            detail = "";
-          }
-
-          const errorDetail = detail
-            ? `Anthropic API error ${response.status}: ${detail}`
-            : `Anthropic API returned ${response.status}`;
-          return {
-            state: "unavailable",
-            detail: `${errorDetail} ${getAnthropicOAuthCooldownMessage(durationMs)}`,
-          };
-        }
-
-        anthropicOAuthCooldowns.delete(tokenFingerprint);
-
-        if (!response.ok) {
-          const authenticationFailure = response.status === 401 || response.status === 403;
-          let detail = "";
-          try {
-            detail = sanitizeAnthropicApiDetail(await response.text(), accessToken);
-          } catch (error) {
-            if (timeoutSignal.aborted && !authenticationFailure) throw error;
-            detail = "";
-          }
-
-          return {
-            state: "unavailable",
-            detail: detail
-              ? `Anthropic API error ${response.status}: ${detail}`
-              : `Anthropic API returned ${response.status}`,
-            ...(authenticationFailure ? { failureKind: "authentication" as const } : {}),
-          };
-        }
-
-        let data: unknown;
-        try {
-          data = await response.json();
-        } catch (error) {
-          if (timeoutSignal.aborted) throw error;
-          return {
-            state: "unavailable",
-            detail: "Failed to parse Anthropic quota response",
-          };
-        }
-
-        const quota = parseOAuthUsageResponse(data);
-        if (!quota) {
-          return {
-            state: "unavailable",
-            detail: "Unexpected Anthropic quota response shape",
-          };
-        }
-
-        return {
-          state: "success",
-          quota,
-        };
-      },
-    });
-  } catch (error) {
-    return {
-      state: "unavailable",
-      detail: sanitizeAnthropicRequestError(
-        error instanceof Error ? error.message : String(error),
-        accessToken,
-      ),
-    };
+  const reply = await requestJson(ANTHROPIC_USAGE_URL, {
+    headers: { Authorization: `Bearer ${accessToken}`, "anthropic-beta": ANTHROPIC_BETA_HEADER },
+    secrets: [accessToken],
+    timeoutMs: requestTimeoutMs,
+  });
+  const status = reply.ok ? reply.status : reply.failure.status;
+  // Any reply but a 429 ends the backoff; a 429 starts or extends it, even when its body stalls.
+  const cooldownMs =
+    status === 429 && !reply.ok
+      ? startAnthropicOAuthCooldown(
+          tokenFingerprint,
+          reply.failure.headers?.get("Retry-After") ?? null,
+        )
+      : undefined;
+  if (status !== undefined && cooldownMs === undefined) {
+    anthropicOAuthCooldowns.delete(tokenFingerprint);
   }
+
+  if (reply.ok) {
+    const quota = parseOAuthUsageResponse(reply.json);
+    return quota
+      ? { state: "success", quota }
+      : { state: "unavailable", detail: "Unexpected Anthropic quota response shape" };
+  }
+  const { failure } = reply;
+  // A 429 waits out the cooldown, which is at least its Retry-After.
+  const facts =
+    cooldownMs === undefined
+      ? failureFacts(failure)
+      : { ...failureFacts(failure), retryAtMs: Date.now() + cooldownMs };
+  if (failure.kind === "invalid_json") {
+    return { state: "unavailable", detail: "Failed to parse Anthropic quota response", facts };
+  }
+  if (failure.kind !== "http" || failure.status === undefined) {
+    return { state: "unavailable", detail: failure.detail, facts };
+  }
+
+  const detail = failure.detail.slice(0, 120);
+  const errorDetail = detail
+    ? `Anthropic API error ${failure.status}: ${detail}`
+    : `Anthropic API returned ${failure.status}`;
+  return {
+    state: "unavailable",
+    detail:
+      cooldownMs === undefined
+        ? errorDetail
+        : `${errorDetail} ${getAnthropicOAuthCooldownMessage(cooldownMs)}`,
+    facts,
+    ...(failure.status === 401 || failure.status === 403 ? { rejected: true as const } : {}),
+  };
 }
 
 async function queryAnthropicQuotaFromOAuthAccessToken(
   accessToken: string,
   requestTimeoutMs?: number,
 ): Promise<AnthropicFallbackQuota> {
-  const tokenFingerprint = fingerprintAccessToken(accessToken);
+  const tokenFingerprint = createHash("sha256").update(accessToken).digest("hex");
   retainAnthropicOAuthCooldownForToken(tokenFingerprint);
 
   const nowMs = Date.now();
@@ -923,13 +623,13 @@ async function queryAnthropicQuotaFromOAuthAccessToken(
     return {
       state: "unavailable",
       detail: getAnthropicOAuthCooldownMessage(cooldown.blockedUntilMs - nowMs),
+      facts: { code: "rate_limited", status: 429, retryAtMs: cooldown.blockedUntilMs },
     };
   }
 
+  // Concurrent probes with the same token share one request.
   const existingInFlight = anthropicOAuthInFlight.get(tokenFingerprint);
-  if (existingInFlight) {
-    return await existingInFlight;
-  }
+  if (existingInFlight) return await existingInFlight;
 
   const inFlight = performAnthropicOAuthUsageRequest(
     accessToken,
@@ -937,7 +637,6 @@ async function queryAnthropicQuotaFromOAuthAccessToken(
     requestTimeoutMs,
   );
   anthropicOAuthInFlight.set(tokenFingerprint, inFlight);
-
   try {
     return await inFlight;
   } finally {
@@ -950,77 +649,41 @@ async function queryAnthropicQuotaFromOAuthAccessToken(
 export async function queryAnthropicQuotaWithOAuth(
   accessToken: string,
   requestTimeoutMs?: number,
-): Promise<AnthropicResult> {
+): Promise<AnthropicQuotaResult | AnthropicQuotaError> {
   const result = await queryAnthropicQuotaFromOAuthAccessToken(accessToken, requestTimeoutMs);
-  return result.state === "success"
-    ? result.quota
-    : { success: false, error: result.detail ?? "Anthropic OAuth quota unavailable" };
+  if (result.state === "success") return result.quota;
+  return {
+    success: false,
+    error: result.detail,
+    ...(result.facts ? { facts: result.facts } : {}),
+    ...(result.rejected ? { rejected: true } : {}),
+  };
 }
 
 function extractAuthBoolean(data: unknown): boolean | undefined {
   const record = asRecord(data);
-  if (!record) {
-    return undefined;
-  }
+  if (!record) return undefined;
 
+  const auth = asRecord(record["auth"]);
   for (const candidate of [
     record["authenticated"],
     record["isAuthenticated"],
     record["loggedIn"],
+    auth?.["authenticated"],
+    auth?.["loggedIn"],
   ]) {
-    if (typeof candidate === "boolean") {
-      return candidate;
-    }
+    if (typeof candidate === "boolean") return candidate;
   }
 
-  const authRecord = asRecord(record["auth"]);
-  if (authRecord) {
-    for (const candidate of [authRecord["authenticated"], authRecord["loggedIn"]]) {
-      if (typeof candidate === "boolean") {
-        return candidate;
-      }
-    }
-  }
-
-  const status = record["status"];
-  if (typeof status === "string") {
-    const normalized = status.trim().toLowerCase();
-    if (normalized === "authenticated") {
-      return true;
-    }
-    if (normalized === "unauthenticated") {
-      return false;
-    }
-  }
-
+  const status = nonEmptyString(record["status"])?.toLowerCase();
+  if (status === "authenticated") return true;
+  if (status === "unauthenticated") return false;
   return undefined;
 }
 
-function hasUnsupportedCommandText(output: string): boolean {
+function includesAnyPhrase(output: string, phrases: string[]): boolean {
   const normalized = output.toLowerCase();
-  return (
-    normalized.includes("unknown command") ||
-    normalized.includes("unrecognized command") ||
-    normalized.includes("unexpected argument")
-  );
-}
-
-function hasUnauthenticatedText(output: string): boolean {
-  const normalized = output.toLowerCase();
-  return (
-    normalized.includes("not logged in") ||
-    normalized.includes("login required") ||
-    normalized.includes("authentication required") ||
-    normalized.includes("run `claude login`") ||
-    normalized.includes("run `claude auth login`") ||
-    normalized.includes("run claude login") ||
-    normalized.includes("run claude auth login")
-  );
-}
-
-function detailFromCommandResult(result: ClaudeCommandResult): string | undefined {
-  const detail = `${result.stderr}\n${result.stdout}\n${result.errorMessage ?? ""}`.trim();
-  return detail ? sanitizeDisplaySnippet(detail, 160) : undefined;
+  return phrases.some((phrase) => normalized.includes(phrase));
 }
 
 function parseVersion(output: string): string | null {
@@ -1028,85 +691,27 @@ function parseVersion(output: string): string | null {
   return match ? match[0] : null;
 }
 
-function isCommandMissing(result: ClaudeCommandResult): boolean {
-  if (result.spawnErrorCode === "ENOENT") {
-    return true;
-  }
-
-  const output = `${result.stderr}\n${result.stdout}\n${result.errorMessage ?? ""}`.toLowerCase();
+function isCommandMissing(result: CommandResult): boolean {
   return (
-    output.includes("command not found") ||
-    output.includes("not recognized as an internal or external command") ||
-    output.includes("no such file or directory")
+    result.spawnErrorCode === "ENOENT" ||
+    includesAnyPhrase(
+      `${result.stderr}\n${result.stdout}\n${result.errorMessage ?? ""}`,
+      COMMAND_MISSING_TEXT,
+    )
   );
 }
 
-function isTimedOutError(error: Error & { code?: number | string; killed?: boolean }): boolean {
-  return (
-    error.code === "ETIMEDOUT" ||
-    error.killed === true ||
-    error.message.toLowerCase().includes("timed out")
-  );
-}
-
-async function runClaudeCommand(invocation: ClaudeCommandInvocation): Promise<ClaudeCommandResult> {
-  return await new Promise<ClaudeCommandResult>((resolve, reject) => {
-    try {
-      execFile(
-        invocation.file,
-        invocation.args,
-        {
-          encoding: "utf8",
-          timeout: CLAUDE_COMMAND_TIMEOUT_MS,
-          maxBuffer: 1024 * 1024,
-        },
-        (error: Error | null, stdout: string | Buffer, stderr: string | Buffer) => {
-          const stdoutText = typeof stdout === "string" ? stdout : stdout.toString("utf8");
-          const stderrText = typeof stderr === "string" ? stderr : stderr.toString("utf8");
-
-          if (!error) {
-            resolve({
-              code: 0,
-              stdout: stdoutText,
-              stderr: stderrText,
-              timedOut: false,
-            });
-            return;
-          }
-
-          const execError = error as Error & { code?: number | string; killed?: boolean };
-          resolve({
-            code: typeof execError.code === "number" ? execError.code : null,
-            stdout: stdoutText,
-            stderr: stderrText,
-            timedOut: isTimedOutError(execError),
-            spawnErrorCode: execError.code,
-            errorMessage: execError.message,
-          });
-        },
-      );
-    } catch (error) {
-      reject(error);
-    }
-  });
-}
-
-function parseClaudeAuthStatusResult(result: ClaudeCommandResult): ParsedAuthProbe {
+function parseClaudeAuthStatusResult(result: CommandResult): ParsedAuthProbe {
   const combinedOutput = `${result.stdout}\n${result.stderr}`;
-
-  if (hasUnsupportedCommandText(combinedOutput)) {
+  if (includesAnyPhrase(combinedOutput, UNSUPPORTED_COMMAND_TEXT)) {
     return {
       authStatus: "unknown",
       unsupportedCommand: true,
       message: "Claude CLI authentication status JSON is unavailable in this version of Claude.",
     };
   }
-
-  if (hasUnauthenticatedText(combinedOutput)) {
-    return {
-      authStatus: "unauthenticated",
-      message: "Claude is not authenticated. Run `claude auth login` and try again.",
-    };
+  if (includesAnyPhrase(combinedOutput, UNAUTHENTICATED_TEXT)) {
+    return { authStatus: "unauthenticated", message: CLAUDE_NOT_AUTHENTICATED_MESSAGE };
   }
 
   const trimmed = result.stdout.trim();
@@ -1114,44 +719,28 @@ function parseClaudeAuthStatusResult(result: ClaudeCommandResult): ParsedAuthPro
     try {
       const payload = JSON.parse(trimmed) as unknown;
       const auth = extractAuthBoolean(payload);
-
-      if (auth === true) {
-        return {
-          authStatus: "authenticated",
-          jsonPayload: payload,
-        };
-      }
-
+      if (auth === true) return { authStatus: "authenticated", jsonPayload: payload };
       if (auth === false) {
-        return {
-          authStatus: "unauthenticated",
-          message: "Claude is not authenticated. Run `claude auth login` and try again.",
-          jsonPayload: payload,
-        };
+        return { authStatus: "unauthenticated", message: CLAUDE_NOT_AUTHENTICATED_MESSAGE };
       }
-
       return {
         authStatus: "unknown",
         message: "Could not verify Claude authentication status from JSON output.",
-        jsonPayload: payload,
       };
     } catch {
-      // Fall through to exit-code-based handling.
+      // Not JSON after all: fall through to exit-code-based handling.
     }
   }
 
-  if (result.code === 0) {
-    return { authStatus: "authenticated" };
-  }
-
+  if (result.code === 0) return { authStatus: "authenticated" };
   if (result.timedOut) {
-    return {
-      authStatus: "unknown",
-      message: "Timed out while running Claude CLI auth status.",
-    };
+    return { authStatus: "unknown", message: "Timed out while running Claude CLI auth status." };
   }
 
-  const detail = detailFromCommandResult(result);
+  const detail = sanitizeDisplaySnippet(
+    `${result.stderr}\n${result.stdout}\n${result.errorMessage ?? ""}`.trim(),
+    160,
+  );
   return {
     authStatus: "unknown",
     message: detail
@@ -1160,56 +749,18 @@ function parseClaudeAuthStatusResult(result: ClaudeCommandResult): ParsedAuthPro
   };
 }
 
-function mapLocalDiagnosticsToAnthropicDiagnostics(
-  localDiagnostics: AnthropicLocalDiagnostics,
-): AnthropicDiagnostics {
-  if (localDiagnostics.localQuota) {
-    return {
-      installed: localDiagnostics.installed,
-      version: localDiagnostics.version,
-      authStatus: localDiagnostics.authStatus,
-      quotaSupported: true,
-      quotaSource: "claude-auth-status-json",
-      binaryPath: localDiagnostics.binaryPath,
-      checkedCommands: localDiagnostics.checkedCommands,
-      quota: localDiagnostics.localQuota,
-    };
-  }
-
-  const diagnostics: AnthropicDiagnostics = {
-    installed: localDiagnostics.installed,
-    version: localDiagnostics.version,
-    authStatus: localDiagnostics.authStatus,
-    quotaSupported: false,
-    quotaSource: "none",
-    binaryPath: localDiagnostics.binaryPath,
-    checkedCommands: localDiagnostics.checkedCommands,
+async function probeAnthropicLocalDiagnostics(
+  configuredBinaryPath: string,
+): Promise<AnthropicLocalDiagnostics> {
+  const checkedCommands: string[] = [];
+  const runClaude = async (binaryPath: string, args: string[]): Promise<CommandResult> => {
+    const invocation = buildClaudeCommandInvocation(binaryPath, args);
+    checkedCommands.push(invocation.display);
+    return await runCommand(invocation.file, invocation.args);
   };
 
-  if (localDiagnostics.message) {
-    diagnostics.message = localDiagnostics.message;
-  }
-
-  return diagnostics;
-}
-
-async function runClaudeVersionCommand(
-  binaryPath: string,
-  checkedCommands: string[],
-): Promise<ClaudeCommandResult> {
-  const versionCommand = buildClaudeCommandInvocation(binaryPath, ["--version"]);
-  checkedCommands.push(versionCommand.display);
-  return await runClaudeCommand(versionCommand);
-}
-
-async function probeAnthropicLocalDiagnostics(
-  options: AnthropicProbeOptions = {},
-): Promise<AnthropicLocalDiagnostics> {
-  const configuredBinaryPath = resolveAnthropicBinaryPath(options.binaryPath);
-  const checkedCommands: string[] = [];
-
   let binaryPath = configuredBinaryPath;
-  let versionResult = await runClaudeVersionCommand(binaryPath, checkedCommands);
+  let versionResult = await runClaude(binaryPath, ["--version"]);
   // No configured path and no `claude` on PATH: the first install folder whose CLI runs wins.
   const installFolderCandidates =
     configuredBinaryPath === DEFAULT_CLAUDE_BINARY ? claudeInstallFolderCandidates() : [];
@@ -1217,14 +768,14 @@ async function probeAnthropicLocalDiagnostics(
     for (const candidate of installFolderCandidates) {
       if (!existsSync(candidate)) continue;
       binaryPath = candidate;
-      versionResult = await runClaudeVersionCommand(candidate, checkedCommands);
+      versionResult = await runClaude(candidate, ["--version"]);
       if (!isCommandMissing(versionResult)) break;
     }
   }
   if (isCommandMissing(versionResult)) {
     const alsoChecked =
       installFolderCandidates.length > 0
-        ? ` Also checked: ${installFolderCandidates.map((candidate) => sanitizeDisplayText(candidate)).join(", ")}.`
+        ? ` Also checked: ${installFolderCandidates.map(sanitizeDisplayText).join(", ")}.`
         : "";
     return {
       installed: false,
@@ -1236,56 +787,26 @@ async function probeAnthropicLocalDiagnostics(
     };
   }
 
-  const binaryPathDisplay =
-    binaryPath === DEFAULT_CLAUDE_BINARY ? CLAUDE_ON_PATH_DISPLAY : binaryPath;
-  const version = parseVersion(`${versionResult.stdout}\n${versionResult.stderr}`);
-
-  const authStatusJsonCommand = buildClaudeCommandInvocation(binaryPath, [
-    "auth",
-    "status",
-    "--json",
-  ]);
-  checkedCommands.push(authStatusJsonCommand.display);
-  const authJsonResult = await runClaudeCommand(authStatusJsonCommand);
-  let parsedAuth = parseClaudeAuthStatusResult(authJsonResult);
-
-  if (parsedAuth.unsupportedCommand) {
-    const authStatusCommand = buildClaudeCommandInvocation(binaryPath, ["auth", "status"]);
-    checkedCommands.push(authStatusCommand.display);
-    parsedAuth = parseClaudeAuthStatusResult(await runClaudeCommand(authStatusCommand));
-  }
-
-  if (parsedAuth.authStatus !== "authenticated") {
-    return {
-      installed: true,
-      version,
-      authStatus: parsedAuth.authStatus,
-      binaryPath: binaryPathDisplay,
-      checkedCommands,
-      message: parsedAuth.message,
-    };
-  }
-
-  const quota = parsedAuth.jsonPayload ? parseUsageResponse(parsedAuth.jsonPayload) : null;
-  if (quota) {
-    return {
-      installed: true,
-      version,
-      authStatus: "authenticated",
-      binaryPath: binaryPathDisplay,
-      checkedCommands,
-      localQuota: quota,
-    };
-  }
-
-  return {
+  const installed = {
     installed: true,
-    version,
-    authStatus: "authenticated",
-    binaryPath: binaryPathDisplay,
+    version: parseVersion(`${versionResult.stdout}\n${versionResult.stderr}`),
+    binaryPath: binaryPath === DEFAULT_CLAUDE_BINARY ? CLAUDE_ON_PATH_DISPLAY : binaryPath,
     checkedCommands,
-    message: CLAUDE_NO_LOCAL_QUOTA_MESSAGE,
   };
+  let parsedAuth = parseClaudeAuthStatusResult(
+    await runClaude(binaryPath, ["auth", "status", "--json"]),
+  );
+  if (parsedAuth.unsupportedCommand) {
+    parsedAuth = parseClaudeAuthStatusResult(await runClaude(binaryPath, ["auth", "status"]));
+  }
+  if (parsedAuth.authStatus !== "authenticated") {
+    return { ...installed, authStatus: parsedAuth.authStatus, message: parsedAuth.message };
+  }
+
+  const localQuota = parseUsageResponse(parsedAuth.jsonPayload);
+  return localQuota
+    ? { ...installed, authStatus: "authenticated", localQuota }
+    : { ...installed, authStatus: "authenticated", message: CLAUDE_NO_LOCAL_QUOTA_MESSAGE };
 }
 
 export function clearAnthropicDiagnosticsCacheForTests(): void {
@@ -1295,276 +816,179 @@ export function clearAnthropicDiagnosticsCacheForTests(): void {
   anthropicOAuthInFlight.clear();
 }
 
-async function getCachedAnthropicLocalDiagnostics(
-  options: AnthropicProbeOptions = {},
-): Promise<AnthropicLocalDiagnostics> {
-  const binaryPath = resolveAnthropicBinaryPath(options.binaryPath);
-  const now = Date.now();
-  const cached = localDiagnosticsCache.get(binaryPath) ?? {
-    timestamp: 0,
-    value: null,
-  };
+/**
+ * Reuses a probe result for a few seconds and shares one in-flight probe
+ * between concurrent callers. A failed probe is dropped so the next call retries.
+ */
+async function getCachedProbe<T>(
+  cache: Map<string, ProbeCacheEntry<T>>,
+  key: string,
+  probe: () => Promise<T>,
+): Promise<T> {
+  const cached = cache.get(key);
+  if (cached && "inFlight" in cached) return await cached.inFlight;
+  if (cached && Date.now() - cached.timestamp < ANTHROPIC_DIAGNOSTICS_TTL_MS) return cached.value;
 
-  if (
-    cached.value &&
-    cached.timestamp > 0 &&
-    now - cached.timestamp < ANTHROPIC_DIAGNOSTICS_TTL_MS
-  ) {
-    return cached.value;
-  }
-
-  if (cached.inFlight) {
-    return cached.inFlight;
-  }
-
-  const inFlight = probeAnthropicLocalDiagnostics({ binaryPath }).then((value) => {
-    localDiagnosticsCache.set(binaryPath, {
-      timestamp: Date.now(),
-      value,
-    });
-    return value;
-  });
-
-  localDiagnosticsCache.set(binaryPath, {
-    timestamp: cached.timestamp,
-    value: cached.value,
-    inFlight,
-  });
-
+  const pending = { inFlight: probe() };
+  cache.set(key, pending);
   try {
-    return await inFlight;
-  } finally {
-    const latest = localDiagnosticsCache.get(binaryPath);
-    if (latest?.inFlight === inFlight) {
-      localDiagnosticsCache.set(binaryPath, {
-        timestamp: latest.timestamp,
-        value: latest.value,
-      });
-    }
+    const value = await pending.inFlight;
+    cache.set(key, { value, timestamp: Date.now() });
+    return value;
+  } catch (error) {
+    if (cache.get(key) === pending) cache.delete(key);
+    throw error;
   }
+}
+
+async function getCachedAnthropicLocalDiagnostics(
+  binaryPath?: string,
+): Promise<AnthropicLocalDiagnostics> {
+  const resolvedBinaryPath = resolveAnthropicBinaryPath(binaryPath);
+  return await getCachedProbe(localDiagnosticsCache, resolvedBinaryPath, () =>
+    probeAnthropicLocalDiagnostics(resolvedBinaryPath),
+  );
+}
+
+function buildDiagnostics(
+  local: AnthropicLocalDiagnostics,
+  outcome: {
+    quotaSource: AnthropicQuotaSource;
+    oauthCredentialSource?: "claude-credentials";
+    message?: string;
+    facts?: ErrorFacts;
+    quota?: AnthropicQuotaResult;
+  },
+): AnthropicDiagnostics {
+  return {
+    installed: local.installed,
+    version: local.version,
+    authStatus: local.authStatus,
+    quotaSupported: outcome.quota !== undefined,
+    quotaSource: outcome.quotaSource,
+    ...(outcome.oauthCredentialSource
+      ? { oauthCredentialSource: outcome.oauthCredentialSource }
+      : {}),
+    binaryPath: local.binaryPath,
+    checkedCommands: local.checkedCommands,
+    ...(outcome.message ? { message: outcome.message } : {}),
+    ...(outcome.facts ? { facts: outcome.facts } : {}),
+    ...(outcome.quota ? { quota: outcome.quota } : {}),
+  };
+}
+
+async function probeAnthropicDiagnostics(
+  binaryPath: string,
+  requestTimeoutMs?: number,
+): Promise<AnthropicDiagnostics> {
+  const local = await getCachedAnthropicLocalDiagnostics(binaryPath);
+  if (local.localQuota) {
+    return buildDiagnostics(local, {
+      quotaSource: "claude-auth-status-json",
+      quota: local.localQuota,
+    });
+  }
+  if (local.authStatus !== "authenticated") {
+    return buildDiagnostics(local, { quotaSource: "none", message: local.message });
+  }
+
+  const credentials = await readClaudeOAuthAccessToken();
+  if (credentials.state !== "configured") {
+    return buildDiagnostics(local, {
+      quotaSource: "none",
+      message: buildAnthropicNoQuotaDiagnosticsMessage(credentials.detail),
+    });
+  }
+
+  const fallbackQuota = await queryAnthropicQuotaFromOAuthAccessToken(
+    credentials.accessToken,
+    requestTimeoutMs,
+  );
+  if (fallbackQuota.state !== "success") {
+    return buildDiagnostics(local, {
+      quotaSource: "none",
+      oauthCredentialSource: "claude-credentials",
+      message: buildAnthropicNoQuotaDiagnosticsMessage(fallbackQuota.detail),
+      facts: fallbackQuota.facts,
+    });
+  }
+  return buildDiagnostics(local, {
+    quotaSource: "claude-credentials-oauth-api",
+    oauthCredentialSource: "claude-credentials",
+    quota: fallbackQuota.quota,
+  });
 }
 
 export async function getAnthropicDiagnostics(
   options: AnthropicProbeOptions = {},
 ): Promise<AnthropicDiagnostics> {
   const binaryPath = resolveAnthropicBinaryPath(options.binaryPath);
-  const now = Date.now();
-  const cached = diagnosticsCache.get(binaryPath) ?? {
-    timestamp: 0,
-    value: null,
-  };
-
-  if (
-    cached.value &&
-    cached.timestamp > 0 &&
-    now - cached.timestamp < ANTHROPIC_DIAGNOSTICS_TTL_MS
-  ) {
-    return cached.value;
-  }
-
-  if (cached.inFlight) {
-    return cached.inFlight;
-  }
-
-  const inFlight = (async () => {
-    const localDiagnostics = await getCachedAnthropicLocalDiagnostics({ binaryPath });
-    if (localDiagnostics.localQuota) {
-      return mapLocalDiagnosticsToAnthropicDiagnostics(localDiagnostics);
-    }
-
-    let credentials = await readAnthropicOAuthAccessToken({
-      includeClaudeCredentials: localDiagnostics.authStatus === "authenticated",
-    });
-    if (credentials.state !== "configured") {
-      if (localDiagnostics.authStatus !== "authenticated") {
-        return mapLocalDiagnosticsToAnthropicDiagnostics(localDiagnostics);
-      }
-
-      const diagnostics: AnthropicDiagnostics = {
-        installed: localDiagnostics.installed,
-        version: localDiagnostics.version,
-        authStatus: localDiagnostics.authStatus,
-        quotaSupported: false,
-        quotaSource: "none",
-        binaryPath: localDiagnostics.binaryPath,
-        checkedCommands: localDiagnostics.checkedCommands,
-        message: buildAnthropicNoQuotaDiagnosticsMessage(credentials.detail),
-      };
-      return diagnostics;
-    }
-
-    let fallbackQuota = await queryAnthropicQuotaFromOAuthAccessToken(
-      credentials.accessToken,
-      options.requestTimeoutMs,
-    );
-    if (
-      fallbackQuota.state === "unavailable" &&
-      fallbackQuota.failureKind === "authentication" &&
-      credentials.source === "opencode-auth" &&
-      localDiagnostics.authStatus === "authenticated"
-    ) {
-      const claudeCredentials = await readClaudeOAuthAccessToken();
-      if (claudeCredentials.state === "configured") {
-        credentials = claudeCredentials;
-        fallbackQuota = await queryAnthropicQuotaFromOAuthAccessToken(
-          claudeCredentials.accessToken,
-          options.requestTimeoutMs,
-        );
-      }
-    }
-    if (fallbackQuota.state !== "success") {
-      const diagnostics: AnthropicDiagnostics = {
-        installed: localDiagnostics.installed,
-        version: localDiagnostics.version,
-        authStatus: localDiagnostics.authStatus,
-        quotaSupported: false,
-        quotaSource: "none",
-        oauthCredentialSource: credentials.source,
-        binaryPath: localDiagnostics.binaryPath,
-        checkedCommands: localDiagnostics.checkedCommands,
-        message: buildAnthropicNoQuotaDiagnosticsMessage(fallbackQuota.detail),
-      };
-      return diagnostics;
-    }
-
-    const diagnostics: AnthropicDiagnostics = {
-      installed: localDiagnostics.installed,
-      version: localDiagnostics.version,
-      authStatus: localDiagnostics.authStatus,
-      quotaSupported: true,
-      quotaSource:
-        credentials.source === "opencode-auth"
-          ? "opencode-auth-oauth-api"
-          : "claude-credentials-oauth-api",
-      oauthCredentialSource: credentials.source,
-      binaryPath: localDiagnostics.binaryPath,
-      checkedCommands: localDiagnostics.checkedCommands,
-      quota: fallbackQuota.quota,
-    };
-    return diagnostics;
-  })().then((value) => {
-    diagnosticsCache.set(binaryPath, {
-      timestamp: Date.now(),
-      value,
-    });
-    return value;
-  });
-
-  diagnosticsCache.set(binaryPath, {
-    timestamp: cached.timestamp,
-    value: cached.value,
-    inFlight,
-  });
-
-  try {
-    return await inFlight;
-  } finally {
-    const latest = diagnosticsCache.get(binaryPath);
-    if (latest?.inFlight === inFlight) {
-      diagnosticsCache.set(binaryPath, {
-        timestamp: latest.timestamp,
-        value: latest.value,
-      });
-    }
-  }
+  return await getCachedProbe(diagnosticsCache, binaryPath, () =>
+    probeAnthropicDiagnostics(binaryPath, options.requestTimeoutMs),
+  );
 }
 
 export async function hasAnthropicCredentialsConfigured(
   options: AnthropicProbeOptions = {},
 ): Promise<boolean> {
   try {
-    const opencodeCredentials = await resolveAnthropicOAuthCached();
     // A login OpenCode could not return still counts, so it shows as an error.
-    if (opencodeCredentials.state === "configured" || opencodeCredentials.state === "failed") {
-      return true;
-    }
+    if ((await readAnthropicLogins()).length > 0) return true;
   } catch {
     // Fall back to the existing local Claude CLI probe.
   }
 
   try {
-    const diagnostics = await getCachedAnthropicLocalDiagnostics(options);
+    const diagnostics = await getCachedAnthropicLocalDiagnostics(options.binaryPath);
     return diagnostics.installed && diagnostics.authStatus === "authenticated";
   } catch {
     return false;
   }
 }
 
-export async function resolveAnthropicAuthIdentity(
+/**
+ * Who Claude is signed in as: every OpenCode login when there are some, since only they are
+ * checked then; else the Claude CLI's credentials.
+ */
+export async function anthropicLoginsIdentity(
+  logins: readonly AnthropicLogin[],
   options: AnthropicProbeOptions = {},
 ): Promise<ResolvedAuthIdentity | null> {
+  if (logins.length > 0) {
+    return loginListIdentity(
+      "anthropic",
+      await Promise.all(
+        logins.map(async ({ row, auth }) => ({
+          identity:
+            auth.state === "configured"
+              ? await deriveResolvedAuthIdentity({
+                  providerId: "anthropic:opencode-auth",
+                  principal: { kind: "credential", value: auth.accessToken },
+                })
+              : null,
+          row,
+        })),
+      ),
+    );
+  }
+
   let localDiagnostics: AnthropicLocalDiagnostics;
   try {
-    localDiagnostics = await getCachedAnthropicLocalDiagnostics(options);
+    localDiagnostics = await getCachedAnthropicLocalDiagnostics(options.binaryPath);
   } catch {
     return null;
   }
-
   // Claude CLI quota does not expose an account identity. Keep that winning
   // path process-local rather than risking reuse after a CLI account switch.
-  if (localDiagnostics.localQuota) return null;
-
-  const opencodeCredentials = await resolveAnthropicOAuthCached();
-  const opencodeIdentity =
-    opencodeCredentials.state === "configured"
-      ? await deriveResolvedAuthIdentity({
-          providerId: "anthropic:opencode-auth",
-          principal: { kind: "credential", value: opencodeCredentials.accessToken },
-        })
-      : null;
-
-  if (localDiagnostics.authStatus !== "authenticated") {
-    return opencodeIdentity;
-  }
+  if (localDiagnostics.localQuota || localDiagnostics.authStatus !== "authenticated") return null;
 
   const claudeCredentials = await readClaudeOAuthAccessToken();
-  const claudeIdentity =
-    claudeCredentials.state === "configured"
-      ? await deriveResolvedAuthIdentity({
-          providerId: "anthropic:claude-credentials",
-          principal: { kind: "credential", value: claudeCredentials.accessToken },
-        })
-      : null;
-
-  if (opencodeIdentity && claudeIdentity) {
-    return composeResolvedAuthIdentities({
-      providerId: "anthropic",
-      identities: [opencodeIdentity, claudeIdentity],
-    });
-  }
-
-  return opencodeIdentity ?? claudeIdentity;
-}
-
-export async function queryAnthropicQuota(
-  options: AnthropicProbeOptions = {},
-): Promise<AnthropicResult> {
-  try {
-    const diagnostics = await getAnthropicDiagnostics(options);
-    if (diagnostics.quotaSupported) {
-      return diagnostics.quota ?? null;
-    }
-
-    if (
-      (diagnostics.authStatus === "authenticated" ||
-        diagnostics.oauthCredentialSource !== undefined) &&
-      diagnostics.message
-    ) {
-      return {
-        success: false,
-        error: diagnostics.message,
-      };
-    }
-
-    return null;
-  } catch (err) {
-    return {
-      success: false,
-      error: `Claude CLI probe failed: ${sanitizeDisplayText(
-        err instanceof Error ? err.message : String(err),
-      )}`,
-    };
-  }
+  return claudeCredentials.state === "configured"
+    ? deriveResolvedAuthIdentity({
+        providerId: "anthropic:claude-credentials",
+        principal: { kind: "credential", value: claudeCredentials.accessToken },
+      })
+    : null;
 }
 
 export { parseOAuthUsageResponse, parseUsageResponse };

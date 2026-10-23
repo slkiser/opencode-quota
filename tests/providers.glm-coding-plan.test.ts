@@ -1,69 +1,32 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+/**
+ * Z.ai and Zhipu through their public `fetch`: a key in the environment or stored logins, and
+ * fake HTTP replies.
+ */
 
-import { formatQuotaCommand } from "../src/lib/quota-command-format.js";
-import type { QuotaRenderData } from "../src/lib/quota-render-data.js";
-import { formatQuotaRowsGrouped } from "../src/lib/toast-format-grouped.js";
-import { buildCompactQuotaStatusLine } from "../src/lib/tui-compact-format.js";
-import { buildSidebarQuotaPanelLines } from "../src/lib/tui-sidebar-format.js";
+import { describe, expect, it } from "vite-plus/test";
 
+import { zaiProvider, zhipuProvider } from "../src/providers/glm-coding-plan.js";
 import {
-  expectAttemptedWithErrorLabel,
-  expectAttemptedWithNoErrors,
-  expectNotAttempted,
-  visibleEntries,
-} from "./helpers/provider-assertions.js";
+  fakeHttp,
+  fetchRows,
+  keyLogin,
+  requestHeader,
+  rowSummary,
+  useProviderWorld,
+} from "./helpers/provider-fetch.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 
-const mocks = vi.hoisted(() => ({
-  queryZaiQuota: vi.fn(),
-  queryZhipuQuota: vi.fn(),
-  resolveZaiAuthCached: vi.fn(),
-  resolveZhipuAuthCached: vi.fn(),
-}));
+const FIVE_HOUR_RESET = "2026-01-01T03:00:00.000Z";
+const WEEKLY_RESET = "2026-01-05T00:00:00.000Z";
 
-vi.mock("../src/lib/zai.js", () => ({ queryZaiQuota: mocks.queryZaiQuota }));
-vi.mock("../src/lib/zhipu.js", () => ({ queryZhipuQuota: mocks.queryZhipuQuota }));
-vi.mock("../src/lib/zai-auth.js", () => ({
-  DEFAULT_ZAI_AUTH_CACHE_MAX_AGE_MS: 5_000,
-  resolveZaiAuthCached: mocks.resolveZaiAuthCached,
-  resolveZaiAuth: vi.fn(),
-  getZaiAuthDiagnostics: vi.fn(async () => ({
-    state: "none",
-    source: null,
-    checkedPaths: [],
-    credentialDatabasePaths: [],
-  })),
-}));
-vi.mock("../src/lib/zhipu-auth.js", () => ({
-  DEFAULT_ZHIPU_AUTH_CACHE_MAX_AGE_MS: 5_000,
-  resolveZhipuAuthCached: mocks.resolveZhipuAuthCached,
-  resolveZhipuAuth: vi.fn(),
-  getZhipuAuthDiagnostics: vi.fn(async () => ({
-    state: "none",
-    source: null,
-    checkedPaths: [],
-    credentialDatabasePaths: [],
-  })),
-}));
-
-vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/lib/opencode-auth.js")>()),
-  readCredentialRows: vi.fn().mockResolvedValue([]),
-}));
-
-import { readCredentialRows } from "../src/lib/opencode-auth.js";
-import { getZaiAuthDiagnostics, resolveZaiAuth } from "../src/lib/zai-auth.js";
-import { zaiProvider } from "../src/providers/zai.js";
-import { zhipuProvider } from "../src/providers/zhipu.js";
-
-const PROVIDERS = [
+const VENDORS = [
   {
     id: "zai",
     label: "Z.ai",
     provider: zaiProvider,
-    query: mocks.queryZaiQuota,
-    resolveAuth: mocks.resolveZaiAuthCached,
-    providerIds: ["zai", "glm", "zai-coding-plan"],
+    keyEnv: "ZAI_API_KEY",
+    integrationId: "zai-coding-plan",
+    url: "https://api.z.ai/api/monitor/usage/quota/limit",
     matchingModels: ["zai/glm-4.5", "glm/glm-4.5", "anthropic/glm-4"],
     nonMatchingModels: ["openai/gpt-5"],
   },
@@ -71,243 +34,188 @@ const PROVIDERS = [
     id: "zhipu",
     label: "Zhipu",
     provider: zhipuProvider,
-    query: mocks.queryZhipuQuota,
-    resolveAuth: mocks.resolveZhipuAuthCached,
-    providerIds: ["zhipu", "zhipu-coding-plan", "glm-coding-plan"],
+    keyEnv: "ZHIPU_API_KEY",
+    integrationId: "zhipu-coding-plan",
+    url: "https://bigmodel.cn/api/monitor/usage/quota/limit",
     matchingModels: ["zhipu/glm-4.5", "zhipu-coding-plan/glm-4.5", "glm-coding-plan/glm-4.5"],
     nonMatchingModels: ["zai/glm-4.5", "glm/glm-4.5", "openai/gpt-5"],
   },
 ] as const;
 
-describe.each(PROVIDERS)("$label GLM provider", (descriptor) => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    descriptor.resolveAuth.mockResolvedValue({
-      state: "configured",
-      apiKey: `${descriptor.id}-test-key`,
-    });
-  });
+function limitsReply(limits: unknown) {
+  return { code: 0, msg: "ok", success: true, data: { level: "pro", limits } };
+}
 
-  it("returns attempted:false when not configured", async () => {
-    descriptor.query.mockResolvedValueOnce(null);
-    expectNotAttempted(await descriptor.provider.fetch({} as any));
-  });
+function credit(fields: Record<string, number>) {
+  return { type: "CREDIT_LIMIT", unit: 3, ...fields };
+}
 
-  it("maps success into grouped entries and single-window metadata", async () => {
-    descriptor.query.mockResolvedValueOnce({
-      success: true,
-      label: descriptor.label,
-      windows: {
-        fiveHour: { percentRemaining: 80, resetTimeIso: "2026-01-01T00:00:00.000Z" },
-        weekly: { percentRemaining: 30, resetTimeIso: "2026-01-02T00:00:00.000Z" },
-        mcp: { percentRemaining: 90, resetTimeIso: "2026-01-03T00:00:00.000Z" },
-      },
-    });
+const world = useProviderWorld();
 
-    const out = await descriptor.provider.fetch({} as any);
-    expectAttemptedWithNoErrors(out);
-    expect(visibleEntries(out.entries, descriptor.id)).toEqual([
-      {
-        name: `${descriptor.label} 5h`,
-        group: descriptor.label,
-        label: "5h:",
-        percentRemaining: 80,
-        resetTimeIso: "2026-01-01T00:00:00.000Z",
-      },
-      {
-        name: `${descriptor.label} Weekly`,
-        group: descriptor.label,
-        label: "Weekly:",
-        percentRemaining: 30,
-        resetTimeIso: "2026-01-02T00:00:00.000Z",
-      },
-      {
-        name: `${descriptor.label} MCP`,
-        group: descriptor.label,
-        label: "MCP:",
-        percentRemaining: 90,
-        resetTimeIso: "2026-01-03T00:00:00.000Z",
-      },
+describe.each(VENDORS)("$label coding plan", (vendor) => {
+  async function fetchWithKey(reply: unknown) {
+    process.env[vendor.keyEnv] = "secret-key";
+    const http = fakeHttp(() => reply);
+    return { http, fetched: await fetchRows(vendor.provider) };
+  }
+
+  function errorLines(debug: Array<{ key: string; value: string }>) {
+    return debug.filter((item) => item.key === "error").map((item) => item.value);
+  }
+
+  it("reads the 5h, weekly and MCP windows: a later one wins, daily limits are left out", async () => {
+    const { http, fetched } = await fetchWithKey(
+      limitsReply([
+        { type: "TOKENS_LIMIT", unit: 4, percentage: 10, nextResetTime: Date.parse(WEEKLY_RESET) },
+        { type: "TOKENS_LIMIT", unit: 3, percentage: 120 },
+        { type: "TOKENS_LIMIT", unit: 6, percentage: 70, nextResetTime: Date.parse(WEEKLY_RESET) },
+        { type: "TIME_LIMIT", unit: 9, percentage: 10, nextResetTime: -1 },
+        {
+          type: "TOKENS_LIMIT",
+          unit: 3,
+          percentage: 20,
+          nextResetTime: Date.parse(FIVE_HOUR_RESET) + 0.4,
+        },
+      ]),
+    );
+
+    expect(rowSummary(fetched.rows)).toEqual([
+      [`${vendor.id}.five_hour`, null, "5h", "five_hour", 80, FIVE_HOUR_RESET],
+      [`${vendor.id}.weekly`, null, "Weekly", "week", 30, WEEKLY_RESET],
+      [`${vendor.id}.mcp`, null, "MCP", "mcp", 90, null],
     ]);
-    expect(out.presentation).toEqual({ singleWindowDisplayName: descriptor.label });
+    expect(fetched.error).toBeUndefined();
+    expect(http.mock.calls.map(([url]) => String(url))).toEqual([vendor.url]);
+    const [, init] = http.mock.calls[0] ?? [];
+    expect(requestHeader(init, "Authorization")).toBe("secret-key");
+    expect(requestHeader(init, "User-Agent")).toBe("OpenCode-Quota-Toast/1.0");
   });
 
-  it("maps query errors into toast errors", async () => {
-    descriptor.query.mockResolvedValueOnce({ success: false, error: "Unauthorized" });
-    expectAttemptedWithErrorLabel(await descriptor.provider.fetch({} as any), descriptor.label);
+  it.each([
+    ["exact credit values", credit({ usage: 12_000, currentValue: 569, percentage: 4 }), 95],
+    ["no current value", credit({ usage: 12_000, percentage: 4 }), 96],
+    ["zero usage", credit({ usage: 0, currentValue: 569, percentage: 11 }), 89],
+    ["credit use above the limit", credit({ usage: 100, currentValue: 150, percentage: 25 }), 0],
+    [
+      "a token limit",
+      { ...credit({ usage: 12_000, currentValue: 569, percentage: 4 }), type: "TOKENS_LIMIT" },
+      96,
+    ],
+  ])("gives the 5h percent of %s", async (_name, limit, expected) => {
+    const { fetched } = await fetchWithKey(limitsReply([limit]));
+
+    expect(fetched.rows.map((row) => row.percentRemaining)).toEqual([expected]);
   });
 
-  it("keeps provider-specific model matching", () => {
-    for (const model of descriptor.matchingModels) {
-      expect(descriptor.provider.matchesCurrentModel?.(model), model).toBe(true);
-    }
-    for (const model of descriptor.nonMatchingModels) {
-      expect(descriptor.provider.matchesCurrentModel?.(model), model).toBe(false);
-    }
+  it.each([
+    [
+      "an HTTP error",
+      new Response('\u001b[31m{"msg":"down"}', { status: 500 }),
+      `${vendor.label} API error 500: {"msg":"down"}`,
+    ],
+    ["limits that are not a list", limitsReply({}), "Invalid quota data"],
+    [
+      "a credit limit whose percentage is no number",
+      limitsReply([
+        { ...credit({ usage: 100, currentValue: 10 }), percentage: { toString: null } },
+      ]),
+      "Cannot convert object to primitive value",
+    ],
+  ])("with %s shows no rows and its error", async (_name, reply, error) => {
+    const { fetched } = await fetchWithKey(reply);
+
+    expect(fetched.rows).toEqual([]);
+    expect(errorLines(fetched.debug)).toEqual([`${vendor.label}: ${error}`]);
   });
 
-  it("is available for every provider alias when auth is configured", async () => {
-    for (const providerId of descriptor.providerIds) {
-      await expect(
-        descriptor.provider.isAvailable(
-          createProviderAvailabilityContext({ providerIds: [providerId] }),
-        ),
-      ).resolves.toBe(true);
-    }
-    await expect(
-      descriptor.provider.isAvailable(
-        createProviderAvailabilityContext({ providerIds: ["openai"] }),
-      ),
-    ).resolves.toBe(false);
-  });
-
-  it("is available when auth is invalid so fetch can surface the error", async () => {
-    descriptor.resolveAuth.mockResolvedValueOnce({
-      state: "invalid",
-      error: `Unsupported ${descriptor.label} auth type: "oauth"`,
+  it("without a key is not configured and sends nothing", async () => {
+    const http = fakeHttp(() => {
+      throw new Error("no request expected");
     });
-    await expect(
-      descriptor.provider.isAvailable(
-        createProviderAvailabilityContext({ providerIds: [descriptor.id] }),
-      ),
-    ).resolves.toBe(true);
-    expect(descriptor.resolveAuth).toHaveBeenCalledWith({ maxAgeMs: 5_000 });
+
+    const fetched = await fetchRows(vendor.provider);
+
+    expect(fetched).toMatchObject({ rows: [], error: { code: "not_configured" } });
+    expect(http).not.toHaveBeenCalled();
   });
 
-  it("is unavailable when auth is missing", async () => {
-    descriptor.resolveAuth.mockResolvedValueOnce({ state: "none" });
-    await expect(
-      descriptor.provider.isAvailable(
-        createProviderAvailabilityContext({ providerIds: [descriptor.id] }),
-      ),
-    ).resolves.toBe(false);
-    expect(descriptor.resolveAuth).toHaveBeenCalledWith({ maxAgeMs: 5_000 });
+  it("queries each stored key and shows a key it cannot use as an error", async () => {
+    world.storeLogins([
+      keyLogin("work", vendor.integrationId, " ", { label: "Work", active: 1, updated: 2 }),
+      keyLogin("home", vendor.integrationId, "home-key", { label: "Home", updated: 1 }),
+    ]);
+    const http = fakeHttp(() => limitsReply([{ type: "TOKENS_LIMIT", unit: 6, percentage: 70 }]));
+
+    const fetched = await fetchRows(vendor.provider);
+
+    expect(rowSummary(fetched.rows)).toEqual([
+      [`${vendor.id}.weekly`, "Home", "Weekly", "week", 30, null],
+    ]);
+    expect(errorLines(fetched.debug)).toEqual([
+      `[${vendor.label} Work] (active): ${vendor.label} auth entry present but key is empty`,
+    ]);
+    expect(http.mock.calls.map(([, init]) => requestHeader(init, "Authorization"))).toEqual([
+      "home-key",
+    ]);
   });
 
-  it("fails closed before auth resolution when provider lookup throws", async () => {
+  it.each<[string, readonly string[], "env" | "broken" | null, boolean]>([
+    ["with a key", [vendor.id], "env", true],
+    // A key it cannot use stays available so fetch can show its error.
+    ["with a stored key it cannot use", [vendor.id], "broken", true],
+    ["without a key", [vendor.id], null, false],
+    ["for another OpenCode provider", ["openai"], "env", false],
+  ])("%s is available: %s", async (_name, providerIds, key, expected) => {
+    if (key === "env") process.env[vendor.keyEnv] = "secret-key";
+    if (key === "broken") world.storeLogins([keyLogin("broken", vendor.integrationId, " ")]);
+
     await expect(
-      descriptor.provider.isAvailable(
-        createProviderAvailabilityContext({ providersError: new Error("boom") }),
-      ),
-    ).resolves.toBe(false);
-    expect(descriptor.resolveAuth).not.toHaveBeenCalled();
+      vendor.provider.isAvailable(createProviderAvailabilityContext({ providerIds })),
+    ).resolves.toBe(expected);
+  });
+
+  it("matches its own models", () => {
+    for (const model of vendor.matchingModels) {
+      expect(vendor.provider.matchesCurrentModel?.(model), model).toBe(true);
+    }
+    for (const model of vendor.nonMatchingModels) {
+      expect(vendor.provider.matchesCurrentModel?.(model), model).toBe(false);
+    }
   });
 });
 
-describe("GLM database credential rows", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+describe("GLM reply envelopes", () => {
+  it.each([
+    [
+      { code: 500, msg: "\u001b[31mcurrent user has no coding plan", success: false },
+      "current user has no coding plan",
+    ],
+    [{ code: 401 }, "Z.ai API error 401"],
+    [{ success: false }, "Z.ai API error"],
+  ])("Z.ai shows the error a 200 reply %j reports", async (reply, error) => {
+    process.env.ZAI_API_KEY = "secret-key";
+    fakeHttp(() => reply);
+
+    const fetched = await fetchRows(zaiProvider);
+
+    expect(fetched.rows).toEqual([]);
+    expect(fetched.debug).toContainEqual({ key: "error", value: `Z.ai: ${error}` });
   });
 
-  it("shows a login OpenCode could not return as its own error row next to working rows", async () => {
-    const actual =
-      await vi.importActual<typeof import("../src/lib/zai-auth.js")>("../src/lib/zai-auth.js");
-    vi.mocked(resolveZaiAuth).mockImplementation(actual.resolveZaiAuth);
-    vi.mocked(getZaiAuthDiagnostics).mockResolvedValueOnce({
-      state: "invalid",
-      source: "opencode.db",
-      checkedPaths: [],
-      credentialDatabasePaths: ["/tmp/opencode.db"],
-      error: "OpenCode could not read this login: refresh_failed: HTTP 401",
-    });
-    vi.mocked(readCredentialRows).mockResolvedValueOnce([
-      {
-        id: "failed-id",
-        integrationId: "zai-coding-plan",
-        label: "Work",
-        active: true,
-        value: { type: "api" },
-        resolveError: "refresh_failed: HTTP 401",
-      },
-      {
-        id: "working-id",
-        integrationId: "zai-coding-plan",
-        label: "Home",
-        active: false,
-        value: { type: "api", key: "home-key" },
-      },
-    ]);
-    mocks.queryZaiQuota.mockResolvedValueOnce({
+  it("allows Z.ai top-level limits but keeps Zhipu to data.limits", async () => {
+    process.env.ZAI_API_KEY = "secret-key";
+    process.env.ZHIPU_API_KEY = "secret-key";
+    fakeHttp(() => ({
+      code: 0,
       success: true,
-      label: "Z.ai",
-      windows: { fiveHour: { percentRemaining: 80 } },
-    });
+      limits: [{ type: "TOKENS_LIMIT", unit: 6, percentage: 25 }],
+    }));
 
-    const out = await zaiProvider.fetch({ config: {} } as any);
+    const zai = await fetchRows(zaiProvider);
+    const zhipu = await fetchRows(zhipuProvider);
 
-    expect(readCredentialRows).toHaveBeenCalledWith(["zai-coding-plan"], { methods: ["key"] });
-    expect(mocks.queryZaiQuota).toHaveBeenCalledTimes(1);
-    expect(mocks.queryZaiQuota).toHaveBeenCalledWith({
-      requestTimeoutMs: undefined,
-      apiKey: "home-key",
-    });
-    expect(out.errors).toEqual([
-      {
-        label: "[Z.ai Work] (active)",
-        message: "OpenCode could not read this login: refresh_failed: HTTP 401",
-      },
-    ]);
-    expect(out.entries.map((entry) => [entry.group, entry.accounting.sourceId])).toEqual([
-      ["[Z.ai Home]", "working-id"],
-    ]);
-  });
-});
-
-describe("Z.ai credit quota surfaces", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("renders credit-backed five-hour and weekly percentages on all four surfaces", async () => {
-    mocks.queryZaiQuota.mockResolvedValueOnce({
-      success: true,
-      label: "Z.ai",
-      windows: {
-        fiveHour: { percentRemaining: 96, resetTimeIso: undefined },
-        weekly: { percentRemaining: 89, resetTimeIso: undefined },
-      },
-    });
-
-    const out = await zaiProvider.fetch({} as any);
-    expectAttemptedWithNoErrors(out);
-    expect(visibleEntries(out.entries, "zai")).toEqual([
-      {
-        name: "Z.ai 5h",
-        group: "Z.ai",
-        label: "5h:",
-        percentRemaining: 96,
-        resetTimeIso: undefined,
-      },
-      {
-        name: "Z.ai Weekly",
-        group: "Z.ai",
-        label: "Weekly:",
-        percentRemaining: 89,
-        resetTimeIso: undefined,
-      },
-    ]);
-
-    const data: QuotaRenderData = { entries: out.entries, errors: out.errors };
-    const command = formatQuotaCommand({ ...data, generatedAtMs: 0 });
-    const toast = formatQuotaRowsGrouped(data);
-    const sidebar = buildSidebarQuotaPanelLines({
-      data,
-      config: { formatStyle: "allWindows", percentDisplayMode: "remaining" },
-    }).join("\n");
-    const compact = buildCompactQuotaStatusLine({
-      data,
-      percentDisplayMode: "remaining",
-      maxWidth: 240,
-    });
-
-    for (const output of [command, toast, sidebar, compact]) {
-      expect(output).toContain("Z.ai");
-      expect(output).toContain("96%");
-      expect(output).toContain("89%");
-    }
-    for (const output of [command, toast, sidebar]) {
-      expect(output).toContain("5h");
-      expect(output).toMatch(/\bWeek(?:ly)?\b/u);
-    }
+    expect(rowSummary(zai.rows)).toEqual([["zai.weekly", null, "Weekly", "week", 75, null]]);
+    expect(zhipu.rows).toEqual([]);
+    expect(zhipu.debug).toContainEqual({ key: "error", value: "Zhipu: Invalid quota data" });
   });
 });

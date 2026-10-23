@@ -1,268 +1,111 @@
 import {
-  extractProviderOptionsApiKey,
+  API_KEY_VENDORS,
+  type ApiKeySource,
   getApiKeyCheckedPaths,
-  getGlobalOpencodeConfigCandidatePaths,
+  parseApiKeyLogin,
+  readApiKeyLoginRow,
   resolveApiKeyFromEnvAndConfig,
 } from "./api-key-resolver.js";
 import { sanitizeDisplayText } from "./display-sanitize.js";
-import { getCredentialDatabasePaths, readAuthFileCached } from "./opencode-auth.js";
-import type { AlibabaAuthData, AlibabaCodingPlanTier, AuthData } from "./types.js";
+import { nonEmptyString } from "./json-guards.js";
+import { type CredentialRow, getCredentialDatabasePaths } from "./opencode-auth.js";
+import type { AlibabaCodingPlanTier } from "./types.js";
 
-export const DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS = 5_000;
-const ALIBABA_AUTH_KEYS = ["alibaba-coding-plan", "alibaba"] as const;
-const ALIBABA_PROVIDER_KEYS = ["alibaba-coding-plan", "alibaba"] as const;
-const ALLOWED_ALIBABA_ENV_VARS = ["ALIBABA_CODING_PLAN_API_KEY", "ALIBABA_API_KEY"] as const;
 const DEFAULT_ALIBABA_CODING_PLAN_TIER: AlibabaCodingPlanTier = "lite";
+const ALIBABA = API_KEY_VENDORS["alibaba-coding-plan"];
+const TIER_KEYS = ["tier", "planTier", "plan_tier", "subscriptionTier"] as const;
 
-export type AlibabaCodingPlanKeySource =
-  | "env:ALIBABA_CODING_PLAN_API_KEY"
-  | "env:ALIBABA_API_KEY"
-  | "opencode.json"
-  | "opencode.jsonc"
-  | "opencode.db";
-
-export type ResolvedAlibabaCodingPlanAuth =
+type ResolvedAlibabaCodingPlanAuth =
   | { state: "none" }
   | { state: "configured"; apiKey: string; tier: AlibabaCodingPlanTier }
   | { state: "invalid"; error: string; rawTier?: string };
 
-export type AlibabaCodingPlanAuthDiagnostics =
-  | {
-      state: "none";
-      source: null;
-      checkedPaths: string[];
-      credentialDatabasePaths: string[];
-    }
-  | {
-      state: "configured";
-      source: AlibabaCodingPlanKeySource;
-      checkedPaths: string[];
-      credentialDatabasePaths: string[];
-      tier: AlibabaCodingPlanTier;
-    }
-  | {
+type DiagnosticPaths = { checkedPaths: string[]; credentialDatabasePaths: string[] };
+
+type AlibabaCodingPlanAuthDiagnostics =
+  | ({ state: "none"; source: null } & DiagnosticPaths)
+  | ({ state: "configured"; source: ApiKeySource; tier: AlibabaCodingPlanTier } & DiagnosticPaths)
+  | ({
       state: "invalid";
       source: "opencode.db";
-      checkedPaths: string[];
-      credentialDatabasePaths: string[];
       error: string;
       rawTier?: string;
-    };
+    } & DiagnosticPaths);
 
-export { getGlobalOpencodeConfigCandidatePaths as getOpencodeConfigCandidatePaths } from "./api-key-resolver.js";
-
-function getFirstString(obj: Record<string, unknown>, keys: string[]): string | undefined {
-  for (const key of keys) {
-    const value = obj[key];
-    if (typeof value !== "string") continue;
-    const trimmed = value.trim();
-    if (trimmed) return trimmed;
-  }
-  return undefined;
-}
-
-function normalizeAlibabaTier(value: string | undefined): AlibabaCodingPlanTier | null {
-  const normalized = value?.trim().toLowerCase();
-  if (!normalized) return null;
+function normalizeAlibabaTier(value: string): AlibabaCodingPlanTier | null {
+  const normalized = value.toLowerCase();
   if (normalized === "lite") return "lite";
   if (normalized === "pro" || normalized === "professional") return "pro";
   return null;
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
-}
-
-function getAlibabaAuthEntry(auth: AuthData | null | undefined): unknown {
-  const root = asRecord(auth);
-  if (!root) return undefined;
-
-  for (const key of ALIBABA_AUTH_KEYS) {
-    if (Object.hasOwn(root, key)) {
-      return root[key];
-    }
-  }
-
-  return undefined;
-}
-
-function isAlibabaAuthData(value: unknown): value is AlibabaAuthData {
-  return value !== null && typeof value === "object";
-}
-
-function sanitizeAlibabaAuthValue(value: string): string {
-  const sanitized = sanitizeDisplayText(value).replace(/\s+/g, " ").trim();
-  return (sanitized || "unknown").slice(0, 120);
-}
-
+/** A stored API-key login; its tier field (if any) must name a known plan. */
 export function resolveAlibabaCodingPlanAuth(
-  auth: AuthData | null | undefined,
+  row: CredentialRow | undefined,
   fallbackTier: AlibabaCodingPlanTier = DEFAULT_ALIBABA_CODING_PLAN_TIER,
 ): ResolvedAlibabaCodingPlanAuth {
-  const alibaba = getAlibabaAuthEntry(auth);
-  if (alibaba === undefined) {
-    return { state: "none" };
-  }
+  if (!row) return { state: "none" };
+  const login = parseApiKeyLogin(ALIBABA, row);
+  if (login.state !== "configured") return login;
 
-  if (!isAlibabaAuthData(alibaba)) {
-    return { state: "invalid", error: "Alibaba Coding Plan auth entry has invalid shape" };
-  }
+  const rawTier = TIER_KEYS.map((key) => nonEmptyString(row.value[key])).find(Boolean);
+  if (!rawTier) return { state: "configured", apiKey: login.apiKey, tier: fallbackTier };
 
-  if (typeof alibaba.resolveError === "string") {
-    return {
-      state: "invalid",
-      error: `OpenCode could not read this login: ${alibaba.resolveError}`,
-    };
-  }
-
-  if (typeof alibaba.type !== "string") {
-    return {
-      state: "invalid",
-      error: "Alibaba Coding Plan auth entry present but type is missing or invalid",
-    };
-  }
-
-  if (alibaba.type !== "api") {
-    return {
-      state: "invalid",
-      error: `Unsupported Alibaba Coding Plan auth type: "${sanitizeAlibabaAuthValue(alibaba.type)}"`,
-    };
-  }
-
-  const apiKey = typeof alibaba.key === "string" ? alibaba.key.trim() : "";
-  if (!apiKey) {
-    return { state: "invalid", error: "Alibaba Coding Plan auth entry present but key is empty" };
-  }
-
-  const rawTier = getFirstString(alibaba as Record<string, unknown>, [
-    "tier",
-    "planTier",
-    "plan_tier",
-    "subscriptionTier",
-  ]);
   const tier = normalizeAlibabaTier(rawTier);
-  if (!rawTier) {
-    return {
-      state: "configured",
-      apiKey,
-      tier: fallbackTier,
-    };
-  }
-
   if (!tier) {
+    const sanitized = sanitizeDisplayText(rawTier).replace(/\s+/g, " ").trim();
     return {
       state: "invalid",
-      error: `Unsupported Alibaba Coding Plan tier: ${sanitizeAlibabaAuthValue(rawTier)}`,
+      error: `Unsupported Alibaba Coding Plan tier: ${(sanitized || "unknown").slice(0, 120)}`,
       rawTier,
     };
   }
-
-  return {
-    state: "configured",
-    apiKey,
-    tier,
-  };
+  return { state: "configured", apiKey: login.apiKey, tier };
 }
 
-async function resolveAlibabaCodingPlanAuthWithSource(params?: {
-  maxAgeMs?: number;
-  fallbackTier?: AlibabaCodingPlanTier;
-}): Promise<{
-  auth: ResolvedAlibabaCodingPlanAuth;
-  source: AlibabaCodingPlanKeySource | null;
-}> {
+async function resolveAlibabaCodingPlanAuthWithSource(
+  directory: string,
+  params?: { fallbackTier?: AlibabaCodingPlanTier },
+): Promise<{ auth: ResolvedAlibabaCodingPlanAuth; source: ApiKeySource | null }> {
   const fallbackTier = params?.fallbackTier ?? DEFAULT_ALIBABA_CODING_PLAN_TIER;
-  const resolvedFromEnvOrConfig = await resolveApiKeyFromEnvAndConfig<AlibabaCodingPlanKeySource>({
-    envVars: [
-      {
-        name: "ALIBABA_CODING_PLAN_API_KEY",
-        source: "env:ALIBABA_CODING_PLAN_API_KEY",
-      },
-      { name: "ALIBABA_API_KEY", source: "env:ALIBABA_API_KEY" },
-    ],
-    extractFromConfig: (config) =>
-      extractProviderOptionsApiKey(config, {
-        providerKeys: ALIBABA_PROVIDER_KEYS,
-        allowedEnvVars: ALLOWED_ALIBABA_ENV_VARS,
-      }),
-    configJsonSource: "opencode.json",
-    configJsoncSource: "opencode.jsonc",
-    getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
-  });
-
-  if (resolvedFromEnvOrConfig) {
+  const fromEnvOrConfig = await resolveApiKeyFromEnvAndConfig(ALIBABA, directory);
+  if (fromEnvOrConfig) {
     return {
-      auth: {
-        state: "configured",
-        apiKey: resolvedFromEnvOrConfig.key,
-        tier: fallbackTier,
-      },
-      source: resolvedFromEnvOrConfig.source,
+      auth: { state: "configured", apiKey: fromEnvOrConfig.key, tier: fallbackTier },
+      source: fromEnvOrConfig.source,
     };
   }
 
-  const maxAgeMs = Math.max(0, params?.maxAgeMs ?? DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS);
-  const authData = await readAuthFileCached({
-    maxAgeMs,
-    integrationIds: ALIBABA_AUTH_KEYS,
-  });
-  const auth = resolveAlibabaCodingPlanAuth(authData, fallbackTier);
+  const auth = resolveAlibabaCodingPlanAuth(await readApiKeyLoginRow(ALIBABA), fallbackTier);
+  return { auth, source: auth.state === "none" ? null : "opencode.db" };
+}
 
-  return {
-    auth,
-    source: auth.state === "none" ? null : "opencode.db",
+export async function resolveAlibabaCodingPlanAuthCached(
+  directory: string,
+  params?: { fallbackTier?: AlibabaCodingPlanTier },
+): Promise<ResolvedAlibabaCodingPlanAuth> {
+  return (await resolveAlibabaCodingPlanAuthWithSource(directory, params)).auth;
+}
+
+export async function getAlibabaCodingPlanAuthDiagnostics(
+  directory: string,
+): Promise<AlibabaCodingPlanAuthDiagnostics> {
+  const { auth, source } = await resolveAlibabaCodingPlanAuthWithSource(directory);
+  const paths = {
+    checkedPaths: getApiKeyCheckedPaths(ALIBABA, directory),
+    credentialDatabasePaths: getCredentialDatabasePaths(),
   };
-}
-
-export async function resolveAlibabaCodingPlanAuthCached(params?: {
-  maxAgeMs?: number;
-  fallbackTier?: AlibabaCodingPlanTier;
-}): Promise<ResolvedAlibabaCodingPlanAuth> {
-  return (await resolveAlibabaCodingPlanAuthWithSource(params)).auth;
-}
-
-export async function getAlibabaCodingPlanAuthDiagnostics(params?: {
-  maxAgeMs?: number;
-  fallbackTier?: AlibabaCodingPlanTier;
-}): Promise<AlibabaCodingPlanAuthDiagnostics> {
-  const { auth, source } = await resolveAlibabaCodingPlanAuthWithSource(params);
-  const checkedPaths = getApiKeyCheckedPaths({
-    envVarNames: [...ALLOWED_ALIBABA_ENV_VARS],
-    getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
-  });
-  const credentialDatabasePaths = getCredentialDatabasePaths();
-
-  if (auth.state === "none") {
-    return {
-      state: "none",
-      source: null,
-      checkedPaths,
-      credentialDatabasePaths,
-    };
-  }
-
+  if (auth.state === "none") return { state: "none", source: null, ...paths };
   if (auth.state === "invalid") {
     return {
       state: "invalid",
       source: "opencode.db",
-      checkedPaths,
-      credentialDatabasePaths,
       error: auth.error,
-      rawTier: auth.rawTier,
+      ...paths,
+      ...(auth.rawTier !== undefined ? { rawTier: auth.rawTier } : {}),
     };
   }
-
-  return {
-    state: "configured",
-    source: source ?? "opencode.db",
-    checkedPaths,
-    credentialDatabasePaths,
-    tier: auth.tier,
-  };
-}
-
-export function hasAlibabaAuth(auth: AuthData | null | undefined): boolean {
-  return resolveAlibabaCodingPlanAuth(auth).state === "configured";
+  return { state: "configured", source: source ?? "opencode.db", tier: auth.tier, ...paths };
 }
 
 export function isAlibabaModelId(model?: string): boolean {

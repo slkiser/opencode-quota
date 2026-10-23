@@ -1,46 +1,21 @@
 import { access, mkdir, readdir, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { dirname, join } from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-const testPaths = vi.hoisted(() => {
-  const separator = process.platform === "win32" ? "\\" : "/";
-  const join = (...parts: string[]) => parts.join(separator);
-  const root = join(process.cwd(), ".google-token-cache-test");
-  return {
-    root,
-    dataDir: join(root, "data"),
-    configDir: join(root, "config"),
-    cacheDir: join(root, "cache"),
-    stateDir: join(root, "state"),
-    cachePath: join(root, "cache", "opencode-quota", "google-access-tokens.json"),
-  };
-});
+import { useOpencodeFolders } from "./helpers/opencode-folders.js";
 
-vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirs: () => ({
-    dataDir: testPaths.dataDir,
-    configDir: testPaths.configDir,
-    cacheDir: testPaths.cacheDir,
-    stateDir: testPaths.stateDir,
-  }),
-}));
-
-const TEST_RUNTIME_ROOT = testPaths.root;
-const CACHE_PATH = testPaths.cachePath;
+const runtime = useOpencodeFolders();
 
 function entry(accessToken: string, expiresAt = Date.now() + 60_000) {
   return { accessToken, expiresAt };
 }
 
 describe("google-token-cache", () => {
+  let legacyCachePath: string;
+
   beforeEach(async () => {
     vi.resetModules();
-    await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
-  });
-
-  afterEach(async () => {
-    vi.resetModules();
-    await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
+    legacyCachePath = join(runtime.cacheDir, "opencode-quota", "google-access-tokens.json");
   });
 
   it("uses opaque process-local account keys without PII or reusable credential verifiers", async () => {
@@ -70,9 +45,9 @@ describe("google-token-cache", () => {
   });
 
   it("migrates by deleting the legacy PII-bearing disk cache without reading or replacing it", async () => {
-    await mkdir(dirname(CACHE_PATH), { recursive: true });
+    await mkdir(dirname(legacyCachePath), { recursive: true });
     await writeFile(
-      CACHE_PATH,
+      legacyCachePath,
       JSON.stringify({
         version: 1,
         entries: {
@@ -87,93 +62,84 @@ describe("google-token-cache", () => {
       "utf8",
     );
 
-    const cache = await import("../src/lib/google-token-cache.js");
+    const cache = (await import("../src/lib/google-token-cache.js")).createGoogleTokenCache();
     const cachedEntry = entry("new-process-token");
-    await cache.setCachedAccessToken({ key: "opaque-account", entry: cachedEntry });
+    await cache.set({ key: "opaque-account", entry: cachedEntry });
 
-    await expect(access(CACHE_PATH)).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(cache.getCachedAccessToken({ key: "opaque-account", skewMs: 0 })).resolves.toEqual(
-      cachedEntry,
-    );
-    expect(await readdir(dirname(CACHE_PATH))).toEqual([]);
+    await expect(access(legacyCachePath)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(cache.get({ key: "opaque-account", skewMs: 0 })).resolves.toEqual(cachedEntry);
+    expect(await readdir(dirname(legacyCachePath))).toEqual([]);
   });
 
   it("keeps valid tokens process-local and removes expired entries", async () => {
-    const cache = await import("../src/lib/google-token-cache.js");
+    const cache = (await import("../src/lib/google-token-cache.js")).createGoogleTokenCache();
     const validEntry = entry("valid-token");
-    await cache.setCachedAccessToken({ key: "valid", entry: validEntry });
-    await cache.setCachedAccessToken({ key: "expired", entry: entry("expired-token", Date.now()) });
+    await cache.set({ key: "valid", entry: validEntry });
+    await cache.set({ key: "expired", entry: entry("expired-token", Date.now()) });
 
-    const valid = await cache.getCachedAccessToken({ key: "valid", skewMs: 0 });
+    const valid = await cache.get({ key: "valid", skewMs: 0 });
     expect(valid).toEqual(validEntry);
     if (valid) valid.accessToken = "mutated";
-    await expect(cache.getCachedAccessToken({ key: "valid", skewMs: 0 })).resolves.toEqual(
-      validEntry,
-    );
-    await expect(cache.getCachedAccessToken({ key: "expired", skewMs: 0 })).resolves.toBeNull();
-    await expect(access(CACHE_PATH)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(cache.get({ key: "valid", skewMs: 0 })).resolves.toEqual(validEntry);
+    await expect(cache.get({ key: "expired", skewMs: 0 })).resolves.toBeNull();
+    await expect(access(legacyCachePath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("serializes concurrent updates without losing different accounts", async () => {
-    const cache = await import("../src/lib/google-token-cache.js");
+  it("keeps both accounts when two updates run at once", async () => {
+    const cache = (await import("../src/lib/google-token-cache.js")).createGoogleTokenCache();
     await Promise.all([
-      cache.setCachedAccessToken({ key: "first", entry: entry("first-token") }),
-      cache.setCachedAccessToken({ key: "second", entry: entry("second-token") }),
+      cache.set({ key: "first", entry: entry("first-token") }),
+      cache.set({ key: "second", entry: entry("second-token") }),
     ]);
 
-    await expect(cache.getCachedAccessToken({ key: "first", skewMs: 0 })).resolves.toMatchObject({
-      accessToken: "first-token",
-    });
-    await expect(cache.getCachedAccessToken({ key: "second", skewMs: 0 })).resolves.toMatchObject({
-      accessToken: "second-token",
-    });
+    for (const key of ["first", "second"]) {
+      await expect(cache.get({ key, skewMs: 0 })).resolves.toMatchObject({
+        accessToken: `${key}-token`,
+      });
+    }
   });
 
-  it("does not reuse memory or opaque account keys across module instances", async () => {
-    const firstModule = await import("../src/lib/google-token-cache.js");
-    const firstKey = firstModule.makeAccountCacheKey({
-      refreshToken: "refresh-secret",
-      projectId: "project-id",
-    });
-    await firstModule.setCachedAccessToken({ key: firstKey, entry: entry("first-token") });
-
+  it("does not reuse opaque account keys across module instances", async () => {
+    const account = { refreshToken: "refresh-secret", projectId: "project-id" };
+    const firstKey = (await import("../src/lib/google-token-cache.js")).makeAccountCacheKey(
+      account,
+    );
     vi.resetModules();
-    const secondModule = await import("../src/lib/google-token-cache.js");
-    const secondKey = secondModule.makeAccountCacheKey({
-      refreshToken: "refresh-secret",
-      projectId: "project-id",
-    });
+    const secondKey = (await import("../src/lib/google-token-cache.js")).makeAccountCacheKey(
+      account,
+    );
 
     expect(secondKey).not.toBe(firstKey);
+  });
+
+  it("gives Google AGY and Gemini CLI separate token caches", async () => {
+    const { AGY_FLAVOR } = await import("../src/lib/google-agy.js");
+    const { GEMINI_CLI_FLAVOR } = await import("../src/lib/google-gemini-cli.js");
+    await AGY_FLAVOR.tokenCache.set({ key: "shared", entry: entry("agy-token") });
+    await GEMINI_CLI_FLAVOR.tokenCache.set({ key: "other", entry: entry("gemini-token") });
+
     await expect(
-      secondModule.getCachedAccessToken({ key: secondKey, skewMs: 0 }),
+      GEMINI_CLI_FLAVOR.tokenCache.get({ key: "shared", skewMs: 0 }),
     ).resolves.toBeNull();
+    await expect(AGY_FLAVOR.tokenCache.get({ key: "other", skewMs: 0 })).resolves.toBeNull();
+    await expect(AGY_FLAVOR.tokenCache.get({ key: "shared", skewMs: 0 })).resolves.toMatchObject({
+      accessToken: "agy-token",
+    });
   });
 
   it("retries a denied legacy cleanup without using an insecure fallback", async () => {
-    await mkdir(CACHE_PATH, { recursive: true });
-    const cache = await import("../src/lib/google-token-cache.js");
+    await mkdir(legacyCachePath, { recursive: true });
+    const cache = (await import("../src/lib/google-token-cache.js")).createGoogleTokenCache();
 
-    await cache.setCachedAccessToken({ key: "account", entry: entry("token") });
-    expect((await readdir(CACHE_PATH)).length).toBe(0);
+    await cache.set({ key: "account", entry: entry("token") });
+    expect((await readdir(legacyCachePath)).length).toBe(0);
 
-    await rm(CACHE_PATH, { recursive: true, force: true });
-    await mkdir(dirname(CACHE_PATH), { recursive: true });
-    await writeFile(CACHE_PATH, "legacy-pii-after-transient-failure", "utf8");
-    await expect(cache.getCachedAccessToken({ key: "account", skewMs: 0 })).resolves.toMatchObject({
+    await rm(legacyCachePath, { recursive: true, force: true });
+    await mkdir(dirname(legacyCachePath), { recursive: true });
+    await writeFile(legacyCachePath, "legacy-pii-after-transient-failure", "utf8");
+    await expect(cache.get({ key: "account", skewMs: 0 })).resolves.toMatchObject({
       accessToken: "token",
     });
-    await expect(access(CACHE_PATH)).rejects.toMatchObject({ code: "ENOENT" });
-  });
-
-  it("clears process memory and retries legacy cleanup", async () => {
-    const cache = await import("../src/lib/google-token-cache.js");
-    await cache.setCachedAccessToken({ key: "account", entry: entry("token") });
-    await mkdir(dirname(CACHE_PATH), { recursive: true });
-    await writeFile(CACHE_PATH, "legacy-pii", "utf8");
-    await cache.clearGoogleTokenCache();
-
-    await expect(cache.getCachedAccessToken({ key: "account", skewMs: 0 })).resolves.toBeNull();
-    await expect(access(CACHE_PATH)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(legacyCachePath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

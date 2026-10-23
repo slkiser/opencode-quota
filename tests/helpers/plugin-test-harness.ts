@@ -1,277 +1,116 @@
-import { vi } from "vitest";
-
-import { DEFAULT_CONFIG } from "../../src/lib/types.js";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { vi } from "vite-plus/test";
+import { createFakeIntegration } from "./fake-integration.js";
 
 type MockFunction = ReturnType<typeof vi.fn>;
 
-type PromptClient = {
-  session: {
-    prompt: MockFunction;
-  };
-};
-
-type ToastClient = {
-  tui: {
-    showToast: MockFunction;
-  };
-};
-
-interface PricingMocks {
-  getPricingSnapshotMeta: MockFunction;
-  getPricingSnapshotSource: MockFunction;
-  getRuntimePricingRefreshStatePath: MockFunction;
-  getRuntimePricingSnapshotPath: MockFunction;
-  maybeRefreshPricingSnapshot: MockFunction;
-  setPricingSnapshotAutoRefresh: MockFunction;
-  setPricingSnapshotSelection: MockFunction;
-}
-
-interface SessionTokenMocks {
-  fetchSessionTokensForDisplay: MockFunction;
-}
-
-interface AuthPlanMocks {
-  resolveAlibabaCodingPlanAuthCached?: MockFunction;
-}
-
-interface PluginBootstrapMocks extends PricingMocks, AuthPlanMocks {
-  loadConfig: MockFunction;
+interface PluginBootstrapMocks {
   getProviders?: MockFunction;
-  fetchSessionTokensForDisplay?: MockFunction;
+  sessionUsage?: MockFunction;
 }
 
-interface PluginBootstrapOptions {
-  configOverrides?: Partial<typeof DEFAULT_CONFIG>;
-  providers?: unknown[];
-  resetModules?: boolean;
-  resetPluginState?: boolean;
-  seedAuthPlans?: boolean;
-  seedSessionTokens?: boolean;
+/** core/usage.js as it is, with `sessionUsage` replaced. */
+export function createSessionUsageModuleMock(actual: object, sessionUsage: MockFunction) {
+  return { ...actual, sessionUsage };
 }
 
-interface PluginRuntimeRoot {
-  cacheDir: string;
-  configDir: string;
-  dataDir: string;
-  stateDir: string;
+/** Writes the server settings file (settings.jsonc) in OpenCode's config folder `configDir`. */
+export function writePluginTestSettings(
+  configDir: string,
+  settings: Record<string, unknown>,
+): void {
+  const dir = join(configDir, "opencode-quota");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "settings.jsonc"), JSON.stringify(settings, null, 2));
 }
 
-export function createConfigModuleMock(loadConfig: MockFunction) {
-  return {
-    loadConfig,
-    createLoadConfigMeta: () => ({
-      source: "defaults",
-      paths: [],
-      globalConfigPaths: [],
-      workspaceConfigPaths: [],
-      settingSources: {},
-      networkSettingSources: {},
-      configIssues: [],
-    }),
-  };
-}
-
-export function createProvidersRegistryModuleMock(getProviders: MockFunction) {
-  return { getProviders };
-}
-
-export function createPricingModuleMock(mocks: PricingMocks) {
-  return {
-    getPricingSnapshotMeta: mocks.getPricingSnapshotMeta,
-    getPricingSnapshotSource: mocks.getPricingSnapshotSource,
-    getRuntimePricingRefreshStatePath: mocks.getRuntimePricingRefreshStatePath,
-    getRuntimePricingSnapshotPath: mocks.getRuntimePricingSnapshotPath,
-    maybeRefreshPricingSnapshot: mocks.maybeRefreshPricingSnapshot,
-    setPricingSnapshotAutoRefresh: mocks.setPricingSnapshotAutoRefresh,
-    setPricingSnapshotSelection: mocks.setPricingSnapshotSelection,
-  };
-}
-
-export function createSessionTokensModuleMock(fetchSessionTokensForDisplay: MockFunction) {
-  return { fetchSessionTokensForDisplay };
-}
-
-export function createAlibabaAuthModuleMock(resolveAlibabaCodingPlanAuthCached: MockFunction) {
-  return {
-    DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS: 5000,
-    isAlibabaModelId: (model?: string) =>
-      typeof model === "string" &&
-      (model.toLowerCase().startsWith("alibaba/") || model.toLowerCase().startsWith("alibaba-cn/")),
-    resolveAlibabaCodingPlanAuthCached,
-  };
-}
-
-export function createPluginBootstrapRuntimeRoot(root: string): PluginRuntimeRoot {
-  return {
-    dataDir: `${root}/data`,
-    configDir: `${root}/config`,
-    cacheDir: `${root}/cache`,
-    stateDir: `${root}/state`,
-  };
-}
-
-export function createPluginRuntimePathsMockModule(root: string) {
-  const runtimeRoot = createPluginBootstrapRuntimeRoot(root);
-
-  return {
-    getOpencodeRuntimeDirs: () => ({ ...runtimeRoot }),
-  };
-}
-
-export function resetPluginTestState(): void {
-  // Per-test module resets clear in-memory plugin/cache singletons.
-}
-
-export function makeQuotaToastTestConfig(
-  overrides: Partial<typeof DEFAULT_CONFIG> = {},
-): typeof DEFAULT_CONFIG {
-  return {
-    ...DEFAULT_CONFIG,
-    ...overrides,
-    enabledProviders:
-      overrides.enabledProviders !== undefined
-        ? Array.isArray(overrides.enabledProviders)
-          ? [...overrides.enabledProviders]
-          : overrides.enabledProviders
-        : Array.isArray(DEFAULT_CONFIG.enabledProviders)
-          ? [...DEFAULT_CONFIG.enabledProviders]
-          : DEFAULT_CONFIG.enabledProviders,
-    opencodeGoWindows: [...(overrides.opencodeGoWindows ?? DEFAULT_CONFIG.opencodeGoWindows)],
-    resetNotifications: {
-      ...DEFAULT_CONFIG.resetNotifications,
-      ...overrides.resetNotifications,
-      windows: [
-        ...(overrides.resetNotifications?.windows ?? DEFAULT_CONFIG.resetNotifications.windows),
-      ],
-    },
-    pricingSnapshot: {
-      ...DEFAULT_CONFIG.pricingSnapshot,
-      ...overrides.pricingSnapshot,
-    },
-    tuiSidebarPanel: {
-      ...DEFAULT_CONFIG.tuiSidebarPanel,
-      ...overrides.tuiSidebarPanel,
-    },
-    tuiCompactStatus: {
-      ...DEFAULT_CONFIG.tuiCompactStatus,
-      ...overrides.tuiCompactStatus,
-    },
-    maintainerAnnouncements: {
-      ...DEFAULT_CONFIG.maintainerAnnouncements,
-      ...overrides.maintainerAnnouncements,
-    },
-    telemetry: {
-      ...DEFAULT_CONFIG.telemetry,
-      ...overrides.telemetry,
-    },
-    layout: {
-      ...DEFAULT_CONFIG.layout,
-      ...overrides.layout,
-    },
-  };
-}
-
-export function seedDefaultPricingMocks(mocks: PricingMocks): void {
-  mocks.getPricingSnapshotMeta.mockReturnValue({
-    source: "https://models.dev/api.json",
-    generatedAt: Date.UTC(2026, 0, 1),
-    units: "USD per 1M tokens",
-  });
-  mocks.getPricingSnapshotSource.mockReturnValue("runtime");
-  mocks.getRuntimePricingSnapshotPath.mockReturnValue("/tmp/modelsdev-pricing.runtime.min.json");
-  mocks.getRuntimePricingRefreshStatePath.mockReturnValue(
-    "/tmp/modelsdev-pricing.refresh-state.json",
-  );
-  mocks.maybeRefreshPricingSnapshot.mockResolvedValue({
-    attempted: false,
-    updated: false,
-    state: { version: 1, updatedAt: Date.now() },
-  });
-}
-
-export function seedDefaultSessionTokenMocks(mocks: SessionTokenMocks): void {
-  mocks.fetchSessionTokensForDisplay.mockResolvedValue({
-    sessionTokens: undefined,
-    error: undefined,
-  });
-}
-
-export function seedDefaultAuthPlanMocks(mocks: AuthPlanMocks): void {
-  mocks.resolveAlibabaCodingPlanAuthCached?.mockResolvedValue({ state: "none" });
-}
-
+/**
+ * Clears every mock and gives the mocked modules their default answers. `resetPluginState`
+ * loads fresh module instances, which clears module-level singleton state.
+ */
 export function seedDefaultPluginBootstrapMocks(
   mocks: PluginBootstrapMocks,
-  options: PluginBootstrapOptions = {},
+  options: { resetPluginState?: boolean } = {},
 ): void {
   vi.clearAllMocks();
+  if (options.resetPluginState) vi.resetModules();
 
-  if (options.resetModules || options.resetPluginState) {
-    // Fresh module instances clear module-level singleton state.
-    vi.resetModules();
-  }
-
-  if (options.resetPluginState) {
-    resetPluginTestState();
-  }
-
-  mocks.loadConfig.mockResolvedValue(makeQuotaToastTestConfig(options.configOverrides));
-  mocks.getProviders?.mockReturnValue(options.providers ?? []);
-
-  if (mocks.fetchSessionTokensForDisplay && options.seedSessionTokens !== false) {
-    seedDefaultSessionTokenMocks(mocks);
-  }
-
-  if (options.seedAuthPlans !== false) {
-    seedDefaultAuthPlanMocks(mocks);
-  }
-
-  seedDefaultPricingMocks(mocks);
+  mocks.getProviders?.mockReturnValue([]);
+  mocks.sessionUsage?.mockResolvedValue(undefined);
 }
 
-export function createPluginTestClient({
-  modelID,
-  providerID,
-  sessionData,
+export type ServerTool = {
+  name: string;
+  execute: (input: unknown, context: { sessionID: string }) => Promise<{ content: string }>;
+};
+
+export type ServerCommand = {
+  name: string;
+  description?: string;
+  execute: (invocation: {
+    sessionID: string;
+    prompt: { text: string };
+    delivery?: "steer" | "queue";
+  }) => Promise<void>;
+};
+
+/**
+ * A fake OpenCode context for the server plugin's `setup`. It records the tools, slash
+ * commands and session hooks the plugin adds; `emit` records the RPC events. OpenCode lists
+ * the providers `openCodeProviders` names, and `sessionGet` answers for every session.
+ */
+export function createServerContext({
+  // The test file's own temp home (tests/setup.ts), so OpenCode's project config is read only
+  // from temp folders.
+  directory = process.env.HOME!,
+  openCodeProviders = [],
+  sessionGet = vi.fn().mockResolvedValue({}),
+  events = { async *[Symbol.asyncIterator]() {} },
 }: {
-  modelID?: string;
-  providerID?: string;
-  sessionData?: Record<string, unknown>;
+  directory?: string;
+  openCodeProviders?: string[];
+  sessionGet?: MockFunction;
+  events?: AsyncIterable<{ type: string }>;
 } = {}) {
-  const data = {
-    ...(modelID === undefined && providerID === undefined
-      ? {}
-      : {
-          model: {
-            ...(modelID === undefined ? {} : { id: modelID }),
-            ...(providerID === undefined ? {} : { providerID }),
-          },
-        }),
-    ...(sessionData ?? {}),
-  };
-
-  return {
-    config: {
-      get: vi.fn().mockResolvedValue({ data: {} }),
-      providers: vi.fn().mockResolvedValue({ data: { providers: [] } }),
-    },
+  const tools: ServerTool[] = [];
+  const commands: ServerCommand[] = [];
+  const commandBuilds: Array<(editor: { add: (command: ServerCommand) => void }) => void> = [];
+  const hooks = new Map<string, unknown>();
+  const emit = vi.fn(async (_name: string, _data: unknown) => {});
+  const ctx = {
+    location: { directory },
+    provider: { list: vi.fn(async () => ({ data: openCodeProviders.map((id) => ({ id })) })) },
     session: {
-      get: vi.fn().mockResolvedValue({ data }),
-      prompt: vi.fn().mockResolvedValue({}),
+      get: sessionGet,
+      wait: vi.fn(async (_input: { sessionID: string }) => {}),
+      prompt: vi.fn(async (_input: { sessionID: string; text: string }) => ({})),
+      hook: vi.fn(async (name: string, callback: unknown) => {
+        hooks.set(name, callback);
+        return { dispose: async () => {} };
+      }),
     },
-    tui: {
-      showToast: vi.fn().mockResolvedValue({}),
+    tool: {
+      transform: vi.fn(async (build: (editor: { add: (tool: ServerTool) => void }) => void) =>
+        build({ add: (tool) => tools.push(tool) }),
+      ),
     },
-    app: {
-      log: vi.fn().mockResolvedValue({}),
+    command: {
+      transform: vi.fn(
+        async (build: (editor: { add: (command: ServerCommand) => void }) => void) => {
+          commandBuilds.push(build);
+          build({ add: (command) => commands.push(command) });
+        },
+      ),
+      // As OpenCode does: the list is built again from every transform.
+      reload: vi.fn(async () => {
+        commands.length = 0;
+        for (const build of commandBuilds) build({ add: (command) => commands.push(command) });
+      }),
     },
+    rpc: { register: vi.fn(async () => ({ dispose: async () => {}, events: { emit } })) },
+    integration: createFakeIntegration([]),
+    event: { subscribe: () => events },
   };
-}
-
-export function getPromptText(client: PromptClient, callIndex = 0): string {
-  return client.session.prompt.mock.calls[callIndex]?.[0]?.body?.parts?.[0]?.text ?? "";
-}
-
-export function getToastMessage(client: ToastClient, callIndex = 0): string {
-  return client.tui.showToast.mock.calls[callIndex]?.[0]?.body?.message ?? "";
+  return { ctx, tools, commands, hooks, emit };
 }

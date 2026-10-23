@@ -1,28 +1,20 @@
 import { readFile } from "fs/promises";
 import { join } from "path";
 
+import { isRecord } from "./json-guards.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 
-export interface MimoConfig {
-  cookie: string;
-}
-
-export type ResolvedMimoConfig =
+type ResolvedMimoConfig =
   | { state: "none" }
-  | { state: "configured"; config: MimoConfig; source: string }
+  | { state: "configured"; config: { cookie: string }; source: string }
   | { state: "invalid"; source: string; error: string };
 
-export interface MimoConfigDiagnostics {
+interface MimoConfigDiagnostics {
   state: ResolvedMimoConfig["state"];
   source: string | null;
   error: string | null;
   checkedPaths: string[];
 }
-
-type ReadConfigFileResult =
-  | { state: "missing" }
-  | { state: "loaded"; cookie: unknown; keys: string[] }
-  | { state: "invalid"; error: string };
 
 const MIMO_COOKIE_ENV = "MIMO_USAGE_COOKIE";
 const RETAINED_COOKIE_NAMES = [
@@ -34,11 +26,11 @@ const RETAINED_COOKIE_NAMES = [
 const RETAINED_COOKIE_NAME_SET = new Set<string>(RETAINED_COOKIE_NAMES);
 const REQUIRED_COOKIE_NAMES = ["api-platform_serviceToken", "userId"] as const;
 
-function getConfigCandidatePaths(): string[] {
-  return [join(getOpencodeRuntimeDirs().configDir, "opencode-quota", "mimo.json")];
+function getConfigPath(): string {
+  return join(getOpencodeRuntimeDirs().configDir, "opencode-quota", "mimo.json");
 }
 
-export function normalizeMimoCookieHeader(raw: string): string | null {
+function normalizeMimoCookieHeader(raw: string): string | null {
   if (raw.includes("\r") || raw.includes("\n")) return null;
 
   const withoutPrefix = raw.trim().replace(/^cookie\s*:\s*/iu, "");
@@ -69,90 +61,49 @@ export function normalizeMimoCookieHeader(raw: string): string | null {
   }).join("; ");
 }
 
-async function readConfigFile(path: string): Promise<ReadConfigFileResult> {
+function resolveCookie(raw: string, source: string): ResolvedMimoConfig {
+  const cookie = normalizeMimoCookieHeader(raw);
+  if (!cookie) return { state: "invalid", source, error: "Invalid cookie header" };
+  return { state: "configured", config: { cookie }, source };
+}
+
+async function resolveMimoConfigFile(path: string): Promise<ResolvedMimoConfig> {
+  const invalid = (error: string): ResolvedMimoConfig => ({
+    state: "invalid",
+    source: path,
+    error,
+  });
+
+  let data: string;
   try {
-    const data = await readFile(path, "utf8");
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(data);
-    } catch {
-      return { state: "invalid", error: "Failed to parse JSON" };
-    }
-
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { state: "invalid", error: "Config file must contain a JSON object" };
-    }
-
-    const record = parsed as Record<string, unknown>;
-    return { state: "loaded", cookie: record.cookie, keys: Object.keys(record) };
+    data = await readFile(path, "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return { state: "missing" };
-    }
-    return { state: "invalid", error: "Failed to read config file" };
+    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") return { state: "none" };
+    return invalid("Failed to read config file");
   }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(data);
+  } catch {
+    return invalid("Failed to parse JSON");
+  }
+
+  if (!isRecord(parsed)) return invalid("Config file must contain a JSON object");
+  const keys = Object.keys(parsed);
+  if (keys.length !== 1 || keys[0] !== "cookie") {
+    return invalid("Config file must contain only the cookie field");
+  }
+  if (typeof parsed.cookie !== "string") return invalid("Config cookie field must be a string");
+
+  return resolveCookie(parsed.cookie, path);
 }
 
-export function resolveMimoConfigFromEnv(
-  env: NodeJS.ProcessEnv = process.env,
-): ResolvedMimoConfig | null {
-  if (env[MIMO_COOKIE_ENV] === undefined) return null;
-
-  const cookie = normalizeMimoCookieHeader(env[MIMO_COOKIE_ENV] ?? "");
-  if (!cookie) {
-    return {
-      state: "invalid",
-      source: `env:${MIMO_COOKIE_ENV}`,
-      error: "Invalid cookie header",
-    };
-  }
-
-  return {
-    state: "configured",
-    config: { cookie },
-    source: `env:${MIMO_COOKIE_ENV}`,
-  };
-}
-
-export async function resolveMimoConfig(): Promise<ResolvedMimoConfig> {
-  const envResult = resolveMimoConfigFromEnv();
-  if (envResult) return envResult;
-
-  for (const path of getConfigCandidatePaths()) {
-    const fileResult = await readConfigFile(path);
-    if (fileResult.state === "missing") continue;
-    if (fileResult.state === "invalid") {
-      return { state: "invalid", source: path, error: fileResult.error };
-    }
-
-    if (fileResult.keys.length !== 1 || fileResult.keys[0] !== "cookie") {
-      return {
-        state: "invalid",
-        source: path,
-        error: "Config file must contain only the cookie field",
-      };
-    }
-    if (typeof fileResult.cookie !== "string") {
-      return {
-        state: "invalid",
-        source: path,
-        error: "Config cookie field must be a string",
-      };
-    }
-
-    const cookie = normalizeMimoCookieHeader(fileResult.cookie);
-    if (!cookie) {
-      return { state: "invalid", source: path, error: "Invalid cookie header" };
-    }
-
-    return {
-      state: "configured",
-      config: { cookie },
-      source: path,
-    };
-  }
-
-  return { state: "none" };
+/** A set environment variable wins over the config file, even when it is invalid. */
+async function resolveMimoConfig(): Promise<ResolvedMimoConfig> {
+  const envCookie = process.env[MIMO_COOKIE_ENV];
+  if (envCookie !== undefined) return resolveCookie(envCookie, `env:${MIMO_COOKIE_ENV}`);
+  return resolveMimoConfigFile(getConfigPath());
 }
 
 let cachedConfig: ResolvedMimoConfig | null = null;
@@ -180,6 +131,6 @@ export async function getMimoConfigDiagnostics(): Promise<MimoConfigDiagnostics>
     state: resolved.state,
     source: "source" in resolved ? resolved.source : null,
     error: "error" in resolved ? resolved.error : null,
-    checkedPaths: getConfigCandidatePaths(),
+    checkedPaths: [getConfigPath()],
   };
 }

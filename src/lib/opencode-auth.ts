@@ -11,15 +11,13 @@
 
 import type { Plugin } from "@opencode/plugin";
 
-import { sanitizeSingleLineDisplayText } from "./display-sanitize.js";
+import { safeErrorText } from "../core/redact.js";
 import { getOpenCodeDbPath } from "./opencode-db-path.js";
 
-import type { AuthData } from "./types.js";
-
-type AuthCacheEntry = {
+type RowCacheEntry = {
   timestamp: number;
-  value: AuthData | null;
-  inFlight?: Promise<AuthData | null>;
+  value: CredentialRow[];
+  inFlight?: Promise<CredentialRow[]>;
 };
 
 export type CredentialRow = {
@@ -36,23 +34,27 @@ export type CredentialRow = {
   /**
    * Why OpenCode could not return this login (for example a failed token
    * refresh), as `<category>: <scrubbed detail>`. A failed row keeps its id,
-   * label and position, but its `value` is only `{ type: "api" | "oauth" }`;
+   * label and position, but its `value` is only `{ type: "api" | "oauth" | "external" }`;
    * consumers show `resolveError` as a per-account error.
    */
   resolveError?: string;
 };
 
-/** OpenCode 2 connection methods: a stored API key or an OAuth sign-in. */
+/**
+ * The OpenCode 2 connection methods a read can ask for: a stored API key or an OAuth
+ * sign-in. OpenCode's third method, `external` (an AWS profile, Azure CLI or gcloud
+ * login), keeps its secrets outside OpenCode, so no read asks for it.
+ */
 export type CredentialMethod = "key" | "oauth";
 
-export type ReadCredentialRowsOptions = {
+type ReadCredentialRowsOptions = {
   /** Keep only connections using one of these methods; checked before OpenCode resolves them. */
   methods?: readonly CredentialMethod[];
   /** Read only the active connection of each integration id. */
   firstOnly?: boolean;
 };
 
-export type CredentialReadRequest = ReadCredentialRowsOptions & {
+type CredentialReadRequest = ReadCredentialRowsOptions & {
   integrationIds: readonly string[];
 };
 
@@ -68,7 +70,7 @@ export type CredentialSource = {
 };
 
 /** The parts of the server plugin's `ctx.integration` the reader uses. */
-export type CredentialIntegration = Pick<Plugin.Context["integration"], "list" | "connection">;
+type CredentialIntegration = Pick<Plugin.Context["integration"], "list" | "connection">;
 
 type Connection = NonNullable<Awaited<ReturnType<CredentialIntegration["connection"]["active"]>>>;
 type CredentialConnection = Extract<Connection, { type: "credential" }>;
@@ -91,14 +93,7 @@ export type CredentialSourceDiagnostics = (
   | { state: "unbound" }
 ) & {
   lastListError?: { at: number; detail: string };
-  failures: Array<{
-    integrationId: string;
-    connectionId: string;
-    label: string;
-    category: CredentialFailureCategory;
-    detail: string;
-    at: number;
-  }>;
+  failures: Array<CredentialFailure & { connectionId: string }>;
 };
 
 /** A failed login is resolved again at most this often. */
@@ -154,7 +149,7 @@ export function formatCredentialDisplayNames(
       .trim()
       .replace(/^\((.*)\)$/u, "$1")
       .trim();
-    const aliasKey = aliases[index]!;
+    const aliasKey = aliases[index];
     const shouldNumber = Boolean(aliasKey) || numberUnnamed;
     let duplicate = shouldNumber ? (counts.get(aliasKey) ?? 0) + 1 : 1;
     let numberedAlias = duplicate === 1 ? aliasKey : `${aliasKey} ${duplicate}`.trim();
@@ -174,10 +169,10 @@ export function formatCredentialDisplayNames(
   });
 }
 
-/** Cached auth maps keyed by the sorted integration id list and the method filter. */
-const authCache = new Map<string, AuthCacheEntry>();
+/** Cached active logins keyed by the sorted integration id list and the method filter. */
+const rowCache = new Map<string, RowCacheEntry>();
 /** Changes when the cache is dropped, so a read started before that does not refill it. */
-let authCacheGeneration = 0;
+let rowCacheGeneration = 0;
 
 /**
  * The database OpenCode keeps its logins in: the one resolved path, or none
@@ -206,8 +201,8 @@ export function bindCredentialSource(source: CredentialSource): () => void {
 /** Drops cached logins, failed-login entries and the last `list()` error. */
 export function notifyCredentialsChanged(): void {
   credentialFailures.clear();
-  authCache.clear();
-  authCacheGeneration += 1;
+  rowCache.clear();
+  rowCacheGeneration += 1;
   lastListError = undefined;
 }
 
@@ -225,22 +220,6 @@ export function getCredentialSourceDiagnostics(): CredentialSourceDiagnostics {
       at: failure.at,
     })),
   };
-}
-
-/**
- * Error text that is safe to show and to store: one sanitized line with
- * JWT-shaped and long opaque strings (tokens) replaced, at most 120 characters.
- */
-export function scrubCredentialErrorText(message: string): string {
-  // Redact before cutting to length, so a token cut at the limit cannot leave a readable part.
-  return sanitizeSingleLineDisplayText(message)
-    .replace(/eyJ[A-Za-z0-9_-]{10,}(\.[A-Za-z0-9_-]+)*/gu, "[redacted]")
-    .replace(/[A-Za-z0-9_-]{32,}/gu, "[redacted]")
-    .slice(0, 120);
-}
-
-function credentialErrorDetail(error: unknown): string {
-  return scrubCredentialErrorText(error instanceof Error ? error.message : String(error));
 }
 
 type ConnectionSlot =
@@ -263,7 +242,7 @@ async function activeConnectionSlots(
     const activeFailure: CredentialFailure = {
       at: Date.now(),
       category: "active_failed",
-      detail: credentialErrorDetail(error),
+      detail: safeErrorText(error),
       integrationId,
       label: "",
     };
@@ -271,18 +250,6 @@ async function activeConnectionSlots(
     return [{ integrationId, activeFailure }];
   }
 }
-
-/** The listed rows of the requested ids, plus per id the connection `active()` reports. */
-type ListedConnectionSlots = {
-  slots: ConnectionSlot[];
-  /**
-   * Per id: the stored connection `active()` reports, when it read one. For an
-   * id `list()` does not show this is its fallback row itself; for a listed id
-   * it is looked up separately, and a failed lookup or an active env connection
-   * marks none of that id's listed rows.
-   */
-  activeConnections: Map<string, CredentialConnection>;
-};
 
 /**
  * The stored connection `active()` reports for a listed id, without recording
@@ -303,13 +270,15 @@ async function activeListedConnection(
 
 /**
  * Every connection of the requested ids: all of them for ids `list()` shows
- * (registered integrations), the active one for any other id. For listed ids,
- * `active()` also says which of them OpenCode uses.
+ * (registered integrations), the active one for any other id. Per id,
+ * `activeConnections` holds the stored connection `active()` reports: for an
+ * unlisted id its one row itself; for a listed id a separate lookup, where a
+ * failed lookup or an active env connection marks none of its rows.
  */
 async function listedConnectionSlots(
   integration: CredentialIntegration,
   integrationIds: readonly string[],
-): Promise<ListedConnectionSlots> {
+): Promise<{ slots: ConnectionSlot[]; activeConnections: Map<string, CredentialConnection> }> {
   let listed: Map<string, readonly Connection[]> | undefined;
   try {
     const { data } = await integration.list();
@@ -317,7 +286,7 @@ async function listedConnectionSlots(
     lastListError = undefined;
   } catch (error) {
     // One malformed login anywhere makes list() fail; each id's active login still reads.
-    lastListError = { at: Date.now(), detail: credentialErrorDetail(error) };
+    lastListError = { at: Date.now(), detail: safeErrorText(error) };
   }
 
   const slots: ConnectionSlot[] = [];
@@ -331,17 +300,13 @@ async function listedConnectionSlots(
       }
       continue;
     }
-    let listedCredentials = 0;
-    for (const connection of connections) {
-      if (connection.type === "credential") {
-        slots.push({ integrationId, connection });
-        listedCredentials += 1;
-      }
-    }
-    if (listedCredentials > 0) {
-      const active = await activeListedConnection(integration, integrationId);
-      if (active) activeConnections.set(integrationId, active);
-    }
+    const credentials = connections.filter(
+      (connection): connection is CredentialConnection => connection.type === "credential",
+    );
+    if (credentials.length === 0) continue;
+    for (const connection of credentials) slots.push({ integrationId, connection });
+    const active = await activeListedConnection(integration, integrationId);
+    if (active) activeConnections.set(integrationId, active);
   }
   return { slots, activeConnections };
 }
@@ -386,7 +351,7 @@ function resolveCredentialConnection(
     } catch (error) {
       return recordResolveFailure(connection, {
         category: "refresh_failed",
-        detail: credentialErrorDetail(error),
+        detail: safeErrorText(error),
         integrationId,
       });
     }
@@ -425,23 +390,19 @@ async function credentialRowForSlot(
 
   const { connection } = slot;
   const outcome = await resolveCredentialConnection(integration, slot.integrationId, connection);
-  if ("value" in outcome) {
-    return {
-      id: connection.id,
-      integrationId: slot.integrationId,
-      label: connection.label,
-      active: false,
-      value: credentialRowValue(outcome.value),
-    };
-  }
-  return {
+  const row = {
     id: connection.id,
     integrationId: slot.integrationId,
     label: connection.label,
     active: false,
-    value: { type: connection.method === "key" ? "api" : "oauth" },
-    resolveError: `${outcome.failure.category}: ${outcome.failure.detail}`,
   };
+  return "value" in outcome
+    ? { ...row, value: credentialRowValue(outcome.value) }
+    : {
+        ...row,
+        value: { type: connection.method === "key" ? "api" : connection.method },
+        resolveError: `${outcome.failure.category}: ${outcome.failure.detail}`,
+      };
 }
 
 /**
@@ -458,19 +419,21 @@ async function credentialRowsForSlots(
   activeConnections?: ReadonlyMap<string, CredentialConnection>,
 ): Promise<CredentialRow[]> {
   const wanted = slots.filter(
-    (slot) => !methods || !("connection" in slot) || methods.includes(slot.connection.method),
+    (slot) =>
+      !methods ||
+      !("connection" in slot) ||
+      (slot.connection.method !== "external" && methods.includes(slot.connection.method)),
   );
-  const pairs = await Promise.all(
-    wanted.map(async (slot) => ({
-      slot,
-      row: await credentialRowForSlot(integration, slot, methods),
-    })),
+  return Promise.all(
+    wanted.map(async (slot, index) => {
+      const row = await credentialRowForSlot(integration, slot, methods);
+      const active = activeConnections
+        ? "connection" in slot &&
+          slot.connection.id === activeConnections.get(slot.integrationId)?.id
+        : index === 0;
+      return { ...row, active };
+    }),
   );
-  return pairs.map(({ slot, row }, index) => {
-    if (!activeConnections) return { ...row, active: index === 0 };
-    const activeConnection = activeConnections.get(slot.integrationId);
-    return { ...row, active: "connection" in slot && slot.connection.id === activeConnection?.id };
-  });
 }
 
 /** The credential source backed by the server plugin's `ctx.integration`. */
@@ -498,32 +461,50 @@ export function createIntegrationCredentialSource(
 }
 
 /**
- * The auth entry resolvers read for a row: its value, plus `resolveError`
- * when OpenCode could not return the login.
+ * The first row of each integration id, in order. Rows come active first, so these are the
+ * logins OpenCode uses.
  */
-export function credentialRowAuthEntry(row: CredentialRow): Record<string, unknown> {
-  return row.resolveError === undefined
-    ? row.value
-    : { ...row.value, resolveError: row.resolveError };
+export function activeCredentialRows(rows: readonly CredentialRow[]): CredentialRow[] {
+  const active = new Map<string, CredentialRow>();
+  for (const row of rows) if (!active.has(row.integrationId)) active.set(row.integrationId, row);
+  return [...active.values()];
 }
 
 /**
- * Map of the first (active) login per requested integration id. With `methods`,
- * an active login using another method is left out without OpenCode resolving it.
+ * An OAuth sign-in read from its credential row. `failed`: OpenCode could not return it (see
+ * `CredentialRow.resolveError`). Otherwise its tokens (trimmed; none when blank or not text),
+ * its expiry (a finite number), and every field as stored, for the fields one vendor knows.
  */
-export async function readAuthFile(params: {
-  integrationIds: readonly string[];
-  methods?: readonly CredentialMethod[];
-}): Promise<AuthData | null> {
-  const rows = await readCredentialRows(params.integrationIds, {
-    methods: params.methods,
-    firstOnly: true,
-  });
-  const auth: Record<string, unknown> = {};
-  for (const row of rows) {
-    if (!(row.integrationId in auth)) auth[row.integrationId] = credentialRowAuthEntry(row);
-  }
-  return Object.keys(auth).length > 0 ? (auth as AuthData) : null;
+export type OAuthLogin =
+  | { state: "failed"; error: string }
+  | {
+      state: "signed-in";
+      accessToken?: string;
+      refreshToken?: string;
+      expiresAt?: number;
+      fields: Readonly<Record<string, unknown>>;
+    };
+
+function trimmedText(value: unknown): string | undefined {
+  return typeof value === "string" ? value.trim() || undefined : undefined;
+}
+
+/** The OAuth sign-in a row holds; null for a row of another method. */
+export function readOAuthLogin(row: CredentialRow): OAuthLogin | null {
+  const { value } = row;
+  if (value.type !== "oauth") return null;
+  if (row.resolveError !== undefined) return { state: "failed", error: row.resolveError };
+  const accessToken = trimmedText(value.access);
+  const refreshToken = trimmedText(value.refresh);
+  const expiresAt =
+    typeof value.expires === "number" && Number.isFinite(value.expires) ? value.expires : undefined;
+  return {
+    state: "signed-in",
+    ...(accessToken ? { accessToken } : {}),
+    ...(refreshToken ? { refreshToken } : {}),
+    ...(expiresAt !== undefined ? { expiresAt } : {}),
+    fields: value,
+  };
 }
 
 /**
@@ -548,19 +529,19 @@ export async function readCredentialRows(
   return source.readRows({ integrationIds, ...options });
 }
 
+/** JSON-like text of `value` with object keys sorted, so key order does not matter. */
 function canonicalCredentialValueKey(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map((item) => canonicalCredentialValueKey(item)).join(",")}]`;
   }
   if (value !== null && typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
-      a < b ? -1 : a > b ? 1 : 0,
-    );
-    return `{${entries
-      .map(([key, nested]) => `${JSON.stringify(key)}:${canonicalCredentialValueKey(nested)}`)
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalCredentialValueKey(record[key])}`)
       .join(",")}}`;
   }
-  return value === undefined ? "undefined" : JSON.stringify(value);
+  return JSON.stringify(value) ?? "undefined";
 }
 
 /**
@@ -595,19 +576,19 @@ export function selectConnectionCredentialRows(
 }
 
 /**
- * Cached auth reader for frequently triggered code paths (e.g. per-question hooks).
- * This avoids asking OpenCode on every call while keeping login changes visible quickly.
+ * The active login of each requested integration id (a `firstOnly` read), cached for
+ * `maxAgeMs`: per-question hooks read often, and login changes still show quickly.
  */
-export async function readAuthFileCached(params: {
+export async function readActiveCredentialRowsCached(params: {
   maxAgeMs: number;
   integrationIds: readonly string[];
   methods?: readonly CredentialMethod[];
-}): Promise<AuthData | null> {
+}): Promise<CredentialRow[]> {
   const maxAgeMs = Math.max(0, params.maxAgeMs);
   const cacheKey = `${[...params.integrationIds].sort().join(",")}|${
     params.methods ? [...params.methods].sort().join(",") : "any"
   }`;
-  const cached = authCache.get(cacheKey);
+  const cached = rowCache.get(cacheKey);
   const now = Date.now();
 
   if (cached && now - cached.timestamp <= maxAgeMs) {
@@ -618,37 +599,37 @@ export async function readAuthFileCached(params: {
     return cached.inFlight;
   }
 
-  const generation = authCacheGeneration;
+  const generation = rowCacheGeneration;
   const inFlight = (async () => {
-    const value = await readAuthFile({
-      integrationIds: params.integrationIds,
+    const value = await readCredentialRows(params.integrationIds, {
       methods: params.methods,
+      firstOnly: true,
     });
     // A login change during the read may make this value stale: return it, but do not cache it.
-    if (generation === authCacheGeneration) {
-      authCache.set(cacheKey, { timestamp: Date.now(), value });
+    if (generation === rowCacheGeneration) {
+      rowCache.set(cacheKey, { timestamp: Date.now(), value });
     }
     return value;
   })();
 
-  authCache.set(cacheKey, {
+  rowCache.set(cacheKey, {
     timestamp: cached?.timestamp ?? 0,
-    value: cached?.value ?? null,
+    value: cached?.value ?? [],
     inFlight,
   });
 
   try {
     return await inFlight;
   } finally {
-    const entry = authCache.get(cacheKey);
+    const entry = rowCache.get(cacheKey);
     if (entry?.inFlight === inFlight) {
       entry.inFlight = undefined;
     }
   }
 }
 
-/** Test helper to clear cached auth state between test cases. */
-export function clearReadAuthFileCacheForTests(): void {
-  authCache.clear();
-  authCacheGeneration += 1;
+/** Test helper to clear cached logins between test cases. */
+export function clearCredentialRowCacheForTests(): void {
+  rowCache.clear();
+  rowCacheGeneration += 1;
 }

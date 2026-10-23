@@ -24,9 +24,7 @@ opencode.json
 tui.json
 
 # Local scratch & AI Slop
-references/*
-!references/upstream-plugins/
-!references/upstream-plugins/**
+/references/
 .git.backup-*/
 docs/*
 !docs/readme/
@@ -38,3 +36,7 @@ AGENTS.md
 /prompt-exports
 /opencode-quota
 /local-live-tests/
+
+# Tracked upstream plugin copies (they contain dist/ folders)
+!/scripts/upstream-plugins/
+!/scripts/upstream-plugins/**

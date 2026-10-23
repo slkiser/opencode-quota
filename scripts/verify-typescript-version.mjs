@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
 const EXPECTED_TYPESCRIPT_VERSION = "7.0.2";
-const EXPECTED_PLUGIN_VERSION = "2.0.16";
+const EXPECTED_PLUGIN_VERSION = "2.0.28";
 const PLUGIN_PACKAGE = "@opencode/plugin";
 const EXPECTED_OPENTUI_SPECIFIER = "^0.5.10";
 const EXPECTED_OPENTUI_VERSION = "0.5.10";

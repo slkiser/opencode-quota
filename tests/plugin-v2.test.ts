@@ -1,11 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-import { messageDocument } from "../src/lib/report-document.js";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const buildOutput = vi.hoisted(() => vi.fn());
 vi.mock("../src/lib/quota-dialog-commands.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/quota-dialog-commands.js")>()),
-  buildQuotaDialogCommandOutput: buildOutput,
+  statusReport: buildOutput,
 }));
 const resolveRetryDelay = vi.hoisted(() => vi.fn());
 vi.mock("../src/lib/quota-retry-wait.js", () => ({
@@ -13,29 +13,17 @@ vi.mock("../src/lib/quota-retry-wait.js", () => ({
 }));
 
 import {
-  clearReadAuthFileCacheForTests,
+  clearCredentialRowCacheForTests,
   getCredentialSourceDiagnostics,
-  readAuthFile,
-  readAuthFileCached,
+  readActiveCredentialRowsCached,
+  readCredentialRows,
 } from "../src/lib/opencode-auth.js";
-import { QUOTA_DIALOG_COMMANDS } from "../src/lib/quota-dialog-command-specs.js";
 import { formatQuotaReportMessage } from "../src/lib/quota-report-message.js";
 import plugin from "../src/plugin.js";
+import { settingsPath } from "../src/settings/file.js";
 import { createFakeIntegration } from "./helpers/fake-integration.js";
+import { createServerContext, type ServerCommand } from "./helpers/plugin-test-harness.js";
 
-type RegisteredTool = {
-  name: string;
-  execute: (input: unknown, context: { sessionID: string }) => Promise<{ content: string }>;
-};
-type RegisteredCommand = {
-  name: string;
-  description?: string;
-  execute: (invocation: {
-    sessionID: string;
-    prompt: { text: string };
-    delivery: "steer" | "queue";
-  }) => Promise<void>;
-};
 type Part = { type: string; text?: string };
 type Message = { role: string; metadata?: Record<string, unknown>; content: Part[] };
 type HookEvent = { messages: Message[]; result?: string };
@@ -48,63 +36,25 @@ type RetryEvent = {
   decision: { retry: false } | { retry: true; delay: number };
 };
 
+/** A server context whose sessions use gpt-5 from OpenAI, the one provider OpenCode lists. */
 function createContext() {
-  const tools: RegisteredTool[] = [];
-  const commands: RegisteredCommand[] = [];
-  const hooks = new Map<string, (event: HookEvent) => void>();
-  const calls: string[] = [];
-  const ctx = {
-    location: { directory: "/tmp/opencode/quota-plugin-v2" },
-    provider: { list: vi.fn().mockResolvedValue({ data: [{ id: "openai" }] }) },
-    session: {
-      get: vi.fn().mockResolvedValue({ model: { id: "gpt-5", providerID: "openai" } }),
-      wait: vi.fn(async () => {
-        calls.push("wait");
-      }),
-      prompt: vi.fn(async () => {
-        calls.push("prompt");
-        return {};
-      }),
-      hook: vi.fn(async (name: string, callback: (event: HookEvent) => void) => {
-        hooks.set(name, callback);
-        return { dispose: async () => {} };
-      }),
-    },
-    tool: {
-      transform: vi.fn(async (callback) => {
-        callback({ add: (tool: RegisteredTool) => tools.push(tool) });
-      }),
-    },
-    command: {
-      transform: vi.fn(async (callback) => {
-        callback({ add: (command: RegisteredCommand) => commands.push(command) });
-      }),
-    },
-    rpc: { register: vi.fn(async () => ({ dispose: async () => {}, events: { emit: vi.fn() } })) },
-    integration: createFakeIntegration([]),
-    event: { subscribe: () => ({ async *[Symbol.asyncIterator]() {} }) },
-  };
-  return { ctx, tools, commands, hooks, calls };
-}
-
-function findCommand(commands: RegisteredCommand[], name: string): RegisteredCommand {
-  const found = commands.find((item) => item.name === name);
-  if (!found) throw new Error(`Command not registered: ${name}`);
-  return found;
-}
-
-function runCommand(commands: RegisteredCommand[], name: string, text = "") {
-  return findCommand(commands, name).execute({
-    sessionID: "session-web",
-    prompt: { text },
-    delivery: "queue",
+  return createServerContext({
+    directory: "/tmp/opencode/quota-plugin-v2",
+    openCodeProviders: ["openai"],
+    sessionGet: vi.fn().mockResolvedValue({ model: { id: "gpt-5", providerID: "openai" } }),
   });
 }
 
-function hook(hooks: Map<string, (event: HookEvent) => void>, name: string) {
+function runCommand(commands: ServerCommand[], name: string, text = "") {
+  const found = commands.find((item) => item.name === name);
+  if (!found) throw new Error(`Command not registered: ${name}`);
+  return found.execute({ sessionID: "session-web", prompt: { text }, delivery: "queue" });
+}
+
+function hook(hooks: Map<string, unknown>, name: string) {
   const found = hooks.get(name);
   if (!found) throw new Error(`Hook not registered: ${name}`);
-  return found;
+  return found as (event: HookEvent) => void;
 }
 
 const user = (text: string, metadata?: Record<string, unknown>): Message => ({
@@ -119,108 +69,132 @@ describe("V2 server plugin", () => {
     resolveRetryDelay.mockReset();
   });
 
-  it("registers a structured quota diagnostics tool without a server toast dependency", async () => {
+  it("registers the quota diagnostics tool without a server toast dependency or V1 command hooks", async () => {
     const { ctx, tools } = createContext();
-    buildOutput.mockResolvedValue({ state: "output", output: "Quota ready" });
+    buildOutput.mockResolvedValue({ text: "Quota ready", json: { providers: [] } });
 
     await plugin.setup(ctx as never);
-    expect(tools.map((tool) => tool.name)).toEqual(["quota_status"]);
-    const output = await tools[0].execute({}, { sessionID: "session-test" });
+    expect(tools.map((tool) => tool.name)).toEqual([
+      "quota_settings_get",
+      "quota_settings_set",
+      "quota_provider_add",
+      "quota_provider_test",
+      "quota_provider_remove",
+      "quota_status",
+    ]);
+    const quotaStatus = tools.find((tool) => tool.name === "quota_status");
+    const output = await quotaStatus?.execute({}, { sessionID: "session-test" });
     expect(output).toEqual({ content: "Quota ready" });
-    expect(buildOutput).toHaveBeenCalledWith(
-      expect.objectContaining({
-        command: "quota_status",
-        sessionID: "session-test",
-      }),
-    );
     expect(ctx.provider.list).toHaveBeenCalledTimes(0);
+    // The report gets the session's model from OpenCode and no agent settings.
+    expect(ctx.session.get).toHaveBeenCalledWith({ sessionID: "session-test" });
+    const [, options] = buildOutput.mock.calls[0];
+    expect(options).toMatchObject({
+      origin: "tool",
+      sessionModel: { id: "gpt-5", providerID: "openai" },
+    });
+    expect(options).not.toHaveProperty("agent");
+    expect(options).not.toHaveProperty("default_agent");
+    expect(ctx.tool.transform).toHaveBeenCalledOnce();
+    expect(ctx.command.transform).toHaveBeenCalledOnce();
+    expect((plugin as Record<string, unknown>)["command.execute.before"]).toBeUndefined();
+    expect((plugin as Record<string, unknown>).config).toBeUndefined();
   });
 
-  it("registers the same slash commands as the TUI", async () => {
+  it("registers /quota, /quota_status, /quota_usage and the /tokens_* names for Web and Desktop", async () => {
     const { ctx, commands } = createContext();
 
     await plugin.setup(ctx as never);
-    expect(commands.map((item) => ({ name: item.name, description: item.description }))).toEqual(
-      QUOTA_DIALOG_COMMANDS.map((spec) => ({
-        name: spec.slashName,
-        description: spec.description,
-      })),
-    );
+    expect(commands.map((item) => item.name).slice(0, 4)).toEqual([
+      "quota",
+      "quota_status",
+      "quota_usage",
+      "tokens_today",
+    ]);
+    expect(commands.every((item) => item.description)).toBe(true);
+  });
+
+  it("lists the 4.x and 5.x /tokens_* commands until system.oldCommands is off", async () => {
+    const path = settingsPath();
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify({}));
+    const { ctx, commands } = createContext();
+    const dispose = await plugin.setup(ctx as never);
+    try {
+      expect(commands.map((item) => item.name)).toEqual([
+        "quota",
+        "quota_status",
+        "quota_usage",
+        "tokens_today",
+        "tokens_daily",
+        "tokens_weekly",
+        "tokens_monthly",
+        "tokens_all",
+        "tokens_session",
+        "tokens_session_all",
+        "tokens_between",
+      ]);
+      // Each is /quota_usage on its range, so the range's rules apply.
+      await runCommand(commands, "tokens_between", "2026-10-02 2026-10-01");
+      expect(ctx.session.prompt.mock.calls[0][0]).toMatchObject({
+        text: expect.stringContaining("2026-10-01 is before 2026-10-02."),
+        metadata: { opencodeQuota: { command: "tokens_between" } },
+      });
+
+      writeFileSync(path, JSON.stringify({ system: { oldCommands: false } }));
+      await vi.waitFor(() => expect(ctx.command.reload).toHaveBeenCalledOnce(), {
+        timeout: 10_000,
+      });
+      expect(commands.map((item) => item.name)).toEqual(["quota", "quota_status", "quota_usage"]);
+    } finally {
+      await dispose?.();
+      rmSync(path, { force: true });
+    }
   });
 
   it("posts the report as a user message that never starts a model turn", async () => {
-    const { ctx, commands, calls } = createContext();
-    const document = messageDocument("# Quota\nopenai 42%\u001b[31m");
+    const { ctx, commands } = createContext();
     buildOutput.mockResolvedValue({
-      state: "output",
-      title: "OpenCode Quota",
-      output: "# Quota\nopenai 42%\u001b[31m",
-      document,
+      text: "# Quota\nopenai 42%\u001b[31m",
+      json: { providers: [] },
     });
     vi.spyOn(Date, "now").mockReturnValue(1_790_000_000_000);
 
     await plugin.setup(ctx as never);
-    await runCommand(commands, "quota");
+    await runCommand(commands, "quota_status");
 
-    expect(buildOutput).toHaveBeenCalledWith(
-      expect.objectContaining({ command: "quota", sessionID: "session-web", arguments: undefined }),
-    );
-    expect(ctx.session.wait).toHaveBeenCalledWith({ sessionID: "session-web" });
-    expect(calls).toEqual(["wait", "prompt"]);
+    expect(ctx.session.get).toHaveBeenCalledWith({ sessionID: "session-web" });
+    expect(buildOutput).toHaveBeenCalledOnce();
+    expect(ctx.session.wait).toHaveBeenCalledExactlyOnceWith({ sessionID: "session-web" });
+    expect(ctx.session.wait).toHaveBeenCalledBefore(ctx.session.prompt);
     expect(ctx.session.prompt).toHaveBeenCalledTimes(1);
     expect(ctx.session.prompt.mock.calls[0][0]).toEqual({
       sessionID: "session-web",
       text: formatQuotaReportMessage("# Quota\nopenai 42%"),
-      // The TUI sanitizes the document when it draws it.
-      metadata: {
-        opencodeQuota: {
-          command: "quota",
-          title: "OpenCode Quota",
-          at: 1_790_000_000_000,
-          document,
-        },
-      },
+      metadata: { opencodeQuota: { command: "quota_status", at: 1_790_000_000_000 } },
       delivery: "steer",
       resume: false,
     });
     vi.mocked(Date.now).mockRestore();
   });
 
-  it("passes typed arguments to the output builder", async () => {
+  it.each([
+    ["session_tree", 'Unknown range "session_tree".'],
+    ["between 2026-09-01", "between needs two dates."],
+    ["between 2026-09-31 2026-10-01", '"2026-09-31" is not a date like 2026-01-31.'],
+    ["between 2026-10-02 2026-10-01", "2026-10-01 is before 2026-10-02."],
+    ["today please", "The range today takes no dates."],
+  ])("answers /quota_usage %s with a clear error and how to use it", async (text, problem) => {
     const { ctx, commands } = createContext();
-    buildOutput.mockResolvedValue({ state: "output", title: "Tokens", output: "report" });
 
     await plugin.setup(ctx as never);
-    await runCommand(commands, "tokens_between", " 2026-09-01 2026-09-25 ");
+    await runCommand(commands, "quota_usage", text);
 
-    expect(buildOutput).toHaveBeenCalledWith(
-      expect.objectContaining({ command: "tokens_between", arguments: "2026-09-01 2026-09-25" }),
+    expect(ctx.session.prompt.mock.calls[0][0].text).toBe(
+      formatQuotaReportMessage(
+        `${problem}\nUsage: /quota_usage [today | 24h | 7d | 30d | 90d | all | session | between YYYY-MM-DD YYYY-MM-DD]`,
+      ),
     );
-  });
-
-  it("posts the builder's usage text when /tokens_between has no arguments", async () => {
-    const { ctx, commands } = createContext();
-    const usage = "Invalid arguments for /tokens_between\n\nExpected: /tokens_between YYYY-MM-DD";
-    buildOutput.mockResolvedValue({ state: "output", title: "Tokens", output: usage });
-
-    await plugin.setup(ctx as never);
-    await runCommand(commands, "tokens_between", "   ");
-
-    expect(buildOutput).toHaveBeenCalledWith(
-      expect.objectContaining({ command: "tokens_between", arguments: undefined }),
-    );
-    expect(ctx.session.prompt.mock.calls[0][0].text).toBe(formatQuotaReportMessage(usage));
-  });
-
-  it("posts nothing when the plugin is disabled", async () => {
-    const { ctx, commands } = createContext();
-    buildOutput.mockResolvedValue({ state: "noop", command: "quota", reason: "disabled" });
-
-    await plugin.setup(ctx as never);
-    await runCommand(commands, "quota");
-
-    expect(ctx.session.wait).not.toHaveBeenCalled();
-    expect(ctx.session.prompt).not.toHaveBeenCalled();
   });
 
   it("removes only tagged quota reports from model requests", async () => {
@@ -329,8 +303,12 @@ describe("V2 server plugin", () => {
     const waiting = event({ retry: false });
     await retry(waiting);
     expect(waiting.decision).toEqual({ retry: true, delay: 5_460_000 });
+    // The retry reads quota through the server's store, and the settings on demand.
     expect(resolveRetryDelay).toHaveBeenCalledWith(
-      expect.objectContaining({ client: expect.anything(), roots: expect.anything() }),
+      {
+        store: expect.objectContaining({ refresh: expect.any(Function) }),
+        loadSettings: expect.any(Function),
+      },
       waiting,
     );
 
@@ -369,9 +347,9 @@ describe("V2 server plugin", () => {
       state: "bound",
       kind: "opencode-integration-api",
     });
-    await expect(readAuthFile({ integrationIds: ["deepseek"] })).resolves.toEqual({
-      deepseek: { type: "api", key: "deepseek-key" },
-    });
+    await expect(readCredentialRows(["deepseek"], { firstOnly: true })).resolves.toEqual([
+      expect.objectContaining({ value: { type: "api", key: "deepseek-key" } }),
+    ]);
     const signal = subscribe.mock.calls[0]?.[0].signal;
     expect(signal?.aborted).toBe(false);
 
@@ -379,55 +357,61 @@ describe("V2 server plugin", () => {
     expect(signal?.aborted).toBe(true);
     // Only this setup's binding is gone; earlier tests' empty fakes hold no deepseek login.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    await expect(readAuthFile({ integrationIds: ["deepseek"] })).resolves.toBeNull();
+    await expect(readCredentialRows(["deepseek"], { firstOnly: true })).resolves.toEqual([]);
     warn.mockRestore();
     expect(integration.connection.active).toHaveBeenCalledOnce();
   });
 
-  it.each([
-    "credential.updated",
-    "credential.switched",
-  ])("drops cached logins when OpenCode reports %s", async (type) => {
-    clearReadAuthFileCacheForTests();
-    const { ctx } = createContext();
-    const deepseek = {
-      integrationId: "deepseek",
-      id: "cred_deepseek",
-      label: "default",
-      registered: true,
-      method: "key" as const,
-      value: { type: "key", key: "old-key" } as Record<string, unknown>,
-    };
-    const integration = createFakeIntegration([deepseek]);
-    let emit!: (event: { type: string; data: Record<string, unknown> }) => void;
-    const nextEvent = new Promise<{ type: string; data: Record<string, unknown> }>((resolve) => {
-      emit = resolve;
-    });
-    const subscribe = vi.fn(() => ({
-      async *[Symbol.asyncIterator]() {
-        yield { type: "session.idle", data: {} };
-        yield await nextEvent;
-      },
-    }));
-    const cleanup = await plugin.setup({ ...ctx, integration, event: { subscribe } } as never);
-    const read = () => readAuthFileCached({ maxAgeMs: 60_000, integrationIds: ["deepseek"] });
+  it.each(["credential.updated", "credential.switched"])(
+    "drops cached logins when OpenCode reports %s",
+    async (type) => {
+      clearCredentialRowCacheForTests();
+      // The event makes the store check DeepSeek again; it gets a fake answer, not the real API.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(JSON.stringify({ error: "fake" }), { status: 401 })),
+      );
+      const { ctx } = createContext();
+      const deepseek = {
+        integrationId: "deepseek",
+        id: "cred_deepseek",
+        label: "default",
+        registered: true,
+        method: "key" as const,
+        value: { type: "key", key: "old-key" } as Record<string, unknown>,
+      };
+      const integration = createFakeIntegration([deepseek]);
+      let emit!: (event: { type: string; data: Record<string, unknown> }) => void;
+      const nextEvent = new Promise<{ type: string; data: Record<string, unknown> }>((resolve) => {
+        emit = resolve;
+      });
+      const subscribe = vi.fn(() => ({
+        async *[Symbol.asyncIterator]() {
+          yield { type: "session.idle", data: {} };
+          yield await nextEvent;
+        },
+      }));
+      const cleanup = await plugin.setup({ ...ctx, integration, event: { subscribe } } as never);
+      const readKey = async () =>
+        (
+          await readActiveCredentialRowsCached({ maxAgeMs: 60_000, integrationIds: ["deepseek"] })
+        )[0]?.value.key;
 
-    await expect(read()).resolves.toEqual({ deepseek: { type: "api", key: "old-key" } });
-    deepseek.value = { type: "key", key: "new-key" };
-    await expect(read()).resolves.toEqual({ deepseek: { type: "api", key: "old-key" } });
+      await expect(readKey()).resolves.toBe("old-key");
+      deepseek.value = { type: "key", key: "new-key" };
+      await expect(readKey()).resolves.toBe("old-key");
 
-    emit({ type, data: { integrationID: "deepseek", credentialID: "cred_deepseek" } });
-    await vi.waitFor(async () =>
-      expect(await read()).toEqual({ deepseek: { type: "api", key: "new-key" } }),
-    );
-    await cleanup?.();
-  });
+      emit({ type, data: { integrationID: "deepseek", credentialID: "cred_deepseek" } });
+      await vi.waitFor(async () => expect(await readKey()).toBe("new-key"));
+      await cleanup?.();
+    },
+  );
 
   it("logs why the credential event subscription stopped, without tokens", async () => {
     const { ctx } = createContext();
     const token = `eyJ${"a".repeat(24)}.${"b".repeat(24)}.${"c".repeat(24)}`;
     const subscribe = vi.fn(() => ({
-      // biome-ignore lint/correctness/useYield: the stream fails before its first event
+      // oxlint-disable-next-line require-yield -- the stream fails before its first event
       async *[Symbol.asyncIterator]() {
         throw new Error(`event stream closed ${token}`);
       },
@@ -447,6 +431,7 @@ describe("V2 server plugin", () => {
   it("stops the credential event subscription silently on cleanup", async () => {
     const { ctx } = createContext();
     const subscribe = vi.fn(({ signal }: { signal: AbortSignal }) => ({
+      // oxlint-disable-next-line require-yield -- the stream is aborted before its first event
       async *[Symbol.asyncIterator]() {
         await new Promise((resolve) => signal.addEventListener("abort", resolve));
         throw new DOMException("This operation was aborted", "AbortError");

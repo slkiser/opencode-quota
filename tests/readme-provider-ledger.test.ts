@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 function read(path: string): string {
   return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -80,7 +80,8 @@ describe("README provider ledger", () => {
     for (const document of [readme, providerGuide]) {
       expect(document).toMatch(/^#.+Providers|^## Providers$/m);
       expect(document).toMatch(/^#{2,3} Custom providers$/m);
-      expect(document).toContain("npx @slkiser/opencode-quota@latest provider add");
+      expect(document).toContain("Ask your agent to add a custom provider");
+      expect(document).toContain("docs/readme/providers.md#custom-providers");
     }
   });
 });

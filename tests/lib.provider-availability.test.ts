@@ -1,9 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   isAnyProviderIdAvailable,
   isCanonicalProviderAvailable,
 } from "../src/lib/provider-availability.js";
+import type { CanonicalQuotaProviderId } from "../src/lib/provider-metadata.js";
 import { createRuntimeProviderIdResolver } from "../src/lib/runtime-provider-ids.js";
 
 function makeCtx(params: { ids?: string[]; error?: Error }) {
@@ -12,17 +13,16 @@ function makeCtx(params: { ids?: string[]; error?: Error }) {
     : vi.fn().mockResolvedValue({
         data: { providers: (params.ids ?? []).map((id) => ({ id })) },
       });
+  const client = { config: { providers } } as any;
+  return { client, resolveRuntimeProviderIds: createRuntimeProviderIdResolver(client) } as any;
+}
 
-  const client = {
-    config: {
-      providers,
-    },
-  } as any;
-
-  return {
-    client,
-    resolveRuntimeProviderIds: createRuntimeProviderIdResolver(client),
-  } as any;
+function available(providerId: CanonicalQuotaProviderId, ids: string[]): Promise<boolean> {
+  return isCanonicalProviderAvailable({
+    ctx: makeCtx({ ids }),
+    providerId,
+    fallbackOnError: false,
+  });
 }
 
 describe("provider availability", () => {
@@ -36,203 +36,61 @@ describe("provider availability", () => {
     ).resolves.toBe(true);
   });
 
-  it("expands canonical provider ids to metadata-backed runtime ids", async () => {
-    await expect(
-      isCanonicalProviderAvailable({
-        ctx: makeCtx({ ids: ["github-copilot-chat"] }),
-        providerId: "copilot",
-        fallbackOnError: false,
-      }),
-    ).resolves.toBe(true);
-  });
-
-  it("matches expanded runtime aliases for non-special providers through metadata", async () => {
-    await expect(
-      isCanonicalProviderAvailable({
-        ctx: makeCtx({ ids: ["chatgpt"] }),
-        providerId: "openai",
-        fallbackOnError: false,
-      }),
-    ).resolves.toBe(true);
-    await expect(
-      isCanonicalProviderAvailable({
-        ctx: makeCtx({ ids: ["opencode"] }),
-        providerId: "openai",
-        fallbackOnError: false,
-      }),
-    ).resolves.toBe(false);
-    await expect(
-      isCanonicalProviderAvailable({
-        ctx: makeCtx({ ids: ["glm"] }),
-        providerId: "zai",
-        fallbackOnError: false,
-      }),
-    ).resolves.toBe(true);
-    await expect(
-      isCanonicalProviderAvailable({
-        ctx: makeCtx({ ids: ["alibaba-coding-plan"] }),
-        providerId: "alibaba-coding-plan",
-        fallbackOnError: false,
-      }),
-    ).resolves.toBe(true);
-    await expect(
-      isCanonicalProviderAvailable({
-        ctx: makeCtx({ ids: ["alibaba"] }),
-        providerId: "alibaba-token-plan",
-        fallbackOnError: false,
-      }),
-    ).resolves.toBe(false);
-    await expect(
-      isCanonicalProviderAvailable({
-        ctx: makeCtx({ ids: ["alibaba-coding-plan"] }),
-        providerId: "alibaba-token-plan",
-        fallbackOnError: false,
-      }),
-    ).resolves.toBe(false);
-    await expect(
-      isCanonicalProviderAvailable({
-        ctx: makeCtx({ ids: ["alibaba-token-plan"] }),
-        providerId: "alibaba-token-plan",
-        fallbackOnError: false,
-      }),
-    ).resolves.toBe(true);
-    await expect(
-      isCanonicalProviderAvailable({
-        ctx: makeCtx({ ids: ["synthetic"] }),
-        providerId: "synthetic",
-        fallbackOnError: false,
-      }),
-    ).resolves.toBe(true);
-    for (const runtimeId of [
-      "google-gemini-cli",
-      "gemini-cli",
-      "gemini",
-      "opencode-gemini-auth",
-      "google",
-    ]) {
-      await expect(
-        isCanonicalProviderAvailable({
-          ctx: makeCtx({ ids: [runtimeId] }),
-          providerId: "google-gemini-cli",
-          fallbackOnError: false,
-        }),
-      ).resolves.toBe(true);
-    }
-    await expect(
-      isCanonicalProviderAvailable({
-        ctx: makeCtx({ ids: ["minimax"] }),
-        providerId: "minimax-coding-plan",
-        fallbackOnError: false,
-      }),
-    ).resolves.toBe(true);
-    await expect(
-      isCanonicalProviderAvailable({
-        ctx: makeCtx({ ids: ["minimax-cn-coding-plan"] }),
-        providerId: "minimax-china-coding-plan",
-        fallbackOnError: false,
-      }),
-    ).resolves.toBe(true);
-    await expect(
-      isCanonicalProviderAvailable({
-        ctx: makeCtx({ ids: ["minimax"] }),
-        providerId: "minimax-china-coding-plan",
-        fallbackOnError: false,
-      }),
-    ).resolves.toBe(false);
-    for (const runtimeId of [
-      "xiaomi",
-      "xiaomi-token-plan-cn",
-      "xiaomi-token-plan-ams",
-      "xiaomi-token-plan-sgp",
-    ]) {
-      await expect(
-        isCanonicalProviderAvailable({
-          ctx: makeCtx({ ids: [runtimeId] }),
-          providerId: "xiaomi",
-          fallbackOnError: false,
-        }),
-      ).resolves.toBe(true);
-    }
-    await expect(
-      isCanonicalProviderAvailable({
-        ctx: makeCtx({ ids: ["mimo"] }),
-        providerId: "xiaomi",
-        fallbackOnError: false,
-      }),
-    ).resolves.toBe(false);
-  });
-
-  it("does not treat broad normalization aliases as runtime provider ids", async () => {
-    await expect(
-      isCanonicalProviderAvailable({
-        ctx: makeCtx({ ids: ["claude"] }),
-        providerId: "anthropic",
-        fallbackOnError: false,
-      }),
-    ).resolves.toBe(false);
+  it.each<[CanonicalQuotaProviderId, string, boolean]>([
+    ["copilot", "github-copilot-chat", true],
+    ["openai", "chatgpt", true],
+    ["openai", "opencode", false],
+    ["zai", "glm", true],
+    ["alibaba-coding-plan", "alibaba-coding-plan", true],
+    ["alibaba-token-plan", "alibaba", false],
+    ["alibaba-token-plan", "alibaba-coding-plan", false],
+    ["alibaba-token-plan", "alibaba-token-plan", true],
+    ["deepseek", "deepseek", true],
+    ["google-gemini-cli", "google-gemini-cli", true],
+    ["google-gemini-cli", "gemini-cli", true],
+    ["google-gemini-cli", "gemini", true],
+    ["google-gemini-cli", "opencode-gemini-auth", true],
+    ["google-gemini-cli", "google", true],
+    ["minimax-coding-plan", "minimax", true],
+    ["minimax-china-coding-plan", "minimax-cn-coding-plan", true],
+    ["minimax-china-coding-plan", "minimax", false],
+    ["xiaomi", "xiaomi", true],
+    ["xiaomi", "xiaomi-token-plan-cn", true],
+    ["xiaomi", "xiaomi-token-plan-ams", true],
+    ["xiaomi", "xiaomi-token-plan-sgp", true],
+    ["xiaomi", "mimo", false],
+    // A broad normalization alias is not a runtime provider id.
+    ["anthropic", "claude", false],
+  ])("%s is available with OpenCode provider %s: %s", async (providerId, runtimeId, expected) => {
+    await expect(available(providerId, [runtimeId])).resolves.toBe(expected);
   });
 
   it("returns false when no candidate provider ids are configured", async () => {
-    await expect(
-      isCanonicalProviderAvailable({
-        ctx: makeCtx({ ids: [] }),
-        providerId: "cursor",
-        fallbackOnError: false,
-      }),
-    ).resolves.toBe(false);
+    await expect(available("cursor", [])).resolves.toBe(false);
   });
 
   it("reuses one runtime-provider snapshot across concurrent availability checks", async () => {
     const ctx = makeCtx({ ids: ["copilot", "openai"] });
 
     await expect(
-      Promise.all([
-        isCanonicalProviderAvailable({
-          ctx,
-          providerId: "copilot",
-          fallbackOnError: false,
-        }),
-        isCanonicalProviderAvailable({
-          ctx,
-          providerId: "openai",
-          fallbackOnError: false,
-        }),
-      ]),
+      Promise.all(
+        (["copilot", "openai"] as const).map((providerId) =>
+          isCanonicalProviderAvailable({ ctx, providerId, fallbackOnError: false }),
+        ),
+      ),
     ).resolves.toEqual([true, true]);
-
     expect(ctx.client.config.providers).toHaveBeenCalledOnce();
   });
 
-  it("shares a rejected lookup while preserving each caller's fallback policy", async () => {
+  it("shares a rejected lookup while keeping each caller's fallback policy", async () => {
     const ctx = makeCtx({ error: new Error("boom") });
 
     await expect(
       Promise.all([
-        isCanonicalProviderAvailable({
-          ctx,
-          providerId: "copilot",
-          fallbackOnError: false,
-        }),
-        isCanonicalProviderAvailable({
-          ctx,
-          providerId: "openai",
-          fallbackOnError: true,
-        }),
+        isCanonicalProviderAvailable({ ctx, providerId: "copilot", fallbackOnError: false }),
+        isCanonicalProviderAvailable({ ctx, providerId: "openai", fallbackOnError: true }),
       ]),
     ).resolves.toEqual([false, true]);
     expect(ctx.client.config.providers).toHaveBeenCalledOnce();
-  });
-
-  it.each([
-    [false, false],
-    [true, true],
-  ])("returns fallbackOnError=%s when provider lookup throws", async (fallbackOnError, expected) => {
-    await expect(
-      isCanonicalProviderAvailable({
-        ctx: makeCtx({ error: new Error("boom") }),
-        providerId: "copilot",
-        fallbackOnError,
-      }),
-    ).resolves.toBe(expected);
   });
 });

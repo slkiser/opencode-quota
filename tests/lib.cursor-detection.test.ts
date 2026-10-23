@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const { mockFiles, mockAuth, testPaths } = vi.hoisted(() => {
   const separator = process.platform === "win32" ? "\\" : "/";
@@ -15,14 +15,15 @@ const { mockFiles, mockAuth, testPaths } = vi.hoisted(() => {
       cursorAuth: join(home, ".config", "cursor", "auth.json"),
       config,
       opencodeConfig: join(config, "opencode.json"),
-      data: join(root, "data"),
-      cache: join(root, "cache"),
-      state: join(root, "state"),
+      // The session runs in a subfolder of a repository whose root holds an OpenCode config.
+      session: join(root, "repo", "packages", "app"),
+      repoConfig: join(root, "repo", "opencode.jsonc"),
     },
   };
 });
 
-vi.mock("fs", () => ({
+vi.mock("fs", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("fs")>()),
   existsSync: vi.fn((path: string) => mockFiles.has(path)),
 }));
 
@@ -46,231 +47,194 @@ vi.mock("os", async () => {
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
   getCredentialDatabasePaths: () => [testPaths.credentialDatabase],
-  readAuthFile: vi.fn(async () => mockAuth.value),
-}));
-
-vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirs: () => ({
-    dataDir: testPaths.data,
-    configDir: testPaths.config,
-    cacheDir: testPaths.cache,
-    stateDir: testPaths.state,
+  // The active Cursor login, written as `{ cursor: value }` (a value's `resolveError` is
+  // OpenCode's resolve error), as one credential row.
+  readCredentialRows: vi.fn(async () => {
+    const stored = mockAuth.value?.cursor as Record<string, unknown> | undefined;
+    if (!stored) return [];
+    const { resolveError, ...value } = stored;
+    return [
+      {
+        id: "cursor",
+        integrationId: "cursor",
+        label: "",
+        active: true,
+        value,
+        ...(typeof resolveError === "string" ? { resolveError } : {}),
+      },
+    ];
   }),
 }));
+
+// OpenCode's own rule: OPENCODE_CONFIG_DIR replaces its config folder.
+process.env.OPENCODE_CONFIG_DIR = testPaths.config;
+
+import {
+  inspectCursorAuthPresence,
+  inspectCursorOpenCodeIntegration,
+} from "../src/lib/cursor-detection.js";
+
+const legacyAuthFile = JSON.stringify({ accessToken: "legacy-token" });
 
 describe("cursor detection", () => {
   beforeEach(() => {
     mockFiles.clear();
     mockAuth.value = null;
-    vi.resetModules();
     delete process.env.CURSOR_ACP_HOME_DIR;
     delete process.env.CURSOR_API_KEY;
   });
 
-  it("prefers the Cursor OAuth credential in the OpenCode database", async () => {
-    mockFiles.set(testPaths.credentialDatabase, "");
-    mockAuth.value = {
-      cursor: {
-        type: "oauth",
-        refresh: "refresh-token",
+  it.each([
+    [
+      "an OAuth login in the OpenCode database before Cursor's own file",
+      { cursor: { type: "oauth", refresh: "refresh-token" } },
+      legacyAuthFile,
+      {
+        state: "present",
+        selectedPath: testPaths.credentialDatabase,
+        presentPaths: [testPaths.credentialDatabase, testPaths.cursorAuth],
       },
-    };
-    mockFiles.set(testPaths.cursorAuth, JSON.stringify({ accessToken: "legacy-token" }));
-
-    const { inspectCursorAuthPresence } = await import("../src/lib/cursor-detection.js");
-    const result = await inspectCursorAuthPresence();
-
-    expect(result.state).toBe("present");
-    expect(result.selectedPath).toBe(testPaths.credentialDatabase);
-    expect(result.presentPaths).toContain(testPaths.credentialDatabase);
-    expect(result.presentPaths).toContain(testPaths.cursorAuth);
-  });
-
-  it("falls back to Cursor's own auth file when the database credential is invalid", async () => {
+    ],
+    [
+      "Cursor's own auth file when the database credential is invalid",
+      { cursor: { type: "oauth" } },
+      legacyAuthFile,
+      { state: "present", selectedPath: testPaths.cursorAuth },
+    ],
+    [
+      "an invalid Cursor credential in the OpenCode database",
+      { cursor: { type: "oauth" } },
+      undefined,
+      {
+        state: "invalid",
+        selectedPath: testPaths.credentialDatabase,
+        error:
+          "Cursor credential in the OpenCode database is missing a valid OAuth token or API key",
+      },
+    ],
+    [
+      "a Cursor login OpenCode could not return, with its reason",
+      { cursor: { type: "oauth", resolveError: "refresh_failed: HTTP 401" } },
+      undefined,
+      {
+        state: "invalid",
+        selectedPath: testPaths.credentialDatabase,
+        error: "OpenCode could not read this login: refresh_failed: HTTP 401",
+      },
+    ],
+    [
+      // The credential reader maps OpenCode 2's stored `{ type: "key", key }` to `type: "api"`.
+      "a Cursor API key credential in the OpenCode database",
+      { cursor: { type: "api", key: "crsr_test-key" } },
+      undefined,
+      { state: "present", selectedPath: testPaths.credentialDatabase },
+    ],
+    [
+      "a Cursor API key credential without a key",
+      { cursor: { type: "api", key: " " } },
+      undefined,
+      { state: "invalid", selectedPath: testPaths.credentialDatabase },
+    ],
+    [
+      "an unreadable Cursor auth file",
+      null,
+      "{",
+      { state: "invalid", selectedPath: testPaths.cursorAuth },
+    ],
+    ["no login at all", null, undefined, { state: "missing" }],
+  ])("reports %s", async (_label, auth, cursorAuthFile, expected) => {
     mockFiles.set(testPaths.credentialDatabase, "");
-    mockAuth.value = { cursor: { type: "oauth" } };
-    mockFiles.set(testPaths.cursorAuth, JSON.stringify({ accessToken: "legacy-token" }));
+    mockAuth.value = auth;
+    if (cursorAuthFile !== undefined) mockFiles.set(testPaths.cursorAuth, cursorAuthFile);
 
-    const { inspectCursorAuthPresence } = await import("../src/lib/cursor-detection.js");
-    const result = await inspectCursorAuthPresence();
-
-    expect(result.state).toBe("present");
-    expect(result.selectedPath).toBe(testPaths.cursorAuth);
-  });
-
-  it("reports an invalid Cursor credential in the OpenCode database", async () => {
-    mockFiles.set(testPaths.credentialDatabase, "");
-    mockAuth.value = { cursor: { type: "oauth" } };
-
-    const { inspectCursorAuthPresence } = await import("../src/lib/cursor-detection.js");
-    const result = await inspectCursorAuthPresence();
-
-    expect(result.state).toBe("invalid");
-    expect(result.selectedPath).toBe(testPaths.credentialDatabase);
-    expect(result.error).toBe(
-      "Cursor credential in the OpenCode database is missing a valid OAuth token or API key",
-    );
-  });
-
-  it("reports a Cursor login OpenCode could not return as invalid with its reason", async () => {
-    mockFiles.set(testPaths.credentialDatabase, "");
-    mockAuth.value = { cursor: { type: "oauth", resolveError: "refresh_failed: HTTP 401" } };
-
-    const { inspectCursorAuthPresence } = await import("../src/lib/cursor-detection.js");
-    const { readAuthFile } = await import("../src/lib/opencode-auth.js");
-    const result = await inspectCursorAuthPresence();
-
-    expect(result.state).toBe("invalid");
-    expect(result.selectedPath).toBe(testPaths.credentialDatabase);
-    expect(result.error).toBe("OpenCode could not read this login: refresh_failed: HTTP 401");
-    expect(readAuthFile).toHaveBeenCalledWith({ integrationIds: ["cursor"] });
-  });
-
-  it("accepts a Cursor API key credential in the OpenCode database", async () => {
-    mockFiles.set(testPaths.credentialDatabase, "");
-    // The credential reader maps OpenCode 2's stored `{ type: "key", key }` to `type: "api"`.
-    mockAuth.value = { cursor: { type: "api", key: "crsr_test-key" } };
-
-    const { inspectCursorAuthPresence } = await import("../src/lib/cursor-detection.js");
-    const result = await inspectCursorAuthPresence();
-
-    expect(result.state).toBe("present");
-    expect(result.selectedPath).toBe(testPaths.credentialDatabase);
-  });
-
-  it("reports a Cursor API key credential without a key as invalid", async () => {
-    mockFiles.set(testPaths.credentialDatabase, "");
-    mockAuth.value = { cursor: { type: "api", key: " " } };
-
-    const { inspectCursorAuthPresence } = await import("../src/lib/cursor-detection.js");
-    const result = await inspectCursorAuthPresence();
-
-    expect(result.state).toBe("invalid");
-    expect(result.selectedPath).toBe(testPaths.credentialDatabase);
+    expect(await inspectCursorAuthPresence()).toMatchObject(expected);
   });
 
   it("accepts the CURSOR_API_KEY environment variable", async () => {
     process.env.CURSOR_API_KEY = "crsr_env-key";
 
-    const { inspectCursorAuthPresence } = await import("../src/lib/cursor-detection.js");
-    const result = await inspectCursorAuthPresence();
-
-    expect(result.state).toBe("present");
-    expect(result.selectedPath).toBe("env:CURSOR_API_KEY");
+    expect(await inspectCursorAuthPresence()).toMatchObject({
+      state: "present",
+      selectedPath: "env:CURSOR_API_KEY",
+    });
   });
 
-  it("detects the cursor-opencode-provider plugin and provider.cursor config", async () => {
-    mockFiles.set(
-      testPaths.opencodeConfig,
-      JSON.stringify({
+  it.each([
+    [
+      "legacy plugin and provider.cursor keys",
+      {
         plugin: ["cursor-opencode-provider/plugin/opencode2"],
-        provider: {
-          cursor: {
-            name: "Cursor",
-          },
-        },
-      }),
-    );
-
-    const { CURSOR_CANONICAL_PLUGIN_PACKAGE, inspectCursorOpenCodeIntegration } = await import(
-      "../src/lib/cursor-detection.js"
-    );
-    const result = await inspectCursorOpenCodeIntegration();
-
-    expect(CURSOR_CANONICAL_PLUGIN_PACKAGE).toBe("cursor-opencode-provider");
-    expect(result.pluginEnabled).toBe(true);
-    expect(result.providerConfigured).toBe(true);
-    expect(result.matchedPaths).toEqual([testPaths.opencodeConfig]);
-  });
-
-  it("detects the Cursor plugin and provider in OpenCode 2 native plugins and providers", async () => {
-    mockFiles.set(
-      testPaths.opencodeConfig,
-      JSON.stringify({
+        provider: { cursor: { name: "Cursor" } },
+      },
+      true,
+      true,
+    ],
+    [
+      "OpenCode 2 native plugins and providers keys",
+      {
         plugins: [{ package: "cursor-opencode-provider/plugin/opencode2", options: {} }],
         providers: { cursor: { name: "Cursor" } },
-      }),
-    );
+      },
+      true,
+      true,
+    ],
+    [
+      "a legacy cursor runtime id as a provider, not a plugin",
+      { plugin: ["some-other-plugin"], provider: { "cursor-acp": { name: "Cursor ACP" } } },
+      false,
+      true,
+    ],
+  ])("detects %s", async (_label, config, pluginEnabled, providerConfigured) => {
+    mockFiles.set(testPaths.opencodeConfig, JSON.stringify(config));
 
-    const { inspectCursorOpenCodeIntegration } = await import("../src/lib/cursor-detection.js");
-    const result = await inspectCursorOpenCodeIntegration();
-
-    expect(result.pluginEnabled).toBe(true);
-    expect(result.providerConfigured).toBe(true);
-    expect(result.matchedPaths).toEqual([testPaths.opencodeConfig]);
+    expect(await inspectCursorOpenCodeIntegration(testPaths.session)).toMatchObject({
+      pluginEnabled,
+      providerConfigured,
+      matchedPaths: [testPaths.opencodeConfig],
+    });
   });
 
-  it("detects every cursor-opencode-provider entry and version-pinned spec", async () => {
-    const specs = [
+  it.each([
+    ...[
       "cursor-opencode-provider",
       "cursor-opencode-provider/plugin/opencode2",
       "cursor-opencode-provider/server",
       "cursor-opencode-provider@0.7.3",
       "cursor-opencode-provider@latest/plugin/opencode2",
       "cursor-opencode-provider/plugin/opencode2@0.7.3",
-      "cursor-opencode-provider@0.7.3/server",
       " Cursor-OpenCode-Provider/Plugin/OpenCode2 ",
-    ];
-
-    const { inspectCursorOpenCodeIntegration } = await import("../src/lib/cursor-detection.js");
-
-    for (const spec of specs) {
-      mockFiles.clear();
-      mockFiles.set(testPaths.opencodeConfig, JSON.stringify({ plugin: [spec] }));
-
-      const result = await inspectCursorOpenCodeIntegration();
-
-      expect(result.pluginEnabled, spec).toBe(true);
-      expect(result.providerConfigured, spec).toBe(false);
-      expect(result.matchedPaths, spec).toEqual([testPaths.opencodeConfig]);
-    }
-  });
-
-  it("no longer detects OpenCode 1-only Cursor companions or other entries", async () => {
-    const specs = [
+    ].map((spec) => [spec, true] as const),
+    // OpenCode 1-only Cursor companions and other entries are no longer detected.
+    ...[
       "@playwo/opencode-cursor-oauth",
-      "opencode-cursor-oauth",
-      "opencode-cursor",
       "cursor-acp",
-      "open-cursor",
       "@rama_nigg/open-cursor",
       "PoolPirate/opencode-cursor",
       "cursor-opencode-provider/plugin",
       "cursor-opencode-provider/plugin/v2",
       "@someone/cursor-opencode-provider",
-    ];
+    ].map((spec) => [spec, false] as const),
+  ])("plugin spec %j -> detected %s", async (spec, detected) => {
+    mockFiles.set(testPaths.opencodeConfig, JSON.stringify({ plugin: [spec] }));
 
-    const { inspectCursorOpenCodeIntegration } = await import("../src/lib/cursor-detection.js");
-
-    for (const spec of specs) {
-      mockFiles.clear();
-      mockFiles.set(testPaths.opencodeConfig, JSON.stringify({ plugin: [spec] }));
-
-      const result = await inspectCursorOpenCodeIntegration();
-
-      expect(result.pluginEnabled, spec).toBe(false);
-      expect(result.matchedPaths, spec).toEqual([]);
-    }
+    expect(await inspectCursorOpenCodeIntegration(testPaths.session)).toMatchObject({
+      pluginEnabled: detected,
+      providerConfigured: false,
+      matchedPaths: detected ? [testPaths.opencodeConfig] : [],
+    });
   });
 
-  it("detects legacy cursor runtime ids in provider config without treating them as plugins", async () => {
+  it("reads the config of the session's folder and the folders above it", async () => {
     mockFiles.set(
-      testPaths.opencodeConfig,
-      JSON.stringify({
-        plugin: ["some-other-plugin"],
-        provider: {
-          "cursor-acp": {
-            name: "Cursor ACP",
-          },
-        },
-      }),
+      testPaths.repoConfig,
+      '{\n  // repository plugins\n  "plugin": ["cursor-opencode-provider/plugin/opencode2",],\n}',
     );
 
-    const { inspectCursorOpenCodeIntegration } = await import("../src/lib/cursor-detection.js");
-    const result = await inspectCursorOpenCodeIntegration();
-
-    expect(result.pluginEnabled).toBe(false);
-    expect(result.providerConfigured).toBe(true);
-    expect(result.matchedPaths).toEqual([testPaths.opencodeConfig]);
+    expect(await inspectCursorOpenCodeIntegration(testPaths.session)).toMatchObject({
+      pluginEnabled: true,
+      providerConfigured: false,
+      matchedPaths: [testPaths.repoConfig],
+      checkedPaths: [testPaths.repoConfig],
+    });
   });
 });

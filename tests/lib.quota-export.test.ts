@@ -1,91 +1,120 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 // --------------- mock modules ---------------
-
-const testPaths = vi.hoisted(() => {
-  const separator = process.platform === "win32" ? "\\" : "/";
-  const join = (...parts: string[]) => parts.join(separator);
-  const root = join(process.cwd(), ".quota-export-test");
-  const cacheDir = join(root, "cache");
-  return {
-    dataDir: join(root, "data"),
-    configDir: join(root, "config"),
-    cacheDir,
-    stateDir: join(root, "state"),
-    defaultExport: join(cacheDir, "quota-export.json"),
-    explicitExport: join(root, "export.json"),
-  };
-});
-
-vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirs: () => ({
-    dataDir: testPaths.dataDir,
-    configDir: testPaths.configDir,
-    cacheDir: testPaths.cacheDir,
-    stateDir: testPaths.stateDir,
-  }),
-}));
 
 vi.mock("../src/lib/atomic-json.js", () => ({
   writeJsonAtomic: vi.fn(),
 }));
 
-// Mock readCachedProviderResult — each test sets it up via the hoisted ref.
-const { mockReadCachedProviderResult } = vi.hoisted(() => {
-  const mockReadCachedProviderResult = vi.fn();
-  return { mockReadCachedProviderResult };
-});
-
-vi.mock("../src/lib/quota-state.js", async () => {
-  const actual = await vi.importActual<typeof import("../src/lib/quota-state.js")>(
-    "../src/lib/quota-state.js",
-  );
-  return {
-    ...actual,
-    readCachedProviderResult: mockReadCachedProviderResult,
-  };
-});
-
 // --------------- imports ---------------
 
+import { rowsFromProviderResult } from "../src/core/rows.js";
+import type { ProviderFetch } from "../src/core/store.js";
+import type { ProviderSnapshot, QuotaRow } from "../src/core/types.js";
 import { writeJsonAtomic } from "../src/lib/atomic-json.js";
-import { buildQuotaExport, resolveExportPath, writeQuotaExport } from "../src/lib/quota-export.js";
+import type { QuotaExport } from "../src/lib/quota-export-types.js";
 import {
-  accountingContractExport,
-  accountingContractResult,
-} from "./fixtures/accounting-contract.js";
+  buildQuotaExportFromSnapshot,
+  exportProviderFromCheck,
+  resolveExportPath,
+  writeQuotaExport,
+} from "../src/lib/quota-export.js";
+import type {
+  QuotaProviderDefinition,
+  RemoteApiQuotaProviderDefinition,
+} from "../src/lib/quota-providers.js";
+import type { AccountResult, ProviderFetchResult } from "../src/providers/contract.js";
+import { customAccount } from "../src/providers/quota-providers.js";
+import { percentRow, providerSnapshot, quotaRow } from "./helpers/fake-answers.js";
+import { useOpencodeFolders } from "./helpers/opencode-folders.js";
+
+const folders = useOpencodeFolders();
+const testPaths = {
+  defaultExport: join(folders.cacheDir, "quota-export.json"),
+  explicitExport: join(folders.root, "export.json"),
+};
 
 // --------------- helpers ---------------
 
-function createMockProvider(id: string) {
+type Check = {
+  fetched: ProviderFetch;
+  checkedAtMs: number;
+  label?: string;
+  accounts?: AccountResult[];
+};
+
+/** The export document after each provider's last check; `undefined`: never checked. */
+function exportAfter(
+  checks: Record<string, Check | undefined>,
+  customDefinitions: QuotaProviderDefinition[] = [],
+): QuotaExport {
+  const providers = Object.entries(checks).map(([providerId, check]) => {
+    const label = check?.label ?? providerId;
+    if (!check) return providerSnapshot(providerId, label, []);
+    const exportPart = exportProviderFromCheck({
+      providerId,
+      label,
+      rows: check.fetched.rows,
+      ...(check.fetched.error ? { error: check.fetched.error } : {}),
+      checkedAtMs: check.checkedAtMs,
+      customDefinitions,
+      accounts: check.accounts ?? [],
+    });
+    return providerSnapshot(providerId, label, [], { exportPart });
+  });
+  const generatedAtMs = Date.now();
+  return buildQuotaExportFromSnapshot(
+    { version: 6, providers, resetNotices: [], generatedAtMs, serverId: "test", revision: 1 },
+    generatedAtMs,
+  );
+}
+
+/** The custom providers' check: their rows and each definition's account. */
+function customCheck(result: ProviderFetchResult, checkedAtMs: number): Check {
+  return {
+    fetched: rowsFromProviderResult("quota-providers", result, checkedAtMs),
+    checkedAtMs,
+    label: "Custom providers",
+    accounts: result.accounts,
+  };
+}
+
+/** A remote custom quota row, keyed by its name like the adapters key it. */
+const customQuota = (key: string, percentRemaining: number) =>
+  percentRow(key, key, percentRemaining);
+
+/** A remote, provider-reported quota row of `providerId`. */
+const row = (providerId: string, key: string, label: string, fields: Partial<QuotaRow> = {}) =>
+  quotaRow(`${providerId}.${key}`, { label, ...fields });
+
+/** A remote custom definition in the quota-v1 format. */
+function definition(
+  id: string,
+  providerId: string,
+  label: string,
+  extra: Partial<RemoteApiQuotaProviderDefinition> = {},
+): QuotaProviderDefinition {
   return {
     id,
-    isAvailable: vi.fn(),
-    fetch: vi.fn(),
-  };
+    providerId,
+    label,
+    mode: "remote-api",
+    url: `https://${id}.example/accounting`,
+    format: "quota-v1",
+    ...extra,
+  } as QuotaProviderDefinition;
 }
 
-function createMockContext(): any {
-  return {
-    client: {
-      config: {
-        providers: async () => ({ data: { providers: [] } }),
-        get: async () => ({ data: {} }),
-      },
-    },
-    config: {
-      anthropicBinaryPath: "claude",
-      cursorPlan: "none",
-      onlyCurrentModel: false,
-    },
-    session: {},
-  };
+function usd(decimal: string) {
+  return { decimal, unit: { kind: "currency" as const, code: "USD" } };
 }
 
-const QUOTA_ACCOUNTING = {
+const unix = (iso: string) => Math.floor(Date.parse(iso) / 1000);
+
+const REMOTE = {
   resultType: "quota",
   acquisitionMethod: "remote_api",
   ownership: "maintained",
@@ -95,38 +124,28 @@ const QUOTA_ACCOUNTING = {
 // --------------- describe blocks ---------------
 
 describe("resolveExportPath", () => {
-  it("handles empty, tilde, absolute, and relative paths", () => {
-    expect(resolveExportPath("")).toBe(testPaths.defaultExport);
-    expect(resolveExportPath("~/my-exports/quota.json")).toBe(
-      join(homedir(), "my-exports/quota.json"),
-    );
-    expect(resolveExportPath("/etc/opencode/export.json")).toBe("/etc/opencode/export.json");
-    expect(resolveExportPath("relative/path/quota.json")).toBe("relative/path/quota.json");
-  });
-
-  it("expands Windows-style home-relative paths across platforms", () => {
-    expect(resolveExportPath("~\\exports\\quota.json")).toBe(
-      join(homedir(), "exports", "quota.json"),
-    );
-    expect(resolveExportPath("~\\exports\\\\nested\\quota.json")).toBe(
-      join(homedir(), "exports", "nested", "quota.json"),
-    );
-    expect(resolveExportPath("~\\")).toBe(homedir());
-  });
-
-  it("leaves unsupported tilde and ordinary backslash paths unchanged", () => {
-    expect(resolveExportPath("~")).toBe("~");
-    expect(resolveExportPath("~user/exports")).toBe("~user/exports");
-    expect(resolveExportPath("relative\\path.json")).toBe("relative\\path.json");
-    expect(resolveExportPath("C:\\exports\\quota.json")).toBe("C:\\exports\\quota.json");
-    expect(resolveExportPath("\\\\server\\share\\quota.json")).toBe(
-      "\\\\server\\share\\quota.json",
-    );
-    expect(resolveExportPath("~/literal\\name.json")).toBe(join(homedir(), "literal\\name.json"));
+  it.each([
+    ["", testPaths.defaultExport],
+    ["~/my-exports/quota.json", join(homedir(), "my-exports/quota.json")],
+    ["/etc/opencode/export.json", "/etc/opencode/export.json"],
+    ["relative/path/quota.json", "relative/path/quota.json"],
+    // Windows-style home-relative paths expand on every platform.
+    ["~\\exports\\quota.json", join(homedir(), "exports", "quota.json")],
+    ["~\\exports\\\\nested\\quota.json", join(homedir(), "exports", "nested", "quota.json")],
+    ["~\\", homedir()],
+    // Other tildes and ordinary backslash paths stay as they are.
+    ["~", "~"],
+    ["~user/exports", "~user/exports"],
+    ["relative\\path.json", "relative\\path.json"],
+    ["C:\\exports\\quota.json", "C:\\exports\\quota.json"],
+    ["\\\\server\\share\\quota.json", "\\\\server\\share\\quota.json"],
+    ["~/literal\\name.json", join(homedir(), "literal\\name.json")],
+  ])("resolves %j to %j", (input, expected) => {
+    expect(resolveExportPath(input)).toBe(expected);
   });
 });
 
-describe("buildQuotaExport", () => {
+describe("the export of each provider's last check", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-01T12:00:00.000Z"));
@@ -134,412 +153,296 @@ describe("buildQuotaExport", () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    mockReadCachedProviderResult.mockReset();
   });
 
-  it("returns status ok and maps cached entries into export rows", async () => {
-    mockReadCachedProviderResult.mockResolvedValue({
-      hit: true,
-      result: {
-        attempted: true,
-        entries: [
-          {
-            accounting: QUOTA_ACCOUNTING,
-            name: "Copilot",
-            percentRemaining: 75,
-            resetTimeIso: "2026-07-01T00:00:00.000Z",
-            label: "Monthly:",
-            fixedWindow: {
-              kind: "fixed_window",
-              startedAtIso: "2026-06-01T00:00:00.000Z",
-              observedAtIso: "2026-06-01T11:00:00.000Z",
-              endsAtIso: "2026-07-01T00:00:00.000Z",
-              fullReset: true,
-            },
-            runway: {
-              kind: "before_reset",
-              projectedAtIso: "2026-06-15T00:00:00.000Z",
-            },
-          },
-          {
-            accounting: QUOTA_ACCOUNTING,
-            name: "OpenCode Go",
-            kind: "value",
-            value: "$42.50",
-            label: "Weekly:",
-          },
-          {
-            accounting: QUOTA_ACCOUNTING,
-            name: "Custom Metric",
-            percentRemaining: 100,
-            label: "Arbitrary:",
-          },
-          // Name matches a window keyword ("Monthly") but the label does not:
-          // window must be derived from label only, so this stays undefined.
-          {
-            accounting: QUOTA_ACCOUNTING,
-            name: "Monthly Premium Requests",
-            percentRemaining: 40,
-            label: "Usage:",
-          },
-        ],
-        errors: [],
+  it("returns status ok and writes each row as an entry", () => {
+    const checkedAtMs = Date.parse("2026-06-01T11:00:00.000Z");
+    const exportData = exportAfter({
+      copilot: {
+        label: "Copilot",
+        checkedAtMs,
+        fetched: {
+          rows: [
+            row("copilot", "allowance", "Premium requests", {
+              account: "pro",
+              window: "month",
+              percentRemaining: 75,
+              resetsAt: "2026-07-01T00:00:00.000Z",
+              windowStartedAt: "2026-06-01T00:00:00.000Z",
+              used: { decimal: "75", unit: { kind: "count", unit: "request" } },
+            }),
+            row("copilot", "additional_budget", "Budget", {
+              type: "budget",
+              authority: "locally_derived",
+              prominence: "supplementary",
+              used: usd("2.5"),
+              limit: usd("10"),
+            }),
+          ],
+          debug: [],
+        },
       },
-      timestamp: new Date("2026-06-01T11:00:00.000Z").getTime(),
     });
 
-    const exportData = await buildQuotaExport({
-      providers: [createMockProvider("copilot")],
-      ctx: createMockContext(),
-      ttlMs: 60_000,
-      fromCache: true,
-    });
-
-    expect(exportData.version).toBe(2);
+    expect(exportData.version).toBe(3);
     expect(exportData.fromCache).toBe(true);
     expect(exportData.exportedAt).toBe(Math.floor(Date.now() / 1000));
-
-    const provider = exportData.providers.copilot;
-    expect(provider).toBeDefined();
-    expect(provider.status).toBe("ok");
-
-    if (provider.status === "ok") {
-      expect(provider.entries).toEqual([
+    expect(exportData.cacheAgeSeconds).toBe(3600);
+    expect(exportData.providers.copilot).toEqual({
+      status: "ok",
+      fetchedAt: unix("2026-06-01T11:00:00.000Z"),
+      entries: [
         {
-          name: "Copilot",
-          ...QUOTA_ACCOUNTING,
+          id: "copilot.allowance",
+          name: "Copilot (pro) Premium requests",
+          account: "pro",
+          ...REMOTE,
+          window: "Monthly",
+          resetAt: unix("2026-07-01T00:00:00.000Z"),
           renderType: "percent",
           percentRemaining: 75,
-          resetAt: Math.floor(new Date("2026-07-01T00:00:00.000Z").getTime() / 1000),
-          window: "Monthly",
         },
         {
-          name: "OpenCode Go",
-          ...QUOTA_ACCOUNTING,
+          id: "copilot.additional_budget",
+          name: "Copilot Budget",
+          ...REMOTE,
+          resultType: "budget",
+          authority: "locally_derived",
           renderType: "value",
-          value: "$42.50",
-          window: "Weekly",
-        },
-        {
-          name: "Custom Metric",
-          ...QUOTA_ACCOUNTING,
-          renderType: "percent",
-          percentRemaining: 100,
-        },
-        {
-          name: "Monthly Premium Requests",
-          ...QUOTA_ACCOUNTING,
-          renderType: "percent",
-          percentRemaining: 40,
-        },
-      ]);
-    }
-  });
-
-  it("exports semantic availability booleans with generic wording and the raw name", async () => {
-    mockReadCachedProviderResult.mockResolvedValue({
-      hit: true,
-      result: {
-        attempted: true,
-        entries: [
-          {
-            accounting: { ...QUOTA_ACCOUNTING, resultType: "status" },
-            kind: "boolean",
-            name: "Raw provider availability",
-            value: false,
-            semantic: {
-              metric: { kind: "named", name: "Availability" },
-              prominence: "primary",
-            },
-          },
-        ],
-        errors: [],
-      },
-      timestamp: Date.now(),
-    });
-
-    const exportData = await buildQuotaExport({
-      providers: [createMockProvider("availability")],
-      ctx: createMockContext(),
-      ttlMs: 60_000,
-      fromCache: true,
-    });
-
-    const provider = exportData.providers.availability;
-    expect(provider).toBeDefined();
-    if (provider.status === "ok") {
-      expect(provider.entries).toEqual([
-        {
-          name: "Raw provider availability",
-          resultType: "status",
-          acquisitionMethod: "remote_api",
-          ownership: "maintained",
-          authority: "provider_reported",
-          renderType: "value",
-          value: "Disabled",
-        },
-      ]);
-      expect(provider.entries[0]).not.toHaveProperty("semantic");
-    }
-  });
-
-  it("preserves raw family names when display projections suppress them", async () => {
-    mockReadCachedProviderResult.mockResolvedValue({
-      hit: true,
-      result: {
-        attempted: true,
-        entries: [
-          {
-            accounting: { ...QUOTA_ACCOUNTING, sourceId: "alice@example.com" },
-            name: "Example (ali…): Claude",
-            percentRemaining: 0,
-          },
-          {
-            accounting: { ...QUOTA_ACCOUNTING, resultType: "usage" },
-            name: "Copilot",
-            kind: "value",
-            value: "Used 100 | Included 80 | Billed 20",
-          },
-        ],
-        errors: [{ label: "bob…", message: "Unauthorized" }],
-        presentation: {
-          classicStrategy: "preserve",
-          redundantQuotaFamily: "Claude",
-        },
-      },
-      timestamp: Date.now(),
-    });
-
-    const actual = await buildQuotaExport({
-      providers: [createMockProvider("example-family")],
-      ctx: createMockContext(),
-      ttlMs: 60_000,
-      fromCache: true,
-    });
-    const provider = actual.providers["example-family"];
-    expect(provider).toMatchObject({
-      status: "partial",
-      entries: [
-        {
-          name: "Example (ali…): Claude",
-          sourceId: "alice@example.com",
-          renderType: "percent",
-          percentRemaining: 0,
-        },
-        {
-          name: "Copilot",
-          renderType: "value",
-          value: "Used 100 | Included 80 | Billed 20",
+          value: "$2.50/$10.00",
         },
       ],
-      errors: [{ label: "bob…", message: "Unauthorized" }],
     });
   });
 
-  it("exports Kilo Pass raw accounting details without adding them to human entries", async () => {
-    const rawDetails = [
-      { key: "base_credits_usd", value: "$10.00" },
-      { key: "usage_usd", value: "$12.00" },
-      { key: "bonus_credits_usd", value: "$0.00" },
-      { key: "remaining_usd", value: "$0.00" },
-      { key: "overage_usd", value: "$2.00" },
-      { key: "reset_at", value: "2026-07-01T00:00:00.000Z" },
-    ];
-    mockReadCachedProviderResult.mockResolvedValue({
-      hit: true,
-      result: {
-        attempted: true,
-        entries: [
-          {
-            accounting: { ...QUOTA_ACCOUNTING, authority: "locally_derived" },
-            name: "Kilo Gateway Credits",
-            percentRemaining: 0,
-            resetTimeIso: "2026-07-01T00:00:00.000Z",
-          },
-          {
-            accounting: { ...QUOTA_ACCOUNTING, authority: "locally_derived" },
-            kind: "value",
-            name: "Kilo Gateway Remaining Credits",
-            value: "$0.00",
-          },
-        ],
-        errors: [],
-        rawDetails,
+  it("writes amounts, flags and texts with the words the TUI shows", () => {
+    const exportData = exportAfter({
+      opencode: {
+        label: "OpenCode Zen",
+        checkedAtMs: Date.now(),
+        fetched: {
+          rows: [
+            row("opencode", "balance", "Balance", { type: "balance", amount: usd("42.5") }),
+            row("opencode", "auto_reload", "Auto reload", { type: "status", flag: true }),
+            row("opencode", "spent", "Spent", {
+              type: "usage",
+              method: "local_estimation",
+              authority: "locally_derived",
+              amount: usd("1.25"),
+            }),
+            row("opencode", "status", "Status", { type: "status", text: "Unavailable for key" }),
+            row("opencode", "tokens", "Tokens", {
+              type: "usage",
+              amount: { decimal: "12345", unit: { kind: "count", unit: "token" } },
+            }),
+            row("opencode", "requests", "Requests", {
+              type: "usage",
+              amount: { decimal: "1", unit: { kind: "count", unit: "request" } },
+            }),
+          ],
+          debug: [],
+        },
       },
-      timestamp: Date.now(),
     });
 
-    const actual = await buildQuotaExport({
-      providers: [createMockProvider("kilo")],
-      ctx: createMockContext(),
-      ttlMs: 60_000,
-      fromCache: true,
-    });
-
-    const provider = actual.providers.kilo;
-    expect(provider).toMatchObject({
-      status: "ok",
-      rawDetails,
-      entries: [
-        { name: "Kilo Gateway Credits", percentRemaining: 0 },
-        { name: "Kilo Gateway Remaining Credits", value: "$0.00" },
-      ],
-    });
-    if (provider?.status === "ok") {
-      expect(JSON.stringify(provider.entries)).not.toContain("$2.00");
-      expect(JSON.stringify(provider.entries)).not.toContain("overage");
-    }
+    const provider = exportData.providers.opencode;
+    expect(provider?.status === "ok" ? provider.entries : []).toEqual([
+      expect.objectContaining({ resultType: "balance", renderType: "value", value: "$42.50 left" }),
+      expect.objectContaining({ resultType: "status", value: "Enabled" }),
+      expect.objectContaining({
+        name: "OpenCode Zen Spent",
+        resultType: "usage",
+        acquisitionMethod: "local_estimation",
+        authority: "locally_derived",
+        value: "$1.25 used",
+      }),
+      expect.objectContaining({ name: "OpenCode Zen Status", value: "Unavailable for key" }),
+      expect.objectContaining({ name: "OpenCode Zen Tokens", value: "12,345 tokens used" }),
+      expect.objectContaining({ name: "OpenCode Zen Requests", value: "1 request used" }),
+    ]);
   });
 
-  it("omits OpenRouter API-key diagnostics from export data", async () => {
+  it("keeps debug details out of the export: they stay in /quota_status", () => {
     const secretCanary = "sk-or-export-secret-canary";
-    mockReadCachedProviderResult.mockResolvedValue({
-      hit: true,
-      result: {
-        attempted: true,
-        entries: [
-          {
-            accounting: {
-              resultType: "budget",
-              acquisitionMethod: "remote_api",
-              ownership: "maintained",
-              authority: "provider_reported",
-            },
-            name: "OpenRouter budget",
-            percentRemaining: 80,
-          },
-        ],
-        errors: [],
-        statusDetails: [
-          { key: "api_key_configured", value: "true" },
-          { key: "api_key_source", value: "env" },
-          { key: "api_key_checked_paths", value: "env:OPENROUTER_API_KEY" },
-          { key: "api_key_credential_database_paths", value: "/tmp/opencode.db" },
-          { key: "secret_canary", value: secretCanary },
-        ],
+    const exportData = exportAfter({
+      openrouter: {
+        label: "OpenRouter",
+        checkedAtMs: Date.now(),
+        fetched: {
+          rows: [row("openrouter", "key", "Budget", { type: "budget", percentRemaining: 80 })],
+          error: { code: "provider_error", status: 503, detail: secretCanary },
+          debug: [
+            { key: "api_key_source", value: "env" },
+            { key: "api_key_checked_paths", value: "env:OPENROUTER_API_KEY" },
+            { key: "error", value: `OpenRouter: ${secretCanary}` },
+          ],
+        },
       },
-      timestamp: Date.now(),
     });
 
-    const actual = await buildQuotaExport({
-      providers: [createMockProvider("openrouter")],
-      ctx: createMockContext(),
-      ttlMs: 60_000,
-      fromCache: true,
+    expect(exportData.providers.openrouter).toEqual({
+      status: "partial",
+      fetchedAt: Math.floor(Date.now() / 1000),
+      entries: [expect.objectContaining({ name: "OpenRouter Budget", percentRemaining: 80 })],
+      errors: [{ label: "OpenRouter", message: "Provider error 503" }],
     });
-
-    expect(actual.providers.openrouter).toMatchObject({
-      status: "ok",
-      entries: [{ name: "OpenRouter budget", percentRemaining: 80 }],
-    });
-    const serialized = JSON.stringify(actual);
+    const serialized = JSON.stringify(exportData);
     expect(serialized).not.toContain("api_key_");
-    expect(serialized).not.toContain("statusDetails");
     expect(serialized).not.toContain(secretCanary);
-    expect(actual.providers.openrouter).not.toHaveProperty("statusDetails");
   });
 
-  it("matches the v2 all-result-types JSON golden", async () => {
-    vi.setSystemTime(new Date("2026-07-11T00:00:00.000Z"));
-    mockReadCachedProviderResult.mockResolvedValue({
-      hit: true,
-      result: accountingContractResult,
-      timestamp: new Date("2026-07-10T23:59:00.000Z").getTime(),
+  it("returns status error with the error's words when the check gave no rows", () => {
+    const checkedAtMs = Date.parse("2026-06-01T11:00:00.000Z");
+    const exportData = exportAfter({
+      broken: {
+        label: "Broken\u001b[31m",
+        checkedAtMs,
+        fetched: { rows: [], error: { code: "network", detail: "ECONNRESET" }, debug: [] },
+      },
+      limited: {
+        checkedAtMs,
+        fetched: {
+          rows: [],
+          error: { code: "rate_limited", retryAtMs: checkedAtMs + 120_000 },
+          debug: [],
+        },
+      },
     });
 
-    const ctx = createMockContext();
-    ctx.config.accountingDetail = "summary";
-    const actual = await buildQuotaExport({
-      providers: [createMockProvider("fixture")],
-      ctx,
-      ttlMs: 60_000,
-      fromCache: true,
+    expect(exportData.providers.broken).toEqual({
+      status: "error",
+      fetchedAt: unix("2026-06-01T11:00:00.000Z"),
+      error: "Can't reach Broken",
+    });
+    // The wait counts from the check, as the file shows that check.
+    expect(exportData.providers.limited).toMatchObject({
+      status: "error",
+      error: "Rate limited, retry in 2m",
+    });
+  });
+
+  it("returns status unavailable for a provider that is not set up or never checked", () => {
+    const exportData = exportAfter({
+      deepseek: {
+        checkedAtMs: Date.now(),
+        fetched: { rows: [], error: { code: "not_configured" }, debug: [] },
+      },
+      ghost: undefined,
+    });
+
+    expect(exportData.providers.deepseek).toEqual({ status: "unavailable" });
+    expect(exportData.providers.ghost).toEqual({ status: "unavailable" });
+    expect(exportData.cacheAgeSeconds).toBe(0);
+  });
+
+  it("omits an invalid reset time instead of exporting NaN", () => {
+    const exportData = exportAfter({
+      fixture: {
+        checkedAtMs: Date.now(),
+        fetched: {
+          rows: [
+            row("fixture", "weekly", "Weekly", { percentRemaining: 50, resetsAt: "not-a-date" }),
+          ],
+          debug: [],
+        },
+      },
+    });
+
+    expect(exportData.providers.fixture).toMatchObject({
+      status: "ok",
+      entries: [{ name: "fixture Weekly", renderType: "percent", percentRemaining: 50 }],
+    });
+    expect(JSON.stringify(exportData)).not.toContain("resetAt");
+  });
+
+  it("matches the all-result-types JSON golden", () => {
+    vi.setSystemTime(new Date("2026-07-11T00:00:00.000Z"));
+    const provider = (key: string, label: string, fields: Partial<QuotaRow>) =>
+      row("fixture", key, label, fields);
+    const actual = exportAfter({
+      fixture: {
+        label: "Fixture",
+        checkedAtMs: Date.parse("2026-07-10T23:59:00.000Z"),
+        fetched: {
+          rows: [
+            provider("quota", "Quota", {
+              window: "month",
+              percentRemaining: 75,
+              resetsAt: "2026-08-01T00:00:00.000Z",
+              remaining: { decimal: "7500", unit: { kind: "count", unit: "token" } },
+            }),
+            provider("rpm", "Requests", {
+              window: "rpm",
+              percentRemaining: 50,
+              resetsAt: "2026-07-11T00:01:00.000Z",
+            }),
+            provider("budget", "Budget", {
+              type: "budget",
+              window: "week",
+              percentRemaining: 60,
+              limit: usd("100"),
+            }),
+            provider("usage", "Usage", {
+              type: "usage",
+              method: "local_estimation",
+              authority: "locally_derived",
+              amount: { decimal: "12345", unit: { kind: "count", unit: "token" } },
+            }),
+            provider("spend", "Spend", {
+              type: "usage",
+              method: "dashboard_scrape",
+              amount: usd("42.5"),
+            }),
+            provider("balance", "Balance", {
+              type: "balance",
+              method: "local_cli",
+              prominence: "supplementary",
+              amount: usd("10"),
+            }),
+            provider("auto_reload", "Auto-reload", { type: "status", flag: true }),
+          ],
+          debug: [{ key: "plan", value: "max" }],
+        },
+      },
     });
     const golden = JSON.parse(
       readFileSync(
-        new URL("./fixtures/quota-export-v2-all-result-types.json", import.meta.url),
+        new URL("./fixtures/quota-export-all-result-types.json", import.meta.url),
         "utf8",
       ),
     );
 
-    expect(actual).toEqual(accountingContractExport);
     expect(actual).toEqual(golden);
-
-    const provider = actual.providers.fixture;
-    expect(provider.status).toBe("ok");
-    if (provider.status === "ok") {
-      expect(provider.entries[0]).toMatchObject({ renderType: "value", value: "USD 10.00" });
-      expect(provider.entries).toContainEqual(
-        expect.objectContaining({ name: "Auto-reload", renderType: "value", value: "Enabled" }),
-      );
-      const allowedKeys = new Set([
-        "name",
-        "resultType",
-        "acquisitionMethod",
-        "ownership",
-        "authority",
-        "sourceId",
-        "observedAt",
-        "window",
-        "resetAt",
-        "renderType",
-        "percentRemaining",
-        "value",
-      ]);
-      expect(
-        provider.entries.every((entry) => Object.keys(entry).every((key) => allowedKeys.has(key))),
-      ).toBe(true);
-      expect(JSON.stringify(provider.entries)).not.toMatch(
-        /"(?:semantic|prominence|basis|quantity)"/u,
-      );
+    const entries =
+      actual.providers.fixture?.status === "ok" ? actual.providers.fixture.entries : [];
+    expect(new Set(entries.map((entry) => entry.resultType))).toEqual(
+      new Set(["quota", "budget", "usage", "balance", "status"]),
+    );
+    expect(new Set(entries.map((entry) => entry.acquisitionMethod))).toEqual(
+      new Set(["remote_api", "dashboard_scrape", "local_cli", "local_estimation"]),
+    );
+    const allowedKeys = new Set([
+      "id",
+      "name",
+      "account",
+      "resultType",
+      "acquisitionMethod",
+      "ownership",
+      "authority",
+      "window",
+      "resetAt",
+      "renderType",
+      "percentRemaining",
+      "value",
+    ]);
+    for (const entry of entries) {
+      expect(Object.keys(entry).filter((key) => !allowedKeys.has(key))).toEqual([]);
     }
   });
 
-  it("omits invalid optional timestamps instead of exporting NaN", async () => {
-    mockReadCachedProviderResult.mockResolvedValue({
-      hit: true,
-      result: {
-        attempted: true,
-        entries: [
-          {
-            accounting: { ...QUOTA_ACCOUNTING, observedAtIso: "not-a-date" },
-            name: "Invalid timestamps",
-            percentRemaining: 50,
-            resetTimeIso: "also-not-a-date",
-          },
-        ],
-        errors: [],
-      },
-      timestamp: Date.now(),
-    });
-
-    const actual = await buildQuotaExport({
-      providers: [createMockProvider("fixture")],
-      ctx: createMockContext(),
-      ttlMs: 60_000,
-      fromCache: true,
-    });
-    expect(actual.providers.fixture).toMatchObject({
-      status: "ok",
-      entries: [
-        {
-          name: "Invalid timestamps",
-          ...QUOTA_ACCOUNTING,
-          renderType: "percent",
-          percentRemaining: 50,
-        },
-      ],
-    });
-  });
-
-  it("exports flat quota-provider definition entry identity and ordered coarse source statuses", async () => {
-    const ctx = createMockContext();
-    ctx.config.quotaProviders = [
-      {
-        id: "same-label-one",
-        providerId: "gateway-one",
-        label: "Same label",
-        mode: "remote-api",
+  it("lists each custom definition with a coarse status, never its URL, key, format or files", () => {
+    const definitions = [
+      definition("same-label-one", "gateway-one", "Same label", {
         url: "https://secret-one.example/accounting",
         format: "json-v1",
         adapter: {
@@ -552,86 +455,49 @@ describe("buildQuotaExport", () => {
           ],
         },
         apiKeyEnv: "GATEWAY_ONE_KEY",
-      },
-      {
-        id: "same-label-two",
-        providerId: "gateway-two",
-        label: "Same label",
-        mode: "remote-api",
-        url: "https://secret-two.example/accounting",
-        format: "quota-v1",
-      },
-      {
-        id: "not-selected",
-        providerId: "gateway-three",
-        label: "Not selected",
-        mode: "remote-api",
-        url: "https://secret-three.example/accounting",
-        format: "quota-v1",
-      },
+      }),
+      definition("same-label-two", "gateway-two", "Same label"),
+      definition("not-selected", "gateway-three", "Not selected"),
     ];
-    mockReadCachedProviderResult.mockResolvedValue({
-      hit: true,
-      result: {
+    const [one, two] = definitions as [QuotaProviderDefinition, QuotaProviderDefinition];
+    const check = customCheck(
+      {
         attempted: true,
-        entries: [
-          {
-            accounting: {
-              ...QUOTA_ACCOUNTING,
-              ownership: "user_configured",
-              sourceId: "same-label-one",
-            },
-            name: "Same label",
-            percentRemaining: 25,
-          },
+        accounts: [
+          customAccount(one, [customQuota("Remaining", 25)], []),
+          customAccount(two, [], [{ message: "secondary source unavailable" }]),
         ],
-        errors: [{ label: "Same label", message: "secondary source unavailable" }],
-        diagnostics: [
+        debug: [
           {
-            sourceId: "same-label-one",
-            providerId: "gateway-one",
-            format: "json-v1",
-            modelIds: null,
-            apiKeyEnv: "GATEWAY_ONE_KEY",
-            selected: true,
-            attempted: true,
-            credentialSource: "explicit_env",
-            outcome: "success",
-            entryCount: 1,
-            checkedPaths: ["env:GATEWAY_ONE_KEY"],
-            credentialDatabasePaths: ["/trusted/opencode.db"],
+            key: "custom_same-label-one_check",
+            value:
+              "outcome=success credential_source=explicit_env checked_paths=env:GATEWAY_ONE_KEY | /trusted/opencode.db",
           },
           {
-            sourceId: "same-label-two",
-            providerId: "gateway-two",
-            format: "quota-v1",
-            modelIds: null,
-            apiKeyEnv: null,
-            selected: true,
-            attempted: true,
-            credentialSource: "opencode_db",
-            outcome: "invalid_json",
-            entryCount: 0,
-            checkedPaths: ["/trusted/opencode.json"],
-            credentialDatabasePaths: ["/trusted/opencode.db"],
+            key: "custom_same-label-two_check",
+            value:
+              "outcome=invalid_json credential_source=opencode_db checked_paths=/trusted/opencode.json | /trusted/opencode.db",
           },
         ],
       },
-      timestamp: Date.now(),
-    });
+      Date.now(),
+    );
 
-    const actual = await buildQuotaExport({
-      providers: [createMockProvider("quota-providers")],
-      ctx,
-      ttlMs: 60_000,
-      fromCache: true,
-    });
+    const actual = exportAfter({ "quota-providers": check }, definitions);
 
-    expect(actual.version).toBe(2);
+    expect(actual.version).toBe(3);
     expect(actual.providers["quota-providers"]).toMatchObject({
       status: "partial",
-      entries: [expect.objectContaining({ sourceId: "same-label-one", percentRemaining: 25 })],
-      errors: [{ label: "Same label", message: "secondary source unavailable" }],
+      entries: [
+        {
+          // The id names the definition the row came from.
+          id: "quota-providers.custom.same-label-one.Remaining",
+          name: "Custom providers (Same label) Remaining",
+          ownership: "user_configured",
+          percentRemaining: 25,
+        },
+      ],
+      errors: [{ label: "Custom providers", message: "Nothing reported" }],
       sources: [
         { id: "same-label-one", providerId: "gateway-one", status: "ok", entryCount: 1 },
         { id: "same-label-two", providerId: "gateway-two", status: "error", entryCount: 0 },
@@ -659,34 +525,14 @@ describe("buildQuotaExport", () => {
     expect(json).not.toContain("/trusted/opencode.db");
   });
 
-  it("returns ordered unavailable quota-provider definitions when the cache has no aggregate entry", async () => {
-    const ctx = createMockContext();
-    ctx.config.quotaProviders = [
-      {
-        id: "first",
-        providerId: "gateway-one",
-        label: "First",
-        mode: "remote-api",
-        url: "https://one.example/accounting",
-        format: "quota-v1",
-      },
-      {
-        id: "second",
-        providerId: "gateway-two",
-        label: "Second",
-        mode: "remote-api",
-        url: "https://two.example/accounting",
-        format: "quota-v1",
-      },
+  it("lists every custom definition as unavailable when the custom providers could not be asked", () => {
+    const definitions = [
+      definition("first", "gateway-one", "First"),
+      definition("second", "gateway-two", "Second"),
     ];
-    mockReadCachedProviderResult.mockResolvedValue({ hit: false });
+    const check = customCheck({ attempted: false, accounts: [], debug: [] }, Date.now());
 
-    const actual = await buildQuotaExport({
-      providers: [createMockProvider("quota-providers")],
-      ctx,
-      ttlMs: 60_000,
-      fromCache: true,
-    });
+    const actual = exportAfter({ "quota-providers": check }, definitions);
 
     expect(actual.providers["quota-providers"]).toEqual({
       status: "unavailable",
@@ -697,71 +543,109 @@ describe("buildQuotaExport", () => {
     });
   });
 
-  it("returns status unavailable when provider has no cache entry", async () => {
-    mockReadCachedProviderResult.mockResolvedValue({ hit: false });
-
-    const exportData = await buildQuotaExport({
-      providers: [createMockProvider("ghost")],
-      ctx: createMockContext(),
-      ttlMs: 60_000,
-      fromCache: true,
-    });
-
-    expect(exportData.providers.ghost).toEqual({ status: "unavailable" });
-  });
-
-  it("returns status error with a sanitized message when cache has only errors", async () => {
-    mockReadCachedProviderResult.mockResolvedValue({
-      hit: true,
-      result: {
+  it("says a switched-off definition is off instead of giving it a status", () => {
+    const first = definition("first", "gateway-one", "First");
+    const second = definition("second", "gateway-one", "Second");
+    // A result from before the user switched "second" off.
+    const check = customCheck(
+      {
         attempted: true,
-        entries: [],
-        // Includes an ANSI escape + control chars + newline that must be stripped.
-        errors: [{ label: "Fetch", message: "Request failed\n\u001b[31mwith 429\u0007" }],
+        accounts: [
+          customAccount(first, [], [{ message: "Failed to read accounting data" }]),
+          customAccount(second, [customQuota("Monthly", 50)], []),
+        ],
+        debug: [],
       },
-      timestamp: new Date("2026-06-01T11:00:00.000Z").getTime(),
-    });
+      Date.now(),
+    );
 
-    const exportData = await buildQuotaExport({
-      providers: [createMockProvider("broken")],
-      ctx: createMockContext(),
-      ttlMs: 60_000,
-      fromCache: true,
-    });
+    const actual = exportAfter({ "quota-providers": check }, [
+      first,
+      { ...second, enabled: false },
+    ]);
 
-    expect(exportData.providers.broken).toEqual({
-      status: "error",
-      fetchedAt: Math.floor(new Date("2026-06-01T11:00:00.000Z").getTime() / 1000),
-      error: "Request failed with 429",
-    });
+    expect(actual.providers["quota-providers"].sources).toStrictEqual([
+      { id: "first", providerId: "gateway-one", status: "error", entryCount: 0 },
+      { id: "second", providerId: "gateway-one", entryCount: 0, enabled: false },
+    ]);
   });
 
-  it("computes cacheAgeSeconds from oldest fetchedAt across ok/error providers", async () => {
-    mockReadCachedProviderResult
-      .mockResolvedValueOnce({
-        hit: true,
-        result: {
-          attempted: true,
-          entries: [{ accounting: QUOTA_ACCOUNTING, name: "A", percentRemaining: 90 }],
-          errors: [],
-        },
-        timestamp: new Date("2026-06-01T10:00:00.000Z").getTime(), // 2h old
-      })
-      .mockResolvedValueOnce({
-        hit: true,
-        result: { attempted: true, entries: [], errors: [{ label: "E", message: "err" }] },
-        timestamp: new Date("2026-06-01T11:30:00.000Z").getTime(), // 30m old
-      });
-
-    const exportData = await buildQuotaExport({
-      providers: [createMockProvider("a"), createMockProvider("b")],
-      ctx: createMockContext(),
-      ttlMs: 60_000,
-      fromCache: true,
+  it("computes cacheAgeSeconds from the oldest fetchedAt across ok and error providers", () => {
+    const exportData = exportAfter({
+      a: {
+        checkedAtMs: Date.parse("2026-06-01T10:00:00.000Z"), // 2h old
+        fetched: { rows: [row("a", "daily", "Daily", { percentRemaining: 90 })], debug: [] },
+      },
+      b: {
+        checkedAtMs: Date.parse("2026-06-01T11:30:00.000Z"), // 30m old
+        fetched: { rows: [], error: { code: "internal" }, debug: [] },
+      },
     });
 
     // Oldest is "a" at 10:00, now is 12:00 → 2h = 7200s
     expect(exportData.cacheAgeSeconds).toBe(7200);
+  });
+});
+
+describe("the export of a provider without a check in this server", () => {
+  const NOW_MS = Date.parse("2026-06-01T12:00:00.000Z");
+
+  function snapshotExport(provider: Partial<ProviderSnapshot>) {
+    const snapshotProvider = providerSnapshot("copilot", "Copilot", [], {
+      debug: [{ key: "api_key_source", value: "env" }],
+      ...provider,
+    });
+    return buildQuotaExportFromSnapshot(
+      {
+        version: 6,
+        providers: [snapshotProvider],
+        resetNotices: [],
+        generatedAtMs: NOW_MS,
+        serverId: "test",
+        revision: 1,
+      },
+      NOW_MS,
+    ).providers.copilot;
+  }
+
+  it("writes the snapshot's rows, dated when they came", () => {
+    expect(
+      snapshotExport({
+        rows: [row("copilot", "allowance", "Premium requests", { percentRemaining: 40 })],
+        okAtMs: NOW_MS - 60_000,
+        checkedAtMs: NOW_MS - 1_000,
+      }),
+    ).toEqual({
+      status: "ok",
+      fetchedAt: Math.floor((NOW_MS - 60_000) / 1000),
+      entries: [
+        expect.objectContaining({ name: "Copilot Premium requests", percentRemaining: 40 }),
+      ],
+    });
+  });
+
+  it("writes kept rows with the last error as partial, and only an error without rows", () => {
+    const allowance = row("copilot", "allowance", "Premium requests", { percentRemaining: 40 });
+    expect(
+      snapshotExport({
+        rows: [allowance],
+        okAtMs: NOW_MS - 60_000,
+        checkedAtMs: NOW_MS - 1_000,
+        error: { code: "login_expired" },
+      }),
+    ).toMatchObject({
+      status: "partial",
+      errors: [{ label: "Copilot", message: "Sign in again" }],
+    });
+    expect(snapshotExport({ checkedAtMs: NOW_MS - 1_000, error: { code: "timeout" } })).toEqual({
+      status: "error",
+      fetchedAt: Math.floor((NOW_MS - 1_000) / 1000),
+      error: "Timed out",
+    });
+  });
+
+  it("writes unavailable before the provider first answered", () => {
+    expect(snapshotExport({ refreshing: true })).toEqual({ status: "unavailable" });
   });
 });
 
@@ -771,7 +655,7 @@ describe("writeQuotaExport", () => {
   });
 
   it("calls writeJsonAtomic with the resolved path and trailing newline", async () => {
-    const exportData: any = { version: 2, providers: {} };
+    const exportData: any = { version: 3, providers: {} };
     await writeQuotaExport(exportData, testPaths.explicitExport);
 
     expect(writeJsonAtomic).toHaveBeenCalledWith(testPaths.explicitExport, exportData, {

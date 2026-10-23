@@ -1,9 +1,5 @@
-import { describe, expect, it } from "vitest";
-import {
-  replaceHomeDirWithTilde,
-  replaceHomeDirWithTildeInDocument,
-} from "../src/lib/home-dir-display.js";
-import type { ReportDocument } from "../src/lib/report-document.js";
+import { describe, expect, it } from "vite-plus/test";
+import { replaceHomeDirWithTilde } from "../src/lib/home-dir-display.js";
 
 const HOME = "/Users/alice";
 
@@ -94,91 +90,40 @@ describe("replaceHomeDirWithTilde", () => {
     );
   });
 
+  it.each([
+    ["\\\\?\\C:\\Users\\Name\\x", "~\\x"],
+    ["path=\\\\.\\C:\\Users\\Name\\x", "path=~\\x"],
+    ["//?/c:/users/name/x", "~/x"],
+    [JSON.stringify("\\\\?\\C:\\Users\\Name\\x"), '"~\\\\x"'],
+  ])("handles a Windows device path to the home dir: %s", (text, shown) => {
+    expect(replaceHomeDirWithTilde(text, "C:\\Users\\Name")).toBe(shown);
+  });
+
   it("does nothing when the home dir is empty or a filesystem root", () => {
     expect(replaceHomeDirWithTilde("/etc/hosts", "/")).toBe("/etc/hosts");
     expect(replaceHomeDirWithTilde("/etc/hosts", "")).toBe("/etc/hosts");
     expect(replaceHomeDirWithTilde("C:\\x", "C:\\")).toBe("C:\\x");
   });
-});
 
-describe("replaceHomeDirWithTildeInDocument", () => {
-  it("replaces the home dir in every kind of block", () => {
-    const document: ReportDocument = {
-      heading: { line: "# /Users/alice/title", subtitle: "/Users/alice" },
-      sections: [
-        {
-          id: "s",
-          title: "paths:",
-          blocks: [
-            {
-              kind: "lines",
-              lines: ["- configPaths: /Users/alice/.config/opencode/opencode.json"],
-            },
-            { kind: "kv", rows: [{ key: "opencode.db", value: "path=/Users/alice/x.db" }] },
-            {
-              kind: "table",
-              headers: ["path"],
-              rows: [["/Users/alice/a"]],
-              aligns: ["left"],
-            },
-            {
-              kind: "quota",
-              provider: "p",
-              percentMode: "remaining",
-              lines: ["/Users/alice/q"],
-              rows: [{ label: "l", value: "v", notes: ["/Users/alice/n"] }],
-            },
-          ],
-        },
-      ],
-    };
+  it("replaces the home dir on every line of a report: heading, titles, keys and values", () => {
+    const report = [
+      "# /Users/alice/title",
+      "",
+      "/Users/alice/paths:",
+      "- opencode.db: path=/Users/alice/x.db",
+      "  - /Users/alice/a: /Users/alice",
+      "- other: /Users/alicesmith/b",
+    ].join("\n");
 
-    expect(replaceHomeDirWithTildeInDocument(document, HOME)).toEqual({
-      heading: { line: "# ~/title", subtitle: "~" },
-      sections: [
-        {
-          id: "s",
-          title: "paths:",
-          blocks: [
-            { kind: "lines", lines: ["- configPaths: ~/.config/opencode/opencode.json"] },
-            { kind: "kv", rows: [{ key: "opencode.db", value: "path=~/x.db" }] },
-            { kind: "table", headers: ["path"], rows: [["~/a"]], aligns: ["left"] },
-            {
-              kind: "quota",
-              provider: "p",
-              percentMode: "remaining",
-              lines: ["~/q"],
-              rows: [{ label: "l", value: "v", notes: ["~/n"] }],
-            },
-          ],
-        },
-      ],
-    });
-  });
-
-  it("keeps the document a plain JSON value, with no optional field set to undefined", () => {
-    // OpenCode only accepts JSON values in a command result; an `undefined` field is rejected.
-    const document: ReportDocument = {
-      sections: [
-        {
-          id: "s",
-          blocks: [
-            { kind: "kv", rows: [{ key: "/Users/alice/a" }] },
-            { kind: "table", headers: ["path"], rows: [["/Users/alice/b"]], aligns: ["left"] },
-            {
-              kind: "quota",
-              provider: "p",
-              percentMode: "remaining",
-              lines: [],
-              rows: [{ label: "l", value: "/Users/alice/c", notes: [] }],
-            },
-          ],
-        },
-      ],
-    };
-
-    const result = replaceHomeDirWithTildeInDocument(document, HOME);
-    expect(result).toStrictEqual(JSON.parse(JSON.stringify(result)));
-    expect(JSON.stringify(result)).not.toContain("alice");
+    expect(replaceHomeDirWithTilde(report, HOME)).toBe(
+      [
+        "# ~/title",
+        "",
+        "~/paths:",
+        "- opencode.db: path=~/x.db",
+        "  - ~/a: ~",
+        "- other: /Users/alicesmith/b",
+      ].join("\n"),
+    );
   });
 });

@@ -1,31 +1,11 @@
-export type QuotaProviderAutoSetup = "yes" | "usually" | "manual_env_config" | "needs_quick_setup";
+/**
+ * What every surface knows about each built-in provider, in display order: its names, the
+ * OpenCode ids that count as it, its row keys and where its API key lives. No fetch code, so
+ * the TUI may import it. The provider itself is `src/providers/<vendor>.ts`, bound to its id in
+ * `src/providers/registry.ts`; the compiler checks that every id here has one.
+ */
 
-export type QuotaProviderAuthentication =
-  | "opencode_auth_oauth_token"
-  | "opencode_auth_api_key"
-  | "companion_auth_oauth_token"
-  | "local_cli_auth"
-  | "github_oauth_or_pat"
-  | "external_api_key"
-  | "state_only";
-
-export type QuotaProviderAuthFallback = "env_api_key" | "global_opencode_config";
-
-export type QuotaProviderQuotaSource =
-  | "remote_api"
-  | "local_estimation"
-  | "local_runtime_accounting"
-  | "local_cli_report";
-
-export interface QuotaProviderShapeSource {
-  recommendedReplacementId?: string;
-  autoSetup: QuotaProviderAutoSetup;
-  authentication: QuotaProviderAuthentication;
-  authFallbacks?: readonly QuotaProviderAuthFallback[];
-  quota: QuotaProviderQuotaSource;
-  quickSetupAnchor?: string;
-  notes?: string;
-}
+import type { ApiKeyLoginSpec } from "./api-key-resolver.js";
 
 export interface QuotaProviderRegistrationSourceEntry {
   id: string;
@@ -34,7 +14,20 @@ export interface QuotaProviderRegistrationSourceEntry {
   runtimeIds: readonly string[];
   synonyms: readonly string[];
   liveLocalUsage?: true;
-  shape: QuotaProviderShapeSource;
+  /** Brand words at the start of its account names ("Claude Work" → "Work"). Default: its label. */
+  groupBrands?: readonly string[];
+  /**
+   * The v6 row keys it may emit (`${id}.${key}` is the row id that hide, rename and order
+   * settings use). `*` stands for one segment taken from provider data, such as a model, a
+   * window family or a currency. Changing a key breaks users' settings.
+   */
+  rowKeys: readonly string[];
+  /**
+   * Where its API key may live (see `API_KEY_VENDORS`). `displayName` defaults to its label,
+   * `authKeys` to its `providerKeys`.
+   */
+  apiKey?: Omit<ApiKeyLoginSpec, "displayName" | "authKeys"> &
+    Partial<Pick<ApiKeyLoginSpec, "displayName" | "authKeys">>;
 }
 
 export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
@@ -43,61 +36,30 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     label: "Anthropic",
     runtimeIds: ["anthropic"],
     synonyms: ["claude", "claude-code"],
-    shape: {
-      autoSetup: "needs_quick_setup",
-      authentication: "local_cli_auth",
-      quota: "local_cli_report",
-      quickSetupAnchor: "anthropic-claude",
-    },
+    groupBrands: ["Claude"],
+    rowKeys: ["five_hour", "weekly", "weekly_fable", "extra_usage"],
   },
   {
     id: "copilot",
     label: "Copilot",
     runtimeIds: ["copilot", "github-copilot", "copilot-chat", "github-copilot-chat"],
     synonyms: ["github-copilot", "copilot-chat", "github-copilot-chat"],
-    shape: {
-      autoSetup: "usually",
-      authentication: "github_oauth_or_pat",
-      quota: "remote_api",
-      notes: "OAuth for personal flow; PAT for managed billing",
-    },
+    rowKeys: ["allowance", "additional_budget"],
   },
   {
     id: "openai",
     label: "OpenAI",
     runtimeIds: ["openai", "chatgpt", "codex"],
     synonyms: [],
-    shape: {
-      autoSetup: "yes",
-      authentication: "opencode_auth_oauth_token",
-      quota: "remote_api",
-    },
+    // `status`: an OpenAI login without a ChatGPT plan ("unavailable for API key").
+    rowKeys: ["five_hour", "weekly", "monthly", "code_review", "status"],
   },
   {
     id: "openrouter",
     label: "OpenRouter",
     runtimeIds: ["openrouter"],
     synonyms: [],
-    shape: {
-      autoSetup: "yes",
-      authentication: "opencode_auth_api_key",
-      authFallbacks: ["env_api_key", "global_opencode_config"],
-      quota: "remote_api",
-    },
-  },
-  {
-    id: "kilo",
-    label: "Kilo Gateway",
-    runtimeIds: ["kilo"],
-    synonyms: [],
-    shape: {
-      autoSetup: "usually",
-      authentication: "opencode_auth_api_key",
-      authFallbacks: ["env_api_key", "global_opencode_config"],
-      quota: "remote_api",
-      notes:
-        "Queries Kilo Pass state first, then falls back to the documented personal Gateway balance when no active subscription exists",
-    },
+    rowKeys: ["key"],
   },
   {
     id: "cursor",
@@ -105,13 +67,7 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     runtimeIds: ["cursor", "cursor-acp"],
     synonyms: ["cursor-acp", "open-cursor", "@rama_nigg/open-cursor"],
     liveLocalUsage: true,
-    shape: {
-      autoSetup: "needs_quick_setup",
-      authentication: "companion_auth_oauth_token",
-      quota: "local_runtime_accounting",
-      quickSetupAnchor: "cursor",
-      notes: "companion runtime/plugin integration plus local usage accounting",
-    },
+    rowKeys: ["api", "auto_composer"],
   },
   {
     id: "alibaba-coding-plan",
@@ -119,11 +75,10 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     runtimeIds: ["alibaba-coding-plan"],
     synonyms: ["alibaba"],
     liveLocalUsage: true,
-    shape: {
-      autoSetup: "yes",
-      authentication: "opencode_auth_api_key",
-      authFallbacks: ["env_api_key", "global_opencode_config"],
-      quota: "local_estimation",
+    rowKeys: ["five_hour", "weekly", "monthly"],
+    apiKey: {
+      envVars: ["ALIBABA_CODING_PLAN_API_KEY", "ALIBABA_API_KEY"],
+      providerKeys: ["alibaba-coding-plan", "alibaba"],
     },
   },
   {
@@ -131,72 +86,40 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     label: "Alibaba Personal Token Plan",
     runtimeIds: ["alibaba-token-plan"],
     synonyms: [],
-    shape: {
-      autoSetup: "needs_quick_setup",
-      authentication: "local_cli_auth",
-      quota: "local_cli_report",
-      quickSetupAnchor: "alibaba-personal-token-plan",
-    },
-  },
-  {
-    id: "synthetic",
-    label: "Synthetic",
-    runtimeIds: ["synthetic"],
-    synonyms: [],
-    shape: {
-      autoSetup: "yes",
-      authentication: "opencode_auth_api_key",
-      authFallbacks: ["env_api_key", "global_opencode_config"],
-      quota: "remote_api",
-    },
-  },
-  {
-    id: "chutes",
-    label: "Chutes",
-    runtimeIds: ["chutes", "chutes-ai"],
-    synonyms: [],
-    shape: {
-      autoSetup: "usually",
-      authentication: "opencode_auth_api_key",
-      authFallbacks: ["env_api_key", "global_opencode_config"],
-      quota: "remote_api",
-    },
+    rowKeys: ["five_hour", "weekly"],
   },
   {
     id: "google-gemini-cli",
     label: "Gemini CLI",
     runtimeIds: ["google-gemini-cli", "gemini-cli", "gemini", "opencode-gemini-auth", "google"],
     synonyms: ["gemini-cli", "google-gemini", "opencode-gemini-auth", "gemini"],
-    shape: {
-      recommendedReplacementId: "google-agy",
-      autoSetup: "needs_quick_setup",
-      authentication: "companion_auth_oauth_token",
-      quota: "remote_api",
-      quickSetupAnchor: "gemini-cli",
-    },
+    rowKeys: ["pro", "flash", "flash_lite", "model.*"],
   },
   {
     id: "google-agy",
     label: "Google AGY",
     runtimeIds: ["google-agy", "opencode-agy-auth", "google-agy-auth"],
     synonyms: ["opencode-agy-auth", "google-agy-auth"],
-    shape: {
-      autoSetup: "needs_quick_setup",
-      authentication: "companion_auth_oauth_token",
-      quota: "remote_api",
-      quickSetupAnchor: "google-agy-quick-setup",
-    },
+    groupBrands: ["Google AGY", "AGY"],
+    rowKeys: [
+      "gemini.weekly",
+      "gemini.five_hour",
+      "claude_gpt.weekly",
+      "claude_gpt.five_hour",
+      "*.weekly",
+      "*.five_hour",
+    ],
   },
   {
     id: "zai",
     label: "Z.ai",
     runtimeIds: ["zai", "glm", "zai-coding-plan"],
     synonyms: [],
-    shape: {
-      autoSetup: "yes",
-      authentication: "opencode_auth_api_key",
-      authFallbacks: ["env_api_key", "global_opencode_config"],
-      quota: "remote_api",
+    rowKeys: ["five_hour", "weekly", "mcp"],
+    apiKey: {
+      envVars: ["ZAI_API_KEY", "ZAI_CODING_PLAN_API_KEY"],
+      providerKeys: ["zai", "zai-coding-plan", "glm"],
+      authKeys: ["zai-coding-plan"],
     },
   },
   {
@@ -204,23 +127,11 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     label: "Zhipu",
     runtimeIds: ["zhipu", "glm-coding-plan", "zhipu-coding-plan", "zhipuai-coding-plan"],
     synonyms: ["glm-coding-plan", "zhipu-coding-plan", "zhipuai-coding-plan"],
-    shape: {
-      autoSetup: "yes",
-      authentication: "opencode_auth_api_key",
-      authFallbacks: ["env_api_key", "global_opencode_config"],
-      quota: "remote_api",
-    },
-  },
-  {
-    id: "nanogpt",
-    label: "NanoGPT",
-    runtimeIds: ["nanogpt", "nano-gpt"],
-    synonyms: ["nano-gpt"],
-    shape: {
-      autoSetup: "usually",
-      authentication: "opencode_auth_api_key",
-      authFallbacks: ["env_api_key", "global_opencode_config"],
-      quota: "remote_api",
+    rowKeys: ["five_hour", "weekly", "mcp"],
+    apiKey: {
+      envVars: ["ZHIPU_API_KEY", "ZHIPU_CODING_PLAN_API_KEY"],
+      providerKeys: ["zhipu", "zhipu-coding-plan", "zhipuai-coding-plan", "glm-coding-plan"],
+      authKeys: ["zhipu-coding-plan", "zhipuai-coding-plan"],
     },
   },
   {
@@ -228,11 +139,12 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     label: "MiniMax Token Plan",
     runtimeIds: ["minimax-coding-plan", "minimax"],
     synonyms: ["minimax"],
-    shape: {
-      autoSetup: "yes",
-      authentication: "opencode_auth_api_key",
-      authFallbacks: ["env_api_key", "global_opencode_config"],
-      quota: "remote_api",
+    rowKeys: ["five_hour", "weekly"],
+    apiKey: {
+      displayName: "MiniMax",
+      envVars: ["MINIMAX_CODING_PLAN_API_KEY", "MINIMAX_API_KEY"],
+      providerKeys: ["minimax-coding-plan", "minimax"],
+      authKeys: ["minimax-coding-plan"],
     },
   },
   {
@@ -246,11 +158,18 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
       "minimax-china",
     ],
     synonyms: ["minimax-cn", "minimax-china", "minimax-cn-coding-plan"],
-    shape: {
-      autoSetup: "yes",
-      authentication: "opencode_auth_api_key",
-      authFallbacks: ["env_api_key", "global_opencode_config"],
-      quota: "remote_api",
+    groupBrands: ["MiniMax Token Plan (CN)", "MiniMax Token Plan"],
+    rowKeys: ["five_hour", "weekly"],
+    apiKey: {
+      displayName: "MiniMax",
+      envVars: ["MINIMAX_CHINA_CODING_PLAN_API_KEY"],
+      providerKeys: [
+        "minimax-china-coding-plan",
+        "minimax-cn-coding-plan",
+        "minimax-cn",
+        "minimax-china",
+      ],
+      authKeys: ["minimax-china-coding-plan", "minimax-cn-coding-plan"],
     },
   },
   {
@@ -258,11 +177,11 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     label: "Kimi Code",
     runtimeIds: ["kimi-code-plan-global"],
     synonyms: [],
-    shape: {
-      autoSetup: "yes",
-      authentication: "opencode_auth_api_key",
-      authFallbacks: ["env_api_key", "global_opencode_config"],
-      quota: "remote_api",
+    rowKeys: ["weekly", "limit.*"],
+    apiKey: {
+      displayName: "Kimi",
+      envVars: ["KIMI_GLOBAL_API_KEY"],
+      providerKeys: ["kimi-code-plan-global"],
     },
   },
   {
@@ -271,11 +190,13 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     labelAliases: ["kimi-code"],
     runtimeIds: ["kimi-code-plan-cn", "kimi-for-coding", "kimi", "kimi-code"],
     synonyms: ["kimi", "kimi-for-code", "kimi-code", "kimi-for-coding"],
-    shape: {
-      autoSetup: "yes",
-      authentication: "opencode_auth_api_key",
-      authFallbacks: ["env_api_key", "global_opencode_config"],
-      quota: "remote_api",
+    groupBrands: ["Kimi Code (CN)", "Kimi Code"],
+    rowKeys: ["weekly", "limit.*"],
+    // Each region has its own key; the legacy ids (`kimi`, `kimi-code`, ...) belong to CN.
+    apiKey: {
+      displayName: "Kimi",
+      envVars: ["KIMI_CN_API_KEY", "KIMI_API_KEY", "KIMI_CODE_API_KEY"],
+      providerKeys: ["kimi-code-plan-cn", "kimi-for-coding", "kimi-code", "kimi"],
     },
   },
   {
@@ -283,11 +204,11 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     label: "DeepSeek",
     runtimeIds: ["deepseek"],
     synonyms: ["deep-seek"],
-    shape: {
-      autoSetup: "yes",
-      authentication: "opencode_auth_api_key",
-      authFallbacks: ["env_api_key", "global_opencode_config"],
-      quota: "remote_api",
+    rowKeys: ["total_balance.*", "granted_balance.*", "topped_up_balance.*", "available"],
+    apiKey: {
+      envVars: ["DEEPSEEK_API_KEY"],
+      providerKeys: ["deepseek"],
+      skipBrokenLogins: true,
     },
   },
   {
@@ -295,12 +216,7 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     label: "xAI",
     runtimeIds: ["xai"],
     synonyms: [],
-    shape: {
-      autoSetup: "yes",
-      authentication: "opencode_auth_oauth_token",
-      quota: "remote_api",
-      notes: "SuperGrok OAuth via OpenCode /connect; shared weekly credit meter",
-    },
+    rowKeys: ["credits"],
   },
   {
     id: "xiaomi",
@@ -312,25 +228,22 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
       "xiaomi-token-plan-sgp",
     ],
     synonyms: ["xiaomi-token-plan-cn", "xiaomi-token-plan-ams", "xiaomi-token-plan-sgp"],
-    shape: {
-      autoSetup: "needs_quick_setup",
-      authentication: "state_only",
-      quota: "remote_api",
-      quickSetupAnchor: "xiaomi-mimo",
-      notes: "Reads the Xiaomi MiMo dashboard with a filtered trusted cookie",
-    },
+    rowKeys: ["monthly_tokens", "total_balance", "cash_balance", "gift_balance"],
   },
   {
     id: "opencode-go",
     label: "OpenCode Go",
     runtimeIds: ["opencode-go"],
     synonyms: ["opencode-go-subscription"],
-    shape: {
-      autoSetup: "yes",
-      authentication: "opencode_auth_api_key",
-      authFallbacks: ["env_api_key", "global_opencode_config"],
-      quota: "remote_api",
-      notes: "Reads the official OpenCode Go usage API through standard Go API-key sources",
+    rowKeys: ["five_hour", "weekly", "monthly"],
+    // `opencode-go` is what `opencode auth login opencode-go` writes; `opencode` stays as a
+    // fallback alias for older manual setups. Key logins only: the active `opencode` login is
+    // usually the OpenCode Console sign-in, and resolving it could refresh its token for nothing.
+    apiKey: {
+      envVars: ["OPENCODE_API_KEY"],
+      providerKeys: ["opencode-go", "opencode"],
+      keyLoginsOnly: true,
+      unsupportedTypeError: "OpenCode Go auth entry has unsupported type",
     },
   },
   {
@@ -338,40 +251,26 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     label: "OpenCode Zen",
     runtimeIds: ["opencode", "opencode-zen"],
     synonyms: ["opencode-zen"],
-    shape: {
-      autoSetup: "yes",
-      authentication: "opencode_auth_oauth_token",
-      quota: "remote_api",
-      notes:
-        "Reads the OpenCode Console billing, budget and usage APIs with your OpenCode Console sign-in",
-    },
+    rowKeys: ["monthly", "balance", "auto_reload"],
   },
   {
     id: "ollama-cloud",
     label: "Ollama Cloud",
     runtimeIds: ["ollama-cloud"],
     synonyms: [],
-    shape: {
-      autoSetup: "usually",
-      authentication: "opencode_auth_api_key",
-      authFallbacks: ["env_api_key", "global_opencode_config"],
-      quota: "remote_api",
-      notes:
-        "Queries the Ollama Cloud balance API; reports included credits or session and weekly limits, plus purchased credits",
+    rowKeys: ["session", "weekly", "monthly", "purchased"],
+    apiKey: {
+      envVars: ["OLLAMA_API_KEY"],
+      providerKeys: ["ollama-cloud"],
+      skipBrokenLogins: true,
     },
   },
   {
     id: "quota-providers",
-    label: "Quota providers",
+    label: "Custom providers",
     runtimeIds: [],
     synonyms: [],
-    shape: {
-      autoSetup: "manual_env_config",
-      authentication: "external_api_key",
-      authFallbacks: ["env_api_key", "global_opencode_config"],
-      quota: "remote_api",
-      notes: "Aggregates exact user-configured accounting sources",
-    },
+    rowKeys: ["custom.*.*"],
   },
 ] as const satisfies readonly QuotaProviderRegistrationSourceEntry[];
 

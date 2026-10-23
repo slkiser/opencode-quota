@@ -1,49 +1,52 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-const runtimeDirs = vi.hoisted(() => ({
-  value: {
-    dataDir: "",
-    configDir: "",
-    cacheDir: "",
-    stateDir: "",
-  },
-}));
-
-vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirs: () => runtimeDirs.value,
-}));
-
-import { extractProviderIdsFromParsedConfig } from "../src/lib/config-file-utils.js";
 import {
-  loadConfiguredOpenCodeConfig,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
+import { parse } from "jsonc-parser";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+
+import { writeTextAtomic } from "../src/lib/atomic-json.js";
+import { extractProviderIdsFromParsedConfig } from "../src/lib/config-file-utils.js";
+import { planConfigDocumentEdit } from "../src/lib/opencode-config-editor.js";
+import {
   loadConfiguredProviderIds,
   reconcileDetectedProvidersInGlobalConfig,
 } from "../src/lib/opencode-config-providers.js";
+import { useOpencodeFolders } from "./helpers/opencode-folders.js";
+
+// A write that fails, or a file that changes between the plan and the write, on request.
+vi.mock("../src/lib/atomic-json.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../src/lib/atomic-json.js")>();
+  return { ...real, writeTextAtomic: vi.fn(real.writeTextAtomic) };
+});
+vi.mock("../src/lib/opencode-config-editor.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../src/lib/opencode-config-editor.js")>();
+  return { ...real, planConfigDocumentEdit: vi.fn(real.planConfigDocumentEdit) };
+});
+
+const folders = useOpencodeFolders();
+const DETECTED_COMMENT =
+  "// Detected deepseek authentication; opencode-quota added this global provider declaration.";
 
 describe("opencode config provider discovery", () => {
-  let tempDir: string;
   let globalConfigDir: string;
+  /** A repository with OpenCode config at its root; the session runs in its `app` folder. */
+  let repoDir: string;
   let workspaceDir: string;
 
   beforeEach(() => {
-    tempDir = mkdtempSync(join(tmpdir(), "opencode-quota-config-providers-"));
-    globalConfigDir = join(tempDir, "global-config", "opencode");
-    workspaceDir = join(tempDir, "workspace");
+    vi.stubEnv("HOME", folders.root);
+    globalConfigDir = folders.configDir;
+    repoDir = join(folders.root, "repo");
+    workspaceDir = join(repoDir, "app");
     mkdirSync(globalConfigDir, { recursive: true });
     mkdirSync(workspaceDir, { recursive: true });
-    runtimeDirs.value = {
-      dataDir: join(tempDir, "data"),
-      configDir: globalConfigDir,
-      cacheDir: join(tempDir, "cache"),
-      stateDir: join(tempDir, "state"),
-    };
-  });
-
-  afterEach(() => {
-    rmSync(tempDir, { recursive: true, force: true });
   });
 
   it("extracts root-level provider ids and ignores malformed provider sections", () => {
@@ -73,7 +76,7 @@ describe("opencode config provider discovery", () => {
       "utf8",
     );
 
-    await expect(loadConfiguredProviderIds({ configRootDir: workspaceDir })).resolves.toEqual([
+    await expect(loadConfiguredProviderIds(workspaceDir)).resolves.toEqual([
       "copilot",
       "openai",
       "gemini-cli",
@@ -93,7 +96,7 @@ describe("opencode config provider discovery", () => {
       "utf8",
     );
 
-    await expect(loadConfiguredProviderIds({ configRootDir: workspaceDir })).resolves.toEqual([
+    await expect(loadConfiguredProviderIds(workspaceDir)).resolves.toEqual([
       "google-gemini-cli",
       "cursor",
     ]);
@@ -112,7 +115,7 @@ describe("opencode config provider discovery", () => {
       "utf8",
     );
 
-    await expect(loadConfiguredProviderIds({ configRootDir: workspaceDir })).resolves.toEqual([]);
+    await expect(loadConfiguredProviderIds(workspaceDir)).resolves.toEqual([]);
   });
 
   it("deduplicates provider ids inferred from provider blocks and plugin specs", async () => {
@@ -130,7 +133,7 @@ describe("opencode config provider discovery", () => {
       "utf8",
     );
 
-    await expect(loadConfiguredProviderIds({ configRootDir: workspaceDir })).resolves.toEqual([
+    await expect(loadConfiguredProviderIds(workspaceDir)).resolves.toEqual([
       "alibaba-coding-plan",
       "cursor",
     ]);
@@ -153,7 +156,7 @@ describe("opencode config provider discovery", () => {
       "utf8",
     );
 
-    await expect(loadConfiguredProviderIds({ configRootDir: workspaceDir })).resolves.toEqual([
+    await expect(loadConfiguredProviderIds(workspaceDir)).resolves.toEqual([
       "openai",
       "deepseek",
       "google-gemini-cli",
@@ -161,224 +164,37 @@ describe("opencode config provider discovery", () => {
     ]);
   });
 
-  it("loads a merged OpenCode config view for standalone clients", async () => {
+  it("reads both files of a folder, the folders above the session and .opencode folders", async () => {
     writeFileSync(
       join(globalConfigDir, "opencode.json"),
-      JSON.stringify({
-        provider: { google: { options: { projectId: "global-project" } } },
-      }),
-      "utf8",
+      JSON.stringify({ provider: { globalJson: {} } }),
     );
+    writeFileSync(join(globalConfigDir, "opencode.jsonc"), '{ "provider": { "globalJsonc": {} } }');
+    writeFileSync(join(repoDir, "opencode.json"), '{ "provider": { "repoJson": {} } }');
+    writeFileSync(join(workspaceDir, "opencode.json"), '{ "provider": { "appJson": {} } }');
+    writeFileSync(join(workspaceDir, "opencode.jsonc"), '{ "provider": { "appJsonc": {} } }');
+    mkdirSync(join(workspaceDir, ".opencode"));
     writeFileSync(
+      join(workspaceDir, ".opencode", "opencode.jsonc"),
+      '{ "provider": { "dotFolder": {} } }',
+    );
+    const projectFiles = [
+      join(repoDir, "opencode.json"),
       join(workspaceDir, "opencode.json"),
-      JSON.stringify({
-        provider: { copilot: {} },
-        plugin: ["@slkiser/opencode-quota"],
-        experimental: { quotaToast: { enabledProviders: ["copilot"] } },
-      }),
-      "utf8",
-    );
-
-    await expect(
-      loadConfiguredOpenCodeConfig({ configRootDir: workspaceDir }),
-    ).resolves.toMatchObject({
-      provider: {
-        google: { options: { projectId: "global-project" } },
-        copilot: {},
-      },
-      plugin: ["@slkiser/opencode-quota"],
-      experimental: { quotaToast: { enabledProviders: ["copilot"] } },
-    });
-  });
-
-  it("uses one selected format per scope and lets project provider declarations override global", async () => {
-    writeFileSync(
-      join(globalConfigDir, "opencode.json"),
-      JSON.stringify({
-        provider: {
-          shared: { options: { baseURL: "https://global.example.test" } },
-          globalOnly: {},
-        },
-      }),
-      "utf8",
-    );
-    writeFileSync(
-      join(workspaceDir, "opencode.json"),
-      JSON.stringify({
-        provider: {
-          ignoredJson: {},
-        },
-      }),
-      "utf8",
-    );
-    writeFileSync(
       join(workspaceDir, "opencode.jsonc"),
-      `{
-        // Project declarations are read-only inputs and override global declarations here.
-        "provider": {
-          "shared": { "options": { "baseURL": "https://project.example.test" } },
-          "projectOnly": {},
-        },
-      }`,
-      "utf8",
-    );
+      join(workspaceDir, ".opencode", "opencode.jsonc"),
+    ];
+    const before = projectFiles.map((path) => readFileSync(path, "utf8"));
 
-    const before = await import("node:fs/promises").then(({ readFile }) =>
-      readFile(join(workspaceDir, "opencode.jsonc"), "utf8"),
-    );
-    await expect(
-      loadConfiguredOpenCodeConfig({ configRootDir: workspaceDir }),
-    ).resolves.toMatchObject({
-      provider: {
-        shared: { options: { baseURL: "https://project.example.test" } },
-        globalOnly: {},
-        projectOnly: {},
-      },
-    });
-    await expect(loadConfiguredProviderIds({ configRootDir: workspaceDir })).resolves.toEqual([
-      "shared",
-      "globalOnly",
-      "projectOnly",
+    await expect(loadConfiguredProviderIds(workspaceDir)).resolves.toEqual([
+      "globalJson",
+      "globalJsonc",
+      "repoJson",
+      "appJson",
+      "appJsonc",
+      "dotFolder",
     ]);
-    const after = await import("node:fs/promises").then(({ readFile }) =>
-      readFile(join(workspaceDir, "opencode.jsonc"), "utf8"),
-    );
-    expect(after).toBe(before);
-  });
-
-  it("adds detected providers to global JSONC only and respects project declarations", async () => {
-    const globalPath = join(globalConfigDir, "opencode.jsonc");
-    const projectPath = join(workspaceDir, "opencode.jsonc");
-    writeFileSync(
-      globalPath,
-      `{
-        // Keep this global setting and comment.
-        "theme": "system",
-        "provider": {
-          "global-only": {},
-        },
-      }
-      `,
-      "utf8",
-    );
-    writeFileSync(
-      projectPath,
-      `{
-        // Project declarations are read-only overrides.
-        "provider": {
-          "openai": { "options": { "baseURL": "https://project.example.test" } },
-        },
-      }
-      `,
-      "utf8",
-    );
-    const projectBefore = readFileSync(projectPath, "utf8");
-
-    const result = await reconcileDetectedProvidersInGlobalConfig({
-      configRootDir: workspaceDir,
-      detectedProviderIds: ["openai", "deepseek"],
-    });
-
-    expect(result).toMatchObject({
-      path: globalPath,
-      format: "jsonc",
-      addedProviderIds: ["deepseek"],
-      changed: true,
-    });
-    const globalAfter = readFileSync(globalPath, "utf8");
-    expect(globalAfter).toContain("// Keep this global setting and comment.");
-    expect(globalAfter).toContain(
-      "// Detected deepseek authentication; opencode-quota added this global provider declaration.",
-    );
-    expect(
-      globalAfter.match(/opencode-quota added this global provider declaration/g),
-    ).toHaveLength(1);
-    expect(
-      JSON.parse(
-        JSON.stringify(await loadConfiguredOpenCodeConfig({ configRootDir: workspaceDir })),
-      ),
-    ).toMatchObject({
-      theme: "system",
-      provider: {
-        "global-only": {},
-        deepseek: {},
-        openai: { options: { baseURL: "https://project.example.test" } },
-      },
-    });
-    expect(readFileSync(projectPath, "utf8")).toBe(projectBefore);
-  });
-
-  it("preserves strict global JSON and is idempotent", async () => {
-    const globalPath = join(globalConfigDir, "opencode.json");
-    writeFileSync(
-      globalPath,
-      JSON.stringify({ theme: "dark", provider: {} }, null, 2) + "\n",
-      "utf8",
-    );
-
-    const first = await reconcileDetectedProvidersInGlobalConfig({
-      configRootDir: workspaceDir,
-      detectedProviderIds: ["deepseek"],
-    });
-    const firstRaw = readFileSync(globalPath, "utf8");
-    expect(first).toMatchObject({ format: "json", addedProviderIds: ["deepseek"], changed: true });
-    expect(JSON.parse(firstRaw)).toMatchObject({ theme: "dark", provider: { deepseek: {} } });
-    expect(firstRaw).not.toContain("//");
-    expect(existsSync(join(globalConfigDir, "opencode.jsonc"))).toBe(false);
-
-    const second = await reconcileDetectedProvidersInGlobalConfig({
-      configRootDir: workspaceDir,
-      detectedProviderIds: ["deepseek"],
-    });
-    expect(second).toMatchObject({ format: "json", addedProviderIds: [], changed: false });
-    expect(readFileSync(globalPath, "utf8")).toBe(firstRaw);
-  });
-
-  it("uses the selected project format when creating a missing global config", async () => {
-    const projectPath = join(workspaceDir, "opencode.json");
-    const globalPath = join(globalConfigDir, "opencode.json");
-    writeFileSync(
-      projectPath,
-      JSON.stringify({ provider: { projectOnly: {} } }, null, 2) + "\n",
-      "utf8",
-    );
-    const projectBefore = readFileSync(projectPath, "utf8");
-
-    const result = await reconcileDetectedProvidersInGlobalConfig({
-      configRootDir: workspaceDir,
-      detectedProviderIds: ["deepseek"],
-    });
-
-    expect(result).toMatchObject({
-      path: globalPath,
-      format: "json",
-      addedProviderIds: ["deepseek"],
-    });
-    expect(JSON.parse(readFileSync(globalPath, "utf8"))).toEqual({ provider: { deepseek: {} } });
-    expect(existsSync(join(globalConfigDir, "opencode.jsonc"))).toBe(false);
-    expect(readFileSync(projectPath, "utf8")).toBe(projectBefore);
-  });
-
-  it("leaves global and project files unchanged when the atomic write fails", async () => {
-    const globalPath = join(globalConfigDir, "opencode.jsonc");
-    const projectPath = join(workspaceDir, "opencode.jsonc");
-    writeFileSync(globalPath, '{\n  // keep\n  "provider": {},\n}\n', "utf8");
-    writeFileSync(projectPath, '{\n  // project keep\n  "theme": "dark",\n}\n', "utf8");
-    const globalBefore = readFileSync(globalPath, "utf8");
-    const projectBefore = readFileSync(projectPath, "utf8");
-
-    await expect(
-      reconcileDetectedProvidersInGlobalConfig({
-        configRootDir: workspaceDir,
-        detectedProviderIds: ["deepseek"],
-        writeText: async () => {
-          throw new Error("disk full");
-        },
-      }),
-    ).rejects.toThrow("disk full");
-
-    expect(readFileSync(globalPath, "utf8")).toBe(globalBefore);
-    expect(readFileSync(projectPath, "utf8")).toBe(projectBefore);
+    expect(projectFiles.map((path) => readFileSync(path, "utf8"))).toEqual(before);
   });
 
   it("ignores missing, malformed, and parse-failing provider config files", async () => {
@@ -389,6 +205,215 @@ describe("opencode config provider discovery", () => {
       "utf8",
     );
 
-    await expect(loadConfiguredProviderIds({ configRootDir: workspaceDir })).resolves.toEqual([]);
+    await expect(loadConfiguredProviderIds(workspaceDir)).resolves.toEqual([]);
+  });
+});
+
+describe("adding detected providers to the global config", () => {
+  let globalConfigDir: string;
+  let globalJson: string;
+  let globalJsonc: string;
+  let repoDir: string;
+  let workspaceDir: string;
+
+  beforeEach(() => {
+    vi.stubEnv("HOME", folders.root);
+    globalConfigDir = folders.configDir;
+    globalJson = join(globalConfigDir, "opencode.json");
+    globalJsonc = join(globalConfigDir, "opencode.jsonc");
+    repoDir = join(folders.root, "repo");
+    workspaceDir = join(repoDir, "app");
+    mkdirSync(globalConfigDir, { recursive: true });
+    mkdirSync(workspaceDir, { recursive: true });
+  });
+
+  const addDeepSeek = () =>
+    reconcileDetectedProvidersInGlobalConfig({
+      directory: workspaceDir,
+      detectedProviderIds: ["deepseek"],
+    });
+
+  it("adds detected providers to global JSONC only, once, and leaves project files unchanged", async () => {
+    writeFileSync(
+      globalJsonc,
+      `{
+        // Keep this global setting and comment.
+        "theme": "system",
+        "provider": {
+          "global-only": {},
+        },
+      }
+      `,
+    );
+    const projectFiles = {
+      [join(workspaceDir, "opencode.jsonc")]: `{
+        // Project declarations are read-only.
+        "provider": {
+          "openai": { "options": { "baseURL": "https://project.example.test" } },
+        },
+      }
+      `,
+      [join(repoDir, "opencode.json")]: '{ "theme": "dark" }\n',
+    };
+    for (const [path, text] of Object.entries(projectFiles)) writeFileSync(path, text);
+
+    const result = await reconcileDetectedProvidersInGlobalConfig({
+      directory: workspaceDir,
+      detectedProviderIds: ["openai", "deepseek"],
+    });
+
+    expect(result).toMatchObject({
+      path: globalJsonc,
+      format: "jsonc",
+      addedProviderIds: ["deepseek"],
+      changed: true,
+    });
+    const globalAfter = readFileSync(globalJsonc, "utf8");
+    expect(globalAfter).toContain("// Keep this global setting and comment.");
+    expect(globalAfter.split(DETECTED_COMMENT)).toHaveLength(2);
+    expect(parse(globalAfter)).toEqual({
+      theme: "system",
+      provider: { "global-only": {}, deepseek: {} },
+    });
+    for (const [path, text] of Object.entries(projectFiles)) {
+      expect(readFileSync(path, "utf8")).toBe(text);
+    }
+
+    await expect(addDeepSeek()).resolves.toMatchObject({ addedProviderIds: [], changed: false });
+    expect(readFileSync(globalJsonc, "utf8")).toBe(globalAfter);
+  });
+
+  it("adds nothing for a provider the global opencode.json declares next to an opencode.jsonc", async () => {
+    writeFileSync(
+      globalJson,
+      JSON.stringify({ provider: { deepseek: { options: { apiKey: "{env:DEEPSEEK_API_KEY}" } } } }),
+    );
+    writeFileSync(globalJsonc, '{\n  "theme": "dark"\n}\n');
+
+    await expect(addDeepSeek()).resolves.toMatchObject({
+      path: globalJsonc,
+      addedProviderIds: [],
+      changed: false,
+    });
+    expect(readFileSync(globalJsonc, "utf8")).toBe('{\n  "theme": "dark"\n}\n');
+  });
+
+  it.each([
+    ["a parent folder's opencode.json", (repo: string) => join(repo, "opencode.json")],
+    [
+      "the session's .opencode folder",
+      (repo: string) => join(repo, "app", ".opencode", "opencode.json"),
+    ],
+  ])("adds nothing for a provider declared in %s", async (_label, projectFile) => {
+    const path = projectFile(repoDir);
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(path, '{ "provider": { "deepseek": {} } }');
+
+    await expect(addDeepSeek()).resolves.toMatchObject({ addedProviderIds: [], changed: false });
+    expect(existsSync(globalJsonc)).toBe(false);
+    expect(existsSync(globalJson)).toBe(false);
+  });
+
+  it("writes a global opencode.json with comments, trailing commas and CRLF, without a comment of its own", async () => {
+    const original = '{\r\n  // my providers\r\n  "theme": "dark",\r\n  "provider": {},\r\n}\r\n';
+    writeFileSync(globalJson, original);
+
+    const result = await addDeepSeek();
+
+    expect(result).toMatchObject({ path: globalJson, format: "json", changed: true });
+    const after = readFileSync(globalJson, "utf8");
+    expect(after).toContain("// my providers");
+    expect(after).not.toContain("Detected");
+    expect(after.replace(/\r\n/g, "")).not.toContain("\n");
+    expect(parse(after)).toEqual({ theme: "dark", provider: { deepseek: {} } });
+    expect(existsSync(globalJsonc)).toBe(false);
+
+    await expect(addDeepSeek()).resolves.toMatchObject({ changed: false });
+    expect(readFileSync(globalJson, "utf8")).toBe(after);
+  });
+
+  it("creates a missing global config as opencode.jsonc, even next to a project opencode.json", async () => {
+    const projectJson = join(workspaceDir, "opencode.json");
+    writeFileSync(projectJson, '{ "theme": "dark" }\n');
+
+    await expect(addDeepSeek()).resolves.toMatchObject({
+      path: globalJsonc,
+      format: "jsonc",
+      addedProviderIds: ["deepseek"],
+      changed: true,
+    });
+    const created = readFileSync(globalJsonc, "utf8");
+    expect(created).toContain(DETECTED_COMMENT);
+    expect(parse(created)).toEqual({ provider: { deepseek: {} } });
+    if (process.platform !== "win32") expect(statSync(globalJsonc).mode & 0o777).toBe(0o600);
+    expect(existsSync(globalJson)).toBe(false);
+    expect(readFileSync(projectJson, "utf8")).toBe('{ "theme": "dark" }\n');
+  });
+
+  it("writes through a symlinked global opencode.jsonc and keeps the link", async () => {
+    const real = join(folders.root, "dotfiles", "opencode.jsonc");
+    mkdirSync(join(folders.root, "dotfiles"));
+    writeFileSync(real, '{\n  // keep\n  "provider": {},\n}\n');
+    symlinkSync(real, globalJsonc);
+
+    await expect(addDeepSeek()).resolves.toMatchObject({ path: globalJsonc, changed: true });
+
+    expect(lstatSync(globalJsonc).isSymbolicLink()).toBe(true);
+    expect(readFileSync(real, "utf8")).toContain("// keep");
+    expect(parse(readFileSync(real, "utf8"))).toEqual({ provider: { deepseek: {} } });
+  });
+
+  it("writes through a chain of symlinks and keeps every link", async () => {
+    const real = join(folders.root, "real.jsonc");
+    const middle = join(folders.root, "middle.jsonc");
+    writeFileSync(real, "{}\n");
+    symlinkSync(real, middle);
+    symlinkSync(middle, globalJsonc);
+
+    await expect(addDeepSeek()).resolves.toMatchObject({ changed: true });
+
+    expect(lstatSync(globalJsonc).isSymbolicLink()).toBe(true);
+    expect(lstatSync(middle).isSymbolicLink()).toBe(true);
+    expect(parse(readFileSync(real, "utf8"))).toEqual({ provider: { deepseek: {} } });
+  });
+
+  it("refuses a broken symlink instead of replacing it", async () => {
+    symlinkSync(join(folders.root, "missing.jsonc"), globalJsonc);
+
+    await expect(addDeepSeek()).rejects.toThrow(/Dangling config symlink/);
+
+    expect(lstatSync(globalJsonc).isSymbolicLink()).toBe(true);
+    expect(existsSync(join(folders.root, "missing.jsonc"))).toBe(false);
+    expect(existsSync(globalJson)).toBe(false);
+  });
+
+  it("refuses to write when the file changes between its read and the write", async () => {
+    writeFileSync(globalJsonc, "{}\n");
+    const real = await vi.importActual<typeof import("../src/lib/opencode-config-editor.js")>(
+      "../src/lib/opencode-config-editor.js",
+    );
+    vi.mocked(planConfigDocumentEdit).mockImplementationOnce(async (params) => {
+      const plan = await real.planConfigDocumentEdit(params);
+      writeFileSync(globalJsonc, '{ "theme": "changed meanwhile" }\n');
+      return plan;
+    });
+
+    await expect(addDeepSeek()).rejects.toThrow(/changed since preview/);
+
+    expect(readFileSync(globalJsonc, "utf8")).toBe('{ "theme": "changed meanwhile" }\n');
+  });
+
+  it("leaves global and project files unchanged when the write fails", async () => {
+    writeFileSync(globalJsonc, '{\n  // keep\n  "provider": {},\n}\n');
+    const projectJsonc = join(workspaceDir, "opencode.jsonc");
+    writeFileSync(projectJsonc, '{\n  // project keep\n  "theme": "dark",\n}\n');
+    vi.mocked(writeTextAtomic).mockRejectedValueOnce(new Error("disk full"));
+
+    await expect(addDeepSeek()).rejects.toThrow("disk full");
+
+    expect(readFileSync(globalJsonc, "utf8")).toBe('{\n  // keep\n  "provider": {},\n}\n');
+    expect(readFileSync(projectJsonc, "utf8")).toBe(
+      '{\n  // project keep\n  "theme": "dark",\n}\n',
+    );
   });
 });

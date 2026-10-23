@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+import { vi } from "vite-plus/test";
 
 /** One stored OpenCode login, in the shape OpenCode 2 keeps it. */
 export type FakeCredential = {
@@ -8,21 +8,24 @@ export type FakeCredential = {
   label: string;
   /** Whether `list()` shows this integration; unregistered (alias) ids answer only `active()`. */
   registered: boolean;
-  method: "key" | "oauth";
-  /** The stored value: `{ type: "key", key, metadata? }` or `{ type: "oauth", ..., metadata? }`. */
+  method: "key" | "oauth" | "external";
+  /**
+   * The stored value: `{ type: "key", key, metadata? }`, `{ type: "oauth", ..., metadata? }`
+   * or `{ type: "external", methodID, metadata? }`.
+   */
   value: Record<string, unknown>;
   /** When set, `resolve()` rejects with this message (a failed token refresh). */
   resolveError?: string;
 };
 
 type FakeConnection =
-  | { type: "credential"; id: string; label: string; method: "key" | "oauth" }
+  | { type: "credential"; id: string; label: string; method: "key" | "oauth" | "external" }
   | { type: "env"; name: string };
 
 const FAKE_LOCATION = { directory: "/tmp/opencode-quota-fake-location" };
 
 /**
- * A fake of the server plugin's `ctx.integration` with OpenCode 2.0.16's Promise shapes:
+ * A fake of the server plugin's `ctx.integration` with OpenCode 2.0.28's Promise shapes:
  * `list()` and `get()` return `{ location, data }` envelopes and `get()` rejects for an
  * unregistered id; `connection.active()` and `connection.resolve()` return bare values.
  * Credentials are listed in the given order, which stands for OpenCode's own order (active

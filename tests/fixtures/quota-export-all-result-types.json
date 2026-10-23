@@ -1,0 +1,89 @@
+{
+  "version": 3,
+  "exportedAt": 1783728000,
+  "fromCache": true,
+  "cacheAgeSeconds": 60,
+  "providers": {
+    "fixture": {
+      "status": "ok",
+      "fetchedAt": 1783727940,
+      "entries": [
+        {
+          "id": "fixture.quota",
+          "name": "Fixture Quota",
+          "resultType": "quota",
+          "acquisitionMethod": "remote_api",
+          "ownership": "maintained",
+          "authority": "provider_reported",
+          "window": "Monthly",
+          "resetAt": 1785542400,
+          "renderType": "percent",
+          "percentRemaining": 75
+        },
+        {
+          "id": "fixture.rpm",
+          "name": "Fixture Requests",
+          "resultType": "quota",
+          "acquisitionMethod": "remote_api",
+          "ownership": "maintained",
+          "authority": "provider_reported",
+          "window": "RPM",
+          "resetAt": 1783728060,
+          "renderType": "percent",
+          "percentRemaining": 50
+        },
+        {
+          "id": "fixture.budget",
+          "name": "Fixture Budget",
+          "resultType": "budget",
+          "acquisitionMethod": "remote_api",
+          "ownership": "maintained",
+          "authority": "provider_reported",
+          "window": "Weekly",
+          "renderType": "percent",
+          "percentRemaining": 60
+        },
+        {
+          "id": "fixture.usage",
+          "name": "Fixture Usage",
+          "resultType": "usage",
+          "acquisitionMethod": "local_estimation",
+          "ownership": "maintained",
+          "authority": "locally_derived",
+          "renderType": "value",
+          "value": "12,345 tokens used"
+        },
+        {
+          "id": "fixture.spend",
+          "name": "Fixture Spend",
+          "resultType": "usage",
+          "acquisitionMethod": "dashboard_scrape",
+          "ownership": "maintained",
+          "authority": "provider_reported",
+          "renderType": "value",
+          "value": "$42.50 used"
+        },
+        {
+          "id": "fixture.balance",
+          "name": "Fixture Balance",
+          "resultType": "balance",
+          "acquisitionMethod": "local_cli",
+          "ownership": "maintained",
+          "authority": "provider_reported",
+          "renderType": "value",
+          "value": "$10.00 left"
+        },
+        {
+          "id": "fixture.auto_reload",
+          "name": "Fixture Auto-reload",
+          "resultType": "status",
+          "acquisitionMethod": "remote_api",
+          "ownership": "maintained",
+          "authority": "provider_reported",
+          "renderType": "value",
+          "value": "Enabled"
+        }
+      ]
+    }
+  }
+}

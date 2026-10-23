@@ -1,427 +1,464 @@
-import { describe, expect, it, vi } from "vitest";
-import { copilotProvider } from "../src/providers/copilot.js";
+/**
+ * Copilot as one module: the PAT config file in the temp config folder, OpenCode logins in a temp
+ * `opencode.db` (or a fake integration for a login OpenCode could not return), and GitHub's
+ * replies through fake HTTP.
+ */
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+
+import { describeError } from "../src/core/errors.js";
+import type { Amount, QuotaRow } from "../src/core/types.js";
 import {
-  expectAttemptedWithErrorLabel,
-  expectAttemptedWithNoErrors,
-  expectNotAttempted,
-  visibleEntries,
-} from "./helpers/provider-assertions.js";
+  bindCredentialSource,
+  createIntegrationCredentialSource,
+  notifyCredentialsChanged,
+} from "../src/lib/opencode-auth.js";
+import { copilotProvider } from "../src/providers/copilot.js";
+import type { CredentialDatabaseRow } from "./helpers/credential-database.js";
+import { createFakeIntegration } from "./helpers/fake-integration.js";
+import { fakeHttp, fetchRows, useProviderWorld } from "./helpers/provider-fetch.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 
-const authMocks = vi.hoisted(() => ({
-  readAuthFileCached: vi.fn(async () => null),
-  readCredentialRows: vi.fn(async () => []),
-}));
+const world = useProviderWorld();
 
-vi.mock("../src/lib/copilot.js", () => ({
-  COPILOT_AUTH_KEYS: ["github-copilot", "copilot", "copilot-chat", "github-copilot-chat"],
-  hasCopilotQuotaRuntimeAvailable: vi.fn(async () => false),
-  queryCopilotQuota: vi.fn(),
-  getCopilotQuotaAuthDiagnostics: vi.fn(() => ({
-    pat: { state: "missing", checkedPaths: [] },
-    oauth: {
-      configured: false,
-      keyName: null,
-      hasRefreshToken: false,
-      hasAccessToken: false,
-      hasEnterpriseUrl: false,
+const RESET = "2026-02-01T00:00:00.000Z";
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-01-15T00:00:00.000Z"));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+/** Writes `copilot-quota-token.json`, the PAT config Copilot prefers over OAuth. */
+function patConfig(config: Record<string, unknown>): void {
+  world.writeConfigFile("copilot-quota-token.json", JSON.stringify(config));
+}
+
+/** One OpenCode Copilot OAuth login with this token. */
+function oauthLogin(token = "oauth-token") {
+  return {
+    id: "copilot",
+    integrationId: "github-copilot",
+    active: 1,
+    updated: 1,
+    value: { type: "oauth", access: token, refresh: token },
+  } satisfies CredentialDatabaseRow;
+}
+
+/** One AI Credit usage item of GitHub's billing report. */
+function aiUsage(overrides: Record<string, unknown> = {}) {
+  return {
+    timePeriod: { year: 2026, month: 1 },
+    usageItems: [
+      {
+        product: "Copilot AI Credits",
+        sku: "AI Credit",
+        unitType: "ai-credits",
+        grossQuantity: 100,
+        discountQuantity: 80,
+        netQuantity: 20,
+        netAmount: 0.2,
+        ...overrides,
+      },
+    ],
+  };
+}
+
+function aiCreditBudget(scope: string, amount: number, extra: Record<string, unknown> = {}) {
+  return {
+    budgets: [
+      {
+        budget_type: "BundlePricing",
+        budget_product_skus: ["ai_credits"],
+        budget_scope: scope,
+        budget_amount: amount,
+        ...extra,
+      },
+    ],
+    has_next_page: false,
+  };
+}
+
+/** Copilot's internal user reply for an OAuth login: plan, reset and premium interactions. */
+function copilotUser(overrides: Record<string, unknown> = {}) {
+  return {
+    copilot_plan: "enterprise",
+    quota_reset_date_utc: RESET,
+    token_based_billing: true,
+    quota_snapshots: {
+      premium_interactions: {
+        entitlement: 1000,
+        remaining: 400,
+        quota_remaining: 399.495,
+        percent_remaining: 40,
+        unlimited: false,
+      },
     },
-    deployment: "github.com",
-    apiHost: null,
-    enterpriseHostSource: "none",
-    effectiveSource: "none",
-    override: "none",
-    billingMode: "none",
-    billingScope: "none",
-    quotaApi: "none",
-    budgetApi: "none",
-    oauthAccountingState: "not_configured",
-    billingApiAccessLikely: false,
-    remainingTotalsState: "not_available",
-  })),
-}));
+    ...overrides,
+  };
+}
 
-vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/lib/opencode-auth.js")>()),
-  readAuthFileCached: authMocks.readAuthFileCached,
-  readCredentialRows: authMocks.readCredentialRows,
-}));
+function snapshot(premiumInteractions: Record<string, unknown>) {
+  return { quota_snapshots: { premium_interactions: premiumInteractions } };
+}
+
+/** Answers `/user`, budgets and the billing usage report like GitHub. */
+function billingApi(usage: unknown = aiUsage(), budgets: unknown = { budgets: [] }) {
+  return fakeHttp((url) => {
+    const path = new URL(url).pathname;
+    if (path === "/user") return { login: "alice" };
+    return path.endsWith("/budgets") ? budgets : usage;
+  });
+}
+
+function forbidden(): Response {
+  return new Response(JSON.stringify({ message: "Forbidden" }), { status: 403 });
+}
+
+function amount(value: Amount | undefined): string | null {
+  if (!value) return null;
+  return `${value.decimal} ${value.unit.kind === "currency" ? value.unit.code : value.unit.kind === "count" ? value.unit.unit : value.unit.symbol}`;
+}
+
+/** id, account, label, type, authority, value, used, limit, reset. */
+function summary(rows: QuotaRow[]) {
+  return rows.map((row) => [
+    row.id,
+    row.account ?? null,
+    row.label,
+    row.type,
+    row.authority,
+    row.percentRemaining ?? row.text,
+    amount(row.used),
+    amount(row.limit),
+    row.resetsAt ?? null,
+  ]);
+}
 
 describe("copilot provider", () => {
-  it("returns attempted:false when Copilot accounting is unavailable", async () => {
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    (queryCopilotQuota as any).mockResolvedValueOnce(null);
-    expectNotAttempted(await copilotProvider.fetch({} as any));
+  it("is not set up without a PAT config or an OpenCode login, and asks nothing", async () => {
+    const http = fakeHttp(() => ({}));
+
+    const fetched = await fetchRows(copilotProvider);
+
+    expect(fetched).toMatchObject({ rows: [], error: { code: "not_configured" } });
+    expect(http).not.toHaveBeenCalled();
   });
 
-  it("renders personal PAT AI Credit accounting as usage-only", async () => {
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    (queryCopilotQuota as any).mockResolvedValueOnce({
-      success: true,
-      mode: "user_quota",
-      unit: "ai_credits",
-      period: { year: 2026, month: 1 },
-      used: 100,
-      includedUsed: 80,
-      billedUsed: 20,
-      billedAmountUsd: 0.2,
-      authority: "provider_reported",
-    });
+  it("reports a failed billing request as the error", async () => {
+    patConfig({ token: "github_pat_personal", tier: "pro", username: "alice" });
+    fakeHttp((url) => (new URL(url).pathname === "/user" ? { login: "alice" } : forbidden()));
 
-    const out = await copilotProvider.fetch({} as any);
-    expectAttemptedWithNoErrors(out);
-    expect(visibleEntries(out.entries, "copilot")).toEqual([
-      {
-        kind: "value",
-        name: "Copilot AI Credits",
-        group: "Copilot (personal)",
-        label: "Credits:",
-        value: "Used 100 | Included 80 | Billed 20 ($0.20)",
-        resetTimeIso: undefined,
-      },
-    ]);
-    expect(out.entries[0]).not.toHaveProperty("percentRemaining");
-    expect(out.entries[0]).not.toHaveProperty("right");
-    expect(out.entries[0]?.accounting).toMatchObject({
-      resultType: "usage",
-      authority: "provider_reported",
+    const fetched = await fetchRows(copilotProvider);
+
+    expect(fetched).toMatchObject({ rows: [], error: { code: "provider_error", status: 403 } });
+    expect(fetched.debug).toContainEqual({
+      key: "error",
+      value: "Copilot: GitHub API error 403: Forbidden",
     });
   });
 
-  it("renders OAuth premium_interactions neutrally and marks local arithmetic derived", async () => {
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    (queryCopilotQuota as any).mockResolvedValueOnce({
-      success: true,
-      mode: "user_quota",
-      unit: "premium_interactions",
-      used: 600.5,
-      total: 1000,
-      percentRemaining: 40,
-      authority: "locally_derived",
-      plan: "enterprise",
-      resetTimeIso: "2026-02-01T00:00:00.000Z",
-    });
-
-    const out = await copilotProvider.fetch({} as any);
-    expectAttemptedWithNoErrors(out);
-    expect(visibleEntries(out.entries, "copilot")).toEqual([
-      {
-        name: "Copilot Premium Interactions",
-        group: "Copilot (enterprise)",
-        label: "Quota:",
-        right: "600.5/1,000",
-        percentRemaining: 40,
-        resetTimeIso: "2026-02-01T00:00:00.000Z",
-      },
-    ]);
-    expect(out.entries[0]?.accounting).toMatchObject({
-      resultType: "quota",
-      authority: "locally_derived",
-    });
-  });
-
-  it("renders token-based over-limit AI credits as a quota row with a clamped percentage", async () => {
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    (queryCopilotQuota as any).mockResolvedValueOnce({
-      success: true,
-      mode: "user_quota",
-      unit: "ai_credits",
-      used: 3739,
-      total: 3000,
-      percentRemaining: 0,
-      authority: "provider_reported",
-      plan: "business",
-      resetTimeIso: "2026-02-01T00:00:00.000Z",
-    });
-
-    const out = await copilotProvider.fetch({} as any);
-    expectAttemptedWithNoErrors(out);
-    expect(visibleEntries(out.entries, "copilot")).toEqual([
-      {
-        name: "Copilot AI Credits",
-        group: "Copilot (business)",
-        label: "Credits:",
-        right: "3,739/3,000",
-        percentRemaining: 0,
-        resetTimeIso: "2026-02-01T00:00:00.000Z",
-      },
-    ]);
-    expect(out.entries[0]?.accounting).toMatchObject({
-      resultType: "quota",
-      authority: "provider_reported",
-    });
-  });
-
-  it("uses the OAuth GHE Copilot plan in the credential presentation without changing billing scope", async () => {
-    const { getCopilotQuotaAuthDiagnostics, queryCopilotQuota } = await import(
-      "../src/lib/copilot.js"
+  it.each([
+    ["an empty body", "", "Copilot: GitHub API error 503"],
+    [
+      "a plain-text body",
+      "Service Unavailable",
+      "Copilot: GitHub API error 503: Service Unavailable",
+    ],
+  ])("names a 503 with %s by its status alone or with its words", async (_name, body, text) => {
+    patConfig({ token: "github_pat_personal", tier: "pro", username: "alice" });
+    fakeHttp((url) =>
+      new URL(url).pathname === "/user" ? { login: "alice" } : new Response(body, { status: 503 }),
     );
-    const diagnostics = {
-      pat: { state: "absent", checkedPaths: [] },
-      oauth: {
-        configured: true,
-        keyName: "github-copilot",
-        hasRefreshToken: false,
-        hasAccessToken: true,
-        hasEnterpriseUrl: true,
-      },
-      deployment: "ghe.com",
-      apiHost: "api.acme.ghe.com",
-      enterpriseHostSource: "oauth",
-      effectiveSource: "oauth",
-      override: "none",
-      billingMode: "user_quota",
-      billingScope: "user",
-      quotaApi: "copilot_internal_user",
-      budgetApi: "not_available",
-      oauthAccountingState: "available_via_copilot_internal_user",
-      billingApiAccessLikely: true,
-      remainingTotalsState: "reported_by_copilot_internal_user",
-    };
-    (getCopilotQuotaAuthDiagnostics as any)
-      .mockReturnValueOnce(diagnostics)
-      .mockReturnValueOnce(diagnostics);
-    authMocks.readCredentialRows.mockResolvedValueOnce([
-      {
-        id: "copilot-alice",
-        integrationId: "github-copilot",
-        label: "alice",
-        active: true,
-        value: { type: "oauth", access: "oauth-token", enterpriseUrl: "acme.ghe.com" },
-      },
-    ]);
-    (queryCopilotQuota as any).mockResolvedValueOnce({
-      success: true,
-      mode: "user_quota",
-      unit: "premium_interactions",
-      used: 600,
-      total: 1_000,
-      percentRemaining: 40,
-      authority: "provider_reported",
-      plan: "enterprise",
-    });
 
-    const out = await copilotProvider.fetch({} as any);
+    const fetched = await fetchRows(copilotProvider);
 
-    expect(visibleEntries(out.entries, "copilot")[0]?.group).toBe("[Copilot alice] (enterprise)");
-    expect(out.statusDetails).toContainEqual({ key: "billing_scope", value: "user" });
+    if (!fetched.error) throw new Error("expected an error");
+    expect(fetched.debug).toContainEqual({ key: "error", value: text });
+    expect(describeError(fetched.error, "Copilot", Date.now())).toBe("Provider error 503");
   });
 
-  it("shows a login OpenCode could not read as its own error row", async () => {
-    const { getCopilotQuotaAuthDiagnostics, queryCopilotQuota } = await import(
-      "../src/lib/copilot.js"
-    );
-    const diagnostics = {
-      ...(getCopilotQuotaAuthDiagnostics as any)(null),
-      effectiveSource: "oauth",
-    };
-    (getCopilotQuotaAuthDiagnostics as any)
-      .mockReturnValueOnce(diagnostics)
-      .mockReturnValueOnce(diagnostics);
-    authMocks.readCredentialRows.mockResolvedValueOnce([
+  it.each([
+    {
+      name: "personal AI Credit usage without a limit as text",
+      pat: { token: "github_pat_personal", tier: "pro", username: "alice" },
+      replies: () => billingApi(),
+      rows: [
+        [
+          "copilot.allowance",
+          "personal",
+          "Credits",
+          "usage",
+          "provider_reported",
+          "Used 100 | Included 80 | Billed 20 ($0.20)",
+          null,
+          null,
+          null,
+        ],
+      ],
+    },
+    {
+      name: "premium interactions with used and limit, rounded as shown",
+      replies: () => fakeHttp(() => copilotUser()),
+      rows: [
+        [
+          "copilot.allowance",
+          "enterprise",
+          "Premium interactions",
+          "quota",
+          "locally_derived",
+          40,
+          "600.51 interaction",
+          "1000 interaction",
+          RESET,
+        ],
+      ],
+    },
+    {
+      name: "over-limit AI credits with a clamped percentage",
+      replies: () =>
+        fakeHttp(() =>
+          copilotUser({
+            copilot_plan: "business",
+            ...snapshot({
+              entitlement: 3000,
+              remaining: -740,
+              quota_remaining: -739.5,
+              percent_remaining: 0,
+              unlimited: false,
+              credits_used: 3739,
+            }),
+          }),
+        ),
+      rows: [
+        [
+          "copilot.allowance",
+          "business",
+          "Credits",
+          "quota",
+          "provider_reported",
+          0,
+          "3739 credit",
+          "3000 credit",
+          RESET,
+        ],
+      ],
+    },
+    {
+      name: "legacy premium requests",
+      pat: {
+        token: "github_pat_legacy",
+        tier: "pro+",
+        billingModel: "legacy_premium_requests",
+        username: "alice",
+      },
+      replies: () =>
+        billingApi({
+          usageItems: [
+            {
+              product: "Copilot",
+              sku: "Copilot Premium Request",
+              unitType: "requests",
+              grossQuantity: 150,
+            },
+          ],
+        }),
+      rows: [
+        [
+          "copilot.allowance",
+          "pro+",
+          "Premium requests",
+          "quota",
+          "locally_derived",
+          90,
+          "150 request",
+          "1500 request",
+          RESET,
+        ],
+      ],
+    },
+    {
+      name: "unlimited premium interactions as text",
+      replies: () =>
+        fakeHttp(() => copilotUser({ copilot_plan: "pro", ...snapshot({ unlimited: true }) })),
+      rows: [
+        [
+          "copilot.allowance",
+          "pro",
+          "Premium interactions",
+          "quota",
+          "provider_reported",
+          "Unlimited",
+          null,
+          null,
+          RESET,
+        ],
+      ],
+    },
+    {
+      name: "the plan alone when usage needs a billing token",
+      replies: () =>
+        fakeHttp(() =>
+          copilotUser({
+            copilot_plan: "business",
+            ...snapshot({ entitlement: 0, remaining: 0, percent_remaining: 0, unlimited: false }),
+          }),
+        ),
+      rows: [
+        [
+          "copilot.allowance",
+          "business",
+          "Plan",
+          "quota",
+          "provider_reported",
+          "business | usage needs billing token",
+          null,
+          null,
+          RESET,
+        ],
+      ],
+    },
+    {
+      name: "pooled organization credits plus an additional-usage budget",
+      pat: { token: "github_pat_org", tier: "business", organization: "acme", username: "alice" },
+      replies: () =>
+        billingApi(
+          { ...aiUsage(), organization: "acme" },
+          aiCreditBudget("user", 1, { budget_entity_name: "alice" }),
+        ),
+      rows: [
+        [
+          "copilot.allowance",
+          "business",
+          "Credits",
+          "usage",
+          "provider_reported",
+          "Used 100 | Included 80 | Billed 20 ($0.20) | 2026-01 | org=acme | user=alice",
+          null,
+          null,
+          null,
+        ],
+        [
+          "copilot.additional_budget",
+          "business",
+          "Budget",
+          "budget",
+          "locally_derived",
+          80,
+          "0.2 USD",
+          "1 USD",
+          null,
+        ],
+      ],
+    },
+    {
+      name: "a zero budget as text",
+      pat: { token: "ghp_classic", tier: "enterprise", enterprise: "octo" },
+      replies: () =>
+        billingApi(
+          aiUsage({ grossQuantity: 10, discountQuantity: 0, netQuantity: 10, netAmount: 0.1 }),
+          aiCreditBudget("enterprise", 0),
+        ),
+      rows: [
+        [
+          "copilot.allowance",
+          "business",
+          "Credits",
+          "usage",
+          "provider_reported",
+          "Used 10 | Included 0 | Billed 10 ($0.10) | 2026-01 | enterprise=octo",
+          null,
+          null,
+          null,
+        ],
+        [
+          "copilot.additional_budget",
+          "business",
+          "Budget",
+          "budget",
+          "provider_reported",
+          "$0.10 spent | $0.00 budget | scope=enterprise",
+          null,
+          null,
+          null,
+        ],
+      ],
+    },
+  ])("shows $name", async ({ pat, replies, rows }) => {
+    if (pat) patConfig(pat);
+    else world.storeLogins([oauthLogin()]);
+    replies();
+
+    const fetched = await fetchRows(copilotProvider);
+
+    expect(fetched.error).toBeUndefined();
+    expect(summary(fetched.rows)).toEqual(rows);
+  });
+
+  it("keeps a failed budget read next to the usage it has", async () => {
+    patConfig({ token: "github_pat_org", tier: "business", organization: "acme" });
+    fakeHttp((url) => (new URL(url).pathname.endsWith("/budgets") ? forbidden() : aiUsage()));
+
+    const fetched = await fetchRows(copilotProvider);
+
+    expect(fetched.rows.map((row) => [row.id, row.account])).toEqual([
+      ["copilot.allowance", "business"],
+    ]);
+    expect(fetched.error).toMatchObject({ code: "provider_error", status: 403 });
+    expect(fetched.debug).toContainEqual({
+      key: "error",
+      value:
+        "Copilot: AI Credit usage loaded, but the budget report failed: GitHub API error 403: Forbidden",
+    });
+  });
+
+  it("queries each OpenCode login and shows one it could not read as an error", async () => {
+    const integration = createFakeIntegration([
       {
-        id: "copilot-alice",
         integrationId: "github-copilot",
+        id: "copilot-alice",
         label: "alice",
-        active: true,
-        value: { type: "oauth" },
-        resolveError: "refresh_failed: HTTP 401",
+        registered: true,
+        method: "oauth",
+        value: { type: "oauth", access: "alice-token" },
+        resolveError: "Token refresh failed: HTTP 401",
       },
       {
+        integrationId: "github-copilot",
         id: "copilot-bob",
-        integrationId: "github-copilot",
         label: "bob",
-        active: false,
-        value: { type: "oauth", access: "bob-token" },
+        registered: true,
+        method: "oauth",
+        value: { type: "oauth", access: "bob-token", metadata: { enterpriseUrl: "acme.ghe.com" } },
       },
     ]);
-    const signInError =
-      "Copilot sign-in could not be read: refresh_failed: HTTP 401. Run `opencode auth login github-copilot`.";
-    (queryCopilotQuota as any).mockResolvedValueOnce({ success: false, error: signInError });
-    (queryCopilotQuota as any).mockResolvedValueOnce({
-      success: true,
-      mode: "user_quota",
-      unit: "premium_interactions",
-      used: 600,
-      total: 1_000,
-      percentRemaining: 40,
-      authority: "provider_reported",
-      plan: "enterprise",
-    });
+    const unbind = bindCredentialSource(createIntegrationCredentialSource(integration as never));
+    notifyCredentialsChanged();
+    const http = fakeHttp(() => copilotUser());
 
-    const out = await copilotProvider.fetch({} as any);
+    const fetched = await fetchRows(copilotProvider);
+    unbind();
 
     expect(
-      (queryCopilotQuota as any).mock.calls.map(([options]: any[]) => options.authData),
-    ).toEqual([
-      { "github-copilot": { type: "oauth", resolveError: "refresh_failed: HTTP 401" } },
-      { "github-copilot": { type: "oauth", access: "bob-token" } },
+      http.mock.calls.map(([url, init]) => [url, new Headers(init.headers).get("Authorization")]),
+    ).toEqual([["https://api.acme.ghe.com/copilot_internal/user", "token bob-token"]]);
+    expect(fetched.rows.map((row) => [row.id, row.account])).toEqual([
+      ["copilot.allowance", "bob (enterprise)"],
     ]);
-    expect(out.errors).toEqual([{ label: "[Copilot alice] (active)", message: signInError }]);
-    expect(visibleEntries(out.entries, "copilot")[0]?.group).toBe("[Copilot bob] (enterprise)");
-  });
-
-  it("renders pooled organization credits plus a real additional-usage budget", async () => {
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    (queryCopilotQuota as any).mockResolvedValueOnce({
-      success: true,
-      mode: "organization_usage",
-      organization: "acme",
-      username: "alice",
-      period: { year: 2026, month: 1 },
-      unit: "ai_credits",
-      used: 100,
-      authority: "provider_reported",
-      includedUsed: 80,
-      billedUsed: 20,
-      billedAmountUsd: 0.2,
-      budget: {
-        amountUsd: 1,
-        spentUsd: 0.2,
-        scope: "user",
-        percentRemaining: 80,
-        authority: "locally_derived",
-      },
-    });
-
-    const out = await copilotProvider.fetch({} as any);
-    expectAttemptedWithNoErrors(out);
-    expect(visibleEntries(out.entries, "copilot")).toEqual([
-      {
-        kind: "value",
-        name: "Copilot AI Credits",
-        group: "Copilot (business)",
-        label: "Credits:",
-        value: "Used 100 | Included 80 | Billed 20 ($0.20) | 2026-01 | org=acme | user=alice",
-        resetTimeIso: undefined,
-      },
-      {
-        name: "Copilot Additional Usage",
-        group: "Copilot (business)",
-        label: "Budget:",
-        right: "$0.20/$1.00",
-        percentRemaining: 80,
-        resetTimeIso: undefined,
-      },
-    ]);
-    expect(out.entries.map((entry) => entry.accounting.resultType)).toEqual(["usage", "budget"]);
-    expect(out.presentation).toEqual({
-      singleWindowDisplayName: "Copilot Org (acme)",
-    });
-  });
-
-  it("keeps a zero denominator as a value-only budget row", async () => {
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    (queryCopilotQuota as any).mockResolvedValueOnce({
-      success: true,
-      mode: "enterprise_usage",
-      enterprise: "octo",
-      period: { year: 2026, month: 1 },
-      unit: "ai_credits",
-      used: 10,
-      authority: "provider_reported",
-      includedUsed: 0,
-      billedUsed: 10,
-      billedAmountUsd: 0.1,
-      budget: {
-        amountUsd: 0,
-        spentUsd: 0.1,
-        scope: "enterprise",
-        authority: "provider_reported",
-      },
-    });
-
-    const out = await copilotProvider.fetch({} as any);
-    expect(visibleEntries(out.entries, "copilot")[1]).toEqual({
-      kind: "value",
-      name: "Copilot Additional Usage",
-      group: "Copilot (business)",
-      label: "Budget:",
-      value: "$0.10 spent | $0.00 budget | scope=enterprise",
-      resetTimeIso: undefined,
-    });
-  });
-
-  it("keeps partial budget failures alongside successful usage", async () => {
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    (queryCopilotQuota as any).mockResolvedValueOnce({
-      success: true,
-      mode: "organization_usage",
-      organization: "acme",
-      period: { year: 2026, month: 1 },
-      unit: "ai_credits",
-      used: 10,
-      authority: "provider_reported",
-      includedUsed: 10,
-      billedUsed: 0,
-      warnings: ["Budget endpoint forbidden"],
-    });
-
-    const out = await copilotProvider.fetch({} as any);
-    expect(out.attempted).toBe(true);
-    expect(out.entries).toHaveLength(1);
-    expect(out.errors).toEqual([{ label: "Copilot", message: "Budget endpoint forbidden" }]);
-  });
-
-  it("renders explicitly eligible legacy premium requests separately", async () => {
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    (queryCopilotQuota as any).mockResolvedValueOnce({
-      success: true,
-      mode: "user_quota",
-      unit: "premium_requests",
-      used: 150,
-      authority: "locally_derived",
-      total: 1500,
-      percentRemaining: 90,
-      plan: "pro+",
-    });
-
-    const out = await copilotProvider.fetch({} as any);
-    expect(visibleEntries(out.entries, "copilot")).toEqual([
-      {
-        name: "Copilot Premium Requests",
-        group: "Copilot (pro+)",
-        label: "Quota:",
-        right: "150/1,500",
-        percentRemaining: 90,
-        resetTimeIso: undefined,
-      },
-    ]);
-  });
-
-  it("renders token-billing placeholders as plan-only without a fake percentage or denominator", async () => {
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    (queryCopilotQuota as any).mockResolvedValueOnce({
-      success: true,
-      mode: "user_plan",
-      authority: "provider_reported",
-      plan: "business",
-      resetTimeIso: "2026-02-01T00:00:00.000Z",
-    });
-
-    const out = await copilotProvider.fetch({} as any);
-    expectAttemptedWithNoErrors(out);
-    expect(visibleEntries(out.entries, "copilot")).toEqual([
-      {
-        kind: "value",
-        name: "Copilot",
-        group: "Copilot (business)",
-        label: "Plan:",
-        value: "business | usage needs billing token",
-        resetTimeIso: "2026-02-01T00:00:00.000Z",
-      },
-    ]);
-    expect(out.entries[0]).not.toHaveProperty("percentRemaining");
-    expect(out.entries[0]).not.toHaveProperty("right");
-  });
-
-  it("maps explicit failures into provider errors", async () => {
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    (queryCopilotQuota as any).mockResolvedValueOnce({
-      success: false,
-      error: "Forbidden",
-    });
-    expectAttemptedWithErrorLabel(await copilotProvider.fetch({} as any), "Copilot");
+    expect(fetched.rowLogins).toEqual(["copilot-bob"]);
+    expect(fetched.debug).toEqual(
+      expect.arrayContaining([
+        { key: "billing_scope", value: "user" },
+        {
+          key: "error",
+          value:
+            "[Copilot alice] (active): Copilot sign-in could not be read: refresh_failed: Token refresh failed: HTTP 401. Run `opencode auth login github-copilot`.",
+        },
+      ]),
+    );
   });
 
   it("uses runtime provider ids or trusted local billing auth for availability", async () => {
@@ -431,11 +468,10 @@ describe("copilot provider", () => {
       ),
     ).resolves.toBe(true);
 
-    const { hasCopilotQuotaRuntimeAvailable } = await import("../src/lib/copilot.js");
-    (hasCopilotQuotaRuntimeAvailable as any).mockResolvedValueOnce(true);
-    await expect(
-      copilotProvider.isAvailable(createProviderAvailabilityContext({ providerIds: ["openai"] })),
-    ).resolves.toBe(true);
+    const openAiOnly = createProviderAvailabilityContext({ providerIds: ["openai"] });
+    await expect(copilotProvider.isAvailable(openAiOnly)).resolves.toBe(false);
+    patConfig({ token: "github_pat_personal", tier: "pro", username: "alice" });
+    await expect(copilotProvider.isAvailable(openAiOnly)).resolves.toBe(true);
   });
 
   it("does not claim availability when provider lookup throws", async () => {

@@ -25,7 +25,7 @@ export type ResolvedAuthIdentity = string & {
   readonly [resolvedAuthIdentityBrand]: true;
 };
 
-export type ResolvedAuthPrincipal =
+type ResolvedAuthPrincipal =
   | { kind: "stable-id"; value: string }
   | { kind: "credential"; value: string };
 
@@ -219,11 +219,24 @@ export async function composeResolvedAuthIdentities(params: {
   ]);
 }
 
-export function isResolvedAuthIdentity(value: unknown): value is ResolvedAuthIdentity {
-  return (
-    typeof value === "string" &&
-    new RegExp(`^${RESOLVED_AUTH_IDENTITY_PREFIX}[A-Za-z0-9_-]{43}$`, "u").test(value)
-  );
+/**
+ * Who a provider is signed in as across every login it checks: each login's connection with its
+ * own identity and whether OpenCode uses it, in a stable order. Adding, removing, switching or
+ * swapping a login changes it. Null without logins, or when one of them can't be told apart
+ * safely.
+ */
+export async function loginListIdentity(
+  providerId: string,
+  logins: ReadonlyArray<{
+    row: { id: string; active: boolean };
+    identity: ResolvedAuthIdentity | null;
+  }>,
+): Promise<ResolvedAuthIdentity | null> {
+  if (logins.length === 0 || logins.some((login) => login.identity === null)) return null;
+  const members = logins
+    .map(({ row, identity }) => JSON.stringify([row.id, identity, row.active]))
+    .sort();
+  return keyedIdentity(["logins", providerId, members]);
 }
 
 export function __resetResolvedAuthIdentityForTests(): void {

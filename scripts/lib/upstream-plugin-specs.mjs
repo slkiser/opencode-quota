@@ -1,4 +1,4 @@
-export const UPSTREAM_PLUGIN_REFERENCE_ROOT = "references/upstream-plugins";
+export const UPSTREAM_PLUGIN_REFERENCE_ROOT = "scripts/upstream-plugins";
 
 const RAW_UPSTREAM_PLUGIN_SPECS = [
   {
@@ -18,7 +18,7 @@ const RAW_UPSTREAM_PLUGIN_SPECS = [
   {
     pluginId: "opencode-agy-auth",
     packageName: "@anthonyhaussman/opencode-agy-auth",
-    // The OpenCode 2 build ships only on the alpha dist-tag; `latest` is the OpenCode 1 build.
+    // Both dist-tags ship the OpenCode 2 build; `alpha` carries the newest versions.
     distTag: "alpha",
     repoOwner: "anthonyhaussman",
     repoName: "opencode-agy-auth",

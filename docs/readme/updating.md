@@ -1,111 +1,69 @@
 [← Back to README](../../README.md)
 
-# Updating safely
+# Updating
 
-## Preview, apply, and restart
+OpenCode 2 installs and updates plugins itself. This updates every outdated plugin, OpenCode Quota included:
 
-1. Back up the OpenCode config files you use, especially if you might roll back (older versions do not understand every newer setting).
-2. Close OpenCode.
-3. Preview. This changes nothing:
+```bash
+opencode plugin update
+```
 
-   ```bash
-   npx @slkiser/opencode-quota@latest update --dry-run
-   ```
+Then restart OpenCode and run `/quota_status` in a session (or `npx @slkiser/opencode-quota status` in a terminal). To update only this plugin, pass its entry exactly as written in your OpenCode config, for example `opencode plugin update @slkiser/opencode-quota`.
 
-4. Read the preview. If it looks right, apply it:
+A `settings.jsonc` written by 6.0.0-beta.1 sets every setting, so a later change to a default reaches a setting only after **Reset page** in `/quota_settings` or after you remove its key from the file.
 
-   ```bash
-   npx @slkiser/opencode-quota@latest update
-   ```
+## Moving from 5.x
 
-   It asks once before changing anything. For scripts, `update --yes` skips the question. It still prints the full preview and applies only the safe config edits and verified cache cleanup, never secret changes.
+Update as above; you don't need to edit your settings. On the first start, OpenCode Quota converts your old global settings automatically:
 
-5. Restart OpenCode, then run `/quota_status` (or `opencode-quota status` in a terminal).
+- It reads `opencode-quota/quota-toast.jsonc` or `.json` in the global OpenCode folder, or `experimental.quotaToast` in the global `opencode.json` or `opencode.jsonc` when there is no such file.
+- When the global OpenCode folder has neither, it reads them in the first older folder 4.x also read that has them: `~/.config/opencode`, on macOS `~/Library/Application Support/opencode`, on Windows `%APPDATA%\opencode` and `%LOCALAPPDATA%\opencode`. With `OPENCODE_CONFIG_DIR` set, it reads only that folder.
+- It writes the settings you set there, converted, to `opencode-quota/settings.jsonc` (see [Configuration](configuration.md)) and leaves the old file in place. A setting you set to what is now the default is written too. From then on, only `settings.jsonc` is read.
+- Display choices, words, provider checks and system switches share that file, each in its own section.
+- The TUI shows a conversion toast once. `/quota_status` lists what was converted, what was dropped, and why in the server session that performs the conversion.
+- Settings you never set are not written, so they use the 6.x defaults, now and after later changes: the status line shows only when the sidebar is not on screen, a toast follows a reply only once a limit is getting low, no toast follows a question, toasts use the grouped layout (`toast.layout: "detailed"` is the 5.x look), and the sidebar and toasts show "runs out in" when a limit, used at your pace, runs out before it resets.
 
-Good to know:
+Your `/tokens_*` commands keep working; they are on for everyone. Turn them off or on with **Old command names** on the Plugin tab (`/quota_status`), or with `"system": { "oldCommands": false }` in `settings.jsonc`. The "/" list in an open TUI shows the change after OpenCode restarts.
 
-- `npx` downloads and runs the latest CLI before the updater can print anything. The "preview first" promise covers what the updater changes: OpenCode config files and OpenCode Quota package caches.
-- The updater builds one plan, prints all of it, then either stops or applies that same plan.
+| 4.x and 5.x | Same as |
+| --- | --- |
+| `/tokens_today` | `/quota_usage today` |
+| `/tokens_daily` | `/quota_usage 24h` |
+| `/tokens_weekly` | `/quota_usage 7d` |
+| `/tokens_monthly` | `/quota_usage 30d` |
+| `/tokens_all` | `/quota_usage all` |
+| `/tokens_session` | `/quota_usage session` |
+| `/tokens_session_all` | `/quota_usage session` |
+| `/tokens_between <from> <to>` | `/quota_usage between <from> <to>` |
+| `/quota_announcements` | The notices on the Plugin tab (`/quota_status`) |
+| `/pricing_refresh` | `p` in the Usage tab (`/quota_usage`); once per OpenCode run, prices older than 7 days also download on their own |
+
+Project settings files (`<your-repo>/opencode-quota/quota-toast.jsonc`) are not read; `/quota_status` lists any it finds. Put what you still need in `settings.jsonc`.
+
+The `init`, `update`, and `provider add` terminal commands are gone; `show` and `status` stay:
+
+| Instead of                                 | Use                                                                                            |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `npx @slkiser/opencode-quota init`         | `opencode plugin add @slkiser/opencode-quota`                                                  |
+| `npx @slkiser/opencode-quota update`       | `opencode plugin update`                                                                       |
+| `npx @slkiser/opencode-quota provider add` | Ask your agent to add a custom provider: see [Custom providers](providers.md#custom-providers) |
 
 ## Moving to OpenCode 2
 
-`5.0.0` runs only on OpenCode `2.0.16` or newer.
+`5.0.0` and newer run only on OpenCode 2; this version needs OpenCode `2.0.26` or newer.
 
 1. Install OpenCode 2 ([OpenCode docs](https://opencode.ai/docs/)) and start it once. On first start it copies your old `auth.json` logins into its database, `opencode.db`. It does this only once.
-2. Run the update steps above.
+2. In your OpenCode config, change the OpenCode Quota entry to `@slkiser/opencode-quota` (drop any `@4` pin), then restart OpenCode.
 3. Run `/quota_status`. If a provider is missing, log in to it again in OpenCode 2 (`/connect`, or `opencode auth login <provider>`).
+
+Your 4.x global settings convert on the first start, as in [Moving from 5.x](#moving-from-5x).
 
 What changed in `5.0.0`:
 
-- **OpenCode 1 is no longer supported.** `init` and `update` detect it and keep you on 4.x. See [OpenCode 1](#opencode-1).
+- **OpenCode 1 is no longer supported.** On OpenCode 1, stay on 4.x: `"plugin": ["@slkiser/opencode-quota@4"]`.
 - **Logins come only from OpenCode 2.** Inside OpenCode, logins come through OpenCode 2's plugin API; the terminal command reads `opencode.db` read-only. Neither reads `auth.json`.
 - **Quota runs in OpenCode's background service.** Inside OpenCode, `PATH`, environment variables, and the working folder (your home folder) come from the service, not your terminal. See [Service environment](troubleshooting.md#service-environment).
 - **Web and Desktop get slash commands, but no toasts or panels,** because OpenCode 2 gives plugins no Web UI hooks. See [Web and Desktop notes](manual-install.md#web-and-desktop-notes).
 - **One plugin entry.** One `"plugin"` entry in `opencode.json` loads the server and the TUI; no `tui.json` entry is needed.
-- **TUI reports open in a popup** and leave no chat message. `tuiCommandDisplay` now defaults to `"dialog"`; set `"inline"` to keep them in the chat.
-- **OpenCode Zen uses your OpenCode Console sign-in.** See [OpenCode Zen findings](#opencode-zen-findings).
-- **Removed setting:** `tuiCompactStatus.suppressWhenNativeProviderQuota`. The old key is ignored.
-
-## OpenCode 1
-
-`init` and `update` run `opencode --version` first:
-
-| OpenCode found | What happens |
-| --- | --- |
-| OpenCode 2 | Everything works as described on this page. |
-| OpenCode 1 | `init` stops without changing anything and tells you to run `npx @slkiser/opencode-quota@4 init`. `update` proposes pinning bare, `@latest`, `@next`, and exact-version quota specs to `@slkiser/opencode-quota@4`, applied like any other safe change. |
-| Unknown (for example, `opencode` is not on your `PATH`) | `init` asks which OpenCode you use. `update` assumes OpenCode 2 and prints a note; on OpenCode 1, set `"plugin": ["@slkiser/opencode-quota@4"]` yourself. |
-
-## Read the preview
-
-The preview has up to three sections (empty ones are hidden):
-
-- **Safe changes this command can make:** package-spec edits (in `plugin` and OpenCode 2 `plugins` entries; plugin options are kept) and known display-setting moves.
-- **Manual actions — this command will not change these sources:** credential findings or config that needs your review.
-- **Package-cache candidates:** folders it may remove, only after current config and the package manifest check out.
-
-Exit codes:
-
-- `0`: applied, already current, dry-run, manual-only findings, or cancelled. Manual findings do not fail the command, but they stay your job.
-- `1`: bad arguments, incomplete planning, a config race, a write failure, or a failed check after writing.
-
-## What can change automatically
-
-- Supported OpenCode Quota plugin specs move to `@latest` (on OpenCode 1, to `@4`).
-- Package-cache folders are removed only if they pass path, symlink, containment, and exact package-manifest checks.
-- The removed `opencodeZenDisplay` setting is migrated in known config files: `"default"` becomes root `accountingDetail: "summary"`, and `"detailed"` becomes `accountingDetail: "detailed"`. If a valid `accountingDetail` already exists, it wins and the old key is removed.
-
-Edits keep your other settings, plugins, comments, trailing commas, and plugin options. A supported config symlink stays a symlink; the updater writes the real file behind it.
-
-Left alone for you to fix by hand: unsupported or invalid display values, duplicate keys, unclear structures, broken files, unsupported folders, and newly found symlinks. For these, use root `accountingDetail: "summary"` or `"detailed"`, and do not share the rejected value. SDK-only config is reported but never edited, because there is no file to edit.
-
-## What stays manual
-
-Credential findings are report-only. The updater spots old credential sources by variable name or file path only. It never reads, prints, copies, or deletes secret values, and never edits environment settings, shell startup files, `opencode.db`, or credential files. Never paste credential values into output, issues, or support messages.
-
-### OpenCode Go findings
-
-OpenCode Go now uses a Console sign-in or an official API key. Set up a supported source (see [OpenCode Go](providers.md#opencode-go) for the order), for example:
-
-```bash
-opencode auth login opencode-go
-```
-
-Check it with `/quota_status` or `opencode-quota status`. Only then remove the old `OPENCODE_GO_WORKSPACE_ID` and `OPENCODE_GO_AUTH_COOKIE` declarations and any global `opencode-quota/opencode-go.json` file. Workspace/cookie values cannot be turned into an API key.
-
-### OpenCode Zen findings
-
-OpenCode Zen now uses your OpenCode Console sign-in: run `opencode auth login opencode` (and `opencode auth switch opencode` to pick a saved organization), then check `/quota_status`. See [OpenCode Zen](providers.md#opencode-zen).
-
-Leftovers from the old workspace/cookie setup are reported, never read or moved:
-
-- A global `opencode-quota/opencode.json` file: no longer read. Remove it after Zen works.
-- `OPENCODE_WORKSPACE_ID` / `OPENCODE_AUTH_COOKIE`: ignored now. They may also belong to OpenCode's workspace feature, so remove them only if they held Zen credentials.
-
-## Cancelling, failures, and reruns
-
-- Cancelling the prompt or running `--dry-run` changes nothing.
-- Rerunning is safe: a finished migration is not repeated. Manual findings stay until you fix their source.
-- Every planned file is checked again right before writing, and each file is written atomically.
-- Symlinked config: the updater checks the link chain while planning and again just before writing. It stops on dangling links, loops, chains longer than 40 hops, non-regular targets, permission errors, retargeted links, file changes in between, and JSON-to-JSONC conversions that would delete a symlink.
-- Several files are not one transaction, and there is no automatic rollback over your own edits. If a later file changed or a write failed, the error lists the files already changed and no package cache is deleted. Fix the cause, check those files, and run `update --dry-run` again for a fresh plan.
+- **TUI reports open in the quota window** and leave no chat message.
+- **OpenCode Zen uses your OpenCode Console sign-in; OpenCode Go uses it or an API key.** Their old workspace/cookie settings are no longer read. See [OpenCode Go](providers.md#opencode-go) and [OpenCode Zen](providers.md#opencode-zen).

@@ -1,7 +1,8 @@
-import { vi } from "vitest";
+import { vi } from "vite-plus/test";
 
 import type { QuotaProviderContext } from "../../src/lib/entries.js";
 import { createRuntimeProviderIdResolver } from "../../src/lib/runtime-provider-ids.js";
+import { NO_PROJECT_DIRECTORY } from "./opencode-folders.js";
 
 type ProviderAvailabilityContextOptions = {
   providerIds?: string[];
@@ -30,6 +31,7 @@ export function createProviderAvailabilityContext(
   return {
     client,
     resolveRuntimeProviderIds: createRuntimeProviderIdResolver(client),
+    locationDirectory: NO_PROJECT_DIRECTORY,
     config: {
       ...configOverrides,
     },

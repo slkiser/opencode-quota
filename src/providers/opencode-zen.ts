@@ -1,100 +1,70 @@
-import type {
-  AccountingMetadata,
-  QuotaProvider,
-  QuotaProviderContext,
-  QuotaProviderResult,
-  QuotaProviderStatusDetail,
-  QuotaToastEntry,
-} from "../lib/entries.js";
-import { scrubCredentialErrorText } from "../lib/opencode-auth.js";
+import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
 import {
-  consoleBaseUrl,
-  type OpenCodeConsoleCredential,
+  consoleLoginIdentity,
+  consoleSignInFailure,
+  type OpenCodeConsoleAuthState,
   resolveOpenCodeConsoleAuth,
 } from "../lib/opencode-console-auth.js";
 import {
+  MEMBER_BUDGET_NOTE,
   OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR,
   queryOpenCodeZenQuota,
 } from "../lib/opencode-zen.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
-import {
-  attemptedErrorResult,
-  attemptedResult,
-  notAttemptedResult,
-  statusDetailsFromRecord,
-  withStatusDetails,
-} from "./result-helpers.js";
+import { failedAccount, MONTHLY, type ProviderFetchResult, type ProviderRow } from "./contract.js";
+import { statusDetailsFromRecord } from "./result-helpers.js";
 
 const OPENCODE_ZEN_GROUP = "OpenCode Zen";
-const OPENCODE_ZEN_BALANCE_ACCOUNTING: AccountingMetadata = {
-  resultType: "balance",
-  acquisitionMethod: "remote_api",
-  ownership: "maintained",
-  authority: "provider_reported",
-};
-const OPENCODE_ZEN_BUDGET_ACCOUNTING: AccountingMetadata = {
-  resultType: "budget",
-  acquisitionMethod: "remote_api",
-  ownership: "maintained",
-  authority: "locally_derived",
-};
-const OPENCODE_ZEN_SPEND_ACCOUNTING: AccountingMetadata = {
-  resultType: "spend",
-  acquisitionMethod: "remote_api",
-  ownership: "maintained",
-  authority: "provider_reported",
-};
-const OPENCODE_ZEN_STATUS_ACCOUNTING: AccountingMetadata = {
-  resultType: "status",
-  acquisitionMethod: "remote_api",
-  ownership: "maintained",
-  authority: "provider_reported",
-};
 const USD_UNIT = { kind: "currency", code: "USD" } as const;
-
 const LOGIN_HINT = "Run `opencode auth login opencode`.";
 
 /** True when the user listed `opencode` in `enabledProviders` instead of using auto mode. */
 function isExplicitlyEnabled(ctx: QuotaProviderContext): boolean {
-  return (
-    Array.isArray(ctx.config.enabledProviders) && ctx.config.enabledProviders.includes("opencode")
-  );
+  return !ctx.config.automaticDiscovery && ctx.config.enabledProviders.includes("opencode");
 }
 
-function signInFailedResult(state: "expired" | "invalid", detail: string): QuotaProviderResult {
-  return withStatusDetails(
-    attemptedErrorResult(
-      OPENCODE_ZEN_GROUP,
-      `OpenCode Console sign-in failed: ${detail}. ${LOGIN_HINT}`,
-    ),
-    [{ key: "console_auth_state", value: state }],
-  );
-}
-
-/** Never includes the token. */
-function consoleStatusDetails(credential: OpenCodeConsoleCredential): QuotaProviderStatusDetail[] {
-  return statusDetailsFromRecord({
-    console_auth_state: "configured",
-    console_server: consoleBaseUrl(credential),
-    console_org: credential.orgName ?? credential.orgId ?? "(none)",
-  });
+function signInFailed(
+  auth: Extract<OpenCodeConsoleAuthState, { state: "expired" | "invalid" }>,
+): ProviderFetchResult {
+  return {
+    attempted: true,
+    accounts: [failedAccount(OPENCODE_ZEN_GROUP, consoleSignInFailure(auth).message)],
+    debug: [{ key: "console_auth_state", value: auth.state }],
+  };
 }
 
 function zenUsdDecimal(value: number): string {
-  const fixed = value.toFixed(8);
-  return fixed.replace(/0+$/u, "").replace(/\.$/u, "");
+  return value.toFixed(8).replace(/0+$/u, "").replace(/\.$/u, "");
 }
+
+function usd(value: number) {
+  return { decimal: zenUsdDecimal(value), unit: USD_UNIT };
+}
+
+const ZEN_ROW = {
+  method: "remote_api",
+  authority: "provider_reported",
+  prominence: "primary",
+} as const;
 
 export const opencodeZenProvider: QuotaProvider = {
   id: "opencode",
+  cachePolicy: {
+    kind: "resolved-auth",
+    async resolveIdentity() {
+      const resolved = await resolveOpenCodeConsoleAuth();
+      return resolved.state === "configured"
+        ? await consoleLoginIdentity("opencode", resolved.credential)
+        : null;
+    },
+  },
 
   async isAvailable(ctx: QuotaProviderContext): Promise<boolean> {
-    const consoleAuth = await resolveOpenCodeConsoleAuth();
+    // An expired or failed sign-in stays available so fetch() can show its hint.
     // Without a Console sign-in, auto mode stays quiet; an explicit
     // enabledProviders entry keeps Zen so fetch() can show the sign-in hint.
-    if (consoleAuth.state === "none") return isExplicitlyEnabled(ctx);
-    // An expired or failed sign-in stays available so fetch() can show its hint.
-    return true;
+    const consoleAuth = await resolveOpenCodeConsoleAuth();
+    return consoleAuth.state !== "none" || isExplicitlyEnabled(ctx);
   },
 
   matchesCurrentModel(model: string): boolean {
@@ -102,34 +72,30 @@ export const opencodeZenProvider: QuotaProvider = {
     return normalizeQuotaProviderId(provider) === "opencode";
   },
 
-  async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
+  async fetch(ctx: QuotaProviderContext): Promise<ProviderFetchResult> {
     const consoleAuth = await resolveOpenCodeConsoleAuth();
 
     if (consoleAuth.state === "none") {
-      const noneStatusDetails = [{ key: "console_auth_state", value: "none" }];
-      if (!isExplicitlyEnabled(ctx)) {
-        return withStatusDetails(notAttemptedResult(), noneStatusDetails);
-      }
-      return withStatusDetails(
-        attemptedErrorResult(
-          OPENCODE_ZEN_GROUP,
-          `No OpenCode Console sign-in found. ${LOGIN_HINT}`,
-        ),
-        noneStatusDetails,
-      );
+      const debug = [{ key: "console_auth_state", value: "none" }];
+      return isExplicitlyEnabled(ctx)
+        ? {
+            attempted: true,
+            accounts: [
+              failedAccount(OPENCODE_ZEN_GROUP, `No OpenCode Console sign-in found. ${LOGIN_HINT}`),
+            ],
+            debug,
+          }
+        : { attempted: false, accounts: [], debug };
     }
 
-    if (consoleAuth.state === "invalid") {
-      return signInFailedResult("invalid", scrubCredentialErrorText(consoleAuth.error));
-    }
-
-    if (consoleAuth.state === "expired") {
-      // OpenCode refreshes the Console token when it is read, so this is rare.
-      return signInFailedResult("expired", "the sign-in expired");
+    // OpenCode refreshes the Console token when it is read, so an expired one is rare.
+    if (consoleAuth.state === "invalid" || consoleAuth.state === "expired") {
+      return signInFailed(consoleAuth);
     }
 
     const { credential } = consoleAuth;
-    const statusDetails = consoleStatusDetails(credential);
+    // Never the token, the Console server or the organization.
+    const consoleDetail = { key: "console_auth_state", value: "configured" };
 
     const result = await queryOpenCodeZenQuota(credential, {
       requestTimeoutMs: ctx.config?.requestTimeoutMsConfigured
@@ -138,145 +104,89 @@ export const opencodeZenProvider: QuotaProvider = {
     });
 
     if (!result.success) {
-      return withStatusDetails(attemptedErrorResult(OPENCODE_ZEN_GROUP, result.error), [
-        ...statusDetails,
-        { key: "live_fetch_error", value: result.error },
-      ]);
+      return {
+        attempted: true,
+        accounts: [failedAccount(OPENCODE_ZEN_GROUP, result.error, result.facts)],
+        debug: [consoleDetail, { key: "live_fetch_error", value: result.error }],
+      };
     }
 
-    const balanceUsd = result.data.balance / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
+    const { data } = result;
+    const balanceUsd = data.balance / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
     const configuredMonthlyLimit = ctx.config?.opencodeMonthlyLimit;
-    const effectiveMonthlyLimit = configuredMonthlyLimit ?? result.data.monthlyLimit;
+    const effectiveMonthlyLimit = configuredMonthlyLimit ?? data.monthlyLimit;
     const monthlyUsageUsd =
-      result.data.monthlyUsage === null
-        ? null
-        : result.data.monthlyUsage / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
+      data.monthlyUsage === null ? null : data.monthlyUsage / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
 
     const hasMonthlyUsage =
       monthlyUsageUsd !== null && Number.isFinite(monthlyUsageUsd) && monthlyUsageUsd >= 0;
-    // A member-budget limit of $0 is a real blocking limit, not an absence;
-    // a $0 credit-limit fallback value still counts as no limit.
-    const zeroBudgetActive =
-      result.data.budgetSource === "member_budget" && effectiveMonthlyLimit === 0;
+    // A member budget of $0 is a real blocking limit; a $0 credit limit or setting is no limit.
+    const zeroBudgetActive = data.budgetSource === "member_budget" && effectiveMonthlyLimit === 0;
     const hasMonthlyBudget =
       effectiveMonthlyLimit !== null &&
       Number.isFinite(effectiveMonthlyLimit) &&
       (effectiveMonthlyLimit > 0 || zeroBudgetActive) &&
       hasMonthlyUsage;
-    const entries: QuotaToastEntry[] = [];
+    const rows: ProviderRow[] = [];
 
     if (hasMonthlyBudget) {
       const monthlyRemainingUsd = Math.max(0, effectiveMonthlyLimit - monthlyUsageUsd);
-      entries.push({
-        accounting: OPENCODE_ZEN_BUDGET_ACCOUNTING,
-        name: "zen-monthly-budget",
-        group: OPENCODE_ZEN_GROUP,
+      rows.push({
+        ...MONTHLY,
+        ...ZEN_ROW,
+        type: "budget",
+        authority: "locally_derived",
         percentRemaining:
           effectiveMonthlyLimit > 0
             ? Math.min(100, (monthlyRemainingUsd / effectiveMonthlyLimit) * 100)
             : 0,
-        ...(result.data.budgetResetIso ? { resetTimeIso: result.data.budgetResetIso } : {}),
-        semantic: {
-          metric: { kind: "window", window: "month" },
-          prominence: "primary",
-        },
-        basis: {
-          used: {
-            quantity: { decimal: zenUsdDecimal(monthlyUsageUsd), unit: USD_UNIT },
-            authority: "provider_reported",
-          },
-          limit: {
-            quantity: { decimal: zenUsdDecimal(effectiveMonthlyLimit), unit: USD_UNIT },
-            authority:
-              configuredMonthlyLimit === undefined ? "provider_reported" : "user_configured",
-          },
-          remaining: {
-            quantity: { decimal: zenUsdDecimal(monthlyRemainingUsd), unit: USD_UNIT },
-            authority: "locally_derived",
-          },
-        },
+        used: usd(monthlyUsageUsd),
+        limit: usd(effectiveMonthlyLimit),
+        remaining: usd(monthlyRemainingUsd),
+        ...(data.budgetResetIso ? { resetsAt: data.budgetResetIso } : {}),
       });
     } else if (hasMonthlyUsage) {
       // No limit to measure against: still show this month's real spend.
-      entries.push({
-        accounting: OPENCODE_ZEN_SPEND_ACCOUNTING,
-        kind: "quantity",
-        name: "zen-monthly-spend",
-        group: OPENCODE_ZEN_GROUP,
-        semantic: {
-          metric: { kind: "window", window: "month" },
-          prominence: "primary",
-        },
-        quantity: { decimal: zenUsdDecimal(monthlyUsageUsd), unit: USD_UNIT },
-      });
+      rows.push({ ...MONTHLY, ...ZEN_ROW, type: "usage", amount: usd(monthlyUsageUsd) });
     }
 
-    entries.push({
-      accounting: OPENCODE_ZEN_BALANCE_ACCOUNTING,
-      kind: "quantity",
-      name: "zen-current-balance",
-      group: OPENCODE_ZEN_GROUP,
-      semantic: {
-        metric: { kind: "component", component: "current_balance" },
-        prominence: hasMonthlyBudget ? "supplementary" : "primary",
-      },
-      quantity: { decimal: zenUsdDecimal(balanceUsd), unit: USD_UNIT },
+    rows.push({
+      ...ZEN_ROW,
+      key: "balance",
+      label: "Balance",
+      type: "balance",
+      prominence: hasMonthlyBudget ? "supplementary" : "primary",
+      amount: usd(balanceUsd),
     });
-    if (result.data.reload !== null) {
-      entries.push({
-        accounting: OPENCODE_ZEN_STATUS_ACCOUNTING,
-        kind: "boolean",
-        name: "zen-auto-reload",
-        group: OPENCODE_ZEN_GROUP,
-        semantic: {
-          metric: { kind: "component", component: "auto_reload" },
-          prominence: "supplementary",
-        },
-        value: result.data.reload,
+    if (data.reload !== null) {
+      rows.push({
+        ...ZEN_ROW,
+        key: "auto_reload",
+        label: "Auto reload",
+        type: "status",
+        prominence: "supplementary",
+        flag: data.reload,
       });
     }
 
-    const errors = result.errors.map((message) => ({ label: OPENCODE_ZEN_GROUP, message }));
-
-    return withStatusDetails(attemptedResult(entries, errors), [
-      ...statusDetails,
-      { key: "balance_usd", value: `USD ${zenUsdDecimal(balanceUsd)}` },
-      {
-        key: "monthly_limit_usd",
-        value:
-          result.data.monthlyLimit === null
-            ? "(none)"
-            : `USD ${zenUsdDecimal(result.data.monthlyLimit)}`,
-      },
-      {
-        key: "monthly_usage_usd",
-        value: monthlyUsageUsd === null ? "(unknown)" : `USD ${zenUsdDecimal(monthlyUsageUsd)}`,
-      },
-      { key: "budget_source", value: result.data.budgetSource },
-      ...(result.data.memberBudgetsSkipped
-        ? [
-            {
-              key: "member_budget_note",
-              value:
-                "member budgets found, but not all can be evaluated (model filters, per-model limits, or missing amounts); using the credit limit",
-            },
-          ]
-        : []),
-      {
-        key: "auto_reload",
-        value: result.data.reload === null ? "(unknown)" : String(result.data.reload),
-      },
-      {
-        key: "auto_reload_amount_raw",
-        value: result.data.reloadAmount === null ? "(none)" : String(result.data.reloadAmount),
-      },
-      {
-        key: "auto_reload_trigger_raw",
-        value: result.data.reloadTrigger === null ? "(none)" : String(result.data.reloadTrigger),
-      },
-      ...(result.errors.length > 0
-        ? [{ key: "live_fetch_error", value: result.errors.join(" | ") }]
-        : []),
-    ]);
+    return {
+      attempted: true,
+      accounts: [
+        {
+          name: OPENCODE_ZEN_GROUP,
+          rows,
+          errors: result.errors.map((message) => ({ message })),
+        },
+      ],
+      debug: [
+        consoleDetail,
+        ...statusDetailsFromRecord({
+          budget_source: data.budgetSource,
+          member_budget_note: data.memberBudgetsSkipped ? MEMBER_BUDGET_NOTE : undefined,
+          auto_reload: data.reload === null ? "(unknown)" : String(data.reload),
+          live_fetch_error: result.errors.length > 0 ? result.errors.join(" | ") : undefined,
+        }),
+      ],
+    };
   },
 };

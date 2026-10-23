@@ -1,9 +1,7 @@
 import type { Attributes, ObservableResult } from "@opentelemetry/api";
 
-import type { QuotaProviderResult } from "./entries.js";
-import { isPercentEntry } from "./entries.js";
-import { getQuotaProviderShape } from "./provider-metadata.js";
-import { classifyQuotaWindowText } from "./quota-entry-display.js";
+import type { QuotaSnapshot } from "../core/types.js";
+import { getCanonicalQuotaProviderId } from "./provider-metadata.js";
 import { QUOTA_PROVIDERS_AGGREGATE_ID } from "./quota-providers.js";
 
 const METER_NAME = "@slkiser/opencode-quota";
@@ -28,7 +26,7 @@ type TelemetryApi = {
 };
 type TelemetryApiLoader = () => Promise<TelemetryApi>;
 
-export interface QuotaTelemetryToken {
+interface QuotaTelemetryToken {
   readonly ownerId: number;
   readonly generation: number;
 }
@@ -39,8 +37,6 @@ interface QuotaTelemetryObservation {
 }
 
 interface QuotaTelemetrySnapshot {
-  ownerId: number;
-  generation: number;
   providerId: string;
   cacheTimestamp?: number;
   consumed: QuotaTelemetryObservation[];
@@ -92,19 +88,8 @@ function getState(): QuotaTelemetryState {
 }
 
 function safeProviderAttribute(providerId: string): string {
-  if (
-    providerId === QUOTA_PROVIDERS_AGGREGATE_ID ||
-    providerId.startsWith(`${QUOTA_PROVIDERS_AGGREGATE_ID}:`)
-  ) {
-    return "custom";
-  }
-  return getQuotaProviderShape(providerId)?.id ?? "other";
-}
-
-function activeProviderId(providerId: string): string {
-  return providerId.startsWith(`${QUOTA_PROVIDERS_AGGREGATE_ID}:`)
-    ? QUOTA_PROVIDERS_AGGREGATE_ID
-    : providerId;
+  if (providerId === QUOTA_PROVIDERS_AGGREGATE_ID) return "custom";
+  return getCanonicalQuotaProviderId(providerId) ?? "other";
 }
 
 function observationKey(attributes: Attributes): string {
@@ -126,20 +111,32 @@ function removeOwnerSnapshots(state: QuotaTelemetryState, ownerId: number): void
   }
 }
 
+/** Keeps the highest value seen for `key`. */
+function keepHighest(
+  observations: Map<string, QuotaTelemetryObservation>,
+  key: string,
+  observation: QuotaTelemetryObservation,
+): void {
+  const existing = observations.get(key);
+  if (!existing || observation.value > existing.value) observations.set(key, observation);
+}
+
+function inKeyOrder(
+  observations: Map<string, QuotaTelemetryObservation>,
+): QuotaTelemetryObservation[] {
+  return [...observations.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, observation]) => observation);
+}
+
 function collectConsumedObservations(state: QuotaTelemetryState): QuotaTelemetryObservation[] {
   const observations = new Map<string, QuotaTelemetryObservation>();
   for (const snapshot of state.snapshots.values()) {
     for (const observation of snapshot.consumed) {
-      const key = observationKey(observation.attributes);
-      const existing = observations.get(key);
-      if (!existing || observation.value > existing.value) {
-        observations.set(key, observation);
-      }
+      keepHighest(observations, observationKey(observation.attributes), observation);
     }
   }
-  return [...observations.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([, observation]) => observation);
+  return inKeyOrder(observations);
 }
 
 function collectCacheAgeObservations(
@@ -151,17 +148,9 @@ function collectCacheAgeObservations(
     if (snapshot.cacheTimestamp === undefined) continue;
     const provider = safeProviderAttribute(snapshot.providerId);
     const value = Math.max(0, now - snapshot.cacheTimestamp) / 1000;
-    const existing = observations.get(provider);
-    if (!existing || value > existing.value) {
-      observations.set(provider, {
-        value,
-        attributes: { "quota.provider": provider },
-      });
-    }
+    keepHighest(observations, provider, { value, attributes: { "quota.provider": provider } });
   }
-  return [...observations.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([, observation]) => observation);
+  return inKeyOrder(observations);
 }
 
 function emitObservations(
@@ -286,102 +275,44 @@ function isCurrentToken(
   return Boolean(owner?.enabled && owner.generation === token.generation);
 }
 
-export function updateQuotaTelemetrySnapshot(params: {
-  token?: QuotaTelemetryToken;
-  snapshotId: string;
-  supersededSnapshotIds?: readonly string[];
-  providerId: string;
-  cacheTimestamp?: number;
-  result: QuotaProviderResult | null;
-}): void {
+/**
+ * Publishes the percent rows of a quota snapshot as this owner's series, replacing what the
+ * owner published before. Each provider reports how old its rows are (`okAtMs`).
+ */
+export function publishQuotaTelemetry(
+  token: QuotaTelemetryToken | undefined,
+  snapshot: QuotaSnapshot,
+): void {
   try {
     const state = getState();
-    if (!isCurrentToken(state, params.token)) return;
+    if (!isCurrentToken(state, token)) return;
+    removeOwnerSnapshots(state, token.ownerId);
 
-    for (const snapshotId of params.supersededSnapshotIds ?? []) {
-      state.snapshots.delete(snapshotKey(params.token.ownerId, snapshotId));
-    }
-
-    const key = snapshotKey(params.token.ownerId, params.snapshotId);
-    if (!params.result || !params.result.attempted || params.result.entries.length === 0) {
-      state.snapshots.delete(key);
-      return;
-    }
-
-    const provider = safeProviderAttribute(params.providerId);
-    const consumed = new Map<string, QuotaTelemetryObservation>();
-    for (const entry of params.result.entries) {
-      if (!isPercentEntry(entry) || !Number.isFinite(entry.percentRemaining)) continue;
-
-      const attributes: Attributes = {
-        "quota.provider": provider,
-        "quota.window": entry.semantic
-          ? entry.semantic.metric.kind === "window"
-            ? entry.semantic.metric.window
-            : "unknown"
-          : (classifyQuotaWindowText(entry.label ?? "") ??
-            classifyQuotaWindowText(entry.name) ??
-            "unknown"),
-        "quota.result_type": entry.accounting.resultType,
-      };
-      const observation: QuotaTelemetryObservation = {
-        value: Math.min(1, Math.max(0, (100 - entry.percentRemaining) / 100)),
-        attributes,
-      };
-      const observationIdentity = observationKey(attributes);
-      const existing = consumed.get(observationIdentity);
-      if (!existing || observation.value > existing.value) {
-        consumed.set(observationIdentity, observation);
+    for (const provider of snapshot.providers) {
+      const consumed = new Map<string, QuotaTelemetryObservation>();
+      for (const row of provider.rows) {
+        if (row.percentRemaining === undefined || !Number.isFinite(row.percentRemaining)) continue;
+        const attributes: Attributes = {
+          "quota.provider": safeProviderAttribute(provider.providerId),
+          "quota.window": row.window ?? "unknown",
+          "quota.result_type": row.type,
+        };
+        const observation: QuotaTelemetryObservation = {
+          value: Math.min(1, Math.max(0, (100 - row.percentRemaining) / 100)),
+          attributes,
+        };
+        keepHighest(consumed, observationKey(attributes), observation);
       }
-    }
+      if (consumed.size === 0) continue;
 
-    if (consumed.size === 0) {
-      state.snapshots.delete(key);
-      return;
+      state.snapshots.set(snapshotKey(token.ownerId, provider.providerId), {
+        providerId: provider.providerId,
+        ...(provider.okAtMs !== undefined ? { cacheTimestamp: provider.okAtMs } : {}),
+        consumed: inKeyOrder(consumed),
+      });
     }
-
-    const existing = state.snapshots.get(key);
-    if (
-      existing?.cacheTimestamp !== undefined &&
-      params.cacheTimestamp !== undefined &&
-      params.cacheTimestamp < existing.cacheTimestamp
-    ) {
-      return;
-    }
-
-    state.snapshots.set(key, {
-      ownerId: params.token.ownerId,
-      generation: params.token.generation,
-      providerId: params.providerId,
-      ...(params.cacheTimestamp !== undefined ? { cacheTimestamp: params.cacheTimestamp } : {}),
-      consumed: [...consumed.entries()]
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([, observation]) => observation),
-    });
   } catch {
     // Snapshot publication is deliberately best-effort and synchronous.
-  }
-}
-
-export function retainQuotaTelemetryProviders(params: {
-  token?: QuotaTelemetryToken;
-  providerIds: readonly string[];
-}): void {
-  try {
-    const state = getState();
-    if (!isCurrentToken(state, params.token)) return;
-
-    const retained = new Set(params.providerIds);
-    for (const [key, snapshot] of state.snapshots) {
-      if (
-        snapshot.ownerId === params.token.ownerId &&
-        !retained.has(activeProviderId(snapshot.providerId))
-      ) {
-        state.snapshots.delete(key);
-      }
-    }
-  } catch {
-    // Reconciliation is best-effort and must not affect provider selection.
   }
 }
 

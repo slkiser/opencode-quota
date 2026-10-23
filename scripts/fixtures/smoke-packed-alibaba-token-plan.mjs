@@ -39,8 +39,6 @@ await writeFile(argvLog, "");
 try {
   const { getProviders } = await packageImport("providers/registry.js");
   const { queryAlibabaTokenPlanQuota } = await packageImport("lib/alibaba-token-plan.js");
-  const { buildQuotaExport } = await packageImport("lib/quota-export.js");
-  const { __resetQuotaStateForTests } = await packageImport("lib/quota-state.js");
 
   const providers = getProviders();
   const provider = providers.find((entry) => entry.id === "alibaba-token-plan");
@@ -87,30 +85,6 @@ try {
     const argv = JSON.parse(await readFile(argvLog, "utf8"));
     assert.deepEqual(argv, ["usage", "token-plan", "--output", "json"]);
   }
-
-  __resetQuotaStateForTests();
-  const ctx = {
-    client: {
-      config: {
-        providers: async () => ({ data: { providers: [] } }),
-        get: async () => ({ data: {} }),
-      },
-    },
-    config: {
-      cursorPlan: "auto",
-      enabledProviders: "auto",
-      quotaProviders: [],
-    },
-  };
-  const before = await readFile(argvLog, "utf8");
-  const exported = await buildQuotaExport({
-    providers: [provider],
-    ctx,
-    ttlMs: 60_000,
-    fromCache: true,
-  });
-  assert.equal(exported.providers["alibaba-token-plan"].status, "unavailable");
-  assert.equal(await readFile(argvLog, "utf8"), before);
 
   console.log("Packed Alibaba Personal Token Plan smoke passed.");
 } finally {

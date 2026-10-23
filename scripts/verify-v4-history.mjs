@@ -28,14 +28,19 @@ function isWithin(file, directory) {
   return file === directory || file.startsWith(`${directory}/`);
 }
 
-const publicImageFiles = new Set([
-  "images/opencode-quota-logo-dark.svg",
-  "images/opencode-quota-logo-light.svg",
-  "images/opencode-quota_opencode-quota-sidebar.webp",
-  "images/opencode-quota_opencode-quota-statusbar.webp",
-  "images/opencode-quota_opencode-quota-toast.webp",
-  "images/opencode-quota_opencode-quota-tokens-command.webp",
-]);
+const publicImageNames = [
+  "opencode-quota-logo-dark.svg",
+  "opencode-quota-logo-light.svg",
+  "opencode-quota_opencode-quota-sidebar.webp",
+  "opencode-quota_opencode-quota-statusbar.webp",
+  "opencode-quota_opencode-quota-toast.webp",
+  "opencode-quota_opencode-quota-tokens-command.webp",
+];
+// The checked history holds the public images in `images/` (older commits) and `.github/images/`.
+const imageDirectories = ["images", ".github/images"];
+const publicImageFiles = new Set(
+  imageDirectories.flatMap((directory) => publicImageNames.map((name) => `${directory}/${name}`)),
+);
 
 function isForbidden(file) {
   const basename = path.posix.basename(file);
@@ -64,7 +69,7 @@ function isForbidden(file) {
     return !file.startsWith("docs/readme/") || file === "docs/readme/v4-release-readiness.md";
   }
 
-  if (isWithin(file, "images")) {
+  if (imageDirectories.some((directory) => isWithin(file, directory))) {
     return !publicImageFiles.has(file);
   }
 

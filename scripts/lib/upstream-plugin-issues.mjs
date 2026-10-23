@@ -47,14 +47,13 @@ function getDesiredIssueState(tracked, latest) {
 // Only issues this workflow opened can mark an npm release as checked.
 const UPSTREAM_CHECK_ISSUE_AUTHOR = "github-actions[bot]";
 
-/** Body lines naming the npm release an issue is about (the fields compared for "in sync"). */
-function buildReleaseLines(spec, latest) {
+/** Body lines naming the npm release an issue is about (the npm facts compared for "in sync"). */
+function buildReleaseLines(latest) {
   return {
     packageName: `- Package: \`${latest.packageName}\``,
     repo: `- Repository: \`${latest.repo}\``,
     version: `- Latest npm version: \`${latest.version}\``,
     publishedAt: `- Published at: \`${latest.publishedAt}\``,
-    referenceDir: `- Reference path: \`${spec.referenceDir}\``,
     npmUrl: `- npm release: ${latest.npmUrl}`,
   };
 }
@@ -65,7 +64,7 @@ export function buildUpstreamPluginIssueBody({ spec, tracked, latest, issueState
     issueState === UPSTREAM_PLUGIN_ISSUE_STATE.UPDATE_AVAILABLE
       ? "An upstream companion plugin has a newer npm release than the copy tracked in this repository."
       : "The tracked copy now matches the latest npm release, but review, compatibility checking, and release work are still pending.";
-  const release = buildReleaseLines(spec, latest);
+  const release = buildReleaseLines(latest);
 
   return [
     intro,
@@ -77,7 +76,7 @@ export function buildUpstreamPluginIssueBody({ spec, tracked, latest, issueState
     release.version,
     `- Issue state: \`${issueState}\``,
     release.publishedAt,
-    release.referenceDir,
+    `- Reference path: \`${spec.referenceDir}\``,
     `- Review-prep command: \`${reviewCommand}\``,
     release.npmUrl,
     `- Upstream repo: ${latest.repoUrl}`,
@@ -125,7 +124,7 @@ export function planUpstreamPluginIssueAction({
 
     // The maintainer closed this workflow's issue for this same npm release (checked, no
     // effect on us, nothing synced). Stay quiet until npm publishes something different.
-    const releaseLines = Object.values(buildReleaseLines(spec, latest));
+    const releaseLines = Object.values(buildReleaseLines(latest));
     const closedForThisRelease = closedIssues.some((issue) => {
       const issueBody = issue.body ?? "";
       const issueLines = issueBody.split(/\r?\n/u);

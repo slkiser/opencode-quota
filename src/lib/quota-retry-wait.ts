@@ -3,13 +3,9 @@
  * shows a used-up window for that model's provider, OpenCode retries once that window resets
  * instead of following its normal retry timing.
  */
-import { isPercentEntry, type QuotaProviderResult } from "./entries.js";
-import { collectQuotaRenderData } from "./quota-render-data.js";
-import {
-  createQuotaRuntimeRequestContext,
-  resolveQuotaRuntimeContext,
-} from "./quota-runtime-context.js";
-import type { QuotaSurfaceHost } from "./quota-surface-data.js";
+import type { ServerSettings } from "../core/provider-source.js";
+import type { QuotaStore } from "../core/store.js";
+import type { ProviderSnapshot, QuotaRow, QuotaSnapshot } from "../core/types.js";
 
 /** Extra wait after the reset time, so the provider has reset the window when the retry runs. */
 export const QUOTA_RESET_RETRY_BUFFER_MS = 60_000;
@@ -20,6 +16,12 @@ export const QUOTA_RESET_RETRY_MAX_DELAY_MS = 5 * 60 * 60 * 1000;
 export type QuotaRetryEvent = {
   readonly model: { readonly id: string; readonly providerID: string };
   readonly error: { readonly type: string; readonly status?: number };
+};
+
+/** Where the retry decision reads quota and settings from. */
+type QuotaRetryHost = {
+  store: Pick<QuotaStore, "refresh">;
+  loadSettings: () => Promise<Pick<ServerSettings, "waitForQuotaReset">>;
 };
 
 /** OpenCode's error types for a provider rate limit or used-up quota, or any HTTP 429. */
@@ -34,17 +36,17 @@ export function isQuotaLimitError(error: QuotaRetryEvent["error"]): boolean {
  * most the cap. Undefined when no used-up window has a reset time still ahead.
  */
 export function getQuotaResetRetryDelayMs(
-  results: readonly QuotaProviderResult[],
+  rows: readonly QuotaRow[],
   nowMs: number,
 ): number | undefined {
   let earliestResetMs: number | undefined;
-  for (const result of results) {
-    for (const entry of result.entries) {
-      if (!isPercentEntry(entry) || !(entry.percentRemaining <= 0) || !entry.resetTimeIso) continue;
-      const resetMs = Date.parse(entry.resetTimeIso);
-      if (!(resetMs > nowMs)) continue;
-      if (earliestResetMs === undefined || resetMs < earliestResetMs) earliestResetMs = resetMs;
+  for (const row of rows) {
+    if (row.percentRemaining === undefined || !(row.percentRemaining <= 0) || !row.resetsAt) {
+      continue;
     }
+    const resetMs = Date.parse(row.resetsAt);
+    if (!(resetMs > nowMs)) continue;
+    if (earliestResetMs === undefined || resetMs < earliestResetMs) earliestResetMs = resetMs;
   }
   if (earliestResetMs === undefined) return undefined;
   return Math.min(
@@ -54,35 +56,43 @@ export function getQuotaResetRetryDelayMs(
 }
 
 /**
+ * The provider's rows that serve the snapshot's model: a provider whose rows serve different
+ * models (the custom providers) has only those under its `currentModelRowPrefixes`.
+ */
+function modelRows(snapshot: QuotaSnapshot, provider: ProviderSnapshot): QuotaRow[] {
+  const prefixes = snapshot.currentModelRowPrefixes?.[provider.providerId];
+  if (prefixes === undefined) return provider.rows;
+  return provider.rows.filter((row) => prefixes.some((prefix) => row.id.startsWith(prefix)));
+}
+
+/**
  * The retry delay for a limit error on `event.model`, or undefined to keep OpenCode's decision.
- * Quota comes from the same provider refresh path as the sidebar and toasts, but skips the cache:
- * the limit error itself shows the quota changed, so the provider is asked once for fresh data.
+ * The store asks the providers serving the model again at once (a retry refresh has no minimum
+ * interval), and its answer names them and the rows that serve the model:
+ * the limit error itself shows the quota changed, so only rows read for this retry count. A
+ * provider with an error counts not at all: the rows it kept for a failed login are old.
  */
 export async function resolveQuotaResetRetryDelayMs(
-  host: Pick<QuotaSurfaceHost, "client" | "roots">,
+  host: QuotaRetryHost,
   event: QuotaRetryEvent,
 ): Promise<number | undefined> {
   if (!isQuotaLimitError(event.error)) return undefined;
-  const runtime = await resolveQuotaRuntimeContext({
-    client: host.client,
-    roots: host.roots,
-    sessionMeta: { modelID: event.model.id, providerID: event.model.providerID },
+  const settings = await host.loadSettings();
+  if (!settings.waitForQuotaReset) return undefined;
+  const startedAtMs = Date.now();
+  const snapshot = await host.store.refresh({
+    reason: "retry",
+    model: event.model,
+    onlyModelProviders: true,
   });
-  if (!runtime.config.waitForQuotaReset) return undefined;
-  const collected = await collectQuotaRenderData({
-    client: runtime.client,
-    resolveRuntimeProviderIds: runtime.resolveRuntimeProviderIds,
-    // Only the provider of the model that hit the limit counts, whatever onlyCurrentModel says.
-    config: { ...runtime.config, onlyCurrentModel: true },
-    configMeta: runtime.configMeta,
-    request: createQuotaRuntimeRequestContext(runtime),
-    workspaceRoot: runtime.roots.workspaceRoot,
-    surfaceExplicitProviderIssues: false,
-    bypassProviderCache: true,
-    providers: runtime.providers,
-  });
-  return getQuotaResetRetryDelayMs(
-    collected.providerResults.map((probe) => probe.result),
-    Date.now(),
-  );
+  const servingIds = snapshot.currentModelProviderIds ?? [];
+  const freshRows = snapshot.providers
+    .filter(
+      (provider) =>
+        servingIds.includes(provider.providerId) &&
+        (provider.okAtMs ?? 0) >= startedAtMs &&
+        provider.error === undefined,
+    )
+    .flatMap((provider) => modelRows(snapshot, provider));
+  return getQuotaResetRetryDelayMs(freshRows, Date.now());
 }

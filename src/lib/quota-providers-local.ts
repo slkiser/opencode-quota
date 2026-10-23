@@ -1,457 +1,229 @@
-import { readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
-import { writeJsonAtomic } from "./atomic-json.js";
-import type { QuotaToastEntry } from "./entries.js";
-import { lookupCost } from "./modelsdev-pricing.js";
-import type { OpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
-import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
+import type { Amount } from "../core/types.js";
+import { accountingDecimalFromNumber } from "../providers/accounting-decimal.js";
+import type { ProviderRow } from "../providers/contract.js";
 import type { OpenCodeMessage } from "./opencode-storage.js";
 import { iterCompletedAssistantMessages } from "./opencode-storage.js";
-import type {
-  LocalEstimateQuotaProviderDefinition,
-  LocalEstimateWindow,
+import { priceMessage } from "./pricing-key.js";
+import {
+  customRow,
+  type LocalEstimateQuotaProviderDefinition,
+  type LocalEstimateWindow,
 } from "./quota-providers.js";
-import { resolvePricingKey } from "./quota-stats.js";
-import { emptyTokenBuckets, type TokenBuckets, tokenBucketsFromMessage } from "./token-buckets.js";
-import { calculateUsdFromTokenBuckets } from "./token-cost.js";
+import { type TokenBuckets, tokenBucketsFromMessage } from "./token-buckets.js";
 
-export const QUOTA_PROVIDER_LOCAL_STATE_VERSION = 1 as const;
-const LOCAL_STATE_DIR = "opencode-quota/quota-providers";
-const DAY_MS = 24 * 60 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
 
-export interface LocalQuotaProviderMessage {
+/** OpenCode's completed assistant messages in a time range. */
+export type ReadCompletedMessages = (params: {
+  completedSinceMs: number;
+  completedUntilMs: number;
+}) => Promise<OpenCodeMessage[]>;
+
+/** A completed request: the message it came from and when it completed. */
+interface CountedRequest {
   id: string;
   atMs: number;
-  providerId: string;
   modelId: string;
   tokens: TokenBuckets;
 }
 
-export interface LocalQuotaProviderStateV1 {
-  version: typeof QUOTA_PROVIDER_LOCAL_STATE_VERSION;
-  definitionId: string;
-  providerId: string;
-  updatedAt: number;
-  messages: LocalQuotaProviderMessage[];
+/** One window's requests: when it resets and, for a UTC day, when it started. */
+export interface WindowCount {
+  window: LocalEstimateWindow;
+  /** Oldest first. */
+  requests: CountedRequest[];
+  resetsAt?: string;
+  windowStartedAt?: string;
 }
 
-export type LocalQuotaProviderStateHealth =
-  | "missing"
-  | "healthy"
-  | "malformed"
-  | "version_mismatch";
-
-export interface LocalQuotaProviderStateDiagnostics {
-  path: string;
-  exists: boolean;
-  health: LocalQuotaProviderStateHealth;
-  version: number | null;
-  lastUpdatedAt: number | null;
-}
-
-export interface LocalEstimateResult {
-  entries: QuotaToastEntry[];
-  state: LocalQuotaProviderStateV1;
-  unpricedMessageCount: number;
-}
-
-interface LocalStateDependencies {
-  nowMs?: number;
-  runtimeDirs?: OpencodeRuntimeDirs;
-  readMessages?: (params: {
-    completedSinceMs: number;
-    completedUntilMs: number;
-  }) => Promise<OpenCodeMessage[]>;
-  readText?: (path: string) => Promise<string>;
-  writeState?: (path: string, state: LocalQuotaProviderStateV1) => Promise<void>;
-}
-
-function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
-  const allowedSet = new Set(allowed);
-  return Object.keys(value).every((key) => allowedSet.has(key));
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function isTokenBuckets(value: unknown): value is TokenBuckets {
-  const record = asRecord(value);
-  if (
-    !record ||
-    !hasOnlyKeys(record, ["input", "output", "reasoning", "cache_read", "cache_write"])
-  ) {
-    return false;
-  }
-  return ["input", "output", "reasoning", "cache_read", "cache_write"].every(
-    (key) =>
-      typeof record[key] === "number" && Number.isFinite(record[key]) && Number(record[key]) >= 0,
-  );
-}
-
-function normalizeMessage(value: unknown): LocalQuotaProviderMessage | null {
-  const record = asRecord(value);
-  if (
-    !record ||
-    !hasOnlyKeys(record, ["id", "atMs", "providerId", "modelId", "tokens"]) ||
-    typeof record.id !== "string" ||
-    record.id.length === 0 ||
-    typeof record.atMs !== "number" ||
-    !Number.isFinite(record.atMs) ||
-    record.atMs <= 0 ||
-    typeof record.providerId !== "string" ||
-    record.providerId.length === 0 ||
-    typeof record.modelId !== "string" ||
-    record.modelId.length === 0 ||
-    !isTokenBuckets(record.tokens)
-  ) {
-    return null;
-  }
-  return {
-    id: record.id,
-    atMs: Math.trunc(record.atMs),
-    providerId: record.providerId,
-    modelId: record.modelId,
-    tokens: { ...record.tokens },
-  };
-}
-
-function normalizeState(
-  value: unknown,
-  definition: LocalEstimateQuotaProviderDefinition,
-): { state: LocalQuotaProviderStateV1; health: LocalQuotaProviderStateHealth } {
-  const record = asRecord(value);
-  if (!record) return { state: emptyState(definition, 0), health: "malformed" };
-  if (record.version !== QUOTA_PROVIDER_LOCAL_STATE_VERSION) {
-    return { state: emptyState(definition, 0), health: "version_mismatch" };
-  }
-  if (
-    !hasOnlyKeys(record, ["version", "definitionId", "providerId", "updatedAt", "messages"]) ||
-    record.definitionId !== definition.id ||
-    record.providerId !== definition.providerId ||
-    typeof record.updatedAt !== "number" ||
-    !Number.isFinite(record.updatedAt) ||
-    record.updatedAt < 0 ||
-    !Array.isArray(record.messages)
-  ) {
-    return { state: emptyState(definition, 0), health: "malformed" };
-  }
-
-  const messages: LocalQuotaProviderMessage[] = [];
-  for (const value of record.messages) {
-    const message = normalizeMessage(value);
-    if (!message) return { state: emptyState(definition, 0), health: "malformed" };
-    messages.push(message);
-  }
-  return {
-    state: {
-      version: QUOTA_PROVIDER_LOCAL_STATE_VERSION,
-      definitionId: definition.id,
-      providerId: definition.providerId,
-      updatedAt: Math.trunc(record.updatedAt),
-      messages,
-    },
-    health: "healthy",
-  };
-}
-
-function emptyState(
-  definition: LocalEstimateQuotaProviderDefinition,
-  updatedAt: number,
-): LocalQuotaProviderStateV1 {
-  return {
-    version: QUOTA_PROVIDER_LOCAL_STATE_VERSION,
-    definitionId: definition.id,
-    providerId: definition.providerId,
-    updatedAt,
-    messages: [],
-  };
-}
-
-export function getLocalQuotaProviderStatePath(
-  definitionId: string,
-  runtimeDirs: OpencodeRuntimeDirs = getOpencodeRuntimeDirs(),
-): string {
-  return join(runtimeDirs.stateDir, LOCAL_STATE_DIR, `${definitionId}.json`);
-}
-
-function utcDayStart(nowMs: number): number {
+function windowStart(window: LocalEstimateWindow, nowMs: number): number {
+  if (window.type === "rolling") return nowMs - window.durationMinutes! * MINUTE_MS;
   const now = new Date(nowMs);
   return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
 }
 
-function windowStart(window: LocalEstimateWindow, nowMs: number): number {
-  return window.type === "utc-day"
-    ? utcDayStart(nowMs)
-    : nowMs - window.durationMinutes! * 60 * 1000;
-}
-
-function retentionStart(definition: LocalEstimateQuotaProviderDefinition, nowMs: number): number {
-  return Math.min(...definition.windows.map((window) => windowStart(window, nowMs)));
-}
-
-function messageTimestamp(message: OpenCodeMessage): number | null {
-  const value = message.time?.completed;
-  return typeof value === "number" && Number.isFinite(value) && value > 0
-    ? Math.trunc(value)
-    : null;
-}
-
-function matchesDefinition(
-  definition: LocalEstimateQuotaProviderDefinition,
+/** A completed assistant message as a request, or null when it is not one this count covers. */
+function countedRequest(
   message: OpenCodeMessage,
-): boolean {
-  return (
-    message.role === "assistant" &&
-    message.providerID === definition.providerId &&
-    typeof message.modelID === "string" &&
-    (definition.modelIds === undefined || definition.modelIds.includes(message.modelID))
-  );
+  providerIds: readonly string[],
+  modelIds: readonly string[] | undefined,
+  requireModelId: boolean,
+): CountedRequest | null {
+  const completed = message.time?.completed;
+  // Only finished requests count, timed by when they completed.
+  const atMs =
+    typeof completed === "number" && Number.isFinite(completed) ? Math.trunc(completed) : 0;
+  const modelId = typeof message.modelID === "string" ? message.modelID : "";
+  if (
+    message.role !== "assistant" ||
+    !message.providerID ||
+    !providerIds.includes(message.providerID) ||
+    (requireModelId && !modelId) ||
+    (modelIds !== undefined && !modelIds.includes(modelId)) ||
+    !message.id ||
+    atMs <= 0
+  ) {
+    return null;
+  }
+  return { id: message.id, atMs, modelId, tokens: tokenBucketsFromMessage(message) };
 }
 
-function toStateMessage(message: OpenCodeMessage): LocalQuotaProviderMessage | null {
-  const atMs = messageTimestamp(message);
-  if (!atMs || !message.providerID || !message.modelID || !message.id) return null;
-  return {
-    id: message.id,
-    atMs,
-    providerId: message.providerID,
-    modelId: message.modelID,
-    tokens: tokenBucketsFromMessage(message),
-  };
-}
-
-export async function syncLocalQuotaProviderState(
-  definition: LocalEstimateQuotaProviderDefinition,
-  dependencies: LocalStateDependencies = {},
-): Promise<LocalQuotaProviderStateV1> {
-  const nowMs = dependencies.nowMs ?? Date.now();
-  const path = getLocalQuotaProviderStatePath(definition.id, dependencies.runtimeDirs);
-  const readMessages =
-    dependencies.readMessages ??
-    ((params) =>
-      iterCompletedAssistantMessages({
-        completedSinceMs: params.completedSinceMs,
-        completedUntilMs: params.completedUntilMs,
-      }));
-  const writeState =
-    dependencies.writeState ??
-    ((target, state) => writeJsonAtomic(target, state, { trailingNewline: true }));
-
-  const completedSinceMs = retentionStart(definition, nowMs);
-  const fresh = await readMessages({ completedSinceMs, completedUntilMs: nowMs });
-
-  const byId = new Map<string, LocalQuotaProviderMessage>();
-  for (const raw of fresh) {
-    if (!matchesDefinition(definition, raw)) continue;
-    const message = toStateMessage(raw);
-    if (message && message.atMs >= completedSinceMs && message.atMs <= nowMs) {
-      byId.set(message.id, message);
+/**
+ * This machine's completed requests to `providerIds` (and `modelIds`, when given) in each
+ * window, read from OpenCode's own messages since the longest window began. With
+ * `requireModelId`, a message that names no model is left out. A message counts once. A rolling window resets when its oldest request leaves it; a UTC day at midnight UTC.
+ */
+export async function countRequestWindows(params: {
+  providerIds: readonly string[];
+  modelIds?: readonly string[];
+  requireModelId?: boolean;
+  windows: readonly LocalEstimateWindow[];
+  nowMs: number;
+  readMessages?: ReadCompletedMessages;
+}): Promise<WindowCount[]> {
+  const { nowMs } = params;
+  const readMessages = params.readMessages ?? iterCompletedAssistantMessages;
+  const completedSinceMs = Math.min(...params.windows.map((window) => windowStart(window, nowMs)));
+  const byId = new Map<string, CountedRequest>();
+  for (const message of await readMessages({ completedSinceMs, completedUntilMs: nowMs })) {
+    const request = countedRequest(
+      message,
+      params.providerIds,
+      params.modelIds,
+      params.requireModelId ?? false,
+    );
+    if (request && request.atMs >= completedSinceMs && request.atMs <= nowMs) {
+      byId.set(request.id, request);
     }
   }
+  const requests = [...byId.values()].sort(
+    (left, right) => left.atMs - right.atMs || left.id.localeCompare(right.id),
+  );
 
-  const next: LocalQuotaProviderStateV1 = {
-    version: QUOTA_PROVIDER_LOCAL_STATE_VERSION,
-    definitionId: definition.id,
-    providerId: definition.providerId,
-    updatedAt: nowMs,
-    messages: [...byId.values()].sort(
-      (left, right) => left.atMs - right.atMs || left.id.localeCompare(right.id),
-    ),
-  };
-  await writeState(path, next);
-  return next;
-}
-
-function resolveMessageCost(
-  definition: LocalEstimateQuotaProviderDefinition,
-  message: LocalQuotaProviderMessage,
-): number | null {
-  const automatic = resolvePricingKey({
-    providerID: message.providerId,
-    modelID: message.modelId,
+  return params.windows.map((window) => {
+    const sinceMs = windowStart(window, nowMs);
+    const inWindow = requests.filter((request) => request.atMs >= sinceMs);
+    if (window.type === "utc-day") {
+      return {
+        window,
+        requests: inWindow,
+        resetsAt: new Date(sinceMs + DAY_MS).toISOString(),
+        // The count covers the whole UTC day once the day has begun.
+        ...(sinceMs < nowMs ? { windowStartedAt: new Date(sinceMs).toISOString() } : {}),
+      };
+    }
+    const [oldest] = inWindow;
+    return {
+      window,
+      requests: inWindow,
+      ...(oldest
+        ? { resetsAt: new Date(oldest.atMs + window.durationMinutes! * MINUTE_MS).toISOString() }
+        : {}),
+    };
   });
-  if (automatic.ok) {
-    const rates = lookupCost(automatic.key.provider, automatic.key.model);
-    return rates ? calculateUsdFromTokenBuckets(rates, message.tokens) : null;
-  }
-
-  const manual = definition.pricingModelMap?.[message.modelId];
-  if (!manual) return null;
-  const slash = manual.indexOf("/");
-  const rates = lookupCost(manual.slice(0, slash), manual.slice(slash + 1));
-  return rates ? calculateUsdFromTokenBuckets(rates, message.tokens) : null;
 }
 
-function nextUtcMidnight(nowMs: number): string {
-  return new Date(utcDayStart(nowMs) + DAY_MS).toISOString();
+/** A request's cost in USD, or null when it has no price; `pricingModelMap` is a fallback. */
+function requestCost(
+  definition: LocalEstimateQuotaProviderDefinition,
+  request: CountedRequest,
+): number | null {
+  const price = priceMessage(
+    { providerID: definition.providerId, modelID: request.modelId },
+    request.tokens,
+    { modelMap: definition.pricingModelMap },
+  );
+  return price.kind === "priced" ? price.usd : null;
 }
 
-function rollingReset(
-  messages: readonly LocalQuotaProviderMessage[],
-  window: LocalEstimateWindow,
-): string | undefined {
-  const oldest = messages[0];
-  return oldest
-    ? new Date(oldest.atMs + window.durationMinutes! * 60 * 1000).toISOString()
-    : undefined;
+function requestCount(count: number): Amount {
+  return { decimal: accountingDecimalFromNumber(count), unit: { kind: "count", unit: "request" } };
 }
 
-function formatUsd(value: number): string {
-  return `$${value.toFixed(2)}`;
+/** Dollars to the cent. */
+function usdAmount(value: number): Amount {
+  return {
+    decimal: accountingDecimalFromNumber(Number(value.toFixed(2))),
+    unit: { kind: "currency", code: "USD" },
+  };
 }
 
-function percentRemaining(used: number, limit: number): number {
+function clampedPercentRemaining(used: number, limit: number): number {
   return Math.max(0, Math.min(100, ((limit - used) / limit) * 100));
 }
 
-export function computeLocalQuotaProviderEstimate(params: {
-  definition: LocalEstimateQuotaProviderDefinition;
-  state: LocalQuotaProviderStateV1;
-  nowMs?: number;
-}): LocalEstimateResult {
-  const nowMs = params.nowMs ?? Date.now();
-  const entries: QuotaToastEntry[] = [];
-  let totalUnpriced = 0;
-
-  for (const window of params.definition.windows) {
-    const sinceMs = windowStart(window, nowMs);
-    const messages = params.state.messages.filter(
-      (message) => message.atMs >= sinceMs && message.atMs <= nowMs,
-    );
-    const resetTimeIso =
-      window.type === "utc-day" ? nextUtcMidnight(nowMs) : rollingReset(messages, window);
-    const fixedWindow =
-      window.type === "utc-day" &&
-      resetTimeIso !== undefined &&
-      sinceMs < params.state.updatedAt &&
-      params.state.updatedAt < Date.parse(resetTimeIso)
-        ? ({
-            kind: "fixed_window",
-            startedAtIso: new Date(sinceMs).toISOString(),
-            observedAtIso: new Date(params.state.updatedAt).toISOString(),
-            endsAtIso: resetTimeIso,
-            fullReset: true,
-          } as const)
-        : undefined;
-
-    entries.push({
-      accounting: {
+/**
+ * A local estimate's rows: each window's requests out of its limit and, with a USD budget, the
+ * spend out of the budget. Each key is the part of the row id after `custom.<definition id>.`.
+ */
+export async function collectLocalQuotaProviderEstimate(
+  definition: LocalEstimateQuotaProviderDefinition,
+  dependencies: { nowMs?: number; readMessages?: ReadCompletedMessages } = {},
+): Promise<{ rows: ProviderRow[] }> {
+  const counts = await countRequestWindows({
+    providerIds: [definition.providerId],
+    modelIds: definition.modelIds,
+    // A custom estimate prices each request by its model, so a request without one is skipped.
+    requireModelId: true,
+    windows: definition.windows,
+    nowMs: dependencies.nowMs ?? Date.now(),
+    readMessages: dependencies.readMessages,
+  });
+  const rows: ProviderRow[] = [];
+  for (const { window, requests, resetsAt, windowStartedAt } of counts) {
+    const started = windowStartedAt ? { windowStartedAt } : {};
+    rows.push({
+      ...customRow({
+        key: window.id,
+        name: window.label,
         resultType: "rate_limit",
-        acquisitionMethod: "local_estimation",
-        ownership: "user_configured",
-        authority: "locally_derived",
-        sourceId: params.definition.id,
-        observedAtIso: new Date(params.state.updatedAt).toISOString(),
-      },
-      kind: "percent",
-      name: `${params.definition.label} ${window.label}`,
-      group: params.definition.label,
-      label: `${window.label}:`,
-      right: `${messages.length}/${window.requestLimit}`,
-      percentRemaining: percentRemaining(messages.length, window.requestLimit),
-      ...(resetTimeIso ? { resetTimeIso } : {}),
-      ...(fixedWindow ? { fixedWindow } : {}),
+        method: "local_estimation",
+        value: {
+          percentRemaining: clampedPercentRemaining(requests.length, window.requestLimit),
+        },
+        resetsAt,
+      }),
+      used: requestCount(requests.length),
+      limit: requestCount(window.requestLimit),
+      ...started,
     });
 
     if (window.usdBudget === undefined) continue;
 
     let costUsd = 0;
     let unpriced = 0;
-    for (const message of messages) {
-      const cost = resolveMessageCost(params.definition, message);
+    for (const request of requests) {
+      const cost = requestCost(definition, request);
       if (cost === null) unpriced += 1;
       else costUsd += cost;
     }
-    totalUnpriced += unpriced;
 
-    const common = {
-      accounting: {
-        resultType: "budget" as const,
-        acquisitionMethod: "local_estimation" as const,
-        ownership: "user_configured" as const,
-        authority: "locally_derived" as const,
-        sourceId: params.definition.id,
-        observedAtIso: new Date(params.state.updatedAt).toISOString(),
-      },
-      name: `${params.definition.label} ${window.label} budget`,
-      group: params.definition.label,
-      label: `${window.label} budget:`,
-      ...(resetTimeIso ? { resetTimeIso } : {}),
-    };
+    const budgetRow = (value: { percentRemaining: number } | { text: string }): ProviderRow =>
+      customRow({
+        // Window ids are kebab-case, so "_budget" can't collide with another window's id.
+        key: `${window.id}_budget`,
+        name: `${window.label} budget`,
+        resultType: "budget",
+        method: "local_estimation",
+        value,
+        resetsAt,
+      });
+    // A partial sum would understate spend, so any unpriced request hides the budget percent.
     if (unpriced > 0) {
-      entries.push({
-        ...common,
-        kind: "value",
-        value: `Unavailable (${unpriced} unpriced request${unpriced === 1 ? "" : "s"})`,
-      });
+      rows.push(
+        budgetRow({
+          text: `Unavailable (${unpriced} unpriced request${unpriced === 1 ? "" : "s"})`,
+        }),
+      );
     } else {
-      entries.push({
-        ...common,
-        kind: "percent",
-        right: `${formatUsd(costUsd)}/${formatUsd(window.usdBudget)}`,
-        percentRemaining: percentRemaining(costUsd, window.usdBudget),
-        ...(fixedWindow ? { fixedWindow } : {}),
+      rows.push({
+        ...budgetRow({ percentRemaining: clampedPercentRemaining(costUsd, window.usdBudget) }),
+        used: usdAmount(costUsd),
+        limit: usdAmount(window.usdBudget),
+        ...started,
       });
     }
   }
-
-  return { entries, state: params.state, unpricedMessageCount: totalUnpriced };
-}
-
-export async function collectLocalQuotaProviderEstimate(
-  definition: LocalEstimateQuotaProviderDefinition,
-  dependencies: LocalStateDependencies = {},
-): Promise<LocalEstimateResult> {
-  const state = await syncLocalQuotaProviderState(definition, dependencies);
-  return computeLocalQuotaProviderEstimate({
-    definition,
-    state,
-    ...(dependencies.nowMs !== undefined ? { nowMs: dependencies.nowMs } : {}),
-  });
-}
-
-export async function inspectLocalQuotaProviderState(
-  definition: LocalEstimateQuotaProviderDefinition,
-  dependencies: Pick<LocalStateDependencies, "runtimeDirs" | "readText"> = {},
-): Promise<LocalQuotaProviderStateDiagnostics> {
-  const path = getLocalQuotaProviderStatePath(definition.id, dependencies.runtimeDirs);
-  const readText = dependencies.readText ?? ((target) => readFile(target, "utf8"));
-  try {
-    const raw = JSON.parse(await readText(path)) as unknown;
-    const record = asRecord(raw);
-    const version = typeof record?.version === "number" ? record.version : null;
-    const normalized = normalizeState(raw, definition);
-    let lastUpdatedAt: number | null = null;
-    try {
-      const fileStats = await stat(path);
-      lastUpdatedAt =
-        normalized.health === "healthy" ? normalized.state.updatedAt : fileStats.mtimeMs;
-    } catch {
-      lastUpdatedAt = normalized.health === "healthy" ? normalized.state.updatedAt : null;
-    }
-    return {
-      path,
-      exists: true,
-      health: normalized.health,
-      version,
-      lastUpdatedAt,
-    };
-  } catch (error) {
-    if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      String((error as { code?: unknown }).code) === "ENOENT"
-    ) {
-      return { path, exists: false, health: "missing", version: null, lastUpdatedAt: null };
-    }
-    return { path, exists: true, health: "malformed", version: null, lastUpdatedAt: null };
-  }
-}
-
-export function __resetLocalQuotaProviderStateForTests(): void {
-  // Local state is derived from authoritative OpenCode storage; no mutation queue exists.
+  return { rows };
 }

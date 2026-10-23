@@ -1,70 +1,48 @@
 /**
  * OpenAI (ChatGPT) quota fetcher
  *
- * Uses OpenCode's opencode.db native OpenCode OAuth entries and queries:
+ * Reads OpenCode's OpenAI OAuth logins and queries
  * https://chatgpt.com/backend-api/wham/usage
  */
 
 import { sanitizeDisplayText } from "./display-sanitize.js";
 import type { FixedWindowProjectionEvidence } from "./entries.js";
 import { clampPercent } from "./format-utils.js";
-import { fetchWithTimeout } from "./http.js";
-import { readAuthFileCached } from "./opencode-auth.js";
-import { deriveResolvedAuthIdentity, type ResolvedAuthIdentity } from "./resolved-auth-identity.js";
-import type { AuthData, OpenAIOAuthData, QuotaError } from "./types.js";
+import { failureFacts, requestJson } from "./http.js";
+import { finiteNumber, isRecord } from "./json-guards.js";
+import {
+  activeCredentialRows,
+  type CredentialRow,
+  readActiveCredentialRowsCached,
+  readCredentialRows,
+  readOAuthLogin,
+} from "./opencode-auth.js";
+import {
+  deriveResolvedAuthIdentity,
+  loginListIdentity,
+  type ResolvedAuthIdentity,
+} from "./resolved-auth-identity.js";
+import type { QuotaError } from "./types.js";
 
 interface OpenAIUsageResponse {
   plan_type: string;
-  rate_limit: {
-    limit_reached: boolean;
-    primary_window?: unknown;
-    secondary_window?: unknown;
-  } | null;
-  code_review_rate_limit?: {
-    primary_window?: unknown;
-  } | null;
-  spend_control?: {
-    individual_limit?: unknown;
-  } | null;
-  credits?: {
-    has_credits: boolean;
-    unlimited: boolean;
-    balance: string | null;
-  } | null;
+  rate_limit: { primary_window?: unknown; secondary_window?: unknown } | null;
+  code_review_rate_limit?: { primary_window?: unknown } | null;
+  spend_control?: { individual_limit?: unknown } | null;
 }
 
 interface JwtPayload {
-  "https://api.openai.com/profile"?: {
-    email?: string;
-  };
-  "https://api.openai.com/auth"?: {
-    chatgpt_account_id?: string;
-  };
+  "https://api.openai.com/auth"?: { chatgpt_account_id?: string };
 }
 
-function base64UrlDecode(input: string): string {
-  const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padLen = (4 - (base64.length % 4)) % 4;
-  const padded = base64 + "=".repeat(padLen);
-  return Buffer.from(padded, "base64").toString("utf8");
-}
-
-function parseJwt(token: string): JwtPayload | null {
+function parseJwtPayload(token: string): JwtPayload | null {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
   try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return null;
-    return JSON.parse(base64UrlDecode(parts[1])) as JwtPayload;
+    return JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as JwtPayload;
   } catch {
     return null;
   }
-}
-
-function getEmailFromJwt(token: string): string | null {
-  return parseJwt(token)?.["https://api.openai.com/profile"]?.email ?? null;
-}
-
-function getAccountIdFromJwt(token: string): string | null {
-  return parseJwt(token)?.["https://api.openai.com/auth"]?.chatgpt_account_id ?? null;
 }
 
 type OpenAIWindowKind = "hourly" | "weekly" | "monthly";
@@ -75,6 +53,8 @@ type OpenAIWindowValue = {
   fixedWindow?: FixedWindowProjectionEvidence;
 };
 
+type OpenAIWindows = Partial<Record<OpenAIWindowKind | "codeReview", OpenAIWindowValue>>;
+
 const WINDOW_KIND_BY_DURATION: Readonly<Record<number, OpenAIWindowKind>> = {
   18000: "hourly",
   604800: "weekly",
@@ -83,87 +63,57 @@ const WINDOW_KIND_BY_DURATION: Readonly<Record<number, OpenAIWindowKind>> = {
 
 function isoFromMilliseconds(milliseconds: number): string | undefined {
   if (!Number.isFinite(milliseconds) || milliseconds <= 0) return undefined;
-
   const date = new Date(milliseconds);
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
-function resetIsoFromNowSeconds(seconds: unknown, observedAtMs: number): string | undefined {
-  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) {
-    return undefined;
-  }
-  return isoFromMilliseconds(observedAtMs + Math.round(seconds * 1000));
+function positiveSeconds(value: unknown): number | undefined {
+  const seconds = finiteNumber(value);
+  return seconds !== undefined && seconds > 0 ? seconds : undefined;
 }
 
-function resetIsoFromResetAt(resetAt: unknown): string | undefined {
-  if (typeof resetAt !== "number" || !Number.isFinite(resetAt) || resetAt <= 0) {
-    return undefined;
-  }
-  return isoFromMilliseconds(Math.round(resetAt * 1000));
+/** `reset_at` (epoch seconds) when it is a representable date, else `reset_after_seconds` from now. */
+function resetTimeIso(window: Record<string, unknown>, observedAtMs: number): string | undefined {
+  const resetAt = positiveSeconds(window.reset_at);
+  const resetAfter = positiveSeconds(window.reset_after_seconds);
+  return (
+    (resetAt === undefined ? undefined : isoFromMilliseconds(Math.round(resetAt * 1000))) ??
+    (resetAfter === undefined
+      ? undefined
+      : isoFromMilliseconds(observedAtMs + Math.round(resetAfter * 1000)))
+  );
 }
 
-function parseWindowValue(window: unknown, observedAtMs: number): OpenAIWindowValue | null {
-  if (!window || typeof window !== "object") return null;
-
-  const value = window as Record<string, unknown>;
-  if (typeof value.used_percent !== "number" || !Number.isFinite(value.used_percent)) {
-    return null;
-  }
-
-  return {
-    percentRemaining: clampPercent(100 - value.used_percent),
-    resetTimeIso:
-      resetIsoFromResetAt(value.reset_at) ??
-      resetIsoFromNowSeconds(value.reset_after_seconds, observedAtMs),
-  };
-}
-
-function parseRemainingWindowValue(
+/** A window reporting `used_percent` (rate limits) or `remaining_percent` (spend limits). */
+function parseWindowValue(
   window: unknown,
   observedAtMs: number,
+  percentField: "used_percent" | "remaining_percent" = "used_percent",
 ): OpenAIWindowValue | null {
-  if (!window || typeof window !== "object") return null;
-
-  const value = window as Record<string, unknown>;
-  if (typeof value.remaining_percent !== "number" || !Number.isFinite(value.remaining_percent)) {
-    return null;
-  }
-
+  if (!isRecord(window)) return null;
+  const percent = finiteNumber(window[percentField]);
+  if (percent === undefined) return null;
   return {
-    percentRemaining: clampPercent(value.remaining_percent),
-    resetTimeIso:
-      resetIsoFromResetAt(value.reset_at) ??
-      resetIsoFromNowSeconds(value.reset_after_seconds, observedAtMs),
+    percentRemaining: clampPercent(percentField === "used_percent" ? 100 - percent : percent),
+    resetTimeIso: resetTimeIso(window, observedAtMs),
   };
 }
 
+/** A rate-limit window, classified by its duration; unknown durations are dropped. */
 function parseRateLimitWindow(
   window: unknown,
   observedAtMs: number,
 ): { kind: OpenAIWindowKind; value: OpenAIWindowValue } | null {
-  if (!window || typeof window !== "object") return null;
-
-  const raw = window as Record<string, unknown>;
-  if (typeof raw.limit_window_seconds !== "number" || !Number.isFinite(raw.limit_window_seconds)) {
-    return null;
-  }
-
-  const kind = WINDOW_KIND_BY_DURATION[raw.limit_window_seconds];
-  if (!kind) return null;
-
-  const value = parseWindowValue(window, observedAtMs);
-  if (!value) return null;
+  if (!isRecord(window) || typeof window.limit_window_seconds !== "number") return null;
+  const durationSeconds = window.limit_window_seconds;
+  const kind = WINDOW_KIND_BY_DURATION[durationSeconds];
+  const value = kind ? parseWindowValue(window, observedAtMs) : null;
+  if (!kind || !value) return null;
 
   const endsAtMs = value.resetTimeIso ? Date.parse(value.resetTimeIso) : Number.NaN;
-  const startedAtMs = endsAtMs - raw.limit_window_seconds * 1000;
+  const startedAtMs = endsAtMs - durationSeconds * 1000;
   if (Number.isFinite(startedAtMs) && startedAtMs < observedAtMs && observedAtMs < endsAtMs) {
-    value.fixedWindow = {
-      kind: "fixed_window",
-      startedAtIso: new Date(startedAtMs).toISOString(),
-      observedAtIso: new Date(observedAtMs).toISOString(),
-      endsAtIso: new Date(endsAtMs).toISOString(),
-      fullReset: true,
-    };
+    value.fixedWindow = { startedAtIso: new Date(startedAtMs).toISOString() };
   }
   return { kind, value };
 }
@@ -178,35 +128,17 @@ function derivePlanLabel(planType: string | undefined): string {
 }
 
 const OPENAI_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
-export const DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS = 5_000;
+const OPENAI_AUTH_CACHE_MAX_AGE_MS = 5_000;
 // Not `opencode`: in OpenCode 2 its OAuth entry is the Console login, which
 // authorizes Console APIs, not OpenAI.
 export const OPENAI_AUTH_SOURCE_KEYS = ["openai", "codex", "chatgpt"] as const;
 
-export type OpenAIAuthSourceKey = (typeof OPENAI_AUTH_SOURCE_KEYS)[number];
+type OpenAIAuthSourceKey = (typeof OPENAI_AUTH_SOURCE_KEYS)[number];
 
-export type OpenAIResult =
-  | {
-      success: true;
-      label: string;
-      email?: string;
-      windows: {
-        hourly?: OpenAIWindowValue;
-        weekly?: OpenAIWindowValue;
-        monthly?: OpenAIWindowValue;
-        codeReview?: OpenAIWindowValue;
-      };
-      credits?: {
-        hasCredits: boolean;
-        unlimited: boolean;
-        balance: string | null;
-      };
-    }
-  | QuotaError
-  | null;
+export type OpenAIResult = { success: true; label: string; windows: OpenAIWindows } | QuotaError;
 
-export type ResolvedOpenAIOAuth =
-  | { state: "none" }
+/** A stored OpenAI login: one OpenCode could not return, or one with an access token. */
+export type OpenAIOAuthLogin =
   | { state: "failed"; sourceKey: OpenAIAuthSourceKey; error: string }
   | {
       state: "configured";
@@ -214,88 +146,92 @@ export type ResolvedOpenAIOAuth =
       accessToken: string;
       refreshToken?: string;
       expiresAt?: number;
-      email?: string;
       accountId?: string;
     };
 
-function getOpenAIOAuthEntry(
-  auth: AuthData | null | undefined,
-): { sourceKey: OpenAIAuthSourceKey; entry: OpenAIOAuthData; accessToken: string } | null {
-  for (const sourceKey of OPENAI_AUTH_SOURCE_KEYS) {
-    const entry = auth?.[sourceKey];
-    if (!entry || entry.type !== "oauth") {
-      continue;
-    }
+type ResolvedOpenAIOAuth = { state: "none" } | OpenAIOAuthLogin;
 
-    const accessToken = typeof entry.access === "string" ? entry.access.trim() : "";
-    if (accessToken || entry.resolveError !== undefined) {
-      return { sourceKey, entry, accessToken };
-    }
-  }
+/** One row's OpenAI sign-in: `none` for a row that is not an OAuth login or has no token. */
+export function resolveOpenAIOAuth(row: CredentialRow): ResolvedOpenAIOAuth {
+  const sourceKey = OPENAI_AUTH_SOURCE_KEYS.find((key) => key === row.integrationId);
+  const login = sourceKey ? readOAuthLogin(row) : null;
+  if (!sourceKey || !login) return { state: "none" };
+  if (login.state === "failed") return { state: "failed", sourceKey, error: login.error };
+  const { accessToken } = login;
+  if (!accessToken) return { state: "none" };
 
-  return null;
-}
-
-export function resolveOpenAIOAuth(auth: AuthData | null | undefined): ResolvedOpenAIOAuth {
-  const resolved = getOpenAIOAuthEntry(auth);
-  if (!resolved) {
-    return { state: "none" };
-  }
-  if (resolved.entry.resolveError !== undefined) {
-    return { state: "failed", sourceKey: resolved.sourceKey, error: resolved.entry.resolveError };
-  }
-
-  const email = getEmailFromJwt(resolved.accessToken) ?? undefined;
-  const accountId =
-    getAccountIdFromJwt(resolved.accessToken) ?? resolved.entry.accountId ?? undefined;
-
+  const jwt = parseJwtPayload(accessToken);
+  const storedAccountId = login.fields.accountId;
   return {
     state: "configured",
-    sourceKey: resolved.sourceKey,
-    accessToken: resolved.accessToken,
-    refreshToken:
-      typeof resolved.entry.refresh === "string" && resolved.entry.refresh.trim()
-        ? resolved.entry.refresh
-        : undefined,
-    expiresAt: typeof resolved.entry.expires === "number" ? resolved.entry.expires : undefined,
-    email,
-    accountId,
+    sourceKey,
+    accessToken,
+    refreshToken: login.refreshToken,
+    expiresAt: login.expiresAt,
+    accountId:
+      jwt?.["https://api.openai.com/auth"]?.chatgpt_account_id ??
+      (typeof storedAccountId === "string" ? storedAccountId : undefined),
   };
 }
 
-export function hasOpenAIOAuth(auth: AuthData | null | undefined): boolean {
-  return resolveOpenAIOAuth(auth).state !== "none";
-}
-
-export async function resolveOpenAIAuthIdentity(params?: {
-  maxAgeMs?: number;
-}): Promise<ResolvedAuthIdentity | null> {
-  const auth = await readAuthFileCached({
-    maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS),
-    integrationIds: OPENAI_AUTH_SOURCE_KEYS,
-  });
-  const resolved = resolveOpenAIOAuth(auth);
-  if (resolved.state !== "configured") return null;
-
-  if (resolved.accountId) {
-    return deriveResolvedAuthIdentity({
-      providerId: "openai",
-      principal: { kind: "stable-id", value: resolved.accountId },
-    });
+/**
+ * The login OpenCode reports as active, the first of `openai`, `codex`, `chatgpt` with a token
+ * or a resolve error (cached briefly).
+ */
+export async function readOpenAIAuthCached(): Promise<ResolvedOpenAIOAuth> {
+  const rows = activeCredentialRows(
+    await readActiveCredentialRowsCached({
+      maxAgeMs: OPENAI_AUTH_CACHE_MAX_AGE_MS,
+      integrationIds: OPENAI_AUTH_SOURCE_KEYS,
+    }),
+  );
+  for (const sourceKey of OPENAI_AUTH_SOURCE_KEYS) {
+    const row = rows.find((active) => active.integrationId === sourceKey);
+    const oauth = row ? resolveOpenAIOAuth(row) : { state: "none" as const };
+    if (oauth.state !== "none") return oauth;
   }
-  const credential = resolved.refreshToken ?? resolved.accessToken;
-  return deriveResolvedAuthIdentity({
-    providerId: "openai",
-    principal: { kind: "credential", value: credential },
+  return { state: "none" };
+}
+
+/** A stored OpenAI login (OAuth or API key) with its OAuth sign-in, when it has one. */
+export type OpenAILogin = { row: CredentialRow; oauth?: OpenAIOAuthLogin };
+
+/** Every stored OpenAI login, OAuth and API key; a failed one stays so it shows as an error. */
+export async function readOpenAILogins(): Promise<OpenAILogin[]> {
+  const rows = await readCredentialRows(OPENAI_AUTH_SOURCE_KEYS, { methods: ["oauth", "key"] });
+  return rows.map((row) => {
+    if (row.value.type === "api") return { row };
+    const oauth = resolveOpenAIOAuth(row);
+    return oauth.state === "none" ? { row } : { row, oauth };
   });
 }
 
-export async function hasOpenAIOAuthCached(params?: { maxAgeMs?: number }): Promise<boolean> {
-  const auth = await readAuthFileCached({
-    maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS),
-    integrationIds: OPENAI_AUTH_SOURCE_KEYS,
-  });
-  return hasOpenAIOAuth(auth);
+/**
+ * Who OpenAI is signed in as: each OAuth sign-in's account (or token), and each other login by
+ * its connection, since its rows do not depend on a secret. A failed login can't be told apart.
+ */
+export async function openaiLoginsIdentity(
+  logins: readonly OpenAILogin[],
+): Promise<ResolvedAuthIdentity | null> {
+  return loginListIdentity(
+    "openai",
+    await Promise.all(
+      logins.map(async ({ row, oauth }) => {
+        if (row.resolveError !== undefined || oauth?.state === "failed") {
+          return { row, identity: null };
+        }
+        const principal = oauth
+          ? oauth.accountId
+            ? { kind: "stable-id" as const, value: oauth.accountId }
+            : { kind: "credential" as const, value: oauth.refreshToken ?? oauth.accessToken }
+          : { kind: "stable-id" as const, value: `connection:${row.id}` };
+        return {
+          row,
+          identity: await deriveResolvedAuthIdentity({ providerId: "openai", principal }),
+        };
+      }),
+    ),
+  );
 }
 
 /** A login label that can go into a shell command unquoted and is not read as an option. */
@@ -307,127 +243,100 @@ const OPENAI_ERROR_CODE = /^[A-Za-z0-9_.-]{1,64}$/u;
  * Only OpenAI's short error code, never the free-text body, which can echo
  * account details.
  */
-async function readOpenAIErrorCode(resp: Response): Promise<string | undefined> {
+function openAIErrorCode(body: string): string | undefined {
   try {
-    const body = (await resp.json()) as { error?: { code?: unknown } } | null;
-    const code = body?.error?.code;
+    const parsed = JSON.parse(body) as { error?: { code?: unknown } } | null;
+    const code = parsed?.error?.code;
     return typeof code === "string" && OPENAI_ERROR_CODE.test(code) ? code : undefined;
   } catch {
     return undefined;
   }
 }
 
-export async function queryOpenAIQuota(
-  options: { requestTimeoutMs?: number; auth?: ResolvedOpenAIOAuth; loginLabel?: string } = {},
-): Promise<OpenAIResult> {
-  const resolvedAuth =
-    options.auth ??
-    resolveOpenAIOAuth(
-      await readAuthFileCached({
-        maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS,
-        integrationIds: OPENAI_AUTH_SOURCE_KEYS,
-      }),
-    );
-  if (resolvedAuth.state === "failed") {
+function parseUsageResponse(data: OpenAIUsageResponse): OpenAIResult {
+  const observedAtMs = Date.now();
+  const windows: OpenAIWindows = {};
+  // Two windows of the same duration that disagree are both dropped instead of guessing.
+  const conflictingKinds = new Set<OpenAIWindowKind>();
+  for (const window of [data.rate_limit?.primary_window, data.rate_limit?.secondary_window]) {
+    const parsed = parseRateLimitWindow(window, observedAtMs);
+    if (!parsed || conflictingKinds.has(parsed.kind)) continue;
+
+    const existing = windows[parsed.kind];
+    if (!existing) {
+      windows[parsed.kind] = parsed.value;
+    } else if (
+      existing.percentRemaining !== parsed.value.percentRemaining ||
+      existing.resetTimeIso !== parsed.value.resetTimeIso
+    ) {
+      delete windows[parsed.kind];
+      conflictingKinds.add(parsed.kind);
+    }
+  }
+  const individualLimit = parseWindowValue(
+    data.spend_control?.individual_limit,
+    observedAtMs,
+    "remaining_percent",
+  );
+  if (!windows.monthly && individualLimit) windows.monthly = individualLimit;
+  const codeReview = parseWindowValue(data.code_review_rate_limit?.primary_window, observedAtMs);
+  if (codeReview) windows.codeReview = codeReview;
+
+  if (Object.keys(windows).length === 0) {
+    return { success: false, error: "No quota data" };
+  }
+
+  return { success: true, label: derivePlanLabel(data.plan_type), windows };
+}
+
+export async function queryOpenAIQuota(options: {
+  auth: OpenAIOAuthLogin;
+  requestTimeoutMs?: number;
+  loginLabel?: string;
+}): Promise<OpenAIResult> {
+  const { auth } = options;
+  if (auth.state === "failed") {
     // Signing in again leaves a broken login with another label in place
     // (#316), so name the command that removes it when the label is known.
     // Not trimmed: " Work " is a different login than "Work".
     const label = options.loginLabel;
     const fix =
       label && SHELL_SAFE_LOGIN_LABEL.test(label)
-        ? `Run \`opencode auth logout ${resolvedAuth.sourceKey} ${label}\`, then \`opencode auth login openai\`.`
+        ? `Run \`opencode auth logout ${auth.sourceKey} ${label}\`, then \`opencode auth login openai\`.`
         : "Run `opencode auth login openai`.";
     return {
       success: false,
-      error: `OpenAI sign-in could not be refreshed: ${resolvedAuth.error}. ${fix}`,
+      error: `OpenAI sign-in could not be refreshed: ${auth.error}. ${fix}`,
     };
   }
-  if (resolvedAuth.state !== "configured") return null;
 
-  if (resolvedAuth.expiresAt && resolvedAuth.expiresAt < Date.now()) {
+  if (auth.expiresAt && auth.expiresAt < Date.now()) {
     return { success: false, error: "Token expired" };
   }
 
-  try {
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${resolvedAuth.accessToken}`,
-      "User-Agent": "OpenCode-Quota-Toast/1.0",
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${auth.accessToken}`,
+    "User-Agent": "OpenCode-Quota-Toast/1.0",
+    ...(auth.accountId ? { "ChatGPT-Account-Id": auth.accountId } : {}),
+  };
+  const reply = await requestJson(OPENAI_USAGE_URL, {
+    headers,
+    secrets: [auth.accessToken, auth.accountId],
+    timeoutMs: options.requestTimeoutMs,
+  });
+  if (!reply.ok) {
+    const { failure } = reply;
+    const facts = failureFacts(failure);
+    if (failure.kind !== "http") return { success: false, error: failure.detail, facts };
+    const code = openAIErrorCode(failure.detail);
+    return {
+      success: false,
+      error: `OpenAI API error ${failure.status}${code ? ` (${code})` : ""}`,
+      facts,
     };
-
-    const accountId = resolvedAuth.accountId;
-    if (accountId) {
-      headers["ChatGPT-Account-Id"] = accountId;
-    }
-
-    return await fetchWithTimeout(OPENAI_USAGE_URL, {
-      request: { headers },
-      timeoutMs: options.requestTimeoutMs,
-      consume: async (resp) => {
-        if (!resp.ok) {
-          const code = await readOpenAIErrorCode(resp);
-          return {
-            success: false,
-            error: `OpenAI API error ${resp.status}${code ? ` (${code})` : ""}`,
-          };
-        }
-
-        const data = (await resp.json()) as OpenAIUsageResponse;
-        const observedAtMs = Date.now();
-        const primary = parseRateLimitWindow(data.rate_limit?.primary_window, observedAtMs);
-        const secondary = parseRateLimitWindow(data.rate_limit?.secondary_window, observedAtMs);
-        const individualLimit = parseRemainingWindowValue(
-          data.spend_control?.individual_limit,
-          observedAtMs,
-        );
-        const codeReview = parseWindowValue(
-          data.code_review_rate_limit?.primary_window,
-          observedAtMs,
-        );
-        const credits = data.credits ?? null;
-        const windows: {
-          hourly?: OpenAIWindowValue;
-          weekly?: OpenAIWindowValue;
-          monthly?: OpenAIWindowValue;
-          codeReview?: OpenAIWindowValue;
-        } = {};
-
-        const conflictingKinds = new Set<OpenAIWindowKind>();
-        for (const parsed of [primary, secondary]) {
-          if (!parsed || conflictingKinds.has(parsed.kind)) continue;
-
-          const existing = windows[parsed.kind];
-          if (!existing) {
-            windows[parsed.kind] = parsed.value;
-          } else if (
-            existing.percentRemaining !== parsed.value.percentRemaining ||
-            existing.resetTimeIso !== parsed.value.resetTimeIso
-          ) {
-            delete windows[parsed.kind];
-            conflictingKinds.add(parsed.kind);
-          }
-        }
-        if (!windows.monthly && individualLimit) windows.monthly = individualLimit;
-        if (codeReview) windows.codeReview = codeReview;
-
-        if (Object.keys(windows).length === 0) {
-          return { success: false, error: "No quota data" };
-        }
-
-        return {
-          success: true,
-          label: derivePlanLabel(data.plan_type),
-          email: resolvedAuth.email,
-          windows,
-          credits: credits
-            ? {
-                hasCredits: Boolean(credits.has_credits),
-                unlimited: Boolean(credits.unlimited),
-                balance: credits.balance ?? null,
-              }
-            : undefined,
-        };
-      },
-    });
+  }
+  try {
+    return parseUsageResponse(reply.json as OpenAIUsageResponse);
   } catch (err) {
     return {
       success: false,

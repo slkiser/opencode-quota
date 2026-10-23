@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
   - name: Contribution Guidelines
-    url: https://github.com/slkiser/opencode-quota/blob/main/CONTRIBUTING.md
+    url: https://github.com/slkiser/opencode-quota/blob/main/.github/CONTRIBUTING.md
     about: Review contribution policy, quality bar, and PR checklist.
   - name: Track any provider yourself (custom providers)
     url: https://github.com/slkiser/opencode-quota/blob/main/docs/readme/providers.md#custom-providers

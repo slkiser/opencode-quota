@@ -7,7 +7,7 @@ async function main() {
     console.log(`Synced ${plugin.pluginId}@${plugin.version} -> ${plugin.referenceDir}`);
   }
   console.log(
-    `Updated references/upstream-plugins/lock.json for ${syncedPlugins.length} tracked plugins.`,
+    `Updated scripts/upstream-plugins/lock.json for ${syncedPlugins.length} tracked plugins.`,
   );
 }
 

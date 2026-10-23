@@ -1,55 +1,21 @@
+/**
+ * The cache policies several providers share. Each provider names its own policy
+ * (`cachePolicy` in `src/providers/<vendor>.ts`).
+ */
+
 import {
-  DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
-  resolveAlibabaCodingPlanAuthCached,
-} from "../lib/alibaba-auth.js";
-import { resolveAnthropicAuthIdentity } from "../lib/anthropic.js";
-import { resolveChutesApiKey } from "../lib/chutes-config.js";
-import { resolveCopilotAuthIdentity } from "../lib/copilot.js";
-import { resolveDeepSeekApiKey } from "../lib/deepseek-auth.js";
-import type { QuotaProviderCachePolicy } from "../lib/entries.js";
-import { resolveGoogleAgyAuthIdentity } from "../lib/google-agy.js";
-import { resolveGeminiCliAuthIdentity } from "../lib/google-gemini-cli.js";
-import { resolveKiloApiKey } from "../lib/kilo-config.js";
-import {
-  DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS,
-  resolveKimiCnAuthCached,
-  resolveKimiGlobalAuthCached,
-} from "../lib/kimi-auth.js";
-import {
-  DEFAULT_MIMO_CONFIG_CACHE_MAX_AGE_MS,
-  resolveMimoConfigCached,
-} from "../lib/mimo-config.js";
-import {
-  DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS,
-  resolveMiniMaxAuthCached,
-  resolveMiniMaxChinaAuthCached,
-} from "../lib/minimax-auth.js";
-import { resolveNanoGptApiKey } from "../lib/nanogpt-config.js";
-import { resolveOllamaCloudApiKey } from "../lib/ollama-cloud-config.js";
-import { resolveOpenAIAuthIdentity } from "../lib/openai.js";
-import { consoleBaseUrl, resolveOpenCodeConsoleAuth } from "../lib/opencode-console-auth.js";
-import {
-  DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
-  resolveOpenCodeGoAuthCached,
-} from "../lib/opencode-go-auth.js";
-import { resolveOpenRouterAuthIdentity } from "../lib/openrouter.js";
+  API_KEY_VENDORS,
+  type ApiKeyLoginSpec,
+  readVendorKeys,
+  type VendorKeys,
+} from "../lib/api-key-resolver.js";
+import type { QuotaProviderCachePolicy, QuotaProviderContext } from "../lib/entries.js";
 import type { CanonicalQuotaProviderId } from "../lib/provider-registration.js";
-import type {
-  QuotaProviderDefinition,
-  RemoteApiQuotaProviderDefinition,
-} from "../lib/quota-providers.js";
-import { resolveQuotaProviderApiKey } from "../lib/quota-providers-remote.js";
 import {
-  composeResolvedAuthIdentities,
   deriveResolvedAuthIdentity,
+  loginListIdentity,
   type ResolvedAuthIdentity,
 } from "../lib/resolved-auth-identity.js";
-import { resolveSyntheticApiKey } from "../lib/synthetic-config.js";
-import { resolveXaiAuthIdentity } from "../lib/xai.js";
-import { DEFAULT_ZAI_AUTH_CACHE_MAX_AGE_MS, resolveZaiAuthCached } from "../lib/zai-auth.js";
-import { DEFAULT_ZHIPU_AUTH_CACHE_MAX_AGE_MS, resolveZhipuAuthCached } from "../lib/zhipu-auth.js";
-
-const UNCACHED = { kind: "uncached" } as const satisfies QuotaProviderCachePolicy;
 
 type ResolvedCredential = {
   credential: string;
@@ -57,14 +23,15 @@ type ResolvedCredential = {
   qualifiers?: readonly string[];
 };
 
-function resolvedCredentialPolicy(
+/** The identity of the one credential `resolve` finds; none when it finds none. */
+export function resolvedCredentialPolicy(
   providerId: CanonicalQuotaProviderId,
-  resolve: () => Promise<ResolvedCredential | null>,
+  resolve: (ctx: QuotaProviderContext) => Promise<ResolvedCredential | null>,
 ): QuotaProviderCachePolicy {
   return {
     kind: "resolved-auth",
-    async resolveIdentity() {
-      const resolved = await resolve();
+    async resolveIdentity(ctx) {
+      const resolved = await resolve(ctx);
       if (!resolved) return null;
       return deriveResolvedAuthIdentity({
         providerId,
@@ -78,178 +45,45 @@ function resolvedCredentialPolicy(
   };
 }
 
-export async function resolveQuotaProviderDefinitionAuthIdentity(
-  definition: QuotaProviderDefinition,
+/**
+ * Who the vendor's keys are: the env or config key with where it was found, else each stored key
+ * login. A key bound to one regional `endpoint` has the endpoint in its identity. Null without a
+ * key, or when a login can't be told apart safely.
+ */
+export async function vendorKeysIdentity(
+  providerId: CanonicalQuotaProviderId,
+  keys: VendorKeys,
+  endpoint?: string,
 ): Promise<ResolvedAuthIdentity | null> {
-  if (definition.mode === "local-estimate") {
-    return deriveResolvedAuthIdentity({
-      providerId: `quota-providers:${definition.id}`,
-      principal: { kind: "stable-id", value: "local-estimate" },
+  const keyIdentity = (key: string, source?: string) =>
+    deriveResolvedAuthIdentity({
+      providerId,
+      principal: { kind: "credential", value: key },
+      qualifiers: [...(endpoint ? [endpoint] : []), ...(source ? [source] : [])],
     });
-  }
-
-  const resolved = await resolveQuotaProviderApiKey(definition as RemoteApiQuotaProviderDefinition);
-  return deriveResolvedAuthIdentity({
-    providerId: `quota-providers:${definition.id}`,
-    principal: resolved.key
-      ? { kind: "credential", value: resolved.key }
-      : { kind: "stable-id", value: "missing-credential" },
-    qualifiers: [definition.providerId],
-  });
+  if (keys.envOrConfig) return keyIdentity(keys.envOrConfig.key, keys.envOrConfig.source);
+  return loginListIdentity(
+    providerId,
+    await Promise.all(
+      keys.logins.map(async ({ row, auth }) => ({
+        row,
+        identity: auth.state === "configured" ? await keyIdentity(auth.apiKey) : null,
+      })),
+    ),
+  );
 }
 
-const quotaProvidersCachePolicy: QuotaProviderCachePolicy = {
-  kind: "resolved-auth",
-  async resolveIdentity(_ctx, cacheContext) {
-    const definitions = cacheContext.runtimeEligibleQuotaProviders;
-    if (!definitions || definitions.length === 0) return null;
-
-    const identities = await Promise.all(
-      definitions.map(resolveQuotaProviderDefinitionAuthIdentity),
-    );
-    if (identities.some((identity) => identity === null)) return null;
-
-    return composeResolvedAuthIdentities({
-      providerId: "quota-providers",
-      identities: identities as ResolvedAuthIdentity[],
-    });
-  },
-};
-
-export const PROVIDER_CACHE_POLICIES = {
-  anthropic: {
+/** Every key the vendor checks; see `vendorKeysIdentity`. */
+export function vendorKeysPolicy(
+  providerId: CanonicalQuotaProviderId & keyof typeof API_KEY_VENDORS,
+  endpoint?: string,
+): QuotaProviderCachePolicy {
+  const spec: ApiKeyLoginSpec = API_KEY_VENDORS[providerId];
+  return {
     kind: "resolved-auth",
-    resolveIdentity: (ctx) =>
-      resolveAnthropicAuthIdentity({ binaryPath: ctx.config.anthropicBinaryPath }),
-  },
-  copilot: {
-    kind: "resolved-auth",
-    resolveIdentity: () => resolveCopilotAuthIdentity(),
-  },
-  openai: {
-    kind: "resolved-auth",
-    resolveIdentity: () => resolveOpenAIAuthIdentity(),
-  },
-  openrouter: {
-    kind: "resolved-auth",
-    resolveIdentity: () => resolveOpenRouterAuthIdentity(),
-  },
-  kilo: resolvedCredentialPolicy("kilo", async () => {
-    const resolved = await resolveKiloApiKey();
-    return resolved ? { credential: resolved.key } : null;
-  }),
-  cursor: UNCACHED,
-  "alibaba-token-plan": UNCACHED,
-  "alibaba-coding-plan": resolvedCredentialPolicy("alibaba-coding-plan", async () => {
-    const resolved = await resolveAlibabaCodingPlanAuthCached({
-      maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
-    });
-    return resolved.state === "configured"
-      ? { credential: resolved.apiKey, qualifiers: [resolved.tier] }
-      : null;
-  }),
-  synthetic: resolvedCredentialPolicy("synthetic", async () => {
-    const resolved = await resolveSyntheticApiKey();
-    return resolved ? { credential: resolved.key } : null;
-  }),
-  chutes: resolvedCredentialPolicy("chutes", async () => {
-    const resolved = await resolveChutesApiKey();
-    return resolved ? { credential: resolved.key } : null;
-  }),
-  "google-gemini-cli": {
-    kind: "resolved-auth",
-    resolveIdentity: () => resolveGeminiCliAuthIdentity(),
-  },
-  "google-agy": {
-    kind: "resolved-auth",
-    resolveIdentity: () => resolveGoogleAgyAuthIdentity(),
-  },
-  zai: resolvedCredentialPolicy("zai", async () => {
-    const resolved = await resolveZaiAuthCached({ maxAgeMs: DEFAULT_ZAI_AUTH_CACHE_MAX_AGE_MS });
-    return resolved.state === "configured" ? { credential: resolved.apiKey } : null;
-  }),
-  zhipu: resolvedCredentialPolicy("zhipu", async () => {
-    const resolved = await resolveZhipuAuthCached({
-      maxAgeMs: DEFAULT_ZHIPU_AUTH_CACHE_MAX_AGE_MS,
-    });
-    return resolved.state === "configured" ? { credential: resolved.apiKey } : null;
-  }),
-  nanogpt: resolvedCredentialPolicy("nanogpt", async () => {
-    const resolved = await resolveNanoGptApiKey();
-    return resolved ? { credential: resolved.key } : null;
-  }),
-  "minimax-coding-plan": resolvedCredentialPolicy("minimax-coding-plan", async () => {
-    const resolved = await resolveMiniMaxAuthCached({
-      maxAgeMs: DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS,
-    });
-    return resolved.state === "configured"
-      ? { credential: resolved.apiKey, qualifiers: [resolved.endpoint] }
-      : null;
-  }),
-  "minimax-china-coding-plan": resolvedCredentialPolicy("minimax-china-coding-plan", async () => {
-    const resolved = await resolveMiniMaxChinaAuthCached({
-      maxAgeMs: DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS,
-    });
-    return resolved.state === "configured"
-      ? { credential: resolved.apiKey, qualifiers: [resolved.endpoint] }
-      : null;
-  }),
-  "kimi-code-plan-global": resolvedCredentialPolicy("kimi-code-plan-global", async () => {
-    const resolved = await resolveKimiGlobalAuthCached({
-      maxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS,
-    });
-    return resolved.state === "configured"
-      ? { credential: resolved.apiKey, qualifiers: [resolved.endpoint] }
-      : null;
-  }),
-  "kimi-code-plan-cn": resolvedCredentialPolicy("kimi-code-plan-cn", async () => {
-    const resolved = await resolveKimiCnAuthCached({
-      maxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS,
-    });
-    return resolved.state === "configured"
-      ? { credential: resolved.apiKey, qualifiers: [resolved.endpoint] }
-      : null;
-  }),
-  deepseek: resolvedCredentialPolicy("deepseek", async () => {
-    const resolved = await resolveDeepSeekApiKey();
-    return resolved ? { credential: resolved.key } : null;
-  }),
-  xai: {
-    kind: "resolved-auth",
-    resolveIdentity: () => resolveXaiAuthIdentity(),
-  },
-  xiaomi: resolvedCredentialPolicy("xiaomi", async () => {
-    const resolved = await resolveMimoConfigCached({
-      maxAgeMs: DEFAULT_MIMO_CONFIG_CACHE_MAX_AGE_MS,
-    });
-    return resolved.state === "configured" ? { credential: resolved.config.cookie } : null;
-  }),
-  "opencode-go": resolvedCredentialPolicy("opencode-go", async () => {
-    const resolved = await resolveOpenCodeGoAuthCached({
-      maxAgeMs: DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
-    });
-    return resolved.state === "configured" ? { credential: resolved.apiKey } : null;
-  }),
-  opencode: resolvedCredentialPolicy("opencode", async () => {
-    const resolved = await resolveOpenCodeConsoleAuth();
-    if (resolved.state !== "configured") return null;
-    const { credential } = resolved;
-    // The identity distinguishes accounts within the same org (member budgets
-    // are queried per account): org + account, else the account, else the
-    // token. The Console URL qualifies it because org ids can collide across
-    // self-hosted Console URLs.
-    return {
-      credential:
-        credential.orgId && credential.accountId
-          ? JSON.stringify([credential.orgId, credential.accountId])
-          : (credential.orgId ?? credential.accountId ?? credential.accessToken),
-      principalKind: credential.orgId || credential.accountId ? "stable-id" : "credential",
-      qualifiers: [consoleBaseUrl(credential)],
-    };
-  }),
-  "ollama-cloud": resolvedCredentialPolicy("ollama-cloud", async () => {
-    const resolved = await resolveOllamaCloudApiKey();
-    return resolved ? { credential: resolved.key } : null;
-  }),
-  "quota-providers": quotaProvidersCachePolicy,
-} satisfies Record<CanonicalQuotaProviderId, QuotaProviderCachePolicy>;
+    async resolveIdentity(ctx) {
+      const keys = await readVendorKeys(spec, ctx.locationDirectory);
+      return await vendorKeysIdentity(providerId, keys, endpoint);
+    },
+  };
+}

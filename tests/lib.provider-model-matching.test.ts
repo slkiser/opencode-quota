@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   modelIncludesAny,
@@ -18,26 +18,26 @@ describe("provider model matching helpers", () => {
   });
 
   it("handles model ids without a slash", () => {
-    expect(parseProviderModelRef("NANOGPT")).toEqual({
-      lower: "nanogpt",
-      providerId: "nanogpt",
+    expect(parseProviderModelRef("OPENROUTER")).toEqual({
+      lower: "openrouter",
+      providerId: "openrouter",
       modelId: "",
     });
   });
 
   it("does not trim whitespace before parsing", () => {
-    expect(parseProviderModelRef(" nanogpt/gemini")).toEqual({
-      lower: " nanogpt/gemini",
-      providerId: " nanogpt",
+    expect(parseProviderModelRef(" openrouter/gemini")).toEqual({
+      lower: " openrouter/gemini",
+      providerId: " openrouter",
       modelId: "gemini",
     });
-    expect(modelProviderMatchesRuntimeId(" nanogpt/gemini", "nanogpt")).toBe(false);
+    expect(modelProviderMatchesRuntimeId(" openrouter/gemini", "openrouter")).toBe(false);
   });
 
   it("matches canonical runtime ids for provider prefixes", () => {
-    expect(modelProviderMatchesRuntimeId("nanogpt/gpt-oss", "nanogpt")).toBe(true);
-    expect(modelProviderMatchesRuntimeId("nano-gpt/gpt-oss", "nanogpt")).toBe(true);
-    expect(modelProviderMatchesRuntimeId("openai/gpt-4.1", "nanogpt")).toBe(false);
+    expect(modelProviderMatchesRuntimeId("opencode/gpt-5", "opencode")).toBe(true);
+    expect(modelProviderMatchesRuntimeId("opencode-zen/gpt-5", "opencode")).toBe(true);
+    expect(modelProviderMatchesRuntimeId("openai/gpt-4.1", "opencode")).toBe(false);
     expect(modelProviderMatchesRuntimeId("alibaba-token-plan/qwen3", "alibaba-token-plan")).toBe(
       true,
     );

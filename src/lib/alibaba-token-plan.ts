@@ -6,24 +6,27 @@
  *
  * Console authentication belongs to the CLI. This module never installs `bl`,
  * never runs login, never reads credential stores, and never uses a shell.
+ * Only darwin and linux are supported, so all paths use POSIX semantics.
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import { lstat, realpath } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
+import { REQUEST_TIMEOUT_MS } from "./http.js";
+import { asRecord } from "./json-guards.js";
 
-import { REQUEST_TIMEOUT_MS } from "./types.js";
-
-export const ALIBABA_TOKEN_PLAN_COMMAND = "bl";
-export const ALIBABA_TOKEN_PLAN_ARGS = ["usage", "token-plan", "--output", "json"] as const;
-export const ALIBABA_TOKEN_PLAN_STDOUT_LIMIT_BYTES = 256 * 1024;
-export const ALIBABA_TOKEN_PLAN_STDERR_LIMIT_BYTES = 16 * 1024;
-export const ALIBABA_TOKEN_PLAN_KILL_GRACE_MS = 250;
-export const ALIBABA_TOKEN_PLAN_AUTH_EXIT_CODE = 3;
+const ALIBABA_TOKEN_PLAN_COMMAND = "bl";
+const ALIBABA_TOKEN_PLAN_ARGS = ["usage", "token-plan", "--output", "json"] as const;
+const ALIBABA_TOKEN_PLAN_STDOUT_LIMIT_BYTES = 256 * 1024;
+const ALIBABA_TOKEN_PLAN_STDERR_LIMIT_BYTES = 16 * 1024;
+const ALIBABA_TOKEN_PLAN_KILL_GRACE_MS = 250;
+const AUTH_EXIT_CODE = 3;
 
 const SUPPORTED_PLATFORMS = new Set<NodeJS.Platform>(["darwin", "linux"]);
 const MAX_RESET_TIME_MS = 4_102_444_800_000;
+/** `bl.cmd` and `bl.bat` are probed only so a found launcher reports "shell launcher rejected". */
+const EXECUTABLE_NAMES = [ALIBABA_TOKEN_PLAN_COMMAND, "bl.cmd", "bl.bat"];
 const SHELL_LAUNCHER_NAMES = new Set([
   "bash",
   "bash.exe",
@@ -61,7 +64,7 @@ export type AlibabaTokenPlanWindow = {
   resetTimeIso?: string;
 };
 
-export type AlibabaTokenPlanErrorKind =
+type AlibabaTokenPlanErrorKind =
   | "unsupported_platform"
   | "executable_not_found"
   | "shell_launcher_rejected"
@@ -75,11 +78,12 @@ export type AlibabaTokenPlanErrorKind =
   | "invalid_schema"
   | "no_data";
 
-export type AlibabaTokenPlanError = {
+type AlibabaTokenPlanError = {
   kind: AlibabaTokenPlanErrorKind;
   message: string;
-  retryable?: boolean;
 };
+
+type AlibabaTokenPlanFailure = { ok: false; error: AlibabaTokenPlanError };
 
 export type AlibabaTokenPlanClosedResult =
   | {
@@ -87,10 +91,7 @@ export type AlibabaTokenPlanClosedResult =
       fiveHour?: AlibabaTokenPlanWindow;
       weekly?: AlibabaTokenPlanWindow;
     }
-  | {
-      ok: false;
-      error: AlibabaTokenPlanError;
-    };
+  | AlibabaTokenPlanFailure;
 
 export type AlibabaTokenPlanSpawnRequest = {
   file: string;
@@ -102,11 +103,10 @@ export type AlibabaTokenPlanSpawnRequest = {
   stderrLimitBytes: number;
   stdin: "ignore";
   shell: false;
-  platform: NodeJS.Platform;
   killGraceMs: number;
 };
 
-export type AlibabaTokenPlanSpawnResult = {
+type AlibabaTokenPlanSpawnResult = {
   code: number | null;
   stdout: Buffer;
   stderr: Buffer;
@@ -115,11 +115,9 @@ export type AlibabaTokenPlanSpawnResult = {
   spawnErrorCode?: string;
 };
 
-export type AlibabaTokenPlanExecutableResolution =
-  | { ok: true; file: string }
-  | { ok: false; error: AlibabaTokenPlanError };
+type AlibabaTokenPlanExecutableResolution = { ok: true; file: string } | AlibabaTokenPlanFailure;
 
-export type AlibabaTokenPlanRuntime = {
+type AlibabaTokenPlanRuntime = {
   platform?: NodeJS.Platform;
   pathEnv?: string;
   /** The project folder quota is computed for. */
@@ -130,7 +128,7 @@ export type AlibabaTokenPlanRuntime = {
   spawn?: (request: AlibabaTokenPlanSpawnRequest) => Promise<AlibabaTokenPlanSpawnResult>;
 };
 
-const ERROR_MESSAGES: Record<AlibabaTokenPlanErrorKind, string> = {
+export const ERROR_MESSAGES: Record<AlibabaTokenPlanErrorKind, string> = {
   unsupported_platform: "Alibaba Personal Token Plan is not supported on this platform.",
   executable_not_found: "Alibaba Cloud CLI (bl) was not found on the trusted PATH.",
   shell_launcher_rejected: "Alibaba Personal Token Plan refused a shell launcher for bl.",
@@ -147,30 +145,8 @@ const ERROR_MESSAGES: Record<AlibabaTokenPlanErrorKind, string> = {
   no_data: "Alibaba Personal Token Plan usage returned no quota windows.",
 };
 
-function fail(
-  kind: AlibabaTokenPlanErrorKind,
-  retryable?: boolean,
-): Extract<AlibabaTokenPlanClosedResult, { ok: false }> {
-  return {
-    ok: false,
-    error: {
-      kind,
-      message: ERROR_MESSAGES[kind],
-      ...(retryable ? { retryable: true } : {}),
-    },
-  };
-}
-
-function executableResolutionError(
-  kind: AlibabaTokenPlanErrorKind,
-): Extract<AlibabaTokenPlanExecutableResolution, { ok: false }> {
-  return {
-    ok: false,
-    error: {
-      kind,
-      message: ERROR_MESSAGES[kind],
-    },
-  };
+function fail(kind: AlibabaTokenPlanErrorKind): AlibabaTokenPlanFailure {
+  return { ok: false, error: { kind, message: ERROR_MESSAGES[kind] } };
 }
 
 export function isAlibabaTokenPlanSupportedPlatform(
@@ -179,15 +155,11 @@ export function isAlibabaTokenPlanSupportedPlatform(
   return SUPPORTED_PLATFORMS.has(platform);
 }
 
-function runtimePath(platform: NodeJS.Platform): typeof path.posix {
-  return platform === "win32" ? path.win32 : path.posix;
-}
-
-function isPathInside(parent: string, candidate: string, paths: typeof path.posix): boolean {
-  const relative = paths.relative(parent, candidate);
+function isPathInside(parent: string, candidate: string): boolean {
+  const relative = path.posix.relative(parent, candidate);
   return (
     relative === "" ||
-    (relative !== ".." && !relative.startsWith(`..${paths.sep}`) && !paths.isAbsolute(relative))
+    (relative !== ".." && !relative.startsWith("../") && !path.posix.isAbsolute(relative))
   );
 }
 
@@ -208,62 +180,40 @@ function stripPathQuotes(value: string): string {
  * computed for. For OpenCode opened at the home folder, and for the terminal command, that is
  * the home folder. The home folder is not a project, so it gives none.
  */
-function untrustedProjectFolder(params: {
-  cwd: string;
-  homedir?: string;
-  platform: NodeJS.Platform;
-}): string | null {
-  const paths = runtimePath(params.platform);
-  const cwd = paths.resolve(params.cwd);
-  return cwd === paths.resolve(params.homedir ?? homedir()) ? null : cwd;
+function untrustedProjectFolder(cwd: string, home: string | undefined): string | null {
+  const resolved = path.posix.resolve(cwd);
+  return resolved === path.posix.resolve(home ?? homedir()) ? null : resolved;
 }
 
-export function listTrustedPathDirectories(params: {
-  pathEnv: string | undefined;
-  cwd: string;
-  homedir?: string;
-  platform: NodeJS.Platform;
-}): string[] {
-  const paths = runtimePath(params.platform);
-  const delimiter = paths.delimiter;
-  const projectFolder = untrustedProjectFolder(params);
-  const trusted: string[] = [];
-  const seen = new Set<string>();
-
-  for (const rawEntry of (params.pathEnv ?? "").split(delimiter)) {
+/** Absolute PATH directories outside the project folder, deduplicated, in PATH order. */
+function listTrustedPathDirectories(
+  pathEnv: string | undefined,
+  cwd: string,
+  home: string | undefined,
+): string[] {
+  const projectFolder = untrustedProjectFolder(cwd, home);
+  const trusted = new Set<string>();
+  for (const rawEntry of (pathEnv ?? "").split(":")) {
     const entry = stripPathQuotes(rawEntry);
-    if (!entry || entry === "." || entry === "..") continue;
-    if (!paths.isAbsolute(entry)) continue;
-
-    const resolved = paths.resolve(entry);
-    if (projectFolder !== null && isPathInside(projectFolder, resolved, paths)) continue;
-    if (seen.has(resolved)) continue;
-    seen.add(resolved);
-    trusted.push(resolved);
+    if (!path.posix.isAbsolute(entry)) continue;
+    const resolved = path.posix.resolve(entry);
+    if (projectFolder !== null && isPathInside(projectFolder, resolved)) continue;
+    trusted.add(resolved);
   }
-
-  return trusted;
+  return [...trusted];
 }
 
 function isShellLauncherPath(file: string): boolean {
-  const extension = path.posix.extname(file).toLowerCase();
-  if (SHELL_LAUNCHER_EXTENSIONS.has(extension)) return true;
-  return SHELL_LAUNCHER_NAMES.has(path.posix.basename(file).toLowerCase());
+  return (
+    SHELL_LAUNCHER_EXTENSIONS.has(path.posix.extname(file).toLowerCase()) ||
+    SHELL_LAUNCHER_NAMES.has(path.posix.basename(file).toLowerCase())
+  );
 }
 
-function candidateExecutableNames(): readonly string[] {
-  return [ALIBABA_TOKEN_PLAN_COMMAND, "bl.cmd", "bl.bat"];
-}
-
-async function fileLooksLikeExecutable(file: string): Promise<boolean> {
+/** True for a regular file, following symlinks; false when missing or broken. */
+async function isRegularFile(file: string): Promise<boolean> {
   try {
-    const stats = await lstat(file);
-    if (stats.isSymbolicLink()) {
-      const target = await realpath(file);
-      const targetStats = await lstat(target);
-      return targetStats.isFile() || targetStats.isSymbolicLink();
-    }
-    return stats.isFile();
+    return (await stat(file)).isFile();
   } catch {
     return false;
   }
@@ -275,113 +225,62 @@ export async function resolveAlibabaTokenPlanExecutable(params: {
   homedir?: string;
   platform?: NodeJS.Platform;
 }): Promise<AlibabaTokenPlanExecutableResolution> {
-  const platform = params.platform ?? process.platform;
-  if (!isAlibabaTokenPlanSupportedPlatform(platform)) {
-    return executableResolutionError("unsupported_platform");
+  if (!isAlibabaTokenPlanSupportedPlatform(params.platform)) {
+    return fail("unsupported_platform");
   }
 
-  const paths = runtimePath(platform);
-  const projectFolder = untrustedProjectFolder({
-    cwd: params.cwd,
-    homedir: params.homedir,
-    platform,
-  });
-  const trusted = listTrustedPathDirectories({
-    pathEnv: params.pathEnv ?? process.env.PATH,
-    cwd: params.cwd,
-    homedir: params.homedir,
-    platform,
-  });
-  if (trusted.length === 0) {
-    return executableResolutionError("executable_not_found");
-  }
-
+  const projectFolder = untrustedProjectFolder(params.cwd, params.homedir);
+  const trusted = listTrustedPathDirectories(
+    params.pathEnv ?? process.env.PATH,
+    params.cwd,
+    params.homedir,
+  );
   let sawShellLauncher = false;
   for (const directory of trusted) {
-    for (const name of candidateExecutableNames()) {
-      const candidate = paths.join(directory, name);
-      if (!(await fileLooksLikeExecutable(candidate))) continue;
-      if (isShellLauncherPath(candidate)) {
+    for (const name of EXECUTABLE_NAMES) {
+      const candidate = path.posix.join(directory, name);
+      if (!(await isRegularFile(candidate))) continue;
+      const resolved = await realpath(candidate).catch(() => candidate);
+      if (isShellLauncherPath(candidate) || isShellLauncherPath(resolved)) {
         sawShellLauncher = true;
         continue;
       }
-
-      let resolved = candidate;
-      try {
-        resolved = await realpath(candidate);
-      } catch {
-        resolved = candidate;
-      }
-      if (isShellLauncherPath(resolved)) {
-        sawShellLauncher = true;
-        continue;
-      }
-      if (projectFolder !== null && isPathInside(projectFolder, resolved, paths)) {
-        return executableResolutionError("workspace_path_rejected");
+      if (projectFolder !== null && isPathInside(projectFolder, resolved)) {
+        return fail("workspace_path_rejected");
       }
       return { ok: true, file: resolved };
     }
   }
-
-  if (sawShellLauncher) {
-    return executableResolutionError("shell_launcher_rejected");
-  }
-  return executableResolutionError("executable_not_found");
+  return fail(sawShellLauncher ? "shell_launcher_rejected" : "executable_not_found");
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function hasOwn(record: Record<string, unknown>, key: string): boolean {
-  return Object.hasOwn(record, key);
-}
-
-function usedFractionToPercentRemaining(used: number): number {
-  return 100 - used * 100;
-}
-
-function parseResetTimeIso(value: unknown): string | undefined | "invalid" {
-  if (value === undefined) return undefined;
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value <= 0 ||
-    value > MAX_RESET_TIME_MS
-  ) {
-    return "invalid";
-  }
-  const iso = new Date(value).toISOString();
-  if (iso === "Invalid Date") return "invalid";
-  return iso;
-}
-
+/** One window: a used fraction 0..1 and an optional epoch-ms reset. A reset alone is invalid. */
 function parseWindow(
   payload: Record<string, unknown>,
   prefix: "per5Hour" | "per1Week",
 ): AlibabaTokenPlanWindow | undefined | "invalid" {
   const percentageKey = `${prefix}Percentage`;
   const resetKey = `${prefix}ResetTime`;
-  const percentagePresent = hasOwn(payload, percentageKey);
-  const resetPresent = hasOwn(payload, resetKey);
-  if (!percentagePresent && !resetPresent) return undefined;
-  if (!percentagePresent) return "invalid";
+  const resetPresent = Object.hasOwn(payload, resetKey);
+  if (!Object.hasOwn(payload, percentageKey)) return resetPresent ? "invalid" : undefined;
 
   const used = payload[percentageKey];
   if (typeof used !== "number" || !Number.isFinite(used) || used < 0 || used > 1) {
     return "invalid";
   }
-  if (!resetPresent) {
-    return { percentRemaining: usedFractionToPercentRemaining(used) };
+  const percentRemaining = 100 - used * 100;
+  if (!resetPresent) return { percentRemaining };
+
+  const reset = payload[resetKey];
+  if (
+    typeof reset !== "number" ||
+    !Number.isFinite(reset) ||
+    reset <= 0 ||
+    reset > MAX_RESET_TIME_MS
+  ) {
+    return "invalid";
   }
-  const resetTimeIso = parseResetTimeIso(payload[resetKey]);
-  if (resetTimeIso === "invalid") return "invalid";
-  return {
-    percentRemaining: usedFractionToPercentRemaining(used),
-    ...(resetTimeIso ? { resetTimeIso } : {}),
-  };
+  return { percentRemaining, resetTimeIso: new Date(reset).toISOString() };
 }
 
 export function parseAlibabaTokenPlanUsageJson(text: string): AlibabaTokenPlanClosedResult {
@@ -395,9 +294,8 @@ export function parseAlibabaTokenPlanUsageJson(text: string): AlibabaTokenPlanCl
   if (!record) return fail("invalid_schema");
 
   const fiveHour = parseWindow(record, "per5Hour");
-  if (fiveHour === "invalid") return fail("invalid_schema");
   const weekly = parseWindow(record, "per1Week");
-  if (weekly === "invalid") return fail("invalid_schema");
+  if (fiveHour === "invalid" || weekly === "invalid") return fail("invalid_schema");
   if (!fiveHour && !weekly) return fail("no_data");
 
   return {
@@ -407,62 +305,15 @@ export function parseAlibabaTokenPlanUsageJson(text: string): AlibabaTokenPlanCl
   };
 }
 
-function resolveNonWorkspaceCwd(params: {
-  cwd: string;
-  tmpdir: string;
-  homedir: string;
-  platform: NodeJS.Platform;
-}): string {
-  const paths = runtimePath(params.platform);
-  const workspace = paths.resolve(params.cwd);
-  for (const candidate of [
-    params.tmpdir,
-    params.homedir,
-    params.platform === "win32" ? "C:\\" : "/",
-  ]) {
-    const resolved = paths.resolve(candidate);
-    if (!isPathInside(workspace, resolved, paths)) return resolved;
-  }
-  return params.platform === "win32" ? "C:\\" : "/";
+function errorCode(error: unknown): string | undefined {
+  return error && typeof error === "object" && "code" in error
+    ? String((error as { code?: unknown }).code)
+    : undefined;
 }
 
-function trustedPathEnv(params: {
-  trustedDirectories: readonly string[];
-  platform: NodeJS.Platform;
-}): string {
-  return params.trustedDirectories.join(runtimePath(params.platform).delimiter);
-}
-
-function takeBoundedChunk(
-  chunks: Buffer[],
-  currentSize: number,
-  chunk: Buffer,
-  limit: number,
-): { size: number; overflowed: boolean } {
-  const remaining = limit - currentSize;
-  if (remaining <= 0) return { size: currentSize, overflowed: true };
-  if (chunk.length <= remaining) {
-    chunks.push(chunk);
-    return { size: currentSize + chunk.length, overflowed: false };
-  }
-  chunks.push(chunk.subarray(0, remaining));
-  return { size: limit, overflowed: true };
-}
-
-function signalProcessGroup(
-  child: ChildProcess,
-  platform: NodeJS.Platform,
-  signal: NodeJS.Signals,
-): void {
+/** Signal the child's whole process group, falling back to the child alone. */
+function signalProcessGroup(child: ChildProcess, signal: NodeJS.Signals): void {
   if (!child.pid) return;
-  if (platform === "win32") {
-    try {
-      child.kill(signal);
-    } catch {
-      // already exited
-    }
-    return;
-  }
   try {
     process.kill(-child.pid, signal);
   } catch {
@@ -474,6 +325,10 @@ function signalProcessGroup(
   }
 }
 
+/**
+ * Run the CLI without a shell, with stdin ignored and stdout/stderr capped. A timeout or an
+ * overflow sends SIGTERM to the process group, then SIGKILL after `killGraceMs`.
+ */
 export async function runAlibabaTokenPlanProcess(
   request: AlibabaTokenPlanSpawnRequest,
 ): Promise<AlibabaTokenPlanSpawnResult> {
@@ -485,94 +340,57 @@ export async function runAlibabaTokenPlanProcess(
         env: request.env,
         argv0: request.file,
         shell: false,
-        windowsHide: true,
-        detached: request.platform !== "win32",
+        detached: true,
         stdio: ["ignore", "pipe", "pipe"],
       });
     } catch (error) {
-      const spawnErrorCode =
-        error && typeof error === "object" && "code" in error
-          ? String((error as { code?: unknown }).code)
-          : undefined;
       resolve({
         code: null,
         stdout: Buffer.alloc(0),
         stderr: Buffer.alloc(0),
         timedOut: false,
         truncated: false,
-        spawnErrorCode,
+        spawnErrorCode: errorCode(error),
       });
       return;
     }
 
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
-    let stdoutSize = 0;
-    let stderrSize = 0;
     let timedOut = false;
     let truncated = false;
     let killTimer: ReturnType<typeof setTimeout> | undefined;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
     let settled = false;
-    let escalated = false;
 
-    function clearKillTimer(): void {
-      if (killTimer === undefined) return;
-      clearTimeout(killTimer);
-      killTimer = undefined;
+    function stop(): void {
+      if (killTimer !== undefined) return;
+      signalProcessGroup(child, "SIGTERM");
+      killTimer = setTimeout(() => signalProcessGroup(child, "SIGKILL"), request.killGraceMs);
     }
 
-    function escalate(): void {
-      if (!escalated) {
-        escalated = true;
-        signalProcessGroup(child, request.platform, "SIGTERM");
-      }
-      clearKillTimer();
-      killTimer = setTimeout(() => {
-        killTimer = undefined;
-        signalProcessGroup(child, request.platform, "SIGKILL");
-      }, request.killGraceMs);
-    }
-
-    function onStdoutData(chunk: Buffer | string): void {
-      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      const next = takeBoundedChunk(stdoutChunks, stdoutSize, buf, request.stdoutLimitBytes);
-      stdoutSize = next.size;
-      if (next.overflowed && !truncated) {
-        truncated = true;
-        escalate();
-      }
-    }
-
-    function onStderrData(chunk: Buffer | string): void {
-      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      const next = takeBoundedChunk(stderrChunks, stderrSize, buf, request.stderrLimitBytes);
-      stderrSize = next.size;
-      if (next.overflowed && !truncated) {
-        truncated = true;
-        escalate();
-      }
-    }
-
-    function spawnErrorCodeFrom(error: unknown): string | undefined {
-      return error && typeof error === "object" && "code" in error
-        ? String((error as { code?: unknown }).code)
-        : undefined;
-    }
-
-    function removeListeners(): void {
-      child.stdout?.removeListener("data", onStdoutData);
-      child.stderr?.removeListener("data", onStderrData);
-      child.removeListener("error", onError);
-      child.removeListener("close", onClose);
+    function collect(chunks: Buffer[], limit: number): (chunk: Buffer) => void {
+      let size = 0;
+      return (chunk) => {
+        const room = limit - size;
+        if (room > 0 && chunk.length <= room) {
+          chunks.push(chunk);
+          size += chunk.length;
+          return;
+        }
+        if (room > 0) chunks.push(chunk.subarray(0, room));
+        size = limit;
+        if (!truncated) {
+          truncated = true;
+          stop();
+        }
+      };
     }
 
     function finish(code: number | null, spawnErrorCode?: string): void {
       if (settled) return;
       settled = true;
-      if (timeout !== undefined) clearTimeout(timeout);
-      clearKillTimer();
-      removeListeners();
+      clearTimeout(timeout);
+      clearTimeout(killTimer);
       resolve({
         code,
         stdout: Buffer.concat(stdoutChunks),
@@ -583,32 +401,24 @@ export async function runAlibabaTokenPlanProcess(
       });
     }
 
-    function onError(error: Error): void {
-      finish(null, spawnErrorCodeFrom(error));
-    }
-
-    function onClose(code: number | null): void {
-      finish(code);
-    }
-
-    timeout = setTimeout(() => {
+    const timeout = setTimeout(() => {
       timedOut = true;
-      escalate();
+      stop();
     }, request.timeoutMs);
 
-    child.stdout?.on("data", onStdoutData);
-    child.stderr?.on("data", onStderrData);
-    child.on("error", onError);
-    child.on("close", onClose);
+    child.stdout?.on("data", collect(stdoutChunks, request.stdoutLimitBytes));
+    child.stderr?.on("data", collect(stderrChunks, request.stderrLimitBytes));
+    child.on("error", (error) => finish(null, errorCode(error)));
+    child.on("close", (code) => finish(code));
   });
 }
 
-function mapSpawnFailure(result: AlibabaTokenPlanSpawnResult): AlibabaTokenPlanClosedResult {
+function mapSpawnResult(result: AlibabaTokenPlanSpawnResult): AlibabaTokenPlanClosedResult {
   if (result.truncated) return fail("output_truncated");
-  if (result.timedOut) return fail("timeout", true);
+  if (result.timedOut) return fail("timeout");
   if (result.spawnErrorCode === "ENOENT") return fail("executable_not_found");
-  if (result.spawnErrorCode) return fail("spawn_failed", true);
-  if (result.code === ALIBABA_TOKEN_PLAN_AUTH_EXIT_CODE) return fail("not_authenticated");
+  if (result.spawnErrorCode) return fail("spawn_failed");
+  if (result.code === AUTH_EXIT_CODE) return fail("not_authenticated");
   if (result.code !== 0) return fail("nonzero_exit");
   return parseAlibabaTokenPlanUsageJson(result.stdout.toString("utf8"));
 }
@@ -623,7 +433,7 @@ export async function queryAlibabaTokenPlanQuota(options: {
     return fail("unsupported_platform");
   }
 
-  const cwd = runtimePath(platform).resolve(runtime.cwd);
+  const cwd = path.posix.resolve(runtime.cwd);
   const home = runtime.homedir ?? homedir();
   const pathEnv = runtime.pathEnv ?? runtime.env?.PATH ?? process.env.PATH;
   const resolved = await resolveAlibabaTokenPlanExecutable({
@@ -632,43 +442,32 @@ export async function queryAlibabaTokenPlanQuota(options: {
     homedir: home,
     platform,
   });
-  if (!resolved.ok) {
-    return { ok: false, error: resolved.error };
-  }
+  if (!resolved.ok) return resolved;
 
-  const trustedDirectories = listTrustedPathDirectories({
-    pathEnv,
-    cwd,
-    homedir: home,
-    platform,
-  });
-  const processCwd = resolveNonWorkspaceCwd({
-    cwd,
-    tmpdir: runtime.tmpdir ?? tmpdir(),
-    homedir: home,
-    platform,
-  });
-  const env: NodeJS.ProcessEnv = {
-    ...(runtime.env ?? process.env),
-    PATH: trustedPathEnv({ trustedDirectories, platform }),
-  };
+  // Run outside the project folder so the CLI never picks up project files.
+  const processCwd =
+    [runtime.tmpdir ?? tmpdir(), home]
+      .map((candidate) => path.posix.resolve(candidate))
+      .find((candidate) => !isPathInside(cwd, candidate)) ?? "/";
   const request: AlibabaTokenPlanSpawnRequest = {
     file: resolved.file,
     args: ALIBABA_TOKEN_PLAN_ARGS,
     cwd: processCwd,
-    env,
+    env: {
+      ...(runtime.env ?? process.env),
+      PATH: listTrustedPathDirectories(pathEnv, cwd, home).join(":"),
+    },
     timeoutMs: options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
     stdoutLimitBytes: ALIBABA_TOKEN_PLAN_STDOUT_LIMIT_BYTES,
     stderrLimitBytes: ALIBABA_TOKEN_PLAN_STDERR_LIMIT_BYTES,
     stdin: "ignore",
     shell: false,
-    platform,
     killGraceMs: ALIBABA_TOKEN_PLAN_KILL_GRACE_MS,
   };
   const run = runtime.spawn ?? runAlibabaTokenPlanProcess;
   try {
-    return mapSpawnFailure(await run(request));
+    return mapSpawnResult(await run(request));
   } catch {
-    return fail("spawn_failed", true);
+    return fail("spawn_failed");
   }
 }

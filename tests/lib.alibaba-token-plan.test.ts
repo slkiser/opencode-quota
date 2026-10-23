@@ -1,31 +1,32 @@
-import { chmod, lstat, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
-  ALIBABA_TOKEN_PLAN_ARGS,
-  ALIBABA_TOKEN_PLAN_COMMAND,
-  ALIBABA_TOKEN_PLAN_KILL_GRACE_MS,
-  ALIBABA_TOKEN_PLAN_STDERR_LIMIT_BYTES,
-  ALIBABA_TOKEN_PLAN_STDOUT_LIMIT_BYTES,
   type AlibabaTokenPlanSpawnRequest,
-  listTrustedPathDirectories,
   parseAlibabaTokenPlanUsageJson,
   queryAlibabaTokenPlanQuota,
   resolveAlibabaTokenPlanExecutable,
   runAlibabaTokenPlanProcess,
 } from "../src/lib/alibaba-token-plan.js";
 
+// The `bl` CLI contract, written out by hand so a changed production constant fails here.
+const BL_COMMAND = "bl";
+const BL_ARGS = ["usage", "token-plan", "--output", "json"];
+const STDOUT_LIMIT_BYTES = 262_144;
+const STDERR_LIMIT_BYTES = 16_384;
+const KILL_GRACE_MS = 250;
+
 vi.mock("node:fs/promises", async (importOriginal) => {
   const fs = await importOriginal<typeof import("node:fs/promises")>();
-  return { ...fs, lstat: vi.fn(fs.lstat), realpath: vi.fn(fs.realpath) };
+  return { ...fs, stat: vi.fn(fs.stat), realpath: vi.fn(fs.realpath) };
 });
 
 const created: string[] = [];
 
 afterEach(async () => {
-  vi.mocked(lstat).mockReset();
+  vi.mocked(stat).mockReset();
   vi.mocked(realpath).mockReset();
   await Promise.all(created.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
@@ -41,17 +42,16 @@ async function writeUnixExecutable(
   name: string,
   source: string,
 ): Promise<string> {
-  const { mkdir } = await import("node:fs/promises");
   await mkdir(directory, { recursive: true });
   const file = path.join(directory, name);
   await writeFile(file, source, { encoding: "utf8", mode: 0o755 });
-  await chmod(file, 0o755);
   return file;
 }
 
+/** Fake filesystem: only `file` (resolving to `target`) exists. */
 async function mockExecutable(file = "/trusted/bin/bl", target = file): Promise<void> {
-  const stats = await lstat(process.execPath);
-  vi.mocked(lstat).mockImplementation(async (candidate) => {
+  const stats = await stat(process.execPath);
+  vi.mocked(stat).mockImplementation(async (candidate) => {
     if (candidate === file || candidate === target) return stats;
     throw new Error("Executable does not exist");
   });
@@ -86,96 +86,96 @@ function spawnRequest(
 ): AlibabaTokenPlanSpawnRequest {
   return {
     file,
-    args: ALIBABA_TOKEN_PLAN_ARGS,
+    args: BL_ARGS,
     cwd: path.dirname(file),
     env: {
       PATH: `${path.dirname(file)}${path.delimiter}${path.dirname(process.execPath)}`,
     },
     timeoutMs: 5_000,
-    stdoutLimitBytes: ALIBABA_TOKEN_PLAN_STDOUT_LIMIT_BYTES,
-    stderrLimitBytes: ALIBABA_TOKEN_PLAN_STDERR_LIMIT_BYTES,
+    stdoutLimitBytes: STDOUT_LIMIT_BYTES,
+    stderrLimitBytes: STDERR_LIMIT_BYTES,
     stdin: "ignore",
     shell: false,
-    platform: process.platform,
-    killGraceMs: ALIBABA_TOKEN_PLAN_KILL_GRACE_MS,
+    killGraceMs: KILL_GRACE_MS,
     ...overrides,
   };
 }
 
+const INVALID_SCHEMA = {
+  ok: false,
+  error: {
+    kind: "invalid_schema",
+    message: "Alibaba Cloud CLI returned an invalid Personal Token Plan payload.",
+  },
+};
+
 describe("alibaba token plan parser", () => {
-  it("converts official used fractions and epoch-ms resets", () => {
-    const fiveHourReset = Date.parse("2024-04-24T22:13:20.000Z");
-    const weeklyReset = Date.parse("2024-05-01T20:53:20.000Z");
-    const result = parseAlibabaTokenPlanUsageJson(
-      JSON.stringify({
+  it.each([
+    {
+      name: "official used fractions and epoch-ms resets",
+      payload: {
         per5HourPercentage: 0.2,
-        per5HourResetTime: fiveHourReset,
+        per5HourResetTime: Date.parse("2024-04-24T22:13:20.000Z"),
         per1WeekPercentage: 0.8,
-        per1WeekResetTime: weeklyReset,
-      }),
-    );
-    expect(result).toEqual({
-      ok: true,
-      fiveHour: {
-        percentRemaining: 80,
-        resetTimeIso: "2024-04-24T22:13:20.000Z",
+        per1WeekResetTime: Date.parse("2024-05-01T20:53:20.000Z"),
       },
-      weekly: {
-        percentRemaining: 20,
-        resetTimeIso: "2024-05-01T20:53:20.000Z",
+      expected: {
+        ok: true,
+        fiveHour: { percentRemaining: 80, resetTimeIso: "2024-04-24T22:13:20.000Z" },
+        weekly: { percentRemaining: 20, resetTimeIso: "2024-05-01T20:53:20.000Z" },
       },
-    });
+    },
+    {
+      name: "one window without fabricating the missing one",
+      payload: {
+        per1WeekPercentage: 0.4,
+        per1WeekResetTime: Date.parse("2024-05-01T20:53:20.000Z"),
+      },
+      expected: {
+        ok: true,
+        weekly: { percentRemaining: 60, resetTimeIso: "2024-05-01T20:53:20.000Z" },
+      },
+    },
+    {
+      name: "a percentage without a reset",
+      payload: { per5HourPercentage: 0 },
+      expected: { ok: true, fiveHour: { percentRemaining: 100 } },
+    },
+    {
+      name: "full exhaustion and unused quota",
+      payload: { per5HourPercentage: 1, per1WeekPercentage: 0 },
+      expected: { ok: true, fiveHour: { percentRemaining: 0 }, weekly: { percentRemaining: 100 } },
+    },
+    {
+      name: "unrounded precision until shared rendering",
+      payload: { per5HourPercentage: 0.123456789 },
+      expected: { ok: true, fiveHour: { percentRemaining: 100 - 0.123456789 * 100 } },
+    },
+  ])("parses $name", ({ payload, expected }) => {
+    expect(parseAlibabaTokenPlanUsageJson(JSON.stringify(payload))).toEqual(expected);
   });
 
-  it("keeps independently optional windows and does not fabricate the missing one", () => {
-    const weeklyReset = Date.parse("2024-05-01T20:53:20.000Z");
-    expect(
-      parseAlibabaTokenPlanUsageJson(
-        JSON.stringify({
-          per1WeekPercentage: 0.4,
-          per1WeekResetTime: weeklyReset,
-        }),
-      ),
-    ).toEqual({
-      ok: true,
-      weekly: {
-        percentRemaining: 60,
-        resetTimeIso: "2024-05-01T20:53:20.000Z",
-      },
-    });
+  it.each([
+    ["a reset without a percentage", { per5HourResetTime: 1_714_000_000_000 }],
+    [
+      "a percentage above 1 next to a valid window",
+      { per5HourPercentage: 1.2, per1WeekPercentage: 0.1, per1WeekResetTime: 1_714_600_000_000 },
+    ],
+    ["a string reset", { per5HourPercentage: 0.2, per5HourResetTime: "1714000000000" }],
+    ["a zero reset", { per5HourPercentage: 0.2, per5HourResetTime: 0 }],
+    ["a negative reset", { per5HourPercentage: 0.2, per5HourResetTime: -1 }],
+    ["a null (non-finite) reset", { per5HourPercentage: 0.2, per5HourResetTime: null }],
+    ["a reset past 2100", { per5HourPercentage: 0.2, per5HourResetTime: 5_000_000_000_000 }],
+    ["a non-object root", []],
+  ])("rejects %s instead of dropping the window", (_name, payload) => {
+    expect(parseAlibabaTokenPlanUsageJson(JSON.stringify(payload))).toEqual(INVALID_SCHEMA);
   });
 
-  it("allows a present percentage without a reset and rejects a reset without a percentage", () => {
-    expect(parseAlibabaTokenPlanUsageJson(JSON.stringify({ per5HourPercentage: 0 }))).toEqual({
-      ok: true,
-      fiveHour: { percentRemaining: 100 },
-    });
-    expect(
-      parseAlibabaTokenPlanUsageJson(JSON.stringify({ per5HourResetTime: 1_714_000_000_000 })),
-    ).toEqual({
+  it("rejects invalid JSON and a payload without windows", () => {
+    expect(parseAlibabaTokenPlanUsageJson("{")).toEqual({
       ok: false,
-      error: {
-        kind: "invalid_schema",
-        message: "Alibaba Cloud CLI returned an invalid Personal Token Plan payload.",
-      },
+      error: { kind: "invalid_json", message: "Alibaba Cloud CLI did not return valid JSON." },
     });
-  });
-
-  it("treats a present malformed field as invalid instead of dropping the window", () => {
-    expect(
-      parseAlibabaTokenPlanUsageJson(
-        JSON.stringify({
-          per5HourPercentage: 1.2,
-          per1WeekPercentage: 0.1,
-          per1WeekResetTime: 1_714_600_000_000,
-        }),
-      ).ok,
-    ).toBe(false);
-    expect(parseAlibabaTokenPlanUsageJson("{").ok).toBe(false);
-    expect(parseAlibabaTokenPlanUsageJson("[]").ok).toBe(false);
-  });
-
-  it("does not fabricate an empty success when no windows are present", () => {
     expect(parseAlibabaTokenPlanUsageJson("{}")).toEqual({
       ok: false,
       error: {
@@ -184,91 +184,20 @@ describe("alibaba token plan parser", () => {
       },
     });
   });
-
-  it("keeps used and remaining percent precision until shared rendering", () => {
-    const used = 0.123456789;
-    const remaining = 100 - used * 100;
-    const result = parseAlibabaTokenPlanUsageJson(JSON.stringify({ per5HourPercentage: used }));
-    expect(result).toEqual({
-      ok: true,
-      fiveHour: { percentRemaining: remaining },
-    });
-    expect(remaining).not.toBe(Math.round((1 - used) * 10000) / 100);
-  });
-
-  it("maps full exhaustion to 0 remaining and unused quota to 100 remaining", () => {
-    expect(parseAlibabaTokenPlanUsageJson(JSON.stringify({ per5HourPercentage: 1 }))).toEqual({
-      ok: true,
-      fiveHour: { percentRemaining: 0 },
-    });
-    expect(parseAlibabaTokenPlanUsageJson(JSON.stringify({ per1WeekPercentage: 0 }))).toEqual({
-      ok: true,
-      weekly: { percentRemaining: 100 },
-    });
-  });
-
-  it("rejects malformed reset timestamps instead of dropping the window", () => {
-    const used = { per5HourPercentage: 0.2 };
-    for (const reset of [
-      "1714000000000",
-      0,
-      -1,
-      Number.NaN,
-      Number.POSITIVE_INFINITY,
-      5_000_000_000_000,
-    ]) {
-      expect(
-        parseAlibabaTokenPlanUsageJson(JSON.stringify({ ...used, per5HourResetTime: reset })),
-      ).toEqual({
-        ok: false,
-        error: {
-          kind: "invalid_schema",
-          message: "Alibaba Cloud CLI returned an invalid Personal Token Plan payload.",
-        },
-      });
-    }
-  });
 });
 
-describe("alibaba token plan PATH trust", () => {
-  it.each([
-    {
-      platform: "linux" as const,
-      cwd: "/workspace",
-      bin: "/workspace-sibling/bin",
-      delimiter: ":",
-    },
-    {
-      platform: "win32" as const,
-      cwd: "C:\\workspace",
-      bin: "C:\\workspace-sibling\\bin",
-      delimiter: ";",
-    },
-  ])("uses $platform PATH semantics independently of the host", ({
-    platform,
-    cwd,
-    bin,
-    delimiter,
-  }) => {
-    const paths = platform === "win32" ? path.win32 : path.posix;
-    const parent = paths.dirname(cwd);
-    expect(
-      listTrustedPathDirectories({
-        platform,
-        cwd,
-        pathEnv: [cwd, paths.join(cwd, "..bin"), ".", "relative", bin, bin, parent].join(delimiter),
-      }),
-    ).toEqual([bin, parent]);
-  });
+describe("alibaba token plan executable resolution", () => {
+  const NVM_BL = "/home/user/.nvm/versions/node/v22.0.0/lib/node_modules/bailian-cli/bin/bl";
 
-  it.each(["cmd", "bat"])("classifies bl.%s as a rejected shell launcher", async (extension) => {
-    await mockExecutable(`/trusted/bin/bl.${extension}`);
-    const result = await resolveAlibabaTokenPlanExecutable({
-      platform: "linux",
-      cwd: "/workspace",
-      pathEnv: "/trusted/bin",
-    });
-    expect(result).toEqual({
+  it("names the rejected shell launcher in its error", async () => {
+    await mockExecutable("/trusted/bin/bl.cmd");
+    expect(
+      await resolveAlibabaTokenPlanExecutable({
+        platform: "linux",
+        cwd: "/workspace",
+        pathEnv: "/trusted/bin",
+      }),
+    ).toEqual({
       ok: false,
       error: {
         kind: "shell_launcher_rejected",
@@ -277,211 +206,100 @@ describe("alibaba token plan PATH trust", () => {
     });
   });
 
-  it("reports missing executables when no launcher exists", async () => {
-    await mockExecutable("/elsewhere/bl");
-    expect(
-      await resolveAlibabaTokenPlanExecutable({
-        platform: "linux",
-        cwd: "/workspace",
-        pathEnv: "/trusted/bin",
-      }),
-    ).toMatchObject({ ok: false, error: { kind: "executable_not_found" } });
-  });
-
+  // PATH is /trusted/bin and quota is computed for /workspace unless a row says otherwise.
   it.each([
-    "bin",
-    "..bin",
-  ])("rejects a trusted PATH executable resolving into workspace %s/bl", async (directory) => {
-    await mockExecutable("/trusted/bin/bl", `/workspace/${directory}/bl`);
-    const result = await resolveAlibabaTokenPlanExecutable({
-      platform: "linux",
-      cwd: "/workspace",
-      pathEnv: "/trusted/bin",
-    });
-    expect(result).toMatchObject({ ok: false, error: { kind: "workspace_path_rejected" } });
-  });
-
-  it("accepts a trusted PATH executable resolving into an external workspace sibling", async () => {
-    const target = "/workspace-sibling/..bin/bl";
-    await mockExecutable("/trusted/bin/bl", target);
-    expect(
-      await resolveAlibabaTokenPlanExecutable({
-        platform: "linux",
-        cwd: "/workspace",
-        pathEnv: "/trusted/bin",
-      }),
-    ).toEqual({ ok: true, file: target });
-  });
-
-  it("keeps only absolute PATH directories outside the workspace", async () => {
-    const workspace = await makeDir();
-    const trusted = await makeDir();
-    const relative = "bin";
-    const dirs = listTrustedPathDirectories({
-      pathEnv: [
-        trusted,
-        relative,
-        ".",
-        workspace,
-        path.join(workspace, "node_modules", ".bin"),
-      ].join(path.delimiter),
-      cwd: workspace,
-      platform: process.platform,
-    });
-    expect(dirs).toEqual([trusted]);
-  });
-
-  it("trusts PATH directories under the home folder when quota is computed for home", () => {
-    const home = "/home/user";
-    const pathEnv = [
-      "/home/user/.local/bin",
-      "/home/user/.nvm/versions/node/v22.0.0/bin",
-      "relative",
-      ".",
-      "..",
-      "/usr/bin",
-    ].join(":");
-
-    expect(
-      listTrustedPathDirectories({ platform: "linux", cwd: home, homedir: home, pathEnv }),
-    ).toEqual(["/home/user/.local/bin", "/home/user/.nvm/versions/node/v22.0.0/bin", "/usr/bin"]);
-  });
-
-  it("still ignores PATH directories inside a project folder under home", () => {
-    const pathEnv = "/home/user/project/node_modules/.bin:/home/user/.local/bin:/usr/bin";
-
-    expect(
-      listTrustedPathDirectories({
-        platform: "linux",
-        cwd: "/home/user/project",
-        homedir: "/home/user",
-        pathEnv,
-      }),
-    ).toEqual(["/home/user/.local/bin", "/usr/bin"]);
-  });
-
-  it("accepts a bl that resolves under home when quota is computed for home", async () => {
-    const target = "/home/user/.nvm/versions/node/v22.0.0/lib/node_modules/bailian-cli/bin/bl";
-    await mockExecutable("/opt/homebrew/bin/bl", target);
-
-    expect(
-      await resolveAlibabaTokenPlanExecutable({
-        platform: "darwin",
-        cwd: "/home/user",
-        homedir: "/home/user",
-        pathEnv: "/opt/homebrew/bin",
-      }),
-    ).toEqual({ ok: true, file: target });
-  });
-
-  it("rejects a bl that resolves into a project folder under home", async () => {
-    await mockExecutable("/opt/homebrew/bin/bl", "/home/user/project/node_modules/.bin/bl");
-
-    expect(
-      await resolveAlibabaTokenPlanExecutable({
-        platform: "darwin",
-        cwd: "/home/user/project",
-        homedir: "/home/user",
-        pathEnv: "/opt/homebrew/bin",
-      }),
-    ).toMatchObject({ ok: false, error: { kind: "workspace_path_rejected" } });
-  });
-
-  it.each([
-    "bin",
-    "..bin",
-  ])("rejects workspace %s/bl even when PATH points at it with an absolute path", async (directory) => {
-    const workspace = "/workspace";
-    const workspaceBin = `/workspace/${directory}`;
-    await mockExecutable(`${workspaceBin}/bl`);
-    const resolved = await resolveAlibabaTokenPlanExecutable({
-      pathEnv: workspaceBin,
-      cwd: workspace,
-      platform: "darwin",
-    });
-    expect(resolved.ok).toBe(false);
-    if (resolved.ok) throw new Error("expected rejection");
-    expect(resolved.error.kind).toBe("executable_not_found");
-  });
-
-  it("rejects unsupported platforms instead of probing PATH", async () => {
-    const resolved = await resolveAlibabaTokenPlanExecutable({
-      pathEnv: "/usr/bin",
-      cwd: await makeDir(),
-      platform: "aix",
-    });
-    expect(resolved.ok).toBe(false);
-    if (resolved.ok) throw new Error("expected rejection");
-    expect(resolved.error.kind).toBe("unsupported_platform");
-    const queried = await queryAlibabaTokenPlanQuota({
-      runtime: { platform: "aix", cwd: await makeDir(), pathEnv: "/usr/bin" },
-    });
-    expect(queried.ok).toBe(false);
-    if (queried.ok) throw new Error("expected rejection");
-    expect(queried.error.kind).toBe("unsupported_platform");
-  });
-
-  it("rejects native win32 instead of probing PATH", async () => {
-    const bin = await makeDir();
-    await writeUnixExecutable(bin, "bl.exe", "#!/bin/sh\nexit 0\n");
-    const resolved = await resolveAlibabaTokenPlanExecutable({
-      pathEnv: bin,
-      cwd: await makeDir(),
-      platform: "win32",
-    });
-    expect(resolved.ok).toBe(false);
-    if (resolved.ok) throw new Error("expected rejection");
-    expect(resolved.error.kind).toBe("unsupported_platform");
-
-    const queried = await queryAlibabaTokenPlanQuota({
-      runtime: { platform: "win32", cwd: await makeDir(), pathEnv: bin },
-    });
-    expect(queried.ok).toBe(false);
-    if (queried.ok) throw new Error("expected rejection");
-    expect(queried.error.kind).toBe("unsupported_platform");
-  });
-
-  it.runIf(process.platform !== "win32")(
-    "rejects .cmd and .bat launchers on supported platforms",
-    async () => {
-      const bin = await makeDir();
-      const { symlink } = await import("node:fs/promises");
-      await writeUnixExecutable(bin, "launcher.cmd", "@echo off\r\n");
-      await writeUnixExecutable(bin, "launcher.bat", "@echo off\r\n");
-      await symlink(path.join(bin, "launcher.cmd"), path.join(bin, "bl"));
-      const cmd = await resolveAlibabaTokenPlanExecutable({
-        pathEnv: bin,
-        cwd: await makeDir(),
-        platform: "linux",
-      });
-      expect(cmd.ok).toBe(false);
-      if (cmd.ok) throw new Error("expected rejection");
-      expect(cmd.error.kind).toBe("shell_launcher_rejected");
-
-      await rm(path.join(bin, "bl"));
-      await symlink(path.join(bin, "launcher.bat"), path.join(bin, "bl"));
-      const bat = await resolveAlibabaTokenPlanExecutable({
-        pathEnv: bin,
-        cwd: await makeDir(),
-        platform: "darwin",
-      });
-      expect(bat.ok).toBe(false);
-      if (bat.ok) throw new Error("expected rejection");
-      expect(bat.error.kind).toBe("shell_launcher_rejected");
+    { name: "a bl.bat launcher", file: "/trusted/bin/bl.bat", kind: "shell_launcher_rejected" },
+    {
+      name: "a symlink to a shell",
+      file: "/trusted/bin/bl",
+      target: "/bin/sh",
+      kind: "shell_launcher_rejected",
+    },
+    { name: "no bl on PATH", file: "/elsewhere/bl", kind: "executable_not_found" },
+    {
+      name: "a bl in workspace bin/",
+      file: "/trusted/bin/bl",
+      target: "/workspace/bin/bl",
+      kind: "workspace_path_rejected",
+    },
+    {
+      name: "a bl in workspace ..bin/",
+      file: "/trusted/bin/bl",
+      target: "/workspace/..bin/bl",
+      kind: "workspace_path_rejected",
+    },
+    {
+      name: "a bl in a workspace sibling",
+      file: "/trusted/bin/bl",
+      target: "/workspace-sibling/..bin/bl",
+      resolved: "/workspace-sibling/..bin/bl",
+    },
+    {
+      name: "workspace bin/ as an absolute PATH entry",
+      file: "/workspace/bin/bl",
+      pathEnv: "/workspace/bin",
+      kind: "executable_not_found",
+    },
+    {
+      name: "workspace ..bin/ as an absolute PATH entry",
+      file: "/workspace/..bin/bl",
+      pathEnv: "/workspace/..bin",
+      kind: "executable_not_found",
+    },
+    {
+      name: "a bl under home for quota computed for home",
+      file: "/trusted/bin/bl",
+      target: NVM_BL,
+      cwd: "/home/user",
+      resolved: NVM_BL,
+    },
+    {
+      name: "a bl in a project folder under home",
+      file: "/trusted/bin/bl",
+      target: "/home/user/project/node_modules/.bin/bl",
+      cwd: "/home/user/project",
+      kind: "workspace_path_rejected",
+    },
+  ])(
+    "resolves $name",
+    async ({ file, target, cwd = "/workspace", pathEnv = "/trusted/bin", kind, resolved }) => {
+      await mockExecutable(file, target);
+      expect(
+        await resolveAlibabaTokenPlanExecutable({
+          platform: "linux",
+          cwd,
+          homedir: "/home/user",
+          pathEnv,
+        }),
+      ).toEqual(
+        resolved
+          ? { ok: true, file: resolved }
+          : { ok: false, error: { kind, message: expect.any(String) } },
+      );
     },
   );
 
-  it("rejects shell launchers instead of bridging through them", async () => {
-    const bin = "/trusted/bin";
-    await mockExecutable(`${bin}/bl`, "/bin/sh");
-    const resolved = await resolveAlibabaTokenPlanExecutable({
-      pathEnv: bin,
-      cwd: "/workspace",
-      platform: "darwin",
-    });
-    expect(resolved.ok).toBe(false);
-    if (resolved.ok) throw new Error("expected rejection");
-    expect(resolved.error.kind).toBe("shell_launcher_rejected");
+  it.runIf(process.platform !== "win32")(
+    "rejects a real bl symlink to a .cmd launcher",
+    async () => {
+      const bin = await makeDir();
+      await writeUnixExecutable(bin, "launcher.cmd", "@echo off\r\n");
+      await symlink(path.join(bin, "launcher.cmd"), path.join(bin, "bl"));
+      const resolved = await resolveAlibabaTokenPlanExecutable({
+        pathEnv: bin,
+        cwd: await makeDir(),
+        platform: "darwin",
+      });
+      expect(resolved).toMatchObject({ ok: false, error: { kind: "shell_launcher_rejected" } });
+    },
+  );
+
+  it.each(["aix", "win32"] as const)("rejects %s instead of probing PATH", async (platform) => {
+    const expected = { ok: false, error: { kind: "unsupported_platform" } };
+    const params = { platform, cwd: "/workspace", pathEnv: "/usr/bin" };
+    expect(await resolveAlibabaTokenPlanExecutable(params)).toMatchObject(expected);
+    expect(await queryAlibabaTokenPlanQuota({ runtime: params })).toMatchObject(expected);
+    expect(stat).not.toHaveBeenCalled();
   });
 });
 
@@ -504,36 +322,71 @@ describe("alibaba token plan process boundary", () => {
     });
     expect(result.ok).toBe(true);
     expect(requests).toHaveLength(1);
-    expect(requests[0]?.args).toEqual([...ALIBABA_TOKEN_PLAN_ARGS]);
+    expect(requests[0]?.args).toEqual(BL_ARGS);
     expect(requests[0]?.shell).toBe(false);
     expect(requests[0]?.stdin).toBe("ignore");
-    expect(requests[0]?.file).toBe(`${bin}/${ALIBABA_TOKEN_PLAN_COMMAND}`);
+    expect(requests[0]?.file).toBe(`${bin}/${BL_COMMAND}`);
     expect(requests[0]?.cwd).toBe("/safe-tmp");
-    expect(requests[0]?.platform).toBe("linux");
     expect(requests[0]?.env).toEqual({ PATH: bin, TEST_ENV: "preserved" });
-    expect(requests[0]?.stdoutLimitBytes).toBe(ALIBABA_TOKEN_PLAN_STDOUT_LIMIT_BYTES);
-    expect(requests[0]?.stderrLimitBytes).toBe(ALIBABA_TOKEN_PLAN_STDERR_LIMIT_BYTES);
-    expect(requests[0]?.killGraceMs).toBe(ALIBABA_TOKEN_PLAN_KILL_GRACE_MS);
+    expect(requests[0]?.stdoutLimitBytes).toBe(STDOUT_LIMIT_BYTES);
+    expect(requests[0]?.stderrLimitBytes).toBe(STDERR_LIMIT_BYTES);
+    expect(requests[0]?.killGraceMs).toBe(KILL_GRACE_MS);
   });
 
-  it("runs a bl from the home folder's PATH when quota is computed for home", async () => {
-    const bin = "/home/user/.local/bin";
+  it.each([
+    {
+      name: "only absolute, deduplicated entries outside the workspace",
+      cwd: "/workspace",
+      bin: "/workspace-sibling/bin",
+      pathEnv: [
+        "/workspace",
+        "/workspace/..bin",
+        ".",
+        "relative",
+        "/workspace-sibling/bin",
+        '"/workspace-sibling/bin"',
+        "/",
+      ].join(":"),
+      expectedPath: "/workspace-sibling/bin:/",
+    },
+    {
+      name: "entries under home when quota is computed for home",
+      cwd: "/home/user",
+      bin: "/home/user/.local/bin",
+      pathEnv: [
+        "/home/user/.local/bin",
+        "/home/user/.nvm/versions/node/v22.0.0/bin",
+        "relative",
+        ".",
+        "..",
+        "/usr/bin",
+      ].join(":"),
+      expectedPath: "/home/user/.local/bin:/home/user/.nvm/versions/node/v22.0.0/bin:/usr/bin",
+    },
+    {
+      name: "no entries inside a project folder under home",
+      cwd: "/home/user/project",
+      bin: "/home/user/.local/bin",
+      pathEnv: "/home/user/project/node_modules/.bin:/home/user/.local/bin:/usr/bin",
+      expectedPath: "/home/user/.local/bin:/usr/bin",
+    },
+  ])("runs bl with a PATH of $name", async ({ cwd, bin, pathEnv, expectedPath }) => {
     await mockExecutable(`${bin}/bl`);
     const requests: AlibabaTokenPlanSpawnRequest[] = [];
     const result = await queryAlibabaTokenPlanQuota({
       runtime: {
         platform: "linux",
-        cwd: "/home/user",
+        cwd,
         homedir: "/home/user",
-        pathEnv: `${bin}:.`,
+        pathEnv,
         tmpdir: "/safe-tmp",
         env: {},
         spawn: capturedSpawn(requests),
       },
     });
     expect(result.ok).toBe(true);
-    expect(requests[0]?.file).toBe(`${bin}/${ALIBABA_TOKEN_PLAN_COMMAND}`);
-    expect(requests[0]?.env.PATH).toBe(bin);
+    expect(requests[0]?.file).toBe(`${bin}/${BL_COMMAND}`);
+    expect(requests[0]?.env.PATH).toBe(expectedPath);
     expect(requests[0]?.cwd).toBe("/safe-tmp");
   });
 
@@ -549,7 +402,6 @@ describe("alibaba token plan process boundary", () => {
     };
     expect((await queryAlibabaTokenPlanQuota({ runtime })).ok).toBe(true);
     expect(requests).toHaveLength(1);
-    expect(requests[0]?.platform).toBe("darwin");
     expect(requests[0]?.env.PATH).toBe("/trusted/bin");
 
     expect(
@@ -558,119 +410,73 @@ describe("alibaba token plan process boundary", () => {
     expect(requests).toHaveLength(1);
   });
 
-  it("maps timeout and overflow without leaking stdout or stderr", async () => {
-    const bin = "/trusted/bin";
-    await mockExecutable();
-    const timedOut = await queryAlibabaTokenPlanQuota({
-      runtime: {
-        platform: "linux",
-        pathEnv: bin,
-        cwd: "/workspace",
-        tmpdir: "/safe-tmp",
-        homedir: "/safe-home",
-        spawn: async () => ({
-          code: null,
-          stdout: Buffer.from("secret-stdout"),
-          stderr: Buffer.from("secret-stderr"),
-          timedOut: true,
-          truncated: false,
-        }),
-      },
-    });
-    expect(timedOut).toEqual({
-      ok: false,
+  it.each([
+    {
+      name: "a timeout",
+      run: { code: null, timedOut: true },
       error: {
         kind: "timeout",
         message: "Timed out while running the Alibaba Cloud CLI.",
-        retryable: true,
       },
-    });
-    expect(JSON.stringify(timedOut)).not.toContain("secret-");
-
-    const truncated = await queryAlibabaTokenPlanQuota({
-      runtime: {
-        platform: "linux",
-        pathEnv: bin,
-        cwd: "/workspace",
-        tmpdir: "/safe-tmp",
-        homedir: "/safe-home",
-        spawn: async () => ({
-          code: 0,
-          stdout: Buffer.from("secret-stdout"),
-          stderr: Buffer.from("secret-stderr"),
-          timedOut: false,
-          truncated: true,
-        }),
+    },
+    {
+      name: "an output overflow",
+      run: { code: 0, truncated: true },
+      error: {
+        kind: "output_truncated",
+        message: "Alibaba Cloud CLI output exceeded the bounded size limit.",
       },
-    });
-    expect(truncated.ok).toBe(false);
-    if (truncated.ok) throw new Error("expected failure");
-    expect(truncated.error.kind).toBe("output_truncated");
-    expect(JSON.stringify(truncated)).not.toContain("secret-");
-  });
-
-  it("treats exit 3 as missing console auth without exposing CLI output", async () => {
-    const bin = "/trusted/bin";
-    await mockExecutable();
-    const result = await queryAlibabaTokenPlanQuota({
-      runtime: {
-        platform: "linux",
-        pathEnv: bin,
-        cwd: "/workspace",
-        tmpdir: "/safe-tmp",
-        homedir: "/safe-home",
-        spawn: async () => ({
-          code: 3,
-          stdout: Buffer.from("token=abc"),
-          stderr: Buffer.from("no console access token found"),
-          timedOut: false,
-          truncated: false,
-        }),
-      },
-    });
-    expect(result).toEqual({
-      ok: false,
+    },
+    {
+      name: "exit 3 as missing console auth",
+      run: { code: 3 },
       error: {
         kind: "not_authenticated",
         message:
           "Alibaba Cloud console session is missing or expired. Run `bl auth login --console`.",
       },
-    });
-    expect(JSON.stringify(result)).not.toContain("token=abc");
-    expect(JSON.stringify(result)).not.toContain("no console access token found");
-  });
-
-  it("categorizes a generic nonzero exit separately from console auth failure", async () => {
-    const bin = "/trusted/bin";
+    },
+    {
+      name: "a generic nonzero exit separately from console auth",
+      run: { code: 1 },
+      error: { kind: "nonzero_exit", message: "Could not read Alibaba Personal Token Plan quota." },
+    },
+    {
+      name: "a vanished executable",
+      run: { code: null, spawnErrorCode: "ENOENT" },
+      error: {
+        kind: "executable_not_found",
+        message: "Alibaba Cloud CLI (bl) was not found on the trusted PATH.",
+      },
+    },
+    {
+      name: "another spawn error",
+      run: { code: null, spawnErrorCode: "EACCES" },
+      error: {
+        kind: "spawn_failed",
+        message: "Could not start Alibaba Cloud CLI.",
+      },
+    },
+  ])("maps $name without leaking CLI output", async ({ run, error }) => {
     await mockExecutable();
     const result = await queryAlibabaTokenPlanQuota({
       runtime: {
         platform: "linux",
-        pathEnv: bin,
+        pathEnv: "/trusted/bin",
         cwd: "/workspace",
         tmpdir: "/safe-tmp",
         homedir: "/safe-home",
         spawn: async () => ({
-          code: 1,
-          stdout: Buffer.from("token=abc"),
-          stderr: Buffer.from("usage failed"),
+          stdout: Buffer.from("secret-stdout token=abc"),
+          stderr: Buffer.from("secret-stderr no console access token found"),
           timedOut: false,
           truncated: false,
+          ...run,
         }),
       },
     });
-    expect(result).toEqual({
-      ok: false,
-      error: {
-        kind: "nonzero_exit",
-        message: "Could not read Alibaba Personal Token Plan quota.",
-      },
-    });
-    expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("expected failure");
-    expect(result.error.kind).not.toBe("not_authenticated");
-    expect(JSON.stringify(result)).not.toContain("token=abc");
-    expect(JSON.stringify(result)).not.toContain("usage failed");
+    expect(result).toEqual({ ok: false, error });
+    expect(JSON.stringify(result)).not.toContain("secret-");
   });
 
   it.runIf(process.platform !== "win32")(
@@ -710,14 +516,12 @@ process.stdin.on("end", () => {
         },
       });
       expect(result.ok).toBe(true);
-      const seenPayload = JSON.parse(
-        await (await import("node:fs/promises")).readFile(seen, "utf8"),
-      ) as {
+      const seenPayload = JSON.parse(await readFile(seen, "utf8")) as {
         argv: string[];
         cwd: string;
         stdin: string;
       };
-      expect(seenPayload.argv).toEqual([...ALIBABA_TOKEN_PLAN_ARGS]);
+      expect(seenPayload.argv).toEqual(BL_ARGS);
       expect(seenPayload.stdin).toBe("");
       expect(seenPayload.cwd.startsWith(workspace)).toBe(false);
     },
@@ -753,20 +557,20 @@ setInterval(() => {}, 30000);
       const elapsed = Date.now() - started;
       expect(result.timedOut).toBe(true);
       expect(result.truncated).toBe(false);
-      expect(elapsed).toBeGreaterThanOrEqual(timeoutMs + ALIBABA_TOKEN_PLAN_KILL_GRACE_MS);
-      expect(await (await import("node:fs/promises")).readFile(termSeen, "utf8")).toBe("term");
+      expect(elapsed).toBeGreaterThanOrEqual(timeoutMs + KILL_GRACE_MS);
+      expect(await readFile(termSeen, "utf8")).toBe("term");
     },
   );
 
-  it.runIf(process.platform !== "win32")(
-    "runner treats real stdout overflow as truncated and stops the child",
-    async () => {
+  it.runIf(process.platform !== "win32").each(["stdout", "stderr"] as const)(
+    "runner treats real %s overflow as truncated and stops the child",
+    async (stream) => {
       const bin = await makeDir();
       const file = await writeUnixExecutable(
         bin,
         "bl",
         `#!/usr/bin/env node
-process.stdout.write("x".repeat(128));
+process.${stream}.write("x".repeat(128));
 setInterval(() => {}, 30000);
 `,
       );
@@ -779,34 +583,7 @@ setInterval(() => {}, 30000);
         }),
       );
       expect(result.truncated).toBe(true);
-      expect(result.stdout.length).toBe(32);
-      expect(result.stdout.toString("utf8")).toBe("x".repeat(32));
-    },
-  );
-
-  it.runIf(process.platform !== "win32")(
-    "runner treats real stderr overflow as truncated and stops the child",
-    async () => {
-      const bin = await makeDir();
-      const file = await writeUnixExecutable(
-        bin,
-        "bl",
-        `#!/usr/bin/env node
-process.stderr.write("e".repeat(128));
-setInterval(() => {}, 30000);
-`,
-      );
-      const result = await runAlibabaTokenPlanProcess(
-        spawnRequest(file, {
-          cwd: await makeDir(),
-          stdoutLimitBytes: 32,
-          stderrLimitBytes: 32,
-          timeoutMs: 5_000,
-        }),
-      );
-      expect(result.truncated).toBe(true);
-      expect(result.stderr.length).toBe(32);
-      expect(result.stderr.toString("utf8")).toBe("e".repeat(32));
+      expect(result[stream].toString("utf8")).toBe("x".repeat(32));
     },
   );
 });

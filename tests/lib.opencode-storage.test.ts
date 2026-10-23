@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const fsMocks = vi.hoisted(() => ({
   existsSync: vi.fn(() => true),
@@ -62,8 +62,6 @@ describe("opencode storage multi-session reads", () => {
             tokens_cache_write: 4,
             cost: 0.01,
             time_completed: completedSinceMs + 1,
-            agent: "build",
-            mode: "primary",
           },
         ];
       }),
@@ -85,8 +83,6 @@ describe("opencode storage multi-session reads", () => {
       modelID: "gpt-5",
       tokens: { input: 10, output: 5, reasoning: 2, cache: { read: 3, write: 4 } },
       cost: 0.01,
-      agent: "build",
-      mode: "primary",
     });
     expect(conn.close).toHaveBeenCalledOnce();
   });
@@ -113,8 +109,6 @@ describe("opencode storage multi-session reads", () => {
             tokens_cache_write: 1,
             cost: 0.02,
             time_completed: 101,
-            agent: null,
-            mode: null,
           },
         ];
       }),
@@ -135,8 +129,6 @@ describe("opencode storage multi-session reads", () => {
         tokens: { input: 11, output: 7, cache: { read: 2, write: 1 } },
         cost: 0.02,
         time: { created: 100, completed: 101 },
-        agent: undefined,
-        mode: undefined,
       },
     ]);
   });
@@ -176,58 +168,6 @@ describe("opencode storage multi-session reads", () => {
 
     expect(conn.all).not.toHaveBeenCalled();
   });
-
-  it("chunks large session queries below the SQLite bind limit and preserves message order", async () => {
-    const conn = {
-      all: vi.fn((_: string, params?: unknown[]) => {
-        const sessionParams = (params ?? []).filter(
-          (value): value is string => typeof value === "string" && value.startsWith("ses_"),
-        );
-
-        expect(params?.length ?? 0).toBeLessThanOrEqual(900);
-
-        if (sessionParams.includes("ses_999")) {
-          return [
-            {
-              id: "msg-second-batch",
-              session_id: "ses_999",
-              time_created: 10,
-              role: "assistant",
-            },
-          ];
-        }
-
-        return [
-          {
-            id: "msg-first-batch",
-            session_id: "ses_000",
-            time_created: 20,
-            role: "assistant",
-          },
-        ];
-      }),
-      get: vi.fn(() => ({ r: "assistant" })),
-      close: vi.fn(),
-    };
-    sqliteMocks.openOpenCodeSqliteReadOnly.mockResolvedValue(conn);
-
-    const { iterAssistantMessagesForSessions } = await import("../src/lib/opencode-storage.js");
-    const sessionIDs = Array.from(
-      { length: 1000 },
-      (_, index) => `ses_${String(index).padStart(3, "0")}`,
-    );
-
-    const messages = await iterAssistantMessagesForSessions({
-      sessionIDs,
-      sinceMs: 100,
-      untilMs: 200,
-    });
-
-    expect(sqliteMocks.openOpenCodeSqliteReadOnly).toHaveBeenCalledWith("/tmp/opencode.db");
-    expect(conn.all).toHaveBeenCalledTimes(2);
-    expect(messages.map((message) => message.id)).toEqual(["msg-second-batch", "msg-first-batch"]);
-    expect(conn.close).toHaveBeenCalledTimes(1);
-  });
 });
 
 describe("opencode storage forked session copies", () => {
@@ -245,8 +185,6 @@ describe("opencode storage forked session copies", () => {
     tokens_cache_write: 30,
     cost: 10,
     time_completed: 150,
-    agent: "build",
-    mode: null,
   };
   // Message ids ascend with time. OpenCode copies finished parent rows into the
   // fork with a newer id and identical data.
@@ -278,40 +216,14 @@ describe("opencode storage forked session copies", () => {
   it("counts a forked session's copied message once in all-history reads", async () => {
     mockConnection(() => [originalRow, forkCopyRow, forkNewRow]);
 
-    const { iterAssistantMessages, iterCompletedAssistantMessages } = await import(
-      "../src/lib/opencode-storage.js"
-    );
+    const { iterAssistantMessages, iterCompletedAssistantMessages } =
+      await import("../src/lib/opencode-storage.js");
 
     const messages = await iterAssistantMessages({});
     expect(messages.map((message) => message.id)).toEqual(["msg_01original", "msg_06forknew"]);
 
     const completed = await iterCompletedAssistantMessages({});
     expect(completed.map((message) => message.id)).toEqual(["msg_01original", "msg_06forknew"]);
-  });
-
-  it("counts a forked session's copied message once across a session set", async () => {
-    mockConnection((_sql, params) => {
-      const sessionIDs = params ?? [];
-      return [originalRow, forkCopyRow, forkNewRow].filter((row) =>
-        sessionIDs.includes(row.session_id),
-      );
-    });
-
-    const { iterAssistantMessagesForSessions } = await import("../src/lib/opencode-storage.js");
-    const messages = await iterAssistantMessagesForSessions({
-      sessionIDs: ["ses_parent", "ses_fork"],
-    });
-
-    expect(messages.map((message) => message.id)).toEqual(["msg_01original", "msg_06forknew"]);
-  });
-
-  it("keeps a fork's copied history in its own single-session read", async () => {
-    mockConnection(() => [forkCopyRow, forkNewRow]);
-
-    const { iterAssistantMessagesForSession } = await import("../src/lib/opencode-storage.js");
-    const messages = await iterAssistantMessagesForSession({ sessionID: "ses_fork" });
-
-    expect(messages.map((message) => message.id)).toEqual(["msg_05forkevent_1", "msg_06forknew"]);
   });
 
   it("keeps finished messages that differ only in tokens and identical unfinished messages across sessions", async () => {
@@ -345,9 +257,8 @@ describe("opencode storage forked session copies", () => {
     const sameSessionTwinRow = { ...originalRow, id: "msg_02sametwin" };
     mockConnection(() => [originalRow, sameSessionTwinRow]);
 
-    const { iterAssistantMessages, iterCompletedAssistantMessages } = await import(
-      "../src/lib/opencode-storage.js"
-    );
+    const { iterAssistantMessages, iterCompletedAssistantMessages } =
+      await import("../src/lib/opencode-storage.js");
 
     const messages = await iterAssistantMessages({});
     expect(messages.map((message) => message.id)).toEqual(["msg_01original", "msg_02sametwin"]);
@@ -378,45 +289,12 @@ describe("opencode storage forked session copies", () => {
     const laterForkTwinCopyRow = { ...laterForkCopyRow, id: "msg_07laterforkevent_2" };
     mockConnection(() => [forkCopyRow, laterForkCopyRow, laterForkTwinCopyRow]);
 
-    const { iterAssistantMessages, iterAssistantMessagesForSessions } = await import(
-      "../src/lib/opencode-storage.js"
-    );
-
-    const sessionMessages = await iterAssistantMessagesForSessions({
-      sessionIDs: ["ses_fork", "ses_later_fork"],
-    });
-    expect(sessionMessages.map((message) => message.id)).toEqual([
-      "msg_05forkevent_1",
-      "msg_07laterforkevent_2",
-    ]);
+    const { iterAssistantMessages } = await import("../src/lib/opencode-storage.js");
 
     const allMessages = await iterAssistantMessages({});
     expect(allMessages.map((message) => message.id)).toEqual([
       "msg_05forkevent_1",
       "msg_07laterforkevent_2",
     ]);
-  });
-
-  it("counts a fork copy once when the original and copy come from different query chunks", async () => {
-    const fillerSessionIDs = Array.from({ length: 899 }, (_, index) => `ses_filler_${index}`);
-    const queriedChunks: unknown[][] = [];
-    mockConnection((_sql, params) => {
-      const sessionIDs = params ?? [];
-      queriedChunks.push(sessionIDs);
-      return [originalRow, forkCopyRow, forkNewRow].filter((row) =>
-        sessionIDs.includes(row.session_id),
-      );
-    });
-
-    const { iterAssistantMessagesForSessions } = await import("../src/lib/opencode-storage.js");
-    const messages = await iterAssistantMessagesForSessions({
-      sessionIDs: ["ses_parent", ...fillerSessionIDs, "ses_fork"],
-    });
-
-    expect(queriedChunks).toHaveLength(2);
-    expect(queriedChunks[0]).toContain("ses_parent");
-    expect(queriedChunks[0]).not.toContain("ses_fork");
-    expect(queriedChunks[1]).toEqual(["ses_fork"]);
-    expect(messages.map((message) => message.id)).toEqual(["msg_01original", "msg_06forknew"]);
   });
 });

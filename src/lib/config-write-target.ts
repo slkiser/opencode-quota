@@ -2,23 +2,22 @@ import { realpathSync } from "node:fs";
 import { lstat, readlink } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
-import { type WriteJsonAtomicOptions, writeJsonAtomic, writeTextAtomic } from "./atomic-json.js";
+import { type WriteJsonAtomicOptions, writeTextAtomic } from "./atomic-json.js";
 
 export const MAX_CONFIG_SYMLINK_HOPS = 40;
 export const NEW_CONFIG_FILE_MODE = 0o600;
 export const NEW_CONFIG_DIRECTORY_MODE = 0o700;
 
-export type ConfigWriteTargetReason =
+type ConfigWriteTargetReason =
   | "dangling"
   | "loop"
   | "depth"
   | "non-regular"
   | "permission"
   | "changed"
-  | "bytes-changed"
-  | "symlink-source";
+  | "bytes-changed";
 
-export interface ConfigWriteHop {
+interface ConfigWriteHop {
   path: string;
   linkText: string;
 }
@@ -83,20 +82,6 @@ export function configWriteTargetsEqual(
       const other = right.hops[index];
       return other !== undefined && hop.path === other.path && hop.linkText === other.linkText;
     })
-  );
-}
-
-export function assertSameConfigWriteTarget(
-  planned: ConfigWriteTargetSnapshot,
-  current: ConfigWriteTargetSnapshot,
-): void {
-  if (configWriteTargetsEqual(planned, current)) {
-    return;
-  }
-  throw new ConfigWriteTargetError(
-    `Config write target changed since preview: ${planned.configuredPath}`,
-    planned.configuredPath,
-    "changed",
   );
 }
 
@@ -171,20 +156,6 @@ export async function resolveConfigWriteTarget(path: string): Promise<ConfigWrit
   }
 }
 
-export function assertNotSymlinkSource(
-  snapshot: ConfigWriteTargetSnapshot,
-  sourcePath: string,
-): void {
-  if (snapshot.hops.length === 0) {
-    return;
-  }
-  throw new ConfigWriteTargetError(
-    `Refusing to delete a symlinked config source: ${sourcePath}`,
-    sourcePath,
-    "symlink-source",
-  );
-}
-
 async function existingFileMode(path: string): Promise<number> {
   try {
     const stats = await lstat(path);
@@ -227,20 +198,8 @@ async function configurationWriteOptions(
 export async function writeResolvedConfigText(
   snapshot: ConfigWriteTargetSnapshot,
   content: string,
+  beforeCommit?: () => Promise<void>,
 ): Promise<void> {
-  await writeTextAtomic(snapshot.writePath, content, await configurationWriteOptions(snapshot));
-}
-
-export async function writeConfiguredJsonAtomic(
-  configuredPath: string,
-  data: unknown,
-  opts: { trailingNewline?: boolean } = {},
-): Promise<void> {
-  const planned = await resolveConfigWriteTarget(configuredPath);
-  const current = await resolveConfigWriteTarget(configuredPath);
-  assertSameConfigWriteTarget(planned, current);
-  await writeJsonAtomic(current.writePath, data, {
-    ...(await configurationWriteOptions(current)),
-    trailingNewline: opts.trailingNewline,
-  });
+  const options = await configurationWriteOptions(snapshot);
+  await writeTextAtomic(snapshot.writePath, content, { ...options, beforeCommit });
 }

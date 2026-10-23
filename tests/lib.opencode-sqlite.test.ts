@@ -2,15 +2,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { openOpenCodeSqliteReadOnly } from "../src/lib/opencode-sqlite.js";
-
-const runtimePaths = vi.hoisted(() => ({ dataDir: "" }));
-
-vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirs: () => ({ dataDir: runtimePaths.dataDir }),
-}));
 
 describe("opencode sqlite adapter", () => {
   it("reads an OpenCode SQLite database through node:sqlite on Node runtimes", async () => {
@@ -61,7 +55,7 @@ describe("opencode sqlite adapter", () => {
     const cutoff = Date.parse("2026-07-16T00:00:00.000Z");
 
     try {
-      runtimePaths.dataDir = dir;
+      vi.stubEnv("OPENCODE_DB", dbPath);
       const writer = new DatabaseSync(dbPath);
       writer.exec(`
         CREATE TABLE "session_v2" (
@@ -123,7 +117,6 @@ describe("opencode sqlite adapter", () => {
       ]);
       expect(messages.every((message) => typeof message.time?.completed === "number")).toBe(true);
     } finally {
-      runtimePaths.dataDir = "";
       await rm(dir, { recursive: true, force: true });
     }
   });

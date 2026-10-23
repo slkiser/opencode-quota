@@ -11,7 +11,7 @@ function getTrackedEntry(lock, pluginId) {
   const tracked = lock.plugins?.[pluginId];
   if (!tracked) {
     throw new Error(
-      `Missing tracked upstream entry for ${pluginId} in references/upstream-plugins/lock.json. Run pnpm run upstream:sync to rebuild it.`,
+      `Missing tracked upstream entry for ${pluginId} in scripts/upstream-plugins/lock.json. Run pnpm run upstream:sync to rebuild it.`,
     );
   }
   return tracked;
@@ -32,7 +32,7 @@ async function githubRequest(path, token, init = {}) {
     ...init,
     headers: {
       ...createGitHubHeaders(token),
-      ...(init.headers ?? {}),
+      ...init.headers,
     },
   });
 

@@ -1,366 +1,205 @@
-import { describe, expect, it, vi } from "vitest";
+/**
+ * Cursor as one module: its month of spend estimated from Cursor messages in a temp
+ * `opencode.db`, priced as the Usage tab prices them (cursor/gpt-5 input $1.25 per million
+ * tokens for the API pool, Cursor's `auto` input $1.25 per million for Auto+Composer), and its
+ * plugin or provider found in a temp `opencode.json`.
+ */
+
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+
 import { cursorProvider } from "../src/providers/cursor.js";
-import {
-  expectAttemptedWithNoErrors,
-  expectNotAttempted,
-  visibleEntries,
-} from "./helpers/provider-assertions.js";
+import { fetchRows, rowSummary, useProviderWorld } from "./helpers/provider-fetch.js";
+import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
+import { type SessionDatabaseMessage, writeSessionDatabase } from "./helpers/session-database.js";
 
-vi.mock("../src/lib/provider-availability.js", () => ({
-  isCanonicalProviderAvailable: vi.fn(),
-}));
+const world = useProviderWorld();
 
-vi.mock("../src/lib/cursor-detection.js", () => ({
-  CURSOR_CANONICAL_PLUGIN_PACKAGE: "cursor-opencode-provider",
-  inspectCursorAuthPresence: vi.fn(async () => ({
-    state: "missing",
-    presentPaths: [],
-    candidatePaths: [],
-  })),
-  inspectCursorOpenCodeIntegration: vi.fn(async () => ({
-    pluginEnabled: false,
-    providerConfigured: false,
-    matchedPaths: [],
-    checkedPaths: [],
-  })),
-}));
+// The cycle is the local calendar month, or the month from the configured start day.
+const NOW = new Date(2026, 1, 15, 12);
+const CYCLE_START = new Date(2026, 1, 1).toISOString();
+const RESET = new Date(2026, 2, 1).toISOString();
 
-vi.mock("../src/lib/cursor-usage.js", () => ({
-  getCurrentCursorUsageSummary: vi.fn(),
-}));
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
+});
 
-const resetTimeIso = "2026-03-01T00:00:00.000Z";
+afterEach(() => {
+  vi.useRealTimers();
+});
 
-function usageSummary(params: {
-  apiCost: number;
-  apiMessages: number;
-  autoCost?: number;
-  autoMessages?: number;
-  unknownModels?: Array<Record<string, unknown>>;
-}): any {
-  const autoCost = params.autoCost ?? 0;
-  const autoMessages = params.autoMessages ?? 0;
-  return {
-    window: { resetTimeIso },
-    api: { costUsd: params.apiCost, tokens: {}, messageCount: params.apiMessages },
-    autoComposer: { costUsd: autoCost, tokens: {}, messageCount: autoMessages },
-    total: {
-      costUsd: params.apiCost + autoCost,
-      tokens: {},
-      messageCount: params.apiMessages + autoMessages,
-    },
-    unknownModels: params.unknownModels ?? [],
-  };
+/** Input tokens that cost `usd` at $1.25 per million. */
+function tokensFor(usd: number): number {
+  return Math.round((usd / 1.25) * 1_000_000);
+}
+
+/**
+ * This month's Cursor messages: API spend, Auto+Composer spend, unknown models, and GPT-5.4
+ * requests over 200k tokens (Cursor's long-context rate).
+ */
+function storeHistory(spend: {
+  api?: number;
+  auto?: number;
+  unknownModels?: number;
+  longRequests?: number;
+}): void {
+  const created = new Date(2026, 1, 10).getTime();
+  const message = (index: number, modelID: string, input: number): SessionDatabaseMessage => ({
+    id: `msg_${index}`,
+    sessionID: "ses_1",
+    created: created + index,
+    completed: created + index + 1,
+    providerID: "cursor",
+    modelID,
+    tokens: { input },
+  });
+  const messages = [
+    ...(spend.api === undefined ? [] : [message(1, "cursor/gpt-5", tokensFor(spend.api))]),
+    ...(spend.auto === undefined ? [] : [message(2, "auto", tokensFor(spend.auto))]),
+    ...Array.from({ length: spend.unknownModels ?? 0 }, (_, index) =>
+      message(10 + index, "cursor/future-model", 10),
+    ),
+    ...Array.from({ length: spend.longRequests ?? 0 }, (_, index) =>
+      message(20 + index, "cursor/gpt-5.4", 250_000),
+    ),
+  ];
+  writeSessionDatabase(join(world.configDir, "..", "..", "data", "opencode", "opencode.db"), {
+    sessions: [{ id: "ses_1", created }],
+    messages,
+  });
 }
 
 describe("cursor provider", () => {
-  it("returns attempted:false when there is no usage and no configured included budget", async () => {
-    const { getCurrentCursorUsageSummary } = await import("../src/lib/cursor-usage.js");
-    (getCurrentCursorUsageSummary as any).mockResolvedValue(
-      usageSummary({ apiCost: 0, apiMessages: 0 }),
-    );
+  it.each([
+    [
+      "nothing without usage or an included budget",
+      { cursorPlan: "none" },
+      {},
+      [],
+      { code: "not_configured" },
+    ],
+    [
+      "the plan's API budget and Auto+Composer spend",
+      { cursorPlan: "pro" },
+      { api: 5, auto: 1.25 },
+      [
+        ["cursor.api", "Pro", "API", "month", "75 (5 USD of 20 USD)", RESET],
+        ["cursor.auto_composer", "Pro", "Auto+Composer", "month", "1.25 USD", RESET],
+      ],
+      undefined,
+    ],
+    [
+      "an overspent configured budget below zero",
+      { cursorPlan: "pro", cursorIncludedApiUsd: 8 },
+      { api: 10 },
+      [
+        ["cursor.api", "Pro", "API", "month", "-25 (10 USD of 8 USD)", RESET],
+        ["cursor.auto_composer", "Pro", "Auto+Composer", "month", "0 USD", RESET],
+      ],
+      undefined,
+    ],
+    [
+      "spend without a plan",
+      { cursorPlan: "none" },
+      { api: 0.5, auto: 1.25 },
+      [
+        ["cursor.api", null, "API", "month", "0.5 USD", RESET],
+        ["cursor.auto_composer", null, "Auto+Composer", "month", "1.25 USD", RESET],
+      ],
+      undefined,
+    ],
+    [
+      "spend for a zero allowance",
+      { cursorPlan: "pro", cursorIncludedApiUsd: 0 },
+      { api: 0 },
+      [
+        ["cursor.api", "Pro", "API", "month", "0 USD", RESET],
+        ["cursor.auto_composer", "Pro", "Auto+Composer", "month", "0 USD", RESET],
+      ],
+      undefined,
+    ],
+    [
+      "only known API spend, and an error, when some models are unknown",
+      { cursorPlan: "pro" },
+      { api: 2, unknownModels: 1 },
+      [
+        ["cursor.api", "Pro", "Known API", "month", "2 USD", RESET],
+        ["cursor.auto_composer", "Pro", "Auto+Composer", "month", "0 USD", RESET],
+      ],
+      { detail: "Unknown Cursor model ids present in local history (see /quota_status)" },
+    ],
+    [
+      "only known API spend, and an error, when long requests have no price",
+      { cursorPlan: "pro" },
+      { api: 2, longRequests: 1 },
+      [
+        ["cursor.api", "Pro", "Known API", "month", "2 USD", RESET],
+        ["cursor.auto_composer", "Pro", "Auto+Composer", "month", "0 USD", RESET],
+      ],
+      {
+        detail: "Cursor requests over 200k tokens on models with a long-context rate have no price",
+      },
+    ],
+  ])("shows %s", async (_name, config, spend, rows, error) => {
+    storeHistory(spend);
 
-    const out = await cursorProvider.fetch({
-      config: { cursorPlan: "none" },
-    } as any);
-    expectNotAttempted(out);
+    const fetched = await fetchRows(cursorProvider, config);
+
+    expect(rowSummary(fetched.rows)).toEqual(rows);
+    if (error) expect(fetched.error).toMatchObject(error);
+    else expect(fetched.error).toBeUndefined();
   });
 
-  it("maps complete API coverage to a named budget percentage with USD basis", async () => {
-    const { getCurrentCursorUsageSummary } = await import("../src/lib/cursor-usage.js");
-    (getCurrentCursorUsageSummary as any).mockResolvedValue(
-      usageSummary({ apiCost: 5, apiMessages: 2, autoCost: 1.25, autoMessages: 1 }),
-    );
+  it.each([
+    ["a configured start day", 1, CYCLE_START],
+    ["the calendar month", undefined, undefined],
+  ])("dates the cycle from %s only when it is fixed", async (_name, startDay, startedAt) => {
+    storeHistory({ api: 5 });
 
-    const out = await cursorProvider.fetch({
-      config: { cursorPlan: "pro" },
-    } as any);
-
-    expectAttemptedWithNoErrors(out);
-    expect(visibleEntries(out.entries, "cursor")).toEqual([
-      {
-        name: "Cursor API (Pro)",
-        group: "Cursor (Pro)",
-        percentRemaining: 75,
-        resetTimeIso,
-        semantic: {
-          metric: { kind: "named", name: "API" },
-          prominence: "primary",
-        },
-        basis: {
-          used: {
-            quantity: { decimal: "5", unit: { kind: "currency", code: "USD" } },
-            authority: "locally_derived",
-          },
-          limit: {
-            quantity: { decimal: "20", unit: { kind: "currency", code: "USD" } },
-            authority: "locally_derived",
-          },
-          remaining: {
-            quantity: { decimal: "15", unit: { kind: "currency", code: "USD" } },
-            authority: "locally_derived",
-          },
-        },
-      },
-      {
-        kind: "quantity",
-        name: "cursor-auto-composer-spend",
-        group: "Cursor (Pro)",
-        resetTimeIso,
-        semantic: {
-          metric: { kind: "named", name: "Auto+Composer" },
-          prominence: "supplementary",
-        },
-        quantity: { decimal: "1.25", unit: { kind: "currency", code: "USD" } },
-      },
-    ]);
-    expect(out.entries[0]?.accounting.resultType).toBe("budget");
-    expect(out.entries[1]?.accounting.resultType).toBe("spend");
-    expect(out.entries.every((entry) => !("right" in entry))).toBe(true);
-    expect(out.entries.every((entry) => !("barValue" in entry))).toBe(true);
-    expect(out.entries.every((entry) => entry.kind !== "value")).toBe(true);
-    expect(out.presentation).toBeUndefined();
-  });
-
-  it("attaches fixed-window evidence only to explicitly configured billing cycles", async () => {
-    const { getCurrentCursorUsageSummary } = await import("../src/lib/cursor-usage.js");
-    const observedAtMs = Date.parse("2026-02-15T12:00:00.000Z");
-    const configured = usageSummary({ apiCost: 5, apiMessages: 2 });
-    configured.window = {
-      source: "configured_day",
-      sinceMs: Date.parse("2026-02-01T00:00:00.000Z"),
-      untilMs: Date.parse(resetTimeIso),
-      resetTimeIso,
-    };
-    configured.observedAtMs = observedAtMs;
-    (getCurrentCursorUsageSummary as any).mockResolvedValueOnce(configured);
-
-    const supported = await cursorProvider.fetch({
-      config: { cursorPlan: "pro", cursorBillingCycleStartDay: 1 },
-    } as any);
-    expect(supported.entries[0]).toMatchObject({
-      fixedWindow: {
-        kind: "fixed_window",
-        startedAtIso: "2026-02-01T00:00:00.000Z",
-        observedAtIso: "2026-02-15T12:00:00.000Z",
-        endsAtIso: resetTimeIso,
-        fullReset: true,
-      },
+    const fetched = await fetchRows(cursorProvider, {
+      cursorPlan: "pro",
+      ...(startDay === undefined ? {} : { cursorBillingCycleStartDay: startDay }),
     });
 
-    const inferred = usageSummary({ apiCost: 5, apiMessages: 2 });
-    inferred.window = {
-      source: "calendar_month",
-      sinceMs: Date.parse("2026-02-01T00:00:00.000Z"),
-      untilMs: Date.parse(resetTimeIso),
-      resetTimeIso,
-    };
-    inferred.observedAtMs = observedAtMs;
-    (getCurrentCursorUsageSummary as any).mockResolvedValueOnce(inferred);
-    const unsupported = await cursorProvider.fetch({ config: { cursorPlan: "pro" } } as any);
-    expect(unsupported.entries[0]).not.toHaveProperty("fixedWindow");
+    expect(fetched.rows[0]?.windowStartedAt).toBe(startedAt);
   });
 
-  it("marks an explicit included-API override as user configured", async () => {
-    const { getCurrentCursorUsageSummary } = await import("../src/lib/cursor-usage.js");
-    (getCurrentCursorUsageSummary as any).mockResolvedValue(
-      usageSummary({ apiCost: 2, apiMessages: 1 }),
-    );
-
-    const out = await cursorProvider.fetch({
-      config: { cursorPlan: "pro", cursorIncludedApiUsd: 10 },
-    } as any);
-
-    expect(out.entries[0]).toMatchObject({
-      percentRemaining: 80,
-      basis: {
-        limit: {
-          quantity: { decimal: "10", unit: { kind: "currency", code: "USD" } },
-          authority: "user_configured",
-        },
-      },
-    });
-  });
-
-  it("preserves negative remaining percent while keeping remaining basis non-negative", async () => {
-    const { getCurrentCursorUsageSummary } = await import("../src/lib/cursor-usage.js");
-    (getCurrentCursorUsageSummary as any).mockResolvedValue(
-      usageSummary({ apiCost: 25, apiMessages: 2 }),
-    );
-
-    const out = await cursorProvider.fetch({
-      config: { cursorPlan: "pro" },
-    } as any);
-
-    expectAttemptedWithNoErrors(out);
-    expect(out.entries[0]).toMatchObject({
-      percentRemaining: -25,
-      basis: {
-        remaining: {
-          quantity: { decimal: "0", unit: { kind: "currency", code: "USD" } },
-          authority: "locally_derived",
-        },
-      },
-    });
-  });
-
-  it("maps complete no-allowance coverage to named API cycle spend", async () => {
-    const { getCurrentCursorUsageSummary } = await import("../src/lib/cursor-usage.js");
-    (getCurrentCursorUsageSummary as any).mockResolvedValue(
-      usageSummary({ apiCost: 0.5, apiMessages: 1, autoCost: 1.25, autoMessages: 1 }),
-    );
-
-    const out = await cursorProvider.fetch({
-      config: { cursorPlan: "none" },
-    } as any);
-
-    expectAttemptedWithNoErrors(out);
-    expect(visibleEntries(out.entries, "cursor")).toEqual([
-      {
-        kind: "quantity",
-        name: "cursor-api-spend",
-        group: "Cursor",
-        resetTimeIso,
-        semantic: {
-          metric: { kind: "named", name: "API" },
-          prominence: "primary",
-        },
-        quantity: { decimal: "0.5", unit: { kind: "currency", code: "USD" } },
-      },
-      {
-        kind: "quantity",
-        name: "cursor-auto-composer-spend",
-        group: "Cursor",
-        resetTimeIso,
-        semantic: {
-          metric: { kind: "named", name: "Auto+Composer" },
-          prominence: "supplementary",
-        },
-        quantity: { decimal: "1.25", unit: { kind: "currency", code: "USD" } },
-      },
-    ]);
-    expect(out.entries.every((entry) => entry.accounting.resultType === "spend")).toBe(true);
-  });
-
-  it("maps partial model coverage to Known API spend and preserves the partial error", async () => {
-    const { getCurrentCursorUsageSummary } = await import("../src/lib/cursor-usage.js");
-    (getCurrentCursorUsageSummary as any).mockResolvedValue(
-      usageSummary({
-        apiCost: 2,
-        apiMessages: 1,
-        unknownModels: [{ sourceModelID: "cursor/future-model", messageCount: 1, tokens: {} }],
-      }),
-    );
-
-    const out = await cursorProvider.fetch({
-      config: { cursorPlan: "pro" },
-    } as any);
-
-    expect(visibleEntries(out.entries, "cursor")).toEqual([
-      {
-        kind: "quantity",
-        name: "cursor-known-api-spend",
-        group: "Cursor (Pro)",
-        resetTimeIso,
-        semantic: {
-          metric: { kind: "named", name: "Known API" },
-          prominence: "primary",
-        },
-        quantity: { decimal: "2", unit: { kind: "currency", code: "USD" } },
-      },
-      {
-        kind: "quantity",
-        name: "cursor-auto-composer-spend",
-        group: "Cursor (Pro)",
-        resetTimeIso,
-        semantic: {
-          metric: { kind: "named", name: "Auto+Composer" },
-          prominence: "supplementary",
-        },
-        quantity: { decimal: "0", unit: { kind: "currency", code: "USD" } },
-      },
-    ]);
-    expect(out.entries[0]?.accounting.resultType).toBe("spend");
-    expect(out.errors[0]?.label).toBe("Cursor");
-    expect(out.errors[0]?.message).toContain("Unknown Cursor model ids");
-  });
-
-  it("treats a zero allowance as API spend instead of a percentage", async () => {
-    const { getCurrentCursorUsageSummary } = await import("../src/lib/cursor-usage.js");
-    (getCurrentCursorUsageSummary as any).mockResolvedValue(
-      usageSummary({ apiCost: 0, apiMessages: 1 }),
-    );
-
-    const out = await cursorProvider.fetch({
-      config: { cursorPlan: "pro", cursorIncludedApiUsd: 0 },
-    } as any);
-
-    expectAttemptedWithNoErrors(out);
-    expect(out.entries[0]).toMatchObject({
-      kind: "quantity",
-      semantic: {
-        metric: { kind: "named", name: "API" },
-        prominence: "primary",
-      },
-      quantity: { decimal: "0", unit: { kind: "currency", code: "USD" } },
-    });
-    expect(out.entries[0]).not.toHaveProperty("percentRemaining");
-  });
-
-  it("treats the current Cursor provider id as an availability signal", async () => {
-    const { isCanonicalProviderAvailable } = await import("../src/lib/provider-availability.js");
-    const { inspectCursorOpenCodeIntegration } = await import("../src/lib/cursor-detection.js");
-    (isCanonicalProviderAvailable as any).mockResolvedValue(false);
-    (inspectCursorOpenCodeIntegration as any).mockResolvedValue({
-      pluginEnabled: false,
-      providerConfigured: false,
-      matchedPaths: [],
-      checkedPaths: ["/tmp/opencode.json"],
-    });
+  it.each([
+    ["provider metadata", ["cursor"], { currentModel: "openai/gpt-5" }, undefined, true],
+    [
+      "the current provider id",
+      [],
+      { currentModel: "auto", currentProviderID: "cursor" },
+      undefined,
+      true,
+    ],
+    ["a Cursor model", [], { currentModel: "cursor-acp/auto" }, undefined, true],
+    [
+      "the plugin in a config file",
+      [],
+      { currentModel: "openai/gpt-5" },
+      { plugin: ["cursor-opencode-provider@0.7.3/plugin/opencode2"] },
+      true,
+    ],
+    [
+      "a provider in a config file",
+      [],
+      { currentModel: "openai/gpt-5" },
+      { provider: { cursor: {} } },
+      true,
+    ],
+    ["no signal", [], { currentModel: "openai/gpt-5" }, { plugin: ["other-plugin"] }, false],
+  ])("isAvailable via %s -> %s", async (_label, providerIds, config, opencodeJson, expected) => {
+    if (opencodeJson) world.writeConfigFile("opencode.json", JSON.stringify(opencodeJson));
 
     await expect(
-      cursorProvider.isAvailable({
-        client: { config: { providers: vi.fn() } },
-        config: { currentModel: "auto", currentProviderID: "cursor", cursorPlan: "none" },
-      } as any),
-    ).resolves.toBe(true);
-  });
-
-  it("treats cursor models or config-file integration as availability signals", async () => {
-    const { isCanonicalProviderAvailable } = await import("../src/lib/provider-availability.js");
-    const { inspectCursorOpenCodeIntegration } = await import("../src/lib/cursor-detection.js");
-    (isCanonicalProviderAvailable as any).mockResolvedValue(false);
-    (inspectCursorOpenCodeIntegration as any).mockResolvedValue({
-      pluginEnabled: true,
-      providerConfigured: false,
-      matchedPaths: ["/tmp/opencode.json"],
-      checkedPaths: ["/tmp/opencode.json"],
-    });
-
-    await expect(
-      cursorProvider.isAvailable({
-        client: { config: { providers: vi.fn() } },
-        config: { currentModel: "openai/gpt-5", cursorPlan: "none" },
-      } as any),
-    ).resolves.toBe(true);
-
-    await expect(
-      cursorProvider.isAvailable({
-        client: { config: { providers: vi.fn() } },
-        config: { currentModel: "cursor-acp/auto", cursorPlan: "none" },
-      } as any),
-    ).resolves.toBe(true);
-  });
-
-  it("treats metadata-backed Cursor provider availability as a signal", async () => {
-    const { isCanonicalProviderAvailable } = await import("../src/lib/provider-availability.js");
-    (isCanonicalProviderAvailable as any).mockResolvedValue(true);
-
-    await expect(
-      cursorProvider.isAvailable({
-        client: { config: { providers: vi.fn() } },
-        config: { currentModel: "openai/gpt-5", cursorPlan: "none" },
-      } as any),
-    ).resolves.toBe(true);
+      cursorProvider.isAvailable(
+        createProviderAvailabilityContext({
+          providerIds,
+          configOverrides: { ...config, cursorPlan: "none" },
+        }),
+      ),
+    ).resolves.toBe(expected);
   });
 });
