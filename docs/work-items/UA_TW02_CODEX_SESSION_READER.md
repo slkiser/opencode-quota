@@ -26,7 +26,7 @@ Issue: [#69](https://github.com/thanhndv212/token-watcher/issues/69) (epic [#67]
 
 - Reported counts are what Codex recorded, not subscription quota consumption or billing. Models without pricing (for example `codex-auto-review`) appear as unpriced.
 - Rollouts that only use the `token_count` fallback can under-report if the final events were never written; there is no way to recover them.
-- Codex is not yet a source for local custom estimates (`quota-providers-local.ts`), and `token-sync` does not export Codex sessions; UA-TW-06 owns the export.
+- Codex CLI rollouts can be selected as a source for local custom estimates using `"sources": ["codex-cli"]` with `providerId: "openai"`; journal source identity stays separate from OpenCode to avoid deduplication collisions. `token-sync` does not export Codex sessions; UA-TW-06 owns the export.
 - Linux rollouts were not available for local reconciliation.
 
 ## Rollback

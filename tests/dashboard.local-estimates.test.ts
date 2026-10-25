@@ -168,6 +168,35 @@ describe("durable source-scoped custom estimates", () => {
     expect(budget(verified).value.remaining).toBe(80);
     db.close();
   });
+  it("includes Codex CLI activity in an OpenAI estimate and journals sources independently", async () => {
+    const { db } = await setup();
+    const def = {
+      ...definition(),
+      providerId: "openai",
+      sources: ["opencode", "codex-cli"] as LocalQuotaDefinition["sources"],
+    };
+    const openCode = { ...message("same-response"), providerID: "openai" };
+    const codex = { ...openCode, id: "codex:same-response", sessionID: "codex-session" };
+    const out = await syncLocalQuotaEstimate(db, def, now, {
+      readOpenCode: async () => [openCode],
+      readCodex: async () => [codex],
+      price: () => 1,
+    });
+
+    expect(requests(out).value.basis.used.quantity.decimal).toBe("2");
+    expect(budget(out).value.remaining).toBe(80);
+    expect(
+      db
+        .prepare(
+          "SELECT source, count(*) AS n FROM custom_estimate_events GROUP BY source ORDER BY source",
+        )
+        .all(),
+    ).toEqual([
+      { source: "codex-cli", n: 1 },
+      { source: "opencode", n: 1 },
+    ]);
+    db.close();
+  });
   it("retains records but makes current estimates unknown when a selected source fails", async () => {
     const { db } = await setup(),
       def = definition();
@@ -216,6 +245,7 @@ describe("durable source-scoped custom estimates", () => {
     for (const value of [
       { ...def, windows: [{ ...def.windows[0], requestLimit: 0 }] },
       { ...def, sources: ["opencode", "opencode"] },
+      { ...def, sources: ["opencode", "claude-cli", "codex-cli", "invalid"] },
       { ...def, windows: [{ ...def.windows[1], durationMinutes: Infinity }] },
       { ...def, windows: [{ ...def.windows[0], usdBudget: 1e-20 }] },
       { ...def, pricingModelMap: { model: "execute-this" } },

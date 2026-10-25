@@ -6,6 +6,7 @@ import type { QuotaProviderResult } from "./entries.js";
 import type { LocalQuotaDefinition, LocalQuotaWindow } from "./quota-provider-definitions.js";
 import { iterCompletedAssistantMessages, type OpenCodeMessage } from "./opencode-storage.js";
 import { iterClaudeCodeCliMessages } from "./claude-code-cli-storage.js";
+import { iterCodexCliMessages } from "./codex-cli-storage.js";
 import { resolvePricingKey } from "./quota-stats.js";
 import { lookupCost, type CostBuckets } from "./modelsdev-pricing.js";
 import { mergeUserCostSync } from "./user-pricing.js";
@@ -65,6 +66,7 @@ function price(
 export interface LocalEstimateDependencies {
   readOpenCode?: typeof iterCompletedAssistantMessages;
   readClaude?: typeof iterClaudeCodeCliMessages;
+  readCodex?: typeof iterCodexCliMessages;
   price?: (
     provider: string,
     model: string,
@@ -142,12 +144,18 @@ export async function syncLocalQuotaEstimate(
                 completedUntilMs: now,
                 providerID: def.providerId,
               })
-            : await (deps.readClaude ?? iterClaudeCodeCliMessages)({
-                sinceMs: since,
-                untilMs: now,
-                strictReads: true,
-                completionEvents: true,
-              });
+            : source === "claude-cli"
+              ? await (deps.readClaude ?? iterClaudeCodeCliMessages)({
+                  sinceMs: since,
+                  untilMs: now,
+                  strictReads: true,
+                  completionEvents: true,
+                })
+              : await (deps.readCodex ?? iterCodexCliMessages)({
+                  sinceMs: since,
+                  untilMs: now,
+                  strictReads: true,
+                });
         if (messages.length > 100000) throw new Error("Local source limit exceeded");
         return { source, messages };
       } catch {
@@ -254,7 +262,7 @@ export async function syncLocalQuotaEstimate(
           )
           .get(def.id, source, eventId);
         // A late partial stream record cannot erase already verified final usage.
-        if (source === "claude-cli" && !tokens && existing?.tokens) continue;
+        if (source !== "opencode" && !tokens && existing?.tokens) continue;
         db.prepare(
           `INSERT INTO custom_estimate_events(definition_id,source,event_id,fingerprint,completed_at,provider_id,model_id,tokens) VALUES(?,?,?,?,?,?,?,?)
      ON CONFLICT(definition_id,source,event_id) DO UPDATE SET fingerprint=excluded.fingerprint,completed_at=excluded.completed_at,provider_id=excluded.provider_id,model_id=excluded.model_id,tokens=excluded.tokens`,
@@ -295,7 +303,7 @@ export async function syncLocalQuotaEstimate(
     .all(def.id);
   for (const event of journal)
     if (
-      !["opencode", "claude-cli"].includes(event.source) ||
+      !["opencode", "claude-cli", "codex-cli"].includes(event.source) ||
       !Number.isFinite(event.completed_at) ||
       event.completed_at < 0 ||
       typeof event.event_id !== "string" ||

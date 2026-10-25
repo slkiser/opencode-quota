@@ -236,7 +236,7 @@ export interface LocalQuotaDefinition {
   label: string;
   mode: "local-estimate";
   modelIds?: string[];
-  sources: Array<"opencode" | "claude-cli">;
+  sources: Array<"opencode" | "claude-cli" | "codex-cli">;
   windows: LocalQuotaWindow[];
   pricingModelMap?: Record<string, string>;
 }
@@ -277,9 +277,11 @@ export function validateQuotaDefinitions(value: unknown): QuotaDefinition[] {
       (item.sources !== undefined &&
         (!Array.isArray(item.sources) ||
           !item.sources.length ||
-          item.sources.length > 2 ||
+          item.sources.length > 3 ||
           new Set(item.sources).size !== item.sources.length ||
-          !item.sources.every((s: unknown) => ["opencode", "claude-cli"].includes(String(s))))) ||
+          !item.sources.every((s: unknown) =>
+            ["opencode", "claude-cli", "codex-cli"].includes(String(s)),
+          ))) ||
       !Array.isArray(item.windows) ||
       !item.windows.length ||
       item.windows.length > 16

@@ -4,15 +4,15 @@ Issue: [#25](https://github.com/thanhndv212/token-watcher/issues/25). Status: co
 
 Adapted from the local-estimate capability in upstream `2733b5bd010f659d1d6007e5d19026e82d51353f/src/lib/quota-providers-local.ts`. The fork uses its existing native helper, source-aware usage readers and user pricing policy rather than an independent writer or provider-specific renderer.
 
-Definitions are trusted global `quotaProviders` entries with `mode: "local-estimate"`. Remote/auth fields are rejected. Select OpenCode, Claude CLI or both; `providerId` and optional exact `modelIds` scope observations. Declare at most 16 UTC-day or bounded rolling windows, each with an integer request limit and optional positive USD budget. Exact `pricingModelMap` entries supply fallback model identities only when automatic pricing is unavailable. Example:
+Definitions are trusted global `quotaProviders` entries with `mode: "local-estimate"`. Remote/auth fields are rejected. Select OpenCode, Claude CLI, Codex CLI, or any combination; `providerId` and optional exact `modelIds` scope observations. OpenAI and Codex share the `openai` provider ID, while their journal identities remain separate to prevent collisions. Declare at most 16 UTC-day or bounded rolling windows, each with an integer request limit and optional positive USD budget. Exact `pricingModelMap` entries supply fallback model identities only when automatic pricing is unavailable. To estimate Codex usage against a user-configured OpenAI limit:
 
 ```json
 {
-  "id": "custom-local",
-  "providerId": "acme",
-  "label": "Acme local",
+  "id": "custom-openai-codex",
+  "providerId": "openai",
+  "label": "OpenAI Codex local estimate",
   "mode": "local-estimate",
-  "sources": ["opencode"],
+  "sources": ["codex-cli"],
   "windows": [
     { "id": "day", "label": "UTC day", "type": "utc-day", "requestLimit": 100, "usdBudget": 10 }
   ]
