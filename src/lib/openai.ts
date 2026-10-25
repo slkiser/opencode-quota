@@ -78,6 +78,8 @@ type OpenAIWindowValue = {
 const WINDOW_KIND_BY_DURATION: Readonly<Record<number, OpenAIWindowKind>> = {
   18_000: "hourly",
   604_800: "weekly",
+  // Free plans report a flat 30-day window; other plans use an average month.
+  2_592_000: "monthly",
   2_628_000: "monthly",
 };
 

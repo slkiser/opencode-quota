@@ -122,6 +122,38 @@ describe("openai auth resolution", () => {
       });
     });
 
+    it("maps the free plan's 30-day window to the monthly window", async () => {
+      mocks.readAuthFileCached.mockResolvedValue({});
+      writeCodexAuth({ tokens: { access_token: access } });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                plan_type: "free",
+                rate_limit: {
+                  limit_reached: true,
+                  primary_window: {
+                    used_percent: 100,
+                    limit_window_seconds: 2_592_000,
+                    reset_after_seconds: 3600,
+                  },
+                  secondary_window: null,
+                },
+              }),
+              { status: 200 },
+            ),
+        ) as any,
+      );
+
+      const out = await queryOpenAIQuota();
+
+      expect(out && out.success ? out.windows : null).toEqual({
+        monthly: { percentRemaining: 0, resetTimeIso: "2026-01-01T01:00:00.000Z" },
+      });
+    });
+
     it("reports an expired Codex token instead of calling the API", async () => {
       mocks.readAuthFileCached.mockResolvedValue({});
       writeCodexAuth({ tokens: { access_token: jwt({ exp: Date.now() / 1000 - 1 }) } });
