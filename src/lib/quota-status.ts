@@ -30,7 +30,7 @@ import {
   resolveAlibabaCodingPlanAuthCached,
 } from "./alibaba-auth.js";
 import { hasQwenOAuthAuth, resolveQwenLocalPlan } from "./qwen-auth.js";
-import { resolveOpenAIOAuth } from "./openai.js";
+import { resolveOpenAIOAuthWithCodexCli } from "./openai.js";
 import {
   DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS,
   getMiniMaxAuthDiagnostics,
@@ -754,7 +754,7 @@ export async function buildQuotaStatusReport(params: {
   const authData = await readAuthFileCached({ maxAgeMs: 5_000 });
   const qwenAuthConfigured = hasQwenOAuthAuth(authData);
   const qwenLocalPlan = resolveQwenLocalPlan(authData);
-  const openaiAuth = resolveOpenAIOAuth(authData);
+  const openaiAuth = await resolveOpenAIOAuthWithCodexCli(authData);
   const alibabaAuthDiagnostics = await getAlibabaCodingPlanAuthDiagnostics({
     maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
     fallbackTier: params.alibabaCodingPlanTier,

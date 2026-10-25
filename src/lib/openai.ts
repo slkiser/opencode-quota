@@ -1,10 +1,14 @@
 /**
  * OpenAI (ChatGPT) quota fetcher
  *
- * Uses OpenCode's auth.json native OpenCode OAuth entries and queries:
+ * Uses OpenCode's auth.json native OpenCode OAuth entries, falling back to the
+ * Codex CLI's ChatGPT login (`$CODEX_HOME/auth.json`), and queries:
  * https://chatgpt.com/backend-api/wham/usage
  */
 
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { AuthData, OpenAIOAuthData, QuotaError } from "./types.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
@@ -29,6 +33,7 @@ interface OpenAIUsageResponse {
 }
 
 interface JwtPayload {
+  exp?: number;
   "https://api.openai.com/profile"?: {
     email?: string;
   };
@@ -142,7 +147,7 @@ const OPENAI_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 export const DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS = 5_000;
 export const OPENAI_AUTH_SOURCE_KEYS = ["openai", "codex", "chatgpt", "opencode"] as const;
 
-export type OpenAIAuthSourceKey = (typeof OPENAI_AUTH_SOURCE_KEYS)[number];
+export type OpenAIAuthSourceKey = (typeof OPENAI_AUTH_SOURCE_KEYS)[number] | "codex-cli";
 
 export type OpenAIResult =
   | {
@@ -222,11 +227,60 @@ export function hasOpenAIOAuth(auth: AuthData | null | undefined): boolean {
   return resolveOpenAIOAuth(auth).state === "configured";
 }
 
+export function getCodexCliAuthPath(): string {
+  const codexHome = process.env.CODEX_HOME?.trim();
+  return join(codexHome ? codexHome : join(homedir(), ".codex"), "auth.json");
+}
+
+/**
+ * Read the Codex CLI's ChatGPT login without refreshing it. Refreshing here would
+ * rotate the refresh token underneath the Codex CLI, so an expired token is reported
+ * as expired until Codex itself refreshes the file.
+ */
+export async function readCodexCliOAuth(): Promise<ResolvedOpenAIOAuth> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(getCodexCliAuthPath(), "utf8"));
+  } catch {
+    return { state: "none" };
+  }
+  const tokens = (parsed as { tokens?: Record<string, unknown> } | null)?.tokens;
+  const accessToken = typeof tokens?.access_token === "string" ? tokens.access_token.trim() : "";
+  if (!accessToken) return { state: "none" };
+
+  const exp = parseJwt(accessToken)?.exp;
+  const refreshToken =
+    typeof tokens?.refresh_token === "string" && tokens.refresh_token.trim()
+      ? tokens.refresh_token
+      : undefined;
+  const fileAccountId =
+    typeof tokens?.account_id === "string" && tokens.account_id.trim()
+      ? tokens.account_id
+      : undefined;
+  return {
+    state: "configured",
+    sourceKey: "codex-cli",
+    accessToken,
+    refreshToken,
+    expiresAt: typeof exp === "number" && Number.isFinite(exp) ? exp * 1000 : undefined,
+    email: getEmailFromJwt(accessToken) ?? undefined,
+    accountId: getAccountIdFromJwt(accessToken) ?? fileAccountId,
+  };
+}
+
+/** OpenCode auth wins; the Codex CLI login is used only when OpenCode has none. */
+export async function resolveOpenAIOAuthWithCodexCli(
+  auth: AuthData | null | undefined,
+): Promise<ResolvedOpenAIOAuth> {
+  const resolved = resolveOpenAIOAuth(auth);
+  return resolved.state === "configured" ? resolved : readCodexCliOAuth();
+}
+
 export async function hasOpenAIOAuthCached(params?: { maxAgeMs?: number }): Promise<boolean> {
   const auth = await readAuthFileCached({
     maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS),
   });
-  return hasOpenAIOAuth(auth);
+  return (await resolveOpenAIOAuthWithCodexCli(auth)).state === "configured";
 }
 
 export async function queryOpenAIQuota(
@@ -235,7 +289,7 @@ export async function queryOpenAIQuota(
   const auth = await readAuthFileCached({
     maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS,
   });
-  const resolvedAuth = resolveOpenAIOAuth(auth);
+  const resolvedAuth = await resolveOpenAIOAuthWithCodexCli(auth);
   if (resolvedAuth.state !== "configured") return null;
 
   return queryOpenAIQuotaWithAuth(resolvedAuth, options);

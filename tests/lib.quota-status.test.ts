@@ -98,7 +98,7 @@ const agyMocks = vi.hoisted(() => ({
 }));
 
 const openaiMocks = vi.hoisted(() => ({
-  resolveOpenAIOAuth: vi.fn(() => ({ state: "none" as const })),
+  resolveOpenAIOAuthWithCodexCli: vi.fn(async () => ({ state: "none" as const })),
 }));
 
 const alibabaMocks = vi.hoisted(() => ({
@@ -315,7 +315,7 @@ vi.mock("../src/lib/qwen-auth.js", () => ({
 }));
 
 vi.mock("../src/lib/openai.js", () => ({
-  resolveOpenAIOAuth: openaiMocks.resolveOpenAIOAuth,
+  resolveOpenAIOAuthWithCodexCli: openaiMocks.resolveOpenAIOAuthWithCodexCli,
 }));
 
 vi.mock("../src/lib/alibaba-auth.js", () => ({

@@ -6,7 +6,7 @@ import { createResolvedAuthCachePolicy } from "./account-cache.js";
 import { openAIAccounting } from "./accounting-adapters.js";
 import { readAuthFile } from "../lib/opencode-auth.js";
 import {
-  resolveOpenAIOAuth,
+  resolveOpenAIOAuthWithCodexCli,
   queryOpenAIQuotaWithAuth,
   type ResolvedOpenAIOAuth,
 } from "../lib/openai.js";
@@ -27,7 +27,7 @@ import {
 export const openaiProvider: QuotaProvider = {
   id: "openai",
   cachePolicy: createResolvedAuthCachePolicy("openai", async (ctx) => {
-    const auth = resolveOpenAIOAuth(await readAuthFile());
+    const auth = await resolveOpenAIOAuthWithCodexCli(await readAuthFile());
     if (auth.state !== "configured" || (auth.expiresAt && auth.expiresAt < Date.now())) return null;
     return {
       credential: auth.accessToken,

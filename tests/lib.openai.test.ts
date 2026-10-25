@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import businessTeamMonthlyUsage from "./fixtures/openai/business-team-monthly.sanitized.json";
 
@@ -14,17 +17,122 @@ import {
   hasOpenAIOAuthCached,
   queryOpenAIQuota,
   resolveOpenAIOAuth,
+  resolveOpenAIOAuthWithCodexCli,
 } from "../src/lib/openai.js";
+
+let codexHome: string;
+
+function jwt(payload: Record<string, unknown>): string {
+  const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  return `${encode({ alg: "none" })}.${encode(payload)}.sig`;
+}
+
+function writeCodexAuth(value: unknown): void {
+  writeFileSync(join(codexHome, "auth.json"), JSON.stringify(value));
+}
 
 describe("openai auth resolution", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    // Never read the developer's real Codex login.
+    codexHome = mkdtempSync(join(tmpdir(), "openai-codex-home-"));
+    vi.stubEnv("CODEX_HOME", codexHome);
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    rmSync(codexHome, { recursive: true, force: true });
+  });
+
+  describe("Codex CLI login fallback", () => {
+    const access = jwt({
+      exp: Date.parse("2026-01-01T01:00:00.000Z") / 1000,
+      "https://api.openai.com/profile": { email: "dev@example.com" },
+      "https://api.openai.com/auth": { chatgpt_account_id: "acct-jwt" },
+    });
+
+    it("uses the Codex CLI ChatGPT login when OpenCode has no OpenAI OAuth", async () => {
+      writeCodexAuth({
+        auth_mode: "chatgpt",
+        OPENAI_API_KEY: null,
+        tokens: { access_token: access, refresh_token: "refresh", account_id: "acct-file" },
+      });
+
+      await expect(resolveOpenAIOAuthWithCodexCli({})).resolves.toEqual({
+        state: "configured",
+        sourceKey: "codex-cli",
+        accessToken: access,
+        refreshToken: "refresh",
+        expiresAt: Date.parse("2026-01-01T01:00:00.000Z"),
+        email: "dev@example.com",
+        accountId: "acct-jwt",
+      });
+    });
+
+    it("prefers OpenCode auth over the Codex CLI login", async () => {
+      writeCodexAuth({ tokens: { access_token: access } });
+
+      await expect(
+        resolveOpenAIOAuthWithCodexCli({ openai: { type: "oauth", access: "opencode-token" } }),
+      ).resolves.toMatchObject({ sourceKey: "openai", accessToken: "opencode-token" });
+    });
+
+    it("ignores missing, malformed and API-key-only Codex auth files", async () => {
+      await expect(resolveOpenAIOAuthWithCodexCli({})).resolves.toEqual({ state: "none" });
+      writeFileSync(join(codexHome, "auth.json"), "{not json");
+      await expect(resolveOpenAIOAuthWithCodexCli({})).resolves.toEqual({ state: "none" });
+      writeCodexAuth({ auth_mode: "apikey", OPENAI_API_KEY: "sk-test", tokens: null });
+      await expect(resolveOpenAIOAuthWithCodexCli({})).resolves.toEqual({ state: "none" });
+    });
+
+    it("queries usage with the Codex token and account header without refreshing it", async () => {
+      mocks.readAuthFileCached.mockResolvedValue({});
+      writeCodexAuth({ tokens: { access_token: access, account_id: "acct-file" } });
+      const fetchMock = vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              plan_type: "pro",
+              rate_limit: {
+                limit_reached: false,
+                primary_window: {
+                  used_percent: 30,
+                  limit_window_seconds: 18_000,
+                  reset_after_seconds: 3600,
+                },
+              },
+            }),
+            { status: 200 },
+          ),
+      );
+      vi.stubGlobal("fetch", fetchMock as any);
+
+      await expect(hasOpenAIOAuthCached()).resolves.toBe(true);
+      const out = await queryOpenAIQuota();
+
+      expect(out && out.success ? out.windows.hourly?.percentRemaining : -1).toBe(70);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe("https://chatgpt.com/backend-api/wham/usage");
+      expect(init.headers).toMatchObject({
+        Authorization: `Bearer ${access}`,
+        "ChatGPT-Account-Id": "acct-jwt",
+      });
+    });
+
+    it("reports an expired Codex token instead of calling the API", async () => {
+      mocks.readAuthFileCached.mockResolvedValue({});
+      writeCodexAuth({ tokens: { access_token: jwt({ exp: Date.now() / 1000 - 1 }) } });
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock as any);
+
+      const out = await queryOpenAIQuota();
+
+      expect(out && !out.success ? out.error : "").toContain("Token expired");
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
   });
 
   it("returns none when no supported native OpenCode auth entry exists", () => {
