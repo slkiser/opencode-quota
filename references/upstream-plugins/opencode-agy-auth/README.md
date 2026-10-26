@@ -1,5 +1,11 @@
 # OpenCode Antigravity CLI Auth Plugin
 
+[![npm version](https://img.shields.io/npm/v/@anthonyhaussman/opencode-agy-auth)](https://www.npmjs.com/package/@anthonyhaussman/opencode-agy-auth)
+[![npm downloads](https://img.shields.io/npm/dw/@anthonyhaussman/opencode-agy-auth)](https://www.npmjs.com/package/@anthonyhaussman/opencode-agy-auth)
+[![CI](https://github.com/anthonyhaussman/opencode-agy-auth/actions/workflows/ci.yml/badge.svg)](https://github.com/anthonyhaussman/opencode-agy-auth/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/anthonyhaussman/opencode-agy-auth)](https://github.com/anthonyhaussman/opencode-agy-auth/blob/main/LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/anthonyhaussman/opencode-agy-auth?style=social)](https://github.com/anthonyhaussman/opencode-agy-auth)
+
 An [OpenCode](https://opencode.ai/) authentication plugin that enables seamless interaction with the Antigravity CLI (`agy`) by hooking into its authentication, quota retrieval, and dynamic model fetching layers.
 
 ## Features
@@ -8,6 +14,7 @@ An [OpenCode](https://opencode.ai/) authentication plugin that enables seamless 
 - **Dynamic Model Retrieval**: Fetches available models based on user tier and current allocations.
 - **Quota Tracking**: Injects the `agy_quota` tool into OpenCode to check usage limits directly.
 - **Traffic Simulation**: Maintains background heartbeat with `agy` servers.
+- **Dual OpenCode Compatibility**: Natively supports both OpenCode v1 (>= 1.18.29) and OpenCode v2 out of the box without breaking changes.
 
 ## Installation
 
@@ -138,9 +145,18 @@ To test and develop the plugin locally with OpenCode before publishing:
 3. **Verify the plugin**:
    Launch OpenCode in your target project. OpenCode will automatically resolve and load your local plugin directory. You can test your changes by running `npm run build` in the plugin directory and restarting your OpenCode session.
 
-## Alpha Channel (Pre-release)
+## OpenCode Runtime Compatibility
 
-To test bleeding-edge features, upcoming changes, or [OpenCode v2](https://opencode.ai/v2/docs) compatibility before official releases, configure the `@alpha` distribution tag:
+The plugin natively supports both OpenCode v1 (>= 1.18.29) and [OpenCode v2](https://opencode.ai/v2/docs) out of the box through a dual-compatibility architecture:
+
+- **OpenCode v1**: Loaded via the `server(options)` hook with custom OAuth flow and provider setup.
+- **OpenCode v2**: Loaded via `Plugin.define` / `setup(ctx)` with native catalog transformations, AI SDK hooks, session interception, and PKCE OAuth integration.
+
+No special flags or configurations are required - the plugin detects runtime automatically.
+
+## Pre-release Channel
+
+To test bleeding-edge features or upcoming changes before official releases, configure the `@alpha` distribution tag:
 
 ```bash
 npm install @anthonyhaussman/opencode-agy-auth@alpha
@@ -154,9 +170,9 @@ Or configure it directly in your `opencode.json`:
 }
 ```
 
-### OpenCode v2 Compatibility
-
-The `@alpha` channel provides dual compatibility with both OpenCode v1 and [OpenCode v2](https://opencode.ai/v2/docs), supporting the new v2 plugin architecture, unified hooks, and OAuth credential handling while maintaining full backward compatibility.
-
 > [!WARNING]
-> **Instability Warning**: The `@alpha` release contains experimental features, active development builds, and potential breaking protocol changes. It may be unstable, break unexpectedly, or cause disruptions in session authentication and model requests. Use only for testing and development. For day-to-day work, use the stable release.
+> **Instability Warning**: The `@alpha` release contains experimental features and active development builds. It may be unstable or cause disruptions in session authentication and model requests. Use only for testing and development. For day-to-day work, use the stable release.
+
+## Star History & Support
+
+If this plugin saved you time or made using Antigravity models in OpenCode smoother, consider giving the repository a star on [GitHub](https://github.com/anthonyhaussman/opencode-agy-auth) - it helps others discover the project.

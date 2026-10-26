@@ -24,5 +24,12 @@ export declare function cacheSignature(sessionId: string, text: string, signatur
  * Recovers and retrieves the most recently cached signature for a session (supports signature recovery).
  */
 export declare function getLatestSignature(sessionId: string): string | undefined;
+/**
+ * Retrieves a cached signature for a specific text in a session.
+ * Checks memory cache first, then falls back to disk cache.
+ */
+export declare function getSignatureForText(sessionId: string, text: string): string | undefined;
+export declare function getDiskSignatureCache(): SignatureCache | null;
+export declare function resetDiskSignatureCacheForTesting(): void;
 export type { SignatureCache } from "../sdk/cache/signature-cache";
 export type { SignatureCacheConfig } from "../sdk/cache/signature-cache";

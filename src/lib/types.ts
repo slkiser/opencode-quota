@@ -782,8 +782,8 @@ export type SyntheticResult =
   | {
       success: true;
       windows: {
-        fiveHour: SyntheticQuotaWindow;
-        weekly: SyntheticQuotaWindow;
+        fiveHour?: SyntheticQuotaWindow;
+        weekly?: SyntheticQuotaWindow;
       };
     }
   | QuotaError

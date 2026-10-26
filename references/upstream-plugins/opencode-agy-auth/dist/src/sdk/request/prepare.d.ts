@@ -12,4 +12,8 @@ export declare function prepareAgyRequest(input: RequestInfo, init: RequestInit 
     requestedModel?: string;
     sessionId?: string;
 };
+export declare const LEGACY_MODEL_ENUM_FALLBACKS: Record<string, string>;
+export declare function getModelEnum(modelName: string): string;
+export declare function isClaudeModel(model: string): boolean;
+export declare function sanitizeClaudeThinkingParts(contents: any[], model: string, sessionId?: string): void;
 export declare function ensureTrailingUserTurn(contents: any[]): any[];

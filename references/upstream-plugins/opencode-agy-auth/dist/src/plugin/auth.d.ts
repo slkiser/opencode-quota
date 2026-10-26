@@ -1,5 +1,5 @@
 import type { AuthDetails, OAuthAuthDetails, RefreshParts } from './types';
-export declare function isOAuthAuth(auth: AuthDetails): auth is OAuthAuthDetails;
+export declare function isOAuthAuth(auth: AuthDetails | undefined | null): auth is OAuthAuthDetails;
 /**
  * Splits the packed refresh string into the corresponding refresh token and project ID.
  */

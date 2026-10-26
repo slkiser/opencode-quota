@@ -1,6 +1,6 @@
 {
   "name": "@anthonyhaussman/opencode-agy-auth",
-  "version": "1.2.11",
+  "version": "1.4.4",
   "author": "antigravity",
   "repository": {
     "type": "git",
@@ -21,6 +21,17 @@
     "dist",
     "README.md"
   ],
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "gemini",
+    "antigravity",
+    "agy",
+    "google-gemini",
+    "oauth",
+    "ai-coding",
+    "gemini-flash"
+  ],
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -34,16 +45,16 @@
     "prepack": "npm run build"
   },
   "devDependencies": {
-    "@opencode-ai/sdk": "^1.18.32",
-    "@types/node": "^26.6.2",
-    "@vitest/coverage-v8": "^5.0.1",
-    "tsup": "^8.5.1",
+    "@opencode-ai/sdk": "^1.19.3",
+    "@types/node": "^26.6.5",
+    "@vitest/coverage-v8": "^5.0.5",
+    "tsup": "^9.0.0",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.5"
   },
   "dependencies": {
-    "@ai-sdk/google": "^4.0.80",
+    "@ai-sdk/google": "^4.0.102",
     "@openauthjs/openauth": "^0.4.3",
-    "@opencode-ai/plugin": "^1.18.32"
+    "@opencode-ai/plugin": "^1.19.3"
   }
 }
