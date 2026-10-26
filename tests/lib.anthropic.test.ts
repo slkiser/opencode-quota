@@ -526,6 +526,23 @@ describe("Claude CLI diagnostics", () => {
     );
   });
 
+  it("hides the console window of Windows Claude CLI checks", async () => {
+    setProcessPlatform("win32");
+    mockExecSequence([
+      { stdout: "2.1.123 (Claude Code)\n" },
+      { stdout: JSON.stringify({ authenticated: true }) },
+    ]);
+
+    await getAnthropicDiagnostics({
+      binaryPath: "C:\\Users\\alice\\AppData\\Roaming\\npm\\claude.cmd",
+    });
+
+    expect(execFileMock).toHaveBeenCalledTimes(2);
+    for (const call of execFileMock.mock.calls) {
+      expect(call[2]).toMatchObject({ windowsHide: true });
+    }
+  });
+
   it("reports missing Claude CLI as unavailable without quota data", async () => {
     mockExecSequence([
       {
@@ -907,6 +924,13 @@ describe("Claude CLI diagnostics", () => {
       timeoutMs: undefined,
       consume: expect.any(Function),
     });
+    expect(execFileMock).toHaveBeenNthCalledWith(
+      3,
+      "security",
+      expect.any(Array),
+      expect.objectContaining({ windowsHide: true }),
+      expect.any(Function),
+    );
   });
 
   it("ignores non-OAuth OpenCode Anthropic auth entries", async () => {

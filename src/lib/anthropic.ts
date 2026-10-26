@@ -550,6 +550,7 @@ async function runCredentialCommand(file: string, args: string[]): Promise<Claud
           encoding: "utf8",
           timeout: CLAUDE_COMMAND_TIMEOUT_MS,
           maxBuffer: 1024 * 1024,
+          windowsHide: true,
         },
         (error: Error | null, stdout: string | Buffer, stderr: string | Buffer) => {
           const stdoutText = typeof stdout === "string" ? stdout : stdout.toString("utf8");
@@ -1025,6 +1026,7 @@ async function runClaudeCommand(invocation: ClaudeCommandInvocation): Promise<Cl
           encoding: "utf8",
           timeout: CLAUDE_COMMAND_TIMEOUT_MS,
           maxBuffer: 1024 * 1024,
+          windowsHide: true,
         },
         (error: Error | null, stdout: string | Buffer, stderr: string | Buffer) => {
           const stdoutText = typeof stdout === "string" ? stdout : stdout.toString("utf8");
