@@ -5,6 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-resolved-auth-identity-tests";
 const TEST_SYMLINK_TARGET = `${TEST_RUNTIME_ROOT}-symlink-target`;
 const POSIX_IDENTITY_STORAGE = process.platform !== "win32" && typeof process.getuid === "function";
+const originalProcessPlatformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
+
+function setProcessPlatform(platform: NodeJS.Platform): void {
+  Object.defineProperty(process, "platform", {
+    configurable: true,
+    value: platform,
+  });
+}
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
   getOpencodeRuntimeDirs: () => ({
@@ -25,6 +33,9 @@ describe("resolved-auth identity", () => {
   });
 
   afterEach(async () => {
+    if (originalProcessPlatformDescriptor) {
+      Object.defineProperty(process, "platform", originalProcessPlatformDescriptor);
+    }
     vi.resetModules();
     await Promise.all([
       rm(TEST_RUNTIME_ROOT, { recursive: true, force: true }),
@@ -244,21 +255,22 @@ describe("resolved-auth identity", () => {
     },
   );
 
-  it("refuses malformed key material without permanently memoizing the transient failure", async () => {
-    const identity = await import("../src/lib/resolved-auth-identity.js");
-    const keyPath = identity.getResolvedAuthIdentityKeyPath();
-    await mkdir(dirname(keyPath), { recursive: true });
-    await writeFile(keyPath, "not-a-valid-key\n", { mode: 0o666 });
-    if (process.platform !== "win32") await chmod(keyPath, 0o666);
+  it.runIf(POSIX_IDENTITY_STORAGE)(
+    "refuses malformed key material without permanently memoizing the transient failure",
+    async () => {
+      const identity = await import("../src/lib/resolved-auth-identity.js");
+      const keyPath = identity.getResolvedAuthIdentityKeyPath();
+      await mkdir(dirname(keyPath), { recursive: true });
+      await writeFile(keyPath, "not-a-valid-key\n", { mode: 0o666 });
+      await chmod(keyPath, 0o666);
 
-    const resolved = await identity.deriveResolvedAuthIdentity({
-      providerId: "zai",
-      principal: { kind: "credential", value: "must-not-be-hashed-with-fallback" },
-    });
+      const resolved = await identity.deriveResolvedAuthIdentity({
+        providerId: "zai",
+        principal: { kind: "credential", value: "must-not-be-hashed-with-fallback" },
+      });
 
-    expect(resolved).toBeNull();
-    expect(await readFile(keyPath, "utf8")).toBe("not-a-valid-key\n");
-    if (POSIX_IDENTITY_STORAGE) {
+      expect(resolved).toBeNull();
+      expect(await readFile(keyPath, "utf8")).toBe("not-a-valid-key\n");
       expect((await stat(keyPath)).mode & 0o777).toBe(0o600);
       const publishedKey = `v1:${Buffer.alloc(32, 9).toString("base64url")}\n`;
       await writeFile(keyPath, publishedKey, { mode: 0o600 });
@@ -267,6 +279,37 @@ describe("resolved-auth identity", () => {
         principal: { kind: "credential", value: "must-not-be-hashed-with-fallback" },
       });
       expect(identity.isResolvedAuthIdentity(recovered)).toBe(true);
-    }
+    },
+  );
+
+  it("uses a process-local in-memory key on Windows instead of an unprotected key file", async () => {
+    setProcessPlatform("win32");
+    const identity = await import("../src/lib/resolved-auth-identity.js");
+    const keyPath = identity.getResolvedAuthIdentityKeyPath();
+    await mkdir(dirname(keyPath), { recursive: true });
+    await writeFile(keyPath, `v1:${Buffer.alloc(32, 5).toString("base64url")}\n`);
+    const params = {
+      providerId: "anthropic",
+      principal: { kind: "credential", value: "windows-account-secret" },
+    } as const;
+
+    const first = await identity.deriveResolvedAuthIdentity(params);
+    const repeat = await identity.deriveResolvedAuthIdentity(params);
+    const otherAccount = await identity.deriveResolvedAuthIdentity({
+      ...params,
+      principal: { kind: "credential", value: "other-windows-account-secret" },
+    });
+    vi.resetModules();
+    const nextProcess = await import("../src/lib/resolved-auth-identity.js");
+    const nextProcessIdentity = await nextProcess.deriveResolvedAuthIdentity(params);
+
+    expect(identity.isResolvedAuthIdentityKeyProcessLocal()).toBe(true);
+    expect(identity.isResolvedAuthIdentity(first)).toBe(true);
+    expect(repeat).toBe(first);
+    expect(otherAccount).not.toBe(first);
+    expect(identity.isResolvedAuthIdentity(nextProcessIdentity)).toBe(true);
+    expect(nextProcessIdentity).not.toBe(first);
+    expect(first).not.toContain("windows-account-secret");
+    expect(await readdir(dirname(keyPath))).toEqual(["resolved-auth-key-v1"]);
   });
 });

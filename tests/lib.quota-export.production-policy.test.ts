@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ResolvedAuthIdentity } from "../src/lib/resolved-auth-identity.js";
 
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-export-production-policy-tests";
+const POSIX_IDENTITY_STORAGE = process.platform !== "win32" && typeof process.getuid === "function";
 const RESOLVED_AUTH_PROVIDER_IDS = [
   "anthropic",
   "copilot",
@@ -57,63 +58,66 @@ describe("quota export production cache policy", () => {
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
   });
 
-  it("persists safe snapshots for production resolved-auth providers", async () => {
-    const { buildQuotaExport } = await import("../src/lib/quota-export.js");
-    const { fetchQuotaProviderResult, __resetQuotaStateForTests } = await import(
-      "../src/lib/quota-state.js"
-    );
-    const { getProviders } = await import("../src/providers/registry.js");
-    __resetQuotaStateForTests();
+  it.runIf(POSIX_IDENTITY_STORAGE)(
+    "persists safe snapshots for production resolved-auth providers",
+    async () => {
+      const { buildQuotaExport } = await import("../src/lib/quota-export.js");
+      const { fetchQuotaProviderResult, __resetQuotaStateForTests } = await import(
+        "../src/lib/quota-state.js"
+      );
+      const { getProviders } = await import("../src/providers/registry.js");
+      __resetQuotaStateForTests();
 
-    const providersById = new Map(getProviders().map((provider) => [provider.id, provider]));
-    const resolvedIdentity = `rai1_${"a".repeat(43)}` as ResolvedAuthIdentity;
-    const providers = RESOLVED_AUTH_PROVIDER_IDS.map((id) => {
-      const provider = providersById.get(id);
-      if (!provider) throw new Error(`Missing production provider ${id}`);
-      expect(provider.cachePolicy?.kind).toBe("resolved-auth");
-      if (provider.cachePolicy?.kind !== "resolved-auth") throw new Error(`Invalid policy ${id}`);
-      vi.spyOn(provider.cachePolicy, "resolveIdentity").mockResolvedValue(resolvedIdentity);
-      vi.spyOn(provider, "fetch").mockResolvedValue({
-        attempted: true,
-        entries: [
-          {
-            accounting: {
-              resultType: "quota",
-              acquisitionMethod: "remote_api",
-              ownership: "maintained",
-              authority: "provider_reported",
+      const providersById = new Map(getProviders().map((provider) => [provider.id, provider]));
+      const resolvedIdentity = `rai1_${"a".repeat(43)}` as ResolvedAuthIdentity;
+      const providers = RESOLVED_AUTH_PROVIDER_IDS.map((id) => {
+        const provider = providersById.get(id);
+        if (!provider) throw new Error(`Missing production provider ${id}`);
+        expect(provider.cachePolicy?.kind).toBe("resolved-auth");
+        if (provider.cachePolicy?.kind !== "resolved-auth") throw new Error(`Invalid policy ${id}`);
+        vi.spyOn(provider.cachePolicy, "resolveIdentity").mockResolvedValue(resolvedIdentity);
+        vi.spyOn(provider, "fetch").mockResolvedValue({
+          attempted: true,
+          entries: [
+            {
+              accounting: {
+                resultType: "quota",
+                acquisitionMethod: "remote_api",
+                ownership: "maintained",
+                authority: "provider_reported",
+              },
+              name: `Latest ${id}`,
+              percentRemaining: 73,
             },
-            name: `Latest ${id}`,
-            percentRemaining: 73,
-          },
-        ],
-        errors: [],
+          ],
+          errors: [],
+        });
+        return provider;
       });
-      return provider;
-    });
-    const ctx = createTestContext();
+      const ctx = createTestContext();
 
-    for (const provider of providers) {
-      await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
-    }
-    __resetQuotaStateForTests();
-    const exported = await buildQuotaExport({ providers, ctx, ttlMs: 60_000, fromCache: true });
+      for (const provider of providers) {
+        await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+      }
+      __resetQuotaStateForTests();
+      const exported = await buildQuotaExport({ providers, ctx, ttlMs: 60_000, fromCache: true });
 
-    for (const id of RESOLVED_AUTH_PROVIDER_IDS) {
-      expect(exported.providers[id]).toMatchObject({
-        status: "ok",
-        entries: [{ name: `Latest ${id}`, percentRemaining: 73 }],
-      });
-    }
-    const cacheDir = `${TEST_RUNTIME_ROOT}/cache/quota-provider-state`;
-    const cacheFiles = await readdir(cacheDir);
-    expect(cacheFiles).toHaveLength(RESOLVED_AUTH_PROVIDER_IDS.length);
-    const serialized = (
-      await Promise.all(cacheFiles.map((name) => readFile(`${cacheDir}/${name}`, "utf8")))
-    ).join("\n");
-    expect(serialized).not.toContain(resolvedIdentity);
-    expect(serialized).not.toContain("resolvedAuthIdentity");
-  });
+      for (const id of RESOLVED_AUTH_PROVIDER_IDS) {
+        expect(exported.providers[id]).toMatchObject({
+          status: "ok",
+          entries: [{ name: `Latest ${id}`, percentRemaining: 73 }],
+        });
+      }
+      const cacheDir = `${TEST_RUNTIME_ROOT}/cache/quota-provider-state`;
+      const cacheFiles = await readdir(cacheDir);
+      expect(cacheFiles).toHaveLength(RESOLVED_AUTH_PROVIDER_IDS.length);
+      const serialized = (
+        await Promise.all(cacheFiles.map((name) => readFile(`${cacheDir}/${name}`, "utf8")))
+      ).join("\n");
+      expect(serialized).not.toContain(resolvedIdentity);
+      expect(serialized).not.toContain("resolvedAuthIdentity");
+    },
+  );
 
   it("keeps providers without a safe account identity process-local", async () => {
     const { buildQuotaExport } = await import("../src/lib/quota-export.js");

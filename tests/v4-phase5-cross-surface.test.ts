@@ -28,7 +28,6 @@ import {
 } from "./helpers/plugin-test-harness.js";
 
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-v4-phase5-cross-surface";
-const POSIX_IDENTITY_STORAGE = process.platform !== "win32" && typeof process.getuid === "function";
 const MINIMAX_QUOTA_URL = "https://api.minimax.io/v1/api/openplatform/coding_plan/remains";
 const MINIMAX_CHINA_QUOTA_URL = "https://api.minimaxi.com/v1/token_plan/remains";
 const MINIMAX_API_KEY = "minimax-test-key";
@@ -644,10 +643,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(client.config.providers).toHaveBeenCalledTimes(providerDiscoveryCallsBeforeMetrics);
     expect(otel.getMeter).toHaveBeenCalledOnce();
     expect(new Set(observations.map(({ metric }) => metric))).toEqual(
-      new Set([
-        "opencode.quota.consumed",
-        ...(POSIX_IDENTITY_STORAGE ? ["opencode.quota.cache.age"] : []),
-      ]),
+      new Set(["opencode.quota.consumed", "opencode.quota.cache.age"]),
     );
     const actualConsumed = new Map(
       observations
@@ -674,17 +670,15 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
           JSON.stringify(attributes) === JSON.stringify({ "quota.provider": "custom" }),
       ),
     ).toBe(true);
-    expect(cacheAgeObservations).toHaveLength(POSIX_IDENTITY_STORAGE ? 1 : 0);
-    if (POSIX_IDENTITY_STORAGE) {
-      const oldestFetchedAt = Math.min(
-        ...Object.values(exportData.providers)
-          .filter((provider) => "fetchedAt" in provider)
-          .map((provider) => provider.fetchedAt),
-      );
-      expect(
-        Math.abs(cacheAgeObservations[0].value - (metricObservedAt / 1000 - oldestFetchedAt)),
-      ).toBeLessThanOrEqual(1);
-    }
+    expect(cacheAgeObservations).toHaveLength(1);
+    const oldestFetchedAt = Math.min(
+      ...Object.values(exportData.providers)
+        .filter((provider) => "fetchedAt" in provider)
+        .map((provider) => provider.fetchedAt),
+    );
+    expect(
+      Math.abs(cacheAgeObservations[0].value - (metricObservedAt / 1000 - oldestFetchedAt)),
+    ).toBeLessThanOrEqual(1);
     const telemetryOutput = JSON.stringify(observations);
     assertPhase5CanariesRedacted(telemetryOutput);
     for (const source of PHASE5_QUOTA_PROVIDERS) {

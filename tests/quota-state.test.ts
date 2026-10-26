@@ -8,6 +8,7 @@ import { PROVIDER_CACHE_POLICIES } from "../src/providers/cache-policies.js";
 
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-state-tests";
 const POSIX_IDENTITY_STORAGE = process.platform !== "win32" && typeof process.getuid === "function";
+const originalProcessPlatformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
 const TEST_ACCOUNTING = {
   resultType: "quota",
   acquisitionMethod: "remote_api",
@@ -29,6 +30,13 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
     stateDir: `${TEST_RUNTIME_ROOT}/state`,
   }),
 }));
+
+function setProcessPlatform(platform: NodeJS.Platform): void {
+  Object.defineProperty(process, "platform", {
+    configurable: true,
+    value: platform,
+  });
+}
 
 function createTestContext() {
   return {
@@ -54,6 +62,9 @@ describe("quota-state shared cache", () => {
   });
 
   afterEach(async () => {
+    if (originalProcessPlatformDescriptor) {
+      Object.defineProperty(process, "platform", originalProcessPlatformDescriptor);
+    }
     vi.restoreAllMocks();
     vi.resetModules();
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
@@ -365,7 +376,7 @@ describe("quota-state shared cache", () => {
     expect(first.entries[0]?.percentRemaining).toBe(75);
     expect(firstCached.entries[0]?.percentRemaining).toBe(75);
     expect(second.entries[0]?.percentRemaining).toBe(25);
-    expect(provider.fetch).toHaveBeenCalledTimes(POSIX_IDENTITY_STORAGE ? 2 : 3);
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
     if (!POSIX_IDENTITY_STORAGE) return;
 
     const cacheFiles = await readdir(`${TEST_RUNTIME_ROOT}/cache/quota-provider-state`);
@@ -413,7 +424,7 @@ describe("quota-state shared cache", () => {
 
     expect(providerACredential).toBe("provider-a-account");
     expect(providerBCredential).toBe("provider-b-account-two");
-    expect(provider.fetch).toHaveBeenCalledTimes(POSIX_IDENTITY_STORAGE ? 1 : 2);
+    expect(provider.fetch).toHaveBeenCalledTimes(1);
   });
 
   it("uses only the winning custom-provider credential in aggregate cache identity", async () => {
@@ -474,7 +485,7 @@ describe("quota-state shared cache", () => {
       expect(first.entries[0]?.percentRemaining).toBe(70);
       expect(cached.entries[0]?.percentRemaining).toBe(70);
       expect(second.entries[0]?.percentRemaining).toBe(30);
-      expect(provider.fetch).toHaveBeenCalledTimes(POSIX_IDENTITY_STORAGE ? 2 : 3);
+      expect(provider.fetch).toHaveBeenCalledTimes(2);
     } finally {
       delete process.env.CUSTOM_QUOTA_KEY;
       delete process.env.ZAI_API_KEY;
@@ -562,7 +573,7 @@ describe("quota-state shared cache", () => {
     expect(projectA.entries[0]?.name).toBe("project-a");
     expect(projectB.entries[0]?.name).toBe("project-b");
     expect(projectAAgain.entries[0]?.name).toBe("project-a");
-    expect(provider.fetch).toHaveBeenCalledTimes(POSIX_IDENTITY_STORAGE ? 2 : 3);
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
   });
 
   it("does not persist an aggregate when runtime eligibility changes during fetch", async () => {
@@ -622,49 +633,62 @@ describe("quota-state shared cache", () => {
     expect(changedDuringFetch.entries[0]?.name).toBe("project-a");
     expect(stable.entries[0]?.name).toBe("project-b");
     expect(cached.entries[0]?.name).toBe("project-b");
-    expect(provider.fetch).toHaveBeenCalledTimes(POSIX_IDENTITY_STORAGE ? 2 : 3);
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
   });
 
-  it.runIf(process.platform === "win32")(
-    "does not cache resolved-auth results without protected identity storage",
-    async () => {
-      const { deriveResolvedAuthIdentity } = await import("../src/lib/resolved-auth-identity.js");
-      const { fetchQuotaProviderResult } = await import("../src/lib/quota-state.js");
-      let fetchCount = 0;
-      const provider = {
-        id: "zai",
-        isAvailable: vi.fn(),
-        cachePolicy: {
-          kind: "resolved-auth",
-          resolveIdentity: () =>
-            deriveResolvedAuthIdentity({
-              providerId: "zai",
-              principal: { kind: "credential", value: "account-credential" },
-            }),
-        },
-        fetch: vi.fn(async () => ({
-          attempted: true,
-          entries: [
-            {
-              accounting: TEST_ACCOUNTING,
-              name: `fresh-${++fetchCount}`,
-              percentRemaining: 50,
-            },
-          ],
-          errors: [],
-        })),
-      } as any;
-      const ctx = createTestContext();
+  it("caches resolved-auth results in memory only on Windows", async () => {
+    setProcessPlatform("win32");
+    const { DEFAULT_CONFIG } = await import("../src/lib/types.js");
+    const { deriveResolvedAuthIdentity } = await import("../src/lib/resolved-auth-identity.js");
+    const { fetchQuotaProviderResult, readCachedProviderResult } = await import(
+      "../src/lib/quota-state.js"
+    );
+    let fetchCount = 0;
+    const provider = {
+      id: "anthropic",
+      isAvailable: vi.fn(),
+      cachePolicy: {
+        kind: "resolved-auth",
+        resolveIdentity: () =>
+          deriveResolvedAuthIdentity({
+            providerId: "anthropic",
+            principal: { kind: "credential", value: "account-credential" },
+          }),
+      },
+      fetch: vi.fn(async () => ({
+        attempted: true,
+        entries: [
+          {
+            accounting: TEST_ACCOUNTING,
+            name: `fresh-${++fetchCount}`,
+            percentRemaining: 50,
+          },
+        ],
+        errors: [],
+      })),
+    } as any;
+    const ctx = createTestContext();
+    const ttlMs = DEFAULT_CONFIG.minIntervalMs;
+    const startedAt = Date.now();
+    const now = vi.spyOn(Date, "now").mockReturnValue(startedAt);
 
-      expect(await provider.cachePolicy.resolveIdentity()).toBeNull();
-      const first = await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
-      const second = await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+    expect(await provider.cachePolicy.resolveIdentity()).not.toBeNull();
+    const first = await fetchQuotaProviderResult({ provider, ctx, ttlMs });
+    now.mockReturnValue(startedAt + ttlMs - 1);
+    const withinInterval = await fetchQuotaProviderResult({ provider, ctx, ttlMs });
+    const cachedRead = await readCachedProviderResult({ provider, ctx, ttlMs });
+    now.mockReturnValue(startedAt + ttlMs);
+    const afterInterval = await fetchQuotaProviderResult({ provider, ctx, ttlMs });
 
-      expect(first.entries[0]?.name).toBe("fresh-1");
-      expect(second.entries[0]?.name).toBe("fresh-2");
-      expect(provider.fetch).toHaveBeenCalledTimes(2);
-    },
-  );
+    expect(first.entries[0]?.name).toBe("fresh-1");
+    expect(withinInterval.entries[0]?.name).toBe("fresh-1");
+    expect(cachedRead).toMatchObject({ hit: true, result: { entries: [{ name: "fresh-1" }] } });
+    expect(afterInterval.entries[0]?.name).toBe("fresh-2");
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
+    expect(
+      await readdir(`${TEST_RUNTIME_ROOT}/cache/quota-provider-state`).catch(() => []),
+    ).toEqual([]);
+  });
 
   it("does not share aggregate cache state when the runtime provider catalog is unavailable", async () => {
     const { __resetQuotaStateForTests, fetchQuotaProviderResult } = await import(

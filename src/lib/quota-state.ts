@@ -23,7 +23,10 @@ import {
   normalizeQuotaProviderResult,
 } from "./quota-state-codec.js";
 import { updateQuotaTelemetrySnapshot } from "./quota-telemetry.js";
-import type { ResolvedAuthIdentity } from "./resolved-auth-identity.js";
+import {
+  isResolvedAuthIdentityKeyProcessLocal,
+  type ResolvedAuthIdentity,
+} from "./resolved-auth-identity.js";
 import { getPackageVersion } from "./version.js";
 
 const QUOTA_PROVIDER_CACHE_PACKAGE_VERSION_FALLBACK = "unknown";
@@ -244,7 +247,10 @@ async function resolveRuntimeEligibleQuotaProviders(
   }
 }
 
-type ProviderCacheScope = { resolvedAuthIdentity?: ResolvedAuthIdentity } | null;
+type ProviderCacheScope = {
+  resolvedAuthIdentity?: ResolvedAuthIdentity;
+  persistToDisk: boolean;
+} | null;
 
 async function resolveProviderCacheScope(
   provider: QuotaProvider,
@@ -253,11 +259,14 @@ async function resolveProviderCacheScope(
 ): Promise<ProviderCacheScope> {
   const policy = provider.cachePolicy;
   if (!policy || policy.kind === "uncached") return null;
-  if (policy.kind === "account-neutral") return {};
+  if (policy.kind === "account-neutral") return { persistToDisk: true };
 
   try {
     const resolvedAuthIdentity = await policy.resolveIdentity(ctx, cacheContext);
-    return resolvedAuthIdentity ? { resolvedAuthIdentity } : null;
+    if (!resolvedAuthIdentity) return null;
+    // A process-local identity key gives each process different identities, so
+    // no other process could ever read an entry persisted under one.
+    return { resolvedAuthIdentity, persistToDisk: !isResolvedAuthIdentityKeyProcessLocal() };
   } catch {
     return null;
   }
@@ -447,15 +456,16 @@ export async function fetchQuotaProviderResult(params: {
     return cloneQuotaProviderResult(snapshot);
   }
 
-  const persisted = forceAggregateRefresh
-    ? null
-    : await readPersistedQuotaProviderCacheEntry({
-        key,
-        providerId: provider.id,
-        packageVersion,
-        ttlMs,
-        now,
-      });
+  const persisted =
+    forceAggregateRefresh || !scope.persistToDisk
+      ? null
+      : await readPersistedQuotaProviderCacheEntry({
+          key,
+          providerId: provider.id,
+          packageVersion,
+          ttlMs,
+          now,
+        });
   if (persisted) {
     inMemoryCache.set(key, {
       ...persisted,
@@ -509,7 +519,7 @@ export async function fetchQuotaProviderResult(params: {
       ...entry,
       result: cloneQuotaProviderResult(entry.result),
     });
-    await writePersistedQuotaProviderCacheEntry(entry, key);
+    if (scope.persistToDisk) await writePersistedQuotaProviderCacheEntry(entry, key);
     return snapshot;
   })().finally(() => {
     inFlightByKey.delete(key);
@@ -572,6 +582,8 @@ export async function readCachedProviderResult(params: {
       timestamp: inMemory.timestamp,
     };
   }
+
+  if (!scope.persistToDisk) return { hit: false };
 
   const packageVersion = await getQuotaProviderCachePackageVersion();
   const persisted = await readPersistedQuotaProviderCacheEntry({

@@ -30,6 +30,7 @@ export type ResolvedAuthPrincipal =
   | { kind: "credential"; value: string };
 
 let identityKeyPromise: Promise<Buffer | null> | null = null;
+let processLocalIdentityKey: Buffer | null = null;
 
 export function isProtectedResolvedAuthStorageSupported(params: {
   platform: NodeJS.Platform;
@@ -43,6 +44,15 @@ function canProtectIdentityStorage(): boolean {
     platform: process.platform,
     hasOwnerIdentity: typeof process.getuid === "function",
   });
+}
+
+/**
+ * True where the key file cannot be protected (Windows, or no owner uid). There
+ * the key is random per process and held only in memory, so identities differ
+ * between processes and must not key anything written to disk.
+ */
+export function isResolvedAuthIdentityKeyProcessLocal(): boolean {
+  return !canProtectIdentityStorage();
 }
 
 export function getResolvedAuthIdentityKeyPath(): string {
@@ -158,7 +168,14 @@ async function createOrReadIdentityKey(): Promise<Buffer | null> {
   }
 }
 
+function getProcessLocalIdentityKey(): Buffer {
+  if (!processLocalIdentityKey) processLocalIdentityKey = randomBytes(RESOLVED_AUTH_KEY_BYTES);
+  return processLocalIdentityKey;
+}
+
 async function getIdentityKey(): Promise<Buffer | null> {
+  if (isResolvedAuthIdentityKeyProcessLocal()) return getProcessLocalIdentityKey();
+
   const existing = identityKeyPromise;
   if (existing) return existing;
 
@@ -228,4 +245,5 @@ export function isResolvedAuthIdentity(value: unknown): value is ResolvedAuthIde
 
 export function __resetResolvedAuthIdentityForTests(): void {
   identityKeyPromise = null;
+  processLocalIdentityKey = null;
 }
