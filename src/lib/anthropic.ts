@@ -78,6 +78,8 @@ export interface AnthropicUsageParseOptions {
 export interface AnthropicQuotaError {
   success: false;
   error: string;
+  /** Epoch ms when the OAuth usage probe's 429 cooldown ends. */
+  retryAtMs?: number;
 }
 
 export type AnthropicResult = AnthropicQuotaResult | AnthropicQuotaError | null;
@@ -98,6 +100,8 @@ export interface AnthropicDiagnostics {
   oauthCredentialSource?: AnthropicCredentialSource;
   checkedCommands: string[];
   message?: string;
+  /** Epoch ms when the OAuth usage probe's 429 cooldown ends. */
+  retryAtMs?: number;
   quota?: AnthropicQuotaResult;
 }
 
@@ -184,6 +188,7 @@ type AnthropicFallbackQuota =
       state: "unavailable";
       detail?: string;
       failureKind?: "authentication";
+      retryAtMs?: number;
     };
 
 type ParsedAuthProbe = {
@@ -827,6 +832,7 @@ async function performAnthropicOAuthUsageRequest(
           return {
             state: "unavailable",
             detail: `${errorDetail} ${getAnthropicOAuthCooldownMessage(durationMs)}`,
+            retryAtMs: nowMs + durationMs,
           };
         }
 
@@ -900,6 +906,7 @@ async function queryAnthropicQuotaFromOAuthAccessToken(
     return {
       state: "unavailable",
       detail: getAnthropicOAuthCooldownMessage(cooldown.blockedUntilMs - nowMs),
+      retryAtMs: cooldown.blockedUntilMs,
     };
   }
 
@@ -1358,6 +1365,7 @@ export async function getAnthropicDiagnostics(
         oauthCredentialSource: credentials.source,
         checkedCommands: localDiagnostics.checkedCommands,
         message: buildAnthropicNoQuotaDiagnosticsMessage(fallbackQuota.detail),
+        ...(fallbackQuota.retryAtMs !== undefined ? { retryAtMs: fallbackQuota.retryAtMs } : {}),
       };
       return diagnostics;
     }
@@ -1486,6 +1494,7 @@ export async function queryAnthropicQuota(
       return {
         success: false,
         error: diagnostics.message,
+        ...(diagnostics.retryAtMs !== undefined ? { retryAtMs: diagnostics.retryAtMs } : {}),
       };
     }
 

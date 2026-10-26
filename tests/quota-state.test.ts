@@ -741,6 +741,62 @@ describe("quota-state shared cache", () => {
     ).toEqual([]);
   });
 
+  it("re-fetches a Windows-cached error once its reported wait is over", async () => {
+    setProcessPlatform("win32");
+    const { deriveResolvedAuthIdentity } = await import("../src/lib/resolved-auth-identity.js");
+    const { fetchQuotaProviderResult } = await import("../src/lib/quota-state.js");
+    const startedAt = Date.now();
+    const retryAtMs = startedAt + 30_000;
+    const now = vi.spyOn(Date, "now").mockReturnValue(startedAt);
+    const provider = {
+      id: "anthropic",
+      isAvailable: vi.fn(),
+      cachePolicy: {
+        kind: "resolved-auth",
+        resolveIdentity: () =>
+          deriveResolvedAuthIdentity({
+            providerId: "anthropic",
+            principal: { kind: "credential", value: "account-credential" },
+          }),
+      },
+      fetch: vi.fn(async () =>
+        Date.now() < retryAtMs
+          ? {
+              attempted: true,
+              entries: [],
+              errors: [
+                {
+                  label: "Claude",
+                  message: `paused after HTTP 429; retry in ${Math.ceil((retryAtMs - Date.now()) / 1000)}s.`,
+                  retryAtMs,
+                },
+              ],
+            }
+          : {
+              attempted: true,
+              entries: [{ accounting: TEST_ACCOUNTING, name: "5h", percentRemaining: 80 }],
+              errors: [],
+            },
+      ),
+    } as any;
+    const ctx = createTestContext();
+    const ttlMs = 5 * 60_000;
+
+    const first = await fetchQuotaProviderResult({ provider, ctx, ttlMs });
+    now.mockReturnValue(retryAtMs - 1);
+    const duringWait = await fetchQuotaProviderResult({ provider, ctx, ttlMs });
+    now.mockReturnValue(retryAtMs + 30_000);
+    const afterWait = await fetchQuotaProviderResult({ provider, ctx, ttlMs });
+
+    expect(first.errors).toEqual([
+      { label: "Claude", message: "paused after HTTP 429; retry in 30s.", retryAtMs },
+    ]);
+    expect(duringWait).toEqual(first);
+    expect(JSON.stringify(afterWait)).not.toContain("retry in");
+    expect(afterWait.entries).toMatchObject([{ name: "5h", percentRemaining: 80 }]);
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
+  });
+
   it("does not share aggregate cache state when the runtime provider catalog is unavailable", async () => {
     const { __resetQuotaStateForTests, fetchQuotaProviderResult } = await import(
       "../src/lib/quota-state.js"

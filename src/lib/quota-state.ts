@@ -332,6 +332,15 @@ function readProcessLocalLatest(params: {
   };
 }
 
+// An errors-only result whose error reports a wait (for example an Anthropic 429
+// cooldown) goes stale once that wait is over, even within the cache TTL.
+function isErrorsOnlyRetryDue(result: QuotaProviderResult, now: number): boolean {
+  return (
+    result.entries.length === 0 &&
+    result.errors.some((error) => error.retryAtMs !== undefined && error.retryAtMs <= now)
+  );
+}
+
 function publishQuotaTelemetry(params: {
   ctx: QuotaProviderContext;
   providerId: string;
@@ -375,7 +384,10 @@ export async function fetchQuotaProviderResult(params: {
     return snapshot;
   };
 
-  if (bypassCache && !isLiveLocalUsageProviderId(provider.id)) return fetchUncached();
+  const bypassesCache = bypassCache && !isLiveLocalUsageProviderId(provider.id);
+  // Only memory-only scopes (a process-local identity key) cache errors-only
+  // results; there a successful retry also replaces the cached error.
+  if (bypassesCache && !isResolvedAuthIdentityKeyProcessLocal()) return fetchUncached();
 
   const runtimeEligibleQuotaProviders = await resolveRuntimeEligibleQuotaProviders(
     provider.id,
@@ -391,6 +403,32 @@ export async function fetchQuotaProviderResult(params: {
     runtimeEligibleQuotaProviders,
     resolvedAuthIdentity: scope.resolvedAuthIdentity,
   });
+
+  if (bypassesCache) {
+    const snapshot = await fetchUncached(cacheContext);
+    const cached = inMemoryCache.get(key);
+    if (
+      !scope.persistToDisk &&
+      cached !== undefined &&
+      cached.result.entries.length === 0 &&
+      snapshot.attempted &&
+      snapshot.entries.length > 0 &&
+      (await isProviderCacheScopeCurrent(provider, ctx, scope))
+    ) {
+      const entry = encodePersistedQuotaProviderCacheEntry({
+        packageVersion: await getQuotaProviderCachePackageVersion(),
+        key: getQuotaProviderStateCacheLocator(key),
+        providerId: provider.id,
+        timestamp: Date.now(),
+        result: snapshot,
+      });
+      inMemoryCache.set(key, {
+        ...entry,
+        result: cloneQuotaProviderResult(entry.result),
+      });
+    }
+    return snapshot;
+  }
 
   if (isLiveLocalUsageProviderId(provider.id)) {
     const snapshot = await fetchValidatedProviderResult(provider, ctx, cacheContext);
@@ -431,7 +469,8 @@ export async function fetchQuotaProviderResult(params: {
     inMemory &&
     inMemory.packageVersion === packageVersion &&
     ttlMs > 0 &&
-    now - inMemory.timestamp < ttlMs
+    now - inMemory.timestamp < ttlMs &&
+    !isErrorsOnlyRetryDue(inMemory.result, now)
   ) {
     publishQuotaTelemetry({
       ctx,

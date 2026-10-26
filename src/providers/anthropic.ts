@@ -96,7 +96,10 @@ export const anthropicProvider: QuotaProvider = {
     }
 
     if (!result.success) {
-      return withStatusDetails(attemptedErrorResult("Claude", result.error), statusDetails);
+      return withStatusDetails(
+        attemptedErrorResult("Claude", result.error, { retryAtMs: result.retryAtMs }),
+        statusDetails,
+      );
     }
 
     const entries: QuotaToastEntry[] = [

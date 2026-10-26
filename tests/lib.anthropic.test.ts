@@ -1288,6 +1288,7 @@ describe("Claude CLI diagnostics", () => {
         }),
       );
 
+    const cooldownEndsAt = Date.parse("2026-07-10T12:00:45.000Z");
     const first = await getAnthropicDiagnostics();
     expect(first.message).toContain("Anthropic API error 429: rate limited [redacted]");
     expect(first.message).toContain(
@@ -1295,6 +1296,7 @@ describe("Claude CLI diagnostics", () => {
     );
     expect(first.message).not.toContain("oauth-secret-token");
     expect(first.message).not.toContain("\u001b");
+    expect(first.retryAtMs).toBe(cooldownEndsAt);
 
     await vi.advanceTimersByTimeAsync(5_001);
     const suppressed = await getAnthropicDiagnostics();
@@ -1302,6 +1304,11 @@ describe("Claude CLI diagnostics", () => {
       "Anthropic OAuth usage probe paused after HTTP 429; retry in 40s.",
     );
     expect(suppressed.message).not.toContain("oauth-secret-token");
+    expect(suppressed.retryAtMs).toBe(cooldownEndsAt);
+    await expect(queryAnthropicQuota()).resolves.toMatchObject({
+      success: false,
+      retryAtMs: cooldownEndsAt,
+    });
     expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
 
     await vi.advanceTimersByTimeAsync(40_000);

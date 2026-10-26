@@ -184,6 +184,78 @@ describe("quota export production cache policy", () => {
     });
   });
 
+  it("replaces a Windows-cached Anthropic error after a successful retry", async () => {
+    setProcessPlatform("win32");
+    const { buildQuotaExport } = await import("../src/lib/quota-export.js");
+    const { fetchQuotaProviderResult, __resetQuotaStateForTests } = await import(
+      "../src/lib/quota-state.js"
+    );
+    const { deriveResolvedAuthIdentity } = await import("../src/lib/resolved-auth-identity.js");
+    const { DEFAULT_CONFIG } = await import("../src/lib/types.js");
+    const { getProviders } = await import("../src/providers/registry.js");
+    __resetQuotaStateForTests();
+
+    const anthropic = getProviders().find((provider) => provider.id === "anthropic");
+    if (!anthropic) throw new Error("Missing production anthropic provider");
+    if (anthropic.cachePolicy?.kind !== "resolved-auth") throw new Error("Invalid policy");
+    vi.spyOn(anthropic.cachePolicy, "resolveIdentity").mockImplementation(() =>
+      deriveResolvedAuthIdentity({
+        providerId: "anthropic",
+        principal: { kind: "credential", value: "anthropic-oauth-credential" },
+      }),
+    );
+    vi.spyOn(anthropic, "fetch")
+      .mockResolvedValueOnce({
+        attempted: true,
+        entries: [],
+        errors: [{ label: "Claude", message: "Anthropic API returned 429" }],
+      })
+      .mockResolvedValueOnce({
+        attempted: true,
+        entries: [
+          {
+            accounting: {
+              resultType: "quota",
+              acquisitionMethod: "remote_api",
+              ownership: "maintained",
+              authority: "provider_reported",
+            },
+            name: "5h",
+            percentRemaining: 80,
+          },
+        ],
+        errors: [],
+      });
+    const ctx = createTestContext();
+    const ttlMs = DEFAULT_CONFIG.minIntervalMs;
+
+    await fetchQuotaProviderResult({ provider: anthropic, ctx, ttlMs });
+    const retried = await fetchQuotaProviderResult({
+      provider: anthropic,
+      ctx,
+      ttlMs,
+      bypassCache: true,
+    });
+    const afterRetry = await fetchQuotaProviderResult({ provider: anthropic, ctx, ttlMs });
+    const exported = await buildQuotaExport({
+      providers: [anthropic],
+      ctx,
+      ttlMs,
+      fromCache: true,
+    });
+
+    expect(retried.entries).toMatchObject([{ name: "5h", percentRemaining: 80 }]);
+    expect(afterRetry).toEqual(retried);
+    expect(anthropic.fetch).toHaveBeenCalledTimes(2);
+    expect(exported.providers.anthropic).toMatchObject({
+      status: "ok",
+      entries: [{ name: "5h", percentRemaining: 80 }],
+    });
+    await expect(access(`${TEST_RUNTIME_ROOT}/cache/quota-provider-state`)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
   it("keeps providers without a safe account identity process-local", async () => {
     const { buildQuotaExport } = await import("../src/lib/quota-export.js");
     const { fetchQuotaProviderResult, __resetQuotaStateForTests } = await import(
