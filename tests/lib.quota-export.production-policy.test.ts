@@ -4,6 +4,7 @@ import type { ResolvedAuthIdentity } from "../src/lib/resolved-auth-identity.js"
 
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-export-production-policy-tests";
 const POSIX_IDENTITY_STORAGE = process.platform !== "win32" && typeof process.getuid === "function";
+const originalProcessPlatformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
 const RESOLVED_AUTH_PROVIDER_IDS = [
   "anthropic",
   "copilot",
@@ -27,6 +28,13 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
     stateDir: `${TEST_RUNTIME_ROOT}/state`,
   }),
 }));
+
+function setProcessPlatform(platform: NodeJS.Platform): void {
+  Object.defineProperty(process, "platform", {
+    configurable: true,
+    value: platform,
+  });
+}
 
 function createTestContext() {
   return {
@@ -53,6 +61,9 @@ describe("quota export production cache policy", () => {
   });
 
   afterEach(async () => {
+    if (originalProcessPlatformDescriptor) {
+      Object.defineProperty(process, "platform", originalProcessPlatformDescriptor);
+    }
     vi.restoreAllMocks();
     vi.resetModules();
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
@@ -118,6 +129,60 @@ describe("quota export production cache policy", () => {
       expect(serialized).not.toContain("resolvedAuthIdentity");
     },
   );
+
+  it("exports an Anthropic 429 cooldown error from the Windows memory cache", async () => {
+    setProcessPlatform("win32");
+    const { buildQuotaExport } = await import("../src/lib/quota-export.js");
+    const { fetchQuotaProviderResult, __resetQuotaStateForTests } = await import(
+      "../src/lib/quota-state.js"
+    );
+    const { deriveResolvedAuthIdentity } = await import("../src/lib/resolved-auth-identity.js");
+    const { DEFAULT_CONFIG } = await import("../src/lib/types.js");
+    const { getProviders } = await import("../src/providers/registry.js");
+    __resetQuotaStateForTests();
+
+    const anthropic = getProviders().find((provider) => provider.id === "anthropic");
+    if (!anthropic) throw new Error("Missing production anthropic provider");
+    if (anthropic.cachePolicy?.kind !== "resolved-auth") throw new Error("Invalid policy");
+    vi.spyOn(anthropic.cachePolicy, "resolveIdentity").mockImplementation(() =>
+      deriveResolvedAuthIdentity({
+        providerId: "anthropic",
+        principal: { kind: "credential", value: "anthropic-oauth-credential" },
+      }),
+    );
+    const cooldownMessage =
+      "Anthropic API error 429: rate limited Anthropic OAuth usage probe paused after HTTP 429; retry in 30s.";
+    vi.spyOn(anthropic, "fetch").mockResolvedValue({
+      attempted: true,
+      entries: [],
+      errors: [{ label: "Claude", message: cooldownMessage }],
+    });
+    const ctx = createTestContext();
+    const ttlMs = DEFAULT_CONFIG.minIntervalMs;
+    const startedAt = Date.now();
+    const now = vi.spyOn(Date, "now").mockReturnValue(startedAt);
+
+    await fetchQuotaProviderResult({ provider: anthropic, ctx, ttlMs });
+    now.mockReturnValue(startedAt + ttlMs - 1);
+    const withinInterval = await fetchQuotaProviderResult({ provider: anthropic, ctx, ttlMs });
+    const exported = await buildQuotaExport({
+      providers: [anthropic],
+      ctx,
+      ttlMs,
+      fromCache: true,
+    });
+
+    expect(withinInterval.errors).toEqual([{ label: "Claude", message: cooldownMessage }]);
+    expect(anthropic.fetch).toHaveBeenCalledTimes(1);
+    expect(exported.providers.anthropic).toMatchObject({
+      status: "error",
+      fetchedAt: Math.floor(startedAt / 1000),
+      error: cooldownMessage,
+    });
+    await expect(access(`${TEST_RUNTIME_ROOT}/cache/quota-provider-state`)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
 
   it("keeps providers without a safe account identity process-local", async () => {
     const { buildQuotaExport } = await import("../src/lib/quota-export.js");

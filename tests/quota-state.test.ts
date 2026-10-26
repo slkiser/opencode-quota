@@ -690,6 +690,57 @@ describe("quota-state shared cache", () => {
     ).toEqual([]);
   });
 
+  it("keeps errors-only resolved-auth results in memory only on Windows", async () => {
+    setProcessPlatform("win32");
+    const { DEFAULT_CONFIG } = await import("../src/lib/types.js");
+    const { deriveResolvedAuthIdentity } = await import("../src/lib/resolved-auth-identity.js");
+    const { fetchQuotaProviderResult, readCachedProviderResult } = await import(
+      "../src/lib/quota-state.js"
+    );
+    let fetchCount = 0;
+    const provider = {
+      id: "anthropic",
+      isAvailable: vi.fn(),
+      cachePolicy: {
+        kind: "resolved-auth",
+        resolveIdentity: () =>
+          deriveResolvedAuthIdentity({
+            providerId: "anthropic",
+            principal: { kind: "credential", value: "account-credential" },
+          }),
+      },
+      fetch: vi.fn(async () => ({
+        attempted: true,
+        entries: [],
+        errors: [{ label: "Claude", message: `failure-${++fetchCount}` }],
+      })),
+    } as any;
+    const ctx = createTestContext();
+    const ttlMs = DEFAULT_CONFIG.minIntervalMs;
+    const startedAt = Date.now();
+    const now = vi.spyOn(Date, "now").mockReturnValue(startedAt);
+
+    const first = await fetchQuotaProviderResult({ provider, ctx, ttlMs });
+    now.mockReturnValue(startedAt + ttlMs - 1);
+    const withinInterval = await fetchQuotaProviderResult({ provider, ctx, ttlMs });
+    const cachedRead = await readCachedProviderResult({ provider, ctx, ttlMs });
+    now.mockReturnValue(startedAt + ttlMs);
+    const afterInterval = await fetchQuotaProviderResult({ provider, ctx, ttlMs });
+
+    expect(first.errors[0]?.message).toBe("failure-1");
+    expect(withinInterval.errors[0]?.message).toBe("failure-1");
+    expect(cachedRead).toMatchObject({
+      hit: true,
+      timestamp: startedAt,
+      result: { entries: [], errors: [{ message: "failure-1" }] },
+    });
+    expect(afterInterval.errors[0]?.message).toBe("failure-2");
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
+    expect(
+      await readdir(`${TEST_RUNTIME_ROOT}/cache/quota-provider-state`).catch(() => []),
+    ).toEqual([]);
+  });
+
   it("does not share aggregate cache state when the runtime provider catalog is unavailable", async () => {
     const { __resetQuotaStateForTests, fetchQuotaProviderResult } = await import(
       "../src/lib/quota-state.js"

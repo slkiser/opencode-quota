@@ -496,10 +496,13 @@ export async function fetchQuotaProviderResult(params: {
 
   const fetchPromise = (async () => {
     const snapshot = await fetchValidatedProviderResult(provider, ctx, cacheContext);
+    // A memory-only scope has no latest-snapshot fallback for cached-only reads,
+    // so it also keeps errors-only results (for example an Anthropic 429 cooldown).
+    const keepsErrorsOnly = !scope.persistToDisk && snapshot.errors.length > 0;
 
     if (
       !snapshot.attempted ||
-      snapshot.entries.length === 0 ||
+      (snapshot.entries.length === 0 && !keepsErrorsOnly) ||
       !(await isProviderCacheScopeCurrent(provider, ctx, scope))
     ) {
       inMemoryCache.delete(key);
