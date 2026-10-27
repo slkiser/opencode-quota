@@ -60,7 +60,8 @@ export type GuiQuota = {
   watch(directory: string | undefined, sessionID?: string): () => void;
   /**
    * Asks the server to check the folder's providers now; resolves once the new snapshot is in.
-   * A failed check shows in `failure`; answers after the last watcher stopped are dropped.
+   * A failed check shows in `failure`; answers after the last watcher stopped, and failures from
+   * the client of a server since restarted, are dropped.
    */
   refresh(directory: string | undefined, sessionID?: string): Promise<void>;
   /** Tokens and cost from OpenCode's history for one range. */

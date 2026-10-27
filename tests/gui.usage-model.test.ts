@@ -19,7 +19,7 @@ function model(
   modelID: string,
   costUsd: number,
   tokensByType: UsageByType,
-  days: UsageModelRow["days"],
+  days: Array<Omit<UsageModelRow["days"][number], "priced"> & { priced?: boolean }>,
   priced = true,
 ): UsageModelRow {
   const tokens =
@@ -35,7 +35,7 @@ function model(
     unpricedTokens: priced ? 0 : tokens,
     costByType: priced ? byType(costUsd / 2, costUsd / 4, 0, costUsd / 4) : byType(0, 0, 0, 0),
     tokensByType,
-    days,
+    days: days.map((day) => ({ priced, ...day })),
   };
 }
 
@@ -238,6 +238,24 @@ describe("GUI usage breakdown", () => {
       ["2026-10-27", true],
       ["2026-10-26", true],
       ["2026-10-25", true],
+    ]);
+  });
+
+  it("marks each day of a model priced by its own prompts, when the price depends on prompt size", () => {
+    // Cursor's grok: the 25th's prompt was over 200k tokens, without a price; the 26th's was priced.
+    const grok = {
+      ...model("cursor", "grok", 3, byType(301_000, 0, 0, 0), [
+        { date: "2026-10-25", costUsd: 0, tokens: 300_000, priced: false },
+        { date: "2026-10-26", costUsd: 3, tokens: 1_000, priced: true },
+      ]),
+      unpricedTokens: 300_000,
+    };
+    const report: UsageReport = { ...REPORT, models: [grok] };
+    expect(
+      breakdownRows(report, "cost", "day", "cursor").map((row) => [row.name, row.priced]),
+    ).toEqual([
+      ["2026-10-26", true],
+      ["2026-10-25", false],
     ]);
   });
 

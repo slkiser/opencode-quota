@@ -291,11 +291,11 @@ export function breakdownRows(
   const models = modelsOf(report, providerID);
   const costs = dailyValues(report, models, "cost");
   const tokens = dailyValues(report, models, "tokens");
-  // A day is priced when a model with a price used tokens on it.
+  // A day is priced when a model used tokens with a price on it.
   const pricedDates = new Set(
-    models
-      .filter((model) => model.priced)
-      .flatMap((model) => model.days.filter((day) => day.tokens > 0).map((day) => day.date)),
+    models.flatMap((model) =>
+      model.days.filter((day) => day.priced && day.tokens > 0).map((day) => day.date),
+    ),
   );
   return report.days
     .map((day, index) => {

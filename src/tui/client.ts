@@ -137,7 +137,8 @@ export function reportFailure(error: unknown): void {
  * @param onSnapshot called with every snapshot the client takes (from any call or event), so
  *   toasts can announce new reset notices.
  * @param onFailure called when a `snapshot` or `refresh` call made since the last `start()`
- *   fails, so a GUI window can say why it shows nothing or an older snapshot.
+ *   fails, so a GUI window can say why it shows nothing or an older snapshot. A call made
+ *   through an earlier `host.client` (a server since restarted) reports nothing here.
  */
 export function createQuotaClient(
   host: ClientHost,
@@ -217,6 +218,7 @@ export function createQuotaClient(
     if (loading.has(key)) return;
     const call = ++calls;
     const at = mount;
+    const client = host.client;
     loading.set(key, call);
     subscribe();
     let request: Promise<QuotaRpcSnapshotOutput>;
@@ -231,7 +233,7 @@ export function createQuotaClient(
         if (at === mount) apply(output.snapshot, sessionID ? { id: sessionID, call } : undefined);
       })
       .catch((error) => {
-        if (at === mount) onFailure(error);
+        if (at === mount && host.client === client) onFailure(error);
         reportFailure(error);
       })
       .finally(() => {
@@ -294,6 +296,7 @@ export function createQuotaClient(
     async refresh(reason, sessionID) {
       const call = ++calls;
       const at = mount;
+      const client = host.client;
       try {
         const input: QuotaRpcRefreshInput = sessionID ? { reason, sessionID } : { reason };
         subscribe();
@@ -302,7 +305,7 @@ export function createQuotaClient(
         apply(output.snapshot, sessionID ? { id: sessionID, call } : undefined);
         return snapshot(sessionID);
       } catch (error) {
-        if (at === mount) onFailure(error);
+        if (at === mount && host.client === client) onFailure(error);
         reportFailure(error);
         return undefined;
       }

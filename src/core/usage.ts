@@ -96,11 +96,15 @@ export type UsageDayRow = UsageRow & { date: string };
 export type UsageModelRow = UsageRow & {
   providerID: string;
   modelID: string;
+  /** True when any of its messages had a price (a price can depend on the prompt's size). */
   priced: boolean;
   costByType: UsageByType;
   tokensByType: UsageByType;
-  /** The model's days with usage, oldest first; days without usage are left out. */
-  days: Array<{ date: string; costUsd: number; tokens: number }>;
+  /**
+   * The model's days with usage, oldest first; days without usage are left out. A day is priced
+   * when any of the model's messages that day had a price.
+   */
+  days: Array<{ date: string; costUsd: number; tokens: number; priced: boolean }>;
 };
 
 export type UsageReport = {
@@ -396,7 +400,7 @@ type ModelTally = {
   tally: Tally;
   costByType: UsageByType;
   tokensByType: UsageByType;
-  days: Map<string, { costUsd: number; tokens: number }>;
+  days: Map<string, { costUsd: number; tokens: number; priced: boolean }>;
 };
 
 async function buildUsageReport(query: UsageQuery, nowMs: number): Promise<UsageReport> {
@@ -454,16 +458,22 @@ async function buildUsageReport(query: UsageQuery, nowMs: number): Promise<Usage
       const model = entryFor(models, modelKey, () => ({
         providerID,
         modelID,
-        priced: use.priced,
+        priced: false,
         tally: emptyTally(),
         costByType: emptyByType(),
         tokensByType: emptyByType(),
         days: new Map(),
       }));
+      model.priced ||= use.priced;
       addUse(model.tally, use);
       addByType(model.costByType, use.costByType);
       addByType(model.tokensByType, use.tokensByType);
-      const modelDay = entryFor(model.days, date, () => ({ costUsd: 0, tokens: 0 }));
+      const modelDay = entryFor(model.days, date, () => ({
+        costUsd: 0,
+        tokens: 0,
+        priced: false,
+      }));
+      modelDay.priced ||= use.priced;
       modelDay.costUsd += use.costUsd;
       modelDay.tokens += use.tokens.processed;
       addUse(entryFor(days, date, emptyTally), use);

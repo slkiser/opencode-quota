@@ -236,8 +236,9 @@ describe("GUI quota bridge", () => {
   it("says a later call failed while it still shows the earlier snapshot", async () => {
     vi.useFakeTimers();
     const rpc = fakeRpc();
+    const client = { rpc: () => rpc };
     const gui = createGuiQuota({
-      client: () => ({ rpc: () => rpc }) as never,
+      client: () => client as never,
       directory: () => "/p",
     });
     const unwatch = gui.watch("/p");
@@ -253,9 +254,10 @@ describe("GUI quota bridge", () => {
 
   it("says a manual refresh failed while it still shows the earlier snapshot", async () => {
     const rpc = fakeRpc();
+    const client = { rpc: () => rpc };
     rpc.refresh.mockRejectedValue(new Error("provider check failed"));
     const gui = createGuiQuota({
-      client: () => ({ rpc: () => rpc }) as never,
+      client: () => client as never,
       directory: () => "/p",
     });
     const unwatch = gui.watch("/p");
@@ -294,11 +296,45 @@ describe("GUI quota bridge", () => {
     unwatch();
   });
 
+  it.each(["snapshot", "refresh"] as const)(
+    "keeps the new server's answer when the old server's %s call fails after it",
+    async (method) => {
+      vi.useFakeTimers();
+      const first = fakeRpc();
+      const second = fakeRpc();
+      let fail: (error: unknown) => void = () => {};
+      first[method].mockImplementation(
+        () =>
+          new Promise((_resolve, reject) => {
+            fail = reject;
+          }) as never,
+      );
+      const firstClient = { rpc: () => first };
+      const secondClient = { rpc: () => second };
+      let current = firstClient;
+      const gui = createGuiQuota({ client: () => current as never, directory: () => "/p" });
+      const unwatch = gui.watch("/p");
+      await vi.advanceTimersByTimeAsync(0);
+      const stale = method === "refresh" ? gui.refresh("/p") : Promise.resolve();
+      // The server restarted; before the client check notices, a refresh on it succeeds.
+      current = secondClient;
+      await gui.refresh("/p");
+      expect(second.refresh).toHaveBeenCalledTimes(1);
+      fail(new Error("old server gone"));
+      await stale;
+      await vi.advanceTimersByTimeAsync(0);
+      expect(gui.failure("/p")).toBeUndefined();
+      expect(percentOf(gui.snapshot("/p"))).toBe(40);
+      unwatch();
+    },
+  );
+
   it("says the server has no quota RPC, instead of loading forever", async () => {
     const rpc = fakeRpc();
+    const client = { rpc: () => rpc };
     rpc.snapshot.mockRejectedValue({ type: "rpc.unavailable", message: "no such RPC" });
     const gui = createGuiQuota({
-      client: () => ({ rpc: () => rpc }) as never,
+      client: () => client as never,
       directory: () => "/p",
     });
     const unwatch = gui.watch("/p");
@@ -310,9 +346,10 @@ describe("GUI quota bridge", () => {
 
   it("says why a call failed, and forgets it once a snapshot arrives", async () => {
     const rpc = fakeRpc();
+    const client = { rpc: () => rpc };
     rpc.snapshot.mockRejectedValueOnce(new Error("server unreachable"));
     const gui = createGuiQuota({
-      client: () => ({ rpc: () => rpc }) as never,
+      client: () => client as never,
       directory: () => "/p",
     });
     let unwatch = gui.watch("/p");
@@ -327,13 +364,13 @@ describe("GUI quota bridge", () => {
   });
 
   it("says why when the client offers no quota RPC at all", async () => {
+    const client = {
+      rpc: () => {
+        throw new Error("rpc is not supported");
+      },
+    };
     const gui = createGuiQuota({
-      client: () =>
-        ({
-          rpc: () => {
-            throw new Error("rpc is not supported");
-          },
-        }) as never,
+      client: () => client as never,
       directory: () => undefined,
     });
     const unwatch = gui.watch(undefined);
