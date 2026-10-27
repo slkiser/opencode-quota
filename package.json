@@ -77,7 +77,7 @@
   "devDependencies": {
     "@babel/core": "^7.28.0",
     "@babel/preset-typescript": "^7.27.1",
-    "@opencode/plugin": "2.0.28",
+    "@opencode/plugin": "2.2.0",
     "@opentelemetry/sdk-metrics": "2.10.0",
     "@types/node": "^22.0.0",
     "babel-preset-solid": "^1.9.12",

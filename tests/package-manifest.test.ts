@@ -104,7 +104,7 @@ describe("package manifest compatibility", () => {
       ["devDependencies", "typescript", "7.0.2"],
       ["devDependencies", "yaml", "^2.8.3"],
       ["peerDependencies", "@opencode/plugin", "2.0.28"],
-      ["devDependencies", "@opencode/plugin", "2.0.28"],
+      ["devDependencies", "@opencode/plugin", "2.2.0"],
       ["dependencies", "@opentui/core", "^0.5.10"],
       ["dependencies", "@opentui/solid", "^0.5.10"],
       ["pnpm", "peerDependencyRules", undefined],
@@ -207,7 +207,7 @@ describe("package manifest compatibility", () => {
       "../.github/scripts/verify-typescript-version.mjs",
       [
         'const EXPECTED_TYPESCRIPT_VERSION = "7.0.2";',
-        'const EXPECTED_PLUGIN_VERSION = "2.0.28";',
+        'const EXPECTED_PLUGIN_VERSION = "2.2.0";',
         'const EXPECTED_OPENTUI_SPECIFIER = "^0.5.10";',
         'const EXPECTED_OPENTUI_VERSION = "0.5.10";',
         'const BUN_FFI_STRUCTS_VERSION = "0.3.1";',
