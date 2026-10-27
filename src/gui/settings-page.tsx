@@ -22,10 +22,11 @@ import {
   onCleanup,
   onMount,
   Show,
+  untrack,
 } from "solid-js";
 import type { QuotaSnapshot, QuotaWindow } from "../core/types.js";
 import { ALL_PROVIDERS, WINDOWS } from "../core/windows.js";
-import type { Notice, QuotaRpcSettingsSchemaOutput } from "../rpc.js";
+import type { Notice, QuotaRpcSettingsOutput, QuotaRpcSettingsSchemaOutput } from "../rpc.js";
 import type { CustomProviderSwitch, SettingRule, Settings } from "../settings/index.js";
 import { rpcErrorMessage } from "../tui/client.js";
 import {
@@ -66,6 +67,23 @@ import { SURFACE_GROUPS, settingsFromValues } from "./surface-settings.js";
 export const SETTINGS_PAGE_ID = "quota";
 const CLOCK_MS = 60_000;
 
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * Shows `value` in `input`, except while it has focus: a new snapshot leaves the text being typed
+ * alone. Once it loses focus (after its change, if any), it shows `value` again; `keep` holds text
+ * the control refused, so the user sees what to fix.
+ */
+function mirror(input: HTMLInputElement, value: () => string, keep = () => false): void {
+  createEffect(() => {
+    const next = value();
+    if (document.activeElement !== input) input.value = next;
+  });
+  input.addEventListener("blur", () => {
+    if (!keep()) input.value = untrack(value);
+  });
+}
+
 /** The Quota tab's open or folded state, which plugin storage keeps (`index.tsx`). */
 export type PanelOpenState = { open(): boolean; set(open: boolean): void; load(): void };
 
@@ -78,18 +96,33 @@ export function createSettingsPageState(data: GuiQuota) {
   const [draft, setDraft] = createSignal<SettingsDraft>();
   const [failure, setFailure] = createSignal<unknown>();
   let loading: Promise<void> | undefined;
+  /** The snapshot settings last offered: a snapshot shown again is not news. */
+  let offered: QuotaRpcSettingsOutput | undefined;
   return {
     schema,
     draft,
     failure,
+    /**
+     * The saved settings a snapshot carries: an edit of the file shows under the draft. Before
+     * the draft has read the settings, and when the same snapshot comes again (the page shows the
+     * draft, or opens again), they are older than the draft's and are dropped.
+     */
+    receive(settings: QuotaRpcSettingsOutput): void {
+      if (settings === offered) return;
+      offered = settings;
+      draft()?.receive(settings);
+    },
     /** Asks for the schema (each visit: the server may have restarted) and the saved settings. */
     load(): Promise<void> {
       loading ??= (async () => {
         try {
           const answer = await data.settingsSchema();
+          const rulesChanged = !same(answer.rules, schema()?.rules);
           setSchema(answer);
+          const existing = draft();
+          if (existing && rulesChanged) existing.reshape(settingsShape(answer.rules));
           const current =
-            draft() ??
+            existing ??
             createSettingsDraft(
               { settings: data.settings, saveSettings: data.saveSettings },
               settingsShape(answer.rules),
@@ -156,8 +189,7 @@ export function SettingsPageView(props: PageProps) {
   // The saved settings each snapshot carries: an edit of the file shows under the draft.
   createEffect(() => {
     const saved = snapshot()?.settings;
-    const draft = state.draft();
-    if (saved && draft) draft.receive(saved);
+    if (saved) untrack(() => state.receive(saved));
   });
 
   // The draft's changes over the saved settings in Quota's other places, while the page is open.
@@ -200,7 +232,14 @@ export function SettingsPageView(props: PageProps) {
       <Show
         when={state.draft()?.saved() !== undefined && state.schema() ? state.draft() : undefined}
         fallback={
-          <Show when={failureText()} fallback={<ctx.ui.Loader size="large" />}>
+          <Show
+            when={failureText()}
+            fallback={
+              <div class="oq-note">
+                <ctx.ui.Loader size="large" /> {ctx.t("settings.loading")}
+              </div>
+            }
+          >
             {(text) => <p class="oq-error">{text()}</p>}
           </Show>
         }
@@ -498,8 +537,6 @@ function SettingRow(
   );
 }
 
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-
 /** A native select over `options`, whose values may be any JSON value or undefined. */
 function Select(props: {
   label: string;
@@ -581,7 +618,7 @@ function ControlView(props: {
                 type="text"
                 aria-label={props.title}
                 maxLength={control.maxLength}
-                value={String(props.value ?? "")}
+                ref={(input) => mirror(input, () => String(props.value ?? ""))}
                 onChange={(event) => props.set(event.currentTarget.value)}
               />
             );
@@ -614,7 +651,9 @@ function NumberControl(props: {
       min={props.control.min ?? props.control.above}
       max={props.control.max}
       step={props.control.integer ? 1 : "any"}
-      value={typeof props.value === "number" ? String(props.value) : ""}
+      ref={(input) =>
+        mirror(input, () => (typeof props.value === "number" ? String(props.value) : ""), invalid)
+      }
       placeholder={range ? say(ctx, range) : undefined}
       onChange={(event) => {
         const value = typedNumber(props.control, event.currentTarget.value);
@@ -679,7 +718,7 @@ function ColorControl(props: {
           class="oq-color"
           type="color"
           aria-label={props.title}
-          value={String(props.value)}
+          ref={(input) => mirror(input, () => String(props.value))}
           onChange={(event) => props.set(event.currentTarget.value.toLowerCase())}
         />
       </Show>
@@ -832,6 +871,9 @@ function TreeView(props: SectionProps & { surface: Surface }) {
   const { ctx } = props;
   const editor = createMemo(() => surfaceEditor(props.surface, props.snapshot()));
   const lines = createMemo(() => editor().lines(props.shown(), props.nowMs()));
+  /** The lines' ids: a row stays (its rename input too) while only its words change. */
+  const ids = createMemo(() => lines().map((line) => line.id), undefined, { equals: same });
+  const lineOf = (id: string) => lines().find((line) => line.id === id);
   const names = props.surface === "sidebar" || props.surface === "toast";
   const windows = props.surface === "collapsed" || props.surface === "statusLine";
   const summary = names
@@ -889,8 +931,12 @@ function TreeView(props: SectionProps & { surface: Surface }) {
               <span />
             </div>
           </Show>
-          <For each={lines()}>
-            {(line) => <TreeRow {...props} line={line} editor={editor()} names={names} />}
+          <For each={ids()}>
+            {(id) => (
+              <Show when={lineOf(id)}>
+                {(line) => <TreeRow {...props} line={line} editor={editor} names={names} />}
+              </Show>
+            )}
           </For>
         </div>
       </Show>
@@ -901,64 +947,85 @@ function TreeView(props: SectionProps & { surface: Surface }) {
 function TreeRow(
   props: SectionProps & {
     surface: Surface;
-    line: TreeLine;
-    editor: ReturnType<typeof surfaceEditor>;
+    line: () => TreeLine;
+    editor: () => ReturnType<typeof surfaceEditor>;
     names: boolean;
   },
 ) {
-  const { ctx, line, editor } = props;
-  const choices = () => (line.row ? [] : editor.windowChoices(line.id, props.shown()));
-  const rename = line.row && props.names ? editor.rename(line.id) : undefined;
+  const { ctx, editor } = props;
+  const line = props.line;
+  const id = line().id;
+  const choices = () => (line().row ? [] : editor().windowChoices(id, props.shown()));
+  const rename = () => (line().row && props.names ? editor().rename(id) : undefined);
   const namesKey = props.surface === "toast" ? "toast" : "sidebar";
-  const ownName = () => (props.shown()[namesKey].names[line.id] as string | undefined) ?? "";
+  const ownName = () => (props.shown()[namesKey].names[id] as string | undefined) ?? "";
+  /** The window the provider follows without a pick of its own: picking it removes the pick. */
+  const followsAll = (choice: WindowChoice) => {
+    const windowsKey = props.surface as "collapsed" | "statusLine";
+    const picked = editor().pickWindow(id, choice)(props.shown());
+    return picked[windowsKey].window[id] === undefined;
+  };
+  const windowLabel = (choice: WindowChoice) =>
+    followsAll(choice)
+      ? `${windowName(ctx, choice)} (${ctx.t("editor.sameAsAll")})`
+      : windowName(ctx, choice);
   return (
     <div
       class="oq-tr"
-      classList={{ "oq-tr-row": line.row, "oq-tr-muted": line.muted, "oq-tr-hidden": line.hidden }}
+      classList={{
+        "oq-tr-row": line().row,
+        "oq-tr-muted": line().muted,
+        "oq-tr-hidden": line().hidden,
+      }}
     >
       <input
         type="checkbox"
-        checked={!line.hidden}
-        aria-label={ctx.t("editor.show", { name: line.label })}
-        onChange={() => props.apply(editor.toggleHidden(line.id))}
+        checked={!line().hidden}
+        aria-label={ctx.t("editor.show", { name: line().label })}
+        onChange={() => props.apply(editor().toggleHidden(id))}
       />
       <span class="oq-tr-name">
-        {line.row ? line.label : <b>{line.label}</b>}
-        <Show when={line.detail}>
-          <span class="oq-small oq-muted"> {line.detail}</span>
+        {line().row ? line().label : <b>{line().label}</b>}
+        <Show when={line().detail}>
+          <span class="oq-small oq-muted"> {line().detail}</span>
         </Show>
       </span>
-      {rename ? (
-        <input
-          class="oq-input"
-          type="text"
-          aria-label={ctx.t("editor.rename", { name: line.label })}
-          placeholder={line.label}
-          value={ownName()}
-          onChange={(event) => props.apply(rename.apply(event.currentTarget.value))}
-        />
-      ) : choices().length > 0 ? (
-        <Select
-          label={ctx.t("editor.window", { name: line.label })}
-          options={choices().map((choice) => ({ value: choice, label: windowName(ctx, choice) }))}
-          value={line.window}
-          onPick={(picked) => props.apply(editor.pickWindow(line.id, picked as WindowChoice))}
-        />
-      ) : (
-        <span />
-      )}
+      <Show
+        when={rename()}
+        fallback={
+          <Show when={choices().length > 0} fallback={<span />}>
+            <Select
+              label={ctx.t("editor.window", { name: line().label })}
+              options={choices().map((choice) => ({ value: choice, label: windowLabel(choice) }))}
+              value={line().window}
+              onPick={(picked) => props.apply(editor().pickWindow(id, picked as WindowChoice))}
+            />
+          </Show>
+        }
+      >
+        {(row) => (
+          <input
+            class="oq-input"
+            type="text"
+            aria-label={ctx.t("editor.rename", { name: line().label })}
+            placeholder={line().label}
+            ref={(input) => mirror(input, ownName)}
+            onChange={(event) => props.apply(row().apply(event.currentTarget.value))}
+          />
+        )}
+      </Show>
       <span class="oq-mv">
         <button
           type="button"
-          aria-label={ctx.t("editor.up", { name: line.label })}
-          onClick={() => props.apply(editor.move(line.id, -1))}
+          aria-label={ctx.t("editor.up", { name: line().label })}
+          onClick={() => props.apply(editor().move(id, -1))}
         >
           ▲
         </button>
         <button
           type="button"
-          aria-label={ctx.t("editor.down", { name: line.label })}
-          onClick={() => props.apply(editor.move(line.id, 1))}
+          aria-label={ctx.t("editor.down", { name: line().label })}
+          onClick={() => props.apply(editor().move(id, 1))}
         >
           ▼
         </button>
@@ -975,16 +1042,33 @@ function PluginExtras(props: SectionProps) {
   const [problem, setProblem] = createSignal<string>();
   const [copied, setCopied] = createSignal(false);
   void data.notices().then(setNotices, (error: unknown) => setProblem(rpcErrorMessage(error)));
-  void data
-    .status(props.sessionID())
-    .then(setStatus, (error: unknown) => setProblem(rpcErrorMessage(error)));
+  // The setup check of the session shown, again when it changes; a late answer for another drops.
+  createEffect(() => {
+    const sessionID = props.sessionID();
+    let current = true;
+    onCleanup(() => {
+      current = false;
+    });
+    setStatus(undefined);
+    void data.status(sessionID).then(
+      (text) => {
+        if (current) setStatus(text);
+      },
+      (error: unknown) => {
+        if (current) setProblem(rpcErrorMessage(error));
+      },
+    );
+  });
   const copy = () => {
     const text = status();
     if (text === undefined) return;
-    void ctx.system.copy(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2_000);
-    });
+    void ctx.system
+      .copy(text)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2_000);
+      })
+      .catch(() => {});
   };
   return (
     <>

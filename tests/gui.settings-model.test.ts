@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { QuotaSnapshot } from "../src/core/types.js";
+import type { GuiQuota } from "../src/gui/bridge.js";
 import { en } from "../src/gui/i18n.js";
 import {
   changedSettings,
@@ -18,6 +19,7 @@ import {
   TUI_ONLY,
   typedNumber,
 } from "../src/gui/settings-model.js";
+import { createSettingsPageState } from "../src/gui/settings-page.js";
 import { settingsFromValues, surfaceSettings } from "../src/gui/surface-settings.js";
 import type { QuotaRpcSaveSettingsInput, QuotaRpcSettingsOutput } from "../src/rpc.js";
 import {
@@ -28,7 +30,11 @@ import {
   SETTINGS_SCHEMA,
   type SettingRule,
 } from "../src/settings/schema.js";
-import { createSettingsDraft, settingsShape } from "../src/tui/settings-draft.js";
+import {
+  createSettingsDraft,
+  type SettingsDraft,
+  settingsShape,
+} from "../src/tui/settings-draft.js";
 import { surfaceEditor } from "../src/tui/window/surface-editor.js";
 import { COLOR_ROLES, PRESET_CHOICES, type PresetName, presetChoice } from "../src/view/presets.js";
 import { providerSnapshot, quotaRow as row } from "./helpers/fake-answers.js";
@@ -436,5 +442,92 @@ describe("the draft the Settings page shares with the TUI", () => {
     expect(draft.value("words.percent")).toBe("bare");
     expect(draft.value("toast.seconds")).toBe(30);
     expect(draft.count()).toBe(1);
+  });
+
+  it("keeps its saved settings when a snapshot brings the same ones", async () => {
+    const defaults = settingsShape(RULES).defaults;
+    const server = serverAnswers({ ...defaults, "toast.seconds": 20 }, ["toast.seconds"]);
+    const draft = createSettingsDraft(server.rpc, settingsShape(RULES));
+    await draft.load();
+    const before = draft.saved();
+
+    draft.receive(structuredClone(server.settings));
+    expect(draft.saved()).toBe(before);
+    draft.receive({ ...structuredClone(server.settings), fromFile: [] });
+    expect(draft.saved()).not.toBe(before);
+  });
+
+  it("takes a new shape's defaults and keeps its changes", async () => {
+    const defaults = settingsShape(RULES).defaults;
+    const server = serverAnswers({ ...defaults, "toast.seconds": 20 }, ["toast.seconds"]);
+    const draft = createSettingsDraft(server.rpc, settingsShape(RULES));
+    await draft.load();
+    draft.set("words.percent", "bare");
+
+    draft.reshape(settingsShape(withDefault("toast.seconds", 12)));
+    draft.reset("toast.seconds");
+
+    expect(draft.value("toast.seconds")).toBe(12);
+    expect(draft.value("words.percent")).toBe("bare");
+    expect(draft.count()).toBe(2);
+  });
+});
+
+/** The rules with one key's default changed, as a newer server's schema may have it. */
+function withDefault(key: string, value: unknown): Record<string, SettingRule> {
+  const rules = structuredClone(RULES);
+  rules[key] = { ...rules[key], default: value } as SettingRule;
+  return rules;
+}
+
+describe("the Settings page's state", () => {
+  /** A server whose saved settings set `toast.seconds` to `seconds`, with these rules. */
+  function server(seconds: number) {
+    const answer = (secondsNow: number): QuotaRpcSettingsOutput => ({
+      values: { ...settingsShape(RULES).defaults, "toast.seconds": secondsNow },
+      fromFile: ["toast.seconds"],
+      providers: [],
+      custom: [],
+    });
+    const data = {
+      rules: RULES,
+      seconds,
+      settingsSchema: vi.fn(async () => ({ rules: data.rules, path: "/settings.jsonc" })),
+      settings: vi.fn(async () => answer(data.seconds)),
+      saveSettings: vi.fn(async () => ({ ok: true, issues: [] })),
+    };
+    return { data, answer };
+  }
+
+  it("keeps the settings it read over the older snapshot it saw before", async () => {
+    const { data, answer } = server(30);
+    const state = createSettingsPageState(data as unknown as GuiQuota);
+    const cached = answer(9);
+
+    // The page offers the snapshot on screen at once, and again when the draft shows.
+    state.receive(cached);
+    await state.load();
+    state.receive(cached);
+    expect(state.draft()?.value("toast.seconds")).toBe(30);
+
+    // A newer snapshot still shows under the draft.
+    state.receive(answer(40));
+    expect(state.draft()?.value("toast.seconds")).toBe(40);
+  });
+
+  it("follows a reloaded schema's defaults, keeping the unsaved changes", async () => {
+    const { data } = server(20);
+    const state = createSettingsPageState(data as unknown as GuiQuota);
+    await state.load();
+    const draft = state.draft() as SettingsDraft;
+    draft.set("words.percent", "bare");
+
+    data.rules = withDefault("toast.seconds", 12);
+    await state.load();
+    draft.reset("toast.seconds");
+
+    expect(state.draft()).toBe(draft);
+    expect(draft.value("toast.seconds")).toBe(12);
+    expect(draft.value("words.percent")).toBe("bare");
   });
 });

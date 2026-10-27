@@ -29,8 +29,9 @@
  * `toast.seconds` when it is the preview's first toast.
  *
  * Reset notices that arrive together show as one toast. While a turn's toast is being made,
- * they wait and show after it, so the turn's toast does not replace them at once. When the TUI
- * leaves its server, waiting notices are dropped unshown, so a later snapshot can bring them.
+ * they wait and show after it, so the turn's toast does not replace them at once; each follows
+ * the settings as they are when it shows. When the TUI leaves its server, waiting notices are
+ * dropped unshown, so a later snapshot can bring them.
  */
 import type { QuotaSnapshot, ResetNotice } from "../core/types.js";
 import { WINDOWS } from "../core/windows.js";
@@ -175,19 +176,28 @@ export function createToasts(host: ToastHost): Toasts {
   let allFailShown = false;
   /** Turns whose toast is being made; reset notices wait for them. */
   let turnsRunning = 0;
-  let waitingNotices: Array<{ id: string; message: string }> = [];
+  /** Reset notices to show, each with the snapshot it came in. */
+  let waitingNotices: Array<{ notice: ResetNotice; snapshot: QuotaSnapshot }> = [];
   /** The Toast page's preview, until the page closes or a newer preview replaces it. */
   let preview: Preview | undefined;
 
+  /** Shows the waiting reset notices the settings still ask for, worded as they are now. */
   function showNotices(): void {
     if (turnsRunning > 0 || waitingNotices.length === 0) return;
+    const messages = waitingNotices.flatMap(({ notice, snapshot }) => {
+      const display = host.display(snapshot);
+      if (!wantsResetNotice(display, notice)) return [];
+      const message = resetMessage(notice, snapshot, display, now());
+      return message ? [message] : [];
+    });
+    waitingNotices = [];
+    if (messages.length === 0) return;
     host.show({
       variant: "success",
       title: "Quota available",
-      message: waitingNotices.map((notice) => notice.message).join("\n"),
+      message: messages.join("\n"),
       duration: host.display().toast.seconds * 1000,
     });
-    waitingNotices = [];
   }
 
   /** Shows a quota toast of `input`'s lines; nothing when they have no text. */
@@ -281,8 +291,7 @@ export function createToasts(host: ToastHost): Toasts {
         if (shownNotices.has(notice.id)) continue;
         shownNotices.add(notice.id);
         if (!wantsResetNotice(display, notice) || notice.atMs < startedAtMs) continue;
-        const message = resetMessage(notice, snapshot, display, now());
-        if (message) waitingNotices.push({ id: notice.id, message });
+        waitingNotices.push({ notice, snapshot });
       }
       showNotices();
     },
@@ -320,7 +329,7 @@ export function createToasts(host: ToastHost): Toasts {
     closePreview,
 
     cancel() {
-      for (const notice of waitingNotices) shownNotices.delete(notice.id);
+      for (const { notice } of waitingNotices) shownNotices.delete(notice.id);
       waitingNotices = [];
     },
   };

@@ -90,14 +90,16 @@ export type ServerSettingsRpc = {
 export type SettingsDraft = ReturnType<typeof createSettingsDraft>;
 
 /** The saved server settings, and this window's changes and custom provider switches on top. */
-export function createSettingsDraft(rpc: ServerSettingsRpc, shape: SettingsShape) {
-  const isRecordSetting = (key: string) => shape.recordKeys.has(key);
+export function createSettingsDraft(rpc: ServerSettingsRpc, initialShape: SettingsShape) {
+  /** The rules' shape; a GUI page gives a new one when the server's schema changes. */
+  const [shape, setShape] = createSignal(initialShape);
+  const isRecordSetting = (key: string) => shape().recordKeys.has(key);
   const [saved, setSaved] = createSignal<QuotaRpcSettingsOutput>();
   const [changes, setChanges] = createSignal<Readonly<Record<string, unknown>>>({});
   const [switches, setSwitches] = createSignal<Readonly<Record<string, boolean>>>({});
   /** Custom providers the server would not switch on: their definition changed since shown. */
   const [changedIds, setChangedIds] = createSignal<readonly string[]>([]);
-  const defaults = shape.defaults;
+  const defaults = (): Readonly<Record<string, unknown>> => shape().defaults;
   /** The definition shown when each custom switch was changed, kept across live updates. */
   const reviewedFingerprints = new Map<string, string>();
   let received = 0;
@@ -109,12 +111,12 @@ export function createSettingsDraft(rpc: ServerSettingsRpc, shape: SettingsShape
   const resets = new Set<string>();
   /** The keys reset since Save started. */
   let savingResets: Set<string> | undefined;
-  const savedValue = (key: string) => saved()?.values[key] ?? defaults[key];
+  const savedValue = (key: string) => saved()?.values[key] ?? defaults()[key];
   /** Without `fromFile` (an older server), a value other than the default counts as set. */
   const savedInFile = (key: string): boolean => {
     const current = saved();
     if (current === undefined) return false;
-    if (!Array.isArray(current.fromFile)) return !same(savedValue(key), defaults[key]);
+    if (!Array.isArray(current.fromFile)) return !same(savedValue(key), defaults()[key]);
     return current.fromFile.includes(key);
   };
   /** The saved value a draft is compared with: null for an unset key whose unset isn't its default. */
@@ -132,7 +134,7 @@ export function createSettingsDraft(rpc: ServerSettingsRpc, shape: SettingsShape
       }
       return next;
     }
-    return patch === null ? defaults[key] : patch;
+    return patch === null ? defaults()[key] : patch;
   };
   const draftValue = (key: string, next: unknown): unknown => {
     if (!isRecordSetting(key) || !isRecord(next)) return next === undefined ? null : next;
@@ -237,9 +239,14 @@ export function createSettingsDraft(rpc: ServerSettingsRpc, shape: SettingsShape
   return {
     /** Undefined until the first server answer. */
     saved,
+    /** Settings a snapshot carries; the same ones as the saved settings change nothing. */
     receive(next: QuotaRpcSettingsOutput): void {
       received += 1;
-      setSaved(next);
+      if (!same(next, saved())) setSaved(next);
+    },
+    /** The rules' new shape (defaults, record keys); the draft's changes stay. */
+    reshape(next: SettingsShape): void {
+      setShape(next);
     },
     value,
     /**
@@ -251,7 +258,7 @@ export function createSettingsDraft(rpc: ServerSettingsRpc, shape: SettingsShape
       return Object.hasOwn(changes(), key) ? changes()[key] === null : !savedInFile(key);
     },
     set(key: string, next: unknown): void {
-      if (resets.has(key) && same(next, defaults[key]) && !UNSET_IS_NOT_DEFAULT.has(key)) {
+      if (resets.has(key) && same(next, defaults()[key]) && !UNSET_IS_NOT_DEFAULT.has(key)) {
         reset(key);
         return;
       }

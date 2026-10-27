@@ -1,7 +1,8 @@
 import type { Context } from "@opencode/plugin/gui";
 import { describe, expect, it, vi } from "vite-plus/test";
-import type { ProviderSnapshot, QuotaSnapshot } from "../src/core/types.js";
+import type { ProviderSnapshot, QuotaSnapshot, ResetNotice } from "../src/core/types.js";
 import type { GuiQuota } from "../src/gui/bridge.js";
+import { surfaceSettings } from "../src/gui/surface-settings.js";
 import { createGuiToasts } from "../src/gui/toasts.js";
 
 /**
@@ -61,7 +62,12 @@ const REPLY_TOAST = { "toast.afterReply": "always" };
  * A window with sessions "a" in folder /a and "b" in /b, on the app's own server. Refreshes
  * wait for `answer`; `emit` sends a server event; `dispose` runs the Solid cleanups.
  */
-function start(byFolder: Record<string, QuotaSnapshot>) {
+function start(
+  byFolder: Record<string, QuotaSnapshot>,
+  settingsOf: (snapshot: QuotaSnapshot | undefined) => ReturnType<typeof surfaceSettings> = (
+    snapshot,
+  ) => surfaceSettings(snapshot),
+) {
   cleanups.length = 0;
   const handlers = new Map<string, (event: unknown) => void>();
   const server = {
@@ -98,7 +104,7 @@ function start(byFolder: Record<string, QuotaSnapshot>) {
     refresh: vi.fn(() => new Promise<void>((resolve) => waiting.push(resolve))),
     failure: () => undefined,
   } as unknown as GuiQuota;
-  const toasts = createGuiToasts(ctx, data);
+  const toasts = createGuiToasts(ctx, data, settingsOf);
   return {
     toasts,
     show,
@@ -151,6 +157,47 @@ describe("GUI quota toasts", () => {
       expect.stringMatching(/^Copilot: 7d 40% left \S+\.$/),
     ]);
     for (const line of lines) expect(line).not.toMatch(/ {2}|[█░▓▒■□━─]/u);
+  });
+
+  describe("a reset notice that comes while a turn's toast is made", () => {
+    const notice: ResetNotice = {
+      id: "claude-weekly",
+      rowId: "claude.weekly",
+      providerId: "claude",
+      label: "Weekly",
+      window: "week",
+      percentRemaining: 100,
+      // After the window started.
+      atMs: Date.now() + 60_000,
+    };
+    /** A turn waiting for its refresh, with a reset notice the page's unsaved changes ask for. */
+    function waiting(saved: Record<string, unknown>) {
+      let preview: Record<string, unknown> | undefined = {
+        "toast.resetNotice": "all",
+        "toast.names": { "claude.weekly": "Unsaved" },
+      };
+      const quiet = snapshot([provider("claude", "Claude", 100)], saved);
+      const app = start({ "/a": quiet }, (shown) => surfaceSettings(shown, preview));
+      app.emit("session.execution.succeeded", "a");
+      app.toasts.receive({ ...quiet, resetNotices: [notice] });
+      // The page discards its changes and closes before the turn's toast is made.
+      preview = undefined;
+      return app;
+    }
+
+    it("follows the saved names once it shows", async () => {
+      const app = waiting({ "toast.resetNotice": "all" });
+      await app.answer();
+      const descriptions = app.show.mock.calls.map(([toast]) => String(toast.description));
+      expect(descriptions).toEqual([expect.stringContaining("Claude Weekly is available again")]);
+      expect(descriptions.join("\n")).not.toContain("Unsaved");
+    });
+
+    it("does not show when the saved settings turn reset notices off", async () => {
+      const app = waiting({ "toast.resetNotice": "off" });
+      await app.answer();
+      expect(app.show).not.toHaveBeenCalled();
+    });
   });
 
   it("releases the refreshes' watches on cleanup and drops their late answers", async () => {
