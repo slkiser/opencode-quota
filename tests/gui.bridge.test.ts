@@ -251,6 +251,49 @@ describe("GUI quota bridge", () => {
     unwatch();
   });
 
+  it("says a manual refresh failed while it still shows the earlier snapshot", async () => {
+    const rpc = fakeRpc();
+    rpc.refresh.mockRejectedValue(new Error("provider check failed"));
+    const gui = createGuiQuota({
+      client: () => ({ rpc: () => rpc }) as never,
+      directory: () => "/p",
+    });
+    const unwatch = gui.watch("/p");
+    await settle();
+    await gui.refresh("/p");
+    expect(percentOf(gui.snapshot("/p"))).toBe(40);
+    expect(gui.failure("/p")).toEqual({ kind: "error", message: "provider check failed" });
+    unwatch();
+  });
+
+  it("drops a refresh failure that arrives after the server restarted", async () => {
+    vi.useFakeTimers();
+    const first = fakeRpc();
+    const second = fakeRpc();
+    let fail: (error: unknown) => void = () => {};
+    first.refresh.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          fail = reject;
+        }) as never,
+    );
+    let current = first;
+    const gui = createGuiQuota({
+      client: () => ({ rpc: () => current }) as never,
+      directory: () => "/p",
+    });
+    const unwatch = gui.watch("/p");
+    await vi.advanceTimersByTimeAsync(0);
+    const refreshed = gui.refresh("/p");
+    current = second;
+    await vi.advanceTimersByTimeAsync(5_000);
+    fail(new Error("provider check failed"));
+    await refreshed;
+    expect(gui.failure("/p")).toBeUndefined();
+    expect(percentOf(gui.snapshot("/p"))).toBe(40);
+    unwatch();
+  });
+
   it("says the server has no quota RPC, instead of loading forever", async () => {
     const rpc = fakeRpc();
     rpc.snapshot.mockRejectedValue({ type: "rpc.unavailable", message: "no such RPC" });

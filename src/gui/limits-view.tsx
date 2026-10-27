@@ -7,13 +7,14 @@
  */
 import type { Context } from "@opencode/plugin/gui";
 import { For, Show } from "solid-js";
-import type { QuotaSnapshot } from "../core/types.js";
-import { formatDuration, type Level } from "../view/format.js";
+import type { QuotaSnapshot, Words } from "../core/types.js";
+import { formatDuration, type Level, percentText } from "../view/format.js";
 import {
   type GuiDisplay,
   type LimitRow,
   lastCheckedMs,
   limitCards,
+  resetAtFormat,
   sessionStrip,
 } from "./limits-model.js";
 
@@ -28,17 +29,13 @@ type LimitsProps = {
   providerId?: string;
 };
 
-function Row(props: { ctx: Context; row: LimitRow }) {
+function Row(props: { ctx: Context; row: LimitRow; words: Words; nowMs: number }) {
   const { ctx } = props;
   const evenLeft = () => props.row.evenLeft ?? 0;
   const resetAt = () => {
     const ms = props.row.resetsAtMs;
     if (ms === undefined) return "";
-    return new Intl.DateTimeFormat(ctx.locale.locale(), {
-      weekday: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(ms);
+    return new Intl.DateTimeFormat(ctx.locale.locale(), resetAtFormat(ms, props.nowMs)).format(ms);
   };
   return (
     <Show
@@ -64,7 +61,9 @@ function Row(props: { ctx: Context; row: LimitRow }) {
             <div
               class="oq-even"
               style={{ left: `${evenLeft()}%` }}
-              title={ctx.t("limits.evenUse", { percent: Math.round(evenLeft()) })}
+              title={ctx.t("limits.evenUse", {
+                percent: percentText(props.words, evenLeft(), true),
+              })}
             />
           </Show>
         </div>
@@ -101,6 +100,14 @@ export function LimitsView(props: LimitsProps) {
       : ctx.t("limits.checked", { time: formatDuration(ago, "short", 0) });
   };
   const pace = () => props.display.colors.levelBy === "pace";
+  /** "below 50% left", or "above 50% used" in the used style. */
+  const limit = (percentLeft: number) => {
+    const words = props.display.words;
+    const percent = percentText(words, percentLeft, true);
+    return words.percent === "used"
+      ? ctx.t("legend.above", { percent })
+      : ctx.t("legend.below", { percent });
+  };
   return (
     <>
       <Show when={strip()}>
@@ -137,7 +144,11 @@ export function LimitsView(props: LimitsProps) {
                   </Show>
                 </div>
                 <Show when={card.error}>{(error) => <div class="oq-error">{error()}</div>}</Show>
-                <For each={card.rows}>{(row) => <Row ctx={ctx} row={row} />}</For>
+                <For each={card.rows}>
+                  {(row) => (
+                    <Row ctx={ctx} row={row} words={props.display.words} nowMs={props.nowMs} />
+                  )}
+                </For>
               </div>
             )}
           </For>
@@ -150,13 +161,13 @@ export function LimitsView(props: LimitsProps) {
         <span class="oq-warning">
           <span class="oq-mark">{LEVEL_MARK.warning}</span>{" "}
           {ctx.t(pace() ? "legend.warningPace" : "legend.warning", {
-            percent: props.display.colors.warningBelow,
+            limit: limit(props.display.colors.warningBelow),
           })}
         </span>
         <span class="oq-low">
           <span class="oq-mark">{LEVEL_MARK.low}</span>{" "}
           {ctx.t(pace() ? "legend.lowPace" : "legend.low", {
-            percent: props.display.colors.lowBelow,
+            limit: limit(props.display.colors.lowBelow),
           })}
         </span>
         <Show when={props.display.evenUse}>

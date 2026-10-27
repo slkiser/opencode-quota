@@ -226,6 +226,21 @@ describe("GUI usage breakdown", () => {
     expect(rows[1]?.share).toBeCloseTo(0.75);
   });
 
+  it("marks a day priced only when a model with a price used tokens on it", () => {
+    const priced = (providerID: string | undefined) =>
+      breakdownRows(REPORT, "cost", "day", providerID).map((row) => [row.name, row.priced]);
+    // On the 27th, OpenAI used only its model without a price.
+    expect(priced("openai")).toEqual([
+      ["2026-10-27", false],
+      ["2026-10-26", true],
+    ]);
+    expect(priced(undefined)).toEqual([
+      ["2026-10-27", true],
+      ["2026-10-26", true],
+      ["2026-10-25", true],
+    ]);
+  });
+
   it("gives a model's popup its share, cost per million tokens and own chart", () => {
     const detail = modelDetail(REPORT, "cost", "anthropic\nopus", undefined);
     expect(detail?.share).toBe(0.75);

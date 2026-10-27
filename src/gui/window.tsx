@@ -8,8 +8,8 @@
  * on screen (its tokens, the providers serving its model). Cost and Tokens ask the server for a
  * usage report whenever the question changes; while a new one loads, the last stays on screen,
  * and an answer to an older question is dropped. A session scope counts the whole session, so
- * the ranges are off then; picking a range on Limits shows Cost. Refresh checks the providers
- * again and, on Cost and Tokens, asks for the report again.
+ * the ranges are off then, in every view; picking a range on Limits shows Cost. Refresh checks
+ * the providers again and, on Cost and Tokens, asks for the report again.
  */
 import type { Context } from "@opencode/plugin/gui";
 import {
@@ -180,28 +180,33 @@ export function UsageWindow(props: WindowProps) {
 
   const header: JSX.Element = (
     <div class="oq-head">
-      <ctx.ui.Menu
-        trigger="button"
-        icon="chevron-down"
-        label={providerName()}
-        items={[
-          { label: ctx.t("provider.all"), onSelect: () => pickProvider(undefined) },
-          { type: "separator" },
-          ...providers().map(([id, name]) => ({ label: name, onSelect: () => pickProvider(id) })),
-        ]}
-        placement="bottom-start"
-      />
-      <Show when={view() !== "limits"}>
+      {/* The menus' labels show the pick; each group names what it picks. */}
+      <span role="group" aria-label={ctx.t("provider.filter")}>
         <ctx.ui.Menu
           trigger="button"
           icon="chevron-down"
-          label={ctx.t(`scope.${scope()}`)}
-          items={SCOPES.map((item) => ({
-            label: ctx.t(`scope.${item}`),
-            onSelect: () => setScope(item),
-          }))}
+          label={providerName()}
+          items={[
+            { label: ctx.t("provider.all"), onSelect: () => pickProvider(undefined) },
+            { type: "separator" },
+            ...providers().map(([id, name]) => ({ label: name, onSelect: () => pickProvider(id) })),
+          ]}
           placement="bottom-start"
         />
+      </span>
+      <Show when={view() !== "limits"}>
+        <span role="group" aria-label={ctx.t("scope.label")}>
+          <ctx.ui.Menu
+            trigger="button"
+            icon="chevron-down"
+            label={ctx.t(`scope.${scope()}`)}
+            items={SCOPES.map((item) => ({
+              label: ctx.t(`scope.${item}`),
+              onSelect: () => setScope(item),
+            }))}
+            placement="bottom-start"
+          />
+        </span>
       </Show>
       <div class="oq-right">
         <Show when={view() !== "limits" && scope() === "all" && range() === "between"}>
@@ -228,7 +233,7 @@ export function UsageWindow(props: WindowProps) {
               <button
                 type="button"
                 aria-pressed={view() !== "limits" && range() === item}
-                disabled={view() !== "limits" && scope() !== "all"}
+                disabled={scope() !== "all"}
                 title={scope() !== "all" ? ctx.t("range.wholeSession") : undefined}
                 onClick={() => pickRange(item)}
               >
@@ -250,7 +255,7 @@ export function UsageWindow(props: WindowProps) {
           <ctx.ui.IconButton
             icon="refresh"
             label={ctx.t("window.refresh")}
-            busy={refreshing() || usage().loading}
+            busy={refreshing() || (view() !== "limits" && usage().loading)}
             onClick={refresh}
           />
         </ctx.ui.Tooltip>

@@ -51,14 +51,17 @@ export type GuiQuota = {
    * undefined before its first answer.
    */
   snapshot(directory: string | undefined, sessionID?: string): QuotaSnapshot | undefined;
-  /** Why the folder's last snapshot call failed; undefined once a snapshot arrives. */
+  /** Why the folder's last snapshot or refresh call failed; undefined once a snapshot arrives. */
   failure(directory: string | undefined): GuiQuotaFailure | undefined;
   /**
    * A surface shows the folder, and `sessionID` in it: load its snapshot now and keep it current
    * until the returned stop.
    */
   watch(directory: string | undefined, sessionID?: string): () => void;
-  /** Asks the server to check the folder's providers now; resolves once the new snapshot is in. */
+  /**
+   * Asks the server to check the folder's providers now; resolves once the new snapshot is in.
+   * A failed check shows in `failure`; answers after the last watcher stopped are dropped.
+   */
   refresh(directory: string | undefined, sessionID?: string): Promise<void>;
   /** Tokens and cost from OpenCode's history for one range. */
   usage(query: UsageQuery): Promise<UsageReport>;

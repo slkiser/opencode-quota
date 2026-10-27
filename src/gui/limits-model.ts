@@ -49,6 +49,7 @@ export type SessionStrip = {
 };
 
 const DEFAULT_COLORS: GuiDisplay["colors"] = { levelBy: "left", warningBelow: 50, lowBelow: 20 };
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function isStringList(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
@@ -153,6 +154,15 @@ export function limitCards(
         }),
       };
     });
+}
+
+/**
+ * How a row writes when it resets: weekday and time ("Mon 03:00"), with the month and day too
+ * when the reset is more than 6 days away, so it can't read as the coming week.
+ */
+export function resetAtFormat(resetsAtMs: number, nowMs: number): Intl.DateTimeFormatOptions {
+  const time = { weekday: "short", hour: "2-digit", minute: "2-digit" } as const;
+  return resetsAtMs - nowMs > 6 * DAY_MS ? { ...time, month: "short", day: "numeric" } : time;
 }
 
 /** The providers the Limits view can filter by, in the snapshot's order: [id, name]. */

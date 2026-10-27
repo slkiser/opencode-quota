@@ -7,7 +7,7 @@
  * `usage-model.ts`, written with the shared money, token and share formatters.
  */
 import type { Context } from "@opencode/plugin/gui";
-import { createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { UsageByType, UsageReport } from "../core/usage.js";
 import { formatShare, formatTokens, formatUsd, LOW_CACHE_MARK } from "../view/format.js";
 import { Chart } from "./chart.js";
@@ -98,7 +98,7 @@ function ChartOrNote(props: { ctx: Context; chart: ChartData; mode: UsageMode; h
   );
 }
 
-/** The popup of one model of the breakdown. */
+/** The popup of one model of the breakdown; it closes when a new report no longer has the model. */
 function ModelPopup(props: {
   ctx: Context;
   report: UsageReport;
@@ -110,6 +110,9 @@ function ModelPopup(props: {
 }) {
   const { ctx } = props;
   const detail = () => modelDetail(props.report, props.mode, props.modelKey, props.providerId);
+  createEffect(() => {
+    if (!detail()) props.close();
+  });
   return (
     <Show when={detail()}>
       {(shown) => (
@@ -175,17 +178,16 @@ export function UsageView(props: UsageProps) {
   const { ctx } = props;
   const [by, setBy] = createSignal<UsageBreakdown>("model");
   const view = () => usageView(props.report, props.mode, props.providerId);
-  const rows = () => breakdownRows(props.report, props.mode, by(), props.providerId);
+  const rows = createMemo(() => breakdownRows(props.report, props.mode, by(), props.providerId));
+  const most = createMemo(() => Math.max(...rows().map((item) => item.value), 0));
   const format = () => formatters(ctx, props.mode);
   const cost = () => props.mode === "cost";
   const other = (row: { costUsd: number; tokens: number }) =>
     cost() ? formatTokens(row.tokens) : formatUsd(row.costUsd);
   const rowName = (row: BreakdownRow) =>
     by() === "day" ? format().dateLabel(row.name, true) : row.name;
-  const barWidth = (row: BreakdownRow) => {
-    const most = Math.max(...rows().map((item) => item.value), 0);
-    return most > 0 ? Math.max(1.5, (row.value / most) * ROW_BAR_MAX) : 0;
-  };
+  const barWidth = (row: BreakdownRow) =>
+    most() > 0 ? Math.max(1.5, (row.value / most()) * ROW_BAR_MAX) : 0;
   const openModel = (key: string) => {
     ctx.dialogs.open((dialog) => (
       <ModelPopup

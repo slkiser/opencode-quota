@@ -291,6 +291,12 @@ export function breakdownRows(
   const models = modelsOf(report, providerID);
   const costs = dailyValues(report, models, "cost");
   const tokens = dailyValues(report, models, "tokens");
+  // A day is priced when a model with a price used tokens on it.
+  const pricedDates = new Set(
+    models
+      .filter((model) => model.priced)
+      .flatMap((model) => model.days.filter((day) => day.tokens > 0).map((day) => day.date)),
+  );
   return report.days
     .map((day, index) => {
       const row = { costUsd: costs[index] ?? 0, tokens: tokens[index] ?? 0 };
@@ -300,7 +306,7 @@ export function breakdownRows(
         value: valueOf(row),
         ...row,
         share: share(valueOf(row), view.total),
-        priced: true,
+        priced: pricedDates.has(day.date),
       };
     })
     .filter((row) => row.tokens > 0)

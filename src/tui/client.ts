@@ -136,8 +136,8 @@ export function reportFailure(error: unknown): void {
 /**
  * @param onSnapshot called with every snapshot the client takes (from any call or event), so
  *   toasts can announce new reset notices.
- * @param onFailure called when a `snapshot` call made since the last `start()` fails, so a GUI
- *   window can say why it shows nothing.
+ * @param onFailure called when a `snapshot` or `refresh` call made since the last `start()`
+ *   fails, so a GUI window can say why it shows nothing or an older snapshot.
  */
 export function createQuotaClient(
   host: ClientHost,
@@ -292,16 +292,17 @@ export function createQuotaClient(
     },
 
     async refresh(reason, sessionID) {
+      const call = ++calls;
+      const at = mount;
       try {
         const input: QuotaRpcRefreshInput = sessionID ? { reason, sessionID } : { reason };
-        const call = ++calls;
-        const at = mount;
         subscribe();
         const output = await rpc().refresh(input, quotaCallOptions(host));
         if (at !== mount) return undefined;
         apply(output.snapshot, sessionID ? { id: sessionID, call } : undefined);
         return snapshot(sessionID);
       } catch (error) {
+        if (at === mount) onFailure(error);
         reportFailure(error);
         return undefined;
       }

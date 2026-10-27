@@ -221,7 +221,9 @@ function requireSessionID(query: UsageQuery): string {
 async function sessionsToRead(query: UsageQuery): Promise<string[] | undefined> {
   if (query.range !== "session") return undefined;
   const sessionID = requireSessionID(query);
-  return query.subagents === false ? [sessionID] : resolveSessionTree(sessionID);
+  // Resolving the tree checks the session's id and that it exists, for either answer.
+  const tree = await resolveSessionTree(sessionID);
+  return query.subagents === false ? [sessionID] : tree;
 }
 
 /** The session at the top of `sessionID`'s parent chain (subagents belong to their parent). */

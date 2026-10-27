@@ -5,6 +5,7 @@ import {
   lastCheckedMs,
   limitCards,
   limitProviders,
+  resetAtFormat,
   sessionStrip,
 } from "../src/gui/limits-model.js";
 import type { ClientSettings } from "../src/settings/index.js";
@@ -185,5 +186,17 @@ describe("GUI session strip and check time", () => {
   it("takes the latest check of any provider", () => {
     expect(lastCheckedMs(SNAPSHOT)).toBe(NOW - 3 * 60_000);
     expect(lastCheckedMs({ ...SNAPSHOT, providers: [] })).toBeUndefined();
+  });
+});
+
+describe("GUI reset time", () => {
+  it("writes the weekday and time, and the month and day too past 6 days", () => {
+    const DAY = 24 * HOUR;
+    expect(resetAtFormat(NOW + 6 * DAY, NOW)).toEqual({
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    expect(resetAtFormat(NOW + 20 * DAY, NOW)).toMatchObject({ month: "short", day: "numeric" });
   });
 });

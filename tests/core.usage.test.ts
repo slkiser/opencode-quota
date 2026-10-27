@@ -245,6 +245,15 @@ describe("usage report ranges", () => {
       query: { range: "session", sessionID: "ses_missing" },
       error: "Session not found: ses_missing",
     },
+    // Without its subagents, the session is checked all the same.
+    {
+      query: { range: "session", sessionID: "ses_missing", subagents: false },
+      error: "Session not found: ses_missing",
+    },
+    {
+      query: { range: "session", sessionID: "missing", subagents: false },
+      error: "Session not found: missing",
+    },
   ])("rejects $query.range: $error", async ({ query, error }) => {
     writeHistory([message({ created: at(0, 8) })]);
 
