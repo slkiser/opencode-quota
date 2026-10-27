@@ -9,7 +9,8 @@
  * usage report whenever the question changes; while a new one loads, the last stays on screen,
  * and an answer to an older question is dropped. A session scope counts the whole session, so
  * the ranges are off then, in every view; picking a range on Limits shows Cost. Refresh checks
- * the providers again and, on Cost and Tokens, asks for the report again.
+ * the providers again and, on Cost and Tokens, asks for the report again. The session menu's
+ * item opens it on Cost for that session.
  */
 import type { Context } from "@opencode/plugin/gui";
 import {
@@ -40,7 +41,7 @@ import {
 } from "./usage-model.js";
 import { UsageView } from "./usage-view.js";
 
-type WindowView = UsageMode | "limits";
+export type WindowView = UsageMode | "limits";
 
 const VIEWS: readonly WindowView[] = ["cost", "tokens", "limits"];
 const SCOPES: readonly UsageScope[] = ["all", "session", "tree"];
@@ -58,6 +59,9 @@ type WindowProps = {
   directory: () => string | undefined;
   /** The session on screen, when it runs on the app's own server. */
   sessionID: () => string | undefined;
+  /** The view and the sessions that count when the window opens: Limits and all sessions. */
+  view?: WindowView;
+  scope?: UsageScope;
 };
 
 /** A local date like "2026-10-27". */
@@ -70,9 +74,9 @@ function localDate(date: Date): string {
 export function UsageWindow(props: WindowProps) {
   const { ctx, data } = props;
   const today = new Date();
-  const [view, setView] = createSignal<WindowView>("limits");
+  const [view, setView] = createSignal<WindowView>(props.view ?? "limits");
   const [range, setRange] = createSignal<WindowRange>("7d");
-  const [scope, setScope] = createSignal<UsageScope>("all");
+  const [scope, setScope] = createSignal<UsageScope>(props.scope ?? "all");
   const [from, setFrom] = createSignal(
     localDate(new Date(today.getFullYear(), today.getMonth(), 1)),
   );

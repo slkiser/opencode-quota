@@ -18,7 +18,7 @@
 import { createSignal } from "solid-js";
 import type { QuotaSnapshot } from "../core/types.js";
 import type { UsageQuery, UsageReport } from "../core/usage.js";
-import { QuotaRpc } from "../rpc.js";
+import { QuotaRpc, type QuotaRpcRefreshReason } from "../rpc.js";
 import type { ClientSettings } from "../settings/index.js";
 import {
   type ClientHost,
@@ -39,6 +39,8 @@ export type GuiQuotaHost = {
   client(): ServerClient;
   /** The folder of the session on screen, when it runs on the app's own server. */
   directory(): string | undefined;
+  /** Called with every snapshot any folder's client takes, so toasts can announce reset notices. */
+  onSnapshot?(snapshot: QuotaSnapshot): void;
 };
 
 /** Why a folder has no snapshot: no quota RPC on the server, or a failed call. */
@@ -59,11 +61,16 @@ export type GuiQuota = {
    */
   watch(directory: string | undefined, sessionID?: string): () => void;
   /**
-   * Asks the server to check the folder's providers now; resolves once the new snapshot is in.
-   * A failed check shows in `failure`; answers after the last watcher stopped, and failures from
-   * the client of a server since restarted, are dropped.
+   * Asks the server to check the folder's providers now ("manual"), or when due ("turn", after a
+   * turn); resolves once the new snapshot is in. A failed check shows in `failure`; answers after
+   * the last watcher stopped, and failures from the client of a server since restarted, are
+   * dropped.
    */
-  refresh(directory: string | undefined, sessionID?: string): Promise<void>;
+  refresh(
+    directory: string | undefined,
+    sessionID?: string,
+    reason?: QuotaRpcRefreshReason,
+  ): Promise<void>;
   /** Tokens and cost from OpenCode's history for one range. */
   usage(query: UsageQuery): Promise<UsageReport>;
   /** The server settings a client may read. */
@@ -113,7 +120,10 @@ export function createGuiQuota(host: GuiQuotaHost): GuiQuota {
     const folder: Folder = {
       quota: createQuotaClient(
         clientHost,
-        () => setFailure(undefined),
+        (snapshot) => {
+          setFailure(undefined);
+          host.onSnapshot?.(snapshot);
+        },
         (error) => setFailure(failureOf(error)),
       ),
       failure,
@@ -168,8 +178,8 @@ export function createGuiQuota(host: GuiQuotaHost): GuiQuota {
       };
     },
 
-    async refresh(directory, sessionID) {
-      await folderFor(directory).quota.refresh("manual", sessionID);
+    async refresh(directory, sessionID, reason = "manual") {
+      await folderFor(directory).quota.refresh(reason, sessionID);
     },
 
     usage: async (query) => (await rpc().usage(query, quotaCallOptions(currentHost()))).report,

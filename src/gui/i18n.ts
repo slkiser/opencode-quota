@@ -1,6 +1,7 @@
 /**
  * The GUI part's English words, by key. Numbers, money, percents, reset times, pace words and
- * provider errors come from the shared formatters in `../view/`, the same words the TUI shows.
+ * provider errors come from the shared formatters in `../view/`, the same words the TUI shows; so
+ * do the lines of the bottom strip and the toasts' text.
  */
 export const en = {
   "command.quota": "Quota",
@@ -98,6 +99,27 @@ export const en = {
   "model.close": "Close",
   "model.what.cost": "cost",
   "model.what.tokens": "tokens",
+
+  "panel.tab": "Quota",
+  "panel.title": "Quota",
+  "panel.titleWord": "Quota {{word}}",
+  "panel.folded": "Quota ({{providers}})",
+  "panel.foldedErrors": "Quota ({{providers}}, {{errors}})",
+  "panel.providers.one": "{{count}} provider",
+  "panel.providers.other": "{{count}} providers",
+  "panel.errors.one": "{{count}} error",
+  "panel.errors.other": "{{count}} errors",
+  "panel.loading": "Loading quota…",
+  "panel.notChecked": "not checked yet",
+  "panel.session": "Session",
+  "titlebar.more": "{{text}} +{{count}}",
+  "titlebar.title": "Quota: {{text}}. Opens the usage window.",
+  "composer.title": "Quota for the current model. Opens the usage window.",
+  "strip.previous": "Previous providers",
+  "strip.next": "More providers",
+  "menu.sessionUsage": "Quota usage for this session",
+  "toast.title": "Quota",
+  "toast.resetTitle": "Quota available",
 } as const;
 
 export type GuiWord = keyof typeof en;

@@ -3,6 +3,8 @@
  * come from the app's theme variables where it has them (text, surfaces, borders, the success,
  * warning and critical icon colors), with fallbacks for light and dark: the window's root sets
  * `data-mode` from `ctx.appearance.mode()`. The series colors are mid tones that read on both.
+ * The always-on surfaces (`.oq-surface`: the Quota tab and the bottom strip) take the TUI's named
+ * colors as `--oq-n-<name>` from the same theme variables.
  */
 export const STYLE = `
 .oq-window {
@@ -147,4 +149,43 @@ export const STYLE = `
 .oq-kv .oq-k { font-size: 12px; color: var(--oq-text-2); }
 .oq-kv .oq-v { font-size: 16px; margin-top: 2px; font-variant-numeric: tabular-nums; }
 .oq-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+.oq-surface {
+  --oq-n-text: var(--text-strong, #0b0b0b);
+  --oq-n-muted: var(--text-weak, #8a8984);
+  --oq-n-accent: var(--text-interactive-base, #2a78d6);
+  --oq-n-green: var(--icon-success-base, #0ca30c);
+  --oq-n-yellow: var(--icon-warning-base, #d99a0b);
+  --oq-n-red: var(--icon-critical-base, #d03b3b);
+  --oq-n-blue: var(--icon-info-base, #2a78d6);
+  color: var(--oq-n-text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.oq-surface[data-mode="dark"] {
+  --oq-n-text: var(--text-strong, #ededec);
+  --oq-n-muted: var(--text-weak, #8a8984);
+  --oq-n-accent: var(--text-interactive-base, #4a90e2);
+  --oq-n-blue: var(--icon-info-base, #4a90e2);
+}
+.oq-surface button { border: 0; background: transparent; font: inherit; color: inherit; padding: 0; cursor: pointer; }
+.oq-panel { padding: 10px 12px; overflow: auto; height: 100%; box-sizing: border-box; }
+.oq-panel .oq-muted { color: var(--oq-n-muted); }
+.oq-panel-title { font-weight: 600; margin-bottom: 8px; }
+.oq-pname { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; margin-bottom: 2px; }
+.oq-prow { display: grid; grid-template-columns: minmax(40px, auto) minmax(30px, 1fr) auto auto; gap: 6px;
+  align-items: center; white-space: nowrap; margin: 2px 0; }
+.oq-prow > span:first-child { overflow: hidden; text-overflow: ellipsis; }
+.oq-prow.oq-plain { grid-template-columns: minmax(40px, auto) 1fr; }
+.oq-prow .oq-pwide { grid-column: 2 / 5; overflow: hidden; text-overflow: ellipsis; }
+.oq-pnum { text-align: right; font-variant-numeric: tabular-nums; }
+.oq-pbar { position: relative; height: 6px; border-radius: 3px; }
+.oq-pfill { position: absolute; inset: 0 auto 0 0; border-radius: 3px; }
+.oq-peven { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; border-radius: 1px; }
+.oq-ppace { padding-left: 46px; font-size: 11.5px; }
+.oq-strip-bottom { position: relative; display: flex; align-items: center; justify-content: flex-end;
+  overflow: hidden; white-space: pre; padding: 2px 12px; margin-left: auto;
+  font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 11.5px; }
+.oq-strip-bottom .oq-sline:hover { text-decoration: underline; }
+.oq-probe { position: absolute; visibility: hidden; pointer-events: none; }
 `;

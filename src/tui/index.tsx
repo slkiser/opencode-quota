@@ -28,7 +28,8 @@ import { SidebarPanel, type SurfaceHost } from "./sidebar.js";
 import { HomeFooter, StatusLine, statusLineShows } from "./status-line.js";
 import type { Theme } from "./theme.js";
 import { createToastShow } from "./toast-colors.js";
-import { createToasts, TOAST_TITLE, type TurnEnd } from "./toasts.js";
+import { createToasts, TOAST_TITLE } from "./toasts.js";
+import { listenForTurns } from "./turn-events.js";
 import { createSettingsEditor } from "./window/settings.js";
 import { createQuotaWindow, type WindowHost } from "./window/shell.js";
 
@@ -63,16 +64,6 @@ type TuiContext = WindowHost &
       ) => () => void;
     };
   };
-
-function eventSessionID(event: TuiEvent): string | undefined {
-  const sessionID = event.data?.sessionID;
-  return typeof sessionID === "string" && sessionID ? sessionID : undefined;
-}
-
-function eventToolCallID(event: TuiEvent): string | undefined {
-  const id = event.data?.id;
-  return typeof id === "string" ? id : undefined;
-}
 
 const plugin = Plugin.define({
   // OpenCode names this plugin's storage files after its id (`plugin.<id>.<key>.json`), so the
@@ -170,7 +161,6 @@ const plugin = Plugin.define({
     };
 
     let disposeMount: (() => void) | undefined;
-    const questionToolCalls = new Set<string>();
     const disposeApp = api.ui.slot({
       append: "app",
       render: () => {
@@ -245,31 +235,14 @@ const plugin = Plugin.define({
             },
           ],
         }));
-        const afterTurn = (event: TuiEvent, trigger: TurnEnd) => {
-          const sessionID = eventSessionID(event);
-          if (sessionID) void toasts.afterTurn(trigger, sessionID).catch(reportFailure);
-        };
-        const listeners = [
-          api.data.on("session.execution.succeeded", (event) => afterTurn(event, "reply")),
-          api.data.on("session.compaction.ended", (event) => afterTurn(event, "compaction")),
-          // Each step can use quota; the server skips a refresh that is not due yet.
-          api.data.on("session.step.ended", (event) => {
-            const sessionID = eventSessionID(event);
-            if (sessionID && !isChildSession(sessionID)) void quota.refresh("turn", sessionID);
-          }),
-          api.data.on("session.tool.input.started", (event) => {
-            const id = eventToolCallID(event);
-            if (event.data?.name === "question" && id) questionToolCalls.add(id);
-          }),
-          api.data.on("session.tool.success", (event) => {
-            const id = eventToolCallID(event);
-            if (id && questionToolCalls.delete(id)) afterTurn(event, "question");
-          }),
-          api.data.on("session.tool.failed", (event) => {
-            const id = eventToolCallID(event);
-            if (id) questionToolCalls.delete(id);
-          }),
-        ];
+        const stopTurns = listenForTurns((type, handler) => api.data.on(type, handler), {
+          afterTurn: (trigger, sessionID) => {
+            void toasts.afterTurn(trigger, sessionID).catch(reportFailure);
+          },
+          stepEnded: (sessionID) => {
+            if (!isChildSession(sessionID)) void quota.refresh("turn", sessionID);
+          },
+        });
         let disposed = false;
         const dispose = () => {
           if (disposed) return;
@@ -278,8 +251,7 @@ const plugin = Plugin.define({
           if (appOwner === owner) appOwner = undefined;
           stopQuota();
           toasts.cancel();
-          for (const stop of listeners) stop();
-          questionToolCalls.clear();
+          stopTurns();
         };
         disposeMount = dispose;
         onCleanup(dispose);

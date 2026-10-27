@@ -63,7 +63,7 @@ export type ToastHost = {
   display: () => DisplaySettings;
   /** The terminal's columns, which a toast's width follows. */
   terminalWidth: () => number;
-  quota: QuotaClient;
+  quota: Pick<QuotaClient, "refresh" | "snapshot">;
   /** Subagent (child) sessions never show quota toasts. */
   isChildSession: (sessionID: string) => boolean;
   now?: () => number;
@@ -130,13 +130,20 @@ function wantsTurnToast(display: DisplaySettings, trigger: TurnEnd, anyLow: bool
   return display.toast.afterReply === "always" || (display.toast.afterReply === "low" && anyLow);
 }
 
+/** `toast.resetNotice` asks for a notice of this reset: every reset, or only weekly ones. */
+export function wantsResetNotice(display: DisplaySettings, notice: ResetNotice): boolean {
+  if (!display.toast.show) return false;
+  const setting = display.toast.resetNotice;
+  return setting === "all" || (setting === "weekly" && notice.window === "week");
+}
+
 /**
  * "Weekly quota reset: Claude (work) Weekly is available again (100% left).": the row under its
  * toast name, else its label, with the percent it had at the reset in the percent words.
  * The row is the notice's account's: several accounts can share a row id. Undefined when the
  * provider no longer has the row.
  */
-function resetMessage(
+export function resetMessage(
   notice: ResetNotice,
   snapshot: QuotaSnapshot,
   display: DisplaySettings,
@@ -271,10 +278,7 @@ export function createToasts(host: ToastHost): Toasts {
       for (const notice of snapshot.resetNotices) {
         if (shownNotices.has(notice.id)) continue;
         shownNotices.add(notice.id);
-        const wanted =
-          display.toast.resetNotice === "all" ||
-          (display.toast.resetNotice === "weekly" && notice.window === "week");
-        if (!wanted || !display.toast.show || notice.atMs < startedAtMs) continue;
+        if (!wantsResetNotice(display, notice) || notice.atMs < startedAtMs) continue;
         const message = resetMessage(notice, snapshot, display, now());
         if (message) waitingNotices.push({ id: notice.id, message });
       }

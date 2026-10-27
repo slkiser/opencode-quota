@@ -16,7 +16,9 @@ const requireModule = createRequire(import.meta.url);
  * Loads the built `dist/gui-experimental.cjs` (run after `pnpm build`) as the OpenCode app does:
  * one CommonJS file whose `require` finds only the modules the app provides.
  */
-async function loadGui(): Promise<{ definition: Definition; required: string[] }> {
+async function loadGui(
+  replaced: Record<string, unknown> = {},
+): Promise<{ definition: Definition; required: string[] }> {
   const source = await readFile(new URL("../dist/gui-experimental.cjs", import.meta.url), "utf8");
   const provided: Record<string, unknown> = {
     "@opencode/plugin/gui": gui,
@@ -24,6 +26,7 @@ async function loadGui(): Promise<{ definition: Definition; required: string[] }
     // Solid makes its templates and delegates its events when the file loads; the rest only
     // renders, and no test renders.
     "solid-js/web": { template: () => () => null, delegateEvents: () => {} },
+    ...replaced,
   };
   const required: string[] = [];
   const appRequire = (id: string) => {
@@ -64,21 +67,51 @@ describe("GUI bundle (dist/gui-experimental.cjs)", () => {
     expect(required.sort()).toEqual(["@opencode/plugin/gui", "solid-js", "solid-js/web"]);
   });
 
-  it("adds its CSS and a Quota command whose run opens a dialog, and asks the server nothing before", async () => {
+  it("adds its CSS, a Quota command whose run opens a dialog, and the always-on surfaces", async () => {
     const { definition } = await loadGui();
     expect(definition.i18n.en["command.quota"]).toBe("Quota");
     const { ctx, rpc, added } = fakeWindow();
 
     const cleanup = definition.setup(ctx);
 
-    expect(added.map((entry) => entry.registry)).toEqual([gui.Style, gui.Command]);
+    expect(added.map((entry) => entry.registry)).toEqual([
+      gui.Style,
+      gui.Command,
+      gui.Panel,
+      gui.MenuItem,
+      gui.TitlebarItem,
+      gui.ComposerPill,
+      gui.Slot,
+      gui.Slot,
+    ]);
+    expect(added.slice(6).map((entry) => (entry.item as { at: string }).at)).toEqual([
+      "window.bottom",
+      "session.location.menu",
+    ]);
     expect(added[0]?.item).toEqual(expect.stringContaining(".oq-window"));
     const command = (added[1]?.item as (() => Command) | undefined)?.();
     expect(command).toMatchObject({ id: "quota", title: "command.quota" });
     expect(rpc.snapshot).not.toHaveBeenCalled();
     command?.run();
     expect(ctx.dialogs.open).toHaveBeenCalledWith(expect.any(Function));
-    // Only an open dialog asks the server, and it stops when it closes: setup leaves nothing running.
+    // The surfaces watch the folder on screen from effects, which run once the app mounts.
     expect(cleanup).toBeUndefined();
+  });
+
+  it("leaves out a surface whose registry this OpenCode lacks", async () => {
+    const { ctx, added } = fakeWindow();
+    const older = { ...gui, ComposerPill: undefined, TitlebarItem: undefined };
+    const { definition } = await loadGui({ "@opencode/plugin/gui": older });
+
+    definition.setup(ctx);
+
+    expect(added.map((entry) => entry.registry)).toEqual([
+      gui.Style,
+      gui.Command,
+      gui.Panel,
+      gui.MenuItem,
+      gui.Slot,
+      gui.Slot,
+    ]);
   });
 });

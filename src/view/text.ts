@@ -259,7 +259,7 @@ function sessionLine(tokens: SessionTokens, width: number): Line {
  * "⚠ low cache: 35% (claude-sonnet-5)" for the model with the lowest cache hit among those
  * whose cache hit is low (`cacheHit`), its name cut to fit `width`; undefined when none is.
  */
-function lowCacheLine(models: SessionModelInput[], width: number): Line | undefined {
+export function lowCacheLine(models: SessionModelInput[], width: number): Line | undefined {
   let worst: { modelID: string; hit: CacheHit } | undefined;
   for (const model of models) {
     const hit = cacheHit(model);
