@@ -2,8 +2,8 @@
 /**
  * The usage window: a large dialog titled with the plugin's version, a header and one of three
  * views. The header has the provider filter, the sessions that count, the ranges, the views
- * (Cost, Tokens, Limits) and the refresh button, the same in every view; "Between" adds a row
- * with its two dates under it. It opens on Limits.
+ * (Cost, Tokens, Limits) and the refresh button, the same in every view; "Between" shows its two
+ * dates in the dialog's title row. It opens on Limits.
  *
  * Limits reads the quota snapshot of the folder on screen, with what it says about the session
  * on screen (its tokens, the providers serving its model). Cost and Tokens ask the server for a
@@ -26,6 +26,7 @@ import {
   Switch,
   untrack,
 } from "solid-js";
+import { Portal } from "solid-js/web";
 import type { UsageQuery, UsageReport } from "../core/usage.js";
 import { rpcErrorMessage } from "../tui/client.js";
 import { rangeDates } from "../view/usage.js";
@@ -258,33 +259,60 @@ export function UsageWindow(props: WindowProps) {
       </div>
     </div>
   );
-  // Under the header, so picking "Between" does not move the header's buttons.
-  const dates: JSX.Element = (
-    <Show when={view() !== "limits" && scope() === "all" && range() === "between"}>
-      <div class="oq-between">
-        {ctx.t("range.from")}
-        <input
-          type="date"
-          value={from()}
-          aria-label={ctx.t("range.from")}
-          onChange={(event) => setFrom(event.currentTarget.value)}
-        />
-        {ctx.t("range.to")}
-        <input
-          type="date"
-          value={to()}
-          aria-label={ctx.t("range.to")}
-          onChange={(event) => setTo(event.currentTarget.value)}
-        />
-      </div>
-    </Show>
+  // "Between" puts its dates in the dialog's title row (the app's `dialog-header`), found once the
+  // window is on screen, so nothing in the window moves. `null` when the app's dialog has no such
+  // row: the dates then get a row of their own under the header.
+  const [titleRow, setTitleRow] = createSignal<Element | null>();
+  const [root, setRoot] = createSignal<HTMLDivElement>();
+  createEffect(() => {
+    const shown = root();
+    if (!shown) return;
+    const find = () =>
+      shown.closest('[data-slot="dialog-content"]')?.querySelector('[data-slot="dialog-header"]');
+    const found = find();
+    if (found) return setTitleRow(found);
+    // The dialog may put the window on screen a frame later.
+    const frame = requestAnimationFrame(() => setTitleRow(find() ?? null));
+    onCleanup(() => cancelAnimationFrame(frame));
+  });
+  const between = () => view() !== "limits" && scope() === "all" && range() === "between";
+  const dates = () => (
+    <div class="oq-between">
+      {ctx.t("range.from")}
+      <input
+        type="date"
+        value={from()}
+        aria-label={ctx.t("range.from")}
+        onChange={(event) => setFrom(event.currentTarget.value)}
+      />
+      {ctx.t("range.to")}
+      <input
+        type="date"
+        value={to()}
+        aria-label={ctx.t("range.to")}
+        onChange={(event) => setTo(event.currentTarget.value)}
+      />
+    </div>
   );
 
   return (
     <ctx.ui.Dialog title={title} size="x-large">
-      <div class="oq-window" data-mode={ctx.appearance.mode()}>
+      <div ref={setRoot} class="oq-window" data-mode={ctx.appearance.mode()}>
         {header}
-        {dates}
+        <Show when={between()}>
+          <Switch>
+            <Match when={titleRow()}>
+              {(row) => (
+                <Portal mount={row()} ref={(slot) => slot.classList.add("oq-title-slot")}>
+                  <div class="oq-window oq-title-dates" data-mode={ctx.appearance.mode()}>
+                    {dates()}
+                  </div>
+                </Portal>
+              )}
+            </Match>
+            <Match when={titleRow() === null}>{dates()}</Match>
+          </Switch>
+        </Show>
         <Show when={failureText()}>{(text) => <p class="oq-error">{text()}</p>}</Show>
         <Switch>
           <Match when={view() === "limits"}>

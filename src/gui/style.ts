@@ -75,6 +75,12 @@ export const STYLE = `
 .oq-seg button[aria-pressed="true"] { background: var(--oq-raised); color: var(--oq-text);
   box-shadow: 0 0 0 1px var(--oq-line); }
 .oq-seg button:disabled { opacity: .4; cursor: default; }
+/* The app's scroll box keeps room for its scrollbar, so a long view does not narrow the header. */
+[data-scrollable]:has(> .oq-window) { scrollbar-gutter: stable; }
+/* "Between"'s dates in the dialog's title row, before the close button, no taller than the title. */
+.oq-title-slot { order: 1; align-self: center; margin: -5px 12px -5px auto; }
+[data-slot="dialog-header"]:has(> .oq-title-slot) > [data-slot="dialog-close-button"] { order: 2; }
+.oq-window.oq-title-dates { display: block; }
 .oq-between { display: flex; align-items: center; justify-content: flex-end; gap: 6px; font-size: 12px; color: var(--oq-text-2); }
 .oq-between input { font: inherit; color: var(--oq-text); background: var(--oq-raised);
   border: 1px solid var(--oq-line); border-radius: 6px; padding: 2px 6px; color-scheme: light dark; }
