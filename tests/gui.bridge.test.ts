@@ -214,7 +214,7 @@ describe("GUI quota bridge", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("forgets a folder nothing watches, and asks the server afresh when it is watched again", async () => {
+  it("forgets a folder nothing watches once the update ends, and asks afresh when it is watched again", async () => {
     const rpc = folderRpc({ "/a": snapshotOf("server-a", 1, 10) });
     const gui = createGuiQuota({
       client: () => ({ rpc: () => rpc }) as never,
@@ -224,6 +224,7 @@ describe("GUI quota bridge", () => {
     await settle();
     expect(percentOf(gui.snapshot("/a"))).toBe(10);
     unwatch();
+    await Promise.resolve();
     expect(gui.snapshot("/a")).toBeUndefined();
     const calls = rpc.snapshot.mock.calls.length;
     unwatch = gui.watch("/a");
@@ -397,6 +398,41 @@ describe("GUI quota bridge", () => {
     expect(onHome[1].signal).toBeInstanceOf(AbortSignal);
   });
 
+  it("keeps a folder whose watch moves to another of its sessions in one update", async () => {
+    const rpc = folderRpc({ "/a": snapshotOf("server-a", 1, 10) });
+    const gui = createGuiQuota({
+      client: () => ({ rpc: () => rpc }) as never,
+      directory: () => "/a",
+    });
+    const unwatchFirst = gui.watch("/a", "s1");
+    await settle();
+    const calls = rpc.snapshot.mock.calls.length;
+    unwatchFirst();
+    const unwatch = gui.watch("/a", "s2");
+    // The folder's snapshot stays while the new session's loads; only that session is asked for.
+    expect(percentOf(gui.snapshot("/a", "s2"))).toBe(10);
+    await settle();
+    expect(rpc.snapshot.mock.calls.slice(calls).map(([input]) => input)).toEqual([
+      { sessionID: "s2" },
+    ]);
+    unwatch();
+  });
+
+  it("asks for a report in the folder it is given, not the one on screen", async () => {
+    const rpc = fakeRpc();
+    const gui = createGuiQuota({
+      client: () => ({ rpc: () => rpc }) as never,
+      directory: () => "/on-screen",
+    });
+    await gui.usage({ range: "session", sessionID: "ses_1" }, "/window");
+    await gui.usage({ range: "7d" }, undefined);
+    const [inWindow, serverOwn] = rpc.usage.mock.calls as unknown as Array<
+      [unknown, { location?: unknown }]
+    >;
+    expect(inWindow[1].location).toEqual({ directory: "/window" });
+    expect(serverOwn[1]).not.toHaveProperty("location");
+  });
+
   it("asks the server's current client at every call (a restarted server has a new one)", async () => {
     const first = fakeRpc();
     const second = fakeRpc();
@@ -405,9 +441,9 @@ describe("GUI quota bridge", () => {
       client: () => ({ rpc: () => current }) as never,
       directory: () => undefined,
     });
-    await gui.usage({ range: "7d" });
+    await gui.usage({ range: "7d" }, undefined);
     current = second;
-    await gui.usage({ range: "30d" });
+    await gui.usage({ range: "30d" }, undefined);
     expect(first.usage).toHaveBeenCalledTimes(1);
     expect(second.usage.mock.calls[0]?.[0]).toEqual({ range: "30d" });
   });
@@ -418,7 +454,7 @@ describe("GUI quota bridge", () => {
       client: () => ({ rpc: () => rpc }) as never,
       directory: () => "/p",
     });
-    expect(await gui.usage({ range: "7d" })).toEqual({ range: "7d" });
+    expect(await gui.usage({ range: "7d" }, "/p")).toEqual({ range: "7d" });
     expect(await gui.settings()).toEqual({ values: {} });
     expect(rpc.settings.mock.calls[0]?.[0]).toEqual({});
   });

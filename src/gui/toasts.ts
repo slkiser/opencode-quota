@@ -1,7 +1,7 @@
 /**
  * Quota toasts in the GUI window, through `ctx.toast.show`. When to toast, and what, is the
  * TUI's (`../tui/toasts.ts`, `../tui/turn-events.ts`): after a reply, a compaction or an
- * answered question as `toast.*` asks, once when every provider fails, and for limit resets;
+ * answered question as `toast.*` asks, once per folder when every provider fails, and for limit resets;
  * never for a subagent's session. Each step also asks the server for a refresh it skips when
  * not due, as the TUI does.
  *
@@ -153,6 +153,8 @@ export function createGuiToasts(
       },
     },
     isChildSession,
+    // Each folder has its own providers' outage: one folder's alert never hides another's.
+    allFailKey: (sessionID) => folders.get(sessionID) ?? "",
   });
 
   /** A system notification for each reset notice the toasts will show, while no window has focus. */

@@ -323,13 +323,16 @@ export default Plugin.define({
       },
     });
 
-    // The session menu's item: the usage window on Cost, for that session.
+    // The session menu's item: the usage window on Cost, for that session. Only the app's own
+    // server runs this plugin's server part, so a session on another server gets no item.
     addSafely(ctx, Slot, {
       at: "session.location.menu",
       render: (input) => (
-        <ctx.ui.Button variant="ghost" onClick={() => openWindow(input.session)}>
-          {ctx.t("menu.sessionUsage")}
-        </ctx.ui.Button>
+        <Show when={input.session.server.builtin}>
+          <ctx.ui.Button variant="ghost" onClick={() => openWindow(input.session)}>
+            {ctx.t("menu.sessionUsage")}
+          </ctx.ui.Button>
+        </Show>
       ),
     });
 

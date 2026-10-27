@@ -214,6 +214,33 @@ describe("GUI quota toasts", () => {
     });
   });
 
+  describe("the alert when every provider fails", () => {
+    const failing = () =>
+      snapshot([{ ...provider("claude", "Claude", 0), rows: [], error: { code: "timeout" } }], {});
+    const healthy = () => snapshot([provider("copilot", "Copilot", 80)], {});
+    const turn = async (app: ReturnType<typeof start>, sessionID: string) => {
+      app.emit("session.execution.succeeded", sessionID);
+      await app.answer();
+    };
+    const errors = (app: ReturnType<typeof start>) =>
+      app.show.mock.calls.filter(([toast]) => toast.variant === "error").length;
+
+    it("shows for each folder's outage, though another folder's already showed", async () => {
+      const app = start({ "/a": failing(), "/b": failing() });
+      await turn(app, "a");
+      await turn(app, "b");
+      expect(errors(app)).toBe(2);
+    });
+
+    it("does not show again for an unchanged outage after another folder's providers answer", async () => {
+      const app = start({ "/a": failing(), "/b": healthy() });
+      await turn(app, "a");
+      await turn(app, "b");
+      await turn(app, "a");
+      expect(errors(app)).toBe(1);
+    });
+  });
+
   it("releases the refreshes' watches on cleanup and drops their late answers", async () => {
     const app = start({ "/a": snapshot([provider("claude", "Claude", 80)], REPLY_TOAST) });
 

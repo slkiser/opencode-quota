@@ -69,6 +69,11 @@ export type ToastHost = {
   quota: Pick<QuotaClient, "refresh" | "snapshot">;
   /** Subagent (child) sessions never show quota toasts. */
   isChildSession: (sessionID: string) => boolean;
+  /**
+   * Which "every provider fails" toast a session's turn counts toward (each shows once until
+   * some provider of its key answers again); without it, one for all sessions.
+   */
+  allFailKey?: (sessionID: string) => string;
   now?: () => number;
 };
 
@@ -172,8 +177,8 @@ export function createToasts(host: ToastHost): Toasts {
   /** Notices from before this TUI started were news to the TUI that saw them then. */
   const startedAtMs = now();
   const shownNotices = new Set<string>();
-  /** The "every provider fails" toast shows once until some provider answers again. */
-  let allFailShown = false;
+  /** The "every provider fails" toast shows once until some provider answers again, by key. */
+  const allFailShown = new Set<string>();
   /** Turns whose toast is being made; reset notices wait for them. */
   let turnsRunning = 0;
   /** Reset notices to show, each with the snapshot it came in. */
@@ -250,7 +255,8 @@ export function createToasts(host: ToastHost): Toasts {
     const input = quotaInput(snapshot, display);
     const allFail =
       snapshot.providers.length > 0 && snapshot.providers.every((provider) => provider.error);
-    if (!allFail) allFailShown = false;
+    const allFailKey = host.allFailKey?.(sessionID) ?? "";
+    if (!allFail) allFailShown.delete(allFailKey);
     const anyLow = input.groups.some((group) =>
       group.rows.some(
         ({ row }) =>
@@ -262,8 +268,8 @@ export function createToasts(host: ToastHost): Toasts {
       showQuota("info", input, display.toast.seconds);
       return;
     }
-    if (allFail && display.toast.whenAllFail && !allFailShown) {
-      allFailShown = true;
+    if (allFail && display.toast.whenAllFail && !allFailShown.has(allFailKey)) {
+      allFailShown.add(allFailKey);
       const failing = input.groups.filter((group) => group.error);
       showQuota(
         "error",

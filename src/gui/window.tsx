@@ -124,12 +124,14 @@ export function UsageWindow(props: WindowProps) {
   let asked = 0;
   createEffect(() => {
     const current = query();
+    // The window's own folder: the session's, for a window opened for one session.
+    const directory = props.directory();
     reloads();
     if (!current) return;
     const call = ++asked;
     const asking = { range: untrack(range), scope: untrack(scope) };
     setUsage((previous) => ({ answered: previous.answered, loading: true }));
-    data.usage(current).then(
+    data.usage(current, directory).then(
       (report) => {
         if (call === asked) setUsage({ answered: { report, ...asking }, loading: false });
       },

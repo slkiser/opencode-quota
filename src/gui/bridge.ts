@@ -15,6 +15,10 @@
  * folder; when the last watcher stops, answers to its calls still on their way are dropped. While
  * it runs, it checks every few seconds whether the server's client was replaced (the server
  * restarted) and then starts again on the new one.
+ *
+ * A folder nothing watches is forgotten once the current update ends, so a surface that moves to
+ * another session of the same folder (its old watch stops, its new one starts) keeps the folder's
+ * snapshot. Reads follow the folders: a read of a folder that is added or forgotten runs again.
  */
 import { createSignal } from "solid-js";
 import type { QuotaSnapshot } from "../core/types.js";
@@ -82,8 +86,8 @@ export type GuiQuota = {
     sessionID?: string,
     reason?: QuotaRpcRefreshReason,
   ): Promise<void>;
-  /** Tokens and cost from OpenCode's history for one range. */
-  usage(query: UsageQuery): Promise<UsageReport>;
+  /** Tokens and cost from OpenCode's history for one range, in a folder (none: the server's own). */
+  usage(query: UsageQuery, directory: string | undefined): Promise<UsageReport>;
   /** The server settings a client may read. */
   settings(): Promise<ClientSettings>;
   /** A patch of settings.jsonc, through the server's settings code; see `QuotaRpc`. */
@@ -115,6 +119,14 @@ function failureOf(error: unknown): GuiQuotaFailure {
 export function createGuiQuota(host: GuiQuotaHost): GuiQuota {
   /** By folder ("" for none). */
   const folders = new Map<string, Folder>();
+  /** Changes when a folder is added or forgotten: a read of the map runs again. */
+  const [foldersChanged, setFoldersChanged] = createSignal(0);
+  const changeFolders = () => setFoldersChanged((count) => count + 1);
+  /** The folder's entry, without adding one; a reactive read. */
+  const folderIn = (directory: string | undefined): Folder | undefined => {
+    foldersChanged();
+    return folders.get(directory ?? "");
+  };
 
   function hostFor(directory: string | undefined): RpcLocationHost {
     return directory
@@ -149,7 +161,17 @@ export function createGuiQuota(host: GuiQuotaHost): GuiQuota {
       watchers: 0,
     };
     folders.set(key, folder);
+    changeFolders();
     return folder;
+  }
+
+  /** Forgets the folder once the current update ends, unless something watches it by then. */
+  function forgetLater(key: string, folder: Folder): void {
+    queueMicrotask(() => {
+      if (folder.watchers > 0 || folders.get(key) !== folder) return;
+      folders.delete(key);
+      changeFolders();
+    });
   }
 
   function start(folder: Folder): void {
@@ -175,8 +197,8 @@ export function createGuiQuota(host: GuiQuotaHost): GuiQuota {
   const currentHost = (): RpcLocationHost => hostFor(host.directory());
 
   return {
-    snapshot: (directory, sessionID) => folderFor(directory).quota.snapshot(sessionID),
-    failure: (directory) => folderFor(directory).failure(),
+    snapshot: (directory, sessionID) => folderIn(directory)?.quota.snapshot(sessionID),
+    failure: (directory) => folderIn(directory)?.failure(),
 
     watch(directory, sessionID) {
       const key = directory ?? "";
@@ -193,7 +215,7 @@ export function createGuiQuota(host: GuiQuotaHost): GuiQuota {
         if (folder.watchers > 0) return;
         stop(folder);
         // A folder nothing watches is forgotten; watching it again asks the server afresh.
-        if (folders.get(key) === folder) folders.delete(key);
+        forgetLater(key, folder);
       };
     },
 
@@ -201,7 +223,8 @@ export function createGuiQuota(host: GuiQuotaHost): GuiQuota {
       await folderFor(directory).quota.refresh(reason, sessionID);
     },
 
-    usage: async (query) => (await rpc().usage(query, quotaCallOptions(currentHost()))).report,
+    usage: async (query, directory) =>
+      (await rpc().usage(query, quotaCallOptions(hostFor(directory)))).report,
     settings: () => rpc().settings({}, quotaCallOptions(currentHost())),
     saveSettings: (input) => rpc().saveSettings(input, quotaCallOptions(currentHost())),
     settingsSchema: () => rpc().settingsSchema({}, quotaCallOptions(currentHost())),

@@ -146,6 +146,30 @@ describe("GUI bundle (dist/gui-experimental.cjs)", () => {
     expect(panel.list({ session: remote, open: [] })).toEqual([]);
   });
 
+  it("offers the session menu's usage item only for a session on the app's own server", async () => {
+    // The item renders through Solid's createComponent, which calls the component.
+    const { definition } = await loadGui({
+      "solid-js/web": {
+        template: () => () => null,
+        delegateEvents: () => {},
+        createComponent: (component: (props: unknown) => unknown, props: unknown) =>
+          component(props),
+      },
+    });
+    const { ctx, added } = fakeWindow();
+    const Button = vi.fn(() => "button");
+    definition.setup({ ...ctx, ui: { Button } });
+    const slot = added.find(
+      (entry) => (entry.item as { at?: string }).at === "session.location.menu",
+    )?.item as { render: (input: { session: unknown }) => unknown };
+    const session = (builtin: boolean) => ({ id: "s", directory: "/s", server: { builtin } });
+
+    expect(slot.render({ session: session(false) })).toBeFalsy();
+    expect(Button).not.toHaveBeenCalled();
+    expect(slot.render({ session: session(true) })).toBe("button");
+    expect(Button).toHaveBeenCalledTimes(1);
+  });
+
   it("leaves out a surface whose registry this OpenCode lacks", async () => {
     const { ctx, added } = fakeWindow();
     const older = {

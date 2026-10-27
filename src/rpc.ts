@@ -64,6 +64,15 @@ export type QuotaRpcSettingsSchemaInput = Record<string, never>;
  * undefined, as an unset color's, is left out). `path`: settings.jsonc's absolute path.
  */
 export type QuotaRpcSettingsSchemaOutput = { rules: Record<string, SettingRule>; path: string };
+
+/** An absolute path of a quota settings file: `…/opencode-quota/settings.jsonc`. */
+export function isSettingsFilePath(path: unknown): path is string {
+  return (
+    typeof path === "string" &&
+    /^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(path) &&
+    /[\\/]opencode-quota[\\/]settings\.jsonc$/.test(path)
+  );
+}
 type StandardValueSchema = Extract<Rpc.PortableValueSchema, { "~standard": unknown }>;
 type StandardEventSchema = Extract<Rpc.PortableEventDefinition["schema"], { "~standard": unknown }>;
 type Typed<T> = { "~standard": { types?: { input: T; output: T } } };
@@ -264,7 +273,7 @@ export const QuotaRpc = {
         Object.values(value.rules).every(
           (rule) => isRecord(rule) && typeof rule.kind === "string",
         ) &&
-        typeof value.path === "string"
+        isSettingsFilePath(value.path)
           ? null
           : "output must carry rules and a path",
       ),

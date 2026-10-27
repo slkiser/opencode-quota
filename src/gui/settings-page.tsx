@@ -27,7 +27,12 @@ import {
 } from "solid-js";
 import type { QuotaSnapshot, QuotaWindow } from "../core/types.js";
 import { ALL_PROVIDERS, WINDOWS } from "../core/windows.js";
-import type { Notice, QuotaRpcSettingsOutput, QuotaRpcSettingsSchemaOutput } from "../rpc.js";
+import {
+  isSettingsFilePath,
+  type Notice,
+  type QuotaRpcSettingsOutput,
+  type QuotaRpcSettingsSchemaOutput,
+} from "../rpc.js";
 import type { CustomProviderSwitch, SettingRule, Settings } from "../settings/index.js";
 import { rpcErrorMessage } from "../tui/client.js";
 import {
@@ -1169,7 +1174,8 @@ function FileOnlyView(props: SectionProps) {
       </For>
       <p class="oq-key oq-path">{props.path}</p>
       <div class="oq-actions">
-        <Show when={desktop}>
+        {/* Open and Reveal only ever hand the app the quota settings file. */}
+        <Show when={isSettingsFilePath(props.path) && desktop}>
           {(app) => (
             <>
               <ctx.ui.Button

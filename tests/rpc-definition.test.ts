@@ -262,9 +262,17 @@ describe("quota RPC definition", () => {
       rules: { "toast.show": { kind: "boolean", default: true } },
       path: "/home/me/.config/opencode/opencode-quota/settings.jsonc",
     });
+    await expectAccepted(methods.settingsSchema.output, {
+      rules: {},
+      path: "C:\\Users\\me\\.config\\opencode\\opencode-quota\\settings.jsonc",
+    });
     for (const value of [
       {},
       { rules: {} },
+      // Open and Reveal hand the path to the app: only the quota settings file passes.
+      { rules: {}, path: "/settings.jsonc" },
+      { rules: {}, path: "/home/me/Downloads/run.sh" },
+      { rules: {}, path: "opencode-quota/settings.jsonc" },
       { rules: [], path: "/settings.jsonc" },
       { rules: { "toast.show": true }, path: "/settings.jsonc" },
       { rules: { "toast.show": { default: true } }, path: "/settings.jsonc" },
