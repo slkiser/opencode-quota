@@ -154,6 +154,18 @@ export function paceLevel(pace: Pace, percentRemaining: number): Level | undefin
   return pace.early ? undefined : "low";
 }
 
+/**
+ * The level a row's bar shows: with `levelBy` "pace", its level by pace when it has one; else
+ * the level of its percent left.
+ */
+export function barLevel(
+  colors: Thresholds & { levelBy: Settings["colors"]["levelBy"] },
+  percentRemaining: number,
+  paceLevel?: Level,
+): Level {
+  return colors.levelBy === "pace" && paceLevel ? paceLevel : levelOf(percentRemaining, colors);
+}
+
 function groupDigits(integer: string): string {
   return integer.replace(/\B(?=(\d{3})+(?!\d))/gu, ",");
 }

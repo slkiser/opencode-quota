@@ -350,6 +350,12 @@ describe("usage report sessions", () => {
     // A session counts with its subagent sessions, and theirs.
     { query: { range: "session", sessionID: "ses_root" }, tokens: 1 + 2 + 4, sessions: 1 },
     { query: { range: "session", sessionID: "ses_child" }, tokens: 2 + 4, sessions: 1 },
+    // Without its subagents, the session alone.
+    {
+      query: { range: "session", sessionID: "ses_root", subagents: false },
+      tokens: 1,
+      sessions: 1,
+    },
     // Subagent sessions count as part of their top session.
     { query: { range: "today" }, tokens: 15, sessions: 2 },
   ])("$query.range $query.sessionID counts $sessions session(s)", async (item) => {

@@ -342,4 +342,32 @@ describe("GUI quota bridge", () => {
     expect(await gui.settings()).toEqual({ values: {} });
     expect(rpc.settings.mock.calls[0]?.[0]).toEqual({});
   });
+
+  it("loads what the snapshot says about the watched session, and refreshes it on request", async () => {
+    const rpc = fakeRpc();
+    const withSession: QuotaSnapshot = {
+      ...SNAPSHOT,
+      currentModelProviderIds: ["copilot"],
+      sessionTokens: { input: 10, cachedInput: 20, output: 5 },
+    };
+    rpc.snapshot.mockImplementation(async () => ({ snapshot: withSession }));
+    rpc.refresh.mockImplementation(async () => ({ snapshot: { ...withSession, revision: 2 } }));
+    const gui = createGuiQuota({
+      client: () => ({ rpc: () => rpc }) as never,
+      directory: () => "/p",
+    });
+    const unwatch = gui.watch("/p", "ses_1");
+    await settle();
+    expect(rpc.snapshot.mock.calls[0]?.[0]).toEqual({ sessionID: "ses_1" });
+    expect(gui.snapshot("/p", "ses_1")?.sessionTokens).toEqual(withSession.sessionTokens);
+    expect(gui.snapshot("/p", "ses_1")?.currentModelProviderIds).toEqual(["copilot"]);
+    // Without the session, the shared part only.
+    expect(gui.snapshot("/p")?.sessionTokens).toBeUndefined();
+
+    await gui.refresh("/p", "ses_1");
+    expect(rpc.refresh.mock.calls[0]?.[0]).toEqual({ reason: "manual", sessionID: "ses_1" });
+    expect(rpc.refresh.mock.calls[0]?.[1]).toMatchObject({ location: { directory: "/p" } });
+    expect(gui.snapshot("/p", "ses_1")?.revision).toBe(2);
+    unwatch();
+  });
 });

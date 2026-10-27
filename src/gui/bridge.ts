@@ -1,9 +1,9 @@
 /**
- * The GUI window's quota data, read-only for now: the quota snapshot through the TUI's quota
- * client (`../tui/client.ts`: newest snapshot wins, `changed` events, a poll every minute), and
- * the usage report and settings the TUI's quota window reads. All of it comes over the quota RPC
- * (`../rpc.ts`) from the server part in the app's own server, so the window computes nothing
- * itself.
+ * The GUI window's quota data: the quota snapshot through the TUI's quota client
+ * (`../tui/client.ts`: newest snapshot wins, `changed` events, a poll every minute), a manual
+ * check of the providers, and the usage report and settings the TUI's quota window reads. All of
+ * it comes over the quota RPC (`../rpc.ts`) from the server part in the app's own server; the
+ * window only lays it out.
  *
  * A call names the folder of the session on screen when that session runs on the app's own
  * server; otherwise (Home, a session on another server) it names none, and the server uses its
@@ -45,12 +45,21 @@ export type GuiQuotaHost = {
 export type GuiQuotaFailure = { kind: "unavailable" } | { kind: "error"; message: string };
 
 export type GuiQuota = {
-  /** The folder's latest snapshot (none: the server's own folder); undefined before its first answer. */
-  snapshot(directory: string | undefined): QuotaSnapshot | undefined;
+  /**
+   * The folder's latest snapshot (none: the server's own folder), with what it says about
+   * `sessionID` (its tokens, the providers serving its model) once a watch of it loaded that;
+   * undefined before its first answer.
+   */
+  snapshot(directory: string | undefined, sessionID?: string): QuotaSnapshot | undefined;
   /** Why the folder's last snapshot call failed; undefined once a snapshot arrives. */
   failure(directory: string | undefined): GuiQuotaFailure | undefined;
-  /** A surface shows the folder: load its snapshot now and keep it current until the returned stop. */
-  watch(directory: string | undefined): () => void;
+  /**
+   * A surface shows the folder, and `sessionID` in it: load its snapshot now and keep it current
+   * until the returned stop.
+   */
+  watch(directory: string | undefined, sessionID?: string): () => void;
+  /** Asks the server to check the folder's providers now; resolves once the new snapshot is in. */
+  refresh(directory: string | undefined, sessionID?: string): Promise<void>;
   /** Tokens and cost from OpenCode's history for one range. */
   usage(query: UsageQuery): Promise<UsageReport>;
   /** The server settings a client may read. */
@@ -133,15 +142,15 @@ export function createGuiQuota(host: GuiQuotaHost): GuiQuota {
   const currentHost = (): RpcLocationHost => hostFor(host.directory());
 
   return {
-    snapshot: (directory) => folderFor(directory).quota.snapshot(),
+    snapshot: (directory, sessionID) => folderFor(directory).quota.snapshot(sessionID),
     failure: (directory) => folderFor(directory).failure(),
 
-    watch(directory) {
+    watch(directory, sessionID) {
       const key = directory ?? "";
       const folder = folderFor(directory);
       folder.watchers += 1;
       if (folder.watchers === 1) start(folder);
-      const unwatchQuota = folder.quota.watch();
+      const unwatchQuota = folder.quota.watch(sessionID);
       let unwatched = false;
       return () => {
         if (unwatched) return;
@@ -153,6 +162,10 @@ export function createGuiQuota(host: GuiQuotaHost): GuiQuota {
         // A folder nothing watches is forgotten; watching it again asks the server afresh.
         if (folders.get(key) === folder) folders.delete(key);
       };
+    },
+
+    async refresh(directory, sessionID) {
+      await folderFor(directory).quota.refresh("manual", sessionID);
     },
 
     usage: async (query) => (await rpc().usage(query, quotaCallOptions(currentHost()))).report,

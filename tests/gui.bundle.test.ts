@@ -21,8 +21,9 @@ async function loadGui(): Promise<{ definition: Definition; required: string[] }
   const provided: Record<string, unknown> = {
     "@opencode/plugin/gui": gui,
     "solid-js": requireModule("solid-js"),
-    // Solid makes its templates when the file loads; the rest only renders, and no test renders.
-    "solid-js/web": { template: () => () => null },
+    // Solid makes its templates and delegates its events when the file loads; the rest only
+    // renders, and no test renders.
+    "solid-js/web": { template: () => () => null, delegateEvents: () => {} },
   };
   const required: string[] = [];
   const appRequire = (id: string) => {
@@ -43,11 +44,11 @@ function fakeWindow() {
     notices: vi.fn(),
     events: { on: vi.fn(() => () => {}) },
   };
-  const added: Array<{ registry: unknown; item: () => Command }> = [];
+  const added: Array<{ registry: unknown; item: unknown }> = [];
   const ctx = {
     client: { rpc: () => rpc },
     sessions: { current: () => undefined },
-    add: (registry: unknown, item: () => Command) => {
+    add: (registry: unknown, item: unknown) => {
       added.push({ registry, item });
       return () => {};
     },
@@ -63,16 +64,16 @@ describe("GUI bundle (dist/gui-experimental.cjs)", () => {
     expect(required.sort()).toEqual(["@opencode/plugin/gui", "solid-js", "solid-js/web"]);
   });
 
-  it("adds a Quota command whose run opens a dialog, and asks the server nothing before", async () => {
+  it("adds its CSS and a Quota command whose run opens a dialog, and asks the server nothing before", async () => {
     const { definition } = await loadGui();
     expect(definition.i18n.en["command.quota"]).toBe("Quota");
     const { ctx, rpc, added } = fakeWindow();
 
     const cleanup = definition.setup(ctx);
 
-    expect(added).toHaveLength(1);
-    expect(added[0]?.registry).toBe(gui.Command);
-    const command = added[0]?.item();
+    expect(added.map((entry) => entry.registry)).toEqual([gui.Style, gui.Command]);
+    expect(added[0]?.item).toEqual(expect.stringContaining(".oq-window"));
+    const command = (added[1]?.item as (() => Command) | undefined)?.();
     expect(command).toMatchObject({ id: "quota", title: "command.quota" });
     expect(rpc.snapshot).not.toHaveBeenCalled();
     command?.run();

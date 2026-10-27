@@ -147,7 +147,10 @@ function checkUsageInput(value: unknown): string | null {
   const typeIssue =
     checkOptionalString(value, "sessionID") ??
     checkOptionalString(value, "from") ??
-    checkOptionalString(value, "to");
+    checkOptionalString(value, "to") ??
+    (value.subagents === undefined || typeof value.subagents === "boolean"
+      ? null
+      : "subagents must be a boolean");
   if (typeIssue) return typeIssue;
   const needs = USAGE_RANGE_NEEDS[range as UsageRange];
   if (needs === "sessionID" && !value.sessionID) return `sessionID is required for range ${range}`;

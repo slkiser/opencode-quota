@@ -270,8 +270,8 @@ export function createQuotaServerPlugin(
           }),
         usage: (input) =>
           logRpcFailure("usage", async () => {
-            const { range, sessionID, from, to } = input;
-            return { report: await loadUsageReport({ range, sessionID, from, to }) };
+            const { range, sessionID, subagents, from, to } = input;
+            return { report: await loadUsageReport({ range, sessionID, subagents, from, to }) };
           }),
         downloadPrices: () => logRpcFailure("downloadPrices", downloadPrices),
         // Read now, so a custom provider changed a moment ago shows as it is before a switch-on.

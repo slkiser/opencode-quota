@@ -12,8 +12,8 @@
  *   model without a price adds tokens but no cost; its tokens are the unpriced share. A failed
  *   compaction names no model, so its tokens are unpriced too (provider and model "unknown").
  * - Sessions count conversations: a subagent session counts as part of its top parent.
- * - "session" reads the session and its subagent sessions. The sidebar's session line
- *   (`sessionUsage`) counts with these same rules.
+ * - "session" reads the session and its subagent sessions, or the session alone with
+ *   `subagents: false`. The sidebar's session line (`sessionUsage`) counts with these same rules.
  * - Ranges and days are local calendar days: "7d" is today and the 6 days before it, and
  *   "between" includes both dates. "24h" is the rolling last 24 hours. "all" has no window.
  * - Token kinds: cached input = cache reads; uncached input = input + cache writes;
@@ -49,6 +49,8 @@ export type UsageQuery = {
   range: UsageRange;
   /** The session for "session", which also counts its subagent sessions. */
   sessionID?: string;
+  /** For "session": false counts the session alone, without its subagent sessions. */
+  subagents?: boolean;
   /** Local dates like "2026-01-31" for "between", both included. */
   from?: string;
   to?: string;
@@ -213,12 +215,13 @@ function requireSessionID(query: UsageQuery): string {
 }
 
 /**
- * The sessions "session" reads: the session and its subagent sessions. Undefined for the other
- * ranges, which read them all.
+ * The sessions "session" reads: the session and its subagent sessions, or the session alone
+ * with `subagents: false`. Undefined for the other ranges, which read them all.
  */
 async function sessionsToRead(query: UsageQuery): Promise<string[] | undefined> {
   if (query.range !== "session") return undefined;
-  return resolveSessionTree(requireSessionID(query));
+  const sessionID = requireSessionID(query);
+  return query.subagents === false ? [sessionID] : resolveSessionTree(sessionID);
 }
 
 /** The session at the top of `sessionID`'s parent chain (subagents belong to their parent). */
@@ -357,13 +360,22 @@ export async function usageReport(
   for (const [key, recent] of recentReports) {
     if (!isRecent(recent, nowMs)) recentReports.delete(key);
   }
-  const { range, sessionID, from, to } = query;
+  const { range, sessionID, subagents, from, to } = query;
   // A new price list (another choice or a fresh download) makes a new report.
   const { selection, meta } = activePriceList();
   const priceList = [selection, meta.generatedAt];
   // The local day decides where the rolling ranges start: after midnight, a new report.
   const today = localDate(nowMs);
-  const key = JSON.stringify([getOpenCodeDbPath(), priceList, today, range, sessionID, from, to]);
+  const key = JSON.stringify([
+    getOpenCodeDbPath(),
+    priceList,
+    today,
+    range,
+    sessionID,
+    subagents === false,
+    from,
+    to,
+  ]);
   const recent = recentReports.get(key);
   if (recent) return recent.report;
 

@@ -246,6 +246,13 @@ describe("server quota RPC", () => {
     };
     expect(session.report.sessionID).toBe("ses_root");
     expect(session.report.totals.tokens.processed).toBe(1_500);
+    // Without its subagents, the session alone.
+    const alone = (await call("usage", {
+      range: "session",
+      sessionID: "ses_root",
+      subagents: false,
+    })) as { report: UsageReport };
+    expect(alone.report.totals.tokens.processed).toBe(1_000);
 
     // All time reads the whole history, with no time window.
     const all = (await call("usage", { range: "all" })) as { report: UsageReport };
