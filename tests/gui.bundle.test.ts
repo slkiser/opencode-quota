@@ -83,8 +83,9 @@ describe("GUI bundle (dist/gui-experimental.cjs)", () => {
       gui.ComposerPill,
       gui.Slot,
       gui.Slot,
+      gui.SettingsPage,
     ]);
-    expect(added.slice(6).map((entry) => (entry.item as { at: string }).at)).toEqual([
+    expect(added.slice(6, 8).map((entry) => (entry.item as { at: string }).at)).toEqual([
       "window.bottom",
       "session.location.menu",
     ]);
@@ -96,6 +97,25 @@ describe("GUI bundle (dist/gui-experimental.cjs)", () => {
     expect(ctx.dialogs.open).toHaveBeenCalledWith(expect.any(Function));
     // The surfaces watch the folder on screen from effects, which run once the app mounts.
     expect(cleanup).toBeUndefined();
+  });
+
+  it("adds the Quota settings page with a search entry per section", async () => {
+    const { definition } = await loadGui();
+    const { ctx, added } = fakeWindow();
+    definition.setup(ctx);
+    const page = added.find((entry) => entry.registry === gui.SettingsPage)?.item as
+      | (() => { id: string; title: string; entries: Array<{ id: string }> })
+      | undefined;
+
+    const shown = page?.();
+
+    expect(shown).toMatchObject({ id: "quota", title: "settings.title" });
+    expect(shown?.entries.map((entry) => entry.id)).toEqual(
+      expect.arrayContaining(["quota", "quota.places", "quota.plugin", "quota.file"]),
+    );
+    for (const [key, word] of Object.entries(definition.i18n.en)) {
+      expect([key, typeof word]).toEqual([key, "string"]);
+    }
   });
 
   it("pins the Quota tab in every session's strip, opened there or not", async () => {
@@ -128,7 +148,12 @@ describe("GUI bundle (dist/gui-experimental.cjs)", () => {
 
   it("leaves out a surface whose registry this OpenCode lacks", async () => {
     const { ctx, added } = fakeWindow();
-    const older = { ...gui, ComposerPill: undefined, TitlebarItem: undefined };
+    const older = {
+      ...gui,
+      ComposerPill: undefined,
+      TitlebarItem: undefined,
+      SettingsPage: undefined,
+    };
     const { definition } = await loadGui({ "@opencode/plugin/gui": older });
 
     definition.setup(ctx);

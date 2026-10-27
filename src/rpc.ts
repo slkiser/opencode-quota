@@ -9,15 +9,15 @@
  * `usage` (tokens and cost from OpenCode's history for one range),
  * `downloadPrices` (a new price list from models.dev), `settings` (the server settings a client
  * may change), `saveSettings` (a patch of the server settings file, and custom provider
- * switches); the
- * `changed` event carries every new snapshot.
+ * switches), `settingsSchema` (every setting's rule, for a client that builds its controls from
+ * them, and where settings.jsonc is); the `changed` event carries every new snapshot.
  */
 import type { Rpc } from "@opencode/plugin";
 import type { QuotaSnapshot } from "./core/types.js";
 import type { UsageQuery, UsageRange, UsageReport } from "./core/usage.js";
 import { parseCalendarDate } from "./lib/calendar-date.js";
 import { isRecord } from "./lib/json-guards.js";
-import type { ClientSettings, CustomSwitch, SettingsIssue } from "./settings/index.js";
+import type { ClientSettings, CustomSwitch, SettingRule, SettingsIssue } from "./settings/index.js";
 
 export const QUOTA_RPC_ID = "slkiser.opencode-quota";
 
@@ -58,6 +58,12 @@ export type QuotaRpcSaveSettingsInput = {
 };
 /** Nothing is saved unless `ok`; `issues` say why. */
 export type QuotaRpcSaveSettingsOutput = { ok: boolean; issues: SettingsIssue[] };
+export type QuotaRpcSettingsSchemaInput = Record<string, never>;
+/**
+ * `rules`: `SETTINGS_SCHEMA`, every setting by dotted key in file order (a default that is
+ * undefined, as an unset color's, is left out). `path`: settings.jsonc's absolute path.
+ */
+export type QuotaRpcSettingsSchemaOutput = { rules: Record<string, SettingRule>; path: string };
 type StandardValueSchema = Extract<Rpc.PortableValueSchema, { "~standard": unknown }>;
 type StandardEventSchema = Extract<Rpc.PortableEventDefinition["schema"], { "~standard": unknown }>;
 type Typed<T> = { "~standard": { types?: { input: T; output: T } } };
@@ -248,6 +254,19 @@ export const QuotaRpc = {
         isRecord(value) && typeof value.ok === "boolean" && Array.isArray(value.issues)
           ? null
           : "output must carry ok and issues",
+      ),
+    },
+    settingsSchema: {
+      input: schema<QuotaRpcSettingsSchemaInput>(checkObjectInput),
+      output: schema<QuotaRpcSettingsSchemaOutput>((value) =>
+        isRecord(value) &&
+        isRecord(value.rules) &&
+        Object.values(value.rules).every(
+          (rule) => isRecord(rule) && typeof rule.kind === "string",
+        ) &&
+        typeof value.path === "string"
+          ? null
+          : "output must carry rules and a path",
       ),
     },
   },

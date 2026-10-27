@@ -4,7 +4,8 @@
  * warning and critical icon colors), with fallbacks for light and dark: the window's root sets
  * `data-mode` from `ctx.appearance.mode()`. The series colors are mid tones that read on both.
  * The always-on surfaces (`.oq-surface`: the Quota tab and the bottom strip) take the TUI's named
- * colors as `--oq-n-<name>` from the same theme variables.
+ * colors as `--oq-n-<name>` from the same theme variables. The Settings page (`.oq-settings`)
+ * takes the window's variables.
  */
 export const STYLE = `
 .oq-window {
@@ -189,4 +190,57 @@ export const STYLE = `
   font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 11.5px; }
 .oq-strip-bottom .oq-sline:hover { text-decoration: underline; }
 .oq-probe { position: absolute; visibility: hidden; pointer-events: none; }
+.oq-settings { gap: 0; max-width: 920px; }
+.oq-settings .oq-bad { color: var(--oq-low); }
+.oq-settings .oq-mono, .oq-settings .oq-key, .oq-settings .oq-status { font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace); }
+.oq-sbar { position: sticky; top: 0; z-index: 1; display: flex; flex-direction: column; gap: 8px;
+  padding: 4px 0 10px; background: var(--background-base, var(--oq-raised)); border-bottom: 1px solid var(--oq-line); }
+.oq-sbar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.oq-sbar-actions > span { margin-right: auto; }
+.oq-snav { display: flex; flex-wrap: wrap; gap: 4px; }
+.oq-snav button, .oq-mv button { border: 0; background: transparent; font: inherit; cursor: pointer; }
+.oq-snav button { font-size: 12px; color: var(--oq-text-2); padding: 2px 8px; border-radius: 6px; }
+.oq-snav button:hover { background: var(--oq-hover); color: var(--oq-text); }
+.oq-sgroup { margin-top: 26px; }
+.oq-sgroup-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.oq-sgroup-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.oq-sgroup-head .oq-right { margin-left: auto; }
+.oq-subhead { margin: 14px 0 2px; font-size: 12px; font-weight: 600; color: var(--oq-muted); }
+.oq-subhead-action { display: flex; align-items: center; justify-content: space-between; }
+.oq-srow { display: grid; grid-template-columns: 1fr minmax(200px, auto); gap: 16px; align-items: center;
+  padding: 9px 0; border-bottom: 1px solid var(--oq-line); }
+.oq-srow.oq-nested { padding-left: 22px; }
+.oq-srow .oq-t { font-weight: 500; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.oq-srow.oq-changed .oq-t::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--oq-s0); }
+.oq-srow .oq-d { font-size: 12px; color: var(--oq-text-2); }
+.oq-key { font-size: 11px; color: var(--oq-muted); }
+.oq-ctl { justify-self: end; display: flex; align-items: center; gap: 6px; }
+.oq-ctl-line { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.oq-chip.oq-tui { color: var(--oq-warning); background: color-mix(in srgb, var(--oq-warning) 14%, transparent); }
+.oq-select, .oq-input { font: inherit; font-size: 12.5px; color: var(--oq-text); background: var(--oq-raised);
+  border: 1px solid var(--oq-line); border-radius: 7px; padding: 4px 8px; color-scheme: light dark; }
+.oq-select { min-width: 140px; cursor: pointer; }
+.oq-input.oq-number { width: 96px; }
+.oq-input[aria-invalid="true"] { border-color: var(--oq-low); }
+.oq-color { width: 34px; height: 26px; padding: 0; border: 1px solid var(--oq-line); border-radius: 6px; background: none; cursor: pointer; }
+.oq-tree-box { margin-top: 8px; }
+.oq-tree-box summary { cursor: pointer; font-size: 12.5px; color: var(--oq-text-2); padding: 4px 0; }
+.oq-tree { border: 1px solid var(--oq-line); border-radius: 10px; background: var(--oq-raised); margin-top: 6px; }
+.oq-tr { display: grid; grid-template-columns: 26px 1fr 180px 54px; align-items: center; gap: 8px; padding: 5px 10px;
+  border-bottom: 1px solid var(--oq-line); font-size: 12.5px; }
+.oq-tr:last-child { border-bottom: 0; }
+.oq-tr input[type="checkbox"] { cursor: pointer; }
+.oq-tr .oq-select, .oq-tr .oq-input { min-width: 0; width: 100%; padding: 2px 6px; font-size: 12px; }
+.oq-tr.oq-tr-row { padding-left: 34px; color: var(--oq-text-2); }
+.oq-tr.oq-tr-muted .oq-tr-name { opacity: .45; }
+.oq-tr.oq-tr-hidden .oq-tr-name { text-decoration: line-through; }
+.oq-mv { display: flex; gap: 2px; }
+.oq-mv button { color: var(--oq-muted); padding: 0 4px; }
+.oq-mv button:hover { color: var(--oq-text); }
+.oq-notice { margin: 4px 0; font-size: 12.5px; }
+.oq-notice a { color: var(--oq-s0); }
+.oq-status { margin: 6px 0 0; padding: 10px 12px; font-size: 11.5px; line-height: 1.5; white-space: pre-wrap;
+  background: var(--oq-raised); border: 1px solid var(--oq-line); border-radius: 10px; overflow-x: auto; }
+.oq-path { margin: 10px 0 4px; word-break: break-all; }
+.oq-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 `;

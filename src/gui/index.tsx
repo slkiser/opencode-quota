@@ -13,7 +13,9 @@
  * - a titlebar pill (the collapsed sidebar), a pill above the composer (the current model's
  *   limit) and the session menu's "Quota usage for this session", which open the usage window;
  * - a strip at the bottom of the window (the status line);
- * - the quota toasts (`toasts.ts`).
+ * - the quota toasts (`toasts.ts`);
+ * - the Quota page in OpenCode's Settings (`settings-page.tsx`), whose unsaved changes show in
+ *   the surfaces above while it is open.
  * A surface whose registry this OpenCode lacks is left out; the others still show.
  *
  * While the window runs, it keeps the quota of the folder and session on screen loaded, as the
@@ -30,14 +32,22 @@ import {
   type Persisted,
   Plugin,
   type Registry,
+  SettingsPage,
   Slot,
   Style,
   TitlebarItem,
 } from "@opencode/plugin/gui";
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
+import type { QuotaSnapshot } from "../core/types.js";
 import { createGuiQuota, type GuiQuotaHost } from "./bridge.js";
 import { en } from "./i18n.js";
 import { QuotaPanel } from "./panel.js";
+import {
+  createSettingsPageState,
+  SETTINGS_PAGE_ID,
+  SettingsPageView,
+  settingsEntries,
+} from "./settings-page.js";
 import { StatusStrip } from "./status-strip.js";
 import { STYLE } from "./style.js";
 import { surfaceSettings } from "./surface-settings.js";
@@ -141,13 +151,17 @@ export default Plugin.define({
     const directory = () => directoryOf(ctx.sessions.current());
     const sessionID = () => sessionIDOf(ctx.sessions.current());
     let toasts: GuiToasts | undefined;
+    /** The Settings page's unsaved changes while it is open, over every surface's settings. */
+    const [preview, setPreview] = createSignal<Readonly<Record<string, unknown>>>();
+    const settingsOf = (snapshot: QuotaSnapshot | undefined) =>
+      surfaceSettings(snapshot, preview());
     const data = createGuiQuota({
       // OpenCode types RPC event data as any object; the quota RPC's schema checks the snapshot.
       client: () => ctx.client as unknown as ReturnType<GuiQuotaHost["client"]>,
       directory,
       onSnapshot: (snapshot) => toasts?.receive(snapshot),
     });
-    toasts = createGuiToasts(ctx, data);
+    toasts = createGuiToasts(ctx, data, settingsOf);
     createEffect(() => {
       onCleanup(data.watch(directory(), sessionID()));
     });
@@ -159,7 +173,7 @@ export default Plugin.define({
     const snapshotOf = (session: MountedSession | undefined) =>
       data.snapshot(directoryOf(session), sessionIDOf(session));
     const current = () => data.snapshot(directory(), sessionID());
-    const currentSettings = createMemo(() => surfaceSettings(current()));
+    const currentSettings = createMemo(() => settingsOf(current()));
     const unchecked = () => ctx.t("panel.notChecked");
 
     /** The usage window for the folder and session on screen, or on Cost for `scoped`. */
@@ -204,7 +218,7 @@ export default Plugin.define({
       region: "side",
       // Only the app's own server runs this plugin's server part, so other servers get no tab.
       list: (input) =>
-        input.session.server.builtin && surfaceSettings(snapshotOf(input.session)).sidebar.show
+        input.session.server.builtin && settingsOf(snapshotOf(input.session)).sidebar.show
           ? [panelTab()]
           : [],
       render: (props) => {
@@ -216,7 +230,7 @@ export default Plugin.define({
           <QuotaPanel
             ctx={ctx}
             snapshot={() => snapshotOf(props.session)}
-            settings={() => surfaceSettings(snapshotOf(props.session))}
+            settings={() => settingsOf(snapshotOf(props.session))}
             open={panelState.open}
             setOpen={(open) => panelState.set({ open })}
           />
@@ -268,7 +282,7 @@ export default Plugin.define({
       show(input) {
         const shown = snapshotOf(input.session);
         if (!shown) return undefined;
-        const settings = surfaceSettings(shown);
+        const settings = settingsOf(shown);
         if (!settings.statusLine.show) return undefined;
         const pick = currentModelPick(shown, settings, nowMs());
         if (!pick?.row) return undefined;
@@ -318,5 +332,30 @@ export default Plugin.define({
         </ctx.ui.Button>
       ),
     });
+
+    // The Quota page in OpenCode's Settings.
+    const settingsPage = createSettingsPageState(data);
+    addSafely(ctx, SettingsPage, () => ({
+      id: SETTINGS_PAGE_ID,
+      title: ctx.t("settings.title"),
+      icon: "status" as const,
+      entries: settingsEntries(ctx),
+      render: (input: { readonly target?: string }) => (
+        <SettingsPageView
+          ctx={ctx}
+          data={data}
+          state={settingsPage}
+          directory={directory}
+          sessionID={sessionID}
+          panel={{
+            open: panelState.open,
+            set: (open) => panelState.set({ open }),
+            load: panelState.load,
+          }}
+          setPreview={setPreview}
+          target={input.target}
+        />
+      ),
+    }));
   },
 });

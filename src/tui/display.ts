@@ -24,7 +24,15 @@ import {
   formatDuration,
   percentText,
 } from "../view/format.js";
+import {
+  type FieldValue,
+  PRESET_CHOICES,
+  type PresetName,
+  presetChoice,
+  presetValues,
+} from "../view/presets.js";
 import type { Surface } from "../view/select.js";
+import { renameRow, setIn, stepIn } from "../view/settings-edit.js";
 import type { ColorRole } from "../view/text.js";
 
 /** Named colors follow OpenCode's theme; hex colors stay fixed; bar follows the row's level. */
@@ -32,6 +40,8 @@ export type ColorChoice = NonNullable<Settings["colors"]["good"]>;
 export type ColorName = Exclude<ColorChoice, "bar" | `#${string}`>;
 export const COLOR_NAMES = THEME_COLOR_NAMES.filter((name): name is ColorName => name !== "bar");
 type StatusDetail = Settings["statusLine"]["detail"];
+
+export { type FieldValue, type PresetName, presetChoice, presetValues, renameRow, setIn, stepIn };
 
 /** The settings the TUI shows: the saved ones, with the Settings tabs' draft on top. */
 export type DisplaySettings = Settings;
@@ -73,32 +83,6 @@ export function valueAt(settings: unknown, path: string): FieldValue {
   return value as FieldValue;
 }
 
-/** Puts `value` at `keys` in `target` itself; undefined removes the key. */
-function putAt(target: object, keys: readonly string[], value: unknown): void {
-  let parent = target as Record<string, unknown>;
-  for (const key of keys.slice(0, -1)) {
-    if (!isRecord(parent[key])) parent[key] = {};
-    parent = parent[key] as Record<string, unknown>;
-  }
-  const last = keys[keys.length - 1] as string;
-  if (value === undefined) delete parent[last];
-  else parent[last] = value;
-}
-
-/**
- * A copy of the settings with `value` at `keys` (a key may hold a dot, like a row id);
- * undefined removes the key, which puts a color back to the theme's or a row name back.
- */
-export function setIn(
-  settings: DisplaySettings,
-  keys: readonly string[],
-  value: unknown,
-): DisplaySettings {
-  const next = JSON.parse(JSON.stringify(settings)) as DisplaySettings;
-  putAt(next, keys, value);
-  return next;
-}
-
 export function defaultDisplaySettings(): DisplaySettings {
   return defaultSettings();
 }
@@ -123,11 +107,6 @@ export type SettingsTab =
 export function isSurfaceTab(tab: SettingsTab): tab is Surface {
   return SURFACES.includes(tab as Surface);
 }
-
-/** What a setting line holds; undefined only for a color that follows the theme, null for unset. */
-export type FieldValue = string | number | boolean | null | undefined;
-
-export type PresetName = "layout" | "toast" | "words" | "colors";
 
 /**
  * One setting line: ‹ › step through `values`; a color line also takes a typed "#rrggbb", a
@@ -408,100 +387,33 @@ export type Preset = {
   choices: Record<string, Record<string, FieldValue>>;
 };
 
-function layoutChoice(
-  barWidth: number | "fill",
-  indent: number,
-  labelWidth: number,
-  providerGap: number,
-) {
-  return {
-    "layout.barWidth": barWidth,
-    "layout.indent": indent,
-    "layout.labelWidth": labelWidth,
-    "layout.providerGap": providerGap,
-  };
-}
-
-function toastChoice(
-  afterReply: string,
-  afterQuestion: boolean,
-  afterCompaction: boolean,
-  resetNotice: string,
-) {
-  return {
-    "toast.afterReply": afterReply,
-    "toast.afterQuestion": afterQuestion,
-    "toast.afterCompaction": afterCompaction,
-    "toast.whenAllFail": true,
-    "toast.resetNotice": resetNotice,
-  };
-}
-
-/** Every color line: `changes`' colors, the theme's for the rest. */
-function colorChoice(changes: Partial<Record<ColorRole, ColorChoice>>) {
-  return Object.fromEntries(COLOR_LINES.map(({ role }) => [`colors.${role}`, changes[role]]));
-}
-
 export const PRESETS: Record<PresetName, Preset> = {
   layout: {
     tab: "layout",
     title: "Layout preset",
     drives: "Bar width and the 3 Spacing lines",
-    choices: {
-      compact: layoutChoice(6, 1, 6, 0),
-      comfortable: layoutChoice("fill", 1, 8, 1),
-      roomy: layoutChoice("fill", 2, 8, 2),
-    },
+    choices: PRESET_CHOICES.layout,
   },
   toast: {
     tab: "toast",
     title: "When toasts show",
     drives: "the 5 lines under When it shows",
-    choices: {
-      "only failures": toastChoice("off", false, false, "off"),
-      quiet: toastChoice("off", false, true, "off"),
-      normal: toastChoice("low", false, true, "off"),
-      "every reply": toastChoice("always", true, true, "all"),
-    },
+    choices: PRESET_CHOICES.toast,
   },
   colors: {
     tab: "colors",
     title: "Color preset",
     drives: "every color line",
-    choices: {
-      "theme colors": colorChoice({}),
-      // The panel title in the text color, Almost out and errors in their red, the rest grey.
-      grey: colorChoice({
-        good: "muted",
-        warning: "muted",
-        provider: "muted",
-        label: "muted",
-        arrows: "muted",
-      }),
-    },
+    choices: PRESET_CHOICES.colors,
   },
   words: {
     tab: "layout",
     title: "Wording",
     drives: "Percent, Reset times and Row names",
     before: "words.percent",
-    choices: {
-      normal: { "words.percent": "left", "words.reset": "smart", "words.rowNames": "short" },
-      short: { "words.percent": "bare", "words.reset": "compact", "words.rowNames": "short" },
-      "spelled out": {
-        "words.percent": "remaining",
-        "words.reset": "exact",
-        "words.rowNames": "full",
-      },
-    },
+    choices: PRESET_CHOICES.words,
   },
 };
-
-/** The value `delta` steps from `current` in `values`, wrapping; an unknown one counts as the first. */
-export function stepIn<T>(values: readonly T[], current: T, delta: number): T {
-  const index = Math.max(0, values.indexOf(current));
-  return values[(index + delta + values.length) % values.length] as T;
-}
 
 /** A typed number the server takes for the field ("$" allowed); null for nothing typed. */
 export function typedNumber(field: Field, text: string): FieldValue {
@@ -516,41 +428,6 @@ export function typedColor(settings: DisplaySettings, field: Field, text: string
   const hex = text.trim().replace(/^#/u, "").toLowerCase();
   if (hex && !/^[0-9a-f]{6}$/u.test(hex)) return settings;
   return setIn(settings, field.path.split("."), hex ? `#${hex}` : undefined);
-}
-
-/** The preset choice whose values all match the lines' values; undefined is "your own". */
-export function presetChoice(
-  name: PresetName,
-  value: (path: string) => unknown,
-): string | undefined {
-  return Object.entries(PRESETS[name].choices).find(([, values]) =>
-    Object.entries(values).every(([path, wanted]) => value(path) === wanted),
-  )?.[0];
-}
-
-/** ‹ or ›: the values of the previous or next choice after `current`; from "your own", the first. */
-export function presetValues(
-  name: PresetName,
-  current: string | undefined,
-  delta: number,
-): Readonly<Record<string, FieldValue>> {
-  const names = Object.keys(PRESETS[name].choices);
-  const next = current === undefined ? names[0] : stepIn(names, current, delta);
-  return PRESETS[name].choices[next as string] ?? {};
-}
-
-/**
- * Your name for a row; nothing typed puts its own name back. A name equal to its own label
- * stays, so it shows where `words.rowNames` "short" would show the window's short name.
- */
-export function renameRow(
-  settings: DisplaySettings,
-  surface: "sidebar" | "toast",
-  rowId: string,
-  text: string,
-): DisplaySettings {
-  const label = text.trim();
-  return setIn(settings, [surface, "names", rowId], label || undefined);
 }
 
 /**

@@ -46,6 +46,7 @@ describe("quota RPC definition", () => {
       "downloadPrices",
       "settings",
       "saveSettings",
+      "settingsSchema",
     ]);
   });
 
@@ -251,6 +252,28 @@ describe("quota RPC definition", () => {
     await expectAccepted(methods.saveSettings.output, { ok: false, issues: [] });
     for (const value of [{}, { ok: "yes", issues: [] }, { ok: true }]) {
       await expectRejected(methods.saveSettings.output, value, "output must carry ok and issues");
+    }
+  });
+
+  it("validates settingsSchema", async () => {
+    await expectAccepted(methods.settingsSchema.input, {});
+    await expectRejected(methods.settingsSchema.input, null, "input must be an object");
+    await expectAccepted(methods.settingsSchema.output, {
+      rules: { "toast.show": { kind: "boolean", default: true } },
+      path: "/home/me/.config/opencode/opencode-quota/settings.jsonc",
+    });
+    for (const value of [
+      {},
+      { rules: {} },
+      { rules: [], path: "/settings.jsonc" },
+      { rules: { "toast.show": true }, path: "/settings.jsonc" },
+      { rules: { "toast.show": { default: true } }, path: "/settings.jsonc" },
+    ]) {
+      await expectRejected(
+        methods.settingsSchema.output,
+        value,
+        "output must carry rules and a path",
+      );
     }
   });
 

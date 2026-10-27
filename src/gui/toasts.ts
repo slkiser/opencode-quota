@@ -23,6 +23,7 @@
 import type { Context } from "@opencode/plugin/gui";
 import { createEffect, onCleanup } from "solid-js";
 import type { QuotaSnapshot } from "../core/types.js";
+import type { Settings } from "../settings/schema.js";
 import { reportFailure } from "../tui/client.js";
 import {
   createToasts,
@@ -56,7 +57,15 @@ export type GuiToasts = {
   receive(snapshot: QuotaSnapshot): void;
 };
 
-export function createGuiToasts(ctx: Context, data: GuiQuota): GuiToasts {
+/**
+ * `settingsOf`: the toast settings of a snapshot (the Settings page's unsaved changes on top while
+ * it is open); `surfaceSettings` without one.
+ */
+export function createGuiToasts(
+  ctx: Context,
+  data: GuiQuota,
+  settingsOf: (snapshot: QuotaSnapshot | undefined) => Settings = surfaceSettings,
+): GuiToasts {
   const startedAtMs = Date.now();
   /** The folder each session's last turn event named. */
   const folders = new Map<string, string | undefined>();
@@ -119,7 +128,7 @@ export function createGuiToasts(ctx: Context, data: GuiQuota): GuiToasts {
       });
       return undefined;
     },
-    display: (snapshot) => surfaceSettings(snapshot ?? latest),
+    display: (snapshot) => settingsOf(snapshot ?? latest),
     terminalWidth: () => TOAST_COLUMNS,
     quota: {
       snapshot: (sessionID) => data.snapshot(sessionID && folders.get(sessionID), sessionID),
@@ -141,7 +150,7 @@ export function createGuiToasts(ctx: Context, data: GuiQuota): GuiToasts {
 
   /** A system notification for each reset notice the toasts will show, while no window has focus. */
   function notifyResets(snapshot: QuotaSnapshot): void {
-    const settings = surfaceSettings(snapshot);
+    const settings = settingsOf(snapshot);
     for (const notice of snapshot.resetNotices) {
       if (notified.has(notice.id)) continue;
       notified.add(notice.id);

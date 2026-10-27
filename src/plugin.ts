@@ -50,7 +50,13 @@ import {
 import { resolveQuotaResetRetryDelayMs } from "./lib/quota-retry-wait.js";
 import type { StatusOrigin } from "./lib/quota-status.js";
 import { QuotaRpc } from "./rpc.js";
-import { clientSettings, createLiveSettings, loadSettings } from "./settings/index.js";
+import {
+  clientSettings,
+  createLiveSettings,
+  loadSettings,
+  SETTINGS_SCHEMA,
+  settingsPath,
+} from "./settings/index.js";
 import { DEFAULT_QUICK_LOOK_RANGE } from "./view/quick-look.js";
 import { usageText } from "./view/usage.js";
 
@@ -287,6 +293,12 @@ export function createQuotaServerPlugin(
             });
             return { ok: result.ok, issues: result.issues };
           }),
+        // As JSON, which has no undefined default (an unset color's) that OpenCode would refuse.
+        settingsSchema: () =>
+          logRpcFailure("settingsSchema", async () => ({
+            rules: JSON.parse(JSON.stringify(SETTINGS_SCHEMA)),
+            path: settingsPath(),
+          })),
       });
       // The export file and the gauges follow the snapshot; neither asks a provider again.
       const publisher = createSnapshotPublisher({

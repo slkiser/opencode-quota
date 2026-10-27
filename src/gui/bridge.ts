@@ -1,7 +1,8 @@
 /**
  * The GUI window's quota data: the quota snapshot through the TUI's quota client
  * (`../tui/client.ts`: newest snapshot wins, `changed` events, a poll every minute), a manual
- * check of the providers, and the usage report and settings the TUI's quota window reads. All of
+ * check of the providers, and the usage report, settings, setup check and notices the TUI's quota
+ * window reads, and its settings saves. All of
  * it comes over the quota RPC (`../rpc.ts`) from the server part in the app's own server; the
  * window only lays it out.
  *
@@ -18,7 +19,14 @@
 import { createSignal } from "solid-js";
 import type { QuotaSnapshot } from "../core/types.js";
 import type { UsageQuery, UsageReport } from "../core/usage.js";
-import { QuotaRpc, type QuotaRpcRefreshReason } from "../rpc.js";
+import {
+  type Notice,
+  QuotaRpc,
+  type QuotaRpcRefreshReason,
+  type QuotaRpcSaveSettingsInput,
+  type QuotaRpcSaveSettingsOutput,
+  type QuotaRpcSettingsSchemaOutput,
+} from "../rpc.js";
 import type { ClientSettings } from "../settings/index.js";
 import {
   type ClientHost,
@@ -75,6 +83,14 @@ export type GuiQuota = {
   usage(query: UsageQuery): Promise<UsageReport>;
   /** The server settings a client may read. */
   settings(): Promise<ClientSettings>;
+  /** A patch of settings.jsonc, through the server's settings code; see `QuotaRpc`. */
+  saveSettings(input: QuotaRpcSaveSettingsInput): Promise<QuotaRpcSaveSettingsOutput>;
+  /** Every setting's rule, and where settings.jsonc is. */
+  settingsSchema(): Promise<QuotaRpcSettingsSchemaOutput>;
+  /** The /quota_status report as text, with the session's model when it names one. */
+  status(sessionID?: string): Promise<string>;
+  /** The active maintainer notices. */
+  notices(): Promise<Notice[]>;
 };
 
 type Folder = {
@@ -184,5 +200,10 @@ export function createGuiQuota(host: GuiQuotaHost): GuiQuota {
 
     usage: async (query) => (await rpc().usage(query, quotaCallOptions(currentHost()))).report,
     settings: () => rpc().settings({}, quotaCallOptions(currentHost())),
+    saveSettings: (input) => rpc().saveSettings(input, quotaCallOptions(currentHost())),
+    settingsSchema: () => rpc().settingsSchema({}, quotaCallOptions(currentHost())),
+    status: async (sessionID) =>
+      (await rpc().status(sessionID ? { sessionID } : {}, quotaCallOptions(currentHost()))).text,
+    notices: async () => (await rpc().noticeList({}, quotaCallOptions(currentHost()))).notices,
   };
 }

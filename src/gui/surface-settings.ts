@@ -133,16 +133,24 @@ export const ROLE_THEME: Record<
 };
 
 /**
- * The surface settings of `snapshot`: its values over the defaults. Typed as the whole
- * `Settings`, which the shared surface helpers (`view/text.ts`, `tui/toasts.ts`) take; they read
- * only the groups above.
+ * The surface settings of `snapshot`: its values over the defaults, and `preview` (the Settings
+ * page's unsaved changes, by dotted key) over those. Typed as the whole `Settings`, which the
+ * shared surface helpers (`view/text.ts`, `tui/toasts.ts`) take; they read only the groups above.
  */
-export function surfaceSettings(snapshot: QuotaSnapshot | undefined): Settings {
+export function surfaceSettings(
+  snapshot: QuotaSnapshot | undefined,
+  preview?: Readonly<Record<string, unknown>>,
+): Settings {
+  return settingsFromValues({ ...snapshot?.settings?.values, ...preview });
+}
+
+/** The surface settings with `values` (by dotted key) over the defaults; other keys are skipped. */
+export function settingsFromValues(values: Readonly<Record<string, unknown>>): Settings {
   const settings = structuredClone(SURFACE_DEFAULTS) as unknown as Record<
     string,
     Record<string, unknown>
   >;
-  for (const [key, value] of Object.entries(snapshot?.settings?.values ?? {})) {
+  for (const [key, value] of Object.entries(values)) {
     const dot = key.indexOf(".");
     const name = key.slice(0, dot);
     const group = dot > 0 && Object.hasOwn(settings, name) ? settings[name] : undefined;

@@ -67,6 +67,7 @@ const TUI_MAY_REACH = [
   "lib/version.js",
   "rpc.js",
   "settings/schema.js",
+  "settings/shared.js",
   "tui.js",
 ];
 
