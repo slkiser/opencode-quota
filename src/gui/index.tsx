@@ -4,11 +4,12 @@
  * built into one CommonJS file by `.github/scripts/build-gui.mjs`. OpenCode's GUI plugin API is
  * experimental; OpenCode releases without it never load this file.
  *
- * For now it adds one command, Quota, whose dialog lists the raw quota snapshot: each provider,
- * its rows, the percent left and the reset time.
+ * For now it adds one command, Quota, whose dialog lists the raw quota snapshot of the folder on
+ * screen: each provider, its rows, the percent left and the reset time. When the server has no
+ * quota RPC, or the call fails, it says so instead.
  */
 import { Command, Plugin } from "@opencode/plugin/gui";
-import { For, onCleanup, Show } from "solid-js";
+import { createEffect, For, Match, onCleanup, Show, Switch } from "solid-js";
 import type { QuotaRow } from "../core/types.js";
 import { createGuiQuota, type GuiQuotaHost } from "./bridge.js";
 
@@ -28,6 +29,8 @@ export default Plugin.define({
       "dialog.title": "Quota",
       "dialog.close": "Close",
       "dialog.loading": "Asking the server for quota…",
+      "dialog.unavailable": "OpenCode Quota's server plugin is not loaded on this server.",
+      "dialog.error": "Could not load quota: {{message}}",
       "dialog.noProviders": "No provider is enabled and signed in.",
       "column.row": "Row",
       "column.percent": "Left",
@@ -35,19 +38,27 @@ export default Plugin.define({
     },
   },
   setup(ctx) {
+    const directory = () => {
+      const session = ctx.sessions.current();
+      return session?.server.builtin ? session.directory : undefined;
+    };
     const data = createGuiQuota({
       // OpenCode types RPC event data as any object; the quota RPC's schema checks the snapshot.
       client: () => ctx.client as unknown as ReturnType<GuiQuotaHost["client"]>,
-      directory: () => {
-        const session = ctx.sessions.current();
-        return session?.server.builtin ? session.directory : undefined;
-      },
+      directory,
     });
-    const stop = data.quota.start();
 
     const SnapshotDialog = (props: { close: () => void }) => {
       const ui = ctx.ui;
-      onCleanup(data.quota.watch());
+      // Watches the folder on screen, again whenever it changes, until the dialog closes.
+      createEffect(() => {
+        onCleanup(data.watch(directory()));
+      });
+      const failure = () => data.failure(directory());
+      const errorMessage = () => {
+        const shown = failure();
+        return shown?.kind === "error" ? shown.message : undefined;
+      };
       return (
         <ui.Dialog
           title={ctx.t("dialog.title")}
@@ -58,7 +69,19 @@ export default Plugin.define({
             </ui.Button>
           }
         >
-          <Show when={data.quota.snapshot()} fallback={<p>{ctx.t("dialog.loading")}</p>}>
+          <Show
+            when={data.snapshot(directory())}
+            fallback={
+              <Switch fallback={<p>{ctx.t("dialog.loading")}</p>}>
+                <Match when={failure()?.kind === "unavailable"}>
+                  <p>{ctx.t("dialog.unavailable")}</p>
+                </Match>
+                <Match when={errorMessage() !== undefined}>
+                  <p>{ctx.t("dialog.error", { message: errorMessage() ?? "" })}</p>
+                </Match>
+              </Switch>
+            }
+          >
             {(snapshot) => (
               <For each={snapshot().providers} fallback={<p>{ctx.t("dialog.noProviders")}</p>}>
                 {(provider) => (
@@ -103,7 +126,5 @@ export default Plugin.define({
         ctx.dialogs.open((dialog) => <SnapshotDialog close={dialog.close} />);
       },
     }));
-
-    return stop;
   },
 });

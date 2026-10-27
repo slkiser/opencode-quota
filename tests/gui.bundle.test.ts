@@ -77,7 +77,7 @@ describe("GUI bundle (dist/gui-experimental.cjs)", () => {
     expect(rpc.snapshot).not.toHaveBeenCalled();
     command?.run();
     expect(ctx.dialogs.open).toHaveBeenCalledWith(expect.any(Function));
-    expect(cleanup).toEqual(expect.any(Function));
-    cleanup?.();
+    // Only an open dialog asks the server, and it stops when it closes: setup leaves nothing running.
+    expect(cleanup).toBeUndefined();
   });
 });

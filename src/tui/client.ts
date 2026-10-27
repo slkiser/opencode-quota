@@ -43,7 +43,7 @@ export type QuotaRpcClient = {
   events: {
     on(
       name: "changed",
-      handler: (event: { data: QuotaRpcSnapshotOutput }) => void,
+      handler: (event: { location?: { directory: string }; data: QuotaRpcSnapshotOutput }) => void,
       options?: { signal?: AbortSignal },
     ): () => void;
   };
@@ -63,6 +63,11 @@ export type RpcLocationHost = {
 /** What the client needs from the TUI context (or a GUI window). */
 export type ClientHost = RpcLocationHost & {
   client: { rpc: (definition: typeof QuotaRpc) => QuotaRpcClient };
+  /**
+   * When set, a `changed` event is applied only if this answers true for the folder it came from.
+   * A GUI window hears the events of every folder of its server, so it keeps its folder's only.
+   */
+  acceptsEventFrom?: (location: { directory: string } | undefined) => boolean;
 };
 
 /**
@@ -131,10 +136,13 @@ export function reportFailure(error: unknown): void {
 /**
  * @param onSnapshot called with every snapshot the client takes (from any call or event), so
  *   toasts can announce new reset notices.
+ * @param onFailure called when a `snapshot` call made since the last `start()` fails, so a GUI
+ *   window can say why it shows nothing.
  */
 export function createQuotaClient(
   host: ClientHost,
   onSnapshot: (snapshot: QuotaSnapshot) => void = () => {},
+  onFailure: (error: unknown) => void = () => {},
 ): QuotaClient {
   const [latest, setLatest] = createSignal<QuotaSnapshot>();
   const [sessions, setSessions] = createSignal<Record<string, SessionPart>>({});
@@ -191,7 +199,9 @@ export function createQuotaClient(
       rpc().events.on(
         "changed",
         (event) => {
-          if (!signal.aborted) apply(event.data.snapshot);
+          if (signal.aborted) return;
+          if (host.acceptsEventFrom && !host.acceptsEventFrom(event.location)) return;
+          apply(event.data.snapshot);
         },
         { signal },
       );
@@ -209,12 +219,21 @@ export function createQuotaClient(
     const at = mount;
     loading.set(key, call);
     subscribe();
-    rpc()
-      .snapshot(sessionID ? { sessionID } : {}, quotaCallOptions(host))
+    let request: Promise<QuotaRpcSnapshotOutput>;
+    try {
+      request = rpc().snapshot(sessionID ? { sessionID } : {}, quotaCallOptions(host));
+    } catch (error) {
+      // A client without the RPC, or no folder to name: fail like a rejected call.
+      request = Promise.reject(error);
+    }
+    request
       .then((output) => {
         if (at === mount) apply(output.snapshot, sessionID ? { id: sessionID, call } : undefined);
       })
-      .catch(reportFailure)
+      .catch((error) => {
+        if (at === mount) onFailure(error);
+        reportFailure(error);
+      })
       .finally(() => {
         if (loading.get(key) === call) loading.delete(key);
       });
