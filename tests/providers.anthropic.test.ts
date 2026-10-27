@@ -295,6 +295,19 @@ describe("anthropic provider", () => {
     expectAttemptedWithErrorLabel(out, "Claude");
   });
 
+  it("keeps the OAuth cooldown end on its toast error", async () => {
+    const { queryAnthropicQuota } = await import("../src/lib/anthropic.js");
+    const message = "Anthropic OAuth usage probe paused after HTTP 429; retry in 30s.";
+    (queryAnthropicQuota as any).mockResolvedValueOnce({
+      success: false,
+      error: message,
+      retryAtMs: 1_800_000_030_000,
+    });
+
+    const out = await anthropicProvider.fetch({} as any);
+    expect(out.errors).toEqual([{ label: "Claude", message, retryAtMs: 1_800_000_030_000 }]);
+  });
+
   it("matches anthropic/ model ids", () => {
     expect(anthropicProvider.matchesCurrentModel?.("anthropic/claude-sonnet-4-6")).toBe(true);
     expect(anthropicProvider.matchesCurrentModel?.("anthropic/claude-opus-4-6")).toBe(true);

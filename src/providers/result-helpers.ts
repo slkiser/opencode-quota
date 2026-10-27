@@ -31,11 +31,18 @@ export function attemptedResult(
 export function attemptedErrorResult(
   label: string,
   message: string,
-  options: { retryable?: boolean } = {},
+  options: { retryable?: boolean; retryAtMs?: number } = {},
 ): QuotaProviderResult {
   return attemptedResult(
     [],
-    [{ label, message, ...(options.retryable === true ? { retryable: true } : {}) }],
+    [
+      {
+        label,
+        message,
+        ...(options.retryable === true ? { retryable: true } : {}),
+        ...(options.retryAtMs !== undefined ? { retryAtMs: options.retryAtMs } : {}),
+      },
+    ],
   );
 }
 

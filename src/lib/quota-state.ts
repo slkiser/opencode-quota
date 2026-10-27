@@ -23,7 +23,10 @@ import {
   normalizeQuotaProviderResult,
 } from "./quota-state-codec.js";
 import { updateQuotaTelemetrySnapshot } from "./quota-telemetry.js";
-import type { ResolvedAuthIdentity } from "./resolved-auth-identity.js";
+import {
+  isResolvedAuthIdentityKeyProcessLocal,
+  type ResolvedAuthIdentity,
+} from "./resolved-auth-identity.js";
 import { getPackageVersion } from "./version.js";
 
 const QUOTA_PROVIDER_CACHE_PACKAGE_VERSION_FALLBACK = "unknown";
@@ -244,7 +247,10 @@ async function resolveRuntimeEligibleQuotaProviders(
   }
 }
 
-type ProviderCacheScope = { resolvedAuthIdentity?: ResolvedAuthIdentity } | null;
+type ProviderCacheScope = {
+  resolvedAuthIdentity?: ResolvedAuthIdentity;
+  persistToDisk: boolean;
+} | null;
 
 async function resolveProviderCacheScope(
   provider: QuotaProvider,
@@ -253,11 +259,14 @@ async function resolveProviderCacheScope(
 ): Promise<ProviderCacheScope> {
   const policy = provider.cachePolicy;
   if (!policy || policy.kind === "uncached") return null;
-  if (policy.kind === "account-neutral") return {};
+  if (policy.kind === "account-neutral") return { persistToDisk: true };
 
   try {
     const resolvedAuthIdentity = await policy.resolveIdentity(ctx, cacheContext);
-    return resolvedAuthIdentity ? { resolvedAuthIdentity } : null;
+    if (!resolvedAuthIdentity) return null;
+    // A process-local identity key gives each process different identities, so
+    // no other process could ever read an entry persisted under one.
+    return { resolvedAuthIdentity, persistToDisk: !isResolvedAuthIdentityKeyProcessLocal() };
   } catch {
     return null;
   }
@@ -323,6 +332,15 @@ function readProcessLocalLatest(params: {
   };
 }
 
+// An errors-only result whose error reports a wait (for example an Anthropic 429
+// cooldown) goes stale once that wait is over, even within the cache TTL.
+function isErrorsOnlyRetryDue(result: QuotaProviderResult, now: number): boolean {
+  return (
+    result.entries.length === 0 &&
+    result.errors.some((error) => error.retryAtMs !== undefined && error.retryAtMs <= now)
+  );
+}
+
 function publishQuotaTelemetry(params: {
   ctx: QuotaProviderContext;
   providerId: string;
@@ -366,7 +384,10 @@ export async function fetchQuotaProviderResult(params: {
     return snapshot;
   };
 
-  if (bypassCache && !isLiveLocalUsageProviderId(provider.id)) return fetchUncached();
+  const bypassesCache = bypassCache && !isLiveLocalUsageProviderId(provider.id);
+  // Only memory-only scopes (a process-local identity key) cache errors-only
+  // results; there a successful retry also replaces the cached error.
+  if (bypassesCache && !isResolvedAuthIdentityKeyProcessLocal()) return fetchUncached();
 
   const runtimeEligibleQuotaProviders = await resolveRuntimeEligibleQuotaProviders(
     provider.id,
@@ -382,6 +403,32 @@ export async function fetchQuotaProviderResult(params: {
     runtimeEligibleQuotaProviders,
     resolvedAuthIdentity: scope.resolvedAuthIdentity,
   });
+
+  if (bypassesCache) {
+    const snapshot = await fetchUncached(cacheContext);
+    const cached = inMemoryCache.get(key);
+    if (
+      !scope.persistToDisk &&
+      cached !== undefined &&
+      cached.result.entries.length === 0 &&
+      snapshot.attempted &&
+      snapshot.entries.length > 0 &&
+      (await isProviderCacheScopeCurrent(provider, ctx, scope))
+    ) {
+      const entry = encodePersistedQuotaProviderCacheEntry({
+        packageVersion: await getQuotaProviderCachePackageVersion(),
+        key: getQuotaProviderStateCacheLocator(key),
+        providerId: provider.id,
+        timestamp: Date.now(),
+        result: snapshot,
+      });
+      inMemoryCache.set(key, {
+        ...entry,
+        result: cloneQuotaProviderResult(entry.result),
+      });
+    }
+    return snapshot;
+  }
 
   if (isLiveLocalUsageProviderId(provider.id)) {
     const snapshot = await fetchValidatedProviderResult(provider, ctx, cacheContext);
@@ -422,7 +469,8 @@ export async function fetchQuotaProviderResult(params: {
     inMemory &&
     inMemory.packageVersion === packageVersion &&
     ttlMs > 0 &&
-    now - inMemory.timestamp < ttlMs
+    now - inMemory.timestamp < ttlMs &&
+    !isErrorsOnlyRetryDue(inMemory.result, now)
   ) {
     publishQuotaTelemetry({
       ctx,
@@ -447,15 +495,16 @@ export async function fetchQuotaProviderResult(params: {
     return cloneQuotaProviderResult(snapshot);
   }
 
-  const persisted = forceAggregateRefresh
-    ? null
-    : await readPersistedQuotaProviderCacheEntry({
-        key,
-        providerId: provider.id,
-        packageVersion,
-        ttlMs,
-        now,
-      });
+  const persisted =
+    forceAggregateRefresh || !scope.persistToDisk
+      ? null
+      : await readPersistedQuotaProviderCacheEntry({
+          key,
+          providerId: provider.id,
+          packageVersion,
+          ttlMs,
+          now,
+        });
   if (persisted) {
     inMemoryCache.set(key, {
       ...persisted,
@@ -486,10 +535,13 @@ export async function fetchQuotaProviderResult(params: {
 
   const fetchPromise = (async () => {
     const snapshot = await fetchValidatedProviderResult(provider, ctx, cacheContext);
+    // A memory-only scope has no latest-snapshot fallback for cached-only reads,
+    // so it also keeps errors-only results (for example an Anthropic 429 cooldown).
+    const keepsErrorsOnly = !scope.persistToDisk && snapshot.errors.length > 0;
 
     if (
       !snapshot.attempted ||
-      snapshot.entries.length === 0 ||
+      (snapshot.entries.length === 0 && !keepsErrorsOnly) ||
       !(await isProviderCacheScopeCurrent(provider, ctx, scope))
     ) {
       inMemoryCache.delete(key);
@@ -509,7 +561,7 @@ export async function fetchQuotaProviderResult(params: {
       ...entry,
       result: cloneQuotaProviderResult(entry.result),
     });
-    await writePersistedQuotaProviderCacheEntry(entry, key);
+    if (scope.persistToDisk) await writePersistedQuotaProviderCacheEntry(entry, key);
     return snapshot;
   })().finally(() => {
     inFlightByKey.delete(key);
@@ -572,6 +624,8 @@ export async function readCachedProviderResult(params: {
       timestamp: inMemory.timestamp,
     };
   }
+
+  if (!scope.persistToDisk) return { hit: false };
 
   const packageVersion = await getQuotaProviderCachePackageVersion();
   const persisted = await readPersistedQuotaProviderCacheEntry({

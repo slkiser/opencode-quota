@@ -526,6 +526,23 @@ describe("Claude CLI diagnostics", () => {
     );
   });
 
+  it("hides the console window of Windows Claude CLI checks", async () => {
+    setProcessPlatform("win32");
+    mockExecSequence([
+      { stdout: "2.1.123 (Claude Code)\n" },
+      { stdout: JSON.stringify({ authenticated: true }) },
+    ]);
+
+    await getAnthropicDiagnostics({
+      binaryPath: "C:\\Users\\alice\\AppData\\Roaming\\npm\\claude.cmd",
+    });
+
+    expect(execFileMock).toHaveBeenCalledTimes(2);
+    for (const call of execFileMock.mock.calls) {
+      expect(call[2]).toMatchObject({ windowsHide: true });
+    }
+  });
+
   it("reports missing Claude CLI as unavailable without quota data", async () => {
     mockExecSequence([
       {
@@ -907,6 +924,13 @@ describe("Claude CLI diagnostics", () => {
       timeoutMs: undefined,
       consume: expect.any(Function),
     });
+    expect(execFileMock).toHaveBeenNthCalledWith(
+      3,
+      "security",
+      expect.any(Array),
+      expect.objectContaining({ windowsHide: true }),
+      expect.any(Function),
+    );
   });
 
   it("ignores non-OAuth OpenCode Anthropic auth entries", async () => {
@@ -1264,6 +1288,7 @@ describe("Claude CLI diagnostics", () => {
         }),
       );
 
+    const cooldownEndsAt = Date.parse("2026-07-10T12:00:45.000Z");
     const first = await getAnthropicDiagnostics();
     expect(first.message).toContain("Anthropic API error 429: rate limited [redacted]");
     expect(first.message).toContain(
@@ -1271,6 +1296,7 @@ describe("Claude CLI diagnostics", () => {
     );
     expect(first.message).not.toContain("oauth-secret-token");
     expect(first.message).not.toContain("\u001b");
+    expect(first.retryAtMs).toBe(cooldownEndsAt);
 
     await vi.advanceTimersByTimeAsync(5_001);
     const suppressed = await getAnthropicDiagnostics();
@@ -1278,6 +1304,11 @@ describe("Claude CLI diagnostics", () => {
       "Anthropic OAuth usage probe paused after HTTP 429; retry in 40s.",
     );
     expect(suppressed.message).not.toContain("oauth-secret-token");
+    expect(suppressed.retryAtMs).toBe(cooldownEndsAt);
+    await expect(queryAnthropicQuota()).resolves.toMatchObject({
+      success: false,
+      retryAtMs: cooldownEndsAt,
+    });
     expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
 
     await vi.advanceTimersByTimeAsync(40_000);

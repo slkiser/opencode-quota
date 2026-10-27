@@ -253,6 +253,8 @@ export interface QuotaToastError {
   message: string;
   /** Whether a later refresh may succeed without user action. */
   retryable?: boolean;
+  /** Epoch ms after which the provider's reported wait (for example a 429 cooldown) is over. */
+  retryAtMs?: number;
   /** Intentional diagnostics remain verbose but do not count as compact-status issues. */
   kind?: "intentional-filter";
 }
