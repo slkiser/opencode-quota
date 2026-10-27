@@ -59,6 +59,7 @@ OpenCode を再起動して `/quota` と入力します。上限を表示する�
 
 - **OpenCode 2 向けに設計：** 設定は、開いているすべての OpenCode に即座に反映されます。
 - **ターミナル：** `npx @slkiser/opencode-quota@latest show` は OpenCode を閉じていても使えます。
+- **Desktop（実験的、OpenCode `2.2.0+`）：** **Quota** コマンドで使用量ウィンドウ（Limits、Cost、Tokens）が開きます。Desktop にはほかに、固定された Quota サイドタブ、タイトルバーのピル、ウィンドウ下部のストリップ、入力欄の上のピル、トースト、セッションメニューの **Quota usage for this session**、OpenCode の設定内の Quota ページが加わります。同じプラグインエントリーで読み込まれます。オフにするには **Settings → Extensions → Plugins** を開きます。
 - **Web と Desktop：** `/quota`、`/quota_usage`、`/quota_status` は、レポートをあなたのメッセージとしてチャットに投稿します。AI がそれに返答することはなく、プラグインはすべての AI リクエストからそれを除外します。プラグインをアンインストールすると、過去のチャットにある古いレポートは除外されなくなります。Web ではフォントによって列が揃わないことがあります。
 - **スクリプトとステータスバー：** JSON、エクスポートファイル、メトリクス。[外部連携](../external-integration.md)を参照してください。
 
@@ -75,7 +76,7 @@ OpenCode を再起動して `/quota` と入力します。上限を表示する�
 
 ## 設定
 
-サイドバー、ステータスライン、トースト、色、表記、プロバイダーは `/quota_settings` で変更できます。**Save**（保存）は、変更した項目だけを OpenCode の設定フォルダー内の `opencode-quota/settings.jsonc` に書き込み、コメントはそのまま残します。ファイルを編集すると、数秒以内に開いているすべての TUI に反映されます。カスタムプロバイダー、Claude CLI のパス、エクスポート先のパスはファイルでのみ設定できます。[設定とデフォルト値](../configuration.md)。
+サイドバー、ステータスライン、トースト、色、表記、プロバイダーは `/quota_settings` で変更できます。**Save**（保存）は、変更した項目だけを OpenCode の設定フォルダー内の `opencode-quota/settings.jsonc` に書き込み、コメントはそのまま残します。ファイルを編集すると、数秒以内に開いているすべての TUI に反映されます。Desktop では、OpenCode の設定内の Quota ページも同じファイルに保存します。カスタムプロバイダー、Claude CLI のパス、エクスポート先のパスはファイルでのみ設定できます。[設定とデフォルト値](../configuration.md)。
 
 ## プロバイダー
 
@@ -142,6 +143,7 @@ OpenCode を再起動します。4.x または 5.x からのアップデート�
 3. コンパニオンプラグイン（Cursor、Google）を使っている場合は、`opencode.json` でそれを `@slkiser/opencode-quota` より**前**に書いてください。
 4. `claude` や `bl` が見つからない場合は、[サービス環境](../troubleshooting.md#service-environment)を参照してください。
 5. `/quota_usage` が空の場合は、一度 OpenCode を起動してから、モデルを使ってください。
+6. Desktop に Quota の GUI が出ない場合は、OpenCode `2.2.0+` が必要で、**Settings → Extensions → Plugins** のスイッチがオンである必要があります。Web はプラグインの GUI を表示しません。
 
 そのほかの解決方法：[トラブルシューティング](../troubleshooting.md)。
 

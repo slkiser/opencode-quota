@@ -59,6 +59,7 @@ Add the plugin to `opencode.jsonc` or `opencode.json`, and keep your other plugi
 
 - **Built for OpenCode 2:** settings apply live, in every open OpenCode.
 - **Terminal:** `npx @slkiser/opencode-quota@latest show` works even with OpenCode closed.
+- **Desktop (experimental, OpenCode `2.2.0+`):** the **Quota** command opens a usage window (Limits, Cost, Tokens). Desktop also gets a pinned Quota side tab, a titlebar pill, a bottom strip, a composer pill, toasts, a **Quota usage for this session** item in the session menu, and a Quota page in OpenCode's settings. The same plugin entry loads it; turn it off in **Settings → Extensions → Plugins**.
 - **Web and Desktop:** `/quota`, `/quota_usage` and `/quota_status` post their report in the chat as your message. The AI never answers it, and the plugin filters it out of every AI request. After you uninstall the plugin, old reports in past chats are no longer filtered. Web's font may not line up the columns.
 - **Scripts and status bars:** JSON, an export file, and metrics. See [External integration](docs/readme/external-integration.md).
 
@@ -75,7 +76,7 @@ For example `/quota_usage 30d` or `/quota_usage between 2026-09-01 2026-09-25`. 
 
 ## Settings
 
-Change the sidebar, status line, toasts, colors, words and providers in `/quota_settings`. **Save** writes only what you changed to `opencode-quota/settings.jsonc` in OpenCode's config folder and keeps your comments. A file edit reaches every open TUI within a few seconds. Custom providers, the Claude CLI path and the export path are set only in the file. [Settings and defaults](docs/readme/configuration.md).
+Change the sidebar, status line, toasts, colors, words and providers in `/quota_settings`. **Save** writes only what you changed to `opencode-quota/settings.jsonc` in OpenCode's config folder and keeps your comments. A file edit reaches every open TUI within a few seconds. In Desktop, the Quota page in OpenCode's settings saves to the same file. Custom providers, the Claude CLI path and the export path are set only in the file. [Settings and defaults](docs/readme/configuration.md).
 
 ## Providers
 
@@ -142,6 +143,7 @@ Restart OpenCode. Coming from 4.x or 5.x? Your settings convert on the first sta
 3. Using a companion plugin (Cursor, Google)? List it **before** `@slkiser/opencode-quota` in `opencode.json`.
 4. `claude` or `bl` not found? See [Service environment](docs/readme/troubleshooting.md#service-environment).
 5. `/quota_usage` empty? Start OpenCode once, then use a model.
+6. No Quota GUI in Desktop? It needs OpenCode `2.2.0+` and its switch on in **Settings → Extensions → Plugins**. Web shows no plugin GUI.
 
 More fixes: [Troubleshooting](docs/readme/troubleshooting.md).
 

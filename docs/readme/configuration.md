@@ -2,7 +2,7 @@
 
 # Configuration
 
-Most people need no settings. To change one, open `/quota_settings` in the TUI: every setting is a line there, with its values.
+Most people need no settings. To change one, open `/quota_settings` in the TUI: every setting is a line there, with its values. In OpenCode Desktop (`2.2.0+`, experimental), the Quota page in OpenCode's settings edits the same file.
 
 ## Where settings live
 
@@ -41,7 +41,7 @@ Nest the keys in the file:
 - **Status line:** under the message box when no sidebar panel with quota is on screen. **Next to the sidebar** on its page shows it there too.
 - **Toasts:** after compaction, when every provider fails, and after a reply once a shown limit is getting low.
 
-Web and Desktop have none of these; there `/quota`, `/quota_usage` and `/quota_status` post a report in the chat.
+OpenCode Desktop (`2.2.0+`, experimental) shows the same settings in its own places: `sidebar` in a pinned Quota side tab, `collapsed` in a titlebar pill, `statusLine` in a strip at the bottom of the window, and `toast` in its toasts. Web has none of these; there `/quota`, `/quota_usage` and `/quota_status` post a report in the chat.
 
 ## All settings
 

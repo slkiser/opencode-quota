@@ -59,6 +59,7 @@ Füge das Plugin zu `opencode.jsonc` oder `opencode.json` hinzu und behalte dein
 
 - **Für OpenCode 2 gebaut:** Einstellungen gelten sofort, in jedem offenen OpenCode.
 - **Terminal:** `npx @slkiser/opencode-quota@latest show` funktioniert auch, wenn OpenCode geschlossen ist.
+- **Desktop (experimentell, OpenCode `2.2.0+`):** Der Befehl **Quota** öffnet ein Nutzungsfenster (Limits, Cost, Tokens). Desktop bekommt außerdem einen angehefteten Quota-Seitentab, eine Pille in der Titelleiste, eine Leiste am unteren Rand, eine Pille über dem Eingabefeld, Toasts, den Eintrag **Quota usage for this session** im Sitzungsmenü und eine Quota-Seite in den Einstellungen von OpenCode. Derselbe Plugin-Eintrag lädt das; abschalten kannst du es unter **Settings → Extensions → Plugins**.
 - **Web und Desktop:** `/quota`, `/quota_usage` und `/quota_status` posten ihren Bericht als deine Nachricht in den Chat. Die KI antwortet nie darauf, und das Plugin filtert ihn aus jeder KI-Anfrage heraus. Nach der Deinstallation des Plugins werden alte Berichte in früheren Chats nicht mehr gefiltert. Die Schrift im Web richtet die Spalten eventuell nicht sauber aus.
 - **Skripte und Statusleisten:** JSON, eine Exportdatei und Metriken. Siehe [Externe Integration](../external-integration.md).
 
@@ -75,7 +76,7 @@ Zum Beispiel `/quota_usage 30d` oder `/quota_usage between 2026-09-01 2026-09-25
 
 ## Einstellungen
 
-Seitenleiste, Statuszeile, Toasts, Farben, Formulierungen und Anbieter änderst du in `/quota_settings`. **Save** schreibt nur deine Änderungen nach `opencode-quota/settings.jsonc` im Konfigurationsordner von OpenCode und behält deine Kommentare. Eine Änderung an der Datei erreicht jede offene TUI innerhalb weniger Sekunden. Eigene Anbieter, der Pfad zur Claude CLI und der Exportpfad lassen sich nur in der Datei festlegen. [Einstellungen und Standardwerte](../configuration.md).
+Seitenleiste, Statuszeile, Toasts, Farben, Formulierungen und Anbieter änderst du in `/quota_settings`. **Save** schreibt nur deine Änderungen nach `opencode-quota/settings.jsonc` im Konfigurationsordner von OpenCode und behält deine Kommentare. Eine Änderung an der Datei erreicht jede offene TUI innerhalb weniger Sekunden. In Desktop speichert die Quota-Seite in den Einstellungen von OpenCode in dieselbe Datei. Eigene Anbieter, der Pfad zur Claude CLI und der Exportpfad lassen sich nur in der Datei festlegen. [Einstellungen und Standardwerte](../configuration.md).
 
 ## Anbieter
 
@@ -142,6 +143,7 @@ Starte OpenCode neu. Du kommst von 4.x oder 5.x? Deine Einstellungen werden beim
 3. Du nutzt ein Begleit-Plugin (Cursor, Google)? Trage es in `opencode.json` **vor** `@slkiser/opencode-quota` ein.
 4. `claude` oder `bl` nicht gefunden? Siehe [Dienstumgebung](../troubleshooting.md#service-environment).
 5. `/quota_usage` ist leer? Starte OpenCode einmal und nutze dann ein Modell.
+6. Keine Quota-Oberfläche in Desktop? Sie braucht OpenCode `2.2.0+` und ihren eingeschalteten Schalter unter **Settings → Extensions → Plugins**. Web zeigt keine Plugin-Oberflächen.
 
 Weitere Lösungen: [Fehlerbehebung](../troubleshooting.md).
 

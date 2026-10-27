@@ -59,6 +59,7 @@ opencode plugin add @slkiser/opencode-quota
 
 - **為 OpenCode 2 打造：** 設定即時生效，套用到每個開啟中的 OpenCode。
 - **終端機：** 即使 OpenCode 已關閉，`npx @slkiser/opencode-quota@latest show` 也能使用。
+- **Desktop（實驗性，OpenCode `2.2.0+`）：** **Quota** 指令會開啟用量視窗（Limits、Cost、Tokens）。Desktop 還會有釘選的 Quota 側邊分頁、標題列膠囊、視窗底部狀態條、輸入框上方的膠囊、toast 通知、工作階段選單中的 **Quota usage for this session**，以及 OpenCode 設定中的 Quota 頁面。同一個外掛項目即可載入它；可在 **Settings → Extensions → Plugins** 中關閉。
 - **Web 和 Desktop：** `/quota`、`/quota_usage` 和 `/quota_status` 會把報告當成你的訊息貼到聊天中。AI 從不回覆它，外掛也會把它從每次 AI 請求中過濾掉。解除安裝外掛後，過去聊天中的舊報告將不再被過濾。Web 的字型可能無法讓各欄對齊。
 - **腳本和狀態列：** JSON、匯出檔案和指標。請參閱[外部整合](../external-integration.md)。
 
@@ -75,7 +76,7 @@ opencode plugin add @slkiser/opencode-quota
 
 ## 設定
 
-在 `/quota_settings` 中變更側邊欄、狀態列、toast 通知、顏色、措辭和供應商。**Save**（儲存）只會把你變更的內容寫入 OpenCode 設定資料夾中的 `opencode-quota/settings.jsonc`，並保留你的註解。編輯該檔案後，幾秒內就會套用到每個開啟中的 TUI。自訂供應商、Claude CLI 路徑和匯出路徑只能在檔案中設定。[設定與預設值](../configuration.md)。
+在 `/quota_settings` 中變更側邊欄、狀態列、toast 通知、顏色、措辭和供應商。**Save**（儲存）只會把你變更的內容寫入 OpenCode 設定資料夾中的 `opencode-quota/settings.jsonc`，並保留你的註解。編輯該檔案後，幾秒內就會套用到每個開啟中的 TUI。在 Desktop 中，OpenCode 設定裡的 Quota 頁面也會儲存到同一個檔案。自訂供應商、Claude CLI 路徑和匯出路徑只能在檔案中設定。[設定與預設值](../configuration.md)。
 
 ## 供應商
 
@@ -142,6 +143,7 @@ opencode plugin update
 3. 有使用搭配的外掛（Cursor、Google）？在 `opencode.json` 中把它列在 `@slkiser/opencode-quota` **之前**。
 4. 找不到 `claude` 或 `bl`？請參閱[服務環境](../troubleshooting.md#service-environment)。
 5. `/quota_usage` 是空的？先啟動一次 OpenCode，然後使用一個模型。
+6. Desktop 中沒有 Quota 介面？它需要 OpenCode `2.2.0+`，並在 **Settings → Extensions → Plugins** 中開啟它的開關。Web 不顯示外掛介面。
 
 更多解決方法：[疑難排解](../troubleshooting.md)。
 
