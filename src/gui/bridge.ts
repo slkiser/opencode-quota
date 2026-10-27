@@ -137,6 +137,7 @@ export function createGuiQuota(host: GuiQuotaHost): GuiQuota {
     failure: (directory) => folderFor(directory).failure(),
 
     watch(directory) {
+      const key = directory ?? "";
       const folder = folderFor(directory);
       folder.watchers += 1;
       if (folder.watchers === 1) start(folder);
@@ -147,7 +148,10 @@ export function createGuiQuota(host: GuiQuotaHost): GuiQuota {
         unwatched = true;
         unwatchQuota();
         folder.watchers -= 1;
-        if (folder.watchers === 0) stop(folder);
+        if (folder.watchers > 0) return;
+        stop(folder);
+        // A folder nothing watches is forgotten; watching it again asks the server afresh.
+        if (folders.get(key) === folder) folders.delete(key);
       };
     },
 

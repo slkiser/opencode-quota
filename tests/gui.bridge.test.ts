@@ -214,6 +214,43 @@ describe("GUI quota bridge", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("forgets a folder nothing watches, and asks the server afresh when it is watched again", async () => {
+    const rpc = folderRpc({ "/a": snapshotOf("server-a", 1, 10) });
+    const gui = createGuiQuota({
+      client: () => ({ rpc: () => rpc }) as never,
+      directory: () => "/a",
+    });
+    let unwatch = gui.watch("/a");
+    await settle();
+    expect(percentOf(gui.snapshot("/a"))).toBe(10);
+    unwatch();
+    expect(gui.snapshot("/a")).toBeUndefined();
+    const calls = rpc.snapshot.mock.calls.length;
+    unwatch = gui.watch("/a");
+    await settle();
+    expect(rpc.snapshot.mock.calls.length).toBeGreaterThan(calls);
+    expect(percentOf(gui.snapshot("/a"))).toBe(10);
+    unwatch();
+  });
+
+  it("says a later call failed while it still shows the earlier snapshot", async () => {
+    vi.useFakeTimers();
+    const rpc = fakeRpc();
+    const gui = createGuiQuota({
+      client: () => ({ rpc: () => rpc }) as never,
+      directory: () => "/p",
+    });
+    const unwatch = gui.watch("/p");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(percentOf(gui.snapshot("/p"))).toBe(40);
+    rpc.snapshot.mockRejectedValue({ type: "rpc.unavailable", message: "no such RPC" });
+    rpc.refresh.mockRejectedValue({ type: "rpc.unavailable", message: "no such RPC" });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(percentOf(gui.snapshot("/p"))).toBe(40);
+    expect(gui.failure("/p")).toEqual({ kind: "unavailable" });
+    unwatch();
+  });
+
   it("says the server has no quota RPC, instead of loading forever", async () => {
     const rpc = fakeRpc();
     rpc.snapshot.mockRejectedValue({ type: "rpc.unavailable", message: "no such RPC" });

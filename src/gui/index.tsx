@@ -9,7 +9,7 @@
  * quota RPC, or the call fails, it says so instead.
  */
 import { Command, Plugin } from "@opencode/plugin/gui";
-import { createEffect, For, Match, onCleanup, Show, Switch } from "solid-js";
+import { createEffect, For, type JSX, Match, onCleanup, Show, Switch } from "solid-js";
 import type { QuotaRow } from "../core/types.js";
 import { createGuiQuota, type GuiQuotaHost } from "./bridge.js";
 
@@ -59,6 +59,17 @@ export default Plugin.define({
         const shown = failure();
         return shown?.kind === "error" ? shown.message : undefined;
       };
+      // Shown with or without a snapshot, so a failure after an earlier success is not hidden.
+      const failureNotice = (fallback?: JSX.Element) => (
+        <Switch fallback={fallback}>
+          <Match when={failure()?.kind === "unavailable"}>
+            <p>{ctx.t("dialog.unavailable")}</p>
+          </Match>
+          <Match when={errorMessage() !== undefined}>
+            <p>{ctx.t("dialog.error", { message: errorMessage() ?? "" })}</p>
+          </Match>
+        </Switch>
+      );
       return (
         <ui.Dialog
           title={ctx.t("dialog.title")}
@@ -71,46 +82,40 @@ export default Plugin.define({
         >
           <Show
             when={data.snapshot(directory())}
-            fallback={
-              <Switch fallback={<p>{ctx.t("dialog.loading")}</p>}>
-                <Match when={failure()?.kind === "unavailable"}>
-                  <p>{ctx.t("dialog.unavailable")}</p>
-                </Match>
-                <Match when={errorMessage() !== undefined}>
-                  <p>{ctx.t("dialog.error", { message: errorMessage() ?? "" })}</p>
-                </Match>
-              </Switch>
-            }
+            fallback={failureNotice(<p>{ctx.t("dialog.loading")}</p>)}
           >
             {(snapshot) => (
-              <For each={snapshot().providers} fallback={<p>{ctx.t("dialog.noProviders")}</p>}>
-                {(provider) => (
-                  <section>
-                    <h3>{provider.label}</h3>
-                    <Show when={provider.error}>{(error) => <p>{error().code}</p>}</Show>
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>{ctx.t("column.row")}</th>
-                          <th>{ctx.t("column.percent")}</th>
-                          <th>{ctx.t("column.reset")}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <For each={provider.rows}>
-                          {(row) => (
-                            <tr>
-                              <td>{rowName(row)}</td>
-                              <td>{percentText(row)}</td>
-                              <td>{row.resetsAt ?? ""}</td>
-                            </tr>
-                          )}
-                        </For>
-                      </tbody>
-                    </table>
-                  </section>
-                )}
-              </For>
+              <>
+                {failureNotice()}
+                <For each={snapshot().providers} fallback={<p>{ctx.t("dialog.noProviders")}</p>}>
+                  {(provider) => (
+                    <section>
+                      <h3>{provider.label}</h3>
+                      <Show when={provider.error}>{(error) => <p>{error().code}</p>}</Show>
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>{ctx.t("column.row")}</th>
+                            <th>{ctx.t("column.percent")}</th>
+                            <th>{ctx.t("column.reset")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <For each={provider.rows}>
+                            {(row) => (
+                              <tr>
+                                <td>{rowName(row)}</td>
+                                <td>{percentText(row)}</td>
+                                <td>{row.resetsAt ?? ""}</td>
+                              </tr>
+                            )}
+                          </For>
+                        </tbody>
+                      </table>
+                    </section>
+                  )}
+                </For>
+              </>
             )}
           </Show>
         </ui.Dialog>
