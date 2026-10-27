@@ -2,7 +2,8 @@
 /**
  * The strip at the bottom of the window (`window.bottom`), the TUI's status line: the same lines
  * from `view/text.ts` (`statusLayout`, or `bigStatusLine` for the "one" detail), in a fixed-width
- * font, each segment in its color role. It measures its room in characters, shows the most
+ * font, each segment in its color role. It takes the window's width, measures its room in
+ * characters (until then it shows every provider in full, cut at its edge), shows the most
  * detail that fits every provider, and pages when even "% only" does not fit: click "‹" or
  * "+N ›", or turn the mouse wheel. `statusLine.autoScrollSeconds` pages by itself;
  * `statusLine.width` caps its width. Click a provider to open the usage window.
@@ -18,7 +19,7 @@ import {
   statusLayout,
   statusLineInput,
 } from "../view/text.js";
-import { roleCss, segmentCss } from "./surfaces-model.js";
+import { roleCss, segmentCss, stripRoom } from "./surfaces-model.js";
 
 const CLOCK_MS = 60_000;
 /** The strip's padding on both sides (`.oq-strip-bottom`). */
@@ -84,9 +85,9 @@ export function StatusStrip(props: StripProps) {
   const big = () => settings().statusLine.detail === "one";
   const layout = () => {
     const current = input();
-    if (!current || big() || room() === 0) return undefined;
+    if (!current || big()) return undefined;
     const detail = settings().statusLine.detail;
-    return statusLayout(current, room(), start(), detail === "one" ? "auto" : detail);
+    return statusLayout(current, stripRoom(room()), start(), detail === "one" ? "auto" : detail);
   };
   const count = () => input()?.groups.length ?? 0;
   const step = (delta: number) => setStart(Math.max(0, Math.min(count() - 1, start() + delta)));

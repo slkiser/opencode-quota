@@ -184,6 +184,7 @@ export const STYLE = `
 .oq-peven { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; border-radius: 1px; }
 .oq-ppace { padding-left: 46px; font-size: 11.5px; }
 .oq-strip-bottom { position: relative; display: flex; align-items: center; justify-content: flex-end;
+  flex: 1 1 auto; box-sizing: border-box; width: 100%; min-width: 0;
   overflow: hidden; white-space: pre; padding: 2px 12px; margin-left: auto;
   font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 11.5px; }
 .oq-strip-bottom .oq-sline:hover { text-decoration: underline; }

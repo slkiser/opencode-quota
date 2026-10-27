@@ -7,8 +7,9 @@
  * It adds the window's CSS, the Quota command, which opens the usage window (`window.tsx`) for
  * the folder and session on screen, and the always-on surfaces, each following the settings of
  * its TUI counterpart (`surfaces-model.ts`):
- * - a Quota tab in the session's side region (the sidebar panel), added to the strip once and
- *   listed in its + menu; plugin storage remembers whether it is open or folded;
+ * - a Quota tab in the session's side region (the sidebar panel), pinned in every session's
+ *   strip while the sidebar shows, and listed in its + menu; plugin storage remembers whether
+ *   it is open or folded;
  * - a titlebar pill (the collapsed sidebar), a pill above the composer (the current model's
  *   limit) and the session menu's "Quota usage for this session", which open the usage window;
  * - a strip at the bottom of the window (the status line);
@@ -55,9 +56,9 @@ const PANEL_ID = "quota";
 const TITLEBAR_PROVIDERS = 2;
 const CLOCK_MS = 60_000;
 
-/** The Quota tab: open or folded, and whether it was put in the strip once. */
-type PanelState = { open: boolean; added: boolean };
-const PANEL_INITIAL: PanelState = { open: true, added: false };
+/** The Quota tab: open or folded. */
+type PanelState = { open: boolean };
+const PANEL_INITIAL: PanelState = { open: true };
 type PanelStore = Pick<Persisted<PanelState>, "value" | "update">;
 type StoreSchema = Parameters<Context["storage"]["store"]>[1]["schema"];
 /** The part of Effect the store's schema needs. */
@@ -111,7 +112,7 @@ function createPanelState(ctx: Context) {
     try {
       // The bundle's `require` is the app's, which lends Effect to its plugins (build-gui.mjs).
       const { Schema } = require("effect") as EffectModule;
-      const schema = Schema.Struct({ open: Schema.Boolean, added: Schema.Boolean });
+      const schema = Schema.Struct({ open: Schema.Boolean });
       const stored = ctx.storage.store("sidebar", { schema, initial: { ...PANEL_INITIAL } });
       setStore(stored as Persisted<PanelState>);
     } catch {
@@ -121,8 +122,6 @@ function createPanelState(ctx: Context) {
   return {
     load,
     open: () => store()?.value?.open ?? PANEL_INITIAL.open,
-    /** Undefined until the store loads. */
-    added: () => store()?.value?.added,
     set(change: Partial<PanelState>) {
       store()?.update((draft) => {
         Object.assign(draft, change);
@@ -190,22 +189,21 @@ export default Plugin.define({
       run: () => openWindow(),
     }));
 
-    // The Quota tab, as the sidebar panel.
+    // The Quota tab, as the sidebar panel: pinned in each session's strip, as the TUI's sidebar
+    // shows in each session.
     const panelKey = `${ctx.id}:${PANEL_ID}`;
     const panelState = createPanelState(ctx);
     let tab: PanelTab | undefined;
     const panelTab = () => {
       const title = ctx.t("panel.tab");
-      if (tab?.title !== title) tab = { id: PANEL_ID, title };
+      if (tab?.title !== title) tab = { id: PANEL_ID, title, pinned: true };
       return tab;
     };
     addSafely(ctx, Panel, {
       id: PANEL_ID,
       region: "side",
       list: (input) =>
-        input.open.includes(PANEL_ID) && surfaceSettings(snapshotOf(input.session)).sidebar.show
-          ? [panelTab()]
-          : [],
+        surfaceSettings(snapshotOf(input.session)).sidebar.show ? [panelTab()] : [],
       render: (props) => {
         createEffect(() => {
           onCleanup(data.watch(directoryOf(props.session), sessionIDOf(props.session)));
@@ -239,18 +237,6 @@ export default Plugin.define({
         },
       };
     });
-    // The tab joins the strip once, at its end and unselected; closed later, it stays closed.
-    createEffect(() => {
-      const session = ctx.sessions.current();
-      if (!session || !ctx.layout?.ready() || !snapshotOf(session)) return;
-      panelState.load();
-      if (panelState.added() !== false) return;
-      if (surfaceSettings(snapshotOf(session)).sidebar.show) {
-        ctx.layout.open(panelKey, session, { tab: "append" });
-      }
-      panelState.set({ added: true });
-    });
-
     // The titlebar pill, as the collapsed sidebar.
     addSafely(ctx, TitlebarItem, () => {
       const shown = current();

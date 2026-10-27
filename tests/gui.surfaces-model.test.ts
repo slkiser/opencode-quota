@@ -17,12 +17,14 @@ import {
   roleCss,
   segmentCss,
   statusStripShows,
+  stripRoom,
 } from "../src/gui/surfaces-model.js";
 import type { ClientSettings } from "../src/settings/index.js";
 import { defaultSettings } from "../src/settings/schema.js";
 import { THEME_COLORS } from "../src/tui/display.js";
 import { wantsResetNotice } from "../src/tui/toasts.js";
 import { listenForTurns, type SessionEvent } from "../src/tui/turn-events.js";
+import { statusLayout, statusLineInput } from "../src/view/text.js";
 import { providerSnapshot, quotaRow as row } from "./helpers/fake-answers.js";
 
 const NOW = Date.parse("2026-10-27T12:00:00.000Z");
@@ -204,6 +206,15 @@ describe("GUI bottom strip", () => {
     expect(shows({ "statusLine.show": false }, false, false)).toBe(false);
     expect(shows({}, true, false)).toBe(false);
     expect(shows({ "statusLine.home": true, "statusLine.show": false }, true, false)).toBe(true);
+  });
+
+  it("shows every provider in full until it has measured its room", () => {
+    const { snapshot, settings } = settingsWith({});
+    const input = statusLineInput(snapshot, settings, NOW);
+    const unmeasured = statusLayout(input, stripRoom(0), 0, "auto");
+    expect(unmeasured.shown).toHaveLength(input.groups.length);
+    expect(unmeasured.hiddenAfter).toBe(0);
+    expect(stripRoom(40)).toBe(40);
   });
 });
 

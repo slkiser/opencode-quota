@@ -98,6 +98,22 @@ describe("GUI bundle (dist/gui-experimental.cjs)", () => {
     expect(cleanup).toBeUndefined();
   });
 
+  it("pins the Quota tab in every session's strip, opened there or not", async () => {
+    const { definition } = await loadGui();
+    const { ctx, added } = fakeWindow();
+    definition.setup(ctx);
+    const panel = added[2]?.item as {
+      list: (input: { session: unknown; open: readonly string[] }) => unknown[];
+    };
+    const session = (id: string) => ({ id, directory: `/${id}`, server: { builtin: true } });
+
+    for (const id of ["first", "second"]) {
+      expect(panel.list({ session: session(id), open: [] })).toEqual([
+        expect.objectContaining({ id: "quota", pinned: true }),
+      ]);
+    }
+  });
+
   it("leaves out a surface whose registry this OpenCode lacks", async () => {
     const { ctx, added } = fakeWindow();
     const older = { ...gui, ComposerPill: undefined, TitlebarItem: undefined };

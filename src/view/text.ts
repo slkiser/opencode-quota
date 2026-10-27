@@ -838,6 +838,28 @@ export function toastLines(input: ToastInput): Line[] {
   return lines.map((line) => ({ ...line, segments: trimEnd(line.segments) }));
 }
 
+/**
+ * A quota toast's rows as sentences for a window, which draws text in a proportional font and
+ * may join lines: one per provider account, "Claude (work): 5h 80% left 2h 14m · Weekly 60% left
+ * 3.2d.", its error or "not checked yet" first, then the session's tokens. No padding or bars.
+ */
+export function toastSentences(input: ToastInput): string[] {
+  const named = groupFacts(input.groups, alwaysOnPlace(input, "words"));
+  const sentences = named.flatMap(({ group, rows }) => {
+    const state = groupState(group, input.nowMs);
+    const parts = [
+      ...(state ? [state.text] : []),
+      ...rows.map((row) =>
+        [row.name, row.value, row.reset, row.pace?.words].filter(Boolean).join(" "),
+      ),
+    ];
+    return parts.length > 0 ? [`${group.title}: ${parts.join(" · ")}.`] : [];
+  });
+  return input.sessionTokens
+    ? [...sentences, `Session: ${sessionTokensText(input.sessionTokens)}.`]
+    : sentences;
+}
+
 /** Where a surface draws: the time, and its columns (a toast's inside the toast, `toastRoom`). */
 export type SurfaceView = { nowMs: number; width: number };
 

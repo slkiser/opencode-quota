@@ -202,6 +202,14 @@ export function statusStripShows(
   return settings.statusLine.withSidebar || !(where.panelOnScreen && settings.sidebar.show);
 }
 
+/**
+ * The bottom strip's room in characters for its layout: the measured room, or, while the strip
+ * has not been measured (0), room for every provider in full; the strip cuts what overflows.
+ */
+export function stripRoom(measured: number): number {
+  return measured > 0 ? measured : Number.POSITIVE_INFINITY;
+}
+
 /** The composer pill's tone for a row's level. */
 export function levelTone(level: Level | undefined): "success" | "warning" | "danger" | undefined {
   if (level === "good") return "success";

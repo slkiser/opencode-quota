@@ -6,12 +6,19 @@
  * not due, as the TUI does.
  *
  * As each TUI toasts for the turns it hears, each window toasts only for the sessions of its
- * own tabs, and announces only the resets it sees after it started, each once. A reset notice
- * also sends a system notification while no app window has focus; its id is the notice's, so
- * of several windows only the first sends it.
+ * own tabs, and announces only the resets it sees after it started, each once. A turn's toast
+ * follows the settings of its session's folder. A reset notice also sends a system notification
+ * while no app window has focus; its id is the notice's, so of several windows only the first
+ * sends it.
  *
- * The toast's text is the TUI's toast text (`toast.layout`, `layout.bar` and the other words),
- * so it reads the same in both; the window's own words (the titles) come from the catalog.
+ * The toast shows the TUI toast's rows and words, as a sentence per provider
+ * (`toastSentences`): a window draws a toast's text in a proportional font and may join its
+ * lines, so the TUI's columns and bars would not line up. The window's own words (the titles)
+ * come from the catalog.
+ *
+ * When the window's server restarts or the plugin goes away, the refreshes still waiting stop
+ * keeping their folders loaded and their answers are dropped; once the plugin is gone it shows
+ * no more toasts.
  */
 import type { Context } from "@opencode/plugin/gui";
 import { createEffect, onCleanup } from "solid-js";
@@ -25,6 +32,7 @@ import {
   wantsResetNotice,
 } from "../tui/toasts.js";
 import { listenForTurns } from "../tui/turn-events.js";
+import { toastSentences } from "../view/text.js";
 import type { GuiQuota } from "./bridge.js";
 import { surfaceSettings } from "./surface-settings.js";
 
@@ -54,8 +62,27 @@ export function createGuiToasts(ctx: Context, data: GuiQuota): GuiToasts {
   const folders = new Map<string, string | undefined>();
   /** Reset notices this window has looked at for a system notification. */
   const notified = new Set<string>();
-  /** The snapshot the toasts take their settings from: the latest any folder sent. */
+  /** The settings of a toast that shows no snapshot of its own: the latest any folder sent. */
   let latest: QuotaSnapshot | undefined;
+  let disposed = false;
+  /** The watches that keep a folder loaded while a refresh waits. */
+  const holds = new Set<() => void>();
+  /** Counts the cleanups; a refresh that started before one drops its answer. */
+  let generation = 0;
+
+  /** Keeps the folder loaded, though it may have no surface on screen, until the release. */
+  const hold = (directory: string | undefined, sessionID: string | undefined) => {
+    const stop = data.watch(directory, sessionID);
+    const release = () => {
+      if (holds.delete(release)) stop();
+    };
+    holds.add(release);
+    return release;
+  };
+  const releaseHolds = () => {
+    generation += 1;
+    for (const release of holds) release();
+  };
 
   const builtin = () => {
     const servers = ctx.servers;
@@ -80,29 +107,32 @@ export function createGuiToasts(ctx: Context, data: GuiQuota): GuiToasts {
   };
 
   const toasts: Toasts = createToasts({
-    show(toast) {
+    show(toast, _lines, input) {
+      if (disposed) return undefined;
       ctx.toast?.show({
         // Reset notices are the only quota toasts with a title, and the only "success" ones.
         title: ctx.t(toast.variant === "success" ? "toast.resetTitle" : "toast.title"),
-        description: toast.message,
+        // Each reset notice is a sentence on its own line, as each provider's row sentence is.
+        description: input ? toastSentences(input).join("\n") : toast.message,
         variant: VARIANTS[toast.variant],
         duration: toast.duration,
       });
       return undefined;
     },
-    display: () => surfaceSettings(latest),
+    display: (snapshot) => surfaceSettings(snapshot ?? latest),
     terminalWidth: () => TOAST_COLUMNS,
     quota: {
       snapshot: (sessionID) => data.snapshot(sessionID && folders.get(sessionID), sessionID),
       async refresh(reason, sessionID) {
         const directory = sessionID ? folders.get(sessionID) : undefined;
-        // The folder may have no surface on screen; it runs while this refresh waits.
-        const stop = data.watch(directory, sessionID);
+        const started = generation;
+        const release = hold(directory, sessionID);
         try {
           await data.refresh(directory, sessionID, reason);
-          return data.failure(directory) ? undefined : data.snapshot(directory, sessionID);
+          if (started !== generation || data.failure(directory)) return undefined;
+          return data.snapshot(directory, sessionID);
         } finally {
-          stop();
+          release();
         }
       },
     },
@@ -148,8 +178,8 @@ export function createGuiToasts(ctx: Context, data: GuiQuota): GuiToasts {
             if (!inWindow(sessionID) || isChildSession(sessionID)) return;
             remember(sessionID, event);
             const directory = folders.get(sessionID);
-            const stopWatch = data.watch(directory, sessionID);
-            void data.refresh(directory, sessionID, "turn").finally(stopWatch);
+            const release = hold(directory, sessionID);
+            void data.refresh(directory, sessionID, "turn").finally(release);
           },
         },
       );
@@ -159,12 +189,19 @@ export function createGuiToasts(ctx: Context, data: GuiQuota): GuiToasts {
     }
     onCleanup(() => {
       stop();
+      releaseHolds();
       toasts.cancel();
     });
+  });
+  onCleanup(() => {
+    disposed = true;
+    releaseHolds();
+    toasts.cancel();
   });
 
   return {
     receive(snapshot) {
+      if (disposed) return;
       latest = snapshot;
       notifyResets(snapshot);
       toasts.showResetNotices(snapshot);

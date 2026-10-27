@@ -56,11 +56,13 @@ export type TurnEnd = "reply" | "compaction" | "question";
 
 export type ToastHost = {
   /**
-   * Shows a toast. A quota toast brings its `lines` too; its message is their plain text.
-   * Returns the toast when it can tell whether it is still on screen.
+   * Shows a toast. A quota toast brings its `lines` too, and a turn's the `input` they were laid
+   * out from; its message is their plain text. Returns the toast when it can tell whether it is
+   * still on screen.
    */
-  show: (toast: ToastOptions, lines?: Line[]) => DrawnToast | undefined;
-  display: () => DisplaySettings;
+  show: (toast: ToastOptions, lines?: Line[], input?: ToastInput) => DrawnToast | undefined;
+  /** The settings a toast follows: those of `snapshot`, the one it shows, when given. */
+  display: (snapshot?: QuotaSnapshot) => DisplaySettings;
   /** The terminal's columns, which a toast's width follows. */
   terminalWidth: () => number;
   quota: Pick<QuotaClient, "refresh" | "snapshot">;
@@ -192,7 +194,7 @@ export function createToasts(host: ToastHost): Toasts {
   function showQuota(variant: ToastOptions["variant"], input: ToastInput, seconds: number): void {
     const lines = toastLines(input);
     const message = lines.map(lineText).join("\n");
-    if (message) host.show({ variant, message, duration: seconds * 1000 }, lines);
+    if (message) host.show({ variant, message, duration: seconds * 1000 }, lines, input);
   }
 
   /** A quota toast now: the Toast surface's rows, as wide as the toast's text. */
@@ -233,7 +235,7 @@ export function createToasts(host: ToastHost): Toasts {
 
   async function turnToast(trigger: TurnEnd, sessionID: string): Promise<void> {
     const snapshot = await host.quota.refresh("turn", sessionID);
-    const display = host.display();
+    const display = host.display(snapshot);
     if (!snapshot || !display.toast.show) return;
     const input = quotaInput(snapshot, display);
     const allFail =
@@ -274,7 +276,7 @@ export function createToasts(host: ToastHost): Toasts {
     },
 
     showResetNotices(snapshot) {
-      const display = host.display();
+      const display = host.display(snapshot);
       for (const notice of snapshot.resetNotices) {
         if (shownNotices.has(notice.id)) continue;
         shownNotices.add(notice.id);
@@ -287,7 +289,7 @@ export function createToasts(host: ToastHost): Toasts {
 
     preview(sessionID) {
       const snapshot = host.quota.snapshot(sessionID);
-      const display = host.display();
+      const display = host.display(snapshot);
       const lines = snapshot && display.toast.show ? toastLines(quotaInput(snapshot, display)) : [];
       const message = lines.map(lineText).join("\n");
       if (!message) {
