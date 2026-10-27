@@ -114,6 +114,18 @@ describe("GUI bundle (dist/gui-experimental.cjs)", () => {
     }
   });
 
+  it("lists no Quota tab in a session on another server", async () => {
+    const { definition } = await loadGui();
+    const { ctx, added } = fakeWindow();
+    definition.setup(ctx);
+    const panel = added[2]?.item as {
+      list: (input: { session: unknown; open: readonly string[] }) => unknown[];
+    };
+    const remote = { id: "remote", directory: "/remote", server: { builtin: false } };
+
+    expect(panel.list({ session: remote, open: [] })).toEqual([]);
+  });
+
   it("leaves out a surface whose registry this OpenCode lacks", async () => {
     const { ctx, added } = fakeWindow();
     const older = { ...gui, ComposerPill: undefined, TitlebarItem: undefined };

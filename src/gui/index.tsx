@@ -202,8 +202,11 @@ export default Plugin.define({
     addSafely(ctx, Panel, {
       id: PANEL_ID,
       region: "side",
+      // Only the app's own server runs this plugin's server part, so other servers get no tab.
       list: (input) =>
-        surfaceSettings(snapshotOf(input.session)).sidebar.show ? [panelTab()] : [],
+        input.session.server.builtin && surfaceSettings(snapshotOf(input.session)).sidebar.show
+          ? [panelTab()]
+          : [],
       render: (props) => {
         createEffect(() => {
           onCleanup(data.watch(directoryOf(props.session), sessionIDOf(props.session)));
