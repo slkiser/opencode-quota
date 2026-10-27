@@ -200,6 +200,8 @@ export default Plugin.define({
       title: ctx.t("command.quota"),
       description: ctx.t("command.quota.description"),
       keywords: "usage limits tokens cost",
+      // Listed when the palette opens, before anything is typed.
+      featured: true as const,
       run: () => openWindow(),
     }));
 
@@ -267,11 +269,14 @@ export default Plugin.define({
         .join(" · ");
       const more = groups.length - TITLEBAR_PROVIDERS;
       const label = more > 0 ? ctx.t("titlebar.more", { text, count: more }) : text;
+      // The host shows only the icon until the pointer is over the pill, so the icon carries the
+      // state: a warning when a shown provider is almost out or failed.
+      const alert = groups.some((group) => group.error !== undefined || group.row?.level === "low");
       return {
         id: "quota",
         label,
         title: ctx.t("titlebar.title", { text: label }),
-        icon: "status" as const,
+        icon: alert ? ("warning" as const) : ("window-analytics" as const),
         run: () => openWindow(),
       };
     });
