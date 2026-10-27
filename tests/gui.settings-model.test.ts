@@ -457,6 +457,28 @@ describe("the draft the Settings page shares with the TUI", () => {
     expect(draft.saved()).not.toBe(before);
   });
 
+  it("counts a change as saved when a poll with the old settings answers during Save's read", async () => {
+    const defaults = settingsShape(RULES).defaults;
+    const server = serverAnswers({ ...defaults }, []);
+    const draft = createSettingsDraft(server.rpc, settingsShape(RULES));
+    await draft.load();
+    const poll = structuredClone(server.settings);
+    draft.set("words.percent", "bare");
+    server.rpc.settings.mockImplementationOnce(async () => {
+      draft.receive(structuredClone(poll));
+      return {
+        ...structuredClone(poll),
+        values: { ...poll.values, "words.percent": "bare" },
+        fromFile: ["words.percent"],
+      };
+    });
+
+    await draft.save();
+
+    expect(draft.count()).toBe(0);
+    expect(draft.value("words.percent")).toBe("bare");
+  });
+
   it("takes a new shape's defaults and keeps its changes", async () => {
     const defaults = settingsShape(RULES).defaults;
     const server = serverAnswers({ ...defaults, "toast.seconds": 20 }, ["toast.seconds"]);
@@ -512,6 +534,28 @@ describe("the Settings page's state", () => {
 
     // A newer snapshot still shows under the draft.
     state.receive(answer(40));
+    expect(state.draft()?.value("toast.seconds")).toBe(40);
+  });
+
+  it("takes a newer snapshot that comes while it first reads the settings", async () => {
+    const { data, answer } = server(30);
+    let answerRead = () => {};
+    data.settings.mockImplementationOnce(
+      () =>
+        new Promise<QuotaRpcSettingsOutput>((resolve) => {
+          answerRead = () => resolve(answer(30));
+        }),
+    );
+    const state = createSettingsPageState(data as unknown as GuiQuota);
+
+    const loading = state.load();
+    // The snapshot on screen is offered while the schema loads: older than the read.
+    state.receive(answer(9));
+    await vi.waitFor(() => expect(data.settings).toHaveBeenCalled());
+    state.receive(answer(40));
+    answerRead();
+    await loading;
+
     expect(state.draft()?.value("toast.seconds")).toBe(40);
   });
 

@@ -131,7 +131,7 @@ describe("GUI quota toasts", () => {
     const loud = snapshot([provider("copilot", "Copilot", 40)], REPLY_TOAST);
     const app = start({ "/a": quiet, "/b": loud });
     // The latest snapshot any folder sent is /b's, which toasts.
-    app.toasts.receive(loud);
+    app.toasts.receive(loud, "/b");
 
     app.emit("session.execution.succeeded", "a");
     app.emit("session.execution.succeeded", "b");
@@ -179,7 +179,7 @@ describe("GUI quota toasts", () => {
       const quiet = snapshot([provider("claude", "Claude", 100)], saved);
       const app = start({ "/a": quiet }, (shown) => surfaceSettings(shown, preview));
       app.emit("session.execution.succeeded", "a");
-      app.toasts.receive({ ...quiet, resetNotices: [notice] });
+      app.toasts.receive({ ...quiet, resetNotices: [notice] }, "/a");
       // The page discards its changes and closes before the turn's toast is made.
       preview = undefined;
       return app;
@@ -195,6 +195,20 @@ describe("GUI quota toasts", () => {
 
     it("does not show when the saved settings turn reset notices off", async () => {
       const app = waiting({ "toast.resetNotice": "off" });
+      await app.answer();
+      expect(app.show).not.toHaveBeenCalled();
+    });
+
+    it("does not show when a newer snapshot of its folder turns reset notices off", async () => {
+      const on = snapshot([provider("claude", "Claude", 100)], { "toast.resetNotice": "all" });
+      const byFolder = { "/a": on };
+      const app = start(byFolder);
+      app.emit("session.execution.succeeded", "a");
+      app.toasts.receive({ ...on, resetNotices: [notice] }, "/a");
+      const off = snapshot([provider("claude", "Claude", 100)], { "toast.resetNotice": "off" });
+      byFolder["/a"] = off;
+      app.toasts.receive(off, "/a");
+
       await app.answer();
       expect(app.show).not.toHaveBeenCalled();
     });

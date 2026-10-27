@@ -47,8 +47,11 @@ export type GuiQuotaHost = {
   client(): ServerClient;
   /** The folder of the session on screen, when it runs on the app's own server. */
   directory(): string | undefined;
-  /** Called with every snapshot any folder's client takes, so toasts can announce reset notices. */
-  onSnapshot?(snapshot: QuotaSnapshot): void;
+  /**
+   * Called with every snapshot any folder's client takes, and its folder (none: the server's
+   * own), so toasts can announce reset notices.
+   */
+  onSnapshot?(snapshot: QuotaSnapshot, directory: string | undefined): void;
 };
 
 /** Why a folder has no snapshot: no quota RPC on the server, or a failed call. */
@@ -138,7 +141,7 @@ export function createGuiQuota(host: GuiQuotaHost): GuiQuota {
         clientHost,
         (snapshot) => {
           setFailure(undefined);
-          host.onSnapshot?.(snapshot);
+          host.onSnapshot?.(snapshot, directory);
         },
         (error) => setFailure(failureOf(error)),
       ),

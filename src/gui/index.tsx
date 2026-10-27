@@ -159,7 +159,7 @@ export default Plugin.define({
       // OpenCode types RPC event data as any object; the quota RPC's schema checks the snapshot.
       client: () => ctx.client as unknown as ReturnType<GuiQuotaHost["client"]>,
       directory,
-      onSnapshot: (snapshot) => toasts?.receive(snapshot),
+      onSnapshot: (snapshot, folder) => toasts?.receive(snapshot, folder),
     });
     toasts = createGuiToasts(ctx, data, settingsOf);
     createEffect(() => {

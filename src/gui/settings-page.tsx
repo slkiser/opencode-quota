@@ -19,6 +19,7 @@ import {
   createSignal,
   For,
   type JSX,
+  on,
   onCleanup,
   onMount,
   Show,
@@ -96,6 +97,8 @@ export function createSettingsPageState(data: GuiQuota) {
   const [draft, setDraft] = createSignal<SettingsDraft>();
   const [failure, setFailure] = createSignal<unknown>();
   let loading: Promise<void> | undefined;
+  /** The draft while its first read waits: snapshots that come meanwhile go to it. */
+  let reading: SettingsDraft | undefined;
   /** The snapshot settings last offered: a snapshot shown again is not news. */
   let offered: QuotaRpcSettingsOutput | undefined;
   return {
@@ -104,13 +107,14 @@ export function createSettingsPageState(data: GuiQuota) {
     failure,
     /**
      * The saved settings a snapshot carries: an edit of the file shows under the draft. Before
-     * the draft has read the settings, and when the same snapshot comes again (the page shows the
-     * draft, or opens again), they are older than the draft's and are dropped.
+     * the draft starts reading the settings, and when the same snapshot comes again (the page
+     * shows the draft, or opens again), they are older than the draft's and are dropped; a newer
+     * one that comes during the read wins over it.
      */
     receive(settings: QuotaRpcSettingsOutput): void {
       if (settings === offered) return;
       offered = settings;
-      draft()?.receive(settings);
+      (draft() ?? reading)?.receive(settings);
     },
     /** Asks for the schema (each visit: the server may have restarted) and the saved settings. */
     load(): Promise<void> {
@@ -127,12 +131,14 @@ export function createSettingsPageState(data: GuiQuota) {
               { settings: data.settings, saveSettings: data.saveSettings },
               settingsShape(answer.rules),
             );
+          reading = current;
           await current.load();
           setDraft(current);
           setFailure(undefined);
         } catch (error) {
           setFailure(error);
         } finally {
+          reading = undefined;
           loading = undefined;
         }
       })();
@@ -642,6 +648,15 @@ function NumberControl(props: {
   const word = props.control.word;
   const usesWord = () => word !== undefined && props.value === word;
   const range = rangeWords(props.control);
+  // A value set elsewhere (a preset, a snapshot, Reset, Discard) replaces refused text: `mirror`
+  // shows it once the field is not focused.
+  createEffect(
+    on(
+      () => props.value,
+      () => setInvalid(false),
+      { defer: true },
+    ),
+  );
   const input = () => (
     <input
       class="oq-input oq-number"
@@ -1040,6 +1055,7 @@ function PluginExtras(props: SectionProps) {
   const [notices, setNotices] = createSignal<Notice[]>();
   const [status, setStatus] = createSignal<string>();
   const [problem, setProblem] = createSignal<string>();
+  const [statusProblem, setStatusProblem] = createSignal<string>();
   const [copied, setCopied] = createSignal(false);
   void data.notices().then(setNotices, (error: unknown) => setProblem(rpcErrorMessage(error)));
   // The setup check of the session shown, again when it changes; a late answer for another drops.
@@ -1050,12 +1066,13 @@ function PluginExtras(props: SectionProps) {
       current = false;
     });
     setStatus(undefined);
+    setStatusProblem(undefined);
     void data.status(sessionID).then(
       (text) => {
         if (current) setStatus(text);
       },
       (error: unknown) => {
-        if (current) setProblem(rpcErrorMessage(error));
+        if (current) setStatusProblem(rpcErrorMessage(error));
       },
     );
   });
@@ -1072,7 +1089,7 @@ function PluginExtras(props: SectionProps) {
   };
   return (
     <>
-      <Show when={problem()}>
+      <Show when={problem() ?? statusProblem()}>
         {(message) => <p class="oq-error">{ctx.t("plugin.loadFailed", { message: message() })}</p>}
       </Show>
       <div class="oq-subhead">{ctx.t("plugin.notices")}</div>

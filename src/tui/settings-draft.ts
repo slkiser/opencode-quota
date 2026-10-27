@@ -239,10 +239,14 @@ export function createSettingsDraft(rpc: ServerSettingsRpc, initialShape: Settin
   return {
     /** Undefined until the first server answer. */
     saved,
-    /** Settings a snapshot carries; the same ones as the saved settings change nothing. */
+    /**
+     * Settings a snapshot carries; the same ones as the saved settings change nothing, and a read
+     * that waits (Save's too) still counts.
+     */
     receive(next: QuotaRpcSettingsOutput): void {
+      if (same(next, saved())) return;
       received += 1;
-      if (!same(next, saved())) setSaved(next);
+      setSaved(next);
     },
     /** The rules' new shape (defaults, record keys); the draft's changes stay. */
     reshape(next: SettingsShape): void {

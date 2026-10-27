@@ -7,7 +7,8 @@
  *
  * As each TUI toasts for the turns it hears, each window toasts only for the sessions of its
  * own tabs, and announces only the resets it sees after it started, each once. A turn's toast
- * follows the settings of its session's folder. A reset notice also sends a system notification
+ * follows the settings of its session's folder, and a reset notice the settings its folder has
+ * when it shows. A reset notice also sends a system notification
  * while no app window has focus; its id is the notice's, so of several windows only the first
  * sends it.
  *
@@ -53,8 +54,8 @@ type ServerData = {
 };
 
 export type GuiToasts = {
-  /** Every snapshot the bridge takes: its new reset notices. */
-  receive(snapshot: QuotaSnapshot): void;
+  /** Every snapshot the bridge takes, with its folder: its new reset notices. */
+  receive(snapshot: QuotaSnapshot, directory: string | undefined): void;
 };
 
 /**
@@ -73,6 +74,12 @@ export function createGuiToasts(
   const notified = new Set<string>();
   /** The settings of a toast that shows no snapshot of its own: the latest any folder sent. */
   let latest: QuotaSnapshot | undefined;
+  /** The folder of each snapshot received: a waiting reset notice follows its folder's latest. */
+  const folderOf = new WeakMap<QuotaSnapshot, { directory: string | undefined }>();
+  const newest = (snapshot: QuotaSnapshot): QuotaSnapshot => {
+    const folder = folderOf.get(snapshot);
+    return (folder && data.snapshot(folder.directory)) || snapshot;
+  };
   let disposed = false;
   /** The watches that keep a folder loaded while a refresh waits. */
   const holds = new Set<() => void>();
@@ -128,7 +135,7 @@ export function createGuiToasts(
       });
       return undefined;
     },
-    display: (snapshot) => settingsOf(snapshot ?? latest),
+    display: (snapshot) => settingsOf(snapshot ? newest(snapshot) : latest),
     terminalWidth: () => TOAST_COLUMNS,
     quota: {
       snapshot: (sessionID) => data.snapshot(sessionID && folders.get(sessionID), sessionID),
@@ -209,9 +216,10 @@ export function createGuiToasts(
   });
 
   return {
-    receive(snapshot) {
+    receive(snapshot, directory) {
       if (disposed) return;
       latest = snapshot;
+      folderOf.set(snapshot, { directory });
       notifyResets(snapshot);
       toasts.showResetNotices(snapshot);
     },
