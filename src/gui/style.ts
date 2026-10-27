@@ -134,6 +134,9 @@ export const STYLE = `
 .oq-table tr.oq-click:hover td { background: var(--oq-hover); }
 .oq-rowbar { height: 2px; border-radius: 2px; margin-top: 5px; background: var(--oq-c, var(--oq-text-2)); }
 .oq-chart { position: relative; }
+.oq-chart-side { display: flex; flex-direction: column; min-width: 0; }
+.oq-chart-fill { position: relative; flex: 1 1 auto; min-height: 220px; max-height: 480px; margin-top: 8px; }
+.oq-chart-fill > .oq-chart { position: absolute; inset: 0; }
 .oq-chart svg { display: block; width: 100%; height: auto; overflow: visible; }
 .oq-chart .oq-axis { font-size: 10px; fill: var(--oq-muted); }
 .oq-chart .oq-gridline { stroke: var(--oq-line); }
@@ -185,11 +188,20 @@ export const STYLE = `
 .oq-peven { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; border-radius: 1px; }
 .oq-ppace { padding-left: 46px; font-size: 11.5px; }
 .oq-strip-bottom { position: relative; display: flex; align-items: center; justify-content: flex-end;
-  flex: 1 1 auto; box-sizing: border-box; width: 100%; min-width: 0;
-  overflow: hidden; white-space: pre; padding: 2px 12px; margin-left: auto;
-  font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 11.5px; }
-.oq-strip-bottom .oq-sline:hover { text-decoration: underline; }
-.oq-probe { position: absolute; visibility: hidden; pointer-events: none; }
+  flex: 0 0 auto; align-self: stretch; box-sizing: border-box; width: 100%; min-width: 0; height: 26px;
+  overflow: hidden; white-space: nowrap; padding: 0 12px; margin-left: auto;
+  font-size: 12px; font-variant-numeric: tabular-nums; }
+.oq-sitem { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 0; border: 0;
+  background: none; color: inherit; font: inherit; cursor: pointer; }
+.oq-sitem .oq-sname { overflow: hidden; text-overflow: ellipsis; }
+.oq-sitem:hover .oq-sname { text-decoration: underline; }
+.oq-sbarbox { display: block; flex: none; width: 40px; }
+.oq-sbarbox.oq-wide { width: 80px; }
+.oq-sbarbox .oq-pbar { display: block; width: 100%; }
+.oq-ssep { flex: none; white-space: pre; }
+.oq-sarrow { flex: none; padding: 0; border: 0; background: none; font: inherit; white-space: pre; cursor: pointer; }
+.oq-smeasure { position: absolute; top: 0; left: 0; visibility: hidden; pointer-events: none; }
+.oq-smeasure > div { display: flex; width: max-content; }
 .oq-settings { gap: 0; max-width: 920px; }
 .oq-settings .oq-bad { color: var(--oq-low); }
 .oq-settings .oq-mono, .oq-settings .oq-key, .oq-settings .oq-status { font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace); }

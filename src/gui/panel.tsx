@@ -34,7 +34,7 @@ type PanelProps = {
   setOpen: (open: boolean) => void;
 };
 
-function Bar(props: { settings: Settings; row: SurfaceRow }) {
+export function Bar(props: { settings: Settings; row: SurfaceRow }) {
   const percent = () => props.row.percent ?? 0;
   return (
     <span class="oq-pbar" style={{ background: roleCss(props.settings, "empty") }}>

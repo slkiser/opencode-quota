@@ -7,7 +7,8 @@
  *
  * - The Quota panel is the TUI sidebar: `sidebar.*`, open; `collapsed.*`, folded.
  * - The titlebar pill is the collapsed sidebar: `collapsed.*`.
- * - The bottom strip is the status line (`view/text.ts` lays it out, as in the TUI).
+ * - The bottom strip is the status line: the same providers, rows and detail levels, laid out in
+ *   pixels (`stripLayout`) as `view/text.ts` lays out the TUI's in columns.
  * - The composer pill is the status line's "one provider" detail, for the provider that serves
  *   the session's current model, with its pace.
  *
@@ -202,12 +203,59 @@ export function statusStripShows(
   return settings.statusLine.withSidebar || !(where.panelOnScreen && settings.sidebar.show);
 }
 
+/** The status line's detail levels, most first: what each provider on the bottom strip shows. */
+export type StripDetail = "full" | "bar" | "reset" | "numbers";
+export const STRIP_DETAILS: readonly StripDetail[] = ["full", "bar", "reset", "numbers"];
+
+export type StripLayout = {
+  detail: StripDetail;
+  /** The first provider shown (the strip pages when not all of them fit). */
+  start: number;
+  /** How many providers show from `start`. */
+  count: number;
+  /** Providers after the shown ones: the "+N ›" button. */
+  hiddenAfter: number;
+};
+
 /**
- * The bottom strip's room in characters for its layout: the measured room, or, while the strip
- * has not been measured (0), room for every provider in full; the strip cuts what overflows.
+ * The bottom strip's providers for its room in pixels, as `statusLayout` lays out the TUI's
+ * status line in columns: the most detail that fits every provider ("numbers" when none does),
+ * or the detail the setting fixes, then the providers that fit from `start`, keeping room for
+ * the "‹" and "+N ›" buttons. The first of them always shows, cut at the strip's edge. Before
+ * the strip has measured anything (`room` 0), every provider shows in full.
  */
-export function stripRoom(measured: number): number {
-  return measured > 0 ? measured : Number.POSITIVE_INFINITY;
+export function stripLayout(input: {
+  /** Each provider's width at each detail level. */
+  widths: Record<StripDetail, readonly number[]>;
+  separator: number;
+  previous: number;
+  next: number;
+  room: number;
+  start: number;
+  detail: StripDetail | "auto";
+}): StripLayout {
+  const total = input.widths.full.length;
+  const room = input.room > 0 ? input.room : Number.POSITIVE_INFINITY;
+  const sum = (detail: StripDetail) =>
+    input.widths[detail].reduce((all, width) => all + width, 0) +
+    Math.max(0, total - 1) * input.separator;
+  const detail =
+    input.detail !== "auto"
+      ? input.detail
+      : (STRIP_DETAILS.find((candidate) => sum(candidate) <= room) ?? "numbers");
+  if (total === 0) return { detail, start: 0, count: 0, hiddenAfter: 0 };
+  const start = Math.max(0, Math.min(input.start, total - 1));
+  let used = start > 0 ? input.previous : 0;
+  let count = 0;
+  for (let index = start; index < total; index++) {
+    const width = (input.widths[detail][index] ?? 0) + (count > 0 ? input.separator : 0);
+    const marker = index < total - 1 ? input.next : 0;
+    if (used + width + marker > room) break;
+    count++;
+    used += width;
+  }
+  count = Math.max(1, count);
+  return { detail, start, count, hiddenAfter: total - start - count };
 }
 
 /** The composer pill's tone for a row's level. */

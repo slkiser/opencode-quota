@@ -7,7 +7,7 @@
  * `usage-model.ts`, written with the shared money, token and share formatters.
  */
 import type { Context } from "@opencode/plugin/gui";
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { UsageByType, UsageReport } from "../core/usage.js";
 import { formatShare, formatTokens, formatUsd, LOW_CACHE_MARK } from "../view/format.js";
 import { Chart } from "./chart.js";
@@ -94,6 +94,52 @@ function ChartOrNote(props: { ctx: Context; chart: ChartData; mode: UsageMode; h
         dateLabel={format().dateLabel}
         totalLabel={props.ctx.t("usage.total")}
       />
+    </Show>
+  );
+}
+
+/**
+ * The chart beside the provider list, as tall as the list (as in the TUI), within the
+ * `.oq-chart-fill` box's minimum and maximum height. It draws at the box's measured size, so its
+ * lines and labels keep their size at any height.
+ */
+function FillChart(props: { ctx: Context; chart: ChartData; mode: UsageMode }) {
+  const [size, setSize] = createSignal<{ width: number; height: number }>();
+  const [box, setBox] = createSignal<HTMLDivElement>();
+  createEffect(() => {
+    const element = box();
+    if (!element) return;
+    const update = () => {
+      const width = Math.round(element.clientWidth);
+      const height = Math.round(element.clientHeight);
+      if (width > 0 && height > 0) setSize({ width, height });
+    };
+    update();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    onCleanup(() => observer.disconnect());
+  });
+  const format = () => formatters(props.ctx, props.mode);
+  return (
+    <Show
+      when={props.chart.dates.length > 1}
+      fallback={<p class="oq-note">{props.ctx.t("usage.chartNeedsDays")}</p>}
+    >
+      <div ref={setBox} class="oq-chart-fill">
+        <Show when={size()}>
+          {(shown) => (
+            <Chart
+              chart={props.chart}
+              width={shown().width}
+              height={shown().height}
+              format={format().value}
+              dateLabel={format().dateLabel}
+              totalLabel={props.ctx.t("usage.total")}
+            />
+          )}
+        </Show>
+      </div>
     </Show>
   );
 }
@@ -245,11 +291,11 @@ export function UsageView(props: UsageProps) {
             </For>
           </div>
         </div>
-        <div>
+        <div class="oq-chart-side">
           <div class="oq-section">
             {cost() ? ctx.t("usage.dailyCost") : ctx.t("usage.dailyTokens")}
           </div>
-          <ChartOrNote ctx={ctx} chart={view().chart} mode={props.mode} height={230} />
+          <FillChart ctx={ctx} chart={view().chart} mode={props.mode} />
         </div>
       </div>
 

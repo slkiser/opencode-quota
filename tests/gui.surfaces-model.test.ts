@@ -17,14 +17,13 @@ import {
   roleCss,
   segmentCss,
   statusStripShows,
-  stripRoom,
+  stripLayout,
 } from "../src/gui/surfaces-model.js";
 import type { ClientSettings } from "../src/settings/index.js";
 import { defaultSettings } from "../src/settings/schema.js";
 import { THEME_COLORS } from "../src/tui/display.js";
 import { wantsResetNotice } from "../src/tui/toasts.js";
 import { listenForTurns, type SessionEvent } from "../src/tui/turn-events.js";
-import { statusLayout, statusLineInput } from "../src/view/text.js";
 import { providerSnapshot, quotaRow as row } from "./helpers/fake-answers.js";
 
 const NOW = Date.parse("2026-10-27T12:00:00.000Z");
@@ -208,13 +207,38 @@ describe("GUI bottom strip", () => {
     expect(shows({ "statusLine.home": true, "statusLine.show": false }, true, false)).toBe(true);
   });
 
+  const widths = {
+    full: [100, 100, 100],
+    bar: [80, 80, 80],
+    reset: [60, 60, 60],
+    numbers: [40, 40, 40],
+  };
+  const layoutIn = (room: number, start = 0, detail: "auto" | "full" = "auto") =>
+    stripLayout({ widths, separator: 10, previous: 15, next: 30, room, start, detail });
+
   it("shows every provider in full until it has measured its room", () => {
-    const { snapshot, settings } = settingsWith({});
-    const input = statusLineInput(snapshot, settings, NOW);
-    const unmeasured = statusLayout(input, stripRoom(0), 0, "auto");
-    expect(unmeasured.shown).toHaveLength(input.groups.length);
-    expect(unmeasured.hiddenAfter).toBe(0);
-    expect(stripRoom(40)).toBe(40);
+    expect(layoutIn(0)).toEqual({ detail: "full", start: 0, count: 3, hiddenAfter: 0 });
+  });
+
+  it("shows the most detail that fits every provider, as the TUI status line does", () => {
+    expect(layoutIn(320).detail).toBe("full");
+    expect(layoutIn(260)).toEqual({ detail: "bar", start: 0, count: 3, hiddenAfter: 0 });
+    expect(layoutIn(140)).toEqual({ detail: "numbers", start: 0, count: 3, hiddenAfter: 0 });
+    expect(layoutIn(260, 0, "full")).toEqual({
+      detail: "full",
+      start: 0,
+      count: 2,
+      hiddenAfter: 1,
+    });
+  });
+
+  it("pages when even the numbers do not fit, keeping room for the buttons", () => {
+    expect(layoutIn(100)).toEqual({ detail: "numbers", start: 0, count: 1, hiddenAfter: 2 });
+    expect(layoutIn(100, 1)).toEqual({ detail: "numbers", start: 1, count: 1, hiddenAfter: 1 });
+    expect(layoutIn(100, 2)).toEqual({ detail: "numbers", start: 2, count: 1, hiddenAfter: 0 });
+    // Not even the first fits: it still shows, cut at the edge.
+    expect(layoutIn(20)).toEqual({ detail: "numbers", start: 0, count: 1, hiddenAfter: 2 });
+    expect(layoutIn(20, 9).start).toBe(2);
   });
 });
 
