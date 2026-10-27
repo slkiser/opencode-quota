@@ -1,16 +1,17 @@
 /** @jsxImportSource solid-js */
 /**
- * The usage window: a large dialog with a header and one of three views. The header has the
- * provider filter, the sessions that count (Cost and Tokens only), the ranges with two dates for
- * "Between", the views (Cost, Tokens, Limits) and the refresh button. It opens on Limits.
+ * The usage window: a large dialog titled with the plugin's version, a header and one of three
+ * views. The header has the provider filter, the sessions that count, the ranges, the views
+ * (Cost, Tokens, Limits) and the refresh button, the same in every view; "Between" adds a row
+ * with its two dates under it. It opens on Limits.
  *
  * Limits reads the quota snapshot of the folder on screen, with what it says about the session
  * on screen (its tokens, the providers serving its model). Cost and Tokens ask the server for a
  * usage report whenever the question changes; while a new one loads, the last stays on screen,
  * and an answer to an older question is dropped. A session scope counts the whole session, so
- * the ranges are off then, in every view; picking a range on Limits shows Cost. Refresh checks
- * the providers again and, on Cost and Tokens, asks for the report again. The session menu's
- * item opens it on Cost for that session.
+ * the ranges are off then, in every view; picking a range or the sessions on Limits shows Cost.
+ * Refresh checks the providers again and, on Cost and Tokens, asks for the report again. The
+ * session menu's item opens it on Cost for that session.
  */
 import type { Context } from "@opencode/plugin/gui";
 import {
@@ -40,6 +41,7 @@ import {
   type WindowRange,
 } from "./usage-model.js";
 import { UsageView } from "./usage-view.js";
+import { PLUGIN_VERSION } from "./version.js";
 
 export type WindowView = UsageMode | "limits";
 
@@ -178,12 +180,20 @@ export function UsageWindow(props: WindowProps) {
     setRange(next);
     if (view() === "limits") setView("cost");
   };
+  const pickScope = (next: UsageScope) => {
+    setScope(next);
+    if (view() === "limits") setView("cost");
+  };
   const refresh = () => {
     setRefreshing(true);
     if (view() !== "limits") setReloads((count) => count + 1);
     data.refresh(props.directory(), props.sessionID()).finally(() => setRefreshing(false));
   };
 
+  // Like the TUI window's title: "OpenCode Quota v6.1.0".
+  const title = PLUGIN_VERSION
+    ? `${ctx.t("window.title")} v${PLUGIN_VERSION}`
+    : ctx.t("window.title");
   const header: JSX.Element = (
     <div class="oq-head">
       {/* The menus' labels show the pick; each group names what it picks. */}
@@ -200,39 +210,19 @@ export function UsageWindow(props: WindowProps) {
           placement="bottom-start"
         />
       </span>
-      <Show when={view() !== "limits"}>
-        <span role="group" aria-label={ctx.t("scope.label")}>
-          <ctx.ui.Menu
-            trigger="button"
-            icon="chevron-down"
-            label={ctx.t(`scope.${scope()}`)}
-            items={SCOPES.map((item) => ({
-              label: ctx.t(`scope.${item}`),
-              onSelect: () => setScope(item),
-            }))}
-            placement="bottom-start"
-          />
-        </span>
-      </Show>
+      <span role="group" aria-label={ctx.t("scope.label")}>
+        <ctx.ui.Menu
+          trigger="button"
+          icon="chevron-down"
+          label={ctx.t(`scope.${scope()}`)}
+          items={SCOPES.map((item) => ({
+            label: ctx.t(`scope.${item}`),
+            onSelect: () => pickScope(item),
+          }))}
+          placement="bottom-start"
+        />
+      </span>
       <div class="oq-right">
-        <Show when={view() !== "limits" && scope() === "all" && range() === "between"}>
-          <span class="oq-between">
-            {ctx.t("range.from")}
-            <input
-              type="date"
-              value={from()}
-              aria-label={ctx.t("range.from")}
-              onChange={(event) => setFrom(event.currentTarget.value)}
-            />
-            {ctx.t("range.to")}
-            <input
-              type="date"
-              value={to()}
-              aria-label={ctx.t("range.to")}
-              onChange={(event) => setTo(event.currentTarget.value)}
-            />
-          </span>
-        </Show>
         <div class="oq-seg">
           <For each={WINDOW_RANGES}>
             {(item) => (
@@ -268,11 +258,33 @@ export function UsageWindow(props: WindowProps) {
       </div>
     </div>
   );
+  // Under the header, so picking "Between" does not move the header's buttons.
+  const dates: JSX.Element = (
+    <Show when={view() !== "limits" && scope() === "all" && range() === "between"}>
+      <div class="oq-between">
+        {ctx.t("range.from")}
+        <input
+          type="date"
+          value={from()}
+          aria-label={ctx.t("range.from")}
+          onChange={(event) => setFrom(event.currentTarget.value)}
+        />
+        {ctx.t("range.to")}
+        <input
+          type="date"
+          value={to()}
+          aria-label={ctx.t("range.to")}
+          onChange={(event) => setTo(event.currentTarget.value)}
+        />
+      </div>
+    </Show>
+  );
 
   return (
-    <ctx.ui.Dialog title={ctx.t("window.title")} size="x-large">
+    <ctx.ui.Dialog title={title} size="x-large">
       <div class="oq-window" data-mode={ctx.appearance.mode()}>
         {header}
+        {dates}
         <Show when={failureText()}>{(text) => <p class="oq-error">{text()}</p>}</Show>
         <Switch>
           <Match when={view() === "limits"}>

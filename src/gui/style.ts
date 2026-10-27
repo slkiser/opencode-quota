@@ -75,7 +75,7 @@ export const STYLE = `
 .oq-seg button[aria-pressed="true"] { background: var(--oq-raised); color: var(--oq-text);
   box-shadow: 0 0 0 1px var(--oq-line); }
 .oq-seg button:disabled { opacity: .4; cursor: default; }
-.oq-between { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--oq-text-2); }
+.oq-between { display: flex; align-items: center; justify-content: flex-end; gap: 6px; font-size: 12px; color: var(--oq-text-2); }
 .oq-between input { font: inherit; color: var(--oq-text); background: var(--oq-raised);
   border: 1px solid var(--oq-line); border-radius: 6px; padding: 2px 6px; color-scheme: light dark; }
 .oq-note { font-size: 12px; color: var(--oq-text-2); }

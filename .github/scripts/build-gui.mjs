@@ -8,6 +8,9 @@
 // Node built-ins they use elsewhere. A browser window has no Node, so a built-in import whose
 // bindings the bundle never uses is dropped instead of kept as a bare `require("node:…")`; one
 // the bundle does use stays, and the bundle test fails on it.
+//
+// `__OQ_VERSION__` is the package's version, for the window's title (`src/gui/version.ts`).
+import { readFileSync } from "node:fs";
 import { isBuiltin } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,11 +18,13 @@ import { gui } from "@opencode/plugin/gui/vite";
 import { build } from "vite-plus";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const { version } = JSON.parse(readFileSync(path.join(rootDir, "package.json"), "utf8"));
 
 await build({
   configFile: false,
   root: rootDir,
   logLevel: "warn",
+  define: { __OQ_VERSION__: JSON.stringify(version) },
   build: {
     rollupOptions: {
       treeshake: { moduleSideEffects: (id, external) => !(external && isBuiltin(id)) },

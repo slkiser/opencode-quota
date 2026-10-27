@@ -67,6 +67,15 @@ describe("GUI bundle (dist/gui-experimental.cjs)", () => {
     expect(required.sort()).toEqual(["@opencode/plugin/gui", "solid-js", "solid-js/web"]);
   });
 
+  it("has the package's version for the window's title", async () => {
+    const source = await readFile(new URL("../dist/gui-experimental.cjs", import.meta.url), "utf8");
+    const { version } = JSON.parse(
+      await readFile(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { version: string };
+    expect(source).toContain(`\`${version}\``);
+    expect(source).not.toContain("__OQ_VERSION__");
+  });
+
   it("adds its CSS, a Quota command whose run opens a dialog, and the always-on surfaces", async () => {
     const { definition } = await loadGui();
     expect(definition.i18n.en["command.quota"]).toBe("Quota");

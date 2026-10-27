@@ -6,7 +6,7 @@
 export const en = {
   "command.quota": "Quota",
   "command.quota.description": "Quota limits, tokens and API cost from OpenCode Quota",
-  "window.title": "Quota",
+  "window.title": "OpenCode Quota",
   "window.loading": "Asking the server for quota…",
   "window.unavailable": "OpenCode Quota's server plugin is not loaded on this server.",
   "window.error": "Could not load quota: {{message}}",
