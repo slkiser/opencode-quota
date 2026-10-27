@@ -58,7 +58,8 @@ function requiredPackageFiles(): string[] {
   add(pkg.types);
   for (const value of Object.values(pkg.bin)) add(value);
   for (const target of Object.values(pkg.exports)) {
-    for (const value of Object.values(target)) add(value);
+    if (typeof target === "string") add(target);
+    else for (const value of Object.values(target)) add(value);
   }
   return [...paths];
 }

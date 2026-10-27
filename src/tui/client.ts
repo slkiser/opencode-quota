@@ -22,7 +22,8 @@ import {
 const POLL_INTERVAL_MS = 60_000;
 const RPC_TIMEOUT_MS = 60_000;
 
-export type QuotaRpcCallOptions = { location: { directory: string }; signal: AbortSignal };
+/** Without `location`, OpenCode runs the call in its server's own folder. */
+export type QuotaRpcCallOptions = { location?: { directory: string }; signal: AbortSignal };
 
 type Methods = (typeof QuotaRpc)["methods"];
 /** The type a method's schema carries for TypeScript (`schema<T>` in `rpc.ts`). */
@@ -48,13 +49,18 @@ export type QuotaRpcClient = {
   };
 };
 
-/** Where a quota RPC call goes: the TUI's folder. */
+/**
+ * Where a quota RPC call goes: the TUI's folder. A GUI window (`../gui/`) has a folder only while
+ * it shows a session, so it sets `locationOptional`.
+ */
 export type RpcLocationHost = {
   location?: { directory: string };
   data: { location?: { default: () => { directory: string } } };
+  /** True when a call without a folder goes to the server's own folder instead of failing. */
+  locationOptional?: boolean;
 };
 
-/** What the client needs from the TUI context. */
+/** What the client needs from the TUI context (or a GUI window). */
 export type ClientHost = RpcLocationHost & {
   client: { rpc: (definition: typeof QuotaRpc) => QuotaRpcClient };
 };
@@ -65,8 +71,10 @@ export type ClientHost = RpcLocationHost & {
  */
 export function quotaCallOptions(host: RpcLocationHost): QuotaRpcCallOptions {
   const location = host.location ?? host.data.location?.default();
-  if (!location) throw new Error("OpenCode gave the TUI no location");
-  return { location, signal: AbortSignal.timeout(RPC_TIMEOUT_MS) };
+  const signal = AbortSignal.timeout(RPC_TIMEOUT_MS);
+  if (location) return { location, signal };
+  if (host.locationOptional) return { signal };
+  throw new Error("OpenCode gave the TUI no location");
 }
 
 /** What a snapshot says only about one session. */

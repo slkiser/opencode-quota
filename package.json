@@ -21,7 +21,8 @@
     "./tui": {
       "types": "./dist/tui.d.ts",
       "default": "./dist/tui.js"
-    }
+    },
+    "./gui-experimental": "./dist/gui-experimental.cjs"
   },
   "files": [
     "dist",
@@ -29,7 +30,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "node .github/scripts/clean-dist.mjs && tsc && node .github/scripts/copy-data.mjs && node .github/scripts/prepare-tui-dist.mjs",
+    "build": "node .github/scripts/clean-dist.mjs && tsc && tsc -p src/gui && node .github/scripts/copy-data.mjs && node .github/scripts/prepare-tui-dist.mjs && node .github/scripts/build-gui.mjs",
     "check": "vp check",
     "format": "vp fmt",
     "lint": "vp lint",
@@ -83,6 +84,8 @@
     "babel-preset-solid": "^1.9.12",
     "lefthook": "2.0.15",
     "typescript": "7.0.2",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.2.0",
+    "vite-plugin-solid": "2.11.14",
     "vite-plus": "1.2.0",
     "yaml": "^2.8.3"
   },
