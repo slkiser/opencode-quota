@@ -7,7 +7,8 @@
  * gives their widths in pixels; `stripLayout` then shows the most detail that fits every
  * provider and pages when even "numbers" does not fit: click "‹" or "+N ›", or turn the mouse
  * wheel. `statusLine.autoScrollSeconds` pages by itself; `statusLine.width` caps its width in
- * characters. The "one" detail shows the first provider with a wider bar and its pace words.
+ * characters. The "one" detail shows the first provider with its row name, a wider bar and its
+ * percent in words.
  * Click a provider to open the usage window.
  */
 import type { Context } from "@opencode/plugin/gui";
@@ -118,19 +119,21 @@ export function StatusStrip(props: StripProps) {
     const shown = props.snapshot();
     if (!shown) return [];
     return one()
-      ? pickedGroups(shown, settings(), "statusLine", nowMs(), {
-          percent: "words",
-          pace: "all",
-        }).slice(0, 1)
+      ? pickedGroups(shown, settings(), "statusLine", nowMs(), { percent: "words" }).slice(0, 1)
       : pickedGroups(shown, settings(), "statusLine", nowMs());
   });
 
+  const [fontsLoaded, setFontsLoaded] = createSignal(false);
+  void document.fonts?.ready.then(() => setFontsLoaded(true));
   const [box, setBox] = createSignal<HTMLDivElement>();
   const [measure, setMeasure] = createSignal<HTMLDivElement>();
   createEffect(() => {
     const strip = box();
     if (!strip) return;
-    const update = () => setRoom(Math.max(0, strip.clientWidth - PADDING_PX));
+    // Rounded down: the items' widths are fractional, and a name cut by a fraction of a pixel
+    // would show an ellipsis.
+    const update = () =>
+      setRoom(Math.max(0, Math.floor(strip.getBoundingClientRect().width) - PADDING_PX));
     update();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(update);
@@ -142,6 +145,10 @@ export function StatusStrip(props: StripProps) {
     const copy = measure();
     groups();
     settings();
+    // Also when the strip's size changes or the fonts finish loading: a copy measured while the
+    // strip was hidden, or in a fallback font, has wrong widths.
+    room();
+    fontsLoaded();
     if (!copy || one()) return;
     const width = (element: Element | null | undefined) =>
       element ? element.getBoundingClientRect().width : 0;
