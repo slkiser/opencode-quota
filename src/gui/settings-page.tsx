@@ -59,6 +59,7 @@ import {
   presetNames,
   rangeWords,
   resetKeys,
+  rowGroups,
   SECTIONS,
   type Section,
   sectionRows,
@@ -243,16 +244,21 @@ export function SettingsPageView(props: PageProps) {
       <Show
         when={state.draft()?.saved() !== undefined && state.schema() ? state.draft() : undefined}
         fallback={
-          <Show
-            when={failureText()}
-            fallback={
-              <div class="oq-note">
-                <ctx.ui.Loader size="large" /> {ctx.t("settings.loading")}
-              </div>
-            }
-          >
-            {(text) => <p class="oq-error">{text()}</p>}
-          </Show>
+          <>
+            <PageHeader ctx={ctx} />
+            <div class="settings-tab-body settings-tab-body--sectioned">
+              <Show
+                when={failureText()}
+                fallback={
+                  <div class="oq-note">
+                    <ctx.ui.Loader size="large" /> {ctx.t("settings.loading")}
+                  </div>
+                }
+              >
+                {(text) => <p class="oq-error">{text()}</p>}
+              </Show>
+            </div>
+          </>
         }
       >
         {(draft) => (
@@ -266,6 +272,39 @@ export function SettingsPageView(props: PageProps) {
           />
         )}
       </Show>
+    </div>
+  );
+}
+
+/**
+ * The page's title block, made as OpenCode's own Settings pages make theirs, so the app's styles
+ * give it their look (with `style.ts`'s fallback); `actions` sit at its right, `children` under it.
+ */
+function PageHeader(props: { ctx: Context; actions?: JSX.Element; children?: JSX.Element }) {
+  const { ctx } = props;
+  // The header's height on the page's root, so a section or row scrolled to starts below it.
+  const [header, setHeader] = createSignal<HTMLDivElement>();
+  createEffect(() => {
+    const element = header();
+    const root = element?.parentElement;
+    if (!element || !root) return;
+    const measure = () => root.style.setProperty("--oq-head-h", `${element.offsetHeight}px`);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    onCleanup(() => observer.disconnect());
+  });
+  return (
+    <div ref={setHeader} class="settings-tab-header settings-tab-header--stacked">
+      <div class="settings-tab-header-row">
+        <div class="flex flex-col gap-1 oq-shead-copy">
+          <h2 class="settings-tab-title">{ctx.t("settings.title")}</h2>
+          <span class="text-11-regular text-v2-text-text-muted">{ctx.t("settings.intro")}</span>
+        </div>
+        {props.actions}
+      </div>
+      {props.children}
     </div>
   );
 }
@@ -350,24 +389,30 @@ function Page(props: Shown) {
 
   return (
     <>
-      <div class="oq-sbar">
-        <p class="oq-note">{ctx.t("settings.intro")}</p>
-        <div class="oq-sbar-actions">
-          <span class="oq-small oq-muted" aria-live="polite">
-            {savedNote() && draft.count() === 0 ? ctx.t("settings.saved") : unsaved()}
-          </span>
-          <ctx.ui.Button disabled={draft.count() === 0 || saving()} onClick={() => void discard()}>
-            {ctx.t("settings.discard")}
-          </ctx.ui.Button>
-          <ctx.ui.Button
-            variant="contrast"
-            busy={saving()}
-            disabled={draft.count() === 0}
-            onClick={() => void save()}
-          >
-            {ctx.t("settings.save")}
-          </ctx.ui.Button>
-        </div>
+      <PageHeader
+        ctx={ctx}
+        actions={
+          <div class="oq-shead-actions">
+            <span class="oq-small oq-muted" aria-live="polite">
+              {savedNote() && draft.count() === 0 ? ctx.t("settings.saved") : unsaved()}
+            </span>
+            <ctx.ui.Button
+              disabled={draft.count() === 0 || saving()}
+              onClick={() => void discard()}
+            >
+              {ctx.t("settings.discard")}
+            </ctx.ui.Button>
+            <ctx.ui.Button
+              variant="contrast"
+              busy={saving()}
+              disabled={draft.count() === 0}
+              onClick={() => void save()}
+            >
+              {ctx.t("settings.save")}
+            </ctx.ui.Button>
+          </div>
+        }
+      >
         <Show when={saveError()}>
           {(message) => (
             <p class="oq-error">{ctx.t("settings.saveFailed", { message: message() })}</p>
@@ -376,18 +421,26 @@ function Page(props: Shown) {
         <nav class="oq-snav">
           <For each={SECTIONS}>
             {(section) => (
-              <button type="button" onClick={() => jump(section.id)}>
+              <ctx.ui.Button variant="ghost-muted" size="small" onClick={() => jump(section.id)}>
                 {ctx.t(`section.${section.id}`)}
-              </button>
+              </ctx.ui.Button>
             )}
           </For>
         </nav>
+      </PageHeader>
+      <div class="settings-tab-body settings-tab-body--sectioned">
+        <For each={SECTIONS}>
+          {(section) => (
+            <SectionView
+              {...props}
+              section={section}
+              valueOf={valueOf}
+              shown={shown}
+              apply={apply}
+            />
+          )}
+        </For>
       </div>
-      <For each={SECTIONS}>
-        {(section) => (
-          <SectionView {...props} section={section} valueOf={valueOf} shown={shown} apply={apply} />
-        )}
-      </For>
     </>
   );
 }
@@ -410,34 +463,37 @@ function SectionView(props: SectionProps) {
     if (section.id === "providers") draft.discardSwitches();
   };
   return (
-    <section class="oq-sgroup" data-action={`${SETTINGS_PAGE_ID}.${section.id}`}>
+    <section class="settings-section" data-action={`${SETTINGS_PAGE_ID}.${section.id}`}>
       <div class="oq-sgroup-head">
-        <h3>{ctx.t(`section.${section.id}`)}</h3>
-        <Show when={tuiName}>
-          {(name) => <span class="oq-chip">{ctx.t("settings.tuiName", { name: name() })}</span>}
-        </Show>
-        <Show when={canReset}>
-          <span class="oq-right">
-            <ctx.ui.Button size="small" onClick={reset}>
-              {ctx.t("settings.resetSection")}
-            </ctx.ui.Button>
-          </span>
-        </Show>
+        <div class="oq-sgroup-title">
+          <h3 class="settings-section-title">{ctx.t(`section.${section.id}`)}</h3>
+          <Show when={tuiName}>
+            {(name) => <span class="oq-chip">{ctx.t("settings.tuiName", { name: name() })}</span>}
+          </Show>
+          <Show when={canReset}>
+            <span class="oq-right">
+              <ctx.ui.Button variant="ghost" size="small" onClick={reset}>
+                {ctx.t("settings.resetSection")}
+              </ctx.ui.Button>
+            </span>
+          </Show>
+        </div>
+        <p class="oq-sgroup-desc">{ctx.t(`section.${section.id}.description`)}</p>
       </div>
-      <p class="oq-note">{ctx.t(`section.${section.id}.description`)}</p>
-      <Show when={section.preset}>{(name) => <PresetRow {...props} name={name()} />}</Show>
       <Show when={section.id === "providers"}>
         <ProvidersView {...props} />
       </Show>
       <Show when={section.id !== "providers"}>
-        <For each={sectionRows(section, props.rules)}>
-          {(row) => (
-            <>
-              <Show when={SUBHEADINGS[row.key]}>
-                {(heading) => <div class="oq-subhead">{ctx.t(heading())}</div>}
+        <For each={rowGroups(sectionRows(section, props.rules), SUBHEADINGS)}>
+          {(group, at) => (
+            <List heading={group.heading && ctx.t(group.heading)}>
+              <Show when={at() === 0 && section.preset}>
+                {(name) => <PresetRow {...props} name={name()} />}
               </Show>
-              <SettingRow {...props} settingKey={row.key} rule={row.rule} />
-            </>
+              <For each={group.rows}>
+                {(row) => <SettingRow {...props} settingKey={row.key} rule={row.rule} />}
+              </For>
+            </List>
           )}
         </For>
       </Show>
@@ -455,7 +511,23 @@ function SectionView(props: SectionProps) {
   );
 }
 
-/** One row: the setting's name, words, key and control; a dot marks an unsaved change. */
+/**
+ * One card of rows, as OpenCode's `SettingsList` makes it, under its own small heading if it has
+ * one.
+ */
+function List(props: { heading?: string; children: JSX.Element }) {
+  return (
+    <div class="oq-sgroup-part">
+      <Show when={props.heading}>{(heading) => <h4 class="oq-subhead">{heading()}</h4>}</Show>
+      <div data-component="settings-list">{props.children}</div>
+    </div>
+  );
+}
+
+/**
+ * One row, as OpenCode's `SettingsRow` makes it: the setting's name, words and key, and its
+ * control; a dot marks an unsaved change.
+ */
 function Row(props: {
   ctx: Context;
   action: string;
@@ -469,19 +541,24 @@ function Row(props: {
 }) {
   return (
     <div
+      data-component="settings-row"
       class="oq-srow"
       classList={{ "oq-changed": props.changed === true, "oq-nested": props.nested === true }}
       data-action={props.action}
     >
-      <div class="oq-srow-text">
-        <div class="oq-t">
+      <div data-slot="settings-row-copy">
+        <div data-slot="settings-row-title">
           {props.title}
           {props.chips}
         </div>
-        <Show when={props.description}>{(text) => <div class="oq-d">{text()}</div>}</Show>
-        <Show when={props.settingKey}>{(key) => <div class="oq-key">{key()}</div>}</Show>
+        <Show when={props.description || props.settingKey}>
+          <div data-slot="settings-row-description">
+            <Show when={props.description}>{(text) => <span class="oq-d">{text()}</span>}</Show>
+            <Show when={props.settingKey}>{(key) => <span class="oq-key">{key()}</span>}</Show>
+          </div>
+        </Show>
       </div>
-      <div class="oq-ctl">{props.children}</div>
+      <div data-slot="settings-row-control">{props.children}</div>
     </div>
   );
 }
@@ -794,56 +871,58 @@ function ProvidersView(props: SectionProps) {
     props.snapshot()?.providers.some((provider) => provider.providerId === id && provider.error);
   return (
     <>
-      <div class="oq-subhead">{ctx.t("providers.builtIn")}</div>
-      <For each={providers()}>
-        {(provider) => {
-          const on = () => isTicked(off(), provider.id);
-          return (
-            <>
-              <Row
-                ctx={ctx}
-                action={`${SETTINGS_PAGE_ID}.provider.${provider.id}`}
-                title={provider.label}
-                settingKey={provider.id}
-                changed={isTicked(savedOff(), provider.id) !== on()}
-                chips={
-                  <span class="oq-chip" classList={{ "oq-bad": failing(provider.id) === true }}>
-                    {state(provider.id)}
-                  </span>
-                }
-              >
-                <ctx.ui.Switch
-                  label={ctx.t("providers.switch", { name: provider.label })}
-                  hideLabel
-                  checked={on()}
-                  onChange={(checked) =>
-                    draft.set(PROVIDERS_KEY, withTick(off(), provider.id, checked))
+      <List heading={ctx.t("providers.builtIn")}>
+        <For each={providers()}>
+          {(provider) => {
+            const on = () => isTicked(off(), provider.id);
+            return (
+              <>
+                <Row
+                  ctx={ctx}
+                  action={`${SETTINGS_PAGE_ID}.provider.${provider.id}`}
+                  title={provider.label}
+                  settingKey={provider.id}
+                  changed={isTicked(savedOff(), provider.id) !== on()}
+                  chips={
+                    <span class="oq-chip" classList={{ "oq-bad": failing(provider.id) === true }}>
+                      {state(provider.id)}
+                    </span>
                   }
-                />
-              </Row>
-              <Show when={on()}>
-                <For
-                  each={(PROVIDER_KEYS[provider.id] ?? []).filter((key) =>
-                    Object.hasOwn(props.rules, key),
-                  )}
                 >
-                  {(key) => (
-                    <SettingRow
-                      {...props}
-                      settingKey={key}
-                      rule={props.rules[key] as SettingRule}
-                      nested
-                    />
-                  )}
-                </For>
-              </Show>
-            </>
-          );
-        }}
-      </For>
+                  <ctx.ui.Switch
+                    label={ctx.t("providers.switch", { name: provider.label })}
+                    hideLabel
+                    checked={on()}
+                    onChange={(checked) =>
+                      draft.set(PROVIDERS_KEY, withTick(off(), provider.id, checked))
+                    }
+                  />
+                </Row>
+                <Show when={on()}>
+                  <For
+                    each={(PROVIDER_KEYS[provider.id] ?? []).filter((key) =>
+                      Object.hasOwn(props.rules, key),
+                    )}
+                  >
+                    {(key) => (
+                      <SettingRow
+                        {...props}
+                        settingKey={key}
+                        rule={props.rules[key] as SettingRule}
+                        nested
+                      />
+                    )}
+                  </For>
+                </Show>
+              </>
+            );
+          }}
+        </For>
+      </List>
       <Show when={custom().length > 0}>
-        <div class="oq-subhead">{ctx.t("providers.custom")}</div>
-        <For each={custom()}>{(entry) => <CustomRow {...props} entry={entry} />}</For>
+        <List heading={ctx.t("providers.custom")}>
+          <For each={custom()}>{(entry) => <CustomRow {...props} entry={entry} />}</For>
+        </List>
       </Show>
     </>
   );
@@ -923,7 +1002,7 @@ function TreeView(props: SectionProps & { surface: Surface }) {
     <details class="oq-tree-box">
       <summary>{summary}</summary>
       <Show when={lines().length > 0} fallback={<p class="oq-note">{ctx.t("editor.empty")}</p>}>
-        <div class="oq-tree">
+        <div data-component="settings-list" class="oq-tree">
           <Show when={windows}>
             <div class="oq-tr">
               <span />
@@ -1097,48 +1176,58 @@ function PluginExtras(props: SectionProps) {
       <Show when={problem() ?? statusProblem()}>
         {(message) => <p class="oq-error">{ctx.t("plugin.loadFailed", { message: message() })}</p>}
       </Show>
-      <div class="oq-subhead">{ctx.t("plugin.notices")}</div>
-      <Show when={notices()} fallback={<ctx.ui.Loader />}>
-        {(list) => (
-          <Show
-            when={list().length > 0}
-            fallback={<p class="oq-note">{ctx.t("plugin.noNotices")}</p>}
-          >
-            <For each={list()}>
-              {(notice) => (
-                <p class="oq-notice">
-                  {notice.message}
-                  <Show when={notice.url}>
-                    {(url) => (
-                      <>
-                        {" "}
-                        <a
-                          href={url()}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            ctx.system.openExternal(url());
-                          }}
-                        >
-                          {url()}
-                        </a>
-                      </>
-                    )}
-                  </Show>
-                </p>
-              )}
-            </For>
-          </Show>
-        )}
-      </Show>
-      <div class="oq-subhead oq-subhead-action">
-        {ctx.t("plugin.status")}
-        <ctx.ui.Button size="small" disabled={status() === undefined} onClick={copy}>
-          {copied() ? ctx.t("plugin.copied") : ctx.t("plugin.copy")}
-        </ctx.ui.Button>
+      <List heading={ctx.t("plugin.notices")}>
+        <Show
+          when={notices()}
+          fallback={
+            <p class="oq-notice">
+              <ctx.ui.Loader />
+            </p>
+          }
+        >
+          {(list) => (
+            <Show
+              when={list().length > 0}
+              fallback={<p class="oq-notice oq-muted">{ctx.t("plugin.noNotices")}</p>}
+            >
+              <For each={list()}>
+                {(notice) => (
+                  <p class="oq-notice">
+                    {notice.message}
+                    <Show when={notice.url}>
+                      {(url) => (
+                        <>
+                          {" "}
+                          <a
+                            href={url()}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              ctx.system.openExternal(url());
+                            }}
+                          >
+                            {url()}
+                          </a>
+                        </>
+                      )}
+                    </Show>
+                  </p>
+                )}
+              </For>
+            </Show>
+          )}
+        </Show>
+      </List>
+      <div class="oq-sgroup-part">
+        <div class="oq-subhead-action">
+          <h4 class="oq-subhead">{ctx.t("plugin.status")}</h4>
+          <ctx.ui.Button size="small" disabled={status() === undefined} onClick={copy}>
+            {copied() ? ctx.t("plugin.copied") : ctx.t("plugin.copy")}
+          </ctx.ui.Button>
+        </div>
+        <Show when={status()} fallback={<p class="oq-note">{ctx.t("plugin.statusLoading")}</p>}>
+          {(text) => <pre class="oq-status">{text()}</pre>}
+        </Show>
       </div>
-      <Show when={status()} fallback={<p class="oq-note">{ctx.t("plugin.statusLoading")}</p>}>
-        {(text) => <pre class="oq-status">{text()}</pre>}
-      </Show>
     </>
   );
 }
@@ -1155,7 +1244,7 @@ function FileOnlyView(props: SectionProps) {
     return ctx.t("file.default", { value: JSON.stringify(props.rules[key]?.default ?? null) });
   };
   return (
-    <>
+    <List>
       <For each={fileOnlyKeys(props.rules)}>
         {(key) => {
           const words = settingWords(ctx, key);
@@ -1172,40 +1261,49 @@ function FileOnlyView(props: SectionProps) {
           );
         }}
       </For>
-      <p class="oq-key oq-path">{props.path}</p>
-      <div class="oq-actions">
-        {/* Open and Reveal only ever hand the app the quota settings file. */}
-        <Show when={isSettingsFilePath(props.path) && desktop}>
-          {(app) => (
-            <>
-              <ctx.ui.Button
-                icon="open-file"
-                onClick={() =>
-                  void app()
-                    .launch(props.path)
-                    .catch(() => {})
-                }
-              >
-                {ctx.t("file.open")}
-              </ctx.ui.Button>
-              <ctx.ui.Button
-                icon="folder"
-                onClick={() =>
-                  void app()
-                    .reveal(props.path)
-                    .catch(() => {})
-                }
-              >
-                {ctx.t("file.reveal")}
-              </ctx.ui.Button>
-            </>
-          )}
-        </Show>
-        <ctx.ui.Button icon="copy" onClick={() => void ctx.system.copy(props.path).catch(() => {})}>
-          {ctx.t("file.copyPath")}
-        </ctx.ui.Button>
+      <div data-component="settings-row" class="oq-srow">
+        <div data-slot="settings-row-copy">
+          <div data-slot="settings-row-description">
+            <span class="oq-key oq-path">{props.path}</span>
+          </div>
+        </div>
+        <div data-slot="settings-row-control" class="oq-actions">
+          {/* Open and Reveal only ever hand the app the quota settings file. */}
+          <Show when={isSettingsFilePath(props.path) && desktop}>
+            {(app) => (
+              <>
+                <ctx.ui.Button
+                  icon="open-file"
+                  onClick={() =>
+                    void app()
+                      .launch(props.path)
+                      .catch(() => {})
+                  }
+                >
+                  {ctx.t("file.open")}
+                </ctx.ui.Button>
+                <ctx.ui.Button
+                  icon="folder"
+                  onClick={() =>
+                    void app()
+                      .reveal(props.path)
+                      .catch(() => {})
+                  }
+                >
+                  {ctx.t("file.reveal")}
+                </ctx.ui.Button>
+              </>
+            )}
+          </Show>
+          <ctx.ui.Button
+            icon="copy"
+            onClick={() => void ctx.system.copy(props.path).catch(() => {})}
+          >
+            {ctx.t("file.copyPath")}
+          </ctx.ui.Button>
+        </div>
       </div>
-    </>
+    </List>
   );
 }
 
@@ -1213,7 +1311,7 @@ function FileOnlyView(props: SectionProps) {
 function OpenCodeView(props: SectionProps) {
   const { ctx } = props;
   return (
-    <>
+    <List>
       <Row
         ctx={ctx}
         action={`${SETTINGS_PAGE_ID}.opencode.panel`}
@@ -1237,6 +1335,6 @@ function OpenCodeView(props: SectionProps) {
           {ctx.t("opencode.openSettings")}
         </ctx.ui.Button>
       </Row>
-    </>
+    </List>
   );
 }

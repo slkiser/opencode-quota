@@ -14,6 +14,7 @@ import {
   resetKeys,
   SECTIONS,
   type Section,
+  rowGroups,
   sectionRows,
   SUBHEADINGS,
   TUI_ONLY,
@@ -99,6 +100,17 @@ describe("the Settings page's sections", () => {
     expect(sectionRows(section("providers"), RULES).map((item) => item.key)).toEqual(
       Object.values(PROVIDER_KEYS).flat(),
     );
+  });
+
+  it("starts a new card of rows at each row with a heading", () => {
+    const groups = rowGroups(sectionRows(section("colors"), RULES), SUBHEADINGS);
+
+    expect(groups.map((group) => group.heading)).toEqual(Object.values(SUBHEADINGS));
+    expect(groups.flatMap((group) => group.rows)).toEqual(sectionRows(section("colors"), RULES));
+    expect(rowGroups(sectionRows(section("places"), RULES), SUBHEADINGS)).toEqual([
+      { heading: undefined, rows: sectionRows(section("places"), RULES) },
+    ]);
+    expect(rowGroups([], SUBHEADINGS)).toEqual([]);
   });
 
   it("skips a key an older server's rules lack", () => {

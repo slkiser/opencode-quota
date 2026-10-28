@@ -302,6 +302,21 @@ export function sectionRows(
     .map((key) => ({ key, rule: rules[key] as SettingRule }));
 }
 
+/** Rows in the cards they show in: a new card starts at each row with a heading (`SUBHEADINGS`). */
+export function rowGroups(
+  rows: readonly SectionRow[],
+  headings: Readonly<Record<string, string>>,
+): { heading: string | undefined; rows: SectionRow[] }[] {
+  const groups: { heading: string | undefined; rows: SectionRow[] }[] = [];
+  for (const row of rows) {
+    const heading = headings[row.key];
+    const last = groups.at(-1);
+    if (last && heading === undefined) last.rows.push(row);
+    else groups.push({ heading, rows: [row] });
+  }
+  return groups;
+}
+
 /** The settings each surface's tree edits, from the rules: hidden, order, names, window. */
 export function editorKeys(
   surface: Surface,
