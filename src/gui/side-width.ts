@@ -13,12 +13,20 @@
  * directly under the chat panel, the chat panel's sibling is the side panel, and its position
  * must sit on their shared edge (`isSessionDivider`). The left sidebar's, the review pane's and
  * the bottom pane's handles are elsewhere and fail that.
+ *
+ * Quota counts as "alone" in the side panel when its panel is on screen in the side panel and
+ * the side panel has only one pane (`data-slot="session-side-pane"`). It has a second pane when
+ * a tab sits in the split pane below the side pane, and the bottom pane is not inside the side
+ * panel at all; the app's own tab state cannot tell these apart, as it answers "visible" for
+ * Quota in any of the three.
  */
 import { dragX, isSessionDivider, stillFor } from "./side-width-model.js";
 
 const SIDE_PANEL = '[data-slot="session-side-panel-presence"]';
 const CHAT_PANEL = '[data-slot="session-chat-panel"]';
 const DIVIDER = ':scope > div > [data-component="resize-handle"][data-direction="horizontal"]';
+/** The side pane, and the split pane below it when it holds tabs. */
+const SIDE_PANE = '[data-slot="session-side-pane"]';
 /** The Quota tab's own root (`panel.tsx`). */
 const QUOTA_PANEL = ".oq-panel";
 
@@ -34,8 +42,13 @@ export type SidePanel = {
   readonly divider: HTMLElement;
   /** The side panel's width in pixels. */
   readonly width: number;
-  /** The Quota tab is on screen inside the side panel (not, say, in the bottom pane). */
-  readonly showsQuota: boolean;
+  /** The side panel's element. */
+  readonly element: HTMLElement;
+  /**
+   * The Quota tab is the only tab on screen in the side panel: not in the bottom pane, and not
+   * next to another tab in the split pane.
+   */
+  readonly quotaAlone: boolean;
 };
 
 /** True while this module drags the divider, so its own events are not taken for the user's. */
@@ -45,6 +58,10 @@ const onScreen = (element: Element) => {
   const box = element.getBoundingClientRect();
   return box.width > 0 && box.height > 0;
 };
+
+/** The panes and whether Quota's panel is in the side panel, as a string; no layout is read. */
+const tabsShape = (side: Element) =>
+  `${side.querySelectorAll(SIDE_PANE).length}:${side.querySelector(QUOTA_PANEL) ? "quota" : "-"}`;
 
 /** The side panel of the session on screen; undefined when there is none, or not exactly one. */
 export function findSidePanel(): SidePanel | undefined {
@@ -60,10 +77,15 @@ export function findSidePanel(): SidePanel | undefined {
       isSessionDivider(handle.getBoundingClientRect(), chatBox, sideBox),
     );
     if (!divider) return undefined;
+    // Every pane counts, sized yet or not: a split pane has no height for its first frame.
+    const panes = side.querySelectorAll(SIDE_PANE);
+    const [pane] = panes;
     return {
       divider,
       width: sideBox.width,
-      showsQuota: [...side.querySelectorAll(QUOTA_PANEL)].some(onScreen),
+      element: side as HTMLElement,
+      quotaAlone:
+        panes.length === 1 && !!pane && [...pane.querySelectorAll(QUOTA_PANEL)].some(onScreen),
     };
   } catch {
     return undefined;
@@ -72,10 +94,10 @@ export function findSidePanel(): SidePanel | undefined {
 
 /**
  * Calls `ready` once with the side panel when its width has stayed put for a few frames, as it
- * does after the panel opens or a tab switches; with `wantsQuota`, also once the Quota tab shows
- * inside it. Gives up quietly after two seconds. Returns the function that stops the wait.
+ * does after the panel opens or a tab switches. Gives up quietly after two seconds. Returns the
+ * function that stops the wait.
  */
-export function whenSideStill(ready: (panel: SidePanel) => void, wantsQuota = false): () => void {
+export function whenSideStill(ready: (panel: SidePanel) => void): () => void {
   if (typeof requestAnimationFrame === "undefined") return () => {};
   const started = performance.now();
   const widths: number[] = [];
@@ -84,7 +106,7 @@ export function whenSideStill(ready: (panel: SidePanel) => void, wantsQuota = fa
   const look = () => {
     if (stopped) return;
     const panel = findSidePanel();
-    if (panel && (!wantsQuota || panel.showsQuota)) {
+    if (panel) {
       widths.push(panel.width);
       if (stillFor(widths, STILL_FRAMES, STILL_PX)) {
         ready(panel);
@@ -100,6 +122,44 @@ export function whenSideStill(ready: (panel: SidePanel) => void, wantsQuota = fa
     stopped = true;
     cancelAnimationFrame(frame);
   };
+}
+
+/**
+ * Calls `changed` when the side panel's panes or Quota's place in it change: a tab moved in, out,
+ * or between the panes. The app's tab state does not say that (it answers "visible" for Quota in
+ * the side panel, its split pane and the bottom pane alike), so this watches the panel's DOM. It
+ * looks at most once a frame, and reads no layout until the panes or Quota's presence differ.
+ * Returns the function that stops watching.
+ */
+export function watchSideTabs(panel: SidePanel, changed: () => void): () => void {
+  if (typeof MutationObserver === "undefined" || typeof requestAnimationFrame === "undefined") {
+    return () => {};
+  }
+  const side = panel.element;
+  let shape = tabsShape(side);
+  let queued = false;
+  let frame = 0;
+  const look = () => {
+    queued = false;
+    const now = tabsShape(side);
+    if (now === shape) return;
+    shape = now;
+    changed();
+  };
+  try {
+    const observer = new MutationObserver(() => {
+      if (queued) return;
+      queued = true;
+      frame = requestAnimationFrame(look);
+    });
+    observer.observe(side, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  } catch {
+    return () => {};
+  }
 }
 
 /**

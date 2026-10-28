@@ -3,7 +3,8 @@
  * decisions behind `side-width-follow.ts`, with no page in sight. Widths are the side panel's
  * own, in pixels. Desktop stores one width per session screen (the chat panel's), not one per
  * tab, so this window remembers the two it cares about itself: Quota's, and the one every other
- * tab shares.
+ * tab shares. "Quota" here means Quota is the only tab on screen in the side panel; Quota in the
+ * panel's split pane or in the bottom pane counts as another tab.
  */
 
 /** The tab whose width the side panel holds: Quota's, or any other tab's. */
@@ -36,10 +37,13 @@ export type WidthStep = {
   narrowerBy: number | undefined;
 };
 
+/** A stored width that is a real width; zero, negative, NaN and infinite ones count as none. */
+const isSet = (width: number) => Number.isFinite(width) && width > 0;
+
 /** The widths with `width` remembered for `tab`; the same object when it is already so. */
 export function remember(widths: SideWidths, tab: SideTab, width: number): SideWidths {
   const pixels = Math.round(width);
-  if (!(pixels > 0) || widths[tab] === pixels) return widths;
+  if (!isSet(pixels) || widths[tab] === pixels) return widths;
   return { ...widths, [tab]: pixels };
 }
 
@@ -70,21 +74,21 @@ export function widthStep(input: {
     if (held === "quota") {
       return {
         widths,
-        narrowerBy: narrowerBy(current, widths.other > 0 ? widths.other : undefined),
+        narrowerBy: narrowerBy(current, isSet(widths.other) ? widths.other : undefined),
       };
     }
     return {
-      widths: widths.other > 0 ? widths : remember(widths, "other", current),
+      widths: isSet(widths.other) ? widths : remember(widths, "other", current),
       narrowerBy: undefined,
     };
   }
 
   // Quota shows, after another tab (the panel's width is that tab's) or in a session first seen.
   // A session first seen keeps the other tabs' width this window remembers.
-  const adopt = held === "other" || widths.other === 0;
+  const adopt = held === "other" || !isSet(widths.other);
   return {
     widths: adopt ? remember(widths, "other", current) : widths,
-    narrowerBy: narrowerBy(current, widths.quota > 0 ? widths.quota : NARROWEST),
+    narrowerBy: narrowerBy(current, isSet(widths.quota) ? widths.quota : NARROWEST),
   };
 }
 

@@ -118,6 +118,49 @@ describe("widthStep", () => {
     expect(first.widths.other).toBe(640);
   });
 
+  it("takes a stored width that is zero, negative, NaN or infinite for none", () => {
+    for (const bad of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      // The other tabs' width is taken from the panel when Quota replaces them...
+      const toQuota = widthStep({
+        shows: "quota",
+        held: undefined,
+        current: 640,
+        widths: widths(0, bad),
+      });
+      expect(toQuota.widths.other).toBe(640);
+
+      // ...there is nothing to put back when Quota gives way...
+      const back = widthStep({
+        shows: "other",
+        held: "quota",
+        current: 320,
+        widths: widths(0, bad),
+      });
+      expect(back.narrowerBy).toBeUndefined();
+
+      // ...and Quota goes to the narrowest.
+      const narrow = widthStep({
+        shows: "quota",
+        held: "other",
+        current: 700,
+        widths: widths(bad, 700),
+      });
+      expect(narrow.narrowerBy).toBe(700 - NARROWEST);
+    }
+  });
+
+  it("replaces a bad stored width when the panel gives a good one", () => {
+    expect(remember(widths(-5, 700), "quota", 450)).toEqual(widths(450, 700));
+    expect(remember(widths(Number.NaN, 700), "quota", 450)).toEqual(widths(450, 700));
+    const first = widthStep({
+      shows: "other",
+      held: undefined,
+      current: 500,
+      widths: widths(0, -1),
+    });
+    expect(first.widths.other).toBe(500);
+  });
+
   it("leaves a session first seen showing another tab as it is", () => {
     const remembered = widthStep({
       shows: "other",
