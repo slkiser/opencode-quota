@@ -53,7 +53,7 @@ import { STYLE } from "./style.js";
 import { surfaceSettings } from "./surface-settings.js";
 import {
   currentModelPick,
-  levelTone,
+  groupTone,
   pickedGroups,
   pickedText,
   statusStripShows,
@@ -289,9 +289,10 @@ export default Plugin.define({
         if (!shown) return undefined;
         const settings = settingsOf(shown);
         if (!settings.statusLine.show) return undefined;
+        // A provider whose check failed shows its error.
         const pick = currentModelPick(shown, settings, nowMs());
-        if (!pick?.row) return undefined;
-        const tone = levelTone(pick.row.level);
+        if (!pick) return undefined;
+        const tone = groupTone(pick);
         return {
           label: pickedText(pick, unchecked(), true),
           icon: "status" as const,

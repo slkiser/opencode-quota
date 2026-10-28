@@ -265,6 +265,11 @@ export function levelTone(level: Level | undefined): "success" | "warning" | "da
   return level === "low" ? "danger" : undefined;
 }
 
+/** A group's tone: "danger" when its check failed, else its row's level. */
+export function groupTone(group: PickedGroup): "success" | "warning" | "danger" | undefined {
+  return group.error !== undefined ? "danger" : levelTone(group.row?.level);
+}
+
 type ColorChoice = NonNullable<Settings["colors"]["good"]>;
 type NamedColor = Exclude<(typeof ROLE_THEME)[ColorRole], "bar">;
 

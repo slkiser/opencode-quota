@@ -8,6 +8,7 @@ import {
 } from "../src/gui/surface-settings.js";
 import {
   currentModelPick,
+  groupTone,
   levelCss,
   levelTone,
   panelView,
@@ -191,6 +192,16 @@ describe("GUI one-row surfaces", () => {
     expect(currentModelPick(hidden.snapshot, hidden.settings, NOW)).toBeUndefined();
     const noModel = { ...snapshot, currentModelProviderIds: undefined };
     expect(currentModelPick(noModel, settings, NOW)).toBeUndefined();
+  });
+
+  it("gives the composer pill a failed provider's error, in the danger tone", () => {
+    const { snapshot, settings } = settingsWith({});
+    const failed = { ...snapshot, currentModelProviderIds: ["zai"] };
+    const pick = currentModelPick(failed, settings, NOW);
+    expect(pick).toMatchObject({ providerId: "zai", error: expect.any(String) });
+    expect(pickedText(pick!, "not checked yet", true)).toBe(`Z.ai ${pick?.error}`);
+    expect(groupTone(pick!)).toBe("danger");
+    expect(groupTone(currentModelPick(snapshot, settings, NOW)!)).toBe("success");
   });
 });
 
