@@ -52,9 +52,12 @@ describe("the Settings page's sections", () => {
       ...SECTIONS.flatMap((item) => item.keys),
       ...SURFACES.flatMap((surface) => editorKeys(surface, RULES)),
     ];
+    // The terminal's "Next to the sidebar": Desktop's page has "Next to the side panel" instead.
+    const terminalOnly = ["statusLine.withSidebar"];
     const editable = Object.entries(SETTINGS_SCHEMA)
       .filter(([key, rule]) => key !== "version" && !("fileOnly" in rule && rule.fileOnly))
-      .map(([key]) => key);
+      .map(([key]) => key)
+      .filter((key) => !terminalOnly.includes(key));
 
     expect([...listed].sort()).toEqual([...editable].sort());
     expect(new Set(listed).size).toBe(listed.length);

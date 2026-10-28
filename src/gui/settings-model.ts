@@ -57,7 +57,7 @@ export const SECTIONS: readonly Section[] = [
   {
     id: "statusLine",
     keys: [
-      "statusLine.withSidebar",
+      "statusLine.withSidePanel",
       "statusLine.home",
       "statusLine.detail",
       "statusLine.runsOut",

@@ -206,14 +206,23 @@ describe("GUI one-row surfaces", () => {
 });
 
 describe("GUI bottom strip", () => {
-  it("shows as the TUI status line does: Home's own switch, and next to the panel", () => {
+  it("shows by default next to the Quota tab; Home has its own switch", () => {
     const shows = (values: Record<string, unknown>, home: boolean, panelOnScreen: boolean) =>
       statusStripShows(surfaceSettings(withValues(values)), { home, panelOnScreen });
     expect(shows({}, false, false)).toBe(true);
-    expect(shows({}, false, true)).toBe(false);
-    expect(shows({ "statusLine.withSidebar": true }, false, true)).toBe(true);
-    expect(shows({ "sidebar.show": false }, false, true)).toBe(true);
+    expect(shows({}, false, true)).toBe(true);
+    expect(shows({ "statusLine.withSidePanel": false }, false, true)).toBe(false);
+    expect(shows({ "statusLine.withSidePanel": false }, false, false)).toBe(true);
+    expect(shows({ "statusLine.withSidePanel": false, "sidebar.show": false }, false, true)).toBe(
+      true,
+    );
+    // The TUI's own setting does not reach Desktop.
+    expect(
+      shows({ "statusLine.withSidebar": true, "statusLine.withSidePanel": false }, false, true),
+    ).toBe(false);
+    expect(shows({ "statusLine.withSidebar": false }, false, true)).toBe(true);
     expect(shows({ "statusLine.show": false }, false, false)).toBe(false);
+    expect(shows({ "statusLine.show": false }, false, true)).toBe(false);
     expect(shows({}, true, false)).toBe(false);
     expect(shows({ "statusLine.home": true, "statusLine.show": false }, true, false)).toBe(true);
   });

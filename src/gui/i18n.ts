@@ -195,7 +195,7 @@ export const en = {
   "setting.collapsed.show.description": "One short line per provider in the titlebar.",
   "setting.statusLine.show": "Bottom status strip",
   "setting.statusLine.show.description":
-    "Quota along the bottom of the window, and the pill above the message box. The strip hides while the Quota side panel is open, unless 'Next to the side panel' is on.",
+    "Quota along the bottom of the window, and the pill above the message box.",
   "setting.toast.show": "Toasts",
   "setting.toast.show.description": "Quota toasts after replies, compaction and failures.",
   "setting.sidebar.sessionTokens": "Session tokens line",
@@ -206,9 +206,9 @@ export const en = {
   "setting.collapsed.runsOut": "Runs out in …",
   "setting.collapsed.runsOut.description":
     "Under the provider, when its limit runs out before the reset at your pace.",
-  "setting.statusLine.withSidebar": "Next to the side panel",
-  "setting.statusLine.withSidebar.description":
-    "Also show the strip while the Quota side panel is open.",
+  "setting.statusLine.withSidePanel": "Next to the side panel",
+  "setting.statusLine.withSidePanel.description":
+    "Desktop only; the terminal has its own setting. Also show the strip while the Quota tab shows in the side panel. Off, the strip hides while that tab shows.",
   "setting.statusLine.home": "On the Home screen",
   "setting.statusLine.home.description": "Show the strip on Home too, before you open a session.",
   "setting.statusLine.detail": "Show",

@@ -192,7 +192,8 @@ export function pickedText(group: PickedGroup, unchecked: string, withName = fal
 
 /**
  * The bottom strip shows: on Home, when `statusLine.home` is on; in a session, when the status
- * line is on and it shows next to the sidebar, or no Quota panel is on screen. As in the TUI.
+ * line is on and `statusLine.withSidePanel` lets it show next to the Quota tab, or the tab is not
+ * on screen. The TUI's `statusLine.withSidebar` does not apply here.
  */
 export function statusStripShows(
   settings: Settings,
@@ -200,7 +201,7 @@ export function statusStripShows(
 ): boolean {
   if (where.home) return settings.statusLine.home;
   if (!settings.statusLine.show) return false;
-  return settings.statusLine.withSidebar || !(where.panelOnScreen && settings.sidebar.show);
+  return settings.statusLine.withSidePanel || !(where.panelOnScreen && settings.sidebar.show);
 }
 
 /** The status line's detail levels, most first: what each provider on the bottom strip shows. */

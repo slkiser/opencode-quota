@@ -74,8 +74,10 @@ export const SETTINGS_SCHEMA = {
   /** A window by provider id; `ALL_PROVIDERS` ("*") for every provider without its own. */
   "collapsed.window": { kind: "window", default: {} },
   "statusLine.show": bool(true),
-  /** Also while a sidebar panel shows quota; else only when none is on screen. */
+  /** The TUI's: also while a sidebar panel shows quota; else only when none is on screen. */
   "statusLine.withSidebar": bool(false),
+  /** Desktop's: also while the Quota tab shows in the side panel; else only when it does not. */
+  "statusLine.withSidePanel": bool(true),
   "statusLine.runsOut": bool(false),
   "statusLine.hidden": { kind: "strings", default: [] },
   "statusLine.providerOrder": { kind: "strings", default: [] },

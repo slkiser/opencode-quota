@@ -44,6 +44,7 @@ export const SURFACE_DEFAULTS: SurfaceSettings = {
   statusLine: {
     show: true,
     withSidebar: false,
+    withSidePanel: true,
     runsOut: false,
     hidden: [],
     providerOrder: [],
