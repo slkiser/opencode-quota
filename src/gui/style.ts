@@ -210,7 +210,8 @@ export const STYLE = `
 .oq-smeasure > div { display: flex; width: max-content; }
 /* The Settings page uses OpenCode's own Settings markup (page header, sections, list cards, rows),
    so the app's styles give it its look. These :where() rules weigh nothing, so the app's win; they
-   keep the page laid out if the app renames its classes. */
+   keep the page laid out if the app renames its classes. The one on Tailwind's
+   .text-v2-text-text-muted beats the app's (Tailwind's sits in a cascade layer) with the same color. */
 :where(.oq-settings) :where(.settings-tab-header) { position: sticky; top: 0; z-index: 10;
   background: var(--v2-background-bg-base, var(--background-base, var(--oq-raised))); padding: 24px 0 16px; }
 :where(.oq-settings) :where(.settings-tab-header--stacked) { display: flex; flex-direction: column; gap: 24px; }

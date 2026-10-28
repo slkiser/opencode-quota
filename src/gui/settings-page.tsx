@@ -462,6 +462,11 @@ function SectionView(props: SectionProps) {
     for (const key of resetKeys(section, props.rules)) draft.reset(key);
     if (section.id === "providers") draft.discardSwitches();
   };
+  const groups = () => rowGroups(sectionRows(section, props.rules), SUBHEADINGS);
+  const presetAlone = () => {
+    const first = groups()[0];
+    return first === undefined || first.heading !== undefined;
+  };
   return (
     <section class="settings-section" data-action={`${SETTINGS_PAGE_ID}.${section.id}`}>
       <div class="oq-sgroup-head">
@@ -484,10 +489,19 @@ function SectionView(props: SectionProps) {
         <ProvidersView {...props} />
       </Show>
       <Show when={section.id !== "providers"}>
-        <For each={rowGroups(sectionRows(section, props.rules), SUBHEADINGS)}>
+        {/* A preset sets the whole section, so it gets a card of its own when the first card
+            has a subheading (Colors: "Bars"), or when there are no rows. */}
+        <Show when={presetAlone() && section.preset}>
+          {(name) => (
+            <List>
+              <PresetRow {...props} name={name()} />
+            </List>
+          )}
+        </Show>
+        <For each={groups()}>
           {(group, at) => (
             <List heading={group.heading && ctx.t(group.heading)}>
-              <Show when={at() === 0 && section.preset}>
+              <Show when={at() === 0 && !presetAlone() && section.preset}>
                 {(name) => <PresetRow {...props} name={name()} />}
               </Show>
               <For each={group.rows}>
