@@ -16,7 +16,7 @@
  * (`toastSentences`): a window draws a toast's text in a proportional font and may join its
  * lines, so the TUI's columns and bars would not line up. The app collapses a description's
  * line breaks, so the toast's text is found on screen by its words and marked (`data-oq-lines`)
- * for the window's CSS to keep them; a toast not found within a second keeps the app's look. The
+ * for the window's CSS to keep them; a toast not found within 60 frames keeps the app's look. The
  * window's own words (the titles) come from the catalog.
  *
  * When the window's server restarts or the plugin goes away, the refreshes still waiting stop
@@ -43,7 +43,7 @@ import { surfaceSettings } from "./surface-settings.js";
 /** Columns of a toast as wide as the TUI's widest (`toastRoom`: 51 columns of text). */
 const TOAST_COLUMNS = 200;
 
-/** Frames to look for a toast's text on screen: about a second. */
+/** Frames to look for a toast's text on screen: a second at 60 Hz, half that at 120 Hz. */
 const MARK_FRAMES = 60;
 
 /** Marks the toast description showing `text` so the window's CSS keeps its line breaks. */
