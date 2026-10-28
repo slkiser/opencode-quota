@@ -7,7 +7,7 @@
     </picture>
   </a>
 </p>
-<p align="center">在 OpenCode 和終端機中查看配額、用量和 token。</p>
+<p align="center">在 OpenCode 的 TUI 和 Desktop 中查看配額、用量和費用。</p>
 <p align="center">
   <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm" src="https://img.shields.io/npm/v/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
   <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm downloads" src="https://img.shields.io/npm/dm/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
@@ -39,7 +39,10 @@ opencode plugin add @slkiser/opencode-quota
 重新啟動 OpenCode，然後輸入 `/quota`。會開啟一個顯示你各項限額的視窗。點選分頁 Usage（用量）、Limits（限額）、Plugin（外掛）或某個 Settings（設定）分頁，或按 `tab` 在分頁之間切換；點一下或按 `esc` 關閉視窗。
 
 > [!IMPORTANT]
-> 需要 OpenCode `2.0.26+`；終端機指令還需要 Node.js `22.13+` 或 `23.4+`。還在用 OpenCode 1？請改為執行 `npx @slkiser/opencode-quota@4 init`。
+> 需要 OpenCode `2.0.26+`；終端機指令還需要 Node.js `22.13+` 或 `23.4+`。
+
+> [!NOTE]
+> 還在用 OpenCode 1？請改為執行 `npx @slkiser/opencode-quota@4 init`，並參見 [OpenCode 1 的 README](https://github.com/slkiser/opencode-quota/blob/release/4.x/README.md)。
 
 <details>
 <summary>自行編輯 <code>opencode.json</code></summary>
@@ -57,11 +60,23 @@ opencode plugin add @slkiser/opencode-quota
 
 ## 功能
 
-- **為 OpenCode 2 打造：** 設定即時生效，套用到每個開啟中的 OpenCode。
-- **終端機：** 即使 OpenCode 已關閉，`npx @slkiser/opencode-quota@latest show` 也能使用。
+- **TUI：** `/quota` 會開啟一個視窗，裡面有 Usage、Limits、Plugin 和 Settings 分頁。TUI 還會有側邊欄中的 Quota 面板、輸入框下方的狀態列和 toast 通知。
 - **Desktop（實驗性，OpenCode `2.2.0+`）：** **Quota** 指令會開啟用量視窗（Limits、Cost、Tokens）。Desktop 還會有釘選的 Quota 側邊分頁、標題列膠囊、視窗底部狀態條、輸入框上方的膠囊、toast 通知、工作階段選單中的 **Quota usage for this session**，以及 OpenCode 設定中的 Quota 頁面。同一個外掛項目即可載入它；可在 **Settings → Extensions → Plugins** 中關閉。
+  <details>
+  <summary>各項設定在 TUI 和 Desktop 中的顯示位置</summary>
+  <table>
+  <tr><th>設定群組</th><th>TUI</th><th>Desktop</th></tr>
+  <tr><td><code>sidebar</code></td><td>側邊欄中的 Quota 面板</td><td>Quota 側邊分頁</td></tr>
+  <tr><td><code>collapsed</code></td><td>摺疊成每個供應商一行的側邊欄面板</td><td>標題列膠囊，以及摺疊時的 Quota 側邊分頁</td></tr>
+  <tr><td><code>statusLine</code></td><td>輸入框下方的一行</td><td>視窗底部狀態條，以及輸入框上方的膠囊</td></tr>
+  <tr><td><code>toast</code></td><td>帶進度條的 toast 通知</td><td>toast 通知，每個供應商一句話</td></tr>
+  </table>
+  <p><b>注意：</b>在 TUI 中，側邊欄顯示配額時狀態列會隱藏，除非開啟 <b>Next to the sidebar</b>（<code>statusLine.withSidebar</code>）。在 Desktop 中，狀態條預設也會顯示在 Quota 側邊分頁旁；<b>Next to the side panel</b>（<code>statusLine.withSidePanel</code>）可將其關閉。</p>
+  </details>
 - **Web 和 Desktop：** `/quota`、`/quota_usage` 和 `/quota_status` 會把報告當成你的訊息貼到聊天中。AI 從不回覆它，外掛也會把它從每次 AI 請求中過濾掉。解除安裝外掛後，過去聊天中的舊報告將不再被過濾。Web 的字型可能無法讓各欄對齊。
+- **終端機：** 即使 OpenCode 已關閉，`npx @slkiser/opencode-quota@latest show` 也能使用。
 - **腳本和狀態列：** JSON、匯出檔案和指標。請參閱[外部整合](../external-integration.md)。
+- **為 OpenCode 2 打造：** 設定即時生效，套用到每個開啟中的 OpenCode。
 
 ## 指令
 

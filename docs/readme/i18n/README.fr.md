@@ -7,7 +7,7 @@
     </picture>
   </a>
 </p>
-<p align="center">Quotas, consommation et tokens visibles dans OpenCode et dans votre terminal.</p>
+<p align="center">Quotas, consommation et coûts dans la TUI et Desktop d'OpenCode.</p>
 <p align="center">
   <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm" src="https://img.shields.io/npm/v/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
   <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm downloads" src="https://img.shields.io/npm/dm/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
@@ -39,7 +39,10 @@ opencode plugin add @slkiser/opencode-quota
 Redémarrez OpenCode et tapez `/quota`. Une fenêtre s'ouvre avec vos limites. Cliquez sur un onglet (Usage, Limits, Plugin ou l'un des onglets Settings) ou appuyez sur `tab` pour passer de l'un à l'autre ; cliquez ou appuyez sur `esc` pour la fermer.
 
 > [!IMPORTANT]
-> Il vous faut OpenCode `2.0.26+` ; les commandes du terminal nécessitent aussi Node.js `22.13+` ou `23.4+`. Encore sur OpenCode 1 ? Lancez plutôt `npx @slkiser/opencode-quota@4 init`.
+> Il vous faut OpenCode `2.0.26+` ; les commandes du terminal nécessitent aussi Node.js `22.13+` ou `23.4+`.
+
+> [!NOTE]
+> Encore sur OpenCode 1 ? Lancez plutôt `npx @slkiser/opencode-quota@4 init`, et consultez le [README d'OpenCode 1](https://github.com/slkiser/opencode-quota/blob/release/4.x/README.md).
 
 <details>
 <summary>Modifier <code>opencode.json</code> vous-même</summary>
@@ -57,11 +60,23 @@ Ajoutez le plugin à `opencode.jsonc` ou `opencode.json`, en gardant vos autres 
 
 ## Fonctionnalités
 
-- **Conçu pour OpenCode 2 :** les paramètres s'appliquent en direct, dans chaque OpenCode ouvert.
-- **Terminal :** `npx @slkiser/opencode-quota@latest show` fonctionne même quand OpenCode est fermé.
+- **TUI :** `/quota` ouvre une fenêtre avec les onglets Usage, Limits, Plugin et Settings. La TUI reçoit aussi un panneau Quota dans la barre latérale, une ligne d'état sous la zone de saisie et des toasts.
 - **Desktop (expérimental, OpenCode `2.2.0+`) :** la commande **Quota** ouvre une fenêtre d'utilisation (Limits, Cost, Tokens). Desktop reçoit aussi un onglet latéral Quota épinglé, une pastille dans la barre de titre, une bande en bas de la fenêtre, une pastille au-dessus de la zone de saisie, des toasts, l'élément **Quota usage for this session** dans le menu de la session et une page Quota dans les paramètres d'OpenCode. La même entrée de plugin la charge ; désactivez-la dans **Settings → Extensions → Plugins**.
+  <details>
+  <summary>Où chaque paramètre s'affiche dans la TUI et dans Desktop</summary>
+  <table>
+  <tr><th>Groupe de paramètres</th><th>TUI</th><th>Desktop</th></tr>
+  <tr><td><code>sidebar</code></td><td>Panneau Quota dans la barre latérale</td><td>Onglet latéral Quota</td></tr>
+  <tr><td><code>collapsed</code></td><td>Panneau de la barre latérale replié sur une ligne par fournisseur</td><td>Pastille de la barre de titre, et l'onglet latéral Quota quand il est replié</td></tr>
+  <tr><td><code>statusLine</code></td><td>Ligne sous la zone de saisie</td><td>Bande en bas de la fenêtre, et la pastille au-dessus de la zone de saisie</td></tr>
+  <tr><td><code>toast</code></td><td>Toasts avec des barres</td><td>Toasts, une phrase par fournisseur</td></tr>
+  </table>
+  <p><b>Remarque :</b> dans la TUI, la ligne d'état se masque tant que la barre latérale affiche des quotas, sauf si <b>Next to the sidebar</b> (<code>statusLine.withSidebar</code>) est activé. Dans Desktop, la bande s'affiche aussi à côté de l'onglet latéral Quota par défaut ; <b>Next to the side panel</b> (<code>statusLine.withSidePanel</code>) la désactive.</p>
+  </details>
 - **Web et Desktop :** `/quota`, `/quota_usage` et `/quota_status` publient leur rapport dans le chat sous forme de message de votre part. L'IA n'y répond jamais, et le plugin le retire de chaque requête envoyée à l'IA. Une fois le plugin désinstallé, les anciens rapports des chats passés ne sont plus filtrés. La police du Web n'aligne pas toujours les colonnes.
+- **Terminal :** `npx @slkiser/opencode-quota@latest show` fonctionne même quand OpenCode est fermé.
 - **Scripts et barres d'état :** JSON, un fichier d'export et des métriques. Voir [Intégration externe](../external-integration.md).
+- **Conçu pour OpenCode 2 :** les paramètres s'appliquent en direct, dans chaque OpenCode ouvert.
 
 ## Commandes
 

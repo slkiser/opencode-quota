@@ -7,7 +7,7 @@
     </picture>
   </a>
 </p>
-<p align="center">Quota, usage, and token visibility in OpenCode and your terminal.</p>
+<p align="center">Quota, usage and cost in OpenCode's TUI and Desktop.</p>
 <p align="center">
   <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm" src="https://img.shields.io/npm/v/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
   <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm downloads" src="https://img.shields.io/npm/dm/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
@@ -39,7 +39,10 @@ opencode plugin add @slkiser/opencode-quota
 Restart OpenCode and type `/quota`. A window opens with your limits. Click a tab (Usage, Limits, Plugin, or a Settings tab) or press `tab` to move between them; click or press `esc` to close it.
 
 > [!IMPORTANT]
-> You need OpenCode `2.0.26+`; the terminal commands also need Node.js `22.13+` or `23.4+`. Still on OpenCode 1? Run `npx @slkiser/opencode-quota@4 init` instead.
+> You need OpenCode `2.0.26+`; the terminal commands also need Node.js `22.13+` or `23.4+`.
+
+> [!NOTE]
+> Still on OpenCode 1? Run `npx @slkiser/opencode-quota@4 init` instead, and see the [OpenCode 1 README](https://github.com/slkiser/opencode-quota/blob/release/4.x/README.md).
 
 <details>
 <summary>Edit <code>opencode.json</code> yourself</summary>
@@ -57,11 +60,23 @@ Add the plugin to `opencode.jsonc` or `opencode.json`, and keep your other plugi
 
 ## What you get
 
-- **Built for OpenCode 2:** settings apply live, in every open OpenCode.
-- **Terminal:** `npx @slkiser/opencode-quota@latest show` works even with OpenCode closed.
+- **TUI:** `/quota` opens a window with Usage, Limits, Plugin and Settings tabs. The TUI also gets a Quota sidebar panel, a status line under the message box, and toasts.
 - **Desktop (experimental, OpenCode `2.2.0+`):** the **Quota** command opens a usage window (Limits, Cost, Tokens). Desktop also gets a pinned Quota side tab, a titlebar pill, a bottom strip, a composer pill, toasts, a **Quota usage for this session** item in the session menu, and a Quota page in OpenCode's settings. The same plugin entry loads it; turn it off in **Settings → Extensions → Plugins**.
+  <details>
+  <summary>Where each setting shows in the TUI and in Desktop</summary>
+  <table>
+  <tr><th>Setting group</th><th>TUI</th><th>Desktop</th></tr>
+  <tr><td><code>sidebar</code></td><td>Quota panel in the sidebar</td><td>Quota side tab</td></tr>
+  <tr><td><code>collapsed</code></td><td>Sidebar panel folded to one line per provider</td><td>Titlebar pill, and the Quota side tab when folded</td></tr>
+  <tr><td><code>statusLine</code></td><td>Line under the message box</td><td>Strip at the bottom of the window, and the pill above the message box</td></tr>
+  <tr><td><code>toast</code></td><td>Toasts with bars</td><td>Toasts, one sentence per provider</td></tr>
+  </table>
+  <p><b>Note:</b> in the TUI the status line hides while the sidebar shows quota, unless <b>Next to the sidebar</b> (<code>statusLine.withSidebar</code>) is on. In Desktop the strip also shows next to the Quota side tab by default; <b>Next to the side panel</b> (<code>statusLine.withSidePanel</code>) turns that off.</p>
+  </details>
 - **Web and Desktop:** `/quota`, `/quota_usage` and `/quota_status` post their report in the chat as your message. The AI never answers it, and the plugin filters it out of every AI request. After you uninstall the plugin, old reports in past chats are no longer filtered. Web's font may not line up the columns.
+- **Terminal:** `npx @slkiser/opencode-quota@latest show` works even with OpenCode closed.
 - **Scripts and status bars:** JSON, an export file, and metrics. See [External integration](docs/readme/external-integration.md).
+- **Built for OpenCode 2:** settings apply live, in every open OpenCode.
 
 ## Commands
 

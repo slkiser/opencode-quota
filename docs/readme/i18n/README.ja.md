@@ -7,7 +7,7 @@
     </picture>
   </a>
 </p>
-<p align="center">OpenCode とターミナルで、クォータ、使用量、トークンを確認できます。</p>
+<p align="center">OpenCode の TUI と Desktop で、クォータ、使用量、コストを確認できます。</p>
 <p align="center">
   <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm" src="https://img.shields.io/npm/v/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
   <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm downloads" src="https://img.shields.io/npm/dm/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
@@ -39,7 +39,10 @@ opencode plugin add @slkiser/opencode-quota
 OpenCode を再起動して `/quota` と入力します。上限を表示するウィンドウが開きます。Usage（使用量）、Limits（上限）、Plugin（プラグイン）、または Settings（設定）内のタブをクリックするか、`tab` を押してタブを切り替えます。閉じるには、クリックするか `esc` を押します。
 
 > [!IMPORTANT]
-> OpenCode `2.0.26+` が必要です。ターミナルのコマンドには Node.js `22.13+` または `23.4+` も必要です。まだ OpenCode 1 を使っている場合は、代わりに `npx @slkiser/opencode-quota@4 init` を実行してください。
+> OpenCode `2.0.26+` が必要です。ターミナルのコマンドには Node.js `22.13+` または `23.4+` も必要です。
+
+> [!NOTE]
+> まだ OpenCode 1 を使っている場合は、代わりに `npx @slkiser/opencode-quota@4 init` を実行し、[OpenCode 1 の README](https://github.com/slkiser/opencode-quota/blob/release/4.x/README.md) も参照してください。
 
 <details>
 <summary><code>opencode.json</code> を自分で編集する</summary>
@@ -57,11 +60,23 @@ OpenCode を再起動して `/quota` と入力します。上限を表示する�
 
 ## 主な機能
 
-- **OpenCode 2 向けに設計：** 設定は、開いているすべての OpenCode に即座に反映されます。
-- **ターミナル：** `npx @slkiser/opencode-quota@latest show` は OpenCode を閉じていても使えます。
+- **TUI：** `/quota` で、Usage、Limits、Plugin、Settings のタブがあるウィンドウが開きます。TUI にはさらに、サイドバーの Quota パネル、入力欄の下のステータスライン、トーストが加わります。
 - **Desktop（実験的、OpenCode `2.2.0+`）：** **Quota** コマンドで使用量ウィンドウ（Limits、Cost、Tokens）が開きます。Desktop にはほかに、固定された Quota サイドタブ、タイトルバーのピル、ウィンドウ下部のストリップ、入力欄の上のピル、トースト、セッションメニューの **Quota usage for this session**、OpenCode の設定内の Quota ページが加わります。同じプラグインエントリーで読み込まれます。オフにするには **Settings → Extensions → Plugins** を開きます。
+  <details>
+  <summary>各設定が TUI と Desktop で表示される場所</summary>
+  <table>
+  <tr><th>設定グループ</th><th>TUI</th><th>Desktop</th></tr>
+  <tr><td><code>sidebar</code></td><td>サイドバーの Quota パネル</td><td>Quota サイドタブ</td></tr>
+  <tr><td><code>collapsed</code></td><td>プロバイダーごとに 1 行へ折りたたんだサイドバーパネル</td><td>タイトルバーのピル、および折りたたんだときの Quota サイドタブ</td></tr>
+  <tr><td><code>statusLine</code></td><td>入力欄の下の行</td><td>ウィンドウ下部のストリップ、および入力欄の上のピル</td></tr>
+  <tr><td><code>toast</code></td><td>バー付きのトースト</td><td>トースト（プロバイダーごとに 1 文）</td></tr>
+  </table>
+  <p><b>補足：</b>TUI では、サイドバーにクォータが表示されている間、ステータスラインは非表示になります。<b>Next to the sidebar</b>（<code>statusLine.withSidebar</code>）をオンにすると表示されます。Desktop では、ストリップはデフォルトで Quota サイドタブの横にも表示されます。<b>Next to the side panel</b>（<code>statusLine.withSidePanel</code>）でこれをオフにできます。</p>
+  </details>
 - **Web と Desktop：** `/quota`、`/quota_usage`、`/quota_status` は、レポートをあなたのメッセージとしてチャットに投稿します。AI がそれに返答することはなく、プラグインはすべての AI リクエストからそれを除外します。プラグインをアンインストールすると、過去のチャットにある古いレポートは除外されなくなります。Web ではフォントによって列が揃わないことがあります。
+- **ターミナル：** `npx @slkiser/opencode-quota@latest show` は OpenCode を閉じていても使えます。
 - **スクリプトとステータスバー：** JSON、エクスポートファイル、メトリクス。[外部連携](../external-integration.md)を参照してください。
+- **OpenCode 2 向けに設計：** 設定は、開いているすべての OpenCode に即座に反映されます。
 
 ## コマンド
 

@@ -41,7 +41,7 @@ Nest the keys in the file:
 - **Status line:** under the message box when no sidebar panel with quota is on screen. **Next to the sidebar** on its page shows it there too.
 - **Toasts:** after compaction, when every provider fails, and after a reply once a shown limit is getting low.
 
-OpenCode Desktop (`2.2.0+`, experimental) shows the same settings in its own places: `sidebar` in a pinned Quota side tab, `collapsed` in a titlebar pill, `statusLine` in a strip at the bottom of the window (it also shows while the Quota tab does; `statusLine.withSidePanel: false` hides it then), and `toast` in its toasts. Web has none of these; there `/quota`, `/quota_usage` and `/quota_status` post a report in the chat.
+OpenCode Desktop (`2.2.0+`, experimental) shows the same settings in its own places: `sidebar` in a pinned Quota side tab, `collapsed` in a titlebar pill (and in the Quota side tab when folded), `statusLine` in a strip at the bottom of the window and a pill above the message box (the strip also shows while the Quota tab does; `statusLine.withSidePanel: false` hides it then), and `toast` in its toasts, one sentence per provider. Web has none of these; there `/quota`, `/quota_usage` and `/quota_status` post a report in the chat.
 
 ## All settings
 

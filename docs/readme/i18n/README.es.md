@@ -7,7 +7,7 @@
     </picture>
   </a>
 </p>
-<p align="center">Cuotas, uso y tokens a la vista en OpenCode y en tu terminal.</p>
+<p align="center">Cuotas, uso y costos en la TUI y en Desktop de OpenCode.</p>
 <p align="center">
   <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm" src="https://img.shields.io/npm/v/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
   <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm downloads" src="https://img.shields.io/npm/dm/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
@@ -39,7 +39,10 @@ opencode plugin add @slkiser/opencode-quota
 Reinicia OpenCode y escribe `/quota`. Se abre una ventana con tus límites. Haz clic en una pestaña (Usage, Limits, Plugin o una de las pestañas de Settings) o presiona `tab` para moverte entre ellas; haz clic o presiona `esc` para cerrarla.
 
 > [!IMPORTANT]
-> Necesitas OpenCode `2.0.26+`; los comandos de terminal también necesitan Node.js `22.13+` o `23.4+`. ¿Sigues en OpenCode 1? Ejecuta `npx @slkiser/opencode-quota@4 init` en su lugar.
+> Necesitas OpenCode `2.0.26+`; los comandos de terminal también necesitan Node.js `22.13+` o `23.4+`.
+
+> [!NOTE]
+> ¿Sigues en OpenCode 1? Ejecuta `npx @slkiser/opencode-quota@4 init` en su lugar y consulta el [README de OpenCode 1](https://github.com/slkiser/opencode-quota/blob/release/4.x/README.md).
 
 <details>
 <summary>Editar <code>opencode.json</code> a mano</summary>
@@ -57,11 +60,23 @@ Agrega el plugin a `opencode.jsonc` o `opencode.json` y conserva tus otros plugi
 
 ## Funciones
 
-- **Hecho para OpenCode 2:** los ajustes se aplican al instante, en cada OpenCode abierto.
-- **Terminal:** `npx @slkiser/opencode-quota@latest show` funciona incluso con OpenCode cerrado.
+- **TUI:** `/quota` abre una ventana con las pestañas Usage, Limits, Plugin y Settings. La TUI también tiene un panel Quota en la barra lateral, una línea de estado bajo el cuadro de mensaje y notificaciones toast.
 - **Desktop (experimental, OpenCode `2.2.0+`):** el comando **Quota** abre una ventana de uso (Limits, Cost, Tokens). Desktop también tiene una pestaña lateral Quota fijada, una píldora en la barra de título, una franja en la parte inferior, una píldora sobre el cuadro de mensaje, notificaciones toast, el elemento **Quota usage for this session** en el menú de la sesión y una página Quota en los ajustes de OpenCode. La misma entrada del plugin lo carga; desactívalo en **Settings → Extensions → Plugins**.
+  <details>
+  <summary>Dónde aparece cada ajuste en la TUI y en Desktop</summary>
+  <table>
+  <tr><th>Grupo de ajustes</th><th>TUI</th><th>Desktop</th></tr>
+  <tr><td><code>sidebar</code></td><td>Panel Quota en la barra lateral</td><td>Pestaña lateral Quota</td></tr>
+  <tr><td><code>collapsed</code></td><td>Panel de la barra lateral plegado a una línea por proveedor</td><td>Píldora de la barra de título, y la pestaña lateral Quota cuando está plegada</td></tr>
+  <tr><td><code>statusLine</code></td><td>Línea bajo el cuadro de mensaje</td><td>Franja en la parte inferior de la ventana, y la píldora sobre el cuadro de mensaje</td></tr>
+  <tr><td><code>toast</code></td><td>Toasts con barras</td><td>Toasts, una frase por proveedor</td></tr>
+  </table>
+  <p><b>Nota:</b> en la TUI, la línea de estado se oculta mientras la barra lateral muestra cuotas, salvo que <b>Next to the sidebar</b> (<code>statusLine.withSidebar</code>) esté activado. En Desktop, la franja también se muestra junto a la pestaña lateral Quota de forma predeterminada; <b>Next to the side panel</b> (<code>statusLine.withSidePanel</code>) lo desactiva.</p>
+  </details>
 - **Web y Desktop:** `/quota`, `/quota_usage` y `/quota_status` publican su informe en el chat como un mensaje tuyo. La IA nunca lo responde, y el plugin lo filtra de cada solicitud a la IA. Después de desinstalar el plugin, los informes antiguos de chats pasados ya no se filtran. Es posible que la fuente de Web no alinee las columnas.
+- **Terminal:** `npx @slkiser/opencode-quota@latest show` funciona incluso con OpenCode cerrado.
 - **Scripts y barras de estado:** JSON, un archivo de exportación y métricas. Consulta [Integración externa](../external-integration.md).
+- **Hecho para OpenCode 2:** los ajustes se aplican al instante, en cada OpenCode abierto.
 
 ## Comandos
 
