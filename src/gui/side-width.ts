@@ -59,9 +59,14 @@ const onScreen = (element: Element) => {
   return box.width > 0 && box.height > 0;
 };
 
-/** The panes and whether Quota's panel is in the side panel, as a string; no layout is read. */
-const tabsShape = (side: Element) =>
-  `${side.querySelectorAll(SIDE_PANE).length}:${side.querySelector(QUOTA_PANEL) ? "quota" : "-"}`;
+/**
+ * The panes and whether Quota's panel shows in the side panel, as a string; no layout is read.
+ * The new-tab view covers Quota by hiding it with the `hidden` class, so a hidden Quota is absent.
+ */
+const tabsShape = (side: Element) => {
+  const quota = [...side.querySelectorAll(QUOTA_PANEL)].some((panel) => !panel.closest(".hidden"));
+  return `${side.querySelectorAll(SIDE_PANE).length}:${quota ? "quota" : "-"}`;
+};
 
 /** The side panel of the session on screen; undefined when there is none, or not exactly one. */
 export function findSidePanel(): SidePanel | undefined {
@@ -126,7 +131,7 @@ export function whenSideStill(ready: (panel: SidePanel) => void): () => void {
 
 /**
  * Calls `changed` when the side panel's panes or Quota's place in it change: a tab moved in, out,
- * or between the panes. The app's tab state does not say that (it answers "visible" for Quota in
+ * or between the panes, or the new-tab view covered or uncovered Quota. The app's tab state does not say that (it answers "visible" for Quota in
  * the side panel, its split pane and the bottom pane alike), so this watches the panel's DOM. It
  * looks at most once a frame, and reads no layout until the panes or Quota's presence differ.
  * Returns the function that stops watching.
@@ -152,7 +157,12 @@ export function watchSideTabs(panel: SidePanel, changed: () => void): () => void
       queued = true;
       frame = requestAnimationFrame(look);
     });
-    observer.observe(side, { childList: true, subtree: true });
+    observer.observe(side, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class"],
+    });
     return () => {
       observer.disconnect();
       cancelAnimationFrame(frame);

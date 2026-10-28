@@ -193,6 +193,16 @@ export class FakeElement extends FakeTarget {
 
   setAttribute(name: string, value = "") {
     this.attributes.set(name, value);
+    if (name === "class") changed(this);
+  }
+
+  closest(selector: string): FakeElement | null {
+    const steps = parseSelector(selector);
+    if (matches(this, this, steps)) return this;
+    for (let element = this.parentElement; element; element = element.parentElement) {
+      if (matches(element, element, steps)) return element;
+    }
+    return null;
   }
 
   getBoundingClientRect() {
@@ -277,9 +287,15 @@ class FakeMutationObserver {
     this.callback = callback;
   }
 
-  observe(target: FakeElement, options: { childList?: boolean; subtree?: boolean }) {
+  observe(
+    target: FakeElement,
+    options: { childList?: boolean; subtree?: boolean; attributeFilter?: string[] },
+  ) {
     if (!options.childList || !options.subtree) {
       throw new Error("fake page: the observer fakes childList and subtree only");
+    }
+    if (options.attributeFilter && options.attributeFilter.join() !== "class") {
+      throw new Error("fake page: the observer fakes class attribute changes only");
     }
     this.target = target;
     observers.add(this);

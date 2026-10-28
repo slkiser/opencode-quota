@@ -78,6 +78,8 @@ export function followSideWidth(ctx: Context, panelKey: string): void {
   /** Stops the wait for the panel to sit still, which a hand-resize ends. */
   let stopWaiting: (() => void) | undefined;
   let stopWatching: (() => void) | undefined;
+  /** Starts the current run's wait again: a hand drag cancels it before the panes are watched. */
+  let resume: (() => void) | undefined;
   let warned = false;
   const fail = (error: unknown) => {
     if (warned) return;
@@ -100,6 +102,7 @@ export function followSideWidth(ctx: Context, panelKey: string): void {
             const tab = panel.quotaAlone ? "quota" : "other";
             held.set(session.key, tab);
             widths.set(remember(remembered(), tab, panel.width));
+            resume?.();
           } catch (error) {
             fail(error);
           }
@@ -138,8 +141,10 @@ export function followSideWidth(ctx: Context, panelKey: string): void {
           fail(error);
         }
       };
+      resume = wait;
       wait();
       onCleanup(() => {
+        resume = undefined;
         stopWaiting?.();
         stopWaiting = undefined;
         stopTabs();

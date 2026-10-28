@@ -4,7 +4,7 @@
  * own, in pixels. Desktop stores one width per session screen (the chat panel's), not one per
  * tab, so this window remembers the two it cares about itself: Quota's, and the one every other
  * tab shares. "Quota" here means Quota is the only tab on screen in the side panel; Quota in the
- * panel's split pane or in the bottom pane counts as another tab.
+ * split pane next to another tab, or in the bottom pane, counts as another tab.
  */
 
 /** The tab whose width the side panel holds: Quota's, or any other tab's. */

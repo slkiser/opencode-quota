@@ -462,6 +462,20 @@ describe("watchSideTabs", () => {
     expect(changed).toHaveBeenCalledTimes(1);
   });
 
+  it("tells when the new-tab view covers Quota and when it uncovers it", () => {
+    const { changed } = watch();
+
+    screen.quota.setAttribute("class", "oq-panel hidden");
+    page.flushMutations();
+    page.frames(1);
+    expect(changed).toHaveBeenCalledTimes(1);
+
+    screen.quota.setAttribute("class", "oq-panel");
+    page.flushMutations();
+    page.frames(1);
+    expect(changed).toHaveBeenCalledTimes(2);
+  });
+
   it("tells when a split pane opens or closes", () => {
     const { changed } = watch();
 
