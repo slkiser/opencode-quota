@@ -14,8 +14,10 @@
  *
  * The toast shows the TUI toast's rows and words, as a sentence per provider
  * (`toastSentences`): a window draws a toast's text in a proportional font and may join its
- * lines, so the TUI's columns and bars would not line up. The window's own words (the titles)
- * come from the catalog.
+ * lines, so the TUI's columns and bars would not line up. The app collapses a description's
+ * line breaks, so the toast's text is found on screen by its words and marked (`data-oq-lines`)
+ * for the window's CSS to keep them; a toast not found within a second keeps the app's look. The
+ * window's own words (the titles) come from the catalog.
  *
  * When the window's server restarts or the plugin goes away, the refreshes still waiting stop
  * keeping their folders loaded and their answers are dropped; once the plugin is gone it shows
@@ -40,6 +42,23 @@ import { surfaceSettings } from "./surface-settings.js";
 
 /** Columns of a toast as wide as the TUI's widest (`toastRoom`: 51 columns of text). */
 const TOAST_COLUMNS = 200;
+
+/** Frames to look for a toast's text on screen: about a second. */
+const MARK_FRAMES = 60;
+
+/** Marks the toast description showing `text` so the window's CSS keeps its line breaks. */
+function markLines(text: string): void {
+  if (!text.includes("\n") || typeof document === "undefined") return;
+  let frames = 0;
+  const find = () => {
+    for (const node of document.querySelectorAll(".toast-v2 [data-description]")) {
+      if (node.textContent === text) return node.setAttribute("data-oq-lines", "");
+    }
+    frames += 1;
+    if (frames < MARK_FRAMES) requestAnimationFrame(find);
+  };
+  requestAnimationFrame(find);
+}
 
 const VARIANTS: Record<ToastOptions["variant"], "default" | "success" | "error"> = {
   info: "default",
@@ -124,15 +143,17 @@ export function createGuiToasts(
 
   const toasts: Toasts = createToasts({
     show(toast, _lines, input) {
-      if (disposed) return undefined;
-      ctx.toast?.show({
+      if (disposed || !ctx.toast) return undefined;
+      // Each reset notice is a sentence on its own line, as each provider's row sentence is.
+      const description = input ? toastSentences(input).join("\n") : toast.message;
+      ctx.toast.show({
         // Reset notices are the only quota toasts with a title, and the only "success" ones.
         title: ctx.t(toast.variant === "success" ? "toast.resetTitle" : "toast.title"),
-        // Each reset notice is a sentence on its own line, as each provider's row sentence is.
-        description: input ? toastSentences(input).join("\n") : toast.message,
+        description,
         variant: VARIANTS[toast.variant],
         duration: toast.duration,
       });
+      markLines(description);
       return undefined;
     },
     display: (snapshot) => settingsOf(snapshot ? newest(snapshot) : latest),

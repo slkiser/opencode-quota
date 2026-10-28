@@ -81,6 +81,8 @@ export const STYLE = `
 .oq-title-slot { order: 1; align-self: center; margin: -5px 12px -5px auto; }
 [data-slot="dialog-header"]:has(> .oq-title-slot) > [data-slot="dialog-close-button"] { order: 2; }
 .oq-window.oq-title-dates { display: block; }
+/* A quota toast keeps each provider's sentence on its own line (\`toasts.ts\` marks it). */
+.toast-v2 [data-description][data-oq-lines] { white-space: pre-line; }
 .oq-between { display: flex; align-items: center; justify-content: flex-end; gap: 6px; font-size: 12px; color: var(--oq-text-2); }
 .oq-between input { font: inherit; color: var(--oq-text); background: var(--oq-raised);
   border: 1px solid var(--oq-line); border-radius: 6px; padding: 2px 6px; color-scheme: light dark; }

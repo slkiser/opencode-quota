@@ -195,7 +195,7 @@ export const en = {
   "setting.collapsed.show.description": "One short line per provider in the titlebar.",
   "setting.statusLine.show": "Bottom status strip",
   "setting.statusLine.show.description":
-    "Quota along the bottom of the window, and the pill above the message box.",
+    "Quota along the bottom of the window, and the pill above the message box. The strip hides while the Quota side panel is open, unless 'Next to the side panel' is on.",
   "setting.toast.show": "Toasts",
   "setting.toast.show.description": "Quota toasts after replies, compaction and failures.",
   "setting.sidebar.sessionTokens": "Session tokens line",
