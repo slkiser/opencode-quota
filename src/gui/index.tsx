@@ -9,7 +9,9 @@
  * its TUI counterpart (`surfaces-model.ts`):
  * - a Quota tab in the session's side region (the sidebar panel), pinned in every session's
  *   strip while the sidebar shows, and listed in its + menu; plugin storage remembers whether
- *   it is open or folded;
+ *   it is open or folded. While the tab shows, the side panel is as narrow as it goes, and the
+ *   other tabs get their width back (`side-width-follow.ts`, an unofficial trick that leaves the
+ *   app's own width alone when it fails);
  * - a titlebar pill (the collapsed sidebar), a pill above the composer (the current model's
  *   limit) and the session menu's "Quota usage for this session", which open the usage window;
  * - a strip at the bottom of the window (the status line);
@@ -48,6 +50,7 @@ import {
   SettingsPageView,
   settingsEntries,
 } from "./settings-page.js";
+import { followSideWidth } from "./side-width-follow.js";
 import { StatusStrip } from "./status-strip.js";
 import { STYLE } from "./style.js";
 import { surfaceSettings } from "./surface-settings.js";
@@ -239,6 +242,7 @@ export default Plugin.define({
         );
       },
     });
+    if (Panel) followSideWidth(ctx, panelKey);
     addSafely(ctx, MenuItem, () => {
       if (!currentSettings().sidebar.show) return undefined;
       const session = ctx.sessions.current();
