@@ -430,15 +430,20 @@ export function typedColor(settings: DisplaySettings, field: Field, text: string
   return setIn(settings, field.path.split("."), hex ? `#${hex}` : undefined);
 }
 
+/** Desktop's own settings in the TUI's surface groups: no TUI tab shows or resets them. */
+const DESKTOP_KEYS: ReadonlySet<string> = new Set(["statusLine.withSidePanel"]);
+
 /**
  * The settings a tab's reset puts back to their defaults: its lines. A surface tab resets every
- * setting of its surface, its order, hidden rows, switch and preferred windows too; row names stay.
+ * setting of its surface, its order, hidden rows, switch and preferred windows too; row names
+ * and Desktop's own settings stay.
  */
 export function resetKeys(tab: SettingsTab): string[] {
   return isSurfaceTab(tab)
     ? keysUnder(tab)
         .filter((key) => key !== "names")
         .map((key) => `${tab}.${key}`)
+        .filter((key) => !DESKTOP_KEYS.has(key))
     : FIELDS.filter((field) => field.tab === tab).map((field) => field.path);
 }
 
