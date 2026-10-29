@@ -32,7 +32,7 @@ corepack prepare pnpm@11.0.0 --activate
 pnpm install
 ```
 
-The `prepare` script installs Vite+ hook dispatchers with `vp config --no-agent --hooks-dir .github/hooks`. The project hook scripts are in `.github/hooks/`; generated dispatchers in `.github/hooks/_/` are ignored. `vite.config.ts` holds formatting, lint, test, and staged-file settings. `vp` is the project-local Vite+ command; use `pnpm exec vp` to run it directly. The published build uses TypeScript, Babel, and Solid.
+The `prepare` script installs Vite+ hook dispatchers with `vp config --no-agent --hooks-dir .github/hooks`. The project hook scripts are in `.github/hooks/`; generated dispatchers in `.github/hooks/_/` are ignored. `vite.config.ts` holds formatting, lint, test, and staged-file settings. `vp` is the project-local Vite+ command; use `pnpm exec vp` to run it directly.
 
 If `core.hooksPath` points to another folder, Vite+ prints `core.hooksPath is already set to "…", skipping` and leaves that setting alone. A successful install alone does not prove these hooks are active. Inspect them with:
 
