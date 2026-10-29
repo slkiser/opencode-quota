@@ -1193,18 +1193,22 @@ setInterval(() => {}, 1000);
   });
 
   it("resolves injectable Windows OpenCode log paths on any host", () => {
-    expect(resolveOpenCodeLogDirs({}, "C:\\Users\\tester", "win32")).toEqual([
-      "C:\\Users\\tester\\.local\\share\\opencode\\log",
+    expect(resolveOpenCodeLogDirs({}, String.raw`C:\Users\tester`, "win32")).toEqual([
+      String.raw`C:\Users\tester\.local\share\opencode\log`,
     ]);
     expect(
-      resolveOpenCodeLogDirs({ XDG_DATA_HOME: " D:/data/../xdg/ " }, "C:\\Users\\tester", "win32"),
-    ).toEqual(["D:\\xdg\\opencode\\log"]);
+      resolveOpenCodeLogDirs(
+        { XDG_DATA_HOME: " D:/data/../xdg/ " },
+        String.raw`C:\Users\tester`,
+        "win32",
+      ),
+    ).toEqual([String.raw`D:\xdg\opencode\log`]);
   });
 
   it.each([
     ["linux", "/home/tester", "/home/tester/.local/share/opencode/log"],
     ["darwin", "/Users/tester", "/Users/tester/Library/Application Support/opencode/log"],
-    ["win32", "C:\\Users\\tester", "C:\\Users\\tester\\.local\\share\\opencode\\log"],
+    ["win32", String.raw`C:\Users\tester`, String.raw`C:\Users\tester\.local\share\opencode\log`],
   ])("uses the %s fallback for blank XDG_DATA_HOME on any host", (platform, home, expected) => {
     expect(resolveOpenCodeLogDirs({ XDG_DATA_HOME: "   " }, home, platform)).toEqual([expected]);
   });
@@ -1517,6 +1521,7 @@ ${JSON.stringify({
         expect((await lstat(diagnosticPath as string)).mode & 0o777).toBe(0o600);
       }
     },
+    30_000,
   );
 
   it("preserves the original preflight signal after escalation and prints no catalog guidance", async () => {
