@@ -17,6 +17,7 @@ import {
 import { sanitizeDisplayText } from "../lib/display-sanitize.js";
 import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
+import { resolveQuotaProviderSessionModelIdentity } from "../lib/quota-providers.js";
 import {
   FIVE_HOUR,
   type FetchError,
@@ -126,7 +127,7 @@ async function probeClaudeCli(options: {
 }
 
 /**
- * Without an OpenCode login: the Claude CLI's own quota, or the usage endpoint asked with
+ * The Claude CLI's own quota, or the usage endpoint asked with
  * Claude's own credentials. Not set up when the CLI is missing or signed out.
  */
 async function fetchFromClaudeCli(options: {
@@ -164,14 +165,38 @@ async function fetchFromClaudeCli(options: {
   return { attempted: false, accounts: [], debug };
 }
 
+/** Whether the selected Anthropic runtime, or the only one available, uses Claude Code's login. */
+async function usesClaudeCodeCredentials(ctx: QuotaProviderContext): Promise<boolean> {
+  const currentProviderId = (
+    ctx.config.currentProviderID ??
+    resolveQuotaProviderSessionModelIdentity({ currentModel: ctx.config.currentModel ?? "" })
+      ?.providerId
+  )
+    ?.trim()
+    .toLowerCase();
+  if (currentProviderId === "claude-code") return true;
+  if (currentProviderId === "anthropic") return false;
+
+  try {
+    const runtimeIds = await ctx.resolveRuntimeProviderIds();
+    return runtimeIds.has("claude-code") && !runtimeIds.has("anthropic");
+  } catch {
+    return false;
+  }
+}
+
 export const anthropicProvider: QuotaProvider = {
   id: "anthropic",
   cachePolicy: {
     kind: "resolved-auth",
-    resolveIdentity: async (ctx) =>
-      anthropicLoginsIdentity(await readAnthropicLogins(), {
+    resolveScope: async (ctx) =>
+      (await usesClaudeCodeCredentials(ctx)) ? "claude-code" : "opencode-auth",
+    async resolveIdentity(ctx) {
+      const logins = (await usesClaudeCodeCredentials(ctx)) ? [] : await readAnthropicLogins();
+      return anthropicLoginsIdentity(logins, {
         binaryPath: ctx.config.anthropicBinaryPath,
-      }),
+      });
+    },
   },
 
   async isAvailable(ctx: QuotaProviderContext): Promise<boolean> {
@@ -184,11 +209,13 @@ export const anthropicProvider: QuotaProvider = {
 
     return await hasAnthropicCredentialsConfigured({
       binaryPath: ctx.config?.anthropicBinaryPath,
+      useClaudeCodeCredentials: await usesClaudeCodeCredentials(ctx),
     });
   },
 
   matchesCurrentModel(model: string): boolean {
-    return model.toLowerCase().startsWith("anthropic/");
+    const normalized = model.toLowerCase();
+    return normalized.startsWith("anthropic/") || normalized.startsWith("claude-code/");
   },
 
   async fetch(ctx: QuotaProviderContext): Promise<ProviderFetchResult> {
@@ -196,6 +223,7 @@ export const anthropicProvider: QuotaProvider = {
       binaryPath: ctx.config?.anthropicBinaryPath,
       requestTimeoutMs: ctx.config?.requestTimeoutMs,
     };
+    if (await usesClaudeCodeCredentials(ctx)) return await fetchFromClaudeCli(cliOptions);
     const logins = await readAnthropicLogins();
     if (logins.length === 0) return await fetchFromClaudeCli(cliOptions);
 

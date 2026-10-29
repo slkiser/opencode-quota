@@ -76,6 +76,7 @@ function registryProviderIds(
 export function providerContext(
   host: ProviderSourceHost,
   loaded: LoadedSettings = host.settings(),
+  model?: SessionModel,
 ): QuotaProviderContext {
   const { settings, fromFile } = loaded;
   const { anthropic, cursor, opencode } = settings.providers;
@@ -95,6 +96,8 @@ export function providerContext(
       enabledProviders: registryProviderIds(registeredProviders(host), settings.providers.off),
       automaticDiscovery: true,
       quotaProviders: cloneQuotaProviders(settings.providers.custom),
+      currentModel: model?.id,
+      currentProviderID: model?.providerID,
     },
   };
 }
@@ -220,7 +223,13 @@ function storeProvider(
     ...(isLiveLocalUsageProviderId(provider.id) ? { minIntervalMs: 0 } : {}),
     async identity(): Promise<ProviderIdentity> {
       const account = await accountIdentity(provider, ctx, await cacheContextFor(provider, ctx));
-      if (account === null) return { key: settingsKey, persist: false };
+      if (account === null) {
+        const scope =
+          provider.cachePolicy?.kind === "resolved-auth"
+            ? await provider.cachePolicy.resolveScope?.(ctx)
+            : undefined;
+        return { key: scope ? `${scope}\u001f${settingsKey}` : settingsKey, persist: false };
+      }
       // An account keyed in memory only is another one after a reload: its rows stay in memory.
       const persist =
         provider.cachePolicy.kind !== "resolved-auth" || isResolvedAuthIdentityKeyDurable();
@@ -248,10 +257,23 @@ function storeProvider(
 }
 
 /** The store's source: the enabled and available providers, with the settings now. */
-export async function loadProviderSource(host: ProviderSourceHost): Promise<StoreSource> {
+export async function loadProviderSource(
+  host: ProviderSourceHost,
+  model?: SessionModel,
+): Promise<StoreSource> {
   const loaded = host.settings();
   const providers = registeredProviders(host);
-  const ctx = providerContext(host, loaded);
+  const ctx = providerContext(host, loaded, model);
+  // Resolve scopes even for unavailable or disabled providers: their absence must belong to
+  // the same credential source as their rows. Settings changes keep that source's scope.
+  const scopes = await Promise.all(
+    providers.map(async (provider) => {
+      if (provider.cachePolicy?.kind !== "resolved-auth") return undefined;
+      const scope = await provider.cachePolicy.resolveScope?.(ctx);
+      return scope === undefined ? undefined : [provider.id, scope];
+    }),
+  );
+  const scoped = scopes.filter((scope) => scope !== undefined);
   const { enabledProviders } = ctx.config;
   const enabled = providers.filter((provider) => enabledProviders.includes(provider.id));
   const available = await Promise.all(
@@ -277,6 +299,7 @@ export async function loadProviderSource(host: ProviderSourceHost): Promise<Stor
     ? await openCodeProviderIds(ctx)
     : new Set<string>();
   return {
+    ...(scoped.length ? { scope: JSON.stringify(scoped) } : {}),
     providers: enabled
       .filter((_, index) => available[index])
       .map((provider) => storeProvider(provider, ctx, settingsKey)),

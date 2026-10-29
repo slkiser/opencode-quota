@@ -70,6 +70,8 @@ export type QuotaProviderCachePolicy =
         ctx: QuotaProviderContext,
         cacheContext: QuotaProviderCacheContext,
       ) => Promise<ResolvedAuthIdentity | null>;
+      /** Separates memory-only entries of credential sources that expose no account identity. */
+      resolveScope?: (ctx: QuotaProviderContext) => Promise<string>;
     };
 
 export interface QuotaProvider {

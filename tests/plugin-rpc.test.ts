@@ -767,6 +767,24 @@ describe("server quota RPC", () => {
     });
   });
 
+  it("declares only providers OpenCode lists, never the canonical id of an alias", async () => {
+    useSettings({ providers: { off: [] } });
+    mocks.getProviders.mockReturnValue([
+      provider("copilot", vi.fn().mockResolvedValue(copilotAnswer(81))),
+      provider("anthropic", vi.fn().mockResolvedValue(answer())),
+    ]);
+    const { runCommand } = await setupServer({
+      openCodeProviders: ["claude-code", "copilot"],
+    });
+
+    await runCommand("quota_status");
+
+    expect(mocks.reconcileDetectedProvidersInGlobalConfig).toHaveBeenCalledWith({
+      directory: process.env.HOME,
+      detectedProviderIds: ["copilot"],
+    });
+  });
+
   it("writes the export file from each new snapshot only when the export is enabled", async () => {
     const exportPath = `${TEST_RUNTIME_ROOT}/quota-export.json`;
     useSettings({ system: { exportFile: false, exportPath: exportPath } });

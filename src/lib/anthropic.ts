@@ -1,8 +1,9 @@
 /**
  * Anthropic Claude quota probing.
  *
- * Each Claude login stored in OpenCode is asked once at Anthropic's OAuth usage endpoint.
- * Without one, the local Claude CLI/runtime is probed for install/auth state; when Claude auth
+ * OpenCode-backed checks ask each stored Claude login once at Anthropic's OAuth usage endpoint.
+ * Claude Code-backed checks, and checks without an OpenCode login, probe the local Claude
+ * CLI/runtime for install/auth state; when Claude auth
  * is confirmed but local quota windows are missing, the usage endpoint is asked with Claude's
  * own OAuth credentials (macOS Keychain first, then the local credentials file).
  */
@@ -937,11 +938,11 @@ export async function getAnthropicDiagnostics(
 }
 
 export async function hasAnthropicCredentialsConfigured(
-  options: AnthropicProbeOptions = {},
+  options: AnthropicProbeOptions & { useClaudeCodeCredentials?: boolean } = {},
 ): Promise<boolean> {
   try {
     // A login OpenCode could not return still counts, so it shows as an error.
-    if ((await readAnthropicLogins()).length > 0) return true;
+    if (!options.useClaudeCodeCredentials && (await readAnthropicLogins()).length > 0) return true;
   } catch {
     // Fall back to the existing local Claude CLI probe.
   }

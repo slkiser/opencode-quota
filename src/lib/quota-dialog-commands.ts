@@ -166,8 +166,9 @@ async function checkKnownProviders(
   host: ProviderSourceHost,
   ctx: QuotaProviderContext,
   providerId: string | undefined,
+  model?: SessionModel,
 ): Promise<{ checks: ProviderCheck[]; snapshots: ProviderSnapshot[] }> {
-  const source = await loadProviderSource(host);
+  const source = await loadProviderSource(host, model);
   const sourceIds = new Set(source.providers.map((provider) => provider.id));
   const { enabledProviders } = ctx.config;
   const turnedOn = (id: string) => enabledProviders.includes(id);
@@ -236,10 +237,10 @@ export async function statusReport(
   const held: ProviderSourceHost = { ...host, settings: () => loaded };
   await refreshPricesIfDue();
 
-  const ctx = providerContext(held, loaded);
+  const ctx = providerContext(held, loaded, options.sessionModel);
   const { enabledProviders, automaticDiscovery, quotaProviders } = ctx.config;
   const [{ checks, snapshots }, usage] = await Promise.all([
-    checkKnownProviders(held, ctx, options.onlyProviderId),
+    checkKnownProviders(held, ctx, options.onlyProviderId, options.sessionModel),
     readRecentUsage(options.nowMs),
   ]);
   const currentModel = options.sessionModel?.id;

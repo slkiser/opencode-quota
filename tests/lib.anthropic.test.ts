@@ -9,6 +9,8 @@ const readCredentialsFile = vi.hoisted(() => vi.fn());
 import { execFile } from "child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { loadProviderSource } from "../src/core/provider-source.js";
+import { createQuotaStore } from "../src/core/store.js";
 import {
   anthropicLoginsIdentity,
   buildClaudeCommandInvocation,
@@ -26,9 +28,12 @@ import {
   createIntegrationCredentialSource,
 } from "../src/lib/opencode-auth.js";
 import { __resetResolvedAuthIdentityForTests } from "../src/lib/resolved-auth-identity.js";
+import { anthropicProvider } from "../src/providers/anthropic.js";
+import { defaultSettings } from "../src/settings/index.js";
 import fableWeeklyUsage from "./fixtures/anthropic/fable-weekly.sanitized.json";
 import { createFakeIntegration } from "./helpers/fake-integration.js";
 import { useProviderWorld } from "./helpers/provider-fetch.js";
+import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 
 vi.mock("child_process", () => ({ execFile: vi.fn() }));
 
@@ -162,7 +167,7 @@ function authenticatedWithoutQuotaSteps(count: number): ExecSequenceStep[] {
 }
 
 /** One OpenCode Claude login in the temp `opencode.db`. */
-function mockOpenCodeLogin(access: string, expires?: number): void {
+function mockOpenCodeLogin(access: string | undefined, expires?: number): void {
   world.storeLogins([
     {
       id: "login-1",
@@ -1115,4 +1120,190 @@ describe("anthropicLoginsIdentity", () => {
       expect(JSON.stringify(resolved)).not.toContain("claude-access-secret");
     },
   );
+});
+
+describe("Anthropic runtime credentials", () => {
+  function context(
+    config: Record<string, unknown> = {},
+    providerIds = ["anthropic", "claude-code"],
+  ) {
+    return createProviderAvailabilityContext({ providerIds, configOverrides: config });
+  }
+
+  async function identity(ctx: ReturnType<typeof context>) {
+    const policy = anthropicProvider.cachePolicy;
+    if (policy.kind !== "resolved-auth") throw new Error("Expected Anthropic auth cache policy");
+    return policy.resolveIdentity(ctx, {});
+  }
+
+  function store() {
+    const loaded = {
+      path: "settings.jsonc",
+      exists: true,
+      settings: defaultSettings(),
+      issues: [],
+      fromFile: [],
+      notRead: [],
+    };
+    const host = {
+      client: context().client,
+      workspaceRoot: world.root,
+      locationDirectory: world.root,
+      settings: () => loaded,
+      providers: () => [anthropicProvider],
+    };
+    return createQuotaStore({ source: (model) => loadProviderSource(host, model), file: null });
+  }
+
+  it("uses account B for claude-code and a different cache key from stored account A", async () => {
+    mockOpenCodeLogin("account-a");
+    setUpCredentialsFileFallback(1, "account-b");
+    fetchResponseMock.mockResolvedValue(mockResponse(200, USAGE_10_20));
+    const anthropicIdentity = await identity(context({ currentProviderID: "anthropic" }));
+    const claudeCodeIdentity = await identity(context({ currentProviderID: "claude-code" }));
+    expect(anthropicIdentity).not.toBeNull();
+    expect(claudeCodeIdentity).not.toBeNull();
+    expect(claudeCodeIdentity).not.toEqual(anthropicIdentity);
+    expect(JSON.stringify([anthropicIdentity, claudeCodeIdentity])).not.toMatch(/account-[ab]/u);
+
+    const quota = store();
+    const anthropic = { id: "claude-sonnet-4-6", providerID: "anthropic" };
+    const claudeCode = { id: "claude-sonnet-4-6", providerID: "claude-code" };
+    try {
+      const first = await quota.refresh({ reason: "poll", model: anthropic });
+      expect(first.providers[0]?.rows.map((row) => row.percentRemaining)).toEqual([90, 80]);
+
+      const beforeFetch = await quota.snapshot({ model: claudeCode, refresh: false });
+      expect(beforeFetch.providers[0]?.rows).toEqual([]);
+      fetchResponseMock.mockResolvedValue(
+        mockResponse(200, { five_hour: { utilization: 60 }, seven_day: { utilization: 70 } }),
+      );
+      const second = await quota.refresh({ reason: "poll", model: claudeCode });
+      expect(second.providers[0]?.rows.map((row) => row.percentRemaining)).toEqual([40, 30]);
+      expect(bearerTokensSent()).toEqual(["Bearer account-a", "Bearer account-b"]);
+
+      const back = await quota.snapshot({ model: anthropic, refresh: false });
+      expect(back.providers[0]?.rows.map((row) => row.percentRemaining)).toEqual([90, 80]);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      await quota.dispose();
+    }
+  });
+
+  it("shows Claude Code rows with an expired stored Anthropic login", async () => {
+    mockOpenCodeLogin("expired-account-a", Date.now() - 1);
+    setUpCredentialsFileFallback(1, "account-b");
+    fetchResponseMock.mockResolvedValue(mockResponse(200, USAGE_10_20));
+    const quota = store();
+    try {
+      const snapshot = await quota.refresh({
+        reason: "poll",
+        model: { id: "claude-sonnet-4-6", providerID: "claude-code" },
+      });
+      expect(snapshot.providers[0]?.rows.map((row) => row.percentRemaining)).toEqual([90, 80]);
+      expect(snapshot.providers[0]?.error).toBeUndefined();
+      expect(bearerTokensSent()).toEqual(["Bearer account-b"]);
+    } finally {
+      await quota.dispose();
+    }
+  });
+
+  it("separates an expired Anthropic result from Claude CLI quota without an account identity", async () => {
+    mockOpenCodeLogin("expired-account-a", Date.now() - 1);
+    mockExecSequence([CLI_VERSION, cliQuotaStatus(60, 70)]);
+    const quota = store();
+    try {
+      const first = await quota.refresh({ reason: "poll", model: { providerID: "anthropic" } });
+      expect(first.providers[0]?.rows).toEqual([]);
+      expect(first.providers[0]?.error?.code).toBe("login_expired");
+
+      const second = await quota.refresh({ reason: "poll", model: { providerID: "claude-code" } });
+      expect(second.providers[0]?.rows.map((row) => row.percentRemaining)).toEqual([40, 30]);
+      expect(second.providers[0]?.error).toBeUndefined();
+
+      const back = await quota.snapshot({ model: { providerID: "anthropic" }, refresh: false });
+      expect(back.providers[0]?.rows).toEqual([]);
+      expect(back.providers[0]?.error?.code).toBe("login_expired");
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      await quota.dispose();
+    }
+  });
+
+  it.each([undefined, "", "   "])(
+    "keeps the Anthropic fallback for a placeholder or tombstone with access=%j",
+    async (access) => {
+      mockOpenCodeLogin(access, 0);
+      setUpCredentialsFileFallback(1, "account-b");
+      fetchResponseMock.mockResolvedValue(mockResponse(200, USAGE_10_20));
+      const ctx = context({ currentProviderID: "anthropic" });
+
+      await expect(anthropicProvider.isAvailable(ctx)).resolves.toBe(true);
+      const result = await anthropicProvider.fetch(ctx);
+      expect(result.accounts[0]?.rows.map((row) => row.percentRemaining)).toEqual([90, 80]);
+      expect(bearerTokensSent()).toEqual(["Bearer account-b"]);
+    },
+  );
+
+  it.each([
+    { currentProviderID: "claude-code" },
+    { currentModel: "CLAUDE-CODE/claude-sonnet-4-6" },
+    {},
+  ])("uses Claude credentials for the claude-code runtime with %j", async (config) => {
+    mockOpenCodeLogin("account-a");
+    setUpCredentialsFileFallback(1, "account-b");
+    fetchResponseMock.mockResolvedValue(mockResponse(200, USAGE_10_20));
+    const ctx = context(config, ["claude-code"]);
+
+    await expect(anthropicProvider.isAvailable(ctx)).resolves.toBe(true);
+    const result = await anthropicProvider.fetch(ctx);
+    expect(result.accounts[0]?.rows.map((row) => row.percentRemaining)).toEqual([90, 80]);
+    expect(bearerTokensSent()).toEqual(["Bearer account-b"]);
+    expect(await identity(ctx)).toBe(await anthropicLoginsIdentity([]));
+  });
+
+  it.each([
+    { currentProviderID: "anthropic" },
+    { currentProviderID: "anthropic", currentModel: "claude-code/claude-sonnet-4-6" },
+    { currentModel: "ANTHROPIC/claude-sonnet-4-6" },
+    {},
+  ])("keeps stored Anthropic credentials first with %j", async (config) => {
+    mockOpenCodeLogin("account-a");
+    fetchResponseMock.mockResolvedValue(mockResponse(200, USAGE_10_20));
+    const ctx = context(config);
+
+    await expect(anthropicProvider.isAvailable(ctx)).resolves.toBe(true);
+    const result = await anthropicProvider.fetch(ctx);
+    expect(result.accounts[0]?.rows.map((row) => row.percentRemaining)).toEqual([90, 80]);
+    expect(bearerTokensSent()).toEqual(["Bearer account-a"]);
+    expect(await identity(ctx)).toBe(await anthropicLoginsIdentity(await readAnthropicLogins()));
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(readFileMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps an expired Anthropic login as an error instead of using Claude Code", async () => {
+    mockOpenCodeLogin("expired-account-a", Date.now() - 1);
+    const ctx = context({ currentProviderID: "anthropic" });
+
+    await expect(anthropicProvider.isAvailable(ctx)).resolves.toBe(true);
+    const result = await anthropicProvider.fetch(ctx);
+    expect(result.accounts[0]?.rows).toEqual([]);
+    expect(result.accounts[0]?.errors[0]?.message).toContain("sign-in expired");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  it("does not count a stored Anthropic login when Claude Code is signed out", async () => {
+    mockOpenCodeLogin("account-a");
+    mockExecSequence([CLI_VERSION, { stdout: JSON.stringify({ authenticated: false }) }]);
+    const ctx = context({ currentProviderID: "claude-code" });
+
+    await expect(anthropicProvider.isAvailable(ctx)).resolves.toBe(false);
+    await expect(identity(ctx)).resolves.toBeNull();
+    await expect(anthropicProvider.fetch(ctx)).resolves.toMatchObject({
+      attempted: false,
+      accounts: [],
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

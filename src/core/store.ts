@@ -4,12 +4,12 @@
  *
  * - `snapshot()` answers at once from what is known; when a provider is due it starts a
  *   background refresh.
- * - Refreshes are single-flight per provider and keep a minimum interval (30 s after a turn,
+ * - Refreshes are single-flight per cache identity and keep a minimum interval (30 s after a turn,
  *   none for a manual or retry refresh); failures back off from 1 to 15 minutes, or until the
  *   provider's own retry time.
  * - Every snapshot, refresh, login-change and settings-change pass is one operation: it reads
- *   the providers and who each one is signed in as once, and keeps both to its end. A login or
- *   settings change starts a new generation: an operation of an older one stores nothing and
+ *   the providers and who each one is signed in as once, and keeps both to its end. A login,
+ *   settings or session model change starts a new generation: an older operation stores nothing and
  *   tells subscribers nothing, and a snapshot or refresh it was answering answers with the
  *   providers and rows of the new one.
  * - Rows and reset notices belong to an identity (account plus provider settings). Those of
@@ -110,6 +110,8 @@ export type StoreProvider = {
 
 /** The providers to show and refresh now (enabled and available, in registration order). */
 export type StoreSource = {
+  /** Credential sources selected by the runtime, including providers with no available login. */
+  scope?: string;
   providers: StoreProvider[];
   minIntervalMs: number;
   /** The providers serving a session's model, from the same settings read as `providers`. */
@@ -123,9 +125,10 @@ type RefreshReason = "poll" | "turn" | "manual" | "retry";
  * With a model, the snapshot also names the providers serving it. `refresh: false` answers the
  * saved rows without asking any provider, also for the due ones.
  */
-type SnapshotOptions = { model?: SessionModel; refresh?: boolean };
+type SnapshotOptions = { model?: SessionModel; sessionID?: string; refresh?: boolean };
 type RefreshOptions = {
   model?: SessionModel;
+  sessionID?: string;
   reason: RefreshReason;
   providerIds?: readonly string[];
   /** Refreshes only the providers serving `model` (the snapshot's `currentModelProviderIds`). */
@@ -133,7 +136,9 @@ type RefreshOptions = {
 };
 
 type QuotaStoreDeps = {
-  source: () => Promise<StoreSource>;
+  source: (model?: SessionModel) => Promise<StoreSource>;
+  /** Reads a session's current model, including for background refreshes. */
+  sessionModel?: (sessionID: string) => Promise<SessionModel>;
   /** The snapshot file; null keeps everything in memory. */
   file: string | null;
   now?: () => number;
@@ -155,6 +160,8 @@ export type QuotaStore = {
    * and each one is checked again at once.
    */
   settingsChanged(options: { recheck: boolean }): void;
+  /** A tracked session selected another model: resolve its scope and refresh due providers. */
+  sessionModelChanged(sessionID: string): void;
   /** Refuses new work and waits for running operations and the last file write. */
   dispose(): Promise<void>;
 };
@@ -174,6 +181,9 @@ type Operation = {
   generation: number;
   source: StoreSource;
   keys: Map<string, ResolvedKey>;
+  model?: SessionModel;
+  sessionID?: string;
+  scope: string;
 };
 
 function hashText(text: string, length: number): string {
@@ -376,8 +386,12 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
   /** A login change or settings recheck ended those waits, also before the file was read. */
   let fileWaitsEnded = false;
   const inFlight = new Map<string, Promise<void>>();
-  /** Running fetches per provider (an old one may still run after a login change). */
+  /** Running fetches per cache identity (an old one may still run after a login change). */
   const fetching = new Map<string, number>();
+  /** The last operation per session, or per credential source for callers without a session. */
+  const views = new Map<string, Operation>();
+  /** Includes a session whose first provider or identity read is still running. */
+  const sessions = new Set<string>();
   const listeners = new Set<(snapshot: QuotaSnapshot) => void>();
   /** Running operations and background refreshes; `dispose` waits for them. */
   const tasks = new Set<Promise<unknown>>();
@@ -393,8 +407,8 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
   const serverId = randomUUID();
   /** The last snapshot's revision; each next snapshot gets one more. */
   let revision = 0;
-  /** The provider ids subscribers last heard of; undefined until the first snapshot. */
-  let heardProviders: string | undefined;
+  /** The provider ids subscribers last heard of, per credential source. */
+  const heardProviders = new Map<string, string>();
 
   function track<T>(promise: Promise<T>): Promise<T> {
     tasks.add(promise);
@@ -500,7 +514,7 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
   }
 
   /** Who `provider` is signed in as now; unknown (memory only) when that can't be read. */
-  async function resolveKey(provider: StoreProvider): Promise<ResolvedKey> {
+  async function resolveKey(provider: StoreProvider, scope: string): Promise<ResolvedKey> {
     try {
       const message = `reading the ${provider.id} login timed out`;
       return resolvedKey(
@@ -508,30 +522,41 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
         await withTimeout(provider.identity(), timeouts.readMs, message),
       );
     } catch {
-      return resolvedKey(provider.id, { key: "unknown", persist: false });
+      return resolvedKey(provider.id, { key: `unknown\u001f${scope}`, persist: false });
     }
   }
 
   /** Starts an operation: loads the file once, reads the providers and who each one is. */
-  async function prepare(): Promise<Operation> {
+  async function prepare(model?: SessionModel, sessionID?: string): Promise<Operation> {
+    if (sessionID) sessions.add(sessionID);
     const startedIn = generation;
     await load();
+    if (sessionID && deps.sessionModel) {
+      model = await withTimeout(
+        deps.sessionModel(sessionID),
+        timeouts.readMs,
+        "reading the session model timed out",
+      );
+    }
     const message = "reading the quota providers timed out";
-    const source = await withTimeout(deps.source(), timeouts.readMs, message);
+    const source = await withTimeout(deps.source(model), timeouts.readMs, message);
+    const scope = source.scope === undefined ? "" : hashText(source.scope, 32);
     const keys = new Map<string, ResolvedKey>();
     await Promise.all(
       source.providers.map(async (provider) => {
-        keys.set(provider.id, await resolveKey(provider));
+        keys.set(provider.id, await resolveKey(provider, scope));
       }),
     );
-    const operation = { generation: startedIn, source, keys };
+    const operation = { generation: startedIn, source, keys, model, scope, sessionID };
+    if (isCurrent(operation)) views.set(sessionID ? `session:${sessionID}` : scope, operation);
     // The rows read from the file, or a provider turned on or off, are news to subscribers.
-    if (providerIdsOf(operation) !== heardProviders) emit(operation);
+    if (providerIdsOf(operation) !== heardProviders.get(scope)) emit(operation);
     return operation;
   }
 
   /** The snapshot an operation sees; a stale one shows no rows (whose they are is unknown). */
-  function buildSnapshot(operation: Operation, model?: SessionModel): QuotaSnapshot {
+  function buildSnapshot(operation: Operation): QuotaSnapshot {
+    const { model, sessionID } = operation;
     const nowMs = now();
     const current = isCurrent(operation);
     const resetNotices: ResetNotice[] = [];
@@ -548,7 +573,7 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
         ...(entry?.okAtMs === undefined ? {} : { okAtMs: entry.okAtMs }),
         ...(entry?.checkedAtMs === undefined ? {} : { checkedAtMs: entry.checkedAtMs }),
         ...(entry?.error === undefined ? {} : { error: entry.error }),
-        refreshing: fetching.has(provider.id),
+        refreshing: key !== undefined && fetching.has(key),
         debug: entry?.debug ?? [],
         ...(entry?.exportPart === undefined ? {} : { exportPart: entry.exportPart }),
       };
@@ -556,6 +581,8 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
     revision += 1;
     const snapshot: QuotaSnapshot = {
       version: 6,
+      ...(sessionID ? { sessionID } : {}),
+      ...(operation.scope ? { sourceScope: operation.scope } : {}),
       providers,
       resetNotices,
       generatedAtMs: nowMs,
@@ -585,7 +612,7 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
 
   function emit(operation: Operation): void {
     if (listeners.size === 0 || !isCurrent(operation)) return;
-    heardProviders = providerIdsOf(operation);
+    heardProviders.set(operation.scope, providerIdsOf(operation));
     const snapshot = buildSnapshot(operation);
     for (const listener of listeners) {
       try {
@@ -647,17 +674,17 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
     persist();
   }
 
-  async function fetchProvider(provider: StoreProvider): Promise<ProviderFetch> {
-    fetching.set(provider.id, (fetching.get(provider.id) ?? 0) + 1);
+  async function fetchProvider(provider: StoreProvider, key: string): Promise<ProviderFetch> {
+    fetching.set(key, (fetching.get(key) ?? 0) + 1);
     try {
       const message = `Request timeout after ${Math.round(timeouts.fetchMs / 1000)}s`;
       return await withTimeout(provider.fetch(), timeouts.fetchMs, message);
     } catch (error) {
       return { rows: [], error: classifyError(errorMessage(error), now()), debug: [] };
     } finally {
-      const left = (fetching.get(provider.id) ?? 1) - 1;
-      if (left > 0) fetching.set(provider.id, left);
-      else fetching.delete(provider.id);
+      const left = (fetching.get(key) ?? 1) - 1;
+      if (left > 0) fetching.set(key, left);
+      else fetching.delete(key);
     }
   }
 
@@ -673,18 +700,22 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
     // provider waits instead, so a plugin reload asks no sooner than the last process would.
     const last = lastCheckOf(entries.get(where.key)) ?? fileLastCheck(provider.id, where);
     if (!isDue(last, reason, minIntervalMs, now())) return;
-    const result = await fetchProvider(provider);
+    const result = await fetchProvider(provider, where.key);
     // A fetch is stored only under the account it read. A login change (new generation) or
     // another account now (same generation) drops its answer.
     if (!isCurrent(operation)) return;
-    const after = await resolveKey(provider);
+    const after = await resolveKey(provider, operation.scope);
     if (!isCurrent(operation)) return;
     if (after.key !== where.key) {
       operation.keys.set(provider.id, after);
       return;
     }
     record(provider, where, result);
-    emit(operation);
+    // Providers with the same identity share new rows across scopes; each view still reads
+    // its own keys for providers whose credential source differs.
+    for (const view of views.values()) {
+      if (view.keys.get(provider.id)?.key === where.key) emit(view);
+    }
   }
 
   function refreshProvider(
@@ -695,12 +726,14 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
     // A stale operation never joins or starts a refresh: one of the new generation would join
     // its run, which fetches nothing.
     if (disposed || !isCurrent(operation)) return Promise.resolve();
-    const running = inFlight.get(provider.id);
+    const key = operation.keys.get(provider.id)?.key;
+    if (key === undefined) return Promise.resolve();
+    const running = inFlight.get(key);
     if (running) return running;
     const run: Promise<void> = refreshProviderNow(operation, provider, reason).finally(() => {
-      if (inFlight.get(provider.id) === run) inFlight.delete(provider.id);
+      if (inFlight.get(key) === run) inFlight.delete(key);
     });
-    inFlight.set(provider.id, run);
+    inFlight.set(key, run);
     return run;
   }
 
@@ -725,9 +758,9 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
   }
 
   /** An operation of the current generation: a login or settings change meanwhile reads again. */
-  async function prepareCurrent(): Promise<Operation> {
+  async function prepareCurrent(model?: SessionModel, sessionID?: string): Promise<Operation> {
     for (;;) {
-      const operation = await prepare();
+      const operation = await prepare(model, sessionID);
       if (isCurrent(operation)) return operation;
     }
   }
@@ -739,11 +772,18 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
   function supersede(reason: RefreshReason, failure: string): void {
     generation += 1;
     inFlight.clear();
+    const targets: Array<{ model?: SessionModel; sessionID?: string }> = views.size
+      ? [...views.values()]
+      : [{}];
     // Subscribers see the new providers and rows (or none) before any fetch, then fresh ones.
     start(async () => {
-      const operation = await prepare();
-      emit(operation);
-      await runRefresh(operation, { reason });
+      await Promise.all(
+        targets.map(async ({ model, sessionID }) => {
+          const operation = await prepare(model, sessionID);
+          emit(operation);
+          await runRefresh(operation, { reason });
+        }),
+      );
     }).catch((error) => {
       log(`${failure}: ${errorMessage(error)}`);
     });
@@ -752,25 +792,27 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
   return {
     snapshot(options = {}) {
       return start(async () => {
-        const operation = await prepareCurrent();
+        const operation = await prepareCurrent(options.model, options.sessionID);
         if (options.refresh !== false) {
           track(runRefresh(operation, { reason: "poll" })).catch((error) => {
             log(`background quota refresh failed: ${errorMessage(error)}`);
           });
         }
-        return buildSnapshot(operation, options.model);
+        return buildSnapshot(operation);
       });
     },
 
     refresh(options) {
       return start(async () => {
-        const operation = await prepareCurrent();
-        await runRefresh(operation, options);
+        const operation = await prepareCurrent(options.model, options.sessionID);
+        await runRefresh(operation, { ...options, model: operation.model });
         await flush();
         // A login or settings change dropped what this pass fetched: the answer shows the
         // providers and rows of now, and the new pass's rows follow as events.
-        const answering = isCurrent(operation) ? operation : await prepareCurrent();
-        return buildSnapshot(answering, options.model);
+        const answering = isCurrent(operation)
+          ? operation
+          : await prepareCurrent(options.model, options.sessionID);
+        return buildSnapshot(answering);
       });
     },
 
@@ -801,6 +843,11 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
       endFileWaits();
       // A manual refresh waits for no interval: every provider is checked again now.
       supersede("manual", "quota recheck after a settings change failed");
+    },
+
+    sessionModelChanged(sessionID) {
+      if (disposed || !sessions.has(sessionID)) return;
+      supersede("poll", "quota refresh after a session model change failed");
     },
 
     async dispose() {

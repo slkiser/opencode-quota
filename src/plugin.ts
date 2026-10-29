@@ -38,6 +38,7 @@ import {
   notifyCredentialsChanged,
 } from "./lib/opencode-auth.js";
 import { reconcileDetectedProvidersInGlobalConfig } from "./lib/opencode-config-providers.js";
+import { getQuotaProviderRuntimeIds } from "./lib/provider-metadata.js";
 import { statusReport } from "./lib/quota-dialog-commands.js";
 import {
   containsQuotaReport,
@@ -145,9 +146,21 @@ export function createQuotaServerPlugin(
           .map((provider) => provider.id);
         if (options.reconcileDetectedProviders && detected.length > 0) {
           try {
+            // Only declare a provider through its own OpenCode id. A quota provider can be available
+            // through another plugin's provider id (claude-code for anthropic); declaring the
+            // canonical id would add a second, credential-less provider to the catalog.
+            const runtime = new Set(
+              (await ctx.provider.list()).data.map((provider) => provider.id),
+            );
             await reconcileDetectedProvidersInGlobalConfig({
               directory: locationDirectory,
-              detectedProviderIds: detected,
+              detectedProviderIds: detected.filter(
+                (id) =>
+                  runtime.has(id) ||
+                  !getQuotaProviderRuntimeIds(id).some(
+                    (runtimeId) => runtimeId !== id && runtime.has(runtimeId),
+                  ),
+              ),
             });
           } catch (error) {
             console.warn("Failed to add detected providers to global OpenCode config", error);
@@ -166,7 +179,8 @@ export function createQuotaServerPlugin(
         providers: options.providers,
       };
       const store = createQuotaStore({
-        source: () => loadProviderSource(sourceHost),
+        source: (model) => loadProviderSource(sourceHost, model),
+        sessionModel: (sessionID) => sessionModel(sessionID),
         file: snapshotFilePath(),
       });
       // The TUI reads the session model from its local store, which has nothing for an
@@ -248,13 +262,16 @@ export function createQuotaServerPlugin(
       const registration = await ctx.rpc.register(QuotaRpc, {
         snapshot: (input) =>
           logRpcFailure("snapshot", async () => {
-            const snapshot = await store.snapshot({ model: await sessionModel(input.sessionID) });
+            const snapshot = await store.snapshot({ sessionID: input.sessionID });
             return { snapshot: forClients(await withSessionTokens(snapshot, input.sessionID)) };
           }),
         refresh: (input) =>
           logRpcFailure("refresh", async () => {
-            const model = await sessionModel(input.sessionID);
-            const options = { reason: input.reason, providerIds: input.providerIds, model };
+            const options = {
+              reason: input.reason,
+              providerIds: input.providerIds,
+              sessionID: input.sessionID,
+            };
             const snapshot = await store.refresh(options);
             return { snapshot: forClients(await withSessionTokens(snapshot, input.sessionID)) };
           }),
@@ -405,8 +422,9 @@ export function createQuotaServerPlugin(
           description: "Quick look: your quota limits and the last 7 days of usage.",
           async execute(invocation) {
             // /quota waits for the providers that are due a check; the rest show their last rows.
-            const model = await sessionModel(invocation.sessionID);
-            const snapshot = forClients(await store.refresh({ reason: "poll", model }));
+            const snapshot = forClients(
+              await store.refresh({ reason: "poll", sessionID: invocation.sessionID }),
+            );
             // Without OpenCode's history the limits still show.
             const usage = await loadUsageReport({ range: DEFAULT_QUICK_LOOK_RANGE }).catch(
               (error) => {
@@ -492,13 +510,17 @@ export function createQuotaServerPlugin(
       // A login added, changed or switched in OpenCode drops cached logins and failed-login
       // entries, so the next read asks OpenCode again, and makes the store check who each
       // provider is signed in as. If the subscription fails, cached logins stay until they
-      // expire; the log says why. The cleanup's abort ends it silently.
+      // expire; the log says why. Model selections update the session's quota scope too.
+      // The cleanup's abort ends the subscription silently.
       const credentialEvents = new AbortController();
       void (async () => {
         for await (const event of ctx.event.subscribe({ signal: credentialEvents.signal })) {
           if (event.type === "credential.updated" || event.type === "credential.switched") {
             notifyCredentialsChanged();
             store.invalidateIdentity();
+          }
+          if (event.type === "session.model.selected") {
+            store.sessionModelChanged(event.data.sessionID);
           }
         }
       })().catch((error) => {
