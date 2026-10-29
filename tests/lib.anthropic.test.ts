@@ -1002,6 +1002,18 @@ describe("anthropic auth resolution", () => {
     ],
     ["ignores blank access tokens", login({ type: "oauth", access: "   " }), { state: "none" }],
     [
+      "ignores a placeholder login that another plugin stores instead of a token",
+      login({
+        type: "oauth",
+        access: "common-auth-placeholder.anthropic",
+        refresh: "common-auth-placeholder.anthropic",
+        expires: 4_000,
+        commonAuthPlaceholder: true,
+        metadata: { commonAuthPlaceholder: true },
+      }),
+      { state: "none" },
+    ],
+    [
       "reports expired entries as expired instead of configured",
       login({ type: "oauth", access: "opencode-token", expires: 1_000 }),
       { state: "expired", expiresAt: 1_000 },
@@ -1026,6 +1038,26 @@ describe("readAnthropicLogins", () => {
     await expect(hasAnthropicCredentialsConfigured()).resolves.toBe(true);
     await expect(anthropicLoginsIdentity(await readAnthropicLogins())).resolves.toBeNull();
     expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  it("skips a placeholder login, so its fake token is never sent to Anthropic", async () => {
+    world.storeLogins([
+      {
+        id: "login-1",
+        integrationId: "anthropic",
+        active: 1,
+        updated: 1,
+        value: {
+          type: "oauth",
+          access: "common-auth-placeholder.anthropic",
+          refresh: "common-auth-placeholder.anthropic",
+          expires: Date.now() + 60_000,
+          metadata: { commonAuthPlaceholder: true },
+        },
+      },
+    ]);
+
+    await expect(readAnthropicLogins()).resolves.toStrictEqual([]);
   });
 });
 

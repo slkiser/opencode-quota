@@ -1,6 +1,6 @@
 import { usageRangeLabel } from "../core/usage-ranges.js";
 /**
- * The usage view: a `UsageReport` laid out like T3 Code's usage page, adapted to a terminal, as
+ * The usage view: a `UsageReport` laid out like a billing dashboard, adapted to a terminal, as
  * lines of text spans. A span has a role ("title", "muted", "provider:0", ...) and no color, so
  * the TUI Usage tab maps each span to one styled span and picks colors from its theme, and Web
  * `/quota` and the CLI print the same words as plain text (`usageText`).
@@ -80,7 +80,7 @@ export type UsageViewLines = {
   modelLines: number[];
 };
 
-/** The chart sits beside the total and the providers, like T3's page, when it gets this much. */
+/** The chart sits beside the total and the providers, like a dashboard, when it gets this much. */
 const BESIDE_CHART_MIN_WIDTH = 32;
 /** The total and the provider list never get wider than this, so their numbers stay close. */
 const LIST_MAX_WIDTH = 48;
@@ -98,7 +98,7 @@ const CHART_COLUMN_MAX = 16;
 const CHART_GAP_FROM = 3;
 /** One to eight eighths of a chart cell. */
 const BLOCKS = "▁▂▃▄▅▆▇█";
-/** The "by type" bar and its legend stay short, like T3's, on a wide view. */
+/** The "by type" bar and its legend stay short on a wide view. */
 const BY_TYPE_MAX_WIDTH = 64;
 /** The provider color mark, before a provider and its models. */
 const DOT = "● ";
@@ -927,7 +927,7 @@ export function modelDetailTitle(
 }
 
 /**
- * One model of the breakdown, like T3 Code's model popup: its name, provider and share, then
+ * One model of the breakdown, as a detail panel: its name, provider and share, then
  * Cost, Tokens, cost per 1M tokens and cache hit (cache reads ÷ all input tokens), its daily
  * chart over the report's days, and cost by type and tokens by type, side by side when they
  * fit. Every line fits in `width`.

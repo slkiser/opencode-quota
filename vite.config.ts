@@ -41,6 +41,10 @@ export default defineConfig({
     },
     overrides: [{ files: ["src/lib/display-sanitize.ts"], rules: { "no-control-regex": "off" } }],
   },
+  // `.github/hooks/pre-commit` runs this on staged files and stages the fixes.
+  staged: {
+    "*.{js,cjs,mjs,jsx,ts,tsx,json,jsonc,css}": "vp check --fix --no-error-on-unmatched-pattern",
+  },
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],

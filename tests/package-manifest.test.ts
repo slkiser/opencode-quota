@@ -35,7 +35,8 @@ const pkg = JSON.parse(await text("../package.json"));
 const pnpmWorkspace = await text("../pnpm-workspace.yaml");
 const tsconfig = JSON.parse(await text("../tsconfig.json"));
 const viteConfig = await text("../vite.config.ts");
-const lefthookConfig = parse(await text("../lefthook.yml"));
+const preCommitHook = await text("../.github/hooks/pre-commit");
+const prePushHook = await text("../.github/hooks/pre-push");
 const ciWorkflow = parse(await text("../.github/workflows/ci.yml")) as Workflow;
 const publishWorkflow = parse(await text("../.github/workflows/publish-npm.yml")) as Workflow;
 const packedSmoke = await text("../.github/scripts/smoke-packed-package.mjs");
@@ -107,10 +108,22 @@ describe("package manifest compatibility", () => {
       ["devDependencies", "yaml", "^2.8.3"],
       ["peerDependencies", "@opencode/plugin", "2.0.28"],
       ["devDependencies", "@opencode/plugin", "2.2.0"],
-      ["dependencies", "@opentui/core", "^0.5.10"],
-      ["dependencies", "@opentui/solid", "^0.5.10"],
+      // OpenCode gives TUI plugins its own OpenTUI and Solid (#353). Optional peers keep npm
+      // from installing them, so @opentui/core's `engines.node` never reaches users.
+      ["dependencies", "@opentui/core", undefined],
+      ["dependencies", "@opentui/solid", undefined],
+      ["dependencies", "solid-js", undefined],
+      ["devDependencies", "@opentui/core", "^0.5.17"],
+      ["devDependencies", "@opentui/solid", "^0.5.17"],
+      ["devDependencies", "solid-js", "^1.9.12"],
+      ["peerDependencies", "@opentui/core", ">=0.5.17"],
+      ["peerDependencies", "@opentui/solid", ">=0.5.17"],
+      ["peerDependencies", "solid-js", ">=1.9.0"],
+      ["peerDependenciesMeta", "@opentui/core", { optional: true }],
+      ["peerDependenciesMeta", "@opentui/solid", { optional: true }],
+      ["peerDependenciesMeta", "solid-js", { optional: true }],
       ["pnpm", "peerDependencyRules", undefined],
-      // Vite+ is the only formatter and linter; Lefthook the only hook runner.
+      // Vite+ is the only formatter, linter and Git hook runner.
       ["devDependencies", "vite-plus", "1.2.0"],
       // The GUI build: OpenCode's preset needs Vite and vite-plugin-solid; Vite is Vite+'s core.
       ["devDependencies", "vite", "npm:@voidzero-dev/vite-plus-core@1.2.0"],
@@ -128,10 +141,10 @@ describe("package manifest compatibility", () => {
       ["scripts", "test", "vp test run"],
       ["scripts", "test:watch", "vp test watch"],
       ["scripts", "verify:v4-formatting", undefined],
-      ["devDependencies", "lefthook", "2.0.15"],
+      ["devDependencies", "lefthook", undefined],
       ["devDependencies", "husky", undefined],
       ["devDependencies", "lint-staged", undefined],
-      ["scripts", "prepare", "lefthook install"],
+      ["scripts", "prepare", "vp config --no-agent --hooks-dir .github/hooks"],
       // The OpenTelemetry API ships; the metrics SDK stays host-owned. The API stays
       // on 1.9.x so it uses a host provider registered by API 1.9 or newer.
       ["optionalDependencies", null, undefined],
@@ -173,18 +186,15 @@ describe("package manifest compatibility", () => {
     expect(viteConfig).toContain('categories: { correctness: "error" }');
     // The build's tsc, on the pinned TypeScript, is the only type check.
     expect(viteConfig).not.toMatch(/typeAware|typeCheck/);
-    expect(lefthookConfig["pre-commit"]?.commands).toEqual({
-      check: {
-        glob: "**/*.{js,cjs,mjs,jsx,ts,tsx,json,jsonc,css}",
-        run: "pnpm exec vp check --fix --no-error-on-unmatched-pattern {staged_files}",
-        stage_fixed: true,
-      },
-    });
-    expect(lefthookConfig["pre-push"]?.commands).toEqual({ verify: { run: "pnpm verify" } });
+    // Keep the default backup and rollback for partially staged files.
+    expect(preCommitHook).toBe("vp staged\n");
+    expect(viteConfig).toContain(
+      '"*.{js,cjs,mjs,jsx,ts,tsx,json,jsonc,css}": "vp check --fix --no-error-on-unmatched-pattern",',
+    );
+    expect(prePushHook).toBe("pnpm verify\n");
     // Hardens dependency resolution against fresh-package supply-chain attacks.
     expect(parse(pnpmWorkspace).allowBuilds).toEqual({
       esbuild: true,
-      lefthook: true,
       "msgpackr-extract": true,
       protobufjs: false,
     });
@@ -197,6 +207,7 @@ describe("package manifest compatibility", () => {
       "../.prettierrc.json",
       "../.github/scripts/verify-v4-formatting.mjs",
       "../.husky",
+      "../lefthook.yml",
       "../.lintstagedrc",
       "../biome.json",
       "../vitest.config.ts",
@@ -214,8 +225,8 @@ describe("package manifest compatibility", () => {
       [
         'const EXPECTED_TYPESCRIPT_VERSION = "7.0.2";',
         'const EXPECTED_PLUGIN_VERSION = "2.2.0";',
-        'const EXPECTED_OPENTUI_SPECIFIER = "^0.5.10";',
-        'const EXPECTED_OPENTUI_VERSION = "0.5.10";',
+        'const EXPECTED_OPENTUI_SPECIFIER = "^0.5.17";',
+        'const EXPECTED_OPENTUI_VERSION = "0.5.17";',
         'const BUN_FFI_STRUCTS_VERSION = "0.3.1";',
         'const BUN_FFI_TYPESCRIPT_PEER = "^5";',
         "Known unmet peer:",
@@ -238,18 +249,23 @@ describe("package manifest compatibility", () => {
       ],
     ],
     ["the README", "../README.md", ["Node.js `22.13+` or `23.4+`"], ["OpenCode `>= 1.4.3`"]],
-    ["the pack script", "../.github/scripts/pack-release-package.mjs", [], ["HUSKY", "LEFTHOOK"]],
+    [
+      "the pack script",
+      "../.github/scripts/pack-release-package.mjs",
+      [],
+      ["HUSKY", "LEFTHOOK", "VP_GIT_HOOKS"],
+    ],
     [
       "the contents check",
       "../.github/scripts/verify-package-contents.mjs",
       ['packageJson.exports?.["./gui-experimental"]', "guiProvidedModules", "isBuiltin(id)"],
-      ["HUSKY", "LEFTHOOK"],
+      ["HUSKY", "LEFTHOOK", "VP_GIT_HOOKS"],
     ],
     [
       "the release check",
       "../.github/scripts/verify-release-package.mjs",
       [],
-      ["HUSKY", "LEFTHOOK"],
+      ["HUSKY", "LEFTHOOK", "VP_GIT_HOOKS"],
     ],
     [
       "the packed-package smoke (public imports, CLI, compiled TUI, OpenTelemetry)",
@@ -289,6 +305,20 @@ describe("package manifest compatibility", () => {
       ],
     ],
     [
+      "the packed-package global install smoke (npm 12, empty prefix)",
+      "../.github/scripts/smoke-packed-global-install.mjs",
+      [
+        'const NPM_RANGE = "12";',
+        "`npm@${NPM_RANGE}`",
+        "npmVersion.startsWith(`${NPM_RANGE}.`)",
+        '[npmCli, "install", "-g", "--engine-strict", "--prefix", prefix, artifact.tarballPath]',
+        'path.join(prefix, "bin", "opencode-quota")',
+        'const HOST_PROVIDED_PACKAGES = ["@opentui/core", "@opentui/solid", "solid-js"];',
+        "`slkiser-opencode-quota-${installed.version}.tgz`",
+      ],
+      [/legacy-peer-deps|strict-peer-deps|--force|--omit/],
+    ],
+    [
       "the real OpenTelemetry smoke fixture",
       "../.github/scripts/fixtures/smoke-packed-real-otel.mjs",
       [
@@ -311,6 +341,62 @@ describe("package manifest compatibility", () => {
       for (const pattern of lacks) expect(source).not.toMatch(pattern);
     },
   );
+
+  // npm refuses to install this package (ERESOLVE, #353) when a dependency can resolve below the
+  // floor that the declared @opencode/plugin peer asks for. Its OpenTUI peers are optional: they
+  // may be absent, but a copy that is present must fit their range. OpenTUI is not a dependency,
+  // so this guards against adding one. A caret range such as ^0.5.10 does include 0.5.17, but
+  // @opentui/solid pins @opentui/core exactly, so the lowest version the range allows is the
+  // one that must satisfy the peer.
+  describe("dependencies against the @opencode/plugin peer", () => {
+    const parseVersion = (version: string): number[] => {
+      const match = version.match(/^(\d+)\.(\d+)\.(\d+)$/);
+      if (!match) throw new Error(`Unsupported version: ${version}`);
+      return match.slice(1).map(Number);
+    };
+
+    const compare = (a: number[], b: number[]): number =>
+      a.reduce((diff, part, index) => diff || part - b[index], 0);
+
+    const lowestVersionOf = (range: string): number[] => {
+      const match = range.match(/^(?:\^|~|>=)?(\d+\.\d+\.\d+)$/);
+      if (!match) throw new Error(`Unsupported dependency range: ${range}`);
+      return parseVersion(match[1]);
+    };
+
+    const peerAllowsFloorOf = (dependencyRange: string, peerRange: string): boolean => {
+      const lowest = lowestVersionOf(dependencyRange);
+      const atLeast = peerRange.match(/^>=(\d+\.\d+\.\d+)$/);
+      if (atLeast) return compare(lowest, parseVersion(atLeast[1])) >= 0;
+      return compare(lowest, parseVersion(peerRange)) === 0;
+    };
+
+    it("compares the lowest version a range allows with the peer", () => {
+      expect(peerAllowsFloorOf("^0.5.10", ">=0.5.17")).toBe(false);
+      expect(peerAllowsFloorOf("^0.5.17", ">=0.5.17")).toBe(true);
+      expect(peerAllowsFloorOf("~1.9.12", ">=1.9.0")).toBe(true);
+      expect(peerAllowsFloorOf("2.0.28", "2.0.28")).toBe(true);
+      expect(peerAllowsFloorOf("2.0.27", "2.0.28")).toBe(false);
+    });
+
+    it("lets every shipped dependency resolve at or above the peer's floor", async () => {
+      const declaredPeer = pkg.peerDependencies["@opencode/plugin"];
+      const installed = JSON.parse(await text("../node_modules/@opencode/plugin/package.json"));
+      expect(
+        installed.version,
+        `Install @opencode/plugin@${declaredPeer} (the declared peer) so this test reads its peers.`,
+      ).toBe(declaredPeer);
+
+      const conflicts = Object.entries(installed.peerDependencies as Record<string, string>)
+        .filter(([name]) => pkg.dependencies?.[name] !== undefined)
+        .filter(([name, peerRange]) => !peerAllowsFloorOf(pkg.dependencies[name], peerRange))
+        .map(
+          ([name, peerRange]) =>
+            `${name}: dependencies has ${pkg.dependencies[name]}, @opencode/plugin@${declaredPeer} needs ${peerRange}`,
+        );
+      expect(conflicts).toEqual([]);
+    });
+  });
 
   it("smokes the packed package after installing it, then installs the metrics SDK", () => {
     const tarballInstall = packedSmoke.indexOf(
@@ -377,6 +463,16 @@ describe("package manifest compatibility", () => {
     expect(
       namedStep(smoke, "Smoke exact npm artifact on Node ${{ matrix.node-version }}").run,
     ).toBe("node .github/scripts/smoke-packed-package.mjs package-artifacts");
+    const globalInstall =
+      "Install exact npm artifact globally with npm 12 on Node ${{ matrix.node-version }}";
+    expect(namedStep(smoke, globalInstall).run).toBe(
+      "node .github/scripts/smoke-packed-global-install.mjs package-artifacts",
+    );
+    expectOrdered(smoke, [
+      "Download exact npm artifact",
+      "Smoke exact npm artifact on Node ${{ matrix.node-version }}",
+      globalInstall,
+    ]);
   });
 
   it("publishes only a release-tag artifact after both exact-artifact smoke jobs", () => {

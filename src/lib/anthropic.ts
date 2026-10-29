@@ -193,7 +193,9 @@ export function resolveAnthropicOAuth(
   if (login.state === "failed") return { state: "failed", error: login.error };
 
   const { accessToken, expiresAt } = login;
-  if (!accessToken) return { state: "none" };
+  // An auth plugin (e.g. @cortexkit/opencode-anthropic-auth) stores a fake token and adds the
+  // real one to each request itself; Anthropic answers the fake token with a 401 or a 429.
+  if (!accessToken || login.fields.commonAuthPlaceholder === true) return { state: "none" };
   if (expiresAt !== undefined && expiresAt <= (options.nowMs ?? Date.now())) {
     return { state: "expired", expiresAt };
   }

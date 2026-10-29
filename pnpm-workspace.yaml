@@ -1,6 +1,5 @@
 allowBuilds:
   esbuild: true
-  lefthook: true
   msgpackr-extract: true
   protobufjs: false
 blockExoticSubdeps: true

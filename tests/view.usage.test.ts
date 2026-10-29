@@ -111,8 +111,8 @@ const DAILY_COST = [
 ];
 const DAILY_TOTAL = DAILY_COST.reduce((sum, cost) => sum + cost, 0);
 
-/** Close to the maintainer's screenshot of T3 Code: one provider has almost all the cost. */
-function t3Report(): UsageReport {
+/** A typical month: one provider has almost all the cost. */
+function skewedReport(): UsageReport {
   return buildReport({
     sessions: 636,
     providers: [
@@ -163,9 +163,9 @@ function section(lines: UsageLine[], text: string): UsageLine[] {
   return end < 0 ? after : after.slice(0, end);
 }
 
-/** The T3 report's view from the first line holding `text`; default: cost by model, 80 columns. */
-function t3From(text: string, options: Partial<UsageViewOptions> = {}): UsageLine[] {
-  const view = usageView(t3Report(), {
+/** The skewed report's view from the first line holding `text`; default: cost by model, 80 columns. */
+function skewedFrom(text: string, options: Partial<UsageViewOptions> = {}): UsageLine[] {
+  const view = usageView(skewedReport(), {
     mode: "cost",
     breakdown: "model",
     width: 80,
@@ -174,9 +174,9 @@ function t3From(text: string, options: Partial<UsageViewOptions> = {}): UsageLin
   return from(view, text);
 }
 
-/** The T3 report's section from the first line holding `text`; default: cost by model, 80 columns. */
-function t3Section(text: string, options: Partial<UsageViewOptions> = {}): UsageLine[] {
-  const view = usageView(t3Report(), {
+/** The skewed report's section from the first line holding `text`; default: cost by model, 80 columns. */
+function skewedSection(text: string, options: Partial<UsageViewOptions> = {}): UsageLine[] {
+  const view = usageView(skewedReport(), {
     mode: "cost",
     breakdown: "model",
     width: 80,
@@ -352,7 +352,7 @@ describe("number formats", () => {
 
 describe("usageView", () => {
   const reports = {
-    t3: t3Report(),
+    skewed: skewedReport(),
     unpriced: unpricedReport(),
     long: longReport(),
     wideNames: wideNamesReport(),
@@ -396,7 +396,7 @@ describe("usageView", () => {
   ])(
     "puts the chart beside the total when it gets 32 columns there ($width: $beside)",
     ({ width, beside }) => {
-      const totalLine = render(t3Report(), { mode: "cost", breakdown: "model", width })[0];
+      const totalLine = render(skewedReport(), { mode: "cost", breakdown: "model", width })[0];
       expect(totalLine.startsWith("$5,415.41  636 sessions · API estimate")).toBe(true);
       expect(/Daily cost|Cost per \d+ days/.test(totalLine)).toBe(beside);
     },
@@ -427,7 +427,7 @@ describe("usageView", () => {
   ])(
     "$mode mode: the total, then the providers as a table, the mode's amount first",
     (expected) => {
-      const lines = usageView(t3Report(), {
+      const lines = usageView(skewedReport(), {
         mode: expected.mode,
         breakdown: "model",
         width: 64,
@@ -451,7 +451,7 @@ describe("usageView", () => {
 
   it("drops the other amount from a narrow provider table before names get short", () => {
     const header = (width: number) => {
-      const lines = usageView(t3Report(), { mode: "cost", breakdown: "model", width }).lines;
+      const lines = usageView(skewedReport(), { mode: "cost", breakdown: "model", width }).lines;
       return textOf(from(lines, "Provider")[0]);
     };
     expect(header(64)).toMatch(/^Provider +Cost {2}Share {2}Tokens$/);
@@ -459,7 +459,7 @@ describe("usageView", () => {
   });
 
   it("draws a daily chart: top value, 0, one column per day, first/middle/last dates", () => {
-    const lines = t3From("Daily cost", { width: 64 });
+    const lines = skewedFrom("Daily cost", { width: 64 });
     const rows = lines.slice(1, 7);
     const bars = (row: UsageLine) => textOf(row.slice(1));
     // The report's models have no days, so no provider claims a part: the blocks are plain bar.
@@ -593,10 +593,13 @@ describe("usageView", () => {
   });
 
   it("puts the chart beside the list as tall as the list, at least 6 rows", () => {
-    const lines = usageView(t3Report(), { mode: "cost", breakdown: "model", width: 110 }).lines;
+    const lines = usageView(skewedReport(), { mode: "cost", breakdown: "model", width: 110 }).lines;
     const rows = lines.filter((line) => line.some((part) => part.role === "bar"));
     expect(rows).toHaveLength(6);
-    const tall = { ...t3Report(), providers: [...t3Report().providers, ...t3Report().providers] };
+    const tall = {
+      ...skewedReport(),
+      providers: [...skewedReport().providers, ...skewedReport().providers],
+    };
     const tallLines = usageView(tall, { mode: "cost", breakdown: "model", width: 110 }).lines;
     const tallRows = tallLines.filter((line) => line.some((part) => part.role === "bar"));
     // 2 + 1 + 8 list lines, less the chart's title, baseline and dates.
@@ -635,7 +638,7 @@ describe("usageView", () => {
   it.each([
     {
       name: "a range of one day",
-      report: { ...t3Report(), range: "today" as const, days: t3Report().days.slice(-1) },
+      report: { ...skewedReport(), range: "today" as const, days: skewedReport().days.slice(-1) },
     },
     {
       name: "nothing priced",
@@ -651,7 +654,7 @@ describe("usageView", () => {
   });
 
   it("shows the totals as label-over-value cells", () => {
-    const lines = t3From("Totals", { width: 110 });
+    const lines = skewedFrom("Totals", { width: 110 });
     expect(textOf(lines[1]).split(/ {2,}/).filter(Boolean)).toEqual([
       "Processed tokens",
       "Cached input",
@@ -695,7 +698,7 @@ describe("usageView", () => {
   ])(
     "$title: one thin bar across the view in proportion, a space between parts, then a legend",
     ({ mode, title, parts, legend }) => {
-      const lines = t3From(title, { mode, width: 110 });
+      const lines = skewedFrom(title, { mode, width: 110 });
       const bar = lines[1];
       expect(textOf(bar)).toHaveLength(110);
       const shown = bar.filter((part) => part.role !== "muted");
@@ -750,7 +753,7 @@ describe("usageView", () => {
   ])(
     "breakdown, $name: a bar of each amount, right-aligned numbers, the mode's amount first",
     ({ options, header, rows }) => {
-      const lines = t3Section("Breakdown", options);
+      const lines = skewedSection("Breakdown", options);
       const texts = lines.map(textOf);
       expect(texts[1]).toMatch(header);
       for (const [index, row] of rows.entries()) expect(texts[index + 2]).toMatch(row);
@@ -759,7 +762,7 @@ describe("usageView", () => {
   );
 
   it("breakdown bars: the biggest amount's bar is full, the others in proportion", () => {
-    const lines = t3Section("Breakdown").slice(2);
+    const lines = skewedSection("Breakdown").slice(2);
     const bars = lines.map(
       (line) => line.find((part) => part.text.startsWith("━"))?.text.length ?? 0,
     );
@@ -774,11 +777,11 @@ describe("usageView", () => {
   });
 
   it("text has no breakdown bars", () => {
-    expect(usageText(t3Report(), { mode: "cost", breakdown: "model" })).not.toContain("━");
+    expect(usageText(skewedReport(), { mode: "cost", breakdown: "model" })).not.toContain("━");
   });
 
   it("breakdown by model: provider colors, no price, and the provider for a shared model id", () => {
-    const lines = t3From("Breakdown");
+    const lines = skewedFrom("Breakdown");
     expect(from(lines, "composer-2")[0][1]).toEqual({ text: "● ", role: "provider:1" });
     expect(from(lines, "openai/gpt-6.1")[0][1]).toEqual({ text: "● ", role: "provider:2" });
     expect(from(lines, "opencode/gpt-6.1")[0][1]).toEqual({ text: "● ", role: "provider:3" });
@@ -1015,7 +1018,7 @@ describe("provider names", () => {
 
 describe("usageText", () => {
   it("is plain text of at most 64 columns, with a range title, no chart and 10 breakdown rows", () => {
-    const text = usageText(t3Report(), { mode: "cost", breakdown: "day", width: 200 });
+    const text = usageText(skewedReport(), { mode: "cost", breakdown: "day", width: 200 });
     const lines = text.split("\n");
     expect(lines.slice(0, 2)).toEqual([
       "Usage · 30 days",
@@ -1068,9 +1071,9 @@ describe("rangeDates", () => {
 });
 
 describe("modelDetailView", () => {
-  /** The T3 report with claude-opus-5-5 split by type and spread over its days, like T3's. */
+  /** The skewed report with claude-opus-5-5 split by type and spread over its days. */
   function opusReport(): UsageReport {
-    const report = t3Report();
+    const report = skewedReport();
     const [opus] = report.models;
     report.models[0] = {
       ...opus,
@@ -1170,7 +1173,7 @@ describe("breakdownModels and usageView's line ids", () => {
   it.each(["cost", "tokens"] as const)(
     "puts the Breakdown heading at breakdownAt and each %s model at its modelLines line, in order",
     (mode) => {
-      const report = t3Report();
+      const report = skewedReport();
       const models = breakdownModels(report, mode);
       const { lines, breakdownAt, modelLines } = usageView(report, {
         mode,
@@ -1190,7 +1193,7 @@ describe("breakdownModels and usageView's line ids", () => {
   );
 
   it("has no model lines by day, and no breakdown without usage", () => {
-    const byDay = usageView(t3Report(), { mode: "cost", breakdown: "day", width: 80 });
+    const byDay = usageView(skewedReport(), { mode: "cost", breakdown: "day", width: 80 });
     expect([textOf(byDay.lines[byDay.breakdownAt as number]), byDay.modelLines]).toEqual([
       "Breakdown",
       [],

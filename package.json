@@ -52,7 +52,7 @@
     "test:watch": "vp test watch",
     "verify": "pnpm run check && pnpm run verify:typescript-version && pnpm run verify:v4-history && pnpm run build && pnpm test && pnpm run verify:package-contents",
     "prepublishOnly": "pnpm run build",
-    "prepare": "lefthook install"
+    "prepare": "vp config --no-agent --hooks-dir .github/hooks"
   },
   "keywords": [
     "opencode",
@@ -80,9 +80,11 @@
     "@babel/preset-typescript": "^7.27.1",
     "@opencode/plugin": "2.2.0",
     "@opentelemetry/sdk-metrics": "2.10.0",
+    "@opentui/core": "^0.5.17",
+    "@opentui/solid": "^0.5.17",
     "@types/node": "^22.0.0",
     "babel-preset-solid": "^1.9.12",
-    "lefthook": "2.0.15",
+    "solid-js": "^1.9.12",
     "typescript": "7.0.2",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.2.0",
     "vite-plugin-solid": "2.11.14",
@@ -91,13 +93,24 @@
   },
   "dependencies": {
     "@opentelemetry/api": "~1.9.1",
-    "@opentui/core": "^0.5.10",
-    "@opentui/solid": "^0.5.10",
-    "jsonc-parser": "^3.3.1",
-    "solid-js": "^1.9.12"
+    "jsonc-parser": "^3.3.1"
   },
   "peerDependencies": {
-    "@opencode/plugin": "2.0.28"
+    "@opencode/plugin": "2.0.28",
+    "@opentui/core": ">=0.5.17",
+    "@opentui/solid": ">=0.5.17",
+    "solid-js": ">=1.9.0"
+  },
+  "peerDependenciesMeta": {
+    "@opentui/core": {
+      "optional": true
+    },
+    "@opentui/solid": {
+      "optional": true
+    },
+    "solid-js": {
+      "optional": true
+    }
   },
   "engines": {
     "node": "^22.13.0 || >=23.4.0"

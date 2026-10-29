@@ -92,3 +92,6 @@ jobs:
 
       - name: Smoke exact npm artifact on Node ${{ matrix.node-version }}
         run: node .github/scripts/smoke-packed-package.mjs package-artifacts
+
+      - name: Install exact npm artifact globally with npm 12 on Node ${{ matrix.node-version }}
+        run: node .github/scripts/smoke-packed-global-install.mjs package-artifacts

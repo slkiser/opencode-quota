@@ -1,7 +1,7 @@
 /**
  * Words and numbers every quota and usage surface shows: percents, reset times, bars, amounts,
  * money, token counts and shares. Pure functions, shared by the TUI, the Web text and the CLI.
- * Money, token counts and shares are written the way T3 Code's usage page writes them, always
+ * Money, token counts and shares are written the way a billing dashboard writes them, always
  * in US English, so the text is the same on every machine.
  */
 import type { Pace } from "../core/pace.js";

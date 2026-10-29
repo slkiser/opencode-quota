@@ -11,7 +11,7 @@ Thanks for contributing! Please read this before you open an issue or PR.
 
 ## Setup
 
-Node.js 22.18+, 24.11+ or 26+ (what Vite+ needs; the published plugin itself runs on `^22.13.0 || >=23.4.0`) and pnpm 11:
+Node.js 22.22.1+, 24.11+ or 26+ (what Vite+ and its staged-file check need; the published plugin itself runs on `^22.13.0 || >=23.4.0`), Git 2.32+ and pnpm 11:
 
 ```sh
 corepack enable
@@ -19,11 +19,42 @@ corepack prepare pnpm@11.7.0 --activate
 pnpm install
 ```
 
-`pnpm install` also installs the Git hooks: pre-commit formats and lints staged files and fixes what it can with Vite+ (`vp check --fix`); pre-push runs `pnpm verify`.
+`pnpm install` also sets up the Git hooks with Vite+ (`vp config`): pre-commit runs `vp staged`, which formats and lints the staged files, fixes what it can and stages the fixes (rules in the `staged` block of `vite.config.ts`); pre-push runs `pnpm verify`. The hook scripts are in `.github/hooks/`. Each checkout and Git worktree runs its own copy, so run `pnpm install` in each one.
+
+If Git's `core.hooksPath` already points to another folder, `pnpm install` leaves it alone and prints `core.hooksPath is already set to "…", skipping`, and these hooks don't run. `pnpm exec vp hooks status --hooks-dir .github/hooks` shows the current state. To skip the hooks for one command, set `VP_GIT_HOOKS=0`.
+
+### Activate hooks in a clone that uses Lefthook
+
+`core.hooksPath` is Git's setting for the folder containing hook programs. Linked worktrees normally share this setting. Check its source and value from the repository folder:
+
+```sh
+git config --show-origin --get-all core.hooksPath
+```
+
+If the setting comes from this repository's `.git/config` and points to its Lefthook hook folder, remove that setting and activate Vite+ from a v6 checkout:
+
+```sh
+git config --local --unset-all core.hooksPath
+pnpm install
+pnpm exec vp hooks enable --hooks-dir .github/hooks
+pnpm exec vp hooks status --hooks-dir .github/hooks
+```
+
+The status must show `core.hooksPath` as `.github/hooks/_`, an installed dispatcher, and the `pre-commit` and `pre-push` scripts. A skipped installation does not activate these checks. If the setting belongs to another hook system or comes from global or worktree-specific configuration, keep it and resolve that setup before using these instructions.
+
+### Working on both v4 and v6
+
+v4 uses Lefthook and Biome; v6 uses Vite+. With the relative `.github/hooks/_` setting, each worktree needs its own installed hook programs. Run `pnpm install` in every existing worktree after activating this setting, and after switching a checkout between v4 and v6. Install dependencies before committing or pushing from a new worktree.
+
+Git's `info/exclude` file lists local files to ignore and is shared by linked worktrees. Add the generated hook folder there once per clone so v4's installed hooks cannot be accidentally staged:
+
+```sh
+printf '\n/.github/hooks/_/\n' >> "$(git rev-parse --git-path info/exclude)"
+```
 
 ## Checks
 
-Run `pnpm verify` before opening a PR. It runs lint and formatting, the TypeScript-version and history checks, the build (its `tsc` step is the type check), all tests (the cross-surface test among them), and the package contents check. CI runs the same command, then installs the packed package on Node 22 and 24 as a smoke test.
+Run `pnpm verify` before opening a PR. It runs lint and formatting, the TypeScript-version and history checks, the build (its `tsc` step is the type check), all tests (the cross-surface test among them), and the package contents check. CI runs the same command, then installs the packed package on Node 22 and 24 as a smoke test, once into a project and once globally with npm 12.
 
 For quick iteration: `pnpm run test:watch`.
 

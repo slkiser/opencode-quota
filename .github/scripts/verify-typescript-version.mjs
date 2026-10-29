@@ -7,8 +7,8 @@ import { parse } from "yaml";
 const EXPECTED_TYPESCRIPT_VERSION = "7.0.2";
 const EXPECTED_PLUGIN_VERSION = "2.2.0";
 const PLUGIN_PACKAGE = "@opencode/plugin";
-const EXPECTED_OPENTUI_SPECIFIER = "^0.5.10";
-const EXPECTED_OPENTUI_VERSION = "0.5.10";
+const EXPECTED_OPENTUI_SPECIFIER = "^0.5.17";
+const EXPECTED_OPENTUI_VERSION = "0.5.17";
 const EXPECTED_OPENTUI_PACKAGES = ["@opentui/core", "@opentui/solid"];
 const BUN_FFI_STRUCTS_VERSION = "0.3.1";
 const BUN_FFI_TYPESCRIPT_PEER = "^5";
@@ -66,8 +66,9 @@ if (configuredPlugin !== EXPECTED_PLUGIN_VERSION) {
     `${PLUGIN_PACKAGE} must be pinned exactly to ${EXPECTED_PLUGIN_VERSION}; package.json has ${String(configuredPlugin)}.`,
   );
 }
+// OpenCode gives TUI plugins its own OpenTUI, so it is only a development dependency here.
 for (const name of EXPECTED_OPENTUI_PACKAGES) {
-  const configuredVersion = packageJson.dependencies?.[name];
+  const configuredVersion = packageJson.devDependencies?.[name];
   if (configuredVersion !== EXPECTED_OPENTUI_SPECIFIER) {
     fail(
       `${name} must be pinned to ${EXPECTED_OPENTUI_SPECIFIER}; package.json has ${String(configuredVersion)}.`,
@@ -111,7 +112,7 @@ function verifyImporterDependency(name, expectedVersion) {
 verifyImporterDependency("typescript", EXPECTED_TYPESCRIPT_VERSION);
 
 for (const name of EXPECTED_OPENTUI_PACKAGES) {
-  const dependency = rootImporter.dependencies?.[name];
+  const dependency = rootImporter.devDependencies?.[name];
   if (
     dependency?.specifier !== EXPECTED_OPENTUI_SPECIFIER ||
     (dependency?.version !== EXPECTED_OPENTUI_VERSION &&
