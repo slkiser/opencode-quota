@@ -1,5 +1,5 @@
-import { applyProviderAddPlan, planProviderAdd } from "./provider-add.js";
 import { promptJsonV1Adapter } from "./provider-add-json-v1-questionnaire.js";
+import { applyProviderAddPlan, planProviderAdd } from "./provider-add.js";
 
 const INVALID_JSON_V1_ADAPTER_MESSAGE = "Invalid json-v1 adapter JSON.";
 

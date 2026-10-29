@@ -1,10 +1,10 @@
-/** Z.ai provider wrapper. */
-import { queryZaiQuota } from "../lib/zai.js";
 import {
   DEFAULT_ZAI_AUTH_CACHE_MAX_AGE_MS,
   getZaiAuthDiagnostics,
   resolveZaiAuthCached,
 } from "../lib/zai-auth.js";
+/** Z.ai provider wrapper. */
+import { queryZaiQuota } from "../lib/zai.js";
 import { createGlmCodingPlanProvider } from "./glm-coding-plan-provider.js";
 
 export const zaiProvider = createGlmCodingPlanProvider({

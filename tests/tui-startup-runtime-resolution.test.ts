@@ -2,7 +2,16 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 import type {
   StartupRuntimePhase,
   StartupRuntimeResult,
@@ -262,7 +271,7 @@ function createElement(
   ...children: unknown[]
 ) {
   const nextProps = {
-    ...(props ?? {}),
+    ...props,
     ...(children.length === 0 ? {} : { children: children.length === 1 ? children[0] : children }),
   };
   return typeof type === "function" ? type(nextProps) : { type, props: nextProps };

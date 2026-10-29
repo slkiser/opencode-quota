@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { AccountingMetadata, QuotaToastEntry } from "../src/lib/entries.js";
 import {

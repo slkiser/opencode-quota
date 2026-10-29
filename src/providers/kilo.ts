@@ -10,8 +10,8 @@ import type {
   QuotaToastEntry,
 } from "../lib/entries.js";
 import { fmtUsdAmount } from "../lib/format-utils.js";
-import { type KiloQuotaResult, queryKiloQuota } from "../lib/kilo.js";
 import { getKiloKeyDiagnostics, hasKiloApiKey } from "../lib/kilo-config.js";
+import { type KiloQuotaResult, queryKiloQuota } from "../lib/kilo.js";
 import { modelProviderMatchesRuntimeId } from "../lib/provider-model-matching.js";
 import { accountingDecimalFromNumber } from "./accounting-decimal.js";
 import {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { replaceHomeDirWithTilde } from "../src/lib/home-dir-display.js";
 
 const HOME = "/Users/alice";

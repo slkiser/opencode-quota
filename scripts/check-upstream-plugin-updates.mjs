@@ -32,7 +32,7 @@ async function githubRequest(path, token, init = {}) {
     ...init,
     headers: {
       ...createGitHubHeaders(token),
-      ...(init.headers ?? {}),
+      ...init.headers,
     },
   });
 

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => {
   const fetchResponse = vi.fn();
@@ -145,26 +145,27 @@ describe("queryOpenCodeGoQuota", () => {
     });
   });
 
-  it.each([
-    0, 42, 100,
-  ])("treats a structurally valid rate-limited window as exhausted regardless of percent %j", async (percent) => {
-    const payload = validPayload();
-    windowFrom(payload, "weekly").status = "rate-limited";
-    windowFrom(payload, "weekly").percent = percent;
-    mockSuccess(payload);
+  it.each([0, 42, 100])(
+    "treats a structurally valid rate-limited window as exhausted regardless of percent %j",
+    async (percent) => {
+      const payload = validPayload();
+      windowFrom(payload, "weekly").status = "rate-limited";
+      windowFrom(payload, "weekly").percent = percent;
+      mockSuccess(payload);
 
-    const result = await queryOpenCodeGoQuota("token");
+      const result = await queryOpenCodeGoQuota("token");
 
-    expect(result).toMatchObject({
-      success: true,
-      weekly: {
-        status: "rate-limited",
-        usagePercent: 100,
-        percentRemaining: 0,
-        resetTimeIso: "2026-08-16T16:00:00.000Z",
-      },
-    });
-  });
+      expect(result).toMatchObject({
+        success: true,
+        weekly: {
+          status: "rate-limited",
+          usagePercent: 100,
+          percentRemaining: 0,
+          resetTimeIso: "2026-08-16T16:00:00.000Z",
+        },
+      });
+    },
+  );
 
   it("keeps healthy sibling windows when one window is rate-limited", async () => {
     const payload = validPayload();
@@ -199,23 +200,21 @@ describe("queryOpenCodeGoQuota", () => {
     });
   });
 
-  it.each([
-    { percent: -1 },
-    { percent: 101 },
-    { percent: "10" },
-    { percent: Number.NaN },
-  ])("still rejects a rate-limited window with invalid percent $percent", async ({ percent }) => {
-    const payload = validPayload();
-    windowFrom(payload, "weekly").status = "rate-limited";
-    windowFrom(payload, "weekly").percent = percent;
-    mockSuccess(payload);
+  it.each([{ percent: -1 }, { percent: 101 }, { percent: "10" }, { percent: Number.NaN }])(
+    "still rejects a rate-limited window with invalid percent $percent",
+    async ({ percent }) => {
+      const payload = validPayload();
+      windowFrom(payload, "weekly").status = "rate-limited";
+      windowFrom(payload, "weekly").percent = percent;
+      mockSuccess(payload);
 
-    await expect(queryOpenCodeGoQuota("token")).resolves.toEqual({
-      success: false,
-      error:
-        "Invalid OpenCode Go API response: weekly percent must be a finite number from 0 to 100",
-    });
-  });
+      await expect(queryOpenCodeGoQuota("token")).resolves.toEqual({
+        success: false,
+        error:
+          "Invalid OpenCode Go API response: weekly percent must be a finite number from 0 to 100",
+      });
+    },
+  );
 
   it("still rejects a rate-limited window with a malformed reset", async () => {
     const payload = validPayload();
@@ -257,44 +256,36 @@ describe("queryOpenCodeGoQuota", () => {
     });
   });
 
-  it.each([
-    "OK",
-    " ok",
-    "ok ",
-    "error",
-    null,
-    1,
-  ])("requires exact raw status ok: %j", async (status) => {
-    const payload = validPayload();
-    windowFrom(payload, "weekly").status = status;
-    mockSuccess(payload);
+  it.each(["OK", " ok", "ok ", "error", null, 1])(
+    "requires exact raw status ok: %j",
+    async (status) => {
+      const payload = validPayload();
+      windowFrom(payload, "weekly").status = status;
+      mockSuccess(payload);
 
-    const result = await queryOpenCodeGoQuota("token");
-    expect(result).toMatchObject({ success: false });
-    expect(result).toHaveProperty(
-      "error",
-      expect.stringContaining("Invalid OpenCode Go API response: weekly status is not ok"),
-    );
-  });
+      const result = await queryOpenCodeGoQuota("token");
+      expect(result).toMatchObject({ success: false });
+      expect(result).toHaveProperty(
+        "error",
+        expect.stringContaining("Invalid OpenCode Go API response: weekly status is not ok"),
+      );
+    },
+  );
 
-  it.each([
-    -1,
-    101,
-    "10",
-    null,
-    Number.NaN,
-    Number.POSITIVE_INFINITY,
-  ])("rejects invalid percent %j", async (percent) => {
-    const payload = validPayload();
-    windowFrom(payload, "monthly").percent = percent;
-    mockSuccess(payload);
+  it.each([-1, 101, "10", null, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects invalid percent %j",
+    async (percent) => {
+      const payload = validPayload();
+      windowFrom(payload, "monthly").percent = percent;
+      mockSuccess(payload);
 
-    await expect(queryOpenCodeGoQuota("token")).resolves.toEqual({
-      success: false,
-      error:
-        "Invalid OpenCode Go API response: monthly percent must be a finite number from 0 to 100",
-    });
-  });
+      await expect(queryOpenCodeGoQuota("token")).resolves.toEqual({
+        success: false,
+        error:
+          "Invalid OpenCode Go API response: monthly percent must be a finite number from 0 to 100",
+      });
+    },
+  );
 
   it.each([
     "2026-08-12",

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { FixedWindowProjectionEvidence } from "../src/lib/entries.js";
 import {
   compareQuotaRunwayUrgency,

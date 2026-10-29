@@ -1,6 +1,6 @@
 import { dirname, join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 import {

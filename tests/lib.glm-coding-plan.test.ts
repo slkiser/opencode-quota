@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { queryZaiQuota } from "../src/lib/zai.js";
 import { queryZhipuQuota } from "../src/lib/zhipu.js";

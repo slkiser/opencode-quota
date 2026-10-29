@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   type ConfigLoaderWorkspace,
   createConfigLoaderEnv,

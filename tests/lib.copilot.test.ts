@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const testPaths = vi.hoisted(() => {
   const separator = process.platform === "win32" ? "\\" : "/";
@@ -332,20 +332,20 @@ describe("GitHub Copilot AI Credit accounting", () => {
     expect(error).not.toContain("private stalled body failure");
   });
 
-  it.each([
-    "acme.ghe.com",
-    "https://acme.ghe.com",
-  ])("routes OpenCode OAuth through a validated GHE.com host: %s", async (enterpriseUrl) => {
-    authMocks.readAuthFile.mockResolvedValue({
-      "github-copilot": { type: "oauth", access: "oauth-token", enterpriseUrl },
-    });
-    const fetchMock = vi.fn(async () => json(copilotUser()));
-    vi.stubGlobal("fetch", fetchMock as any);
+  it.each(["acme.ghe.com", "https://acme.ghe.com"])(
+    "routes OpenCode OAuth through a validated GHE.com host: %s",
+    async (enterpriseUrl) => {
+      authMocks.readAuthFile.mockResolvedValue({
+        "github-copilot": { type: "oauth", access: "oauth-token", enterpriseUrl },
+      });
+      const fetchMock = vi.fn(async () => json(copilotUser()));
+      vi.stubGlobal("fetch", fetchMock as any);
 
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    await expect(queryCopilotQuota()).resolves.toMatchObject({ success: true });
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.acme.ghe.com/copilot_internal/user");
-  });
+      const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+      await expect(queryCopilotQuota()).resolves.toMatchObject({ success: true });
+      expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.acme.ghe.com/copilot_internal/user");
+    },
+  );
 
   it("keeps token-based OAuth placeholders plan-only", async () => {
     authMocks.readAuthFile.mockResolvedValue({
@@ -466,46 +466,45 @@ describe("GitHub Copilot AI Credit accounting", () => {
     });
   });
 
-  it.each([
-    { credits_used: undefined },
-    { credits_used: -1 },
-    { credits_used: "3739" },
-  ])("falls back to derived over-limit premium interactions without a usable credits_used", async (snapshot) => {
-    authMocks.readAuthFile.mockResolvedValue({
-      "github-copilot": { type: "oauth", access: "oauth-token" },
-    });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        json(
-          copilotUser({
-            copilot_plan: "business",
-            quota_snapshots: {
-              premium_interactions: {
-                entitlement: 3000,
-                remaining: -740,
-                quota_remaining: -739.5,
-                percent_remaining: 0,
-                unlimited: false,
-                ...snapshot,
+  it.each([{ credits_used: undefined }, { credits_used: -1 }, { credits_used: "3739" }])(
+    "falls back to derived over-limit premium interactions without a usable credits_used",
+    async (snapshot) => {
+      authMocks.readAuthFile.mockResolvedValue({
+        "github-copilot": { type: "oauth", access: "oauth-token" },
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          json(
+            copilotUser({
+              copilot_plan: "business",
+              quota_snapshots: {
+                premium_interactions: {
+                  entitlement: 3000,
+                  remaining: -740,
+                  quota_remaining: -739.5,
+                  percent_remaining: 0,
+                  unlimited: false,
+                  ...snapshot,
+                },
               },
-            },
-          }),
-        ),
-      ) as any,
-    );
+            }),
+          ),
+        ) as any,
+      );
 
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    await expect(queryCopilotQuota()).resolves.toMatchObject({
-      success: true,
-      mode: "user_quota",
-      unit: "premium_interactions",
-      used: 3739.5,
-      authority: "locally_derived",
-      total: 3000,
-      percentRemaining: 0,
-    });
-  });
+      const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+      await expect(queryCopilotQuota()).resolves.toMatchObject({
+        success: true,
+        mode: "user_quota",
+        unit: "premium_interactions",
+        used: 3739.5,
+        authority: "locally_derived",
+        total: 3000,
+        percentRemaining: 0,
+      });
+    },
+  );
 
   it.each([
     {
@@ -540,36 +539,35 @@ describe("GitHub Copilot AI Credit accounting", () => {
         unlimited: false,
       },
     },
-  ])("does not trust a negative remaining without token billing or a valid reported percentage", async ({
-    tokenBasedBilling,
-    expected,
-    snapshot,
-  }) => {
-    authMocks.readAuthFile.mockResolvedValue({
-      "github-copilot": { type: "oauth", access: "oauth-token" },
-    });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        json(
-          copilotUser({
-            token_based_billing: tokenBasedBilling,
-            quota_snapshots: { premium_interactions: snapshot },
-          }),
-        ),
-      ) as any,
-    );
-
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    const result = await queryCopilotQuota();
-    if (expected === "error") {
-      expect(result && !result.success ? result.error : "").toContain(
-        "did not include a usable quota snapshot",
+  ])(
+    "does not trust a negative remaining without token billing or a valid reported percentage",
+    async ({ tokenBasedBilling, expected, snapshot }) => {
+      authMocks.readAuthFile.mockResolvedValue({
+        "github-copilot": { type: "oauth", access: "oauth-token" },
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          json(
+            copilotUser({
+              token_based_billing: tokenBasedBilling,
+              quota_snapshots: { premium_interactions: snapshot },
+            }),
+          ),
+        ) as any,
       );
-    } else {
-      expect(result).toMatchObject({ success: true, mode: "user_plan" });
-    }
-  });
+
+      const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+      const result = await queryCopilotQuota();
+      if (expected === "error") {
+        expect(result && !result.success ? result.error : "").toContain(
+          "did not include a usable quota snapshot",
+        );
+      } else {
+        expect(result).toMatchObject({ success: true, mode: "user_plan" });
+      }
+    },
+  );
 
   it.each([
     "http://acme.ghe.com",
@@ -1028,22 +1026,21 @@ describe("GitHub Copilot AI Credit accounting", () => {
     });
   });
 
-  it.each([
-    "github_pat_enterprise",
-    "ghu_enterprise",
-    "ghs_enterprise",
-  ])("rejects unsupported fine-grained/App token type %s for enterprise reports", async (token) => {
-    configure({ token, tier: "enterprise", enterprise: "octo" });
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock as any);
+  it.each(["github_pat_enterprise", "ghu_enterprise", "ghs_enterprise"])(
+    "rejects unsupported fine-grained/App token type %s for enterprise reports",
+    async (token) => {
+      configure({ token, tier: "enterprise", enterprise: "octo" });
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock as any);
 
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    const result = await queryCopilotQuota();
-    expect(result && !result.success ? result.error : "").toContain(
-      "do not support fine-grained PATs or GitHub App access tokens",
-    );
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
+      const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+      const result = await queryCopilotQuota();
+      expect(result && !result.success ? result.error : "").toContain(
+        "do not support fine-grained PATs or GitHub App access tokens",
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("allows legacy PRUs only for explicitly selected Pro/Pro+ annual-plan eligibility", async () => {
     configure({
@@ -1359,18 +1356,21 @@ describe("GitHub Copilot AI Credit accounting", () => {
       { grossQuantity: undefined, discountQuantity: 80, netQuantity: 20 },
       { used: 100, includedUsed: 80, billedUsed: 20 },
     ],
-  ])("derives a missing AI Credit quantity from the other pair: %s", async (overrides, expected) => {
-    configure({ token: "github_pat_personal", tier: "pro", username: "alice" });
-    vi.stubGlobal("fetch", vi.fn(async () => json(aiUsage(overrides))) as any);
+  ])(
+    "derives a missing AI Credit quantity from the other pair: %s",
+    async (overrides, expected) => {
+      configure({ token: "github_pat_personal", tier: "pro", username: "alice" });
+      vi.stubGlobal("fetch", vi.fn(async () => json(aiUsage(overrides))) as any);
 
-    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-    await expect(queryCopilotQuota()).resolves.toMatchObject({
-      success: true,
-      mode: "user_quota",
-      ...expected,
-      authority: "locally_derived",
-    });
-  });
+      const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+      await expect(queryCopilotQuota()).resolves.toMatchObject({
+        success: true,
+        mode: "user_quota",
+        ...expected,
+        authority: "locally_derived",
+      });
+    },
+  );
 
   it.each([
     { grossQuantity: 100, discountQuantity: 120, netQuantity: undefined },

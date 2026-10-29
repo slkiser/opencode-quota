@@ -1,6 +1,6 @@
 import { chmod, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-resolved-auth-identity-tests";
 const TEST_SYMLINK_TARGET = `${TEST_RUNTIME_ROOT}-symlink-target`;
@@ -217,9 +217,8 @@ describe("resolved-auth identity", () => {
   );
 
   it("fails closed when private owner-bound storage cannot be guaranteed", async () => {
-    const { isProtectedResolvedAuthStorageSupported } = await import(
-      "../src/lib/resolved-auth-identity.js"
-    );
+    const { isProtectedResolvedAuthStorageSupported } =
+      await import("../src/lib/resolved-auth-identity.js");
 
     expect(
       isProtectedResolvedAuthStorageSupported({ platform: "win32", hasOwnerIdentity: true }),

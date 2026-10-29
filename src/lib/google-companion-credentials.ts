@@ -1,8 +1,8 @@
+import { readFile } from "fs/promises";
 import { readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { readFile } from "fs/promises";
 
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 
@@ -92,9 +92,9 @@ function isModuleNotFoundError(error: unknown): boolean {
 function isPackagePathNotExportedError(error: unknown): boolean {
   return Boolean(
     error &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "ERR_PACKAGE_PATH_NOT_EXPORTED",
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "ERR_PACKAGE_PATH_NOT_EXPORTED",
   );
 }
 

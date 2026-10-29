@@ -6,11 +6,11 @@ import type {
   QuotaProviderStatusDetail,
   QuotaToastEntry,
 } from "../lib/entries.js";
+import { resolveOpenCodeZenAccountCached } from "../lib/opencode-zen-config.js";
 import {
   OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR,
   queryOpenCodeZenQuota,
 } from "../lib/opencode-zen.js";
-import { resolveOpenCodeZenAccountCached } from "../lib/opencode-zen-config.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
 import {
   attemptedErrorResult,

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 const fsMocks = vi.hoisted(() => ({
   rm: vi.fn(),

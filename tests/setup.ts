@@ -1,4 +1,4 @@
-import { afterEach, vi } from "vitest";
+import { afterEach, vi } from "vite-plus/test";
 
 afterEach(async () => {
   try {

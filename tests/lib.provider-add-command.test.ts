@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { applyProviderAddPlan, planProviderAdd } from "../src/lib/provider-add.js";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { runProviderAddCommand } from "../src/lib/provider-add-command.js";
+import { applyProviderAddPlan, planProviderAdd } from "../src/lib/provider-add.js";
 
 vi.mock("../src/lib/provider-add.js", () => ({
   applyProviderAddPlan: vi.fn(),

@@ -1,6 +1,6 @@
 import { access, readFile } from "node:fs/promises";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { parse } from "yaml";
 
 interface WorkflowStep {
@@ -59,19 +59,7 @@ const typescriptValidator = await readFile(
   new URL("../scripts/verify-typescript-version.mjs", import.meta.url),
   "utf8",
 );
-const biomeConfig = JSON.parse(
-  await readFile(new URL("../biome.json", import.meta.url), "utf8"),
-) as {
-  $schema?: string;
-  linter?: {
-    domains?: Record<string, string>;
-    rules?: { recommended?: boolean };
-  };
-  overrides?: Array<{
-    includes?: string[];
-    linter?: { domains?: Record<string, string> };
-  }>;
-};
+const viteConfig = await readFile(new URL("../vite.config.ts", import.meta.url), "utf8");
 const lefthookConfig = parse(
   await readFile(new URL("../lefthook.yml", import.meta.url), "utf8"),
 ) as Record<
@@ -178,29 +166,29 @@ describe("package manifest compatibility", () => {
     );
   });
 
-  it("uses pinned Biome as the sole formatter and linter", async () => {
-    expect(pkg.devDependencies?.["@biomejs/biome"]).toBe("2.3.11");
-    expect(pkg.devDependencies).not.toHaveProperty("prettier");
-    expect(pkg.devDependencies).not.toHaveProperty("eslint");
-
-    expect(pkg.scripts?.format).toBe("biome format --write .");
-    expect(pkg.scripts?.["format:check"]).toBe("biome format .");
-    expect(pkg.scripts?.lint).toBe("biome lint .");
-    expect(pkg.scripts?.check).toBe("biome check .");
-    expect(pkg.scripts).not.toHaveProperty("verify:v4-formatting");
-
-    expect(biomeConfig.$schema).toBe("https://biomejs.dev/schemas/2.3.11/schema.json");
-    expect(biomeConfig.linter?.rules?.recommended).toBe(true);
-    expect(biomeConfig.linter?.domains?.solid).toBe("recommended");
-    expect(
-      biomeConfig.overrides?.some(
-        (override) =>
-          override.includes?.includes("tests/**/*.test.ts") &&
-          override.linter?.domains?.test === "recommended",
-      ),
-    ).toBe(true);
-
+  it("uses pinned Vite+ for formatting and linting without a second type checker", async () => {
+    expect(pkg.devDependencies?.["vite-plus"]).toBe("1.2.0");
+    for (const dependency of ["@biomejs/biome", "prettier", "eslint", "vitest"]) {
+      expect(pkg.devDependencies).not.toHaveProperty(dependency);
+    }
+    expect(pkg.scripts?.format).toBe("vp fmt");
+    expect(pkg.scripts?.["format:check"]).toBe("vp fmt --check");
+    expect(pkg.scripts?.lint).toBe("vp lint");
+    expect(pkg.scripts?.check).toBe("vp check");
+    expect(pkg.scripts?.test).toBe("vp test run");
+    expect(pkg.scripts?.["test:watch"]).toBe("vp test watch");
+    expect(pkg.scripts?.["test:four-surfaces"]).toBe(
+      "vp test run tests/v4-phase5-cross-surface.test.ts",
+    );
+    expect(viteConfig).toContain("typeAware: false");
+    expect(viteConfig).toContain("typeCheck: false");
+    expect(viteConfig).toContain('"vitest/no-duplicate-hooks": "error"');
+    expect(viteConfig).toContain('"jest/no-export": "error"');
+    expect(viteConfig).toContain('"vitest/no-focused-tests": "error"');
+    expect(viteConfig).toContain('"jsx-a11y"');
     for (const path of [
+      "../biome.json",
+      "../vitest.config.ts",
       "../.prettierignore",
       "../.prettierrc.json",
       "../scripts/verify-v4-formatting.mjs",

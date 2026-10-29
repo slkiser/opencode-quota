@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const { mockFiles, testPaths } = vi.hoisted(() => {
   const separator = process.platform === "win32" ? "\\" : "/";
@@ -97,9 +97,8 @@ describe("cursor detection", () => {
       }),
     );
 
-    const { CURSOR_CANONICAL_PLUGIN_PACKAGE, inspectCursorOpenCodeIntegration } = await import(
-      "../src/lib/cursor-detection.js"
-    );
+    const { CURSOR_CANONICAL_PLUGIN_PACKAGE, inspectCursorOpenCodeIntegration } =
+      await import("../src/lib/cursor-detection.js");
     const result = await inspectCursorOpenCodeIntegration();
 
     expect(CURSOR_CANONICAL_PLUGIN_PACKAGE).toBe("@playwo/opencode-cursor-oauth");

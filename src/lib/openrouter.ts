@@ -5,13 +5,13 @@
  * OpenRouter sources interpret the API response identically.
  */
 
-import type { RemoteApiQuotaProviderDefinition } from "./quota-providers.js";
 import {
   fetchRemoteQuotaProvider,
   type QuotaProviderAuthResolution,
   type RemoteQuotaProviderResult,
   resolveQuotaProviderApiKey,
 } from "./quota-providers-remote.js";
+import type { RemoteApiQuotaProviderDefinition } from "./quota-providers.js";
 import { deriveResolvedAuthIdentity, type ResolvedAuthIdentity } from "./resolved-auth-identity.js";
 
 const OPENROUTER_KEY_SOURCE = {

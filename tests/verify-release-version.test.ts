@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const scriptPath = fileURLToPath(new URL("../scripts/verify-release-version.mjs", import.meta.url));

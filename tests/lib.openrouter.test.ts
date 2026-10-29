@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   hasOpenRouterApiKeyConfigured,
@@ -80,30 +80,31 @@ describe("OpenRouter quota", () => {
     expect(resolveQuotaProviderApiKey).toHaveBeenCalledWith(OPENROUTER_KEY_SOURCE);
   });
 
-  it.each(
-    CREDENTIAL_SOURCES,
-  )("queries with the exact %s resolution and does not look up credentials again", async (source) => {
-    const resolved = resolvedAuth({
-      key: SECRET_CANARY,
-      source,
-      checkedPaths: [`source:${source}`],
-      authPaths: ["/tmp/auth.json"],
-    });
-    vi.mocked(fetchRemoteQuotaProvider).mockResolvedValueOnce({
-      success: true,
-      entries: [],
-    });
+  it.each(CREDENTIAL_SOURCES)(
+    "queries with the exact %s resolution and does not look up credentials again",
+    async (source) => {
+      const resolved = resolvedAuth({
+        key: SECRET_CANARY,
+        source,
+        checkedPaths: [`source:${source}`],
+        authPaths: ["/tmp/auth.json"],
+      });
+      vi.mocked(fetchRemoteQuotaProvider).mockResolvedValueOnce({
+        success: true,
+        entries: [],
+      });
 
-    await queryOpenRouterQuota({ requestTimeoutMs: 1234, resolved });
+      await queryOpenRouterQuota({ requestTimeoutMs: 1234, resolved });
 
-    expect(resolveQuotaProviderApiKey).not.toHaveBeenCalled();
-    expect(fetchRemoteQuotaProvider).toHaveBeenCalledTimes(1);
-    expect(fetchRemoteQuotaProvider).toHaveBeenCalledWith(
-      OPENROUTER_KEY_SOURCE,
-      SECRET_CANARY,
-      1234,
-    );
-  });
+      expect(resolveQuotaProviderApiKey).not.toHaveBeenCalled();
+      expect(fetchRemoteQuotaProvider).toHaveBeenCalledTimes(1);
+      expect(fetchRemoteQuotaProvider).toHaveBeenCalledWith(
+        OPENROUTER_KEY_SOURCE,
+        SECRET_CANARY,
+        1234,
+      );
+    },
+  );
 
   it("does not make a request when the passed resolution has no key", async () => {
     const resolved = resolvedAuth({

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { deriveResolvedAuthIdentity } from "../src/lib/resolved-auth-identity.js";
 import {
   hasXaiOAuth,
@@ -352,35 +352,38 @@ describe("queryXaiQuota", () => {
   it.each([
     [5_000, 2_000],
     [750, 750],
-  ])("caps subscription metadata at %i ms with an effective timeout of %i ms", async (requestTimeoutMs, effectiveTimeoutMs) => {
-    vi.useFakeTimers();
-    await mockConfiguredAuth();
+  ])(
+    "caps subscription metadata at %i ms with an effective timeout of %i ms",
+    async (requestTimeoutMs, effectiveTimeoutMs) => {
+      vi.useFakeTimers();
+      await mockConfiguredAuth();
 
-    const fetchMock = vi.fn((url: string, init: RequestInit) => {
-      if (url !== "https://grok.com/rest/subscriptions") {
-        return Promise.resolve(jsonResponse(superGrokWeeklyFixture));
-      }
-      return new Promise<Response>((_resolve, reject) => {
-        init.signal?.addEventListener("abort", () => {
-          const error = new Error("aborted");
-          error.name = "AbortError";
-          reject(error);
+      const fetchMock = vi.fn((url: string, init: RequestInit) => {
+        if (url !== "https://grok.com/rest/subscriptions") {
+          return Promise.resolve(jsonResponse(superGrokWeeklyFixture));
+        }
+        return new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => {
+            const error = new Error("aborted");
+            error.name = "AbortError";
+            reject(error);
+          });
         });
       });
-    });
-    vi.stubGlobal("fetch", fetchMock as any);
+      vi.stubGlobal("fetch", fetchMock as any);
 
-    const resultPromise = queryXaiQuota({ requestTimeoutMs });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    await vi.advanceTimersByTimeAsync(effectiveTimeoutMs);
+      const resultPromise = queryXaiQuota({ requestTimeoutMs });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(effectiveTimeoutMs);
 
-    await expect(resultPromise).resolves.toMatchObject({
-      success: true,
-      label: "xAI SuperGrok",
-      window: { percentRemaining: 95, kind: "weekly" },
-    });
-  });
+      await expect(resultPromise).resolves.toMatchObject({
+        success: true,
+        label: "xAI SuperGrok",
+        window: { percentRemaining: 95, kind: "weekly" },
+      });
+    },
+  );
 
   it("treats an omitted protobuf percentage as 0% used when a period exists", async () => {
     await mockConfiguredAuth();

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { buildCompactQuotaStatusLine } from "../src/lib/tui-compact-format.js";
 import { TUI_SIDEBAR_MAX_WIDTH } from "../src/lib/tui-sidebar-format.js";

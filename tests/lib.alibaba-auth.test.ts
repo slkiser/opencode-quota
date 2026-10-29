@@ -1,6 +1,6 @@
 import { homedir } from "os";
 import { join } from "path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   createRuntimePathsMockModule,
   getTrustedOpencodeConfigPaths,
@@ -252,12 +252,15 @@ describe("alibaba auth resolution", () => {
     it.each([
       ["opencode.json", workspacePaths.json],
       ["opencode.jsonc", workspacePaths.jsonc],
-    ])("ignores workspace-local %s when resolving provider secrets", async (_label, workspacePath) => {
-      fsConfigMocks.existsSync.mockImplementation((path: string) => path === workspacePath);
-      mocks.readAuthFileCached.mockResolvedValueOnce(null);
+    ])(
+      "ignores workspace-local %s when resolving provider secrets",
+      async (_label, workspacePath) => {
+        fsConfigMocks.existsSync.mockImplementation((path: string) => path === workspacePath);
+        mocks.readAuthFileCached.mockResolvedValueOnce(null);
 
-      await expect(resolveAlibabaCodingPlanAuthCached()).resolves.toEqual({ state: "none" });
-    });
+        await expect(resolveAlibabaCodingPlanAuthCached()).resolves.toEqual({ state: "none" });
+      },
+    );
 
     it("falls back to auth.json when env/config are not configured", async () => {
       mocks.readAuthFileCached.mockResolvedValueOnce({

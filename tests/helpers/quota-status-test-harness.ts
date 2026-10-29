@@ -1,4 +1,4 @@
-import { expect } from "vitest";
+import { expect } from "vite-plus/test";
 
 import type { buildQuotaStatusReport } from "../../src/lib/quota-status.js";
 

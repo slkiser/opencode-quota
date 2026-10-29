@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   expectAttemptedWithErrorLabel,
   expectAttemptedWithNoErrors,
@@ -293,37 +293,35 @@ describe("minimax-coding-plan provider", () => {
     { rawUsed: 1500, remaining: 0, percentRemaining: 0 },
     { rawUsed: 13, total: 15000, remaining: 14987, percentRemaining: 100 },
     { rawUsed: 1550, remaining: -50, percentRemaining: -3 },
-  ])("normalizes China Token Plan used count $rawUsed", async ({
-    rawUsed,
-    total = 1500,
-    remaining,
-    percentRemaining,
-  }) => {
-    mockMiniMaxChinaAuthConfigured("china-key");
-    mockMiniMaxHttpSuccess([
-      createCodingPlanModel({
-        model_name: "MiniMax-M2.7",
-        current_interval_total_count: total,
-        current_interval_usage_count: rawUsed,
-        current_weekly_total_count: undefined,
-        current_weekly_usage_count: undefined,
-        weekly_remains_time: undefined,
-      }),
-    ]);
+  ])(
+    "normalizes China Token Plan used count $rawUsed",
+    async ({ rawUsed, total = 1500, remaining, percentRemaining }) => {
+      mockMiniMaxChinaAuthConfigured("china-key");
+      mockMiniMaxHttpSuccess([
+        createCodingPlanModel({
+          model_name: "MiniMax-M2.7",
+          current_interval_total_count: total,
+          current_interval_usage_count: rawUsed,
+          current_weekly_total_count: undefined,
+          current_weekly_usage_count: undefined,
+          weekly_remains_time: undefined,
+        }),
+      ]);
 
-    const out = await runChinaProviderFetch();
+      const out = await runChinaProviderFetch();
 
-    expectAttemptedWithNoErrors(out);
-    expect(out.entries).toHaveLength(1);
-    expect(out.entries[0]).toMatchObject({
-      percentRemaining,
-      basis: {
-        used: { quantity: { decimal: String(rawUsed) } },
-        limit: { quantity: { decimal: String(total) } },
-        remaining: { quantity: { decimal: String(remaining) } },
-      },
-    });
-  });
+      expectAttemptedWithNoErrors(out);
+      expect(out.entries).toHaveLength(1);
+      expect(out.entries[0]).toMatchObject({
+        percentRemaining,
+        basis: {
+          used: { quantity: { decimal: String(rawUsed) } },
+          limit: { quantity: { decimal: String(total) } },
+          remaining: { quantity: { decimal: String(remaining) } },
+        },
+      });
+    },
+  );
 
   it("selects the lowest-remaining China model using used-count semantics", async () => {
     mockMiniMaxChinaAuthConfigured("china-key");
@@ -462,31 +460,31 @@ describe("minimax-coding-plan provider", () => {
     { name: "zero", value: 0, percentRemaining: 0 },
     { name: "negative", value: -25, percentRemaining: -25 },
     { name: "above 100", value: 140, percentRemaining: 100 },
-  ])("preserves current percentage bounds for $name international fallback values", async ({
-    value,
-    percentRemaining,
-  }) => {
-    mockMiniMaxAuthConfigured();
-    mockMiniMaxHttpSuccess([
-      createCodingPlanModel({
-        model_name: "general",
-        current_interval_total_count: 0,
-        current_interval_usage_count: 0,
-        current_weekly_total_count: undefined,
-        current_weekly_usage_count: undefined,
-        weekly_remains_time: undefined,
-        current_interval_remaining_percent: value,
-      }),
-    ]);
+  ])(
+    "preserves current percentage bounds for $name international fallback values",
+    async ({ value, percentRemaining }) => {
+      mockMiniMaxAuthConfigured();
+      mockMiniMaxHttpSuccess([
+        createCodingPlanModel({
+          model_name: "general",
+          current_interval_total_count: 0,
+          current_interval_usage_count: 0,
+          current_weekly_total_count: undefined,
+          current_weekly_usage_count: undefined,
+          weekly_remains_time: undefined,
+          current_interval_remaining_percent: value,
+        }),
+      ]);
 
-    const out = await runProviderFetch();
+      const out = await runProviderFetch();
 
-    expectAttemptedWithNoErrors(out);
-    expect(visibleEntries(out.entries, "minimax-coding-plan")).toMatchObject([
-      { percentRemaining },
-    ]);
-    expect(out.entries[0]).not.toHaveProperty("basis");
-  });
+      expectAttemptedWithNoErrors(out);
+      expect(visibleEntries(out.entries, "minimax-coding-plan")).toMatchObject([
+        { percentRemaining },
+      ]);
+      expect(out.entries[0]).not.toHaveProperty("basis");
+    },
+  );
 
   it.each([
     { name: "missing", value: undefined },

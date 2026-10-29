@@ -466,7 +466,7 @@ function keepRetiredModels(params: {
   const providers = { ...params.current.providers };
 
   for (const providerID of params.providerIDs) {
-    const models = { ...(providers[providerID] ?? {}) };
+    const models = { ...providers[providerID] };
     for (const snapshot of previous) {
       for (const [modelID, cost] of Object.entries(snapshot.providers[providerID] ?? {})) {
         if (!models[modelID]) models[modelID] = cost;

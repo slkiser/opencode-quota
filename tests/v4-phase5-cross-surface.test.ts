@@ -1,5 +1,5 @@
 import { rm } from "node:fs/promises";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { isCommandHandledError } from "../src/lib/command-handled.js";
 import {
@@ -477,9 +477,8 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       providers: [quotaProvidersProvider],
       configureTelemetry: false,
     });
-    const { buildQuotaExport, createExportProviderContext } = await import(
-      "../src/lib/quota-export.js"
-    );
+    const { buildQuotaExport, createExportProviderContext } =
+      await import("../src/lib/quota-export.js");
     const exportContext = createExportProviderContext(runtime);
     const fetchCallsBeforeExport = vi.mocked(globalThis.fetch).mock.calls.length;
     const exportData = await buildQuotaExport({
@@ -620,9 +619,8 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       expect(allOutput).not.toContain(source.url);
     }
 
-    const { __flushQuotaTelemetryInitializationForTests } = await import(
-      "../src/lib/quota-telemetry.js"
-    );
+    const { __flushQuotaTelemetryInitializationForTests } =
+      await import("../src/lib/quota-telemetry.js");
     await __flushQuotaTelemetryInitializationForTests();
     const fetchCallsBeforeMetrics = vi.mocked(globalThis.fetch).mock.calls.length;
     const providerDiscoveryCallsBeforeMetrics = client.config.providers.mock.calls.length;
@@ -728,9 +726,8 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       providers: [minimaxCodingPlanProvider],
       configureTelemetry: false,
     });
-    const { buildQuotaExport, createExportProviderContext } = await import(
-      "../src/lib/quota-export.js"
-    );
+    const { buildQuotaExport, createExportProviderContext } =
+      await import("../src/lib/quota-export.js");
     const fetchCallsBeforeExport = vi.mocked(globalThis.fetch).mock.calls.length;
     const exportData = await buildQuotaExport({
       providers: [minimaxCodingPlanProvider],
@@ -901,9 +898,8 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       checkedPaths: [],
       authPaths: [],
     });
-    const { minimaxChinaCodingPlanProvider } = await import(
-      "../src/providers/minimax-coding-plan.js"
-    );
+    const { minimaxChinaCodingPlanProvider } =
+      await import("../src/providers/minimax-coding-plan.js");
     minimaxChinaCodingPlanProvider.cachePolicy = { kind: "account-neutral" };
     mocks.getProviders.mockReturnValue([minimaxChinaCodingPlanProvider]);
 

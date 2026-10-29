@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { SESSION_TOKEN_SECTION_HEADING } from "../src/lib/session-tokens-format.js";
 import { getSidebarBodyLineColor } from "../src/lib/tui-line-style.js";

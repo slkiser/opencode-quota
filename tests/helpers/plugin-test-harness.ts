@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+import { vi } from "vite-plus/test";
 
 import { DEFAULT_CONFIG } from "../../src/lib/types.js";
 
@@ -320,7 +320,7 @@ export function createPluginTestClient({
             ...(providerID === undefined ? {} : { providerID }),
           },
         }),
-    ...(sessionData ?? {}),
+    ...sessionData,
   };
 
   return {

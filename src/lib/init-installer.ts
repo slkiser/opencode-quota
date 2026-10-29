@@ -3,11 +3,6 @@ import { readFile } from "fs/promises";
 import { basename, join } from "path";
 
 import {
-  getQuotaToastConfigPath,
-  QUOTA_TOAST_CONFIG_RELATIVE_PATH,
-  QUOTA_TOAST_CONFIG_RELATIVE_PATHS,
-} from "./config.js";
-import {
   type ConfigFileFormat,
   dedupeNonEmptyStrings,
   type EditableConfigPath,
@@ -18,6 +13,11 @@ import {
   resolveEditableConfigPath,
 } from "./config-file-utils.js";
 import { writeConfiguredJsonAtomic } from "./config-write-target.js";
+import {
+  getQuotaToastConfigPath,
+  QUOTA_TOAST_CONFIG_RELATIVE_PATH,
+  QUOTA_TOAST_CONFIG_RELATIVE_PATHS,
+} from "./config.js";
 import { parseJsonOrJsonc } from "./jsonc.js";
 import {
   applyConfigDocumentEdit,

@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const TEST_ACCOUNTING = {
   resultType: "quota",
@@ -686,55 +686,58 @@ describe("runCliShowCommand", () => {
   it.each([
     [80, "50", 0],
     [30, "50", 1],
-  ])("--threshold uses percentage rows even when the first row is a quantity: %s vs %s", async (percentRemaining, threshold, expectedCode) => {
-    const provider = {
-      id: "synthetic",
-      cachePolicy: { kind: "account-neutral" as const },
-      isAvailable: vi.fn().mockResolvedValue(true),
-      fetch: vi.fn().mockResolvedValue({
-        attempted: true,
-        entries: [
-          {
-            kind: "quantity",
-            accounting: { ...TEST_ACCOUNTING, resultType: "balance" },
-            semantic: {
-              metric: { kind: "component", component: "current_balance" },
-              prominence: "primary",
+  ])(
+    "--threshold uses percentage rows even when the first row is a quantity: %s vs %s",
+    async (percentRemaining, threshold, expectedCode) => {
+      const provider = {
+        id: "synthetic",
+        cachePolicy: { kind: "account-neutral" as const },
+        isAvailable: vi.fn().mockResolvedValue(true),
+        fetch: vi.fn().mockResolvedValue({
+          attempted: true,
+          entries: [
+            {
+              kind: "quantity",
+              accounting: { ...TEST_ACCOUNTING, resultType: "balance" },
+              semantic: {
+                metric: { kind: "component", component: "current_balance" },
+                prominence: "primary",
+              },
+              name: "Synthetic balance",
+              quantity: { decimal: "5", unit: { kind: "currency", code: "USD" } },
             },
-            name: "Synthetic balance",
-            quantity: { decimal: "5", unit: { kind: "currency", code: "USD" } },
-          },
-          { accounting: TEST_ACCOUNTING, name: "Synthetic", percentRemaining },
-        ],
-        errors: [],
-      }),
-    };
-    mockProviders.push(provider);
-    writeFileSync(
-      join(workspaceDir, "opencode.json"),
-      JSON.stringify({
-        experimental: { quotaToast: { enabledProviders: ["synthetic"] } },
-      }),
-      "utf8",
-    );
+            { accounting: TEST_ACCOUNTING, name: "Synthetic", percentRemaining },
+          ],
+          errors: [],
+        }),
+      };
+      mockProviders.push(provider);
+      writeFileSync(
+        join(workspaceDir, "opencode.json"),
+        JSON.stringify({
+          experimental: { quotaToast: { enabledProviders: ["synthetic"] } },
+        }),
+        "utf8",
+      );
 
-    // Populate cache.
-    await runCliShowCommand({
-      argv: [],
-      cwd: workspaceDir,
-      stdout: { write: () => true } as any,
-      stderr: { write: () => true } as any,
-    });
+      // Populate cache.
+      await runCliShowCommand({
+        argv: [],
+        cwd: workspaceDir,
+        stdout: { write: () => true } as any,
+        stderr: { write: () => true } as any,
+      });
 
-    const jsonCode = await runCliShowCommand({
-      argv: ["--json", "--threshold", threshold],
-      cwd: workspaceDir,
-      stdout: { write: () => true } as any,
-      stderr: { write: () => true } as any,
-    });
+      const jsonCode = await runCliShowCommand({
+        argv: ["--json", "--threshold", threshold],
+        cwd: workspaceDir,
+        stdout: { write: () => true } as any,
+        stderr: { write: () => true } as any,
+      });
 
-    expect(jsonCode).toBe(expectedCode);
-  });
+      expect(jsonCode).toBe(expectedCode);
+    },
+  );
 
   it("--threshold exits 2 when no provider is ok", async () => {
     // Provider that is unavailable (no cache populated).

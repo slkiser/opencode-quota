@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { listProviders as listModelsDevProviders } from "../src/lib/modelsdev-pricing.js";
 import { QUOTA_PROVIDER_CATALOG, QUOTA_PROVIDER_SHAPES } from "../src/lib/provider-metadata.js";

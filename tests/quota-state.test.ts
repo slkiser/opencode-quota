@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { access, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { validateQuotaProviders } from "../src/lib/quota-providers.js";
 import { PROVIDER_CACHE_POLICIES } from "../src/providers/cache-policies.js";
@@ -493,9 +493,8 @@ describe("quota-state shared cache", () => {
   });
 
   it("isolates aggregate cache entries for disjoint project provider catalogs", async () => {
-    const { __resetQuotaStateForTests, fetchQuotaProviderResult } = await import(
-      "../src/lib/quota-state.js"
-    );
+    const { __resetQuotaStateForTests, fetchQuotaProviderResult } =
+      await import("../src/lib/quota-state.js");
     __resetQuotaStateForTests();
 
     const definitions = [
@@ -640,9 +639,8 @@ describe("quota-state shared cache", () => {
     setProcessPlatform("win32");
     const { DEFAULT_CONFIG } = await import("../src/lib/types.js");
     const { deriveResolvedAuthIdentity } = await import("../src/lib/resolved-auth-identity.js");
-    const { fetchQuotaProviderResult, readCachedProviderResult } = await import(
-      "../src/lib/quota-state.js"
-    );
+    const { fetchQuotaProviderResult, readCachedProviderResult } =
+      await import("../src/lib/quota-state.js");
     let fetchCount = 0;
     const provider = {
       id: "anthropic",
@@ -694,9 +692,8 @@ describe("quota-state shared cache", () => {
     setProcessPlatform("win32");
     const { DEFAULT_CONFIG } = await import("../src/lib/types.js");
     const { deriveResolvedAuthIdentity } = await import("../src/lib/resolved-auth-identity.js");
-    const { fetchQuotaProviderResult, readCachedProviderResult } = await import(
-      "../src/lib/quota-state.js"
-    );
+    const { fetchQuotaProviderResult, readCachedProviderResult } =
+      await import("../src/lib/quota-state.js");
     let fetchCount = 0;
     const provider = {
       id: "anthropic",
@@ -798,9 +795,8 @@ describe("quota-state shared cache", () => {
   });
 
   it("does not share aggregate cache state when the runtime provider catalog is unavailable", async () => {
-    const { __resetQuotaStateForTests, fetchQuotaProviderResult } = await import(
-      "../src/lib/quota-state.js"
-    );
+    const { __resetQuotaStateForTests, fetchQuotaProviderResult } =
+      await import("../src/lib/quota-state.js");
     __resetQuotaStateForTests();
 
     let fetchCount = 0;
@@ -857,9 +853,8 @@ describe("quota-state shared cache", () => {
   });
 
   it("retains remote child TTL caching without another runtime catalog lookup", async () => {
-    const { __resetQuotaStateForTests, fetchQuotaProviderResult } = await import(
-      "../src/lib/quota-state.js"
-    );
+    const { __resetQuotaStateForTests, fetchQuotaProviderResult } =
+      await import("../src/lib/quota-state.js");
     __resetQuotaStateForTests();
 
     const provider = {
@@ -907,9 +902,8 @@ describe("quota-state shared cache", () => {
   });
 
   it("refreshes aggregates that have a runtime-eligible local definition", async () => {
-    const { __resetQuotaStateForTests, fetchQuotaProviderResult } = await import(
-      "../src/lib/quota-state.js"
-    );
+    const { __resetQuotaStateForTests, fetchQuotaProviderResult } =
+      await import("../src/lib/quota-state.js");
     __resetQuotaStateForTests();
 
     let fetchCount = 0;
@@ -969,9 +963,8 @@ describe("quota-state shared cache", () => {
   });
 
   it("returns cache-owned clones for repeated non-live provider reads", async () => {
-    const { __resetQuotaStateForTests, fetchQuotaProviderResult } = await import(
-      "../src/lib/quota-state.js"
-    );
+    const { __resetQuotaStateForTests, fetchQuotaProviderResult } =
+      await import("../src/lib/quota-state.js");
     __resetQuotaStateForTests();
 
     const provider = {
@@ -1036,9 +1029,8 @@ describe("quota-state shared cache", () => {
   });
 
   it("accepts all four entry variants and isolates every nested cache clone", async () => {
-    const { __resetQuotaStateForTests, fetchQuotaProviderResult } = await import(
-      "../src/lib/quota-state.js"
-    );
+    const { __resetQuotaStateForTests, fetchQuotaProviderResult } =
+      await import("../src/lib/quota-state.js");
     __resetQuotaStateForTests();
     const entries = [
       {
@@ -1118,9 +1110,8 @@ describe("quota-state shared cache", () => {
   });
 
   it("shares one in-flight fetch and returns independent snapshots", async () => {
-    const { __resetQuotaStateForTests, fetchQuotaProviderResult } = await import(
-      "../src/lib/quota-state.js"
-    );
+    const { __resetQuotaStateForTests, fetchQuotaProviderResult } =
+      await import("../src/lib/quota-state.js");
     __resetQuotaStateForTests();
     let resolveFetch!: (value: unknown) => void;
     const provider = {
@@ -1151,9 +1142,8 @@ describe("quota-state shared cache", () => {
   });
 
   it("clears a thrown fetch from the in-flight slot", async () => {
-    const { __resetQuotaStateForTests, fetchQuotaProviderResult } = await import(
-      "../src/lib/quota-state.js"
-    );
+    const { __resetQuotaStateForTests, fetchQuotaProviderResult } =
+      await import("../src/lib/quota-state.js");
     __resetQuotaStateForTests();
     const provider = {
       id: "synthetic",
@@ -1770,9 +1760,8 @@ describe("quota-state shared cache", () => {
   });
 
   it("caches entry-bearing partial aggregates including internal diagnostics", async () => {
-    const { __resetQuotaStateForTests, fetchQuotaProviderResult } = await import(
-      "../src/lib/quota-state.js"
-    );
+    const { __resetQuotaStateForTests, fetchQuotaProviderResult } =
+      await import("../src/lib/quota-state.js");
     __resetQuotaStateForTests();
 
     const provider = {
@@ -1951,9 +1940,8 @@ describe("quota-state shared cache", () => {
   });
 
   it("bypasses persistence entirely for live-local providers", async () => {
-    const { __resetQuotaStateForTests, fetchQuotaProviderResult } = await import(
-      "../src/lib/quota-state.js"
-    );
+    const { __resetQuotaStateForTests, fetchQuotaProviderResult } =
+      await import("../src/lib/quota-state.js");
     __resetQuotaStateForTests();
 
     const provider = {
@@ -2084,9 +2072,8 @@ describe("quota-state shared cache", () => {
   });
 
   it("does not cache a malformed live provider result", async () => {
-    const { fetchQuotaProviderResult, readCachedProviderResult } = await import(
-      "../src/lib/quota-state.js"
-    );
+    const { fetchQuotaProviderResult, readCachedProviderResult } =
+      await import("../src/lib/quota-state.js");
     const provider = {
       id: "synthetic",
       cachePolicy: { kind: "account-neutral" },
@@ -2252,9 +2239,8 @@ describe("quota-state shared cache", () => {
   });
 
   it("rejects a live barValue row and does not cache it", async () => {
-    const { fetchQuotaProviderResult, readCachedProviderResult } = await import(
-      "../src/lib/quota-state.js"
-    );
+    const { fetchQuotaProviderResult, readCachedProviderResult } =
+      await import("../src/lib/quota-state.js");
     const provider = {
       id: "opencode",
       cachePolicy: { kind: "account-neutral" },
@@ -2354,9 +2340,8 @@ describe("readCachedProviderResult", () => {
   });
 
   it("returns { hit: false } when no memory or disk cache entry exists", async () => {
-    const { __resetQuotaStateForTests, readCachedProviderResult } = await import(
-      "../src/lib/quota-state.js"
-    );
+    const { __resetQuotaStateForTests, readCachedProviderResult } =
+      await import("../src/lib/quota-state.js");
     __resetQuotaStateForTests();
 
     const provider = {

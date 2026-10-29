@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { readMarkdownSection } from "./helpers/markdown-document.js";
 
 function read(path: string): string {

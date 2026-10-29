@@ -1,7 +1,5 @@
-// biome-ignore-all lint/suspicious/noExplicitAny: malformed-input tests intentionally mutate typed fixtures.
-// biome-ignore-all lint/suspicious/noAssignInExpressions: compact mutation cases return their assignments.
-// biome-ignore-all lint/style/noNonNullAssertion: fixture shape is asserted by the valid-result contract.
-import { describe, expect, it } from "vitest";
+/* oxlint-disable no-return-assign, no-unsafe-optional-chaining, unicorn/no-new-array, typescript/no-explicit-any, typescript/no-non-null-assertion -- Malformed-input tests intentionally mutate typed fixtures, return assignments, and create sparse arrays; valid-result assertions establish fixture shapes. */
+import { describe, expect, it } from "vite-plus/test";
 
 import type { QuotaProviderResult } from "../src/lib/entries.js";
 import {

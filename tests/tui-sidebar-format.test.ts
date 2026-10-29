@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { formatQuotaRows } from "../src/lib/format.js";
 import { SESSION_TOKEN_SECTION_HEADING } from "../src/lib/session-tokens-format.js";

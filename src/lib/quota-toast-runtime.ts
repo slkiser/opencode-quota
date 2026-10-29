@@ -5,12 +5,12 @@ import {
   resolveAlibabaCodingPlanAuthCached,
 } from "./alibaba-auth.js";
 import { getOrFetchWithCacheControl } from "./cache.js";
-import { createLoadConfigMeta, type LoadConfigMeta } from "./config.js";
 import type { RuntimeContextRootHints } from "./config-file-utils.js";
+import { createLoadConfigMeta, type LoadConfigMeta } from "./config.js";
 import { isCursorModelId, isCursorProviderId } from "./cursor-pricing.js";
 import { sanitizeDisplayText } from "./display-sanitize.js";
-import { formatQuotaRows } from "./format.js";
 import { formatQuotaModeHeading } from "./format-utils.js";
+import { formatQuotaRows } from "./format.js";
 import {
   BUNDLED_MAINTAINER_ANNOUNCEMENTS,
   formatMaintainerAnnouncementHomeCountLine,

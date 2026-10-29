@@ -4,8 +4,8 @@ import { dirname, isAbsolute, join, relative, sep } from "node:path";
 
 import { type Node as JsonNode, type ParseError, parseTree } from "jsonc-parser";
 
-import { buildConfigLayerCandidates, type ConfigLayerScope } from "./config.js";
 import type { ConfigFileFormat } from "./config-file-utils.js";
+import { buildConfigLayerCandidates, type ConfigLayerScope } from "./config.js";
 import { editConfigDocumentPaths } from "./opencode-config-editor.js";
 
 export type ScopedUpdateSafeAction =
@@ -93,8 +93,7 @@ export interface ScopedUpdateMigrationBoundary {
 }
 
 export interface DiscoveredScopedUpdateMigrationCandidate
-  extends ScopedUpdateMigrationCandidate,
-    ScopedUpdateMigrationBoundary {}
+  extends ScopedUpdateMigrationCandidate, ScopedUpdateMigrationBoundary {}
 
 interface ObjectProperty {
   value: JsonNode;

@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+import { vi } from "vite-plus/test";
 
 // Git hooks (for example the lefthook pre-push `pnpm verify`) export GIT_DIR,
 // GIT_INDEX_FILE, and similar variables. A child git process that inherits them

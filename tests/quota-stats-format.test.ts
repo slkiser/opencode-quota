@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
-import type { AggregateResult } from "../src/lib/quota-stats.js";
+import { describe, expect, it } from "vite-plus/test";
 import { formatQuotaStatsReport } from "../src/lib/quota-stats-format.js";
+import type { AggregateResult } from "../src/lib/quota-stats.js";
 
 function makeEmptyResult(overrides?: Partial<AggregateResult>): AggregateResult {
   return {

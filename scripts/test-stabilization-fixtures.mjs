@@ -3,7 +3,7 @@
  * Maintainer fake-data gate for the 4.x stabilization suites.
  *
  * This runner must not use real credentials, network provider calls, or the
- * real `bl` executable. It spawns this repo's Vitest CLI with a frozen file
+ * real `bl` executable. It spawns this repo's Vite+ test CLI with a frozen file
  * list and no shell. Extra files or tests that would escape mocks are rejected.
  *
  * Before spawning Vitest, it creates a 0700 temp HOME/XDG sandbox, strips known
@@ -138,16 +138,16 @@ export function parseFixturesArgs(argv) {
   return args;
 }
 
-export function resolveVitestExecutable(root = repoRoot) {
-  const vitestCli = path.join(root, "node_modules", "vitest", "vitest.mjs");
-  if (!existsSync(vitestCli)) {
-    throw new Error(`Vitest CLI is missing: ${vitestCli}`);
+export function resolveVitePlusExecutable(root = repoRoot) {
+  const vitePlusCli = path.join(root, "node_modules", "vite-plus", "bin", "vp");
+  if (!existsSync(vitePlusCli)) {
+    throw new Error(`Vite+ CLI is missing: ${vitePlusCli}`);
   }
-  return vitestCli;
+  return vitePlusCli;
 }
 
-export function buildVitestArgs(files = FIXTURE_TEST_FILES) {
-  return ["run", ...files];
+export function buildVitePlusArgs(files = FIXTURE_TEST_FILES) {
+  return ["test", "run", ...files];
 }
 
 export function assertFrozenFixtureFiles(files = FIXTURE_TEST_FILES) {
@@ -198,7 +198,7 @@ export async function assertFixtureTestsAreIsolated(root = repoRoot, files = FIX
   assertFixtureContentsAreIsolated(contentsByFile);
   return {
     command: process.execPath,
-    args: [resolveVitestExecutable(root), ...buildVitestArgs(files)],
+    args: [resolveVitePlusExecutable(root), ...buildVitePlusArgs(files)],
     cwd: root,
     shell: false,
   };

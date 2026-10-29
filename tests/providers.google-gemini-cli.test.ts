@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { googleGeminiCliProvider } from "../src/providers/google-gemini-cli.js";
 import {
   expectAttemptedWithErrorLabel,

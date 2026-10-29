@@ -11,8 +11,8 @@ import type {
   QuotaProviderResult,
   QuotaToastEntry,
 } from "../lib/entries.js";
-import { queryOllamaCloudQuota } from "../lib/ollama-cloud.js";
 import { getOllamaCloudKeyDiagnostics, hasOllamaCloudApiKey } from "../lib/ollama-cloud-config.js";
+import { queryOllamaCloudQuota } from "../lib/ollama-cloud.js";
 import { modelProviderMatchesRuntimeId } from "../lib/provider-model-matching.js";
 import type { OllamaCloudResult } from "../lib/types.js";
 import {

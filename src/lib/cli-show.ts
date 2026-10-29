@@ -2,8 +2,8 @@ import { resolve } from "path";
 import { hasAnthropicCredentialsConfigured } from "./anthropic.js";
 import { findGitWorktreeRoot, getEffectiveConfigRoot } from "./config-file-utils.js";
 import { sanitizeQuotaRenderData } from "./display-sanitize.js";
-import { formatQuotaRows } from "./format.js";
 import { formatQuotaModeHeading } from "./format-utils.js";
+import { formatQuotaRows } from "./format.js";
 import {
   DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS,
   resolveKimiCnAuthCached,
