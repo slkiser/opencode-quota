@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { anthropicProvider } from "../src/providers/anthropic.js";
 import {
   expectAttemptedWithErrorLabel,
@@ -16,9 +16,8 @@ vi.mock("../src/lib/anthropic.js", () => ({
 
 describe("anthropic provider", () => {
   it("reports the credential store that answered the usage probe", async () => {
-    const { getAnthropicDiagnostics, queryAnthropicQuota } = await import(
-      "../src/lib/anthropic.js"
-    );
+    const { getAnthropicDiagnostics, queryAnthropicQuota } =
+      await import("../src/lib/anthropic.js");
     (getAnthropicDiagnostics as any).mockResolvedValueOnce({
       installed: true,
       version: "1.2.3",
@@ -55,9 +54,8 @@ describe("anthropic provider", () => {
   });
 
   it("reports no credential store when the OAuth probe was never reached", async () => {
-    const { getAnthropicDiagnostics, queryAnthropicQuota } = await import(
-      "../src/lib/anthropic.js"
-    );
+    const { getAnthropicDiagnostics, queryAnthropicQuota } =
+      await import("../src/lib/anthropic.js");
     (getAnthropicDiagnostics as any).mockResolvedValueOnce({
       installed: true,
       version: "1.2.3",
@@ -76,9 +74,8 @@ describe("anthropic provider", () => {
   });
 
   it("adds the Fable weekly row and diagnostic when the OAuth response reports it", async () => {
-    const { getAnthropicDiagnostics, queryAnthropicQuota } = await import(
-      "../src/lib/anthropic.js"
-    );
+    const { getAnthropicDiagnostics, queryAnthropicQuota } =
+      await import("../src/lib/anthropic.js");
     const quota = {
       success: true,
       five_hour: { percentRemaining: 58, resetTimeIso: "2026-07-21T14:10:00.268Z" },
@@ -153,9 +150,8 @@ describe("anthropic provider", () => {
   });
 
   it("maps local CLI quota windows into canonical grouped-capable rows", async () => {
-    const { getAnthropicDiagnostics, queryAnthropicQuota } = await import(
-      "../src/lib/anthropic.js"
-    );
+    const { getAnthropicDiagnostics, queryAnthropicQuota } =
+      await import("../src/lib/anthropic.js");
     (getAnthropicDiagnostics as any).mockResolvedValueOnce({
       installed: true,
       version: "1.2.3",
@@ -200,9 +196,8 @@ describe("anthropic provider", () => {
   });
 
   it("reports enabled Usage Credits as a third remote API quota row", async () => {
-    const { getAnthropicDiagnostics, queryAnthropicQuota } = await import(
-      "../src/lib/anthropic.js"
-    );
+    const { getAnthropicDiagnostics, queryAnthropicQuota } =
+      await import("../src/lib/anthropic.js");
     (getAnthropicDiagnostics as any).mockResolvedValueOnce({
       installed: true,
       version: "1.2.3",
@@ -339,9 +334,8 @@ describe("anthropic provider", () => {
   });
 
   it("passes the configured Claude binary path through Anthropic probes", async () => {
-    const { hasAnthropicCredentialsConfigured, queryAnthropicQuota } = await import(
-      "../src/lib/anthropic.js"
-    );
+    const { hasAnthropicCredentialsConfigured, queryAnthropicQuota } =
+      await import("../src/lib/anthropic.js");
     (hasAnthropicCredentialsConfigured as any).mockResolvedValue(true);
     (queryAnthropicQuota as any).mockResolvedValueOnce(null);
 

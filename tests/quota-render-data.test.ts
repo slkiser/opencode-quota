@@ -1,5 +1,5 @@
 import { rm } from "fs/promises";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { QuotaProviderResult } from "../src/lib/entries.js";
 
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-render-data-tests";

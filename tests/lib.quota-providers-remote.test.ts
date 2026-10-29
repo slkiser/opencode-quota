@@ -1,10 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import type { RemoteApiQuotaProviderDefinition } from "../src/lib/quota-providers.js";
 import {
   fetchRemoteQuotaProvider,
   QUOTA_PROVIDER_MAX_BODY_BYTES,
 } from "../src/lib/quota-providers-remote.js";
+import type { RemoteApiQuotaProviderDefinition } from "../src/lib/quota-providers.js";
 import {
   NEURALWATT_LIKE_ADAPTER,
   NEURALWATT_LIKE_RESPONSE,
@@ -351,19 +351,22 @@ describe("quota provider remote runtime", () => {
   it.each([
     ["explicit", { data: { usage: 12, limit: 10, limit_remaining: -2 } }],
     ["derived", { data: { usage: 12, limit: 10 } }],
-  ])("preserves %s negative OpenRouter remaining instead of clamping over-budget state", async (_name, body) => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(body)));
-    const result = await fetchRemoteQuotaProvider(
-      source({ format: "openrouter-key-v1" }),
-      "secret",
-    );
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.entries[0]).toEqual(
-        expect.objectContaining({ right: "$12.00/$10.00", percentRemaining: -20 }),
+  ])(
+    "preserves %s negative OpenRouter remaining instead of clamping over-budget state",
+    async (_name, body) => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(body)));
+      const result = await fetchRemoteQuotaProvider(
+        source({ format: "openrouter-key-v1" }),
+        "secret",
       );
-    }
-  });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.entries[0]).toEqual(
+          expect.objectContaining({ right: "$12.00/$10.00", percentRemaining: -20 }),
+        );
+      }
+    },
+  );
 
   it("rejects OpenRouter remaining above its positive limit", async () => {
     vi.stubGlobal(
@@ -380,36 +383,38 @@ describe("quota provider remote runtime", () => {
     });
   });
 
-  it.each([
-    undefined,
-    null,
-    0,
-  ])("maps OpenRouter usage to a spend value when limit is %s", async (limit) => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ data: { usage: 2, limit } })));
+  it.each([undefined, null, 0])(
+    "maps OpenRouter usage to a spend value when limit is %s",
+    async (limit) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(jsonResponse({ data: { usage: 2, limit } })),
+      );
 
-    const result = await fetchRemoteQuotaProvider(
-      source({ format: "openrouter-key-v1" }),
-      "secret",
-    );
-    expect(result).toEqual({
-      success: true,
-      entries: [
-        {
-          accounting: {
-            resultType: "spend",
-            acquisitionMethod: "remote_api",
-            ownership: "user_configured",
-            authority: "provider_reported",
+      const result = await fetchRemoteQuotaProvider(
+        source({ format: "openrouter-key-v1" }),
+        "secret",
+      );
+      expect(result).toEqual({
+        success: true,
+        entries: [
+          {
+            accounting: {
+              resultType: "spend",
+              acquisitionMethod: "remote_api",
+              ownership: "user_configured",
+              authority: "provider_reported",
+            },
+            kind: "value",
+            name: "Source One spend",
+            group: "Source One",
+            label: "Spend:",
+            value: "$2.00",
           },
-          kind: "value",
-          name: "Source One spend",
-          group: "Source One",
-          label: "Spend:",
-          value: "$2.00",
-        },
-      ],
-    });
-  });
+        ],
+      });
+    },
+  );
 
   it("rejects numeric strings in the OpenRouter preset", async () => {
     vi.stubGlobal(

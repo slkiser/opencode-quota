@@ -4,7 +4,6 @@ import type {
   QuotaProviderResult,
   QuotaToastEntry,
 } from "../lib/entries.js";
-import { queryKimiQuota } from "../lib/kimi.js";
 import {
   DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS,
   type ResolvedKimiAuth,
@@ -15,6 +14,7 @@ import {
   resolveKimiGlobalAuthWithDiagnosticsCached,
 } from "../lib/kimi-auth.js";
 import { getKimiQuotaEndpoint, type KimiQuotaEndpointId } from "../lib/kimi-endpoints.js";
+import { queryKimiQuota } from "../lib/kimi.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
 import {

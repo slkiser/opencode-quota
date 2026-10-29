@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const { createTuiQuotaClient, disposeQuotaTelemetryOwner, resolveTuiSurfaceRegistration } =
   vi.hoisted(() => ({
@@ -226,7 +226,7 @@ const scenarios: Scenario[] = [
   },
 ];
 
-let plugin: typeof import("../src/tui.tsx")["default"];
+let plugin: (typeof import("../src/tui.tsx"))["default"];
 const results: ScenarioResult[] = [];
 
 function flushPromises(): Promise<void> {
@@ -358,6 +358,7 @@ async function runSample(scenario: Scenario): Promise<StartupSample> {
 
   if (scenario.disposeAtMs !== undefined) {
     setTimeout(() => {
+      // oxlint-disable-next-line unicorn/no-useless-spread -- Disposal can mutate the callback set; iterate a snapshot.
       for (const callback of [...lifecycleCallbacks]) callback();
     }, scenario.disposeAtMs);
   }

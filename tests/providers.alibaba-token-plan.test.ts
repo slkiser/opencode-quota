@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { QuotaToastEntry } from "../src/lib/entries.js";
 import { modelProviderMatchesRuntimeId } from "../src/lib/provider-model-matching.js";

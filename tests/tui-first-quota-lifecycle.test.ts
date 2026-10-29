@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { createTuiRefreshLifecycle } from "../src/lib/tui-refresh-lifecycle.js";
 import {
   FIRST_QUOTA_RECORDED_SAMPLES,

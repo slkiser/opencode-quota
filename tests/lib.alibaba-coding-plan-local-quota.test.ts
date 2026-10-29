@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { OpenCodeMessage } from "../src/lib/opencode-storage.js";
 
@@ -40,9 +40,8 @@ describe("maintained local quota storage derivation", () => {
   });
 
   it("counts each completed assistant model-loop step across tool continuation", async () => {
-    const { readAlibabaCodingPlanQuotaState } = await import(
-      "../src/lib/alibaba-coding-plan-local-quota.js"
-    );
+    const { readAlibabaCodingPlanQuotaState } =
+      await import("../src/lib/alibaba-coding-plan-local-quota.js");
     const state = await readAlibabaCodingPlanQuotaState({
       nowMs: NOW,
       readMessages: async () => [
@@ -57,9 +56,8 @@ describe("maintained local quota storage derivation", () => {
   });
 
   it("derives concurrent sessions without read-modify-write count loss", async () => {
-    const { readAlibabaCodingPlanQuotaState } = await import(
-      "../src/lib/alibaba-coding-plan-local-quota.js"
-    );
+    const { readAlibabaCodingPlanQuotaState } =
+      await import("../src/lib/alibaba-coding-plan-local-quota.js");
     const authoritativeRows = [
       message("session-one", "alibaba-coding-plan", NOW - 2_000, "ses_one"),
       message("session-two", "alibaba-coding-plan", NOW - 1_000, "ses_two"),
@@ -82,9 +80,8 @@ describe("maintained local quota storage derivation", () => {
   });
 
   it("derives and computes Alibaba rolling windows from completed rows", async () => {
-    const { computeAlibabaCodingPlanQuota, readAlibabaCodingPlanQuotaState } = await import(
-      "../src/lib/alibaba-coding-plan-local-quota.js"
-    );
+    const { computeAlibabaCodingPlanQuota, readAlibabaCodingPlanQuotaState } =
+      await import("../src/lib/alibaba-coding-plan-local-quota.js");
     const state = await readAlibabaCodingPlanQuotaState({
       nowMs: NOW,
       readMessages: async () => [
@@ -104,9 +101,8 @@ describe("maintained local quota storage derivation", () => {
 
   it("computes a valid 90,000-request Alibaba monthly state", async () => {
     const recent = Array.from({ length: 90_000 }, (_, index) => NOW - index * 1_000);
-    const { computeAlibabaCodingPlanQuota } = await import(
-      "../src/lib/alibaba-coding-plan-local-quota.js"
-    );
+    const { computeAlibabaCodingPlanQuota } =
+      await import("../src/lib/alibaba-coding-plan-local-quota.js");
     const quota = computeAlibabaCodingPlanQuota({
       nowMs: NOW,
       tier: "pro",

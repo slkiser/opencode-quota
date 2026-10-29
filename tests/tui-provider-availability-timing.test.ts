@@ -1,6 +1,6 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createLoadConfigMeta } from "../src/lib/config.js";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { resolveRuntimeContextRoots } from "../src/lib/config-file-utils.js";
+import { createLoadConfigMeta } from "../src/lib/config.js";
 import type { QuotaProvider, QuotaProviderResult } from "../src/lib/entries.js";
 import type { MaintainerAnnouncement } from "../src/lib/maintainer-announcements.js";
 import { __resetQuotaStateForTests } from "../src/lib/quota-state.js";
@@ -122,30 +122,28 @@ function createProviders(params: {
     synthetic: createProviderResult("Synthetic timing", 60),
   };
 
-  return ORDERED_PROVIDER_IDS.map(
-    (providerId): QuotaProvider => ({
-      id: providerId,
-      isAvailable: async () => {
-        params.callsByProvider[providerId] = (params.callsByProvider[providerId] ?? 0) + 1;
-        await new Promise<void>((resolve, reject) => {
-          setTimeout(() => {
-            if (providerId === "alibaba-coding-plan") {
-              reject(new Error("deterministic availability failure"));
-              return;
-            }
-            resolve();
-          }, params.controlledDelayByProvider?.[providerId] ?? params.controlledDelayMs);
-        });
-        return true;
-      },
-      fetch: async () => {
-        params.fetchesByProvider[providerId] = (params.fetchesByProvider[providerId] ?? 0) + 1;
-        const result = results[providerId as (typeof AVAILABLE_PROVIDER_IDS)[number]];
-        if (!result) throw new Error(`Unexpected fetch for unavailable provider ${providerId}`);
-        return result;
-      },
-    }),
-  );
+  return ORDERED_PROVIDER_IDS.map((providerId): QuotaProvider => ({
+    id: providerId,
+    isAvailable: async () => {
+      params.callsByProvider[providerId] = (params.callsByProvider[providerId] ?? 0) + 1;
+      await new Promise<void>((resolve, reject) => {
+        setTimeout(() => {
+          if (providerId === "alibaba-coding-plan") {
+            reject(new Error("deterministic availability failure"));
+            return;
+          }
+          resolve();
+        }, params.controlledDelayByProvider?.[providerId] ?? params.controlledDelayMs);
+      });
+      return true;
+    },
+    fetch: async () => {
+      params.fetchesByProvider[providerId] = (params.fetchesByProvider[providerId] ?? 0) + 1;
+      const result = results[providerId as (typeof AVAILABLE_PROVIDER_IDS)[number]];
+      if (!result) throw new Error(`Unexpected fetch for unavailable provider ${providerId}`);
+      return result;
+    },
+  }));
 }
 
 function createApi(providerIds: readonly string[] = ORDERED_PROVIDER_IDS) {

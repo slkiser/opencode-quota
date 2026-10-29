@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { formatQuotaCommand } from "../src/lib/quota-command-format.js";
 import type { QuotaRenderData } from "../src/lib/quota-render-data.js";

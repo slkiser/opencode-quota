@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { QuotaToastEntry } from "../src/lib/entries.js";
 import { renderAccountingFourSurfaces } from "./helpers/accounting-four-surface.js";
 

@@ -7,6 +7,11 @@ import type {
   QuotaToastEntry,
   QuotaToastError,
 } from "../lib/entries.js";
+import {
+  DEFAULT_MIMO_CONFIG_CACHE_MAX_AGE_MS,
+  getMimoConfigDiagnostics,
+  resolveMimoConfigCached,
+} from "../lib/mimo-config.js";
 import type {
   MimoBalance,
   MimoDashboardResult,
@@ -14,11 +19,6 @@ import type {
   MimoPlanDetail,
 } from "../lib/mimo.js";
 import { queryMimoDashboard } from "../lib/mimo.js";
-import {
-  DEFAULT_MIMO_CONFIG_CACHE_MAX_AGE_MS,
-  getMimoConfigDiagnostics,
-  resolveMimoConfigCached,
-} from "../lib/mimo-config.js";
 import { getQuotaProviderRuntimeIds } from "../lib/provider-metadata.js";
 import { accountingDecimalFromNumber } from "./accounting-decimal.js";
 import {

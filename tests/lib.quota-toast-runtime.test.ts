@@ -1,5 +1,5 @@
 import { rm } from "fs/promises";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { DEFAULT_CONFIG } from "../src/lib/types.js";
 import {

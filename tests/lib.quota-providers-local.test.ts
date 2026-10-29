@@ -2,9 +2,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 import type { OpenCodeMessage } from "../src/lib/opencode-storage.js";
-import type { LocalEstimateQuotaProviderDefinition } from "../src/lib/quota-providers.js";
 import {
   __resetLocalQuotaProviderStateForTests,
   computeLocalQuotaProviderEstimate,
@@ -13,6 +12,7 @@ import {
   QUOTA_PROVIDER_LOCAL_STATE_VERSION,
   syncLocalQuotaProviderState,
 } from "../src/lib/quota-providers-local.js";
+import type { LocalEstimateQuotaProviderDefinition } from "../src/lib/quota-providers.js";
 
 const created: string[] = [];
 const NOW = Date.UTC(2026, 6, 16, 12, 0, 0);

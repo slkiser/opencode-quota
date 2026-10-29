@@ -40,13 +40,13 @@ import {
   type QuotaRuntimeContext,
   resolveQuotaRuntimeContext,
 } from "./quota-runtime-context.js";
+import { formatQuotaStatsReport } from "./quota-stats-format.js";
 import {
   aggregateUsage,
   resolveSessionTree,
   SessionNotFoundError,
   type SessionTreeNode,
 } from "./quota-stats.js";
-import { formatQuotaStatsReport } from "./quota-stats-format.js";
 import { buildQuotaStatusReport, type SessionTokenError } from "./quota-status.js";
 import { inspectTuiConfig } from "./tui-config-diagnostics.js";
 import type { PricingSnapshotSource } from "./types.js";
@@ -236,17 +236,15 @@ export const QUOTA_DIALOG_COMMANDS: readonly QuotaDialogCommandSpec[] = [
     dialogSize: "xlarge",
     acceptsArguments: true,
   },
-  ...TOKEN_REPORT_COMMANDS.map(
-    (spec): QuotaDialogCommandSpec => ({
-      id: spec.id,
-      slashName: spec.id,
-      title: spec.kind === "between" ? "OpenCode Quota Token Report" : spec.metadataTitle,
-      description: spec.description,
-      dialogSize: "xlarge",
-      requiresSession: spec.kind === "session" || spec.kind === "session_tree",
-      acceptsArguments: spec.kind === "between",
-    }),
-  ),
+  ...TOKEN_REPORT_COMMANDS.map((spec): QuotaDialogCommandSpec => ({
+    id: spec.id,
+    slashName: spec.id,
+    title: spec.kind === "between" ? "OpenCode Quota Token Report" : spec.metadataTitle,
+    description: spec.description,
+    dialogSize: "xlarge",
+    requiresSession: spec.kind === "session" || spec.kind === "session_tree",
+    acceptsArguments: spec.kind === "between",
+  })),
 ] as const;
 
 const QUOTA_DIALOG_COMMANDS_BY_ID: ReadonlyMap<QuotaDialogCommandId, QuotaDialogCommandSpec> =

@@ -5,12 +5,12 @@ import type {
   QuotaProviderResult,
   QuotaToastEntry,
 } from "../lib/entries.js";
+import { inspectAgyCompanionPresence } from "../lib/google-agy-companion.js";
 import {
   hasAgyQuotaRuntimeAvailable,
   inspectAgyAuthPresence,
   queryGoogleAgyQuota,
 } from "../lib/google-agy.js";
-import { inspectAgyCompanionPresence } from "../lib/google-agy-companion.js";
 import { parseProviderModelRef } from "../lib/provider-model-matching.js";
 import type { GoogleAgyQuotaBucket } from "../lib/types.js";
 import {

@@ -34,11 +34,11 @@ import {
 import { resolveOpenCodeZenAccountCached } from "../lib/opencode-zen-config.js";
 import { resolveOpenRouterAuthIdentity } from "../lib/openrouter.js";
 import type { CanonicalQuotaProviderId } from "../lib/provider-registration.js";
+import { resolveQuotaProviderApiKey } from "../lib/quota-providers-remote.js";
 import type {
   QuotaProviderDefinition,
   RemoteApiQuotaProviderDefinition,
 } from "../lib/quota-providers.js";
-import { resolveQuotaProviderApiKey } from "../lib/quota-providers-remote.js";
 import {
   composeResolvedAuthIdentities,
   deriveResolvedAuthIdentity,

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { formatQuotaCommand } from "../src/lib/quota-command-format.js";
 import { formatQuotaRowsGrouped } from "../src/lib/toast-format-grouped.js";

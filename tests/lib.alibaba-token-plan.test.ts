@@ -1,7 +1,7 @@
 import { access, chmod, lstat, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   ALIBABA_TOKEN_PLAN_ARGS,
@@ -258,22 +258,22 @@ describe("alibaba token plan PATH trust", () => {
       bin: "C:\\workspace-sibling\\bin",
       delimiter: ";",
     },
-  ])("uses $platform PATH semantics independently of the host", ({
-    platform,
-    cwd,
-    bin,
-    delimiter,
-  }) => {
-    const paths = platform === "win32" ? path.win32 : path.posix;
-    const parent = paths.dirname(cwd);
-    expect(
-      listTrustedPathDirectories({
-        platform,
-        cwd,
-        pathEnv: [cwd, paths.join(cwd, "..bin"), ".", "relative", bin, bin, parent].join(delimiter),
-      }),
-    ).toEqual([bin, parent]);
-  });
+  ])(
+    "uses $platform PATH semantics independently of the host",
+    ({ platform, cwd, bin, delimiter }) => {
+      const paths = platform === "win32" ? path.win32 : path.posix;
+      const parent = paths.dirname(cwd);
+      expect(
+        listTrustedPathDirectories({
+          platform,
+          cwd,
+          pathEnv: [cwd, paths.join(cwd, "..bin"), ".", "relative", bin, bin, parent].join(
+            delimiter,
+          ),
+        }),
+      ).toEqual([bin, parent]);
+    },
+  );
 
   it.each(["cmd", "bat"])("classifies bl.%s as a rejected shell launcher", async (extension) => {
     await mockExecutable(`/trusted/bin/bl.${extension}`);
@@ -302,18 +302,18 @@ describe("alibaba token plan PATH trust", () => {
     ).toMatchObject({ ok: false, error: { kind: "executable_not_found" } });
   });
 
-  it.each([
-    "bin",
-    "..bin",
-  ])("rejects a trusted PATH executable resolving into workspace %s/bl", async (directory) => {
-    await mockExecutable("/trusted/bin/bl", `/workspace/${directory}/bl`);
-    const result = await resolveAlibabaTokenPlanExecutable({
-      platform: "linux",
-      cwd: "/workspace",
-      pathEnv: "/trusted/bin",
-    });
-    expect(result).toMatchObject({ ok: false, error: { kind: "workspace_path_rejected" } });
-  });
+  it.each(["bin", "..bin"])(
+    "rejects a trusted PATH executable resolving into workspace %s/bl",
+    async (directory) => {
+      await mockExecutable("/trusted/bin/bl", `/workspace/${directory}/bl`);
+      const result = await resolveAlibabaTokenPlanExecutable({
+        platform: "linux",
+        cwd: "/workspace",
+        pathEnv: "/trusted/bin",
+      });
+      expect(result).toMatchObject({ ok: false, error: { kind: "workspace_path_rejected" } });
+    },
+  );
 
   it("accepts a trusted PATH executable resolving into an external workspace sibling", async () => {
     const target = "/workspace-sibling/..bin/bl";
@@ -345,22 +345,22 @@ describe("alibaba token plan PATH trust", () => {
     expect(dirs).toEqual([trusted]);
   });
 
-  it.each([
-    "bin",
-    "..bin",
-  ])("rejects workspace %s/bl even when PATH points at it with an absolute path", async (directory) => {
-    const workspace = "/workspace";
-    const workspaceBin = `/workspace/${directory}`;
-    await mockExecutable(`${workspaceBin}/bl`);
-    const resolved = await resolveAlibabaTokenPlanExecutable({
-      pathEnv: workspaceBin,
-      cwd: workspace,
-      platform: "darwin",
-    });
-    expect(resolved.ok).toBe(false);
-    if (resolved.ok) throw new Error("expected rejection");
-    expect(resolved.error.kind).toBe("executable_not_found");
-  });
+  it.each(["bin", "..bin"])(
+    "rejects workspace %s/bl even when PATH points at it with an absolute path",
+    async (directory) => {
+      const workspace = "/workspace";
+      const workspaceBin = `/workspace/${directory}`;
+      await mockExecutable(`${workspaceBin}/bl`);
+      const resolved = await resolveAlibabaTokenPlanExecutable({
+        pathEnv: workspaceBin,
+        cwd: workspace,
+        platform: "darwin",
+      });
+      expect(resolved.ok).toBe(false);
+      if (resolved.ok) throw new Error("expected rejection");
+      expect(resolved.error.kind).toBe("executable_not_found");
+    },
+  );
 
   it("rejects unsupported platforms instead of probing PATH", async () => {
     const resolved = await resolveAlibabaTokenPlanExecutable({

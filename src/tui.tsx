@@ -565,7 +565,7 @@ function buildPromptBarParts(params: {
   const empty = PROMPT_BAR_WIDTH - filled;
   let barText = "█".repeat(filled) + "░".repeat(empty);
   if (params.running() && filled > 0) {
-    const cells = Array(filled).fill("▓");
+    const cells = Array.from({ length: filled }, () => "▓");
     const center = params.phase() % filled;
     const gradient = ["▒", "▓", "█", "▓", "▒"];
     for (let offset = -2; offset <= 2; offset++) {

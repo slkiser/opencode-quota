@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vite-plus/test";
 import {
   CURSOR_OFFICIAL_MODEL_ALIASES,
   lookupCursorLocalCost,

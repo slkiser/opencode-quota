@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   getSidebarPanelLines,
@@ -295,131 +295,131 @@ describe("tui-runtime linesExpanded", () => {
       extraActive: { id: "kimi-code" },
       extraErrors: [] as Array<{ label: string; message: string }>,
     },
-  ])("counts visible groups and ignores active-but-$name providers", async ({
-    extraActive,
-    extraErrors,
-  }) => {
-    writeFileSync(
-      join(worktreeDir, "opencode.json"),
-      JSON.stringify({
-        experimental: {
-          quotaToast: {
-            enabled: true,
-            formatStyle: "allWindows",
+  ])(
+    "counts visible groups and ignores active-but-$name providers",
+    async ({ extraActive, extraErrors }) => {
+      writeFileSync(
+        join(worktreeDir, "opencode.json"),
+        JSON.stringify({
+          experimental: {
+            quotaToast: {
+              enabled: true,
+              formatStyle: "allWindows",
+            },
           },
+        }),
+        "utf8",
+      );
+
+      collectQuotaRenderDataMock.mockResolvedValue({
+        data: { entries: VISIBLE_OVERFLOW_ENTRIES, errors: extraErrors, sessionTokens: undefined },
+        singleWindowData: {
+          entries: VISIBLE_OVERFLOW_ENTRIES,
+          errors: extraErrors,
+          sessionTokens: undefined,
         },
-      }),
-      "utf8",
-    );
-
-    collectQuotaRenderDataMock.mockResolvedValue({
-      data: { entries: VISIBLE_OVERFLOW_ENTRIES, errors: extraErrors, sessionTokens: undefined },
-      singleWindowData: {
-        entries: VISIBLE_OVERFLOW_ENTRIES,
-        errors: extraErrors,
-        sessionTokens: undefined,
-      },
-      allWindowsData: {
-        entries: VISIBLE_OVERFLOW_ENTRIES,
-        errors: extraErrors,
-        sessionTokens: undefined,
-      },
-      active: [{ id: "copilot" }, { id: "openai" }, extraActive],
-    });
-
-    buildSidebarQuotaPanelLinesMock.mockReturnValue([
-      "[Copilot]",
-      "Quota 95%",
-      "[OpenAI ChatGPT Plus Plan]",
-      "5h window 19%",
-    ]);
-
-    const panel = await loadSidebarPanel({
-      api: {
-        state: {
-          provider: [],
-          path: { worktree: worktreeDir, directory: worktreeDir },
-          session: { messages: () => [] },
+        allWindowsData: {
+          entries: VISIBLE_OVERFLOW_ENTRIES,
+          errors: extraErrors,
+          sessionTokens: undefined,
         },
-        client: {},
-      } as any,
-      sessionID: `session-visible-count-${extraActive.id}`,
-    });
+        active: [{ id: "copilot" }, { id: "openai" }, extraActive],
+      });
 
-    expect(panel.providerCount).toBe(2);
-    expect(panel.lines).toEqual([
-      extraErrors.length > 0 ? "Copilot 5% | +1 | +1 issue" : "Copilot 5% | +1",
-    ]);
-    expect(panel.linesExpanded).toEqual([
-      "[Copilot]",
-      "Quota 95%",
-      "[OpenAI ChatGPT Plus Plan]",
-      "5h window 19%",
-    ]);
-  });
+      buildSidebarQuotaPanelLinesMock.mockReturnValue([
+        "[Copilot]",
+        "Quota 95%",
+        "[OpenAI ChatGPT Plus Plan]",
+        "5h window 19%",
+      ]);
 
-  it.each([
-    "remaining",
-    "used",
-  ] as const)("keeps collapsed overflow and expand/collapse count in %s mode", async (percentDisplayMode) => {
-    writeFileSync(
-      join(worktreeDir, "opencode.json"),
-      JSON.stringify({
-        experimental: {
-          quotaToast: {
-            enabled: true,
-            formatStyle: "allWindows",
-            percentDisplayMode,
+      const panel = await loadSidebarPanel({
+        api: {
+          state: {
+            provider: [],
+            path: { worktree: worktreeDir, directory: worktreeDir },
+            session: { messages: () => [] },
           },
+          client: {},
+        } as any,
+        sessionID: `session-visible-count-${extraActive.id}`,
+      });
+
+      expect(panel.providerCount).toBe(2);
+      expect(panel.lines).toEqual([
+        extraErrors.length > 0 ? "Copilot 5% | +1 | +1 issue" : "Copilot 5% | +1",
+      ]);
+      expect(panel.linesExpanded).toEqual([
+        "[Copilot]",
+        "Quota 95%",
+        "[OpenAI ChatGPT Plus Plan]",
+        "5h window 19%",
+      ]);
+    },
+  );
+
+  it.each(["remaining", "used"] as const)(
+    "keeps collapsed overflow and expand/collapse count in %s mode",
+    async (percentDisplayMode) => {
+      writeFileSync(
+        join(worktreeDir, "opencode.json"),
+        JSON.stringify({
+          experimental: {
+            quotaToast: {
+              enabled: true,
+              formatStyle: "allWindows",
+              percentDisplayMode,
+            },
+          },
+        }),
+        "utf8",
+      );
+
+      collectQuotaRenderDataMock.mockResolvedValue({
+        data: { entries: VISIBLE_OVERFLOW_ENTRIES, errors: [], sessionTokens: undefined },
+        singleWindowData: {
+          entries: VISIBLE_OVERFLOW_ENTRIES,
+          errors: [],
+          sessionTokens: undefined,
         },
-      }),
-      "utf8",
-    );
-
-    collectQuotaRenderDataMock.mockResolvedValue({
-      data: { entries: VISIBLE_OVERFLOW_ENTRIES, errors: [], sessionTokens: undefined },
-      singleWindowData: {
-        entries: VISIBLE_OVERFLOW_ENTRIES,
-        errors: [],
-        sessionTokens: undefined,
-      },
-      allWindowsData: {
-        entries: VISIBLE_OVERFLOW_ENTRIES,
-        errors: [],
-        sessionTokens: undefined,
-      },
-      active: [{ id: "copilot" }, { id: "openai" }, { id: "glm-coding-plan" }],
-    });
-
-    buildSidebarQuotaPanelLinesMock.mockReturnValue([
-      "[Copilot]",
-      "Quota 95%",
-      "[OpenAI ChatGPT Plus Plan]",
-      "5h window 19%",
-    ]);
-
-    const panel = await loadSidebarPanel({
-      api: {
-        state: {
-          provider: [],
-          path: { worktree: worktreeDir, directory: worktreeDir },
-          session: { messages: () => [] },
+        allWindowsData: {
+          entries: VISIBLE_OVERFLOW_ENTRIES,
+          errors: [],
+          sessionTokens: undefined,
         },
-        client: {},
-      } as any,
-      sessionID: `session-overflow-${percentDisplayMode}`,
-    });
+        active: [{ id: "copilot" }, { id: "openai" }, { id: "glm-coding-plan" }],
+      });
 
-    expect(panel.providerCount).toBe(2);
-    expect(panel.lines).toEqual([
-      percentDisplayMode === "used" ? "Copilot 95% | +1" : "Copilot 5% | +1",
-    ]);
-    expect(panel.lines?.[0]?.length).toBeLessThanOrEqual(36);
-    expect(panel.linesExpanded).toEqual([
-      "[Copilot]",
-      "Quota 95%",
-      "[OpenAI ChatGPT Plus Plan]",
-      "5h window 19%",
-    ]);
-  });
+      buildSidebarQuotaPanelLinesMock.mockReturnValue([
+        "[Copilot]",
+        "Quota 95%",
+        "[OpenAI ChatGPT Plus Plan]",
+        "5h window 19%",
+      ]);
+
+      const panel = await loadSidebarPanel({
+        api: {
+          state: {
+            provider: [],
+            path: { worktree: worktreeDir, directory: worktreeDir },
+            session: { messages: () => [] },
+          },
+          client: {},
+        } as any,
+        sessionID: `session-overflow-${percentDisplayMode}`,
+      });
+
+      expect(panel.providerCount).toBe(2);
+      expect(panel.lines).toEqual([
+        percentDisplayMode === "used" ? "Copilot 95% | +1" : "Copilot 5% | +1",
+      ]);
+      expect(panel.lines?.[0]?.length).toBeLessThanOrEqual(36);
+      expect(panel.linesExpanded).toEqual([
+        "[Copilot]",
+        "Quota 95%",
+        "[OpenAI ChatGPT Plus Plan]",
+        "5h window 19%",
+      ]);
+    },
+  );
 });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { formatQuotaCommand } from "../src/lib/quota-command-format.js";
 import type { QuotaRenderData } from "../src/lib/quota-render-data.js";
 import { formatQuotaRowsGrouped } from "../src/lib/toast-format-grouped.js";
@@ -29,25 +29,26 @@ function renderDataForLabel(label: (typeof xaiLabels)[number]): QuotaRenderData 
 }
 
 describe("xAI four-surface formatting", () => {
-  it.each(
-    xaiLabels,
-  )("shows the %s weekly quota in command, toast, sidebar, and compact output", (label) => {
-    const data = renderDataForLabel(label);
-    const command = formatQuotaCommand({ ...data, generatedAtMs: 0 });
-    const toast = formatQuotaRowsGrouped(data);
-    const sidebar = buildSidebarQuotaPanelLines({
-      data,
-      config: { formatStyle: "allWindows", percentDisplayMode: "remaining" },
-    }).join("\n");
-    const compact = buildCompactQuotaStatusLine({
-      data,
-      percentDisplayMode: "remaining",
-      maxWidth: 200,
-    });
+  it.each(xaiLabels)(
+    "shows the %s weekly quota in command, toast, sidebar, and compact output",
+    (label) => {
+      const data = renderDataForLabel(label);
+      const command = formatQuotaCommand({ ...data, generatedAtMs: 0 });
+      const toast = formatQuotaRowsGrouped(data);
+      const sidebar = buildSidebarQuotaPanelLines({
+        data,
+        config: { formatStyle: "allWindows", percentDisplayMode: "remaining" },
+      }).join("\n");
+      const compact = buildCompactQuotaStatusLine({
+        data,
+        percentDisplayMode: "remaining",
+        maxWidth: 200,
+      });
 
-    for (const output of [command, toast, sidebar, compact]) {
-      expect(output).toContain("95%");
-      expect(output).toContain(label);
-    }
-  });
+      for (const output of [command, toast, sidebar, compact]) {
+        expect(output).toContain("95%");
+        expect(output).toContain(label);
+      }
+    },
+  );
 });

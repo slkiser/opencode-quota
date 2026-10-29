@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { hasNativeProviderQuotaClient } from "../src/lib/tui-native-provider-quota.js";
 

@@ -1,5 +1,5 @@
 import { rm } from "node:fs/promises";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-provider-cache-tests";
 

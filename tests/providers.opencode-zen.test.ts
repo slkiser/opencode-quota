@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   expectAttemptedWithErrorLabel,
@@ -192,12 +192,15 @@ describe("opencode Zen provider", () => {
     [{ state: "none" }, ["opencode"], false],
     [{ state: "no_active_account" }, "auto", false],
     [{ state: "no_active_account" }, ["opencode"], true],
-  ])("reports availability for %j with enabledProviders %j -> %j", async (resolution, enabledProviders, expected) => {
-    mocks.resolveOpenCodeZenAccountCached.mockResolvedValueOnce(resolution);
-    await expect(opencodeZenProvider.isAvailable(context({ enabledProviders }))).resolves.toBe(
-      expected,
-    );
-  });
+  ])(
+    "reports availability for %j with enabledProviders %j -> %j",
+    async (resolution, enabledProviders, expected) => {
+      mocks.resolveOpenCodeZenAccountCached.mockResolvedValueOnce(resolution);
+      await expect(opencodeZenProvider.isAvailable(context({ enabledProviders }))).resolves.toBe(
+        expected,
+      );
+    },
+  );
 
   it.each([
     ["opencode/gpt-5", true],

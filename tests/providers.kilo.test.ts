@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { collectQuotaRenderData } from "../src/lib/quota-render-data.js";
 import { DEFAULT_CONFIG } from "../src/lib/types.js";

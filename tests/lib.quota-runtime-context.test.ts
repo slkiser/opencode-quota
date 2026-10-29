@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const mockedHomeDir = vi.hoisted(() => ({
   value: "",
@@ -15,8 +15,8 @@ vi.mock("os", async (importOriginal) => {
   };
 });
 
-import { createLoadConfigMeta } from "../src/lib/config.js";
 import { resolveRuntimeContextRoots } from "../src/lib/config-file-utils.js";
+import { createLoadConfigMeta } from "../src/lib/config.js";
 import {
   createQuotaProviderRuntimeContext,
   type QuotaRuntimeClient,

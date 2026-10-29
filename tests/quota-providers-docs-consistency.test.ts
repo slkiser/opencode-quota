@@ -1,5 +1,5 @@
 import { readFileSync } from "fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { validateQuotaProviders } from "../src/lib/quota-providers.js";
 import {

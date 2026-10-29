@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { formatQuotaRows } from "../src/lib/format.js";
 import { buildSingleWindowPercentEntryDisplayName } from "../src/lib/quota-entry-display.js";

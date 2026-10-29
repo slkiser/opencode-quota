@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const {
   buildQuotaDialogCommandOutput,
@@ -123,7 +123,7 @@ function createElement(
   ...children: unknown[]
 ) {
   const nextProps = {
-    ...(props ?? {}),
+    ...props,
     ...(children.length === 0 ? {} : { children: children.length === 1 ? children[0] : children }),
   };
   return typeof type === "function" ? type(nextProps) : { type, props: nextProps };
@@ -605,46 +605,49 @@ describe("tui plugin smoke", () => {
   it.each([
     ["first", 1],
     ["second", 2],
-  ] as const)("keeps the installed command layer active when the %s slot registration throws", async (_label, failedAttempt) => {
-    const plugin = await loadTuiModule();
-    const { api, keymapLayers, registered } = createApi();
-    const registration = deferred<any>();
-    resolveTuiSurfaceRegistration.mockReturnValueOnce(registration.promise);
-    let attempts = 0;
-    api.slots.register.mockImplementation((entry: any) => {
-      attempts += 1;
-      if (attempts === failedAttempt) throw new Error("slot registration unavailable");
-      registered.push(entry);
-      return `slot-${registered.length}`;
-    });
+  ] as const)(
+    "keeps the installed command layer active when the %s slot registration throws",
+    async (_label, failedAttempt) => {
+      const plugin = await loadTuiModule();
+      const { api, keymapLayers, registered } = createApi();
+      const registration = deferred<any>();
+      resolveTuiSurfaceRegistration.mockReturnValueOnce(registration.promise);
+      let attempts = 0;
+      api.slots.register.mockImplementation((entry: any) => {
+        attempts += 1;
+        if (attempts === failedAttempt) throw new Error("slot registration unavailable");
+        registered.push(entry);
+        return `slot-${registered.length}`;
+      });
 
-    await plugin.tui(api as any, undefined, {} as any);
-    expect(api.keymap.registerLayer).toHaveBeenCalledOnce();
-    expect(api.slots.register).toHaveBeenCalledTimes(failedAttempt);
-    expect(registered).toHaveLength(failedAttempt - 1);
+      await plugin.tui(api as any, undefined, {} as any);
+      expect(api.keymap.registerLayer).toHaveBeenCalledOnce();
+      expect(api.slots.register).toHaveBeenCalledTimes(failedAttempt);
+      expect(registered).toHaveLength(failedAttempt - 1);
 
-    registration.resolve({
-      commandDisplay: "inline",
-      sidebar: { enabled: true },
-      compact: {
-        enabled: true,
+      registration.resolve({
+        commandDisplay: "inline",
+        sidebar: { enabled: true },
+        compact: {
+          enabled: true,
+          homeBottom: true,
+          sessionPrompt: true,
+          hasNativeProviderQuota: false,
+          suppressedByNativeProviderQuota: false,
+        },
+        promptBar: { enabled: true },
+
+        announcements: { homeBottom: false },
         homeBottom: true,
-        sessionPrompt: true,
-        hasNativeProviderQuota: false,
-        suppressedByNativeProviderQuota: false,
-      },
-      promptBar: { enabled: true },
+      });
+      await flushPromises();
 
-      announcements: { homeBottom: false },
-      homeBottom: true,
-    });
-    await flushPromises();
-
-    keymapLayers[0]!.commands[0]!.run?.();
-    await flushPromises();
-    expect(buildQuotaDialogCommandOutput).toHaveBeenCalledOnce();
-    expect(api.client.session.prompt).toHaveBeenCalledOnce();
-  });
+      keymapLayers[0]!.commands[0]!.run?.();
+      await flushPromises();
+      expect(buildQuotaDialogCommandOutput).toHaveBeenCalledOnce();
+      expect(api.client.session.prompt).toHaveBeenCalledOnce();
+    },
+  );
 
   it("keeps eager hosts neutral and pending commands inert after disposal", async () => {
     const plugin = await loadTuiModule();
@@ -716,69 +719,70 @@ describe("tui plugin smoke", () => {
   });
 
   describe.each(["inline", "dialog"] as const)("%s native command display", (commandDisplay) => {
-    it.each(
-      TUI_COMMAND_GROUPS,
-    )("routes /%s and /%s once without model execution", async (...commands) => {
-      const plugin = await loadTuiModule();
-      const { api, keymapLayers, dialog } = createApi();
+    it.each(TUI_COMMAND_GROUPS)(
+      "routes /%s and /%s once without model execution",
+      async (...commands) => {
+        const plugin = await loadTuiModule();
+        const { api, keymapLayers, dialog } = createApi();
 
-      resolveTuiSurfaceRegistration.mockResolvedValueOnce({
-        commandDisplay,
-        sidebar: { enabled: false },
-        compact: {
-          enabled: false,
+        resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+          commandDisplay,
+          sidebar: { enabled: false },
+          compact: {
+            enabled: false,
+            homeBottom: false,
+            sessionPrompt: false,
+            hasNativeProviderQuota: false,
+            suppressedByNativeProviderQuota: false,
+          },
+          promptBar: { enabled: true },
+
+          announcements: { homeBottom: false },
           homeBottom: false,
-          sessionPrompt: false,
-          hasNativeProviderQuota: false,
-          suppressedByNativeProviderQuota: false,
-        },
-        promptBar: { enabled: true },
-
-        announcements: { homeBottom: false },
-        homeBottom: false,
-      });
-
-      await startTui(plugin, api);
-      for (const command of commands) {
-        vi.clearAllMocks();
-        const output = `${command} output`;
-        buildQuotaDialogCommandOutput.mockResolvedValueOnce({
-          state: "output",
-          command,
-          title: command,
-          output,
-          dialogSize: "xlarge",
         });
-        const registeredCommand = keymapLayers[0]!.commands.find(
-          (item) => item.slashName === command,
-        )!;
-        (registeredCommand.run as (input?: unknown) => void)({ arguments: "" });
-        await Promise.resolve();
-        await Promise.resolve();
 
-        expect(buildQuotaDialogCommandOutput, command).toHaveBeenCalledOnce();
-        expect(buildQuotaDialogCommandOutput, command).toHaveBeenCalledWith(
-          expect.objectContaining({
+        await startTui(plugin, api);
+        for (const command of commands) {
+          vi.clearAllMocks();
+          const output = `${command} output`;
+          buildQuotaDialogCommandOutput.mockResolvedValueOnce({
+            state: "output",
             command,
-            client: { config: {} },
-            sessionID: "session-route",
-          }),
-        );
-        if (commandDisplay === "inline") {
-          expect(api.client.session.prompt, command).toHaveBeenCalledOnce();
-          expect(api.client.session.prompt, command).toHaveBeenCalledWith({
-            sessionID: "session-route",
-            noReply: true,
-            parts: [{ type: "text", text: output, ignored: true }],
+            title: command,
+            output,
+            dialogSize: "xlarge",
           });
-          expect(dialog.replace, command).not.toHaveBeenCalled();
-        } else {
-          expect(api.client.session.prompt, command).not.toHaveBeenCalled();
-          expect(dialog.replace, command).toHaveBeenCalledTimes(2);
+          const registeredCommand = keymapLayers[0]!.commands.find(
+            (item) => item.slashName === command,
+          )!;
+          (registeredCommand.run as (input?: unknown) => void)({ arguments: "" });
+          await Promise.resolve();
+          await Promise.resolve();
+
+          expect(buildQuotaDialogCommandOutput, command).toHaveBeenCalledOnce();
+          expect(buildQuotaDialogCommandOutput, command).toHaveBeenCalledWith(
+            expect.objectContaining({
+              command,
+              client: { config: {} },
+              sessionID: "session-route",
+            }),
+          );
+          if (commandDisplay === "inline") {
+            expect(api.client.session.prompt, command).toHaveBeenCalledOnce();
+            expect(api.client.session.prompt, command).toHaveBeenCalledWith({
+              sessionID: "session-route",
+              noReply: true,
+              parts: [{ type: "text", text: output, ignored: true }],
+            });
+            expect(dialog.replace, command).not.toHaveBeenCalled();
+          } else {
+            expect(api.client.session.prompt, command).not.toHaveBeenCalled();
+            expect(dialog.replace, command).toHaveBeenCalledTimes(2);
+          }
+          expect(api.client.session.command, command).not.toHaveBeenCalled();
         }
-        expect(api.client.session.command, command).not.toHaveBeenCalled();
-      }
-    });
+      },
+    );
   });
 
   it("selects Home dialog destination before executing an inline-configured command", async () => {
@@ -825,52 +829,52 @@ describe("tui plugin smoke", () => {
     expect(api.client.session.command).not.toHaveBeenCalled();
   });
 
-  it.each([
-    "inline",
-    "dialog",
-  ] as const)("keeps command no-op behavior in %s mode", async (commandDisplay) => {
-    const plugin = await loadTuiModule();
-    const { api, keymapLayers, dialog } = createApi();
-    buildQuotaDialogCommandOutput.mockResolvedValueOnce({
-      state: "noop",
-      command: "pricing_refresh",
-      reason: "disabled",
-    });
-    resolveTuiSurfaceRegistration.mockResolvedValueOnce({
-      commandDisplay,
-      sidebar: { enabled: false },
-      compact: {
-        enabled: false,
+  it.each(["inline", "dialog"] as const)(
+    "keeps command no-op behavior in %s mode",
+    async (commandDisplay) => {
+      const plugin = await loadTuiModule();
+      const { api, keymapLayers, dialog } = createApi();
+      buildQuotaDialogCommandOutput.mockResolvedValueOnce({
+        state: "noop",
+        command: "pricing_refresh",
+        reason: "disabled",
+      });
+      resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+        commandDisplay,
+        sidebar: { enabled: false },
+        compact: {
+          enabled: false,
+          homeBottom: false,
+          sessionPrompt: false,
+          hasNativeProviderQuota: false,
+          suppressedByNativeProviderQuota: false,
+        },
+        promptBar: { enabled: true },
+
+        announcements: { homeBottom: false },
         homeBottom: false,
-        sessionPrompt: false,
-        hasNativeProviderQuota: false,
-        suppressedByNativeProviderQuota: false,
-      },
-      promptBar: { enabled: true },
+      });
 
-      announcements: { homeBottom: false },
-      homeBottom: false,
-    });
+      await startTui(plugin, api);
+      const refresh = keymapLayers[0]!.commands.find(
+        (command) => command.slashName === "pricing_refresh",
+      )!;
+      (refresh.run as (input?: unknown) => void)({ arguments: "" });
+      await Promise.resolve();
+      await Promise.resolve();
 
-    await startTui(plugin, api);
-    const refresh = keymapLayers[0]!.commands.find(
-      (command) => command.slashName === "pricing_refresh",
-    )!;
-    (refresh.run as (input?: unknown) => void)({ arguments: "" });
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(buildQuotaDialogCommandOutput).toHaveBeenCalledOnce();
-    expect(api.client.session.prompt).not.toHaveBeenCalled();
-    expect(api.client.session.command).not.toHaveBeenCalled();
-    if (commandDisplay === "inline") {
-      expect(dialog.replace).not.toHaveBeenCalled();
-      expect(dialog.clear).not.toHaveBeenCalled();
-    } else {
-      expect(dialog.replace).toHaveBeenCalledOnce();
-      expect(dialog.clear).toHaveBeenCalledOnce();
-    }
-  });
+      expect(buildQuotaDialogCommandOutput).toHaveBeenCalledOnce();
+      expect(api.client.session.prompt).not.toHaveBeenCalled();
+      expect(api.client.session.command).not.toHaveBeenCalled();
+      if (commandDisplay === "inline") {
+        expect(dialog.replace).not.toHaveBeenCalled();
+        expect(dialog.clear).not.toHaveBeenCalled();
+      } else {
+        expect(dialog.replace).toHaveBeenCalledOnce();
+        expect(dialog.clear).toHaveBeenCalledOnce();
+      }
+    },
+  );
 
   it("shows the command error without falling back to quota output dialog when inline injection fails", async () => {
     const plugin = await loadTuiModule();

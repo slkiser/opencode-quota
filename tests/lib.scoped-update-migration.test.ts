@@ -3,7 +3,7 @@ import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import {
   AMBIGUOUS_ZEN_ENV_NAMES,
@@ -185,21 +185,18 @@ describe("legacy display inspection", () => {
     ]);
   });
 
-  it.each([
-    "[]",
-    "null",
-    "true",
-    '"text"',
-    "42",
-  ])("distinguishes unsupported root %s from malformed syntax", (raw) => {
-    expect(inspect({ raw, format: "json" }).manualFindings).toEqual([
-      {
-        kind: "migration-file-uninspectable",
-        path: "/config/quota.jsonc",
-        reason: "unsupported-root",
-      },
-    ]);
-  });
+  it.each(["[]", "null", "true", '"text"', "42"])(
+    "distinguishes unsupported root %s from malformed syntax",
+    (raw) => {
+      expect(inspect({ raw, format: "json" }).manualFindings).toEqual([
+        {
+          kind: "migration-file-uninspectable",
+          path: "/config/quota.jsonc",
+          reason: "unsupported-root",
+        },
+      ]);
+    },
+  );
 
   it("uses a fixed malformed-document finding without parser text", () => {
     const raw = `{"opencodeZenDisplay":"parser-secret",`;

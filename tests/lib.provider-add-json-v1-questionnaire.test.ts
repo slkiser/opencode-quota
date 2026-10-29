@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { promptJsonV1Adapter } from "../src/lib/provider-add-json-v1-questionnaire.js";
 import { type JsonV1Metric, validateQuotaProviders } from "../src/lib/quota-providers.js";

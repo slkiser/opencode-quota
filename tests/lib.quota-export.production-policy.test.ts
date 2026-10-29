@@ -1,5 +1,5 @@
 import { access, readdir, readFile, rm } from "node:fs/promises";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { ResolvedAuthIdentity } from "../src/lib/resolved-auth-identity.js";
 
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-export-production-policy-tests";
@@ -73,9 +73,8 @@ describe("quota export production cache policy", () => {
     "persists safe snapshots for production resolved-auth providers",
     async () => {
       const { buildQuotaExport } = await import("../src/lib/quota-export.js");
-      const { fetchQuotaProviderResult, __resetQuotaStateForTests } = await import(
-        "../src/lib/quota-state.js"
-      );
+      const { fetchQuotaProviderResult, __resetQuotaStateForTests } =
+        await import("../src/lib/quota-state.js");
       const { getProviders } = await import("../src/providers/registry.js");
       __resetQuotaStateForTests();
 
@@ -133,9 +132,8 @@ describe("quota export production cache policy", () => {
   it("exports an Anthropic 429 cooldown error from the Windows memory cache", async () => {
     setProcessPlatform("win32");
     const { buildQuotaExport } = await import("../src/lib/quota-export.js");
-    const { fetchQuotaProviderResult, __resetQuotaStateForTests } = await import(
-      "../src/lib/quota-state.js"
-    );
+    const { fetchQuotaProviderResult, __resetQuotaStateForTests } =
+      await import("../src/lib/quota-state.js");
     const { deriveResolvedAuthIdentity } = await import("../src/lib/resolved-auth-identity.js");
     const { DEFAULT_CONFIG } = await import("../src/lib/types.js");
     const { getProviders } = await import("../src/providers/registry.js");
@@ -187,9 +185,8 @@ describe("quota export production cache policy", () => {
   it("replaces a Windows-cached Anthropic error after a successful retry", async () => {
     setProcessPlatform("win32");
     const { buildQuotaExport } = await import("../src/lib/quota-export.js");
-    const { fetchQuotaProviderResult, __resetQuotaStateForTests } = await import(
-      "../src/lib/quota-state.js"
-    );
+    const { fetchQuotaProviderResult, __resetQuotaStateForTests } =
+      await import("../src/lib/quota-state.js");
     const { deriveResolvedAuthIdentity } = await import("../src/lib/resolved-auth-identity.js");
     const { DEFAULT_CONFIG } = await import("../src/lib/types.js");
     const { getProviders } = await import("../src/providers/registry.js");
@@ -258,9 +255,8 @@ describe("quota export production cache policy", () => {
 
   it("keeps providers without a safe account identity process-local", async () => {
     const { buildQuotaExport } = await import("../src/lib/quota-export.js");
-    const { fetchQuotaProviderResult, __resetQuotaStateForTests } = await import(
-      "../src/lib/quota-state.js"
-    );
+    const { fetchQuotaProviderResult, __resetQuotaStateForTests } =
+      await import("../src/lib/quota-state.js");
     const { getProviders } = await import("../src/providers/registry.js");
     __resetQuotaStateForTests();
 

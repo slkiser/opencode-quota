@@ -5,13 +5,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import {
   assertFixtureContentsAreIsolated,
   assertFrozenFixtureFiles,
   buildFixtureChildEnv,
-  buildVitestArgs,
+  buildVitePlusArgs,
   cleanupFixtureSandbox,
   FIXTURE_STRIP_ENV_VARS,
   FIXTURE_TEMP_PREFIX,
@@ -19,7 +19,7 @@ import {
   getFixturesUsage,
   parseFixturesArgs,
   prepareFixtureSandbox,
-  resolveVitestExecutable,
+  resolveVitePlusExecutable,
   runFixtures,
 } from "../scripts/test-stabilization-fixtures.mjs";
 
@@ -135,10 +135,10 @@ describe("test-stabilization-fixtures", () => {
     expect(FIXTURE_STRIP_ENV_VARS).toContain("OPENROUTER_API_KEY");
   });
 
-  it("builds a no-shell Vitest command with the repo executable and fixed args", () => {
-    const vitestCli = resolveVitestExecutable(repoRoot);
-    expect(vitestCli).toBe(path.join(repoRoot, "node_modules", "vitest", "vitest.mjs"));
-    expect(buildVitestArgs()).toEqual(["run", ...FIXTURE_TEST_FILES]);
+  it("builds a no-shell Vite+ test command with the repo executable and fixed args", () => {
+    const vitePlusCli = resolveVitePlusExecutable(repoRoot);
+    expect(vitePlusCli).toBe(path.join(repoRoot, "node_modules", "vite-plus", "bin", "vp"));
+    expect(buildVitePlusArgs()).toEqual(["test", "run", ...FIXTURE_TEST_FILES]);
     assertFrozenFixtureFiles([...FIXTURE_TEST_FILES]);
     expect(() => assertFrozenFixtureFiles(["tests/http.test.ts"])).toThrow(/allowlist/);
     expect(() => assertFrozenFixtureFiles([...FIXTURE_TEST_FILES, "tests/http.test.ts"])).toThrow(
@@ -197,7 +197,7 @@ describe("test-stabilization-fixtures", () => {
     expect(code).toBe(0);
     expect(output).toContain("no real credentials, network provider calls, or real bl executable");
     expect(output).toContain(process.execPath);
-    expect(output).toContain(path.join(repoRoot, "node_modules", "vitest", "vitest.mjs"));
+    expect(output).toContain(path.join(repoRoot, "node_modules", "vite-plus", "bin", "vp"));
     expect(output).toContain("tests/quota-render-data.test.ts");
     expect(output).toContain("Dry run");
     expect(output).not.toMatch(/\bshell\s+true\b/);

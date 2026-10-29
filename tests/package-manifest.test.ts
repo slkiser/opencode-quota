@@ -1,6 +1,6 @@
 import { access, readFile } from "node:fs/promises";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { parse } from "yaml";
 
 interface WorkflowStep {
@@ -49,6 +49,7 @@ const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url
 const pnpmWorkspace = await readFile(new URL("../pnpm-workspace.yaml", import.meta.url), "utf8");
 const pnpmWorkspaceConfig = parse(pnpmWorkspace) as {
   allowBuilds?: Record<string, boolean>;
+  overrides?: Record<string, string>;
 };
 const tsconfig = JSON.parse(
   await readFile(new URL("../tsconfig.json", import.meta.url), "utf8"),
@@ -59,27 +60,12 @@ const typescriptValidator = await readFile(
   new URL("../scripts/verify-typescript-version.mjs", import.meta.url),
   "utf8",
 );
-const biomeConfig = JSON.parse(
-  await readFile(new URL("../biome.json", import.meta.url), "utf8"),
-) as {
-  $schema?: string;
-  linter?: {
-    domains?: Record<string, string>;
-    rules?: { recommended?: boolean };
-  };
-  overrides?: Array<{
-    includes?: string[];
-    linter?: { domains?: Record<string, string> };
-  }>;
-};
-const lefthookConfig = parse(
-  await readFile(new URL("../lefthook.yml", import.meta.url), "utf8"),
-) as Record<
-  "pre-commit" | "pre-push",
-  {
-    commands?: Record<string, { glob?: string; run?: string; stage_fixed?: boolean }>;
-  }
->;
+const viteConfig = await readFile(new URL("../vite.config.ts", import.meta.url), "utf8");
+const preCommitHook = await readFile(
+  new URL("../.github/hooks/pre-commit", import.meta.url),
+  "utf8",
+);
+const prePushHook = await readFile(new URL("../.github/hooks/pre-push", import.meta.url), "utf8");
 const packageScriptSources = await Promise.all(
   [
     "../scripts/pack-release-package.mjs",
@@ -178,29 +164,43 @@ describe("package manifest compatibility", () => {
     );
   });
 
-  it("uses pinned Biome as the sole formatter and linter", async () => {
-    expect(pkg.devDependencies?.["@biomejs/biome"]).toBe("2.3.11");
-    expect(pkg.devDependencies).not.toHaveProperty("prettier");
-    expect(pkg.devDependencies).not.toHaveProperty("eslint");
-
-    expect(pkg.scripts?.format).toBe("biome format --write .");
-    expect(pkg.scripts?.["format:check"]).toBe("biome format .");
-    expect(pkg.scripts?.lint).toBe("biome lint .");
-    expect(pkg.scripts?.check).toBe("biome check .");
-    expect(pkg.scripts).not.toHaveProperty("verify:v4-formatting");
-
-    expect(biomeConfig.$schema).toBe("https://biomejs.dev/schemas/2.3.11/schema.json");
-    expect(biomeConfig.linter?.rules?.recommended).toBe(true);
-    expect(biomeConfig.linter?.domains?.solid).toBe("recommended");
-    expect(
-      biomeConfig.overrides?.some(
-        (override) =>
-          override.includes?.includes("tests/**/*.test.ts") &&
-          override.linter?.domains?.test === "recommended",
-      ),
-    ).toBe(true);
-
+  it("uses pinned Vite+ for formatting and linting without a second type checker", async () => {
+    expect(pkg.devDependencies?.["vite-plus"]).toBe("1.2.0");
+    for (const dependency of ["@biomejs/biome", "prettier", "eslint", "vitest"]) {
+      expect(pkg.devDependencies).not.toHaveProperty(dependency);
+    }
+    expect(pkg.scripts?.format).toBe("vp fmt");
+    expect(pkg.scripts?.["format:check"]).toBe("vp fmt --check");
+    expect(pkg.scripts?.lint).toBe("vp lint");
+    expect(pkg.scripts?.check).toBe("vp check");
+    expect(pkg.scripts?.test).toBe("vp test run");
+    expect(pkg.scripts?.["test:watch"]).toBe("vp test watch");
+    expect(pkg.scripts?.["test:four-surfaces"]).toBe(
+      "vp test run tests/v4-phase5-cross-surface.test.ts",
+    );
+    expect(viteConfig).toContain("typeAware: false");
+    expect(viteConfig).toContain("typeCheck: false");
+    expect(viteConfig).toContain('"vitest/no-duplicate-hooks": "error"');
+    expect(viteConfig).toContain('"jest/no-export": "error"');
+    expect(viteConfig).toContain('"vitest/no-focused-tests": "error"');
+    expect(viteConfig).toContain('"jsx-a11y"');
+    expect(viteConfig).toContain('runtime: "classic", development: false');
+    expect(viteConfig).toContain('environment: "node"');
+    expect(viteConfig).toContain('include: ["tests/**/*.test.ts"]');
+    expect(viteConfig).toContain('setupFiles: ["tests/setup.ts"]');
+    for (const ignored of [
+      "pnpm-lock.yaml",
+      "dist/**",
+      "node_modules/**",
+      "package-artifacts/**",
+      "references/upstream-plugins/**",
+      "src/data/modelsdev-pricing.min.json",
+    ]) {
+      expect(viteConfig).toContain(JSON.stringify(ignored));
+    }
     for (const path of [
+      "../biome.json",
+      "../vitest.config.ts",
       "../.prettierignore",
       "../.prettierrc.json",
       "../scripts/verify-v4-formatting.mjs",
@@ -209,30 +209,25 @@ describe("package manifest compatibility", () => {
     }
   });
 
-  it("uses Lefthook for staged Biome fixes and canonical pre-push verification", async () => {
-    expect(pkg.devDependencies?.lefthook).toBe("2.0.15");
-    expect(pkg.devDependencies).not.toHaveProperty("husky");
-    expect(pkg.devDependencies).not.toHaveProperty("lint-staged");
-    expect(pkg.scripts?.prepare).toBe("lefthook install");
-
-    expect(lefthookConfig["pre-commit"]?.commands).toEqual({
-      biome: {
-        glob: "*.{js,cjs,mjs,jsx,ts,tsx,json,jsonc,css}",
-        run: "pnpm exec biome check --write --no-errors-on-unmatched {staged_files}",
-        stage_fixed: true,
-      },
-    });
-    expect(lefthookConfig["pre-push"]?.commands).toEqual({
-      verify: {
-        run: "pnpm verify",
-      },
-    });
-
+  it("uses Vite+ for staged fixes with backup/rollback and canonical pre-push verification", async () => {
+    for (const dependency of ["lefthook", "husky", "lint-staged"]) {
+      expect(pkg.devDependencies).not.toHaveProperty(dependency);
+    }
+    expect(pkg.scripts?.prepare).toBe("vp config --no-agent --hooks-dir .github/hooks");
+    expect(preCommitHook).toBe("vp staged\n");
+    expect(prePushHook).toBe("pnpm verify\n");
+    expect(viteConfig).toContain('"*.{js,cjs,mjs,jsx,ts,tsx,json,jsonc,css}": (files: string[])');
+    expect(viteConfig).toContain('spawnSync("git", ["check-ignore", "--no-index"');
+    expect(viteConfig).toContain("`vp check --fix --no-error-on-unmatched-pattern ${paths.join");
+    expect(viteConfig).not.toContain("--no-stash");
+    expect(preCommitHook).not.toContain("--no-stash");
+    const gitignore = await readFile(new URL("../.gitignore", import.meta.url), "utf8");
+    expect(gitignore.split("\n")).toContain("/.github/hooks/_/");
     const packageScripts = packageScriptSources.join("\n");
-    expect(packageScripts).not.toContain("HUSKY");
-    expect(packageScripts).not.toContain("LEFTHOOK");
-
-    for (const path of ["../.husky", "../.lintstagedrc"]) {
+    for (const variable of ["HUSKY", "LEFTHOOK", "VP_GIT_HOOKS"]) {
+      expect(packageScripts).not.toContain(variable);
+    }
+    for (const path of ["../lefthook.yml", "../.husky", "../.lintstagedrc"]) {
       await expect(access(new URL(path, import.meta.url))).rejects.toThrow();
     }
   });
@@ -264,10 +259,12 @@ describe("package manifest compatibility", () => {
     expect(pnpmWorkspace).toContain("minimumReleaseAgeStrict: true");
     expect(pnpmWorkspace).toContain("minimumReleaseAgeIgnoreMissingTime: false");
     expect(pnpmWorkspace).toContain("blockExoticSubdeps: true");
+    expect(pnpmWorkspaceConfig.overrides).toEqual({
+      "vite@*": "npm:@voidzero-dev/vite-plus-core@1.2.0",
+    });
     expect(pnpmWorkspaceConfig.allowBuilds).toEqual({
       "better-sqlite3": true,
       esbuild: true,
-      lefthook: true,
       "msgpackr-extract": true,
     });
   });
@@ -359,6 +356,9 @@ describe("package manifest compatibility", () => {
       expect(namedStep(quality, name).run).toBe(run);
     }
 
+    expect(namedStep(quality, "Activate pnpm").run).toContain(
+      "corepack prepare pnpm@11.0.0 --activate",
+    );
     expectCanonicalVerificationOnly(quality);
     expect(stepIndex(quality, "Run canonical verification")).toBeGreaterThan(
       stepIndex(quality, "Install dependencies"),
@@ -380,6 +380,9 @@ describe("package manifest compatibility", () => {
     ).toBe("24.x");
     expect(namedStep(windows, "Install dependencies").run).toBe("pnpm install --frozen-lockfile");
     expect(namedStep(windows, "Run canonical verification").run).toBe("pnpm verify");
+    expect(namedStep(windows, "Activate pnpm").run).toContain(
+      "corepack prepare pnpm@11.0.0 --activate",
+    );
     expectCanonicalVerificationOnly(windows);
 
     expect(namedStep(quality, "Upload exact npm artifact")).toEqual(
@@ -531,6 +534,9 @@ describe("package manifest compatibility", () => {
       "pnpm run verify:release-version",
     );
     expect(namedStep(releasePackage, "Run canonical verification").run).toBe("pnpm verify");
+    expect(namedStep(releasePackage, "Activate pnpm").run).toContain(
+      "corepack prepare pnpm@11.0.0 --activate",
+    );
     expectCanonicalVerificationOnly(releasePackage);
     expect(namedStep(releasePackage, "Pack and audit the release artifact once").run).toBe(
       "pnpm run pack:release-package package-artifacts",

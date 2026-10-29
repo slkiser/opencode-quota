@@ -2,7 +2,7 @@ import type { CliRenderer } from "@opentui/core";
 import { createSlot, createSolidSlotRegistry } from "@opentui/solid";
 import type { Setter } from "solid-js";
 import { createComponent, createRoot, createSignal } from "solid-js/dist/solid.js";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 type RegistrationState = "pending" | "disabled" | "active";
 type TestSlots = {

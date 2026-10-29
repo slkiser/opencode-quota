@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   expectAttemptedWithErrorLabel,
   expectAttemptedWithNoErrors,
@@ -87,42 +87,45 @@ describe("Kimi regional providers", () => {
   it.each([
     [kimiCodePlanGlobalProvider, "global", "global-key", "Kimi Code"],
     [kimiCodePlanCnProvider, "cn", "cn-key", "Kimi Code (CN)"],
-  ] as const)("binds $id fetches to the resolved regional credential", async (provider, endpoint, apiKey, label) => {
-    vi.mocked(queryKimiQuota).mockResolvedValue({
-      success: true,
-      label,
-      windows: successfulWindows,
-    });
+  ] as const)(
+    "binds $id fetches to the resolved regional credential",
+    async (provider, endpoint, apiKey, label) => {
+      vi.mocked(queryKimiQuota).mockResolvedValue({
+        success: true,
+        label,
+        windows: successfulWindows,
+      });
 
-    const out = await provider.fetch({ config: { requestTimeoutMs: 1234 } } as any);
+      const out = await provider.fetch({ config: { requestTimeoutMs: 1234 } } as any);
 
-    expectAttemptedWithNoErrors(out);
-    expect(queryKimiQuota).toHaveBeenCalledWith({
-      apiKey,
-      endpoint,
-      label,
-      requestTimeoutMs: 1234,
-    });
-    const combinedResolver =
-      endpoint === "global"
-        ? authMocks.resolveGlobalWithDiagnostics
-        : authMocks.resolveCnWithDiagnostics;
-    expect(combinedResolver).toHaveBeenCalledTimes(1);
-    expect(authMocks.resolveGlobal).not.toHaveBeenCalled();
-    expect(authMocks.resolveCn).not.toHaveBeenCalled();
-    expect(out.statusDetails).toEqual(
-      expect.arrayContaining([
-        { key: "api_endpoint", value: endpoint },
-        {
-          key: "api_base_url",
-          value:
-            endpoint === "global"
-              ? "https://api.kimi.ai/coding/v1"
-              : "https://api.kimi.com/coding/v1",
-        },
-      ]),
-    );
-  });
+      expectAttemptedWithNoErrors(out);
+      expect(queryKimiQuota).toHaveBeenCalledWith({
+        apiKey,
+        endpoint,
+        label,
+        requestTimeoutMs: 1234,
+      });
+      const combinedResolver =
+        endpoint === "global"
+          ? authMocks.resolveGlobalWithDiagnostics
+          : authMocks.resolveCnWithDiagnostics;
+      expect(combinedResolver).toHaveBeenCalledTimes(1);
+      expect(authMocks.resolveGlobal).not.toHaveBeenCalled();
+      expect(authMocks.resolveCn).not.toHaveBeenCalled();
+      expect(out.statusDetails).toEqual(
+        expect.arrayContaining([
+          { key: "api_endpoint", value: endpoint },
+          {
+            key: "api_base_url",
+            value:
+              endpoint === "global"
+                ? "https://api.kimi.ai/coding/v1"
+                : "https://api.kimi.com/coding/v1",
+          },
+        ]),
+      );
+    },
+  );
 
   it("maps CN success into the existing accounting and presentation shape", async () => {
     vi.mocked(queryKimiQuota).mockResolvedValue({
@@ -160,17 +163,17 @@ describe("Kimi regional providers", () => {
     expect(out.presentation).toEqual({ singleWindowDisplayName: "Kimi Code (CN)" });
   });
 
-  it.each([
-    ["k3"],
-    ["k3-256k"],
-    ["kimi-for-coding"],
-    ["kimi-for-coding-highspeed"],
-  ])("matches the known model %s for each regional canonical id", (modelId) => {
-    expect(
-      kimiCodePlanGlobalProvider.matchesCurrentModel?.(`kimi-code-plan-global/${modelId}`),
-    ).toBe(true);
-    expect(kimiCodePlanCnProvider.matchesCurrentModel?.(`kimi-code-plan-cn/${modelId}`)).toBe(true);
-  });
+  it.each([["k3"], ["k3-256k"], ["kimi-for-coding"], ["kimi-for-coding-highspeed"]])(
+    "matches the known model %s for each regional canonical id",
+    (modelId) => {
+      expect(
+        kimiCodePlanGlobalProvider.matchesCurrentModel?.(`kimi-code-plan-global/${modelId}`),
+      ).toBe(true);
+      expect(kimiCodePlanCnProvider.matchesCurrentModel?.(`kimi-code-plan-cn/${modelId}`)).toBe(
+        true,
+      );
+    },
+  );
 
   it("keeps legacy provider ids owned by CN only", () => {
     for (const providerId of ["kimi-for-coding", "kimi-code", "kimi", "kimi-for-code"]) {

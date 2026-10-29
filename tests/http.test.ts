@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { fetchWithTimeout } from "../src/lib/http.js";
 import { REQUEST_TIMEOUT_MS } from "../src/lib/types.js";

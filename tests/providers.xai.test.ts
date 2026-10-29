@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { xaiProvider } from "../src/providers/xai.js";
 import {
@@ -75,34 +75,34 @@ describe("xai provider", () => {
     expect(output.presentation).toEqual({ singleWindowDisplayName: "xAI SuperGrok" });
   });
 
-  it.each([
-    "xAI Lite",
-    "xAI Heavy",
-  ])("projects the %s label through provider grouping and presentation", async (label) => {
-    const { queryXaiQuota } = await import("../src/lib/xai.js");
-    (queryXaiQuota as any).mockResolvedValueOnce({
-      success: true,
-      label,
-      window: {
-        percentRemaining: 95,
-        resetTimeIso: "2026-07-20T02:24:00.983Z",
-        kind: "weekly",
-      },
-    });
+  it.each(["xAI Lite", "xAI Heavy"])(
+    "projects the %s label through provider grouping and presentation",
+    async (label) => {
+      const { queryXaiQuota } = await import("../src/lib/xai.js");
+      (queryXaiQuota as any).mockResolvedValueOnce({
+        success: true,
+        label,
+        window: {
+          percentRemaining: 95,
+          resetTimeIso: "2026-07-20T02:24:00.983Z",
+          kind: "weekly",
+        },
+      });
 
-    const output = await xaiProvider.fetch({ config: {} } as any);
-    expectAttemptedWithNoErrors(output);
-    expect(visibleEntries(output.entries)).toEqual([
-      {
-        name: `${label} Weekly`,
-        group: label,
-        label: "Weekly:",
-        percentRemaining: 95,
-        resetTimeIso: "2026-07-20T02:24:00.983Z",
-      },
-    ]);
-    expect(output.presentation).toEqual({ singleWindowDisplayName: label });
-  });
+      const output = await xaiProvider.fetch({ config: {} } as any);
+      expectAttemptedWithNoErrors(output);
+      expect(visibleEntries(output.entries)).toEqual([
+        {
+          name: `${label} Weekly`,
+          group: label,
+          label: "Weekly:",
+          percentRemaining: 95,
+          resetTimeIso: "2026-07-20T02:24:00.983Z",
+        },
+      ]);
+      expect(output.presentation).toEqual({ singleWindowDisplayName: label });
+    },
+  );
 
   it("maps attempted query errors without exposing provider internals", async () => {
     const { queryXaiQuota } = await import("../src/lib/xai.js");

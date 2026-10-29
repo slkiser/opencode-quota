@@ -11,8 +11,8 @@ import type {
   QuotaProviderContext,
   QuotaProviderResult,
 } from "../lib/entries.js";
-import { queryExampleProviderQuota } from "../lib/example-provider.js";
 import { hasExampleProviderApiKey } from "../lib/example-provider-config.js";
+import { queryExampleProviderQuota } from "../lib/example-provider.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { modelProviderIncludesAny } from "../lib/provider-model-matching.js";
 import { attemptedErrorResult, attemptedResult, notAttemptedResult } from "./result-helpers.js";

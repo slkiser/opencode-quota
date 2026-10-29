@@ -166,8 +166,9 @@ export interface ResolveEnvAndConfigApiKeyConfig<Source extends string> {
 }
 
 /** Configuration for resolving an API key from multiple sources */
-export interface ResolveApiKeyConfig<Source extends string>
-  extends ResolveEnvAndConfigApiKeyConfig<Source> {
+export interface ResolveApiKeyConfig<
+  Source extends string,
+> extends ResolveEnvAndConfigApiKeyConfig<Source> {
   /** Extract API key from auth.json data. Returns null if not found. */
   extractFromAuth: (auth: unknown) => string | null;
 
@@ -205,8 +206,9 @@ export interface InvalidAwareApiKeyAuthConfig<AuthSource extends string> {
 }
 
 /** Configuration for simple nullable API key resolution. */
-export interface ResolveProviderApiKeyConfig<Source extends string>
-  extends ResolveProviderApiKeyBaseConfig<Source> {
+export interface ResolveProviderApiKeyConfig<
+  Source extends string,
+> extends ResolveProviderApiKeyBaseConfig<Source> {
   auth?: StrictApiKeyAuthConfig<Source>;
 }
 

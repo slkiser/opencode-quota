@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { writeTextAtomic } from "../src/lib/atomic-json.js";
 import { resolveEditableConfigPath } from "../src/lib/config-file-utils.js";

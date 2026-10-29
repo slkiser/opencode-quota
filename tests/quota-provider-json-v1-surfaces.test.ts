@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { formatQuotaRows } from "../src/lib/format.js";
-import { validateQuotaProviders } from "../src/lib/quota-providers.js";
 import { fetchRemoteQuotaProvider } from "../src/lib/quota-providers-remote.js";
+import { validateQuotaProviders } from "../src/lib/quota-providers.js";
 import { buildCompactQuotaStatusLine } from "../src/lib/tui-compact-format.js";
 import { buildSidebarQuotaPanelLines } from "../src/lib/tui-sidebar-format.js";
 

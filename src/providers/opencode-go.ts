@@ -7,13 +7,13 @@ import type {
   QuotaProviderStatusDetail,
   QuotaToastEntry,
 } from "../lib/entries.js";
-import { queryOpenCodeGoQuota } from "../lib/opencode-go.js";
 import {
   DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
   getOpenCodeGoAuthDiagnostics,
   type OpenCodeGoAuthDiagnostics,
   resolveOpenCodeGoAuthCached,
 } from "../lib/opencode-go-auth.js";
+import { queryOpenCodeGoQuota } from "../lib/opencode-go.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
 import type { OpenCodeGoResult, OpenCodeGoWindowKey } from "../lib/types.js";
 import {

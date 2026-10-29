@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import {
   listModelsForProvider,
   listProviders,
@@ -676,57 +676,60 @@ describe("quotaProviders schema", () => {
     ["Cf", "\u202e"],
     ["Zl", "\u2028"],
     ["Zp", "\u2029"],
-  ])("rejects Unicode %s characters in every json-v1 static display field", (_category, character) => {
-    const cases = [
-      {
-        mapping: {
-          resultType: "usage",
-          name: `Us${character}age`,
-          metric: { type: "value", valueType: "used", value: { literal: 1 } },
+  ])(
+    "rejects Unicode %s characters in every json-v1 static display field",
+    (_category, character) => {
+      const cases = [
+        {
+          mapping: {
+            resultType: "usage",
+            name: `Us${character}age`,
+            metric: { type: "value", valueType: "used", value: { literal: 1 } },
+          },
+          key: "quotaProviders[0].adapter.mappings[0].name",
         },
-        key: "quotaProviders[0].adapter.mappings[0].name",
-      },
-      {
-        mapping: {
-          resultType: "usage",
-          name: "Usage",
-          label: `Us${character}ed:`,
-          metric: { type: "value", valueType: "used", value: { literal: 1 } },
+        {
+          mapping: {
+            resultType: "usage",
+            name: "Usage",
+            label: `Us${character}ed:`,
+            metric: { type: "value", valueType: "used", value: { literal: 1 } },
+          },
+          key: "quotaProviders[0].adapter.mappings[0].label",
         },
-        key: "quotaProviders[0].adapter.mappings[0].label",
-      },
-      {
-        mapping: {
-          resultType: "usage",
-          name: "Usage",
-          unit: `to${character}kens`,
-          unitPosition: "suffix",
-          metric: { type: "value", valueType: "used", value: { literal: 1 } },
+        {
+          mapping: {
+            resultType: "usage",
+            name: "Usage",
+            unit: `to${character}kens`,
+            unitPosition: "suffix",
+            metric: { type: "value", valueType: "used", value: { literal: 1 } },
+          },
+          key: "quotaProviders[0].adapter.mappings[0].unit",
         },
-        key: "quotaProviders[0].adapter.mappings[0].unit",
-      },
-      {
-        mapping: {
-          resultType: "status",
-          name: "Status",
-          metric: { type: "status", value: { literal: `Re${character}ady` } },
+        {
+          mapping: {
+            resultType: "status",
+            name: "Status",
+            metric: { type: "status", value: { literal: `Re${character}ady` } },
+          },
+          key: "quotaProviders[0].adapter.mappings[0].metric.value.literal",
         },
-        key: "quotaProviders[0].adapter.mappings[0].metric.value.literal",
-      },
-    ];
+      ];
 
-    for (const item of cases) {
-      const result = validateQuotaProviders([
-        quotaProvider({
-          format: "json-v1",
-          adapter: { mappings: [item.mapping] },
-        }),
-      ]);
+      for (const item of cases) {
+        const result = validateQuotaProviders([
+          quotaProvider({
+            format: "json-v1",
+            adapter: { mappings: [item.mapping] },
+          }),
+        ]);
 
-      expect(result.value).toBeUndefined();
-      expect(result.issues).toContainEqual(expect.objectContaining({ key: item.key }));
-    }
-  });
+        expect(result.value).toBeUndefined();
+        expect(result.issues).toContainEqual(expect.objectContaining({ key: item.key }));
+      }
+    },
+  );
 
   it("rejects a provider-prefixed json-v1 entry name above 160 code points", () => {
     const result = validateQuotaProviders([

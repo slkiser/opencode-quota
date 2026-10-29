@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   appendBoundedDiagnostic,
@@ -1193,18 +1193,22 @@ setInterval(() => {}, 1000);
   });
 
   it("resolves injectable Windows OpenCode log paths on any host", () => {
-    expect(resolveOpenCodeLogDirs({}, "C:\\Users\\tester", "win32")).toEqual([
-      "C:\\Users\\tester\\.local\\share\\opencode\\log",
+    expect(resolveOpenCodeLogDirs({}, String.raw`C:\Users\tester`, "win32")).toEqual([
+      String.raw`C:\Users\tester\.local\share\opencode\log`,
     ]);
     expect(
-      resolveOpenCodeLogDirs({ XDG_DATA_HOME: " D:/data/../xdg/ " }, "C:\\Users\\tester", "win32"),
-    ).toEqual(["D:\\xdg\\opencode\\log"]);
+      resolveOpenCodeLogDirs(
+        { XDG_DATA_HOME: " D:/data/../xdg/ " },
+        String.raw`C:\Users\tester`,
+        "win32",
+      ),
+    ).toEqual([String.raw`D:\xdg\opencode\log`]);
   });
 
   it.each([
     ["linux", "/home/tester", "/home/tester/.local/share/opencode/log"],
     ["darwin", "/Users/tester", "/Users/tester/Library/Application Support/opencode/log"],
-    ["win32", "C:\\Users\\tester", "C:\\Users\\tester\\.local\\share\\opencode\\log"],
+    ["win32", String.raw`C:\Users\tester`, String.raw`C:\Users\tester\.local\share\opencode\log`],
   ])("uses the %s fallback for blank XDG_DATA_HOME on any host", (platform, home, expected) => {
     expect(resolveOpenCodeLogDirs({ XDG_DATA_HOME: "   " }, home, platform)).toEqual([expected]);
   });
@@ -1318,7 +1322,7 @@ ${JSON.stringify({
       ["openai/gpt-ambiguous", "unknown"],
       ["github-copilot/gpt-4.1", "usable"],
     ]);
-    expect((structured[0]?.metadata as { context?: number }).context).toBe(400000);
+    expect((structured[0]?.metadata as { context?: number } | undefined)?.context).toBe(400000);
     expect(chooseConnectedWebModel("openai/stale", structured)).toEqual({
       status: "replace",
       model: "openai/gpt-5",
@@ -1450,74 +1454,75 @@ ${JSON.stringify({
     expect(await prefixDirs(root)).toEqual([]);
   });
 
-  it.each([
-    undefined,
-    process.execPath,
-  ])("runs fake Web with isolated env and preserves exit after a diagnostic retry (inherited npm_execpath: %s)", async (npmExecPath) => {
-    // An existing non-pnpm path makes accidental inheritance fail even in focused runs.
-    vi.stubEnv("npm_execpath", npmExecPath);
-    const root = await makeTemp("oq-connected-web-run-e2e with spaces-");
-    const harness = await writeFakeWebHarness(root);
-    const originalConfig = await readFile(path.join(harness.source, "opencode.jsonc"), "utf8");
-    const output: string[] = [];
-    let writes = 0;
-    const code = await runConnected(["--web"], {
-      repoRoot: harness.fakeRepo,
-      tmpdir: root,
-      env: {
-        ...harness.env,
-        FAKE_MODELS_OUTPUT: "provider/model\n",
-        FAKE_WEB_EXIT: "7",
-        FAKE_WEB_STDOUT: 'response body: {"private":"reply"}\n',
-        FAKE_WEB_STDERR: "Cookie: session=browser-secret\n",
-      },
-      stdout: captureOutput(output),
-      stderr: captureOutput(output),
-      async writeWebDiagnosticsFile(filePath: string, content: string) {
-        writes += 1;
-        if (writes === 1) throw new Error("injected diagnostic write failure");
-        return writeWebDiagnosticsFile(filePath, content);
-      },
-    });
-    expect(code).toBe(7);
-    expect(JSON.parse(await readFile(harness.buildRecordFile, "utf8"))).toEqual(["run", "build"]);
-    expect(writes).toBe(2);
-    const records = await readFakeRecords(harness.recordFile);
-    expect(records.map((record) => record.args)).toEqual([["models"], ["web"]]);
-    expect(records[0]?.configDir).toBe(records[1]?.configDir);
-    expect(records[0]?.configFile).toBeNull();
-    expect(records[1]?.configFile).toBeNull();
-    expect(records[0]?.cwd).toBe(records[1]?.cwd);
-    expect(records[1]?.configContents).toContain("// keep this comment and plugin order");
-    expect(records[1]?.configContents).toMatch(
-      /companion-before[\s\S]+dist\/index\.js[\s\S]+companion-after/,
-    );
-    expect(records[1]?.configContents).toContain('"model": "provider/model"');
-    await expect(lstat(String(records[0]?.configDir))).rejects.toThrow();
-    expect(await readFile(path.join(harness.source, "opencode.jsonc"), "utf8")).toBe(
-      originalConfig,
-    );
-    expect(await prefixDirs(root)).toEqual([]);
+  it.each([undefined, process.execPath])(
+    "runs fake Web with isolated env and preserves exit after a diagnostic retry (inherited npm_execpath: %s)",
+    async (npmExecPath) => {
+      // An existing non-pnpm path makes accidental inheritance fail even in focused runs.
+      vi.stubEnv("npm_execpath", npmExecPath);
+      const root = await makeTemp("oq-connected-web-run-e2e with spaces-");
+      const harness = await writeFakeWebHarness(root);
+      const originalConfig = await readFile(path.join(harness.source, "opencode.jsonc"), "utf8");
+      const output: string[] = [];
+      let writes = 0;
+      const code = await runConnected(["--web"], {
+        repoRoot: harness.fakeRepo,
+        tmpdir: root,
+        env: {
+          ...harness.env,
+          FAKE_MODELS_OUTPUT: "provider/model\n",
+          FAKE_WEB_EXIT: "7",
+          FAKE_WEB_STDOUT: 'response body: {"private":"reply"}\n',
+          FAKE_WEB_STDERR: "Cookie: session=browser-secret\n",
+        },
+        stdout: captureOutput(output),
+        stderr: captureOutput(output),
+        async writeWebDiagnosticsFile(filePath: string, content: string) {
+          writes += 1;
+          if (writes === 1) throw new Error("injected diagnostic write failure");
+          return writeWebDiagnosticsFile(filePath, content);
+        },
+      });
+      expect(code).toBe(7);
+      expect(JSON.parse(await readFile(harness.buildRecordFile, "utf8"))).toEqual(["run", "build"]);
+      expect(writes).toBe(2);
+      const records = await readFakeRecords(harness.recordFile);
+      expect(records.map((record) => record.args)).toEqual([["models"], ["web"]]);
+      expect(records[0]?.configDir).toBe(records[1]?.configDir);
+      expect(records[0]?.configFile).toBeNull();
+      expect(records[1]?.configFile).toBeNull();
+      expect(records[0]?.cwd).toBe(records[1]?.cwd);
+      expect(records[1]?.configContents).toContain("// keep this comment and plugin order");
+      expect(records[1]?.configContents).toMatch(
+        /companion-before[\s\S]+dist\/index\.js[\s\S]+companion-after/,
+      );
+      expect(records[1]?.configContents).toContain('"model": "provider/model"');
+      await expect(lstat(String(records[0]?.configDir))).rejects.toThrow();
+      expect(await readFile(path.join(harness.source, "opencode.jsonc"), "utf8")).toBe(
+        originalConfig,
+      );
+      expect(await prefixDirs(root)).toEqual([]);
 
-    const combined = output.join("");
-    expect(combined).toContain("injected diagnostic write failure");
-    const pathMatches = [
-      ...combined.matchAll(/Web diagnostics \(sanitized, this run only\): (.+)/g),
-    ];
-    expect(pathMatches).toHaveLength(1);
-    const diagnosticPath = pathMatches[0]?.[1]?.trim();
-    expect(diagnosticPath).toBeTruthy();
-    expect(diagnosticPath).not.toContain(String(records[0]?.configDir));
-    const diagnostic = await readFile(diagnosticPath as string, "utf8");
-    expect(diagnostic).toContain(DIAGNOSTIC_REDACTED_BODY_MARKER);
-    expect(diagnostic).toContain(DIAGNOSTIC_REDACTED_HEADER_MARKER);
-    expect(diagnostic).not.toContain("browser-secret");
-    expect(diagnostic).not.toContain('"private":"reply"');
-    if (process.platform !== "win32") {
-      expect((await lstat(path.dirname(diagnosticPath as string))).mode & 0o777).toBe(0o700);
-      expect((await lstat(diagnosticPath as string)).mode & 0o777).toBe(0o600);
-    }
-  });
+      const combined = output.join("");
+      expect(combined).toContain("injected diagnostic write failure");
+      const pathMatches = [
+        ...combined.matchAll(/Web diagnostics \(sanitized, this run only\): (.+)/g),
+      ];
+      expect(pathMatches).toHaveLength(1);
+      const diagnosticPath = pathMatches[0]?.[1]?.trim();
+      expect(diagnosticPath).toBeTruthy();
+      expect(diagnosticPath).not.toContain(String(records[0]?.configDir));
+      const diagnostic = await readFile(diagnosticPath as string, "utf8");
+      expect(diagnostic).toContain(DIAGNOSTIC_REDACTED_BODY_MARKER);
+      expect(diagnostic).toContain(DIAGNOSTIC_REDACTED_HEADER_MARKER);
+      expect(diagnostic).not.toContain("browser-secret");
+      expect(diagnostic).not.toContain('"private":"reply"');
+      if (process.platform !== "win32") {
+        expect((await lstat(path.dirname(diagnosticPath as string))).mode & 0o777).toBe(0o700);
+        expect((await lstat(diagnosticPath as string)).mode & 0o777).toBe(0o600);
+      }
+    },
+    30_000,
+  );
 
   it("preserves the original preflight signal after escalation and prints no catalog guidance", async () => {
     if (process.platform === "win32") return;

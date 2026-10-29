@@ -1,6 +1,6 @@
 import { access, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 vi.mock("solid-js", () => ({
   Show: (props: { children?: unknown }) => props.children,

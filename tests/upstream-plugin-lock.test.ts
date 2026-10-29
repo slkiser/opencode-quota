@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { isolatedGitEnv, stubIsolatedGitEnv } from "./helpers/isolated-git-env.js";
 
@@ -107,12 +107,10 @@ describe("upstream-plugin-lock", () => {
       "utf8",
     );
 
-    const { readCommittedUpstreamPluginLock, readUpstreamPluginLock } = await import(
-      "../scripts/lib/upstream-plugin-lock.mjs"
-    );
-    const { buildChangedPluginSummaries } = await import(
-      "../scripts/lib/upstream-plugin-review.mjs"
-    );
+    const { readCommittedUpstreamPluginLock, readUpstreamPluginLock } =
+      await import("../scripts/lib/upstream-plugin-lock.mjs");
+    const { buildChangedPluginSummaries } =
+      await import("../scripts/lib/upstream-plugin-review.mjs");
     // readCommittedUpstreamPluginLock runs `git show` with the inherited process.env.
     stubIsolatedGitEnv();
     const committedLock = await readCommittedUpstreamPluginLock({

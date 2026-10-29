@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { sanitizeQuotaProviderResult } from "../src/lib/display-sanitize.js";
 import type { QuotaProviderResult } from "../src/lib/entries.js";

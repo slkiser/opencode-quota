@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { QuotaProviderAuthResolution } from "../src/lib/quota-providers-remote.js";
 import { openRouterProvider } from "../src/providers/openrouter.js";
@@ -47,9 +47,8 @@ function expectedStatusDetails(resolved: QuotaProviderAuthResolution) {
 
 describe("OpenRouter provider", () => {
   it("returns attempted:false when not configured and still passes the no-key resolution", async () => {
-    const { queryOpenRouterQuota, resolveOpenRouterApiKey } = await import(
-      "../src/lib/openrouter.js"
-    );
+    const { queryOpenRouterQuota, resolveOpenRouterApiKey } =
+      await import("../src/lib/openrouter.js");
     const resolved = await mockResolvedKey({
       source: null,
       checkedPaths: ["env:OPENROUTER_API_KEY", "/tmp/opencode.json"],
@@ -74,47 +73,50 @@ describe("OpenRouter provider", () => {
     ["opencode.json", "/tmp/opencode.json"],
     ["opencode.jsonc", "/tmp/opencode.jsonc"],
     ["auth.json", "/tmp/auth.json"],
-  ] as const)("attaches safe %s key diagnostics and forwards that resolution", async (source, path) => {
-    const { queryOpenRouterQuota } = await import("../src/lib/openrouter.js");
-    const resolved = await mockResolvedKey({
-      key: SECRET_CANARY,
-      source,
-      checkedPaths: [path],
-      authPaths: ["/tmp/auth.json"],
-    });
-    vi.mocked(queryOpenRouterQuota).mockResolvedValueOnce({
-      success: true,
-      entries: [
-        {
-          accounting: {
-            resultType: "budget",
-            acquisitionMethod: "remote_api",
-            ownership: "maintained",
-            authority: "provider_reported",
+  ] as const)(
+    "attaches safe %s key diagnostics and forwards that resolution",
+    async (source, path) => {
+      const { queryOpenRouterQuota } = await import("../src/lib/openrouter.js");
+      const resolved = await mockResolvedKey({
+        key: SECRET_CANARY,
+        source,
+        checkedPaths: [path],
+        authPaths: ["/tmp/auth.json"],
+      });
+      vi.mocked(queryOpenRouterQuota).mockResolvedValueOnce({
+        success: true,
+        entries: [
+          {
+            accounting: {
+              resultType: "budget",
+              acquisitionMethod: "remote_api",
+              ownership: "maintained",
+              authority: "provider_reported",
+            },
+            name: "OpenRouter budget",
+            group: "OpenRouter",
+            label: "Budget:",
+            percentRemaining: 80,
+            right: "$2.00/$10.00",
           },
-          name: "OpenRouter budget",
-          group: "OpenRouter",
-          label: "Budget:",
-          percentRemaining: 80,
-          right: "$2.00/$10.00",
-        },
-      ],
-    });
+        ],
+      });
 
-    const out = await openRouterProvider.fetch({
-      config: { requestTimeoutMs: 3210 },
-    } as any);
-    expectAttemptedWithNoErrors(out);
-    expect(out.entries[0]).toEqual(expect.objectContaining({ percentRemaining: 80 }));
-    expect(out.presentation).toEqual({ singleWindowShowRight: true });
-    expect(out.statusDetails).toEqual(expectedStatusDetails(resolved));
-    expect(JSON.stringify(out)).not.toContain(SECRET_CANARY);
-    expect(queryOpenRouterQuota).toHaveBeenCalledTimes(1);
-    expect(queryOpenRouterQuota).toHaveBeenCalledWith({
-      requestTimeoutMs: 3210,
-      resolved,
-    });
-  });
+      const out = await openRouterProvider.fetch({
+        config: { requestTimeoutMs: 3210 },
+      } as any);
+      expectAttemptedWithNoErrors(out);
+      expect(out.entries[0]).toEqual(expect.objectContaining({ percentRemaining: 80 }));
+      expect(out.presentation).toEqual({ singleWindowShowRight: true });
+      expect(out.statusDetails).toEqual(expectedStatusDetails(resolved));
+      expect(JSON.stringify(out)).not.toContain(SECRET_CANARY);
+      expect(queryOpenRouterQuota).toHaveBeenCalledTimes(1);
+      expect(queryOpenRouterQuota).toHaveBeenCalledWith({
+        requestTimeoutMs: 3210,
+        resolved,
+      });
+    },
+  );
 
   it.each([
     ["HTTP", "HTTP 401"],

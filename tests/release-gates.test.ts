@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { isolatedGitEnv } from "./helpers/isolated-git-env.js";
 
@@ -216,7 +216,7 @@ describe("v4 release gates", () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Forbidden local-only files");
     for (const file of forbidden) expect(result.stderr).toContain(file);
-  });
+  }, 30_000);
 
   it("rejects a forced-added private path in the current index", async () => {
     const historyRepo = path.join(tempDir, "index");

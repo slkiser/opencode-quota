@@ -311,7 +311,7 @@ export function formatQuotaStatsReport(params: {
 
     // blank separator row between source groups
     if (i !== sources.length - 1) {
-      rows.push(new Array(headers.length).fill(""));
+      rows.push(Array.from({ length: headers.length }, () => ""));
     }
   }
 

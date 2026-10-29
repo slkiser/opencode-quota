@@ -1,12 +1,12 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { queryChutesQuota } from "../src/lib/chutes.js";
 import { queryDeepSeekBalance } from "../src/lib/deepseek.js";
-import { queryNanoGptQuota } from "../src/lib/nanogpt.js";
 import { resolveNanoGptApiKey } from "../src/lib/nanogpt-config.js";
+import { queryNanoGptQuota } from "../src/lib/nanogpt.js";
 import { querySyntheticQuota } from "../src/lib/synthetic.js";
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
@@ -180,20 +180,23 @@ describe("simple API-key provider queries", () => {
         })(),
       ],
       ["null", syntheticPayload({ rollingFiveHourLimit: null })],
-    ] as const)("maps only the weekly window when rollingFiveHourLimit is %s", async (_name, payload) => {
-      stubJsonFetch(payload);
-      await expect(querySyntheticQuota()).resolves.toEqual({
-        success: true,
-        windows: {
-          weekly: {
-            limit: 24,
-            used: 21.98,
-            percentRemaining: 8,
-            resetTimeIso: "2026-01-27T18:12:03.000Z",
+    ] as const)(
+      "maps only the weekly window when rollingFiveHourLimit is %s",
+      async (_name, payload) => {
+        stubJsonFetch(payload);
+        await expect(querySyntheticQuota()).resolves.toEqual({
+          success: true,
+          windows: {
+            weekly: {
+              limit: 24,
+              used: 21.98,
+              percentRemaining: 8,
+              resetTimeIso: "2026-01-27T18:12:03.000Z",
+            },
           },
-        },
-      });
-    });
+        });
+      },
+    );
 
     it("maps only the 5-hour window when weeklyTokenLimit is absent", async () => {
       const { weeklyTokenLimit: _weekly, ...payload } = syntheticPayload();
@@ -211,23 +214,22 @@ describe("simple API-key provider queries", () => {
       });
     });
 
-    it.each([
-      "bad-value",
-      -5,
-      150,
-    ] as const)("derives weekly percent when percentRemaining is invalid (%s)", async (percentRemaining) => {
-      stubJsonFetch(
-        syntheticPayload({
-          weeklyTokenLimit: {
-            maxCredits: "$24.00",
-            remainingCredits: "$2.02",
-            percentRemaining,
-          },
-        }),
-      );
-      const result = await querySyntheticQuota();
-      expect(result && result.success ? result.windows.weekly.percentRemaining : -1).toBe(8);
-    });
+    it.each(["bad-value", -5, 150] as const)(
+      "derives weekly percent when percentRemaining is invalid (%s)",
+      async (percentRemaining) => {
+        stubJsonFetch(
+          syntheticPayload({
+            weeklyTokenLimit: {
+              maxCredits: "$24.00",
+              remainingCredits: "$2.02",
+              percentRemaining,
+            },
+          }),
+        );
+        const result = await querySyntheticQuota();
+        expect(result && result.success ? result.windows.weekly.percentRemaining : -1).toBe(8);
+      },
+    );
 
     it("normalizes valid reset timestamps and drops malformed ones", async () => {
       vi.stubGlobal(
@@ -407,7 +409,9 @@ describe("simple API-key provider queries", () => {
       const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         if (String(input).includes("/subscription/v1/usage")) {
           expect(init).toMatchObject({ method: "GET" });
-          expect((init?.headers as Record<string, string>)["x-api-key"]).toBe("nano-key");
+          expect((init?.headers as Record<string, string> | undefined)?.["x-api-key"]).toBe(
+            "nano-key",
+          );
           return jsonResponse({
             active: true,
             limits: { daily: 5000, monthly: 60000 },
@@ -425,7 +429,9 @@ describe("simple API-key provider queries", () => {
           });
         }
         expect(init).toMatchObject({ method: "POST" });
-        expect((init?.headers as Record<string, string>)["x-api-key"]).toBe("nano-key");
+        expect((init?.headers as Record<string, string> | undefined)?.["x-api-key"]).toBe(
+          "nano-key",
+        );
         return jsonResponse({ usd_balance: "129.46956147", nano_balance: "26.71801147" });
       });
       vi.stubGlobal("fetch", fetchMock);
@@ -562,36 +568,37 @@ describe("simple API-key provider queries", () => {
       });
     });
 
-    it.each(
-      invalidBalanceSiblingCases,
-    )("validates the full %s decimal and preserves a valid sibling", async (_label, balancePayload, expectedBalance, invalidField) => {
-      useNanoGptApiKey();
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async (input: RequestInfo | URL) =>
-          String(input).includes("/subscription/v1/usage")
-            ? jsonResponse({
-                active: true,
-                limits: { daily: 100 },
-                daily: { used: 25, remaining: 75, resetAt: 1_735_776_000_000 },
-                state: "active",
-              })
-            : jsonResponse(balancePayload),
-        ),
-      );
+    it.each(invalidBalanceSiblingCases)(
+      "validates the full %s decimal and preserves a valid sibling",
+      async (_label, balancePayload, expectedBalance, invalidField) => {
+        useNanoGptApiKey();
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async (input: RequestInfo | URL) =>
+            String(input).includes("/subscription/v1/usage")
+              ? jsonResponse({
+                  active: true,
+                  limits: { daily: 100 },
+                  daily: { used: 25, remaining: 75, resetAt: 1_735_776_000_000 },
+                  state: "active",
+                })
+              : jsonResponse(balancePayload),
+          ),
+        );
 
-      await expect(queryNanoGptQuota()).resolves.toMatchObject({
-        success: true,
-        subscription: { daily: { used: 25, limit: 100, remaining: 75 } },
-        balance: expectedBalance,
-        endpointErrors: [
-          {
-            endpoint: "balance",
-            message: `NanoGPT balance response returned an invalid ${invalidField} decimal`,
-          },
-        ],
-      });
-    });
+        await expect(queryNanoGptQuota()).resolves.toMatchObject({
+          success: true,
+          subscription: { daily: { used: 25, limit: 100, remaining: 75 } },
+          balance: expectedBalance,
+          endpointErrors: [
+            {
+              endpoint: "balance",
+              message: `NanoGPT balance response returned an invalid ${invalidField} decimal`,
+            },
+          ],
+        });
+      },
+    );
 
     it("keeps valid usage when every returned balance decimal is malformed", async () => {
       useNanoGptApiKey();

@@ -139,8 +139,8 @@ function parseCreditsWindow(payload: unknown, observedAtMs: number): XaiWindowVa
   const hasUsage = Object.hasOwn(config, "creditUsagePercent");
   const hasPeriod = Boolean(
     getNonEmptyString(period?.type) ||
-      getNonEmptyString(period?.start) ||
-      getNonEmptyString(period?.end),
+    getNonEmptyString(period?.start) ||
+    getNonEmptyString(period?.end),
   );
   if (!hasPeriod && !hasUsage) return null;
 

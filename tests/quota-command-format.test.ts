@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { formatQuotaCommand, QUOTA_COMMAND_BAR_WIDTH } from "../src/lib/quota-command-format.js";
 

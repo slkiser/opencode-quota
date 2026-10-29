@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+import { vi } from "vite-plus/test";
 
 export const FIRST_QUOTA_OBSERVATION_HORIZON_MS = 10_000;
 export const FIRST_QUOTA_WARMUP_SAMPLES = 3;

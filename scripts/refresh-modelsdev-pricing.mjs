@@ -138,7 +138,7 @@ export function keepRetiredModels(snapshot, previous, providerIDs) {
   const keptModelIDs = [];
 
   for (const providerID of providerIDs) {
-    const models = { ...(snapshot.providers[providerID] ?? {}) };
+    const models = { ...snapshot.providers[providerID] };
     for (const [modelID, rawCost] of Object.entries(previousProviders[providerID] ?? {})) {
       const cost = pickCostBuckets(rawCost);
       if (models[modelID] || !cost) continue;

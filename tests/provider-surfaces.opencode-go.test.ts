@@ -1,5 +1,5 @@
 import { rm } from "node:fs/promises";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { isCommandHandledError } from "../src/lib/command-handled.js";
 import {
@@ -19,7 +19,7 @@ import { createProviderAvailabilityContext } from "./helpers/provider-test-harne
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-opencode-go-surfaces";
 const TEST_TOKEN = "distinctive-opencode-go-surface-token";
 
-let provider: typeof import("../src/providers/opencode-go.js")["opencodeGoProvider"];
+let provider: (typeof import("../src/providers/opencode-go.js"))["opencodeGoProvider"];
 
 const mocks = vi.hoisted(() => ({
   loadConfig: vi.fn(),
