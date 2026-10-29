@@ -69,7 +69,7 @@ OpenCode を再起動して `/quota` と入力します。上限を表示する�
   <tr><td><code>sidebar</code></td><td>サイドバーの Quota パネル</td><td>Quota サイドタブ</td></tr>
   <tr><td><code>collapsed</code></td><td>プロバイダーごとに 1 行へ折りたたんだサイドバーパネル</td><td>タイトルバーのピル、および折りたたんだときの Quota サイドタブ</td></tr>
   <tr><td><code>statusLine</code></td><td>入力欄の下の行</td><td>ウィンドウ下部のストリップ、および入力欄の上のピル</td></tr>
-  <tr><td><code>toast</code></td><td>バー付きのトースト</td><td>Quota サイドタブと同じ行とバーのトースト</td></tr>
+  <tr><td><code>toast</code></td><td>バー付きのトースト</td><td>Quota サイドタブと同じ行とバーのトースト（リセット通知は 1 文）</td></tr>
   </table>
   <p><b>補足：</b>TUI では、サイドバーにクォータが表示されている間、ステータスラインは非表示になります。<b>Next to the sidebar</b>（<code>statusLine.withSidebar</code>）をオンにすると表示されます。Desktop では、ストリップはデフォルトで Quota サイドタブの横にも表示されます。<b>Next to the side panel</b>（<code>statusLine.withSidePanel</code>）でこれをオフにできます。</p>
   </details>

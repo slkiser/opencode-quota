@@ -69,7 +69,7 @@ Ajoutez le plugin à `opencode.jsonc` ou `opencode.json`, en gardant vos autres 
   <tr><td><code>sidebar</code></td><td>Panneau Quota dans la barre latérale</td><td>Onglet latéral Quota</td></tr>
   <tr><td><code>collapsed</code></td><td>Panneau de la barre latérale replié sur une ligne par fournisseur</td><td>Pastille de la barre de titre, et l'onglet latéral Quota quand il est replié</td></tr>
   <tr><td><code>statusLine</code></td><td>Ligne sous la zone de saisie</td><td>Bande en bas de la fenêtre, et la pastille au-dessus de la zone de saisie</td></tr>
-  <tr><td><code>toast</code></td><td>Toasts avec des barres</td><td>Toasts avec les lignes et barres de l'onglet latéral Quota</td></tr>
+  <tr><td><code>toast</code></td><td>Toasts avec des barres</td><td>Toasts avec les lignes et barres de l'onglet latéral Quota ; un avis de réinitialisation est une phrase</td></tr>
   </table>
   <p><b>Remarque :</b> dans la TUI, la ligne d'état se masque tant que la barre latérale affiche des quotas, sauf si <b>Next to the sidebar</b> (<code>statusLine.withSidebar</code>) est activé. Dans Desktop, la bande s'affiche aussi à côté de l'onglet latéral Quota par défaut ; <b>Next to the side panel</b> (<code>statusLine.withSidePanel</code>) la désactive.</p>
   </details>

@@ -15,10 +15,12 @@
  * A quota toast's text is the TUI toast's rows and words as a sentence per provider
  * (`toastSentences`), each on its own line: what assistive tech reads. The toast is found on
  * screen by that text (an app toast's description, `.toast-v2 [data-description]`, with exactly
- * that text and no rows yet) within 60 frames. Then the text is hidden from sight and the open
+ * that text as the app cuts it, and no rows yet) within 60 frames. Then the text is hidden from sight and the open
  * Quota panel's rows for the toast's providers show under the title instead (`toast-rows.tsx`),
  * in the panel's columns and colors; they are taken out, their Solid root ended, once the toast
- * or its text leaves the page, or the plugin goes away. A toast not found keeps its text. The
+ * or its text leaves the page, or the plugin goes away. The app measures a toast before its rows
+ * are drawn, so the window's CSS lets a toast with rows take its own height when the stack expands;
+ * the toasts above it still sit where the measured height puts them. A toast not found keeps its text. The
  * text of a toast without rows (a reset notice) keeps its line breaks (`data-oq-lines`), which
  * the app would collapse. The window's own words (the titles) come from the catalog.
  *
@@ -50,6 +52,9 @@ const TOAST_COLUMNS = 200;
 
 /** Frames to look for a toast's text on screen: a second at 60 Hz, half that at 120 Hz. */
 const MARK_FRAMES = 60;
+
+/** The most characters of a description the app keeps; it cuts the rest and adds "…". */
+const DESCRIPTION_LIMIT = 2000;
 
 /** On a toast's description: the window's CSS keeps its line breaks. */
 const LINES_ATTR = "data-oq-lines";
@@ -148,15 +153,17 @@ export function createGuiToasts(
 
   /**
    * Hands `found` the description of our toast once it is on screen: the app toast's
-   * description with exactly `text` and no rows of ours. Looks for MARK_FRAMES frames.
+   * description with exactly `text`, as the app cuts it, and no rows of ours. Looks for
+   * MARK_FRAMES frames.
    */
   const findDescription = (text: string, found: (description: Element) => void) => {
     if (!text || typeof document === "undefined") return;
+    const shown = text.length > DESCRIPTION_LIMIT ? `${text.slice(0, DESCRIPTION_LIMIT)}…` : text;
     let frames = 0;
     const find = () => {
       if (disposed) return;
       for (const node of document.querySelectorAll(".toast-v2 [data-description]")) {
-        if (node.textContent === text && !node.hasAttribute(ROWS_ATTR)) return found(node);
+        if (node.textContent === shown && !node.hasAttribute(ROWS_ATTR)) return found(node);
       }
       frames += 1;
       if (frames < MARK_FRAMES) requestAnimationFrame(find);

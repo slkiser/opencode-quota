@@ -361,6 +361,34 @@ describe("GUI quota toasts", () => {
       expect(String(app.show.mock.calls[0]?.[0].description)).toMatch(/^Claude: .*\nCopilot: /);
     });
 
+    it("finds a toast whose text the app cut", async () => {
+      const long = "Claude ".repeat(200);
+      const rows = drawer();
+      const app = start(
+        {
+          "/a": snapshot(
+            [provider("claude", long, 80), provider("copilot", long, 40)],
+            REPLY_TOAST,
+          ),
+        },
+        undefined,
+        rows.draw,
+      );
+      const toasts: Array<ReturnType<typeof appToast>> = [];
+      app.show.mockImplementation((toast: { description: string }) => {
+        const drawn = appToast(`${toast.description.slice(0, 2000)}…`);
+        toasts.push(drawn);
+        page.document.body.append(drawn.toast);
+      });
+      app.emit("session.execution.succeeded", "a");
+      await app.answer();
+      page.frames(1);
+
+      expect(String(app.show.mock.calls[0]?.[0].description).length).toBeGreaterThan(2000);
+      expect(rows.drawn).toHaveLength(1);
+      expect(toasts[0]?.content.children).toContain(rows.drawn[0]?.element);
+    });
+
     it("leaves another toast alone", async () => {
       const other = appToast("Saved\nall settings");
       page.document.body.append(other.toast);

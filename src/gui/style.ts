@@ -86,6 +86,10 @@ export const STYLE = `
 .toast-v2 [data-description][data-oq-lines] { white-space: pre-line; }
 .toast-v2 [data-description][data-oq-rows] { position: absolute; width: 1px; height: 1px; margin: -1px;
   padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* The app measures a toast before our rows are drawn, and an expanded stack fixes each toast at that
+   height; a toast with rows takes its own. The app's toast is at most min(420px, 100dvh - 96px), and
+   its title and padding take about 52px of that, so more rows than fit scroll. */
+.toast-v2[data-expanded="true"]:has([data-oq-rows]) { height: auto !important; }
 .oq-between { display: flex; align-items: center; justify-content: flex-end; gap: 6px; font-size: 12px; color: var(--oq-text-2); }
 .oq-between input { font: inherit; color: var(--oq-text); background: var(--oq-raised);
   border: 1px solid var(--oq-line); border-radius: 6px; padding: 2px 6px; color-scheme: light dark; }
@@ -202,7 +206,7 @@ export const STYLE = `
 .oq-pfill { position: absolute; inset: 0 auto 0 0; border-radius: 3px; }
 .oq-peven { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; border-radius: 1px; }
 .oq-ppace { grid-column: 2 / -1; font-size: 11.5px; }
-.oq-toast-rows { min-width: 0; }
+.oq-toast-rows { min-width: 0; max-height: min(366px, 100dvh - 150px); overflow-y: auto; }
 .oq-strip-bottom { position: relative; display: flex; align-items: center; justify-content: flex-end;
   flex: 0 0 auto; align-self: stretch; box-sizing: border-box; width: 100%; min-width: 0; height: 26px;
   overflow: hidden; white-space: nowrap; padding: 0 12px; margin-left: auto;

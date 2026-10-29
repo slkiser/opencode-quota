@@ -69,7 +69,7 @@ opencode plugin add @slkiser/opencode-quota
   <tr><td><code>sidebar</code></td><td>側邊欄中的 Quota 面板</td><td>Quota 側邊分頁</td></tr>
   <tr><td><code>collapsed</code></td><td>摺疊成每個供應商一行的側邊欄面板</td><td>標題列膠囊，以及摺疊時的 Quota 側邊分頁</td></tr>
   <tr><td><code>statusLine</code></td><td>輸入框下方的一行</td><td>視窗底部狀態條，以及輸入框上方的膠囊</td></tr>
-  <tr><td><code>toast</code></td><td>帶進度條的 toast 通知</td><td>與 Quota 側邊分頁相同的列與進度條的 toast 通知</td></tr>
+  <tr><td><code>toast</code></td><td>帶進度條的 toast 通知</td><td>與 Quota 側邊分頁相同的列與進度條的 toast 通知；重置通知為一句話</td></tr>
   </table>
   <p><b>注意：</b>在 TUI 中，側邊欄顯示配額時狀態列會隱藏，除非開啟 <b>Next to the sidebar</b>（<code>statusLine.withSidebar</code>）。在 Desktop 中，狀態條預設也會顯示在 Quota 側邊分頁旁；<b>Next to the side panel</b>（<code>statusLine.withSidePanel</code>）可將其關閉。</p>
   </details>

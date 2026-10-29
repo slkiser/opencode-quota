@@ -69,7 +69,7 @@ Füge das Plugin zu `opencode.jsonc` oder `opencode.json` hinzu und behalte dein
   <tr><td><code>sidebar</code></td><td>Quota-Panel in der Seitenleiste</td><td>Quota-Seitentab</td></tr>
   <tr><td><code>collapsed</code></td><td>Seitenleisten-Panel auf eine Zeile pro Anbieter eingeklappt</td><td>Pille in der Titelleiste und der eingeklappte Quota-Seitentab</td></tr>
   <tr><td><code>statusLine</code></td><td>Zeile unter dem Eingabefeld</td><td>Leiste am unteren Rand des Fensters und die Pille über dem Eingabefeld</td></tr>
-  <tr><td><code>toast</code></td><td>Toasts mit Balken</td><td>Toasts mit den Zeilen und Balken des Quota-Seitentabs</td></tr>
+  <tr><td><code>toast</code></td><td>Toasts mit Balken</td><td>Toasts mit den Zeilen und Balken des Quota-Seitentabs; ein Reset-Hinweis ist ein Satz</td></tr>
   </table>
   <p><b>Hinweis:</b> In der TUI blendet sich die Statuszeile aus, solange die Seitenleiste Kontingente zeigt, außer <b>Next to the sidebar</b> (<code>statusLine.withSidebar</code>) ist an. In Desktop erscheint die Leiste standardmäßig auch neben dem Quota-Seitentab; <b>Next to the side panel</b> (<code>statusLine.withSidePanel</code>) schaltet das ab.</p>
   </details>
