@@ -216,9 +216,10 @@ describe("package manifest compatibility", () => {
     expect(pkg.scripts?.prepare).toBe("vp config --no-agent --hooks-dir .github/hooks");
     expect(preCommitHook).toBe("vp staged\n");
     expect(prePushHook).toBe("pnpm verify\n");
-    expect(viteConfig).toContain(
-      '"*.{js,cjs,mjs,jsx,ts,tsx,json,jsonc,css}": "vp check --fix --no-error-on-unmatched-pattern"',
-    );
+    expect(viteConfig).toContain('"*.{js,cjs,mjs,jsx,ts,tsx,json,jsonc,css}": (files: string[])');
+    expect(viteConfig).toContain('spawnSync("git", ["check-ignore", "--no-index"');
+    expect(viteConfig).toContain("`vp check --fix --no-error-on-unmatched-pattern ${paths.join");
+    expect(viteConfig).not.toContain("--no-stash");
     expect(preCommitHook).not.toContain("--no-stash");
     const gitignore = await readFile(new URL("../.gitignore", import.meta.url), "utf8");
     expect(gitignore.split("\n")).toContain("/.github/hooks/_/");

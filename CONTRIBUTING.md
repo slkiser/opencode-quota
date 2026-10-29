@@ -67,7 +67,7 @@ Set `VP_GIT_HOOKS=0` to skip Vite+ hook installation or execution for one comman
 
 ## Local Quality Gates
 
-The Vite+ pre-commit hook runs `vp staged` to format and lint staged supported files and re-stage formatting and safe fixes. It keeps a backup, hides unstaged hunks in partially staged files, and restores the original state on failure. It does not run typecheck or tests.
+The Vite+ pre-commit hook runs `vp staged` to format and lint staged supported files and re-stage formatting and safe fixes. It keeps a backup, hides unstaged hunks in partially staged files, and restores the original state on failure. Git-ignored files that were force-added are skipped. It does not run typecheck or tests.
 
 The Vite+ pre-push hook runs exactly:
 

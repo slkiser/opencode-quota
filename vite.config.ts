@@ -1,10 +1,30 @@
+import { spawnSync } from "node:child_process";
+import { relative } from "node:path";
+
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   // TUI tests stub React.createElement; the published build uses Babel and Solid.
   oxc: { jsx: { runtime: "classic", development: false } },
   staged: {
-    "*.{js,cjs,mjs,jsx,ts,tsx,json,jsonc,css}": "vp check --fix --no-error-on-unmatched-pattern",
+    "*.{js,cjs,mjs,jsx,ts,tsx,json,jsonc,css}": (files: string[]) => {
+      // Git-ignored paths are skipped: a force-added ignored file would be formatted by name, then
+      // fail to restage. Paths are passed relative with "/" so quoting works on every platform.
+      const ignored = new Set(
+        spawnSync("git", ["check-ignore", "--no-index", "-z", "--stdin"], {
+          input: files.join("\0"),
+          encoding: "utf8",
+        })
+          .stdout.split("\0")
+          .filter(Boolean),
+      );
+      const checked = files.filter((file) => !ignored.has(file));
+      if (checked.length === 0) return [];
+      const paths = checked.map((file) =>
+        JSON.stringify(relative(process.cwd(), file).replaceAll("\\", "/")),
+      );
+      return `vp check --fix --no-error-on-unmatched-pattern ${paths.join(" ")}`;
+    },
   },
   test: {
     environment: "node",
@@ -93,6 +113,8 @@ export default defineConfig({
       "prefer-numeric-literals": "warn",
       "prefer-regex-literals": "warn",
       "no-unused-vars": "warn",
+      "no-useless-backreference": "warn",
+      "typescript/no-wrapper-object-types": "warn",
       "no-unused-labels": "warn",
       "no-unused-private-class-members": "warn",
       radix: "warn",
