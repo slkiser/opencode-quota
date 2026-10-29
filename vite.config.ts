@@ -3,6 +3,9 @@ import { defineConfig } from "vite-plus";
 export default defineConfig({
   // TUI tests stub React.createElement; the published build uses Babel and Solid.
   oxc: { jsx: { runtime: "classic", development: false } },
+  staged: {
+    "*.{js,cjs,mjs,jsx,ts,tsx,json,jsonc,css}": "vp check --fix --no-error-on-unmatched-pattern",
+  },
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],

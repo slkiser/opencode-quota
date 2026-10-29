@@ -60,14 +60,11 @@ const typescriptValidator = await readFile(
   "utf8",
 );
 const viteConfig = await readFile(new URL("../vite.config.ts", import.meta.url), "utf8");
-const lefthookConfig = parse(
-  await readFile(new URL("../lefthook.yml", import.meta.url), "utf8"),
-) as Record<
-  "pre-commit" | "pre-push",
-  {
-    commands?: Record<string, { glob?: string; run?: string; stage_fixed?: boolean }>;
-  }
->;
+const preCommitHook = await readFile(
+  new URL("../.github/hooks/pre-commit", import.meta.url),
+  "utf8",
+);
+const prePushHook = await readFile(new URL("../.github/hooks/pre-push", import.meta.url), "utf8");
 const packageScriptSources = await Promise.all(
   [
     "../scripts/pack-release-package.mjs",
@@ -197,30 +194,22 @@ describe("package manifest compatibility", () => {
     }
   });
 
-  it("uses Lefthook for staged Biome fixes and canonical pre-push verification", async () => {
-    expect(pkg.devDependencies?.lefthook).toBe("2.0.15");
-    expect(pkg.devDependencies).not.toHaveProperty("husky");
-    expect(pkg.devDependencies).not.toHaveProperty("lint-staged");
-    expect(pkg.scripts?.prepare).toBe("lefthook install");
-
-    expect(lefthookConfig["pre-commit"]?.commands).toEqual({
-      biome: {
-        glob: "*.{js,cjs,mjs,jsx,ts,tsx,json,jsonc,css}",
-        run: "pnpm exec biome check --write --no-errors-on-unmatched {staged_files}",
-        stage_fixed: true,
-      },
-    });
-    expect(lefthookConfig["pre-push"]?.commands).toEqual({
-      verify: {
-        run: "pnpm verify",
-      },
-    });
-
+  it("uses Vite+ for staged fixes with backup/rollback and canonical pre-push verification", async () => {
+    for (const dependency of ["lefthook", "husky", "lint-staged"]) {
+      expect(pkg.devDependencies).not.toHaveProperty(dependency);
+    }
+    expect(pkg.scripts?.prepare).toBe("vp config --no-agent --hooks-dir .github/hooks");
+    expect(preCommitHook).toBe("vp staged\n");
+    expect(prePushHook).toBe("pnpm verify\n");
+    expect(viteConfig).toContain(
+      '"*.{js,cjs,mjs,jsx,ts,tsx,json,jsonc,css}": "vp check --fix --no-error-on-unmatched-pattern"',
+    );
+    expect(preCommitHook).not.toContain("--no-stash");
     const packageScripts = packageScriptSources.join("\n");
-    expect(packageScripts).not.toContain("HUSKY");
-    expect(packageScripts).not.toContain("LEFTHOOK");
-
-    for (const path of ["../.husky", "../.lintstagedrc"]) {
+    for (const variable of ["HUSKY", "LEFTHOOK", "VP_GIT_HOOKS"]) {
+      expect(packageScripts).not.toContain(variable);
+    }
+    for (const path of ["../lefthook.yml", "../.husky", "../.lintstagedrc"]) {
       await expect(access(new URL(path, import.meta.url))).rejects.toThrow();
     }
   });
@@ -255,7 +244,6 @@ describe("package manifest compatibility", () => {
     expect(pnpmWorkspaceConfig.allowBuilds).toEqual({
       "better-sqlite3": true,
       esbuild: true,
-      lefthook: true,
       "msgpackr-extract": true,
     });
   });

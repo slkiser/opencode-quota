@@ -1,7 +1,6 @@
 allowBuilds:
   better-sqlite3: true
   esbuild: true
-  lefthook: true
   msgpackr-extract: true
 blockExoticSubdeps: true
 minimumReleaseAge: 1440
