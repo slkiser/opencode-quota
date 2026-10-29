@@ -11,6 +11,7 @@ pnpm-debug.log*
 .vscode/
 
 # Build / tooling artifacts
+/.github/hooks/_/
 *.tsbuildinfo
 coverage/
 .pnpm-store/

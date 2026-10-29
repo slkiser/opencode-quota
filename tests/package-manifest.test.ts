@@ -49,6 +49,7 @@ const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url
 const pnpmWorkspace = await readFile(new URL("../pnpm-workspace.yaml", import.meta.url), "utf8");
 const pnpmWorkspaceConfig = parse(pnpmWorkspace) as {
   allowBuilds?: Record<string, boolean>;
+  overrides?: Record<string, string>;
 };
 const tsconfig = JSON.parse(
   await readFile(new URL("../tsconfig.json", import.meta.url), "utf8"),
@@ -183,6 +184,20 @@ describe("package manifest compatibility", () => {
     expect(viteConfig).toContain('"jest/no-export": "error"');
     expect(viteConfig).toContain('"vitest/no-focused-tests": "error"');
     expect(viteConfig).toContain('"jsx-a11y"');
+    expect(viteConfig).toContain('runtime: "classic", development: false');
+    expect(viteConfig).toContain('environment: "node"');
+    expect(viteConfig).toContain('include: ["tests/**/*.test.ts"]');
+    expect(viteConfig).toContain('setupFiles: ["tests/setup.ts"]');
+    for (const ignored of [
+      "pnpm-lock.yaml",
+      "dist/**",
+      "node_modules/**",
+      "package-artifacts/**",
+      "references/upstream-plugins/**",
+      "src/data/modelsdev-pricing.min.json",
+    ]) {
+      expect(viteConfig).toContain(JSON.stringify(ignored));
+    }
     for (const path of [
       "../biome.json",
       "../vitest.config.ts",
@@ -205,6 +220,8 @@ describe("package manifest compatibility", () => {
       '"*.{js,cjs,mjs,jsx,ts,tsx,json,jsonc,css}": "vp check --fix --no-error-on-unmatched-pattern"',
     );
     expect(preCommitHook).not.toContain("--no-stash");
+    const gitignore = await readFile(new URL("../.gitignore", import.meta.url), "utf8");
+    expect(gitignore.split("\n")).toContain("/.github/hooks/_/");
     const packageScripts = packageScriptSources.join("\n");
     for (const variable of ["HUSKY", "LEFTHOOK", "VP_GIT_HOOKS"]) {
       expect(packageScripts).not.toContain(variable);
@@ -241,6 +258,9 @@ describe("package manifest compatibility", () => {
     expect(pnpmWorkspace).toContain("minimumReleaseAgeStrict: true");
     expect(pnpmWorkspace).toContain("minimumReleaseAgeIgnoreMissingTime: false");
     expect(pnpmWorkspace).toContain("blockExoticSubdeps: true");
+    expect(pnpmWorkspaceConfig.overrides).toEqual({
+      "vite@*": "npm:@voidzero-dev/vite-plus-core@1.2.0",
+    });
     expect(pnpmWorkspaceConfig.allowBuilds).toEqual({
       "better-sqlite3": true,
       esbuild: true,
@@ -335,6 +355,9 @@ describe("package manifest compatibility", () => {
       expect(namedStep(quality, name).run).toBe(run);
     }
 
+    expect(namedStep(quality, "Activate pnpm").run).toContain(
+      "corepack prepare pnpm@11.0.0 --activate",
+    );
     expectCanonicalVerificationOnly(quality);
     expect(stepIndex(quality, "Run canonical verification")).toBeGreaterThan(
       stepIndex(quality, "Install dependencies"),
@@ -356,6 +379,9 @@ describe("package manifest compatibility", () => {
     ).toBe("24.x");
     expect(namedStep(windows, "Install dependencies").run).toBe("pnpm install --frozen-lockfile");
     expect(namedStep(windows, "Run canonical verification").run).toBe("pnpm verify");
+    expect(namedStep(windows, "Activate pnpm").run).toContain(
+      "corepack prepare pnpm@11.0.0 --activate",
+    );
     expectCanonicalVerificationOnly(windows);
 
     expect(namedStep(quality, "Upload exact npm artifact")).toEqual(
@@ -507,6 +533,9 @@ describe("package manifest compatibility", () => {
       "pnpm run verify:release-version",
     );
     expect(namedStep(releasePackage, "Run canonical verification").run).toBe("pnpm verify");
+    expect(namedStep(releasePackage, "Activate pnpm").run).toContain(
+      "corepack prepare pnpm@11.0.0 --activate",
+    );
     expectCanonicalVerificationOnly(releasePackage);
     expect(namedStep(releasePackage, "Pack and audit the release artifact once").run).toBe(
       "pnpm run pack:release-package package-artifacts",

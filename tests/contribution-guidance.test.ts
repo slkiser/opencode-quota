@@ -58,6 +58,13 @@ describe("contribution guidance", () => {
     expect(prTemplate).toContain("Current production released OpenCode version tested:");
     expect(prTemplate).toContain("This change is focused and avoids unrelated behavior changes");
     expect(contributing).toContain("`pnpm verify` passes.");
+    expect(contributing).toContain("Node.js 22.22.1+ on 22.x, 24.11+ on 24.x, or 26+, Git 2.32+");
+    expect(contributing).toContain("git config --local --unset-all core.hooksPath");
+    expect(contributing).toContain("pnpm exec vp config --no-agent --hooks-dir .github/hooks");
+    expect(contributing).toContain("pnpm exec vp hooks status --hooks-dir .github/hooks");
+    expect(contributing).toContain("Both branches use Vite+ hooks");
+    expect(contributing).toContain("VP_GIT_HOOKS=0");
+    expect(contributing).toContain("`vp staged`");
     expect(contributing).toContain("current production released OpenCode version");
   });
 });

@@ -23,7 +23,7 @@ Thanks for contributing. This repo has strict local-only behavior and regression
 ## Development Setup
 
 - The published package runtime supports Node.js `>=22.0.0` (matches `package.json` engines).
-- Repository development uses pnpm v11, which requires Node.js `>=22` for the pnpm CLI.
+- Contributors use Node.js 22.22.1+ on 22.x, 24.11+ on 24.x, or 26+, Git 2.32+, and pnpm 11. These are the requirements for Vite+ staged-file checks.
 - Enable the pinned package manager and install dependencies with:
 
 ```sh
@@ -32,13 +32,44 @@ corepack prepare pnpm@11.0.0 --activate
 pnpm install
 ```
 
-`pnpm install` runs `prepare`, which installs Lefthook hooks.
+The `prepare` script installs Vite+ hook dispatchers with `vp config --no-agent --hooks-dir .github/hooks`. The project hook scripts are in `.github/hooks/`; generated dispatchers in `.github/hooks/_/` are ignored. `vite.config.ts` holds formatting, lint, test, and staged-file settings. `vp` is the project-local Vite+ command; use `pnpm exec vp` to run it directly. The published build uses TypeScript, Babel, and Solid.
+
+If `core.hooksPath` points to another folder, Vite+ prints `core.hooksPath is already set to "…", skipping` and leaves that setting alone. A successful install alone does not prove these hooks are active. Inspect them with:
+
+```sh
+pnpm exec vp hooks status --hooks-dir .github/hooks
+```
+
+### Activate hooks for a clone with a Lefthook hook path
+
+`core.hooksPath` is Git's setting for the hook-program folder. Linked worktrees normally share this setting. Check its source and value from the repository folder:
+
+```sh
+git config --show-origin --get-all core.hooksPath
+```
+
+For a repository-local setting from this clone's `.git/config` that points to its Lefthook hooks (`.git/hooks` or the absolute main-checkout `.git/hooks` path), activate Vite+ once per clone:
+
+```sh
+git config --local --unset-all core.hooksPath
+pnpm install
+pnpm exec vp config --no-agent --hooks-dir .github/hooks
+pnpm exec vp hooks status --hooks-dir .github/hooks
+```
+
+The status must show the relative `core.hooksPath` value `.github/hooks/_`, an installed dispatcher, and the `pre-commit` and `pre-push` project scripts. The explicit `vp config` also covers repeated installs that do not run lifecycle scripts. If the setting belongs to a different hook system or comes from global or worktree-specific configuration, resolve that setup before removing it.
+
+### Working in v4 and v6 worktrees
+
+Both branches use Vite+ hooks and the contributor Node.js and Git requirements above. With the relative `.github/hooks/_` setting, each worktree uses its own hook scripts and dependencies. Run `pnpm install` in every worktree and after switching a checkout between these branches. Run the status command there; if the dispatcher is missing, run `pnpm exec vp config --no-agent --hooks-dir .github/hooks` there. Install dependencies before committing or pushing from a new worktree.
+
+Set `VP_GIT_HOOKS=0` to skip Vite+ hook installation or execution for one command, for example `VP_GIT_HOOKS=0 pnpm install` or `VP_GIT_HOOKS=0 git commit`. To disable hooks persistently in a clone, run `pnpm exec vp hooks disable --hooks-dir .github/hooks`; re-enable them with `pnpm exec vp hooks enable --hooks-dir .github/hooks`.
 
 ## Local Quality Gates
 
-The Lefthook pre-commit hook runs Biome only on staged supported files and re-stages formatting and safe fixes. It does not run typecheck or tests.
+The Vite+ pre-commit hook runs `vp staged` to format and lint staged supported files and re-stage formatting and safe fixes. It keeps a backup, hides unstaged hunks in partially staged files, and restores the original state on failure. It does not run typecheck or tests.
 
-The Lefthook pre-push hook runs exactly:
+The Vite+ pre-push hook runs exactly:
 
 - `pnpm verify`
 
@@ -48,7 +79,7 @@ Run the canonical repository gate before opening a PR:
 pnpm verify
 ```
 
-It checks Biome linting and formatting, the pinned TypeScript toolchain, repository history/privacy, typecheck, build, the full test suite, focused four-surface parity, and package contents—in that order.
+It checks Vite+ linting and formatting, the pinned TypeScript toolchain, repository history/privacy, typecheck, build, the full test suite, focused four-surface parity, and package contents—in that order.
 
 Use `pnpm run test:watch` for local iteration. Use `pnpm run build:check` when you need the build plus package dry-run check.
 
@@ -72,14 +103,15 @@ The prompt bar is a fixed 12-cell bar. The label is the provider plus window, fo
 
 ### Fake-data fixtures
 
-`pnpm run test:stabilization:fixtures` runs a frozen Vitest set for config symlinks, config write targets, atomic JSON, OpenCode Go, Synthetic empty responses/surfaces, OpenRouter diagnostics/surfaces, Alibaba Token Plan process/provider, quota status, prompt selection, prompt-bar identity, TUI runtime, quota export, API-key query/config, and contribution guidance. It does not use real credentials, network provider calls, or the real `bl` executable. Before Vitest starts, the runner creates a `0700` temp HOME/XDG sandbox, strips known provider credential/session env vars and `OPENCODE_CONFIG`/`OPENCODE_CONFIG_DIR`, then deletes the sandbox on success, error, or signal.
+`pnpm run test:stabilization:fixtures` runs a frozen Vite+ test set (Vitest) for config symlinks, config write targets, atomic JSON, OpenCode Go, Synthetic empty responses/surfaces, OpenRouter diagnostics/surfaces, Alibaba Token Plan process/provider, quota status, prompt selection, prompt-bar identity, TUI runtime, quota export, API-key query/config, and contribution guidance. It does not use real credentials, network provider calls, or the real `bl` executable. Before `vp test run` starts, the runner creates a `0700` temp HOME/XDG sandbox, strips known provider credential/session env vars and `OPENCODE_CONFIG`/`OPENCODE_CONFIG_DIR`, then deletes the sandbox on success, error, or signal.
 
 ## CI Checks (Automated)
 
 PR and `main` pushes trigger `.github/workflows/ci.yml` (`CI` workflow):
 
-- Job: `pnpm-quality` on Node `24.x`
-- Steps: frozen install, `pnpm verify`, then one exact npm artifact pack and upload
+- Jobs: `pnpm-quality` on Ubuntu and `windows-verify` on Windows, both on Node `24.x`
+- Both quality jobs: frozen install, then `pnpm verify`
+- Ubuntu quality job: pack, audit, and upload one exact npm artifact
 - Job: `runtime-smoke` on Node `22.x` and `24.x`
 - Runtime smoke installs that exact packed artifact as a consumer and verifies the default/server imports, TUI export payload, CLI help, and `engines.node >=22.0.0`
 
