@@ -379,15 +379,23 @@ describe("package manifest compatibility", () => {
       expect(peerAllowsFloorOf("2.0.27", "2.0.28")).toBe(false);
     });
 
-    it("lets every shipped dependency resolve at or above the peer's floor", async () => {
-      const declaredPeer = pkg.peerDependencies["@opencode/plugin"];
-      const installed = JSON.parse(await text("../node_modules/@opencode/plugin/package.json"));
-      expect(
-        installed.version,
-        `Install @opencode/plugin@${declaredPeer} (the declared peer) so this test reads its peers.`,
-      ).toBe(declaredPeer);
+    // @opencode/plugin@2.0.28's peerDependencies. The GUI build installs a newer
+    // @opencode/plugin, so the declared peer's own package.json isn't in node_modules.
+    const declaredPeerPeers: Record<string, string> = {
+      "solid-js": ">=1.9.0",
+      "@opentui/core": ">=0.5.17",
+      "@opentui/solid": ">=0.5.17",
+      "@opencode/theme": "2.0.28",
+    };
 
-      const conflicts = Object.entries(installed.peerDependencies as Record<string, string>)
+    it("lets every shipped dependency resolve at or above the peer's floor", () => {
+      const declaredPeer = pkg.peerDependencies["@opencode/plugin"];
+      expect(
+        declaredPeer,
+        "Copy the new peer's list from `pnpm view @opencode/plugin@<peer> peerDependencies`.",
+      ).toBe("2.0.28");
+
+      const conflicts = Object.entries(declaredPeerPeers)
         .filter(([name]) => pkg.dependencies?.[name] !== undefined)
         .filter(([name, peerRange]) => !peerAllowsFloorOf(pkg.dependencies[name], peerRange))
         .map(
