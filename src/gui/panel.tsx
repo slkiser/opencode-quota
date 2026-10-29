@@ -5,7 +5,8 @@
  * reset time, "runs out in"), then the session's tokens; folded, a title with the providers and
  * errors, then the collapsed sidebar's one line per provider (when `collapsed.show` is on).
  * Click the title to fold or open it; plugin storage remembers that (`index.tsx`). The words and
- * the rows come from `surfaces-model.ts`.
+ * the rows come from `surfaces-model.ts`. The rows of all providers share one set of columns
+ * (`QuotaRows`), which quota toasts draw too.
  */
 import type { Context } from "@opencode/plugin/gui";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
@@ -19,6 +20,7 @@ import {
   pickedGroups,
   providerCounts,
   roleCss,
+  type RowSettings,
   type SurfaceGroup,
   type SurfaceRow,
 } from "./surfaces-model.js";
@@ -34,7 +36,7 @@ type PanelProps = {
   setOpen: (open: boolean) => void;
 };
 
-export function Bar(props: { settings: Settings; row: SurfaceRow }) {
+export function Bar(props: { settings: RowSettings; row: SurfaceRow }) {
   const percent = () => props.row.percent ?? 0;
   return (
     <span class="oq-pbar" style={{ background: roleCss(props.settings, "empty") }}>
@@ -55,6 +57,82 @@ export function Bar(props: { settings: Settings; row: SurfaceRow }) {
         />
       </Show>
     </span>
+  );
+}
+
+type RowsProps = {
+  groups: SurfaceGroup[];
+  settings: RowSettings;
+  /** A group's error, or its "not checked yet". */
+  state: (group: Pick<SurfaceGroup, "error" | "unchecked">) => string | undefined;
+  /** Pixels between providers. */
+  gap: number;
+};
+
+/**
+ * Providers and their rows in one grid (`.oq-prows`), so each column (label, bar, percent, reset
+ * time) starts and ends at the same x for every provider: each provider's name line, then a line
+ * per row, then "runs out in" under the row's bar. The open panel and quota toasts
+ * (`toast-rows.tsx`) draw these.
+ */
+export function QuotaRows(props: RowsProps) {
+  const color = (role: ColorRole, row?: SurfaceRow) =>
+    roleCss(props.settings, role, row?.percent, row?.paceLevel);
+  return (
+    <div class="oq-prows">
+      <For each={props.groups}>
+        {(group, index) => (
+          <div class="oq-pgroup" style={{ "margin-top": index() > 0 ? `${props.gap}px` : 0 }}>
+            <div class="oq-pname">
+              <b style={{ color: color("provider") }}>{group.name}</b>
+              <Show when={group.account}>
+                {(account) => <span style={{ color: color("account") }}>{account()}</span>}
+              </Show>
+              <Show when={props.state(group)}>
+                {(text) => (
+                  <span style={{ color: color(group.error ? "error" : "value") }}>{text()}</span>
+                )}
+              </Show>
+            </div>
+            <For each={group.rows}>
+              {(row) => (
+                <>
+                  <Show
+                    when={row.percent !== undefined}
+                    fallback={
+                      <div class="oq-prow oq-plain">
+                        <span style={{ color: color("label") }}>{row.name}</span>
+                        <span style={{ color: color("value") }}>{row.value}</span>
+                      </div>
+                    }
+                  >
+                    <div class="oq-prow">
+                      <span style={{ color: color("label", row) }}>{row.name}</span>
+                      <Show when={props.settings.layout.bar !== "none"} fallback={<span />}>
+                        <Bar settings={props.settings} row={row} />
+                      </Show>
+                      <span class="oq-pnum" style={{ color: color("percent", row) }}>
+                        {row.value}
+                      </span>
+                      <span class="oq-pnum" style={{ color: color("reset", row) }}>
+                        {row.reset}
+                      </span>
+                    </div>
+                  </Show>
+                  <Show when={row.pace}>
+                    {(pace) => (
+                      <div class="oq-ppace" style={{ color: color("warning") }}>
+                        {pace().words}
+                      </div>
+                    )}
+                  </Show>
+                </>
+              )}
+            </For>
+          </div>
+        )}
+      </For>
+    </div>
   );
 }
 
@@ -106,65 +184,12 @@ export function QuotaPanel(props: PanelProps) {
       </button>
       <Show when={props.snapshot()} fallback={<p class="oq-muted">{ctx.t("panel.loading")}</p>}>
         <Show when={props.open()}>
-          <For each={open()?.groups ?? []}>
-            {(group, index) => (
-              <div
-                class="oq-pgroup"
-                style={{
-                  "margin-top": index() > 0 ? `${settings().layout.providerGap * 10}px` : 0,
-                }}
-              >
-                <div class="oq-pname">
-                  <b style={{ color: color("provider") }}>{group.name}</b>
-                  <Show when={group.account}>
-                    {(account) => <span style={{ color: color("account") }}>{account()}</span>}
-                  </Show>
-                  <Show when={state(group)}>
-                    {(text) => (
-                      <span style={{ color: color(group.error ? "error" : "value") }}>
-                        {text()}
-                      </span>
-                    )}
-                  </Show>
-                </div>
-                <For each={group.rows}>
-                  {(row) => (
-                    <>
-                      <Show
-                        when={row.percent !== undefined}
-                        fallback={
-                          <div class="oq-prow oq-plain">
-                            <span style={{ color: color("label") }}>{row.name}</span>
-                            <span style={{ color: color("value") }}>{row.value}</span>
-                          </div>
-                        }
-                      >
-                        <div class="oq-prow">
-                          <span style={{ color: color("label", row) }}>{row.name}</span>
-                          <Show when={settings().layout.bar !== "none"} fallback={<span />}>
-                            <Bar settings={settings()} row={row} />
-                          </Show>
-                          <span class="oq-pnum" style={{ color: color("percent", row) }}>
-                            {row.value}
-                          </span>
-                          <span class="oq-pnum" style={{ color: color("reset", row) }}>
-                            {row.reset}
-                          </span>
-                        </div>
-                      </Show>
-                      <Show when={row.pace}>
-                        {(pace) => (
-                          <div class="oq-ppace" style={{ color: color("warning") }}>
-                            {pace().words}
-                          </div>
-                        )}
-                      </Show>
-                    </>
-                  )}
-                </For>
-              </div>
-            )}
-          </For>
+          <QuotaRows
+            groups={open()?.groups ?? []}
+            settings={settings()}
+            state={state}
+            gap={settings().layout.providerGap * 10}
+          />
           <Show when={open()?.session}>
             {(session) => (
               <div
@@ -181,50 +206,52 @@ export function QuotaPanel(props: PanelProps) {
           </Show>
         </Show>
         <Show when={!props.open() && settings().collapsed.show}>
-          <For each={folded()}>
-            {(group) => (
-              <>
-                <div class="oq-prow">
-                  <span style={{ color: color("provider", group.row) }}>{group.title}</span>
-                  <Show
-                    when={group.row?.percent !== undefined ? group.row : undefined}
-                    fallback={
-                      <span
-                        class="oq-pwide"
-                        style={{ color: color(group.error ? "error" : "value") }}
-                      >
-                        {state(group) ?? group.row?.value ?? ""}
-                      </span>
-                    }
-                  >
-                    {(row) => (
-                      <>
-                        <Show when={settings().layout.bar !== "none"} fallback={<span />}>
-                          <Bar settings={settings()} row={row()} />
-                        </Show>
-                        <span class="oq-pnum" style={{ color: color("percent", row()) }}>
-                          {row().name} {row().value}
-                        </span>
+          <div class="oq-prows">
+            <For each={folded()}>
+              {(group) => (
+                <>
+                  <div class="oq-prow">
+                    <span style={{ color: color("provider", group.row) }}>{group.title}</span>
+                    <Show
+                      when={group.row?.percent !== undefined ? group.row : undefined}
+                      fallback={
                         <span
-                          class="oq-pnum"
-                          style={{ color: color(group.error ? "error" : "reset", row()) }}
+                          class="oq-pwide"
+                          style={{ color: color(group.error ? "error" : "value") }}
                         >
-                          {group.error ?? row().reset}
+                          {state(group) ?? group.row?.value ?? ""}
                         </span>
-                      </>
+                      }
+                    >
+                      {(row) => (
+                        <>
+                          <Show when={settings().layout.bar !== "none"} fallback={<span />}>
+                            <Bar settings={settings()} row={row()} />
+                          </Show>
+                          <span class="oq-pnum" style={{ color: color("percent", row()) }}>
+                            {row().name} {row().value}
+                          </span>
+                          <span
+                            class="oq-pnum"
+                            style={{ color: color(group.error ? "error" : "reset", row()) }}
+                          >
+                            {group.error ?? row().reset}
+                          </span>
+                        </>
+                      )}
+                    </Show>
+                  </div>
+                  <Show when={group.row?.pace}>
+                    {(pace) => (
+                      <div class="oq-ppace" style={{ color: color("warning") }}>
+                        {pace().words}
+                      </div>
                     )}
                   </Show>
-                </div>
-                <Show when={group.row?.pace}>
-                  {(pace) => (
-                    <div class="oq-ppace" style={{ color: color("warning") }}>
-                      {pace().words}
-                    </div>
-                  )}
-                </Show>
-              </>
-            )}
-          </For>
+                </>
+              )}
+            </For>
+          </div>
         </Show>
       </Show>
     </div>

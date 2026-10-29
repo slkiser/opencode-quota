@@ -12,12 +12,15 @@
  * while no app window has focus; its id is the notice's, so of several windows only the first
  * sends it.
  *
- * The toast shows the TUI toast's rows and words, as a sentence per provider
- * (`toastSentences`): a window draws a toast's text in a proportional font and may join its
- * lines, so the TUI's columns and bars would not line up. The app collapses a description's
- * line breaks, so the toast's text is found on screen by its words and marked (`data-oq-lines`)
- * for the window's CSS to keep them; a toast not found within 60 frames keeps the app's look. The
- * window's own words (the titles) come from the catalog.
+ * A quota toast's text is the TUI toast's rows and words as a sentence per provider
+ * (`toastSentences`), each on its own line: what assistive tech reads. The toast is found on
+ * screen by that text (an app toast's description, `.toast-v2 [data-description]`, with exactly
+ * that text and no rows yet) within 60 frames. Then the text is hidden from sight and the open
+ * Quota panel's rows for the toast's providers show under the title instead (`toast-rows.tsx`),
+ * in the panel's columns and colors; they are taken out, their Solid root ended, once the toast
+ * or its text leaves the page, or the plugin goes away. A toast not found keeps its text. The
+ * text of a toast without rows (a reset notice) keeps its line breaks (`data-oq-lines`), which
+ * the app would collapse. The window's own words (the titles) come from the catalog.
  *
  * When the window's server restarts or the plugin goes away, the refreshes still waiting stop
  * keeping their folders loaded and their answers are dropped; once the plugin is gone it shows
@@ -39,6 +42,8 @@ import { listenForTurns } from "../tui/turn-events.js";
 import { toastSentences } from "../view/text.js";
 import type { GuiQuota } from "./bridge.js";
 import { surfaceSettings } from "./surface-settings.js";
+import { type PanelView, type RowSettings, toastView } from "./surfaces-model.js";
+import { type DrawnRows, drawToastRows } from "./toast-rows.js";
 
 /** Columns of a toast as wide as the TUI's widest (`toastRoom`: 51 columns of text). */
 const TOAST_COLUMNS = 200;
@@ -46,19 +51,16 @@ const TOAST_COLUMNS = 200;
 /** Frames to look for a toast's text on screen: a second at 60 Hz, half that at 120 Hz. */
 const MARK_FRAMES = 60;
 
-/** Marks the toast description showing `text` so the window's CSS keeps its line breaks. */
-function markLines(text: string): void {
-  if (!text.includes("\n") || typeof document === "undefined") return;
-  let frames = 0;
-  const find = () => {
-    for (const node of document.querySelectorAll(".toast-v2 [data-description]")) {
-      if (node.textContent === text) return node.setAttribute("data-oq-lines", "");
-    }
-    frames += 1;
-    if (frames < MARK_FRAMES) requestAnimationFrame(find);
-  };
-  requestAnimationFrame(find);
-}
+/** On a toast's description: the window's CSS keeps its line breaks. */
+const LINES_ATTR = "data-oq-lines";
+/** On a toast's description: our rows stand in for it, so the window's CSS hides it from sight. */
+const ROWS_ATTR = "data-oq-rows";
+
+/** Draws a quota toast's rows (`drawToastRows`). */
+export type DrawRows = (view: PanelView, settings: RowSettings) => DrawnRows;
+
+/** Rows drawn in a toast on screen, after the description they stand in for. */
+type PlacedRows = { description: Element; rows: DrawnRows };
 
 const VARIANTS: Record<ToastOptions["variant"], "default" | "success" | "error"> = {
   info: "default",
@@ -85,6 +87,7 @@ export function createGuiToasts(
   ctx: Context,
   data: GuiQuota,
   settingsOf: (snapshot: QuotaSnapshot | undefined) => Settings = surfaceSettings,
+  drawRows: DrawRows = (view, settings) => drawToastRows(ctx, view, settings),
 ): GuiToasts {
   const startedAtMs = Date.now();
   /** The folder each session's last turn event named. */
@@ -117,6 +120,65 @@ export function createGuiToasts(
   const releaseHolds = () => {
     generation += 1;
     for (const release of holds) release();
+  };
+
+  /** The rows in toasts on screen, and the watch that takes them out once their toast goes. */
+  const placed = new Set<PlacedRows>();
+  let watching: MutationObserver | undefined;
+
+  const takeOut = (entry: PlacedRows) => {
+    placed.delete(entry);
+    entry.rows.dispose();
+    entry.rows.element.remove();
+    entry.description.removeAttribute(ROWS_ATTR);
+  };
+  /** Takes out the rows whose toast, or its text, left the page; stops watching after the last. */
+  const sweep = () => {
+    for (const entry of placed) {
+      if (!entry.description.isConnected || !entry.rows.element.isConnected) takeOut(entry);
+    }
+    if (placed.size > 0) return;
+    watching?.disconnect();
+    watching = undefined;
+  };
+  const takeOutAll = () => {
+    for (const entry of placed) takeOut(entry);
+    sweep();
+  };
+
+  /**
+   * Hands `found` the description of our toast once it is on screen: the app toast's
+   * description with exactly `text` and no rows of ours. Looks for MARK_FRAMES frames.
+   */
+  const findDescription = (text: string, found: (description: Element) => void) => {
+    if (!text || typeof document === "undefined") return;
+    let frames = 0;
+    const find = () => {
+      if (disposed) return;
+      for (const node of document.querySelectorAll(".toast-v2 [data-description]")) {
+        if (node.textContent === text && !node.hasAttribute(ROWS_ATTR)) return found(node);
+      }
+      frames += 1;
+      if (frames < MARK_FRAMES) requestAnimationFrame(find);
+    };
+    requestAnimationFrame(find);
+  };
+
+  /** Draws the rows after `description`, which the window's CSS then hides from sight. */
+  const placeRows = (description: Element, view: PanelView, settings: RowSettings) => {
+    let rows: DrawnRows;
+    try {
+      rows = drawRows(view, settings);
+    } catch (error) {
+      reportFailure(error);
+      return;
+    }
+    description.after(rows.element);
+    description.setAttribute(ROWS_ATTR, "");
+    placed.add({ description, rows });
+    if (watching) return;
+    watching = new MutationObserver(sweep);
+    watching.observe(document.body, { childList: true, subtree: true });
   };
 
   const builtin = () => {
@@ -153,7 +215,16 @@ export function createGuiToasts(
         variant: VARIANTS[toast.variant],
         duration: toast.duration,
       });
-      markLines(description);
+      if (input) {
+        const view = toastView(input);
+        const settings = { colors: input.colors, layout: input.layout };
+        findDescription(description, (node) => {
+          node.setAttribute(LINES_ATTR, "");
+          placeRows(node, view, settings);
+        });
+      } else if (description.includes("\n")) {
+        findDescription(description, (node) => node.setAttribute(LINES_ATTR, ""));
+      }
       return undefined;
     },
     display: (snapshot) => settingsOf(snapshot ? newest(snapshot) : latest),
@@ -236,6 +307,7 @@ export function createGuiToasts(
     disposed = true;
     releaseHolds();
     toasts.cancel();
+    takeOutAll();
   });
 
   return {

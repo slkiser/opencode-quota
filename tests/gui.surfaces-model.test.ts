@@ -19,12 +19,14 @@ import {
   segmentCss,
   statusStripShows,
   stripLayout,
+  toastView,
 } from "../src/gui/surfaces-model.js";
 import type { ClientSettings } from "../src/settings/index.js";
 import { defaultSettings } from "../src/settings/schema.js";
 import { THEME_COLORS } from "../src/tui/display.js";
 import { wantsResetNotice } from "../src/tui/toasts.js";
 import { listenForTurns, type SessionEvent } from "../src/tui/turn-events.js";
+import { toastInput } from "../src/view/text.js";
 import { providerSnapshot, quotaRow as row } from "./helpers/fake-answers.js";
 
 const NOW = Date.parse("2026-10-27T12:00:00.000Z");
@@ -143,6 +145,38 @@ describe("GUI Quota panel", () => {
     expect(view.groups.map((group) => group.providerId)).toEqual(["anthropic", "openai"]);
     expect(view.groups[0]?.rows.every((item) => item.pace === undefined)).toBe(true);
     expect(view.session).toBeUndefined();
+  });
+});
+
+describe("GUI quota toast", () => {
+  it("shows the toast's providers as the panel's rows, each percent with its word", () => {
+    const { snapshot, settings } = settingsWith({ "toast.names": { "anthropic.week": "Week" } });
+    const balance = providerSnapshot("openrouter", "OpenRouter", [
+      row("openrouter.balance", {
+        label: "Balance",
+        type: "balance",
+        amount: { decimal: "12.4", unit: { kind: "currency", code: "USD" } },
+      }),
+    ]);
+    const shown = { ...snapshot, providers: [...snapshot.providers, balance] };
+    const view = toastView(toastInput(shown, settings, { nowMs: NOW, width: 51 }));
+
+    expect(view.groups.map((group) => group.providerId)).toEqual([
+      "anthropic",
+      "openai",
+      "zai",
+      "openrouter",
+    ]);
+    const anthropic = view.groups[0];
+    expect(anthropic?.rows.map((item) => item.name)).toEqual(["5h", "Week"]);
+    expect(anthropic?.rows[1]).toMatchObject({ value: "10% left", level: "low" });
+    expect(anthropic?.rows[1]?.pace?.words).toMatch(/^runs out in /u);
+    expect(view.groups[2]).toMatchObject({ error: expect.any(String), rows: [] });
+    const balanceRow = view.groups[3]?.rows[0];
+    expect(balanceRow?.name).toBe("Balance");
+    expect(balanceRow?.percent).toBeUndefined();
+    expect(balanceRow?.value).toMatch(/12\.40/u);
+    expect(view.session).toBe("12.3K in · 2.10K out");
   });
 });
 

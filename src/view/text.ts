@@ -659,6 +659,8 @@ export type ToastInput = {
   nowMs: number;
   /** The bar shape and the even-use mark; a toast's bars take the room it has. */
   layout: Layout;
+  /** The colors of its roles and levels, for a window that draws the rows itself. */
+  colors: Settings["colors"];
   toastLayout: ToastLayout;
   /** Columns of text inside the toast (`toastRoom`); no line is wider. */
   room: number;
@@ -925,6 +927,7 @@ export function toastInput(
 ): ToastInput {
   return {
     ...surfaceInput("toast", snapshot, settings, view.nowMs),
+    colors: settings.colors,
     toastLayout: settings.toast.layout,
     room: view.width,
     sessionTokens: settings.toast.sessionTokens ? snapshot.sessionTokens : undefined,

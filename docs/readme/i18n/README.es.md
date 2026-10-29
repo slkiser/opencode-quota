@@ -69,7 +69,7 @@ Agrega el plugin a `opencode.jsonc` o `opencode.json` y conserva tus otros plugi
   <tr><td><code>sidebar</code></td><td>Panel Quota en la barra lateral</td><td>Pestaña lateral Quota</td></tr>
   <tr><td><code>collapsed</code></td><td>Panel de la barra lateral plegado a una línea por proveedor</td><td>Píldora de la barra de título, y la pestaña lateral Quota cuando está plegada</td></tr>
   <tr><td><code>statusLine</code></td><td>Línea bajo el cuadro de mensaje</td><td>Franja en la parte inferior de la ventana, y la píldora sobre el cuadro de mensaje</td></tr>
-  <tr><td><code>toast</code></td><td>Toasts con barras</td><td>Toasts, una frase por proveedor</td></tr>
+  <tr><td><code>toast</code></td><td>Toasts con barras</td><td>Toasts con las filas y barras de la pestaña lateral Quota</td></tr>
   </table>
   <p><b>Nota:</b> en la TUI, la línea de estado se oculta mientras la barra lateral muestra cuotas, salvo que <b>Next to the sidebar</b> (<code>statusLine.withSidebar</code>) esté activado. En Desktop, la franja también se muestra junto a la pestaña lateral Quota de forma predeterminada; <b>Next to the side panel</b> (<code>statusLine.withSidePanel</code>) lo desactiva.</p>
   </details>

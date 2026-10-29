@@ -81,8 +81,11 @@ export const STYLE = `
 .oq-title-slot { order: 1; align-self: center; margin: -5px 12px -5px auto; }
 [data-slot="dialog-header"]:has(> .oq-title-slot) > [data-slot="dialog-close-button"] { order: 2; }
 .oq-window.oq-title-dates { display: block; }
-/* A quota toast keeps each provider's sentence on its own line (\`toasts.ts\` marks it). */
+/* A toast's text keeps its line breaks (\`toasts.ts\` marks it). A quota toast's text is hidden from
+   sight, not from assistive tech, while our rows (\`.oq-toast-rows\`) stand in for it. */
 .toast-v2 [data-description][data-oq-lines] { white-space: pre-line; }
+.toast-v2 [data-description][data-oq-rows] { position: absolute; width: 1px; height: 1px; margin: -1px;
+  padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .oq-between { display: flex; align-items: center; justify-content: flex-end; gap: 6px; font-size: 12px; color: var(--oq-text-2); }
 .oq-between input { font: inherit; color: var(--oq-text); background: var(--oq-raised);
   border: 1px solid var(--oq-line); border-radius: 6px; padding: 2px 6px; color-scheme: light dark; }
@@ -184,17 +187,22 @@ export const STYLE = `
 .oq-panel { padding: 10px 12px; overflow: auto; height: 100%; box-sizing: border-box; }
 .oq-panel .oq-muted { color: var(--oq-n-muted); }
 .oq-panel-title { font-weight: 600; margin-bottom: 8px; }
-.oq-pname { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; margin-bottom: 2px; }
-.oq-prow { display: grid; grid-template-columns: minmax(40px, auto) minmax(30px, 1fr) auto auto; gap: 6px;
-  align-items: center; white-space: nowrap; margin: 2px 0; }
+/* The rows of every provider share the columns of one grid: label (as wide as the widest, at most
+   40% of the room), bar, percent and reset time. Groups and rows are subgrids of it. */
+.oq-prows { display: grid; grid-template-columns: fit-content(40%) minmax(30px, 1fr) max-content max-content;
+  column-gap: 6px; align-items: center; font-variant-numeric: tabular-nums; }
+.oq-pgroup, .oq-prow { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; }
+.oq-pname { grid-column: 1 / -1; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; margin-bottom: 2px; }
+.oq-prow { white-space: nowrap; margin: 2px 0; }
+.oq-prow > span { min-width: 0; }
 .oq-prow > span:first-child { overflow: hidden; text-overflow: ellipsis; }
-.oq-prow.oq-plain { grid-template-columns: minmax(40px, auto) 1fr; }
-.oq-prow .oq-pwide { grid-column: 2 / 5; overflow: hidden; text-overflow: ellipsis; }
+.oq-prow.oq-plain > span + span, .oq-prow .oq-pwide { grid-column: 2 / -1; overflow: hidden; text-overflow: ellipsis; }
 .oq-pnum { text-align: right; font-variant-numeric: tabular-nums; }
 .oq-pbar { position: relative; height: 6px; border-radius: 3px; }
 .oq-pfill { position: absolute; inset: 0 auto 0 0; border-radius: 3px; }
 .oq-peven { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; border-radius: 1px; }
-.oq-ppace { padding-left: 46px; font-size: 11.5px; }
+.oq-ppace { grid-column: 2 / -1; font-size: 11.5px; }
+.oq-toast-rows { min-width: 0; }
 .oq-strip-bottom { position: relative; display: flex; align-items: center; justify-content: flex-end;
   flex: 0 0 auto; align-self: stretch; box-sizing: border-box; width: 100%; min-width: 0; height: 26px;
   overflow: hidden; white-space: nowrap; padding: 0 12px; margin-left: auto;

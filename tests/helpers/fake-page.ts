@@ -1,6 +1,6 @@
 /**
- * A small fake browser page for the GUI's DOM code (`src/gui/side-width.ts`): elements with
- * attributes, boxes and a selector engine for the few selectors that code uses (tag, `.class`,
+ * A small fake browser page for the GUI's DOM code (`src/gui/side-width.ts`, `src/gui/toasts.ts`):
+ * elements with attributes, text, boxes and a selector engine for the few selectors that code uses (tag, `.class`,
  * `[attr]`, `[attr="value"]`, `:scope`, `>` and descendant combinators; anything else throws),
  * events with capture, bubbling and `once`, a `MutationObserver` the test flushes, and frames
  * and a clock the test advances. `installFakePage` puts them on the globals; `removeFakePage`
@@ -152,6 +152,8 @@ export class FakeElement extends FakeTarget {
   readonly attributes = new Map<string, string>();
   rect: Rect;
   direction = "ltr";
+  /** The element's own text, before its children's. */
+  text = "";
 
   constructor(
     tag: string,
@@ -179,6 +181,27 @@ export class FakeElement extends FakeTarget {
     return this;
   }
 
+  /** Puts `siblings` right after this element, in its parent. */
+  after(...siblings: FakeElement[]) {
+    const parent = this.parentElement;
+    if (!parent) return;
+    for (const sibling of siblings) sibling.remove();
+    parent.children.splice(parent.children.indexOf(this) + 1, 0, ...siblings);
+    for (const sibling of siblings) sibling.parent = parent;
+    changed(parent);
+  }
+
+  get textContent(): string {
+    return this.text + this.children.map((child) => child.textContent).join("");
+  }
+
+  /** In the page: the document is an ancestor. */
+  get isConnected(): boolean {
+    let node: FakeTarget | undefined = this.parent;
+    while (node instanceof FakeElement) node = node.parent;
+    return node instanceof FakeDocument;
+  }
+
   remove() {
     const parent = this.parentElement;
     if (!parent) return;
@@ -193,6 +216,11 @@ export class FakeElement extends FakeTarget {
 
   setAttribute(name: string, value = "") {
     this.attributes.set(name, value);
+    if (name === "class") changed(this);
+  }
+
+  removeAttribute(name: string) {
+    this.attributes.delete(name);
     if (name === "class") changed(this);
   }
 
@@ -275,6 +303,10 @@ export class FakeDocument extends FakeTarget {
 
   querySelector(selector: string) {
     return this.body.querySelector(selector);
+  }
+
+  hasFocus() {
+    return true;
   }
 }
 

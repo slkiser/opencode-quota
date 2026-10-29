@@ -11,6 +11,7 @@
  *   pixels (`stripLayout`) as `view/text.ts` lays out the TUI's in columns.
  * - The composer pill is the status line's "one provider" detail, for the provider that serves
  *   the session's current model, with its pace.
+ * - A quota toast draws the open panel's rows for the toast's providers (`toastView`).
  *
  * Colors follow the TUI's color settings: a role's named color is a CSS variable of the app's
  * theme (`style.ts`), a "#rrggbb" stays fixed, and "bar" takes the row's level color.
@@ -20,7 +21,13 @@ import type { Settings } from "../settings/schema.js";
 import { barLevel, type Level, sessionTokensText } from "../view/format.js";
 import { errorWords, type Place, type RowFacts, rowFacts } from "../view/row-facts.js";
 import { type Group, pickRow, visibleGroups, windowFor } from "../view/select.js";
-import { type ColorRole, lineText, lowCacheLine, type Segment } from "../view/text.js";
+import {
+  type ColorRole,
+  lineText,
+  lowCacheLine,
+  type Segment,
+  type ToastInput,
+} from "../view/text.js";
 import { ROLE_THEME } from "./surface-settings.js";
 
 export type SurfaceRow = RowFacts & {
@@ -47,6 +54,9 @@ export type SurfaceGroup = {
   rows: SurfaceRow[];
 };
 
+/** What a surface's rows take from the settings: their colors, and the bar shape. */
+export type RowSettings = Pick<Settings, "colors" | "layout">;
+
 /** A group with the one row a provider shows on the one-row surfaces. */
 export type PickedGroup = Omit<SurfaceGroup, "rows"> & { row?: SurfaceRow };
 
@@ -63,7 +73,7 @@ const LOW_CACHE_WIDTH = 48;
 
 /** How the always-on surfaces show rows, as `view/text.ts` shows them in the TUI. */
 function alwaysOnPlace(
-  settings: Settings,
+  settings: Pick<Settings, "words" | "layout">,
   nowMs: number,
   percent: Place["percent"],
   pace: Place["pace"],
@@ -78,7 +88,7 @@ function alwaysOnPlace(
   };
 }
 
-function surfaceRow(settings: Settings, facts: RowFacts): SurfaceRow {
+function surfaceRow(settings: Pick<Settings, "colors">, facts: RowFacts): SurfaceRow {
   if (facts.percent === undefined) return facts;
   return { ...facts, level: barLevel(settings.colors, facts.percent, facts.paceLevel) };
 }
@@ -118,6 +128,22 @@ export function panelView(snapshot: QuotaSnapshot, settings: Settings, nowMs: nu
     session: sessionTokensText(tokens),
     ...(lowCache ? { lowCache: lineText(lowCache) } : {}),
   };
+}
+
+/**
+ * A quota toast's rows as the open panel draws them: the toast's providers and rows, each
+ * percent with its word ("65% left", the toast's title has none), then the session's tokens when
+ * the toast shows them.
+ */
+export function toastView(input: ToastInput): PanelView {
+  const place = alwaysOnPlace(input, input.nowMs, "words", input.runsOut ? "runsOut" : undefined);
+  const groups = input.groups.map((group) => ({
+    ...surfaceGroup(input.groups, group, input.nowMs),
+    rows: group.rows.map((item) => surfaceRow(input, rowFacts(item, group, place))),
+  }));
+  return input.sessionTokens
+    ? { groups, session: sessionTokensText(input.sessionTokens) }
+    : { groups };
 }
 
 /**
@@ -287,19 +313,23 @@ function fixedCss(choice: ColorChoice, fallback: NamedColor): string {
   return namedCss(choice as NamedColor);
 }
 
-function choiceFor(settings: Settings, role: ColorRole): ColorChoice {
+function choiceFor(settings: Pick<Settings, "colors">, role: ColorRole): ColorChoice {
   return settings.colors[role] ?? ROLE_THEME[role];
 }
 
 /** The bar color for a percent left, by the row's pace when the bar colors follow pace. */
-export function levelCss(settings: Settings, percent: number, paceLevel?: Level): string {
+export function levelCss(
+  settings: Pick<Settings, "colors">,
+  percent: number,
+  paceLevel?: Level,
+): string {
   const role = barLevel(settings.colors, percent, paceLevel);
   return fixedCss(choiceFor(settings, role), ROLE_THEME[role] as NamedColor);
 }
 
 /** A role's color. A role set to "bar" takes the level color of the row's percent. */
 export function roleCss(
-  settings: Settings,
+  settings: Pick<Settings, "colors">,
   role: ColorRole,
   percent = 100,
   paceLevel?: Level,
