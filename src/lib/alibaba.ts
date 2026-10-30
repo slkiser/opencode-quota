@@ -58,6 +58,8 @@ const WINDOWS_EXECUTABLE_NAMES = ["bl.exe", "bl.cmd"];
 /** npm's global layout: the wrapped package sits in `node_modules` beside its shims. */
 const SHIM_PACKAGE_NAME = "bailian-cli";
 const SHIM_EXTENSION = ".cmd";
+/** Bun's global installs pair `<name>.exe` with a `<name>.bunx` marker beside it. */
+const BUN_SHIM_MARKER_EXTENSION = ".bunx";
 const SHELL_LAUNCHER_NAMES = new Set([
   "bash",
   "bash.exe",
@@ -335,13 +337,30 @@ async function isRegularFile(file: string): Promise<boolean> {
 /** Read what an npm `bl.cmd` shim wraps instead of running it: the package manifest declares its
  * bin, so the `.cmd` text is never needed. Failures stay silent, since a parse error would leak
  * file contents. */
+/** Whether the candidate is a bun global shim: a real binary, but one that spawns node itself,
+ * which escapes the hidden window the check runs under. Only the marker decides, never the
+ * bytes: without `<name>.bunx` beside it, an `.exe` is the native install and runs directly. */
+async function isBunShimExecutable(paths: path.PlatformPath, candidate: string): Promise<boolean> {
+  if (paths.extname(candidate).toLowerCase() !== ".exe") return false;
+  const stem = paths.basename(candidate, paths.extname(candidate));
+  try {
+    await stat(paths.join(paths.dirname(candidate), `${stem}${BUN_SHIM_MARKER_EXTENSION}`));
+  } catch {
+    return false;
+  }
+  return true;
+}
 async function resolveNodeShim(
   paths: path.PlatformPath,
   shimFile: string,
   packageName: string,
   projectFolders: readonly string[],
+  layout: "npm" | "bun" = "npm",
 ): Promise<string | null> {
-  const packageRoot = paths.join(paths.dirname(shimFile), "node_modules", packageName);
+  const packageRoot =
+    layout === "bun"
+      ? paths.join(paths.dirname(shimFile), "..", "install", "global", "node_modules", packageName)
+      : paths.join(paths.dirname(shimFile), "node_modules", packageName);
   const shimCommand = paths.basename(shimFile, paths.extname(shimFile)).toLowerCase();
 
   let contents: string;
@@ -423,17 +442,30 @@ export async function resolveAlibabaTokenPlanExecutable(params: {
       const candidate = paths.join(directory, name);
       if (!(await isRegularFile(candidate))) continue;
       const resolved = await realpath(candidate).catch(() => candidate);
-      if (isShellLauncherPath(paths, candidate) || isShellLauncherPath(paths, resolved)) {
+      const bunShim = platform === "win32" && (await isBunShimExecutable(paths, candidate));
+      if (
+        isShellLauncherPath(paths, candidate) ||
+        isShellLauncherPath(paths, resolved) ||
+        bunShim
+      ) {
         // npm's Windows `bl.cmd` is a shell launcher by extension but only forwards to the
-        // package's node entry. Running node directly keeps the child the CLI (killable, with the
-        // pipes) rather than cmd.exe or a shell.
+        // package's node entry. Bun's `bl.exe` is a real binary that spawns node itself, and
+        // that grandchild escapes the hidden window, flashing a console on every check.
+        // Running node directly keeps the child the CLI (killable, with the pipes) rather
+        // than cmd.exe, a shell, or a flashing console window.
         if (
           platform === "win32" &&
-          paths.extname(candidate).toLowerCase() === SHIM_EXTENSION &&
+          (bunShim || paths.extname(candidate).toLowerCase() === SHIM_EXTENSION) &&
           !SHELL_LAUNCHER_NAMES.has(paths.basename(resolved).toLowerCase()) &&
           !isInsideProject(paths, projectFolders, resolved)
         ) {
-          const entry = await resolveNodeShim(paths, candidate, SHIM_PACKAGE_NAME, projectFolders);
+          const entry = await resolveNodeShim(
+            paths,
+            candidate,
+            SHIM_PACKAGE_NAME,
+            projectFolders,
+            bunShim ? "bun" : "npm",
+          );
           const node =
             entry === null ? null : await resolveNodeExecutable(paths, trusted, projectFolders);
           if (entry !== null && node !== null) return { ok: true, file: node, args: [entry] };
@@ -966,15 +998,31 @@ export async function queryAlibabaReply(options: {
   runtime: AlibabaTokenPlanRuntime;
 }): Promise<AlibabaReply> {
   const timeoutMs = options.requestTimeoutMs ?? ALIBABA_TOKEN_PLAN_REQUEST_TIMEOUT_MS;
+  // Only the CLI's own budget may round into a retry: an explicit setting stays one attempt.
+  const attempts = options.requestTimeoutMs === undefined ? 2 : 1;
   const invocation = await resolveAlibabaTokenPlanInvocation(options.runtime);
   if (!invocation.ok) return invocation;
-  try {
-    const result = await invocation.spawn(spawnRequestFor(invocation, options.args, timeoutMs));
-    const failure = mapSpawnResult(result, options.kinds);
-    return failure ?? { ok: true, text: result.stdout.toString("utf8") };
-  } catch {
-    return fail("spawn_failed");
+  // At most one second attempt, inside the seat loop's envelope, so a retried read can never
+  // overrun the store's 60 s fetch budget.
+  const deadline = Date.now() + ALIBABA_TOKEN_PLAN_SEAT_BUDGET_MS;
+  let failure: AlibabaFailure | null = null;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return failure ?? fail("timeout");
+    try {
+      const result = await invocation.spawn(
+        spawnRequestFor(invocation, options.args, Math.min(timeoutMs, remaining)),
+      );
+      failure = mapSpawnResult(result, options.kinds);
+      if (!failure) return { ok: true, text: result.stdout.toString("utf8") };
+      // Only a first-attempt timeout is a cold `bl`; any other failure, or the second
+      // timeout, is the answer.
+      if (failure.error.kind !== "timeout" || attempt + 1 >= attempts) return failure;
+    } catch {
+      return fail("spawn_failed");
+    }
   }
+  return failure ?? fail("timeout");
 }
 
 export async function queryAlibabaTokenPlanQuota(options: {

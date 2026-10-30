@@ -558,6 +558,56 @@ describe("alibaba token plan Windows resolution", () => {
     expect(requests[0]?.cwd).toBe(SAFE_TMP);
   });
 
+  // Bun's global layout: `<prefix>\bin\bl.exe` with a `bl.bunx` marker, the package under
+  // `<prefix>\install\global\node_modules\bailian-cli\`. The launcher spawns node itself,
+  // which escapes the hidden window, so the check runs node directly like the npm shim.
+  const BUN_BIN = W.join("C:\\", "bun", "bin");
+  const BUN_BL = W.join(BUN_BIN, "bl.exe");
+  const BUN_MARKER = W.join(BUN_BIN, "bl.bunx");
+  const BUN_PACKAGE_ROOT = W.join(
+    "C:\\",
+    "bun",
+    "install",
+    "global",
+    "node_modules",
+    "bailian-cli",
+  );
+  const BUN_MANIFEST = W.join(BUN_PACKAGE_ROOT, "package.json");
+  const BUN_ENTRY = W.join(BUN_PACKAGE_ROOT, "dist", "bailian.mjs");
+  const BUN_NODE = W.join(BUN_BIN, "node.exe");
+
+  function bunRuntime() {
+    return { platform: "win32" as const, cwd: WORKSPACE, homedir: HOME, pathEnv: BUN_BIN };
+  }
+
+  it("resolves a bun bl.exe shim to node so no console window flashes", async () => {
+    await mockWin32Files({
+      [BUN_BL]: "bun launcher",
+      [BUN_MARKER]: "marker",
+      [BUN_MANIFEST]: manifest({ bl: "dist/bailian.mjs" }),
+      [BUN_ENTRY]: "cli",
+      [BUN_NODE]: "node",
+    });
+    expect(await resolveAlibabaTokenPlanExecutable(bunRuntime())).toEqual({
+      ok: true,
+      file: BUN_NODE,
+      args: [BUN_ENTRY],
+    });
+  });
+
+  it("still runs a bl.exe with no bunx marker directly", async () => {
+    await mockWin32Files({ [BUN_BL]: "native binary" });
+    expect(await resolveAlibabaTokenPlanExecutable(bunRuntime())).toEqual({
+      ok: true,
+      file: BUN_BL,
+    });
+  });
+
+  it("refuses a bun shim whose package is absent instead of running it", async () => {
+    await mockWin32Files({ [BUN_BL]: "bun launcher", [BUN_MARKER]: "marker" });
+    expect(await resolveAlibabaTokenPlanExecutable(bunRuntime())).toEqual(LAUNCHER_ERROR);
+  });
+
   it.each([
     {
       name: "a manifest whose bin does not declare bl",
@@ -1192,6 +1242,84 @@ const { setTimeout: delay } = require("node:timers/promises");
     );
     expect(result.truncated).toBe(true);
     expect(result.stdout.length).toBe(256);
+  });
+});
+
+describe("alibaba token plan usage read retry", () => {
+  function timeoutRun() {
+    return {
+      code: null,
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.alloc(0),
+      timedOut: true,
+      truncated: false,
+    };
+  }
+
+  function monthlyRun() {
+    return {
+      code: 0,
+      stdout: Buffer.from(
+        JSON.stringify({ per1MonthPercentage: 0.25, per1MonthResetTime: 1_714_000_000_000 }),
+      ),
+      stderr: Buffer.alloc(0),
+      timedOut: false,
+      truncated: false,
+    };
+  }
+
+  it("answers from a second attempt when the first times out, inside the seat-loop budget", async () => {
+    await mockExecutable();
+    const requests: AlibabaTokenPlanSpawnRequest[] = [];
+    let calls = 0;
+    const result = await queryAlibabaTokenPlanQuota({
+      runtime: linuxRuntime(async (request: AlibabaTokenPlanSpawnRequest) => {
+        requests.push(request);
+        calls += 1;
+        return calls === 1 ? timeoutRun() : monthlyRun();
+      }),
+    });
+    expect(result).toEqual({
+      ok: true,
+      monthly: { percentRemaining: 75, resetTimeIso: "2024-04-24T23:06:40.000Z" },
+    });
+    expect(requests).toHaveLength(2);
+    expect(requests[0]?.timeoutMs).toBe(10_000);
+    expect(requests[1]?.timeoutMs).toBe(10_000);
+  });
+
+  it("reports the second timeout instead of waiting out the envelope", async () => {
+    await mockExecutable();
+    const requests: AlibabaTokenPlanSpawnRequest[] = [];
+    const result = await queryAlibabaTokenPlanQuota({
+      runtime: linuxRuntime(async (request: AlibabaTokenPlanSpawnRequest) => {
+        requests.push(request);
+        return timeoutRun();
+      }),
+    });
+    expect(result).toEqual({
+      ok: false,
+      error: { kind: "timeout", message: ERROR_MESSAGES.timeout },
+    });
+    expect(requests).toHaveLength(2);
+  });
+
+  it("an explicitly configured budget performs exactly one attempt", async () => {
+    await mockExecutable();
+    const requests: AlibabaTokenPlanSpawnRequest[] = [];
+    const result = await queryAlibabaTokenPlanQuota({
+      requestTimeoutMs: 2_000,
+      runtime: linuxRuntime(async (request: AlibabaTokenPlanSpawnRequest) => {
+        requests.push(request);
+        return timeoutRun();
+      }),
+    });
+    expect(result).toEqual({
+      ok: false,
+      error: { kind: "timeout", message: ERROR_MESSAGES.timeout },
+    });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.timeoutMs).toBe(2_000);
   });
 });
 
