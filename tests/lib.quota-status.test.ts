@@ -243,8 +243,8 @@ const REPORT_WORDS: readonly string[] = `
   rate_limited read refresh refresh_failed refresh_policy refresh_state remote-api resets
   retry row rows runtime_paths selected_windows selection set settings_file settings_issue
   shown snapshot stale staleness success syntax t text the token token_expires_at tokens tool
-  true unbound unit units unknown unpriced unpriced_30d usage v5 value window workspace_root
-  written yes yet ~
+  true unbound unit units unknown unpriced unpriced_30d usage v5 value valid_account_count
+  window workspace_root written yes yet ~
   environment origin os runtime bun node opencode-quota quota_status status TUI Plugin tab CLI
   channel version changed_from_defaults setting settings entry entries color separator null shipped
   error_kind unknown_cursor_models

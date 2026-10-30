@@ -4,11 +4,10 @@ import { createHash } from "node:crypto";
 
 import type { ErrorFacts } from "../core/errors.js";
 import type { Amount, DebugDetail, QuotaWindow } from "../core/types.js";
-import { WINDOWS } from "../core/windows.js";
+import { WINDOWS, classifyWindow } from "../core/windows.js";
 import {
   ALIBABA_TOKEN_PLAN_ARGS,
   type AlibabaCodingPlanUsage,
-  type AlibabaCodingPlanWindow,
   type AlibabaCredentialMarkers,
   type AlibabaErrorKind,
   type AlibabaSpawnKinds,
@@ -19,7 +18,7 @@ import {
   alibabaCredentialHalves,
   CODING_PLAN_SPAWN_KINDS,
   isAlibabaTokenPlanSupportedPlatform,
-  NO_WINDOW_HINT,
+  NO_QUOTA_DATA_HINT,
   parseAlibabaCodingPlanUsageJson,
   parseAlibabaTokenPlanUsageJson,
   queryAlibabaReply,
@@ -42,8 +41,10 @@ import {
   MONTHLY,
   type ProviderFetchResult,
   type ProviderRow,
-  quotaRow,
+  type Slot,
   WEEKLY,
+  windowRows,
+  type WindowRow,
 } from "./contract.js";
 import { statusDetailsFromRecord } from "./result-helpers.js";
 
@@ -141,19 +142,53 @@ function windowStartIso(window: QuotaWindow, resetsAt: string | undefined): stri
   return new Date(startMs).toISOString();
 }
 
-function windowRow(window: AlibabaTokenPlanWindow): ProviderRow {
-  return {
-    ...quotaRow({
-      ...MONTHLY,
-      // The row key names the half of the plan; `MONTHLY.key` would name the window instead.
-      key: "personal",
-      percentRemaining: window.percentRemaining,
-      resetsAt: window.resetTimeIso,
-      // The reply says when the month resets but not when it began.
-      windowStartedAt: windowStartIso("month", window.resetTimeIso),
-    }),
-    method: "local_cli",
-  };
+/** The CLI's field names and the repo's slots for them. */
+const TOKEN_PLAN_SLOTS = [
+  ["per5Hour", FIVE_HOUR],
+  ["per1Week", WEEKLY],
+  ["per1Month", MONTHLY],
+] as const;
+
+/** The repo's slot for the CLI's window; a window the slots do not name takes the repo's window
+ * for the CLI's own shape of it. */
+function tokenPlanSlot(window: AlibabaTokenPlanWindow): Slot | undefined {
+  const slot = TOKEN_PLAN_SLOTS.find(([key]) => key === window.key)?.[1];
+  if (slot) return slot;
+  const repoWindow = classifyWindow(`${window.count}-${window.unit}`);
+  if (!repoWindow) return undefined;
+  return { key: repoWindow, label: WINDOWS[repoWindow].label, window: repoWindow };
+}
+
+/** One row for each window the CLI reported a usage ratio for, in the shared row shape. */
+function tokenPlanWindowRows(windows: readonly AlibabaTokenPlanWindow[]): ProviderRow[] {
+  const slots = windows.flatMap((window): WindowRow[] => {
+    const slot = tokenPlanSlot(window);
+    if (!slot || window.percentRemaining === undefined) return [];
+    // The CLI reports when the window refreshes; a billing month started a calendar month
+    // before its reset.
+    const startedAtIso = windowStartIso(slot.window, window.resetTimeIso);
+    return [
+      {
+        // The row key names the half of the plan; the slot's key names the window.
+        slot: { ...slot, key: `personal.${slot.key}` },
+        value: {
+          percentRemaining: window.percentRemaining,
+          ...(window.resetTimeIso !== undefined ? { resetTimeIso: window.resetTimeIso } : {}),
+          ...(startedAtIso !== undefined ? { fixedWindow: { startedAtIso } } : {}),
+        },
+      },
+    ];
+  });
+  return windowRows(slots, "local_cli");
+}
+
+/** The windows the reply carried, the way the Coding Plan names them. */
+function tokenPlanWindowsText(windows: readonly AlibabaTokenPlanWindow[]): string {
+  const names = windows.flatMap((window) => {
+    const slot = tokenPlanSlot(window);
+    return slot ? [slot.key] : [];
+  });
+  return names.length > 0 ? names.join(",") : "(none)";
 }
 
 function seatRow(seat: AlibabaTokenPlanSeat, key: string): ProviderRow {
@@ -207,39 +242,26 @@ const WINDOW_SLOTS = [
   ["monthly", MONTHLY],
 ] as const;
 
-function codingPlanWindowRow(
-  slot: (typeof WINDOW_SLOTS)[number][1],
-  window: AlibabaCodingPlanWindow,
-): ProviderRow {
-  // The CLI reports when the window refreshes; a billing month's start is a calendar month back.
-  const startedAt = windowStartIso(slot.window, window.resetTimeIso);
-  return {
-    key: slot.key,
-    label: slot.label,
-    type: "quota",
-    method: "local_cli",
-    authority: "provider_reported",
-    prominence: "primary",
-    window: slot.window,
-    ...(window.percentRemaining !== undefined ? { percentRemaining: window.percentRemaining } : {}),
-    ...(window.used !== undefined ? { used: amountOf(window.used, REQUEST_UNIT) } : {}),
-    ...(window.limit !== undefined ? { limit: amountOf(window.limit, REQUEST_UNIT) } : {}),
-    ...(window.resetTimeIso !== undefined ? { resetsAt: window.resetTimeIso } : {}),
-    ...(startedAt !== undefined ? { windowStartedAt: startedAt } : {}),
-    // A total of 0 gives no percentage; the text keeps the row visible rather than claiming one.
-    ...(window.percentRemaining === undefined ? { text: "no limit reported" } : {}),
-  };
-}
-
 function codingPlanWindowRows(usage: AlibabaCodingPlanUsage): ProviderRow[] {
-  return WINDOW_SLOTS.flatMap(([name, slot]) => {
+  const slots: WindowRow[] = WINDOW_SLOTS.flatMap(([name, slot]) => {
     const window = usage[name];
-    return window ? [codingPlanWindowRow(slot, window)] : [];
+    if (!window) return [];
+    // The CLI reports when the window refreshes; a billing month's start is a calendar month back.
+    const startedAt = windowStartIso(slot.window, window.resetTimeIso);
+    return [
+      {
+        slot,
+        value: {
+          percentRemaining: window.percentRemaining,
+          used: amountOf(window.used, REQUEST_UNIT),
+          limit: amountOf(window.limit, REQUEST_UNIT),
+          ...(window.resetTimeIso !== undefined ? { resetTimeIso: window.resetTimeIso } : {}),
+          ...(startedAt !== undefined ? { fixedWindow: { startedAtIso: startedAt } } : {}),
+        },
+      },
+    ];
   });
-}
-
-function tierLabel(instanceType: string): string {
-  return instanceType.charAt(0).toUpperCase() + instanceType.slice(1);
+  return windowRows(slots, "local_cli");
 }
 
 function codingPlanWindowsText(usage: AlibabaCodingPlanUsage | undefined): string {
@@ -389,21 +411,27 @@ const TOKEN_PLAN_COMMANDS: readonly AlibabaCommand[] = [
     parse(text: string): AlibabaCommandResult {
       const result: AlibabaTokenPlanClosedResult = parseAlibabaTokenPlanUsageJson(text);
       if (!result.ok) return failureResult(result.error, []);
-      // No window is valid: the CLI says the limit may be unlimited, so `window_hint` keeps its wording.
+      const rows = tokenPlanWindowRows(result.windows);
+      // The CLI's own flag says whether a window carried a ratio; an older CLI sends none, and
+      // then the windows say it.
+      const noData =
+        result.hasQuotaData === false ||
+        result.windows.every((window) => window.percentRemaining === undefined);
       return {
         ok: true,
-        accounts: result.monthly
-          ? [
-              {
-                name: withSuffix(TOKEN_PLAN_LABEL, "personal"),
-                rows: [windowRow(result.monthly)],
-                errors: [],
-              },
-            ]
-          : [],
+        accounts:
+          rows.length > 0
+            ? [
+                {
+                  name: withSuffix(TOKEN_PLAN_LABEL, "personal"),
+                  rows,
+                  errors: [],
+                },
+              ]
+            : [],
         debug: statusDetailsFromRecord({
-          windows: result.monthly ? MONTHLY.key : "(none)",
-          window_hint: result.monthly ? undefined : NO_WINDOW_HINT,
+          windows: tokenPlanWindowsText(result.windows),
+          window_hint: noData ? NO_QUOTA_DATA_HINT : undefined,
         }),
       };
     },
@@ -454,7 +482,7 @@ const CODING_PLAN_COMMANDS: readonly AlibabaCommand[] = [
         accounts: result.usage
           ? [
               {
-                name: `${CODING_PLAN_LABEL} (${tierLabel(result.usage.instanceType)})`,
+                name: CODING_PLAN_LABEL,
                 rows: codingPlanWindowRows(result.usage),
                 errors: [],
               },

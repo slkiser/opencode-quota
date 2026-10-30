@@ -76,7 +76,7 @@ try {
       },
     });
     assert.equal(live.ok, true);
-    assert.equal(live.monthly?.percentRemaining, 75);
+    assert.equal(live.windows?.[0]?.percentRemaining, 75);
     const argv = JSON.parse(await readFile(argvLog, "utf8"));
     assert.deepEqual(argv, ["usage", "token-plan", "--output", "json"]);
   }

@@ -57,8 +57,8 @@ These tables show which plans a vendor sells. Except for Copilot organization/en
 
 | Provider                      | Auth/setup                                                          | Data from      | Reports            |
 | ----------------------------- | ------------------------------------------------------------------- | -------------- | ------------------ |
-| Alibaba Coding Plan           | [Needs setup](#alibaba-coding-plan)                                 | Official CLI   | Quota              |
-| Alibaba Token Plan            | [Needs setup](#alibaba-token-plan)                                  | Official CLI   | Quota and credits  |
+| Alibaba Coding Plan           | [Needs setup](#alibaba-coding-plan)                                 | Local CLI      | Quota and requests |
+| Alibaba Token Plan            | [Needs setup](#alibaba-token-plan)                                  | Local CLI      | Quota              |
 | DeepSeek                      | Automatic                                                           | Remote API     | Balance and status |
 | Kimi Code                     | Automatic                                                           | Remote API     | Quota              |
 | Kimi Code (CN)                | Automatic                                                           | Remote API     | Quota              |
@@ -75,7 +75,7 @@ These tables show which plans a vendor sells. Except for Copilot organization/en
 
 | Provider                 | Auth/setup                         | Data from    | Reports |
 | ------------------------ | ---------------------------------- | ------------ | ------- |
-| Alibaba Token Plan       | [Needs setup](#alibaba-token-plan) | Official CLI | Credits |
+| Alibaba Token Plan       | [Needs setup](#alibaba-token-plan) | Local CLI    | Quota and credits |
 | Kimi Code                | Automatic                          | Remote API   | Quota   |
 | Kimi Code (CN)           | Automatic                          | Remote API   | Quota   |
 | MiniMax Token Plan       | Automatic                          | Remote API   | Quota   |
@@ -401,9 +401,9 @@ npm install -g bailian-cli
 bl auth login --console
 ```
 
-- It runs `bl usage coding-plan --output json`, which needs the console session.
-- It reports three request windows: `5h`, `Weekly` and `Monthly`, keyed `five_hour`, `weekly` and `monthly`. The quota is **requests**, so a row shows requests used, the limit and the reset time.
-- The plan tier comes from the reply (`instanceType`, for example `pro`) and names the account, such as `Alibaba Coding Plan (Pro)`.
+- It runs `bl usage coding-plan --output json`, which needs the console token. An API Key (AK/SK) signs in to the console too: `bl auth login --open-api --access-key-id <id> --access-key-secret <secret>` mints a CLI access token from it, validates it and saves both.
+- It reports three request windows: `5h`, `Weekly` and `Monthly`, keyed `five_hour`, `weekly` and `monthly`. The quota is **requests**, so a row shows the percent left, the requests used, the limit and the reset time.
+- A window the console reports no quota for has no row: the plan does not cover it, or its limit is 0.
 - An account without a Coding Plan subscription prints `{}`: no rows and no error.
 - It answers to `alibaba-coding-plan` and to the aliases `alibaba` and `alibaba-coding-plan-cn`. `providers.off` resolves synonyms, so `providers.off: ["alibaba"]` switches the Coding Plan off, not the Token Plan.
 - OpenCode Quota never installs `bl`, opens a login, reads console cookies, or runs a custom command.
@@ -421,9 +421,10 @@ bl auth login --console
 
 OpenCode Quota runs two commands, each with its own sign-in. They are independent: setting up one still runs the other, and a half that was never set up reports nothing at all.
 
-- **Personal** (the `Monthly` row, `alibaba-token-plan.personal`) runs `bl usage token-plan --output json` and needs a **console** session.
-- It reports the percent of the monthly plan still left, and its reset time when `bl` gives one. A reply with no percentage leaves the row out; `/quota_status` says so in `window_hint`.
-- **Team seats** (one `Credits` row per seat, `alibaba-token-plan.team.<slug>`) run `bl token-plan list-seats --status NORMAL --query-assigned true --page-size 100 --output json` and need **API Key** (AK/SK) credentials: `bl auth login --open-api`, or `ALIBABA_CLOUD_ACCESS_KEY_ID` and `ALIBABA_CLOUD_ACCESS_KEY_SECRET`. Each seat shows the credits left in its billing cycle, out of the cycle total.
+- **Personal** (one row per quota window, `alibaba-token-plan.personal.monthly`) runs `bl usage token-plan --output json` and needs the same **console** token (an API Key can mint one too, see [Coding Plan setup](#alibaba-coding-plan)).
+- It reports every window `bl` sends, one row each with the percent of that window left: `alibaba-token-plan.personal.five_hour`, `alibaba-token-plan.personal.weekly` or `alibaba-token-plan.personal.monthly`. A window the reply does not carry has no row.
+- A window the reply reports no quota for has no row either: it carries no usage ratio, and `/quota_status` says so in `window_hint`.
+- **Team seats** (one `Credits` row per seat, `alibaba-token-plan.team.<slug>`) run `bl token-plan list-seats --status NORMAL --query-assigned true --page-size 100 --output json` and need **API Key** (AK/SK) credentials: `bl auth login --open-api`, or `ALIBABA_CLOUD_ACCESS_KEY_ID` and `ALIBABA_CLOUD_ACCESS_KEY_SECRET`. Each seat shows the credits left in its billing cycle, out of the cycle total, and the percent of that grant left.
 - Without the AK/SK no team row is reported; the personal row still is. A seat whose status is not `NORMAL` has no row by design.
 - Neither command carries a region or account, so you see the plan `bl` is signed in to. `bl auth status` says which account, region and site that is.
 - One id reports it: `alibaba-token-plan`, and `alibaba-token-plan-cn` is another name for the same CLI, so a config that names it keeps working for provider selection and for `providers.off`.

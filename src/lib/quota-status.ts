@@ -44,7 +44,7 @@ import {
 } from "../settings/schema.js";
 import { formatShare, formatTokens } from "../view/format.js";
 import { COUNT_LABELS } from "./accounting-format.js";
-import { ERROR_MESSAGES as ALIBABA_TOKEN_PLAN_ERRORS, NO_WINDOW_HINT } from "./alibaba.js";
+import { ERROR_MESSAGES as ALIBABA_TOKEN_PLAN_ERRORS, NO_QUOTA_DATA_HINT } from "./alibaba.js";
 import { API_KEY_VENDORS } from "./api-key-resolver.js";
 import { COPILOT_AUTH_KEYS } from "./copilot.js";
 import { CURSOR_CANONICAL_PLUGIN_PACKAGE } from "./cursor-detection.js";
@@ -1022,12 +1022,19 @@ const ALIBABA_PROVIDER_DETAILS: DebugRules = {
   failure_kind: oneOf(...Object.keys(ALIBABA_TOKEN_PLAN_ERRORS)),
 };
 
+/** The windows the Token Plan reply carried: the repo's names for the ones it knows, and the
+ * repo's window for the rest. */
+const tokenPlanWindows: DebugRule = (value) =>
+  value.split(",").every((item) => item === "weekly" || item === "monthly" || isQuotaWindow(item))
+    ? value
+    : undefined;
+
 const ALIBABA_TOKEN_PLAN_DETAILS: DebugRules = {
   ...ALIBABA_PROVIDER_DETAILS,
-  window_hint: oneOf(NO_WINDOW_HINT),
+  window_hint: oneOf(NO_QUOTA_DATA_HINT),
   seat_windows: listOf(["credits"]),
   seat_failure_kind: oneOf(...Object.keys(ALIBABA_TOKEN_PLAN_ERRORS)),
-  windows: listOf(["monthly"]),
+  windows: tokenPlanWindows,
 };
 
 const ALIBABA_CODING_PLAN_DETAILS: DebugRules = {

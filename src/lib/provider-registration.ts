@@ -84,7 +84,7 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     // tell a "CN" sign-in from any other.
     runtimeIds: ["alibaba-token-plan", "alibaba-token-plan-cn"],
     synonyms: ["alibaba-token-plan-cn"],
-    rowKeys: ["personal", "team.*"],
+    rowKeys: ["personal.monthly", "personal.weekly", "personal.five_hour", "personal.*", "team.*"],
   },
   {
     id: "google-gemini-cli",

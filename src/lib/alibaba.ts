@@ -90,8 +90,16 @@ const SHELL_LAUNCHER_EXTENSIONS = new Set([
   ".zsh",
 ]);
 
+/** The units the CLI's field names use. */
+export type AlibabaTokenPlanUnit = "Hour" | "Day" | "Week" | "Month";
+
+/** One quota window the CLI reported: its own name (`per1Month`), its count and its unit. */
 export type AlibabaTokenPlanWindow = {
-  percentRemaining: number;
+  key: string;
+  count: number;
+  unit: AlibabaTokenPlanUnit;
+  /** 0..100 of the window still left; absent when the CLI reported no usage ratio for it. */
+  percentRemaining?: number;
   resetTimeIso?: string;
 };
 
@@ -141,22 +149,23 @@ type AlibabaFailure = { ok: false; error: AlibabaTokenPlanError };
 export type AlibabaTokenPlanClosedResult =
   | {
       ok: true;
-      monthly?: AlibabaTokenPlanWindow;
+      /** Every window the reply carried, in the order the CLI wrote them. */
+      windows: AlibabaTokenPlanWindow[];
+      /** The CLI's own flag: whether any window carried a usage ratio. Absent when the CLI is
+       * older than bailian-cli 2.7.1 and sends no flag. */
+      hasQuotaData?: boolean;
     }
   | AlibabaFailure;
 
-/** One Coding Plan window; every field of every window is optional in the CLI's reply. */
+/** One Coding Plan window: the requests used, the limit, the percent left and when it resets. */
 export type AlibabaCodingPlanWindow = {
-  used?: number;
-  limit?: number;
-  /** 0..100 of the window still left, derived the way `bl` derives its own `percentage`
-   * (used / total) and inverted; absent when the total is 0 or either number is missing. */
-  percentRemaining?: number;
+  used: number;
+  limit: number;
+  percentRemaining: number;
   resetTimeIso?: string;
 };
 
 export type AlibabaCodingPlanUsage = {
-  instanceType: string;
   fiveHour?: AlibabaCodingPlanWindow;
   weekly?: AlibabaCodingPlanWindow;
   monthly?: AlibabaCodingPlanWindow;
@@ -231,11 +240,10 @@ export const ERROR_MESSAGES: Record<AlibabaErrorKind, string> = {
   invalid_schema: "Alibaba Cloud CLI returned an invalid Alibaba Token Plan payload.",
 };
 
-/** A reply without a monthly percentage. `bl` renders that case as an unlimited limit, and a CLI
- * older than bailian-cli 2.2.0 produces it too, so the hint says so in OpenCode Quota's own
- * words. */
-export const NO_WINDOW_HINT =
-  "no monthly percentage in the reply; the limit may be unlimited, so verify in the Bailian Token Plan console";
+/** A reply without a usage ratio. The CLI says the limit may be unlimited, so the hint says so in
+ * OpenCode Quota's own words. */
+export const NO_QUOTA_DATA_HINT =
+  "no quota data in the reply; the limit may be unlimited, so verify in the Bailian Token Plan console";
 
 function fail(kind: AlibabaErrorKind): AlibabaFailure {
   return { ok: false, error: { kind, message: ERROR_MESSAGES[kind] } };
@@ -450,22 +458,37 @@ export async function resolveAlibabaTokenPlanExecutable(params: {
   return fail(sawShellLauncher ? "shell_launcher_rejected" : "executable_not_found");
 }
 
-/** The used fraction 0..1 and an optional epoch-ms reset. A reset alone is invalid; neither present
- * means the plan may be unlimited. */
-function parseWindow(
-  payload: Record<string, unknown>,
-): AlibabaTokenPlanWindow | undefined | "invalid" {
-  const resetPresent = Object.hasOwn(payload, "per1MonthResetTime");
-  if (!Object.hasOwn(payload, "per1MonthPercentage")) return resetPresent ? "invalid" : undefined;
+/** Quota window fields look like per5HourPercentage / per1WeekResetTime / per1MonthPercentage. */
+const WINDOW_FIELD_PATTERN = /^per(\d+)(Hour|Day|Week|Month)(Percentage|ResetTime)$/;
 
-  const used = finiteNumber(payload.per1MonthPercentage);
-  if (used === undefined || used < 0 || used > 1) return "invalid";
-  const percentRemaining = 100 - used * 100;
-  if (!resetPresent) return { percentRemaining };
-
-  const reset = finiteNumber(payload.per1MonthResetTime);
-  if (reset === undefined || reset <= 0 || reset > MAX_RESET_TIME_MS) return "invalid";
-  return { percentRemaining, resetTimeIso: new Date(reset).toISOString() };
+/**
+ * Every window the reply carries, in the order the CLI wrote them; a window without a usage
+ * ratio keeps its place, only the ratio is missing.
+ */
+function parseWindows(payload: Record<string, unknown>): AlibabaTokenPlanWindow[] | "invalid" {
+  const windows = new Map<string, AlibabaTokenPlanWindow>();
+  for (const [field, value] of Object.entries(payload)) {
+    const match = WINDOW_FIELD_PATTERN.exec(field);
+    if (!match) continue;
+    const [, count, unit, kind] = match;
+    const key = `per${count}${unit}`;
+    const window = windows.get(key) ?? {
+      key,
+      count: Number(count),
+      unit: unit as AlibabaTokenPlanUnit,
+    };
+    if (kind === "Percentage") {
+      const used = finiteNumber(value);
+      if (used === undefined || used < 0 || used > 1) return "invalid";
+      window.percentRemaining = 100 - used * 100;
+    } else {
+      const reset = finiteNumber(value);
+      if (reset === undefined || reset <= 0 || reset > MAX_RESET_TIME_MS) return "invalid";
+      window.resetTimeIso = new Date(reset).toISOString();
+    }
+    windows.set(key, window);
+  }
+  return [...windows.values()];
 }
 
 export function parseAlibabaTokenPlanUsageJson(text: string): AlibabaTokenPlanClosedResult {
@@ -480,10 +503,19 @@ export function parseAlibabaTokenPlanUsageJson(text: string): AlibabaTokenPlanCl
   const envelopeFailure = errorEnvelopeFailure(record, USAGE_SPAWN_KINDS);
   if (envelopeFailure) return envelopeFailure;
 
-  const monthly = parseWindow(record);
-  if (monthly === "invalid") return fail("invalid_schema");
-  // No window is a valid reply: the CLI itself says the limit may be unlimited.
-  return { ok: true, ...(monthly ? { monthly } : {}) };
+  const windows = parseWindows(record);
+  if (windows === "invalid") return fail("invalid_schema");
+  // The CLI's own flag says whether any window carried a usage ratio. A CLI older than
+  // bailian-cli 2.7.1 sends no flag, and then the windows themselves say it.
+  const hasQuotaData = record.hasQuotaData;
+  if (hasQuotaData !== undefined && typeof hasQuotaData !== "boolean") {
+    return fail("invalid_schema");
+  }
+  return {
+    ok: true,
+    windows,
+    ...(hasQuotaData !== undefined ? { hasQuotaData } : {}),
+  };
 }
 
 function requestCount(value: unknown): number | undefined {
@@ -492,34 +524,31 @@ function requestCount(value: unknown): number | undefined {
 }
 
 /** `percentage` is not read: `bl` derives it from the two counts, and deriving it here keeps one
- * owner, so a row's percent can never disagree with its used and limit. */
+ * owner, so a row's percent can never disagree with its used and limit. A window without a positive
+ * limit has no quota to show. */
 function parseCodingPlanWindow(value: unknown): AlibabaCodingPlanWindow | undefined | "invalid" {
   if (value === undefined) return undefined;
   const record = asRecord(value);
   if (!record) return "invalid";
   const used = requestCount(record.usedQuota);
   const limit = requestCount(record.totalQuota);
+  if (used === undefined || limit === undefined || limit <= 0) return undefined;
   const reset = finiteNumber(record.resetTime);
-  const percentRemaining =
-    used !== undefined && limit !== undefined && limit > 0
-      ? // A used count above the limit is the console's own overrun, not a negative quota.
-        Math.min(100, Math.max(0, 100 - (used / limit) * 100))
-      : undefined;
   const resetTimeIso =
     reset !== undefined && reset > 0 && reset <= MAX_RESET_TIME_MS
       ? new Date(reset).toISOString()
       : undefined;
-  const window: AlibabaCodingPlanWindow = {
-    ...(used !== undefined ? { used } : {}),
-    ...(limit !== undefined ? { limit } : {}),
-    ...(percentRemaining !== undefined ? { percentRemaining } : {}),
+  return {
+    used,
+    limit,
+    // A used count above the limit is the console's own overrun, not a negative quota.
+    percentRemaining: Math.min(100, Math.max(0, 100 - (used / limit) * 100)),
     ...(resetTimeIso !== undefined ? { resetTimeIso } : {}),
   };
-  return Object.keys(window).length > 0 ? window : undefined;
 }
 
-/** `{ instanceType, per5Hour, perWeek, perBillMonth }`. `{}` is the CLI's "this account has no
- * Coding Plan" and stays a silent absence; windows without a tier are dropped with it. */
+/** `{ per5Hour, perWeek, perBillMonth }`. `{}` is the CLI's "this account has no Coding Plan" and
+ * stays a silent absence; a window the plan does not cover has no quota and no row. */
 export function parseAlibabaCodingPlanUsageJson(text: string): AlibabaCodingPlanResult {
   let payload: unknown;
   try {
@@ -538,12 +567,10 @@ export function parseAlibabaCodingPlanUsageJson(text: string): AlibabaCodingPlan
   if (fiveHour === "invalid" || weekly === "invalid" || monthly === "invalid") {
     return fail("coding_plan_invalid_schema");
   }
-  const instanceType = nonEmptyString(record.instanceType);
-  if (!instanceType) return { ok: true };
+  if (!fiveHour && !weekly && !monthly) return { ok: true };
   return {
     ok: true,
     usage: {
-      instanceType,
       ...(fiveHour ? { fiveHour } : {}),
       ...(weekly ? { weekly } : {}),
       ...(monthly ? { monthly } : {}),

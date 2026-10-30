@@ -60,7 +60,7 @@ const USAGE = {
 const USAGE_ROWS = [
   [
     "alibaba-coding-plan.five_hour",
-    "Pro",
+    null,
     "5h",
     "five_hour",
     "62 (38 request of 100 request)",
@@ -68,7 +68,7 @@ const USAGE_ROWS = [
   ],
   [
     "alibaba-coding-plan.weekly",
-    "Pro",
+    null,
     "Weekly",
     "week",
     "50 (500 request of 1000 request)",
@@ -76,7 +76,7 @@ const USAGE_ROWS = [
   ],
   [
     "alibaba-coding-plan.monthly",
-    "Pro",
+    null,
     "Monthly",
     "month",
     "5 (950 request of 1000 request)",
@@ -129,22 +129,25 @@ describe("alibaba-coding-plan provider", () => {
     expect(alibabaCodingPlanProvider.matchesCurrentModel?.(model, context)).toBe(expected);
   });
 
-  it.runIf(SUPPORTED)("shows the three windows as request rows of the CLI's tier", async () => {
-    installCli({ codingPlan: replying(USAGE) });
+  it.runIf(SUPPORTED)(
+    "shows the three windows as request rows, without the plan tier",
+    async () => {
+      installCli({ codingPlan: replying(USAGE) });
 
-    const fetched = await fetchCodingPlan();
+      const fetched = await fetchCodingPlan();
 
-    expect(rowSummary(fetched.rows)).toEqual(USAGE_ROWS);
-    expect(fetched.rows.map((row) => row.account)).toEqual(["Pro", "Pro", "Pro"]);
-    // The account name is the CLI's own plan tier, read from the same fetch as the rows.
-    expect(fetched.accounts.map((account) => account.name)).toEqual(["Alibaba Coding Plan (Pro)"]);
-    expect(fetched.error).toBeUndefined();
-    expect(fetched.debug).toEqual([
-      { key: "cli_available", value: "true" },
-      PLATFORM,
-      { key: "windows", value: "five_hour,weekly,monthly" },
-    ]);
-  });
+      expect(rowSummary(fetched.rows)).toEqual(USAGE_ROWS);
+      // The plan tier is not a quota window, so it names no account: the Token Plan names none either.
+      expect(fetched.rows.map((row) => row.account)).toEqual([undefined, undefined, undefined]);
+      expect(fetched.accounts.map((account) => account.name)).toEqual(["Alibaba Coding Plan"]);
+      expect(fetched.error).toBeUndefined();
+      expect(fetched.debug).toEqual([
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "windows", value: "five_hour,weekly,monthly" },
+      ]);
+    },
+  );
 
   it.runIf(SUPPORTED)(
     "gives a window its start, so its span is exact, and a billing month a calendar month back",

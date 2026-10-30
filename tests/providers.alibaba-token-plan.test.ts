@@ -8,7 +8,7 @@ import { rowsFromProviderResult } from "../src/core/rows.js";
 import {
   clearAlibabaIdentityCacheForTests,
   ERROR_MESSAGES,
-  NO_WINDOW_HINT,
+  NO_QUOTA_DATA_HINT,
 } from "../src/lib/alibaba.js";
 import { alibabaTokenPlanProvider } from "../src/providers/alibaba.js";
 import {
@@ -152,14 +152,14 @@ describe("alibaba-token-plan provider", () => {
     [
       "the monthly window, with its reset",
       { usage: replying({ per1MonthPercentage: 0.6, per1MonthResetTime: Date.parse(RESET) }) },
-      [["alibaba-token-plan.personal", "personal", "Monthly", "month", 40, RESET]],
+      [["alibaba-token-plan.personal.monthly", "personal", "Monthly", "month", 40, RESET]],
       undefined,
       [{ key: "cli_available", value: "true" }, PLATFORM, { key: "windows", value: "monthly" }],
     ],
     [
       "the monthly window without a reset time",
       { usage: replying({ per1MonthPercentage: 0.5 }) },
-      [["alibaba-token-plan.personal", "personal", "Monthly", "month", 50, null]],
+      [["alibaba-token-plan.personal.monthly", "personal", "Monthly", "month", 50, null]],
       undefined,
       [{ key: "cli_available", value: "true" }, PLATFORM, { key: "windows", value: "monthly" }],
     ],
@@ -172,8 +172,62 @@ describe("alibaba-token-plan provider", () => {
         { key: "cli_available", value: "true" },
         PLATFORM,
         { key: "windows", value: "(none)" },
-        { key: "window_hint", value: NO_WINDOW_HINT },
+        { key: "window_hint", value: NO_QUOTA_DATA_HINT },
       ],
+    ],
+    [
+      "the CLI's own flag says the reply carried no quota data",
+      { usage: replying({ hasQuotaData: false }) },
+      [],
+      undefined,
+      [
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "windows", value: "(none)" },
+        { key: "window_hint", value: NO_QUOTA_DATA_HINT },
+      ],
+    ],
+    [
+      "a window without a ratio has no row, and the hint says why",
+      { usage: replying({ per1MonthResetTime: Date.parse(RESET), hasQuotaData: false }) },
+      [],
+      undefined,
+      [
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "windows", value: "monthly" },
+        { key: "window_hint", value: NO_QUOTA_DATA_HINT },
+      ],
+    ],
+    [
+      "every window the CLI reports, one row each",
+      {
+        usage: replying({
+          per5HourPercentage: 0.25,
+          per1WeekPercentage: 0.1,
+          per1MonthPercentage: 0.6,
+          per1MonthResetTime: Date.parse(RESET),
+          hasQuotaData: true,
+        }),
+      },
+      [
+        ["alibaba-token-plan.personal.five_hour", "personal", "5h", "five_hour", 75, null],
+        ["alibaba-token-plan.personal.weekly", "personal", "Weekly", "week", 90, null],
+        ["alibaba-token-plan.personal.monthly", "personal", "Monthly", "month", 40, RESET],
+      ],
+      undefined,
+      [
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "windows", value: "five_hour,weekly,monthly" },
+      ],
+    ],
+    [
+      "a window the repo names no slot for takes the repo's own window",
+      { usage: replying({ per1DayPercentage: 0.5, hasQuotaData: true }) },
+      [["alibaba-token-plan.personal.day", "personal", "Daily", "day", 50, null]],
+      undefined,
+      [{ key: "cli_available", value: "true" }, PLATFORM, { key: "windows", value: "day" }],
     ],
     [
       "a missing CLI, failing both commands",
@@ -329,7 +383,7 @@ describe("alibaba-token-plan provider", () => {
         { key: "cli_available", value: "true" },
         PLATFORM,
         { key: "windows", value: "(none)" },
-        { key: "window_hint", value: NO_WINDOW_HINT },
+        { key: "window_hint", value: NO_QUOTA_DATA_HINT },
         { key: "seat_windows", value: "credits" },
       ]);
     },
@@ -344,7 +398,7 @@ describe("alibaba-token-plan provider", () => {
     const fetched = await fetchTokenPlan();
 
     expect(rowSummary(fetched.rows)).toEqual([
-      ["alibaba-token-plan.personal", "personal", "Monthly", "month", 40, RESET],
+      ["alibaba-token-plan.personal.monthly", "personal", "Monthly", "month", 40, RESET],
       TEAM_LEAD_ROW,
     ]);
     expect(fetched.error).toBeUndefined();
@@ -497,7 +551,7 @@ describe("alibaba-token-plan provider", () => {
     const fetched = await fetchTokenPlan();
 
     expect(rowSummary(fetched.rows)).toEqual([
-      ["alibaba-token-plan.personal", "personal", "Monthly", "month", 40, RESET],
+      ["alibaba-token-plan.personal.monthly", "personal", "Monthly", "month", 40, RESET],
     ]);
     expect(fetched.error).toMatchObject({ code: "login_expired" });
     expect(fetched.debug).toEqual([
@@ -575,7 +629,7 @@ describe("alibaba-token-plan provider", () => {
     const fetched = await fetchTokenPlan();
 
     expect(rowSummary(fetched.rows)).toEqual([
-      ["alibaba-token-plan.personal", "personal", "Monthly", "month", 40, RESET],
+      ["alibaba-token-plan.personal.monthly", "personal", "Monthly", "month", 40, RESET],
     ]);
     expect(fetched.error).toBeUndefined();
     expect(fetched.debug).toEqual([
@@ -599,7 +653,7 @@ describe("alibaba-token-plan provider", () => {
       const fetched = await fetchTokenPlan();
 
       expect(rowSummary(fetched.rows)).toEqual([
-        ["alibaba-token-plan.personal", "personal", "Monthly", "month", 40, RESET],
+        ["alibaba-token-plan.personal.monthly", "personal", "Monthly", "month", 40, RESET],
       ]);
       expect(fetched.error).toBeUndefined();
     },
@@ -807,7 +861,7 @@ describe("alibaba-token-plan provider", () => {
 
       // 0.25 used is 75% left: the arithmetic ran on the faked chunks, unmodified.
       expect(rowSummary(fetched.rows)).toEqual([
-        ["alibaba-token-plan.personal", "personal", "Monthly", "month", 75, RESET],
+        ["alibaba-token-plan.personal.monthly", "personal", "Monthly", "month", 75, RESET],
       ]);
     },
   );
