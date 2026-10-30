@@ -244,6 +244,7 @@ async function fromCompiledModule(
   const { packageName } = companion;
   for (const specifier of [
     `${packageName}/dist/src/constants.js`,
+    `${packageName}/dist/index.js`,
     `${packageName}/src/constants.js`,
   ]) {
     const { path, failed } = resolveModulePath(specifier, lookup, true);

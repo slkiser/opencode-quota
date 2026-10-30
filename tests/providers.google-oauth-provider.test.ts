@@ -285,7 +285,7 @@ describe("Google AGY rows", () => {
     ["google-agy/gpt-4", true],
     ["opencode-agy-auth/gpt-4", true],
     ["google-agy-auth/gpt-4", true],
-    ["google/claude-opus", false],
+    ["google/claude-opus", true],
   ])("matches the Google AGY runtime ids: %s → %s", (model, expected) => {
     expect(googleAgyProvider.matchesCurrentModel?.(model)).toBe(expected);
   });

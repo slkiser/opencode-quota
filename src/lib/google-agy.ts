@@ -11,6 +11,7 @@ import type {
 } from "./types.js";
 
 export const AGY_AUTH_KEYS = [
+  "google",
   "google-agy",
   "opencode-agy-auth",
   "google-agy-auth",
