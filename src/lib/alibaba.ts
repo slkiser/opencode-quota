@@ -885,6 +885,9 @@ function envWithTrustedPath(
     result[name] = value;
   }
   result.PATH = trusted.join(paths.delimiter);
+  // bl's debounced npmjs version check (versionCheckStage) stalls each spawn; this is its
+  // only supported skip knob.
+  result.NO_UPDATE_NOTIFIER = "1";
   return result;
 }
 
