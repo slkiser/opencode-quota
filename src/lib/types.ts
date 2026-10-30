@@ -11,7 +11,11 @@ export type GeminiCliAuthSourceKey =
   | "opencode-gemini-auth"
   | "gemini"
   | "google";
-export type GoogleAgyAuthSourceKey = "google-agy" | "opencode-agy-auth" | "google-agy-auth";
+export type GoogleAgyAuthSourceKey =
+  | "google"
+  | "google-agy"
+  | "opencode-agy-auth"
+  | "google-agy-auth";
 
 /**
  * Copilot subscription tier.
