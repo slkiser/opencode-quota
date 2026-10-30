@@ -81,7 +81,8 @@ const COMMAND_MISSING_TEXT = [
 export interface AnthropicQuotaResult {
   success: true;
   five_hour: { percentRemaining: number; resetTimeIso?: string };
-  seven_day: { percentRemaining: number; resetTimeIso?: string };
+  /** None on a plan without a weekly limit, such as Enterprise. */
+  seven_day?: { percentRemaining: number; resetTimeIso?: string };
   extra_usage?: { percentRemaining: number };
   fable_weekly?: { percentRemaining: number; resetTimeIso?: string };
 }
@@ -309,9 +310,24 @@ function parseQuotaWindow(window: unknown): QuotaWindow | null {
   };
 }
 
+/**
+ * The share of Usage Credits used: `utilization`, or else `used_credits` over `monthly_limit`
+ * of the same object, which an Enterprise login gets with a null `utilization`.
+ */
+function extraUsageUsedPercent(record: Record<string, unknown> | null): number | undefined {
+  const utilization = finiteNumber(record?.["utilization"]);
+  if (utilization !== undefined) return utilization;
+  const usedCredits = finiteNumber(record?.["used_credits"]);
+  const monthlyLimit = finiteNumber(record?.["monthly_limit"]);
+  if (usedCredits === undefined || monthlyLimit === undefined || monthlyLimit <= 0) {
+    return undefined;
+  }
+  return (usedCredits / monthlyLimit) * 100;
+}
+
 function parseExtraUsageQuota(extraUsage: unknown): { percentRemaining: number } | undefined {
   const record = asRecord(extraUsage);
-  const used = finiteNumber(record?.["utilization"]);
+  const used = extraUsageUsedPercent(record);
   if (record?.["is_enabled"] !== true || used === undefined || used < 0 || used > 100) {
     return undefined;
   }
@@ -339,10 +355,14 @@ function parseFableWeeklyWindow(limits: unknown): QuotaWindow | undefined {
   return undefined;
 }
 
-/** The first of the response root and its nested usage objects that has both the 5h and 7d windows. */
+/**
+ * The first of the response root and its nested usage objects that has both the 5h and 7d
+ * windows, or the 5h window and a null 7d one: a plan without a weekly limit (Enterprise) sends
+ * `seven_day: null`. A missing 7d window is still an unknown shape.
+ */
 function findUsageWindows(
   data: unknown,
-): { root: Record<string, unknown>; fiveHour: QuotaWindow; sevenDay: QuotaWindow } | null {
+): { root: Record<string, unknown>; fiveHour: QuotaWindow; sevenDay?: QuotaWindow } | null {
   const root = asRecord(data);
   if (!root) return null;
 
@@ -352,6 +372,9 @@ function findUsageWindows(
     const fiveHour = parseQuotaWindow(candidate["five_hour"] ?? candidate["fiveHour"]);
     const sevenDay = parseQuotaWindow(candidate["seven_day"] ?? candidate["sevenDay"]);
     if (fiveHour && sevenDay) return { root: candidate, fiveHour, sevenDay };
+    if (fiveHour && (candidate["seven_day"] === null || candidate["sevenDay"] === null)) {
+      return { root: candidate, fiveHour };
+    }
   }
 
   return null;
@@ -361,7 +384,11 @@ function findUsageWindows(
 function parseUsageResponse(data: unknown): AnthropicQuotaResult | null {
   const windows = findUsageWindows(data);
   return windows
-    ? { success: true, five_hour: windows.fiveHour, seven_day: windows.sevenDay }
+    ? {
+        success: true,
+        five_hour: windows.fiveHour,
+        ...(windows.sevenDay ? { seven_day: windows.sevenDay } : {}),
+      }
     : null;
 }
 
@@ -375,7 +402,7 @@ function parseOAuthUsageResponse(data: unknown): AnthropicQuotaResult | null {
   return {
     success: true,
     five_hour: windows.fiveHour,
-    seven_day: windows.sevenDay,
+    ...(windows.sevenDay ? { seven_day: windows.sevenDay } : {}),
     ...(extraUsage ? { extra_usage: extraUsage } : {}),
     ...(fableWeekly ? { fable_weekly: fableWeekly } : {}),
   };

@@ -31,6 +31,7 @@ import { __resetResolvedAuthIdentityForTests } from "../src/lib/resolved-auth-id
 import { anthropicProvider } from "../src/providers/anthropic.js";
 import { defaultSettings } from "../src/settings/index.js";
 import fableWeeklyUsage from "./fixtures/anthropic/fable-weekly.sanitized.json";
+import noWeeklyLimitUsage from "./fixtures/anthropic/no-weekly-limit.sanitized.json";
 import { createFakeIntegration } from "./helpers/fake-integration.js";
 import { useProviderWorld } from "./helpers/provider-fetch.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
@@ -267,9 +268,24 @@ describe("usage response parsing", () => {
       { rate_limits: { five_hour: { used_percentage: "nope" }, seven_day: { utilization: 12 } } },
     ],
     ["a missing window", { rateLimits: { fiveHour: { used_percentage: 30 } } }],
+    ["a null five-hour window", { five_hour: null, seven_day: { utilization: 12 } }],
+    ["a null weekly window without a five-hour one", { seven_day: null }],
   ])("returns null for %s", (_label, data) => {
     expect(parseUsageResponse(data)).toBeNull();
     expect(parseOAuthUsageResponse(data)).toBeNull();
+  });
+
+  it("parses the five-hour window of a plan without a weekly limit (seven_day: null)", () => {
+    expect(parseUsageResponse({ five_hour: { utilization: 12 }, seven_day: null })).toEqual({
+      success: true,
+      five_hour: { percentRemaining: 88, resetTimeIso: undefined },
+    });
+    expect(parseOAuthUsageResponse(noWeeklyLimitUsage)).toEqual({
+      success: true,
+      five_hour: { percentRemaining: 88, resetTimeIso: "2026-07-21T14:10:00.268Z" },
+      extra_usage: { percentRemaining: 75 },
+      fable_weekly: { percentRemaining: 98, resetTimeIso: "2026-07-27T07:00:00.268Z" },
+    });
   });
 
   it.each([
@@ -290,8 +306,40 @@ describe("usage response parsing", () => {
   );
 
   it.each([
+    { used_credits: 50_000, monthly_limit: 200_000, percentRemaining: 75 },
+    { used_credits: 0, monthly_limit: 200_000, percentRemaining: 100 },
+    { used_credits: 200_000, monthly_limit: 200_000, percentRemaining: 0 },
+  ])(
+    "parses extra usage without utilization from $used_credits of $monthly_limit credits",
+    ({ used_credits, monthly_limit, percentRemaining }) => {
+      const result = parseOAuthUsageResponse({
+        five_hour: { utilization: 57 },
+        seven_day: null,
+        extra_usage: { is_enabled: true, utilization: null, used_credits, monthly_limit },
+      });
+
+      expect(result?.extra_usage).toEqual({ percentRemaining });
+    },
+  );
+
+  it("prefers utilization over the used credits", () => {
+    const result = parseOAuthUsageResponse({
+      five_hour: { utilization: 57 },
+      seven_day: { utilization: 12 },
+      extra_usage: { is_enabled: true, utilization: 10, used_credits: 50, monthly_limit: 100 },
+    });
+
+    expect(result?.extra_usage).toEqual({ percentRemaining: 90 });
+  });
+
+  it.each([
     { extra_usage: undefined },
     { extra_usage: { is_enabled: false, utilization: 37 } },
+    { extra_usage: { is_enabled: false, used_credits: 1, monthly_limit: 100 } },
+    { extra_usage: { is_enabled: true, utilization: null, used_credits: 1, monthly_limit: 0 } },
+    { extra_usage: { is_enabled: true, utilization: null, used_credits: 101, monthly_limit: 100 } },
+    { extra_usage: { is_enabled: true, utilization: null, used_credits: "1", monthly_limit: 100 } },
+    { extra_usage: { is_enabled: true, utilization: null, monthly_limit: 100 } },
     { extra_usage: { is_enabled: true, utilization: "not-a-number" } },
     { extra_usage: { is_enabled: true, utilization: 101 } },
     { extra_usage: { is_enabled: true, utilization: -1 } },
@@ -307,7 +355,7 @@ describe("usage response parsing", () => {
     });
 
     expect(result?.five_hour.percentRemaining).toBe(43);
-    expect(result?.seven_day.percentRemaining).toBe(88);
+    expect(result?.seven_day?.percentRemaining).toBe(88);
     expect(result?.extra_usage).toBeUndefined();
   });
 
@@ -1246,14 +1294,17 @@ describe("Anthropic runtime credentials", () => {
   );
 
   it.each([
-    { currentProviderID: "claude-code" },
-    { currentModel: "CLAUDE-CODE/claude-sonnet-4-6" },
-    {},
-  ])("uses Claude credentials for the claude-code runtime with %j", async (config) => {
+    ["claude-code", { currentProviderID: "claude-code" }],
+    ["claude-code", { currentModel: "CLAUDE-CODE/claude-sonnet-4-6" }],
+    ["claude-code", {}],
+    ["claude-agent", { currentProviderID: "claude-agent" }],
+    ["claude-agent", { currentModel: "claude-agent/opus" }],
+    ["claude-agent", {}],
+  ])("uses Claude credentials for the %s runtime with %j", async (runtimeId, config) => {
     mockOpenCodeLogin("account-a");
     setUpCredentialsFileFallback(1, "account-b");
     fetchResponseMock.mockResolvedValue(mockResponse(200, USAGE_10_20));
-    const ctx = context(config, ["claude-code"]);
+    const ctx = context(config, [runtimeId]);
 
     await expect(anthropicProvider.isAvailable(ctx)).resolves.toBe(true);
     const result = await anthropicProvider.fetch(ctx);

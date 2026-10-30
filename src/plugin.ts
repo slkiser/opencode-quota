@@ -141,7 +141,7 @@ export function createQuotaServerPlugin(
         if (options.reconcileDetectedProviders && detected.length > 0) {
           try {
             // Only declare a provider through its own OpenCode id. A quota provider can be available
-            // through another plugin's provider id (claude-code for anthropic); declaring the
+            // through another provider id (claude-code or claude-agent for anthropic); declaring the
             // canonical id would add a second, credential-less provider to the catalog.
             const runtime = new Set(
               (await ctx.provider.list()).data.map((provider) => provider.id),
