@@ -31,6 +31,7 @@ import { __resetResolvedAuthIdentityForTests } from "../src/lib/resolved-auth-id
 import { anthropicProvider } from "../src/providers/anthropic.js";
 import { defaultSettings } from "../src/settings/index.js";
 import fableWeeklyUsage from "./fixtures/anthropic/fable-weekly.sanitized.json";
+import noWeeklyLimitUsage from "./fixtures/anthropic/no-weekly-limit.sanitized.json";
 import { createFakeIntegration } from "./helpers/fake-integration.js";
 import { useProviderWorld } from "./helpers/provider-fetch.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
@@ -267,9 +268,23 @@ describe("usage response parsing", () => {
       { rate_limits: { five_hour: { used_percentage: "nope" }, seven_day: { utilization: 12 } } },
     ],
     ["a missing window", { rateLimits: { fiveHour: { used_percentage: 30 } } }],
+    ["a null five-hour window", { five_hour: null, seven_day: { utilization: 12 } }],
+    ["a null weekly window without a five-hour one", { seven_day: null }],
   ])("returns null for %s", (_label, data) => {
     expect(parseUsageResponse(data)).toBeNull();
     expect(parseOAuthUsageResponse(data)).toBeNull();
+  });
+
+  it("parses the five-hour window of a plan without a weekly limit (seven_day: null)", () => {
+    expect(parseUsageResponse({ five_hour: { utilization: 12 }, seven_day: null })).toEqual({
+      success: true,
+      five_hour: { percentRemaining: 88, resetTimeIso: undefined },
+    });
+    expect(parseOAuthUsageResponse(noWeeklyLimitUsage)).toEqual({
+      success: true,
+      five_hour: { percentRemaining: 88, resetTimeIso: "2026-07-21T14:10:00.268Z" },
+      fable_weekly: { percentRemaining: 98, resetTimeIso: "2026-07-27T07:00:00.268Z" },
+    });
   });
 
   it.each([
@@ -307,7 +322,7 @@ describe("usage response parsing", () => {
     });
 
     expect(result?.five_hour.percentRemaining).toBe(43);
-    expect(result?.seven_day.percentRemaining).toBe(88);
+    expect(result?.seven_day?.percentRemaining).toBe(88);
     expect(result?.extra_usage).toBeUndefined();
   });
 

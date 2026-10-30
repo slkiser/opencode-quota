@@ -39,12 +39,17 @@ function quotaRows(quota: AnthropicQuotaResult, method: ProviderRow["method"]): 
       percentRemaining: quota.five_hour.percentRemaining,
       resetsAt: quota.five_hour.resetTimeIso,
     }),
-    quotaRow({
-      ...WEEKLY,
-      percentRemaining: quota.seven_day.percentRemaining,
-      resetsAt: quota.seven_day.resetTimeIso,
-    }),
   ];
+  // A plan without a weekly limit (Enterprise) has no Weekly row.
+  if (quota.seven_day) {
+    rows.push(
+      quotaRow({
+        ...WEEKLY,
+        percentRemaining: quota.seven_day.percentRemaining,
+        resetsAt: quota.seven_day.resetTimeIso,
+      }),
+    );
+  }
   if (quota.extra_usage) {
     rows.push(
       quotaRow({

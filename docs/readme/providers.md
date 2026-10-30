@@ -371,6 +371,8 @@ claude auth status
 
 OpenCode Quota runs `claude` from OpenCode's `PATH`, or else the first working one of `~/.claude/local/claude`, `~/.local/bin/claude`, `/opt/homebrew/bin/claude`, and `/usr/local/bin/claude` (not on Windows). If Claude lives elsewhere, or on Windows when `claude` is not on OpenCode's `PATH`, set `providers.anthropic.binaryPath`. `/quota_status` shows the one it ran as `binary_path`.
 
+A plan without a weekly limit, such as Enterprise, shows the 5h row and no Weekly row.
+
 <a id="cursor"></a>
 
 ### Cursor
