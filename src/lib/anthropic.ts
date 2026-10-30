@@ -310,9 +310,24 @@ function parseQuotaWindow(window: unknown): QuotaWindow | null {
   };
 }
 
+/**
+ * The share of Usage Credits used: `utilization`, or else `used_credits` over `monthly_limit`
+ * of the same object, which an Enterprise login gets with a null `utilization`.
+ */
+function extraUsageUsedPercent(record: Record<string, unknown> | null): number | undefined {
+  const utilization = finiteNumber(record?.["utilization"]);
+  if (utilization !== undefined) return utilization;
+  const usedCredits = finiteNumber(record?.["used_credits"]);
+  const monthlyLimit = finiteNumber(record?.["monthly_limit"]);
+  if (usedCredits === undefined || monthlyLimit === undefined || monthlyLimit <= 0) {
+    return undefined;
+  }
+  return (usedCredits / monthlyLimit) * 100;
+}
+
 function parseExtraUsageQuota(extraUsage: unknown): { percentRemaining: number } | undefined {
   const record = asRecord(extraUsage);
-  const used = finiteNumber(record?.["utilization"]);
+  const used = extraUsageUsedPercent(record);
   if (record?.["is_enabled"] !== true || used === undefined || used < 0 || used > 100) {
     return undefined;
   }

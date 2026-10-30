@@ -125,6 +125,7 @@ describe("anthropic provider", () => {
 
     expect(rowSummary(fetched.rows)).toEqual([
       ["anthropic.five_hour", "work", "5h", "five_hour", 88, FIVE_HOUR_RESET],
+      ["anthropic.extra_usage", "work", "Extra usage", "month", 75, null],
       ["anthropic.weekly_fable", "work", "Fable", "week", 98, WEEKLY_RESET],
     ]);
     expect(fetched.debug).toContainEqual({ key: "quota_supported", value: "true" });

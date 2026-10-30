@@ -283,6 +283,7 @@ describe("usage response parsing", () => {
     expect(parseOAuthUsageResponse(noWeeklyLimitUsage)).toEqual({
       success: true,
       five_hour: { percentRemaining: 88, resetTimeIso: "2026-07-21T14:10:00.268Z" },
+      extra_usage: { percentRemaining: 75 },
       fable_weekly: { percentRemaining: 98, resetTimeIso: "2026-07-27T07:00:00.268Z" },
     });
   });
@@ -305,8 +306,40 @@ describe("usage response parsing", () => {
   );
 
   it.each([
+    { used_credits: 50_000, monthly_limit: 200_000, percentRemaining: 75 },
+    { used_credits: 0, monthly_limit: 200_000, percentRemaining: 100 },
+    { used_credits: 200_000, monthly_limit: 200_000, percentRemaining: 0 },
+  ])(
+    "parses extra usage without utilization from $used_credits of $monthly_limit credits",
+    ({ used_credits, monthly_limit, percentRemaining }) => {
+      const result = parseOAuthUsageResponse({
+        five_hour: { utilization: 57 },
+        seven_day: null,
+        extra_usage: { is_enabled: true, utilization: null, used_credits, monthly_limit },
+      });
+
+      expect(result?.extra_usage).toEqual({ percentRemaining });
+    },
+  );
+
+  it("prefers utilization over the used credits", () => {
+    const result = parseOAuthUsageResponse({
+      five_hour: { utilization: 57 },
+      seven_day: { utilization: 12 },
+      extra_usage: { is_enabled: true, utilization: 10, used_credits: 50, monthly_limit: 100 },
+    });
+
+    expect(result?.extra_usage).toEqual({ percentRemaining: 90 });
+  });
+
+  it.each([
     { extra_usage: undefined },
     { extra_usage: { is_enabled: false, utilization: 37 } },
+    { extra_usage: { is_enabled: false, used_credits: 1, monthly_limit: 100 } },
+    { extra_usage: { is_enabled: true, utilization: null, used_credits: 1, monthly_limit: 0 } },
+    { extra_usage: { is_enabled: true, utilization: null, used_credits: 101, monthly_limit: 100 } },
+    { extra_usage: { is_enabled: true, utilization: null, used_credits: "1", monthly_limit: 100 } },
+    { extra_usage: { is_enabled: true, utilization: null, monthly_limit: 100 } },
     { extra_usage: { is_enabled: true, utilization: "not-a-number" } },
     { extra_usage: { is_enabled: true, utilization: 101 } },
     { extra_usage: { is_enabled: true, utilization: -1 } },
