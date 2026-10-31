@@ -165,6 +165,9 @@ async function fetchFromClaudeCli(options: {
   return { attempted: false, accounts: [], debug };
 }
 
+/** OpenCode providers that run models through Claude Code's own login. */
+const CLAUDE_CODE_RUNTIME_IDS: ReadonlySet<string> = new Set(["claude-agent", "claude-code"]);
+
 /** Whether the selected Anthropic runtime, or the only one available, uses Claude Code's login. */
 async function usesClaudeCodeCredentials(ctx: QuotaProviderContext): Promise<boolean> {
   const currentProviderId = (
@@ -174,12 +177,15 @@ async function usesClaudeCodeCredentials(ctx: QuotaProviderContext): Promise<boo
   )
     ?.trim()
     .toLowerCase();
-  if (currentProviderId === "claude-code") return true;
+  if (currentProviderId !== undefined && CLAUDE_CODE_RUNTIME_IDS.has(currentProviderId))
+    return true;
   if (currentProviderId === "anthropic") return false;
 
   try {
     const runtimeIds = await ctx.resolveRuntimeProviderIds();
-    return runtimeIds.has("claude-code") && !runtimeIds.has("anthropic");
+    return (
+      [...CLAUDE_CODE_RUNTIME_IDS].some((id) => runtimeIds.has(id)) && !runtimeIds.has("anthropic")
+    );
   } catch {
     return false;
   }
@@ -215,7 +221,10 @@ export const anthropicProvider: QuotaProvider = {
 
   matchesCurrentModel(model: string): boolean {
     const normalized = model.toLowerCase();
-    return normalized.startsWith("anthropic/") || normalized.startsWith("claude-code/");
+    return (
+      normalized.startsWith("anthropic/") ||
+      [...CLAUDE_CODE_RUNTIME_IDS].some((id) => normalized.startsWith(`${id}/`))
+    );
   },
 
   async fetch(ctx: QuotaProviderContext): Promise<ProviderFetchResult> {

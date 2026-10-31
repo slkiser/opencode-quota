@@ -291,6 +291,7 @@ describe("anthropic provider", () => {
     ["ANTHROPIC/claude-haiku-4-5", true],
     ["claude-code/claude-opus-5-5", true],
     ["CLAUDE-CODE/claude-sonnet-5-5", true],
+    ["claude-agent/opus", true],
     ["openai/gpt-5", false],
     ["copilot/claude-sonnet-4-5", false],
   ])("matches model id %s: %s", (model, expected) => {
@@ -301,6 +302,7 @@ describe("anthropic provider", () => {
     [["anthropic"], true, true],
     [["copilot", "anthropic"], true, true],
     [["claude-code"], true, false],
+    [["claude-agent"], true, false],
     [["claude"], true, false],
     [["anthropic"], false, false],
   ])(
