@@ -960,6 +960,35 @@ describe("OAuth usage request", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("reuses a successful OAuth usage reply for a minute", async () => {
+    useFakeNow();
+    setUpCredentialsFileFallback(3);
+    fetchResponseMock.mockResolvedValue(mockResponse(200, USAGE_10_20));
+
+    await getAnthropicDiagnostics();
+    await vi.advanceTimersByTimeAsync(30_000);
+    const reused = await getAnthropicDiagnostics();
+    expect(reused.quotaSupported).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(30_001);
+    await getAnthropicDiagnostics();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("shares the OAuth usage probe with another loaded copy of the plugin", async () => {
+    useFakeNow();
+    setUpCredentialsFileFallback(2);
+    fetchResponseMock.mockResolvedValueOnce(mockResponse(429, "rate limited", "300"));
+
+    await getAnthropicDiagnostics();
+    vi.resetModules();
+    const copy = await import("../src/lib/anthropic.js");
+    const fromCopy = await copy.getAnthropicDiagnostics();
+    expect(fromCopy.message).toContain("retry in 300s.");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("does not apply an old token cooldown to a newly observed token", async () => {
     setProcessPlatform("linux");
     mockExecSequence(authenticatedWithoutQuotaSteps(2));

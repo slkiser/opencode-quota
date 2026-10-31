@@ -34,6 +34,8 @@ const ANTHROPIC_DIAGNOSTICS_TTL_MS = 5_000;
 const ANTHROPIC_OAUTH_BACKOFF_BASE_MS = 30_000;
 const ANTHROPIC_OAUTH_COOLDOWN_MAX_MS = 15 * 60_000;
 const ANTHROPIC_OAUTH_COOLDOWN_MAX_ENTRIES = 16;
+/** A successful usage reply answers every probe with its token for this long. */
+const ANTHROPIC_OAUTH_REUSE_MS = 60_000;
 const ANTHROPIC_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const ANTHROPIC_BETA_HEADER = "oauth-2025-04-20";
 const CLAUDE_CODE_CREDENTIALS_SERVICE = "Claude Code-credentials";
@@ -175,8 +177,25 @@ type ParsedAuthProbe = {
 
 const diagnosticsCache = new Map<string, ProbeCacheEntry<AnthropicDiagnostics>>();
 const localDiagnosticsCache = new Map<string, ProbeCacheEntry<AnthropicLocalDiagnostics>>();
-const anthropicOAuthCooldowns = new Map<string, { failureCount: number; blockedUntilMs: number }>();
-const anthropicOAuthInFlight = new Map<string, Promise<AnthropicFallbackQuota>>();
+interface AnthropicOAuthProbeState {
+  cooldowns: Map<string, { failureCount: number; blockedUntilMs: number }>;
+  inFlight: Map<string, Promise<AnthropicFallbackQuota>>;
+  recent: Map<string, { quota: AnthropicQuotaResult; checkedAtMs: number }>;
+}
+
+// OpenCode loads one copy of the plugin per location in the same process, and Anthropic's usage
+// endpoint rate-limits per token, so every copy shares one backoff, request and recent reply.
+const ANTHROPIC_OAUTH_PROBE_STATE = Symbol.for("@slkiser/opencode-quota/anthropic-oauth-probe/v1");
+const anthropicOAuthProbeState = ((globalThis as Record<symbol, unknown>)[
+  ANTHROPIC_OAUTH_PROBE_STATE
+] ??= {
+  cooldowns: new Map(),
+  inFlight: new Map(),
+  recent: new Map(),
+}) as AnthropicOAuthProbeState;
+const anthropicOAuthCooldowns = anthropicOAuthProbeState.cooldowns;
+const anthropicOAuthInFlight = anthropicOAuthProbeState.inFlight;
+const anthropicOAuthRecent = anthropicOAuthProbeState.recent;
 
 type ResolvedAnthropicOAuth =
   | { state: "none" }
@@ -548,6 +567,16 @@ function getAnthropicOAuthCooldownMessage(remainingMs: number): string {
   return `Anthropic OAuth usage probe paused after HTTP 429; retry in ${seconds}s.`;
 }
 
+/** Keeps a successful reply for reuse, dropping replies too old to reuse. */
+function rememberAnthropicOAuthReply(tokenFingerprint: string, quota: AnthropicQuotaResult): void {
+  const nowMs = Date.now();
+  for (const [fingerprint, entry] of anthropicOAuthRecent) {
+    if (nowMs - entry.checkedAtMs >= ANTHROPIC_OAUTH_REUSE_MS)
+      anthropicOAuthRecent.delete(fingerprint);
+  }
+  anthropicOAuthRecent.set(tokenFingerprint, { quota, checkedAtMs: nowMs });
+}
+
 /** Bounds the cooldown map, evicting the soonest-expiring entries other than this token. */
 function retainAnthropicOAuthCooldownForToken(tokenFingerprint: string): void {
   const targetSize = anthropicOAuthCooldowns.has(tokenFingerprint)
@@ -587,9 +616,11 @@ async function performAnthropicOAuthUsageRequest(
 
   if (reply.ok) {
     const quota = parseOAuthUsageResponse(reply.json);
-    return quota
-      ? { state: "success", quota }
-      : { state: "unavailable", detail: "Unexpected Anthropic quota response shape" };
+    if (!quota) {
+      return { state: "unavailable", detail: "Unexpected Anthropic quota response shape" };
+    }
+    rememberAnthropicOAuthReply(tokenFingerprint, quota);
+    return { state: "success", quota };
   }
   const { failure } = reply;
   // A 429 waits out the cooldown, which is at least its Retry-After.
@@ -634,6 +665,15 @@ async function queryAnthropicQuotaFromOAuthAccessToken(
       detail: getAnthropicOAuthCooldownMessage(cooldown.blockedUntilMs - nowMs),
       facts: { code: "rate_limited", status: 429, retryAtMs: cooldown.blockedUntilMs },
     };
+  }
+
+  const recent = anthropicOAuthRecent.get(tokenFingerprint);
+  if (
+    recent &&
+    nowMs >= recent.checkedAtMs &&
+    nowMs - recent.checkedAtMs < ANTHROPIC_OAUTH_REUSE_MS
+  ) {
+    return { state: "success", quota: recent.quota };
   }
 
   // Concurrent probes with the same token share one request.
@@ -823,6 +863,7 @@ export function clearAnthropicDiagnosticsCacheForTests(): void {
   localDiagnosticsCache.clear();
   anthropicOAuthCooldowns.clear();
   anthropicOAuthInFlight.clear();
+  anthropicOAuthRecent.clear();
 }
 
 /**
