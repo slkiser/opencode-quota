@@ -31,6 +31,7 @@ import { __resetResolvedAuthIdentityForTests } from "../src/lib/resolved-auth-id
 import { anthropicProvider } from "../src/providers/anthropic.js";
 import { defaultSettings } from "../src/settings/index.js";
 import fableWeeklyUsage from "./fixtures/anthropic/fable-weekly.sanitized.json";
+import noFiveHourUsage from "./fixtures/anthropic/no-five-hour-limit.sanitized.json";
 import { createFakeIntegration } from "./helpers/fake-integration.js";
 import { useProviderWorld } from "./helpers/provider-fetch.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
@@ -267,9 +268,27 @@ describe("usage response parsing", () => {
       { rate_limits: { five_hour: { used_percentage: "nope" }, seven_day: { utilization: 12 } } },
     ],
     ["a missing window", { rateLimits: { fiveHour: { used_percentage: 30 } } }],
+    ["both windows null", { five_hour: null, seven_day: null }],
+    ["a weekly window without a five-hour key", { seven_day: { utilization: 33 } }],
+    ["a five-hour window without a weekly key", { five_hour: { utilization: 33 } }],
   ])("returns null for %s", (_label, data) => {
     expect(parseUsageResponse(data)).toBeNull();
     expect(parseOAuthUsageResponse(data)).toBeNull();
+  });
+
+  it("parses the weekly windows of a plan without a 5-hour limit (five_hour: null)", () => {
+    const weekly = { percentRemaining: 67, resetTimeIso: "2026-11-06T19:59:59.979Z" };
+    expect(parseOAuthUsageResponse(noFiveHourUsage)).toEqual({
+      success: true,
+      seven_day: weekly,
+      fable_weekly: { percentRemaining: 100, resetTimeIso: "2026-11-06T19:59:59.979Z" },
+    });
+    expect(parseOAuthUsageResponse(noFiveHourUsage)).not.toHaveProperty("five_hour");
+    expect(parseUsageResponse(noFiveHourUsage)).toEqual({ success: true, seven_day: weekly });
+    expect(parseUsageResponse({ fiveHour: null, sevenDay: { utilization: 33 } })).toEqual({
+      success: true,
+      seven_day: { percentRemaining: 67, resetTimeIso: undefined },
+    });
   });
 
   it.each([
@@ -306,8 +325,8 @@ describe("usage response parsing", () => {
       ...extra,
     });
 
-    expect(result?.five_hour.percentRemaining).toBe(43);
-    expect(result?.seven_day.percentRemaining).toBe(88);
+    expect(result?.five_hour?.percentRemaining).toBe(43);
+    expect(result?.seven_day?.percentRemaining).toBe(88);
     expect(result?.extra_usage).toBeUndefined();
   });
 

@@ -15,6 +15,7 @@ import {
 } from "../src/lib/opencode-auth.js";
 import { anthropicProvider } from "../src/providers/anthropic.js";
 import fableWeeklyUsage from "./fixtures/anthropic/fable-weekly.sanitized.json";
+import noFiveHourUsage from "./fixtures/anthropic/no-five-hour-limit.sanitized.json";
 import type { CredentialDatabaseRow } from "./helpers/credential-database.js";
 import { createFakeIntegration } from "./helpers/fake-integration.js";
 import {
@@ -114,6 +115,20 @@ describe("anthropic provider", () => {
       { key: "quota_source", value: "opencode-auth-oauth-api" },
       { key: "oauth_credential_source", value: "opencode-auth" },
     ]);
+  });
+
+  it("shows no 5h row for a plan without a 5-hour limit", async () => {
+    world.storeLogins([claudeLogin("work")]);
+    fakeHttp(() => noFiveHourUsage);
+
+    const fetched = await fetchRows(anthropicProvider, { anthropicBinaryPath: missingClaude() });
+
+    const reset = "2026-11-06T19:59:59.979Z";
+    expect(rowSummary(fetched.rows)).toEqual([
+      ["anthropic.weekly", "work", "Weekly", "week", 67, reset],
+      ["anthropic.weekly_fable", "work", "Fable", "week", 100, reset],
+    ]);
+    expect(fetched.debug).toContainEqual({ key: "quota_supported", value: "true" });
   });
 
   it.runIf(POSIX)("leaves an installed Claude CLI alone while a login works", async () => {
