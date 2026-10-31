@@ -1246,14 +1246,17 @@ describe("Anthropic runtime credentials", () => {
   );
 
   it.each([
-    { currentProviderID: "claude-code" },
-    { currentModel: "CLAUDE-CODE/claude-sonnet-4-6" },
-    {},
-  ])("uses Claude credentials for the claude-code runtime with %j", async (config) => {
+    ["claude-code", { currentProviderID: "claude-code" }],
+    ["claude-code", { currentModel: "CLAUDE-CODE/claude-sonnet-4-6" }],
+    ["claude-code", {}],
+    ["claude-agent", { currentProviderID: "claude-agent" }],
+    ["claude-agent", { currentModel: "claude-agent/opus" }],
+    ["claude-agent", {}],
+  ])("uses Claude credentials for the %s runtime with %j", async (runtimeId, config) => {
     mockOpenCodeLogin("account-a");
     setUpCredentialsFileFallback(1, "account-b");
     fetchResponseMock.mockResolvedValue(mockResponse(200, USAGE_10_20));
-    const ctx = context(config, ["claude-code"]);
+    const ctx = context(config, [runtimeId]);
 
     await expect(anthropicProvider.isAvailable(ctx)).resolves.toBe(true);
     const result = await anthropicProvider.fetch(ctx);

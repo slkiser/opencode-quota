@@ -33,8 +33,9 @@ describe("provider-metadata", () => {
   // Synonyms name the provider; runtime ids are only the OpenCode ids that count as it.
   it.each([
     ["  OpenAI  ", "openai", "OpenAI", ["openai", "chatgpt", "codex"]],
-    ["claude", "anthropic", "Anthropic", ["anthropic", "claude-code"]],
-    ["claude-code", "anthropic", "Anthropic", ["anthropic", "claude-code"]],
+    ["claude", "anthropic", "Anthropic", ["anthropic", "claude-agent", "claude-code"]],
+    ["claude-agent", "anthropic", "Anthropic", ["anthropic", "claude-agent", "claude-code"]],
+    ["claude-code", "anthropic", "Anthropic", ["anthropic", "claude-agent", "claude-code"]],
     ["github-copilot", "copilot", "Copilot", COPILOT],
     ["open-cursor", "cursor", "Cursor", ["cursor", "cursor-acp"]],
     ["gemini-cli", "google-gemini-cli", "Gemini CLI", GEMINI_CLI],
@@ -67,6 +68,7 @@ describe("provider-metadata", () => {
     [" KIMI-CODE-PLAN-GLOBAL ", ["kimi-code-plan-global"]],
     ["google", ["google-gemini-cli"]],
     ["claude", []],
+    ["claude-agent", ["anthropic"]],
     ["claude-code", ["anthropic"]],
   ])("finds the provider owning the runtime id %j", (runtimeId, ids) => {
     expect(getQuotaProviderIdsForRuntimeId(runtimeId)).toEqual(ids);
