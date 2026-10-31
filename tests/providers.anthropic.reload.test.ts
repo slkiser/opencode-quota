@@ -42,6 +42,8 @@ beforeEach(() => {
 
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+  // Reloads share Claude's usage probe within a process; the next test starts a new one.
+  (await import("../src/lib/anthropic.js")).clearAnthropicDiagnosticsCacheForTests();
   vi.useRealTimers();
 });
 

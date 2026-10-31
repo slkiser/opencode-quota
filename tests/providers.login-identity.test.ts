@@ -5,11 +5,12 @@
  */
 
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { loadProviderSource } from "../src/core/provider-source.js";
 import { createQuotaStore } from "../src/core/store.js";
 import type { QuotaSnapshot } from "../src/core/types.js";
+import { clearAnthropicDiagnosticsCacheForTests } from "../src/lib/anthropic.js";
 import { geminiCliCompanion } from "../src/lib/google-companion-credentials.js";
 import { __resetResolvedAuthIdentityForTests } from "../src/lib/resolved-auth-identity.js";
 import { getProviders } from "../src/providers/registry.js";
@@ -22,6 +23,8 @@ const world = useProviderWorld();
 
 afterEach(() => {
   __resetResolvedAuthIdentityForTests();
+  clearAnthropicDiagnosticsCacheForTests();
+  vi.useRealTimers();
 });
 
 type Vendor = {
@@ -222,11 +225,14 @@ describe.each(VENDORS)("$providerId login list", (vendor) => {
   });
 
   it("checks again when two logins swap their tokens", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
     const tokens = recordTokens();
     world.storeLogins([vendor.login("work", "token-a", 2), vendor.login("home", "token-b", 1)]);
     const store = storeFor(vendor.providerId);
     await store.refresh({ reason: "manual" });
     tokens.length = 0;
+    // A minute on, past any reuse of a token's last reply but within the check interval.
+    vi.setSystemTime(Date.now() + 60_000);
 
     world.storeLogins([vendor.login("work", "token-b", 2), vendor.login("home", "token-a", 1)]);
     store.invalidateIdentity();
