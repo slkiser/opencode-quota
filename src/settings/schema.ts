@@ -145,7 +145,11 @@ export const SETTINGS_SCHEMA = {
   "layout.providerGap": { ...whole(0, 2), default: 1 },
   /** Between providers on the status line. */
   "layout.separator": { kind: "separator", default: " · " },
-  /** The words every client uses: "58% left", "58% remaining", "58%", or "42% used". */
+  /**
+   * The share every client shows: "58% left", "58% remaining", "58%", or "42% used". `used` also
+   * fills the bars and their even-use mark with the share used, and then only the panel's title
+   * says the word ("▼ Quota used"); the rows stay bare.
+   */
   "words.percent": choice(["left", "remaining", "bare", "used"], "left"),
   /** "4.5d" (smart), "2h 14m", "2h14m", "2h", or "2.2h" (with `resetDecimals`). */
   "words.reset": choice(["smart", "exact", "compact", "short", "decimal"], "smart"),
