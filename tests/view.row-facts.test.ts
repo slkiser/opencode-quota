@@ -60,8 +60,6 @@ describe("row facts", () => {
     { style: "words", percent: "remaining", left: 58, value: "58% remaining" },
     { style: "words", percent: "bare", left: 58, value: "58%" },
     { style: "words", percent: "used", left: 58, value: "42%" },
-    { style: "usedWord", percent: "left", left: 58, value: "58%" },
-    { style: "usedWord", percent: "used", left: 58, value: "42%" },
     { style: "words", percent: "left", left: -12, value: "0% left" },
     { style: "words", percent: "used", left: 140, value: "0%" },
   ] as const)(

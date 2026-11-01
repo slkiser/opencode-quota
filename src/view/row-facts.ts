@@ -24,9 +24,9 @@ export type Place = {
   names: "words" | "label";
   /**
    * "number": "58%", the place says the word elsewhere. "words": "58% left", "42% used", or
-   * "58%" in the bare style. "usedWord": "58%", but "42% used", which bare would read as left.
+   * "58%" in the bare style.
    */
-  percent: "number" | "words" | "usedWord";
+  percent: "number" | "words";
   /** Reset and pace times in this style, whatever the words (Limits: always "exact"). */
   times?: Words["reset"];
   /** The place draws the even-use mark, so its facts have `evenLeft`. */

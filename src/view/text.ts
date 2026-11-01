@@ -406,7 +406,7 @@ export function collapsedLines(input: CollapsedInput): Line[] {
   const { layout, nowMs } = input;
   const picks = input.groups.map((group) => ({
     group,
-    picked: pickedFacts(input, group, "usedWord"),
+    picked: pickedFacts(input, group, "number"),
   }));
   // The percent after a space: " 100%". The title says the direction, so no row carries its word.
   const percentWidth = 5;
@@ -488,7 +488,7 @@ function statusName(input: StatusInput, group: Group): string {
  */
 function statusSegment(input: StatusInput, group: Group, level: StatusLevel): Line {
   const { layout, nowMs } = input;
-  const picked = pickedFacts(input, group, "usedWord");
+  const picked = pickedFacts(input, group, "number");
   const percent = picked?.percent;
   const name: Segment = { text: statusName(input, group), role: "statusName", percent };
   if (!picked || percent === undefined) {
