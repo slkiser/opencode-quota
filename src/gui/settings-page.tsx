@@ -1345,7 +1345,7 @@ function OpenCodeView(props: SectionProps) {
         title={ctx.t("opencode.theme")}
         description={ctx.t("opencode.theme.description")}
       >
-        <ctx.ui.Button onClick={() => ctx.layout?.settings("general")}>
+        <ctx.ui.Button onClick={() => ctx.layout?.settings("appearance")}>
           {ctx.t("opencode.openSettings")}
         </ctx.ui.Button>
       </Row>
