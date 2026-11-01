@@ -136,7 +136,7 @@ describe("CLI reports", () => {
 
       expect(report).toEqual({
         exitCode: 0,
-        stdout: "Z.ai Weekly         19% used      2.2d\n",
+        stdout: "Z.ai Weekly         19%           2.2d\n",
         stderr: "",
       });
     });

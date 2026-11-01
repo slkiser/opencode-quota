@@ -575,7 +575,7 @@ describe("the server settings this window edits", () => {
           .map((line) => line.replace(/\s+/gu, " ").trim())
           .join(" | ");
       const LEFT = "▼ Quota left | Copilot | 7d ████████████████░░░░ 80%";
-      const USED = "▼ Quota used | Copilot | 7d ████████████████░░░░ 20%";
+      const USED = "▼ Quota used | Copilot | 7d ████░░░░░░░░░░░░░░░░ 20%";
 
       expect(sidebar()).toBe(LEFT);
       server.set("words.percent", "used");

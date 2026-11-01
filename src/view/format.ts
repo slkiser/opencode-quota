@@ -63,10 +63,18 @@ function clampPercent(percent: number): number {
   return Math.max(0, Math.min(100, Math.round(percent)));
 }
 
+/**
+ * The share every surface shows: the percent left as the row has it, or the percent used when
+ * `words.percent` is "used". Bars, marks and percents read it, so the number and the bar agree.
+ */
+export function shownPercent(words: Words, percentRemaining: number): number {
+  const left = clampPercent(percentRemaining);
+  return words.percent === "used" ? 100 - left : left;
+}
+
 /** "58% left", "42% used", or "58%" without the word. */
 export function percentText(words: Words, percentRemaining: number, withWord: boolean): string {
-  const left = clampPercent(percentRemaining);
-  const value = words.percent === "used" ? 100 - left : left;
+  const value = shownPercent(words, percentRemaining);
   const word = withWord ? percentWord(words) : "";
   return word ? `${value}% ${word}` : `${value}%`;
 }

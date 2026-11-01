@@ -619,7 +619,7 @@ describe("v6 surfaces on the quota snapshot", () => {
         file.words = { percent: "used" };
         await writeFile(path, JSON.stringify(file));
         await vi.waitFor(() =>
-          expect(sidebar().join(" ")).toContain("Sidebar… ███████████░░░ 19%"),
+          expect(sidebar().join(" ")).toContain("Sidebar… ███░░░░░░░░░░░ 19%"),
         );
         expect(sidebar()).toContain("▼ Quota used");
         expect(sidebar().join(" ")).not.toContain("Session 1.20K");
@@ -693,7 +693,7 @@ describe("v6 surfaces on the quota snapshot", () => {
       // The sidebar shows the new words before they are saved.
       clickable(settingLine(windowTree(), "words.percent"), "‹").props.onMouseUp();
       expect(sidebar()).toEqual(
-        expect.arrayContaining(["▼ Quota used", "Plan ████████████████░░░░ 19%"]),
+        expect.arrayContaining(["▼ Quota used", "Plan ████░░░░░░░░░░░░░░░░ 19%"]),
       );
 
       clickable(windowTree(), "Providers").props.onMouseUp();

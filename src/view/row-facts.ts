@@ -92,8 +92,8 @@ export function rowFacts(item: VisibleRow, group: Pick<Group, "rows">, place: Pl
   if (percent === undefined) {
     return { id: row.id, name, value: rowValueText(row), reset: "", shortReset: "" };
   }
-  const withWord =
-    place.percent === "words" || (place.percent === "usedWord" && words.percent === "used");
+  // The words' direction shows in the panel's title, so a "used" row never repeats the word.
+  const withWord = words.percent !== "used" && place.percent === "words";
   const times = place.times ?? words.reset;
   const resetMs = Date.parse(row.resetsAt ?? "");
   const resetIn = (style: Words["reset"]) =>

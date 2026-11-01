@@ -703,7 +703,7 @@ describe("view text", () => {
       (shape) => {
         const [full] = barParts(shape, 100, 1);
         const [, empty] = barParts(shape, 0, 1);
-        expect(barSegments(shape, 70, 20, 50)).toEqual([
+        expect(barSegments(shape, 70, 20, 50, DEFAULT_WORDS)).toEqual([
           { text: full.repeat(10), role: "bar", percent: 70 },
           { text: "┃", role: "label" },
           { text: full.repeat(3), role: "bar", percent: 70 },
@@ -711,6 +711,29 @@ describe("view text", () => {
         ]);
       },
     );
+
+    it("fills the bar with the share the words show, and keeps the percent left for its colors", () => {
+      const used = words({ percent: "used" });
+      expect(barSegments("blocks", 70, 10, undefined, used)).toEqual([
+        { text: "███", role: "bar", percent: 70 },
+        { text: "░░░░░░░", role: "empty", percent: 70 },
+      ]);
+      expect(
+        lineText({ id: "bar", segments: barSegments("blocks", 70, 10, undefined, used) }),
+      ).toBe("███░░░░░░░");
+      // The same row in "left" words keeps the old bar.
+      expect(
+        lineText({ id: "bar", segments: barSegments("blocks", 70, 10, undefined, DEFAULT_WORDS) }),
+      ).toBe("███████░░░");
+    });
+
+    it("puts the even-use mark where the words put the bar", () => {
+      const used = words({ percent: "used" });
+      // 60% would be left at even use, so 40% used: the fourth cell of ten.
+      expect(lineText({ id: "bar", segments: barSegments("blocks", 70, 10, 60, used) })).toBe(
+        "███░┃░░░░░",
+      );
+    });
 
     it.each([
       { name: "no bar", shape: "none", width: 20, text: "" },
@@ -725,7 +748,9 @@ describe("view text", () => {
       },
     ] as const)("draws $name", ({ shape, width, text, ...rest }) => {
       const evenLeft = "evenLeft" in rest ? rest.evenLeft : 50;
-      expect(lineText({ id: "bar", segments: barSegments(shape, 70, width, evenLeft) })).toBe(text);
+      expect(
+        lineText({ id: "bar", segments: barSegments(shape, 70, width, evenLeft, DEFAULT_WORDS) }),
+      ).toBe(text);
     });
   });
 
@@ -786,7 +811,7 @@ describe("view text", () => {
     expect(accounts).toEqual(["Z.ai (wo… ", "Z.ai (ho… "]);
   });
 
-  it("fits a collapsed line with used percents, a space before the percent", () => {
+  it("fits a collapsed line with used percents and no word of its own", () => {
     const lines = collapsedLines({
       groups: groups("collapsed", [CLAUDE, TWO_ACCOUNTS]),
       ...drawn,
@@ -795,11 +820,11 @@ describe("view text", () => {
       window: {},
     }).map(lineText);
     expect(lines).toEqual([
-      "Claude    7d   ░░░░  88% used    3.2d",
+      "Claude    7d   ████████░  88%    3.2d",
       // An error takes the reset's place, cut to the line.
-      "Copilot…  30d  ██░░  60% used  Timed…",
+      "Copilot…  30d  █████░░░░  60%  Timed…",
       // A row without a reset time.
-      "Copilot…  30d  ████  10% used        ",
+      "Copilot…  30d  █░░░░░░░░  10%        ",
     ]);
   });
 
