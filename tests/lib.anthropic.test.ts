@@ -400,24 +400,24 @@ describe("parseUsageResponse", () => {
       fable_weekly: { percentRemaining: 100, resetTimeIso: "2026-11-06T19:59:59.979Z" },
     });
     expect(parseOAuthUsageResponse(noFiveHourUsage)).not.toHaveProperty("five_hour");
-    expect(parseUsageResponse(noFiveHourUsage)).toEqual({ success: true, seven_day: weekly });
-    expect(parseUsageResponse({ fiveHour: null, sevenDay: { utilization: 33 } })).toEqual({
-      success: true,
-      seven_day: { percentRemaining: 67, resetTimeIso: undefined },
-    });
   });
 
   it("parses the five-hour window of a plan without a weekly limit (seven_day: null)", () => {
-    expect(parseUsageResponse({ five_hour: { utilization: 12 }, seven_day: null })).toEqual({
-      success: true,
-      five_hour: { percentRemaining: 88, resetTimeIso: undefined },
-    });
     expect(parseOAuthUsageResponse(noWeeklyLimitUsage)).toEqual({
       success: true,
       five_hour: { percentRemaining: 88, resetTimeIso: "2026-07-21T14:10:00.268Z" },
       extra_usage: { percentRemaining: 75 },
       fable_weekly: { percentRemaining: 98, resetTimeIso: "2026-07-27T07:00:00.268Z" },
     });
+  });
+
+  it.each([
+    ["five_hour: null", noFiveHourUsage],
+    ["seven_day: null", noWeeklyLimitUsage],
+    ["camelCase fiveHour: null", { fiveHour: null, sevenDay: { utilization: 33 } }],
+    ["seven_day: null without extras", { five_hour: { utilization: 12 }, seven_day: null }],
+  ])("leaves a Claude CLI reply with %s to the usage endpoint", (_label, data) => {
+    expect(parseUsageResponse(data, { includeExtraUsage: true })).toBeNull();
   });
 
   it.each([
@@ -832,6 +832,7 @@ describe("Claude CLI diagnostics", () => {
       expect(quota.seven_day.percentRemaining).toBe(88);
     }
     await expect(hasAnthropicCredentialsConfigured()).resolves.toBe(true);
+    expect(fetchWithTimeoutMock).not.toHaveBeenCalled();
   });
 
   it("keeps Anthropic availability local-only when only the OAuth fallback can provide quota", async () => {
@@ -910,6 +911,49 @@ describe("Claude CLI diagnostics", () => {
     expect(readFileMock).toHaveBeenCalledTimes(1);
     expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    [
+      "an Enterprise reply (seven_day: null)",
+      noWeeklyLimitUsage,
+      {
+        success: true,
+        five_hour: { percentRemaining: 88, resetTimeIso: "2026-07-21T14:10:00.268Z" },
+        extra_usage: { percentRemaining: 75 },
+        fable_weekly: { percentRemaining: 98, resetTimeIso: "2026-07-27T07:00:00.268Z" },
+      },
+    ],
+    [
+      "an Ultra reply (five_hour: null)",
+      noFiveHourUsage,
+      {
+        success: true,
+        seven_day: { percentRemaining: 67, resetTimeIso: "2026-11-06T19:59:59.979Z" },
+        fable_weekly: { percentRemaining: 100, resetTimeIso: "2026-11-06T19:59:59.979Z" },
+      },
+    ],
+  ])(
+    "asks the usage endpoint when Claude auth status JSON carries %s",
+    async (_label, usage, expectedQuota) => {
+      setProcessPlatform("linux");
+      mockExecSequence([
+        { stdout: "claude 1.2.3\n" },
+        { stdout: JSON.stringify({ authenticated: true, quota: usage }) },
+      ]);
+      readFileMock.mockResolvedValue(
+        JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
+      );
+      fetchResponseMock.mockResolvedValue(mockJsonResponse(usage));
+
+      const diagnostics = await getAnthropicDiagnostics();
+      expect(diagnostics.quotaSupported).toBe(true);
+      expect(diagnostics.quotaSource).toBe("claude-credentials-oauth-api");
+      expect(diagnostics.quota).toEqual(expectedQuota);
+      await expect(queryAnthropicQuota()).resolves.toEqual(expectedQuota);
+      expect(execFileMock).toHaveBeenCalledTimes(2);
+      expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("prefers OpenCode's own Anthropic OAuth credentials over Claude Code credentials", async () => {
     setProcessPlatform("darwin");

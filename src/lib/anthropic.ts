@@ -529,13 +529,18 @@ function readUsageWindows(
   };
 }
 
+/**
+ * Quota from `claude auth status --json`. Only a root with both the 5h and 7d windows counts:
+ * this parser keeps neither Usage Credits nor the Fable window, so a plan without one of the
+ * limits (a `null` window) must fall through to the usage endpoint, which reports them.
+ */
 function parseUsageResponse(
   data: unknown,
   options: AnthropicUsageParseOptions = {},
 ): AnthropicQuotaResult | null {
   for (const root of getUsageRoots(data)) {
     const windows = readUsageWindows(root);
-    if (!windows) {
+    if (!windows?.fiveHour || !windows.sevenDay) {
       continue;
     }
 
