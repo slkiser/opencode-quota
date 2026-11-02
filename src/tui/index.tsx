@@ -309,7 +309,11 @@ const plugin = Plugin.define({
       // Home has a message box too; Home's status line sits in its own footer instead.
       render: (props) => (
         <Show when={props.sessionID && statusLineShows(host)}>
-          <StatusLine host={host} sessionID={props.sessionID} />
+          <StatusLine
+            host={host}
+            sessionID={props.sessionID}
+            terminalWidth={() => api.renderer.width}
+          />
         </Show>
       ),
     });

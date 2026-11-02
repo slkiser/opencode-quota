@@ -11,6 +11,7 @@ import type {
 } from "./types.js";
 
 export const AGY_AUTH_KEYS = [
+  "google",
   "google-agy",
   "opencode-agy-auth",
   "google-agy-auth",
@@ -30,6 +31,8 @@ export const AGY_FLAVOR: GoogleQuotaFlavor<
   projectIdEnvVar: "OPENCODE_AGY_PROJECT_ID",
   projectIdConfigProvider: "google-agy",
   failedLoginCountsAsPresent: false,
+  // `google` also holds Gemini CLI logins, whose tokens the AGY client cannot refresh.
+  readsAntigravityGoogleLogins: true,
   companion: agyCompanion,
   quotaUrl: "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
   quotaHeaders: () => ({

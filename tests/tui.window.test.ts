@@ -184,6 +184,22 @@ describe("quota window: Limits", () => {
     expect(fiveHour.match(/^ {3}5h +(\S+) {2}30% left/u)?.[1]).toMatch(cells);
   });
 
+  it("with used words, says the word and fills the bar by the share used, as the window has no such title", () => {
+    const display = defaultDisplaySettings();
+    display.words.percent = "used";
+    const snapshot: QuotaSnapshot = {
+      version: 6,
+      providers: [CLAUDE],
+      resetNotices: [],
+      generatedAtMs: NOW,
+    };
+    const fiveHour = lineText(limitsLines({ snapshot, display, nowMs: NOW, width: WIDE })[1]);
+    const bar = fiveHour.match(/^ {3}5h +([█░┃]+) {2}70% used/u)?.[1] ?? "";
+    // 70% used, so about 70% of the cells are filled.
+    const filled = [...bar].filter((cell) => cell === "█").length;
+    expect(filled / [...bar].length).toBeCloseTo(0.7, 1);
+  });
+
   it.each([
     { width: 90, cells: 31 },
     { width: 110, cells: 51 },
