@@ -1,9 +1,5 @@
 import { geminiCliCompanion } from "./google-companion-credentials.js";
-import {
-  type GoogleAccount,
-  type GoogleQuotaFlavor,
-  isAntigravityLogin,
-} from "./google-oauth-quota.js";
+import type { GoogleAccount, GoogleQuotaFlavor } from "./google-oauth-quota.js";
 import { createGoogleTokenCache } from "./google-token-cache.js";
 import { nonEmptyString } from "./json-guards.js";
 import type { GeminiCliAuthSourceKey, GeminiCliQuotaBucket } from "./types.js";
@@ -41,7 +37,7 @@ export const GEMINI_CLI_FLAVOR: GoogleQuotaFlavor<
   projectIdConfigProvider: "google",
   failedLoginCountsAsPresent: true,
   // `google` also holds Antigravity logins, whose tokens the Gemini CLI client cannot refresh.
-  ownsLogin: (row) => !isAntigravityLogin(row),
+  readsAntigravityGoogleLogins: false,
   companion: geminiCliCompanion,
   missingCompanionError: "Gemini CLI requires the opencode-gemini-auth plugin",
   quotaUrl: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota",

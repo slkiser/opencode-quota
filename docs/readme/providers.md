@@ -446,7 +446,7 @@ opencode auth login google-agy
 ```
 
 - It shows the companion's grouped weekly and five-hour windows for each account. AGY logins copied from OpenCode 1 keep working.
-- OpenCode 2 sign-ins made with [`opencode-antigravity-auth`](https://github.com/NoeFabris/opencode-antigravity-auth) (stored under `google`) show here too. The companion above is still needed for its OAuth client.
+- Sign-ins made with [`opencode-antigravity-auth`](https://github.com/NoeFabris/opencode-antigravity-auth) (stored under `google`) show here too, and Gemini CLI skips them. A sign-in copied from OpenCode 1 counts only while its account is in that plugin's `antigravity-accounts.json`. The companion above is still needed for its OAuth client.
 - If the login has no project id, set `OPENCODE_AGY_PROJECT_ID`, or `providers.google-agy.settings.projectId` in [OpenCode config](troubleshooting.md#opencode-config-files) (the OpenCode 1 form `provider.google-agy.options.projectId` also works).
 
 <a id="gemini-cli"></a>
