@@ -12,7 +12,7 @@ import {
   SETTINGS_GROUPS,
   SETTINGS_TABS,
 } from "../src/tui/window/settings.tsx";
-import { hintLines, keyHintLines, tabStrip } from "../src/tui/window/shell.tsx";
+import { hintLines, keyHintLines, tabStrip, windowHint } from "../src/tui/window/shell.tsx";
 import { createUsageTab } from "../src/tui/window/usage.tsx";
 import { noticeItems, statusLines } from "../src/tui/window/views.tsx";
 import { columnsOf } from "../src/view/columns.js";
@@ -142,10 +142,34 @@ describe("quota window: Limits", () => {
     expect(bar[0].text).toHaveLength(Math.round(cells.length * 0.3));
   });
 
+  it("leaves the even-use marker out with Even-use mark off, in every bar shape", () => {
+    const snapshot: QuotaSnapshot = {
+      version: 6,
+      providers: [CLAUDE],
+      resetNotices: [],
+      generatedAtMs: NOW,
+    };
+    for (const bar of ["blocks", "dots", "line", "none"] as const) {
+      const display = defaultDisplaySettings();
+      display.layout.bar = bar;
+      display.layout.evenUse = false;
+      const lines = limitsLines({ snapshot, display, nowMs: NOW, width: WIDE });
+      expect(lines.map(lineText).join("\n")).not.toContain("┃");
+      expect(lineText(lines[1])).toMatch(/^ {3}5h +\S+ {2}30% left/u);
+    }
+  });
+
+  it("names the even-use marker in Limits' key hint only with Even-use mark on", () => {
+    expect(windowHint("limits", true)).toBe(
+      "┃ where even use would be · c copy · ↑↓ scroll · tab next tab · esc close",
+    );
+    expect(windowHint("limits", false)).toBe("c copy · ↑↓ scroll · tab next tab · esc close");
+  });
+
   it.each([
     { bar: "dots", cells: /^[●○]+┃[○]+$/u },
     { bar: "line", cells: /^[━─]+┃─+$/u },
-    // With bars off elsewhere, Limits keeps the thin line: the even-use marker needs a bar.
+    // With bars off elsewhere, Limits keeps the thin line.
     { bar: "none", cells: /^[━─]+┃─+$/u },
   ] as const)("draws the sidebar's bar shape: $bar", ({ bar, cells }) => {
     const display = defaultDisplaySettings();
@@ -158,6 +182,22 @@ describe("quota window: Limits", () => {
     };
     const fiveHour = lineText(limitsLines({ snapshot, display, nowMs: NOW, width: WIDE })[1]);
     expect(fiveHour.match(/^ {3}5h +(\S+) {2}30% left/u)?.[1]).toMatch(cells);
+  });
+
+  it("with used words, says the word and fills the bar by the share used, as the window has no such title", () => {
+    const display = defaultDisplaySettings();
+    display.words.percent = "used";
+    const snapshot: QuotaSnapshot = {
+      version: 6,
+      providers: [CLAUDE],
+      resetNotices: [],
+      generatedAtMs: NOW,
+    };
+    const fiveHour = lineText(limitsLines({ snapshot, display, nowMs: NOW, width: WIDE })[1]);
+    const bar = fiveHour.match(/^ {3}5h +([█░┃]+) {2}70% used/u)?.[1] ?? "";
+    // 70% used, so about 70% of the cells are filled.
+    const filled = [...bar].filter((cell) => cell === "█").length;
+    expect(filled / [...bar].length).toBeCloseTo(0.7, 1);
   });
 
   it.each([
