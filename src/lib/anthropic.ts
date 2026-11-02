@@ -432,16 +432,15 @@ function findUsageWindows(data: unknown): {
   return null;
 }
 
-/** Quota from Claude CLI `auth status --json`: only the 5h and 7d windows. */
+/**
+ * Quota from Claude CLI `auth status --json`: only the 5h and 7d windows, and only when both are
+ * there. A plan without one of them (Ultra, Enterprise) has Usage Credits or Fable weekly that
+ * only the OAuth usage endpoint reads, so that reply is not local quota and the endpoint runs.
+ */
 function parseUsageResponse(data: unknown): AnthropicQuotaResult | null {
   const windows = findUsageWindows(data);
-  return windows
-    ? {
-        success: true,
-        ...(windows.fiveHour ? { five_hour: windows.fiveHour } : {}),
-        ...(windows.sevenDay ? { seven_day: windows.sevenDay } : {}),
-      }
-    : null;
+  if (!windows?.fiveHour || !windows.sevenDay) return null;
+  return { success: true, five_hour: windows.fiveHour, seven_day: windows.sevenDay };
 }
 
 /** Quota from the OAuth usage endpoint: the 5h and 7d windows, Usage Credits and Fable weekly. */
