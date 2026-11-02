@@ -181,6 +181,7 @@ describe("resolvePricingKey snapshot coverage", () => {
       input: 3,
       output: 15,
       cache_read: 0.3,
+      cache_write: 3,
     });
 
     for (const modelID of ["k3-free", "k3-256k-free", "k3-preview"]) {
