@@ -115,7 +115,7 @@ function gridFor(rows: RowFacts[], width: number): Grid {
   return build(true, Math.min(labelWidest, LABEL_NARROW, Math.max(4, room)), true);
 }
 
-function rowLines(row: RowFacts, grid: Grid, width: number, shape: BarShape): Line[] {
+function rowLines(row: RowFacts, grid: Grid, width: number, shape: BarShape, words: Words): Line[] {
   const { id, percent } = row;
   const label: Segment = {
     text: `${INDENT}${fit(row.name, grid.label)}${GAP}`,
@@ -130,7 +130,7 @@ function rowLines(row: RowFacts, grid: Grid, width: number, shape: BarShape): Li
     return [{ id, segments: [label, { text: value, role: "value" }] }];
   }
   const tag = (segments: Segment[]) => withPaceLevel(segments, row.paceLevel);
-  const bar = barSegments(shape, percent, grid.bar, row.evenLeft);
+  const bar = barSegments(shape, percent, grid.bar, row.evenLeft, words);
   const percentSegment: Segment = {
     text: `${GAP}${padStartColumns(row.value, grid.percent)}`,
     role: "percent",
@@ -230,7 +230,8 @@ export function limitsLines(input: LimitsInput): Line[] {
         segments: [{ text: fit(`${INDENT}${error}`, width).trimEnd(), role: "error" }],
       });
     }
-    for (const row of facts.get(group.id) ?? []) lines.push(...rowLines(row, grid, width, shape));
+    for (const row of facts.get(group.id) ?? [])
+      lines.push(...rowLines(row, grid, width, shape, words));
     return lines.map((line) => clipped(line, width));
   });
 }

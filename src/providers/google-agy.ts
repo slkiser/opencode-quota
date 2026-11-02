@@ -53,11 +53,17 @@ const AGY_PROVIDER: GoogleProviderFlavor<
   row: agyRow,
 };
 
+/** An AGY runtime id, or an opencode-antigravity-auth model (`google/antigravity-…`). */
+function isAgyModel(model: string): boolean {
+  const { providerId, modelId } = parseProviderModelRef(model);
+  if (providerId === "google") return modelId.startsWith("antigravity-");
+  return (AGY_AUTH_KEYS as readonly string[]).includes(providerId);
+}
+
 export const googleAgyProvider: QuotaProvider = {
   id: "google-agy",
   cachePolicy: googleCachePolicy(AGY_PROVIDER),
   isAvailable: (ctx) => isGoogleProviderAvailable(AGY_PROVIDER, ctx),
-  matchesCurrentModel: (model) =>
-    (AGY_AUTH_KEYS as readonly string[]).includes(parseProviderModelRef(model).providerId),
+  matchesCurrentModel: isAgyModel,
   fetch: (ctx) => fetchGoogleProviderQuota(AGY_PROVIDER, ctx),
 };

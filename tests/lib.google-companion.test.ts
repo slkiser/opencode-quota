@@ -281,6 +281,28 @@ describe.each(companions)("$packageName companion credentials", (companion) => {
     await expectConfigured(resolver, bundle("latest", "1000"), "-newest");
   });
 
+  it("reads a bundled dist/index.js as text, even where its subpath resolves", async () => {
+    // Published companions bundle into dist/index.js and keep the client constants private.
+    const cacheDir = join(tempDir, "opencode2-bundle");
+    const bundlePath = join(opencode2Bundle(cacheDir, "latest", "1"), "dist", "index.js");
+    mkdirSync(dirname(bundlePath), { recursive: true });
+    writeFileSync(
+      bundlePath,
+      [
+        `var ${companion.clientIdExport} = "client-id";`,
+        `var ${companion.clientSecretExport} = "client-secret";`,
+        "function plugin() {}",
+        "export { plugin as default };",
+      ].join("\n"),
+      "utf8",
+    );
+    const resolver = await load((specifier) => {
+      if (specifier === `${companion.packageName}/dist/index.js`) return bundlePath;
+      throw moduleNotFound();
+    }, cacheDir);
+    await expectConfigured(resolver, bundlePath);
+  });
+
   it("reports a missing companion when OpenCode 2 has not installed it", async () => {
     const cacheDir = join(tempDir, "opencode2-missing");
     mkdirSync(join(cacheDir, "npm", `${companion.packageName}@latest`), { recursive: true });

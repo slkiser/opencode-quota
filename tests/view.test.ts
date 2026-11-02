@@ -715,7 +715,7 @@ describe("view text", () => {
       (shape) => {
         const [full] = barParts(shape, 100, 1);
         const [, empty] = barParts(shape, 0, 1);
-        expect(barSegments(shape, 70, 20, 50)).toEqual([
+        expect(barSegments(shape, 70, 20, 50, DEFAULT_WORDS)).toEqual([
           { text: full.repeat(10), role: "bar", percent: 70 },
           { text: "┃", role: "label" },
           { text: full.repeat(3), role: "bar", percent: 70 },
@@ -723,6 +723,29 @@ describe("view text", () => {
         ]);
       },
     );
+
+    it("fills the bar with the share the words show, and keeps the percent left for its colors", () => {
+      const used = words({ percent: "used" });
+      expect(barSegments("blocks", 70, 10, undefined, used)).toEqual([
+        { text: "███", role: "bar", percent: 70 },
+        { text: "░░░░░░░", role: "empty", percent: 70 },
+      ]);
+      expect(
+        lineText({ id: "bar", segments: barSegments("blocks", 70, 10, undefined, used) }),
+      ).toBe("███░░░░░░░");
+      // The same row in "left" words keeps the old bar.
+      expect(
+        lineText({ id: "bar", segments: barSegments("blocks", 70, 10, undefined, DEFAULT_WORDS) }),
+      ).toBe("███████░░░");
+    });
+
+    it("puts the even-use mark where the words put the bar", () => {
+      const used = words({ percent: "used" });
+      // 60% would be left at even use, so 40% used: the fifth cell of ten.
+      expect(lineText({ id: "bar", segments: barSegments("blocks", 70, 10, 60, used) })).toBe(
+        "███░┃░░░░░",
+      );
+    });
 
     it.each([
       { name: "no bar", shape: "none", width: 20, text: "" },
@@ -737,7 +760,9 @@ describe("view text", () => {
       },
     ] as const)("draws $name", ({ shape, width, text, ...rest }) => {
       const evenLeft = "evenLeft" in rest ? rest.evenLeft : 50;
-      expect(lineText({ id: "bar", segments: barSegments(shape, 70, width, evenLeft) })).toBe(text);
+      expect(
+        lineText({ id: "bar", segments: barSegments(shape, 70, width, evenLeft, DEFAULT_WORDS) }),
+      ).toBe(text);
     });
   });
 
@@ -798,7 +823,7 @@ describe("view text", () => {
     expect(accounts).toEqual(["Z.ai (wo… ", "Z.ai (ho… "]);
   });
 
-  it("fits a collapsed line with used percents, a space before the percent", () => {
+  it("fits a collapsed line with used percents, their word and bars filled by the share used", () => {
     const lines = collapsedLines({
       groups: groups("collapsed", [CLAUDE, TWO_ACCOUNTS]),
       ...drawn,
@@ -807,11 +832,11 @@ describe("view text", () => {
       window: {},
     }).map(lineText);
     expect(lines).toEqual([
-      "Claude    7d   ░░░░  88% used    3.2d",
+      "Claude    7d   ████  88% used    3.2d",
       // An error takes the reset's place, cut to the line.
       "Copilot…  30d  ██░░  60% used  Timed…",
       // A row without a reset time.
-      "Copilot…  30d  ████  10% used        ",
+      "Copilot…  30d  ░░░░  10% used        ",
     ]);
   });
 
@@ -981,6 +1006,63 @@ describe("view text", () => {
         "Claude Weekly       12% left      3.2d  runs out in 13h",
       ],
     });
+  });
+
+  it("with used words, fills every bar by the share used and says the word wherever no title says it", () => {
+    const used = words({ percent: "used" });
+    const base = { layout: display.layout, words: used, nowMs: NOW, window: {} };
+    const status = { ...statusInput([CLAUDE]), words: used };
+    const toastOf = (toastLayout: ToastLayout) =>
+      toastLines({ ...base, groups: groups("toast", [CLAUDE]), toastLayout, room: 54 }).map(
+        lineText,
+      );
+    expect({
+      // The expanded panel's title says "used", so its rows stay bare.
+      title: sidebarTitle(used),
+      sidebar: sidebarLines({ ...base, groups: groups("sidebar", [CLAUDE]), width: 40 }).map(
+        lineText,
+      ),
+      collapsedTitle: collapsedTitle(groups("collapsed", [CLAUDE])),
+      collapsed: collapsedLines({ ...base, groups: groups("collapsed", [CLAUDE]), width: 40 }).map(
+        lineText,
+      ),
+      status: lineText(statusLayout(status, 200, 0, "full").shown[0]!),
+      big: lineText(bigStatusLine(status)!),
+      grouped: toastOf("grouped"),
+      detailed: toastOf("detailed"),
+      plain: plainLines({ ...base, groups: groups("toast", [CLAUDE]) }),
+    }).toMatchInlineSnapshot(`
+      {
+        "big": "Claude 7d █████████░ 88% used · 3.2d",
+        "collapsed": [
+          "Claude    7d   ██████░  88% used    3.2d",
+        ],
+        "collapsedTitle": "▶ Quota (1 provider)",
+        "detailed": [
+          "Claude",
+          "5h                                              2h 14m",
+          "██████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░  42% used",
+          "7d                                                3.2d",
+          "███████████████████████████████████████░░░░░  88% used",
+        ],
+        "grouped": [
+          "Claude",
+          "  5h ████████░░░░░░░░░░░░  42% used  2h 14m",
+          "  7d ██████████████████░░  88% used  3.2d",
+        ],
+        "plain": [
+          "Claude 5h           42% used      2h 14m",
+          "Claude Weekly       88% used      3.2d",
+        ],
+        "sidebar": [
+          "Claude",
+          " 5h ████████░░░░░░░░░░░░  42% 2h 14m",
+          " 7d ██████████████████░░  88%   3.2d",
+        ],
+        "status": "Claude ████░ 88% used 3.2d",
+        "title": "▼ Quota used",
+      }
+    `);
   });
 
   /** A toast of `providers` `room` columns wide, with runs out in, as plain lines. */
