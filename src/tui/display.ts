@@ -314,7 +314,7 @@ export const FIELDS: readonly Field[] = [
     ...LAYOUT,
   }),
   field("layout.evenUse", "Even-use mark", SHOW.onOff, {
-    note: "┃ in each bar where even use would be, like on the Limits tab",
+    note: "┃ in each bar where even use would be, the Limits tab's too",
   }),
   field("layout.indent", "Row indent", SHOW.indent, {
     group: "Spacing",
@@ -331,10 +331,11 @@ export const FIELDS: readonly Field[] = [
     group: "Status line",
     values: [" · ", " | ", " / ", "  "],
   }),
-  field("words.percent", "Percent", SHOW.percent, {
+  field("words.percent", "Percent and its bar", SHOW.percent, {
     ...ALL_PLACES,
     group: "Words",
     preset: "words",
+    note: "which way the bars and their marks read, and the title's word",
   }),
   field("words.reset", "Reset times", SHOW.reset, {
     ...ALL_PLACES,

@@ -33,14 +33,17 @@ import { statusDetailsFromRecord } from "./result-helpers.js";
 
 /** The 5h, Weekly, Usage Credits and Fable weekly rows of one Claude account. */
 function quotaRows(quota: AnthropicQuotaResult, method: ProviderRow["method"]): ProviderRow[] {
-  const rows = [
-    quotaRow({
-      ...FIVE_HOUR,
-      percentRemaining: quota.five_hour.percentRemaining,
-      resetsAt: quota.five_hour.resetTimeIso,
-    }),
-  ];
-  // A plan without a weekly limit (Enterprise) has no Weekly row.
+  const rows: ProviderRow[] = [];
+  // A plan without a 5-hour limit (Ultra) or a weekly one (Enterprise) has no such row.
+  if (quota.five_hour) {
+    rows.push(
+      quotaRow({
+        ...FIVE_HOUR,
+        percentRemaining: quota.five_hour.percentRemaining,
+        resetsAt: quota.five_hour.resetTimeIso,
+      }),
+    );
+  }
   if (quota.seven_day) {
     rows.push(
       quotaRow({

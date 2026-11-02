@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import type { ProviderSnapshot, QuotaRow, QuotaSnapshot } from "../src/core/types.js";
 import type { UsageProviderRow, UsageReport } from "../src/core/usage.js";
 import { defaultDisplaySettings, setIn } from "../src/tui/display.js";
+import { DEFAULT_WORDS } from "../src/view/format.js";
 import { quickLookText, quotaProviderIdsOfUsage } from "../src/view/quick-look.js";
 import { providerSnapshot, quotaRow as row } from "./helpers/fake-answers.js";
 
@@ -135,6 +136,16 @@ describe("quick look: short text", () => {
       "● Z.ai        5h 30% left runs out in 1h 5m  $12.50",
       "● Copilot     Premium 80% left",
       "● OpenRouter  Provider error 500",
+    ]);
+  });
+
+  it("says the word on each limit with used words, as the quick look has no title that says it", () => {
+    const lines = shortText({
+      snapshot: { ...snapshot([ZAI, COPILOT]), words: { ...DEFAULT_WORDS, percent: "used" } },
+    }).split("\n");
+    expect(lines.slice(2)).toEqual([
+      "● Z.ai       5h 70% used runs out in 1h 5m  $12.50",
+      "● Copilot    Premium 20% used",
     ]);
   });
 

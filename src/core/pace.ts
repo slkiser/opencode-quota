@@ -1,6 +1,6 @@
 /**
  * The pace of a quota window: how much would be left now if the limit were used evenly until
- * it resets (the Limits tab's │ marker), and whether it runs out before then. Pure.
+ * it resets (the ┃ even-use mark), and whether it runs out before then. Pure.
  */
 import type { QuotaRow } from "./types.js";
 import { WINDOWS } from "./windows.js";

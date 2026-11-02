@@ -136,7 +136,7 @@ export const SETTINGS_SCHEMA = {
   "layout.bar": choice(["blocks", "shades", "line", "squares", "dots", "none"], "blocks"),
   /** "fill": the room the other columns leave, up to each place's most. */
   "layout.barWidth": { ...whole(1, 30), word: "fill", default: "fill" },
-  /** The ┃ mark where even use would be, in every place's bars (the Limits tab always has it). */
+  /** The ┃ mark where even use would be, in every place's bars, the Limits tab's too. */
   "layout.evenUse": bool(true),
   "layout.indent": { ...whole(0, 4), default: 1 },
   /** The most columns a row name takes; the name column fits the names next to a bar. */
@@ -145,7 +145,11 @@ export const SETTINGS_SCHEMA = {
   "layout.providerGap": { ...whole(0, 2), default: 1 },
   /** Between providers on the status line. */
   "layout.separator": { kind: "separator", default: " · " },
-  /** The words every client uses: "58% left", "58% remaining", "58%", or "42% used". */
+  /**
+   * The share every client shows: "58% left", "58% remaining", "58%", or "42% used". `used` also
+   * fills the bars and their even-use mark with the share used. The expanded sidebar panel says
+   * the word in its title ("▼ Quota used") and leaves it off its rows; other places keep it.
+   */
   "words.percent": choice(["left", "remaining", "bare", "used"], "left"),
   /** "4.5d" (smart), "2h 14m", "2h14m", "2h", or "2.2h" (with `resetDecimals`). */
   "words.reset": choice(["smart", "exact", "compact", "short", "decimal"], "smart"),

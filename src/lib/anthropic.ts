@@ -82,7 +82,8 @@ const COMMAND_MISSING_TEXT = [
 
 export interface AnthropicQuotaResult {
   success: true;
-  five_hour: { percentRemaining: number; resetTimeIso?: string };
+  /** None on a plan without a 5-hour limit, such as Ultra. */
+  five_hour?: { percentRemaining: number; resetTimeIso?: string };
   /** None on a plan without a weekly limit, such as Enterprise. */
   seven_day?: { percentRemaining: number; resetTimeIso?: string };
   extra_usage?: { percentRemaining: number };
@@ -388,25 +389,44 @@ function parseFableWeeklyWindow(limits: unknown): QuotaWindow | undefined {
 }
 
 /**
- * The first of the response root and its nested usage objects that has both the 5h and 7d
- * windows, or the 5h window and a null 7d one: a plan without a weekly limit (Enterprise) sends
- * `seven_day: null`. A missing 7d window is still an unknown shape.
+ * A usage window under its snake_case or camelCase key: the window, `null` when the plan has no
+ * such limit (an explicit `null`), or `undefined` when the key is missing or malformed.
  */
-function findUsageWindows(
-  data: unknown,
-): { root: Record<string, unknown>; fiveHour: QuotaWindow; sevenDay?: QuotaWindow } | null {
+function readWindow(
+  candidate: Record<string, unknown>,
+  snakeKey: string,
+  camelKey: string,
+): QuotaWindow | null | undefined {
+  if (candidate[snakeKey] === null || candidate[camelKey] === null) return null;
+  return parseQuotaWindow(candidate[snakeKey] ?? candidate[camelKey]) ?? undefined;
+}
+
+/**
+ * The first of the response root and its nested usage objects that has the 5h and 7d windows.
+ * A plan without one limit sends it as `null` (Ultra: `five_hour`, Enterprise: `seven_day`) and
+ * keeps the other window. A missing or malformed window is still an unknown shape, and so is a
+ * response where both windows are null.
+ */
+function findUsageWindows(data: unknown): {
+  root: Record<string, unknown>;
+  fiveHour?: QuotaWindow;
+  sevenDay?: QuotaWindow;
+} | null {
   const root = asRecord(data);
   if (!root) return null;
 
   const candidates = [root, ...NESTED_USAGE_KEYS.map((key) => asRecord(root[key]))];
   for (const candidate of candidates) {
     if (!candidate) continue;
-    const fiveHour = parseQuotaWindow(candidate["five_hour"] ?? candidate["fiveHour"]);
-    const sevenDay = parseQuotaWindow(candidate["seven_day"] ?? candidate["sevenDay"]);
-    if (fiveHour && sevenDay) return { root: candidate, fiveHour, sevenDay };
-    if (fiveHour && (candidate["seven_day"] === null || candidate["sevenDay"] === null)) {
-      return { root: candidate, fiveHour };
-    }
+    const fiveHour = readWindow(candidate, "five_hour", "fiveHour");
+    const sevenDay = readWindow(candidate, "seven_day", "sevenDay");
+    if (fiveHour === undefined || sevenDay === undefined) continue;
+    if (fiveHour === null && sevenDay === null) continue;
+    return {
+      root: candidate,
+      ...(fiveHour ? { fiveHour } : {}),
+      ...(sevenDay ? { sevenDay } : {}),
+    };
   }
 
   return null;
@@ -418,7 +438,7 @@ function parseUsageResponse(data: unknown): AnthropicQuotaResult | null {
   return windows
     ? {
         success: true,
-        five_hour: windows.fiveHour,
+        ...(windows.fiveHour ? { five_hour: windows.fiveHour } : {}),
         ...(windows.sevenDay ? { seven_day: windows.sevenDay } : {}),
       }
     : null;
@@ -433,7 +453,7 @@ function parseOAuthUsageResponse(data: unknown): AnthropicQuotaResult | null {
   const fableWeekly = parseFableWeeklyWindow(windows.root["limits"]);
   return {
     success: true,
-    five_hour: windows.fiveHour,
+    ...(windows.fiveHour ? { five_hour: windows.fiveHour } : {}),
     ...(windows.sevenDay ? { seven_day: windows.sevenDay } : {}),
     ...(extraUsage ? { extra_usage: extraUsage } : {}),
     ...(fableWeekly ? { fable_weekly: fableWeekly } : {}),

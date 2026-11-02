@@ -4,6 +4,7 @@ export interface AvailableModelDetails {
     supportsThinking?: boolean;
     thinkingBudget?: number;
     minThinkingBudget?: number;
+    thinkingLevel?: number;
     recommended?: boolean;
     maxTokens?: number;
     maxOutputTokens?: number;
