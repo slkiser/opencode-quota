@@ -10,6 +10,7 @@ import {
   clearAlibabaIdentityCacheForTests,
   ERROR_MESSAGES,
   NO_QUOTA_DATA_HINT,
+  NO_WINDOW_DATA_HINT,
 } from "../src/lib/alibaba.js";
 import { alibabaTokenPlanProvider } from "../src/providers/alibaba.js";
 import {
@@ -224,6 +225,45 @@ describe("alibaba-token-plan provider", () => {
       ],
     ],
     [
+      "a window with a reset time but no ratio has no row, and the hint names it",
+      {
+        usage: replying({
+          per5HourPercentage: 0.25,
+          per1MonthResetTime: Date.parse(RESET),
+          hasQuotaData: true,
+        }),
+      },
+      [["alibaba-token-plan.personal.five_hour", "personal", "5h", "five_hour", 75, null]],
+      undefined,
+      [
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "windows", value: "five_hour,monthly" },
+        { key: "window_hint", value: NO_WINDOW_DATA_HINT },
+        { key: "no_data_windows", value: "monthly" },
+      ],
+    ],
+    [
+      "each window without a ratio, named in the hint's list",
+      {
+        usage: replying({
+          per2DayPercentage: 0.5,
+          per2DayResetTime: Date.parse(RESET),
+          per3HourResetTime: Date.parse(RESET),
+          per1WeekResetTime: Date.parse(RESET),
+        }),
+      },
+      [["alibaba-token-plan.personal.2_day", "personal", "2d", null, 50, RESET]],
+      undefined,
+      [
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "windows", value: "2_day,3_hour,weekly" },
+        { key: "window_hint", value: NO_WINDOW_DATA_HINT },
+        { key: "no_data_windows", value: "3_hour,weekly" },
+      ],
+    ],
+    [
       "a window the repo names no slot for takes the repo's own window",
       { usage: replying({ per1DayPercentage: 0.5, hasQuotaData: true }) },
       [["alibaba-token-plan.personal.day", "personal", "Daily", "day", 50, null]],
@@ -339,8 +379,8 @@ describe("alibaba-token-plan provider", () => {
   ])("shows %s", async (name, script, rows, error, debug) => {
     if (script !== undefined) installCli(script);
 
-    // The waiting reply sleeps 5 s; 2 s leaves the quick team call room to finish on a busy machine.
-    const fetched = await fetchTokenPlan(name === "a timeout" ? 2_000 : undefined);
+    // In "a timeout" both commands sleep 5 s, so both pass a 300 ms limit on any machine.
+    const fetched = await fetchTokenPlan(name === "a timeout" ? 300 : undefined);
 
     expect(rowSummary(fetched.rows)).toEqual(rows);
     if (error) expect(fetched.error).toMatchObject(error);

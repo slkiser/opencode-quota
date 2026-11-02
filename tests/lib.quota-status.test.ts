@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { ProviderSnapshot, QuotaRow } from "../src/core/types.js";
 import type { UsageReport } from "../src/core/usage.js";
 import { WINDOWS } from "../src/core/windows.js";
+import { NO_WINDOW_DATA_HINT } from "../src/lib/alibaba.js";
 import { API_KEY_VENDORS } from "../src/lib/api-key-resolver.js";
 import { COPILOT_AUTH_KEYS } from "../src/lib/copilot.js";
 import { CURSOR_CANONICAL_PLUGIN_PACKAGE } from "../src/lib/cursor-detection.js";
@@ -244,7 +245,7 @@ const REPORT_WORDS: readonly string[] = `
   retry row rows runtime_paths selected_windows selection set settings_file settings_issue
   shown snapshot stale staleness success syntax t text the token token_expires_at tokens tool
   true unbound unit units unknown unpriced unpriced_30d usage v5 value valid_account_count
-  window workspace_root written yes yet ~
+  window windows no_data_windows workspace_root written yes yet ~
   environment origin os runtime bun node opencode-quota quota_status status TUI Plugin tab CLI
   channel version changed_from_defaults setting settings entry entries color separator null shipped
   error_kind unknown_cursor_models
@@ -307,6 +308,9 @@ const RANGED = String.raw`(?:${SMALL}|\(out of range\))`;
 const AMOUNT = String.raw`(?:-?\d{1,3}(?:\.\d{1,2})?[KMBT]?|-?0\.0*[1-9]\d{0,2}|\(not a number\)|\(out of range\))`;
 const UNIT = String.raw`(?:[\w-]+|\((?:custom unit|currency|unit)\))`;
 const ROW_FACT = String.raw`(?:window=\S+|${SMALL}% left|percent \(out of range\)|${AMOUNT}/${AMOUNT} ${UNIT}|${AMOUNT} ${UNIT}|yes|no|text not shown|resets ${TIME})`;
+/** A Token Plan window named by its count, 1 to 999, and a unit the plugin knows: `2_day`. */
+const COUNTED_WINDOW = String.raw`[1-9]\d{0,2}_(?:hour|day|week|month)`;
+const COUNTED_WINDOW_WORD = new RegExp(`^${COUNTED_WINDOW}$`, "u");
 const ROW_ID = String.raw`(?:\(other row\)|[\w-]+(?:\.(?:[\w-]+|\((?:part|custom) ${SMALL}\)|\(other row\)))*)`;
 
 /**
@@ -325,6 +329,7 @@ const NUMBER_LINES: readonly RegExp[] = [
   String.raw`- (?:list_error|failures): .*`,
   String.raw`- state: (?:error|partial): [^()]*\((?:[\w ]+|[\w_]+, http \d{3})\)`,
   String.raw`- rows: ${SMALL}`,
+  String.raw`- (?:windows|no_data_windows): (?:[a-z_]+|${COUNTED_WINDOW})(?:,(?:[a-z_]+|${COUNTED_WINDOW}))*`,
   String.raw`  - ${ROW_ID}(?: \(account ${SMALL}\))?: ${ROW_FACT}(?:, ${ROW_FACT})*`,
   String.raw`  - … \(${SMALL} more\)`,
   String.raw`- ${SMALL} other details? not shown`,
@@ -431,7 +436,9 @@ function vocabularyProblems(
     const unknown = words.filter((word) => word !== "" && !vocabulary.has(word));
     const numbers = unknown.filter((word) => /\d/u.test(word));
     for (const word of unknown) {
-      if (!/^-?\d+[%KMBTmh]?$/u.test(word)) problems.push(`word ${word} in: ${line}`);
+      if (!/^-?\d+[%KMBTmh]?$/u.test(word) && !COUNTED_WINDOW_WORD.test(word)) {
+        problems.push(`word ${word} in: ${line}`);
+      }
     }
     if (numbers.length > 0 && !numberLines.some((form) => form.test(line))) {
       problems.push(`numbers ${numbers.join(" ")} in: ${line}`);
@@ -1497,6 +1504,42 @@ describe("renderQuotaStatusReport", () => {
     const version = await getPackageVersion();
     return `# Quota Status (opencode-quota v${version})`;
   }
+
+  it("prints Token Plan windows named by their count only in the vocabulary's form", async () => {
+    const output = await report({
+      providers: [
+        snapshot("alibaba-token-plan", {
+          debug: [
+            { key: "windows", value: "2_day,hour,3_hour,999_week,monthly" },
+            { key: "window_hint", value: NO_WINDOW_DATA_HINT },
+            { key: "no_data_windows", value: "3_hour,monthly" },
+          ],
+        }),
+      ],
+    });
+    const text = section(output, "alibaba-token-plan");
+    const lines = text.split("\n").filter((line) => /^- (?:windows|no_data_windows): /u.test(line));
+
+    expect(lines).toEqual([
+      "- windows: 2_day,hour,3_hour,999_week,monthly",
+      "- no_data_windows: 3_hour,monthly",
+    ]);
+    expect(text).toContain(`- window_hint: ${NO_WINDOW_DATA_HINT}`);
+    expect(vocabularyProblems(lines, reportVocabulary(), NUMBER_LINES)).toEqual([]);
+  });
+
+  it.each(["1000_day,monthly", "2_year", "0_day", "02_day", "2_Day"])(
+    "does not print the Token Plan windows %s",
+    async (value) => {
+      const output = await report({
+        providers: [snapshot("alibaba-token-plan", { debug: [{ key: "windows", value }] })],
+      });
+      const text = section(output, "alibaba-token-plan");
+
+      expect(text).not.toContain("- windows: ");
+      expect(text).toContain("- 1 other detail not shown");
+    },
+  );
 
   it.each([{ seed: 1 }, { seed: 2 }, { seed: 3 }, { seed: 4 }, { seed: 5 }, { seed: 6 }])(
     "prints only words of its own vocabulary, and numbers and times in their field's form (seed $seed)",

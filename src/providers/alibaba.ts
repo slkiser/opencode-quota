@@ -20,6 +20,7 @@ import {
   CODING_PLAN_SPAWN_KINDS,
   isAlibabaTokenPlanSupportedPlatform,
   NO_QUOTA_DATA_HINT,
+  NO_WINDOW_DATA_HINT,
   parseAlibabaCodingPlanUsageJson,
   parseAlibabaTokenPlanUsageJson,
   queryAlibabaReply,
@@ -235,11 +236,37 @@ function tokenPlanWindowRows(windows: readonly AlibabaTokenPlanWindow[]): Provid
 
 /** The windows the reply carried, the way the Coding Plan names them. */
 function tokenPlanWindowsText(windows: readonly AlibabaTokenPlanWindow[]): string {
-  const names = windows.flatMap((window) => {
+  const names = tokenPlanWindowNames(windows);
+  return names.length > 0 ? names.join(",") : "(none)";
+}
+
+function tokenPlanWindowNames(windows: readonly AlibabaTokenPlanWindow[]): string[] {
+  return windows.flatMap((window) => {
     const slot = tokenPlanSlot(window);
     return slot ? [slot.key] : [];
   });
-  return names.length > 0 ? names.join(",") : "(none)";
+}
+
+/**
+ * Why a window has no row, for `/quota_status`. Every window without a ratio: the reply carried
+ * no quota data. Some windows without one: those windows, by name, carried none.
+ */
+function tokenPlanNoDataDetails(
+  windows: readonly AlibabaTokenPlanWindow[],
+  hasQuotaData: boolean | undefined,
+): DebugDetail[] {
+  const withoutRatio = windows.filter((window) => window.percentRemaining === undefined);
+  // The CLI's own flag says whether a window carried a ratio; an older CLI sends none, and
+  // then the windows say it.
+  if (hasQuotaData === false || withoutRatio.length === windows.length) {
+    return [{ key: "window_hint", value: NO_QUOTA_DATA_HINT }];
+  }
+  const names = tokenPlanWindowNames(withoutRatio);
+  if (names.length === 0) return [];
+  return [
+    { key: "window_hint", value: NO_WINDOW_DATA_HINT },
+    { key: "no_data_windows", value: names.join(",") },
+  ];
 }
 
 function seatRow(seat: AlibabaTokenPlanSeat, key: string): ProviderRow {
@@ -463,11 +490,6 @@ const TOKEN_PLAN_COMMANDS: readonly AlibabaCommand[] = [
       const result: AlibabaTokenPlanClosedResult = parseAlibabaTokenPlanUsageJson(text);
       if (!result.ok) return failureResult(result.error, []);
       const rows = tokenPlanWindowRows(result.windows);
-      // The CLI's own flag says whether a window carried a ratio; an older CLI sends none, and
-      // then the windows say it.
-      const noData =
-        result.hasQuotaData === false ||
-        result.windows.every((window) => window.percentRemaining === undefined);
       return {
         ok: true,
         accounts:
@@ -480,10 +502,10 @@ const TOKEN_PLAN_COMMANDS: readonly AlibabaCommand[] = [
                 },
               ]
             : [],
-        debug: statusDetailsFromRecord({
-          windows: tokenPlanWindowsText(result.windows),
-          window_hint: noData ? NO_QUOTA_DATA_HINT : undefined,
-        }),
+        debug: [
+          ...statusDetailsFromRecord({ windows: tokenPlanWindowsText(result.windows) }),
+          ...tokenPlanNoDataDetails(result.windows, result.hasQuotaData),
+        ],
       };
     },
   },

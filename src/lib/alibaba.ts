@@ -245,6 +245,10 @@ export const ERROR_MESSAGES: Record<AlibabaErrorKind, string> = {
 export const NO_QUOTA_DATA_HINT =
   "no quota data in the reply; the limit may be unlimited, so verify in the Bailian Token Plan console";
 
+/** A reply with a ratio for some windows only: the windows in `no_data_windows` have no row. */
+export const NO_WINDOW_DATA_HINT =
+  "no quota data for the windows in no_data_windows, so they have no row; their limit may be unlimited, so verify in the Bailian Token Plan console";
+
 function fail(kind: AlibabaErrorKind): AlibabaFailure {
   return { ok: false, error: { kind, message: ERROR_MESSAGES[kind] } };
 }
