@@ -8,11 +8,11 @@
  * Keychain first, then the local credentials file).
  */
 
-import { execFile } from "child_process";
-import { createHash } from "crypto";
-import { readFile } from "fs/promises";
-import { homedir } from "os";
-import { join } from "path";
+import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 import { resolveAnthropicOAuthCached } from "./anthropic-auth.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
@@ -29,6 +29,8 @@ const ANTHROPIC_DIAGNOSTICS_TTL_MS = 5_000;
 const ANTHROPIC_OAUTH_BACKOFF_BASE_MS = 30_000;
 const ANTHROPIC_OAUTH_COOLDOWN_MAX_MS = 15 * 60_000;
 const ANTHROPIC_OAUTH_COOLDOWN_MAX_ENTRIES = 16;
+/** A successful usage reply answers every probe with its token for this long. */
+const ANTHROPIC_OAUTH_REUSE_MS = 60_000;
 const ANTHROPIC_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const ANTHROPIC_BETA_HEADER = "oauth-2025-04-20";
 const CLAUDE_CODE_CREDENTIALS_SERVICE = "Claude Code-credentials";
@@ -53,20 +55,26 @@ export interface AnthropicQuotaWindow {
 
 export interface AnthropicExtraUsage {
   is_enabled?: boolean;
-  utilization?: number;
+  utilization?: number | null;
+  used_credits?: number | null;
+  monthly_limit?: number | null;
 }
 
 export interface AnthropicUsageResponse {
-  five_hour: AnthropicQuotaWindow;
-  seven_day: AnthropicQuotaWindow;
+  /** `null` on a plan without a 5-hour limit, such as Ultra. */
+  five_hour: AnthropicQuotaWindow | null;
+  /** `null` on a plan without a weekly limit, such as Enterprise. */
+  seven_day: AnthropicQuotaWindow | null;
   extra_usage?: AnthropicExtraUsage;
   limits?: unknown[];
 }
 
 export interface AnthropicQuotaResult {
   success: true;
-  five_hour: { percentRemaining: number; resetTimeIso?: string };
-  seven_day: { percentRemaining: number; resetTimeIso?: string };
+  /** Absent on a plan without a 5-hour limit, such as Ultra. */
+  five_hour?: { percentRemaining: number; resetTimeIso?: string };
+  /** Absent on a plan without a weekly limit, such as Enterprise. */
+  seven_day?: { percentRemaining: number; resetTimeIso?: string };
   extra_usage?: { percentRemaining: number };
   fable_weekly?: { percentRemaining: number; resetTimeIso?: string };
 }
@@ -123,6 +131,8 @@ export type ClaudeCommandInvocation = {
   file: string;
   args: string[];
   display: string;
+  /** Set when `args` holds one cmd.exe command line that must not be quoted a second time. */
+  windowsVerbatimArguments?: boolean;
 };
 
 type AnthropicDiagnosticsCacheEntry = {
@@ -200,8 +210,29 @@ type ParsedAuthProbe = {
 
 const diagnosticsCache = new Map<string, AnthropicDiagnosticsCacheEntry>();
 const localDiagnosticsCache = new Map<string, AnthropicLocalDiagnosticsCacheEntry>();
-const anthropicOAuthCooldowns = new Map<string, AnthropicOAuthCooldown>();
-const anthropicOAuthInFlight = new Map<string, Promise<AnthropicFallbackQuota>>();
+
+type AnthropicOAuthProbeState = {
+  cooldowns: Map<string, AnthropicOAuthCooldown>;
+  inFlight: Map<string, Promise<AnthropicFallbackQuota>>;
+  recent: Map<string, { quota: AnthropicQuotaResult; checkedAtMs: number }>;
+};
+
+// OpenCode can load more than one copy of the plugin in the same process, and Anthropic's usage
+// endpoint rate-limits per token, so every copy shares one backoff, request and recent reply.
+// The key names the 4.x line so it never meets the state of a 6.x copy in the same process.
+const ANTHROPIC_OAUTH_PROBE_STATE = Symbol.for(
+  "@slkiser/opencode-quota/4.x/anthropic-oauth-probe/v1",
+);
+const anthropicOAuthProbeState = ((globalThis as Record<symbol, unknown>)[
+  ANTHROPIC_OAUTH_PROBE_STATE
+] ??= {
+  cooldowns: new Map(),
+  inFlight: new Map(),
+  recent: new Map(),
+}) as AnthropicOAuthProbeState;
+const anthropicOAuthCooldowns = anthropicOAuthProbeState.cooldowns;
+const anthropicOAuthInFlight = anthropicOAuthProbeState.inFlight;
+const anthropicOAuthRecent = anthropicOAuthProbeState.recent;
 
 export function resolveAnthropicBinaryPath(binaryPath?: string): string {
   const trimmed = binaryPath?.trim();
@@ -218,7 +249,7 @@ function formatCommandDisplay(parts: string[]): string {
 }
 
 function quoteWindowsCmdArg(value: string): string {
-  const escaped = value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, "$1$1");
+  const escaped = value.replace(/(\\*)"/g, String.raw`$1$1\"`).replace(/(\\+)$/g, "$1$1");
   return `"${escaped}"`;
 }
 
@@ -245,8 +276,16 @@ export function buildClaudeCommandInvocation(
   ) {
     return {
       file: runtime.comspec?.trim() || process.env["ComSpec"]?.trim() || "cmd.exe",
-      args: ["/d", "/s", "/c", [resolvedBinaryPath, ...args].map(quoteWindowsCmdArg).join(" ")],
+      // `/s` strips the first and last quote of what follows `/c`, so the command needs a pair of its own.
+      args: [
+        "/d",
+        "/s",
+        "/c",
+        `"${[resolvedBinaryPath, ...args].map(quoteWindowsCmdArg).join(" ")}"`,
+      ],
       display,
+      // Otherwise Node and Bun quote that one argument again and cmd.exe sees \"claude\".
+      windowsVerbatimArguments: true,
     };
   }
 
@@ -345,14 +384,37 @@ function parseQuotaWindow(
   };
 }
 
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * The share of Usage Credits used: `utilization`, or else `used_credits` over `monthly_limit`
+ * of the same object, which an Enterprise login gets with a null `utilization`.
+ */
+function getExtraUsageUsedPercent(record: Record<string, unknown>): number | undefined {
+  const utilization = finiteNumber(record["utilization"]);
+  if (utilization !== undefined) {
+    return utilization;
+  }
+
+  const usedCredits = finiteNumber(record["used_credits"]);
+  const monthlyLimit = finiteNumber(record["monthly_limit"]);
+  if (usedCredits === undefined || monthlyLimit === undefined || monthlyLimit <= 0) {
+    return undefined;
+  }
+
+  return (usedCredits / monthlyLimit) * 100;
+}
+
 function parseExtraUsageQuota(extraUsage: unknown): { percentRemaining: number } | undefined {
   const record = asRecord(extraUsage);
   if (!record || record["is_enabled"] !== true) {
     return undefined;
   }
 
-  const used = record["utilization"];
-  if (typeof used !== "number" || !Number.isFinite(used) || used < 0 || used > 100) {
+  const used = getExtraUsageUsedPercent(record);
+  if (used === undefined || used < 0 || used > 100) {
     return undefined;
   }
 
@@ -421,15 +483,55 @@ function parseFableWeeklyWindow(
   return undefined;
 }
 
+type UsageWindow = { percentRemaining: number; resetTimeIso?: string };
+
+/**
+ * A usage window under its snake_case or camelCase key: the window, `null` when the plan has no
+ * such limit (an explicit `null`), or `undefined` when the key is missing or malformed.
+ */
+function readUsageWindow(
+  root: Record<string, unknown>,
+  snakeKey: string,
+  camelKey: string,
+): UsageWindow | null | undefined {
+  if (root[snakeKey] === null || root[camelKey] === null) {
+    return null;
+  }
+
+  return parseQuotaWindow(root[snakeKey] ?? root[camelKey]) ?? undefined;
+}
+
+/**
+ * The 5h and 7d windows of one usage root. A plan without one limit sends it as `null`
+ * (Ultra: `five_hour`, Enterprise: `seven_day`) and keeps the other window. A missing or
+ * malformed window is still an unknown shape, and so is a root where both windows are null.
+ */
+function readUsageWindows(
+  root: Record<string, unknown>,
+): { fiveHour?: UsageWindow; sevenDay?: UsageWindow } | null {
+  const fiveHour = readUsageWindow(root, "five_hour", "fiveHour");
+  const sevenDay = readUsageWindow(root, "seven_day", "sevenDay");
+
+  if (fiveHour === undefined || sevenDay === undefined) {
+    return null;
+  }
+  if (fiveHour === null && sevenDay === null) {
+    return null;
+  }
+
+  return {
+    ...(fiveHour ? { fiveHour } : {}),
+    ...(sevenDay ? { sevenDay } : {}),
+  };
+}
+
 function parseUsageResponse(
   data: unknown,
   options: AnthropicUsageParseOptions = {},
 ): AnthropicQuotaResult | null {
   for (const root of getUsageRoots(data)) {
-    const fiveHour = parseQuotaWindow(root["five_hour"] ?? root["fiveHour"]);
-    const sevenDay = parseQuotaWindow(root["seven_day"] ?? root["sevenDay"]);
-
-    if (!fiveHour || !sevenDay) {
+    const windows = readUsageWindows(root);
+    if (!windows) {
       continue;
     }
 
@@ -439,8 +541,8 @@ function parseUsageResponse(
 
     return {
       success: true,
-      five_hour: fiveHour,
-      seven_day: sevenDay,
+      ...(windows.fiveHour ? { five_hour: windows.fiveHour } : {}),
+      ...(windows.sevenDay ? { seven_day: windows.sevenDay } : {}),
       ...(extraUsage ? { extra_usage: extraUsage } : {}),
     };
   }
@@ -450,10 +552,8 @@ function parseUsageResponse(
 
 function parseOAuthUsageResponse(data: unknown): AnthropicQuotaResult | null {
   for (const root of getUsageRoots(data)) {
-    const fiveHour = parseQuotaWindow(root["five_hour"] ?? root["fiveHour"]);
-    const sevenDay = parseQuotaWindow(root["seven_day"] ?? root["sevenDay"]);
-
-    if (!fiveHour || !sevenDay) {
+    const windows = readUsageWindows(root);
+    if (!windows) {
       continue;
     }
 
@@ -461,8 +561,8 @@ function parseOAuthUsageResponse(data: unknown): AnthropicQuotaResult | null {
     const fableWeekly = parseFableWeeklyWindow(root["limits"]);
     return {
       success: true,
-      five_hour: fiveHour,
-      seven_day: sevenDay,
+      ...(windows.fiveHour ? { five_hour: windows.fiveHour } : {}),
+      ...(windows.sevenDay ? { seven_day: windows.sevenDay } : {}),
       ...(extraUsage ? { extra_usage: extraUsage } : {}),
       ...(fableWeekly ? { fable_weekly: fableWeekly } : {}),
     };
@@ -759,6 +859,17 @@ function getAnthropicOAuthCooldownMessage(remainingMs: number): string {
   )}s.`;
 }
 
+/** Keeps a successful reply for reuse, dropping replies too old to reuse. */
+function rememberAnthropicOAuthReply(tokenFingerprint: string, quota: AnthropicQuotaResult): void {
+  const nowMs = Date.now();
+  for (const [fingerprint, entry] of anthropicOAuthRecent) {
+    if (nowMs - entry.checkedAtMs >= ANTHROPIC_OAUTH_REUSE_MS) {
+      anthropicOAuthRecent.delete(fingerprint);
+    }
+  }
+  anthropicOAuthRecent.set(tokenFingerprint, { quota, checkedAtMs: nowMs });
+}
+
 function retainAnthropicOAuthCooldownForToken(tokenFingerprint: string): void {
   const targetSize = anthropicOAuthCooldowns.has(tokenFingerprint)
     ? ANTHROPIC_OAUTH_COOLDOWN_MAX_ENTRIES
@@ -876,6 +987,7 @@ async function performAnthropicOAuthUsageRequest(
           };
         }
 
+        rememberAnthropicOAuthReply(tokenFingerprint, quota);
         return {
           state: "success",
           quota,
@@ -910,6 +1022,16 @@ async function queryAnthropicQuotaFromOAuthAccessToken(
     };
   }
 
+  const recent = anthropicOAuthRecent.get(tokenFingerprint);
+  if (
+    recent &&
+    nowMs >= recent.checkedAtMs &&
+    nowMs - recent.checkedAtMs < ANTHROPIC_OAUTH_REUSE_MS
+  ) {
+    return { state: "success", quota: recent.quota };
+  }
+
+  // Concurrent probes with the same token share one request.
   const existingInFlight = anthropicOAuthInFlight.get(tokenFingerprint);
   if (existingInFlight) {
     return await existingInFlight;
@@ -1034,6 +1156,7 @@ async function runClaudeCommand(invocation: ClaudeCommandInvocation): Promise<Cl
           timeout: CLAUDE_COMMAND_TIMEOUT_MS,
           maxBuffer: 1024 * 1024,
           windowsHide: true,
+          ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
         },
         (error: Error | null, stdout: string | Buffer, stderr: string | Buffer) => {
           const stdoutText = typeof stdout === "string" ? stdout : stdout.toString("utf8");
@@ -1237,6 +1360,7 @@ export function clearAnthropicDiagnosticsCacheForTests(): void {
   localDiagnosticsCache.clear();
   anthropicOAuthCooldowns.clear();
   anthropicOAuthInFlight.clear();
+  anthropicOAuthRecent.clear();
 }
 
 async function getCachedAnthropicLocalDiagnostics(
