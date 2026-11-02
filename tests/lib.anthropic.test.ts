@@ -295,15 +295,14 @@ describe("usage response parsing", () => {
       fable_weekly: { percentRemaining: 100, resetTimeIso: "2026-11-06T19:59:59.979Z" },
     });
     expect(parseOAuthUsageResponse(noFiveHourUsage)).not.toHaveProperty("five_hour");
-    expect(parseUsageResponse(noFiveHourUsage)).toEqual({ success: true, seven_day: weekly });
-    expect(parseUsageResponse({ fiveHour: null, sevenDay: { utilization: 33 } })).toEqual({
+    expect(parseOAuthUsageResponse({ fiveHour: null, sevenDay: { utilization: 33 } })).toEqual({
       success: true,
       seven_day: { percentRemaining: 67, resetTimeIso: undefined },
     });
   });
 
   it("parses the five-hour window of a plan without a weekly limit (seven_day: null)", () => {
-    expect(parseUsageResponse({ five_hour: { utilization: 12 }, seven_day: null })).toEqual({
+    expect(parseOAuthUsageResponse({ five_hour: { utilization: 12 }, seven_day: null })).toEqual({
       success: true,
       five_hour: { percentRemaining: 88, resetTimeIso: undefined },
     });
@@ -313,6 +312,15 @@ describe("usage response parsing", () => {
       extra_usage: { percentRemaining: 75 },
       fable_weekly: { percentRemaining: 98, resetTimeIso: "2026-07-27T07:00:00.268Z" },
     });
+  });
+
+  it.each([
+    ["no five-hour limit", noFiveHourUsage],
+    ["no weekly limit", noWeeklyLimitUsage],
+    ["no five-hour limit, camelCase", { fiveHour: null, sevenDay: { utilization: 33 } }],
+    ["no weekly limit, nested", { quota: { five_hour: { utilization: 12 }, seven_day: null } }],
+  ])("gives no Claude CLI quota for a plan with %s, so the usage endpoint runs", (_label, data) => {
+    expect(parseUsageResponse(data)).toBeNull();
   });
 
   it.each([
@@ -1403,6 +1411,74 @@ describe("Anthropic runtime credentials", () => {
     } finally {
       await quota.dispose();
     }
+  });
+
+  const ULTRA_USAGE = {
+    ...noFiveHourUsage,
+    extra_usage: { ...noFiveHourUsage.extra_usage, is_enabled: true, utilization: 40 },
+  };
+
+  it.each([
+    [
+      "no weekly limit (Enterprise)",
+      noWeeklyLimitUsage,
+      [
+        ["five_hour", "5h", 88],
+        ["extra_usage", "Extra usage", 75],
+        ["weekly_fable", "Fable", 98],
+      ],
+    ],
+    [
+      "no 5-hour limit (Ultra)",
+      ULTRA_USAGE,
+      [
+        ["weekly", "Weekly", 67],
+        ["extra_usage", "Extra usage", 60],
+        ["weekly_fable", "Fable", 100],
+      ],
+    ],
+  ])(
+    "asks the usage endpoint for Usage Credits and Fable when the Claude CLI shows a plan with %s",
+    async (_label, usage, expectedRows) => {
+      setProcessPlatform("linux");
+      mockExecSequence([
+        CLI_VERSION,
+        { stdout: JSON.stringify({ authenticated: true, quota: usage }) },
+      ]);
+      readFileMock.mockResolvedValue(
+        JSON.stringify({ claudeAiOauth: { accessToken: "account-b" } }),
+      );
+      fetchResponseMock.mockResolvedValue(mockResponse(200, usage));
+
+      for (const config of [{}, { currentProviderID: "claude-code" }]) {
+        const result = await anthropicProvider.fetch(context(config, ["anthropic"]));
+
+        expect(
+          result.accounts[0]?.rows.map((row) => [row.key, row.label, row.percentRemaining]),
+        ).toEqual(expectedRows);
+        expect(result.debug).toContainEqual({
+          key: "quota_source",
+          value: "claude-credentials-oauth-api",
+        });
+      }
+      // The second fetch reuses the cached Claude CLI probe and usage reply.
+      expect(execFileMock).toHaveBeenCalledTimes(2);
+      expect(bearerTokensSent()).toEqual(["Bearer account-b"]);
+    },
+  );
+
+  it("shows the Claude CLI's own 5h and Weekly rows without asking the usage endpoint", async () => {
+    mockExecSequence([CLI_VERSION, cliQuotaStatus(57, 12)]);
+
+    const result = await anthropicProvider.fetch(context({}, ["anthropic"]));
+
+    expect(result.accounts[0]?.rows.map((row) => [row.key, row.percentRemaining])).toEqual([
+      ["five_hour", 43],
+      ["weekly", 88],
+    ]);
+    expect(result.debug).toContainEqual({ key: "quota_source", value: "claude-auth-status-json" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(readFileMock).not.toHaveBeenCalled();
   });
 
   it.each([undefined, "", "   "])(
