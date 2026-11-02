@@ -499,10 +499,14 @@ export function createQuotaServerPlugin(
       // entries, so the next read asks OpenCode again, and makes the store check who each
       // provider is signed in as. If the subscription fails, cached logins stay until they
       // expire; the log says why. Model selections update the session's quota scope too.
-      // The cleanup's abort ends the subscription silently.
+      // The cleanup's abort ends the subscription silently. OpenCode before 2.2 ignores `types`
+      // and sends every event, so the loop still checks each event's type.
       const credentialEvents = new AbortController();
       void (async () => {
-        for await (const event of ctx.event.subscribe({ signal: credentialEvents.signal })) {
+        for await (const event of ctx.event.subscribe({
+          types: ["credential.updated", "credential.switched", "session.model.selected"],
+          signal: credentialEvents.signal,
+        })) {
           if (event.type === "credential.updated" || event.type === "credential.switched") {
             notifyCredentialsChanged();
             store.invalidateIdentity();

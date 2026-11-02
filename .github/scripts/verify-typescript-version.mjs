@@ -5,10 +5,10 @@ import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
 const EXPECTED_TYPESCRIPT_VERSION = "7.0.2";
-const EXPECTED_PLUGIN_VERSION = "2.0.28";
+const EXPECTED_PLUGIN_VERSION = "2.2.5";
 const PLUGIN_PACKAGE = "@opencode/plugin";
-const EXPECTED_OPENTUI_SPECIFIER = "^0.5.17";
-const EXPECTED_OPENTUI_VERSION = "0.5.17";
+const EXPECTED_OPENTUI_SPECIFIER = "^0.8.1";
+const EXPECTED_OPENTUI_VERSION = "0.8.1";
 const EXPECTED_OPENTUI_PACKAGES = ["@opentui/core", "@opentui/solid"];
 const BUN_FFI_STRUCTS_VERSION = "0.3.1";
 const BUN_FFI_TYPESCRIPT_PEER = "^5";

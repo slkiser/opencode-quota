@@ -104,15 +104,15 @@ describe("package manifest compatibility", () => {
       ["engines", "opencode", undefined],
       ["devDependencies", "typescript", "7.0.2"],
       ["devDependencies", "yaml", "^2.8.3"],
-      ["peerDependencies", "@opencode/plugin", "2.0.28"],
-      ["devDependencies", "@opencode/plugin", "2.0.28"],
+      ["peerDependencies", "@opencode/plugin", ">=2.0.28"],
+      ["devDependencies", "@opencode/plugin", "2.2.5"],
       // OpenCode gives TUI plugins its own OpenTUI and Solid (#353). Optional peers keep npm
       // from installing them, so @opentui/core's `engines.node` never reaches users.
       ["dependencies", "@opentui/core", undefined],
       ["dependencies", "@opentui/solid", undefined],
       ["dependencies", "solid-js", undefined],
-      ["devDependencies", "@opentui/core", "^0.5.17"],
-      ["devDependencies", "@opentui/solid", "^0.5.17"],
+      ["devDependencies", "@opentui/core", "^0.8.1"],
+      ["devDependencies", "@opentui/solid", "^0.8.1"],
       ["devDependencies", "solid-js", "^1.9.12"],
       ["peerDependencies", "@opentui/core", ">=0.5.17"],
       ["peerDependencies", "@opentui/solid", ">=0.5.17"],
@@ -218,9 +218,9 @@ describe("package manifest compatibility", () => {
       "../.github/scripts/verify-typescript-version.mjs",
       [
         'const EXPECTED_TYPESCRIPT_VERSION = "7.0.2";',
-        'const EXPECTED_PLUGIN_VERSION = "2.0.28";',
-        'const EXPECTED_OPENTUI_SPECIFIER = "^0.5.17";',
-        'const EXPECTED_OPENTUI_VERSION = "0.5.17";',
+        'const EXPECTED_PLUGIN_VERSION = "2.2.5";',
+        'const EXPECTED_OPENTUI_SPECIFIER = "^0.8.1";',
+        'const EXPECTED_OPENTUI_VERSION = "0.8.1";',
         'const BUN_FFI_STRUCTS_VERSION = "0.3.1";',
         'const BUN_FFI_TYPESCRIPT_PEER = "^5";',
         "Known unmet peer:",
@@ -371,15 +371,16 @@ describe("package manifest compatibility", () => {
       expect(peerAllowsFloorOf("~1.9.12", ">=1.9.0")).toBe(true);
       expect(peerAllowsFloorOf("2.0.28", "2.0.28")).toBe(true);
       expect(peerAllowsFloorOf("2.0.27", "2.0.28")).toBe(false);
+      expect(peerAllowsFloorOf("2.2.5", ">=2.0.28")).toBe(true);
     });
 
     it("lets every shipped dependency resolve at or above the peer's floor", async () => {
       const declaredPeer = pkg.peerDependencies["@opencode/plugin"];
       const installed = JSON.parse(await text("../node_modules/@opencode/plugin/package.json"));
       expect(
-        installed.version,
-        `Install @opencode/plugin@${declaredPeer} (the declared peer) so this test reads its peers.`,
-      ).toBe(declaredPeer);
+        peerAllowsFloorOf(installed.version, declaredPeer),
+        `Install an @opencode/plugin that the declared peer ${declaredPeer} allows, so this test reads its peers.`,
+      ).toBe(true);
 
       const conflicts = Object.entries(installed.peerDependencies as Record<string, string>)
         .filter(([name]) => pkg.dependencies?.[name] !== undefined)
