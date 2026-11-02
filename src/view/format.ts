@@ -122,7 +122,7 @@ export function barParts(
 }
 
 /**
- * The cell of a bar `width` cells wide where even use would be (the │ mark): `evenLeft` is the
+ * The cell of a bar `width` cells wide where even use would be (the ┃ even-use mark): `evenLeft` is the
  * percent even use leaves now (`core/pace.ts`).
  */
 export function evenUseCell(evenLeft: number, width: number): number {
@@ -194,9 +194,10 @@ export function rowValueText(row: QuotaRow): string {
   return "";
 }
 
-/** "12.3K in · 2.10K out". */
+/** "12.3K (1.20K) in · 2.10K out", with cached input only when it is non-zero. */
 export function sessionTokensText(tokens: SessionTokens): string {
-  return `${formatTokens(tokens.input)} in · ${formatTokens(tokens.output)} out`;
+  const cached = tokens.cachedInput > 0 ? ` (${formatTokens(tokens.cachedInput)})` : "";
+  return `${formatTokens(tokens.input)}${cached} in · ${formatTokens(tokens.output)} out`;
 }
 
 /** A model's cache hit can be low once it read this many input tokens. */

@@ -86,7 +86,7 @@ Roles are `good`, `warning`, `low`, `empty`, `title`, `provider`, `account`, `la
 | --- | --- | --- |
 | `layout.bar` | `"blocks"` | `blocks`, `shades`, `line`, `squares`, `dots`, `none`. |
 | `layout.barWidth` | `"fill"` | `fill` takes the room the other columns leave, at most 20 cells on the sidebar and 10 on the collapsed panel; or a whole number 1–30. |
-| `layout.evenUse` | `true` | The `┃` mark where even use would be, in the bars of every place. |
+| `layout.evenUse` | `true` | The `┃` mark where even use until the reset would be, in the bars of every place, the Limits tab included. It is not the bar's value. **Even-use mark** on Layout's All places page. |
 | `layout.indent` | `1` | Whole number 0–4. |
 | `layout.labelWidth` | `8` | Whole number 3–20: the most columns a row name takes. |
 | `layout.providerGap` | `1` | Whole number 0–2. |

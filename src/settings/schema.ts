@@ -136,7 +136,7 @@ export const SETTINGS_SCHEMA = {
   "layout.bar": choice(["blocks", "shades", "line", "squares", "dots", "none"], "blocks"),
   /** "fill": the room the other columns leave, up to each place's most. */
   "layout.barWidth": { ...whole(1, 30), word: "fill", default: "fill" },
-  /** The ┃ mark where even use would be, in every place's bars (the Limits tab always has it). */
+  /** The ┃ mark where even use would be, in every place's bars, the Limits tab's too. */
   "layout.evenUse": bool(true),
   "layout.indent": { ...whole(0, 4), default: 1 },
   /** The most columns a row name takes; the name column fits the names next to a bar. */

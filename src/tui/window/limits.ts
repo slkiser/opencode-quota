@@ -5,7 +5,7 @@
  *
  * All rows share one grid: label │ bar │ percent │ reset │ pace, each column as wide as its
  * widest entry, the percent right-aligned. The bar has your bar shape (the thin ━─ line when bars
- * are off) with the even-use marker ┃ (`core/pace.ts`) and takes the room the other columns
+ * are off) with the even-use marker ┃ (`core/pace.ts`) when `layout.evenUse` is on, and takes the room the other columns
  * leave, so the grid always spans the window. A provider's line has its name and plan; an error
  * gets its own line under it. Like the window's other tabs, a provider's line starts one column
  * in, its rows and its error three.
@@ -60,7 +60,7 @@ type Grid = {
 export type LimitsInput = {
   snapshot: QuotaSnapshot;
   /** The display settings: row names, the sidebar's order, the bar shape and the words. */
-  display: RowSettings & { layout: Pick<Layout, "bar">; words: Words };
+  display: RowSettings & { layout: Pick<Layout, "bar" | "evenUse">; words: Words };
   nowMs: number;
   /** Columns inside the window. */
   width: number;
@@ -203,21 +203,22 @@ export function limitsLines(input: LimitsInput): Line[] {
       },
     ];
   }
-  // Full names, exact times, the even-use marker and every pace, whatever the settings.
+  // Full names, exact times and every pace, whatever the settings; the even-use marker with
+  // `layout.evenUse`, like every other place.
   const place: Place = {
     words,
     nowMs,
     names: "label",
     percent: "words",
     times: "exact",
-    evenUse: true,
+    evenUse: display.layout.evenUse,
     pace: "all",
   };
   const facts = new Map(
     groups.map((group) => [group.id, group.rows.map((item) => rowFacts(item, group, place))]),
   );
   const grid = gridFor([...facts.values()].flat(), width);
-  // With bars off elsewhere, Limits keeps a thin line: the even-use marker needs a bar.
+  // With bars off elsewhere, Limits keeps a thin line.
   const shape = display.layout.bar === "none" ? "line" : display.layout.bar;
   return groups.flatMap((group, index) => {
     const lines: Line[] = index > 0 ? [{ id: "", segments: [] }] : [];

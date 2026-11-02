@@ -75,7 +75,7 @@ Zum Beispiel `/quota_usage 30d` oder `/quota_usage between 2026-09-01 2026-09-25
 
 ## Einstellungen
 
-Seitenleiste, Statuszeile, Toasts, Farben, Formulierungen und Anbieter änderst du in `/quota_settings`. **Save** schreibt nur deine Änderungen nach `opencode-quota/settings.jsonc` im Konfigurationsordner von OpenCode und behält deine Kommentare. Eine Änderung an der Datei erreicht jede offene TUI innerhalb weniger Sekunden. Eigene Anbieter, der Pfad zur Claude CLI und der Exportpfad lassen sich nur in der Datei festlegen. [Einstellungen und Standardwerte](../configuration.md).
+Seitenleiste, Statuszeile, Toasts, Farben, Formulierungen und Anbieter änderst du in `/quota_settings`. **Save** schreibt nur deine Änderungen nach `opencode-quota/settings.jsonc` im Konfigurationsordner von OpenCode und behält deine Kommentare. Eine Änderung an der Datei erreicht jede offene TUI innerhalb weniger Sekunden. Eigene Anbieter, der Pfad zur Claude CLI und der Exportpfad lassen sich nur in der Datei festlegen. Das `┃` in einem Balken zeigt, wo gleichmäßige Nutzung bis zum Zurücksetzen stünde, nicht den Wert des Balkens; **Even-use mark** (`layout.evenUse`) im Tab Layout schaltet es aus. [Einstellungen und Standardwerte](../configuration.md).
 
 ## Anbieter
 
