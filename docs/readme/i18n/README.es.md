@@ -60,8 +60,8 @@ Agrega el plugin a `opencode.jsonc` o `opencode.json` y conserva tus otros plugi
 
 ## Funciones
 
-- **TUI:** `/quota` abre una ventana con las pestañas Usage, Limits, Plugin y Settings. La TUI también tiene un panel Quota en la barra lateral, una línea de estado bajo el cuadro de mensaje y notificaciones toast.
-- **Desktop (experimental, OpenCode `2.2.0+`):** el comando **Quota** abre una ventana de uso (Limits, Cost, Tokens). Desktop también tiene una pestaña lateral Quota fijada, una píldora en la barra de título, una franja en la parte inferior, una píldora sobre el cuadro de mensaje, notificaciones toast, el elemento **Quota usage for this session** en el menú de la sesión y una página Quota en los ajustes de OpenCode. La misma entrada del plugin lo carga; desactívalo en **Settings → Extensions → Plugins**.
+- **TUI:** una ventana `/quota`, un panel en la barra lateral, una línea de estado y notificaciones toast.
+- **Desktop (experimental, OpenCode `2.2.0+`):** una pestaña lateral, píldoras, una franja inferior, notificaciones toast, una ventana de uso (comando **Quota**) y una página de ajustes. Desactívalo en **Settings → Extensions → Plugins**.
   <details>
   <summary>Dónde aparece cada ajuste en la TUI y en Desktop</summary>
   <table>
@@ -73,10 +73,10 @@ Agrega el plugin a `opencode.jsonc` o `opencode.json` y conserva tus otros plugi
   </table>
   <p><b>Nota:</b> en la TUI, la línea de estado se oculta mientras la barra lateral muestra cuotas, salvo que <b>Next to the sidebar</b> (<code>statusLine.withSidebar</code>) esté activado. En Desktop, la franja también se muestra junto a la pestaña lateral Quota de forma predeterminada; <b>Next to the side panel</b> (<code>statusLine.withSidePanel</code>) lo desactiva.</p>
   </details>
-- **Web y Desktop:** `/quota`, `/quota_usage` y `/quota_status` publican su informe en el chat como un mensaje tuyo. La IA nunca lo responde, y el plugin lo filtra de cada solicitud a la IA. Después de desinstalar el plugin, los informes antiguos de chats pasados ya no se filtran. Es posible que la fuente de Web no alinee las columnas.
-- **Terminal:** `npx @slkiser/opencode-quota@latest show` funciona incluso con OpenCode cerrado.
-- **Scripts y barras de estado:** JSON, un archivo de exportación y métricas. Consulta [Integración externa](../external-integration.md).
-- **Hecho para OpenCode 2:** los ajustes se aplican al instante, en cada OpenCode abierto.
+- **Web:** `/quota`, `/quota_usage` y `/quota_status` publican un informe en el chat. La IA nunca lo ve.
+- **Terminal:** `npx @slkiser/opencode-quota@latest show`, incluso con OpenCode cerrado.
+- **Scripts y barras de estado:** JSON, un archivo de exportación y métricas ([cómo](../external-integration.md)).
+- **Ajustes al instante** en cada OpenCode abierto.
 
 ## Comandos
 
@@ -91,7 +91,10 @@ Por ejemplo, `/quota_usage 30d` o `/quota_usage between 2026-09-01 2026-09-25`. 
 
 ## Ajustes
 
-Cambia la barra lateral, la línea de estado, las notificaciones toast, los colores, los textos y los proveedores en `/quota_settings`. **Save** escribe solo lo que cambiaste en `opencode-quota/settings.jsonc`, dentro de la carpeta de configuración de OpenCode, y conserva tus comentarios. Una edición del archivo llega a cada TUI abierta en pocos segundos. En Desktop, la página Quota de los ajustes de OpenCode guarda en el mismo archivo. Los proveedores personalizados, la ruta de Claude CLI y la ruta de exportación solo se configuran en el archivo. El `┃` de una barra marca dónde estarías con un uso uniforme hasta el reinicio, no el valor de la barra; **Even-use mark** (`layout.evenUse`) en la pestaña Layout lo desactiva. [Ajustes y valores predeterminados](../configuration.md).
+- Cambia los ajustes en `/quota_settings` (TUI) o en la página Quota de los ajustes de Desktop. Ambos guardan en `opencode-quota/settings.jsonc`, dentro de la carpeta de configuración de OpenCode, y conservan tus comentarios.
+- Los proveedores personalizados, la ruta de Claude CLI y la ruta de exportación solo se configuran en el archivo.
+- El `┃` de una barra marca un uso uniforme hasta el reinicio. **Even-use mark** (`layout.evenUse`) lo desactiva.
+- [Ajustes y valores predeterminados](../configuration.md)
 
 ## Proveedores
 
@@ -137,7 +140,10 @@ Inicia sesión con `/connect` y el proveedor aparece. Activa o desactiva proveed
 
 \* Los nombres con enlace necesitan un paso más; el resto funciona en cuanto inicias sesión. [Qué informa cada uno](../providers.md#pre-configured-providers).
 
-La cuota de ChatGPT de OpenAI necesita iniciar sesión con Codex ([cómo](../providers.md#openai-and-xai)). Gemini CLI solo funciona con cuentas de Gemini Code Assist Standard o Enterprise (organización). Los usuarios personales de Google deben usar Google AGY. Los planes Empresa de los proveedores chinos muestran solo el uso de tu propia clave de API de miembro, excepto Alibaba Token Plan, que muestra una fila Credits por cada puesto del equipo. Las claves de API vienen de OpenCode o de una [variable de entorno](../providers.md#api-keys).
+- ChatGPT de OpenAI necesita iniciar sesión con Codex ([cómo](../providers.md#openai-and-xai)).
+- Gemini CLI necesita una cuenta de Gemini Code Assist Standard o Enterprise; las cuentas personales de Google usan Google AGY.
+- Los planes Empresa de los proveedores chinos muestran solo el uso de tu propia clave de API (Alibaba Token Plan: una fila Credits por puesto).
+- Las claves de API vienen de OpenCode o de una [variable de entorno](../providers.md#api-keys).
 
 ### Proveedores personalizados
 

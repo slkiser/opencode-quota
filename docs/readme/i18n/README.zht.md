@@ -60,8 +60,8 @@ opencode plugin add @slkiser/opencode-quota
 
 ## 功能
 
-- **TUI：** `/quota` 會開啟一個視窗，裡面有 Usage、Limits、Plugin 和 Settings 分頁。TUI 還會有側邊欄中的 Quota 面板、輸入框下方的狀態列和 toast 通知。
-- **Desktop（實驗性，OpenCode `2.2.0+`）：** **Quota** 指令會開啟用量視窗（Limits、Cost、Tokens）。Desktop 還會有釘選的 Quota 側邊分頁、標題列膠囊、視窗底部狀態條、輸入框上方的膠囊、toast 通知、工作階段選單中的 **Quota usage for this session**，以及 OpenCode 設定中的 Quota 頁面。同一個外掛項目即可載入它；可在 **Settings → Extensions → Plugins** 中關閉。
+- **TUI：** `/quota` 視窗、側邊欄面板、狀態列和 toast 通知。
+- **Desktop（實驗性，OpenCode `2.2.0+`）：** 側邊分頁、膠囊、底部狀態條、toast 通知、用量視窗（**Quota** 指令）和設定頁面。可在 **Settings → Extensions → Plugins** 中關閉。
   <details>
   <summary>各項設定在 TUI 和 Desktop 中的顯示位置</summary>
   <table>
@@ -73,10 +73,10 @@ opencode plugin add @slkiser/opencode-quota
   </table>
   <p><b>注意：</b>在 TUI 中，側邊欄顯示配額時狀態列會隱藏，除非開啟 <b>Next to the sidebar</b>（<code>statusLine.withSidebar</code>）。在 Desktop 中，狀態條預設也會顯示在 Quota 側邊分頁旁；<b>Next to the side panel</b>（<code>statusLine.withSidePanel</code>）可將其關閉。</p>
   </details>
-- **Web 和 Desktop：** `/quota`、`/quota_usage` 和 `/quota_status` 會把報告當成你的訊息貼到聊天中。AI 從不回覆它，外掛也會把它從每次 AI 請求中過濾掉。解除安裝外掛後，過去聊天中的舊報告將不再被過濾。Web 的字型可能無法讓各欄對齊。
-- **終端機：** 即使 OpenCode 已關閉，`npx @slkiser/opencode-quota@latest show` 也能使用。
-- **腳本和狀態列：** JSON、匯出檔案和指標。請參閱[外部整合](../external-integration.md)。
-- **為 OpenCode 2 打造：** 設定即時生效，套用到每個開啟中的 OpenCode。
+- **Web：** `/quota`、`/quota_usage` 和 `/quota_status` 會在聊天中貼出報告。AI 永遠看不到它。
+- **終端機：** `npx @slkiser/opencode-quota@latest show`，即使 OpenCode 已關閉也能使用。
+- **腳本和狀態列：** JSON、匯出檔案和指標（[作法](../external-integration.md)）。
+- **設定即時生效**，套用到每個開啟中的 OpenCode。
 
 ## 指令
 
@@ -91,7 +91,10 @@ opencode plugin add @slkiser/opencode-quota
 
 ## 設定
 
-在 `/quota_settings` 中變更側邊欄、狀態列、toast 通知、顏色、措辭和供應商。**Save**（儲存）只會把你變更的內容寫入 OpenCode 設定資料夾中的 `opencode-quota/settings.jsonc`，並保留你的註解。編輯該檔案後，幾秒內就會套用到每個開啟中的 TUI。在 Desktop 中，OpenCode 設定裡的 Quota 頁面也會儲存到同一個檔案。自訂供應商、Claude CLI 路徑和匯出路徑只能在檔案中設定。進度條中的 `┃` 表示到重設前平均使用時應在的位置，而不是進度條的數值；在 Layout 分頁的 **Even-use mark**（`layout.evenUse`）可將其關閉。[設定與預設值](../configuration.md)。
+- 在 `/quota_settings`（TUI）或 Desktop 設定中的 Quota 頁面變更設定。兩者都會儲存到 OpenCode 設定資料夾中的 `opencode-quota/settings.jsonc`，並保留你的註解。
+- 自訂供應商、Claude CLI 路徑和匯出路徑只能在檔案中設定。
+- 進度條中的 `┃` 表示到重設前平均使用的位置。**Even-use mark**（`layout.evenUse`）可將其關閉。
+- [設定與預設值](../configuration.md)
 
 ## 供應商
 
@@ -137,7 +140,10 @@ opencode plugin add @slkiser/opencode-quota
 
 \* 有連結的名稱還需要多一個步驟；其餘的登入後即可使用。[每個供應商回報哪些內容](../providers.md#pre-configured-providers)。
 
-OpenAI ChatGPT 配額需要 Codex 登入（[作法](../providers.md#openai-and-xai)）。Gemini CLI 僅適用於 Gemini Code Assist Standard 或 Enterprise（組織）帳號。個人 Google 使用者請改用 Google AGY。中國供應商的企業方案只會顯示你自己成員 API 金鑰的用量，但 Alibaba Token Plan 會為每個團隊席位顯示一列 Credits。API 金鑰來自 OpenCode 或[環境變數](../providers.md#api-keys)。
+- OpenAI ChatGPT 需要 Codex 登入（[作法](../providers.md#openai-and-xai)）。
+- Gemini CLI 需要 Gemini Code Assist Standard 或 Enterprise 帳號；個人 Google 帳號請改用 Google AGY。
+- 中國供應商的企業方案只會顯示你自己 API 金鑰的用量（Alibaba Token Plan：每個席位一列 Credits）。
+- API 金鑰來自 OpenCode 或[環境變數](../providers.md#api-keys)。
 
 ### 自訂供應商
 

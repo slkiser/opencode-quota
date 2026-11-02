@@ -60,8 +60,8 @@ OpenCode を再起動して `/quota` と入力します。上限を表示する�
 
 ## 主な機能
 
-- **TUI：** `/quota` で、Usage、Limits、Plugin、Settings のタブがあるウィンドウが開きます。TUI にはさらに、サイドバーの Quota パネル、入力欄の下のステータスライン、トーストが加わります。
-- **Desktop（実験的、OpenCode `2.2.0+`）：** **Quota** コマンドで使用量ウィンドウ（Limits、Cost、Tokens）が開きます。Desktop にはほかに、固定された Quota サイドタブ、タイトルバーのピル、ウィンドウ下部のストリップ、入力欄の上のピル、トースト、セッションメニューの **Quota usage for this session**、OpenCode の設定内の Quota ページが加わります。同じプラグインエントリーで読み込まれます。オフにするには **Settings → Extensions → Plugins** を開きます。
+- **TUI：** `/quota` ウィンドウ、サイドバーのパネル、ステータスライン、トースト。
+- **Desktop（実験的、OpenCode `2.2.0+`）：** サイドタブ、ピル、下部のストリップ、トースト、使用量ウィンドウ（**Quota** コマンド）、設定ページ。オフにするには **Settings → Extensions → Plugins** を開きます。
   <details>
   <summary>各設定が TUI と Desktop で表示される場所</summary>
   <table>
@@ -73,10 +73,10 @@ OpenCode を再起動して `/quota` と入力します。上限を表示する�
   </table>
   <p><b>補足：</b>TUI では、サイドバーにクォータが表示されている間、ステータスラインは非表示になります。<b>Next to the sidebar</b>（<code>statusLine.withSidebar</code>）をオンにすると表示されます。Desktop では、ストリップはデフォルトで Quota サイドタブの横にも表示されます。<b>Next to the side panel</b>（<code>statusLine.withSidePanel</code>）でこれをオフにできます。</p>
   </details>
-- **Web と Desktop：** `/quota`、`/quota_usage`、`/quota_status` は、レポートをあなたのメッセージとしてチャットに投稿します。AI がそれに返答することはなく、プラグインはすべての AI リクエストからそれを除外します。プラグインをアンインストールすると、過去のチャットにある古いレポートは除外されなくなります。Web ではフォントによって列が揃わないことがあります。
-- **ターミナル：** `npx @slkiser/opencode-quota@latest show` は OpenCode を閉じていても使えます。
-- **スクリプトとステータスバー：** JSON、エクスポートファイル、メトリクス。[外部連携](../external-integration.md)を参照してください。
-- **OpenCode 2 向けに設計：** 設定は、開いているすべての OpenCode に即座に反映されます。
+- **Web：** `/quota`、`/quota_usage`、`/quota_status` はチャットにレポートを投稿します。AI がそれを見ることはありません。
+- **ターミナル：** `npx @slkiser/opencode-quota@latest show`。OpenCode を閉じていても使えます。
+- **スクリプトとステータスバー：** JSON、エクスポートファイル、メトリクス（[方法](../external-integration.md)）。
+- **設定は即座に反映**され、開いているすべての OpenCode に適用されます。
 
 ## コマンド
 
@@ -91,7 +91,10 @@ OpenCode を再起動して `/quota` と入力します。上限を表示する�
 
 ## 設定
 
-サイドバー、ステータスライン、トースト、色、表記、プロバイダーは `/quota_settings` で変更できます。**Save**（保存）は、変更した項目だけを OpenCode の設定フォルダー内の `opencode-quota/settings.jsonc` に書き込み、コメントはそのまま残します。ファイルを編集すると、数秒以内に開いているすべての TUI に反映されます。Desktop では、OpenCode の設定内の Quota ページも同じファイルに保存します。カスタムプロバイダー、Claude CLI のパス、エクスポート先のパスはファイルでのみ設定できます。バーの `┃` は、リセットまで均等に使った場合の位置を示すもので、バーの値ではありません。Layout タブの **Even-use mark**（`layout.evenUse`）でオフにできます。[設定とデフォルト値](../configuration.md)。
+- 設定は `/quota_settings`（TUI）または Desktop の設定内の Quota ページで変更できます。どちらも OpenCode の設定フォルダー内の `opencode-quota/settings.jsonc` に保存し、コメントはそのまま残します。
+- カスタムプロバイダー、Claude CLI のパス、エクスポート先のパスはファイルでのみ設定できます。
+- バーの `┃` は、リセットまで均等に使った場合の位置を示します。**Even-use mark**（`layout.evenUse`）でオフにできます。
+- [設定とデフォルト値](../configuration.md)
 
 ## プロバイダー
 
@@ -137,7 +140,10 @@ OpenCode を再起動して `/quota` と入力します。上限を表示する�
 
 \* リンク付きの名前は、追加の手順が 1 つ必要です。それ以外はログインするだけで使えます。[各プロバイダーが報告する内容](../providers.md#pre-configured-providers)。
 
-OpenAI の ChatGPT クォータには Codex でのログインが必要です（[方法](../providers.md#openai-and-xai)）。Gemini CLI は Gemini Code Assist Standard または Enterprise（組織）のアカウントでのみ動作します。個人の Google ユーザーは Google AGY を使ってください。中国のプロバイダーのビジネスプランでは、あなた自身のメンバー API キーの使用量だけが表示されます。ただし Alibaba Token Plan は、チームのシートごとに Credits 行を 1 つ表示します。API キーは OpenCode または[環境変数](../providers.md#api-keys)から取得されます。
+- OpenAI の ChatGPT には Codex でのログインが必要です（[方法](../providers.md#openai-and-xai)）。
+- Gemini CLI には Gemini Code Assist Standard または Enterprise のアカウントが必要です。個人の Google アカウントは Google AGY を使ってください。
+- 中国のプロバイダーのビジネスプランでは、あなた自身の API キーの使用量だけが表示されます（Alibaba Token Plan：シートごとに Credits 行 1 つ）。
+- API キーは OpenCode または[環境変数](../providers.md#api-keys)から取得されます。
 
 ### カスタムプロバイダー
 
