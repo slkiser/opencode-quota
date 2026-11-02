@@ -34,7 +34,7 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
   {
     id: "anthropic",
     label: "Anthropic",
-    runtimeIds: ["anthropic", "claude-code"],
+    runtimeIds: ["anthropic", "claude-code", "claude-agent"],
     synonyms: ["claude", "claude-code"],
     groupBrands: ["Claude"],
     rowKeys: ["five_hour", "weekly", "weekly_fable", "extra_usage"],
