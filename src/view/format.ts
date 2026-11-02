@@ -63,10 +63,18 @@ function clampPercent(percent: number): number {
   return Math.max(0, Math.min(100, Math.round(percent)));
 }
 
+/**
+ * The share every surface shows: the percent left as the row has it, or the percent used when
+ * `words.percent` is "used". Bars, marks and percents read it, so the number and the bar agree.
+ */
+export function shownPercent(words: Words, percentRemaining: number): number {
+  const left = clampPercent(percentRemaining);
+  return words.percent === "used" ? 100 - left : left;
+}
+
 /** "58% left", "42% used", or "58%" without the word. */
 export function percentText(words: Words, percentRemaining: number, withWord: boolean): string {
-  const left = clampPercent(percentRemaining);
-  const value = words.percent === "used" ? 100 - left : left;
+  const value = shownPercent(words, percentRemaining);
   const word = withWord ? percentWord(words) : "";
   return word ? `${value}% ${word}` : `${value}%`;
 }
@@ -109,7 +117,7 @@ const BAR_CHARACTERS: Record<Exclude<BarShape, "none">, [string, string]> = {
   dots: ["●", "○"],
 };
 
-/** A bar in two parts (left, used), so each can have its own color. */
+/** A bar in two parts (filled, empty), so each can have its own color; `percentRemaining` is the share the bar shows. */
 export function barParts(
   shape: BarShape,
   percentRemaining: number,
@@ -122,7 +130,7 @@ export function barParts(
 }
 
 /**
- * The cell of a bar `width` cells wide where even use would be (the │ mark): `evenLeft` is the
+ * The cell of a bar `width` cells wide where even use would be (the ┃ even-use mark): `evenLeft` is the
  * percent even use leaves now (`core/pace.ts`).
  */
 export function evenUseCell(evenLeft: number, width: number): number {
@@ -194,9 +202,10 @@ export function rowValueText(row: QuotaRow): string {
   return "";
 }
 
-/** "12.3K in · 2.10K out". */
+/** "12.3K (1.20K) in · 2.10K out", with cached input only when it is non-zero. */
 export function sessionTokensText(tokens: SessionTokens): string {
-  return `${formatTokens(tokens.input)} in · ${formatTokens(tokens.output)} out`;
+  const cached = tokens.cachedInput > 0 ? ` (${formatTokens(tokens.cachedInput)})` : "";
+  return `${formatTokens(tokens.input)}${cached} in · ${formatTokens(tokens.output)} out`;
 }
 
 /** A model's cache hit can be low once it read this many input tokens. */

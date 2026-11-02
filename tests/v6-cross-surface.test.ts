@@ -331,7 +331,7 @@ describe("v6 surfaces on the quota snapshot", () => {
         "Plan ███████████████░░░ 81%",
         "5h ░░░░░░░░░░░░░░░░░░ 0% 2h 14m",
         "Custom providers (Team) Provider e…",
-        "Session 1.20K in · 45 out",
+        "Session 1.20K (300) in · 45 out",
       ]),
     );
     const barColor = (start: string) => {
@@ -383,7 +383,7 @@ describe("v6 surfaces on the quota snapshot", () => {
         "  7d   ████████░░░░░░░░░░░░  40% left",
         "Custom providers (Team)  Provider error 503",
         "  30d  █████████████░░░░░░░  64% left  2h 14m",
-        "Session  1.20K in · 45 out",
+        "Session  1.20K (300) in · 45 out",
       ].join("\n"),
     );
 
@@ -412,7 +412,7 @@ describe("v6 surfaces on the quota snapshot", () => {
         " Copilot  pro",
         expect.stringMatching(/^ {3}Plan +█+░+ {2}81% left$/u),
         expect.stringMatching(
-          /^ {3}5h +░+┃░+ {3}0% left {3}resets in 2h 14m {3}faster than it refills$/u,
+          /^ {3}5h +░+ {3}0% left {3}resets in 2h 14m {3}faster than it refills$/u,
         ),
         " Custom providers  Team",
       ]),
@@ -496,11 +496,11 @@ describe("v6 surfaces on the quota snapshot", () => {
     // tab expands the panel collapsed above); Save writes settings.jsonc and closes.
     const windowTree = () => tui.render("session.composer.top", { sessionID: "ses_1" });
     clickable(windowTree(), "Sidebar").props.onMouseUp();
-    expect(words(sidebar())).toContain("Session 1.20K in · 45 out");
+    expect(words(sidebar())).toContain("Session 1.20K (300) in · 45 out");
     const sessionTokens = settingLine(windowTree(), "sidebar.sessionTokens");
     expect(words(sessionTokens)).toEqual(["Session tokens line", "‹", "shown", "›"]);
     clickable(sessionTokens, "›").props.onMouseUp();
-    expect(words(sidebar())).not.toContain("Session 1.20K in · 45 out");
+    expect(words(sidebar())).not.toContain("Session 1.20K (300) in · 45 out");
     expect(tui.stored.has("settings")).toBe(false);
     clickable(windowTree(), "Save").props.onMouseUp();
     await vi.waitFor(() => expect(windowTree()).toBe(""), { timeout: 5_000 });
@@ -619,7 +619,7 @@ describe("v6 surfaces on the quota snapshot", () => {
         file.words = { percent: "used" };
         await writeFile(path, JSON.stringify(file));
         await vi.waitFor(() =>
-          expect(sidebar().join(" ")).toContain("Sidebar… ███████████░░░ 19%"),
+          expect(sidebar().join(" ")).toContain("Sidebar… ███░░░░░░░░░░░ 19%"),
         );
         expect(sidebar()).toContain("▼ Quota used");
         expect(sidebar().join(" ")).not.toContain("Session 1.20K");
@@ -693,7 +693,7 @@ describe("v6 surfaces on the quota snapshot", () => {
       // The sidebar shows the new words before they are saved.
       clickable(settingLine(windowTree(), "words.percent"), "‹").props.onMouseUp();
       expect(sidebar()).toEqual(
-        expect.arrayContaining(["▼ Quota used", "Plan ████████████████░░░░ 19%"]),
+        expect.arrayContaining(["▼ Quota used", "Plan ████░░░░░░░░░░░░░░░░ 19%"]),
       );
 
       clickable(windowTree(), "Providers").props.onMouseUp();

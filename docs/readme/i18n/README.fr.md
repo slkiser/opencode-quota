@@ -75,7 +75,7 @@ Par exemple `/quota_usage 30d` ou `/quota_usage between 2026-09-01 2026-09-25`. 
 
 ## Paramètres
 
-Modifiez la barre latérale, la ligne d'état, les toasts, les couleurs, les formulations et les fournisseurs dans `/quota_settings`. **Save** n'écrit que ce que vous avez modifié dans `opencode-quota/settings.jsonc`, dans le dossier de configuration d'OpenCode, et conserve vos commentaires. Une modification du fichier atteint chaque TUI ouverte en quelques secondes. Les fournisseurs personnalisés, le chemin du Claude CLI et le chemin d'export se définissent uniquement dans le fichier. [Paramètres et valeurs par défaut](../configuration.md).
+Modifiez la barre latérale, la ligne d'état, les toasts, les couleurs, les formulations et les fournisseurs dans `/quota_settings`. **Save** n'écrit que ce que vous avez modifié dans `opencode-quota/settings.jsonc`, dans le dossier de configuration d'OpenCode, et conserve vos commentaires. Une modification du fichier atteint chaque TUI ouverte en quelques secondes. Les fournisseurs personnalisés, le chemin du Claude CLI et le chemin d'export se définissent uniquement dans le fichier. Le `┃` d'une barre indique où en serait une utilisation régulière jusqu'à la réinitialisation, pas la valeur de la barre ; **Even-use mark** (`layout.evenUse`) dans l'onglet Layout le désactive. [Paramètres et valeurs par défaut](../configuration.md).
 
 ## Fournisseurs
 

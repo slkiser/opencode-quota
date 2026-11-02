@@ -68,6 +68,7 @@ Run `/quota_status` first. Every known provider has a section named after its id
 | ------------------------------------ | --- |
 | `claude` not found                   | Install Claude Code where the [service `PATH`](#service-environment) finds it, or set `providers.anthropic.binaryPath` in `settings.jsonc`. `binary_path` shows which one ran. |
 | Not signed in                        | Run `claude auth login`, then check `claude auth status`. |
+| No 5h row                            | A plan without a 5-hour limit, such as Ultra, shows the Weekly row and no 5h row. |
 
 </details>
 

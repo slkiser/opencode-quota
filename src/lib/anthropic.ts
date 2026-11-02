@@ -34,6 +34,8 @@ const ANTHROPIC_DIAGNOSTICS_TTL_MS = 5_000;
 const ANTHROPIC_OAUTH_BACKOFF_BASE_MS = 30_000;
 const ANTHROPIC_OAUTH_COOLDOWN_MAX_MS = 15 * 60_000;
 const ANTHROPIC_OAUTH_COOLDOWN_MAX_ENTRIES = 16;
+/** A successful usage reply answers every probe with its token for this long. */
+const ANTHROPIC_OAUTH_REUSE_MS = 60_000;
 const ANTHROPIC_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const ANTHROPIC_BETA_HEADER = "oauth-2025-04-20";
 const CLAUDE_CODE_CREDENTIALS_SERVICE = "Claude Code-credentials";
@@ -80,7 +82,8 @@ const COMMAND_MISSING_TEXT = [
 
 export interface AnthropicQuotaResult {
   success: true;
-  five_hour: { percentRemaining: number; resetTimeIso?: string };
+  /** None on a plan without a 5-hour limit, such as Ultra. */
+  five_hour?: { percentRemaining: number; resetTimeIso?: string };
   /** None on a plan without a weekly limit, such as Enterprise. */
   seven_day?: { percentRemaining: number; resetTimeIso?: string };
   extra_usage?: { percentRemaining: number };
@@ -128,6 +131,8 @@ type ClaudeCommandInvocation = {
   file: string;
   args: string[];
   display: string;
+  /** Set when `args` holds one cmd.exe command line that must not be quoted a second time. */
+  windowsVerbatimArguments?: boolean;
 };
 
 type QuotaWindow = { percentRemaining: number; resetTimeIso?: string };
@@ -176,8 +181,25 @@ type ParsedAuthProbe = {
 
 const diagnosticsCache = new Map<string, ProbeCacheEntry<AnthropicDiagnostics>>();
 const localDiagnosticsCache = new Map<string, ProbeCacheEntry<AnthropicLocalDiagnostics>>();
-const anthropicOAuthCooldowns = new Map<string, { failureCount: number; blockedUntilMs: number }>();
-const anthropicOAuthInFlight = new Map<string, Promise<AnthropicFallbackQuota>>();
+interface AnthropicOAuthProbeState {
+  cooldowns: Map<string, { failureCount: number; blockedUntilMs: number }>;
+  inFlight: Map<string, Promise<AnthropicFallbackQuota>>;
+  recent: Map<string, { quota: AnthropicQuotaResult; checkedAtMs: number }>;
+}
+
+// OpenCode loads one copy of the plugin per location in the same process, and Anthropic's usage
+// endpoint rate-limits per token, so every copy shares one backoff, request and recent reply.
+const ANTHROPIC_OAUTH_PROBE_STATE = Symbol.for("@slkiser/opencode-quota/anthropic-oauth-probe/v1");
+const anthropicOAuthProbeState = ((globalThis as Record<symbol, unknown>)[
+  ANTHROPIC_OAUTH_PROBE_STATE
+] ??= {
+  cooldowns: new Map(),
+  inFlight: new Map(),
+  recent: new Map(),
+}) as AnthropicOAuthProbeState;
+const anthropicOAuthCooldowns = anthropicOAuthProbeState.cooldowns;
+const anthropicOAuthInFlight = anthropicOAuthProbeState.inFlight;
+const anthropicOAuthRecent = anthropicOAuthProbeState.recent;
 
 type ResolvedAnthropicOAuth =
   | { state: "none" }
@@ -271,8 +293,16 @@ export function buildClaudeCommandInvocation(
   if ((runtime.platform ?? process.platform) === "win32" && needsWindowsShell) {
     return {
       file: runtime.comspec?.trim() || process.env["ComSpec"]?.trim() || "cmd.exe",
-      args: ["/d", "/s", "/c", [resolvedBinaryPath, ...args].map(quoteWindowsCmdArg).join(" ")],
+      // `/s` strips the first and last quote of what follows `/c`, so the command needs a pair of its own.
+      args: [
+        "/d",
+        "/s",
+        "/c",
+        `"${[resolvedBinaryPath, ...args].map(quoteWindowsCmdArg).join(" ")}"`,
+      ],
       display,
+      // Otherwise Node and Bun quote that one argument again and cmd.exe sees \"claude\".
+      windowsVerbatimArguments: true,
     };
   }
 
@@ -356,25 +386,44 @@ function parseFableWeeklyWindow(limits: unknown): QuotaWindow | undefined {
 }
 
 /**
- * The first of the response root and its nested usage objects that has both the 5h and 7d
- * windows, or the 5h window and a null 7d one: a plan without a weekly limit (Enterprise) sends
- * `seven_day: null`. A missing 7d window is still an unknown shape.
+ * A usage window under its snake_case or camelCase key: the window, `null` when the plan has no
+ * such limit (an explicit `null`), or `undefined` when the key is missing or malformed.
  */
-function findUsageWindows(
-  data: unknown,
-): { root: Record<string, unknown>; fiveHour: QuotaWindow; sevenDay?: QuotaWindow } | null {
+function readWindow(
+  candidate: Record<string, unknown>,
+  snakeKey: string,
+  camelKey: string,
+): QuotaWindow | null | undefined {
+  if (candidate[snakeKey] === null || candidate[camelKey] === null) return null;
+  return parseQuotaWindow(candidate[snakeKey] ?? candidate[camelKey]) ?? undefined;
+}
+
+/**
+ * The first of the response root and its nested usage objects that has the 5h and 7d windows.
+ * A plan without one limit sends it as `null` (Ultra: `five_hour`, Enterprise: `seven_day`) and
+ * keeps the other window. A missing or malformed window is still an unknown shape, and so is a
+ * response where both windows are null.
+ */
+function findUsageWindows(data: unknown): {
+  root: Record<string, unknown>;
+  fiveHour?: QuotaWindow;
+  sevenDay?: QuotaWindow;
+} | null {
   const root = asRecord(data);
   if (!root) return null;
 
   const candidates = [root, ...NESTED_USAGE_KEYS.map((key) => asRecord(root[key]))];
   for (const candidate of candidates) {
     if (!candidate) continue;
-    const fiveHour = parseQuotaWindow(candidate["five_hour"] ?? candidate["fiveHour"]);
-    const sevenDay = parseQuotaWindow(candidate["seven_day"] ?? candidate["sevenDay"]);
-    if (fiveHour && sevenDay) return { root: candidate, fiveHour, sevenDay };
-    if (fiveHour && (candidate["seven_day"] === null || candidate["sevenDay"] === null)) {
-      return { root: candidate, fiveHour };
-    }
+    const fiveHour = readWindow(candidate, "five_hour", "fiveHour");
+    const sevenDay = readWindow(candidate, "seven_day", "sevenDay");
+    if (fiveHour === undefined || sevenDay === undefined) continue;
+    if (fiveHour === null && sevenDay === null) continue;
+    return {
+      root: candidate,
+      ...(fiveHour ? { fiveHour } : {}),
+      ...(sevenDay ? { sevenDay } : {}),
+    };
   }
 
   return null;
@@ -386,7 +435,7 @@ function parseUsageResponse(data: unknown): AnthropicQuotaResult | null {
   return windows
     ? {
         success: true,
-        five_hour: windows.fiveHour,
+        ...(windows.fiveHour ? { five_hour: windows.fiveHour } : {}),
         ...(windows.sevenDay ? { seven_day: windows.sevenDay } : {}),
       }
     : null;
@@ -401,7 +450,7 @@ function parseOAuthUsageResponse(data: unknown): AnthropicQuotaResult | null {
   const fableWeekly = parseFableWeeklyWindow(windows.root["limits"]);
   return {
     success: true,
-    five_hour: windows.fiveHour,
+    ...(windows.fiveHour ? { five_hour: windows.fiveHour } : {}),
     ...(windows.sevenDay ? { seven_day: windows.sevenDay } : {}),
     ...(extraUsage ? { extra_usage: extraUsage } : {}),
     ...(fableWeekly ? { fable_weekly: fableWeekly } : {}),
@@ -453,7 +502,11 @@ function parseClaudeCredentials(
   }
 }
 
-async function runCommand(file: string, args: string[]): Promise<CommandResult> {
+async function runCommand(
+  file: string,
+  args: string[],
+  options: { windowsVerbatimArguments?: boolean } = {},
+): Promise<CommandResult> {
   return await new Promise<CommandResult>((resolve) => {
     execFile(
       file,
@@ -464,6 +517,7 @@ async function runCommand(file: string, args: string[]): Promise<CommandResult> 
         maxBuffer: 1024 * 1024,
         // Without a console of its own (`opencode serve --service`), Windows shows one per child.
         windowsHide: true,
+        ...(options.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
       },
       (error, stdout, stderr) => {
         if (!error) {
@@ -575,6 +629,16 @@ function getAnthropicOAuthCooldownMessage(remainingMs: number): string {
   return `Anthropic OAuth usage probe paused after HTTP 429; retry in ${seconds}s.`;
 }
 
+/** Keeps a successful reply for reuse, dropping replies too old to reuse. */
+function rememberAnthropicOAuthReply(tokenFingerprint: string, quota: AnthropicQuotaResult): void {
+  const nowMs = Date.now();
+  for (const [fingerprint, entry] of anthropicOAuthRecent) {
+    if (nowMs - entry.checkedAtMs >= ANTHROPIC_OAUTH_REUSE_MS)
+      anthropicOAuthRecent.delete(fingerprint);
+  }
+  anthropicOAuthRecent.set(tokenFingerprint, { quota, checkedAtMs: nowMs });
+}
+
 /** Bounds the cooldown map, evicting the soonest-expiring entries other than this token. */
 function retainAnthropicOAuthCooldownForToken(tokenFingerprint: string): void {
   const targetSize = anthropicOAuthCooldowns.has(tokenFingerprint)
@@ -614,9 +678,11 @@ async function performAnthropicOAuthUsageRequest(
 
   if (reply.ok) {
     const quota = parseOAuthUsageResponse(reply.json);
-    return quota
-      ? { state: "success", quota }
-      : { state: "unavailable", detail: "Unexpected Anthropic quota response shape" };
+    if (!quota) {
+      return { state: "unavailable", detail: "Unexpected Anthropic quota response shape" };
+    }
+    rememberAnthropicOAuthReply(tokenFingerprint, quota);
+    return { state: "success", quota };
   }
   const { failure } = reply;
   // A 429 waits out the cooldown, which is at least its Retry-After.
@@ -661,6 +727,15 @@ async function queryAnthropicQuotaFromOAuthAccessToken(
       detail: getAnthropicOAuthCooldownMessage(cooldown.blockedUntilMs - nowMs),
       facts: { code: "rate_limited", status: 429, retryAtMs: cooldown.blockedUntilMs },
     };
+  }
+
+  const recent = anthropicOAuthRecent.get(tokenFingerprint);
+  if (
+    recent &&
+    nowMs >= recent.checkedAtMs &&
+    nowMs - recent.checkedAtMs < ANTHROPIC_OAUTH_REUSE_MS
+  ) {
+    return { state: "success", quota: recent.quota };
   }
 
   // Concurrent probes with the same token share one request.
@@ -792,7 +867,9 @@ async function probeAnthropicLocalDiagnostics(
   const runClaude = async (binaryPath: string, args: string[]): Promise<CommandResult> => {
     const invocation = buildClaudeCommandInvocation(binaryPath, args);
     checkedCommands.push(invocation.display);
-    return await runCommand(invocation.file, invocation.args);
+    return await runCommand(invocation.file, invocation.args, {
+      windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+    });
   };
 
   let binaryPath = configuredBinaryPath;
@@ -850,6 +927,7 @@ export function clearAnthropicDiagnosticsCacheForTests(): void {
   localDiagnosticsCache.clear();
   anthropicOAuthCooldowns.clear();
   anthropicOAuthInFlight.clear();
+  anthropicOAuthRecent.clear();
 }
 
 /**
