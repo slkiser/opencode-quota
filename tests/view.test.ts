@@ -394,6 +394,16 @@ describe("view text", () => {
     });
   });
 
+  it("shows cached input in parentheses when the session has cache reads", () => {
+    const lines = sidebarLines({
+      groups: groups("sidebar"),
+      ...drawn,
+      width: 40,
+      sessionTokens: { input: 12_300, cachedInput: 1_200, output: 2_100 },
+    });
+    expect(lines.map(lineText)).toContain("Session  12.3K (1.20K) in · 2.10K out");
+  });
+
   describe("low cache line under Session", () => {
     const K = 1_000;
     /** A model's input tokens: new input, cache reads, cache writes. */
