@@ -72,6 +72,14 @@ export function shownPercent(words: Words, percentRemaining: number): number {
   return words.percent === "used" ? 100 - left : left;
 }
 
+/**
+ * Where a row's even-use mark sits on its bar, in percent from the left: as the row has it, or
+ * turned around when `words.percent` is "used", so the mark reads like the bar's fill.
+ */
+export function shownEvenLeft(words: Words, evenLeft: number): number {
+  return words.percent === "used" ? 100 - evenLeft : evenLeft;
+}
+
 /** "58% left", "42% used", or "58%" without the word. */
 export function percentText(words: Words, percentRemaining: number, withWord: boolean): string {
   const value = shownPercent(words, percentRemaining);

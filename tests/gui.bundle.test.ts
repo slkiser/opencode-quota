@@ -67,6 +67,20 @@ describe("GUI bundle (dist/gui-experimental.cjs)", () => {
     expect(required.sort()).toEqual(["@opencode/plugin/gui", "solid-js", "solid-js/web"]);
   });
 
+  it("leaves out the server's provider, credential and settings-schema code", async () => {
+    const source = await readFile(new URL("../dist/gui-experimental.cjs", import.meta.url), "utf8");
+    // Strings that survive minifying, each only in server code the bundle must not reach:
+    // SETTINGS_SCHEMA's keys (src/settings/schema.ts), the credential source's warning
+    // (src/lib/opencode-auth.ts) and the Copilot provider's config file (src/lib/copilot.ts).
+    for (const marker of [
+      "statusLine.withSidebar",
+      "credential source is not bound",
+      "copilot-quota-token.json",
+    ]) {
+      expect([marker, source.includes(marker)]).toEqual([marker, false]);
+    }
+  });
+
   it("has the package's version for the window's title", async () => {
     const source = await readFile(new URL("../dist/gui-experimental.cjs", import.meta.url), "utf8");
     const { version } = JSON.parse(

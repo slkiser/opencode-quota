@@ -1,8 +1,9 @@
 /** @jsxImportSource solid-js */
 /**
- * OpenCode Quota's GUI part for OpenCode Desktop and Web: the package's `./gui-experimental`,
- * built into one CommonJS file by `.github/scripts/build-gui.mjs`. OpenCode's GUI plugin API is
- * experimental; OpenCode releases without it never load this file.
+ * OpenCode Quota's GUI part for OpenCode Desktop: the package's `./gui-experimental`, built into
+ * one CommonJS file by `.github/scripts/build-gui.mjs`. OpenCode's GUI plugin API is
+ * experimental; OpenCode releases without it never load this file. OpenCode Web (2.2.5) shows no
+ * plugin GUI; Desktop-only calls check `ctx.desktop` first, so the file also works if Web loads it.
  *
  * It adds the window's CSS, the Quota command, which opens the usage window (`window.tsx`) for
  * the folder and session on screen, and the always-on surfaces, each following the settings of

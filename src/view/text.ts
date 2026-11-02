@@ -17,6 +17,7 @@ import {
   LOW_CACHE_MARK,
   percentWord,
   sessionTokensText,
+  shownEvenLeft,
   shownPercent,
 } from "./format.js";
 import { errorWords, type Place, type RowFacts, rowFacts } from "./row-facts.js";
@@ -114,7 +115,7 @@ export function barSegments(
   ];
   if (evenLeft === undefined || shape === "none" || width < EVEN_USE_MIN_CELLS) return bar;
   // The words turn the mark around too, but only once: rounding it here would move it a cell.
-  const mark = evenUseCell(words.percent === "used" ? 100 - evenLeft : evenLeft, width);
+  const mark = evenUseCell(shownEvenLeft(words, evenLeft), width);
   const marked: Segment[] = [];
   let start = 0;
   for (const segment of bar) {

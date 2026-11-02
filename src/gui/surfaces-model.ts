@@ -18,7 +18,13 @@
  */
 import type { QuotaSnapshot, Words } from "../core/types.js";
 import type { Settings } from "../settings/schema.js";
-import { barLevel, type Level, sessionTokensText, shownPercent } from "../view/format.js";
+import {
+  barLevel,
+  type Level,
+  sessionTokensText,
+  shownEvenLeft,
+  shownPercent,
+} from "../view/format.js";
 import { errorWords, type Place, type RowFacts, rowFacts } from "../view/row-facts.js";
 import { type Group, pickRow, visibleGroups, windowFor } from "../view/select.js";
 import {
@@ -68,7 +74,7 @@ export function barPositions(
 ): { fill: number; even?: number } {
   const fill = shownPercent(words, row.percent ?? 0);
   if (row.evenLeft === undefined) return { fill };
-  return { fill, even: words.percent === "used" ? 100 - row.evenLeft : row.evenLeft };
+  return { fill, even: shownEvenLeft(words, row.evenLeft) };
 }
 
 /** A group with the one row a provider shows on the one-row surfaces. */
