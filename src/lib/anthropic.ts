@@ -155,7 +155,10 @@ type AnthropicLocalDiagnostics = {
   localQuota?: AnthropicQuotaResult;
 };
 
-type ProbeCacheEntry<T> = { value: T; timestamp: number } | { inFlight: Promise<T> };
+/** A probe's value; `reuseUntilMs` ends its cache entry sooner than the usual few seconds. */
+type ProbeResult<T> = { value: T; reuseUntilMs?: number };
+
+type ProbeCacheEntry<T> = { value: T; expiresAtMs: number } | { inFlight: Promise<ProbeResult<T>> };
 
 type AnthropicCredentialsAccess =
   | { state: "configured"; accessToken: string }
@@ -167,7 +170,7 @@ type ClaudeCredentialSourceResult =
   | { state: "unavailable"; detail: string };
 
 type AnthropicFallbackQuota =
-  | { state: "success"; quota: AnthropicQuotaResult }
+  | { state: "success"; quota: AnthropicQuotaResult; fetchedAtMs: number }
   | { state: "unavailable"; detail: string; facts?: ErrorFacts; rejected?: true };
 
 type ParsedAuthProbe = {
@@ -610,13 +613,16 @@ function getAnthropicOAuthCooldownMessage(remainingMs: number): string {
 }
 
 /** Keeps a successful reply for reuse, dropping replies too old to reuse. */
-function rememberAnthropicOAuthReply(tokenFingerprint: string, quota: AnthropicQuotaResult): void {
-  const nowMs = Date.now();
+function rememberAnthropicOAuthReply(
+  tokenFingerprint: string,
+  quota: AnthropicQuotaResult,
+  fetchedAtMs: number,
+): void {
   for (const [fingerprint, entry] of anthropicOAuthRecent) {
-    if (nowMs - entry.checkedAtMs >= ANTHROPIC_OAUTH_REUSE_MS)
+    if (fetchedAtMs - entry.checkedAtMs >= ANTHROPIC_OAUTH_REUSE_MS)
       anthropicOAuthRecent.delete(fingerprint);
   }
-  anthropicOAuthRecent.set(tokenFingerprint, { quota, checkedAtMs: nowMs });
+  anthropicOAuthRecent.set(tokenFingerprint, { quota, checkedAtMs: fetchedAtMs });
 }
 
 /** Bounds the cooldown map, evicting the soonest-expiring entries other than this token. */
@@ -661,8 +667,9 @@ async function performAnthropicOAuthUsageRequest(
     if (!quota) {
       return { state: "unavailable", detail: "Unexpected Anthropic quota response shape" };
     }
-    rememberAnthropicOAuthReply(tokenFingerprint, quota);
-    return { state: "success", quota };
+    const fetchedAtMs = Date.now();
+    rememberAnthropicOAuthReply(tokenFingerprint, quota, fetchedAtMs);
+    return { state: "success", quota, fetchedAtMs };
   }
   const { failure } = reply;
   // A 429 waits out the cooldown, which is at least its Retry-After.
@@ -715,7 +722,7 @@ async function queryAnthropicQuotaFromOAuthAccessToken(
     nowMs >= recent.checkedAtMs &&
     nowMs - recent.checkedAtMs < ANTHROPIC_OAUTH_REUSE_MS
   ) {
-    return { state: "success", quota: recent.quota };
+    return { state: "success", quota: recent.quota, fetchedAtMs: recent.checkedAtMs };
   }
 
   // Concurrent probes with the same token share one request.
@@ -911,23 +918,29 @@ export function clearAnthropicDiagnosticsCacheForTests(): void {
 }
 
 /**
- * Reuses a probe result for a few seconds and shares one in-flight probe
- * between concurrent callers. A failed probe is dropped so the next call retries.
+ * Reuses a probe result for a few seconds, or until its `reuseUntilMs` if that comes sooner, and
+ * shares one in-flight probe between concurrent callers. A failed probe is dropped so the next
+ * call retries.
  */
 async function getCachedProbe<T>(
   cache: Map<string, ProbeCacheEntry<T>>,
   key: string,
-  probe: () => Promise<T>,
+  probe: () => Promise<ProbeResult<T>>,
 ): Promise<T> {
   const cached = cache.get(key);
-  if (cached && "inFlight" in cached) return await cached.inFlight;
-  if (cached && Date.now() - cached.timestamp < ANTHROPIC_DIAGNOSTICS_TTL_MS) return cached.value;
+  if (cached && "inFlight" in cached) return (await cached.inFlight).value;
+  if (cached && Date.now() < cached.expiresAtMs) return cached.value;
 
   const pending = { inFlight: probe() };
   cache.set(key, pending);
   try {
-    const value = await pending.inFlight;
-    cache.set(key, { value, timestamp: Date.now() });
+    const { value, reuseUntilMs } = await pending.inFlight;
+    // A reused OAuth reply keeps the minute it was fetched in, so caching it again never extends it.
+    const expiresAtMs = Math.min(
+      Date.now() + ANTHROPIC_DIAGNOSTICS_TTL_MS,
+      reuseUntilMs ?? Number.POSITIVE_INFINITY,
+    );
+    cache.set(key, { value, expiresAtMs });
     return value;
   } catch (error) {
     if (cache.get(key) === pending) cache.delete(key);
@@ -939,9 +952,9 @@ async function getCachedAnthropicLocalDiagnostics(
   binaryPath?: string,
 ): Promise<AnthropicLocalDiagnostics> {
   const resolvedBinaryPath = resolveAnthropicBinaryPath(binaryPath);
-  return await getCachedProbe(localDiagnosticsCache, resolvedBinaryPath, () =>
-    probeAnthropicLocalDiagnostics(resolvedBinaryPath),
-  );
+  return await getCachedProbe(localDiagnosticsCache, resolvedBinaryPath, async () => ({
+    value: await probeAnthropicLocalDiagnostics(resolvedBinaryPath),
+  }));
 }
 
 function buildDiagnostics(
@@ -974,24 +987,28 @@ function buildDiagnostics(
 async function probeAnthropicDiagnostics(
   binaryPath: string,
   requestTimeoutMs?: number,
-): Promise<AnthropicDiagnostics> {
+): Promise<ProbeResult<AnthropicDiagnostics>> {
   const local = await getCachedAnthropicLocalDiagnostics(binaryPath);
   if (local.localQuota) {
-    return buildDiagnostics(local, {
-      quotaSource: "claude-auth-status-json",
-      quota: local.localQuota,
-    });
+    return {
+      value: buildDiagnostics(local, {
+        quotaSource: "claude-auth-status-json",
+        quota: local.localQuota,
+      }),
+    };
   }
   if (local.authStatus !== "authenticated") {
-    return buildDiagnostics(local, { quotaSource: "none", message: local.message });
+    return { value: buildDiagnostics(local, { quotaSource: "none", message: local.message }) };
   }
 
   const credentials = await readClaudeOAuthAccessToken();
   if (credentials.state !== "configured") {
-    return buildDiagnostics(local, {
-      quotaSource: "none",
-      message: buildAnthropicNoQuotaDiagnosticsMessage(credentials.detail),
-    });
+    return {
+      value: buildDiagnostics(local, {
+        quotaSource: "none",
+        message: buildAnthropicNoQuotaDiagnosticsMessage(credentials.detail),
+      }),
+    };
   }
 
   const fallbackQuota = await queryAnthropicQuotaFromOAuthAccessToken(
@@ -999,18 +1016,23 @@ async function probeAnthropicDiagnostics(
     requestTimeoutMs,
   );
   if (fallbackQuota.state !== "success") {
-    return buildDiagnostics(local, {
-      quotaSource: "none",
-      oauthCredentialSource: "claude-credentials",
-      message: buildAnthropicNoQuotaDiagnosticsMessage(fallbackQuota.detail),
-      facts: fallbackQuota.facts,
-    });
+    return {
+      value: buildDiagnostics(local, {
+        quotaSource: "none",
+        oauthCredentialSource: "claude-credentials",
+        message: buildAnthropicNoQuotaDiagnosticsMessage(fallbackQuota.detail),
+        facts: fallbackQuota.facts,
+      }),
+    };
   }
-  return buildDiagnostics(local, {
-    quotaSource: "claude-credentials-oauth-api",
-    oauthCredentialSource: "claude-credentials",
-    quota: fallbackQuota.quota,
-  });
+  return {
+    value: buildDiagnostics(local, {
+      quotaSource: "claude-credentials-oauth-api",
+      oauthCredentialSource: "claude-credentials",
+      quota: fallbackQuota.quota,
+    }),
+    reuseUntilMs: fallbackQuota.fetchedAtMs + ANTHROPIC_OAUTH_REUSE_MS,
+  };
 }
 
 export async function getAnthropicDiagnostics(

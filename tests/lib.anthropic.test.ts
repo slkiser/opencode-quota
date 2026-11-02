@@ -19,6 +19,7 @@ import {
   hasAnthropicCredentialsConfigured,
   parseOAuthUsageResponse,
   parseUsageResponse,
+  queryAnthropicQuotaWithOAuth,
   readAnthropicLogins,
   resolveAnthropicOAuth,
 } from "../src/lib/anthropic.js";
@@ -1051,6 +1052,47 @@ describe("OAuth usage request", () => {
 
     await vi.advanceTimersByTimeAsync(30_001);
     await getAnthropicDiagnostics();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("never serves a reused Claude CLI fallback reply past the minute it was fetched in", async () => {
+    useFakeNow();
+    setUpCredentialsFileFallback(3);
+    fetchResponseMock
+      .mockResolvedValueOnce(mockResponse(200, USAGE_10_20))
+      .mockResolvedValueOnce(mockResponse(200, { ...USAGE_10_20, five_hour: { utilization: 80 } }));
+
+    const fetched = await getAnthropicDiagnostics();
+    expect(fetched.quota?.five_hour.percentRemaining).toBe(90);
+
+    await vi.advanceTimersByTimeAsync(59_000);
+    const reused = await getAnthropicDiagnostics();
+    expect(reused.quota?.five_hour.percentRemaining).toBe(90);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(4_000);
+    const refetched = await getAnthropicDiagnostics();
+    expect(refetched.quota?.five_hour.percentRemaining).toBe(20);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("never serves a reused OpenCode login reply past the minute it was fetched in", async () => {
+    useFakeNow();
+    fetchResponseMock
+      .mockResolvedValueOnce(mockResponse(200, USAGE_10_20))
+      .mockResolvedValueOnce(mockResponse(200, { ...USAGE_10_20, five_hour: { utilization: 80 } }));
+    const remaining = async () => {
+      const result = await queryAnthropicQuotaWithOAuth("opencode-access-token");
+      return result.success ? result.five_hour.percentRemaining : result.error;
+    };
+
+    expect(await remaining()).toBe(90);
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(await remaining()).toBe(90);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(await remaining()).toBe(20);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
