@@ -73,10 +73,10 @@ export const anthropicProvider: QuotaProvider = {
         oauth_credential_source: diagnostics.oauthCredentialSource ?? "(none)",
         checked_commands: diagnostics.checkedCommands.join(" | ") || "(none)",
         message: diagnostics.message,
-        five_hour_remaining: quota
+        five_hour_remaining: quota?.five_hour
           ? `${quota.five_hour.percentRemaining}% reset_at=${quota.five_hour.resetTimeIso ?? "(none)"}`
           : undefined,
-        seven_day_remaining: quota
+        seven_day_remaining: quota?.seven_day
           ? `${quota.seven_day.percentRemaining}% reset_at=${quota.seven_day.resetTimeIso ?? "(none)"}`
           : undefined,
         fable_weekly_remaining: quota?.fable_weekly
@@ -102,8 +102,11 @@ export const anthropicProvider: QuotaProvider = {
       );
     }
 
-    const entries: QuotaToastEntry[] = [
-      {
+    const entries: QuotaToastEntry[] = [];
+
+    // A plan without a 5-hour limit (Ultra) or a weekly one (Enterprise) has no such entry.
+    if (result.five_hour) {
+      entries.push({
         accounting: {
           resultType: "quota",
           acquisitionMethod,
@@ -115,8 +118,11 @@ export const anthropicProvider: QuotaProvider = {
         label: "5h:",
         percentRemaining: result.five_hour.percentRemaining,
         resetTimeIso: result.five_hour.resetTimeIso,
-      },
-      {
+      });
+    }
+
+    if (result.seven_day) {
+      entries.push({
         accounting: {
           resultType: "quota",
           acquisitionMethod,
@@ -128,8 +134,8 @@ export const anthropicProvider: QuotaProvider = {
         label: "Weekly:",
         percentRemaining: result.seven_day.percentRemaining,
         resetTimeIso: result.seven_day.resetTimeIso,
-      },
-    ];
+      });
+    }
 
     if (result.extra_usage) {
       entries.push({

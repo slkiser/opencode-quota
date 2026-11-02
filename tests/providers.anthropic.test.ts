@@ -195,6 +195,70 @@ describe("anthropic provider", () => {
     expect(out.presentation).toBeUndefined();
   });
 
+  it("shows no 5h row for a plan without a 5-hour limit", async () => {
+    const { getAnthropicDiagnostics, queryAnthropicQuota } =
+      await import("../src/lib/anthropic.js");
+    const quota = {
+      success: true,
+      seven_day: { percentRemaining: 67, resetTimeIso: "2026-11-06T19:59:59.979Z" },
+      fable_weekly: { percentRemaining: 100, resetTimeIso: "2026-11-06T19:59:59.979Z" },
+    };
+    (getAnthropicDiagnostics as any).mockResolvedValueOnce({
+      installed: true,
+      version: "2.1.258",
+      authStatus: "authenticated",
+      quotaSupported: true,
+      quotaSource: "opencode-auth-oauth-api",
+      oauthCredentialSource: "opencode-auth",
+      checkedCommands: ["claude --version"],
+      quota,
+    });
+    (queryAnthropicQuota as any).mockResolvedValueOnce(quota);
+
+    const out = await anthropicProvider.fetch({} as any);
+
+    expectAttemptedWithNoErrors(out);
+    expect(visibleEntries(out.entries, "anthropic").map((entry) => entry.name)).toEqual([
+      "Claude Weekly",
+      "Claude Fable Weekly",
+    ]);
+    expect(out.statusDetails?.map((detail) => detail.key)).not.toContain("five_hour_remaining");
+    expect(out.statusDetails).toContainEqual({
+      key: "seven_day_remaining",
+      value: "67% reset_at=2026-11-06T19:59:59.979Z",
+    });
+  });
+
+  it("shows no Weekly row for a plan without a weekly limit", async () => {
+    const { getAnthropicDiagnostics, queryAnthropicQuota } =
+      await import("../src/lib/anthropic.js");
+    const quota = {
+      success: true,
+      five_hour: { percentRemaining: 88, resetTimeIso: "2026-07-21T14:10:00.268Z" },
+      extra_usage: { percentRemaining: 75 },
+    };
+    (getAnthropicDiagnostics as any).mockResolvedValueOnce({
+      installed: true,
+      version: "2.1.258",
+      authStatus: "authenticated",
+      quotaSupported: true,
+      quotaSource: "opencode-auth-oauth-api",
+      oauthCredentialSource: "opencode-auth",
+      checkedCommands: ["claude --version"],
+      quota,
+    });
+    (queryAnthropicQuota as any).mockResolvedValueOnce(quota);
+
+    const out = await anthropicProvider.fetch({} as any);
+
+    expectAttemptedWithNoErrors(out);
+    expect(visibleEntries(out.entries, "anthropic").map((entry) => entry.name)).toEqual([
+      "Claude 5h",
+      "Claude Usage Credits",
+    ]);
+    expect(out.statusDetails?.map((detail) => detail.key)).not.toContain("seven_day_remaining");
+  });
+
   it("reports enabled Usage Credits as a third remote API quota row", async () => {
     const { getAnthropicDiagnostics, queryAnthropicQuota } =
       await import("../src/lib/anthropic.js");

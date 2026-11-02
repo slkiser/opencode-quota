@@ -18,8 +18,8 @@ const identityMocks = vi.hoisted(() => ({
   ),
 }));
 
-import { execFile } from "child_process";
-import { readFile } from "fs/promises";
+import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   buildClaudeCommandInvocation,
@@ -33,6 +33,8 @@ import {
 } from "../src/lib/anthropic.js";
 import { fetchWithTimeout } from "../src/lib/http.js";
 import fableWeeklyUsage from "./fixtures/anthropic/fable-weekly.sanitized.json";
+import noFiveHourUsage from "./fixtures/anthropic/no-five-hour-limit.sanitized.json";
+import noWeeklyLimitUsage from "./fixtures/anthropic/no-weekly-limit.sanitized.json";
 
 vi.mock("child_process", () => ({
   execFile: vi.fn(),
@@ -166,10 +168,10 @@ describe("parseUsageResponse", () => {
     });
 
     expect(result).not.toBeNull();
-    expect(result?.five_hour.percentRemaining).toBe(43);
-    expect(result?.five_hour.resetTimeIso).toBe("2026-03-25T18:00:00.000Z");
-    expect(result?.seven_day.percentRemaining).toBe(88);
-    expect(result?.seven_day.resetTimeIso).toBe("2026-04-01T00:00:00.000Z");
+    expect(result?.five_hour?.percentRemaining).toBe(43);
+    expect(result?.five_hour?.resetTimeIso).toBe("2026-03-25T18:00:00.000Z");
+    expect(result?.seven_day?.percentRemaining).toBe(88);
+    expect(result?.seven_day?.resetTimeIso).toBe("2026-04-01T00:00:00.000Z");
   });
 
   it("parses nested quota roots and extra alias fields", () => {
@@ -180,10 +182,10 @@ describe("parseUsageResponse", () => {
       },
     });
 
-    expect(result?.five_hour.percentRemaining).toBe(65);
-    expect(result?.five_hour.resetTimeIso).toBe("2026-03-25T18:00:00.000Z");
-    expect(result?.seven_day.percentRemaining).toBe(85);
-    expect(result?.seven_day.resetTimeIso).toBe("2026-04-01T00:00:00.000Z");
+    expect(result?.five_hour?.percentRemaining).toBe(65);
+    expect(result?.five_hour?.resetTimeIso).toBe("2026-03-25T18:00:00.000Z");
+    expect(result?.seven_day?.percentRemaining).toBe(85);
+    expect(result?.seven_day?.resetTimeIso).toBe("2026-04-01T00:00:00.000Z");
   });
 
   it("parses enabled extra usage as remaining quota", () => {
@@ -235,8 +237,8 @@ describe("parseUsageResponse", () => {
         { includeExtraUsage: true },
       );
 
-      expect(result?.five_hour.percentRemaining).toBe(43);
-      expect(result?.seven_day.percentRemaining).toBe(88);
+      expect(result?.five_hour?.percentRemaining).toBe(43);
+      expect(result?.seven_day?.percentRemaining).toBe(88);
       expect(result?.extra_usage).toBeUndefined();
     }
   });
@@ -353,10 +355,10 @@ describe("parseUsageResponse", () => {
       },
     });
 
-    expect(result?.five_hour.percentRemaining).toBe(-20);
-    expect(result?.five_hour.resetTimeIso).toBeUndefined();
-    expect(result?.seven_day.percentRemaining).toBe(100);
-    expect(result?.seven_day.resetTimeIso).toBeUndefined();
+    expect(result?.five_hour?.percentRemaining).toBe(-20);
+    expect(result?.five_hour?.resetTimeIso).toBeUndefined();
+    expect(result?.seven_day?.percentRemaining).toBe(100);
+    expect(result?.seven_day?.resetTimeIso).toBeUndefined();
   });
 
   it("returns null when required quota windows are missing or invalid", () => {
@@ -377,6 +379,89 @@ describe("parseUsageResponse", () => {
         },
       }),
     ).toBeNull();
+  });
+
+  it.each([
+    ["both windows null", { five_hour: null, seven_day: null }],
+    ["a weekly window without a five-hour key", { seven_day: { utilization: 33 } }],
+    ["a five-hour window without a weekly key", { five_hour: { utilization: 33 } }],
+    ["a null weekly window without a five-hour key", { seven_day: null }],
+    ["a null five-hour window next to a malformed weekly one", { five_hour: null, seven_day: {} }],
+  ])("returns null for %s", (_label, data) => {
+    expect(parseUsageResponse(data)).toBeNull();
+    expect(parseOAuthUsageResponse(data)).toBeNull();
+  });
+
+  it("parses the weekly windows of a plan without a 5-hour limit (five_hour: null)", () => {
+    const weekly = { percentRemaining: 67, resetTimeIso: "2026-11-06T19:59:59.979Z" };
+    expect(parseOAuthUsageResponse(noFiveHourUsage)).toEqual({
+      success: true,
+      seven_day: weekly,
+      fable_weekly: { percentRemaining: 100, resetTimeIso: "2026-11-06T19:59:59.979Z" },
+    });
+    expect(parseOAuthUsageResponse(noFiveHourUsage)).not.toHaveProperty("five_hour");
+    expect(parseUsageResponse(noFiveHourUsage)).toEqual({ success: true, seven_day: weekly });
+    expect(parseUsageResponse({ fiveHour: null, sevenDay: { utilization: 33 } })).toEqual({
+      success: true,
+      seven_day: { percentRemaining: 67, resetTimeIso: undefined },
+    });
+  });
+
+  it("parses the five-hour window of a plan without a weekly limit (seven_day: null)", () => {
+    expect(parseUsageResponse({ five_hour: { utilization: 12 }, seven_day: null })).toEqual({
+      success: true,
+      five_hour: { percentRemaining: 88, resetTimeIso: undefined },
+    });
+    expect(parseOAuthUsageResponse(noWeeklyLimitUsage)).toEqual({
+      success: true,
+      five_hour: { percentRemaining: 88, resetTimeIso: "2026-07-21T14:10:00.268Z" },
+      extra_usage: { percentRemaining: 75 },
+      fable_weekly: { percentRemaining: 98, resetTimeIso: "2026-07-27T07:00:00.268Z" },
+    });
+  });
+
+  it.each([
+    { used_credits: 50_000, monthly_limit: 200_000, percentRemaining: 75 },
+    { used_credits: 0, monthly_limit: 200_000, percentRemaining: 100 },
+    { used_credits: 200_000, monthly_limit: 200_000, percentRemaining: 0 },
+  ])(
+    "parses extra usage without utilization from $used_credits of $monthly_limit credits",
+    ({ used_credits, monthly_limit, percentRemaining }) => {
+      const result = parseOAuthUsageResponse({
+        five_hour: { utilization: 57 },
+        seven_day: null,
+        extra_usage: { is_enabled: true, utilization: null, used_credits, monthly_limit },
+      });
+
+      expect(result?.extra_usage).toEqual({ percentRemaining });
+    },
+  );
+
+  it("prefers extra usage utilization over the used credits", () => {
+    const result = parseOAuthUsageResponse({
+      five_hour: { utilization: 57 },
+      seven_day: { utilization: 12 },
+      extra_usage: { is_enabled: true, utilization: 10, used_credits: 50, monthly_limit: 100 },
+    });
+
+    expect(result?.extra_usage).toEqual({ percentRemaining: 90 });
+  });
+
+  it.each([
+    { is_enabled: false, used_credits: 1, monthly_limit: 100 },
+    { is_enabled: true, utilization: null, used_credits: 1, monthly_limit: 0 },
+    { is_enabled: true, utilization: null, used_credits: 101, monthly_limit: 100 },
+    { is_enabled: true, utilization: null, used_credits: "1", monthly_limit: 100 },
+    { is_enabled: true, utilization: null, monthly_limit: 100 },
+  ])("ignores unusable extra usage credits %j", (extraUsage) => {
+    const result = parseOAuthUsageResponse({
+      five_hour: { utilization: 57 },
+      seven_day: { utilization: 12 },
+      extra_usage: extraUsage,
+    });
+
+    expect(result?.five_hour?.percentRemaining).toBe(43);
+    expect(result?.extra_usage).toBeUndefined();
   });
 });
 
@@ -439,7 +524,7 @@ describe("Claude CLI diagnostics", () => {
 
   it("builds a Windows-safe Claude CLI invocation for shim-based installs", () => {
     const invocation = buildClaudeCommandInvocation(
-      "C:\\Users\\alice\\AppData\\Roaming\\npm\\claude.cmd",
+      String.raw`C:\Users\alice\AppData\Roaming\npm\claude.cmd`,
       ["auth", "status", "--json"],
       { platform: "win32", comspec: "C:\\Windows\\System32\\cmd.exe" },
     );
@@ -450,9 +535,10 @@ describe("Claude CLI diagnostics", () => {
         "/d",
         "/s",
         "/c",
-        '"C:\\Users\\alice\\AppData\\Roaming\\npm\\claude.cmd" "auth" "status" "--json"',
+        String.raw`""C:\Users\alice\AppData\Roaming\npm\claude.cmd" "auth" "status" "--json""`,
       ],
       display: "C:\\Users\\alice\\AppData\\Roaming\\npm\\claude.cmd auth status --json",
+      windowsVerbatimArguments: true,
     });
   });
 
@@ -464,10 +550,53 @@ describe("Claude CLI diagnostics", () => {
 
     expect(invocation).toEqual({
       file: "C:\\Windows\\System32\\cmd.exe",
-      args: ["/d", "/s", "/c", '"claude.exe" "--version"'],
+      args: ["/d", "/s", "/c", '""claude.exe" "--version""'],
       display: "claude.exe --version",
+      windowsVerbatimArguments: true,
     });
   });
+
+  it("gives cmd.exe one /c command line that /s can unwrap", () => {
+    const { args } = buildClaudeCommandInvocation("claude", ["auth", "status", "--json"], {
+      platform: "win32",
+      comspec: "C:\\Windows\\System32\\cmd.exe",
+    });
+
+    // `/s` drops the first and last quote; what is left must still quote every word.
+    expect(args[3]).toMatch(/^".*"$/u);
+    expect(args[3]?.slice(1, -1)).toBe('"claude" "auth" "status" "--json"');
+  });
+
+  it.each([
+    ["a .cmd shim", String.raw`C:\Users\alice\AppData\Roaming\npm\claude.cmd`, true],
+    ["the default claude from PATH", undefined, true],
+    ["a .exe run directly", "C:/Users/alice/.local/bin/claude.exe", false],
+  ])(
+    "passes the command line of %s to execFile verbatim only when cmd.exe runs it",
+    async (_label, binaryPath, verbatim) => {
+      setProcessPlatform("win32");
+      mockExecSequence([
+        { stdout: "2.1.123 (Claude Code)\n" },
+        {
+          stdout: JSON.stringify({
+            authenticated: true,
+            quota: {
+              five_hour: { used_percentage: 10 },
+              seven_day: { used_percentage: 20 },
+            },
+          }),
+        },
+      ]);
+
+      await getAnthropicDiagnostics(binaryPath === undefined ? undefined : { binaryPath });
+
+      expect(execFileMock).toHaveBeenCalledTimes(2);
+      for (const [, , options] of execFileMock.mock.calls) {
+        if (verbatim) expect(options).toMatchObject({ windowsVerbatimArguments: true });
+        else expect(options).not.toHaveProperty("windowsVerbatimArguments");
+      }
+    },
+  );
 
   it("executes configured Windows Claude .exe paths directly", () => {
     const invocation = buildClaudeCommandInvocation(
@@ -1526,6 +1655,107 @@ describe("Claude CLI diagnostics", () => {
     expect(firstResult.quotaSupported).toBe(true);
     expect(secondResult.quotaSupported).toBe(true);
     expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("reuses a successful OAuth usage reply for a minute", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-10T12:00:00.000Z"));
+    setProcessPlatform("linux");
+    mockExecSequence(authenticatedWithoutQuotaSteps(3));
+    readFileMock.mockResolvedValue(
+      JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
+    );
+    fetchResponseMock.mockResolvedValue(
+      mockJsonResponse({
+        five_hour: { utilization: 10 },
+        seven_day: { utilization: 20 },
+      }),
+    );
+
+    await getAnthropicDiagnostics();
+    vi.setSystemTime(Date.now() + 30_000);
+    const reused = await getAnthropicDiagnostics();
+    expect(reused.quotaSupported).toBe(true);
+    expect(reused.quota?.five_hour?.percentRemaining).toBe(90);
+    expect(fetchResponseMock).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(Date.now() + 30_001);
+    await getAnthropicDiagnostics();
+    expect(fetchResponseMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("never serves a reused OAuth usage reply more than a minute after it was fetched", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const startMs = Date.parse("2026-07-10T12:00:00.000Z");
+    vi.setSystemTime(startMs);
+    setProcessPlatform("linux");
+    mockExecSequence(authenticatedWithoutQuotaSteps(3));
+    readFileMock.mockResolvedValue(
+      JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
+    );
+    fetchResponseMock
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          five_hour: { utilization: 10 },
+          seven_day: { utilization: 20 },
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          five_hour: { utilization: 80 },
+          seven_day: { utilization: 20 },
+        }),
+      );
+
+    const fetched = await getAnthropicDiagnostics();
+    expect(fetched.quota?.five_hour?.percentRemaining).toBe(90);
+
+    vi.setSystemTime(startMs + 59_000);
+    const reused = await getAnthropicDiagnostics();
+    expect(reused.quota?.five_hour?.percentRemaining).toBe(90);
+    expect(fetchResponseMock).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(startMs + 63_000);
+    const refreshed = await getAnthropicDiagnostics();
+    expect(refreshed.quota?.five_hour?.percentRemaining).toBe(20);
+    expect(fetchResponseMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not reuse an unusable OAuth usage reply", async () => {
+    setProcessPlatform("linux");
+    mockExecSequence(authenticatedWithoutQuotaSteps(2));
+    readFileMock.mockResolvedValue(
+      JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
+    );
+    fetchResponseMock.mockResolvedValue(mockJsonResponse({ unexpected: true }));
+
+    await getAnthropicDiagnostics({ binaryPath: "claude-a" });
+    await getAnthropicDiagnostics({ binaryPath: "claude-b" });
+    expect(fetchResponseMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("shares the OAuth usage probe with another loaded copy of the plugin", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-10T12:00:00.000Z"));
+    setProcessPlatform("linux");
+    mockExecSequence(authenticatedWithoutQuotaSteps(2));
+    readFileMock.mockResolvedValue(
+      JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
+    );
+    fetchResponseMock.mockResolvedValueOnce(mockOAuthResponse(429, "rate limited", "300"));
+
+    await getAnthropicDiagnostics();
+    vi.resetModules();
+    const copy = await import("../src/lib/anthropic.js");
+    const fromCopy = await copy.getAnthropicDiagnostics();
+    expect(fromCopy.message).toContain("retry in 300s.");
+    expect(fetchResponseMock).toHaveBeenCalledTimes(1);
+    // A 6.x copy in the same process keeps its own state under its own key.
+    expect(
+      (globalThis as Record<symbol, unknown>)[
+        Symbol.for("@slkiser/opencode-quota/anthropic-oauth-probe/v1")
+      ],
+    ).toBeUndefined();
   });
 
   it("does not apply an old token cooldown to a newly observed token", async () => {
