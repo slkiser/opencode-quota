@@ -224,7 +224,7 @@ export function createGuiToasts(
       });
       if (input) {
         const view = toastView(input);
-        const settings = { colors: input.colors, layout: input.layout };
+        const settings = { colors: input.colors, layout: input.layout, words: input.words };
         findDescription(description, (node) => {
           node.setAttribute(LINES_ATTR, "");
           placeRows(node, view, settings);

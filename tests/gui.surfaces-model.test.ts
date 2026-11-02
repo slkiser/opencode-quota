@@ -7,6 +7,7 @@ import {
   surfaceSettings,
 } from "../src/gui/surface-settings.js";
 import {
+  barPositions,
   currentModelPick,
   groupTone,
   levelCss,
@@ -145,6 +146,17 @@ describe("GUI Quota panel", () => {
     expect(view.groups.map((group) => group.providerId)).toEqual(["anthropic", "openai"]);
     expect(view.groups[0]?.rows.every((item) => item.pace === undefined)).toBe(true);
     expect(view.session).toBeUndefined();
+  });
+});
+
+describe("GUI bars", () => {
+  it("fill by the share the words show, and turn the even-use mark around with them", () => {
+    const left = defaultSettings().words;
+    const used = { ...left, percent: "used" as const };
+    expect(barPositions(left, { percent: 70, evenLeft: 40 })).toEqual({ fill: 70, even: 40 });
+    expect(barPositions(used, { percent: 70, evenLeft: 40 })).toEqual({ fill: 30, even: 60 });
+    expect(barPositions(used, { percent: 70 })).toEqual({ fill: 30 });
+    expect(barPositions(left, { percent: 130, evenLeft: 0 })).toEqual({ fill: 100, even: 0 });
   });
 });
 

@@ -16,9 +16,9 @@
  * Colors follow the TUI's color settings: a role's named color is a CSS variable of the app's
  * theme (`style.ts`), a "#rrggbb" stays fixed, and "bar" takes the row's level color.
  */
-import type { QuotaSnapshot } from "../core/types.js";
+import type { QuotaSnapshot, Words } from "../core/types.js";
 import type { Settings } from "../settings/schema.js";
-import { barLevel, type Level, sessionTokensText } from "../view/format.js";
+import { barLevel, type Level, sessionTokensText, shownPercent } from "../view/format.js";
 import { errorWords, type Place, type RowFacts, rowFacts } from "../view/row-facts.js";
 import { type Group, pickRow, visibleGroups, windowFor } from "../view/select.js";
 import {
@@ -54,8 +54,22 @@ export type SurfaceGroup = {
   rows: SurfaceRow[];
 };
 
-/** What a surface's rows take from the settings: their colors, and the bar shape. */
-export type RowSettings = Pick<Settings, "colors" | "layout">;
+/** What a surface's rows take from the settings: their colors, the bar shape, and the words. */
+export type RowSettings = Pick<Settings, "colors" | "layout" | "words">;
+
+/**
+ * Where a row's bar fills to and where its even-use mark sits, in percent of the bar's width:
+ * the share the words show, as `barSegments` draws the TUI's bars. With `words.percent` "used"
+ * both read from the left by the share used; the mark is undefined when the row has none.
+ */
+export function barPositions(
+  words: Words,
+  row: Pick<RowFacts, "percent" | "evenLeft">,
+): { fill: number; even?: number } {
+  const fill = shownPercent(words, row.percent ?? 0);
+  if (row.evenLeft === undefined) return { fill };
+  return { fill, even: words.percent === "used" ? 100 - row.evenLeft : row.evenLeft };
+}
 
 /** A group with the one row a provider shows on the one-row surfaces. */
 export type PickedGroup = Omit<SurfaceGroup, "rows"> & { row?: SurfaceRow };

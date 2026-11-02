@@ -17,6 +17,7 @@ import {
   resetAtFormat,
   sessionStrip,
 } from "./limits-model.js";
+import { barPositions } from "./surfaces-model.js";
 
 /** Each level's mark, so a level reads without its color too. */
 const LEVEL_MARK: Record<Level, string> = { good: "●", warning: "▲", low: "■" };
@@ -32,6 +33,7 @@ type LimitsProps = {
 function Row(props: { ctx: Context; row: LimitRow; words: Words; nowMs: number }) {
   const { ctx } = props;
   const evenLeft = () => props.row.evenLeft ?? 0;
+  const positions = () => barPositions(props.words, props.row);
   const resetAt = () => {
     const ms = props.row.resetsAtMs;
     if (ms === undefined) return "";
@@ -52,15 +54,12 @@ function Row(props: { ctx: Context; row: LimitRow; words: Words; nowMs: number }
           {props.row.name}
         </span>
         <div class="oq-bar">
-          <div
-            class="oq-fill"
-            style={{ width: `${Math.max(0, Math.min(100, props.row.percent ?? 0))}%` }}
-          />
+          <div class="oq-fill" style={{ width: `${positions().fill}%` }} />
           {/* Not `when={evenLeft}`: at a window's very end even use leaves 0, which is still a mark. */}
-          <Show when={props.row.evenLeft !== undefined}>
+          <Show when={positions().even !== undefined}>
             <div
               class="oq-even"
-              style={{ left: `${evenLeft()}%` }}
+              style={{ left: `${positions().even ?? 0}%` }}
               title={ctx.t("limits.evenUse", {
                 percent: percentText(props.words, evenLeft(), true),
               })}

@@ -15,6 +15,7 @@ import type { Settings } from "../settings/schema.js";
 import { percentWord } from "../view/format.js";
 import { type ColorRole } from "../view/text.js";
 import {
+  barPositions,
   levelCss,
   panelView,
   pickedGroups,
@@ -38,20 +39,22 @@ type PanelProps = {
 
 export function Bar(props: { settings: RowSettings; row: SurfaceRow }) {
   const percent = () => props.row.percent ?? 0;
+  const positions = () => barPositions(props.settings.words, props.row);
   return (
     <span class="oq-pbar" style={{ background: roleCss(props.settings, "empty") }}>
       <span
         class="oq-pfill"
         style={{
-          width: `${Math.max(0, Math.min(100, percent()))}%`,
+          width: `${positions().fill}%`,
           background: levelCss(props.settings, percent(), props.row.paceLevel),
         }}
       />
-      <Show when={props.row.evenLeft !== undefined}>
+      {/* Not `when={positions().even}`: a mark at 0 is still a mark. */}
+      <Show when={positions().even !== undefined}>
         <span
           class="oq-peven"
           style={{
-            left: `${props.row.evenLeft ?? 0}%`,
+            left: `${positions().even ?? 0}%`,
             background: roleCss(props.settings, "label"),
           }}
         />
