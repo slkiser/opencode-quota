@@ -311,6 +311,8 @@ const ROW_FACT = String.raw`(?:window=\S+|${SMALL}% left|percent \(out of range\
 /** A Token Plan window named by its count, 1 to 999, and a unit the plugin knows: `2_day`. */
 const COUNTED_WINDOW = String.raw`[1-9]\d{0,2}_(?:hour|day|week|month)`;
 const COUNTED_WINDOW_WORD = new RegExp(`^${COUNTED_WINDOW}$`, "u");
+/** The only lines whose words may be counted window names such as `2_day`. */
+const COUNTED_WINDOW_LINE = /^- (?:windows|no_data_windows): /u;
 const ROW_ID = String.raw`(?:\(other row\)|[\w-]+(?:\.(?:[\w-]+|\((?:part|custom) ${SMALL}\)|\(other row\)))*)`;
 
 /**
@@ -436,7 +438,8 @@ function vocabularyProblems(
     const unknown = words.filter((word) => word !== "" && !vocabulary.has(word));
     const numbers = unknown.filter((word) => /\d/u.test(word));
     for (const word of unknown) {
-      if (!/^-?\d+[%KMBTmh]?$/u.test(word) && !COUNTED_WINDOW_WORD.test(word)) {
+      const countedWindow = COUNTED_WINDOW_LINE.test(line) && COUNTED_WINDOW_WORD.test(word);
+      if (!/^-?\d+[%KMBTmh]?$/u.test(word) && !countedWindow) {
         problems.push(`word ${word} in: ${line}`);
       }
     }
@@ -1526,6 +1529,12 @@ describe("renderQuotaStatusReport", () => {
     ]);
     expect(text).toContain(`- window_hint: ${NO_WINDOW_DATA_HINT}`);
     expect(vocabularyProblems(lines, reportVocabulary(), NUMBER_LINES)).toEqual([]);
+  });
+
+  it("treats a counted window name as unknown on any other line", () => {
+    expect(vocabularyProblems(["- list_error: 2_day"], reportVocabulary(), NUMBER_LINES)).toContain(
+      "word 2_day in: - list_error: 2_day",
+    );
   });
 
   it.each(["1000_day,monthly", "2_year", "0_day", "02_day", "2_Day"])(
