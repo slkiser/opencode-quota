@@ -362,7 +362,7 @@ Organization example (for an enterprise, use `"tier": "enterprise"`, add `"enter
 
 ### Anthropic (Claude)
 
-OpenCode's Anthropic login is enough: each `anthropic` login is asked once per check at Anthropic's OAuth usage endpoint, and an expired one shows "Sign in again". Claude Code is optional. A placeholder login from an auth plugin such as `@cortexkit/opencode-anthropic-auth` is skipped; quota then needs a Claude Code login. Without an OpenCode Anthropic login, quota comes from Claude Code itself or from Anthropic's usage endpoint with Claude Code's credentials (macOS Keychain, then `~/.claude/.credentials.json`). When Anthropic rejects an OpenCode login, `/quota_status` shows whether Claude Code and its credentials still work. With openchamber's `claude-code` provider, quota uses Claude Code's login. To use Claude Code, install it and sign in:
+OpenCode's Anthropic login is enough: each `anthropic` login is asked once per check at Anthropic's OAuth usage endpoint, and an expired one shows "Sign in again". Claude Code is optional. A placeholder login from an auth plugin such as `@cortexkit/opencode-anthropic-auth` is skipped; quota then needs a Claude Code login. Without an OpenCode Anthropic login, quota comes from Claude Code itself or from Anthropic's usage endpoint with Claude Code's credentials (macOS Keychain, then `~/.claude/.credentials.json`). When Anthropic rejects an OpenCode login, `/quota_status` shows whether Claude Code and its credentials still work. With openchamber's `claude-code` provider or OpenCode's Claude Agent provider (`claude-agent`), quota uses Claude Code's login. To use Claude Code, install it and sign in:
 
 ```bash
 claude auth login
@@ -370,6 +370,8 @@ claude auth status
 ```
 
 OpenCode Quota runs `claude` from OpenCode's `PATH`, or else the first working one of `~/.claude/local/claude`, `~/.local/bin/claude`, `/opt/homebrew/bin/claude`, and `/usr/local/bin/claude` (not on Windows). If Claude lives elsewhere, or on Windows when `claude` is not on OpenCode's `PATH`, set `providers.anthropic.binaryPath`. `/quota_status` shows the one it ran as `binary_path`.
+
+A plan without a weekly limit, such as Enterprise, shows the 5h row and no Weekly row.
 
 <a id="cursor"></a>
 
