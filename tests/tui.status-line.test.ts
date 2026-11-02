@@ -1,18 +1,28 @@
 /**
- * The status line at the bottom of Home, with the display settings a v5 config converts to.
- * JSX here builds plain `{ type, props }` nodes and never calls a component, so a test reads
- * what HomeFooter asks Solid to show.
+ * The status line under the message box and at the bottom of Home. JSX here builds plain
+ * `{ type, props }` nodes and never calls a component, so a test reads what StatusLine and
+ * HomeFooter ask Solid to show.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import type { QuotaSnapshot } from "../src/core/types.js";
 import { convertV5 } from "../src/settings/index.js";
 import { defaultSettings } from "../src/settings/schema.js";
 import type { SurfaceHost } from "../src/tui/sidebar.js";
+import {
+  type StatusLayout,
+  statusLayout,
+  statusLineInput,
+  statusLineWidth,
+} from "../src/view/text.js";
+import { providerSnapshot, quotaRow } from "./helpers/fake-answers.js";
 import { stubJsx } from "./helpers/fake-tui-host.js";
-import { findAll } from "./helpers/jsx-tree.js";
+import { findAll, type Node, textLines, THEME } from "./helpers/jsx-tree.js";
+
+const TERMINAL_WIDTH = 110;
 
 let root: string;
 
@@ -92,4 +102,86 @@ describe("statusLineShows", () => {
       expect(statusLineShows(host)).toBe(shows);
     },
   );
+});
+
+describe("statusLineBasis", () => {
+  it.each([
+    {
+      name: "all it wants when that is under a third of the row",
+      wanted: 20,
+      row: 106,
+      max: 0,
+      basis: 20,
+    },
+    { name: "a third of the row at most", wanted: 120, row: 106, max: 0, basis: 35 },
+    { name: "no more than the width setting", wanted: 120, row: 106, max: 12, basis: 12 },
+    { name: "nothing in a row not measured yet", wanted: 120, row: 0, max: 0, basis: 0 },
+  ])("asks for $name", async ({ wanted, row, max, basis }) => {
+    const { statusLineBasis } = await import("../src/tui/status-line.tsx");
+    expect(statusLineBasis(wanted, row, max)).toBe(basis);
+  });
+});
+
+describe("StatusLine", () => {
+  const NOW = Date.now();
+  // Seven providers: their narrowest line is wider than a third of the footer row.
+  const SNAPSHOT: QuotaSnapshot = {
+    version: 6,
+    providers: ["anthropic", "openai", "copilot", "zai", "kimi", "minimax", "xai"].map((id) =>
+      providerSnapshot(
+        id,
+        `Provider ${id}`,
+        [quotaRow(`${id}.week`, { label: "Weekly", window: "week", percentRemaining: 50 })],
+        { okAtMs: NOW, checkedAtMs: NOW },
+      ),
+    ),
+    resetNotices: [],
+    generatedAtMs: NOW,
+    serverId: "server",
+    revision: 1,
+  };
+
+  async function render() {
+    const settings = defaultSettings();
+    const { StatusLine } = await import("../src/tui/status-line.tsx");
+    const host = {
+      theme: () => THEME,
+      display: () => settings,
+      editing: { marked: () => undefined },
+      quota: { watch: () => () => {}, snapshot: () => SNAPSHOT },
+    } as unknown as SurfaceHost;
+    const box = StatusLine({
+      host,
+      sessionID: "ses_1",
+      terminalWidth: () => TERMINAL_WIDTH,
+    }) as unknown as Node;
+    return { box, input: statusLineInput(SNAPSHOT, settings, NOW) };
+  }
+
+  it("asks the footer for room, so a long folder name cannot keep all of it", async () => {
+    const { box, input } = await render();
+    expect(statusLineWidth(input, "numbers")).toBeGreaterThan(TERMINAL_WIDTH / 3);
+    // Until OpenCode measures the row: a third of the terminal's width.
+    expect(box.props.flexBasis).toBe(Math.floor(TERMINAL_WIDTH / 3));
+  });
+
+  it("shows the +N marker when no provider fits", async () => {
+    const { box, input } = await render();
+    const layout = statusLayout(input, 2, 0, "auto");
+    expect(layout.shown).toEqual([]);
+    // The box holds the big bar's <Show>, then the <Show> of the layout.
+    const [, layoutShow] = box.props.children as Node[];
+    const lines = (layoutShow!.props.children as (current: () => StatusLayout) => unknown)(
+      () => layout,
+    );
+    // Each marker is a <Show> of its text; draw the ones that show.
+    const markers = findAll(
+      lines,
+      (node) =>
+        typeof node.props.when === "string" &&
+        node.props.when !== "" &&
+        typeof node.props.children === "function",
+    ).map((node) => node.props.children(() => node.props.when));
+    expect(textLines(markers)).toEqual(["+7 ›"]);
+  });
 });
