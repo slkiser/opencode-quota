@@ -72,6 +72,14 @@ export function shownPercent(words: Words, percentRemaining: number): number {
   return words.percent === "used" ? 100 - left : left;
 }
 
+/**
+ * Where a row's even-use mark sits on its bar, in percent from the left: as the row has it, or
+ * turned around when `words.percent` is "used", so the mark reads like the bar's fill.
+ */
+export function shownEvenLeft(words: Words, evenLeft: number): number {
+  return words.percent === "used" ? 100 - evenLeft : evenLeft;
+}
+
 /** "58% left", "42% used", or "58%" without the word. */
 export function percentText(words: Words, percentRemaining: number, withWord: boolean): string {
   const value = shownPercent(words, percentRemaining);
@@ -160,6 +168,18 @@ export function paceLevel(pace: Pace, percentRemaining: number): Level | undefin
     return clampPercent(percentRemaining) >= pace.evenLeft ? "good" : "warning";
   }
   return pace.early ? undefined : "low";
+}
+
+/**
+ * The level a row's bar shows: with `levelBy` "pace", its level by pace when it has one; else
+ * the level of its percent left.
+ */
+export function barLevel(
+  colors: Thresholds & { levelBy: Settings["colors"]["levelBy"] },
+  percentRemaining: number,
+  paceLevel?: Level,
+): Level {
+  return colors.levelBy === "pace" && paceLevel ? paceLevel : levelOf(percentRemaining, colors);
 }
 
 function groupDigits(integer: string): string {

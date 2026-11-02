@@ -145,7 +145,7 @@ describe("server quota RPC", () => {
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true, maxRetries: 3 });
   });
 
-  it("registers the quota RPC with its nine methods during setup", async () => {
+  it("registers the quota RPC with its ten methods during setup", async () => {
     const { QuotaRpc } = await import("../src/rpc.js");
     const { definition, handlers } = await setupServer();
 
@@ -161,6 +161,7 @@ describe("server quota RPC", () => {
       "downloadPrices",
       "settings",
       "saveSettings",
+      "settingsSchema",
     ]);
     expect(Object.keys(handlers)).toEqual(Object.keys(definition.methods));
   });
@@ -246,6 +247,13 @@ describe("server quota RPC", () => {
     };
     expect(session.report.sessionID).toBe("ses_root");
     expect(session.report.totals.tokens.processed).toBe(1_500);
+    // Without its subagents, the session alone.
+    const alone = (await call("usage", {
+      range: "session",
+      sessionID: "ses_root",
+      subagents: false,
+    })) as { report: UsageReport };
+    expect(alone.report.totals.tokens.processed).toBe(1_000);
 
     // All time reads the whole history, with no time window.
     const all = (await call("usage", { range: "all" })) as { report: UsageReport };
@@ -432,6 +440,22 @@ describe("server quota RPC", () => {
     useSettings({ providers: { checking: { minIntervalMs: 60_000, requestTimeoutMs: 30_000 } } });
 
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2), { timeout: 5_000 });
+  });
+
+  it("answers every setting's rule and where settings.jsonc is", async () => {
+    const { SETTINGS_SCHEMA } = await import("../src/settings/index.js");
+    const { call } = await setupServer();
+
+    const answer = (await call("settingsSchema", {})) as {
+      rules: Record<string, unknown>;
+      path: string;
+    };
+
+    expect(answer).toEqual({
+      rules: JSON.parse(JSON.stringify(SETTINGS_SCHEMA)),
+      path: SETTINGS_FILE,
+    });
+    expect(Object.keys(answer.rules)).toEqual(Object.keys(SETTINGS_SCHEMA));
   });
 
   it("answers the settings a client may change, and switches a custom provider on", async () => {

@@ -22,7 +22,8 @@ import {
 const POLL_INTERVAL_MS = 60_000;
 const RPC_TIMEOUT_MS = 60_000;
 
-export type QuotaRpcCallOptions = { location: { directory: string }; signal: AbortSignal };
+/** Without `location`, OpenCode runs the call in its server's own folder. */
+export type QuotaRpcCallOptions = { location?: { directory: string }; signal: AbortSignal };
 
 type Methods = (typeof QuotaRpc)["methods"];
 /** The type a method's schema carries for TypeScript (`schema<T>` in `rpc.ts`). */
@@ -42,21 +43,31 @@ export type QuotaRpcClient = {
   events: {
     on(
       name: "changed",
-      handler: (event: { data: QuotaRpcSnapshotOutput }) => void,
+      handler: (event: { location?: { directory: string }; data: QuotaRpcSnapshotOutput }) => void,
       options?: { signal?: AbortSignal },
     ): () => void;
   };
 };
 
-/** Where a quota RPC call goes: the TUI's folder. */
+/**
+ * Where a quota RPC call goes: the TUI's folder. A GUI window (`../gui/`) has a folder only while
+ * it shows a session, so it sets `locationOptional`.
+ */
 export type RpcLocationHost = {
   location?: { directory: string };
   data: { location?: { default: () => { directory: string } } };
+  /** True when a call without a folder goes to the server's own folder instead of failing. */
+  locationOptional?: boolean;
 };
 
-/** What the client needs from the TUI context. */
+/** What the client needs from the TUI context (or a GUI window). */
 export type ClientHost = RpcLocationHost & {
   client: { rpc: (definition: typeof QuotaRpc) => QuotaRpcClient };
+  /**
+   * When set, a `changed` event is applied only if this answers true for the folder it came from.
+   * A GUI window hears the events of every folder of its server, so it keeps its folder's only.
+   */
+  acceptsEventFrom?: (location: { directory: string } | undefined) => boolean;
 };
 
 /**
@@ -65,8 +76,10 @@ export type ClientHost = RpcLocationHost & {
  */
 export function quotaCallOptions(host: RpcLocationHost): QuotaRpcCallOptions {
   const location = host.location ?? host.data.location?.default();
-  if (!location) throw new Error("OpenCode gave the TUI no location");
-  return { location, signal: AbortSignal.timeout(RPC_TIMEOUT_MS) };
+  const signal = AbortSignal.timeout(RPC_TIMEOUT_MS);
+  if (location) return { location, signal };
+  if (host.locationOptional) return { signal };
+  throw new Error("OpenCode gave the TUI no location");
 }
 
 /** What a snapshot says only about one session. */
@@ -123,10 +136,14 @@ export function reportFailure(error: unknown): void {
 /**
  * @param onSnapshot called with every snapshot the client takes (from any call or event), so
  *   toasts can announce new reset notices.
+ * @param onFailure called when a `snapshot` or `refresh` call made since the last `start()`
+ *   fails, so a GUI window can say why it shows nothing or an older snapshot. A call made
+ *   through an earlier `host.client` (a server since restarted) reports nothing here.
  */
 export function createQuotaClient(
   host: ClientHost,
   onSnapshot: (snapshot: QuotaSnapshot) => void = () => {},
+  onFailure: (error: unknown) => void = () => {},
 ): QuotaClient {
   const [latest, setLatest] = createSignal<QuotaSnapshot>();
   const [sources, setSources] = createSignal<Record<string, QuotaSnapshot>>({});
@@ -221,7 +238,9 @@ export function createQuotaClient(
       rpc().events.on(
         "changed",
         (event) => {
-          if (!signal.aborted) apply(event.data.snapshot);
+          if (signal.aborted) return;
+          if (host.acceptsEventFrom && !host.acceptsEventFrom(event.location)) return;
+          apply(event.data.snapshot);
         },
         { signal },
       );
@@ -237,14 +256,24 @@ export function createQuotaClient(
     if (loading.has(key)) return;
     const call = ++calls;
     const at = mount;
+    const client = host.client;
     loading.set(key, call);
     subscribe();
-    rpc()
-      .snapshot(sessionID ? { sessionID } : {}, quotaCallOptions(host))
+    let request: Promise<QuotaRpcSnapshotOutput>;
+    try {
+      request = rpc().snapshot(sessionID ? { sessionID } : {}, quotaCallOptions(host));
+    } catch (error) {
+      // A client without the RPC, or no folder to name: fail like a rejected call.
+      request = Promise.reject(error);
+    }
+    request
       .then((output) => {
         if (at === mount) apply(output.snapshot, { id: sessionID, call });
       })
-      .catch(reportFailure)
+      .catch((error) => {
+        if (at === mount && host.client === client) onFailure(error);
+        reportFailure(error);
+      })
       .finally(() => {
         if (loading.get(key) === call) loading.delete(key);
       });
@@ -314,16 +343,18 @@ export function createQuotaClient(
     },
 
     async refresh(reason, sessionID) {
+      const call = ++calls;
+      const at = mount;
+      const client = host.client;
       try {
         const input: QuotaRpcRefreshInput = sessionID ? { reason, sessionID } : { reason };
-        const call = ++calls;
-        const at = mount;
         subscribe();
         const output = await rpc().refresh(input, quotaCallOptions(host));
         if (at !== mount) return undefined;
         apply(output.snapshot, { id: sessionID, call, notices: true });
         return snapshot(sessionID);
       } catch (error) {
+        if (at === mount && host.client === client) onFailure(error);
         reportFailure(error);
         return undefined;
       }

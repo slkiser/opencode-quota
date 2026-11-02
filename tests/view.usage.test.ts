@@ -516,12 +516,12 @@ describe("usageView", () => {
     });
     const [first, second] = report.days.map((day) => day.date);
     report.models[0].days = [
-      { date: first, costUsd: 3, tokens: 300 },
-      { date: second, costUsd: 1, tokens: 100 },
+      { date: first, costUsd: 3, tokens: 300, priced: true },
+      { date: second, costUsd: 1, tokens: 100, priced: true },
     ];
     report.models[1].days = [
-      { date: first, costUsd: 1, tokens: 100 },
-      { date: second, costUsd: 1, tokens: 100 },
+      { date: first, costUsd: 1, tokens: 100, priced: true },
+      { date: second, costUsd: 1, tokens: 100, priced: true },
     ];
     // 6 rows of 8 eighths: Anthropic fills 36 of the first day's 48 and 12 of the second's 24.
     const lines = from(
@@ -572,11 +572,11 @@ describe("usageView", () => {
     });
     const [first, second] = report.days.map((day) => day.date);
     report.models[0].days = [
-      { date: first, costUsd: 60, tokens: 600 },
-      { date: second, costUsd: 3, tokens: 30 },
+      { date: first, costUsd: 60, tokens: 600, priced: true },
+      { date: second, costUsd: 3, tokens: 30, priced: true },
     ];
-    report.models[1].days = [{ date: second, costUsd: 4, tokens: 40 }];
-    report.models[2].days = [{ date: second, costUsd: 3, tokens: 30 }];
+    report.models[1].days = [{ date: second, costUsd: 4, tokens: 40, priced: true }];
+    report.models[2].days = [{ date: second, costUsd: 3, tokens: 30, priced: true }];
     // The second day is one cell: Anthropic 2 eighths, OpenAI 4, Google 2.
     const lines = from(
       usageView(report, { mode: "cost", breakdown: "model", width: 40 }).lines,

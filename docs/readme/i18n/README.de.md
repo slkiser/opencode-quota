@@ -7,7 +7,7 @@
     </picture>
   </a>
 </p>
-<p align="center">Kontingente, Nutzung und Tokens im Blick, in OpenCode und im Terminal.</p>
+<p align="center">Kontingente, Nutzung und Kosten in der TUI und in Desktop von OpenCode.</p>
 <p align="center">
   <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm" src="https://img.shields.io/npm/v/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
   <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm downloads" src="https://img.shields.io/npm/dm/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
@@ -39,7 +39,10 @@ opencode plugin add @slkiser/opencode-quota
 Starte OpenCode neu und gib `/quota` ein. Ein Fenster mit deinen Limits öffnet sich. Klicke auf einen Tab (Usage, Limits, Plugin oder einen der Settings-Tabs) oder drücke `tab`, um zwischen ihnen zu wechseln; klicke oder drücke `esc`, um es zu schließen.
 
 > [!IMPORTANT]
-> Du brauchst OpenCode `2.0.26+`; die Terminal-Befehle brauchen außerdem Node.js `22.13+` oder `23.4+`. Noch auf OpenCode 1? Führe stattdessen `npx @slkiser/opencode-quota@4 init` aus.
+> Du brauchst OpenCode `2.0.26+`; die Terminal-Befehle brauchen außerdem Node.js `22.13+` oder `23.4+`.
+
+> [!NOTE]
+> Noch auf OpenCode 1? Führe stattdessen `npx @slkiser/opencode-quota@4 init` aus und sieh dir die [README für OpenCode 1](https://github.com/slkiser/opencode-quota/blob/release/4.x/README.md) an.
 
 <details>
 <summary><code>opencode.json</code> selbst bearbeiten</summary>
@@ -57,10 +60,23 @@ Füge das Plugin zu `opencode.jsonc` oder `opencode.json` hinzu und behalte dein
 
 ## Funktionen
 
-- **Für OpenCode 2 gebaut:** Einstellungen gelten sofort, in jedem offenen OpenCode.
-- **Terminal:** `npx @slkiser/opencode-quota@latest show` funktioniert auch, wenn OpenCode geschlossen ist.
+- **TUI:** `/quota` öffnet ein Fenster mit den Tabs Usage, Limits, Plugin und Settings. Die TUI bekommt außerdem ein Quota-Panel in der Seitenleiste, eine Statuszeile unter dem Eingabefeld und Toasts.
+- **Desktop (experimentell, OpenCode `2.2.0+`):** Der Befehl **Quota** öffnet ein Nutzungsfenster (Limits, Cost, Tokens). Desktop bekommt außerdem einen angehefteten Quota-Seitentab, eine Pille in der Titelleiste, eine Leiste am unteren Rand, eine Pille über dem Eingabefeld, Toasts, den Eintrag **Quota usage for this session** im Sitzungsmenü und eine Quota-Seite in den Einstellungen von OpenCode. Derselbe Plugin-Eintrag lädt das; abschalten kannst du es unter **Settings → Extensions → Plugins**.
+  <details>
+  <summary>Wo jede Einstellung in der TUI und in Desktop erscheint</summary>
+  <table>
+  <tr><th>Einstellungsgruppe</th><th>TUI</th><th>Desktop</th></tr>
+  <tr><td><code>sidebar</code></td><td>Quota-Panel in der Seitenleiste</td><td>Quota-Seitentab</td></tr>
+  <tr><td><code>collapsed</code></td><td>Seitenleisten-Panel auf eine Zeile pro Anbieter eingeklappt</td><td>Pille in der Titelleiste und der eingeklappte Quota-Seitentab</td></tr>
+  <tr><td><code>statusLine</code></td><td>Zeile unter dem Eingabefeld</td><td>Leiste am unteren Rand des Fensters und die Pille über dem Eingabefeld</td></tr>
+  <tr><td><code>toast</code></td><td>Toasts mit Balken</td><td>Toasts mit den Zeilen und Balken des Quota-Seitentabs; ein Reset-Hinweis ist ein Satz</td></tr>
+  </table>
+  <p><b>Hinweis:</b> In der TUI blendet sich die Statuszeile aus, solange die Seitenleiste Kontingente zeigt, außer <b>Next to the sidebar</b> (<code>statusLine.withSidebar</code>) ist an. In Desktop erscheint die Leiste standardmäßig auch neben dem Quota-Seitentab; <b>Next to the side panel</b> (<code>statusLine.withSidePanel</code>) schaltet das ab.</p>
+  </details>
 - **Web und Desktop:** `/quota`, `/quota_usage` und `/quota_status` posten ihren Bericht als deine Nachricht in den Chat. Die KI antwortet nie darauf, und das Plugin filtert ihn aus jeder KI-Anfrage heraus. Nach der Deinstallation des Plugins werden alte Berichte in früheren Chats nicht mehr gefiltert. Die Schrift im Web richtet die Spalten eventuell nicht sauber aus.
+- **Terminal:** `npx @slkiser/opencode-quota@latest show` funktioniert auch, wenn OpenCode geschlossen ist.
 - **Skripte und Statusleisten:** JSON, eine Exportdatei und Metriken. Siehe [Externe Integration](../external-integration.md).
+- **Für OpenCode 2 gebaut:** Einstellungen gelten sofort, in jedem offenen OpenCode.
 
 ## Befehle
 
@@ -75,7 +91,7 @@ Zum Beispiel `/quota_usage 30d` oder `/quota_usage between 2026-09-01 2026-09-25
 
 ## Einstellungen
 
-Seitenleiste, Statuszeile, Toasts, Farben, Formulierungen und Anbieter änderst du in `/quota_settings`. **Save** schreibt nur deine Änderungen nach `opencode-quota/settings.jsonc` im Konfigurationsordner von OpenCode und behält deine Kommentare. Eine Änderung an der Datei erreicht jede offene TUI innerhalb weniger Sekunden. Eigene Anbieter, der Pfad zur Claude CLI und der Exportpfad lassen sich nur in der Datei festlegen. Das `┃` in einem Balken zeigt, wo gleichmäßige Nutzung bis zum Zurücksetzen stünde, nicht den Wert des Balkens; **Even-use mark** (`layout.evenUse`) im Tab Layout schaltet es aus. [Einstellungen und Standardwerte](../configuration.md).
+Seitenleiste, Statuszeile, Toasts, Farben, Formulierungen und Anbieter änderst du in `/quota_settings`. **Save** schreibt nur deine Änderungen nach `opencode-quota/settings.jsonc` im Konfigurationsordner von OpenCode und behält deine Kommentare. Eine Änderung an der Datei erreicht jede offene TUI innerhalb weniger Sekunden. In Desktop speichert die Quota-Seite in den Einstellungen von OpenCode in dieselbe Datei. Eigene Anbieter, der Pfad zur Claude CLI und der Exportpfad lassen sich nur in der Datei festlegen. Das `┃` in einem Balken zeigt, wo gleichmäßige Nutzung bis zum Zurücksetzen stünde, nicht den Wert des Balkens; **Even-use mark** (`layout.evenUse`) im Tab Layout schaltet es aus. [Einstellungen und Standardwerte](../configuration.md).
 
 ## Anbieter
 
@@ -142,6 +158,7 @@ Starte OpenCode neu. Du kommst von 4.x oder 5.x? Deine Einstellungen werden beim
 3. Du nutzt ein Begleit-Plugin (Cursor, Google)? Trage es in `opencode.json` **vor** `@slkiser/opencode-quota` ein.
 4. `claude` oder `bl` nicht gefunden? Siehe [Dienstumgebung](../troubleshooting.md#service-environment).
 5. `/quota_usage` ist leer? Starte OpenCode einmal und nutze dann ein Modell.
+6. Keine Quota-Oberfläche in Desktop? Sie braucht OpenCode `2.2.0+` und ihren eingeschalteten Schalter unter **Settings → Extensions → Plugins**. Web zeigt keine Plugin-Oberflächen.
 
 Weitere Lösungen: [Fehlerbehebung](../troubleshooting.md).
 

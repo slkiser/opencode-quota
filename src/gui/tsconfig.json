@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsxImportSource": "solid-js",
+    "lib": ["ES2022", "DOM"]
+  },
+  "include": ["./**/*", "../*.d.ts"],
+  "exclude": []
+}

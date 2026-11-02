@@ -29,8 +29,9 @@
  * `toast.seconds` when it is the preview's first toast.
  *
  * Reset notices that arrive together show as one toast. While a turn's toast is being made,
- * they wait and show after it, so the turn's toast does not replace them at once. When the TUI
- * leaves its server, waiting notices are dropped unshown, so a later snapshot can bring them.
+ * they wait and show after it, so the turn's toast does not replace them at once; each follows
+ * the settings as they are when it shows. When the TUI leaves its server, waiting notices are
+ * dropped unshown, so a later snapshot can bring them.
  */
 import type { QuotaSnapshot, ResetNotice } from "../core/types.js";
 import { WINDOWS } from "../core/windows.js";
@@ -56,16 +57,23 @@ export type TurnEnd = "reply" | "compaction" | "question";
 
 export type ToastHost = {
   /**
-   * Shows a toast. A quota toast brings its `lines` too; its message is their plain text.
-   * Returns the toast when it can tell whether it is still on screen.
+   * Shows a toast. A quota toast brings its `lines` too, and a turn's the `input` they were laid
+   * out from; its message is their plain text. Returns the toast when it can tell whether it is
+   * still on screen.
    */
-  show: (toast: ToastOptions, lines?: Line[]) => DrawnToast | undefined;
-  display: () => DisplaySettings;
+  show: (toast: ToastOptions, lines?: Line[], input?: ToastInput) => DrawnToast | undefined;
+  /** The settings a toast follows: those of `snapshot`, the one it shows, when given. */
+  display: (snapshot?: QuotaSnapshot) => DisplaySettings;
   /** The terminal's columns, which a toast's width follows. */
   terminalWidth: () => number;
-  quota: QuotaClient;
+  quota: Pick<QuotaClient, "refresh" | "snapshot">;
   /** Subagent (child) sessions never show quota toasts. */
   isChildSession: (sessionID: string) => boolean;
+  /**
+   * Which "every provider fails" toast a session's turn counts toward (each shows once until
+   * some provider of its key answers again); without it, one for all sessions.
+   */
+  allFailKey?: (sessionID: string) => string;
   now?: () => number;
 };
 
@@ -130,13 +138,20 @@ function wantsTurnToast(display: DisplaySettings, trigger: TurnEnd, anyLow: bool
   return display.toast.afterReply === "always" || (display.toast.afterReply === "low" && anyLow);
 }
 
+/** `toast.resetNotice` asks for a notice of this reset: every reset, or only weekly ones. */
+export function wantsResetNotice(display: DisplaySettings, notice: ResetNotice): boolean {
+  if (!display.toast.show) return false;
+  const setting = display.toast.resetNotice;
+  return setting === "all" || (setting === "weekly" && notice.window === "week");
+}
+
 /**
  * "Weekly quota reset: Claude (work) Weekly is available again (100% left).": the row under its
  * toast name, else its label, with the percent it had at the reset in the percent words.
  * The row is the notice's account's: several accounts can share a row id. Undefined when the
  * provider no longer has the row.
  */
-function resetMessage(
+export function resetMessage(
   notice: ResetNotice,
   snapshot: QuotaSnapshot,
   display: DisplaySettings,
@@ -162,30 +177,39 @@ export function createToasts(host: ToastHost): Toasts {
   /** Notices from before this TUI started were news to the TUI that saw them then. */
   const startedAtMs = now();
   const shownNotices = new Set<string>();
-  /** The "every provider fails" toast shows once until some provider answers again. */
-  let allFailShown = false;
+  /** The "every provider fails" toast shows once until some provider answers again, by key. */
+  const allFailShown = new Set<string>();
   /** Turns whose toast is being made; reset notices wait for them. */
   let turnsRunning = 0;
-  let waitingNotices: Array<{ id: string; message: string }> = [];
+  /** Reset notices to show, each with the snapshot it came in. */
+  let waitingNotices: Array<{ notice: ResetNotice; snapshot: QuotaSnapshot }> = [];
   /** The Toast page's preview, until the page closes or a newer preview replaces it. */
   let preview: Preview | undefined;
 
+  /** Shows the waiting reset notices the settings still ask for, worded as they are now. */
   function showNotices(): void {
     if (turnsRunning > 0 || waitingNotices.length === 0) return;
+    const messages = waitingNotices.flatMap(({ notice, snapshot }) => {
+      const display = host.display(snapshot);
+      if (!wantsResetNotice(display, notice)) return [];
+      const message = resetMessage(notice, snapshot, display, now());
+      return message ? [message] : [];
+    });
+    waitingNotices = [];
+    if (messages.length === 0) return;
     host.show({
       variant: "success",
       title: "Quota available",
-      message: waitingNotices.map((notice) => notice.message).join("\n"),
+      message: messages.join("\n"),
       duration: host.display().toast.seconds * 1000,
     });
-    waitingNotices = [];
   }
 
   /** Shows a quota toast of `input`'s lines; nothing when they have no text. */
   function showQuota(variant: ToastOptions["variant"], input: ToastInput, seconds: number): void {
     const lines = toastLines(input);
     const message = lines.map(lineText).join("\n");
-    if (message) host.show({ variant, message, duration: seconds * 1000 }, lines);
+    if (message) host.show({ variant, message, duration: seconds * 1000 }, lines, input);
   }
 
   /** A quota toast now: the Toast surface's rows, as wide as the toast's text. */
@@ -226,12 +250,13 @@ export function createToasts(host: ToastHost): Toasts {
 
   async function turnToast(trigger: TurnEnd, sessionID: string): Promise<void> {
     const snapshot = await host.quota.refresh("turn", sessionID);
-    const display = host.display();
+    const display = host.display(snapshot);
     if (!snapshot || !display.toast.show) return;
     const input = quotaInput(snapshot, display);
     const allFail =
       snapshot.providers.length > 0 && snapshot.providers.every((provider) => provider.error);
-    if (!allFail) allFailShown = false;
+    const allFailKey = host.allFailKey?.(sessionID) ?? "";
+    if (!allFail) allFailShown.delete(allFailKey);
     const anyLow = input.groups.some((group) =>
       group.rows.some(
         ({ row }) =>
@@ -243,8 +268,8 @@ export function createToasts(host: ToastHost): Toasts {
       showQuota("info", input, display.toast.seconds);
       return;
     }
-    if (allFail && display.toast.whenAllFail && !allFailShown) {
-      allFailShown = true;
+    if (allFail && display.toast.whenAllFail && !allFailShown.has(allFailKey)) {
+      allFailShown.add(allFailKey);
       const failing = input.groups.filter((group) => group.error);
       showQuota(
         "error",
@@ -267,23 +292,19 @@ export function createToasts(host: ToastHost): Toasts {
     },
 
     showResetNotices(snapshot) {
-      const display = host.display();
+      const display = host.display(snapshot);
       for (const notice of snapshot.resetNotices) {
         if (shownNotices.has(notice.id)) continue;
         shownNotices.add(notice.id);
-        const wanted =
-          display.toast.resetNotice === "all" ||
-          (display.toast.resetNotice === "weekly" && notice.window === "week");
-        if (!wanted || !display.toast.show || notice.atMs < startedAtMs) continue;
-        const message = resetMessage(notice, snapshot, display, now());
-        if (message) waitingNotices.push({ id: notice.id, message });
+        if (!wantsResetNotice(display, notice) || notice.atMs < startedAtMs) continue;
+        waitingNotices.push({ notice, snapshot });
       }
       showNotices();
     },
 
     preview(sessionID) {
       const snapshot = host.quota.snapshot(sessionID);
-      const display = host.display();
+      const display = host.display(snapshot);
       const lines = snapshot && display.toast.show ? toastLines(quotaInput(snapshot, display)) : [];
       const message = lines.map(lineText).join("\n");
       if (!message) {
@@ -314,7 +335,7 @@ export function createToasts(host: ToastHost): Toasts {
     closePreview,
 
     cancel() {
-      for (const notice of waitingNotices) shownNotices.delete(notice.id);
+      for (const { notice } of waitingNotices) shownNotices.delete(notice.id);
       waitingNotices = [];
     },
   };

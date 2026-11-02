@@ -93,6 +93,8 @@ describe("package manifest compatibility", () => {
     const pnpmMajor = String(pkg.packageManager).match(/^pnpm@(\d+)\.\d+\.\d+(?:[+-].*)?$/)?.[1];
     expect(Number(pnpmMajor)).toBeGreaterThanOrEqual(11);
     expect(pkg.scripts?.build).toContain("node .github/scripts/clean-dist.mjs && tsc");
+    expect(pkg.scripts?.build).toContain("tsc -p src/gui");
+    expect(pkg.scripts?.build).toMatch(/&& node \.github\/scripts\/build-gui\.mjs$/);
     expect(pkg.pnpm?.strictPeerDependencies).not.toBe(false);
 
     const entry = (main: string) => ({
@@ -123,6 +125,9 @@ describe("package manifest compatibility", () => {
       ["pnpm", "peerDependencyRules", undefined],
       // Vite+ is the only formatter, linter and Git hook runner.
       ["devDependencies", "vite-plus", "1.2.0"],
+      // The GUI build: OpenCode's preset needs Vite and vite-plugin-solid; Vite is Vite+'s core.
+      ["devDependencies", "vite", "npm:@voidzero-dev/vite-plus-core@1.2.0"],
+      ["devDependencies", "vite-plugin-solid", "2.11.14"],
       ["devDependencies", "@biomejs/biome", undefined],
       ["devDependencies", "prettier", undefined],
       ["devDependencies", "eslint", undefined],
@@ -163,6 +168,7 @@ describe("package manifest compatibility", () => {
       ["exports", ".", entry("index")],
       ["exports", "./server", entry("index")],
       ["exports", "./tui", entry("tui")],
+      ["exports", "./gui-experimental", "./dist/gui-experimental.cjs"],
       ["files", null, ["dist", "README.md", "LICENSE"]],
       ["scripts", "verify:package-contents", "node .github/scripts/verify-package-contents.mjs"],
       ["scripts", "pack:release-package", "node .github/scripts/pack-release-package.mjs"],
@@ -252,7 +258,7 @@ describe("package manifest compatibility", () => {
     [
       "the contents check",
       "../.github/scripts/verify-package-contents.mjs",
-      [],
+      ['packageJson.exports?.["./gui-experimental"]', "guiProvidedModules", "isBuiltin(id)"],
       ["HUSKY", "LEFTHOOK", "VP_GIT_HOOKS"],
     ],
     [

@@ -225,8 +225,10 @@ describe("quota toasts", () => {
     });
     await toasts.afterTurn("compaction", "ses_1");
     toasts.preview("ses_1");
-    const [turn] = show.mock.calls;
-    expect(show.mock.calls).toEqual(on ? [turn, turn] : []);
+    // The toast and its lines; only a turn's toast brings the input they were laid out from.
+    const shown = show.mock.calls.map(([toast, lines]) => [toast, lines]);
+    const [turn] = shown;
+    expect(shown).toEqual(on ? [turn, turn] : []);
   });
 
   it("fits a toast's text in OpenCode's toast: 60 columns at most, 6 fewer than the terminal", () => {

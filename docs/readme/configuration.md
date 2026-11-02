@@ -2,7 +2,7 @@
 
 # Configuration
 
-Most people need no settings. To change one, open `/quota_settings` in the TUI: every setting is a line there, with its values.
+Most people need no settings. To change one, open `/quota_settings` in the TUI: every setting is a line there, with its values. In OpenCode Desktop (`2.2.0+`, experimental), the Quota page in OpenCode's settings edits the same file.
 
 ## Where settings live
 
@@ -41,7 +41,7 @@ Nest the keys in the file:
 - **Status line:** under the message box when no sidebar panel with quota is on screen. **Next to the sidebar** on its page shows it there too.
 - **Toasts:** after compaction, when every provider fails, and after a reply once a shown limit is getting low.
 
-Web and Desktop have none of these; there `/quota`, `/quota_usage` and `/quota_status` post a report in the chat.
+OpenCode Desktop (`2.2.0+`, experimental) shows the same settings in its own places: `sidebar` in a pinned Quota side tab, `collapsed` in a titlebar pill (and in the Quota side tab when folded), `statusLine` in a strip at the bottom of the window and a pill above the message box (the strip also shows while the Quota tab does; `statusLine.withSidePanel: false` hides it then), and `toast` in its toasts, with the Quota side tab's rows and bars (`toast.layout` doesn't apply there; a reset notice is a sentence). Web has none of these; there `/quota`, `/quota_usage` and `/quota_status` post a report in the chat.
 
 ## All settings
 
@@ -57,7 +57,8 @@ Each section has `show: true`, `runsOut` (`true` for `sidebar` and `toast`, `fal
 | `sidebar.sessionTokens`, `toast.sessionTokens` | `true` | Show the session tokens line. |
 | `sidebar.names`, `toast.names` | `{}` | Row ids mapped to names. The collapsed sidebar, status line and Limits tab use the sidebar's. |
 | `collapsed.window`, `statusLine.window` | `{}` | Provider ids, and `"*"` for all providers, mapped to `lowest`, `rpm`, `hour`, `five_hour`, `session`, `day`, `week`, `month`, `year`, `mcp`, or `code_review`. A provider's own entry wins over `"*"`. Missing means lowest left. |
-| `statusLine.withSidebar` | `false` | Also show the status line while a sidebar panel shows quota. |
+| `statusLine.withSidebar` | `false` | The terminal's: also show the status line while a sidebar panel shows quota. |
+| `statusLine.withSidePanel` | `true` | Desktop's: also show the bottom strip while the Quota tab shows in the side panel. `false` hides it then. |
 | `statusLine.detail` | `"auto"` | `auto`, `one`, `full`, `bar`, `reset`, `numbers`. |
 | `statusLine.width` | `0` | Whole number 0–1000. 0 uses all free room. |
 | `statusLine.autoScrollSeconds` | `0` | Whole number 0–600. 0 switches scrolling off. |

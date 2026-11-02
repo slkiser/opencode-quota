@@ -1,6 +1,7 @@
 // Compiles every `src/**/*.tsx` to `dist/**/*.js` with Babel (Solid's universal JSX for OpenTUI)
 // and deletes the `.jsx` files tsc leaves behind (tsconfig has `jsx: preserve`). Then writes
 // `dist/tui.js`, the TUI entry in package.json, which re-exports `src/tui/index.tsx`.
+// `src/gui/` is Solid for the browser, bundled by `build-gui.mjs`, so it is left out here.
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,12 +12,13 @@ import solidPreset from "babel-preset-solid";
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const srcDir = path.join(rootDir, "src");
 const distDir = path.join(rootDir, "dist");
+const guiDir = path.join(srcDir, "gui");
 
 async function listTsxFiles(dir) {
   const found = [];
   for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
     const entryPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) found.push(...(await listTsxFiles(entryPath)));
+    if (entry.isDirectory() && entryPath !== guiDir) found.push(...(await listTsxFiles(entryPath)));
     else if (entry.isFile() && entry.name.endsWith(".tsx")) found.push(entryPath);
   }
   return found;

@@ -7,7 +7,7 @@
     </picture>
   </a>
 </p>
-<p align="center">在 OpenCode 和终端中查看配额、用量和 token。</p>
+<p align="center">在 OpenCode 的 TUI 和 Desktop 中查看配额、用量和费用。</p>
 <p align="center">
   <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm" src="https://img.shields.io/npm/v/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
   <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm downloads" src="https://img.shields.io/npm/dm/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
@@ -39,7 +39,10 @@ opencode plugin add @slkiser/opencode-quota
 重启 OpenCode，然后输入 `/quota`。会打开一个显示你各项限额的窗口。点击标签页 Usage（用量）、Limits（限额）、Plugin（插件）或某个 Settings（设置）标签页，或按 `tab` 在它们之间切换；点击或按 `esc` 关闭窗口。
 
 > [!IMPORTANT]
-> 需要 OpenCode `2.0.26+`；终端命令还需要 Node.js `22.13+` 或 `23.4+`。还在用 OpenCode 1？请改为运行 `npx @slkiser/opencode-quota@4 init`。
+> 需要 OpenCode `2.0.26+`；终端命令还需要 Node.js `22.13+` 或 `23.4+`。
+
+> [!NOTE]
+> 还在用 OpenCode 1？请改为运行 `npx @slkiser/opencode-quota@4 init`，并参见 [OpenCode 1 的 README](https://github.com/slkiser/opencode-quota/blob/release/4.x/README.md)。
 
 <details>
 <summary>自己编辑 <code>opencode.json</code></summary>
@@ -57,10 +60,23 @@ opencode plugin add @slkiser/opencode-quota
 
 ## 功能
 
-- **为 OpenCode 2 打造：** 设置实时生效，作用于每个打开的 OpenCode。
-- **终端：** 即使 OpenCode 已关闭，`npx @slkiser/opencode-quota@latest show` 也能使用。
+- **TUI：** `/quota` 会打开一个窗口，里面有 Usage、Limits、Plugin 和 Settings 标签页。TUI 还会有侧边栏中的 Quota 面板、输入框下方的状态行和 toast 提示。
+- **Desktop（实验性，OpenCode `2.2.0+`）：** **Quota** 命令会打开用量窗口（Limits、Cost、Tokens）。Desktop 还会有固定的 Quota 侧边标签页、标题栏胶囊、窗口底部状态条、输入框上方的胶囊、toast 提示、会话菜单中的 **Quota usage for this session**，以及 OpenCode 设置中的 Quota 页面。同一个插件条目即可加载它；可在 **Settings → Extensions → Plugins** 中关闭。
+  <details>
+  <summary>各项设置在 TUI 和 Desktop 中的显示位置</summary>
+  <table>
+  <tr><th>设置组</th><th>TUI</th><th>Desktop</th></tr>
+  <tr><td><code>sidebar</code></td><td>侧边栏中的 Quota 面板</td><td>Quota 侧边标签页</td></tr>
+  <tr><td><code>collapsed</code></td><td>折叠成每个提供商一行的侧边栏面板</td><td>标题栏胶囊，以及折叠时的 Quota 侧边标签页</td></tr>
+  <tr><td><code>statusLine</code></td><td>输入框下方的一行</td><td>窗口底部状态条，以及输入框上方的胶囊</td></tr>
+  <tr><td><code>toast</code></td><td>带进度条的 toast 提示</td><td>与 Quota 侧边标签页相同的行和进度条的 toast 提示；重置通知为一句话</td></tr>
+  </table>
+  <p><b>注意：</b>在 TUI 中，侧边栏显示配额时状态行会隐藏，除非开启 <b>Next to the sidebar</b>（<code>statusLine.withSidebar</code>）。在 Desktop 中，状态条默认也会显示在 Quota 侧边标签页旁；<b>Next to the side panel</b>（<code>statusLine.withSidePanel</code>）可将其关闭。</p>
+  </details>
 - **Web 和 Desktop：** `/quota`、`/quota_usage` 和 `/quota_status` 会把报告作为你的消息发到聊天中。AI 从不回复它，插件也会把它从每次 AI 请求中过滤掉。卸载插件后，过去聊天中的旧报告将不再被过滤。Web 的字体可能无法让各列对齐。
+- **终端：** 即使 OpenCode 已关闭，`npx @slkiser/opencode-quota@latest show` 也能使用。
 - **脚本和状态栏：** JSON、导出文件和指标。参见[外部集成](../external-integration.md)。
+- **为 OpenCode 2 打造：** 设置实时生效，作用于每个打开的 OpenCode。
 
 ## 命令
 
@@ -75,7 +91,7 @@ opencode plugin add @slkiser/opencode-quota
 
 ## 设置
 
-在 `/quota_settings` 中修改侧边栏、状态行、toast 提示、颜色、措辞和提供商。**Save**（保存）只会把你改动的内容写入 OpenCode 配置文件夹中的 `opencode-quota/settings.jsonc`，并保留你的注释。编辑该文件后，几秒内就会生效到每个打开的 TUI。自定义提供商、Claude CLI 路径和导出路径只能在文件中设置。进度条中的 `┃` 表示到重置前均匀使用时应在的位置，而不是进度条的数值；在 Layout 标签页的 **Even-use mark**（`layout.evenUse`）可将其关闭。[设置和默认值](../configuration.md)。
+在 `/quota_settings` 中修改侧边栏、状态行、toast 提示、颜色、措辞和提供商。**Save**（保存）只会把你改动的内容写入 OpenCode 配置文件夹中的 `opencode-quota/settings.jsonc`，并保留你的注释。编辑该文件后，几秒内就会生效到每个打开的 TUI。在 Desktop 中，OpenCode 设置里的 Quota 页面也保存到同一个文件。自定义提供商、Claude CLI 路径和导出路径只能在文件中设置。进度条中的 `┃` 表示到重置前均匀使用时应在的位置，而不是进度条的数值；在 Layout 标签页的 **Even-use mark**（`layout.evenUse`）可将其关闭。[设置和默认值](../configuration.md)。
 
 ## 提供商
 
@@ -142,6 +158,7 @@ opencode plugin update
 3. 在用配套插件（Cursor、Google）？在 `opencode.json` 中把它列在 `@slkiser/opencode-quota` **之前**。
 4. 找不到 `claude` 或 `bl`？参见[服务环境](../troubleshooting.md#service-environment)。
 5. `/quota_usage` 为空？先启动一次 OpenCode，然后使用一个模型。
+6. Desktop 中没有 Quota 界面？它需要 OpenCode `2.2.0+`，并在 **Settings → Extensions → Plugins** 中打开它的开关。Web 不显示插件界面。
 
 更多解决方法：[故障排查](../troubleshooting.md)。
 

@@ -51,6 +51,7 @@ function lines(providers = PROVIDERS) {
     words: DEFAULT_WORDS,
     nowMs: NOW,
     layout: display.layout,
+    colors: display.colors,
     toastLayout: "grouped",
     room: 54,
     runsOut: true,

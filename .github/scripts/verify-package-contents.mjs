@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { isBuiltin } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -94,6 +95,42 @@ const missing = [...requiredFiles].filter((file) => !files.includes(file)).sort(
 if (missing.length > 0) {
   console.error("npm package is missing required release output:");
   for (const file of missing) console.error(`- ${file}`);
+  process.exit(1);
+}
+
+// The GUI bundle runs in the OpenCode app, which gives it only these modules (the list in
+// `@opencode/plugin/gui/vite`), Electron and Node built-ins; anything else must be bundled.
+const guiBundle = packageJson.exports?.["./gui-experimental"]?.slice(2);
+const guiProvidedModules = new Set([
+  "effect",
+  "@opencode/plugin/gui",
+  "@opencode/plugin/gui/main",
+  "@opencode/plugin/rpc",
+  "@opencode/schema/rpc",
+  "@opencode/client",
+  "@opencode/client/effect",
+  "solid-js",
+  "solid-js/web",
+  "solid-js/store",
+  "@opencode/plugin/gui/file",
+  "@opencode/plugin/gui/review",
+  "@opencode/plugin/gui/browser",
+  "@opencode/client/solid",
+  "electron",
+]);
+if (guiBundle !== "dist/gui-experimental.cjs") {
+  console.error(`package.json ./gui-experimental must be ./dist/gui-experimental.cjs.`);
+  process.exit(1);
+}
+const guiSource = await readFile(path.join(repoRoot, guiBundle), "utf8");
+const guiRequires = [...guiSource.matchAll(/\brequire\((["'`])([^"'`]+)\1\)/gu)].map(
+  (match) => match[2],
+);
+const unprovided = guiRequires.filter((id) => !guiProvidedModules.has(id) && !isBuiltin(id));
+if (unprovided.length > 0 || guiSource.includes("import(")) {
+  console.error(`${guiBundle} needs modules the OpenCode app does not provide:`);
+  for (const id of unprovided) console.error(`- ${id}`);
+  if (guiSource.includes("import(")) console.error("- a dynamic import()");
   process.exit(1);
 }
 

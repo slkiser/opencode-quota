@@ -46,6 +46,7 @@ describe("quota RPC definition", () => {
       "downloadPrices",
       "settings",
       "saveSettings",
+      "settingsSchema",
     ]);
   });
 
@@ -130,6 +131,11 @@ describe("quota RPC definition", () => {
       await expectAccepted(methods.usage.input, { range });
     }
     await expectAccepted(methods.usage.input, { range: "session", sessionID: "ses_1" });
+    await expectAccepted(methods.usage.input, {
+      range: "session",
+      sessionID: "ses_1",
+      subagents: false,
+    });
     // Leap days exist in leap years only (every 4th year, but not 1900; 2000 is one).
     for (const [from, to] of [
       ["2026-01-01", "2026-01-01"],
@@ -146,6 +152,7 @@ describe("quota RPC definition", () => {
       [{ range: "session_tree", sessionID: "ses_1" }, rangeIssue],
       [{ range: "toString" }, rangeIssue],
       [{ range: "90d", sessionID: 1 }, "sessionID must be a string"],
+      [{ range: "session", sessionID: "ses_1", subagents: "no" }, "subagents must be a boolean"],
       [{ range: "session" }, "sessionID is required for range session"],
       [{ range: "session", sessionID: "" }, "sessionID is required for range session"],
       [{ range: "between", to: "2026-01-01" }, "from must be a date like 2026-01-31"],
@@ -245,6 +252,36 @@ describe("quota RPC definition", () => {
     await expectAccepted(methods.saveSettings.output, { ok: false, issues: [] });
     for (const value of [{}, { ok: "yes", issues: [] }, { ok: true }]) {
       await expectRejected(methods.saveSettings.output, value, "output must carry ok and issues");
+    }
+  });
+
+  it("validates settingsSchema", async () => {
+    await expectAccepted(methods.settingsSchema.input, {});
+    await expectRejected(methods.settingsSchema.input, null, "input must be an object");
+    await expectAccepted(methods.settingsSchema.output, {
+      rules: { "toast.show": { kind: "boolean", default: true } },
+      path: "/home/me/.config/opencode/opencode-quota/settings.jsonc",
+    });
+    await expectAccepted(methods.settingsSchema.output, {
+      rules: {},
+      path: "C:\\Users\\me\\.config\\opencode\\opencode-quota\\settings.jsonc",
+    });
+    for (const value of [
+      {},
+      { rules: {} },
+      // Open and Reveal hand the path to the app: only the quota settings file passes.
+      { rules: {}, path: "/settings.jsonc" },
+      { rules: {}, path: "/home/me/Downloads/run.sh" },
+      { rules: {}, path: "opencode-quota/settings.jsonc" },
+      { rules: [], path: "/settings.jsonc" },
+      { rules: { "toast.show": true }, path: "/settings.jsonc" },
+      { rules: { "toast.show": { default: true } }, path: "/settings.jsonc" },
+    ]) {
+      await expectRejected(
+        methods.settingsSchema.output,
+        value,
+        "output must carry rules and a path",
+      );
     }
   });
 

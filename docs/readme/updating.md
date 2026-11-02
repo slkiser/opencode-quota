@@ -50,5 +50,5 @@ Your 4.x global settings convert on the first start, as in [Moving from 5.x](#mo
 
 - **Logins come only from OpenCode 2,** never from `auth.json`.
 - **Quota runs in OpenCode's background service,** with the service's `PATH` and environment. See [Service environment](troubleshooting.md#service-environment).
-- **Web and Desktop get the slash commands, but no toasts or panels.**
+- **Web gets the slash commands, but no toasts or panels.** OpenCode Desktop `2.2.0+` also gets an experimental GUI ([README](../../README.md#what-you-get)).
 - **OpenCode Zen uses your OpenCode Console sign-in; OpenCode Go uses it or an API key.** See [OpenCode Go](providers.md#opencode-go) and [OpenCode Zen](providers.md#opencode-zen).

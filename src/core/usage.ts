@@ -12,8 +12,8 @@
  *   model without a price adds tokens but no cost; its tokens are the unpriced share. A failed
  *   compaction names no model, so its tokens are unpriced too (provider and model "unknown").
  * - Sessions count conversations: a subagent session counts as part of its top parent.
- * - "session" reads the session and its subagent sessions. The sidebar's session line
- *   (`sessionUsage`) counts with these same rules.
+ * - "session" reads the session and its subagent sessions, or the session alone with
+ *   `subagents: false`. The sidebar's session line (`sessionUsage`) counts with these same rules.
  * - Ranges and days are local calendar days: "7d" is today and the 6 days before it, and
  *   "between" includes both dates. "24h" is the rolling last 24 hours. "all" has no window.
  * - Token kinds: cached input = cache reads; uncached input = input + cache writes;
@@ -49,6 +49,8 @@ export type UsageQuery = {
   range: UsageRange;
   /** The session for "session", which also counts its subagent sessions. */
   sessionID?: string;
+  /** For "session": false counts the session alone, without its subagent sessions. */
+  subagents?: boolean;
   /** Local dates like "2026-01-31" for "between", both included. */
   from?: string;
   to?: string;
@@ -94,11 +96,15 @@ export type UsageDayRow = UsageRow & { date: string };
 export type UsageModelRow = UsageRow & {
   providerID: string;
   modelID: string;
+  /** True when any of its messages had a price (a price can depend on the prompt's size). */
   priced: boolean;
   costByType: UsageByType;
   tokensByType: UsageByType;
-  /** The model's days with usage, oldest first; days without usage are left out. */
-  days: Array<{ date: string; costUsd: number; tokens: number }>;
+  /**
+   * The model's days with usage, oldest first; days without usage are left out. A day is priced
+   * when any of the model's messages that day had a price.
+   */
+  days: Array<{ date: string; costUsd: number; tokens: number; priced: boolean }>;
 };
 
 export type UsageReport = {
@@ -213,12 +219,15 @@ function requireSessionID(query: UsageQuery): string {
 }
 
 /**
- * The sessions "session" reads: the session and its subagent sessions. Undefined for the other
- * ranges, which read them all.
+ * The sessions "session" reads: the session and its subagent sessions, or the session alone
+ * with `subagents: false`. Undefined for the other ranges, which read them all.
  */
 async function sessionsToRead(query: UsageQuery): Promise<string[] | undefined> {
   if (query.range !== "session") return undefined;
-  return resolveSessionTree(requireSessionID(query));
+  const sessionID = requireSessionID(query);
+  // Resolving the tree checks the session's id and that it exists, for either answer.
+  const tree = await resolveSessionTree(sessionID);
+  return query.subagents === false ? [sessionID] : tree;
 }
 
 /** The session at the top of `sessionID`'s parent chain (subagents belong to their parent). */
@@ -357,13 +366,22 @@ export async function usageReport(
   for (const [key, recent] of recentReports) {
     if (!isRecent(recent, nowMs)) recentReports.delete(key);
   }
-  const { range, sessionID, from, to } = query;
+  const { range, sessionID, subagents, from, to } = query;
   // A new price list (another choice or a fresh download) makes a new report.
   const { selection, meta } = activePriceList();
   const priceList = [selection, meta.generatedAt];
   // The local day decides where the rolling ranges start: after midnight, a new report.
   const today = localDate(nowMs);
-  const key = JSON.stringify([getOpenCodeDbPath(), priceList, today, range, sessionID, from, to]);
+  const key = JSON.stringify([
+    getOpenCodeDbPath(),
+    priceList,
+    today,
+    range,
+    sessionID,
+    subagents === false,
+    from,
+    to,
+  ]);
   const recent = recentReports.get(key);
   if (recent) return recent.report;
 
@@ -382,7 +400,7 @@ type ModelTally = {
   tally: Tally;
   costByType: UsageByType;
   tokensByType: UsageByType;
-  days: Map<string, { costUsd: number; tokens: number }>;
+  days: Map<string, { costUsd: number; tokens: number; priced: boolean }>;
 };
 
 async function buildUsageReport(query: UsageQuery, nowMs: number): Promise<UsageReport> {
@@ -440,16 +458,22 @@ async function buildUsageReport(query: UsageQuery, nowMs: number): Promise<Usage
       const model = entryFor(models, modelKey, () => ({
         providerID,
         modelID,
-        priced: use.priced,
+        priced: false,
         tally: emptyTally(),
         costByType: emptyByType(),
         tokensByType: emptyByType(),
         days: new Map(),
       }));
+      model.priced ||= use.priced;
       addUse(model.tally, use);
       addByType(model.costByType, use.costByType);
       addByType(model.tokensByType, use.tokensByType);
-      const modelDay = entryFor(model.days, date, () => ({ costUsd: 0, tokens: 0 }));
+      const modelDay = entryFor(model.days, date, () => ({
+        costUsd: 0,
+        tokens: 0,
+        priced: false,
+      }));
+      modelDay.priced ||= use.priced;
       modelDay.costUsd += use.costUsd;
       modelDay.tokens += use.tokens.processed;
       addUse(entryFor(days, date, emptyTally), use);

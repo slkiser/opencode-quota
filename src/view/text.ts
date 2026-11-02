@@ -17,6 +17,7 @@ import {
   LOW_CACHE_MARK,
   percentWord,
   sessionTokensText,
+  shownEvenLeft,
   shownPercent,
 } from "./format.js";
 import { errorWords, type Place, type RowFacts, rowFacts } from "./row-facts.js";
@@ -114,7 +115,7 @@ export function barSegments(
   ];
   if (evenLeft === undefined || shape === "none" || width < EVEN_USE_MIN_CELLS) return bar;
   // The words turn the mark around too, but only once: rounding it here would move it a cell.
-  const mark = evenUseCell(words.percent === "used" ? 100 - evenLeft : evenLeft, width);
+  const mark = evenUseCell(shownEvenLeft(words, evenLeft), width);
   const marked: Segment[] = [];
   let start = 0;
   for (const segment of bar) {
@@ -265,7 +266,7 @@ function sessionLine(tokens: SessionTokens, width: number): Line {
  * "⚠ low cache: 35% (claude-sonnet-5)" for the model with the lowest cache hit among those
  * whose cache hit is low (`cacheHit`), its name cut to fit `width`; undefined when none is.
  */
-function lowCacheLine(models: SessionModelInput[], width: number): Line | undefined {
+export function lowCacheLine(models: SessionModelInput[], width: number): Line | undefined {
   let worst: { modelID: string; hit: CacheHit } | undefined;
   for (const model of models) {
     const hit = cacheHit(model);
@@ -683,6 +684,8 @@ export type ToastInput = {
   nowMs: number;
   /** The bar shape and the even-use mark; a toast's bars take the room it has. */
   layout: Layout;
+  /** The colors of its roles and levels, for a window that draws the rows itself. */
+  colors: Settings["colors"];
   toastLayout: ToastLayout;
   /** Columns of text inside the toast (`toastRoom`); no line is wider. */
   room: number;
@@ -862,6 +865,28 @@ export function toastLines(input: ToastInput): Line[] {
   return lines.map((line) => ({ ...line, segments: trimEnd(line.segments) }));
 }
 
+/**
+ * A quota toast's rows as sentences for a window, which draws text in a proportional font and
+ * may join lines: one per provider account, "Claude (work): 5h 80% left 2h 14m · Weekly 60% left
+ * 3.2d.", its error or "not checked yet" first, then the session's tokens. No padding or bars.
+ */
+export function toastSentences(input: ToastInput): string[] {
+  const named = groupFacts(input.groups, alwaysOnPlace(input, "words"));
+  const sentences = named.flatMap(({ group, rows }) => {
+    const state = groupState(group, input.nowMs);
+    const parts = [
+      ...(state ? [state.text] : []),
+      ...rows.map((row) =>
+        [row.name, row.value, row.reset, row.pace?.words].filter(Boolean).join(" "),
+      ),
+    ];
+    return parts.length > 0 ? [`${group.title}: ${parts.join(" · ")}.`] : [];
+  });
+  return input.sessionTokens
+    ? [...sentences, `Session: ${sessionTokensText(input.sessionTokens)}.`]
+    : sentences;
+}
+
 /** Where a surface draws: the time, and its columns (a toast's inside the toast, `toastRoom`). */
 export type SurfaceView = { nowMs: number; width: number };
 
@@ -927,6 +952,7 @@ export function toastInput(
 ): ToastInput {
   return {
     ...surfaceInput("toast", snapshot, settings, view.nowMs),
+    colors: settings.colors,
     toastLayout: settings.toast.layout,
     room: view.width,
     sessionTokens: settings.toast.sessionTokens ? snapshot.sessionTokens : undefined,

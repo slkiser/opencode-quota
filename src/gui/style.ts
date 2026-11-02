@@ -1,0 +1,304 @@
+/**
+ * The usage window's CSS, added with the `Style` registry. Every class starts with `oq-`. Colors
+ * come from the app's theme variables where it has them (text, surfaces, borders, the success,
+ * warning and critical icon colors), with fallbacks for light and dark: the window's root sets
+ * `data-mode` from `ctx.appearance.mode()`. The series colors are mid tones that read on both.
+ * The always-on surfaces (`.oq-surface`: the Quota tab and the bottom strip) take the TUI's named
+ * colors as `--oq-n-<name>` from the same theme variables. The Settings page (`.oq-settings`)
+ * takes the window's variables, and OpenCode's own Settings styles through their classes.
+ */
+export const STYLE = `
+.oq-window {
+  --oq-text: var(--text-strong, #0b0b0b);
+  --oq-text-2: var(--text-base, #52514e);
+  --oq-muted: var(--text-weak, #8a8984);
+  --oq-line: var(--border-weak-base, #e7e6e2);
+  --oq-raised: var(--surface-raised-base, #ffffff);
+  --oq-hover: var(--surface-base-hover, #f1f1ef);
+  --oq-empty: #ebeae6;
+  --oq-good: var(--icon-success-base, #0ca30c);
+  --oq-warning: var(--icon-warning-base, #d99a0b);
+  --oq-low: var(--icon-critical-base, #d03b3b);
+  --oq-low-bg: color-mix(in srgb, var(--oq-low) 10%, transparent);
+  --oq-s0: #2a78d6;
+  --oq-s1: #eb6834;
+  --oq-s2: #1baf7a;
+  --oq-s3: #e3a008;
+  --oq-s4: #9a6bd8;
+  --oq-s5: #9b9a95;
+  --oq-t0: #8f8e8a;
+  --oq-t1: #c4c3be;
+  --oq-t2: #5c5b57;
+  --oq-t3: #1f1f1d;
+  color: var(--oq-text);
+  font-size: 13px;
+  line-height: 1.45;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.oq-window[data-mode="dark"] {
+  --oq-text: var(--text-strong, #ededec);
+  --oq-text-2: var(--text-base, #b5b4b0);
+  --oq-muted: var(--text-weak, #8a8984);
+  --oq-line: var(--border-weak-base, #2f2f2d);
+  --oq-raised: var(--surface-raised-base, #1d1d1c);
+  --oq-hover: var(--surface-base-hover, #262625);
+  --oq-empty: #353533;
+  --oq-s0: #4a90e2;
+  --oq-s1: #f07b4b;
+  --oq-s2: #2cc28c;
+  --oq-s3: #f0b429;
+  --oq-s4: #a985e0;
+  --oq-s5: #8a8984;
+  --oq-t0: #8f8e8a;
+  --oq-t1: #5c5b57;
+  --oq-t2: #c4c3be;
+  --oq-t3: #f2f2f0;
+}
+.oq-c0 { --oq-c: var(--oq-s0); } .oq-c1 { --oq-c: var(--oq-s1); } .oq-c2 { --oq-c: var(--oq-s2); }
+.oq-c3 { --oq-c: var(--oq-s3); } .oq-c4 { --oq-c: var(--oq-s4); } .oq-c5 { --oq-c: var(--oq-s5); }
+.oq-good { --oq-c: var(--oq-good); } .oq-warning { --oq-c: var(--oq-warning); } .oq-low { --oq-c: var(--oq-low); }
+.oq-input { --oq-c: var(--oq-t0); } .oq-cacheRead { --oq-c: var(--oq-t1); }
+.oq-cacheWrite { --oq-c: var(--oq-t2); } .oq-output { --oq-c: var(--oq-t3); }
+.oq-muted { color: var(--oq-muted); }
+.oq-small { font-size: 12px; }
+.oq-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--oq-c); flex: none; }
+.oq-mark { color: var(--oq-c); font-size: 10px; }
+
+.oq-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.oq-head .oq-right { margin-left: auto; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.oq-seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--oq-hover); }
+.oq-seg button { border: 0; background: transparent; color: var(--oq-text-2); font: inherit; font-size: 12px;
+  padding: 3px 9px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.oq-seg button:hover { color: var(--oq-text); }
+.oq-seg button[aria-pressed="true"] { background: var(--oq-raised); color: var(--oq-text);
+  box-shadow: 0 0 0 1px var(--oq-line); }
+.oq-seg button:disabled { opacity: .4; cursor: default; }
+/* The app's scroll box keeps room for its scrollbar, so a long view does not narrow the header. */
+[data-scrollable]:has(> .oq-window) { scrollbar-gutter: stable; }
+/* "Between"'s dates in the dialog's title row, before the close button, no taller than the title. */
+.oq-title-slot { order: 1; align-self: center; margin: -5px 12px -5px auto; }
+[data-slot="dialog-header"]:has(> .oq-title-slot) > [data-slot="dialog-close-button"] { order: 2; }
+.oq-window.oq-title-dates { display: block; }
+/* A toast's text keeps its line breaks (\`toasts.ts\` marks it). A quota toast's text is hidden from
+   sight, not from assistive tech, while our rows (\`.oq-toast-rows\`) stand in for it. */
+.toast-v2 [data-description][data-oq-lines] { white-space: pre-line; }
+.toast-v2 [data-description][data-oq-rows] { position: absolute; width: 1px; height: 1px; margin: -1px;
+  padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* The app measures a toast before our rows are drawn, and an expanded stack fixes each toast at that
+   height; a toast with rows takes its own. The app's toast is at most min(420px, 100dvh - 96px), and
+   its title and padding take about 52px of that, so more rows than fit scroll. */
+.toast-v2[data-expanded="true"]:has([data-oq-rows]) { height: auto !important; }
+.oq-between { display: flex; align-items: center; justify-content: flex-end; gap: 6px; font-size: 12px; color: var(--oq-text-2); }
+.oq-between input { font: inherit; color: var(--oq-text); background: var(--oq-raised);
+  border: 1px solid var(--oq-line); border-radius: 6px; padding: 2px 6px; color-scheme: light dark; }
+.oq-note { font-size: 12px; color: var(--oq-text-2); }
+
+.oq-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 12px; }
+.oq-card { background: var(--oq-raised); border: 1px solid var(--oq-line); border-radius: 12px; padding: 12px 14px 8px; }
+.oq-card.oq-current { box-shadow: 0 0 0 2px color-mix(in srgb, var(--oq-s0) 35%, transparent); }
+.oq-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.oq-card-head .oq-name { font-weight: 600; font-size: 14px; }
+.oq-chip { display: inline-flex; font-size: 11px; padding: 1px 7px; border-radius: 99px;
+  background: var(--oq-hover); color: var(--oq-text-2); white-space: nowrap; }
+.oq-chip.oq-current-chip { margin-left: auto; color: var(--oq-s0); background: color-mix(in srgb, var(--oq-s0) 12%, transparent); }
+.oq-error { font-size: 12px; color: var(--oq-low); background: var(--oq-low-bg); border-radius: 8px; padding: 6px 10px; margin: 4px 0 6px; }
+.oq-row { display: grid; grid-template-columns: minmax(80px, 140px) 1fr auto; gap: 4px 12px; align-items: center; padding: 7px 0; }
+.oq-row + .oq-row { border-top: 1px dashed var(--oq-line); }
+.oq-row .oq-label { font-size: 12.5px; color: var(--oq-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oq-row .oq-value { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.oq-row .oq-sub { grid-column: 2 / 4; display: flex; gap: 10px; font-size: 11.5px; color: var(--oq-muted); }
+.oq-row .oq-pace { margin-left: auto; }
+.oq-row .oq-pace.oq-fast { color: var(--oq-low); }
+.oq-row.oq-plain .oq-value { grid-column: 2 / 4; text-align: left; }
+.oq-bar { position: relative; height: 8px; border-radius: 4px; background: var(--oq-empty); }
+.oq-bar .oq-fill { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--oq-c); }
+.oq-bar .oq-even { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px;
+  background: var(--oq-text); box-shadow: 0 0 0 1.5px var(--oq-raised); }
+.oq-strip { display: flex; flex-wrap: wrap; gap: 6px 20px; align-items: center; background: var(--oq-raised);
+  border: 1px solid var(--oq-line); border-radius: 12px; padding: 8px 14px; font-size: 12.5px; }
+.oq-strip b { font-weight: 500; font-variant-numeric: tabular-nums; }
+.oq-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--oq-text-2); }
+.oq-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; background: var(--oq-c); }
+.oq-legend .oq-even-key { width: 2px; background: var(--oq-text); }
+.oq-legend b { font-weight: 500; color: var(--oq-text); }
+
+.oq-top { display: grid; grid-template-columns: minmax(220px, 280px) 1fr; gap: 32px; }
+.oq-total { font-size: 32px; font-weight: 600; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
+.oq-providers { margin-top: 18px; display: grid; gap: 14px; }
+.oq-provider .oq-l1 { display: flex; align-items: baseline; gap: 6px; }
+.oq-provider .oq-l1 .oq-amount { margin-left: auto; font-variant-numeric: tabular-nums; }
+.oq-provider .oq-l2 { color: var(--oq-text-2); font-size: 12px; margin-left: 14px; }
+.oq-section { font-size: 14px; font-weight: 500; margin: 8px 0 0; display: flex; align-items: center; gap: 10px; }
+.oq-section .oq-seg { margin-left: auto; }
+.oq-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+.oq-totals .oq-k { color: var(--oq-text-2); font-size: 12px; }
+.oq-totals .oq-v { font-size: 17px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.oq-types { display: flex; gap: 2px; height: 6px; max-width: 470px; }
+.oq-types span { height: 6px; border-radius: 2px; background: var(--oq-c); }
+.oq-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.oq-table th { text-align: right; color: var(--oq-text-2); font-weight: 400; font-size: 12px; padding: 6px 0 8px;
+  border-bottom: 1px solid var(--oq-line); }
+.oq-table td { text-align: right; padding: 9px 0 10px; border-bottom: 1px solid var(--oq-line); }
+.oq-table th + th, .oq-table td + td { padding-left: 18px; }
+.oq-table th:nth-child(-n+2), .oq-table td:nth-child(-n+2) { text-align: left; }
+.oq-table td:first-child { color: var(--oq-muted); font-size: 12px; width: 28px; }
+.oq-table td.oq-warning { color: var(--oq-c); }
+.oq-table tr.oq-click { cursor: pointer; }
+.oq-table tr.oq-click:hover td { background: var(--oq-hover); }
+.oq-rowbar { height: 2px; border-radius: 2px; margin-top: 5px; background: var(--oq-c, var(--oq-text-2)); }
+.oq-chart { position: relative; }
+.oq-chart-side { display: flex; flex-direction: column; min-width: 0; }
+.oq-chart-fill { position: relative; flex: 1 1 auto; min-height: 220px; max-height: 480px; margin-top: 8px; }
+.oq-chart-fill > .oq-chart { position: absolute; inset: 0; }
+.oq-chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.oq-chart .oq-axis { font-size: 10px; fill: var(--oq-muted); }
+.oq-chart .oq-gridline { stroke: var(--oq-line); }
+.oq-chart .oq-area { fill: var(--oq-c); fill-opacity: .14; }
+.oq-chart .oq-edge { fill: none; stroke: var(--oq-c); stroke-width: 2; stroke-linejoin: round; }
+.oq-chart .oq-cross { stroke: var(--oq-text-2); stroke-dasharray: 3 3; }
+.oq-tip { position: absolute; top: 8px; pointer-events: none; min-width: 170px; z-index: 2; background: var(--oq-raised);
+  border: 1px solid var(--oq-line); border-radius: 8px; padding: 8px 10px; font-size: 12px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .14); }
+.oq-tip .oq-tip-row { display: flex; gap: 8px; align-items: center; }
+.oq-tip .oq-tip-row b { margin-left: auto; font-weight: 500; font-variant-numeric: tabular-nums; }
+.oq-tip .oq-tip-total { border-top: 1px solid var(--oq-line); margin-top: 4px; padding-top: 4px; }
+.oq-kv { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.oq-kv .oq-k { font-size: 12px; color: var(--oq-text-2); }
+.oq-kv .oq-v { font-size: 16px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.oq-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+.oq-surface {
+  --oq-n-text: var(--text-strong, #0b0b0b);
+  --oq-n-muted: var(--text-weak, #8a8984);
+  --oq-n-accent: var(--text-interactive-base, #2a78d6);
+  --oq-n-green: var(--icon-success-base, #0ca30c);
+  --oq-n-yellow: var(--icon-warning-base, #d99a0b);
+  --oq-n-red: var(--icon-critical-base, #d03b3b);
+  --oq-n-blue: var(--icon-info-base, #2a78d6);
+  color: var(--oq-n-text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.oq-surface[data-mode="dark"] {
+  --oq-n-text: var(--text-strong, #ededec);
+  --oq-n-muted: var(--text-weak, #8a8984);
+  --oq-n-accent: var(--text-interactive-base, #4a90e2);
+  --oq-n-blue: var(--icon-info-base, #4a90e2);
+}
+.oq-surface button { border: 0; background: transparent; font: inherit; color: inherit; padding: 0; cursor: pointer; }
+.oq-panel { padding: 10px 12px; overflow: auto; height: 100%; box-sizing: border-box; }
+.oq-panel .oq-muted { color: var(--oq-n-muted); }
+.oq-panel-title { font-weight: 600; margin-bottom: 8px; }
+/* The rows of every provider share the columns of one grid: label (as wide as the widest, at most
+   40% of the room), bar, percent and reset time. Groups and rows are subgrids of it. */
+.oq-prows { display: grid; grid-template-columns: fit-content(40%) minmax(30px, 1fr) max-content max-content;
+  column-gap: 6px; align-items: center; font-variant-numeric: tabular-nums; }
+.oq-pgroup, .oq-prow { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; }
+.oq-pname { grid-column: 1 / -1; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; margin-bottom: 2px; }
+.oq-prow { white-space: nowrap; margin: 2px 0; }
+.oq-prow > span { min-width: 0; }
+.oq-prow > span:first-child { overflow: hidden; text-overflow: ellipsis; }
+.oq-prow.oq-plain > span + span, .oq-prow .oq-pwide { grid-column: 2 / -1; overflow: hidden; text-overflow: ellipsis; }
+.oq-pnum { text-align: right; font-variant-numeric: tabular-nums; }
+.oq-pbar { position: relative; height: 6px; border-radius: 3px; }
+.oq-pfill { position: absolute; inset: 0 auto 0 0; border-radius: 3px; }
+.oq-peven { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; border-radius: 1px; }
+.oq-ppace { grid-column: 2 / -1; font-size: 11.5px; }
+.oq-toast-rows { min-width: 0; max-height: min(366px, 100dvh - 150px); overflow-y: auto; }
+.oq-strip-bottom { position: relative; display: flex; align-items: center; justify-content: flex-end;
+  flex: 0 0 auto; align-self: stretch; box-sizing: border-box; width: 100%; min-width: 0; height: 26px;
+  overflow: hidden; white-space: nowrap; padding: 0 12px; margin-left: auto;
+  font-size: 12px; font-variant-numeric: tabular-nums; }
+.oq-sitem { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 0; border: 0;
+  background: none; color: inherit; font: inherit; cursor: pointer; }
+.oq-sitem .oq-sname { overflow: hidden; text-overflow: ellipsis; }
+.oq-sitem:hover .oq-sname { text-decoration: underline; }
+.oq-sbarbox { display: block; flex: none; width: 40px; }
+.oq-sbarbox.oq-wide { width: 80px; }
+.oq-sbarbox .oq-pbar { display: block; width: 100%; }
+.oq-ssep { flex: none; white-space: pre; }
+.oq-sarrow { flex: none; padding: 0; border: 0; background: none; font: inherit; white-space: pre; cursor: pointer; }
+.oq-smeasure { position: absolute; top: 0; left: 0; visibility: hidden; pointer-events: none; }
+.oq-smeasure > div { display: flex; width: max-content; }
+/* The Settings page uses OpenCode's own Settings markup (page header, sections, list cards, rows),
+   so the app's styles give it its look. These :where() rules weigh nothing, so the app's win; they
+   keep the page laid out if the app renames its classes. The one on Tailwind's
+   .text-v2-text-text-muted beats the app's (Tailwind's sits in a cascade layer) with the same color. */
+:where(.oq-settings) :where(.settings-tab-header) { position: sticky; top: 0; z-index: 10;
+  background: var(--v2-background-bg-base, var(--background-base, var(--oq-raised))); padding: 24px 0 16px; }
+:where(.oq-settings) :where(.settings-tab-header--stacked) { display: flex; flex-direction: column; gap: 24px; }
+:where(.oq-settings) :where(.settings-tab-header-row) { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+:where(.oq-settings) :where(.settings-tab-title) { font-size: 15px; font-weight: 640; line-height: 20px;
+  color: var(--v2-text-text-base, var(--oq-text)); }
+:where(.oq-settings) :where(.text-v2-text-text-muted) { color: var(--v2-text-text-muted, var(--oq-muted)); }
+:where(.oq-settings) :where(.settings-tab-body) { display: flex; flex-direction: column; gap: 32px; padding: 24px 0 80px; }
+:where(.oq-settings) :where(.settings-section) { display: flex; flex-direction: column; gap: 16px; }
+:where(.oq-settings) :where(.settings-section-title) { font-size: 13px; font-weight: 530; line-height: 16px;
+  color: var(--v2-text-text-base, var(--oq-text)); padding: 0; }
+:where(.oq-settings) :where([data-component="settings-list"]) { background-color: var(--v2-background-bg-layer-01, var(--oq-raised));
+  box-shadow: inset 0 0 0 .5px var(--v2-border-border-muted, var(--oq-line)); border-radius: 8px; padding-inline: 20px; }
+:where(.oq-settings) :where([data-component="settings-row"]) { display: flex; flex-wrap: wrap; align-items: center; gap: 16px;
+  padding-block: 20px; border-bottom: .5px solid var(--v2-border-border-base, var(--oq-line)); }
+:where(.oq-settings) :where([data-component="settings-row"]:last-child) { border-bottom: none; }
+:where(.oq-settings) :where([data-slot="settings-row-copy"]) { display: flex; flex-direction: column; flex: 1; gap: 8px; min-width: 0; }
+:where(.oq-settings) :where([data-slot="settings-row-title"]) { font-size: 13px; font-weight: 530; line-height: 16px;
+  color: var(--v2-text-text-base, var(--oq-text)); }
+:where(.oq-settings) :where([data-slot="settings-row-description"]) { color: var(--v2-text-text-muted, var(--oq-text-2));
+  margin-block: -3.5px; font-size: 13px; font-weight: 440; line-height: 20px; }
+:where(.oq-settings) :where([data-slot="settings-row-control"]) { display: flex; justify-content: flex-end; flex-shrink: 0; }
+.oq-settings { gap: 0; }
+.oq-settings h2, .oq-settings h3, .oq-settings h4 { margin: 0; }
+.oq-settings [data-action] { scroll-margin-top: calc(var(--oq-head-h, 0px) + 24px); }
+.oq-settings .oq-bad { color: var(--oq-low); }
+.oq-settings .oq-mono, .oq-settings .oq-key, .oq-settings .oq-status { font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace); }
+.oq-shead-copy { flex: 1; min-width: 0; }
+.oq-shead-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.oq-snav { display: flex; flex-wrap: wrap; gap: 2px; margin-left: -8px; }
+.oq-sgroup-head { display: flex; flex-direction: column; gap: 4px; }
+.oq-sgroup-title { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.oq-sgroup-title .oq-right { margin-left: auto; }
+.oq-sgroup-desc { margin: 0; font-size: 12px; line-height: 16px; color: var(--v2-text-text-muted, var(--oq-text-2)); }
+.oq-sgroup-part { display: flex; flex-direction: column; gap: 8px; }
+.oq-sgroup-part > [data-component="settings-list"]:empty { display: none; }
+.oq-subhead { margin: 0; font-size: 12px; font-weight: 530; line-height: 16px; color: var(--v2-text-text-muted, var(--oq-muted)); }
+.oq-subhead-action { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.oq-srow [data-slot="settings-row-title"] { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.oq-srow.oq-changed [data-slot="settings-row-title"]::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--oq-s0); }
+.oq-srow.oq-nested { padding-left: 20px; }
+.oq-srow .oq-d, .oq-srow .oq-key { display: block; }
+.oq-key { font-size: 11px; line-height: 16px; color: var(--v2-text-text-muted, var(--oq-muted)); }
+.oq-srow .oq-d + .oq-key { margin-top: 2px; }
+.oq-ctl-line { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.oq-chip.oq-tui { color: var(--oq-warning); background: color-mix(in srgb, var(--oq-warning) 14%, transparent); }
+.oq-select, .oq-input { box-sizing: border-box; height: 28px; font: inherit; font-size: 13px; color: var(--v2-text-text-base, var(--oq-text));
+  background: var(--v2-background-bg-base, var(--oq-raised)); border: 0; border-radius: 6px; padding: 0 8px;
+  box-shadow: var(--v2-elevation-button-neutral, 0 0 0 1px var(--oq-line)); color-scheme: light dark; }
+.oq-select { min-width: 140px; max-width: 280px; cursor: pointer; }
+.oq-input.oq-number { width: 96px; }
+.oq-input[aria-invalid="true"] { box-shadow: 0 0 0 1px var(--oq-low); }
+.oq-color { width: 34px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: none; cursor: pointer;
+  box-shadow: var(--v2-elevation-button-neutral, 0 0 0 1px var(--oq-line)); }
+.oq-tree-box summary { cursor: pointer; font-size: 13px; color: var(--v2-text-text-muted, var(--oq-text-2)); padding: 4px 0; }
+.oq-tree-box > [data-component="settings-list"] { margin-top: 8px; }
+.oq-tr { display: grid; grid-template-columns: 26px 1fr 180px 54px; align-items: center; gap: 8px; padding: 8px 0;
+  border-bottom: .5px solid var(--v2-border-border-base, var(--oq-line)); font-size: 13px; }
+.oq-tr:last-child { border-bottom: 0; }
+.oq-tr input[type="checkbox"] { cursor: pointer; }
+.oq-tr .oq-select, .oq-tr .oq-input { min-width: 0; width: 100%; max-width: none; height: 24px; padding: 0 6px; font-size: 12px; }
+.oq-tr.oq-tr-row { padding-left: 26px; color: var(--v2-text-text-muted, var(--oq-text-2)); }
+.oq-tr.oq-tr-muted .oq-tr-name { opacity: .45; }
+.oq-tr.oq-tr-hidden .oq-tr-name { text-decoration: line-through; }
+.oq-mv { display: flex; gap: 2px; }
+.oq-mv button { border: 0; background: transparent; font: inherit; cursor: pointer; color: var(--oq-muted); padding: 0 4px; }
+.oq-mv button:hover { color: var(--oq-text); }
+.oq-notice { margin: 0; padding: 16px 0; font-size: 13px; line-height: 20px; border-bottom: .5px solid var(--v2-border-border-base, var(--oq-line)); }
+.oq-notice:last-child { border-bottom: 0; }
+.oq-notice a { color: var(--v2-text-text-accent, var(--oq-s0)); }
+.oq-status { margin: 0; padding: 16px 20px; font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; overflow-x: auto;
+  background: var(--v2-background-bg-layer-01, var(--oq-raised)); box-shadow: inset 0 0 0 .5px var(--v2-border-border-muted, var(--oq-line));
+  border-radius: 8px; }
+.oq-path { word-break: break-all; }
+.oq-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+`;

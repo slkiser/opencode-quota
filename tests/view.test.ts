@@ -1077,6 +1077,7 @@ describe("view text", () => {
       words: DEFAULT_WORDS,
       nowMs: NOW,
       layout: display.layout,
+      colors: display.colors,
       toastLayout,
       room,
       runsOut: true,

@@ -245,6 +245,15 @@ describe("usage report ranges", () => {
       query: { range: "session", sessionID: "ses_missing" },
       error: "Session not found: ses_missing",
     },
+    // Without its subagents, the session is checked all the same.
+    {
+      query: { range: "session", sessionID: "ses_missing", subagents: false },
+      error: "Session not found: ses_missing",
+    },
+    {
+      query: { range: "session", sessionID: "missing", subagents: false },
+      error: "Session not found: missing",
+    },
   ])("rejects $query.range: $error", async ({ query, error }) => {
     writeHistory([message({ created: at(0, 8) })]);
 
@@ -350,6 +359,12 @@ describe("usage report sessions", () => {
     // A session counts with its subagent sessions, and theirs.
     { query: { range: "session", sessionID: "ses_root" }, tokens: 1 + 2 + 4, sessions: 1 },
     { query: { range: "session", sessionID: "ses_child" }, tokens: 2 + 4, sessions: 1 },
+    // Without its subagents, the session alone.
+    {
+      query: { range: "session", sessionID: "ses_root", subagents: false },
+      tokens: 1,
+      sessions: 1,
+    },
     // Subagent sessions count as part of their top session.
     { query: { range: "today" }, tokens: 15, sessions: 2 },
   ])("$query.range $query.sessionID counts $sessions session(s)", async (item) => {
@@ -758,11 +773,43 @@ describe("usage report cost", () => {
       [
         "claude-test",
         [
-          { date: "2026-03-12", costUsd: expect.closeTo(2, 10), tokens: M },
-          { date: "2026-03-15", costUsd: expect.closeTo(2 + 10, 10), tokens: 2 * M },
+          { date: "2026-03-12", costUsd: expect.closeTo(2, 10), tokens: M, priced: true },
+          { date: "2026-03-15", costUsd: expect.closeTo(2 + 10, 10), tokens: 2 * M, priced: true },
         ],
       ],
-      ["claude-plain", [{ date: "2026-03-14", costUsd: expect.closeTo(1, 10), tokens: M }]],
+      [
+        "claude-plain",
+        [{ date: "2026-03-14", costUsd: expect.closeTo(1, 10), tokens: M, priced: true }],
+      ],
+    ]);
+  });
+
+  it("prices a model and its days by their own messages when the price depends on prompt size", async () => {
+    // Cursor bills grok-4.7 prompts over 200k tokens at a rate no table here holds.
+    writeHistory([
+      message({
+        providerID: "cursor",
+        modelID: "grok-4.7",
+        created: at(-1, 8),
+        tokens: { input: 250_000 },
+      }),
+      message({
+        providerID: "cursor",
+        modelID: "grok-4.7",
+        created: at(0, 8),
+        tokens: { input: 1_000 },
+      }),
+    ]);
+
+    const report = await usageReport({ range: "7d" }, NOW);
+
+    const [model] = report.models;
+    expect(model?.priced).toBe(true);
+    expect(model?.costUsd).toBeGreaterThan(0);
+    expect(model?.unpricedTokens).toBe(250_000);
+    expect(model?.days.map(({ date, priced }) => [date, priced])).toEqual([
+      ["2026-03-14", false],
+      ["2026-03-15", true],
     ]);
   });
 

@@ -178,4 +178,9 @@ describe("the Settings tabs' field table", () => {
     ]);
     expect(resetKeys("layout").every((key) => /^(layout|words)\./.test(key))).toBe(true);
   });
+
+  it("leaves Desktop's own setting to Desktop when the Status line tab resets", () => {
+    expect(resetKeys("statusLine")).toContain("statusLine.withSidebar");
+    expect(resetKeys("statusLine")).not.toContain("statusLine.withSidePanel");
+  });
 });

@@ -18,6 +18,14 @@ import {
   type QuotaProviderDefinition,
   validateQuotaProviders,
 } from "../lib/quota-providers.js";
+import {
+  CHANGED_SINCE_REVIEW,
+  RECORD_KINDS,
+  THEME_COLOR_NAMES,
+  UNSET_IS_NOT_DEFAULT,
+} from "./shared.js";
+
+export { CHANGED_SINCE_REVIEW, THEME_COLOR_NAMES, UNSET_IS_NOT_DEFAULT };
 
 type NumberBounds = { min?: number; above?: number; max?: number };
 export type SettingRule = (
@@ -31,33 +39,14 @@ export type SettingRule = (
   /** An absolute or `~/` path without `..`; also "" or a command name when allowed. */
   | { kind: "path"; allowEmpty?: boolean; allowCommand?: boolean }
   | {
-      kind:
-        | "providers"
-        | "customProviders"
-        | "strings"
-        | "names"
-        | "rowOrder"
-        | "window"
-        | "color"
-        | "separator";
+      kind: "providers" | "customProviders" | "strings" | "names" | "rowOrder" | "window" | "color";
     }
+  | { kind: "separator"; maxLength: number }
 ) & {
   default: unknown;
   /** Only the file sets it (by hand or by an agent): `saveSettings` needs `allowFileOnly`. */
   fileOnly?: boolean;
 };
-
-/** The names a color setting takes besides "#rrggbb": theme colors, and the row's bar color. */
-export const THEME_COLOR_NAMES = [
-  "text",
-  "muted",
-  "accent",
-  "green",
-  "yellow",
-  "red",
-  "blue",
-  "bar",
-] as const;
 
 const bool = (value: boolean) => ({ kind: "boolean", default: value }) as const;
 const choice = <const V extends readonly string[]>(values: V, value: V[number]) =>
@@ -85,8 +74,10 @@ export const SETTINGS_SCHEMA = {
   /** A window by provider id; `ALL_PROVIDERS` ("*") for every provider without its own. */
   "collapsed.window": { kind: "window", default: {} },
   "statusLine.show": bool(true),
-  /** Also while a sidebar panel shows quota; else only when none is on screen. */
+  /** The TUI's: also while a sidebar panel shows quota; else only when none is on screen. */
   "statusLine.withSidebar": bool(false),
+  /** Desktop's: also while the Quota tab shows in the side panel; else only when it does not. */
+  "statusLine.withSidePanel": bool(true),
   "statusLine.runsOut": bool(false),
   "statusLine.hidden": { kind: "strings", default: [] },
   "statusLine.providerOrder": { kind: "strings", default: [] },
@@ -144,7 +135,7 @@ export const SETTINGS_SCHEMA = {
   /** Empty lines between providers in the sidebar. */
   "layout.providerGap": { ...whole(0, 2), default: 1 },
   /** Between providers on the status line. */
-  "layout.separator": { kind: "separator", default: " · " },
+  "layout.separator": { kind: "separator", maxLength: 5, default: " · " },
   /**
    * The share every client shows: "58% left", "58% remaining", "58%", or "42% used". `used` also
    * fills the bars and their even-use mark with the share used. The expanded sidebar panel says
@@ -342,7 +333,7 @@ export function describeRule(rule: SettingRule): string {
     case "color":
       return "a theme color, bar, or #rrggbb";
     case "separator":
-      return "a string of at most 5 characters";
+      return `a string of at most ${rule.maxLength} characters`;
   }
 }
 
@@ -402,8 +393,8 @@ function checkCustomProviders(key: string, value: unknown): CheckedSetting {
 }
 
 export function isRecordSetting(key: string): boolean {
-  const kind = RULES[key]?.kind;
-  return kind === "names" || kind === "rowOrder" || kind === "window";
+  const kind = Object.hasOwn(RULES, key) ? RULES[key].kind : undefined;
+  return kind !== undefined && RECORD_KINDS.includes(kind);
 }
 
 function isStringList(value: unknown): value is string[] {
@@ -438,7 +429,9 @@ export function checkSetting(key: string, value: unknown): CheckedSetting {
     case "strings":
       return isStringList(value) ? { value, issues: [] } : invalid;
     case "separator":
-      return typeof value === "string" && value.length <= 5 ? { value, issues: [] } : invalid;
+      return typeof value === "string" && value.length <= rule.maxLength
+        ? { value, issues: [] }
+        : invalid;
     case "color":
       return value === undefined ||
         (THEME_COLOR_NAMES as readonly string[]).includes(String(value)) ||
@@ -596,14 +589,6 @@ export function settingsFrom(assignments: readonly Assignment[]): {
 }
 
 /**
- * Settings where no value is not the same as the default value: unset, the providers with their
- * own request timeout use it; set, every provider uses that one.
- */
-export const UNSET_IS_NOT_DEFAULT: ReadonlySet<string> = new Set([
-  "providers.checking.requestTimeoutMs",
-]);
-
-/**
  * Every setting whose value differs between `before` and `after`. With the keys each file sets,
  * a setting in `UNSET_IS_NOT_DEFAULT` the file does not set is null, so setting it to its
  * default or removing it is a change too.
@@ -636,9 +621,6 @@ export type CustomProviderSwitch = {
   /** `customProviderFingerprint`: switching it on sends it back, so it is this definition. */
   fingerprint: string;
 };
-
-/** Why a custom provider is not switched on: its definition is not the one the user saw. */
-export const CHANGED_SINCE_REVIEW = "changed since you reviewed it; look again";
 
 /**
  * A hash of what the user checks before switching a custom provider on (`request`) and of the

@@ -14,7 +14,8 @@ import {
   type WindowChoice,
   windowFor,
 } from "../../view/select.js";
-import { type DisplaySettings, renameRow, type SettingsTab, setIn, stepIn } from "../display.js";
+import { renameRow, setIn, stepIn } from "../../view/settings-edit.js";
+import type { DisplaySettings, SettingsTab } from "../display.js";
 
 /** A change of the display settings, as `DisplayStore.edit` makes it. */
 export type SettingsEdit = (settings: DisplaySettings) => DisplaySettings;
@@ -113,6 +114,25 @@ export function surfaceEditor(surface: Surface, snapshot?: QuotaSnapshot) {
     return setIn(settings, path, moveTo(rowIds, id, index));
   }
 
+  /** The provider's window set to the choice `next` picks from its choices and current window. */
+  function windowEdit(
+    providerId: string,
+    next: (choices: WindowChoice[], current: WindowChoice) => WindowChoice,
+  ): SettingsEdit {
+    return (settings) => {
+      const provider = snapshot?.providers.find((item) => item.providerId === providerId);
+      const group = provider && shownGroup(provider, settings[surface].hidden);
+      const choices = group ? windowChoices(group) : [];
+      if (withRows || !group || choices.length === 0) return settings;
+      const windows = settings[windowsKey].window;
+      const { [providerId]: _ownPick, ...withoutOwnPick } = windows;
+      const inherited = windowFor(withoutOwnPick, group);
+      const picked = next(choices, windowFor(windows, group));
+      const value = picked === inherited ? undefined : picked;
+      return setIn(settings, [windowsKey, "window", providerId], value);
+    };
+  }
+
   return {
     /** The tree's lines, top to bottom: each provider, then its rows on a page that shows rows. */
     lines(settings: DisplaySettings, nowMs: number): TreeLine[] {
@@ -190,18 +210,21 @@ export function surfaceEditor(surface: Surface, snapshot?: QuotaSnapshot) {
      * line without ‹ ›: a page that shows rows, or a provider with fewer than two windows.
      */
     cycleWindow(providerId: string, delta: number): SettingsEdit {
-      return (settings) => {
-        const provider = snapshot?.providers.find((item) => item.providerId === providerId);
-        const group = provider && shownGroup(provider, settings[surface].hidden);
-        const choices = group ? windowChoices(group) : [];
-        if (withRows || !group || choices.length === 0) return settings;
-        const windows = settings[windowsKey].window;
-        const { [providerId]: _ownPick, ...withoutOwnPick } = windows;
-        const inherited = windowFor(withoutOwnPick, group);
-        const next = stepIn(choices, windowFor(windows, group), delta);
-        const value = next === inherited ? undefined : next;
-        return setIn(settings, [windowsKey, "window", providerId], value);
-      };
+      return windowEdit(providerId, (choices, current) => stepIn(choices, current, delta));
+    },
+
+    /** A click on one of the provider's windows (`windowChoices`): the same as stepping to it. */
+    pickWindow(providerId: string, choice: WindowChoice): SettingsEdit {
+      return windowEdit(providerId, (choices, current) =>
+        choices.includes(choice) ? choice : current,
+      );
+    },
+
+    /** The windows a provider's ‹ › steps through; none where `cycleWindow` does nothing. */
+    windowChoices(providerId: string, settings: DisplaySettings): WindowChoice[] {
+      const provider = snapshot?.providers.find((item) => item.providerId === providerId);
+      if (withRows || !provider) return [];
+      return windowChoices(shownGroup(provider, settings[surface].hidden));
     },
 
     /** shift+↑↓: `id` moves `delta` places. */

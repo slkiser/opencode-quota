@@ -4,7 +4,7 @@
  * call, so a surface that colors inside its JSX follows a theme or light/dark switch at once.
  */
 import { RGBA } from "@opentui/core";
-import { type Level, levelOf } from "../view/format.js";
+import { barLevel, type Level } from "../view/format.js";
 import type { ColorRole, Segment } from "../view/text.js";
 import { type ColorChoice, type ColorName, type DisplaySettings, THEME_COLORS } from "./display.js";
 
@@ -61,8 +61,7 @@ export function levelColor(
   percent: number,
   paceLevel?: Level,
 ): RGBA {
-  const role =
-    display.colors.levelBy === "pace" && paceLevel ? paceLevel : levelOf(percent, display.colors);
+  const role = barLevel(display.colors, percent, paceLevel);
   return fixedColor(theme, choiceFor(display, role), THEME_COLORS[role] as ColorName);
 }
 
