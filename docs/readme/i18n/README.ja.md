@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/slkiser/opencode-quota"><img src="https://shawnkiser.com/opencode-quota/opencode-quota-v6-hero.gif" alt="OpenCode で動く OpenCode Quota：サイドバー、クォータウィンドウの Usage タブと Limits タブ、そして設定" /></a>
+  <a href="https://github.com/slkiser/opencode-quota"><img src="https://shawnkiser.com/opencode-quota/opencode-quota-hero.webp" alt="OpenCode で動く OpenCode Quota：サイドバー、クォータウィンドウの Usage タブと Limits タブ、そして設定" /></a>
 </p>
 
 ---
