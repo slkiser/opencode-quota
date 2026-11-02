@@ -130,6 +130,8 @@ type ClaudeCommandInvocation = {
   file: string;
   args: string[];
   display: string;
+  /** Set when `args` holds one cmd.exe command line that must not be quoted a second time. */
+  windowsVerbatimArguments?: boolean;
 };
 
 type QuotaWindow = { percentRemaining: number; resetTimeIso?: string };
@@ -290,8 +292,16 @@ export function buildClaudeCommandInvocation(
   if ((runtime.platform ?? process.platform) === "win32" && needsWindowsShell) {
     return {
       file: runtime.comspec?.trim() || process.env["ComSpec"]?.trim() || "cmd.exe",
-      args: ["/d", "/s", "/c", [resolvedBinaryPath, ...args].map(quoteWindowsCmdArg).join(" ")],
+      // `/s` strips the first and last quote of what follows `/c`, so the command needs a pair of its own.
+      args: [
+        "/d",
+        "/s",
+        "/c",
+        `"${[resolvedBinaryPath, ...args].map(quoteWindowsCmdArg).join(" ")}"`,
+      ],
       display,
+      // Otherwise Node and Bun quote that one argument again and cmd.exe sees \"claude\".
+      windowsVerbatimArguments: true,
     };
   }
 
@@ -472,7 +482,11 @@ function parseClaudeCredentials(
   }
 }
 
-async function runCommand(file: string, args: string[]): Promise<CommandResult> {
+async function runCommand(
+  file: string,
+  args: string[],
+  options: { windowsVerbatimArguments?: boolean } = {},
+): Promise<CommandResult> {
   return await new Promise<CommandResult>((resolve) => {
     execFile(
       file,
@@ -483,6 +497,7 @@ async function runCommand(file: string, args: string[]): Promise<CommandResult> 
         maxBuffer: 1024 * 1024,
         // Without a console of its own (`opencode serve --service`), Windows shows one per child.
         windowsHide: true,
+        ...(options.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
       },
       (error, stdout, stderr) => {
         if (!error) {
@@ -832,7 +847,9 @@ async function probeAnthropicLocalDiagnostics(
   const runClaude = async (binaryPath: string, args: string[]): Promise<CommandResult> => {
     const invocation = buildClaudeCommandInvocation(binaryPath, args);
     checkedCommands.push(invocation.display);
-    return await runCommand(invocation.file, invocation.args);
+    return await runCommand(invocation.file, invocation.args, {
+      windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+    });
   };
 
   let binaryPath = configuredBinaryPath;
