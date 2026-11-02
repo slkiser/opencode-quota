@@ -5,7 +5,7 @@
  */
 
 import type { ErrorFacts } from "../core/errors.js";
-import type { DebugDetail, QuotaRow, QuotaWindow } from "../core/types.js";
+import type { Amount, DebugDetail, QuotaRow, QuotaWindow } from "../core/types.js";
 import { type CredentialRow, formatCredentialDisplayNames } from "../lib/opencode-auth.js";
 
 /** One row as a provider reports it; `key` is the part of the row id after the provider id. */
@@ -48,6 +48,36 @@ export const FIVE_HOUR = { key: "five_hour", label: "5h", window: "five_hour" } 
 export const WEEKLY = { key: "weekly", label: "Weekly", window: "week" } as const;
 export const MONTHLY = { key: "monthly", label: "Monthly", window: "month" } as const;
 
+/** One quota row, the way a provider reports a window: the percent left, the counts when it has
+ * them, when it resets and when it started. */
+function windowRow(fields: {
+  key: string;
+  label: string;
+  window?: QuotaWindow;
+  method: ProviderRow["method"];
+  percentRemaining: number;
+  used?: Amount;
+  limit?: Amount;
+  resetsAt?: string;
+  windowStartedAt?: string;
+}): ProviderRow {
+  return {
+    key: fields.key,
+    label: fields.label,
+    type: "quota",
+    method: fields.method,
+    authority: "provider_reported",
+    prominence: "primary",
+    ...(fields.window ? { window: fields.window } : {}),
+    percentRemaining: fields.percentRemaining,
+    ...(fields.used !== undefined ? { used: fields.used } : {}),
+    ...(fields.limit !== undefined ? { limit: fields.limit } : {}),
+    // An empty reset time means the provider gave none.
+    ...(fields.resetsAt ? { resetsAt: fields.resetsAt } : {}),
+    ...(fields.windowStartedAt ? { windowStartedAt: fields.windowStartedAt } : {}),
+  };
+}
+
 /** A remote, provider-reported quota row with the percent left: most providers' row. */
 export function quotaRow(fields: {
   key: string;
@@ -57,47 +87,53 @@ export function quotaRow(fields: {
   resetsAt?: string;
   windowStartedAt?: string;
 }): ProviderRow {
-  return {
-    key: fields.key,
-    label: fields.label,
-    type: "quota",
-    method: "remote_api",
-    authority: "provider_reported",
-    prominence: "primary",
-    ...(fields.window ? { window: fields.window } : {}),
-    percentRemaining: fields.percentRemaining,
-    // An empty reset time means the provider gave none.
-    ...(fields.resetsAt ? { resetsAt: fields.resetsAt } : {}),
-    ...(fields.windowStartedAt ? { windowStartedAt: fields.windowStartedAt } : {}),
-  };
+  return windowRow({ ...fields, method: "remote_api" });
 }
 
-/** One window of a provider reply: the percent left, when it resets, and when it started. */
-type WindowValue = {
+/** One window of a provider reply: the percent left, the counts when it has them, when it resets
+ * and when it started. */
+export type WindowValue = {
   percentRemaining: number;
   resetTimeIso?: string;
   fixedWindow?: { startedAtIso: string };
+  /** The counts a window reports besides the percent, such as the requests a Coding Plan window used. */
+  used?: Amount;
+  limit?: Amount;
 };
 
-/** A quota row for each window the provider reported, in the given order. */
+/** One window's slot: the row key it takes, the label it shows and the window it is. */
+export type Slot = { key: string; label: string; window: QuotaWindow };
+
+/** One window of a provider reply: the slot that names it and the value it reported. */
+export type WindowRow = {
+  slot: Slot;
+  value: WindowValue | undefined;
+};
+
+/** A quota row for each window the provider reported, in the given order. A window the provider
+ * reports no quota for has no row: there is nothing to show for it. */
 export function windowRows(
-  windows: ReadonlyArray<{
-    slot: { key: string; label: string; window: QuotaWindow };
-    value: WindowValue | undefined;
-  }>,
+  windows: readonly WindowRow[],
+  method: ProviderRow["method"] = "remote_api",
 ): ProviderRow[] {
-  return windows.flatMap(({ slot, value }) =>
-    value
-      ? [
-          quotaRow({
-            ...slot,
-            percentRemaining: value.percentRemaining,
-            resetsAt: value.resetTimeIso,
-            windowStartedAt: value.fixedWindow?.startedAtIso,
-          }),
-        ]
-      : [],
-  );
+  const rows: ProviderRow[] = [];
+  for (const { slot, value } of windows) {
+    if (!value) continue;
+    rows.push(
+      windowRow({
+        key: slot.key,
+        label: slot.label,
+        window: slot.window,
+        method,
+        percentRemaining: value.percentRemaining,
+        ...(value.used !== undefined ? { used: value.used } : {}),
+        ...(value.limit !== undefined ? { limit: value.limit } : {}),
+        ...(value.resetTimeIso !== undefined ? { resetsAt: value.resetTimeIso } : {}),
+        ...(value.fixedWindow ? { windowStartedAt: value.fixedWindow.startedAtIso } : {}),
+      }),
+    );
+  }
+  return rows;
 }
 
 /** An account with one error and no rows. */

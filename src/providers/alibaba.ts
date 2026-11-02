@@ -8,18 +8,19 @@ import { WINDOWS } from "../core/windows.js";
 import {
   ALIBABA_TOKEN_PLAN_ARGS,
   type AlibabaCodingPlanUsage,
-  type AlibabaCodingPlanWindow,
   type AlibabaCredentialMarkers,
   type AlibabaErrorKind,
   type AlibabaSpawnKinds,
   type AlibabaTokenPlanClosedResult,
   type AlibabaTokenPlanSeat,
   type AlibabaTokenPlanSeatResult,
+  type AlibabaTokenPlanUnit,
   type AlibabaTokenPlanWindow,
   alibabaCredentialHalves,
   CODING_PLAN_SPAWN_KINDS,
   isAlibabaTokenPlanSupportedPlatform,
-  NO_WINDOW_HINT,
+  NO_QUOTA_DATA_HINT,
+  NO_WINDOW_DATA_HINT,
   parseAlibabaCodingPlanUsageJson,
   parseAlibabaTokenPlanUsageJson,
   queryAlibabaReply,
@@ -42,8 +43,10 @@ import {
   MONTHLY,
   type ProviderFetchResult,
   type ProviderRow,
-  quotaRow,
+  type Slot,
   WEEKLY,
+  windowRows,
+  type WindowRow,
 } from "./contract.js";
 import { statusDetailsFromRecord } from "./result-helpers.js";
 
@@ -112,13 +115,14 @@ function creditAmount(value: number): Amount {
 }
 
 /**
- * One calendar month back, clamped to that month's last day: a cycle ends on the next month's
- * corresponding day at 23:59:59 (UTC+8), or on that month's last day when it has none.
+ * A number of calendar months back, clamped to that month's last day: a cycle ends on the next
+ * month's corresponding day at 23:59:59 (UTC+8), or on that month's last day when it has none.
  */
-function oneCalendarMonthBefore(resetMs: number): number {
+function calendarMonthsBefore(resetMs: number, months: number): number {
   const reset = new Date(resetMs);
-  const month = (reset.getUTCMonth() + 11) % 12;
-  const year = reset.getUTCMonth() === 0 ? reset.getUTCFullYear() - 1 : reset.getUTCFullYear();
+  const monthIndex = reset.getUTCFullYear() * 12 + reset.getUTCMonth() - months;
+  const year = Math.floor(monthIndex / 12);
+  const month = monthIndex - year * 12;
   const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
   const day = Math.min(reset.getUTCDate(), lastDay);
   return Date.UTC(
@@ -137,23 +141,132 @@ function windowStartIso(window: QuotaWindow, resetsAt: string | undefined): stri
   const resetMs = Date.parse(resetsAt);
   if (!Number.isFinite(resetMs)) return undefined;
   const lengthMs = WINDOWS[window].lengthMs;
-  const startMs = lengthMs !== undefined ? resetMs - lengthMs : oneCalendarMonthBefore(resetMs);
+  const startMs = lengthMs !== undefined ? resetMs - lengthMs : calendarMonthsBefore(resetMs, 1);
   return new Date(startMs).toISOString();
 }
 
-function windowRow(window: AlibabaTokenPlanWindow): ProviderRow {
+const HOUR_MS = 60 * 60_000;
+const DAY_MS = 24 * HOUR_MS;
+
+/** The length of one unit the CLI's field names use; a month has no fixed length. */
+const TOKEN_PLAN_UNIT_MS: Record<AlibabaTokenPlanUnit, number | undefined> = {
+  Hour: HOUR_MS,
+  Day: DAY_MS,
+  Week: 7 * DAY_MS,
+  Month: undefined,
+};
+
+/** The short label of one unit, after the count: `2d`, `3h`. */
+const TOKEN_PLAN_UNIT_SHORT: Record<AlibabaTokenPlanUnit, string> = {
+  Hour: "h",
+  Day: "d",
+  Week: "w",
+  Month: "mo",
+};
+
+/** The CLI's windows that are exactly one of the repo's windows, and the slot for each. */
+const TOKEN_PLAN_SLOTS: ReadonlyArray<readonly [string, Slot]> = [
+  ["per1Hour", { key: "hour", label: WINDOWS.hour.label, window: "hour" }],
+  ["per5Hour", FIVE_HOUR],
+  ["per1Day", { key: "day", label: WINDOWS.day.label, window: "day" }],
+  ["per1Week", WEEKLY],
+  ["per1Month", MONTHLY],
+];
+
+/** Where a Token Plan window goes: its row key, its label and, when it is exactly one of the
+ * repo's windows, that window. */
+type TokenPlanSlot = { key: string; label: string; window?: QuotaWindow };
+
+/**
+ * The slot for the CLI's window. A window that is exactly one of the repo's windows takes that
+ * window; any other window (`per2Day`, `per3Hour`) gets its own key from its count and unit, and
+ * no repo window, so it never borrows another window's length, label or reset notice. A count
+ * below 1 names no window.
+ */
+function tokenPlanSlot(window: AlibabaTokenPlanWindow): TokenPlanSlot | undefined {
+  const known = TOKEN_PLAN_SLOTS.find(([key]) => key === window.key)?.[1];
+  if (known) return known;
+  if (!Number.isSafeInteger(window.count) || window.count < 1) return undefined;
   return {
-    ...quotaRow({
-      ...MONTHLY,
-      // The row key names the half of the plan; `MONTHLY.key` would name the window instead.
-      key: "personal",
-      percentRemaining: window.percentRemaining,
-      resetsAt: window.resetTimeIso,
-      // The reply says when the month resets but not when it began.
-      windowStartedAt: windowStartIso("month", window.resetTimeIso),
-    }),
-    method: "local_cli",
+    key: `${window.count}_${window.unit.toLowerCase()}`,
+    label: `${window.count}${TOKEN_PLAN_UNIT_SHORT[window.unit]}`,
   };
+}
+
+/** When the window began: its count of units before the reset. Undefined without a reset time,
+ * or when the start is not a real date. */
+function tokenPlanWindowStartIso(window: AlibabaTokenPlanWindow): string | undefined {
+  if (window.resetTimeIso === undefined) return undefined;
+  const resetMs = Date.parse(window.resetTimeIso);
+  if (!Number.isFinite(resetMs)) return undefined;
+  const unitMs = TOKEN_PLAN_UNIT_MS[window.unit];
+  // The CLI reports when the window refreshes; a billing month started a calendar month
+  // before its reset.
+  const startMs =
+    unitMs !== undefined
+      ? resetMs - window.count * unitMs
+      : calendarMonthsBefore(resetMs, window.count);
+  const start = new Date(startMs);
+  return Number.isFinite(start.getTime()) ? start.toISOString() : undefined;
+}
+
+/** One row for each window the CLI reported a usage ratio for, in the shared row shape. */
+function tokenPlanWindowRows(windows: readonly AlibabaTokenPlanWindow[]): ProviderRow[] {
+  return windows.flatMap((window): ProviderRow[] => {
+    const slot = tokenPlanSlot(window);
+    if (!slot || window.percentRemaining === undefined) return [];
+    const startedAtIso = tokenPlanWindowStartIso(window);
+    return [
+      {
+        // The row key names the half of the plan; the slot's key names the window.
+        key: `personal.${slot.key}`,
+        label: slot.label,
+        type: "quota",
+        method: "local_cli",
+        authority: "provider_reported",
+        prominence: "primary",
+        ...(slot.window !== undefined ? { window: slot.window } : {}),
+        percentRemaining: window.percentRemaining,
+        ...(window.resetTimeIso !== undefined ? { resetsAt: window.resetTimeIso } : {}),
+        ...(startedAtIso !== undefined ? { windowStartedAt: startedAtIso } : {}),
+      },
+    ];
+  });
+}
+
+/** The windows the reply carried, the way the Coding Plan names them. */
+function tokenPlanWindowsText(windows: readonly AlibabaTokenPlanWindow[]): string {
+  const names = tokenPlanWindowNames(windows);
+  return names.length > 0 ? names.join(",") : "(none)";
+}
+
+function tokenPlanWindowNames(windows: readonly AlibabaTokenPlanWindow[]): string[] {
+  return windows.flatMap((window) => {
+    const slot = tokenPlanSlot(window);
+    return slot ? [slot.key] : [];
+  });
+}
+
+/**
+ * Why a window has no row, for `/quota_status`. Every window without a ratio: the reply carried
+ * no quota data. Some windows without one: those windows, by name, carried none.
+ */
+function tokenPlanNoDataDetails(
+  windows: readonly AlibabaTokenPlanWindow[],
+  hasQuotaData: boolean | undefined,
+): DebugDetail[] {
+  const withoutRatio = windows.filter((window) => window.percentRemaining === undefined);
+  // The CLI's own flag says whether a window carried a ratio; an older CLI sends none, and
+  // then the windows say it.
+  if (hasQuotaData === false || withoutRatio.length === windows.length) {
+    return [{ key: "window_hint", value: NO_QUOTA_DATA_HINT }];
+  }
+  const names = tokenPlanWindowNames(withoutRatio);
+  if (names.length === 0) return [];
+  return [
+    { key: "window_hint", value: NO_WINDOW_DATA_HINT },
+    { key: "no_data_windows", value: names.join(",") },
+  ];
 }
 
 function seatRow(seat: AlibabaTokenPlanSeat, key: string): ProviderRow {
@@ -207,39 +320,26 @@ const WINDOW_SLOTS = [
   ["monthly", MONTHLY],
 ] as const;
 
-function codingPlanWindowRow(
-  slot: (typeof WINDOW_SLOTS)[number][1],
-  window: AlibabaCodingPlanWindow,
-): ProviderRow {
-  // The CLI reports when the window refreshes; a billing month's start is a calendar month back.
-  const startedAt = windowStartIso(slot.window, window.resetTimeIso);
-  return {
-    key: slot.key,
-    label: slot.label,
-    type: "quota",
-    method: "local_cli",
-    authority: "provider_reported",
-    prominence: "primary",
-    window: slot.window,
-    ...(window.percentRemaining !== undefined ? { percentRemaining: window.percentRemaining } : {}),
-    ...(window.used !== undefined ? { used: amountOf(window.used, REQUEST_UNIT) } : {}),
-    ...(window.limit !== undefined ? { limit: amountOf(window.limit, REQUEST_UNIT) } : {}),
-    ...(window.resetTimeIso !== undefined ? { resetsAt: window.resetTimeIso } : {}),
-    ...(startedAt !== undefined ? { windowStartedAt: startedAt } : {}),
-    // A total of 0 gives no percentage; the text keeps the row visible rather than claiming one.
-    ...(window.percentRemaining === undefined ? { text: "no limit reported" } : {}),
-  };
-}
-
 function codingPlanWindowRows(usage: AlibabaCodingPlanUsage): ProviderRow[] {
-  return WINDOW_SLOTS.flatMap(([name, slot]) => {
+  const slots: WindowRow[] = WINDOW_SLOTS.flatMap(([name, slot]) => {
     const window = usage[name];
-    return window ? [codingPlanWindowRow(slot, window)] : [];
+    if (!window) return [];
+    // The CLI reports when the window refreshes; a billing month's start is a calendar month back.
+    const startedAt = windowStartIso(slot.window, window.resetTimeIso);
+    return [
+      {
+        slot,
+        value: {
+          percentRemaining: window.percentRemaining,
+          used: amountOf(window.used, REQUEST_UNIT),
+          limit: amountOf(window.limit, REQUEST_UNIT),
+          ...(window.resetTimeIso !== undefined ? { resetTimeIso: window.resetTimeIso } : {}),
+          ...(startedAt !== undefined ? { fixedWindow: { startedAtIso: startedAt } } : {}),
+        },
+      },
+    ];
   });
-}
-
-function tierLabel(instanceType: string): string {
-  return instanceType.charAt(0).toUpperCase() + instanceType.slice(1);
+  return windowRows(slots, "local_cli");
 }
 
 function codingPlanWindowsText(usage: AlibabaCodingPlanUsage | undefined): string {
@@ -389,22 +489,23 @@ const TOKEN_PLAN_COMMANDS: readonly AlibabaCommand[] = [
     parse(text: string): AlibabaCommandResult {
       const result: AlibabaTokenPlanClosedResult = parseAlibabaTokenPlanUsageJson(text);
       if (!result.ok) return failureResult(result.error, []);
-      // No window is valid: the CLI says the limit may be unlimited, so `window_hint` keeps its wording.
+      const rows = tokenPlanWindowRows(result.windows);
       return {
         ok: true,
-        accounts: result.monthly
-          ? [
-              {
-                name: withSuffix(TOKEN_PLAN_LABEL, "personal"),
-                rows: [windowRow(result.monthly)],
-                errors: [],
-              },
-            ]
-          : [],
-        debug: statusDetailsFromRecord({
-          windows: result.monthly ? MONTHLY.key : "(none)",
-          window_hint: result.monthly ? undefined : NO_WINDOW_HINT,
-        }),
+        accounts:
+          rows.length > 0
+            ? [
+                {
+                  name: withSuffix(TOKEN_PLAN_LABEL, "personal"),
+                  rows,
+                  errors: [],
+                },
+              ]
+            : [],
+        debug: [
+          ...statusDetailsFromRecord({ windows: tokenPlanWindowsText(result.windows) }),
+          ...tokenPlanNoDataDetails(result.windows, result.hasQuotaData),
+        ],
       };
     },
   },
@@ -454,7 +555,7 @@ const CODING_PLAN_COMMANDS: readonly AlibabaCommand[] = [
         accounts: result.usage
           ? [
               {
-                name: `${CODING_PLAN_LABEL} (${tierLabel(result.usage.instanceType)})`,
+                name: CODING_PLAN_LABEL,
                 rows: codingPlanWindowRows(result.usage),
                 errors: [],
               },

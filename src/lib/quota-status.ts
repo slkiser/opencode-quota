@@ -44,7 +44,11 @@ import {
 } from "../settings/schema.js";
 import { formatShare, formatTokens } from "../view/format.js";
 import { COUNT_LABELS } from "./accounting-format.js";
-import { ERROR_MESSAGES as ALIBABA_TOKEN_PLAN_ERRORS, NO_WINDOW_HINT } from "./alibaba.js";
+import {
+  ERROR_MESSAGES as ALIBABA_TOKEN_PLAN_ERRORS,
+  NO_QUOTA_DATA_HINT,
+  NO_WINDOW_DATA_HINT,
+} from "./alibaba.js";
 import { API_KEY_VENDORS } from "./api-key-resolver.js";
 import { COPILOT_AUTH_KEYS } from "./copilot.js";
 import { CURSOR_CANONICAL_PLUGIN_PACKAGE } from "./cursor-detection.js";
@@ -1022,12 +1026,33 @@ const ALIBABA_PROVIDER_DETAILS: DebugRules = {
   failure_kind: oneOf(...Object.keys(ALIBABA_TOKEN_PLAN_ERRORS)),
 };
 
+/** A Token Plan window that is none of the repo's windows, named by its count and unit: `2_day`.
+ * The count is 1 to 999, so the report never prints a long number; a list with any other item
+ * is not shown. */
+const TOKEN_PLAN_COUNTED_WINDOW_RE = /^[1-9]\d{0,2}_(?:hour|day|week|month)$/u;
+
+/** The windows the Token Plan reply carried: the repo's names for the ones it knows, and the
+ * count and unit for the rest. */
+const tokenPlanWindows: DebugRule = (value) =>
+  value
+    .split(",")
+    .every(
+      (item) =>
+        item === "weekly" ||
+        item === "monthly" ||
+        isQuotaWindow(item) ||
+        TOKEN_PLAN_COUNTED_WINDOW_RE.test(item),
+    )
+    ? value
+    : undefined;
+
 const ALIBABA_TOKEN_PLAN_DETAILS: DebugRules = {
   ...ALIBABA_PROVIDER_DETAILS,
-  window_hint: oneOf(NO_WINDOW_HINT),
+  window_hint: oneOf(NO_QUOTA_DATA_HINT, NO_WINDOW_DATA_HINT),
+  no_data_windows: tokenPlanWindows,
   seat_windows: listOf(["credits"]),
   seat_failure_kind: oneOf(...Object.keys(ALIBABA_TOKEN_PLAN_ERRORS)),
-  windows: listOf(["monthly"]),
+  windows: tokenPlanWindows,
 };
 
 const ALIBABA_CODING_PLAN_DETAILS: DebugRules = {

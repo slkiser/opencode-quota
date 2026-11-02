@@ -223,47 +223,144 @@ describe("alibaba token plan parser", () => {
       // The CLI reports the fraction used, so half spent means 50% remaining.
       name: "the used fraction inverted into the percent remaining",
       payload: { per1MonthPercentage: 0.5 },
-      expected: { ok: true, monthly: { percentRemaining: 50 } },
+      expected: {
+        ok: true,
+        windows: [{ key: "per1Month", count: 1, unit: "Month", percentRemaining: 50 }],
+      },
     },
     {
       name: "an epoch-ms reset as the right instant, not seconds",
       payload: { per1MonthPercentage: 0.2, per1MonthResetTime: 1_714_000_000_000 },
       expected: {
         ok: true,
-        monthly: {
-          percentRemaining: 80,
-          resetTimeIso: new Date(1_714_000_000_000).toISOString(),
-        },
+        windows: [
+          {
+            key: "per1Month",
+            count: 1,
+            unit: "Month",
+            percentRemaining: 80,
+            resetTimeIso: new Date(1_714_000_000_000).toISOString(),
+          },
+        ],
       },
     },
     {
       name: "a percentage without a reset, without inventing one",
       payload: { per1MonthPercentage: 0 },
-      expected: { ok: true, monthly: { percentRemaining: 100 } },
+      expected: {
+        ok: true,
+        windows: [{ key: "per1Month", count: 1, unit: "Month", percentRemaining: 100 }],
+      },
     },
     {
       name: "full exhaustion",
       payload: { per1MonthPercentage: 1, per1MonthResetTime: 1_714_600_000_000 },
       expected: {
         ok: true,
-        monthly: { percentRemaining: 0, resetTimeIso: "2024-05-01T21:46:40.000Z" },
+        windows: [
+          {
+            key: "per1Month",
+            count: 1,
+            unit: "Month",
+            percentRemaining: 0,
+            resetTimeIso: "2024-05-01T21:46:40.000Z",
+          },
+        ],
       },
     },
     {
       name: "unrounded precision until shared rendering",
       payload: { per1MonthPercentage: 0.123456789 },
-      expected: { ok: true, monthly: { percentRemaining: 100 - 0.123456789 * 100 } },
+      expected: {
+        ok: true,
+        windows: [
+          {
+            key: "per1Month",
+            count: 1,
+            unit: "Month",
+            percentRemaining: 100 - 0.123456789 * 100,
+          },
+        ],
+      },
+    },
+    {
+      // Every window the API returned comes through, and the CLI says it read a ratio.
+      name: "every window the reply carries, with the CLI's own flag",
+      payload: { per5HourPercentage: 0.25, per1WeekPercentage: 0.1, hasQuotaData: true },
+      expected: {
+        ok: true,
+        hasQuotaData: true,
+        windows: [
+          { key: "per5Hour", count: 5, unit: "Hour", percentRemaining: 75 },
+          { key: "per1Week", count: 1, unit: "Week", percentRemaining: 90 },
+        ],
+      },
+    },
+    {
+      // A reset without a ratio is a window without a ratio, not a broken reply.
+      name: "a window without a ratio, kept with its reset",
+      payload: { per1MonthResetTime: 1_714_000_000_000, hasQuotaData: false },
+      expected: {
+        ok: true,
+        hasQuotaData: false,
+        windows: [
+          {
+            key: "per1Month",
+            count: 1,
+            unit: "Month",
+            resetTimeIso: new Date(1_714_000_000_000).toISOString(),
+          },
+        ],
+      },
+    },
+    {
+      // The count is read, not only the unit: two days is its own window, not one day.
+      name: "a window longer than one unit, and two hour windows side by side",
+      payload: { per2DayPercentage: 0.5, per1HourPercentage: 0.1, per3HourPercentage: 0.2 },
+      expected: {
+        ok: true,
+        windows: [
+          { key: "per2Day", count: 2, unit: "Day", percentRemaining: 50 },
+          { key: "per1Hour", count: 1, unit: "Hour", percentRemaining: 90 },
+          { key: "per3Hour", count: 3, unit: "Hour", percentRemaining: 80 },
+        ],
+      },
+    },
+    {
+      // A count spelled with a leading zero is the same window, so it cannot become a second row.
+      name: "one window whose count is spelled two ways",
+      payload: { per02DayPercentage: 0.5, per2DayResetTime: 1_714_000_000_000 },
+      expected: {
+        ok: true,
+        windows: [
+          {
+            key: "per2Day",
+            count: 2,
+            unit: "Day",
+            percentRemaining: 50,
+            resetTimeIso: new Date(1_714_000_000_000).toISOString(),
+          },
+        ],
+      },
+    },
+    {
+      // A unit the plugin does not know is not a window it reads, even with a value it would reject.
+      name: "a unit it does not know, left out",
+      payload: { per1YearPercentage: 7, per30MinutePercentage: 0.5, per1MonthPercentage: 0.5 },
+      expected: {
+        ok: true,
+        windows: [{ key: "per1Month", count: 1, unit: "Month", percentRemaining: 50 }],
+      },
     },
   ])("parses $name", ({ payload, expected }) => {
     expect(parseAlibabaTokenPlanUsageJson(JSON.stringify(payload))).toEqual(expected);
   });
 
   it("treats an empty payload as a success without a window or a made-up row", () => {
-    expect(parseAlibabaTokenPlanUsageJson("{}")).toEqual({ ok: true });
+    expect(parseAlibabaTokenPlanUsageJson("{}")).toEqual({ ok: true, windows: [] });
   });
 
   it.each([
-    ["a reset without a percentage", { per1MonthResetTime: 1_714_000_000_000 }],
     ["a percentage above 1", { per1MonthPercentage: 1.2 }],
     ["a negative percentage", { per1MonthPercentage: -0.1 }],
     ["a string percentage", { per1MonthPercentage: "0.2" }],
@@ -273,18 +370,28 @@ describe("alibaba token plan parser", () => {
     ["a null (non-finite) reset", { per1MonthPercentage: 0.2, per1MonthResetTime: null }],
     ["a reset past 2100", { per1MonthPercentage: 0.2, per1MonthResetTime: 5_000_000_000_000 }],
     ["a non-object root", []],
+    ["a flag that is not a boolean", { hasQuotaData: "yes" }],
   ])("rejects %s instead of dropping the window", (_name, payload) => {
     expect(parseAlibabaTokenPlanUsageJson(JSON.stringify(payload))).toEqual(INVALID_SCHEMA);
   });
 
-  it.each([
-    [
-      "a reply with only the removed 5-hour window",
-      { per5HourPercentage: 0.25, per5HourResetTime: 1_714_000_000_000 },
-      "a CLI older than 2.2.0",
-    ],
-  ])("reads %s as a success with no window, not a failure (%s)", (_name, payload) => {
-    expect(parseAlibabaTokenPlanUsageJson(JSON.stringify(payload))).toEqual({ ok: true });
+  it("reads a reply with only the removed 5-hour window as that window", () => {
+    expect(
+      parseAlibabaTokenPlanUsageJson(
+        JSON.stringify({ per5HourPercentage: 0.25, per5HourResetTime: 1_714_000_000_000 }),
+      ),
+    ).toEqual({
+      ok: true,
+      windows: [
+        {
+          key: "per5Hour",
+          count: 5,
+          unit: "Hour",
+          percentRemaining: 75,
+          resetTimeIso: new Date(1_714_000_000_000).toISOString(),
+        },
+      ],
+    });
   });
 
   it("rejects invalid JSON", () => {
@@ -990,7 +1097,15 @@ describe("alibaba token plan process boundary", () => {
     });
     expect(result).toEqual({
       ok: true,
-      monthly: { percentRemaining: 96.6, resetTimeIso: "2026-10-23T16:00:00.000Z" },
+      windows: [
+        {
+          key: "per1Month",
+          count: 1,
+          unit: "Month",
+          percentRemaining: 96.6,
+          resetTimeIso: "2026-10-23T16:00:00.000Z",
+        },
+      ],
     });
   });
 
@@ -1106,7 +1221,7 @@ setInterval(() => {}, 30000);
     expect(result.timedOut).toBe(false);
     expect(parseAlibabaTokenPlanUsageJson(result.stdout.toString("utf8"))).toEqual({
       ok: true,
-      monthly: { percentRemaining: 50 },
+      windows: [{ key: "per1Month", count: 1, unit: "Month", percentRemaining: 50 }],
     });
   });
 
@@ -1967,7 +2082,6 @@ describe("parseAlibabaCodingPlanUsageJson", () => {
     expect(parsed).toEqual({
       ok: true,
       usage: {
-        instanceType: "pro",
         fiveHour: {
           used: 38,
           limit: 100,
@@ -2012,7 +2126,7 @@ describe("parseAlibabaCodingPlanUsageJson", () => {
     expect(parsed.ok && parsed.usage?.fiveHour?.percentRemaining).toBe(0);
   });
 
-  it("gives a window whose total is 0 no percentage", () => {
+  it("leaves out a window whose total is 0, which is no subscription for it", () => {
     const parsed = parseAlibabaCodingPlanUsageJson(
       JSON.stringify({
         instanceType: "pro",
@@ -2020,16 +2134,10 @@ describe("parseAlibabaCodingPlanUsageJson", () => {
       }),
     );
 
-    expect(parsed).toEqual({
-      ok: true,
-      usage: {
-        instanceType: "pro",
-        weekly: { used: 0, limit: 0, resetTimeIso: new Date(WEEKLY).toISOString() },
-      },
-    });
+    expect(parsed).toEqual({ ok: true });
   });
 
-  it("treats a non-numeric count as absent and keeps the rest of the window", () => {
+  it("leaves out a window whose count is not a number", () => {
     const parsed = parseAlibabaCodingPlanUsageJson(
       JSON.stringify({
         instanceType: "pro",
@@ -2037,13 +2145,7 @@ describe("parseAlibabaCodingPlanUsageJson", () => {
       }),
     );
 
-    expect(parsed).toEqual({
-      ok: true,
-      usage: {
-        instanceType: "pro",
-        fiveHour: { limit: 100, resetTimeIso: new Date(FIVE_HOUR).toISOString() },
-      },
-    });
+    expect(parsed).toEqual({ ok: true });
   });
 
   it("leaves out a window the reply does not carry", () => {
@@ -2053,7 +2155,7 @@ describe("parseAlibabaCodingPlanUsageJson", () => {
 
     expect(parsed).toEqual({
       ok: true,
-      usage: { instanceType: "lite", monthly: { used: 1, limit: 4, percentRemaining: 75 } },
+      usage: { monthly: { used: 1, limit: 4, percentRemaining: 75 } },
     });
   });
 
