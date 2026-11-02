@@ -39,12 +39,17 @@ function quotaRows(quota: AnthropicQuotaResult, method: ProviderRow["method"]): 
       percentRemaining: quota.five_hour.percentRemaining,
       resetsAt: quota.five_hour.resetTimeIso,
     }),
-    quotaRow({
-      ...WEEKLY,
-      percentRemaining: quota.seven_day.percentRemaining,
-      resetsAt: quota.seven_day.resetTimeIso,
-    }),
   ];
+  // A plan without a weekly limit (Enterprise) has no Weekly row.
+  if (quota.seven_day) {
+    rows.push(
+      quotaRow({
+        ...WEEKLY,
+        percentRemaining: quota.seven_day.percentRemaining,
+        resetsAt: quota.seven_day.resetTimeIso,
+      }),
+    );
+  }
   if (quota.extra_usage) {
     rows.push(
       quotaRow({
@@ -165,6 +170,12 @@ async function fetchFromClaudeCli(options: {
   return { attempted: false, accounts: [], debug };
 }
 
+/**
+ * The OpenCode providers that run Claude Code, so their quota is Claude Code's login:
+ * openchamber's `claude-code` and OpenCode's own Claude Agent provider, `claude-agent`.
+ */
+const CLAUDE_CODE_RUNTIME_IDS = ["claude-code", "claude-agent"];
+
 /** Whether the selected Anthropic runtime, or the only one available, uses Claude Code's login. */
 async function usesClaudeCodeCredentials(ctx: QuotaProviderContext): Promise<boolean> {
   const currentProviderId = (
@@ -174,12 +185,12 @@ async function usesClaudeCodeCredentials(ctx: QuotaProviderContext): Promise<boo
   )
     ?.trim()
     .toLowerCase();
-  if (currentProviderId === "claude-code") return true;
+  if (currentProviderId && CLAUDE_CODE_RUNTIME_IDS.includes(currentProviderId)) return true;
   if (currentProviderId === "anthropic") return false;
 
   try {
     const runtimeIds = await ctx.resolveRuntimeProviderIds();
-    return runtimeIds.has("claude-code") && !runtimeIds.has("anthropic");
+    return CLAUDE_CODE_RUNTIME_IDS.some((id) => runtimeIds.has(id)) && !runtimeIds.has("anthropic");
   } catch {
     return false;
   }
@@ -215,7 +226,7 @@ export const anthropicProvider: QuotaProvider = {
 
   matchesCurrentModel(model: string): boolean {
     const normalized = model.toLowerCase();
-    return normalized.startsWith("anthropic/") || normalized.startsWith("claude-code/");
+    return ["anthropic", ...CLAUDE_CODE_RUNTIME_IDS].some((id) => normalized.startsWith(`${id}/`));
   },
 
   async fetch(ctx: QuotaProviderContext): Promise<ProviderFetchResult> {

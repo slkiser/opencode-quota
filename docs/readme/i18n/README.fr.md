@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/slkiser/opencode-quota"><img src="https://shawnkiser.com/opencode-quota/opencode-quota-v6-hero.gif" alt="OpenCode Quota dans OpenCode : la barre latérale, les onglets Usage et Limits de la fenêtre de quota, et ses paramètres" /></a>
+  <a href="https://github.com/slkiser/opencode-quota"><img src="https://shawnkiser.com/opencode-quota/opencode-quota-hero.webp" alt="OpenCode Quota dans OpenCode : la barre latérale, les onglets Usage et Limits de la fenêtre de quota, et ses paramètres" /></a>
 </p>
 
 ---
