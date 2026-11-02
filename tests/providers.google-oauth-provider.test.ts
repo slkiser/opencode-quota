@@ -285,9 +285,97 @@ describe("Google AGY rows", () => {
     ["google-agy/gpt-4", true],
     ["opencode-agy-auth/gpt-4", true],
     ["google-agy-auth/gpt-4", true],
-    ["google/claude-opus", true],
+    ["google/antigravity-claude-sonnet-4-6", true],
+    ["google/claude-opus", false],
+    ["google/gemini-2.5-pro", false],
   ])("matches the Google AGY runtime ids: %s → %s", (model, expected) => {
     expect(googleAgyProvider.matchesCurrentModel?.(model)).toBe(expected);
+  });
+});
+
+/**
+ * A login under the shared `google` integration id with an unexpired access token.
+ * `methodID: "antigravity"` is how OpenCode 2 stores an opencode-antigravity-auth sign-in;
+ * opencode-gemini-auth uses `gemini-cli`, and OpenCode 1 imports use `oauth`.
+ */
+function sharedGoogleLogin(id: string, methodID: string | undefined): CredentialDatabaseRow {
+  return {
+    id,
+    integrationId: "google",
+    label: id,
+    active: null,
+    updated: 1,
+    value: {
+      type: "oauth",
+      ...(methodID ? { methodID } : {}),
+      refresh: `refresh-${id}|project-${id}|managed-${id}`,
+      access: `access-${id}`,
+      expires: Date.now() + 3_600_000,
+      ...(methodID === "antigravity"
+        ? { metadata: { antigravityAccountId: `account-${id}` } }
+        : {}),
+    },
+  };
+}
+
+describe("logins under the shared google integration id", () => {
+  const [agy, geminiCli] = PROVIDERS;
+
+  it("reads an opencode-antigravity-auth login for Google AGY only", async () => {
+    installCompanion(agy);
+    installCompanion(geminiCli);
+    world.storeLogins([sharedGoogleLogin("antigravity", "antigravity")]);
+    const http = fakeHttp(() => agy.quota());
+
+    const fetched = await fetchRows(googleAgyProvider);
+
+    expect(fetched.rows.map((row) => [row.id, row.account])).toEqual([[agy.rowId, "antigravity"]]);
+    expect(http).toHaveBeenCalledOnce();
+    const [url, init] = http.mock.calls[0] ?? [];
+    expect(url).toBe(
+      "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+    );
+    expect(requestHeader(init, "Authorization")).toBe("Bearer access-antigravity");
+    expect(JSON.parse(String(init?.body))).toEqual({ project: "managed-antigravity" });
+
+    http.mockClear();
+    await expect(fetchRows(googleGeminiCliProvider)).resolves.toMatchObject({
+      rows: [],
+      error: { code: "not_configured" },
+    });
+    expect(http).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["an opencode-gemini-auth login", "gemini-cli"],
+    ["an OpenCode 1 import", "oauth"],
+    ["a login without a method id", undefined],
+  ])("does not read %s for Google AGY", async (_case, methodID) => {
+    installCompanion(agy);
+    world.storeLogins([sharedGoogleLogin("plain", methodID)]);
+    const http = fakeHttp(() => agy.quota());
+
+    await expect(
+      googleAgyProvider.isAvailable({
+        client: {},
+        locationDirectory: NO_PROJECT_DIRECTORY,
+      } as never),
+    ).resolves.toBe(false);
+    await expect(fetchRows(googleAgyProvider)).resolves.toMatchObject({
+      rows: [],
+      error: { code: "not_configured" },
+    });
+    expect(http).not.toHaveBeenCalled();
+  });
+
+  it("still reads an opencode-gemini-auth login for Gemini CLI", async () => {
+    installCompanion(geminiCli);
+    world.storeLogins([sharedGoogleLogin("gemini", "gemini-cli")]);
+    fakeHttp(() => geminiCli.quota());
+
+    const fetched = await fetchRows(googleGeminiCliProvider);
+
+    expect(fetched.rows.map((row) => [row.id, row.account])).toEqual([[geminiCli.rowId, "gemini"]]);
   });
 });
 

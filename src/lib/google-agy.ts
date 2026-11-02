@@ -1,6 +1,10 @@
 import crypto from "node:crypto";
 import { agyCompanion } from "./google-companion-credentials.js";
-import type { GoogleAccount, GoogleQuotaFlavor } from "./google-oauth-quota.js";
+import {
+  type GoogleAccount,
+  type GoogleQuotaFlavor,
+  isAntigravityLogin,
+} from "./google-oauth-quota.js";
 import { createGoogleTokenCache } from "./google-token-cache.js";
 import { nonEmptyString } from "./json-guards.js";
 import type {
@@ -31,6 +35,8 @@ export const AGY_FLAVOR: GoogleQuotaFlavor<
   projectIdEnvVar: "OPENCODE_AGY_PROJECT_ID",
   projectIdConfigProvider: "google-agy",
   failedLoginCountsAsPresent: false,
+  // `google` also holds Gemini CLI logins, whose tokens the AGY client cannot refresh.
+  ownsLogin: (row) => row.integrationId !== "google" || isAntigravityLogin(row),
   companion: agyCompanion,
   quotaUrl: "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
   quotaHeaders: () => ({

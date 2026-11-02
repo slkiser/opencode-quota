@@ -70,6 +70,8 @@ type GoogleAuthFlavor<Key extends GoogleAuthSourceKey> = {
   projectIdConfigProvider: string;
   /** Gemini CLI keeps a login OpenCode could not return "present", so its error row shows. */
   failedLoginCountsAsPresent: boolean;
+  /** Whether a login under one of `authKeys` is this flavor's; `google` holds both flavors' logins. */
+  ownsLogin: (row: CredentialRow) => boolean;
   companion: GoogleCompanionResolver;
 };
 
@@ -90,6 +92,16 @@ export type GoogleQuotaFlavor<
 
 type AccessTokenResult = { accessToken: string } | { error: string; facts?: ErrorFacts };
 
+/**
+ * A login of opencode-antigravity-auth. It stores its logins under the `google` integration id,
+ * like opencode-gemini-auth, and OpenCode 2 tags them with the plugin's `antigravity` method id.
+ * Logins with another method id (OpenCode 1 imports have `oauth`) or none (a login OpenCode could
+ * not return) are not Antigravity logins here.
+ */
+export function isAntigravityLogin(row: CredentialRow): boolean {
+  return row.value.methodID === "antigravity";
+}
+
 export async function resolveGoogleConfiguredProjectId(
   flavor: { projectIdEnvVar: string; projectIdConfigProvider: string },
   directory: string,
@@ -103,14 +115,19 @@ export async function resolveGoogleConfiguredProjectId(
 }
 
 export async function readGoogleLogins(
-  flavor: { authKeys: readonly string[]; projectIdEnvVar: string; projectIdConfigProvider: string },
+  flavor: {
+    authKeys: readonly string[];
+    ownsLogin: (row: CredentialRow) => boolean;
+    projectIdEnvVar: string;
+    projectIdConfigProvider: string;
+  },
   directory: string,
 ): Promise<GoogleLogins> {
   const [rows, configuredProjectId] = await Promise.all([
     readCredentialRows(flavor.authKeys, { methods: ["oauth"] }),
     resolveGoogleConfiguredProjectId(flavor, directory),
   ]);
-  return { rows, configuredProjectId };
+  return { rows: rows.filter(flavor.ownsLogin), configuredProjectId };
 }
 
 /**

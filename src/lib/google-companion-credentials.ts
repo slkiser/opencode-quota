@@ -236,7 +236,10 @@ async function readConstantsFile(
     : invalidState(companion, importSpecifier, path);
 }
 
-/** Imports the compiled constants module and reads its named exports. */
+/**
+ * Imports the compiled constants module and reads its named exports. A bundled
+ * `dist/index.js` keeps the client private, so only the text readers below read it.
+ */
 async function fromCompiledModule(
   companion: GoogleCompanion,
   lookup: Lookup,
@@ -244,7 +247,6 @@ async function fromCompiledModule(
   const { packageName } = companion;
   for (const specifier of [
     `${packageName}/dist/src/constants.js`,
-    `${packageName}/dist/index.js`,
     `${packageName}/src/constants.js`,
   ]) {
     const { path, failed } = resolveModulePath(specifier, lookup, true);
