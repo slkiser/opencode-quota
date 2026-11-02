@@ -24,9 +24,9 @@ export type Place = {
   names: "words" | "label";
   /**
    * "number": "58%", the place says the word elsewhere. "words": "58% left", "42% used", or
-   * "58%" in the bare style.
+   * "58%" in the bare style. "usedWord": "58%", but "42% used", which bare would read as left.
    */
-  percent: "number" | "words";
+  percent: "number" | "words" | "usedWord";
   /** Reset and pace times in this style, whatever the words (Limits: always "exact"). */
   times?: Words["reset"];
   /** The place draws the even-use mark, so its facts have `evenLeft`. */
@@ -92,8 +92,8 @@ export function rowFacts(item: VisibleRow, group: Pick<Group, "rows">, place: Pl
   if (percent === undefined) {
     return { id: row.id, name, value: rowValueText(row), reset: "", shortReset: "" };
   }
-  // The words' direction shows in the panel's title, so a "used" row never repeats the word.
-  const withWord = words.percent !== "used" && place.percent === "words";
+  const withWord =
+    place.percent === "words" || (place.percent === "usedWord" && words.percent === "used");
   const times = place.times ?? words.reset;
   const resetMs = Date.parse(row.resetsAt ?? "");
   const resetIn = (style: Words["reset"]) =>

@@ -59,9 +59,11 @@ describe("row facts", () => {
     { style: "words", percent: "left", left: 58, value: "58% left" },
     { style: "words", percent: "remaining", left: 58, value: "58% remaining" },
     { style: "words", percent: "bare", left: 58, value: "58%" },
-    { style: "words", percent: "used", left: 58, value: "42%" },
+    { style: "words", percent: "used", left: 58, value: "42% used" },
+    { style: "usedWord", percent: "left", left: 58, value: "58%" },
+    { style: "usedWord", percent: "used", left: 58, value: "42% used" },
     { style: "words", percent: "left", left: -12, value: "0% left" },
-    { style: "words", percent: "used", left: 140, value: "0%" },
+    { style: "words", percent: "used", left: 140, value: "0% used" },
   ] as const)(
     "writes $left% left as $value ($style, $percent)",
     ({ style, percent, left, value }) => {

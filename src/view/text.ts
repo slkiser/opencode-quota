@@ -406,10 +406,11 @@ export function collapsedLines(input: CollapsedInput): Line[] {
   const { layout, nowMs } = input;
   const picks = input.groups.map((group) => ({
     group,
-    picked: pickedFacts(input, group, "number"),
+    picked: pickedFacts(input, group, "usedWord"),
   }));
-  // The percent after a space: " 100%". The title says the direction, so no row carries its word.
-  const percentWidth = 5;
+  // The percent after a space: " 100%", or "  100% used" with its word: the collapsed title
+  // ("▶ Quota (2 providers)") doesn't say which way the percent reads.
+  const percentWidth = input.words.percent === "used" ? 10 : 5;
   // The reset as wide as the longest, at least "11h 59m".
   const resetWidth = Math.max(7, ...picks.map(({ picked }) => columnsOf(picked?.reset ?? "")));
   const room = input.width - COLLAPSED_NAMES - percentWidth - 1 - resetWidth;
@@ -488,7 +489,7 @@ function statusName(input: StatusInput, group: Group): string {
  */
 function statusSegment(input: StatusInput, group: Group, level: StatusLevel): Line {
   const { layout, nowMs } = input;
-  const picked = pickedFacts(input, group, "number");
+  const picked = pickedFacts(input, group, "usedWord");
   const percent = picked?.percent;
   const name: Segment = { text: statusName(input, group), role: "statusName", percent };
   if (!picked || percent === undefined) {
@@ -713,8 +714,8 @@ function runsOutLine(id: string, runsOut: string, column: number, room: number):
  */
 function groupedToastLines(input: ToastInput): Line[] {
   const { nowMs, room, layout } = input;
-  // "100% left": the number right-aligned, then its word. No word when the words are "used".
-  const word = input.words.percent === "used" ? "" : percentWord(input.words);
+  // "100% left": the number right-aligned, then its word.
+  const word = percentWord(input.words);
   const percentWidth = 4 + (word ? word.length + 1 : 0);
   const named = groupFacts(input.groups, alwaysOnPlace(input, "number"));
   const items = named.flatMap(({ rows }) => rows);

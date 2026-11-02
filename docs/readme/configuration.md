@@ -98,7 +98,7 @@ Every place follows these, so in the TUI they are on **Layout → All places**. 
 
 | Setting | Default | Values |
 | --- | --- | --- |
-| `words.percent` | `"left"` | `left`, `remaining`, `bare`, `used`. Bars, the even-use mark and the panel's title follow it, so `used` fills the bar and reads "▼ Quota used" while the rows stay bare ("42%"); colors and the warning levels stay on the share left. |
+| `words.percent` | `"left"` | `left`, `remaining`, `bare`, `used`. Bars and the even-use mark follow it, so `used` fills the bar by the share used. The expanded sidebar panel says the word in its title ("▼ Quota used") and its rows stay bare ("42%"); every other place writes "42% used". Colors and warning levels stay on the share left. |
 | `words.reset` | `"smart"` | `smart`, `exact`, `compact`, `short`, `decimal`. |
 | `words.resetDecimals` | `1` | Whole number 0–4. |
 | `words.rowNames` | `"short"` | `short` (`5h`, `7d`) or `full` (`Weekly`), on the sidebar, collapsed panel, status line and toasts. |

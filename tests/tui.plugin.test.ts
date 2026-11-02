@@ -315,7 +315,7 @@ describe("quota toasts", () => {
   );
 
   it.each([
-    { percent: "used", words: "(3%)" },
+    { percent: "used", words: "(3% used)" },
     { percent: "remaining", words: "(97% remaining)" },
     { percent: "bare", words: "(97%)" },
   ] as const)("says a reset notice's percent in the $percent words", ({ percent, words }) => {

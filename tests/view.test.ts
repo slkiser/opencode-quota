@@ -811,7 +811,7 @@ describe("view text", () => {
     expect(accounts).toEqual(["Z.ai (wo… ", "Z.ai (ho… "]);
   });
 
-  it("fits a collapsed line with used percents and no word of its own", () => {
+  it("fits a collapsed line with used percents, their word and bars filled by the share used", () => {
     const lines = collapsedLines({
       groups: groups("collapsed", [CLAUDE, TWO_ACCOUNTS]),
       ...drawn,
@@ -820,11 +820,11 @@ describe("view text", () => {
       window: {},
     }).map(lineText);
     expect(lines).toEqual([
-      "Claude    7d   ████████░  88%    3.2d",
+      "Claude    7d   ████  88% used    3.2d",
       // An error takes the reset's place, cut to the line.
-      "Copilot…  30d  █████░░░░  60%  Timed…",
+      "Copilot…  30d  ██░░  60% used  Timed…",
       // A row without a reset time.
-      "Copilot…  30d  █░░░░░░░░  10%        ",
+      "Copilot…  30d  ░░░░  10% used        ",
     ]);
   });
 
@@ -960,6 +960,63 @@ describe("view text", () => {
         "Claude Weekly       12% left      3.2d  runs out in 13h",
       ],
     });
+  });
+
+  it("with used words, fills every bar by the share used and says the word wherever no title says it", () => {
+    const used = words({ percent: "used" });
+    const base = { layout: display.layout, words: used, nowMs: NOW, window: {} };
+    const status = { ...statusInput([CLAUDE]), words: used };
+    const toastOf = (toastLayout: ToastLayout) =>
+      toastLines({ ...base, groups: groups("toast", [CLAUDE]), toastLayout, room: 54 }).map(
+        lineText,
+      );
+    expect({
+      // The expanded panel's title says "used", so its rows stay bare.
+      title: sidebarTitle(used),
+      sidebar: sidebarLines({ ...base, groups: groups("sidebar", [CLAUDE]), width: 40 }).map(
+        lineText,
+      ),
+      collapsedTitle: collapsedTitle(groups("collapsed", [CLAUDE])),
+      collapsed: collapsedLines({ ...base, groups: groups("collapsed", [CLAUDE]), width: 40 }).map(
+        lineText,
+      ),
+      status: lineText(statusLayout(status, 200, 0, "full").shown[0]!),
+      big: lineText(bigStatusLine(status)!),
+      grouped: toastOf("grouped"),
+      detailed: toastOf("detailed"),
+      plain: plainLines({ ...base, groups: groups("toast", [CLAUDE]) }),
+    }).toMatchInlineSnapshot(`
+      {
+        "big": "Claude 7d █████████░ 88% used · 3.2d",
+        "collapsed": [
+          "Claude    7d   ██████░  88% used    3.2d",
+        ],
+        "collapsedTitle": "▶ Quota (1 provider)",
+        "detailed": [
+          "Claude",
+          "5h                                              2h 14m",
+          "██████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░  42% used",
+          "7d                                                3.2d",
+          "███████████████████████████████████████░░░░░  88% used",
+        ],
+        "grouped": [
+          "Claude",
+          "  5h ████████░░░░░░░░░░░░  42% used  2h 14m",
+          "  7d ██████████████████░░  88% used  3.2d",
+        ],
+        "plain": [
+          "Claude 5h           42% used      2h 14m",
+          "Claude Weekly       88% used      3.2d",
+        ],
+        "sidebar": [
+          "Claude",
+          " 5h ████████░░░░░░░░░░░░  42% 2h 14m",
+          " 7d ██████████████████░░  88%   3.2d",
+        ],
+        "status": "Claude ████░ 88% used 3.2d",
+        "title": "▼ Quota used",
+      }
+    `);
   });
 
   /** A toast of `providers` `room` columns wide, with runs out in, as plain lines. */

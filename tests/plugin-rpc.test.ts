@@ -1029,7 +1029,7 @@ describe("server quota RPC", () => {
     });
 
     it.each([
-      { words: { percent: "used" }, shows: "5h 19%", hides: "left" },
+      { words: { percent: "used" }, shows: "5h 19% used", hides: "left" },
       { words: { percent: "bare" }, shows: "5h 81%", hides: "left" },
     ])(
       "shows /quota in the percent words the settings choose: $words",
