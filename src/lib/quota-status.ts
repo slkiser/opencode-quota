@@ -1022,10 +1022,21 @@ const ALIBABA_PROVIDER_DETAILS: DebugRules = {
   failure_kind: oneOf(...Object.keys(ALIBABA_TOKEN_PLAN_ERRORS)),
 };
 
+/** A Token Plan window that is none of the repo's windows, named by its count and unit: `2_day`. */
+const TOKEN_PLAN_OTHER_WINDOW_RE = /^[1-9]\d{0,5}_(?:hour|day|week|month)$/u;
+
 /** The windows the Token Plan reply carried: the repo's names for the ones it knows, and the
- * repo's window for the rest. */
+ * count and unit for the rest. */
 const tokenPlanWindows: DebugRule = (value) =>
-  value.split(",").every((item) => item === "weekly" || item === "monthly" || isQuotaWindow(item))
+  value
+    .split(",")
+    .every(
+      (item) =>
+        item === "weekly" ||
+        item === "monthly" ||
+        isQuotaWindow(item) ||
+        TOKEN_PLAN_OTHER_WINDOW_RE.test(item),
+    )
     ? value
     : undefined;
 

@@ -458,7 +458,8 @@ export async function resolveAlibabaTokenPlanExecutable(params: {
   return fail(sawShellLauncher ? "shell_launcher_rejected" : "executable_not_found");
 }
 
-/** Quota window fields look like per5HourPercentage / per1WeekResetTime / per1MonthPercentage. */
+/** Quota window fields look like per5HourPercentage / per1WeekResetTime / per1MonthPercentage.
+ * A field with any other unit (`per1YearPercentage`) is not a window this plugin reads. */
 const WINDOW_FIELD_PATTERN = /^per(\d+)(Hour|Day|Week|Month)(Percentage|ResetTime)$/;
 
 /**
@@ -470,11 +471,13 @@ function parseWindows(payload: Record<string, unknown>): AlibabaTokenPlanWindow[
   for (const [field, value] of Object.entries(payload)) {
     const match = WINDOW_FIELD_PATTERN.exec(field);
     if (!match) continue;
-    const [, count, unit, kind] = match;
+    const [, countText, unit, kind] = match;
+    const count = Number(countText);
+    // The key spells the count as a number, so `per02Day` and `per2Day` are one window.
     const key = `per${count}${unit}`;
     const window = windows.get(key) ?? {
       key,
-      count: Number(count),
+      count,
       unit: unit as AlibabaTokenPlanUnit,
     };
     if (kind === "Percentage") {

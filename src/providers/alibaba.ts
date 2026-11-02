@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 
 import type { ErrorFacts } from "../core/errors.js";
 import type { Amount, DebugDetail, QuotaWindow } from "../core/types.js";
-import { WINDOWS, classifyWindow } from "../core/windows.js";
+import { WINDOWS } from "../core/windows.js";
 import {
   ALIBABA_TOKEN_PLAN_ARGS,
   type AlibabaCodingPlanUsage,
@@ -14,6 +14,7 @@ import {
   type AlibabaTokenPlanClosedResult,
   type AlibabaTokenPlanSeat,
   type AlibabaTokenPlanSeatResult,
+  type AlibabaTokenPlanUnit,
   type AlibabaTokenPlanWindow,
   alibabaCredentialHalves,
   CODING_PLAN_SPAWN_KINDS,
@@ -113,13 +114,14 @@ function creditAmount(value: number): Amount {
 }
 
 /**
- * One calendar month back, clamped to that month's last day: a cycle ends on the next month's
- * corresponding day at 23:59:59 (UTC+8), or on that month's last day when it has none.
+ * A number of calendar months back, clamped to that month's last day: a cycle ends on the next
+ * month's corresponding day at 23:59:59 (UTC+8), or on that month's last day when it has none.
  */
-function oneCalendarMonthBefore(resetMs: number): number {
+function calendarMonthsBefore(resetMs: number, months: number): number {
   const reset = new Date(resetMs);
-  const month = (reset.getUTCMonth() + 11) % 12;
-  const year = reset.getUTCMonth() === 0 ? reset.getUTCFullYear() - 1 : reset.getUTCFullYear();
+  const monthIndex = reset.getUTCFullYear() * 12 + reset.getUTCMonth() - months;
+  const year = Math.floor(monthIndex / 12);
+  const month = monthIndex - year * 12;
   const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
   const day = Math.min(reset.getUTCDate(), lastDay);
   return Date.UTC(
@@ -138,48 +140,97 @@ function windowStartIso(window: QuotaWindow, resetsAt: string | undefined): stri
   const resetMs = Date.parse(resetsAt);
   if (!Number.isFinite(resetMs)) return undefined;
   const lengthMs = WINDOWS[window].lengthMs;
-  const startMs = lengthMs !== undefined ? resetMs - lengthMs : oneCalendarMonthBefore(resetMs);
+  const startMs = lengthMs !== undefined ? resetMs - lengthMs : calendarMonthsBefore(resetMs, 1);
   return new Date(startMs).toISOString();
 }
 
-/** The CLI's field names and the repo's slots for them. */
-const TOKEN_PLAN_SLOTS = [
+const HOUR_MS = 60 * 60_000;
+const DAY_MS = 24 * HOUR_MS;
+
+/** The length of one unit the CLI's field names use; a month has no fixed length. */
+const TOKEN_PLAN_UNIT_MS: Record<AlibabaTokenPlanUnit, number | undefined> = {
+  Hour: HOUR_MS,
+  Day: DAY_MS,
+  Week: 7 * DAY_MS,
+  Month: undefined,
+};
+
+/** The short label of one unit, after the count: `2d`, `3h`. */
+const TOKEN_PLAN_UNIT_SHORT: Record<AlibabaTokenPlanUnit, string> = {
+  Hour: "h",
+  Day: "d",
+  Week: "w",
+  Month: "mo",
+};
+
+/** The CLI's windows that are exactly one of the repo's windows, and the slot for each. */
+const TOKEN_PLAN_SLOTS: ReadonlyArray<readonly [string, Slot]> = [
+  ["per1Hour", { key: "hour", label: WINDOWS.hour.label, window: "hour" }],
   ["per5Hour", FIVE_HOUR],
+  ["per1Day", { key: "day", label: WINDOWS.day.label, window: "day" }],
   ["per1Week", WEEKLY],
   ["per1Month", MONTHLY],
-] as const;
+];
 
-/** The repo's slot for the CLI's window; a window the slots do not name takes the repo's window
- * for the CLI's own shape of it. */
-function tokenPlanSlot(window: AlibabaTokenPlanWindow): Slot | undefined {
-  const slot = TOKEN_PLAN_SLOTS.find(([key]) => key === window.key)?.[1];
-  if (slot) return slot;
-  const repoWindow = classifyWindow(`${window.count}-${window.unit}`);
-  if (!repoWindow) return undefined;
-  return { key: repoWindow, label: WINDOWS[repoWindow].label, window: repoWindow };
+/** Where a Token Plan window goes: its row key, its label and, when it is exactly one of the
+ * repo's windows, that window. */
+type TokenPlanSlot = { key: string; label: string; window?: QuotaWindow };
+
+/**
+ * The slot for the CLI's window. A window that is exactly one of the repo's windows takes that
+ * window; any other window (`per2Day`, `per3Hour`) gets its own key from its count and unit, and
+ * no repo window, so it never borrows another window's length, label or reset notice. A count
+ * below 1 names no window.
+ */
+function tokenPlanSlot(window: AlibabaTokenPlanWindow): TokenPlanSlot | undefined {
+  const known = TOKEN_PLAN_SLOTS.find(([key]) => key === window.key)?.[1];
+  if (known) return known;
+  if (!Number.isSafeInteger(window.count) || window.count < 1) return undefined;
+  return {
+    key: `${window.count}_${window.unit.toLowerCase()}`,
+    label: `${window.count}${TOKEN_PLAN_UNIT_SHORT[window.unit]}`,
+  };
+}
+
+/** When the window began: its count of units before the reset. Undefined without a reset time,
+ * or when the start is not a real date. */
+function tokenPlanWindowStartIso(window: AlibabaTokenPlanWindow): string | undefined {
+  if (window.resetTimeIso === undefined) return undefined;
+  const resetMs = Date.parse(window.resetTimeIso);
+  if (!Number.isFinite(resetMs)) return undefined;
+  const unitMs = TOKEN_PLAN_UNIT_MS[window.unit];
+  // The CLI reports when the window refreshes; a billing month started a calendar month
+  // before its reset.
+  const startMs =
+    unitMs !== undefined
+      ? resetMs - window.count * unitMs
+      : calendarMonthsBefore(resetMs, window.count);
+  const start = new Date(startMs);
+  return Number.isFinite(start.getTime()) ? start.toISOString() : undefined;
 }
 
 /** One row for each window the CLI reported a usage ratio for, in the shared row shape. */
 function tokenPlanWindowRows(windows: readonly AlibabaTokenPlanWindow[]): ProviderRow[] {
-  const slots = windows.flatMap((window): WindowRow[] => {
+  return windows.flatMap((window): ProviderRow[] => {
     const slot = tokenPlanSlot(window);
     if (!slot || window.percentRemaining === undefined) return [];
-    // The CLI reports when the window refreshes; a billing month started a calendar month
-    // before its reset.
-    const startedAtIso = windowStartIso(slot.window, window.resetTimeIso);
+    const startedAtIso = tokenPlanWindowStartIso(window);
     return [
       {
         // The row key names the half of the plan; the slot's key names the window.
-        slot: { ...slot, key: `personal.${slot.key}` },
-        value: {
-          percentRemaining: window.percentRemaining,
-          ...(window.resetTimeIso !== undefined ? { resetTimeIso: window.resetTimeIso } : {}),
-          ...(startedAtIso !== undefined ? { fixedWindow: { startedAtIso } } : {}),
-        },
+        key: `personal.${slot.key}`,
+        label: slot.label,
+        type: "quota",
+        method: "local_cli",
+        authority: "provider_reported",
+        prominence: "primary",
+        ...(slot.window !== undefined ? { window: slot.window } : {}),
+        percentRemaining: window.percentRemaining,
+        ...(window.resetTimeIso !== undefined ? { resetsAt: window.resetTimeIso } : {}),
+        ...(startedAtIso !== undefined ? { windowStartedAt: startedAtIso } : {}),
       },
     ];
   });
-  return windowRows(slots, "local_cli");
 }
 
 /** The windows the reply carried, the way the Coding Plan names them. */

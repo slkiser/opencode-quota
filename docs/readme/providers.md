@@ -424,7 +424,7 @@ bl auth login --console
 OpenCode Quota runs two commands, each with its own sign-in. They are independent: setting up one still runs the other, and a half that was never set up reports nothing at all.
 
 - **Personal** (one row per quota window, `alibaba-token-plan.personal.monthly`) runs `bl usage token-plan --output json` and needs the same **console** token (an API Key can mint one too, see [Coding Plan setup](#alibaba-coding-plan)).
-- It reports every window `bl` sends, one row each with the percent of that window left: `alibaba-token-plan.personal.five_hour`, `alibaba-token-plan.personal.weekly` or `alibaba-token-plan.personal.monthly`. A window the reply does not carry has no row.
+- It reports every window `bl` sends, one row each with the percent of that window left: `alibaba-token-plan.personal.five_hour`, `alibaba-token-plan.personal.weekly` or `alibaba-token-plan.personal.monthly`; any other window is named by its count and unit, for example `alibaba-token-plan.personal.2_day` (label `2d`). A window the reply does not carry has no row.
 - A window the reply reports no quota for has no row either: it carries no usage ratio, and `/quota_status` says so in `window_hint`.
 - **Team seats** (one `Credits` row per seat, `alibaba-token-plan.team.<slug>`) run `bl token-plan list-seats --status NORMAL --query-assigned true --page-size 100 --output json` and need **API Key** (AK/SK) credentials: `bl auth login --open-api`, or `ALIBABA_CLOUD_ACCESS_KEY_ID` and `ALIBABA_CLOUD_ACCESS_KEY_SECRET`. Each seat shows the credits left in its billing cycle, out of the cycle total, and the percent of that grant left.
 - Without the AK/SK no team row is reported; the personal row still is. A seat whose status is not `NORMAL` has no row by design.

@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { paceOf } from "../src/core/pace.js";
 import { rowsFromProviderResult } from "../src/core/rows.js";
 import {
   clearAlibabaIdentityCacheForTests,
@@ -312,17 +313,25 @@ describe("alibaba-token-plan provider", () => {
       ],
     ],
     [
+      // The seat command waits too: with a 300 ms limit, a seat reply on a busy machine would
+      // otherwise arrive or not by chance.
       "a timeout",
-      { usage: WAITS },
+      { usage: WAITS, seats: WAITS },
       [],
       { code: "timeout" },
       [
         { key: "cli_available", value: "true" },
         PLATFORM,
         { key: "failure_kind", value: "timeout" },
+        { key: "seat_failure_kind", value: "timeout" },
         {
           key: "error",
           value: `Alibaba Token Plan (personal): ${ERROR_MESSAGES.timeout}`,
+        },
+        { key: "error_kind", value: "timeout" },
+        {
+          key: "error",
+          value: `Alibaba Token Plan (team): ${ERROR_MESSAGES.timeout}`,
         },
         { key: "error_kind", value: "timeout" },
       ],
@@ -337,6 +346,121 @@ describe("alibaba-token-plan provider", () => {
     else expect(fetched.error).toBeUndefined();
     expect(fetched.debug).toEqual(debug);
   });
+
+  it.runIf(SUPPORTED)(
+    "gives a window of two days its own row, its own label and a two-day span",
+    async () => {
+      const reset = Date.parse(RESET);
+      installCli({
+        usage: replying({ per2DayPercentage: 0.5, per2DayResetTime: reset, hasQuotaData: true }),
+      });
+
+      const fetched = await fetchTokenPlan();
+
+      expect(fetched.rows).toEqual([
+        expect.objectContaining({
+          id: "alibaba-token-plan.personal.2_day",
+          label: "2d",
+          percentRemaining: 50,
+          resetsAt: RESET,
+          windowStartedAt: new Date(reset - 2 * 24 * 60 * 60_000).toISOString(),
+        }),
+      ]);
+      // Not the repo's one-day window: its length, label and reset notice would all be wrong.
+      expect(fetched.rows[0]?.window).toBeUndefined();
+      // Halfway through the two days, half used is on track.
+      expect(paceOf(fetched.rows[0]!, reset - 24 * 60 * 60_000)).toMatchObject({
+        evenLeft: 50,
+        kind: "on_track",
+      });
+      expect(fetched.debug).toContainEqual({ key: "windows", value: "2_day" });
+    },
+  );
+
+  it.runIf(SUPPORTED)("gives two hour windows two rows with their own ids", async () => {
+    const reset = Date.parse(RESET);
+    installCli({
+      usage: replying({
+        per1HourPercentage: 0.1,
+        per1HourResetTime: reset,
+        per3HourPercentage: 0.2,
+        per3HourResetTime: reset,
+        hasQuotaData: true,
+      }),
+    });
+
+    const fetched = await fetchTokenPlan();
+
+    expect(rowSummary(fetched.rows)).toEqual([
+      ["alibaba-token-plan.personal.hour", "personal", "Hourly", "hour", 90, RESET],
+      ["alibaba-token-plan.personal.3_hour", "personal", "3h", null, 80, RESET],
+    ]);
+    expect(fetched.rows.map((row) => row.windowStartedAt)).toEqual([
+      new Date(reset - 60 * 60_000).toISOString(),
+      new Date(reset - 3 * 60 * 60_000).toISOString(),
+    ]);
+    expect(fetched.debug).toContainEqual({ key: "windows", value: "hour,3_hour" });
+  });
+
+  it.runIf(SUPPORTED)(
+    "starts a window of several months that many calendar months back",
+    async () => {
+      installCli({
+        usage: replying({ per3MonthPercentage: 0.5, per3MonthResetTime: Date.parse(RESET) }),
+      });
+
+      const fetched = await fetchTokenPlan();
+
+      expect(fetched.rows).toEqual([
+        expect.objectContaining({
+          id: "alibaba-token-plan.personal.3_month",
+          label: "3mo",
+          windowStartedAt: "2024-02-01T20:53:20.000Z",
+        }),
+      ]);
+    },
+  );
+
+  it.runIf(SUPPORTED)("keeps the monthly row as before: its id, window and start", async () => {
+    installCli({
+      usage: replying({ per1MonthPercentage: 0.6, per1MonthResetTime: Date.parse(RESET) }),
+    });
+
+    const fetched = await fetchTokenPlan();
+
+    expect(fetched.rows).toEqual([
+      expect.objectContaining({
+        id: "alibaba-token-plan.personal.monthly",
+        label: "Monthly",
+        window: "month",
+        percentRemaining: 40,
+        resetsAt: RESET,
+        windowStartedAt: "2024-04-01T20:53:20.000Z",
+      }),
+    ]);
+  });
+
+  it.runIf(SUPPORTED)(
+    "leaves out a window with a unit it does not know, and a window of zero units",
+    async () => {
+      installCli({
+        usage: replying({
+          per1YearPercentage: 0.5,
+          per0DayPercentage: 0.5,
+          per1MonthPercentage: 0.6,
+          hasQuotaData: true,
+        }),
+      });
+
+      const fetched = await fetchTokenPlan();
+
+      expect(fetched.error).toBeUndefined();
+      expect(rowSummary(fetched.rows)).toEqual([
+        ["alibaba-token-plan.personal.monthly", "personal", "Monthly", "month", 40, null],
+      ]);
+      expect(fetched.debug).toContainEqual({ key: "windows", value: "monthly" });
+    },
+  );
 
   it.runIf(SUPPORTED)(
     "gives the monthly row a start a calendar month before its reset",

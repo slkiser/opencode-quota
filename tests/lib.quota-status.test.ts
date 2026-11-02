@@ -1716,6 +1716,9 @@ describe("renderQuotaStatusReport", () => {
               { key: "windows", value: "five_hour,weekly,monthly" },
             ],
           }),
+          snapshot("alibaba-token-plan", {
+            debug: [{ key: "windows", value: "2_day,hour,3_hour,monthly" }],
+          }),
         ],
       },
       title: "",
@@ -1728,6 +1731,7 @@ describe("renderQuotaStatusReport", () => {
         "- selected_windows: rolling,weekly\n- console_error: (text not shown)",
         `- token_expires_at: ${RESET}`,
         "- cli_available: true\n- windows: five_hour,weekly,monthly",
+        "- windows: 2_day,hour,3_hour,monthly",
       ],
     },
     {

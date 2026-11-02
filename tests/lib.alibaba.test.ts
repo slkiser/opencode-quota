@@ -313,6 +313,45 @@ describe("alibaba token plan parser", () => {
         ],
       },
     },
+    {
+      // The count is read, not only the unit: two days is its own window, not one day.
+      name: "a window longer than one unit, and two hour windows side by side",
+      payload: { per2DayPercentage: 0.5, per1HourPercentage: 0.1, per3HourPercentage: 0.2 },
+      expected: {
+        ok: true,
+        windows: [
+          { key: "per2Day", count: 2, unit: "Day", percentRemaining: 50 },
+          { key: "per1Hour", count: 1, unit: "Hour", percentRemaining: 90 },
+          { key: "per3Hour", count: 3, unit: "Hour", percentRemaining: 80 },
+        ],
+      },
+    },
+    {
+      // A count spelled with a leading zero is the same window, so it cannot become a second row.
+      name: "one window whose count is spelled two ways",
+      payload: { per02DayPercentage: 0.5, per2DayResetTime: 1_714_000_000_000 },
+      expected: {
+        ok: true,
+        windows: [
+          {
+            key: "per2Day",
+            count: 2,
+            unit: "Day",
+            percentRemaining: 50,
+            resetTimeIso: new Date(1_714_000_000_000).toISOString(),
+          },
+        ],
+      },
+    },
+    {
+      // A unit the plugin does not know is not a window it reads, even with a value it would reject.
+      name: "a unit it does not know, left out",
+      payload: { per1YearPercentage: 7, per30MinutePercentage: 0.5, per1MonthPercentage: 0.5 },
+      expected: {
+        ok: true,
+        windows: [{ key: "per1Month", count: 1, unit: "Month", percentRemaining: 50 }],
+      },
+    },
   ])("parses $name", ({ payload, expected }) => {
     expect(parseAlibabaTokenPlanUsageJson(JSON.stringify(payload))).toEqual(expected);
   });
