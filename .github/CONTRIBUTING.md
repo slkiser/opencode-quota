@@ -44,7 +44,7 @@ The status must show `core.hooksPath` as `.github/hooks/_`, an installed dispatc
 
 ### Working on both v4 and v6
 
-v4 uses Lefthook and Biome; v6 uses Vite+. With the relative `.github/hooks/_` setting, each worktree needs its own installed hook programs. Run `pnpm install` in every existing worktree after activating this setting, and after switching a checkout between v4 and v6. Install dependencies before committing or pushing from a new worktree.
+v4 and v6 both use Vite+. With the relative `.github/hooks/_` setting, each worktree needs its own installed hook programs. Run `pnpm install` in every existing worktree after activating this setting, and after switching a checkout between v4 and v6. Install dependencies before committing or pushing from a new worktree.
 
 Git's `info/exclude` file lists local files to ignore and is shared by linked worktrees. Add the generated hook folder there once per clone so v4's installed hooks cannot be accidentally staged:
 
@@ -62,7 +62,7 @@ For quick iteration: `pnpm run test:watch`.
 
 - **No AI calls.** Never send a request to an AI model to produce anything the plugin shows (quota rows, toasts, command output); it would spend the user's tokens. Calling a provider's quota or billing API is fine.
 - **OpenCode 2 only.** No OpenCode 1 code, APIs, or tables.
-- **Server vs. TUI.** The server plugin (`src/plugin.ts`) reads providers, settings, and OpenCode's history, and registers the slash commands, the agent tools, and the `slkiser.opencode-quota` RPC. The TUI plugin (`src/tui/index.tsx`) only draws what the RPC returns and never imports provider or credential code. Web and Desktop get the slash commands only; OpenCode 2 has no plugin UI hooks there.
+- **Server vs. TUI.** The server plugin (`src/plugin.ts`) reads providers, settings, and OpenCode's history, and registers the slash commands, the agent tools, and the `slkiser.opencode-quota` RPC. The TUI plugin (`src/tui/index.tsx`) only draws what the RPC returns and never imports provider or credential code. Web and Desktop get the slash commands only.
 - **One status report.** `/quota_status`, the `quota_status` tool, and the RPC `status` method go through `buildQuotaDialogCommandOutput()`; `opencode-quota status` uses `buildStatusReportData()`, which that function wraps. Every value the report prints comes from a known list, a formatted number, or a placeholder (`tests/lib.quota-status.test.ts` checks this).
 - **Credentials.** Read OpenCode logins only through `ctx.integration` in `src/lib/opencode-auth.ts`. The only exception is the terminal command (`src/lib/cli-show.ts`), which uses `src/lib/opencode-auth-sqlite.ts`; the plugins must never reach that file.
 - **Money.** Use the shared formatter, which shows USD as `$12.50` and other currencies with an ISO code after the amount, such as `8.25 CNY`. Never convert amounts or add up different currencies.
