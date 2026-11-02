@@ -122,7 +122,7 @@ export function barParts(
 }
 
 /**
- * The cell of a bar `width` cells wide where even use would be (the │ mark): `evenLeft` is the
+ * The cell of a bar `width` cells wide where even use would be (the ┃ even-use mark): `evenLeft` is the
  * percent even use leaves now (`core/pace.ts`).
  */
 export function evenUseCell(evenLeft: number, width: number): number {
