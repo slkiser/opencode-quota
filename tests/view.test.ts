@@ -729,7 +729,7 @@ describe("view text", () => {
 
     it("puts the even-use mark where the words put the bar", () => {
       const used = words({ percent: "used" });
-      // 60% would be left at even use, so 40% used: the fourth cell of ten.
+      // 60% would be left at even use, so 40% used: the fifth cell of ten.
       expect(lineText({ id: "bar", segments: barSegments("blocks", 70, 10, 60, used) })).toBe(
         "███░┃░░░░░",
       );

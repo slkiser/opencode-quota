@@ -117,7 +117,7 @@ const BAR_CHARACTERS: Record<Exclude<BarShape, "none">, [string, string]> = {
   dots: ["●", "○"],
 };
 
-/** A bar in two parts (left, used), so each can have its own color. */
+/** A bar in two parts (filled, empty), so each can have its own color; `percentRemaining` is the share the bar shows. */
 export function barParts(
   shape: BarShape,
   percentRemaining: number,
