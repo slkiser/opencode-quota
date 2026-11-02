@@ -62,13 +62,15 @@ function TypeBar(props: { ctx: Context; byType: UsageByType; format: (value: num
     <>
       <div class="oq-types">
         <For each={parts()}>
-          {(part) => <span class={`oq-${part.type}`} style={{ width: `${part.share * 100}%` }} />}
+          {(part) => (
+            <span class={`oq-type-${part.type}`} style={{ width: `${part.share * 100}%` }} />
+          )}
         </For>
       </div>
       <div class="oq-legend">
         <For each={parts()}>
           {(part) => (
-            <span class={`oq-${part.type}`}>
+            <span class={`oq-type-${part.type}`}>
               <i />
               {props.ctx.t(`usage.type.${part.type}`)} <b>{props.format(part.value)}</b>
             </span>
