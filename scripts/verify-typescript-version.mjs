@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
 const EXPECTED_TYPESCRIPT_VERSION = "7.0.2";
-const EXPECTED_PLUGIN_VERSION = "1.18.11";
+const EXPECTED_PLUGIN_VERSION = "1.19.5";
 const EXPECTED_OPENTUI_VERSION = "0.4.5";
 const EXPECTED_OPENTUI_PACKAGES = ["@opentui/core", "@opentui/solid"];
 const BUN_FFI_STRUCTS_VERSION = "0.2.4";

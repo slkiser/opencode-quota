@@ -468,10 +468,29 @@ describe("alibaba token plan process boundary", () => {
     expect(requests[0]?.file).toBe(`${bin}/${ALIBABA_TOKEN_PLAN_COMMAND}`);
     expect(requests[0]?.cwd).toBe("/safe-tmp");
     expect(requests[0]?.platform).toBe("linux");
-    expect(requests[0]?.env).toEqual({ PATH: bin, TEST_ENV: "preserved" });
+    expect(requests[0]?.env).toEqual({ PATH: bin, TEST_ENV: "preserved", NO_UPDATE_NOTIFIER: "1" });
     expect(requests[0]?.stdoutLimitBytes).toBe(ALIBABA_TOKEN_PLAN_STDOUT_LIMIT_BYTES);
     expect(requests[0]?.stderrLimitBytes).toBe(ALIBABA_TOKEN_PLAN_STDERR_LIMIT_BYTES);
     expect(requests[0]?.killGraceMs).toBe(ALIBABA_TOKEN_PLAN_KILL_GRACE_MS);
+  });
+
+  it("disables bl's update notifier even when the parent environment enables it", async () => {
+    const bin = "/trusted/bin";
+    await mockExecutable();
+    const requests: AlibabaTokenPlanSpawnRequest[] = [];
+    const result = await queryAlibabaTokenPlanQuota({
+      runtime: {
+        platform: "linux",
+        cwd: "/workspace",
+        pathEnv: bin,
+        tmpdir: "/safe-tmp",
+        homedir: "/safe-home",
+        env: { PATH: bin, NO_UPDATE_NOTIFIER: "0" },
+        spawn: capturedSpawn(requests),
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(requests[0]?.env?.NO_UPDATE_NOTIFIER).toBe("1");
   });
 
   it("uses the injected environment PATH when pathEnv is omitted", async () => {

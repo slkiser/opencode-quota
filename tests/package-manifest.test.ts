@@ -141,7 +141,7 @@ describe("package manifest compatibility", () => {
 
   it("keeps the public plugin peer broad and reference-compatible development targets exact", () => {
     expect(pkg.peerDependencies?.["@opencode-ai/plugin"]).toBe("^1.4.3");
-    expect(pkg.devDependencies?.["@opencode-ai/plugin"]).toBe("1.18.11");
+    expect(pkg.devDependencies?.["@opencode-ai/plugin"]).toBe("1.19.5");
     expect(pkg.dependencies?.["@opentui/core"]).toBe("0.4.5");
     expect(pkg.dependencies?.["@opentui/solid"]).toBe("0.4.5");
     expect(readme).toContain("Node.js `>= 22` is required.");
@@ -152,7 +152,7 @@ describe("package manifest compatibility", () => {
   it("keeps the TypeScript 7 toolchain explicit without suppressing the known peer mismatch", () => {
     expect(tsconfig.compilerOptions?.types).toEqual(["node"]);
     expect(typescriptValidator).toContain('const EXPECTED_TYPESCRIPT_VERSION = "7.0.2";');
-    expect(typescriptValidator).toContain('const EXPECTED_PLUGIN_VERSION = "1.18.11";');
+    expect(typescriptValidator).toContain('const EXPECTED_PLUGIN_VERSION = "1.19.5";');
     expect(typescriptValidator).toContain('const EXPECTED_OPENTUI_VERSION = "0.4.5";');
     expect(typescriptValidator).toContain('const BUN_FFI_TYPESCRIPT_PEER = "^5";');
     expect(typescriptValidator).toContain("Known unmet peer:");
@@ -426,7 +426,7 @@ describe("package manifest compatibility", () => {
     expect(packedSmoke).toContain("@slkiser/opencode-quota/tui");
     expect(packedSmoke).toContain('import.meta.resolve("@slkiser/opencode-quota/tui")');
     expect(packedSmoke).toContain('readFile(tuiExportPath, "utf8")');
-    expect(packedSmoke).toContain("dist\\\\/tui\\\\.js");
+    expect(packedSmoke).toContain(String.raw`dist\\/tui\\.js`);
     expect(packedSmoke).not.toContain('await import("@slkiser/opencode-quota/tui")');
     expect(packedSmoke).toContain('const { metrics } = await import("@opentelemetry/api");');
     expect(packedSmoke).toContain('assert.equal(typeof metrics.getMeter, "function");');

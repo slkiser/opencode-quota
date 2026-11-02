@@ -620,6 +620,9 @@ export async function queryAlibabaTokenPlanQuota(
   const env: NodeJS.ProcessEnv = {
     ...(runtime.env ?? process.env),
     PATH: trustedPathEnv({ trustedDirectories, platform }),
+    // bl's debounced npmjs version check (versionCheckStage) stalls each spawn; this is its
+    // only supported skip knob.
+    NO_UPDATE_NOTIFIER: "1",
   };
   const request: AlibabaTokenPlanSpawnRequest = {
     file: resolved.file,
