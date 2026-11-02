@@ -141,7 +141,7 @@ Log in with `/connect` and the provider shows up. Switch providers on or off in 
 \* Linked names need one more step; the rest work once you log in. [What each one reports](docs/readme/providers.md#pre-configured-providers).
 
 - OpenAI ChatGPT needs a Codex login ([how](docs/readme/providers.md#openai-and-xai)).
-- Gemini CLI needs a Gemini Code Assist Standard or Enterprise account; personal Google accounts use Google AGY.
+- Gemini CLI works only with Gemini Code Assist Standard or Enterprise (organization) accounts. Personal Google accounts use Google AGY.
 - Business plans of the Chinese providers show only your own API key's usage (Alibaba Token Plan: one Credits row per seat).
 - API keys come from OpenCode or an [environment variable](docs/readme/providers.md#api-keys).
 
