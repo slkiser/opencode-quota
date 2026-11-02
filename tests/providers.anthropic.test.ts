@@ -16,6 +16,7 @@ import {
 import { anthropicProvider } from "../src/providers/anthropic.js";
 import fableWeeklyUsage from "./fixtures/anthropic/fable-weekly.sanitized.json";
 import noFiveHourUsage from "./fixtures/anthropic/no-five-hour-limit.sanitized.json";
+import noWeeklyLimitUsage from "./fixtures/anthropic/no-weekly-limit.sanitized.json";
 import type { CredentialDatabaseRow } from "./helpers/credential-database.js";
 import { createFakeIntegration } from "./helpers/fake-integration.js";
 import {
@@ -127,6 +128,20 @@ describe("anthropic provider", () => {
     expect(rowSummary(fetched.rows)).toEqual([
       ["anthropic.weekly", "work", "Weekly", "week", 67, reset],
       ["anthropic.weekly_fable", "work", "Fable", "week", 100, reset],
+    ]);
+    expect(fetched.debug).toContainEqual({ key: "quota_supported", value: "true" });
+  });
+
+  it("shows no Weekly row for a plan without a weekly limit", async () => {
+    world.storeLogins([claudeLogin("work")]);
+    fakeHttp(() => noWeeklyLimitUsage);
+
+    const fetched = await fetchRows(anthropicProvider, { anthropicBinaryPath: missingClaude() });
+
+    expect(rowSummary(fetched.rows)).toEqual([
+      ["anthropic.five_hour", "work", "5h", "five_hour", 88, FIVE_HOUR_RESET],
+      ["anthropic.extra_usage", "work", "Extra usage", "month", 75, null],
+      ["anthropic.weekly_fable", "work", "Fable", "week", 98, WEEKLY_RESET],
     ]);
     expect(fetched.debug).toContainEqual({ key: "quota_supported", value: "true" });
   });
@@ -306,6 +321,7 @@ describe("anthropic provider", () => {
     ["ANTHROPIC/claude-haiku-4-5", true],
     ["claude-code/claude-opus-5-5", true],
     ["CLAUDE-CODE/claude-sonnet-5-5", true],
+    ["claude-agent/opus", true],
     ["openai/gpt-5", false],
     ["copilot/claude-sonnet-4-5", false],
   ])("matches model id %s: %s", (model, expected) => {
@@ -316,6 +332,7 @@ describe("anthropic provider", () => {
     [["anthropic"], true, true],
     [["copilot", "anthropic"], true, true],
     [["claude-code"], true, false],
+    [["claude-agent"], true, false],
     [["claude"], true, false],
     [["anthropic"], false, false],
   ])(

@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/slkiser/opencode-quota"><img src="https://shawnkiser.com/opencode-quota/opencode-quota-v6-hero.gif" alt="OpenCode 中的 OpenCode Quota：侧边栏、配额窗口的 Usage 和 Limits 标签页，以及它的设置" /></a>
+  <a href="https://github.com/slkiser/opencode-quota"><img src="https://shawnkiser.com/opencode-quota/opencode-quota-hero.webp" alt="OpenCode 中的 OpenCode Quota：侧边栏、配额窗口的 Usage 和 Limits 标签页，以及它的设置" /></a>
 </p>
 
 ---
