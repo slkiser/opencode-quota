@@ -36,6 +36,8 @@ export const GEMINI_CLI_FLAVOR: GoogleQuotaFlavor<
   projectIdEnvVar: "OPENCODE_GEMINI_PROJECT_ID",
   projectIdConfigProvider: "google",
   failedLoginCountsAsPresent: true,
+  // `google` also holds Antigravity logins, whose tokens the Gemini CLI client cannot refresh.
+  readsAntigravityGoogleLogins: false,
   companion: geminiCliCompanion,
   missingCompanionError: "Gemini CLI requires the opencode-gemini-auth plugin",
   quotaUrl: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota",

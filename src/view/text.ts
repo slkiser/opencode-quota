@@ -17,6 +17,7 @@ import {
   LOW_CACHE_MARK,
   percentWord,
   sessionTokensText,
+  shownPercent,
 } from "./format.js";
 import { errorWords, type Place, type RowFacts, rowFacts } from "./row-facts.js";
 import {
@@ -92,23 +93,28 @@ const EVEN_USE_MARK = "┃";
 const EVEN_USE_MIN_CELLS = 3;
 
 /**
- * A bar in two parts: the part left in its level color, then the used part. With `evenLeft`, the
- * percent even use would leave now (`core/pace.ts`), the ┃ mark takes the place of the cell where
- * even use would be, in the row labels' color; a bar under 3 cells gets no mark.
+ * A bar in two parts: the share the words show in its level color, then the rest. The fill is
+ * the percent left, or the percent used when `words.percent` is "used", so it matches the number
+ * beside it. With `evenLeft`, the percent even use would leave now (`core/pace.ts`), the ┃ mark
+ * takes the place of the cell where even use would be, in the row labels' color; a bar under 3
+ * cells gets no mark. Segments keep the percent left, so their colors and levels never change
+ * with the words.
  */
 export function barSegments(
   shape: BarShape,
   percent: number,
   width: number,
-  evenLeft?: number,
+  evenLeft: number | undefined,
+  words: Words,
 ): Segment[] {
-  const [filled, empty] = barParts(shape, percent, width);
+  const [filled, empty] = barParts(shape, shownPercent(words, percent), width);
   const bar: Segment[] = [
     { text: filled, role: "bar", percent },
     { text: empty, role: "empty", percent },
   ];
   if (evenLeft === undefined || shape === "none" || width < EVEN_USE_MIN_CELLS) return bar;
-  const mark = evenUseCell(evenLeft, width);
+  // The words turn the mark around too, but only once: rounding it here would move it a cell.
+  const mark = evenUseCell(words.percent === "used" ? 100 - evenLeft : evenLeft, width);
   const marked: Segment[] = [];
   let start = 0;
   for (const segment of bar) {
@@ -241,7 +247,7 @@ function groupLine(group: Group, nowMs: number, width: number, withState: boolea
   };
 }
 
-/** "Session  12.3K in · 2.10K out", cut to `width` columns. */
+/** "Session  12.3K (1.20K) in · 2.10K out", or without cached input, cut to `width` columns. */
 function sessionLine(tokens: SessionTokens, width: number): Line {
   return {
     id: "session",
@@ -321,7 +327,7 @@ export function sidebarLines(input: SidebarInput): Line[] {
         withPaceLevel(
           [
             { text: labelText, role: "label", percent },
-            ...barSegments(layout.bar, percent, barWidth, row.evenLeft),
+            ...barSegments(layout.bar, percent, barWidth, row.evenLeft, input.words),
             { text: row.value.padStart(5), role: "percent", percent },
             { text: row.reset.padStart(resetWidth), role: "reset", percent },
           ],
@@ -402,7 +408,8 @@ export function collapsedLines(input: CollapsedInput): Line[] {
     group,
     picked: pickedFacts(input, group, "usedWord"),
   }));
-  // The percent after a space: " 100%", or "  100% used" with its word.
+  // The percent after a space: " 100%", or "  100% used" with its word: the collapsed title
+  // ("▶ Quota (2 providers)") doesn't say which way the percent reads.
   const percentWidth = input.words.percent === "used" ? 10 : 5;
   // The reset as wide as the longest, at least "11h 59m".
   const resetWidth = Math.max(7, ...picks.map(({ picked }) => columnsOf(picked?.reset ?? "")));
@@ -430,7 +437,7 @@ export function collapsedLines(input: CollapsedInput): Line[] {
           [
             name,
             { text: `${fit(picked.name, 4)} `, role: "label", percent },
-            ...barSegments(layout.bar, percent, barWidth, picked.evenLeft),
+            ...barSegments(layout.bar, percent, barWidth, picked.evenLeft, input.words),
             { text: picked.value.padStart(percentWidth), role: "percent", percent },
             error
               ? { text: `  ${error}`, role: "error" }
@@ -506,7 +513,7 @@ function statusSegment(input: StatusInput, group: Group, level: StatusLevel): Li
         ...(withBar
           ? [
               { text: " ", role: "separator" as const },
-              ...barSegments(layout.bar, percent, STATUS_BAR_WIDTH, picked.evenLeft),
+              ...barSegments(layout.bar, percent, STATUS_BAR_WIDTH, picked.evenLeft, input.words),
             ]
           : []),
         { text: ` ${picked.value}`, role: "percent", percent },
@@ -535,11 +542,22 @@ function shortenName(segments: Segment[], width: number): Segment[] {
   return [{ ...name, text: fit(name.text, nameWidth) }, ...rest];
 }
 
+/** Columns of the whole status line, every group at `level`, separators included. */
+export function statusLineWidth(input: StatusInput, level: StatusLevel): number {
+  const { groups } = input;
+  const segments = groups.reduce(
+    (sum, group) => sum + columnsOf(lineText(statusSegment(input, group, level))),
+    0,
+  );
+  return segments + Math.max(0, groups.length - 1) * columnsOf(input.layout.separator);
+}
+
 /**
  * §4.3 "all" mode: the most detail that fits every group in `room` columns ("% only" when
  * nothing else fits), then the groups that fit from `start`, keeping room for the "‹ " and
  * " +N ›" markers. When not even the first of them fits, its name is cut short, so the
- * markers stay. `level` fixes the detail instead of "auto".
+ * markers stay; with no room for any of its name, no group is shown and `statusMarkers`
+ * still gives the markers. `level` fixes the detail instead of "auto".
  */
 export function statusLayout(
   input: StatusInput,
@@ -549,16 +567,10 @@ export function statusLayout(
 ): StatusLayout {
   const { groups } = input;
   const separator = input.layout.separator;
-  const widthAt = (candidate: StatusLevel) =>
-    groups.reduce(
-      (sum, group) => sum + columnsOf(lineText(statusSegment(input, group, candidate))),
-      0,
-    ) +
-    Math.max(0, groups.length - 1) * columnsOf(separator);
   const chosen =
     level !== "auto"
       ? level
-      : (STATUS_LEVELS.find((candidate) => widthAt(candidate) <= room) ?? "numbers");
+      : (STATUS_LEVELS.find((candidate) => statusLineWidth(input, candidate) <= room) ?? "numbers");
   const first = Math.max(0, Math.min(start, groups.length - 1));
   const shown: Line[] = [];
   let used = first > 0 ? 2 : 0;
@@ -578,6 +590,18 @@ export function statusLayout(
     shown.push({ ...segment, segments: shortenName(segment.segments, left) });
   }
   return { level: chosen, start: first, shown, hiddenAfter: groups.length - first - shown.length };
+}
+
+/**
+ * The scroll markers around the shown groups: "‹ " when groups come before them, and
+ * " +N ›" when N groups come after. With no group shown, "+N ›" stands alone, so a line too
+ * narrow for any group still shows that there are some. Empty when not shown.
+ */
+export function statusMarkers(layout: StatusLayout): { before: string; after: string } {
+  const before = layout.start > 0 ? "‹ " : "";
+  if (layout.hiddenAfter <= 0) return { before, after: "" };
+  const after = layout.shown.length > 0 ? ` +${layout.hiddenAfter} ›` : `+${layout.hiddenAfter} ›`;
+  return { before, after };
 }
 
 /**
@@ -604,7 +628,7 @@ export function bigStatusLine(input: StatusInput, width?: number): Line | undefi
   const segments = withPaceLevel(
     [
       { text: `${statusName(input, group)} ${picked.name} `, role: "statusName", percent },
-      ...barSegments(input.layout.bar, percent, 10, picked.evenLeft),
+      ...barSegments(input.layout.bar, percent, 10, picked.evenLeft, input.words),
       { text: ` ${picked.value}`, role: "percent", percent },
       ...(after ? [after] : []),
       ...(picked.pace ? [{ text: ` · ${picked.pace.words}`, role: "warning" as const }] : []),
@@ -709,8 +733,8 @@ function runsOutLine(id: string, runsOut: string, column: number, room: number):
  */
 function groupedToastLines(input: ToastInput): Line[] {
   const { nowMs, room, layout } = input;
-  const word = percentWord(input.words);
   // "100% left": the number right-aligned, then its word.
+  const word = percentWord(input.words);
   const percentWidth = 4 + (word ? word.length + 1 : 0);
   const named = groupFacts(input.groups, alwaysOnPlace(input, "number"));
   const items = named.flatMap(({ rows }) => rows);
@@ -739,7 +763,7 @@ function groupedToastLines(input: ToastInput): Line[] {
     const segments = withPaceLevel(
       [
         { text: name, role: "label", percent },
-        ...(withBar ? barSegments(layout.bar, percent, barWidth, row.evenLeft) : []),
+        ...(withBar ? barSegments(layout.bar, percent, barWidth, row.evenLeft, input.words) : []),
         {
           text: `${withBar ? " " : ""}${word ? `${number} ${word}` : number}`,
           role: "percent",
@@ -800,7 +824,7 @@ function detailedToastLines(input: ToastInput): Line[] {
     const bar: Segment[] =
       barWidth >= TOAST_BAR_MIN
         ? [
-            ...barSegments(layout.bar, percent, barWidth, row.evenLeft),
+            ...barSegments(layout.bar, percent, barWidth, row.evenLeft, input.words),
             { text: `  ${percentWords}`, role: "percent", percent },
           ]
         : [{ text: percentWords.padStart(room), role: "percent", percent }];

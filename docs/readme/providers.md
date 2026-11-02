@@ -57,8 +57,8 @@ These tables show which plans a vendor sells. Except for Copilot organization/en
 
 | Provider                      | Auth/setup                                                          | Data from      | Reports            |
 | ----------------------------- | ------------------------------------------------------------------- | -------------- | ------------------ |
-| Alibaba Coding Plan           | [Needs setup](#alibaba-coding-plan)                                 | Official CLI   | Quota              |
-| Alibaba Token Plan            | [Needs setup](#alibaba-token-plan)                                  | Official CLI   | Quota and credits  |
+| Alibaba Coding Plan           | [Needs setup](#alibaba-coding-plan)                                 | Local CLI      | Quota and requests |
+| Alibaba Token Plan            | [Needs setup](#alibaba-token-plan)                                  | Local CLI      | Quota              |
 | DeepSeek                      | Automatic                                                           | Remote API     | Balance and status |
 | Kimi Code                     | Automatic                                                           | Remote API     | Quota              |
 | Kimi Code (CN)                | Automatic                                                           | Remote API     | Quota              |
@@ -75,7 +75,7 @@ These tables show which plans a vendor sells. Except for Copilot organization/en
 
 | Provider                 | Auth/setup                         | Data from    | Reports |
 | ------------------------ | ---------------------------------- | ------------ | ------- |
-| Alibaba Token Plan       | [Needs setup](#alibaba-token-plan) | Official CLI | Credits |
+| Alibaba Token Plan       | [Needs setup](#alibaba-token-plan) | Local CLI    | Quota and credits |
 | Kimi Code                | Automatic                          | Remote API   | Quota   |
 | Kimi Code (CN)           | Automatic                          | Remote API   | Quota   |
 | MiniMax Token Plan       | Automatic                          | Remote API   | Quota   |
@@ -362,7 +362,7 @@ Organization example (for an enterprise, use `"tier": "enterprise"`, add `"enter
 
 ### Anthropic (Claude)
 
-OpenCode's Anthropic login is enough: each `anthropic` login is asked once per check at Anthropic's OAuth usage endpoint, and an expired one shows "Sign in again". Claude Code is optional. A placeholder login from an auth plugin such as `@cortexkit/opencode-anthropic-auth` is skipped; quota then needs a Claude Code login. Without an OpenCode Anthropic login, quota comes from Claude Code itself or from Anthropic's usage endpoint with Claude Code's credentials (macOS Keychain, then `~/.claude/.credentials.json`). When Anthropic rejects an OpenCode login, `/quota_status` shows whether Claude Code and its credentials still work. With openchamber's `claude-code` provider, quota uses Claude Code's login. To use Claude Code, install it and sign in:
+OpenCode's Anthropic login is enough: each `anthropic` login is asked once per check at Anthropic's OAuth usage endpoint, and an expired one shows "Sign in again". Claude Code is optional. A placeholder login from an auth plugin such as `@cortexkit/opencode-anthropic-auth` is skipped; quota then needs a Claude Code login. Without an OpenCode Anthropic login, quota comes from Claude Code itself or from Anthropic's usage endpoint with Claude Code's credentials (macOS Keychain, then `~/.claude/.credentials.json`). When Anthropic rejects an OpenCode login, `/quota_status` shows whether Claude Code and its credentials still work. With openchamber's `claude-code` provider or OpenCode's Claude Agent provider (`claude-agent`), quota uses Claude Code's login. To use Claude Code, install it and sign in:
 
 ```bash
 claude auth login
@@ -370,6 +370,8 @@ claude auth status
 ```
 
 OpenCode Quota runs `claude` from OpenCode's `PATH`, or else the first working one of `~/.claude/local/claude`, `~/.local/bin/claude`, `/opt/homebrew/bin/claude`, and `/usr/local/bin/claude` (not on Windows). If Claude lives elsewhere, or on Windows when `claude` is not on OpenCode's `PATH`, set `providers.anthropic.binaryPath`. `/quota_status` shows the one it ran as `binary_path`.
+
+A plan without a weekly limit, such as Enterprise, shows the 5h row and no Weekly row.
 
 <a id="cursor"></a>
 
@@ -401,9 +403,9 @@ npm install -g bailian-cli
 bl auth login --console
 ```
 
-- It runs `bl usage coding-plan --output json`, which needs the console session.
-- It reports three request windows: `5h`, `Weekly` and `Monthly`, keyed `five_hour`, `weekly` and `monthly`. The quota is **requests**, so a row shows requests used, the limit and the reset time.
-- The plan tier comes from the reply (`instanceType`, for example `pro`) and names the account, such as `Alibaba Coding Plan (Pro)`.
+- It runs `bl usage coding-plan --output json`, which needs the console token. An API Key (AK/SK) signs in to the console too: `bl auth login --open-api --access-key-id <id> --access-key-secret <secret>` mints a CLI access token from it, validates it and saves both.
+- It reports three request windows: `5h`, `Weekly` and `Monthly`, keyed `five_hour`, `weekly` and `monthly`. The quota is **requests**, so a row shows the percent left, the requests used, the limit and the reset time.
+- A window the console reports no quota for has no row: the plan does not cover it, or its limit is 0.
 - An account without a Coding Plan subscription prints `{}`: no rows and no error.
 - It answers to `alibaba-coding-plan` and to the aliases `alibaba` and `alibaba-coding-plan-cn`. `providers.off` resolves synonyms, so `providers.off: ["alibaba"]` switches the Coding Plan off, not the Token Plan.
 - OpenCode Quota never installs `bl`, opens a login, reads console cookies, or runs a custom command.
@@ -421,9 +423,10 @@ bl auth login --console
 
 OpenCode Quota runs two commands, each with its own sign-in. They are independent: setting up one still runs the other, and a half that was never set up reports nothing at all.
 
-- **Personal** (the `Monthly` row, `alibaba-token-plan.personal`) runs `bl usage token-plan --output json` and needs a **console** session.
-- It reports the percent of the monthly plan still left, and its reset time when `bl` gives one. A reply with no percentage leaves the row out; `/quota_status` says so in `window_hint`.
-- **Team seats** (one `Credits` row per seat, `alibaba-token-plan.team.<slug>`) run `bl token-plan list-seats --status NORMAL --query-assigned true --page-size 100 --output json` and need **API Key** (AK/SK) credentials: `bl auth login --open-api`, or `ALIBABA_CLOUD_ACCESS_KEY_ID` and `ALIBABA_CLOUD_ACCESS_KEY_SECRET`. Each seat shows the credits left in its billing cycle, out of the cycle total.
+- **Personal** (one row per quota window, `alibaba-token-plan.personal.monthly`) runs `bl usage token-plan --output json` and needs the same **console** token (an API Key can mint one too, see [Coding Plan setup](#alibaba-coding-plan)).
+- It reports every window `bl` sends, one row each with the percent of that window left. Five windows keep their standard ids: `per1Hour` is `alibaba-token-plan.personal.hour`, `per5Hour` is `…personal.five_hour`, `per1Day` is `…personal.day`, `per1Week` is `…personal.weekly` and `per1Month` is `…personal.monthly`. Any other window is named by its count and unit: `per2Day` is `alibaba-token-plan.personal.2_day` (label `2d`), `per3Hour` is `…personal.3_hour` (label `3h`). A window the reply does not carry has no row.
+- A window the reply reports no quota for has no row either: it carries no usage ratio. `/quota_status` says so in `window_hint`, and when other windows do have rows, `no_data_windows` lists the ones without.
+- **Team seats** (one `Credits` row per seat, `alibaba-token-plan.team.<slug>`) run `bl token-plan list-seats --status NORMAL --query-assigned true --page-size 100 --output json` and need **API Key** (AK/SK) credentials: `bl auth login --open-api`, or `ALIBABA_CLOUD_ACCESS_KEY_ID` and `ALIBABA_CLOUD_ACCESS_KEY_SECRET`. Each seat shows the credits left in its billing cycle, out of the cycle total, and the percent of that grant left.
 - Without the AK/SK no team row is reported; the personal row still is. A seat whose status is not `NORMAL` has no row by design.
 - Neither command carries a region or account, so you see the plan `bl` is signed in to. `bl auth status` says which account, region and site that is.
 - One id reports it: `alibaba-token-plan`, and `alibaba-token-plan-cn` is another name for the same CLI, so a config that names it keeps working for provider selection and for `providers.off`.
@@ -444,6 +447,7 @@ opencode auth login google-agy
 ```
 
 - It shows the companion's grouped weekly and five-hour windows for each account. AGY logins copied from OpenCode 1 keep working.
+- Sign-ins made with [`opencode-antigravity-auth`](https://github.com/NoeFabris/opencode-antigravity-auth) (stored under `google`) show here too, and Gemini CLI skips them. A sign-in copied from OpenCode 1 counts once its account has been in that plugin's `antigravity-accounts.json` while OpenCode runs. The companion above is still needed for its OAuth client.
 - If the login has no project id, set `OPENCODE_AGY_PROJECT_ID`, or `providers.google-agy.settings.projectId` in [OpenCode config](troubleshooting.md#opencode-config-files) (the OpenCode 1 form `provider.google-agy.options.projectId` also works).
 
 <a id="gemini-cli"></a>

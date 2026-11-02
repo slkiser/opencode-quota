@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/slkiser/opencode-quota"><img src="https://shawnkiser.com/opencode-quota/opencode-quota-v6-hero.gif" alt="OpenCode 中的 OpenCode Quota：側邊欄、配額視窗的 Usage 和 Limits 分頁，以及它的設定" /></a>
+  <a href="https://github.com/slkiser/opencode-quota"><img src="https://shawnkiser.com/opencode-quota/opencode-quota-hero.webp" alt="OpenCode 中的 OpenCode Quota：側邊欄、配額視窗的 Usage 和 Limits 分頁，以及它的設定" /></a>
 </p>
 
 ---
@@ -91,7 +91,7 @@ opencode plugin add @slkiser/opencode-quota
 
 ## 設定
 
-在 `/quota_settings` 中變更側邊欄、狀態列、toast 通知、顏色、措辭和供應商。**Save**（儲存）只會把你變更的內容寫入 OpenCode 設定資料夾中的 `opencode-quota/settings.jsonc`，並保留你的註解。編輯該檔案後，幾秒內就會套用到每個開啟中的 TUI。在 Desktop 中，OpenCode 設定裡的 Quota 頁面也會儲存到同一個檔案。自訂供應商、Claude CLI 路徑和匯出路徑只能在檔案中設定。[設定與預設值](../configuration.md)。
+在 `/quota_settings` 中變更側邊欄、狀態列、toast 通知、顏色、措辭和供應商。**Save**（儲存）只會把你變更的內容寫入 OpenCode 設定資料夾中的 `opencode-quota/settings.jsonc`，並保留你的註解。編輯該檔案後，幾秒內就會套用到每個開啟中的 TUI。在 Desktop 中，OpenCode 設定裡的 Quota 頁面也會儲存到同一個檔案。自訂供應商、Claude CLI 路徑和匯出路徑只能在檔案中設定。進度條中的 `┃` 表示到重設前平均使用時應在的位置，而不是進度條的數值；在 Layout 分頁的 **Even-use mark**（`layout.evenUse`）可將其關閉。[設定與預設值](../configuration.md)。
 
 ## 供應商
 

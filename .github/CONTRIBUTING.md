@@ -44,7 +44,7 @@ The status must show `core.hooksPath` as `.github/hooks/_`, an installed dispatc
 
 ### Working on both v4 and v6
 
-v4 uses Lefthook and Biome; v6 uses Vite+. With the relative `.github/hooks/_` setting, each worktree needs its own installed hook programs. Run `pnpm install` in every existing worktree after activating this setting, and after switching a checkout between v4 and v6. Install dependencies before committing or pushing from a new worktree.
+v4 and v6 both use Vite+. With the relative `.github/hooks/_` setting, each worktree needs its own installed hook programs. Run `pnpm install` in every existing worktree after activating this setting, and after switching a checkout between v4 and v6. Install dependencies before committing or pushing from a new worktree.
 
 Git's `info/exclude` file lists local files to ignore and is shared by linked worktrees. Add the generated hook folder there once per clone so v4's installed hooks cannot be accidentally staged:
 

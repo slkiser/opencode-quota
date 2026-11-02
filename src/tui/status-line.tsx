@@ -1,20 +1,24 @@
 /** @jsxImportSource @opentui/solid */
 /**
- * The quota status line under the message box (§4.3) and at the bottom of Home. It takes only
- * the room OpenCode's footer leaves free (flexBasis 0), so it never squeezes the folder name or
- * other plugins, shows the most detail that fits every provider, and scrolls when even "% only"
- * does not fit: mouse wheel, or click "‹" / "+N ›".
+ * The quota status line under the message box (§4.3) and at the bottom of Home. It asks for
+ * the room its narrowest form needs, up to a third of the footer row (`statusLineBasis`), and
+ * takes all the room OpenCode's footer leaves free. It shows the most detail that fits every
+ * provider, and scrolls when even "% only" does not fit: mouse wheel, or click "‹" / "+N ›".
  */
 import type { BoxRenderable, MouseEvent } from "@opentui/core";
 import type { JSX } from "@opentui/solid";
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import { columnsOf } from "../view/columns.js";
 import {
   bigStatusLine,
   type Line,
   type StatusInput,
   type StatusLayout,
+  lineText,
   statusLayout,
   statusLineInput,
+  statusLineWidth,
+  statusMarkers,
 } from "../view/text.js";
 import { LineText, type SurfaceHost } from "./sidebar.js";
 import { roleColor } from "./theme.js";
@@ -30,10 +34,32 @@ export function statusLineShows(host: SurfaceHost): boolean {
   return host.editing.tabOpen("statusLine") || settings.statusLine.withSidebar || !sidebarQuota;
 }
 
-export function StatusLine(props: { host: SurfaceHost; sessionID?: string }): JSX.Element {
+/**
+ * The flex basis of the status line's box: the width it asks for before the free room is
+ * shared. OpenCode's session footer cuts its folder name to the room that name had at the last
+ * layout, so at start a long folder name keeps all the free room, and a box with basis 0 stays
+ * empty. With this basis the folder name gives room back: `wanted` columns (the line's
+ * narrowest form), but never more than a third of the footer row, nor more than the
+ * `statusLine.width` setting (0: no limit). The box still shrinks with the folder name when the
+ * row is too narrow for both.
+ */
+export function statusLineBasis(wanted: number, rowWidth: number, maxWidth: number): number {
+  const third = Math.floor(rowWidth / 3);
+  const limit = maxWidth > 0 ? Math.min(third, maxWidth) : third;
+  return Math.max(0, Math.min(wanted, limit));
+}
+
+export function StatusLine(props: {
+  host: SurfaceHost;
+  sessionID?: string;
+  /** The terminal's width: the footer row's width until the box is first measured. */
+  terminalWidth?: () => number;
+}): JSX.Element {
   const host = props.host;
   onCleanup(host.quota.watch(props.sessionID));
   const [room, setRoom] = createSignal(0);
+  // The width of the row the box sits in, read when the box is measured.
+  const [rowWidth, setRowWidth] = createSignal(0);
   const [start, setStart] = createSignal(0);
   const [nowMs, setNowMs] = createSignal(Date.now());
   const clock = setInterval(() => setNowMs(Date.now()), 60_000);
@@ -47,13 +73,31 @@ export function StatusLine(props: { host: SurfaceHost; sessionID?: string }): JS
   const big = () => display().statusLine.detail === "one";
   const layout = () => {
     const current = input();
-    if (!current || big()) return undefined;
+    // The room is 0 until OpenCode measures the box: no markers on their own before that.
+    if (!current || big() || room() === 0) return undefined;
     const detail = display().statusLine.detail;
     return statusLayout(current, room(), start(), detail === "one" ? "auto" : detail);
   };
   const count = () => input()?.groups.length ?? 0;
   const step = (delta: number) => setStart(Math.max(0, Math.min(count() - 1, start() + delta)));
   const color = (role: "arrows" | "separator") => roleColor(host.theme(), display(), role);
+  // The narrowest whole line: every provider at "% only", or the big bar's one provider.
+  const narrowest = (current: StatusInput): number => {
+    if (!big()) return statusLineWidth(current, "numbers");
+    const line = bigStatusLine(current);
+    return line ? columnsOf(lineText(line)) : 0;
+  };
+  const basis = () => {
+    const current = input();
+    if (!current || current.groups.length === 0) return 0;
+    // One spare column, like `room` below.
+    const wanted = narrowest(current) + 1;
+    return statusLineBasis(
+      wanted,
+      rowWidth() || (props.terminalWidth?.() ?? 0),
+      display().statusLine.width,
+    );
+  };
 
   const marked = () => host.editing.marked("statusLine");
   // The provider selected on the Settings tab scrolls into view.
@@ -82,7 +126,7 @@ export function StatusLine(props: { host: SurfaceHost; sessionID?: string }): JS
       justifyContent="flex-end"
       flexGrow={1000}
       flexShrink={1}
-      flexBasis={0}
+      flexBasis={basis()}
       minWidth={0}
       maxWidth={display().statusLine.width || undefined}
       overflow="hidden"
@@ -90,7 +134,11 @@ export function StatusLine(props: { host: SurfaceHost; sessionID?: string }): JS
         // In OpenCode's footer the box can end up one column narrower than measured here
         // (seen at 200 columns), which cut the first letter; one spare column avoids it.
         const width = Math.max(0, this.width - 1);
-        queueMicrotask(() => setRoom(width));
+        const row = this.parent?.width ?? 0;
+        queueMicrotask(() => {
+          setRoom(width);
+          setRowWidth(row);
+        });
       }}
       onMouseScroll={(event: MouseEvent) => {
         const direction = event.scroll?.direction;
@@ -111,16 +159,18 @@ export function StatusLine(props: { host: SurfaceHost; sessionID?: string }): JS
       <Show when={layout()}>
         {(current: () => StatusLayout) => (
           <>
-            <Show when={current().start > 0 && current().shown.length > 0}>
-              <text
-                fg={color("arrows")}
-                wrapMode="none"
-                flexShrink={0}
-                selectable={false}
-                onMouseUp={() => step(-1)}
-              >
-                {"‹ "}
-              </text>
+            <Show when={statusMarkers(current()).before}>
+              {(marker: () => string) => (
+                <text
+                  fg={color("arrows")}
+                  wrapMode="none"
+                  flexShrink={0}
+                  selectable={false}
+                  onMouseUp={() => step(-1)}
+                >
+                  {marker()}
+                </text>
+              )}
             </Show>
             {current().shown.map((line: Line, index: number) => (
               <>
@@ -132,16 +182,18 @@ export function StatusLine(props: { host: SurfaceHost; sessionID?: string }): JS
                 <LineText line={line} host={host} marked={line.id === marked()} />
               </>
             ))}
-            <Show when={current().hiddenAfter > 0 && current().shown.length > 0}>
-              <text
-                fg={color("arrows")}
-                wrapMode="none"
-                flexShrink={0}
-                selectable={false}
-                onMouseUp={() => step(1)}
-              >
-                {` +${current().hiddenAfter} ›`}
-              </text>
+            <Show when={statusMarkers(current()).after}>
+              {(marker: () => string) => (
+                <text
+                  fg={color("arrows")}
+                  wrapMode="none"
+                  flexShrink={0}
+                  selectable={false}
+                  onMouseUp={() => step(1)}
+                >
+                  {marker()}
+                </text>
+              )}
             </Show>
           </>
         )}

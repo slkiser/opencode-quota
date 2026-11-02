@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/slkiser/opencode-quota"><img src="https://shawnkiser.com/opencode-quota/opencode-quota-v6-hero.gif" alt="OpenCode 中的 OpenCode Quota：侧边栏、配额窗口的 Usage 和 Limits 标签页，以及它的设置" /></a>
+  <a href="https://github.com/slkiser/opencode-quota"><img src="https://shawnkiser.com/opencode-quota/opencode-quota-hero.webp" alt="OpenCode 中的 OpenCode Quota：侧边栏、配额窗口的 Usage 和 Limits 标签页，以及它的设置" /></a>
 </p>
 
 ---
@@ -91,7 +91,7 @@ opencode plugin add @slkiser/opencode-quota
 
 ## 设置
 
-在 `/quota_settings` 中修改侧边栏、状态行、toast 提示、颜色、措辞和提供商。**Save**（保存）只会把你改动的内容写入 OpenCode 配置文件夹中的 `opencode-quota/settings.jsonc`，并保留你的注释。编辑该文件后，几秒内就会生效到每个打开的 TUI。在 Desktop 中，OpenCode 设置里的 Quota 页面也保存到同一个文件。自定义提供商、Claude CLI 路径和导出路径只能在文件中设置。[设置和默认值](../configuration.md)。
+在 `/quota_settings` 中修改侧边栏、状态行、toast 提示、颜色、措辞和提供商。**Save**（保存）只会把你改动的内容写入 OpenCode 配置文件夹中的 `opencode-quota/settings.jsonc`，并保留你的注释。编辑该文件后，几秒内就会生效到每个打开的 TUI。在 Desktop 中，OpenCode 设置里的 Quota 页面也保存到同一个文件。自定义提供商、Claude CLI 路径和导出路径只能在文件中设置。进度条中的 `┃` 表示到重置前均匀使用时应在的位置，而不是进度条的数值；在 Layout 标签页的 **Even-use mark**（`layout.evenUse`）可将其关闭。[设置和默认值](../configuration.md)。
 
 ## 提供商
 

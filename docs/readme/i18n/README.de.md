@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/slkiser/opencode-quota"><img src="https://shawnkiser.com/opencode-quota/opencode-quota-v6-hero.gif" alt="OpenCode Quota in OpenCode: die Seitenleiste, die Tabs Usage und Limits des Quota-Fensters und seine Einstellungen" /></a>
+  <a href="https://github.com/slkiser/opencode-quota"><img src="https://shawnkiser.com/opencode-quota/opencode-quota-hero.webp" alt="OpenCode Quota in OpenCode: die Seitenleiste, die Tabs Usage und Limits des Quota-Fensters und seine Einstellungen" /></a>
 </p>
 
 ---
@@ -91,7 +91,7 @@ Zum Beispiel `/quota_usage 30d` oder `/quota_usage between 2026-09-01 2026-09-25
 
 ## Einstellungen
 
-Seitenleiste, Statuszeile, Toasts, Farben, Formulierungen und Anbieter änderst du in `/quota_settings`. **Save** schreibt nur deine Änderungen nach `opencode-quota/settings.jsonc` im Konfigurationsordner von OpenCode und behält deine Kommentare. Eine Änderung an der Datei erreicht jede offene TUI innerhalb weniger Sekunden. In Desktop speichert die Quota-Seite in den Einstellungen von OpenCode in dieselbe Datei. Eigene Anbieter, der Pfad zur Claude CLI und der Exportpfad lassen sich nur in der Datei festlegen. [Einstellungen und Standardwerte](../configuration.md).
+Seitenleiste, Statuszeile, Toasts, Farben, Formulierungen und Anbieter änderst du in `/quota_settings`. **Save** schreibt nur deine Änderungen nach `opencode-quota/settings.jsonc` im Konfigurationsordner von OpenCode und behält deine Kommentare. Eine Änderung an der Datei erreicht jede offene TUI innerhalb weniger Sekunden. In Desktop speichert die Quota-Seite in den Einstellungen von OpenCode in dieselbe Datei. Eigene Anbieter, der Pfad zur Claude CLI und der Exportpfad lassen sich nur in der Datei festlegen. Das `┃` in einem Balken zeigt, wo gleichmäßige Nutzung bis zum Zurücksetzen stünde, nicht den Wert des Balkens; **Even-use mark** (`layout.evenUse`) im Tab Layout schaltet es aus. [Einstellungen und Standardwerte](../configuration.md).
 
 ## Anbieter
 

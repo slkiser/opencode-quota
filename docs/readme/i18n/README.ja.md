@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/slkiser/opencode-quota"><img src="https://shawnkiser.com/opencode-quota/opencode-quota-v6-hero.gif" alt="OpenCode で動く OpenCode Quota：サイドバー、クォータウィンドウの Usage タブと Limits タブ、そして設定" /></a>
+  <a href="https://github.com/slkiser/opencode-quota"><img src="https://shawnkiser.com/opencode-quota/opencode-quota-hero.webp" alt="OpenCode で動く OpenCode Quota：サイドバー、クォータウィンドウの Usage タブと Limits タブ、そして設定" /></a>
 </p>
 
 ---
@@ -91,7 +91,7 @@ OpenCode を再起動して `/quota` と入力します。上限を表示する�
 
 ## 設定
 
-サイドバー、ステータスライン、トースト、色、表記、プロバイダーは `/quota_settings` で変更できます。**Save**（保存）は、変更した項目だけを OpenCode の設定フォルダー内の `opencode-quota/settings.jsonc` に書き込み、コメントはそのまま残します。ファイルを編集すると、数秒以内に開いているすべての TUI に反映されます。Desktop では、OpenCode の設定内の Quota ページも同じファイルに保存します。カスタムプロバイダー、Claude CLI のパス、エクスポート先のパスはファイルでのみ設定できます。[設定とデフォルト値](../configuration.md)。
+サイドバー、ステータスライン、トースト、色、表記、プロバイダーは `/quota_settings` で変更できます。**Save**（保存）は、変更した項目だけを OpenCode の設定フォルダー内の `opencode-quota/settings.jsonc` に書き込み、コメントはそのまま残します。ファイルを編集すると、数秒以内に開いているすべての TUI に反映されます。Desktop では、OpenCode の設定内の Quota ページも同じファイルに保存します。カスタムプロバイダー、Claude CLI のパス、エクスポート先のパスはファイルでのみ設定できます。バーの `┃` は、リセットまで均等に使った場合の位置を示すもので、バーの値ではありません。Layout タブの **Even-use mark**（`layout.evenUse`）でオフにできます。[設定とデフォルト値](../configuration.md)。
 
 ## プロバイダー
 

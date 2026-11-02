@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/slkiser/opencode-quota"><img src="https://shawnkiser.com/opencode-quota/opencode-quota-v6-hero.gif" alt="OpenCode Quota en OpenCode: la barra lateral, las pestañas Usage y Limits de la ventana de cuota y sus ajustes" /></a>
+  <a href="https://github.com/slkiser/opencode-quota"><img src="https://shawnkiser.com/opencode-quota/opencode-quota-hero.webp" alt="OpenCode Quota en OpenCode: la barra lateral, las pestañas Usage y Limits de la ventana de cuota y sus ajustes" /></a>
 </p>
 
 ---
@@ -91,7 +91,7 @@ Por ejemplo, `/quota_usage 30d` o `/quota_usage between 2026-09-01 2026-09-25`. 
 
 ## Ajustes
 
-Cambia la barra lateral, la línea de estado, las notificaciones toast, los colores, los textos y los proveedores en `/quota_settings`. **Save** escribe solo lo que cambiaste en `opencode-quota/settings.jsonc`, dentro de la carpeta de configuración de OpenCode, y conserva tus comentarios. Una edición del archivo llega a cada TUI abierta en pocos segundos. En Desktop, la página Quota de los ajustes de OpenCode guarda en el mismo archivo. Los proveedores personalizados, la ruta de Claude CLI y la ruta de exportación solo se configuran en el archivo. [Ajustes y valores predeterminados](../configuration.md).
+Cambia la barra lateral, la línea de estado, las notificaciones toast, los colores, los textos y los proveedores en `/quota_settings`. **Save** escribe solo lo que cambiaste en `opencode-quota/settings.jsonc`, dentro de la carpeta de configuración de OpenCode, y conserva tus comentarios. Una edición del archivo llega a cada TUI abierta en pocos segundos. En Desktop, la página Quota de los ajustes de OpenCode guarda en el mismo archivo. Los proveedores personalizados, la ruta de Claude CLI y la ruta de exportación solo se configuran en el archivo. El `┃` de una barra marca dónde estarías con un uso uniforme hasta el reinicio, no el valor de la barra; **Even-use mark** (`layout.evenUse`) en la pestaña Layout lo desactiva. [Ajustes y valores predeterminados](../configuration.md).
 
 ## Proveedores
 

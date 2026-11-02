@@ -338,7 +338,7 @@ describe("V2 server plugin", () => {
         value: { type: "key", key: "deepseek-key" },
       },
     ]);
-    const subscribe = vi.fn((_options: { signal: AbortSignal }) => ({
+    const subscribe = vi.fn((_options: { types?: string[]; signal: AbortSignal }) => ({
       async *[Symbol.asyncIterator]() {},
     }));
 
@@ -352,6 +352,12 @@ describe("V2 server plugin", () => {
     ]);
     const signal = subscribe.mock.calls[0]?.[0].signal;
     expect(signal?.aborted).toBe(false);
+    // OpenCode 2.2+ sends only these; older hosts ignore `types` (the next test sends others too).
+    expect(subscribe.mock.calls[0]?.[0].types).toEqual([
+      "credential.updated",
+      "credential.switched",
+      "session.model.selected",
+    ]);
 
     await cleanup?.();
     expect(signal?.aborted).toBe(true);

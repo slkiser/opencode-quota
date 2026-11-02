@@ -1,5 +1,6 @@
 import type { ErrorFacts } from "../core/errors.js";
 import { readProviderConfigString } from "./api-key-resolver.js";
+import { findAntigravityGoogleLogins } from "./google-antigravity-logins.js";
 import type {
   GoogleCompanionConfiguredCredentials,
   GoogleCompanionResolver,
@@ -70,6 +71,11 @@ type GoogleAuthFlavor<Key extends GoogleAuthSourceKey> = {
   projectIdConfigProvider: string;
   /** Gemini CLI keeps a login OpenCode could not return "present", so its error row shows. */
   failedLoginCountsAsPresent: boolean;
+  /**
+   * `google` holds both flavors' logins: Google AGY reads its Antigravity logins (true),
+   * Gemini CLI every other one (false). See `findAntigravityGoogleLogins`.
+   */
+  readsAntigravityGoogleLogins: boolean;
   companion: GoogleCompanionResolver;
 };
 
@@ -103,14 +109,27 @@ export async function resolveGoogleConfiguredProjectId(
 }
 
 export async function readGoogleLogins(
-  flavor: { authKeys: readonly string[]; projectIdEnvVar: string; projectIdConfigProvider: string },
+  flavor: {
+    authKeys: readonly string[];
+    readsAntigravityGoogleLogins: boolean;
+    projectIdEnvVar: string;
+    projectIdConfigProvider: string;
+  },
   directory: string,
 ): Promise<GoogleLogins> {
   const [rows, configuredProjectId] = await Promise.all([
     readCredentialRows(flavor.authKeys, { methods: ["oauth"] }),
     resolveGoogleConfiguredProjectId(flavor, directory),
   ]);
-  return { rows, configuredProjectId };
+  const antigravityLogins = await findAntigravityGoogleLogins(rows);
+  return {
+    rows: rows.filter(
+      (row) =>
+        row.integrationId !== "google" ||
+        antigravityLogins.has(row) === flavor.readsAntigravityGoogleLogins,
+    ),
+    configuredProjectId,
+  };
 }
 
 /**

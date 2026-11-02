@@ -147,7 +147,7 @@ export function createQuotaServerPlugin(
         if (options.reconcileDetectedProviders && detected.length > 0) {
           try {
             // Only declare a provider through its own OpenCode id. A quota provider can be available
-            // through another plugin's provider id (claude-code for anthropic); declaring the
+            // through another provider id (claude-code or claude-agent for anthropic); declaring the
             // canonical id would add a second, credential-less provider to the catalog.
             const runtime = new Set(
               (await ctx.provider.list()).data.map((provider) => provider.id),
@@ -511,10 +511,14 @@ export function createQuotaServerPlugin(
       // entries, so the next read asks OpenCode again, and makes the store check who each
       // provider is signed in as. If the subscription fails, cached logins stay until they
       // expire; the log says why. Model selections update the session's quota scope too.
-      // The cleanup's abort ends the subscription silently.
+      // The cleanup's abort ends the subscription silently. OpenCode before 2.2 ignores `types`
+      // and sends every event, so the loop still checks each event's type.
       const credentialEvents = new AbortController();
       void (async () => {
-        for await (const event of ctx.event.subscribe({ signal: credentialEvents.signal })) {
+        for await (const event of ctx.event.subscribe({
+          types: ["credential.updated", "credential.switched", "session.model.selected"],
+          signal: credentialEvents.signal,
+        })) {
           if (event.type === "credential.updated" || event.type === "credential.switched") {
             notifyCredentialsChanged();
             store.invalidateIdentity();

@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/slkiser/opencode-quota"><img src="https://shawnkiser.com/opencode-quota/opencode-quota-v6-hero.gif" alt="OpenCode Quota in OpenCode: the sidebar, the quota window's Usage and Limits tabs, and its settings" /></a>
+  <a href="https://github.com/slkiser/opencode-quota"><img src="https://shawnkiser.com/opencode-quota/opencode-quota-hero.webp" alt="OpenCode Quota in OpenCode: the sidebar, the quota window's Usage and Limits tabs, and its settings" /></a>
 </p>
 
 ---
@@ -91,7 +91,7 @@ For example `/quota_usage 30d` or `/quota_usage between 2026-09-01 2026-09-25`. 
 
 ## Settings
 
-Change the sidebar, status line, toasts, colors, words and providers in `/quota_settings`. **Save** writes only what you changed to `opencode-quota/settings.jsonc` in OpenCode's config folder and keeps your comments. A file edit reaches every open TUI within a few seconds. In Desktop, the Quota page in OpenCode's settings saves to the same file. Custom providers, the Claude CLI path and the export path are set only in the file. [Settings and defaults](docs/readme/configuration.md).
+Change the sidebar, status line, toasts, colors, words and providers in `/quota_settings`. **Save** writes only what you changed to `opencode-quota/settings.jsonc` in OpenCode's config folder and keeps your comments. A file edit reaches every open TUI within a few seconds. In Desktop, the Quota page in OpenCode's settings saves to the same file. Custom providers, the Claude CLI path and the export path are set only in the file. The `┃` in a bar marks where even use until the reset would be, not the bar's value; **Even-use mark** (`layout.evenUse`) on the Layout tab turns it off. [Settings and defaults](docs/readme/configuration.md).
 
 ## Providers
 
