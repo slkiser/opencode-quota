@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -20,14 +20,22 @@ import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 const POOL_FILE_NAME = "antigravity-accounts.json";
 /** Pool file versions the companion reads; it ignores a file of any other version. */
 const POOL_VERSIONS = [1, 2, 3, 4];
+/** A larger pool file is not the companion's; it counts as no pool. */
+const MAX_POOL_FILE_BYTES = 1024 * 1024;
 
 type PoolAccount = { refreshToken: string; id?: unknown; refreshTokenHashes?: unknown };
 
 /**
- * Connection ids of `google` logins last seen as Antigravity logins. A login OpenCode could not
- * return has neither its method id nor its refresh token, so this is the only evidence for it.
+ * Connection ids of `google` logins seen as Antigravity logins, kept while the connection exists.
+ * A login OpenCode could not return has neither its method id nor its refresh token, so this is
+ * the only evidence for it.
  */
 const antigravityLoginIds = new Set<string>();
+
+/** The last pool file read, so both Google providers in one refresh read it once. */
+let poolCache:
+  | { path: string; mtimeMs: number; size: number; accounts: Promise<PoolAccount[]> }
+  | undefined;
 
 /**
  * The companion's pool file: in OpenCode's config folder, or on Windows in the older
@@ -41,11 +49,34 @@ function poolFilePath(): string {
   return existsSync(legacyPath) ? legacyPath : path;
 }
 
-/** The pool's accounts that have a refresh token; none when the file is missing or unreadable. */
+/**
+ * The pool's accounts that have a refresh token; none when the file is missing, unreadable or
+ * over 1 MiB. The file is read again only when its path, modification time or size changes.
+ */
 async function readPoolAccounts(): Promise<PoolAccount[]> {
+  const path = poolFilePath();
+  let info: { mtimeMs: number; size: number; isFile(): boolean };
+  try {
+    info = await stat(path);
+  } catch {
+    return [];
+  }
+  if (!info.isFile() || info.size > MAX_POOL_FILE_BYTES) return [];
+  if (
+    poolCache?.path !== path ||
+    poolCache.mtimeMs !== info.mtimeMs ||
+    poolCache.size !== info.size
+  ) {
+    poolCache = { path, mtimeMs: info.mtimeMs, size: info.size, accounts: parsePoolFile(path) };
+  }
+  return poolCache.accounts;
+}
+
+/** The accounts with a refresh token in the pool file at `path`; none when unreadable. */
+async function parsePoolFile(path: string): Promise<PoolAccount[]> {
   let data: unknown;
   try {
-    data = JSON.parse(await readFile(poolFilePath(), "utf-8"));
+    data = JSON.parse(await readFile(path, "utf-8"));
   } catch {
     return [];
   }
@@ -82,8 +113,15 @@ function isAntigravityCredential(
 
 /**
  * The Antigravity logins among the `google` rows of `rows`. A login OpenCode returned is judged
- * by the companion's rule, and remembered by connection id; a login OpenCode could not return is
- * an Antigravity login when it was one at its last successful read in this process.
+ * by the companion's rule; once it is an Antigravity login, its connection id stays one for as
+ * long as the connection exists in this process, even when OpenCode can no longer return it or
+ * its account later leaves the pool.
+ *
+ * Limit: the companion also counts an `oauth` login as its own when the login has a saved
+ * per-connection account binding. That binding is in the companion's private storage, which this
+ * plugin does not read; keeping a login once seen in the pool covers the case where the companion
+ * binds a login and later drops the account from the pool, but not a login that was bound
+ * without ever being in the pool while this process ran.
  */
 export async function findAntigravityGoogleLogins(
   rows: readonly CredentialRow[],
@@ -94,23 +132,27 @@ export async function findAntigravityGoogleLogins(
   );
   const poolAccounts = needsPool ? await readPoolAccounts() : [];
 
+  const currentIds = new Set(googleRows.map((row) => row.id));
+  for (const id of antigravityLoginIds) {
+    if (!currentIds.has(id)) antigravityLoginIds.delete(id);
+  }
+
   const found = new Set<CredentialRow>();
   for (const row of googleRows) {
     if (row.resolveError !== undefined) {
       if (antigravityLoginIds.has(row.id)) found.add(row);
       continue;
     }
-    if (isAntigravityCredential(row, poolAccounts)) {
+    if (antigravityLoginIds.has(row.id) || isAntigravityCredential(row, poolAccounts)) {
       antigravityLoginIds.add(row.id);
       found.add(row);
-    } else {
-      antigravityLoginIds.delete(row.id);
     }
   }
   return found;
 }
 
-/** Test helper: forgets which connections were Antigravity logins. */
+/** Test helper: forgets which connections were Antigravity logins, and the pool file read. */
 export function clearAntigravityLoginMemoryForTests(): void {
   antigravityLoginIds.clear();
+  poolCache = undefined;
 }

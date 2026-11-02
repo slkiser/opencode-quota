@@ -3,9 +3,20 @@
 // OpenCode's package cache, and fake HTTP.
 import crypto from "node:crypto";
 
-import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { clearAntigravityLoginMemoryForTests } from "../src/lib/google-antigravity-logins.js";
+const fsMocks = vi.hoisted(() => ({ readFile: vi.fn() }));
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  fsMocks.readFile.mockImplementation(actual.readFile);
+  return { ...actual, readFile: fsMocks.readFile };
+});
+
+import {
+  clearAntigravityLoginMemoryForTests,
+  findAntigravityGoogleLogins,
+} from "../src/lib/google-antigravity-logins.js";
 import { agyCompanion, geminiCliCompanion } from "../src/lib/google-companion-credentials.js";
 import {
   bindCredentialSource,
@@ -534,6 +545,69 @@ describe("logins under the shared google integration id", () => {
     } finally {
       unbind();
     }
+  });
+
+  /** How many times the account pool file was read. */
+  const poolReads = () =>
+    fsMocks.readFile.mock.calls.filter(([path]) =>
+      String(path).endsWith("antigravity-accounts.json"),
+    ).length;
+
+  it("keeps an OpenCode 1 import as Google AGY after its account leaves the pool", async () => {
+    installCompanion(agy);
+    installCompanion(geminiCli);
+    writeAntigravityPool([{ refreshToken: "refresh-migrated" }]);
+    world.storeLogins([sharedGoogleLogin("migrated", "oauth")]);
+    fakeHttp(() => agy.quota());
+
+    await expect(isAvailable(googleAgyProvider)).resolves.toBe(true);
+    writeAntigravityPool([{ refreshToken: "refresh-someone-else" }]);
+
+    await expect(isAvailable(googleAgyProvider)).resolves.toBe(true);
+    await expect(isAvailable(googleGeminiCliProvider)).resolves.toBe(false);
+  });
+
+  it("ignores an account pool file over 1 MiB", async () => {
+    installCompanion(agy);
+    installCompanion(geminiCli);
+    writeAntigravityPool([{ refreshToken: "refresh-migrated", padding: "x".repeat(1024 * 1024) }]);
+    world.storeLogins([sharedGoogleLogin("migrated", "oauth")]);
+    fsMocks.readFile.mockClear();
+
+    await expect(isAvailable(googleAgyProvider)).resolves.toBe(false);
+    await expect(isAvailable(googleGeminiCliProvider)).resolves.toBe(true);
+    expect(poolReads()).toBe(0);
+  });
+
+  it("reads the account pool file once for both providers", async () => {
+    installCompanion(agy);
+    installCompanion(geminiCli);
+    writeAntigravityPool([{ refreshToken: "refresh-migrated" }]);
+    world.storeLogins([sharedGoogleLogin("migrated", "oauth")]);
+    fakeHttp(() => agy.quota());
+    fsMocks.readFile.mockClear();
+
+    await Promise.all([fetchRows(googleAgyProvider), fetchRows(googleGeminiCliProvider)]);
+
+    expect(poolReads()).toBe(1);
+  });
+
+  it("forgets a remembered Antigravity login once its connection is gone", async () => {
+    const login = (id: string, value: Record<string, unknown>, resolveError?: string) => ({
+      id,
+      integrationId: "google",
+      label: id,
+      active: false,
+      value,
+      ...(resolveError ? { resolveError } : {}),
+    });
+    const healthy = login("agy", sharedGoogleLogin("agy", "antigravity").value);
+    const failed = login("agy", { type: "oauth" }, "refresh_failed: HTTP 400");
+
+    expect((await findAntigravityGoogleLogins([healthy])).has(healthy)).toBe(true);
+    await findAntigravityGoogleLogins([]);
+
+    expect((await findAntigravityGoogleLogins([failed])).size).toBe(0);
   });
 
   it("still reads an opencode-gemini-auth login for Gemini CLI", async () => {
