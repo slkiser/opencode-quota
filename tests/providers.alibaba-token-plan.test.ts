@@ -276,7 +276,8 @@ describe("alibaba-token-plan provider", () => {
   ])("shows %s", async (name, script, rows, error, debug) => {
     if (script !== undefined) installCli(script);
 
-    const fetched = await fetchTokenPlan(name === "a timeout" ? 300 : undefined);
+    // The waiting reply sleeps 5 s; 2 s leaves the quick team call room to finish on a busy machine.
+    const fetched = await fetchTokenPlan(name === "a timeout" ? 2_000 : undefined);
 
     expect(rowSummary(fetched.rows)).toEqual(rows);
     if (error) expect(fetched.error).toMatchObject(error);
