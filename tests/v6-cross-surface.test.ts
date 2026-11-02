@@ -412,7 +412,7 @@ describe("v6 surfaces on the quota snapshot", () => {
         " Copilot  pro",
         expect.stringMatching(/^ {3}Plan +█+░+ {2}81% left$/u),
         expect.stringMatching(
-          /^ {3}5h +░+┃░+ {3}0% left {3}resets in 2h 14m {3}faster than it refills$/u,
+          /^ {3}5h +░+ {3}0% left {3}resets in 2h 14m {3}faster than it refills$/u,
         ),
         " Custom providers  Team",
       ]),

@@ -73,6 +73,16 @@ const CLOSE_WIDTH = "esc".length + TAB_GAP;
 /** The tabs the tab bar shows, `first` to `last`, and whether "Settings" labels its group. */
 const HINT_SEPARATOR = " · ";
 
+/** The keyboard hint of Limits and the other tabs without their own; Limits names the ┃ mark with `evenUse`. */
+export function windowHint(tab: WindowTab | undefined, evenUse: boolean): string {
+  const end = "tab next tab · esc close";
+  if (tab === "limits") {
+    const mark = evenUse ? "┃ where even use would be · " : "";
+    return `${mark}c copy · ↑↓ scroll · ${end}`;
+  }
+  return `↑↓ select · space/enter or click to use · ‹ › (or ←/→) change · ${end}`;
+}
+
 /** The keyboard hint in `width` columns, its lines broken between " · " items, never inside one. */
 export function hintLines(hint: string, width: number): string {
   const lines: string[] = [];
@@ -428,11 +438,7 @@ export function createQuotaWindow(
       const shown = tab();
       return isSettingsTab(shown) ? shown : undefined;
     };
-    const viewHint = () => {
-      const end = "tab next tab · esc close";
-      if (tab() === "limits") return `┃ where even use would be · c copy · ↑↓ scroll · ${end}`;
-      return `↑↓ select · space/enter or click to use · ‹ › (or ←/→) change · ${end}`;
-    };
+    const viewHint = () => windowHint(tab(), host.display().layout.evenUse);
     const hint = () =>
       settings.hint(tab() ?? "", hasKeyboard()) ??
       (hasKeyboard()

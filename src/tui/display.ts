@@ -314,7 +314,7 @@ export const FIELDS: readonly Field[] = [
     ...LAYOUT,
   }),
   field("layout.evenUse", "Even-use mark", SHOW.onOff, {
-    note: "┃ in each bar where even use would be, like on the Limits tab",
+    note: "┃ in each bar where even use would be, the Limits tab's too",
   }),
   field("layout.indent", "Row indent", SHOW.indent, {
     group: "Spacing",
