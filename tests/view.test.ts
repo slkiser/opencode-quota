@@ -41,6 +41,8 @@ import {
   sidebarLines,
   sidebarTitle,
   statusLayout,
+  statusLineWidth,
+  statusMarkers,
   type ToastInput,
   type ToastLayout,
   toastLines,
@@ -880,6 +882,40 @@ describe("view text", () => {
       expect([layout.shown.length, layout.hiddenAfter]).toEqual([shown, 3 - shown]);
     },
   );
+
+  it("keeps the +N marker when no provider fits in the room", () => {
+    // Seven providers in two columns: too narrow for even a cut name next to "+7 ›".
+    const seven = [CLAUDE, ZEN, ROUTER, CLAUDE, ZEN, ROUTER, CLAUDE];
+    const layout = statusLayout(statusInput(seven), 2, 0, "auto");
+    expect([layout.shown, layout.hiddenAfter]).toEqual([[], 7]);
+    expect(statusMarkers(layout)).toEqual({ before: "", after: "+7 ›" });
+    // Scrolled: the back marker shows too.
+    expect(statusMarkers(statusLayout(statusInput(seven), 2, 3, "auto"))).toEqual({
+      before: "‹ ",
+      after: "+4 ›",
+    });
+  });
+
+  it("puts a space before the +N marker after the shown providers", () => {
+    expect(statusMarkers(statusLayout(statusInput(), 40, 1, "auto"))).toEqual({
+      before: "‹ ",
+      after: " +1 ›",
+    });
+    expect(statusMarkers(statusLayout(statusInput(), 200, 0, "auto"))).toEqual({
+      before: "",
+      after: "",
+    });
+  });
+
+  it("measures the whole status line at one level", () => {
+    const input = statusInput();
+    for (const level of ["full", "bar", "reset", "numbers"] as const) {
+      const whole = statusLayout(input, 1000, 0, level)
+        .shown.map(lineText)
+        .join(input.layout.separator);
+      expect(statusLineWidth(input, level)).toBe(whole.length);
+    }
+  });
 
   it("scrolls the status line, keeping room for the markers", () => {
     const layout = statusLayout(statusInput(), 40, 1, "auto");

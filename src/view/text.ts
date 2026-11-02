@@ -535,11 +535,22 @@ function shortenName(segments: Segment[], width: number): Segment[] {
   return [{ ...name, text: fit(name.text, nameWidth) }, ...rest];
 }
 
+/** Columns of the whole status line, every group at `level`, separators included. */
+export function statusLineWidth(input: StatusInput, level: StatusLevel): number {
+  const { groups } = input;
+  const segments = groups.reduce(
+    (sum, group) => sum + columnsOf(lineText(statusSegment(input, group, level))),
+    0,
+  );
+  return segments + Math.max(0, groups.length - 1) * columnsOf(input.layout.separator);
+}
+
 /**
  * §4.3 "all" mode: the most detail that fits every group in `room` columns ("% only" when
  * nothing else fits), then the groups that fit from `start`, keeping room for the "‹ " and
  * " +N ›" markers. When not even the first of them fits, its name is cut short, so the
- * markers stay. `level` fixes the detail instead of "auto".
+ * markers stay; with no room for any of its name, no group is shown and `statusMarkers`
+ * still gives the markers. `level` fixes the detail instead of "auto".
  */
 export function statusLayout(
   input: StatusInput,
@@ -549,16 +560,10 @@ export function statusLayout(
 ): StatusLayout {
   const { groups } = input;
   const separator = input.layout.separator;
-  const widthAt = (candidate: StatusLevel) =>
-    groups.reduce(
-      (sum, group) => sum + columnsOf(lineText(statusSegment(input, group, candidate))),
-      0,
-    ) +
-    Math.max(0, groups.length - 1) * columnsOf(separator);
   const chosen =
     level !== "auto"
       ? level
-      : (STATUS_LEVELS.find((candidate) => widthAt(candidate) <= room) ?? "numbers");
+      : (STATUS_LEVELS.find((candidate) => statusLineWidth(input, candidate) <= room) ?? "numbers");
   const first = Math.max(0, Math.min(start, groups.length - 1));
   const shown: Line[] = [];
   let used = first > 0 ? 2 : 0;
@@ -578,6 +583,18 @@ export function statusLayout(
     shown.push({ ...segment, segments: shortenName(segment.segments, left) });
   }
   return { level: chosen, start: first, shown, hiddenAfter: groups.length - first - shown.length };
+}
+
+/**
+ * The scroll markers around the shown groups: "‹ " when groups come before them, and
+ * " +N ›" when N groups come after. With no group shown, "+N ›" stands alone, so a line too
+ * narrow for any group still shows that there are some. Empty when not shown.
+ */
+export function statusMarkers(layout: StatusLayout): { before: string; after: string } {
+  const before = layout.start > 0 ? "‹ " : "";
+  if (layout.hiddenAfter <= 0) return { before, after: "" };
+  const after = layout.shown.length > 0 ? ` +${layout.hiddenAfter} ›` : `+${layout.hiddenAfter} ›`;
+  return { before, after };
 }
 
 /**
