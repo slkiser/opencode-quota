@@ -59,8 +59,8 @@ export const STYLE = `
 .oq-c0 { --oq-c: var(--oq-s0); } .oq-c1 { --oq-c: var(--oq-s1); } .oq-c2 { --oq-c: var(--oq-s2); }
 .oq-c3 { --oq-c: var(--oq-s3); } .oq-c4 { --oq-c: var(--oq-s4); } .oq-c5 { --oq-c: var(--oq-s5); }
 .oq-good { --oq-c: var(--oq-good); } .oq-warning { --oq-c: var(--oq-warning); } .oq-low { --oq-c: var(--oq-low); }
-.oq-input { --oq-c: var(--oq-t0); } .oq-cacheRead { --oq-c: var(--oq-t1); }
-.oq-cacheWrite { --oq-c: var(--oq-t2); } .oq-output { --oq-c: var(--oq-t3); }
+.oq-type-input { --oq-c: var(--oq-t0); } .oq-type-cacheRead { --oq-c: var(--oq-t1); }
+.oq-type-cacheWrite { --oq-c: var(--oq-t2); } .oq-type-output { --oq-c: var(--oq-t3); }
 .oq-muted { color: var(--oq-muted); }
 .oq-small { font-size: 12px; }
 .oq-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--oq-c); flex: none; }
