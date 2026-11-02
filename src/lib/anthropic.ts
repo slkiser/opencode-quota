@@ -138,6 +138,8 @@ export type ClaudeCommandInvocation = {
 type AnthropicDiagnosticsCacheEntry = {
   timestamp: number;
   value: AnthropicDiagnostics | null;
+  /** When the OAuth usage reply in `value` was fetched; it must not outlive the reuse window. */
+  quotaCheckedAtMs?: number;
   inFlight?: Promise<AnthropicDiagnostics>;
 };
 
@@ -193,6 +195,8 @@ type AnthropicFallbackQuota =
   | {
       state: "success";
       quota: AnthropicQuotaResult;
+      /** When Anthropic sent this reply; a reused reply keeps its original time. */
+      checkedAtMs: number;
     }
   | {
       state: "unavailable";
@@ -859,8 +863,11 @@ function getAnthropicOAuthCooldownMessage(remainingMs: number): string {
   )}s.`;
 }
 
-/** Keeps a successful reply for reuse, dropping replies too old to reuse. */
-function rememberAnthropicOAuthReply(tokenFingerprint: string, quota: AnthropicQuotaResult): void {
+/** Keeps a successful reply for reuse, dropping replies too old to reuse. Returns its fetch time. */
+function rememberAnthropicOAuthReply(
+  tokenFingerprint: string,
+  quota: AnthropicQuotaResult,
+): number {
   const nowMs = Date.now();
   for (const [fingerprint, entry] of anthropicOAuthRecent) {
     if (nowMs - entry.checkedAtMs >= ANTHROPIC_OAUTH_REUSE_MS) {
@@ -868,6 +875,7 @@ function rememberAnthropicOAuthReply(tokenFingerprint: string, quota: AnthropicQ
     }
   }
   anthropicOAuthRecent.set(tokenFingerprint, { quota, checkedAtMs: nowMs });
+  return nowMs;
 }
 
 function retainAnthropicOAuthCooldownForToken(tokenFingerprint: string): void {
@@ -987,10 +995,11 @@ async function performAnthropicOAuthUsageRequest(
           };
         }
 
-        rememberAnthropicOAuthReply(tokenFingerprint, quota);
+        const checkedAtMs = rememberAnthropicOAuthReply(tokenFingerprint, quota);
         return {
           state: "success",
           quota,
+          checkedAtMs,
         };
       },
     });
@@ -1028,7 +1037,7 @@ async function queryAnthropicQuotaFromOAuthAccessToken(
     nowMs >= recent.checkedAtMs &&
     nowMs - recent.checkedAtMs < ANTHROPIC_OAUTH_REUSE_MS
   ) {
-    return { state: "success", quota: recent.quota };
+    return { state: "success", quota: recent.quota, checkedAtMs: recent.checkedAtMs };
   }
 
   // Concurrent probes with the same token share one request.
@@ -1422,10 +1431,14 @@ export async function getAnthropicDiagnostics(
     value: null,
   };
 
+  const quotaStillReusable =
+    cached.quotaCheckedAtMs === undefined ||
+    (now >= cached.quotaCheckedAtMs && now - cached.quotaCheckedAtMs < ANTHROPIC_OAUTH_REUSE_MS);
   if (
     cached.value &&
     cached.timestamp > 0 &&
-    now - cached.timestamp < ANTHROPIC_DIAGNOSTICS_TTL_MS
+    now - cached.timestamp < ANTHROPIC_DIAGNOSTICS_TTL_MS &&
+    quotaStillReusable
   ) {
     return cached.value;
   }
@@ -1434,6 +1447,9 @@ export async function getAnthropicDiagnostics(
     return cached.inFlight;
   }
 
+  // A reused OAuth reply keeps its original fetch time here, so this cache never serves it
+  // past the reuse window.
+  let quotaCheckedAtMs: number | undefined;
   const inFlight = (async () => {
     const localDiagnostics = await getCachedAnthropicLocalDiagnostics({ binaryPath });
     if (localDiagnostics.localQuota) {
@@ -1507,11 +1523,13 @@ export async function getAnthropicDiagnostics(
       checkedCommands: localDiagnostics.checkedCommands,
       quota: fallbackQuota.quota,
     };
+    quotaCheckedAtMs = fallbackQuota.checkedAtMs;
     return diagnostics;
   })().then((value) => {
     diagnosticsCache.set(binaryPath, {
       timestamp: Date.now(),
       value,
+      ...(quotaCheckedAtMs !== undefined ? { quotaCheckedAtMs } : {}),
     });
     return value;
   });
@@ -1519,6 +1537,7 @@ export async function getAnthropicDiagnostics(
   diagnosticsCache.set(binaryPath, {
     timestamp: cached.timestamp,
     value: cached.value,
+    ...(cached.quotaCheckedAtMs !== undefined ? { quotaCheckedAtMs: cached.quotaCheckedAtMs } : {}),
     inFlight,
   });
 
@@ -1530,6 +1549,9 @@ export async function getAnthropicDiagnostics(
       diagnosticsCache.set(binaryPath, {
         timestamp: latest.timestamp,
         value: latest.value,
+        ...(latest.quotaCheckedAtMs !== undefined
+          ? { quotaCheckedAtMs: latest.quotaCheckedAtMs }
+          : {}),
       });
     }
   }

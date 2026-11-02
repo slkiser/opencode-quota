@@ -1684,6 +1684,43 @@ describe("Claude CLI diagnostics", () => {
     expect(fetchResponseMock).toHaveBeenCalledTimes(2);
   });
 
+  it("never serves a reused OAuth usage reply more than a minute after it was fetched", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const startMs = Date.parse("2026-07-10T12:00:00.000Z");
+    vi.setSystemTime(startMs);
+    setProcessPlatform("linux");
+    mockExecSequence(authenticatedWithoutQuotaSteps(3));
+    readFileMock.mockResolvedValue(
+      JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token" } }),
+    );
+    fetchResponseMock
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          five_hour: { utilization: 10 },
+          seven_day: { utilization: 20 },
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          five_hour: { utilization: 80 },
+          seven_day: { utilization: 20 },
+        }),
+      );
+
+    const fetched = await getAnthropicDiagnostics();
+    expect(fetched.quota?.five_hour?.percentRemaining).toBe(90);
+
+    vi.setSystemTime(startMs + 59_000);
+    const reused = await getAnthropicDiagnostics();
+    expect(reused.quota?.five_hour?.percentRemaining).toBe(90);
+    expect(fetchResponseMock).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(startMs + 63_000);
+    const refreshed = await getAnthropicDiagnostics();
+    expect(refreshed.quota?.five_hour?.percentRemaining).toBe(20);
+    expect(fetchResponseMock).toHaveBeenCalledTimes(2);
+  });
+
   it("does not reuse an unusable OAuth usage reply", async () => {
     setProcessPlatform("linux");
     mockExecSequence(authenticatedWithoutQuotaSteps(2));
