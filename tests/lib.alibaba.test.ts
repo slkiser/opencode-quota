@@ -857,7 +857,11 @@ describe("alibaba token plan Windows resolution", () => {
     expect(result.ok).toBe(true);
     expect(requests[0]?.file).toBe(file);
     expect(requests[0]?.cwd).toBe(SAFE_TMP);
-    expect(requests[0]?.env).toEqual({ TEST_ENV: "preserved", PATH: TRUSTED_BIN });
+    expect(requests[0]?.env).toEqual({
+      TEST_ENV: "preserved",
+      PATH: TRUSTED_BIN,
+      NO_UPDATE_NOTIFIER: "1",
+    });
   });
 });
 
@@ -885,7 +889,7 @@ describe("alibaba token plan process boundary", () => {
     expect(requests[0]?.stdin).toBe("ignore");
     expect(requests[0]?.file).toBe(`${bin}/${BL_COMMAND}`);
     expect(requests[0]?.cwd).toBe("/safe-tmp");
-    expect(requests[0]?.env).toEqual({ PATH: bin, TEST_ENV: "preserved" });
+    expect(requests[0]?.env).toEqual({ PATH: bin, TEST_ENV: "preserved", NO_UPDATE_NOTIFIER: "1" });
     expect(requests[0]?.stdoutLimitBytes).toBe(STDOUT_LIMIT_BYTES);
     expect(requests[0]?.stderrLimitBytes).toBe(STDERR_LIMIT_BYTES);
     expect(requests[0]?.killGraceMs).toBe(KILL_GRACE_MS);
@@ -1587,7 +1591,11 @@ describe("alibaba token plan seat process boundary", () => {
     expect(requests[0]?.shell).toBe(false);
     expect(requests[0]?.stdin).toBe("ignore");
     expect(requests[0]?.cwd).toBe("/safe-tmp");
-    expect(requests[0]?.env).toEqual({ PATH: "/trusted/bin", TEST_ENV: "preserved" });
+    expect(requests[0]?.env).toEqual({
+      PATH: "/trusted/bin",
+      TEST_ENV: "preserved",
+      NO_UPDATE_NOTIFIER: "1",
+    });
     expect(requests[0]?.timeoutMs).toBe(4_321);
     expect(requests[0]?.stdoutLimitBytes).toBe(STDOUT_LIMIT_BYTES);
     expect(requests[0]?.stderrLimitBytes).toBe(STDERR_LIMIT_BYTES);
@@ -1818,7 +1826,11 @@ describe("alibaba token plan credential markers", () => {
     expect(requests[0]?.stdoutLimitBytes).toBe(STDOUT_LIMIT_BYTES);
     expect(requests[0]?.stderrLimitBytes).toBe(STDERR_LIMIT_BYTES);
     expect(requests[0]?.killGraceMs).toBe(KILL_GRACE_MS);
-    expect(requests[0]?.env).toEqual({ PATH: "/trusted/bin", TEST_ENV: "preserved" });
+    expect(requests[0]?.env).toEqual({
+      PATH: "/trusted/bin",
+      TEST_ENV: "preserved",
+      NO_UPDATE_NOTIFIER: "1",
+    });
   });
 
   it("reuses one read within the TTL, then reads `bl` again once it expires", async () => {

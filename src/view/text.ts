@@ -241,7 +241,7 @@ function groupLine(group: Group, nowMs: number, width: number, withState: boolea
   };
 }
 
-/** "Session  12.3K in · 2.10K out", cut to `width` columns. */
+/** "Session  12.3K (1.20K) in · 2.10K out", or without cached input, cut to `width` columns. */
 function sessionLine(tokens: SessionTokens, width: number): Line {
   return {
     id: "session",
