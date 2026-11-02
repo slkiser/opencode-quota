@@ -54,6 +54,7 @@ A file ranked higher wins. Both kinds may hold comments and trailing commas. Wit
 | `/quota` shows no providers                                 | Run `/quota_status` and check provider detection and [logins](#logins).                                  |
 | Sidebar is missing                                          | Open a session: the `Quota` panel is in its sidebar. A collapsed panel opens when you click its title.   |
 | No Quota GUI in OpenCode Desktop                            | It needs OpenCode `2.2.0+` and its switch on in **Settings → Extensions → Plugins**. Web shows no plugin GUI. |
+| Old `/quota` reports reach the AI after uninstalling        | The plugin filtered them out while installed. Delete those messages or start a new chat.                 |
 | `/quota_usage` is empty                                     | Start OpenCode once so it creates `opencode.db`, then use a model.                                       |
 | Pricing looks old                                           | Press `p` in the TUI's Usage tab (`/quota_usage`).                                                       |
 | Terminal shows a sign-in as expired but OpenCode shows data | The terminal never refreshes tokens. Open OpenCode (or use that provider in it) once, then retry.        |

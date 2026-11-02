@@ -60,8 +60,8 @@ Füge das Plugin zu `opencode.jsonc` oder `opencode.json` hinzu und behalte dein
 
 ## Funktionen
 
-- **TUI:** `/quota` öffnet ein Fenster mit den Tabs Usage, Limits, Plugin und Settings. Die TUI bekommt außerdem ein Quota-Panel in der Seitenleiste, eine Statuszeile unter dem Eingabefeld und Toasts.
-- **Desktop (experimentell, OpenCode `2.2.0+`):** Der Befehl **Quota** öffnet ein Nutzungsfenster (Limits, Cost, Tokens). Desktop bekommt außerdem einen angehefteten Quota-Seitentab, eine Pille in der Titelleiste, eine Leiste am unteren Rand, eine Pille über dem Eingabefeld, Toasts, den Eintrag **Quota usage for this session** im Sitzungsmenü und eine Quota-Seite in den Einstellungen von OpenCode. Derselbe Plugin-Eintrag lädt das; abschalten kannst du es unter **Settings → Extensions → Plugins**.
+- **TUI:** ein `/quota`-Fenster, ein Panel in der Seitenleiste, eine Statuszeile und Toasts.
+- **Desktop (experimentell, OpenCode `2.2.0+`):** ein Seitentab, Pillen, eine Leiste am unteren Rand, Toasts, ein Nutzungsfenster (Befehl **Quota**) und eine Einstellungsseite. Abschalten unter **Settings → Extensions → Plugins**.
   <details>
   <summary>Wo jede Einstellung in der TUI und in Desktop erscheint</summary>
   <table>
@@ -73,10 +73,10 @@ Füge das Plugin zu `opencode.jsonc` oder `opencode.json` hinzu und behalte dein
   </table>
   <p><b>Hinweis:</b> In der TUI blendet sich die Statuszeile aus, solange die Seitenleiste Kontingente zeigt, außer <b>Next to the sidebar</b> (<code>statusLine.withSidebar</code>) ist an. In Desktop erscheint die Leiste standardmäßig auch neben dem Quota-Seitentab; <b>Next to the side panel</b> (<code>statusLine.withSidePanel</code>) schaltet das ab.</p>
   </details>
-- **Web und Desktop:** `/quota`, `/quota_usage` und `/quota_status` posten ihren Bericht als deine Nachricht in den Chat. Die KI antwortet nie darauf, und das Plugin filtert ihn aus jeder KI-Anfrage heraus. Nach der Deinstallation des Plugins werden alte Berichte in früheren Chats nicht mehr gefiltert. Die Schrift im Web richtet die Spalten eventuell nicht sauber aus.
-- **Terminal:** `npx @slkiser/opencode-quota@latest show` funktioniert auch, wenn OpenCode geschlossen ist.
-- **Skripte und Statusleisten:** JSON, eine Exportdatei und Metriken. Siehe [Externe Integration](../external-integration.md).
-- **Für OpenCode 2 gebaut:** Einstellungen gelten sofort, in jedem offenen OpenCode.
+- **Web:** `/quota`, `/quota_usage` und `/quota_status` posten einen Bericht in den Chat. Die KI sieht ihn nie.
+- **Terminal:** `npx @slkiser/opencode-quota@latest show`, auch wenn OpenCode geschlossen ist.
+- **Skripte und Statusleisten:** JSON, eine Exportdatei und Metriken ([so geht's](../external-integration.md)).
+- **Einstellungen gelten sofort** in jedem offenen OpenCode.
 
 ## Befehle
 
@@ -91,7 +91,10 @@ Zum Beispiel `/quota_usage 30d` oder `/quota_usage between 2026-09-01 2026-09-25
 
 ## Einstellungen
 
-Seitenleiste, Statuszeile, Toasts, Farben, Formulierungen und Anbieter änderst du in `/quota_settings`. **Save** schreibt nur deine Änderungen nach `opencode-quota/settings.jsonc` im Konfigurationsordner von OpenCode und behält deine Kommentare. Eine Änderung an der Datei erreicht jede offene TUI innerhalb weniger Sekunden. In Desktop speichert die Quota-Seite in den Einstellungen von OpenCode in dieselbe Datei. Eigene Anbieter, der Pfad zur Claude CLI und der Exportpfad lassen sich nur in der Datei festlegen. Das `┃` in einem Balken zeigt, wo gleichmäßige Nutzung bis zum Zurücksetzen stünde, nicht den Wert des Balkens; **Even-use mark** (`layout.evenUse`) im Tab Layout schaltet es aus. [Einstellungen und Standardwerte](../configuration.md).
+- Ändere Einstellungen in `/quota_settings` (TUI) oder auf der Quota-Seite in den Einstellungen von Desktop. Beide speichern nach `opencode-quota/settings.jsonc` im Konfigurationsordner von OpenCode und behalten deine Kommentare.
+- Eigene Anbieter, der Pfad zur Claude CLI und der Exportpfad lassen sich nur in der Datei festlegen.
+- Das `┃` in einem Balken markiert gleichmäßige Nutzung bis zum Zurücksetzen. **Even-use mark** (`layout.evenUse`) schaltet es aus.
+- [Einstellungen und Standardwerte](../configuration.md)
 
 ## Anbieter
 
@@ -137,7 +140,10 @@ Melde dich mit `/connect` an, und der Anbieter erscheint. Schalte Anbieter in `/
 
 \* Verlinkte Namen brauchen einen Schritt mehr; die übrigen funktionieren, sobald du angemeldet bist. [Was jeder Anbieter meldet](../providers.md#pre-configured-providers).
 
-Das ChatGPT-Kontingent von OpenAI braucht einen Codex-Login ([so geht's](../providers.md#openai-and-xai)). Gemini CLI funktioniert nur mit Konten für Gemini Code Assist Standard oder Enterprise (Organisation). Private Google-Nutzer sollten Google AGY verwenden. Business-Tarife der chinesischen Anbieter zeigen nur die Nutzung deines eigenen Mitglieds-API-Schlüssels, außer Alibaba Token Plan, der pro Team-Platz eine Credits-Zeile zeigt. API-Schlüssel kommen aus OpenCode oder aus einer [Umgebungsvariable](../providers.md#api-keys).
+- OpenAI ChatGPT braucht einen Codex-Login ([so geht's](../providers.md#openai-and-xai)).
+- Gemini CLI braucht ein Konto für Gemini Code Assist Standard oder Enterprise; private Google-Konten nutzen Google AGY.
+- Business-Tarife der chinesischen Anbieter zeigen nur die Nutzung deines eigenen API-Schlüssels (Alibaba Token Plan: eine Credits-Zeile pro Platz).
+- API-Schlüssel kommen aus OpenCode oder aus einer [Umgebungsvariable](../providers.md#api-keys).
 
 ### Eigene Anbieter
 

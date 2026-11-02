@@ -7,7 +7,7 @@
     </picture>
   </a>
 </p>
-<p align="center">Quota, usage and cost in OpenCode's TUI and Desktop.</p>
+<p align="center">Quota, usage and cost in OpenCode TUI and Desktop.</p>
 <p align="center">
   <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm" src="https://img.shields.io/npm/v/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
   <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm downloads" src="https://img.shields.io/npm/dm/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
@@ -60,8 +60,8 @@ Add the plugin to `opencode.jsonc` or `opencode.json`, and keep your other plugi
 
 ## What you get
 
-- **TUI:** `/quota` opens a window with Usage, Limits, Plugin and Settings tabs. The TUI also gets a Quota sidebar panel, a status line under the message box, and toasts.
-- **Desktop (experimental, OpenCode `2.2.0+`):** the **Quota** command opens a usage window (Limits, Cost, Tokens). Desktop also gets a pinned Quota side tab, a titlebar pill, a bottom strip, a composer pill, toasts, a **Quota usage for this session** item in the session menu, and a Quota page in OpenCode's settings. The same plugin entry loads it; turn it off in **Settings → Extensions → Plugins**.
+- **TUI:** a `/quota` window, a sidebar panel, a status line and toasts.
+- **Desktop (experimental, OpenCode `2.2.0+`):** a side tab, pills, a bottom strip, toasts, a usage window (**Quota** command) and a settings page. Turn it off in **Settings → Extensions → Plugins**.
   <details>
   <summary>Where each setting shows in the TUI and in Desktop</summary>
   <table>
@@ -73,10 +73,10 @@ Add the plugin to `opencode.jsonc` or `opencode.json`, and keep your other plugi
   </table>
   <p><b>Note:</b> in the TUI the status line hides while the sidebar shows quota, unless <b>Next to the sidebar</b> (<code>statusLine.withSidebar</code>) is on. In Desktop the strip also shows next to the Quota side tab by default; <b>Next to the side panel</b> (<code>statusLine.withSidePanel</code>) turns that off.</p>
   </details>
-- **Web and Desktop:** `/quota`, `/quota_usage` and `/quota_status` post their report in the chat as your message. The AI never answers it, and the plugin filters it out of every AI request. After you uninstall the plugin, old reports in past chats are no longer filtered. Web's font may not line up the columns.
-- **Terminal:** `npx @slkiser/opencode-quota@latest show` works even with OpenCode closed.
-- **Scripts and status bars:** JSON, an export file, and metrics. See [External integration](docs/readme/external-integration.md).
-- **Built for OpenCode 2:** settings apply live, in every open OpenCode.
+- **Web:** `/quota`, `/quota_usage` and `/quota_status` post a report in the chat. The AI never sees it.
+- **Terminal:** `npx @slkiser/opencode-quota@latest show`, even with OpenCode closed.
+- **Scripts and status bars:** JSON, an export file and metrics ([how](docs/readme/external-integration.md)).
+- **Live settings** in every open OpenCode.
 
 ## Commands
 
@@ -91,7 +91,10 @@ For example `/quota_usage 30d` or `/quota_usage between 2026-09-01 2026-09-25`. 
 
 ## Settings
 
-Change the sidebar, status line, toasts, colors, words and providers in `/quota_settings`. **Save** writes only what you changed to `opencode-quota/settings.jsonc` in OpenCode's config folder and keeps your comments. A file edit reaches every open TUI within a few seconds. In Desktop, the Quota page in OpenCode's settings saves to the same file. Custom providers, the Claude CLI path and the export path are set only in the file. The `┃` in a bar marks where even use until the reset would be, not the bar's value; **Even-use mark** (`layout.evenUse`) on the Layout tab turns it off. [Settings and defaults](docs/readme/configuration.md).
+- Change settings in `/quota_settings` (TUI) or the Quota page in Desktop's settings. Both save to `opencode-quota/settings.jsonc` in OpenCode's config folder and keep your comments.
+- Custom providers, the Claude CLI path and the export path are set only in the file.
+- The `┃` in a bar marks even use until the reset. **Even-use mark** (`layout.evenUse`) turns it off.
+- [Settings and defaults](docs/readme/configuration.md)
 
 ## Providers
 
@@ -137,7 +140,10 @@ Log in with `/connect` and the provider shows up. Switch providers on or off in 
 
 \* Linked names need one more step; the rest work once you log in. [What each one reports](docs/readme/providers.md#pre-configured-providers).
 
-OpenAI ChatGPT quota needs a Codex login ([how](docs/readme/providers.md#openai-and-xai)). Gemini CLI works only with Gemini Code Assist Standard or Enterprise (organization) accounts. Personal Google users should use Google AGY. Business plans of the Chinese providers show only your own member API key's usage, except Alibaba Token Plan, which reports one Credits row per team seat. API keys come from OpenCode or an [environment variable](docs/readme/providers.md#api-keys).
+- OpenAI ChatGPT needs a Codex login ([how](docs/readme/providers.md#openai-and-xai)).
+- Gemini CLI works only with Gemini Code Assist Standard or Enterprise (organization) accounts. Personal Google accounts use Google AGY.
+- Business plans of the Chinese providers show only your own API key's usage (Alibaba Token Plan: one Credits row per seat).
+- API keys come from OpenCode or an [environment variable](docs/readme/providers.md#api-keys).
 
 ### Custom providers
 
