@@ -123,7 +123,7 @@ describe("v4 release gates", () => {
     const typescript = run(typescriptScript);
     expect(typescript.status).toBe(0);
     expect(typescript.stdout).toContain(
-      "TypeScript 7.0.2 and @opencode-ai/plugin 1.18.11 lock entries verified",
+      "TypeScript 7.0.2 and @opencode-ai/plugin 1.19.5 lock entries verified",
     );
 
     const historyRepo = path.join(tempDir, "clean-history");
