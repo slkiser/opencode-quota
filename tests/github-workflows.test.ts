@@ -103,7 +103,7 @@ describe("GitHub workflows", () => {
     expect(workflow.jobs.check?.permissions).toEqual({ issues: "write" });
   });
 
-  it("adds v4 and v6 labels from issue form answers, and never removes labels", async () => {
+  it("adds the v4 label from the issue form answer, and never removes labels", async () => {
     const workflow = parse(
       await readFile(".github/workflows/thin-issue-check.yml", "utf8"),
     ) as Workflow;
@@ -124,16 +124,14 @@ describe("GitHub workflows", () => {
       runIssueScript("version-labels", {
         title,
         body: formBody([
-          ["Does this change what you see on screen?", "Yes"],
+          ["Which OpenCode do you use?", "OpenCode 1"],
           ["What's the problem?", LONG_SUMMARY],
         ]),
       }),
-    ).resolves.toEqual([{ method: "addLabels", labels: ["v6"] }]);
+    ).resolves.toEqual([{ method: "addLabels", labels: ["v4"] }]);
 
     for (const body of [
       formBody([["Which OpenCode do you use?", "OpenCode 2"]]),
-      formBody([["Does this change what you see on screen?", "No"]]),
-      formBody([["Does this change what you see on screen?", "Not sure"]]),
       formBody([["What went wrong?", "OpenCode 1"]]),
       "",
     ]) {
@@ -155,7 +153,6 @@ describe("GitHub workflows", () => {
   it("does not count the version dropdown answers as typed text in the thin issue check", async () => {
     const thinBody = formBody([
       ["Which OpenCode do you use?", "OpenCode 1"],
-      ["Does this change what you see on screen?", "No"],
       ["What went wrong?", "broken"],
     ]);
     await expect(
@@ -175,24 +172,24 @@ describe("GitHub workflows", () => {
   });
 
   it("counts a typed dropdown answer outside its own dropdown in the thin issue check", async () => {
-    // 43 typed characters without spaces; dropping the typed "Not sure" leaves 36 (< 40).
+    // 45 typed characters without spaces; dropping the typed "OpenCode 1" leaves 36 (< 40).
     const body = formBody([
-      ["Does this change what you see on screen?", "Not sure"],
+      ["Which OpenCode do you use?", "OpenCode 2"],
       ["OpenCode version", "2.0.20"],
       ["What's the problem?", "Quota retries stop."],
       ["What would you like to happen?", "Wait for reset."],
-      ["Other ideas you thought about (optional)", "Not sure"],
+      ["Other ideas you thought about (optional)", "OpenCode 1"],
     ]);
     await expect(
       runIssueScript("check", { title: "Retries stop at the limit", body }),
     ).resolves.toEqual([]);
 
-    // The dropdown's own "Not sure" still does not count.
+    // The dropdown's own answer still does not count.
     await expect(
       runIssueScript("check", {
         title: "Retries stop at the limit",
         body: body.replace(
-          "Other ideas you thought about (optional)\n\nNot sure",
+          "Other ideas you thought about (optional)\n\nOpenCode 1",
           "Other ideas you thought about (optional)\n\n_No response_",
         ),
       }),
@@ -202,7 +199,7 @@ describe("GitHub workflows", () => {
     ]);
   });
 
-  it("asks which OpenCode and whether the display changes right after the intro", async () => {
+  it("asks which OpenCode right after the intro", async () => {
     const bug = parse(await readFile(".github/ISSUE_TEMPLATE/bug_report.yml", "utf8")) as {
       body: Array<{ id?: string; attributes: { label?: string; options?: unknown[] } }>;
     };
@@ -219,15 +216,7 @@ describe("GitHub workflows", () => {
       },
       validations: { required: true },
     });
-    expect(feature.body[1]).toMatchObject({
-      type: "dropdown",
-      id: "display_change",
-      attributes: {
-        label: "Does this change what you see on screen?",
-        options: ["No", "Yes", "Not sure"],
-      },
-      validations: { required: true },
-    });
+    expect(feature.body[1]).toEqual(bug.body[1]);
   });
 
   it("keeps issue forms without title prefills and with their labels", async () => {
