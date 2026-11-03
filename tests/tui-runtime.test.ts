@@ -60,7 +60,6 @@ vi.mock("../src/lib/quota-export.js", async () => {
 import {
   getTuiSessionModelMeta,
   loadTuiHomeBottomStatus,
-  loadTuiHomeCompactStatus,
   loadTuiSessionQuotaSurfaces,
   normalizeTuiSessionID,
   resolveTuiSurfaceRegistration,
@@ -2013,6 +2012,9 @@ describe("tui runtime helpers", () => {
               enabled: true,
               homeBottom: true,
             },
+            maintainerAnnouncements: {
+              enabled: false,
+            },
           },
         },
       }),
@@ -2027,7 +2029,7 @@ describe("tui runtime helpers", () => {
     collectQuotaRenderData.mockResolvedValue({ active: [], data });
     buildCompactQuotaStatusLine.mockReturnValue("");
 
-    const compact = await loadTuiHomeCompactStatus({
+    const bottom = await loadTuiHomeBottomStatus({
       api: {
         state: {
           provider: [],
@@ -2043,7 +2045,11 @@ describe("tui runtime helpers", () => {
       } as any,
     });
 
-    expect(compact).toEqual({ status: "ready", text: "Quota unavailable" });
+    expect(bottom).toEqual({
+      status: "ready",
+      announcementText: undefined,
+      compact: { status: "ready", text: "Quota unavailable" },
+    });
     expect(buildCompactQuotaStatusLine).toHaveBeenCalledWith({
       data,
       percentDisplayMode: "remaining",
@@ -2373,6 +2379,9 @@ describe("tui runtime helpers", () => {
               homeBottom: true,
               maxWidth: 40,
             },
+            maintainerAnnouncements: {
+              enabled: false,
+            },
           },
         },
       }),
@@ -2405,7 +2414,7 @@ describe("tui runtime helpers", () => {
     });
     buildCompactQuotaStatusLine.mockReturnValue("Home compact quota");
 
-    const compact = await loadTuiHomeCompactStatus({
+    const bottom = await loadTuiHomeBottomStatus({
       api: {
         state: {
           provider: [],
@@ -2421,7 +2430,11 @@ describe("tui runtime helpers", () => {
       } as any,
     });
 
-    expect(compact).toEqual({ status: "ready", text: "Home compact quota" });
+    expect(bottom).toEqual({
+      status: "ready",
+      announcementText: undefined,
+      compact: { status: "ready", text: "Home compact quota" },
+    });
     expect(collectQuotaRenderData).toHaveBeenCalledOnce();
     expect(buildCompactQuotaStatusLine).toHaveBeenCalledWith({
       data,
@@ -2431,67 +2444,6 @@ describe("tui runtime helpers", () => {
       maxWidth: 40,
     });
     expect(buildSidebarQuotaPanelLines).not.toHaveBeenCalled();
-  });
-
-  it("uses tuiCompactStatus.formatStyle override for home compact status", async () => {
-    writeFileSync(
-      join(worktreeDir, "opencode.json"),
-      JSON.stringify({
-        experimental: {
-          quotaToast: {
-            enabled: true,
-            formatStyle: "singleWindow",
-            tuiCompactStatus: {
-              enabled: true,
-              homeBottom: true,
-              formatStyle: "allWindows",
-            },
-          },
-        },
-      }),
-      "utf8",
-    );
-
-    const singleWindowData = {
-      entries: [{ name: "Copilot", percentRemaining: 50 }],
-      errors: [],
-      sessionTokens: undefined,
-    };
-    const allWindowsData = {
-      entries: [
-        { name: "Copilot 5h", percentRemaining: 50 },
-        { name: "Copilot Weekly", percentRemaining: 80 },
-      ],
-      errors: [],
-      sessionTokens: undefined,
-    };
-    collectQuotaRenderData.mockResolvedValue({
-      active: [],
-      data: singleWindowData,
-      allWindowsData,
-    });
-    buildCompactQuotaStatusLine.mockReturnValue("50% 80%");
-
-    const compact = await loadTuiHomeCompactStatus({
-      api: {
-        state: {
-          provider: [],
-          path: {
-            worktree: worktreeDir,
-            directory: nestedDir,
-          },
-          session: {
-            messages: () => [],
-          },
-        },
-        client: {},
-      } as any,
-    });
-
-    expect(compact).toEqual({ status: "ready", text: "50% 80%" });
-    expect(buildCompactQuotaStatusLine).toHaveBeenCalledWith(
-      expect.objectContaining({ data: allWindowsData }),
-    );
   });
 
   it("uses tuiCompactStatus.formatStyle override for home bottom compact status", async () => {

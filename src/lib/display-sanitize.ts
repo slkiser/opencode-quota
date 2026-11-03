@@ -50,10 +50,6 @@ export function sanitizeSingleLineDisplaySnippet(text: string, maxLength: number
   return sanitizeSingleLineDisplayText(text).slice(0, maxLength);
 }
 
-export function sanitizeOptionalDisplayText(value?: string): string | undefined {
-  return typeof value === "string" ? sanitizeDisplayText(value) : undefined;
-}
-
 function sanitizeAccountingQuantity(quantity: AccountingQuantity): AccountingQuantity {
   if (quantity.unit.kind !== "custom") return cloneAccountingQuantity(quantity);
   return {

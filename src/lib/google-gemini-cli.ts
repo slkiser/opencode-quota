@@ -4,11 +4,7 @@ import {
   inspectGeminiCliCompanionPresence,
   resolveGeminiCliClientCredentials,
 } from "./google-gemini-cli-companion.js";
-import {
-  getCachedAccessToken,
-  makeAccountCacheKey,
-  setCachedAccessToken,
-} from "./google-token-cache.js";
+import { getGoogleAccessToken } from "./google-oauth-token.js";
 import { fetchWithTimeout } from "./http.js";
 import { mapWithConcurrency } from "./map-with-concurrency.js";
 import { readAuthFileCached } from "./opencode-auth.js";
@@ -36,9 +32,7 @@ const GEMINI_CLI_AUTH_KEYS = [
   "google",
 ] as const satisfies readonly GeminiCliAuthSourceKey[];
 
-const GEMINI_TOKEN_REFRESH_URL = "https://oauth2.googleapis.com/token";
 const GEMINI_QUOTA_API_URL = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota";
-const GEMINI_TOKEN_TIMEOUT_MS = 8_000;
 const GEMINI_QUOTA_TIMEOUT_MS = 6_000;
 const GEMINI_ACCOUNTS_CONCURRENCY = 3;
 const GEMINI_CLI_USER_AGENT = `GeminiCLI/opencode-quota (${process.platform}; ${process.arch})`;
@@ -327,106 +321,6 @@ export async function resolveGeminiCliAuthIdentity(
   });
 }
 
-async function refreshAccessToken(params: {
-  refreshToken: string;
-  clientId: string;
-  clientSecret: string;
-  timeoutMs?: number;
-}): Promise<{ accessToken: string; expiresIn: number } | { error: string }> {
-  try {
-    return await fetchWithTimeout(GEMINI_TOKEN_REFRESH_URL, {
-      request: {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          client_id: params.clientId,
-          client_secret: params.clientSecret,
-          refresh_token: params.refreshToken,
-          grant_type: "refresh_token",
-        }),
-      },
-      timeoutMs: params.timeoutMs ?? GEMINI_TOKEN_TIMEOUT_MS,
-      consume: async (response, timeoutSignal) => {
-        if (!response.ok) {
-          try {
-            const errorData = (await response.json()) as {
-              error?: string;
-              error_description?: string;
-            };
-            if (errorData.error === "invalid_grant") {
-              return { error: "Token revoked" };
-            }
-            return { error: errorData.error_description || `HTTP ${response.status}` };
-          } catch (error) {
-            if (timeoutSignal.aborted) throw error;
-            return { error: `HTTP ${response.status}` };
-          }
-        }
-
-        const data = (await response.json()) as {
-          access_token: string;
-          expires_in: number;
-        };
-
-        return {
-          accessToken: data.access_token,
-          expiresIn: data.expires_in,
-        };
-      },
-    });
-  } catch (err) {
-    if (err instanceof Error && err.message.includes("timeout")) {
-      return { error: "Token refresh timeout" };
-    }
-    return { error: "Token refresh failed" };
-  }
-}
-
-async function refreshGeminiCliAccessTokenWithCache(params: {
-  account: GeminiCliAccount;
-  credentials: GeminiCliConfiguredCredentials;
-  skewMs?: number;
-  force?: boolean;
-  timeoutMs?: number;
-}): Promise<{ accessToken: string } | { error: string }> {
-  const skewMs = params.skewMs ?? 2 * 60_000;
-  const key = makeAccountCacheKey({
-    refreshToken: params.account.refreshToken,
-    projectId: params.account.projectId,
-  });
-
-  if (!params.force) {
-    const cached = await getCachedAccessToken({ key, skewMs });
-    if (cached) return { accessToken: cached.accessToken };
-
-    if (
-      params.account.accessToken &&
-      typeof params.account.expiresAt === "number" &&
-      params.account.expiresAt > Date.now() + skewMs
-    ) {
-      return { accessToken: params.account.accessToken };
-    }
-  }
-
-  const refreshed = await refreshAccessToken({
-    refreshToken: params.account.refreshToken,
-    clientId: params.credentials.clientId,
-    clientSecret: params.credentials.clientSecret,
-    timeoutMs: params.timeoutMs,
-  });
-  if ("error" in refreshed) return refreshed;
-
-  await setCachedAccessToken({
-    key,
-    entry: {
-      accessToken: refreshed.accessToken,
-      expiresAt: Date.now() + Math.max(1, refreshed.expiresIn) * 1000,
-    },
-  });
-
-  return { accessToken: refreshed.accessToken };
-}
-
 async function retrieveGeminiCliQuota(
   accessToken: string,
   projectId: string,
@@ -578,7 +472,7 @@ async function fetchAccountQuota(params: {
   const accountEmail = params.account.email || params.account.sourceKey;
 
   try {
-    const tokenResult = await refreshGeminiCliAccessTokenWithCache({
+    const tokenResult = await getGoogleAccessToken({
       account: params.account,
       credentials: params.credentials,
       timeoutMs: params.timeoutMs,
@@ -596,7 +490,7 @@ async function fetchAccountQuota(params: {
       );
     } catch (err) {
       if (err instanceof Error && err.message.includes("auth error")) {
-        const retryToken = await refreshGeminiCliAccessTokenWithCache({
+        const retryToken = await getGoogleAccessToken({
           account: params.account,
           credentials: params.credentials,
           force: true,

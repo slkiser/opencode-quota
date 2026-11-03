@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 
 import {
   clearCache,
+  getCacheEntryCount,
   getCachedToast,
   getOrFetch,
   getOrFetchWithCacheControl,
@@ -95,5 +96,103 @@ describe("cache", () => {
 
     expect(getCachedToast(primaryKey, 60_000)).toBeNull();
     expect(getCachedToast(secondaryKey, 60_000)).toBe("secondary");
+  });
+
+  it("still falls back to an expired toast when its refresh fails", async () => {
+    await getOrFetchWithCacheControl(primaryKey, async () => ({ message: "old" }), 1_000);
+    vi.advanceTimersByTime(1_500);
+    await expect(
+      getOrFetchWithCacheControl(
+        primaryKey,
+        async () => {
+          throw new Error("refresh failed");
+        },
+        1_000,
+      ),
+    ).rejects.toThrow("refresh failed");
+    vi.advanceTimersByTime(10);
+
+    const fetchFn = vi.fn(async () => ({ message: "new" }));
+    await expect(getOrFetchWithCacheControl(primaryKey, fetchFn, 1_000)).resolves.toBe("old");
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it("keeps a recently used entry when the cap drops older ones", async () => {
+    await getOrFetchWithCacheControl(primaryKey, async () => ({ message: "primary" }), 60_000);
+    for (let i = 0; i < 99; i++) {
+      await getOrFetchWithCacheControl(`toast:a-${i}`, async () => ({ message: `a${i}` }), 60_000);
+    }
+    await getOrFetchWithCacheControl(primaryKey, async () => ({ message: "again" }), 60_000);
+    for (let i = 0; i < 50; i++) {
+      await getOrFetchWithCacheControl(`toast:b-${i}`, async () => ({ message: `b${i}` }), 60_000);
+    }
+
+    expect(getCacheEntryCount()).toBe(100);
+    expect(getCachedToast(primaryKey, 60_000)).toBe("primary");
+    expect(getCachedToast("toast:a-0", 60_000)).toBeNull();
+  });
+
+  it("holds the cap after many fetches that ran at the same time finish", async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetches = Array.from({ length: 150 }, (_, i) =>
+      getOrFetchWithCacheControl(
+        `toast:parallel-${i}`,
+        async () => {
+          await gate;
+          return { message: `p${i}` };
+        },
+        60_000,
+      ),
+    );
+    expect(getCacheEntryCount()).toBe(150);
+
+    release?.();
+    await Promise.all(fetches);
+
+    expect(getCacheEntryCount()).toBe(100);
+  });
+
+  it("caps the number of entries and evicts the oldest first", async () => {
+    for (let i = 0; i < 10_000; i++) {
+      await getOrFetchWithCacheControl(
+        `toast:session-${i}`,
+        async () => ({ message: `m${i}`, cache: true }),
+        60_000,
+      );
+    }
+
+    expect(getCacheEntryCount()).toBeLessThanOrEqual(100);
+    expect(getCachedToast("toast:session-9999", 60_000)).toBe("m9999");
+    expect(getCachedToast("toast:session-0", 60_000)).toBeNull();
+  });
+
+  it("never evicts an entry that is still fetching", async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const inFlight = getOrFetchWithCacheControl(
+      primaryKey,
+      async () => {
+        await gate;
+        return { message: "slow", cache: true };
+      },
+      60_000,
+    );
+
+    for (let i = 0; i < 300; i++) {
+      await getOrFetchWithCacheControl(
+        `toast:other-${i}`,
+        async () => ({ message: `m${i}`, cache: true }),
+        60_000,
+      );
+    }
+
+    release?.();
+    await expect(inFlight).resolves.toBe("slow");
+    expect(getCachedToast(primaryKey, 60_000)).toBe("slow");
   });
 });

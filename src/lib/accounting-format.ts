@@ -227,10 +227,6 @@ export function formatAccountingBasisDetails(basis: AccountingPercentageBasis): 
   return buildAccountingBasisFacts(basis).map((fact) => fact.text);
 }
 
-export function formatAccountingResultTypeLabel(resultType: AccountingResultType): string {
-  return RESULT_TYPE_LABELS[resultType];
-}
-
 export function formatAccountingWindowLabel(window: AccountingWindow): string {
   return WINDOW_LABELS[window];
 }
