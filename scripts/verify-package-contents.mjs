@@ -65,6 +65,14 @@ if (unexpected.length > 0) {
   process.exit(1);
 }
 
+const declarationMaps = files.filter((file) => file.endsWith(".d.ts.map"));
+
+if (declarationMaps.length > 0) {
+  console.error("npm package contains declaration maps (their sources are not published):");
+  for (const file of declarationMaps) console.error(`- ${file}`);
+  process.exit(1);
+}
+
 const packageJson = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8"));
 const requiredFiles = new Set([
   "LICENSE",
