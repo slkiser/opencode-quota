@@ -118,6 +118,11 @@ export function formatDuration(ms: number, style: DurationStyle, decimals: numbe
   return parts.join(style === "compact" ? "" : " ");
 }
 
+/** A time in its largest unit ("28d", "2h", "40m"); "now" for the past. The "percent" reset style uses it. */
+export function largestUnit(ms: number): string {
+  return formatDuration(ms, "short", 0).split(" ")[0] as string;
+}
+
 export type BarShape = Settings["layout"]["bar"];
 
 const BAR_CHARACTERS: Record<Exclude<BarShape, "none">, [string, string]> = {

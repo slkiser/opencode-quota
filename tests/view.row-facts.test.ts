@@ -148,10 +148,16 @@ describe("row facts", () => {
     { name: "time used", row: lastHour, change: { percent: "used" }, reset: "/80% 1h" },
     { name: "bare percent", row: lastHour, change: { percent: "bare" }, reset: "/20% 1h" },
     {
-      name: "the short time alone without a window start",
+      name: "time in its largest unit",
+      row: quotaRow("x.week", { window: "week", percentRemaining: 50, resetsAt: WEEK }),
+      change: {},
+      reset: "/57% 3d",
+    },
+    {
+      name: "time alone, in its largest unit, without a window start",
       row: quotaRow("x.a", { percentRemaining: 50, resetsAt: WEEK }),
       change: {},
-      reset: "3d 23h",
+      reset: "3d",
     },
   ] as const)("writes the percent style's $name as $reset", ({ row, change, reset }) => {
     expect(factsOf(row, percentStyle(change)).reset).toBe(reset);

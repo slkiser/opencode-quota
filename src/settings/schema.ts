@@ -144,8 +144,8 @@ export const SETTINGS_SCHEMA = {
   "words.percent": choice(["left", "remaining", "bare", "used"], "left"),
   /**
    * "4.5d" (smart), "2h 14m", "2h14m", "2h", "2.2h" (with `resetDecimals`), or "percent": the
-   * share of the window's time left (used, with `percent` "used"), then the short time
-   * ("58%/91% 4d 3h"); the short time alone when the window's start is unknown.
+   * share of the window's time left (used, with `percent` "used"), then the time in its largest
+   * unit ("58%/91% 4d"); that time alone when the window's start is unknown.
    */
   "words.reset": choice(["smart", "exact", "compact", "short", "decimal", "percent"], "smart"),
   /** Decimals of the "decimal" reset style. */

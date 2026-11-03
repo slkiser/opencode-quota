@@ -64,7 +64,7 @@ describe("the Settings tabs' field table", () => {
       "2h14m · 5d3h20m",
       "2h · 5d 3h",
       "2.2h · 5.1d",
-      "62% · 5d 3h",
+      "62% · 5d",
     ]);
   });
 

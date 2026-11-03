@@ -23,6 +23,7 @@ import {
   DEFAULT_WORDS,
   type DurationStyle,
   formatDuration,
+  largestUnit,
   percentText,
 } from "../view/format.js";
 import {
@@ -223,7 +224,7 @@ const SHOW = {
     percentText({ ...DEFAULT_WORDS, percent: value as Words["percent"] }, 58, true),
   reset: (value) =>
     value === "percent"
-      ? `62% · ${formatDuration(RESET_EXAMPLES_MS[1] as number, "short", 1)}`
+      ? `62% · ${largestUnit(RESET_EXAMPLES_MS[1] as number)}`
       : RESET_EXAMPLES_MS.map((ms) => formatDuration(ms, value as DurationStyle, 1)).join(" · "),
   decimals: (value) =>
     `${value} (${formatDuration(RESET_EXAMPLES_MS[0] as number, "decimal", Number(value))})`,

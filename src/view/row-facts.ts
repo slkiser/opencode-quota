@@ -11,6 +11,7 @@ import { WINDOWS } from "../core/windows.js";
 import {
   type DurationStyle,
   formatDuration,
+  largestUnit,
   type Level,
   paceLevel,
   percentText,
@@ -58,7 +59,7 @@ export type RowFacts = {
   /**
    * The time until it resets in the place's style ("2h 14m", "3.2d"); "" without a percent. The
    * "percent" style starts it with the window's time share, written right after the percent
-   * ("/91% 4d 3h", see `afterPercent`).
+   * ("/91% 4d", see `afterPercent`).
    */
   reset: string;
   /** The same in the short style ("2h", "4d 12h"), for a place short of room. */
@@ -80,7 +81,7 @@ function nameOf(item: VisibleRow, group: Pick<Group, "rows">, place: Place): str
   return shared ? item.label : short;
 }
 
-/** The time share starts a reset text in the "percent" style: "/91% 4d 3h". */
+/** The time share starts a reset text in the "percent" style: "/91% 4d". */
 const SHARE_MARK = "/";
 
 /** Whether `reset` starts with the time share, so it goes right after the percent. */
@@ -90,7 +91,7 @@ export function joinsPercent(reset: string): boolean {
 
 /**
  * `reset` after a percent with `gap` between them; with no gap before the time share, which
- * reads as one with the percent ("58%/91% 4d 3h"). "" without a reset.
+ * reads as one with the percent ("58%/91% 4d"). "" without a reset.
  */
 export function afterPercent(reset: string, gap: string): string {
   if (!reset) return "";
@@ -102,7 +103,7 @@ export function resetAlone(reset: string): string {
   return joinsPercent(reset) ? reset.slice(SHARE_MARK.length) : reset;
 }
 
-/** The time style of a reset style: "percent" writes its times in the short style. */
+/** The time style of a reset style for pace words: "percent" writes them in the short style. */
 function durationStyle(times: Words["reset"]): DurationStyle {
   return times === "percent" ? "short" : times;
 }
@@ -144,10 +145,13 @@ export function rowFacts(item: VisibleRow, group: Pick<Group, "rows">, place: Pl
     Number.isFinite(resetMs) ? formatDuration(resetMs - nowMs, style, words.resetDecimals) : "";
   const pace = paceOf(row, nowMs);
   // Without a pace (the window's start unknown) the "percent" style shows the time alone.
+  const percentStyleTime = Number.isFinite(resetMs) ? largestUnit(resetMs - nowMs) : "";
   const reset =
-    times === "percent" && pace
-      ? `${timeShare(pace, words)} ${resetIn("short")}`
-      : resetIn(durationStyle(times));
+    times !== "percent"
+      ? resetIn(times)
+      : pace
+        ? `${timeShare(pace, words)} ${percentStyleTime}`
+        : percentStyleTime;
   const level = pace && paceLevel(pace, percent);
   return {
     id: row.id,
