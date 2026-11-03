@@ -37,7 +37,7 @@ import {
   settingsShape,
 } from "../src/tui/settings-draft.js";
 import { surfaceEditor } from "../src/tui/window/surface-editor.js";
-import { formatDuration } from "../src/view/format.js";
+import { formatDuration, largestUnit } from "../src/view/format.js";
 import { COLOR_ROLES, PRESET_CHOICES, type PresetName, presetChoice } from "../src/view/presets.js";
 import { providerSnapshot, quotaRow as row } from "./helpers/fake-answers.js";
 
@@ -100,14 +100,16 @@ describe("the Settings page's sections", () => {
     expect(missing).toEqual([]);
   });
 
-  it("shows each reset style as the formatter writes 2h 14m and 5d 3h 20m", () => {
+  it("shows each reset style as the formatter writes 2h 14m and 5d 3h 20m (percent: a share, then 5d)", () => {
     const examples = SETTINGS_SCHEMA["words.reset"].values.map((style) => [
       style,
       en[`option.words.reset.${style}` as keyof typeof en],
     ]);
     const printed = SETTINGS_SCHEMA["words.reset"].values.map((style) => [
       style,
-      `${formatDuration(134 * 60_000, style, 1)} · ${formatDuration(7_400 * 60_000, style, 1)}`,
+      style === "percent"
+        ? `62% · ${largestUnit(7_400 * 60_000)}`
+        : `${formatDuration(134 * 60_000, style, 1)} · ${formatDuration(7_400 * 60_000, style, 1)}`,
     ]);
     expect(examples).toEqual(printed);
   });
