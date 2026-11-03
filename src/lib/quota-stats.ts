@@ -15,6 +15,7 @@ import {
 import type { OpenCodeMessage } from "./opencode-storage.js";
 import {
   getOpenCodeDbPath,
+  getOpenCodeStorageRevision,
   iterAssistantMessages,
   iterAssistantMessagesForSession,
   iterAssistantMessagesForSessions,
@@ -253,7 +254,7 @@ function anthropicPricingCandidates(model: string): string[] {
   const match = model.match(/^(claude-[a-z]+-\d+)-(\d+)$/);
   if (match) {
     const [, prefix, minor] = match;
-    const minorNum = parseInt(minor, 10);
+    const minorNum = Number.parseInt(minor, 10);
     if (minorNum > 0) {
       return [model, `${prefix}-${minorNum - 1}`];
     }
@@ -908,20 +909,72 @@ function summarizeSessionTokenMessages(
   };
 }
 
+const SESSION_TOKEN_CACHE_TTL_MS = 30_000;
+const SESSION_TOKEN_CACHE_MAX_ENTRIES = 32;
+// Coarse file timestamps (older Linux kernels, FAT drives, network folders) can give a write the
+// same timestamp as the read before it, so totals read within this time of a write are not reused.
+const SESSION_TOKEN_CACHE_SETTLE_MS = 2_000;
+const sessionTokenCache = new Map<
+  string,
+  { revision: string; expiresAt: number; summary: SessionTokenSummary | null }
+>();
+
+async function getCachedSessionTokenSummary(
+  sessionID: string,
+  scope: "current" | "tree",
+  load: () => Promise<SessionTokenSummary | null>,
+): Promise<SessionTokenSummary | null> {
+  // Taken before the first look at storage: a write after this moment lands in a later
+  // timestamp than any write the settle check below accepts.
+  const now = Date.now();
+  const revision = getOpenCodeStorageRevision();
+  for (const [key, entry] of sessionTokenCache) {
+    if (entry.revision !== revision?.key || entry.expiresAt <= now) sessionTokenCache.delete(key);
+  }
+
+  const key = JSON.stringify([scope, sessionID]);
+  const cached = sessionTokenCache.get(key);
+  if (cached) return structuredClone(cached.summary);
+
+  const summary = await load();
+  // A write during the read must not associate old totals with a new revision.
+  const revisionAfterRead = getOpenCodeStorageRevision();
+  if (
+    revision !== null &&
+    revisionAfterRead !== null &&
+    revisionAfterRead.key === revision.key &&
+    now - revisionAfterRead.newestChangeMs >= SESSION_TOKEN_CACHE_SETTLE_MS
+  ) {
+    if (sessionTokenCache.size >= SESSION_TOKEN_CACHE_MAX_ENTRIES) {
+      const oldestKey = sessionTokenCache.keys().next().value;
+      if (oldestKey !== undefined) sessionTokenCache.delete(oldestKey);
+    }
+    sessionTokenCache.set(key, {
+      revision: revision.key,
+      expiresAt: Date.now() + SESSION_TOKEN_CACHE_TTL_MS,
+      summary: structuredClone(summary),
+    });
+  }
+  return summary;
+}
+
 export async function getSessionTokenSummary(
   sessionID: string,
 ): Promise<SessionTokenSummary | null> {
-  // Use session-scoped iterator for better performance (only reads this session's directory)
-  const sessionMessages = await iterAssistantMessagesForSession({ sessionID });
-  return summarizeSessionTokenMessages(sessionID, sessionMessages);
+  return getCachedSessionTokenSummary(sessionID, "current", async () => {
+    const sessionMessages = await iterAssistantMessagesForSession({ sessionID });
+    return summarizeSessionTokenMessages(sessionID, sessionMessages);
+  });
 }
 
 export async function getSessionTreeTokenSummary(
   rootSessionID: string,
 ): Promise<SessionTokenSummary | null> {
-  const sessionIDs = [
-    ...new Set((await resolveSessionTree(rootSessionID)).map((node) => node.sessionID)),
-  ];
-  const sessionMessages = await iterAssistantMessagesForSessions({ sessionIDs });
-  return summarizeSessionTokenMessages(rootSessionID, sessionMessages);
+  return getCachedSessionTokenSummary(rootSessionID, "tree", async () => {
+    const sessionIDs = [
+      ...new Set((await resolveSessionTree(rootSessionID)).map((node) => node.sessionID)),
+    ];
+    const sessionMessages = await iterAssistantMessagesForSessions({ sessionIDs });
+    return summarizeSessionTokenMessages(rootSessionID, sessionMessages);
+  });
 }
