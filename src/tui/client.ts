@@ -25,8 +25,9 @@ import {
 
 const POLL_INTERVAL_MS = 60_000;
 const RPC_TIMEOUT_MS = 60_000;
-/** Keep recently used sessions between visits, and watched sessions for as long as they show. */
+/** Expire old sessions outside the most recently read unwatched sessions; always keep watched ones. */
 const SESSION_VIEW_KEEP_MS = 5 * 60_000;
+const SESSION_VIEW_KEEP_COUNT = 20;
 
 /** Without `location`, OpenCode runs the call in its server's own folder. */
 export type QuotaRpcCallOptions = { location?: { directory: string }; signal: AbortSignal };
@@ -186,6 +187,7 @@ export function createQuotaClient(
   let calls = 0;
   const sessionCalls = new Map<string, number>();
   const sessionRevisions = new Map<string, number>();
+  /** Least recently read first, including reads in the same millisecond. */
   const sessionReads = new Map<string, SessionRead>();
   /** Servers this client moved away from; their answers are ignored. */
   const retiredServers = new Set<string>();
@@ -201,8 +203,11 @@ export function createQuotaClient(
   function forgetInactiveSessions(): void {
     const cutoff = Date.now() - SESSION_VIEW_KEEP_MS;
     const expired: string[] = [];
-    for (const [id, read] of sessionReads) {
-      if (watched.has(id) || read.atMs > cutoff) continue;
+    let recent = 0;
+    for (const [id, read] of [...sessionReads].reverse()) {
+      if (watched.has(id)) continue;
+      recent += 1;
+      if (recent <= SESSION_VIEW_KEEP_COUNT || read.atMs > cutoff) continue;
       sessionReads.delete(id);
       sessionCalls.delete(id);
       sessionRevisions.delete(id);
@@ -221,6 +226,7 @@ export function createQuotaClient(
     if (!sessionID) return undefined;
     const read = sessionReads.get(sessionID) ?? { atMs: Date.now() };
     read.atMs = Date.now();
+    sessionReads.delete(sessionID);
     sessionReads.set(sessionID, read);
     return read;
   }
@@ -352,7 +358,11 @@ export function createQuotaClient(
     if (!shared) return undefined;
     const part = sessionID ? sessions()[sessionID] : undefined;
     const read = sessionID ? sessionReads.get(sessionID) : undefined;
-    if (read) read.atMs = Date.now();
+    if (sessionID && read) {
+      read.atMs = Date.now();
+      sessionReads.delete(sessionID);
+      sessionReads.set(sessionID, read);
+    }
     if (sessionID && !part && shared.sourceScope) return undefined;
     const scope = part ? (part.sourceScope ?? "") : (defaultScope() ?? shared.sourceScope ?? "");
     const source = sources()[scope];

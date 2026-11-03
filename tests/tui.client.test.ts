@@ -205,9 +205,15 @@ describe("TUI quota client", () => {
     changed({ ...snapshot(101), sessionID: "session-0", currentModelProviderIds: ["stale"] });
     vi.setSystemTime(NOW + 5 * 60_000);
     changed({ ...snapshot(102), sessionID: "session-0", currentModelProviderIds: ["stale"] });
-    for (let index = 0; index < 100; index += 1) {
+    for (let index = 0; index < 80; index += 1) {
       expect(client.snapshot(`session-${index}`)?.sessionTokens).toBeUndefined();
       expect(client.snapshot(`session-${index}`)?.currentModelProviderIds).toBeUndefined();
+    }
+    for (let index = 80; index < 100; index += 1) {
+      expect(client.snapshot(`session-${index}`)).toMatchObject({
+        sessionTokens: { input: index + 1 },
+        currentModelProviderIds: ["old"],
+      });
     }
     // A new request restores all session fields from its answer.
     const reopened = client.refresh("turn", "session-0");
@@ -220,7 +226,75 @@ describe("TUI quota client", () => {
     stop();
   });
 
-  it("keeps every watched session until its last surface leaves, then expires it", async () => {
+  it("shows cached session data immediately when reopened after five minutes within the newest 20 unwatched sessions", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const { client, rpc, answer, changed } = fakeRpc();
+    const stop = client.start();
+    const cached: QuotaSnapshot = {
+      ...snapshot(1, 123),
+      sourceScope: "session-scope",
+      providers: [{ providerId: "copilot", label: "Session quota", refreshing: false, rows: [] }],
+      currentModelProviderIds: ["copilot"],
+      currentModelRowPrefixes: { copilot: ["copilot.premium."] },
+    };
+    const unwatch = client.watch("reopened");
+    answer(0, cached);
+    await settle();
+    unwatch();
+    for (let index = 0; index < 19; index += 1) {
+      const request = client.refresh("turn", `session-${index}`);
+      answer(index + 1, snapshot(index + 2));
+      await request;
+    }
+    // Watched sessions do not use any of the 20 unwatched cache slots.
+    const unwatchOther = client.watch("on-screen");
+    answer(20, snapshot(21));
+    await settle();
+    vi.setSystemTime(NOW + 6 * 60_000);
+    changed(snapshot(22));
+
+    const unwatchReopened = client.watch("reopened");
+    expect(rpc.snapshot).toHaveBeenLastCalledWith({ sessionID: "reopened" }, expect.anything());
+    expect(client.snapshot("reopened")).toMatchObject({
+      sourceScope: cached.sourceScope,
+      providers: cached.providers,
+      sessionTokens: cached.sessionTokens,
+      currentModelProviderIds: cached.currentModelProviderIds,
+      currentModelRowPrefixes: cached.currentModelRowPrefixes,
+    });
+    // The fresh answer is still pending when the cached fields above are read.
+    answer(21, {
+      ...cached,
+      revision: 23,
+      sessionTokens: { input: 456, cachedInput: 0, output: 0 },
+    });
+    await settle();
+    expect(client.snapshot("reopened")?.sessionTokens?.input).toBe(456);
+    unwatchReopened();
+    unwatchOther();
+    stop();
+  });
+
+  it("keeps the most recently read sessions even when their reads share a millisecond", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const { client, answer, changed } = fakeRpc();
+    const stop = client.start();
+    for (let index = 0; index < 21; index += 1) {
+      const request = client.refresh("turn", `session-${index}`);
+      answer(index, snapshot(index + 1, index + 1));
+      await request;
+    }
+    expect(client.snapshot("session-0")?.sessionTokens?.input).toBe(1);
+    vi.setSystemTime(NOW + 6 * 60_000);
+    changed(snapshot(22));
+    expect(client.snapshot("session-0")?.sessionTokens?.input).toBe(1);
+    expect(client.snapshot("session-1")?.sessionTokens).toBeUndefined();
+    stop();
+  });
+
+  it("keeps every watched session until its last surface leaves, then expires it outside the newest 20", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     const { client, answer, changed } = fakeRpc();
@@ -229,16 +303,24 @@ describe("TUI quota client", () => {
     const unwatchSecond = client.watch("active");
     answer(0, snapshot(1, 123));
     await settle();
+    for (let index = 0; index < 20; index += 1) {
+      const request = client.refresh("turn", `session-${index}`);
+      answer(index + 1, snapshot(index + 2));
+      await request;
+    }
     unwatch();
     vi.setSystemTime(NOW + 6 * 60_000);
-    changed({ ...snapshot(2), sessionID: "active", currentModelProviderIds: ["new"] });
+    changed({ ...snapshot(22), sessionID: "active", currentModelProviderIds: ["new"] });
     expect(client.snapshot("active")).toMatchObject({
       sessionTokens: { input: 123 },
       currentModelProviderIds: ["new"],
     });
     unwatchSecond();
+    for (let index = 0; index < 20; index += 1) {
+      client.snapshot(`session-${index}`);
+    }
     vi.setSystemTime(NOW + 11 * 60_000);
-    changed(snapshot(3));
+    changed(snapshot(23));
     expect(client.snapshot("active")?.sessionTokens).toBeUndefined();
     stop();
   });
@@ -249,10 +331,15 @@ describe("TUI quota client", () => {
     const { client, answer, changed } = fakeRpc();
     const stop = client.start();
     const old = client.refresh("turn", "reopened");
+    for (let index = 0; index < 20; index += 1) {
+      const request = client.refresh("turn", `session-${index}`);
+      answer(index + 1, snapshot(1));
+      await request;
+    }
     vi.setSystemTime(NOW + 5 * 60_000);
     changed(snapshot(1));
     const fresh = client.refresh("turn", "reopened");
-    answer(1, { ...snapshot(2, 200), currentModelProviderIds: ["fresh"] });
+    answer(21, { ...snapshot(2, 200), currentModelProviderIds: ["fresh"] });
     await fresh;
     answer(0, { ...snapshot(3, 100), currentModelProviderIds: ["stale"] });
     await old;
