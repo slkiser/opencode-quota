@@ -100,7 +100,7 @@ Every place follows these, so in the TUI they are on **Layout → All places**. 
 | Setting | Default | Values |
 | --- | --- | --- |
 | `words.percent` | `"left"` | `left`, `remaining`, `bare`, `used`. Bars and the even-use mark follow it, so `used` fills the bar by the share used. The expanded sidebar panel says the word in its title ("▼ Quota used") and its rows stay bare ("42%"); every other place writes "42% used". Colors and warning levels stay on the share left. |
-| `words.reset` | `"smart"` | `smart`, `exact`, `compact`, `short`, `decimal`. |
+| `words.reset` | `"smart"` | `smart`, `exact`, `compact`, `short`, `decimal`, or `percent`: the share of the window's time left (used, with `words.percent` `used`), then the time in its largest unit (`0%/91% 28d`); only the time when the window's start is unknown. |
 | `words.resetDecimals` | `1` | Whole number 0–4. |
 | `words.rowNames` | `"short"` | `short` (`5h`, `7d`) or `full` (`Weekly`), on the sidebar, collapsed panel, status line and toasts. |
 | `words.detail` | `"summary"` | `detailed` includes supplementary rows. |
