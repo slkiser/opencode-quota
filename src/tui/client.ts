@@ -8,6 +8,10 @@
  * from another server (a new `serverId`: OpenCode restarted it) always wins, as its revisions
  * start over, and from then on the old server's answers are ignored. A session's model follows
  * its newest revision; its token totals come from the latest call about it.
+ *
+ * Every TUI on a shared background service hears the `changed` events of every folder, and each
+ * folder's server plugin has its own `serverId`. So a TUI takes only the events of its own
+ * folder (`ownFolderEvents`); another folder's would look like a restart and retire its server.
  */
 import { createSignal } from "solid-js";
 import type { QuotaSnapshot } from "../core/types.js";
@@ -65,17 +69,35 @@ export type ClientHost = RpcLocationHost & {
   client: { rpc: (definition: typeof QuotaRpc) => QuotaRpcClient };
   /**
    * When set, a `changed` event is applied only if this answers true for the folder it came from.
-   * A GUI window hears the events of every folder of its server, so it keeps its folder's only.
+   * The TUI and a GUI window hear the events of every folder of their server, so each keeps its
+   * folder's only.
    */
   acceptsEventFrom?: (location: { directory: string } | undefined) => boolean;
 };
+
+function hostLocation(host: RpcLocationHost): { directory: string } | undefined {
+  return host.location ?? host.data.location?.default();
+}
+
+/**
+ * The `acceptsEventFrom` of a TUI: only events from the folder its calls name, read when each
+ * event arrives. An event that names no folder is dropped; the minute poll still updates.
+ */
+export function ownFolderEvents(
+  host: RpcLocationHost,
+): (location: { directory: string } | undefined) => boolean {
+  return (location) => {
+    const own = hostLocation(host);
+    return own !== undefined && location?.directory === own.directory;
+  };
+}
 
 /**
  * Each call names the TUI's folder, so the server uses that folder's settings, and gives up
  * after a minute. The RPC client itself is made per call, never during setup.
  */
 export function quotaCallOptions(host: RpcLocationHost): QuotaRpcCallOptions {
-  const location = host.location ?? host.data.location?.default();
+  const location = hostLocation(host);
   const signal = AbortSignal.timeout(RPC_TIMEOUT_MS);
   if (location) return { location, signal };
   if (host.locationOptional) return { signal };

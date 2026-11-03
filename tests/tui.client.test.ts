@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { QuotaSnapshot } from "../src/core/types.js";
-import { createQuotaClient } from "../src/tui/client.js";
+import { createQuotaClient, ownFolderEvents } from "../src/tui/client.js";
 
 const NOW = Date.parse("2026-10-10T12:00:00.000Z");
 
@@ -17,13 +17,13 @@ function snapshot(revision: number, input = 0, serverId = "server-1"): QuotaSnap
 }
 
 /** A quota RPC whose calls wait until the test answers them, oldest first or not. */
-function fakeRpc() {
+function fakeRpc(own?: { directory: string }) {
   const waiting: Array<(snapshot: QuotaSnapshot) => void> = [];
   const call = () =>
     new Promise<{ snapshot: QuotaSnapshot }>((resolve) =>
       waiting.push((answer) => resolve({ snapshot: answer })),
     );
-  let changed: (snapshot: QuotaSnapshot) => void = () => {};
+  let changed: (snapshot: QuotaSnapshot, directory?: string) => void = () => {};
   const rpc = {
     snapshot: vi.fn(call),
     refresh: vi.fn(call),
@@ -31,23 +31,36 @@ function fakeRpc() {
     command: vi.fn(),
     events: {
       on: vi.fn(
-        (_name: string, handler: (event: { data: { snapshot: QuotaSnapshot } }) => void) => {
-          changed = (answer) => handler({ data: { snapshot: answer } });
+        (
+          _name: string,
+          handler: (event: {
+            location?: { directory: string };
+            data: { snapshot: QuotaSnapshot };
+          }) => void,
+        ) => {
+          changed = (answer, directory) =>
+            handler({
+              ...(directory ? { location: { directory } } : {}),
+              data: { snapshot: answer },
+            });
           return () => {};
         },
       ),
     },
   };
-  const client = createQuotaClient({
+  const host = {
     location: { directory: process.cwd() },
     data: {},
     client: { rpc: () => rpc },
-  });
+  };
+  const client = createQuotaClient(
+    own ? { ...host, acceptsEventFrom: ownFolderEvents(host) } : host,
+  );
   return {
     client,
     rpc,
     answer: (index: number, answer: QuotaSnapshot) => waiting[index]?.(answer),
-    changed: (answer: QuotaSnapshot) => changed(answer),
+    changed: (answer: QuotaSnapshot, directory?: string) => changed(answer, directory),
   };
 }
 
@@ -76,6 +89,36 @@ describe("TUI quota client", () => {
     changed(snapshot(2, 0, "server-2"));
     changed(snapshot(1, 0, "server-2"));
     expect(client.snapshot()).toMatchObject({ serverId: "server-2", revision: 2 });
+    stop();
+  });
+
+  it("keeps its own folder's server when another folder's server, on the same service, speaks", async () => {
+    const own = process.cwd();
+    const { client, answer, changed } = fakeRpc({ directory: own });
+    const stop = client.start();
+    client.watch("ses_1");
+    changed(snapshot(5), own);
+    changed(snapshot(1, 0, "server-2"), "/other/folder");
+    changed(snapshot(1, 0, "server-2"));
+    answer(0, snapshot(6, 300));
+    await settle();
+    expect(client.snapshot("ses_1")).toMatchObject({
+      serverId: "server-1",
+      revision: 6,
+      sessionTokens: { input: 300 },
+    });
+    stop();
+  });
+
+  it("still follows a restarted server of its own folder", async () => {
+    const own = process.cwd();
+    const { client, changed } = fakeRpc({ directory: own });
+    const stop = client.start();
+    client.watch();
+    changed(snapshot(5), own);
+    changed(snapshot(1, 0, "server-2"), own);
+    await settle();
+    expect(client.snapshot()).toMatchObject({ serverId: "server-2", revision: 1 });
     stop();
   });
 

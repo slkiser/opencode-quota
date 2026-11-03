@@ -20,7 +20,13 @@ import type { JSX } from "@opentui/solid";
 import { getOwner, type Owner, onCleanup, Show } from "solid-js";
 import { OLD_USAGE_COMMANDS, parseUsageArguments, type UsageRange } from "../core/usage-ranges.js";
 import { QuotaRpc } from "../rpc.js";
-import { type ClientHost, createQuotaClient, quotaCallOptions, reportFailure } from "./client.js";
+import {
+  type ClientHost,
+  createQuotaClient,
+  ownFolderEvents,
+  quotaCallOptions,
+  reportFailure,
+} from "./client.js";
 import { createFileDisplay } from "./display.js";
 import { KEY_LAYERS } from "./key-layers.js";
 import { createServerSettings } from "./server-settings.js";
@@ -89,7 +95,20 @@ const plugin = Plugin.define({
     const isChildSession = (sessionID: string) =>
       Boolean(api.data.session.get(sessionID)?.parentID);
     let conversionShown = false;
-    const quota = createQuotaClient(api, (snapshot) => {
+    // `client`, `location` and `data` are read from OpenCode's context at each use, never copied.
+    const quotaHost: ClientHost = {
+      get client() {
+        return api.client;
+      },
+      get location() {
+        return api.location;
+      },
+      get data() {
+        return api.data;
+      },
+      acceptsEventFrom: ownFolderEvents(api),
+    };
+    const quota = createQuotaClient(quotaHost, (snapshot) => {
       const current = quota.snapshot()?.settings;
       if (current) server.receive(current);
       toasts.showResetNotices(snapshot);
