@@ -22,7 +22,14 @@ describe("test isolation", () => {
     const home = join(tmpdir(), "opencode-quota-fake-home");
     vi.stubEnv("HOME", home);
     vi.stubEnv("USERPROFILE", home);
-    for (const name of ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"]) {
+    for (const name of [
+      "XDG_CONFIG_HOME",
+      "XDG_DATA_HOME",
+      "XDG_STATE_HOME",
+      "XDG_CACHE_HOME",
+      "APPDATA",
+      "LOCALAPPDATA",
+    ]) {
       vi.stubEnv(name, "");
     }
     vi.stubEnv("OPENCODE_CONFIG_DIR", "");
