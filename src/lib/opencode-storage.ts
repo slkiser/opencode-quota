@@ -1,5 +1,5 @@
-import { existsSync } from "fs";
-import { join } from "path";
+import { existsSync, statSync } from "node:fs";
+import { join } from "node:path";
 
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 import { openOpenCodeSqliteReadOnly } from "./opencode-sqlite.js";
@@ -84,6 +84,41 @@ export function getOpenCodeDbPathCandidates(): string[] {
 
 export function getOpenCodeDbPath(): string {
   return pickFirstExistingPath(getOpenCodeDbPathCandidates());
+}
+
+/**
+ * A conservative revision: any database or WAL write changes `key`. `newestChangeMs` is the
+ * latest modification or status-change time of those files.
+ */
+export type OpenCodeStorageRevision = { key: string; newestChangeMs: number };
+
+export function getOpenCodeStorageRevision(): OpenCodeStorageRevision | null {
+  const dbPath = getOpenCodeDbPath();
+  try {
+    const revisions = [dbPath];
+    let newestChangeNs = 0n;
+    for (const path of [dbPath, `${dbPath}-wal`]) {
+      try {
+        const stat = statSync(path, { bigint: true });
+        revisions.push([stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(":"));
+        if (stat.mtimeNs > newestChangeNs) newestChangeNs = stat.mtimeNs;
+        if (stat.ctimeNs > newestChangeNs) newestChangeNs = stat.ctimeNs;
+      } catch (error) {
+        if (path !== dbPath && (error as NodeJS.ErrnoException).code === "ENOENT") {
+          revisions.push("missing");
+        } else {
+          throw error;
+        }
+      }
+    }
+    return {
+      key: JSON.stringify(revisions),
+      newestChangeMs: Number(newestChangeNs / 1_000_000n),
+    };
+  } catch {
+    // Unreadable metadata must never allow reuse of an earlier successful read.
+    return null;
+  }
 }
 
 type MessageRow = {
@@ -230,10 +265,9 @@ function buildMessageQuery(params: {
     args.push(params.untilMs);
   }
 
-  const sql =
-    `SELECT id, session_id, time_created, time_updated, data FROM "message"` +
-    (where.length ? ` WHERE ${where.join(" AND ")}` : "") +
-    ` ORDER BY time_created ASC, id ASC`;
+  const sql = `SELECT id, session_id, time_created, time_updated, data FROM "message"${
+    where.length ? ` WHERE ${where.join(" AND ")}` : ""
+  } ORDER BY time_created ASC, id ASC`;
 
   return { sql, args };
 }
