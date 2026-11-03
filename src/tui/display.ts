@@ -85,10 +85,6 @@ export function valueAt(settings: unknown, path: string): FieldValue {
   return value as FieldValue;
 }
 
-export function defaultDisplaySettings(): DisplaySettings {
-  return defaultSettings();
-}
-
 // ---------------------------------------------------------------------------------------------
 // The Settings pages: one line per setting, every page from this table.
 

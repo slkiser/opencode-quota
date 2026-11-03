@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { rowsFromProviderResult } from "../src/core/rows.js";
 import {
   bindCredentialSource,
   createIntegrationCredentialSource,
@@ -15,10 +16,11 @@ import {
 } from "../src/lib/quota-providers-remote.js";
 import {
   type JsonV1Mapping,
+  QUOTA_PROVIDERS_AGGREGATE_ID,
   type RemoteApiQuotaProviderDefinition,
   validateQuotaProviders,
 } from "../src/lib/quota-providers.js";
-import { customRows } from "../src/providers/quota-providers.js";
+import { customAccount } from "../src/providers/quota-providers.js";
 import {
   NEURALWATT_LIKE_ADAPTER,
   NEURALWATT_LIKE_RESPONSE,
@@ -85,7 +87,12 @@ function shown(
   result: Awaited<ReturnType<typeof fetchRemoteQuotaProvider>>,
 ) {
   if (!result.success) throw new Error(result.error);
-  return customRows(definition, result.rows);
+  const screen = rowsFromProviderResult(QUOTA_PROVIDERS_AGGREGATE_ID, {
+    attempted: true,
+    accounts: [customAccount(definition, result.rows, [])],
+    debug: [],
+  });
+  return { rows: screen.rows, problems: screen.debug.map((detail) => detail.value) };
 }
 
 /** A json-v1 body nested `levels` objects deep around `{ used: 1 }`. */

@@ -1630,10 +1630,3 @@ export function cloneQuotaProviders(
 ): QuotaProviderDefinition[] {
   return definitions.map(cloneDefinition);
 }
-
-export function findQuotaProviderDefinition(
-  definitions: readonly QuotaProviderDefinition[],
-  id: string,
-): QuotaProviderDefinition | undefined {
-  return definitions.find((definition) => definition.id === id);
-}

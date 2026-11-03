@@ -36,7 +36,20 @@ await writeFile(argvLog, "");
 
 try {
   const { getProviders } = await packageImport("providers/registry.js");
-  const { queryAlibabaTokenPlanQuota } = await packageImport("lib/alibaba.js");
+  const {
+    ALIBABA_TOKEN_PLAN_ARGS,
+    parseAlibabaTokenPlanUsageJson,
+    queryAlibabaReply,
+    USAGE_SPAWN_KINDS,
+  } = await packageImport("lib/alibaba.js");
+  const queryAlibabaTokenPlanQuota = async (options) => {
+    const reply = await queryAlibabaReply({
+      args: ALIBABA_TOKEN_PLAN_ARGS,
+      kinds: USAGE_SPAWN_KINDS,
+      ...options,
+    });
+    return reply.ok ? parseAlibabaTokenPlanUsageJson(reply.text) : reply;
+  };
 
   const providers = getProviders();
   const provider = providers.find((entry) => entry.id === "alibaba-token-plan");
