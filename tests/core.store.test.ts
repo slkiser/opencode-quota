@@ -158,6 +158,94 @@ describe("quota store", () => {
     await expect(readFile(file)).rejects.toThrow();
   });
 
+  it("expires unread session views before broadcasts and settings discovery, keeping polled ones", async () => {
+    const copilot = fakeProvider();
+    const identity = vi.fn(copilot.provider.identity);
+    copilot.provider.identity = identity;
+    const source = vi.fn(async () => ({ providers: [copilot.provider], minIntervalMs: HOUR }));
+    const sessionModel = vi.fn(async (_sessionID: string) => ({
+      id: "model",
+      providerID: "copilot",
+    }));
+    const store = createQuotaStore({ source, sessionModel, file: null, now: () => clock });
+    stores.push(store);
+    const seen: QuotaSnapshot[] = [];
+    store.subscribe((snapshot) => seen.push(snapshot));
+    for (let index = 0; index < 100; index += 1) {
+      await store.snapshot({ sessionID: `session-${index}`, refresh: false });
+    }
+    // Both a snapshot reader and a refresh caller keep their sessions alive.
+    clock += 4 * MINUTE;
+    await store.snapshot({ sessionID: "session-0", refresh: false });
+    await store.refresh({ sessionID: "session-1", reason: "manual" });
+    clock += MINUTE;
+    seen.length = 0;
+    await store.refresh({ sessionID: "session-0", reason: "manual" });
+    expect(seen.map((snapshot) => snapshot.sessionID).sort()).toEqual(["session-0", "session-1"]);
+
+    source.mockClear();
+    sessionModel.mockClear();
+    identity.mockClear();
+    store.settingsChanged({ recheck: false });
+    await vi.waitFor(() => expect(source).toHaveBeenCalledTimes(2));
+    await store.dispose();
+    expect(sessionModel.mock.calls.map(([id]) => id).sort()).toEqual(["session-0", "session-1"]);
+    expect(identity).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not extend session lifetimes with settings, model events or provider broadcasts", async () => {
+    const copilot = fakeProvider();
+    const source = vi.fn(async () => ({ providers: [copilot.provider], minIntervalMs: HOUR }));
+    const store = createQuotaStore({ source, file: null, now: () => clock });
+    stores.push(store);
+    await store.refresh({ sessionID: "old", reason: "manual" });
+    clock += 4 * MINUTE;
+    store.settingsChanged({ recheck: false });
+    await vi.waitFor(() => expect(source).toHaveBeenCalledTimes(2));
+    store.sessionModelChanged("old");
+    await vi.waitFor(() => expect(source).toHaveBeenCalledTimes(3));
+    await store.refresh({ sessionID: "active", reason: "manual" });
+
+    clock += MINUTE;
+    source.mockClear();
+    store.sessionModelChanged("old");
+    await store.dispose();
+    expect(source).not.toHaveBeenCalled();
+  });
+
+  it("rebuilds an expired session with its current model and source and the shared cached rows", async () => {
+    const copilot = fakeProvider();
+    const openai = fakeProvider("openai");
+    openai.fetch.mockResolvedValue(ok([quotaRow("openai.allowance", { providerId: "openai" })]));
+    let model = { id: "old", providerID: "copilot" };
+    const sessionModel = vi.fn(async () => model);
+    const source = vi.fn(async (selected?: SessionModel) => ({
+      scope: selected?.providerID,
+      providers: [selected?.providerID === "copilot" ? copilot.provider : openai.provider],
+      minIntervalMs: HOUR,
+      providerIdsForModel: (current: SessionModel) => [current.providerID!],
+    }));
+    const store = createQuotaStore({ source, sessionModel, file: null, now: () => clock });
+    stores.push(store);
+    const seen: QuotaSnapshot[] = [];
+    store.subscribe((snapshot) => seen.push(snapshot));
+    const before = await store.refresh({ sessionID: "reopened", reason: "manual" });
+    clock += 5 * MINUTE;
+    model = { id: "new", providerID: "openai" };
+    await store.refresh({ sessionID: "active", reason: "manual" });
+
+    const reopened = await store.snapshot({ sessionID: "reopened", refresh: false });
+    expect(sessionModel).toHaveBeenLastCalledWith("reopened");
+    expect(source).toHaveBeenLastCalledWith(model);
+    expect(reopened.sourceScope).not.toBe(before.sourceScope);
+    expect(reopened.currentModelProviderIds).toEqual(["openai"]);
+    expect(only(reopened).rows).toEqual([quotaRow("openai.allowance", { providerId: "openai" })]);
+    expect(openai.fetch).toHaveBeenCalledOnce();
+    seen.length = 0;
+    await store.refresh({ sessionID: "active", reason: "manual" });
+    expect(seen.map((snapshot) => snapshot.sessionID).sort()).toEqual(["active", "reopened"]);
+  });
+
   it("asks each provider once at a time", async () => {
     const copilot = fakeProvider();
     const pending = deferred<ProviderFetch>();

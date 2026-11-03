@@ -25,6 +25,9 @@ import {
 
 const POLL_INTERVAL_MS = 60_000;
 const RPC_TIMEOUT_MS = 60_000;
+/** Expire old sessions outside the most recently read unwatched sessions; always keep watched ones. */
+const SESSION_VIEW_KEEP_MS = 5 * 60_000;
+const SESSION_VIEW_KEEP_COUNT = 20;
 
 /** Without `location`, OpenCode runs the call in its server's own folder. */
 export type QuotaRpcCallOptions = { location?: { directory: string }; signal: AbortSignal };
@@ -110,6 +113,8 @@ type SessionPart = Pick<
   "currentModelProviderIds" | "currentModelRowPrefixes" | "sessionTokens" | "sourceScope"
 >;
 
+type SessionRead = { atMs: number };
+
 export type QuotaClient = {
   /** The latest snapshot with what is known about `sessionID`; undefined before the first answer. */
   snapshot(sessionID?: string): QuotaSnapshot | undefined;
@@ -182,6 +187,8 @@ export function createQuotaClient(
   let calls = 0;
   const sessionCalls = new Map<string, number>();
   const sessionRevisions = new Map<string, number>();
+  /** Least recently read first, including reads in the same millisecond. */
+  const sessionReads = new Map<string, SessionRead>();
   /** Servers this client moved away from; their answers are ignored. */
   const retiredServers = new Set<string>();
   /** Bumped when the TUI stops: answers to calls made before then are dropped. */
@@ -193,11 +200,43 @@ export function createQuotaClient(
 
   const rpc = () => host.client.rpc(QuotaRpc);
 
+  function forgetInactiveSessions(): void {
+    const cutoff = Date.now() - SESSION_VIEW_KEEP_MS;
+    const expired: string[] = [];
+    let recent = 0;
+    for (const [id, read] of [...sessionReads].reverse()) {
+      if (watched.has(id)) continue;
+      recent += 1;
+      if (recent <= SESSION_VIEW_KEEP_COUNT || read.atMs > cutoff) continue;
+      sessionReads.delete(id);
+      sessionCalls.delete(id);
+      sessionRevisions.delete(id);
+      expired.push(id);
+    }
+    if (expired.length === 0) return;
+    setSessions((all) => {
+      const kept = { ...all };
+      for (const id of expired) delete kept[id];
+      return kept;
+    });
+  }
+
+  function readSession(sessionID?: string): SessionRead | undefined {
+    forgetInactiveSessions();
+    if (!sessionID) return undefined;
+    const read = sessionReads.get(sessionID) ?? { atMs: Date.now() };
+    read.atMs = Date.now();
+    sessionReads.delete(sessionID);
+    sessionReads.set(sessionID, read);
+    return read;
+  }
+
   /** `call` numbers the request a session's part came from. */
   function apply(
     snapshot: QuotaSnapshot,
-    session?: { id?: string; call: number; notices?: boolean },
+    session?: { id?: string; call: number; notices?: boolean; read?: SessionRead },
   ): void {
+    forgetInactiveSessions();
     const {
       sessionID: snapshotSessionID,
       currentModelProviderIds,
@@ -223,7 +262,9 @@ export function createQuotaClient(
     }
     if (session && !session.id) setDefaultScope(scope);
     const sessionID = session?.id ?? snapshotSessionID;
-    if (sessionID) {
+    // An old event or a late answer cannot recreate an expired session's records.
+    const read = sessionID ? sessionReads.get(sessionID) : undefined;
+    if (sessionID && read && (!session || session.read === read)) {
       const newerCall = session && session.call > (sessionCalls.get(sessionID) ?? 0);
       const newerModel = shared.revision > (sessionRevisions.get(sessionID) ?? 0);
       if (newerCall) sessionCalls.set(sessionID, session.call);
@@ -276,6 +317,7 @@ export function createQuotaClient(
     // The sidebar and the status line of one session ask together; one call answers both.
     const key = sessionID ?? "";
     if (loading.has(key)) return;
+    const read = readSession(sessionID);
     const call = ++calls;
     const at = mount;
     const client = host.client;
@@ -290,7 +332,7 @@ export function createQuotaClient(
     }
     request
       .then((output) => {
-        if (at === mount) apply(output.snapshot, { id: sessionID, call });
+        if (at === mount) apply(output.snapshot, { id: sessionID, call, read });
       })
       .catch((error) => {
         if (at === mount && host.client === client) onFailure(error);
@@ -315,6 +357,12 @@ export function createQuotaClient(
     const shared = latest();
     if (!shared) return undefined;
     const part = sessionID ? sessions()[sessionID] : undefined;
+    const read = sessionID ? sessionReads.get(sessionID) : undefined;
+    if (sessionID && read) {
+      read.atMs = Date.now();
+      sessionReads.delete(sessionID);
+      sessionReads.set(sessionID, read);
+    }
     if (sessionID && !part && shared.sourceScope) return undefined;
     const scope = part ? (part.sourceScope ?? "") : (defaultScope() ?? shared.sourceScope ?? "");
     const source = sources()[scope];
@@ -330,6 +378,7 @@ export function createQuotaClient(
   }
 
   function poll(): void {
+    forgetInactiveSessions();
     if (globalWatchers > 0) load();
     for (const sessionID of watched.keys()) load(sessionID);
     if (homeWatchers > 0) loadHomeLine();
@@ -365,6 +414,7 @@ export function createQuotaClient(
     },
 
     async refresh(reason, sessionID) {
+      const read = readSession(sessionID);
       const call = ++calls;
       const at = mount;
       const client = host.client;
@@ -373,7 +423,7 @@ export function createQuotaClient(
         subscribe();
         const output = await rpc().refresh(input, quotaCallOptions(host));
         if (at !== mount) return undefined;
-        apply(output.snapshot, { id: sessionID, call, notices: true });
+        apply(output.snapshot, { id: sessionID, call, notices: true, read });
         return snapshot(sessionID);
       } catch (error) {
         if (at === mount && host.client === client) onFailure(error);
