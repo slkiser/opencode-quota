@@ -136,7 +136,7 @@ describe("package manifest compatibility", () => {
     expect(Number(packageManagerMatch?.[1])).toBeGreaterThanOrEqual(11);
     expect(pkg.engines?.node).toBe(">=22.0.0");
     expect(pkg.devDependencies?.typescript).toBe("7.0.2");
-    expect(pkg.devDependencies?.yaml).toBe("^2.8.3");
+    expect(pkg.devDependencies?.yaml).toBe("^2.9.1");
   });
 
   it("keeps the public plugin peer broad and reference-compatible development targets exact", () => {
@@ -165,7 +165,7 @@ describe("package manifest compatibility", () => {
   });
 
   it("uses pinned Vite+ for formatting and linting without a second type checker", async () => {
-    expect(pkg.devDependencies?.["vite-plus"]).toBe("1.2.0");
+    expect(pkg.devDependencies?.["vite-plus"]).toBe("1.4.0");
     for (const dependency of ["@biomejs/biome", "prettier", "eslint", "vitest"]) {
       expect(pkg.devDependencies).not.toHaveProperty(dependency);
     }
@@ -260,7 +260,7 @@ describe("package manifest compatibility", () => {
     expect(pnpmWorkspace).toContain("minimumReleaseAgeIgnoreMissingTime: false");
     expect(pnpmWorkspace).toContain("blockExoticSubdeps: true");
     expect(pnpmWorkspaceConfig.overrides).toEqual({
-      "vite@*": "npm:@voidzero-dev/vite-plus-core@1.2.0",
+      "vite@*": "npm:@voidzero-dev/vite-plus-core@1.4.0",
     });
     expect(pnpmWorkspaceConfig.allowBuilds).toEqual({
       "better-sqlite3": true,
@@ -357,7 +357,7 @@ describe("package manifest compatibility", () => {
     }
 
     expect(namedStep(quality, "Activate pnpm").run).toContain(
-      "corepack prepare pnpm@11.0.0 --activate",
+      "corepack prepare pnpm@11.28.9 --activate",
     );
     expectCanonicalVerificationOnly(quality);
     expect(stepIndex(quality, "Run canonical verification")).toBeGreaterThan(
@@ -381,7 +381,7 @@ describe("package manifest compatibility", () => {
     expect(namedStep(windows, "Install dependencies").run).toBe("pnpm install --frozen-lockfile");
     expect(namedStep(windows, "Run canonical verification").run).toBe("pnpm verify");
     expect(namedStep(windows, "Activate pnpm").run).toContain(
-      "corepack prepare pnpm@11.0.0 --activate",
+      "corepack prepare pnpm@11.28.9 --activate",
     );
     expectCanonicalVerificationOnly(windows);
 
@@ -535,7 +535,7 @@ describe("package manifest compatibility", () => {
     );
     expect(namedStep(releasePackage, "Run canonical verification").run).toBe("pnpm verify");
     expect(namedStep(releasePackage, "Activate pnpm").run).toContain(
-      "corepack prepare pnpm@11.0.0 --activate",
+      "corepack prepare pnpm@11.28.9 --activate",
     );
     expectCanonicalVerificationOnly(releasePackage);
     expect(namedStep(releasePackage, "Pack and audit the release artifact once").run).toBe(

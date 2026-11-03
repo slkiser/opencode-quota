@@ -28,7 +28,7 @@ Thanks for contributing. This repo has strict local-only behavior and regression
 
 ```sh
 corepack enable
-corepack prepare pnpm@11.0.0 --activate
+corepack prepare pnpm@11.28.9 --activate
 pnpm install
 ```
 
