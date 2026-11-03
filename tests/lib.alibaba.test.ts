@@ -97,6 +97,7 @@ async function makeDir(): Promise<string> {
 
 // Readiness polling must keep real time while the runner's timeout is paused.
 const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
 
 async function waitForFile(file: string): Promise<void> {
   const deadline = Date.now() + 10_000;
@@ -108,6 +109,19 @@ async function waitForFile(file: string): Promise<void> {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT" || Date.now() >= deadline) throw error;
       await new Promise((resolve) => realSetTimeout(resolve, 10));
     }
+  }
+}
+
+/** Fails after `ms` of real time, so a stuck runner reaches the test's cleanup. */
+async function withRealTimeLimit<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof realSetTimeout> | undefined;
+  const limit = new Promise<never>((_, reject) => {
+    timer = realSetTimeout(() => reject(new Error(message)), ms);
+  });
+  try {
+    return await Promise.race([promise, limit]);
+  } finally {
+    realClearTimeout(timer);
   }
 }
 
@@ -1274,7 +1288,11 @@ setInterval(() => {}, 30000);
         vi.advanceTimersByTime(KILL_GRACE_MS - 1);
         expect(kill.mock.calls).toEqual([[-pid, "SIGTERM"]]);
         vi.advanceTimersByTime(1);
-        const result = await running;
+        const result = await withRealTimeLimit(
+          running,
+          10_000,
+          "The runner did not finish after the kill grace period",
+        );
         expect(kill.mock.calls).toEqual([
           [-pid, "SIGTERM"],
           [-pid, "SIGKILL"],
