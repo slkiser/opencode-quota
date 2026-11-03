@@ -33,6 +33,7 @@ const QUOTA_PROVIDER_CACHE_PACKAGE_VERSION_FALLBACK = "unknown";
 const QUOTA_PROVIDER_CACHE_DIRNAME = "quota-provider-state";
 const QUOTA_PROVIDER_CACHE_RETENTION_MS = 24 * 60 * 60 * 1000;
 const QUOTA_PROVIDER_CACHE_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+const QUOTA_PROVIDER_FAILURE_RETRY_MS = 30_000;
 
 const inMemoryCache = new Map<string, PersistedQuotaProviderCacheEntry>();
 const inFlightByKey = new Map<string, Promise<QuotaProviderResult>>();
@@ -332,13 +333,14 @@ function readProcessLocalLatest(params: {
   };
 }
 
-// An errors-only result whose error reports a wait (for example an Anthropic 429
-// cooldown) goes stale once that wait is over, even within the cache TTL.
-function isErrorsOnlyRetryDue(result: QuotaProviderResult, now: number): boolean {
-  return (
-    result.entries.length === 0 &&
-    result.errors.some((error) => error.retryAtMs !== undefined && error.retryAtMs <= now)
-  );
+// Provider retry times take precedence over the short fallback and the cache TTL.
+function isErrorsOnlyRetryDue(
+  entry: PersistedQuotaProviderCacheEntry,
+  now: number,
+  ttlMs: number,
+): boolean {
+  const fallbackRetryAtMs = entry.timestamp + Math.min(ttlMs, QUOTA_PROVIDER_FAILURE_RETRY_MS);
+  return entry.result.errors.some((error) => (error.retryAtMs ?? fallbackRetryAtMs) <= now);
 }
 
 function publishQuotaTelemetry(params: {
@@ -385,10 +387,6 @@ export async function fetchQuotaProviderResult(params: {
   };
 
   const bypassesCache = bypassCache && !isLiveLocalUsageProviderId(provider.id);
-  // Only memory-only scopes (a process-local identity key) cache errors-only
-  // results; there a successful retry also replaces the cached error.
-  if (bypassesCache && !isResolvedAuthIdentityKeyProcessLocal()) return fetchUncached();
-
   const runtimeEligibleQuotaProviders = await resolveRuntimeEligibleQuotaProviders(
     provider.id,
     ctx,
@@ -408,7 +406,6 @@ export async function fetchQuotaProviderResult(params: {
     const snapshot = await fetchUncached(cacheContext);
     const cached = inMemoryCache.get(key);
     if (
-      !scope.persistToDisk &&
       cached !== undefined &&
       cached.result.entries.length === 0 &&
       snapshot.attempted &&
@@ -465,12 +462,17 @@ export async function fetchQuotaProviderResult(params: {
   await maybePrunePersistedQuotaProviderCache(now);
 
   const inMemory = forceAggregateRefresh ? undefined : inMemoryCache.get(key);
+  const hasCachedErrorsOnly =
+    inMemory !== undefined &&
+    inMemory.result.entries.length === 0 &&
+    inMemory.result.errors.length > 0;
   if (
     inMemory &&
     inMemory.packageVersion === packageVersion &&
     ttlMs > 0 &&
-    now - inMemory.timestamp < ttlMs &&
-    !isErrorsOnlyRetryDue(inMemory.result, now)
+    (hasCachedErrorsOnly
+      ? !isErrorsOnlyRetryDue(inMemory, now, ttlMs)
+      : now - inMemory.timestamp < ttlMs)
   ) {
     publishQuotaTelemetry({
       ctx,
@@ -496,7 +498,7 @@ export async function fetchQuotaProviderResult(params: {
   }
 
   const persisted =
-    forceAggregateRefresh || !scope.persistToDisk
+    forceAggregateRefresh || !scope.persistToDisk || hasCachedErrorsOnly
       ? null
       : await readPersistedQuotaProviderCacheEntry({
           key,
@@ -535,9 +537,7 @@ export async function fetchQuotaProviderResult(params: {
 
   const fetchPromise = (async () => {
     const snapshot = await fetchValidatedProviderResult(provider, ctx, cacheContext);
-    // A memory-only scope has no latest-snapshot fallback for cached-only reads,
-    // so it also keeps errors-only results (for example an Anthropic 429 cooldown).
-    const keepsErrorsOnly = !scope.persistToDisk && snapshot.errors.length > 0;
+    const keepsErrorsOnly = snapshot.entries.length === 0 && snapshot.errors.length > 0;
 
     if (
       !snapshot.attempted ||
@@ -561,7 +561,10 @@ export async function fetchQuotaProviderResult(params: {
       ...entry,
       result: cloneQuotaProviderResult(entry.result),
     });
-    if (scope.persistToDisk) await writePersistedQuotaProviderCacheEntry(entry, key);
+    if (scope.persistToDisk) {
+      if (keepsErrorsOnly) await safeRm(getQuotaProviderStateCacheFilePath(provider.id, key));
+      else await writePersistedQuotaProviderCacheEntry(entry, key);
+    }
     return snapshot;
   })().finally(() => {
     inFlightByKey.delete(key);
