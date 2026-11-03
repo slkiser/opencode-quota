@@ -288,7 +288,7 @@ export const en = {
     "How a percent reads, which way the bars and their even-use marks fill, and the open side tab title's word.",
   "setting.words.reset": "Reset times",
   "setting.words.reset.description":
-    "How a reset time reads. The usage window's Limits view always shows exact times.",
+    "How a reset time reads. The TUI's Limits tab always shows exact times.",
   "setting.words.resetDecimals": "Decimals",
   "setting.words.resetDecimals.description": "Decimals in the decimal reset style.",
   "setting.words.rowNames": "Row names",
