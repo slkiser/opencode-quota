@@ -1,5 +1,15 @@
-import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { type ChildProcess, spawn } from "node:child_process";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -83,6 +93,73 @@ async function makeDir(): Promise<string> {
   const dir = await mkdtemp(path.join(tmpdir(), "alibaba-token-plan-"));
   created.push(dir);
   return dir;
+}
+
+// Readiness polling must keep real time while the runner's timeout is paused.
+const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
+
+async function waitForFile(file: string): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    try {
+      await access(file);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT" || Date.now() >= deadline) throw error;
+      await new Promise((resolve) => realSetTimeout(resolve, 10));
+    }
+  }
+}
+
+/** Fails after `ms` of real time, so a stuck runner reaches the test's cleanup. */
+async function withRealTimeLimit<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof realSetTimeout> | undefined;
+  const limit = new Promise<never>((_, reject) => {
+    timer = realSetTimeout(() => reject(new Error(message)), ms);
+  });
+  try {
+    return await Promise.race([promise, limit]);
+  } finally {
+    realClearTimeout(timer);
+  }
+}
+
+function killProcessGroup(pid: number): void {
+  try {
+    process.kill(process.platform === "win32" ? pid : -pid, "SIGKILL");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    }
+  }
+}
+
+async function cleanupChild(child: ChildProcess | undefined): Promise<void> {
+  if (!child) return;
+  const closed =
+    child.exitCode === null && child.signalCode === null
+      ? new Promise<void>((resolve) => child.once("close", () => resolve()))
+      : Promise.resolve();
+  if (child.pid !== undefined) killProcessGroup(child.pid);
+  child.stdout?.destroy();
+  child.stderr?.destroy();
+  await closed;
+}
+
+async function cleanupGrandchild(pidFile: string): Promise<void> {
+  try {
+    const pid = Number(await readFile(pidFile, "utf8"));
+    if (!Number.isInteger(pid) || pid <= 0) {
+      throw new Error("Grandchild process did not write a valid PID");
+    }
+    killProcessGroup(pid);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
 }
 
 async function writeUnixExecutable(
@@ -1171,14 +1248,19 @@ process.stdin.on("end", () => {
     "runner kills a POSIX child process group after the 250ms grace",
     async () => {
       const bin = await makeDir();
+      const readySeen = path.join(bin, "ready.flag");
       const termSeen = path.join(bin, "term.flag");
+      const cwd = await makeDir();
       const timeoutMs = 1_000;
-      const started = Date.now();
-      const result = await runAlibabaTokenPlanProcess(
-        spawnRequest(process.execPath, {
-          args: [
-            "-e",
-            `const fs = require("node:fs");
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const kill = vi.spyOn(process, "kill");
+      let child: ChildProcess | undefined;
+      try {
+        const running = runAlibabaTokenPlanProcess(
+          spawnRequest(process.execPath, {
+            args: [
+              "-e",
+              `const fs = require("node:fs");
 const { spawn } = require("node:child_process");
 process.on("SIGTERM", () => {
   fs.writeFileSync(${JSON.stringify(termSeen)}, "term");
@@ -1187,18 +1269,43 @@ spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); setInterval(() 
   detached: false,
   stdio: "ignore",
 });
+fs.writeFileSync(${JSON.stringify(readySeen)}, "ready");
 setInterval(() => {}, 30000);
 `,
-          ],
-          timeoutMs,
-          cwd: await makeDir(),
-        }),
-      );
-      const elapsed = Date.now() - started;
-      expect(result.timedOut).toBe(true);
-      expect(result.truncated).toBe(false);
-      expect(elapsed).toBeGreaterThanOrEqual(timeoutMs + KILL_GRACE_MS);
-      expect(await readFile(termSeen, "utf8")).toBe("term");
+            ],
+            timeoutMs,
+            cwd,
+          }),
+        );
+        child = vi.mocked(spawn).mock.results.at(-1)?.value;
+        const pid = child?.pid;
+        if (pid === undefined) throw new Error("Child process did not start");
+        await waitForFile(readySeen);
+        vi.advanceTimersByTime(timeoutMs - 1);
+        expect(kill).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(1);
+        await waitForFile(termSeen);
+        vi.advanceTimersByTime(KILL_GRACE_MS - 1);
+        expect(kill.mock.calls).toEqual([[-pid, "SIGTERM"]]);
+        vi.advanceTimersByTime(1);
+        const result = await withRealTimeLimit(
+          running,
+          10_000,
+          "The runner did not finish after the kill grace period",
+        );
+        expect(kill.mock.calls).toEqual([
+          [-pid, "SIGTERM"],
+          [-pid, "SIGKILL"],
+        ]);
+        expect(result.timedOut).toBe(true);
+        expect(result.truncated).toBe(false);
+        expect(await readFile(termSeen, "utf8")).toBe("term");
+      } finally {
+        kill.mockRestore();
+        vi.clearAllTimers();
+        vi.useRealTimers();
+        await cleanupChild(child);
+      }
     },
   );
 
@@ -1228,28 +1335,61 @@ setInterval(() => {}, 30000);
   it("runner answers on the kill escalation when nothing else can close the pipe", async () => {
     // The child leaves a grandchild holding the stdout it handed down, so `close` never comes.
     // Answering only from `close` would let the store's read timeout fire first, which keys the
-    // rows under `memory-`; the grandchild also outlives the guard below.
+    // rows under `memory-`.
+    const bin = await makeDir();
+    const readySeen = path.join(bin, "ready.flag");
     const grandchild = `
+const fs = require("node:fs");
 const { spawn } = require("node:child_process");
-spawn(process.execPath, ["-e", "setTimeout(() => process.exit(0), 8000)"], {
+const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 30000)"], {
   detached: true, stdio: ["ignore", "inherit", "inherit"],
-}).unref();
+});
+child.unref();
+fs.writeFileSync(${JSON.stringify(readySeen)}, String(child.pid));
 setInterval(() => {}, 30000);
 `;
-    const answered = await Promise.race([
-      runAlibabaTokenPlanProcess(
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const kill = vi.spyOn(process, "kill");
+    let child: ChildProcess | undefined;
+    try {
+      const running = runAlibabaTokenPlanProcess(
         spawnRequest(process.execPath, {
           args: ["-e", `process.on("SIGTERM", () => {});\n${grandchild}`],
           timeoutMs: 300,
           cwd: process.cwd(),
         }),
-      ).then((result) => ({ result })),
-      new Promise((resolve) => setTimeout(() => resolve({ result: undefined }), 3_000)),
-    ]);
-    expect(answered.result).toBeDefined();
-    expect(answered.result?.timedOut).toBe(true);
-    expect(answered.result?.code).toBeNull();
-    expect(answered.result?.complete).toBeUndefined();
+      );
+      child = vi.mocked(spawn).mock.results.at(-1)?.value;
+      await waitForFile(readySeen);
+      let answered = false;
+      void running.then(() => {
+        answered = true;
+      });
+      vi.advanceTimersByTime(299);
+      expect(kill).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      await vi.advanceTimersByTimeAsync(KILL_GRACE_MS - 1);
+      expect(kill.mock.calls.map(([, signal]) => signal)).toEqual(["SIGTERM"]);
+      expect(answered).toBe(false);
+      // Escalation resolves without a `close` event while the grandchild holds the pipe open.
+      await vi.advanceTimersByTimeAsync(1);
+      expect(answered).toBe(true);
+      const result = await running;
+      expect(kill.mock.calls.map(([, signal]) => signal)).toEqual(["SIGTERM", "SIGKILL"]);
+      expect(result).toBeDefined();
+      expect(result.timedOut).toBe(true);
+      expect(result.code).toBeNull();
+      expect(result.complete).toBeUndefined();
+    } finally {
+      kill.mockRestore();
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      try {
+        await cleanupChild(child);
+      } finally {
+        await cleanupGrandchild(readySeen);
+      }
+    }
   });
 
   it("runner still waits for the exit code when no whole document arrives", async () => {
