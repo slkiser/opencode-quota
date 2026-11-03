@@ -53,12 +53,13 @@ function openWriter(wal = false): DatabaseSync {
 }
 
 async function lastWriteMs(): Promise<number> {
-  const files = await Promise.all(
-    [databasePath, `${databasePath}-wal`].map((file) => stat(file).catch(() => undefined)),
-  );
-  return Math.floor(
-    Math.max(...files.flatMap((info) => (info ? [info.mtimeMs, info.ctimeMs] : []))),
-  );
+  let newestNs = 0n;
+  for (const file of [databasePath, `${databasePath}-wal`]) {
+    const info = await stat(file, { bigint: true }).catch(() => undefined);
+    if (info && info.mtimeNs > newestNs) newestNs = info.mtimeNs;
+    if (info && info.ctimeNs > newestNs) newestNs = info.ctimeNs;
+  }
+  return Number(newestNs / 1_000_000n);
 }
 
 function addChildMessage(database: DatabaseSync): void {
