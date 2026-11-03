@@ -9,6 +9,7 @@ import type {
   QuotaProviderCacheContext,
   QuotaProviderContext,
 } from "../lib/entries.js";
+import { withOpenCodeConfigReadScope } from "../lib/opencode-config-files.js";
 import {
   getQuotaProviderDisplayLabel,
   isLiveLocalUsageProviderId,
@@ -257,7 +258,14 @@ function storeProvider(
 }
 
 /** The store's source: the enabled and available providers, with the settings now. */
-export async function loadProviderSource(
+export function loadProviderSource(
+  host: ProviderSourceHost,
+  model?: SessionModel,
+): Promise<StoreSource> {
+  return withOpenCodeConfigReadScope(() => readProviderSource(host, model));
+}
+
+async function readProviderSource(
   host: ProviderSourceHost,
   model?: SessionModel,
 ): Promise<StoreSource> {

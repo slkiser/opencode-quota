@@ -84,7 +84,7 @@ export type ApiKeyLoginDiagnostics =
 
 /** The OpenCode config files that count for `directory`, the one OpenCode ranks highest first. */
 async function configsByPriority(directory: string): Promise<OpenCodeConfigDocument[]> {
-  return (await readOpenCodeConfigs(directory)).reverse();
+  return [...(await readOpenCodeConfigs(directory))].reverse();
 }
 
 /** The login of the first auth key, in order, that has one among `rows`. */

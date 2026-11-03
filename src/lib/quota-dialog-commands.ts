@@ -37,6 +37,7 @@ import type { QuotaProvider, QuotaProviderContext } from "./entries.js";
 import { getMaintainerAnnouncementsSummary } from "./maintainer-announcements.js";
 import { refreshPricesIfDue } from "./modelsdev-pricing.js";
 import { getCredentialSourceDiagnostics } from "./opencode-auth.js";
+import { withOpenCodeConfigReadScope } from "./opencode-config-files.js";
 import { getQuotaProviderDisplayLabel, getQuotaProviderRuntimeIds } from "./provider-metadata.js";
 import {
   type QuotaStatusReport,
@@ -240,7 +241,9 @@ export async function statusReport(
   const ctx = providerContext(held, loaded, options.sessionModel);
   const { enabledProviders, automaticDiscovery, quotaProviders } = ctx.config;
   const [{ checks, snapshots }, usage] = await Promise.all([
-    checkKnownProviders(held, ctx, options.onlyProviderId, options.sessionModel),
+    withOpenCodeConfigReadScope(() =>
+      checkKnownProviders(held, ctx, options.onlyProviderId, options.sessionModel),
+    ),
     readRecentUsage(options.nowMs),
   ]);
   const currentModel = options.sessionModel?.id;
