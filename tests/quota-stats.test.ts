@@ -15,6 +15,7 @@ vi.mock("../src/lib/opencode-storage.js", () => {
 
   return {
     getOpenCodeDbPath: vi.fn(() => "/tmp/opencode.db"),
+    getOpenCodeStorageRevision: vi.fn(() => null),
     iterAssistantMessages: vi.fn(),
     iterAssistantMessagesForSession: vi.fn(),
     iterAssistantMessagesForSessions: vi.fn(),

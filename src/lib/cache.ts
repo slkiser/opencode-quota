@@ -15,11 +15,31 @@ type CacheEntry = {
   lastFetchTime: number;
 };
 
+const MAX_CACHE_ENTRIES = 100;
+
 const cacheEntries = new Map<string, CacheEntry>();
+
+/**
+ * Keep at most MAX_CACHE_ENTRIES entries by dropping the least recently used ones. Entries that
+ * are still fetching, and the entry about to be used, are never dropped.
+ */
+function trimToMaxEntries(keepKey?: string): void {
+  for (const [cacheKey, cacheEntry] of cacheEntries) {
+    if (cacheEntries.size <= MAX_CACHE_ENTRIES) {
+      return;
+    }
+    if (cacheKey !== keepKey && !cacheEntry.inFlightPromise) {
+      cacheEntries.delete(cacheKey);
+    }
+  }
+}
 
 function getCacheEntry(cacheKey: string): CacheEntry {
   const existing = cacheEntries.get(cacheKey);
   if (existing) {
+    // Map order is insertion order; moving the key to the end makes it the most recently used.
+    cacheEntries.delete(cacheKey);
+    cacheEntries.set(cacheKey, existing);
     return existing;
   }
 
@@ -29,6 +49,7 @@ function getCacheEntry(cacheKey: string): CacheEntry {
     lastFetchTime: 0,
   };
   cacheEntries.set(cacheKey, created);
+  trimToMaxEntries(cacheKey);
   return created;
 }
 
@@ -129,6 +150,8 @@ export async function getOrFetchWithCacheControl(
       if (!cacheEntry.cachedToast && cacheEntry.lastFetchTime === 0) {
         cacheEntries.delete(cacheKey);
       }
+      // Fetches running at the same time can each add an entry while none can be dropped.
+      trimToMaxEntries();
     }
   })();
 
@@ -145,6 +168,13 @@ export function clearCache(cacheKey?: string): void {
   }
 
   cacheEntries.clear();
+}
+
+/**
+ * Number of keyed entries currently held (for tests and diagnostics).
+ */
+export function getCacheEntryCount(): number {
+  return cacheEntries.size;
 }
 
 /**
