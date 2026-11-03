@@ -49,6 +49,7 @@
     "verify:v4-history": "node .github/scripts/verify-v4-history.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vp test run",
+    "test:docs": "vp test run tests/contribution-guidance.test.ts tests/google-gemini-cli-org-only-docs.test.ts tests/quota-providers-docs-consistency.test.ts tests/readme-provider-ledger.test.ts",
     "test:watch": "vp test watch",
     "verify": "pnpm run check && pnpm run verify:typescript-version && pnpm run verify:v4-history && pnpm run build && pnpm test && pnpm run verify:package-contents",
     "prepublishOnly": "pnpm run build",
