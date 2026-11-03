@@ -2108,6 +2108,10 @@ describe("quota-state shared cache", () => {
         result: first,
       },
     );
+    const quotaState = await import("../src/lib/quota-state.js");
+    const key = quotaState.buildQuotaProviderStateCacheKey(provider.id, ctx);
+    const { existsSync } = await import("node:fs");
+    expect(existsSync(quotaState.getQuotaProviderStateCacheFilePath(provider.id, key))).toBe(false);
   });
 
   it("rejects malformed structured variants and basis invariants", async () => {
@@ -2286,6 +2290,10 @@ describe("quota-state shared cache", () => {
         result: first,
       },
     );
+    const quotaState = await import("../src/lib/quota-state.js");
+    const key = quotaState.buildQuotaProviderStateCacheKey(provider.id, ctx);
+    const { existsSync } = await import("node:fs");
+    expect(existsSync(quotaState.getQuotaProviderStateCacheFilePath(provider.id, key))).toBe(false);
   });
 
   it("rejects cache v3 timestamps that are parseable but not ISO", async () => {
