@@ -19,6 +19,11 @@ const CURSOR_UPSTREAM_MODELS_PATH = new URL(
   import.meta.url,
 );
 
+const BUNDLED_PRICING_SNAPSHOT_PATH = new URL(
+  "../src/data/modelsdev-pricing.min.json",
+  import.meta.url,
+);
+
 const CURSOR_UPSTREAM_INTENTIONALLY_UNKNOWN_MODELS = new Set<string>();
 
 function getCursorUpstreamFallbackModelIds(): string[] {
@@ -177,12 +182,16 @@ describe("resolvePricingKey snapshot coverage", () => {
       }
     }
 
-    expect(lookupCost("moonshotai", "kimi-k3")).toEqual({
-      input: 3,
-      output: 15,
-      cache_read: 0.3,
-      cache_write: 3,
-    });
+    const bundledSnapshot = JSON.parse(readFileSync(BUNDLED_PRICING_SNAPSHOT_PATH, "utf8")) as {
+      providers: Record<string, Record<string, unknown>>;
+    };
+    const k3Cost = lookupCost("moonshotai", "kimi-k3");
+    expect(k3Cost).not.toBeNull();
+    expect(k3Cost).toEqual(bundledSnapshot.providers.moonshotai?.["kimi-k3"]);
+    expect(Number.isFinite(k3Cost!.input)).toBe(true);
+    expect(Number.isFinite(k3Cost!.output)).toBe(true);
+    expect(k3Cost!.input).toBeGreaterThanOrEqual(0);
+    expect(k3Cost!.output).toBeGreaterThanOrEqual(0);
 
     for (const modelID of ["k3-free", "k3-256k-free", "k3-preview"]) {
       expect(

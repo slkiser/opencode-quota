@@ -137,7 +137,7 @@ jobs:
             echo "Expected exactly one release tarball." >&2
             exit 1
           fi
-          # 4.x is the OpenCode 1 maintenance line. npm `latest` stays on 5.x.
+          # 4.x is the OpenCode 1 maintenance line. Publishing v4-latest leaves npm `latest` unchanged.
           npm publish "./${TARBALLS[0]}" --access public --provenance --ignore-scripts --tag v4-latest
 
   backfill-version:
