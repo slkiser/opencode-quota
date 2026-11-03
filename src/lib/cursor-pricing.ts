@@ -16,7 +16,6 @@ export type CursorResolvedModel =
 
 export const CURSOR_PROVIDER_ID = "cursor";
 export const CURSOR_LEGACY_PROVIDER_ID = "cursor-acp";
-export const CURSOR_OPENCODE_PROVIDER_ID = CURSOR_LEGACY_PROVIDER_ID;
 
 export const CURSOR_INCLUDED_API_USD_BY_PLAN: Readonly<
   Record<Exclude<CursorQuotaPlan, "none">, number>

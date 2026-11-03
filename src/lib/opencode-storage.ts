@@ -74,10 +74,6 @@ export function getOpenCodeDataDirCandidates(): string[] {
   return getOpencodeRuntimeDirCandidates().dataDirs;
 }
 
-export function getOpenCodeDataDir(): string {
-  return pickFirstExistingPath(getOpenCodeDataDirCandidates());
-}
-
 export function getOpenCodeDbPathCandidates(): string[] {
   return getOpenCodeDataDirCandidates().map((d) => join(d, "opencode.db"));
 }

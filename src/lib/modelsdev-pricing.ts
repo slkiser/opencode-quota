@@ -1,6 +1,6 @@
-import { readFileSync } from "fs";
-import { readFile } from "fs/promises";
-import { join } from "path";
+import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import { writeJsonAtomic } from "./atomic-json.js";
 import { fetchWithTimeout } from "./http.js";
@@ -773,10 +773,6 @@ export function setPricingSnapshotSelection(selection: PricingSnapshotSource): v
   MODEL_INDEX = null;
 }
 
-export function getPricingSnapshotSelection(): PricingSnapshotSource {
-  return SNAPSHOT_SELECTION;
-}
-
 export function getPricingSnapshotMeta(): PricingSnapshot["_meta"] {
   return ensureLoaded()._meta;
 }
@@ -814,16 +810,6 @@ export function hasModel(providerId: string, modelId: string): boolean {
   const p = ensureLoaded().providers[providerId];
   if (!p) return false;
   return !!p[modelId];
-}
-
-/**
- * Infer the snapshot provider that owns a modelId.
- * Returns null when model is not found or is ambiguous across providers.
- */
-export function inferProviderForModelId(modelId: string): string | null {
-  const providers = listProvidersForModelId(modelId);
-  if (!providers || providers.length !== 1) return null;
-  return providers[0] ?? null;
 }
 
 export function getProviderModelCount(providerId: string): number {
