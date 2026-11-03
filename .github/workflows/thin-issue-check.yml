@@ -32,17 +32,13 @@ jobs:
 
             // Title without a "[bug]:" style prefix.
             const title = issue.title.replace(/^\s*\[[^\]]*\]\s*:?/u, "").trim();
-            // Fixed answers of the version dropdowns are picked, not typed. GitHub writes
+            // Fixed answers of the version dropdown are picked, not typed. GitHub writes
             // each answer as "### <label>", a blank line, then the answer, so they are
             // ignored only on the answer line of their own dropdown, never elsewhere.
             const dropdownAnswers = new Map([
               [
                 "### Which OpenCode do you use?",
                 ["OpenCode 2", "OpenCode 1"],
-              ],
-              [
-                "### Does this change what you see on screen?",
-                ["No", "Yes", "Not sure"],
               ],
             ]);
             // Body text the reporter typed: drop dropdown answers, form headings, empty-field
@@ -83,7 +79,7 @@ jobs:
       issues: write
 
     steps:
-      - name: Label issues for v4 or v6 from form answers
+      - name: Label issues for v4 from form answers
         uses: actions/github-script@v9
         with:
           script: |
@@ -98,9 +94,6 @@ jobs:
             const labels = [];
             if (answer("Which OpenCode do you use?") === "OpenCode 1") {
               labels.push("v4");
-            }
-            if (answer("Does this change what you see on screen?") === "Yes") {
-              labels.push("v6");
             }
 
             // Only add labels, never remove them.

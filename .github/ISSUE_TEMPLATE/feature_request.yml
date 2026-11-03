@@ -6,21 +6,19 @@ body:
   - type: markdown
     attributes:
       value: |
-        Ideas that change what you see on screen go to [#293](https://github.com/slkiser/opencode-quota/issues/293).
+        Describe the change here. Features target OpenCode Quota 6 on OpenCode 2; OpenCode 1 receives requested small fixes.
 
         Something broken? Use **Bug report**.
 
         New provider? Use **Provider request**.
 
   - type: dropdown
-    id: display_change
+    id: opencode_line
     attributes:
-      label: Does this change what you see on screen?
-      description: For example a new row, color, or layout in the sidebar, pop-ups, or the line under the message box.
+      label: Which OpenCode do you use?
       options:
-        - "No"
-        - "Yes"
-        - Not sure
+        - OpenCode 2
+        - OpenCode 1
     validations:
       required: true
 
