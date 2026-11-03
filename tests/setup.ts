@@ -15,6 +15,10 @@ process.env.GIT_CONFIG_NOSYSTEM = "1";
 // OpenCode's credential database, takes API keys from the environment and calls provider APIs.
 // So every test file gets its own empty home folder, no OpenCode or credential variables, and a
 // fetch that only reaches loopback servers.
+//
+// Under Vitest worker threads, changes to `process.env` never reach the native `os.homedir()`,
+// which would still answer with the real home folder. So `homedir()` is replaced here by a
+// function that reads the test's own `process.env`, in every pool.
 const testHome = mkdtempSync(join(tmpdir(), "opencode-quota-test-home-"));
 process.env.HOME = testHome;
 process.env.USERPROFILE = testHome;
@@ -24,6 +28,12 @@ process.env.XDG_STATE_HOME = join(testHome, ".local", "state");
 process.env.XDG_CACHE_HOME = join(testHome, ".cache");
 process.env.APPDATA = join(testHome, "AppData", "Roaming");
 process.env.LOCALAPPDATA = join(testHome, "AppData", "Local");
+
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:os")>();
+  const homedir = () => process.env.HOME || process.env.USERPROFILE || testHome;
+  return { ...actual, default: { ...actual, homedir }, homedir };
+});
 
 const CREDENTIAL_ENV_SUFFIXES = ["_KEY", "_TOKEN", "_SECRET", "_COOKIE", "_PASSWORD"];
 const CREDENTIAL_ENV_NAMES = [
