@@ -31,7 +31,7 @@ describe("tui refresh lifecycle event bursts", () => {
     vi.useRealTimers();
   });
 
-  it("coalesces 30 events 20ms apart into one early load and one final load", async () => {
+  it("coalesces 30 events 20ms apart into one load per 150ms and one final load", async () => {
     const { load, emit } = createHarness();
     await vi.advanceTimersByTimeAsync(0);
     expect(load).toHaveBeenCalledTimes(1);
@@ -40,10 +40,11 @@ describe("tui refresh lifecycle event bursts", () => {
       emit();
       await vi.advanceTimersByTimeAsync(20);
     }
-    // Last event happened at t=580; the final refresh is due 600ms after it.
+    // Early loads at t=150, 310, 470 and 630 (each scheduled by the first event after the
+    // previous one ran). Last event happened at t=580; the final refresh is due 600ms after it.
     await vi.advanceTimersByTimeAsync(600);
 
-    expect(load).toHaveBeenCalledTimes(1 + 2);
+    expect(load).toHaveBeenCalledTimes(1 + 5);
   });
 
   it("coalesces a 100-event burst into one early load and one final load", async () => {
@@ -70,10 +71,25 @@ describe("tui refresh lifecycle event bursts", () => {
     await vi.advanceTimersByTimeAsync(400);
     emit();
     await vi.advanceTimersByTimeAsync(599);
-    expect(load).toHaveBeenCalledTimes(1);
+    // Early loads at t=150 and t=550; the final one waits for 600ms of quiet.
+    expect(load).toHaveBeenCalledTimes(2);
 
     await vi.advanceTimersByTimeAsync(1);
-    expect(load).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps refreshing while steady events keep postponing the final refresh", async () => {
+    const { load, emit } = createHarness();
+    await vi.advanceTimersByTimeAsync(0);
+    load.mockClear();
+
+    for (let i = 0; i < 10; i += 1) {
+      emit();
+      await vi.advanceTimersByTimeAsync(400);
+    }
+
+    // One early load 150ms after each event, although the final timer never fired.
+    expect(load).toHaveBeenCalledTimes(10);
   });
 
   it("starts a fresh burst after the final refresh", async () => {
