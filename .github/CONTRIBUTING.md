@@ -15,7 +15,7 @@ Node.js 22.22.1+, 24.11+ or 26+ (what Vite+ and its staged-file check need; the 
 
 ```sh
 corepack enable
-corepack prepare pnpm@11.7.0 --activate
+corepack prepare pnpm@11.28.9 --activate
 pnpm install
 ```
 
