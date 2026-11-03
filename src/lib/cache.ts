@@ -13,7 +13,6 @@ type CacheEntry = {
   cachedToast: CachedToast | null;
   inFlightPromise: Promise<string | null> | null;
   lastFetchTime: number;
-  minIntervalMs: number | null;
 };
 
 const MAX_CACHE_ENTRIES = 100;
@@ -21,31 +20,15 @@ const MAX_CACHE_ENTRIES = 100;
 const cacheEntries = new Map<string, CacheEntry>();
 
 /**
- * Remove entries that can no longer be reused: not fetching, and both the last
- * fetch and the cached toast are older than the interval last used for that key.
+ * Keep at most MAX_CACHE_ENTRIES entries by dropping the least recently used ones. Entries that
+ * are still fetching, and the entry about to be used, are never dropped.
  */
-function pruneExpiredEntries(): void {
-  const now = Date.now();
+function trimToMaxEntries(keepKey?: string): void {
   for (const [cacheKey, cacheEntry] of cacheEntries) {
-    if (cacheEntry.inFlightPromise || cacheEntry.minIntervalMs === null) {
-      continue;
-    }
-    const lastActivity = Math.max(cacheEntry.lastFetchTime, cacheEntry.cachedToast?.timestamp ?? 0);
-    if (now - lastActivity >= cacheEntry.minIntervalMs) {
-      cacheEntries.delete(cacheKey);
-    }
-  }
-}
-
-/**
- * Keep room for one new entry by dropping the oldest-created entries that are not fetching.
- */
-function evictOldestEntriesForInsert(): void {
-  for (const [cacheKey, cacheEntry] of cacheEntries) {
-    if (cacheEntries.size < MAX_CACHE_ENTRIES) {
+    if (cacheEntries.size <= MAX_CACHE_ENTRIES) {
       return;
     }
-    if (!cacheEntry.inFlightPromise) {
+    if (cacheKey !== keepKey && !cacheEntry.inFlightPromise) {
       cacheEntries.delete(cacheKey);
     }
   }
@@ -54,17 +37,19 @@ function evictOldestEntriesForInsert(): void {
 function getCacheEntry(cacheKey: string): CacheEntry {
   const existing = cacheEntries.get(cacheKey);
   if (existing) {
+    // Map order is insertion order; moving the key to the end makes it the most recently used.
+    cacheEntries.delete(cacheKey);
+    cacheEntries.set(cacheKey, existing);
     return existing;
   }
 
-  evictOldestEntriesForInsert();
   const created: CacheEntry = {
     cachedToast: null,
     inFlightPromise: null,
     lastFetchTime: 0,
-    minIntervalMs: null,
   };
   cacheEntries.set(cacheKey, created);
+  trimToMaxEntries(cacheKey);
   return created;
 }
 
@@ -122,9 +107,7 @@ export async function getOrFetchWithCacheControl(
   fetchFn: () => Promise<{ message: string | null; cache?: boolean }>,
   minIntervalMs: number,
 ): Promise<string | null> {
-  pruneExpiredEntries();
   const cacheEntry = getCacheEntry(cacheKey);
-  cacheEntry.minIntervalMs = minIntervalMs;
 
   const cached = getCachedToast(cacheKey, minIntervalMs);
   if (cached !== null) {
@@ -167,6 +150,8 @@ export async function getOrFetchWithCacheControl(
       if (!cacheEntry.cachedToast && cacheEntry.lastFetchTime === 0) {
         cacheEntries.delete(cacheKey);
       }
+      // Fetches running at the same time can each add an entry while none can be dropped.
+      trimToMaxEntries();
     }
   })();
 
