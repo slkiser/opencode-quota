@@ -8,7 +8,15 @@ import { describeError } from "../core/errors.js";
 import { type Pace, paceOf } from "../core/pace.js";
 import type { Words } from "../core/types.js";
 import { WINDOWS } from "../core/windows.js";
-import { formatDuration, type Level, paceLevel, percentText, rowValueText } from "./format.js";
+import {
+  type DurationStyle,
+  formatDuration,
+  largestUnit,
+  type Level,
+  paceLevel,
+  percentText,
+  rowValueText,
+} from "./format.js";
 import type { Group, VisibleRow } from "./select.js";
 
 /** How one place shows rows. */
@@ -48,7 +56,11 @@ export type RowFacts = {
   paceLevel?: Level;
   /** Its percent in the place's style, or the value of a row without one ("$1,240.50 left"). */
   value: string;
-  /** The time until it resets in the place's style ("2h 14m", "3.2d"); "" without a percent. */
+  /**
+   * The time until it resets in the place's style ("2h 14m", "3.2d"); "" without a percent. The
+   * "percent" style starts it with the window's time share, written right after the percent
+   * ("/91% 4d", see `afterPercent`).
+   */
   reset: string;
   /** The same in the short style ("2h", "4d 12h"), for a place short of room. */
   shortReset: string;
@@ -69,8 +81,41 @@ function nameOf(item: VisibleRow, group: Pick<Group, "rows">, place: Place): str
   return shared ? item.label : short;
 }
 
+/** The time share starts a reset text in the "percent" style: "/91% 4d". */
+const SHARE_MARK = "/";
+
+/** Whether `reset` starts with the time share, so it goes right after the percent. */
+export function joinsPercent(reset: string): boolean {
+  return reset.startsWith(SHARE_MARK);
+}
+
+/**
+ * `reset` after a percent with `gap` between them; with no gap before the time share, which
+ * reads as one with the percent ("58%/91% 4d"). "" without a reset.
+ */
+export function afterPercent(reset: string, gap: string): string {
+  if (!reset) return "";
+  return joinsPercent(reset) ? reset : `${gap}${reset}`;
+}
+
+/** `reset` where no percent comes right before it: the time share without its "/" ("91% 4d"). */
+export function resetAlone(reset: string): string {
+  return joinsPercent(reset) ? reset.slice(SHARE_MARK.length) : reset;
+}
+
+/** The time style of a reset style for pace words: "percent" writes them in the short style. */
+function durationStyle(times: Words["reset"]): DurationStyle {
+  return times === "percent" ? "short" : times;
+}
+
+/** The share of the window's time left, or used when `words.percent` is "used": "/91%". */
+function timeShare(pace: Pace, words: Words): string {
+  const share = words.percent === "used" ? 100 - pace.evenLeft : pace.evenLeft;
+  return `${SHARE_MARK}${Math.round(share)}%`;
+}
+
 /** "plenty to spare", "on track", "faster than it refills", or "runs out in 2h 10m". */
-function paceWords(pace: Pace, times: Words["reset"], words: Words): string {
+function paceWords(pace: Pace, times: DurationStyle, words: Words): string {
   if (pace.kind === "spare") return "plenty to spare";
   if (pace.kind === "on_track") return "on track";
   if (pace.runsOutInMs === undefined) return "faster than it refills";
@@ -96,9 +141,17 @@ export function rowFacts(item: VisibleRow, group: Pick<Group, "rows">, place: Pl
     place.percent === "words" || (place.percent === "usedWord" && words.percent === "used");
   const times = place.times ?? words.reset;
   const resetMs = Date.parse(row.resetsAt ?? "");
-  const resetIn = (style: Words["reset"]) =>
+  const resetIn = (style: DurationStyle) =>
     Number.isFinite(resetMs) ? formatDuration(resetMs - nowMs, style, words.resetDecimals) : "";
   const pace = paceOf(row, nowMs);
+  // Without a pace (the window's start unknown) the "percent" style shows the time alone.
+  const percentStyleTime = Number.isFinite(resetMs) ? largestUnit(resetMs - nowMs) : "";
+  const reset =
+    times !== "percent"
+      ? resetIn(times)
+      : pace
+        ? `${timeShare(pace, words)} ${percentStyleTime}`
+        : percentStyleTime;
   const level = pace && paceLevel(pace, percent);
   return {
     id: row.id,
@@ -106,11 +159,13 @@ export function rowFacts(item: VisibleRow, group: Pick<Group, "rows">, place: Pl
     percent,
     ...(level ? { paceLevel: level } : {}),
     value: percentText(words, percent, withWord),
-    reset: resetIn(times),
+    reset,
     shortReset: resetIn("short"),
     ...(place.evenUse && pace ? { evenLeft: pace.evenLeft } : {}),
     ...(pace && showsPace(pace, place.pace)
-      ? { pace: { words: paceWords(pace, times, words), fast: pace.kind === "fast" } }
+      ? {
+          pace: { words: paceWords(pace, durationStyle(times), words), fast: pace.kind === "fast" },
+        }
       : {}),
   };
 }

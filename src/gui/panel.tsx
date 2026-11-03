@@ -13,6 +13,7 @@ import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { QuotaSnapshot } from "../core/types.js";
 import type { Settings } from "../settings/schema.js";
 import { percentWord } from "../view/format.js";
+import { joinsPercent } from "../view/row-facts.js";
 import { type ColorRole } from "../view/text.js";
 import {
   barPositions,
@@ -73,6 +74,15 @@ type RowsProps = {
 };
 
 /**
+ * A reset time's class. In the "percent" style it starts after the percent, as in the TUI: the
+ * time share right after it ("0%/93% 28d"), a time without one a gap after it ("10% 12d").
+ */
+function resetClass(reset: string, words: Settings["words"]): string {
+  if (joinsPercent(reset)) return "oq-pnum oq-share";
+  return words.reset === "percent" ? "oq-pnum oq-pafter" : "oq-pnum";
+}
+
+/**
  * Providers and their rows in one grid (`.oq-prows`), so each column (label, bar, percent, reset
  * time) starts and ends at the same x for every provider: each provider's name line, then a line
  * per row, then "runs out in" under the row's bar. The open panel and quota toasts
@@ -117,7 +127,10 @@ export function QuotaRows(props: RowsProps) {
                       <span class="oq-pnum" style={{ color: color("percent", row) }}>
                         {row.value}
                       </span>
-                      <span class="oq-pnum" style={{ color: color("reset", row) }}>
+                      <span
+                        class={resetClass(row.reset, props.settings.words)}
+                        style={{ color: color("reset", row) }}
+                      >
                         {row.reset}
                       </span>
                     </div>
@@ -235,7 +248,9 @@ export function QuotaPanel(props: PanelProps) {
                             {row().name} {row().value}
                           </span>
                           <span
-                            class="oq-pnum"
+                            class={
+                              group.error ? "oq-pnum" : resetClass(row().reset, settings().words)
+                            }
                             style={{ color: color(group.error ? "error" : "reset", row()) }}
                           >
                             {group.error ?? row().reset}

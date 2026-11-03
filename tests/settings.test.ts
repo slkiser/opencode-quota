@@ -125,6 +125,15 @@ describe("loadSettings", () => {
     expect(loaded.fromFile).not.toContain("providers.checking.minIntervalMs");
   });
 
+  it("reads the percent reset style", async () => {
+    writeSettings('{ "words": { "reset": "percent" } }');
+
+    const loaded = await loadSettings();
+
+    expect(loaded.issues).toEqual([]);
+    expect(loaded.settings.words.reset).toBe("percent");
+  });
+
   it.each([
     ["words.percent", "huge"],
     ["providers.checking.minIntervalMs", 0],

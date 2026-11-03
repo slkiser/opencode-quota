@@ -56,6 +56,18 @@ describe("the Settings tabs' field table", () => {
     },
   );
 
+  it("shows an example of every reset style", () => {
+    const reset = field("words.reset");
+    expect(reset.values.map((value) => reset.show(value))).toEqual([
+      "2h 14m · 5.1d",
+      "2h 14m · 5d 3h 20m",
+      "2h14m · 5d3h20m",
+      "2h · 5d 3h",
+      "2.2h · 5.1d",
+      "62% · 5d",
+    ]);
+  });
+
   it.each([
     // From "fill", the first value, to the first and the last number.
     { path: "layout.barWidth", delta: 1, expected: 4 },
