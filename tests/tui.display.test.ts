@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   checkSetting,
+  defaultSettings,
   SETTINGS_SCHEMA,
   type SettingRule,
   UNSET_IS_NOT_DEFAULT,
 } from "../src/settings/schema.js";
 import {
   type DisplaySettings,
-  defaultDisplaySettings,
   FIELDS,
   type Field,
   type PresetName,
@@ -85,9 +85,9 @@ describe("the Settings tabs' field table", () => {
   ])("‹ › on $path by $delta gives $expected", ({ path, delta, expected, from }) => {
     const start =
       from === undefined
-        ? defaultDisplaySettings()
-        : setIn(defaultDisplaySettings(), ["colors"], {
-            ...defaultDisplaySettings().colors,
+        ? defaultSettings()
+        : setIn(defaultSettings(), ["colors"], {
+            ...defaultSettings().colors,
             warningBelow: from,
             lowBelow: from,
           });
@@ -98,7 +98,7 @@ describe("the Settings tabs' field table", () => {
   });
 
   it("turns every color grey but Almost out and errors with the Color preset, then back", () => {
-    const start = defaultDisplaySettings();
+    const start = defaultSettings();
     expect(choiceOf(start, "colors")).toBe("theme colors");
     const grey = withPreset(start, "colors", 1);
     expect(choiceOf(grey, "colors")).toBe("grey");
@@ -138,12 +138,12 @@ describe("the Settings tabs' field table", () => {
     { text: "", expected: undefined },
     { text: "pink", expected: "#112233" },
   ])("a typed color $text gives $expected", ({ text, expected }) => {
-    const before = setIn(defaultDisplaySettings(), ["colors", "reset"], "#112233");
+    const before = setIn(defaultSettings(), ["colors", "reset"], "#112233");
     expect(typedColor(before, field("colors.reset"), text).colors.reset).toBe(expected);
   });
 
   it("names the preset the lines match, else your own, and a preset sets its lines", () => {
-    const defaults = defaultDisplaySettings();
+    const defaults = defaultSettings();
     expect([choiceOf(defaults, "layout"), choiceOf(defaults, "toast")]).toEqual([
       "comfortable",
       "normal",
@@ -162,7 +162,7 @@ describe("the Settings tabs' field table", () => {
   });
 
   it("renames a row whose id holds a dot, keeps its own name typed, and nothing puts it back", () => {
-    const renamed = renameRow(defaultDisplaySettings(), "sidebar", "anthropic.weekly", " Session ");
+    const renamed = renameRow(defaultSettings(), "sidebar", "anthropic.weekly", " Session ");
     expect(renamed.sidebar.names).toEqual({ "anthropic.weekly": "Session" });
     // Typed, its own name stays, so it shows where short row names would show "7d".
     expect(renameRow(renamed, "sidebar", "anthropic.weekly", "Weekly").sidebar.names).toEqual({

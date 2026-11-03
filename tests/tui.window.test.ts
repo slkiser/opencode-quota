@@ -2,7 +2,7 @@ import { createRoot } from "solid-js";
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { ProviderSnapshot, QuotaRow, QuotaSnapshot } from "../src/core/types.js";
 import { USAGE_RANGES, type UsageReport } from "../src/core/usage.js";
-import { defaultDisplaySettings } from "../src/tui/display.js";
+import { defaultSettings } from "../src/settings/schema.js";
 import { limitsLines } from "../src/tui/window/limits.js";
 import { RAIL_LABEL_WIDTH } from "../src/tui/window/rail.tsx";
 import {
@@ -69,7 +69,7 @@ const CLAUDE = provider("anthropic", "Claude", [
 ]);
 
 function limitLines(providers: ProviderSnapshot[], width = WIDE, hidden: string[] = []) {
-  const display = defaultDisplaySettings();
+  const display = defaultSettings();
   display.sidebar.hidden = hidden;
   const snapshot: QuotaSnapshot = { version: 6, providers, resetNotices: [], generatedAtMs: NOW };
   return limitsLines({ snapshot, display, nowMs: NOW, width });
@@ -150,7 +150,7 @@ describe("quota window: Limits", () => {
       generatedAtMs: NOW,
     };
     for (const bar of ["blocks", "dots", "line", "none"] as const) {
-      const display = defaultDisplaySettings();
+      const display = defaultSettings();
       display.layout.bar = bar;
       display.layout.evenUse = false;
       const lines = limitsLines({ snapshot, display, nowMs: NOW, width: WIDE });
@@ -172,7 +172,7 @@ describe("quota window: Limits", () => {
     // With bars off elsewhere, Limits keeps the thin line.
     { bar: "none", cells: /^[━─]+┃─+$/u },
   ] as const)("draws the sidebar's bar shape: $bar", ({ bar, cells }) => {
-    const display = defaultDisplaySettings();
+    const display = defaultSettings();
     display.layout.bar = bar;
     const snapshot: QuotaSnapshot = {
       version: 6,
@@ -185,7 +185,7 @@ describe("quota window: Limits", () => {
   });
 
   it("with used words, says the word and fills the bar by the share used, as the window has no such title", () => {
-    const display = defaultDisplaySettings();
+    const display = defaultSettings();
     display.words.percent = "used";
     const snapshot: QuotaSnapshot = {
       version: 6,

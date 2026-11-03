@@ -22,6 +22,8 @@
  * - The history is read in pages, and the plugin's other work runs between pages. Identical
  *   questions share one read: see `usageReport`.
  */
+import { stat } from "node:fs/promises";
+
 import { parseCalendarDate } from "../lib/calendar-date.js";
 import { sanitizeSingleLineDisplayText } from "../lib/display-sanitize.js";
 import { activePriceList } from "../lib/modelsdev-pricing.js";
@@ -552,49 +554,114 @@ export function withProviderNames(
   return { ...report, providerNames };
 }
 
+type RecentSessionUsage = {
+  startedMs: number;
+  databaseStamp: string;
+  usage: Promise<SessionTokens | undefined>;
+};
+
+const recentSessionUsage = new Map<string, RecentSessionUsage>();
+
+// Coarse file timestamps (older Linux kernels, Windows, network folders) can give a write the
+// same timestamp as the read before it, so a read that starts this soon after a write is not kept.
+const SESSION_USAGE_SETTLE_MS = 2_000;
+
+/**
+ * Any database write changes `key`, including edits and changes to subagent sessions.
+ * `newestChangeMs` is the latest modification or status-change time of the database and its WAL.
+ */
+async function usageDatabaseStamp(
+  dbPath: string,
+): Promise<{ key: string; newestChangeMs: number }> {
+  let newestChangeNs = 0n;
+  const stamps = await Promise.all(
+    [dbPath, `${dbPath}-wal`].map(async (file) => {
+      try {
+        const info = await stat(file, { bigint: true });
+        if (info.mtimeNs > newestChangeNs) newestChangeNs = info.mtimeNs;
+        if (info.ctimeNs > newestChangeNs) newestChangeNs = info.ctimeNs;
+        return `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
+        throw error;
+      }
+    }),
+  );
+  return { key: JSON.stringify(stamps), newestChangeMs: Number(newestChangeNs / 1_000_000n) };
+}
+
 /**
  * The tokens a session used so far, counted as the Usage tab counts them: "in" is uncached
  * input (cache writes included), "out" is output with reasoning, compactions that recorded
  * usage count, and a fork's copies of its parent's messages don't. `scope: "tree"` adds its
  * subagent sessions. `models` holds each model's input by kind for the low cache line.
  * Undefined when no message used a token, or the session or OpenCode's database can't be read.
+ * Identical reads share their work for 30 s while the database and its WAL are unchanged, unless
+ * the read starts within 2 s of the last write to them.
  */
 export async function sessionUsage(
   sessionID: string,
   scope: Words["sessionTokens"],
 ): Promise<SessionTokens | undefined> {
   try {
-    const sessionIDs = scope === "tree" ? await resolveSessionTree(sessionID) : [sessionID];
-    const total = { input: 0, cachedInput: 0, output: 0, processed: 0 };
-    const models = new Map<string, SessionModelInput>();
-    for await (const page of readUsageMessagePages({ sessionIDs, pageSize: PAGE_ROWS })) {
-      for (const message of page) {
-        const { tokens, tokensByType } = tokenUse(tokenBucketsFromMessage(message));
-        total.input += tokens.uncachedInput;
-        total.cachedInput += tokens.cachedInput;
-        total.output += tokens.output;
-        total.processed += tokens.processed;
-        if (tokensByType.input + tokensByType.cacheRead + tokensByType.cacheWrite === 0) continue;
-        const modelID = message.modelID ?? "unknown";
-        const model = entryFor(models, `${message.providerID ?? "unknown"}\n${modelID}`, () => ({
-          modelID,
-          input: 0,
-          cacheRead: 0,
-          cacheWrite: 0,
-        }));
-        model.input += tokensByType.input;
-        model.cacheRead += tokensByType.cacheRead;
-        model.cacheWrite += tokensByType.cacheWrite;
-      }
+    const nowMs = Date.now();
+    for (const [key, recent] of recentSessionUsage) {
+      const ageMs = nowMs - recent.startedMs;
+      if (ageMs < 0 || ageMs >= REPORT_REUSE_MS) recentSessionUsage.delete(key);
     }
-    if (total.processed === 0) return undefined;
-    return {
-      input: total.input,
-      cachedInput: total.cachedInput,
-      output: total.output,
-      ...(models.size > 0 ? { models: [...models.values()] } : {}),
-    };
+    const dbPath = getOpenCodeDbPath();
+    const databaseStamp = await usageDatabaseStamp(dbPath);
+    const key = JSON.stringify([dbPath, sessionID, scope]);
+    const recent = recentSessionUsage.get(key);
+    if (recent?.databaseStamp === databaseStamp.key) return await recent.usage;
+
+    const usage = buildSessionUsage(sessionID, scope);
+    if (nowMs - databaseStamp.newestChangeMs < SESSION_USAGE_SETTLE_MS) return await usage;
+    recentSessionUsage.set(key, { startedMs: nowMs, databaseStamp: databaseStamp.key, usage });
+    try {
+      return await usage;
+    } catch (error) {
+      if (recentSessionUsage.get(key)?.usage === usage) recentSessionUsage.delete(key);
+      throw error;
+    }
   } catch {
     return undefined;
   }
+}
+
+async function buildSessionUsage(
+  sessionID: string,
+  scope: Words["sessionTokens"],
+): Promise<SessionTokens | undefined> {
+  const sessionIDs = scope === "tree" ? await resolveSessionTree(sessionID) : [sessionID];
+  const total = { input: 0, cachedInput: 0, output: 0, processed: 0 };
+  const models = new Map<string, SessionModelInput>();
+  for await (const page of readUsageMessagePages({ sessionIDs, pageSize: PAGE_ROWS })) {
+    for (const message of page) {
+      const { tokens, tokensByType } = tokenUse(tokenBucketsFromMessage(message));
+      total.input += tokens.uncachedInput;
+      total.cachedInput += tokens.cachedInput;
+      total.output += tokens.output;
+      total.processed += tokens.processed;
+      if (tokensByType.input + tokensByType.cacheRead + tokensByType.cacheWrite === 0) continue;
+      const modelID = message.modelID ?? "unknown";
+      const model = entryFor(models, `${message.providerID ?? "unknown"}\n${modelID}`, () => ({
+        modelID,
+        input: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+      }));
+      model.input += tokensByType.input;
+      model.cacheRead += tokensByType.cacheRead;
+      model.cacheWrite += tokensByType.cacheWrite;
+    }
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  if (total.processed === 0) return undefined;
+  return {
+    input: total.input,
+    cachedInput: total.cachedInput,
+    output: total.output,
+    ...(models.size > 0 ? { models: [...models.values()] } : {}),
+  };
 }

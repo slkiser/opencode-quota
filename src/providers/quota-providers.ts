@@ -1,5 +1,4 @@
-import { rowsFromProviderResult } from "../core/rows.js";
-import type { DebugDetail, QuotaRow } from "../core/types.js";
+import type { DebugDetail } from "../core/types.js";
 import type {
   QuotaProvider,
   QuotaProviderCachePolicy,
@@ -74,22 +73,6 @@ export function customAccount(
     rows: rows.map((row) => ({ ...row, key: `custom.${definition.id}.${row.key}` })),
     errors: [...errors],
   };
-}
-
-/**
- * A definition's rows as the screen shows them: through the row gate, with a note for each row
- * the gate dropped.
- */
-export function customRows(
-  definition: QuotaProviderDefinition,
-  rows: readonly ProviderRow[],
-): { rows: QuotaRow[]; problems: string[] } {
-  const shown = rowsFromProviderResult(QUOTA_PROVIDERS_AGGREGATE_ID, {
-    attempted: true,
-    accounts: [customAccount(definition, rows, [])],
-    debug: [],
-  });
-  return { rows: shown.rows, problems: shown.debug.map((detail) => detail.value) };
 }
 
 /** One definition's check, never its URL or key: the outcome, the login source, files read. */

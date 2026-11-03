@@ -530,6 +530,9 @@ describe("convertV5, the older folders v4 read", () => {
     vi.stubEnv("APPDATA", join(home, "AppData", "Roaming"));
     vi.stubEnv("LOCALAPPDATA", join(home, "AppData", "Local"));
     folders = oldSettingsFolders(getOpencodeRuntimeDirs().configDir);
+    // Never this machine's real folders, whichever Vitest pool runs the test.
+    expect(folders.length).toBeGreaterThan(1);
+    for (const folder of folders) expect(folder.startsWith(root)).toBe(true);
   });
 
   it("lists them per platform after the global folder; OPENCODE_CONFIG_DIR replaces them", () => {

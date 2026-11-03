@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { ProviderSnapshot, QuotaRow, QuotaSnapshot } from "../src/core/types.js";
 import type { UsageProviderRow, UsageReport } from "../src/core/usage.js";
-import { defaultDisplaySettings, setIn } from "../src/tui/display.js";
+import { defaultSettings } from "../src/settings/schema.js";
+import { setIn } from "../src/tui/display.js";
 import { DEFAULT_WORDS } from "../src/view/format.js";
 import { quickLookText, quotaProviderIdsOfUsage } from "../src/view/quick-look.js";
 import { providerSnapshot, quotaRow as row } from "./helpers/fake-answers.js";
@@ -123,7 +124,7 @@ describe("quick look: short text", () => {
     quickLookText({
       snapshot: snapshot([ZAI, COPILOT, OPENROUTER]),
       usage: USAGE,
-      settings: defaultDisplaySettings(),
+      settings: defaultSettings(),
       nowMs: NOW,
       ...fields,
     });
@@ -175,7 +176,7 @@ describe("quick look: short text", () => {
       row("claude.weekly", { label: "Weekly", window: "week", percentRemaining: 68 }),
       row("claude.weekly_fable", { label: "Fable", window: "week", percentRemaining: 90 }),
     ]);
-    const settings = setIn(defaultDisplaySettings(), ["sidebar", "names"], {
+    const settings = setIn(defaultSettings(), ["sidebar", "names"], {
       "claude.five_hour": "Session",
     });
     expect(shortText({ snapshot: snapshot([claude]), usage: undefined, settings })).toBe(

@@ -15,6 +15,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
+  ALIBABA_TOKEN_PLAN_ARGS,
+  type AlibabaTokenPlanClosedResult,
   type AlibabaTokenPlanSpawnRequest,
   alibabaCredentialHalves,
   clearAlibabaIdentityCacheForTests,
@@ -23,12 +25,26 @@ import {
   parseAlibabaCodingPlanUsageJson,
   parseAlibabaTokenPlanSeatsJson,
   parseAlibabaTokenPlanUsageJson,
-  queryAlibabaTokenPlanQuota,
+  queryAlibabaReply,
   queryAlibabaTokenPlanSeats,
   resolveAlibabaTokenPlanExecutable,
   resolveAlibabaIdentity,
   runAlibabaTokenPlanProcess,
+  USAGE_SPAWN_KINDS,
 } from "../src/lib/alibaba.js";
+
+/** The Token Plan usage check as the provider runs it: the real spawn, then the real parser. */
+async function queryTokenPlanUsage(options: {
+  requestTimeoutMs?: number;
+  runtime: Parameters<typeof queryAlibabaReply>[0]["runtime"];
+}): Promise<AlibabaTokenPlanClosedResult> {
+  const reply = await queryAlibabaReply({
+    args: ALIBABA_TOKEN_PLAN_ARGS,
+    kinds: USAGE_SPAWN_KINDS,
+    ...options,
+  });
+  return reply.ok ? parseAlibabaTokenPlanUsageJson(reply.text) : reply;
+}
 
 // The `bl` CLI contract, written out by hand so a changed production constant fails here.
 const BL_COMMAND = "bl";
@@ -607,7 +623,7 @@ describe("alibaba token plan executable resolution", () => {
     const expected = { ok: false, error: { kind: "unsupported_platform" } };
     const params = { platform, cwd: "/workspace", pathEnv: "/usr/bin" };
     expect(await resolveAlibabaTokenPlanExecutable(params)).toMatchObject(expected);
-    expect(await queryAlibabaTokenPlanQuota({ runtime: params })).toMatchObject(expected);
+    expect(await queryTokenPlanUsage({ runtime: params })).toMatchObject(expected);
     expect(stat).not.toHaveBeenCalled();
   });
 });
@@ -724,7 +740,7 @@ describe("alibaba token plan Windows resolution", () => {
       [ENTRY]: "cli",
     });
     const requests: AlibabaTokenPlanSpawnRequest[] = [];
-    const result = await queryAlibabaTokenPlanQuota({
+    const result = await queryTokenPlanUsage({
       runtime: {
         platform: "win32",
         cwd: WORKSPACE,
@@ -920,7 +936,7 @@ describe("alibaba token plan Windows resolution", () => {
     const file = W.join(TRUSTED_BIN, "bl.exe");
     await mockExecutable(file);
     const requests: AlibabaTokenPlanSpawnRequest[] = [];
-    const result = await queryAlibabaTokenPlanQuota({
+    const result = await queryTokenPlanUsage({
       runtime: {
         platform: "win32",
         cwd: WORKSPACE,
@@ -948,7 +964,7 @@ describe("alibaba token plan process boundary", () => {
     const bin = "/trusted/bin";
     await mockExecutable();
     const requests: AlibabaTokenPlanSpawnRequest[] = [];
-    const result = await queryAlibabaTokenPlanQuota({
+    const result = await queryTokenPlanUsage({
       runtime: {
         platform: "linux",
         cwd: workspace,
@@ -1012,7 +1028,7 @@ describe("alibaba token plan process boundary", () => {
   ])("runs bl with a PATH of $name", async ({ cwd, bin, pathEnv, expectedPath }) => {
     await mockExecutable(`${bin}/bl`);
     const requests: AlibabaTokenPlanSpawnRequest[] = [];
-    const result = await queryAlibabaTokenPlanQuota({
+    const result = await queryTokenPlanUsage({
       runtime: {
         platform: "linux",
         cwd,
@@ -1039,13 +1055,14 @@ describe("alibaba token plan process boundary", () => {
       env: { PATH: "/trusted/bin" },
       spawn: capturedSpawn(requests),
     };
-    expect((await queryAlibabaTokenPlanQuota({ runtime })).ok).toBe(true);
+    expect((await queryTokenPlanUsage({ runtime })).ok).toBe(true);
     expect(requests).toHaveLength(1);
     expect(requests[0]?.env.PATH).toBe("/trusted/bin");
 
-    expect(
-      await queryAlibabaTokenPlanQuota({ runtime: { ...runtime, pathEnv: "" } }),
-    ).toMatchObject({ ok: false, error: { kind: "executable_not_found" } });
+    expect(await queryTokenPlanUsage({ runtime: { ...runtime, pathEnv: "" } })).toMatchObject({
+      ok: false,
+      error: { kind: "executable_not_found" },
+    });
     expect(requests).toHaveLength(1);
   });
 
@@ -1144,7 +1161,7 @@ describe("alibaba token plan process boundary", () => {
     },
   ])("maps $name without leaking CLI output", async ({ run, error }) => {
     await mockExecutable();
-    const result = await queryAlibabaTokenPlanQuota({
+    const result = await queryTokenPlanUsage({
       runtime: linuxRuntime(async () => ({
         stdout: Buffer.from("secret-stdout token=abc"),
         stderr: Buffer.from("secret-stderr no console access token found"),
@@ -1159,7 +1176,7 @@ describe("alibaba token plan process boundary", () => {
 
   it("reports a whole document as the answer, since no exit code is left to read", async () => {
     await mockExecutable();
-    const result = await queryAlibabaTokenPlanQuota({
+    const result = await queryTokenPlanUsage({
       runtime: linuxRuntime(async () => ({
         // The early exit stops the child on a whole document, so `code` stays null.
         code: null,
@@ -1209,7 +1226,7 @@ process.stdin.on("end", () => {
 `,
       );
       const workspace = await makeDir();
-      const result = await queryAlibabaTokenPlanQuota({
+      const result = await queryTokenPlanUsage({
         runtime: {
           cwd: workspace,
           pathEnv: `${bin}${path.delimiter}${path.dirname(process.execPath)}`,

@@ -105,7 +105,7 @@ describe("package manifest compatibility", () => {
       ["engines", "node", "^22.13.0 || >=23.4.0"],
       ["engines", "opencode", undefined],
       ["devDependencies", "typescript", "7.0.2"],
-      ["devDependencies", "yaml", "^2.8.3"],
+      ["devDependencies", "yaml", "^2.9.1"],
       ["peerDependencies", "@opencode/plugin", ">=2.0.28"],
       ["devDependencies", "@opencode/plugin", "2.2.5"],
       // OpenCode gives TUI plugins its own OpenTUI and Solid (#353). Optional peers keep npm
@@ -124,9 +124,9 @@ describe("package manifest compatibility", () => {
       ["peerDependenciesMeta", "solid-js", { optional: true }],
       ["pnpm", "peerDependencyRules", undefined],
       // Vite+ is the only formatter, linter and Git hook runner.
-      ["devDependencies", "vite-plus", "1.2.0"],
+      ["devDependencies", "vite-plus", "1.4.0"],
       // The GUI build: OpenCode's preset needs Vite and vite-plugin-solid; Vite is Vite+'s core.
-      ["devDependencies", "vite", "npm:@voidzero-dev/vite-plus-core@1.2.0"],
+      ["devDependencies", "vite", "npm:@voidzero-dev/vite-plus-core@1.4.0"],
       ["devDependencies", "vite-plugin-solid", "2.11.14"],
       ["devDependencies", "@biomejs/biome", undefined],
       ["devDependencies", "prettier", undefined],
@@ -241,7 +241,7 @@ describe("package manifest compatibility", () => {
         "minimumReleaseAgeStrict: true",
         "minimumReleaseAgeIgnoreMissingTime: false",
         "blockExoticSubdeps: true",
-        "vite@*: npm:@voidzero-dev/vite-plus-core@1.2.0",
+        "vite@*: npm:@voidzero-dev/vite-plus-core@1.4.0",
       ],
       [
         /peerDependencyRules|allowedVersions|ignoreMissing|strictPeerDependencies:\s*false/,

@@ -1014,19 +1014,6 @@ export async function queryAlibabaReply(options: {
   }
 }
 
-export async function queryAlibabaTokenPlanQuota(options: {
-  requestTimeoutMs?: number;
-  runtime: AlibabaTokenPlanRuntime;
-}): Promise<AlibabaTokenPlanClosedResult> {
-  const reply = await queryAlibabaReply({
-    args: ALIBABA_TOKEN_PLAN_ARGS,
-    kinds: USAGE_SPAWN_KINDS,
-    requestTimeoutMs: options.requestTimeoutMs,
-    runtime: options.runtime,
-  });
-  return reply.ok ? parseAlibabaTokenPlanUsageJson(reply.text) : reply;
-}
-
 /** The masked credential markers `bl auth status` reports, each `null` when absent so it cannot
  * collide with a present credential. `bl` already masks them; they never reach a user, log or
  * export. */

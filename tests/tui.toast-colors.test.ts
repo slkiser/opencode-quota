@@ -5,7 +5,7 @@
 import type { Owner } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { ProviderSnapshot, QuotaRow } from "../src/core/types.js";
-import { defaultDisplaySettings } from "../src/tui/display.js";
+import { defaultSettings } from "../src/settings/schema.js";
 import type { Theme } from "../src/tui/theme.js";
 import { coloredMessage, createToastShow } from "../src/tui/toast-colors.js";
 import type { ToastOptions } from "../src/tui/toasts.js";
@@ -44,7 +44,7 @@ const PROVIDERS = [
 
 /** A grouped toast of `providers`, 54 columns wide. */
 function lines(providers = PROVIDERS) {
-  const display = defaultDisplaySettings();
+  const display = defaultSettings();
   const snapshot = { version: 6, providers, resetNotices: [], generatedAtMs: NOW };
   return toastLines({
     groups: visibleGroups(snapshot, display, "toast", DEFAULT_WORDS),
@@ -75,7 +75,7 @@ beforeEach(() => {
 describe("colored quota toasts", () => {
   it("colors each segment like the sidebar, with the plain message's characters", () => {
     const toast = lines();
-    const spans = coloredMessage(toast, THEME as unknown as Theme, defaultDisplaySettings());
+    const spans = coloredMessage(toast, THEME as unknown as Theme, defaultSettings());
     expect(spansText(spans)).toBe(plainMessage(toast));
     const colored = (spans as Array<string | Node>)
       .filter((child): child is Node => typeof child !== "string")
@@ -133,7 +133,7 @@ describe("colored quota toasts", () => {
       ]),
     ]);
     const percentColors = (levelBy: "left" | "pace") => {
-      const display = defaultDisplaySettings();
+      const display = defaultSettings();
       display.colors.levelBy = levelBy;
       return (coloredMessage(toast, THEME as unknown as Theme, display) as Array<string | Node>)
         .filter((child): child is Node => typeof child !== "string")
@@ -170,7 +170,7 @@ describe("colored quota toasts", () => {
     const showToast = createToastShow({
       show: shown,
       theme: () => THEME as unknown as Theme,
-      display: defaultDisplaySettings,
+      display: defaultSettings,
       owner: () => owner,
       root: () => ROOT,
     });
@@ -271,7 +271,7 @@ describe("colored quota toasts", () => {
     const showToast = createToastShow({
       show: shown,
       theme: () => THEME as unknown as Theme,
-      display: defaultDisplaySettings,
+      display: defaultSettings,
       owner: () => ({}) as Owner,
       root: () => ROOT,
     });

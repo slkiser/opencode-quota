@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { QuotaSnapshot } from "../src/core/types.js";
-import { defaultDisplaySettings, setIn } from "../src/tui/display.js";
+import { defaultSettings } from "../src/settings/schema.js";
+import { setIn } from "../src/tui/display.js";
 import { dropIndex, type SettingsEdit, surfaceEditor } from "../src/tui/window/surface-editor.js";
 import type { Surface } from "../src/view/select.js";
 import { providerSnapshot, quotaRow } from "./helpers/fake-answers.js";
 
 const NOW = Date.parse("2026-10-10T12:00:00.000Z");
-const SETTINGS = defaultDisplaySettings();
+const SETTINGS = defaultSettings();
 
 function snapshot(providers: QuotaSnapshot["providers"]): QuotaSnapshot {
   return { version: 6, providers, resetNotices: [], generatedAtMs: NOW };
