@@ -11,6 +11,7 @@
  * Both kinds may hold comments and trailing commas. OpenCode's `{env:…}` and `{file:…}` text
  * substitution is not applied here.
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -33,6 +34,17 @@ export interface EditableConfigPath {
 export interface OpenCodeConfigDocument {
   path: string;
   config: Record<string, unknown>;
+}
+
+const configReadScope = new AsyncLocalStorage<Map<string, Promise<OpenCodeConfigDocument[]>>>();
+
+/** Shares lazy config reads within one pass; `fresh` starts an independent read scope. */
+export function withOpenCodeConfigReadScope<T>(
+  read: () => Promise<T>,
+  { fresh = false }: { fresh?: boolean } = {},
+): Promise<T> {
+  if (!fresh && configReadScope.getStore()) return read();
+  return configReadScope.run(new Map(), read);
 }
 
 /** OpenCode reads both names in this order, so in one folder opencode.jsonc wins. */
@@ -155,6 +167,17 @@ export function parseOpenCodeConfig(text: string): Record<string, unknown> | nul
  * that is missing, unreadable or does not parse is left out.
  */
 export async function readOpenCodeConfigs(directory: string): Promise<OpenCodeConfigDocument[]> {
+  const scope = configReadScope.getStore();
+  if (!scope) return readConfigDocuments(directory);
+  let documents = scope.get(directory);
+  if (!documents) {
+    documents = readConfigDocuments(directory);
+    scope.set(directory, documents);
+  }
+  return documents;
+}
+
+async function readConfigDocuments(directory: string): Promise<OpenCodeConfigDocument[]> {
   const documents: OpenCodeConfigDocument[] = [];
   for (const path of openCodeConfigFiles(directory)) {
     let text: string;

@@ -33,6 +33,7 @@
  * - Reads from OpenCode and provider fetches have time limits, so `dispose` always ends.
  */
 import { createHash, randomUUID } from "node:crypto";
+import { withOpenCodeConfigReadScope } from "../lib/opencode-config-files.js";
 import type { QuotaExportProvider } from "../lib/quota-export-types.js";
 import { classifyError, RETRY_WAIT_MAX_MS } from "./errors.js";
 import {
@@ -704,7 +705,9 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
     // A fetch is stored only under the account it read. A login change (new generation) or
     // another account now (same generation) drops its answer.
     if (!isCurrent(operation)) return;
-    const after = await resolveKey(provider, operation.scope);
+    const after = await withOpenCodeConfigReadScope(() => resolveKey(provider, operation.scope), {
+      fresh: true,
+    });
     if (!isCurrent(operation)) return;
     if (after.key !== where.key) {
       operation.keys.set(provider.id, after);
@@ -758,10 +761,23 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
   }
 
   /** An operation of the current generation: a login or settings change meanwhile reads again. */
-  async function prepareCurrent(model?: SessionModel, sessionID?: string): Promise<Operation> {
+  async function withCurrentOperation<T>(
+    model: SessionModel | undefined,
+    sessionID: string | undefined,
+    work: (operation: Operation) => Promise<T>,
+    fresh = false,
+  ): Promise<T> {
     for (;;) {
-      const operation = await prepare(model, sessionID);
-      if (isCurrent(operation)) return operation;
+      const result = await withOpenCodeConfigReadScope(
+        async () => {
+          const operation = await prepare(model, sessionID);
+          if (!isCurrent(operation)) return undefined;
+          return { value: await work(operation) };
+        },
+        { fresh },
+      );
+      if (result) return result.value;
+      fresh = true;
     }
   }
 
@@ -778,11 +794,16 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
     // Subscribers see the new providers and rows (or none) before any fetch, then fresh ones.
     start(async () => {
       await Promise.all(
-        targets.map(async ({ model, sessionID }) => {
-          const operation = await prepare(model, sessionID);
-          emit(operation);
-          await runRefresh(operation, { reason });
-        }),
+        targets.map(({ model, sessionID }) =>
+          withOpenCodeConfigReadScope(
+            async () => {
+              const operation = await prepare(model, sessionID);
+              emit(operation);
+              await runRefresh(operation, { reason });
+            },
+            { fresh: true },
+          ),
+        ),
       );
     }).catch((error) => {
       log(`${failure}: ${errorMessage(error)}`);
@@ -791,29 +812,34 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
 
   return {
     snapshot(options = {}) {
-      return start(async () => {
-        const operation = await prepareCurrent(options.model, options.sessionID);
-        if (options.refresh !== false) {
-          track(runRefresh(operation, { reason: "poll" })).catch((error) => {
-            log(`background quota refresh failed: ${errorMessage(error)}`);
-          });
-        }
-        return buildSnapshot(operation);
-      });
+      return start(() =>
+        withCurrentOperation(options.model, options.sessionID, async (operation) => {
+          if (options.refresh !== false) {
+            track(runRefresh(operation, { reason: "poll" })).catch((error) => {
+              log(`background quota refresh failed: ${errorMessage(error)}`);
+            });
+          }
+          return buildSnapshot(operation);
+        }),
+      );
     },
 
     refresh(options) {
-      return start(async () => {
-        const operation = await prepareCurrent(options.model, options.sessionID);
-        await runRefresh(operation, { ...options, model: operation.model });
-        await flush();
-        // A login or settings change dropped what this pass fetched: the answer shows the
-        // providers and rows of now, and the new pass's rows follow as events.
-        const answering = isCurrent(operation)
-          ? operation
-          : await prepareCurrent(options.model, options.sessionID);
-        return buildSnapshot(answering);
-      });
+      return start(() =>
+        withCurrentOperation(options.model, options.sessionID, async (operation) => {
+          await runRefresh(operation, { ...options, model: operation.model });
+          await flush();
+          // A login or settings change dropped what this pass fetched: the answer shows the
+          // providers and rows of now, and the new pass's rows follow as events.
+          if (isCurrent(operation)) return buildSnapshot(operation);
+          return withCurrentOperation(
+            options.model,
+            options.sessionID,
+            async (current) => buildSnapshot(current),
+            true,
+          );
+        }),
+      );
     },
 
     subscribe(listener) {
