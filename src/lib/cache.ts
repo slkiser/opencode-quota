@@ -13,9 +13,43 @@ type CacheEntry = {
   cachedToast: CachedToast | null;
   inFlightPromise: Promise<string | null> | null;
   lastFetchTime: number;
+  minIntervalMs: number | null;
 };
 
+const MAX_CACHE_ENTRIES = 100;
+
 const cacheEntries = new Map<string, CacheEntry>();
+
+/**
+ * Remove entries that can no longer be reused: not fetching, and both the last
+ * fetch and the cached toast are older than the interval last used for that key.
+ */
+function pruneExpiredEntries(): void {
+  const now = Date.now();
+  for (const [cacheKey, cacheEntry] of cacheEntries) {
+    if (cacheEntry.inFlightPromise || cacheEntry.minIntervalMs === null) {
+      continue;
+    }
+    const lastActivity = Math.max(cacheEntry.lastFetchTime, cacheEntry.cachedToast?.timestamp ?? 0);
+    if (now - lastActivity >= cacheEntry.minIntervalMs) {
+      cacheEntries.delete(cacheKey);
+    }
+  }
+}
+
+/**
+ * Keep room for one new entry by dropping the oldest-created entries that are not fetching.
+ */
+function evictOldestEntriesForInsert(): void {
+  for (const [cacheKey, cacheEntry] of cacheEntries) {
+    if (cacheEntries.size < MAX_CACHE_ENTRIES) {
+      return;
+    }
+    if (!cacheEntry.inFlightPromise) {
+      cacheEntries.delete(cacheKey);
+    }
+  }
+}
 
 function getCacheEntry(cacheKey: string): CacheEntry {
   const existing = cacheEntries.get(cacheKey);
@@ -23,10 +57,12 @@ function getCacheEntry(cacheKey: string): CacheEntry {
     return existing;
   }
 
+  evictOldestEntriesForInsert();
   const created: CacheEntry = {
     cachedToast: null,
     inFlightPromise: null,
     lastFetchTime: 0,
+    minIntervalMs: null,
   };
   cacheEntries.set(cacheKey, created);
   return created;
@@ -86,7 +122,9 @@ export async function getOrFetchWithCacheControl(
   fetchFn: () => Promise<{ message: string | null; cache?: boolean }>,
   minIntervalMs: number,
 ): Promise<string | null> {
+  pruneExpiredEntries();
   const cacheEntry = getCacheEntry(cacheKey);
+  cacheEntry.minIntervalMs = minIntervalMs;
 
   const cached = getCachedToast(cacheKey, minIntervalMs);
   if (cached !== null) {
@@ -145,6 +183,13 @@ export function clearCache(cacheKey?: string): void {
   }
 
   cacheEntries.clear();
+}
+
+/**
+ * Number of keyed entries currently held (for tests and diagnostics).
+ */
+export function getCacheEntryCount(): number {
+  return cacheEntries.size;
 }
 
 /**
