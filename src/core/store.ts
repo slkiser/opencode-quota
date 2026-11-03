@@ -67,6 +67,8 @@ const RESET_NOTICE_MAX_LATENESS_MS = 24 * 60 * 60_000;
 const READ_TIMEOUT_MS = 15_000;
 /** One provider fetch; the TUI waits up to 60 s for an RPC answer. */
 const FETCH_TIMEOUT_MS = 60_000;
+/** Visible clients read every minute; background work does not keep a session view alive. */
+const SESSION_VIEW_KEEP_MS = 5 * 60_000;
 
 /** One provider fetch, already turned into rows. */
 export type ProviderFetch = {
@@ -390,8 +392,8 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
   const fetching = new Map<string, number>();
   /** The last operation per session, or per credential source for callers without a session. */
   const views = new Map<string, Operation>();
-  /** Includes a session whose first provider or identity read is still running. */
-  const sessions = new Set<string>();
+  /** Last explicit read, including a session whose first provider or identity read still runs. */
+  const sessions = new Map<string, number>();
   const listeners = new Set<(snapshot: QuotaSnapshot) => void>();
   /** Running operations and background refreshes; `dispose` waits for them. */
   const tasks = new Set<Promise<unknown>>();
@@ -409,6 +411,20 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
   let revision = 0;
   /** The provider ids subscribers last heard of, per credential source. */
   const heardProviders = new Map<string, string>();
+
+  function forgetInactiveSessions(): void {
+    const cutoff = now() - SESSION_VIEW_KEEP_MS;
+    for (const [sessionID, readAtMs] of sessions) {
+      if (readAtMs > cutoff) continue;
+      sessions.delete(sessionID);
+      views.delete(`session:${sessionID}`);
+    }
+  }
+
+  function readSession(sessionID?: string): void {
+    forgetInactiveSessions();
+    if (sessionID) sessions.set(sessionID, now());
+  }
 
   function track<T>(promise: Promise<T>): Promise<T> {
     tasks.add(promise);
@@ -528,7 +544,6 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
 
   /** Starts an operation: loads the file once, reads the providers and who each one is. */
   async function prepare(model?: SessionModel, sessionID?: string): Promise<Operation> {
-    if (sessionID) sessions.add(sessionID);
     const startedIn = generation;
     await load();
     if (sessionID && deps.sessionModel) {
@@ -548,7 +563,10 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
       }),
     );
     const operation = { generation: startedIn, source, keys, model, scope, sessionID };
-    if (isCurrent(operation)) views.set(sessionID ? `session:${sessionID}` : scope, operation);
+    forgetInactiveSessions();
+    if (isCurrent(operation) && (!sessionID || sessions.has(sessionID))) {
+      views.set(sessionID ? `session:${sessionID}` : scope, operation);
+    }
     // The rows read from the file, or a provider turned on or off, are news to subscribers.
     if (providerIdsOf(operation) !== heardProviders.get(scope)) emit(operation);
     return operation;
@@ -612,6 +630,7 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
 
   function emit(operation: Operation): void {
     if (listeners.size === 0 || !isCurrent(operation)) return;
+    if (operation.sessionID && !sessions.has(operation.sessionID)) return;
     heardProviders.set(operation.scope, providerIdsOf(operation));
     const snapshot = buildSnapshot(operation);
     for (const listener of listeners) {
@@ -713,6 +732,7 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
     record(provider, where, result);
     // Providers with the same identity share new rows across scopes; each view still reads
     // its own keys for providers whose credential source differs.
+    forgetInactiveSessions();
     for (const view of views.values()) {
       if (view.keys.get(provider.id)?.key === where.key) emit(view);
     }
@@ -770,6 +790,7 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
    * reads the providers and logins, tells subscribers, then refreshes for `reason`.
    */
   function supersede(reason: RefreshReason, failure: string): void {
+    forgetInactiveSessions();
     generation += 1;
     inFlight.clear();
     const targets: Array<{ model?: SessionModel; sessionID?: string }> = views.size
@@ -792,6 +813,7 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
   return {
     snapshot(options = {}) {
       return start(async () => {
+        readSession(options.sessionID);
         const operation = await prepareCurrent(options.model, options.sessionID);
         if (options.refresh !== false) {
           track(runRefresh(operation, { reason: "poll" })).catch((error) => {
@@ -804,6 +826,7 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
 
     refresh(options) {
       return start(async () => {
+        readSession(options.sessionID);
         const operation = await prepareCurrent(options.model, options.sessionID);
         await runRefresh(operation, { ...options, model: operation.model });
         await flush();
@@ -846,6 +869,7 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
     },
 
     sessionModelChanged(sessionID) {
+      forgetInactiveSessions();
       if (disposed || !sessions.has(sessionID)) return;
       supersede("poll", "quota refresh after a session model change failed");
     },

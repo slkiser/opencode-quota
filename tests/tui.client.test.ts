@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { QuotaSnapshot } from "../src/core/types.js";
 import { createQuotaClient, ownFolderEvents } from "../src/tui/client.js";
 
@@ -67,6 +67,8 @@ function fakeRpc(own?: { directory: string }) {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("TUI quota client", () => {
+  afterEach(() => vi.useRealTimers());
+
   it("keeps the snapshot with the highest revision, even one built in the same millisecond", async () => {
     const { client, answer, changed } = fakeRpc();
     const stop = client.start();
@@ -187,5 +189,78 @@ describe("TUI quota client", () => {
     await settle();
     expect(client.snapshot("ses_1")?.revision).toBe(3);
     again();
+  });
+
+  it("expires inactive session data and ignores later events for those sessions", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const { client, answer, changed } = fakeRpc();
+    const stop = client.start();
+    for (let index = 0; index < 100; index += 1) {
+      const request = client.refresh("turn", `session-${index}`);
+      answer(index, { ...snapshot(index + 1, index + 1), currentModelProviderIds: ["old"] });
+      await request;
+    }
+    vi.setSystemTime(NOW + 4 * 60_000);
+    changed({ ...snapshot(101), sessionID: "session-0", currentModelProviderIds: ["stale"] });
+    vi.setSystemTime(NOW + 5 * 60_000);
+    changed({ ...snapshot(102), sessionID: "session-0", currentModelProviderIds: ["stale"] });
+    for (let index = 0; index < 100; index += 1) {
+      expect(client.snapshot(`session-${index}`)?.sessionTokens).toBeUndefined();
+      expect(client.snapshot(`session-${index}`)?.currentModelProviderIds).toBeUndefined();
+    }
+    // A new request restores all session fields from its answer.
+    const reopened = client.refresh("turn", "session-0");
+    answer(100, { ...snapshot(103, 300), currentModelProviderIds: ["new"] });
+    await reopened;
+    expect(client.snapshot("session-0")).toMatchObject({
+      sessionTokens: { input: 300 },
+      currentModelProviderIds: ["new"],
+    });
+    stop();
+  });
+
+  it("keeps every watched session until its last surface leaves, then expires it", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const { client, answer, changed } = fakeRpc();
+    const stop = client.start();
+    const unwatch = client.watch("active");
+    const unwatchSecond = client.watch("active");
+    answer(0, snapshot(1, 123));
+    await settle();
+    unwatch();
+    vi.setSystemTime(NOW + 6 * 60_000);
+    changed({ ...snapshot(2), sessionID: "active", currentModelProviderIds: ["new"] });
+    expect(client.snapshot("active")).toMatchObject({
+      sessionTokens: { input: 123 },
+      currentModelProviderIds: ["new"],
+    });
+    unwatchSecond();
+    vi.setSystemTime(NOW + 11 * 60_000);
+    changed(snapshot(3));
+    expect(client.snapshot("active")?.sessionTokens).toBeUndefined();
+    stop();
+  });
+
+  it("does not let an expired request overwrite a reopened session, even with a higher revision", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const { client, answer, changed } = fakeRpc();
+    const stop = client.start();
+    const old = client.refresh("turn", "reopened");
+    vi.setSystemTime(NOW + 5 * 60_000);
+    changed(snapshot(1));
+    const fresh = client.refresh("turn", "reopened");
+    answer(1, { ...snapshot(2, 200), currentModelProviderIds: ["fresh"] });
+    await fresh;
+    answer(0, { ...snapshot(3, 100), currentModelProviderIds: ["stale"] });
+    await old;
+    expect(client.snapshot("reopened")).toMatchObject({
+      revision: 3,
+      sessionTokens: { input: 200 },
+      currentModelProviderIds: ["fresh"],
+    });
+    stop();
   });
 });
