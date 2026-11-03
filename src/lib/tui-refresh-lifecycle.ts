@@ -24,6 +24,7 @@ export function createTuiRefreshLifecycle<T>(
   let inFlight = false;
   let queued = false;
   const timers = new Set<ReturnType<typeof setTimeout>>();
+  let finalEventTimer: ReturnType<typeof setTimeout> | undefined;
 
   const reload = () => {
     if (disposed) return;
@@ -66,8 +67,31 @@ export function createTuiRefreshLifecycle<T>(
     timers.add(timer);
   };
 
+  // Events arrive in bursts. The earlier delays are scheduled once when a burst starts;
+  // the last delay restarts on every event so one final refresh runs after activity stops.
   const scheduleRefresh = () => {
-    for (const delay of options.eventRefreshDelaysMs) queueRefresh(delay);
+    if (disposed) return;
+
+    const delays = options.eventRefreshDelaysMs;
+    if (delays.length === 0) return;
+
+    if (finalEventTimer === undefined) {
+      for (const delay of delays.slice(0, -1)) queueRefresh(delay);
+    } else {
+      clearTimeout(finalEventTimer);
+      timers.delete(finalEventTimer);
+    }
+
+    const timer = setTimeout(
+      () => {
+        timers.delete(timer);
+        finalEventTimer = undefined;
+        reload();
+      },
+      delays[delays.length - 1],
+    );
+    timers.add(timer);
+    finalEventTimer = timer;
   };
 
   const interval = setInterval(reload, options.intervalMs);
