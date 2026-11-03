@@ -6,8 +6,9 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { ProviderSnapshot, QuotaSnapshot, ResetNotice } from "../src/core/types.js";
 import { readActiveCredentialRowsCached, readCredentialRows } from "../src/lib/opencode-auth.js";
+import { defaultSettings } from "../src/settings/schema.js";
 import type { QuotaClient } from "../src/tui/client.js";
-import { type DisplaySettings, defaultDisplaySettings } from "../src/tui/display.js";
+import type { DisplaySettings } from "../src/tui/display.js";
 import plugin from "../src/tui/index.tsx";
 import { createToasts, type ToastOptions, type TurnEnd, toastRoom } from "../src/tui/toasts.js";
 import { createFakeTuiHost, type Route, stubJsx } from "./helpers/fake-tui-host.js";
@@ -75,7 +76,7 @@ function snapshot(providers: ProviderSnapshot[], resetNotices: ResetNotice[] = [
 }
 
 function startToasts(answer: QuotaSnapshot | undefined, change: (d: DisplaySettings) => void) {
-  const display = defaultDisplaySettings();
+  const display = defaultSettings();
   change(display);
   const show = vi.fn();
   const refresh = vi.fn(async () => answer);
@@ -176,7 +177,7 @@ describe("quota toasts", () => {
   it("lays the toast out as picked on the Toast page, as wide as the terminal lets it", async () => {
     const message = async (layout: "grouped" | "detailed", terminalWidth: number) => {
       const show = vi.fn();
-      const display = defaultDisplaySettings();
+      const display = defaultSettings();
       display.toast.layout = layout;
       const toasts = createToasts({
         show,
@@ -252,7 +253,7 @@ describe("quota toasts", () => {
     const show = vi.fn();
     const toasts = createToasts({
       show,
-      display: defaultDisplaySettings,
+      display: defaultSettings,
       terminalWidth: () => 120,
       quota: { refresh: async () => answer } as unknown as QuotaClient,
       isChildSession: () => false,
@@ -391,7 +392,7 @@ describe("quota toasts", () => {
     const toasts = createToasts({
       show,
       display: () => {
-        const display = defaultDisplaySettings();
+        const display = defaultSettings();
         display.toast.resetNotice = "all";
         return display;
       },
@@ -505,7 +506,7 @@ describe("the Toast page's preview", () => {
    */
   function startPreview(drawn = true) {
     vi.useFakeTimers({ now: NOW, toFake: ["Date", "setTimeout", "clearTimeout"] });
-    const display = defaultDisplaySettings();
+    const display = defaultSettings();
     const opencode = fakeOpenCodeToast();
     const show = vi.fn((toast: ToastOptions) => {
       opencode.show(toast);
@@ -527,7 +528,7 @@ describe("the Toast page's preview", () => {
 
   /** OpenCode draws the toast; the preview's microtask runs first. */
   const drawn = () => new Promise<void>((resolve) => queueMicrotask(resolve));
-  const SECONDS = defaultDisplaySettings().toast.seconds * 1000;
+  const SECONDS = defaultSettings().toast.seconds * 1000;
   const COPY = 3000;
   const HOUR = 60 * 60 * 1000;
   const MESSAGE = "Claude\n  7d ████████████████░░░░  80% left";

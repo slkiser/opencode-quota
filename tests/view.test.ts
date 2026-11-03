@@ -11,7 +11,7 @@ import type {
 } from "../src/core/types.js";
 import { ALL_PROVIDERS } from "../src/core/windows.js";
 import { loadSettings, saveSettings } from "../src/settings/index.js";
-import { defaultDisplaySettings } from "../src/tui/display.js";
+import { defaultSettings } from "../src/settings/schema.js";
 import { columnsOf } from "../src/view/columns.js";
 import {
   amountText,
@@ -115,7 +115,7 @@ function snapshot(providers: ProviderSnapshot[], extra: Partial<QuotaSnapshot> =
 }
 
 function settings(change: (settings: RowSettings) => void = () => {}): RowSettings {
-  const display = defaultDisplaySettings();
+  const display = defaultSettings();
   change(display);
   return display;
 }
@@ -355,7 +355,7 @@ describe("view select", () => {
 
 describe("view text", () => {
   // Pinned, so these drawings show bars without the even-use mark; its own tests turn it on.
-  const defaults = defaultDisplaySettings();
+  const defaults = defaultSettings();
   const display = { ...defaults, layout: { ...defaults.layout, evenUse: false } };
   const groups = (
     surface: "sidebar" | "collapsed" | "statusLine" | "toast",
