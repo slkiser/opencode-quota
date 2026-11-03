@@ -10,9 +10,11 @@ import { defaultSettings } from "../src/settings/schema.js";
 import type { QuotaClient } from "../src/tui/client.js";
 import type { DisplaySettings } from "../src/tui/display.js";
 import { createToasts } from "../src/tui/toasts.js";
+import { visibleGroups } from "../src/view/select.js";
 import {
   bigStatusLine,
   lineText,
+  plainLines,
   sidebarPanel,
   statusLayout,
   statusLineInput,
@@ -113,13 +115,13 @@ function statusLine(display: DisplaySettings, room: number) {
   };
 }
 
-function toast(display: DisplaySettings, terminalWidth: number) {
+function toast(display: DisplaySettings, terminalWidth: number, snapshot = SNAPSHOT) {
   const show = vi.fn();
   const toasts = createToasts({
     show,
     display: () => display,
     terminalWidth: () => terminalWidth,
-    quota: { snapshot: () => SNAPSHOT } as unknown as QuotaClient,
+    quota: { snapshot: () => snapshot } as unknown as QuotaClient,
     isChildSession: () => false,
     now: () => NOW,
   });
@@ -371,3 +373,105 @@ const GOLDEN = [
     ],
   },
 ];
+
+/** A month with a known start and 28 of its 31 days left, and a month without a start. */
+const SHARE_SNAPSHOT: QuotaSnapshot = {
+  ...SNAPSHOT,
+  providers: [
+    provider("alibaba", "Alibaba", [
+      row("alibaba.month", {
+        label: "Token Plan",
+        window: "month",
+        percentRemaining: 0,
+        resetsAt: at(28 * 24 * 60 * MINUTE),
+        windowStartedAt: at(-3 * 24 * 60 * MINUTE),
+      }),
+    ]),
+    provider("copilot", "Copilot", [
+      row("copilot.allowance", {
+        label: "Plan",
+        window: "month",
+        percentRemaining: 40,
+        resetsAt: at(12 * 24 * 60 * MINUTE),
+      }),
+    ]),
+  ],
+};
+
+describe("the percent reset style", () => {
+  const percentStyle = (percent: DisplaySettings["words"]["percent"] = "left") => {
+    const display = defaultSettings();
+    display.words.reset = "percent";
+    display.words.percent = percent;
+    return display;
+  };
+  const statusOf = (display: DisplaySettings) => {
+    const input = statusLineInput(SHARE_SNAPSHOT, display, NOW);
+    return {
+      auto: statusLayout(input, 200, 0, "auto").shown.map(lineText),
+      one: lineText(bigStatusLine(input)!),
+    };
+  };
+
+  it("writes the time share right after the percent on the status line, the time alone without a window start", () => {
+    expect(statusOf(percentStyle())).toEqual({
+      auto: ["Alibaba ░░░░┃ 0%/90% 28d", "Copilot ██░░░ 40% 12d"],
+      one: "Alibaba 30d ░░░░░░░░░┃ 0% left/90% 28d",
+    });
+  });
+
+  it("writes the time used when the percent is the share used", () => {
+    expect(statusOf(percentStyle("used")).auto).toEqual([
+      "Alibaba ┃████ 100% used/10% 28d",
+      "Copilot ███░░ 60% used 12d",
+    ]);
+  });
+
+  it("starts the reset a space after the percent in the sidebar, open and collapsed", () => {
+    const lines = (open: boolean) =>
+      sidebarPanel(SHARE_SNAPSHOT, percentStyle(), { nowMs: NOW, width: 40, open }).lines.map(
+        lineText,
+      );
+    expect(lines(true).slice(0, 5)).toEqual([
+      "Alibaba",
+      " 30d ░░░░░░░░░░░░░░░░░░┃░   0%/90% 28d",
+      "",
+      "Copilot",
+      " 30d ████████░░░░░░░░░░░░  40% 12d",
+    ]);
+    expect(lines(false)).toEqual([
+      "Alibaba   30d  ░░░░░░░░░┃   0%/90% 28d",
+      "Copilot   30d  ████░░░░░░  40% 12d",
+    ]);
+  });
+
+  it("writes the time share right after the percent in the /quota text", () => {
+    const display = percentStyle();
+    const groups = visibleGroups(SHARE_SNAPSHOT, display, "sidebar", display.words);
+    expect(plainLines({ groups, words: display.words, nowMs: NOW })).toEqual([
+      "Alibaba Token Plan  0% left/90% 28d",
+      "Copilot Plan        40% left      12d",
+    ]);
+  });
+
+  it("writes the share next to the percent in toasts, without its slash where no percent comes before it", () => {
+    const display = percentStyle();
+    display.toast.sessionTokens = false;
+    const detailed = { ...display, toast: { ...display.toast, layout: "detailed" as const } };
+    expect(toast(display, 60, SHARE_SNAPSHOT)).toEqual([
+      "Alibaba",
+      "  30d ░░░░░░░░░░░░░░░░░┃░   0% left/90% 28d",
+      "Copilot",
+      "  30d ████████░░░░░░░░░░░  40% left  12d",
+    ]);
+    expect(toast(detailed, 30, SHARE_SNAPSHOT)).toEqual([
+      "Alibaba",
+      "30d     90% 28d",
+      "░░░░┃   0% left",
+      "",
+      "Copilot",
+      "30d         12d",
+      "██░░░  40% left",
+    ]);
+  });
+});

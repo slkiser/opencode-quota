@@ -20,7 +20,15 @@ import {
   shownEvenLeft,
   shownPercent,
 } from "./format.js";
-import { errorWords, type Place, type RowFacts, rowFacts } from "./row-facts.js";
+import {
+  afterPercent,
+  errorWords,
+  joinsPercent,
+  type Place,
+  type RowFacts,
+  resetAlone,
+  rowFacts,
+} from "./row-facts.js";
 import {
   type Group,
   pickRow,
@@ -284,6 +292,15 @@ export function lowCacheLine(models: SessionModelInput[], width: number): Line |
   return { id: "session", segments: clip([{ text, role: "warning" }], width) };
 }
 
+/**
+ * A reset time in a column `width` wide after the percent, at its right end; in the "percent"
+ * style right after the percent instead, so the time share reads as one with it ("0%/90% 28d")
+ * and a time without one starts a space after it ("40% 12d").
+ */
+function resetColumn(reset: string, width: number, words: Words): string {
+  return words.reset === "percent" ? afterPercent(reset, " ") : reset.padStart(width);
+}
+
 /** The most cells a "fill" bar takes on the sidebar. */
 const SIDEBAR_BAR_MOST = 20;
 
@@ -330,7 +347,7 @@ export function sidebarLines(input: SidebarInput): Line[] {
             { text: labelText, role: "label", percent },
             ...barSegments(layout.bar, percent, barWidth, row.evenLeft, input.words),
             { text: row.value.padStart(5), role: "percent", percent },
-            { text: row.reset.padStart(resetWidth), role: "reset", percent },
+            { text: resetColumn(row.reset, resetWidth, input.words), role: "reset", percent },
           ],
           row.paceLevel,
         ),
@@ -442,7 +459,11 @@ export function collapsedLines(input: CollapsedInput): Line[] {
             { text: picked.value.padStart(percentWidth), role: "percent", percent },
             error
               ? { text: `  ${error}`, role: "error" }
-              : { text: ` ${picked.reset.padStart(resetWidth)}`, role: "reset", percent },
+              : {
+                  text: resetColumn(picked.reset, resetWidth + 1, input.words),
+                  role: "reset",
+                  percent,
+                },
           ],
           picked.paceLevel,
         ),
@@ -504,7 +525,7 @@ function statusSegment(input: StatusInput, group: Group, level: StatusLevel): Li
   const after: Segment | undefined = error
     ? { text: ` ${withReset ? error : ERROR_MARK}`, role: "error" }
     : reset
-      ? { text: ` ${reset}`, role: "reset", percent }
+      ? { text: afterPercent(reset, " "), role: "reset", percent }
       : undefined;
   return {
     id: group.providerId,
@@ -624,7 +645,7 @@ export function bigStatusLine(input: StatusInput, width?: number): Line | undefi
   const after: Segment | undefined = error
     ? { text: ` · ${error}`, role: "error" }
     : picked.reset
-      ? { text: ` · ${picked.reset}`, role: "reset", percent }
+      ? { text: afterPercent(picked.reset, " · "), role: "reset", percent }
       : undefined;
   const segments = withPaceLevel(
     [
@@ -661,7 +682,10 @@ export function plainLines(params: {
     const texts = rows.map((row) => {
       const name = fit(`${group.title} ${row.name}`, PLAIN_NAME_WIDTH);
       if (row.percent === undefined) return `${name} ${row.value}`.trimEnd();
-      const line = `${name} ${row.value.padEnd(13)} ${row.reset}`.trimEnd();
+      const percent = joinsPercent(row.reset)
+        ? `${row.value}${row.reset}`
+        : `${row.value.padEnd(13)} ${row.reset}`;
+      const line = `${name} ${percent}`.trimEnd();
       return row.pace ? `${line}  ${row.pace.words}` : line;
     });
     const state = groupState(group, nowMs);
@@ -770,7 +794,9 @@ function groupedToastLines(input: ToastInput): Line[] {
           role: "percent",
           percent,
         },
-        ...(row.reset ? [{ text: `  ${row.reset}`, role: "reset" as const, percent }] : []),
+        ...(row.reset
+          ? [{ text: afterPercent(row.reset, "  "), role: "reset" as const, percent }]
+          : []),
       ],
       row.paceLevel,
     );
@@ -830,7 +856,7 @@ function detailedToastLines(input: ToastInput): Line[] {
           ]
         : [{ text: percentWords.padStart(room), role: "percent", percent }];
     const nameLine = row.reset
-      ? spread(name, { text: row.reset, role: "reset", percent }, room)
+      ? spread(name, { text: resetAlone(row.reset), role: "reset", percent }, room)
       : clip([name], room);
     return [
       { id: row.id, segments: withPaceLevel(nameLine, row.paceLevel) },
@@ -877,7 +903,9 @@ export function toastSentences(input: ToastInput): string[] {
     const parts = [
       ...(state ? [state.text] : []),
       ...rows.map((row) =>
-        [row.name, row.value, row.reset, row.pace?.words].filter(Boolean).join(" "),
+        [row.name, `${row.value}${afterPercent(row.reset, " ")}`, row.pace?.words]
+          .filter(Boolean)
+          .join(" "),
       ),
     ];
     return parts.length > 0 ? [`${group.title}: ${parts.join(" · ")}.`] : [];

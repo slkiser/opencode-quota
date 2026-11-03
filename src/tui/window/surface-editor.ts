@@ -4,7 +4,7 @@
  * moves with its rows; a row moves only among its own provider's rows. Pure.
  */
 import type { ProviderSnapshot, QuotaRow, QuotaSnapshot } from "../../core/types.js";
-import { errorWords, type Place, rowFacts } from "../../view/row-facts.js";
+import { afterPercent, errorWords, type Place, rowFacts } from "../../view/row-facts.js";
 import {
   type Group,
   ordered,
@@ -145,7 +145,7 @@ export function surfaceEditor(surface: Surface, snapshot?: QuotaSnapshot) {
       const summary = (row: QuotaRow): string => {
         const item = visibleRow(row, names);
         const { value, reset } = rowFacts(item, { rows: [item] }, place);
-        return reset ? `${value} · ${reset}` : value;
+        return `${value}${afterPercent(reset, " · ")}`;
       };
       const off = (id: string) => !shown.show || shown.hidden.includes(id);
       return tree(settings).flatMap(({ provider, rows }) => {

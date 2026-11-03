@@ -15,6 +15,7 @@ import type { Context } from "@opencode/plugin/gui";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { QuotaSnapshot } from "../core/types.js";
 import type { Settings } from "../settings/schema.js";
+import { joinsPercent } from "../view/row-facts.js";
 import { type ColorRole } from "../view/text.js";
 import { Bar } from "./panel.js";
 import {
@@ -85,7 +86,12 @@ function StripItem(props: {
               when={props.group.error}
               fallback={
                 <Show when={withReset() && shown().reset}>
-                  <span style={{ color: color("reset") }}>{shown().reset}</span>
+                  <span
+                    class={joinsPercent(shown().reset) ? "oq-share" : undefined}
+                    style={{ color: color("reset") }}
+                  >
+                    {shown().reset}
+                  </span>
                 </Show>
               }
             >

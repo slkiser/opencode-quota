@@ -87,13 +87,16 @@ export function percentText(words: Words, percentRemaining: number, withWord: bo
   return word ? `${value}% ${word}` : `${value}%`;
 }
 
+/** The reset styles that are a time alone: every one but "percent", which adds the window's time share. */
+export type DurationStyle = Exclude<Words["reset"], "percent">;
+
 /**
  * docs/v6-plan.local.md §4.7. Zero units are dropped in every style; the past is "now".
  * "smart" rounds to the nearest: a day or more in days with one decimal ("4.5d"), from 12 hours
  * in whole hours ("23h"), below that like "exact" ("11h 35m"). A time that rounds to 24 hours
  * is "1.0d".
  */
-export function formatDuration(ms: number, style: Words["reset"], decimals: number): string {
+export function formatDuration(ms: number, style: DurationStyle, decimals: number): string {
   if (!(ms > 0)) return "now";
   const minutes = Math.ceil(ms / 60_000);
   if (style === "smart" && minutes >= 720) {

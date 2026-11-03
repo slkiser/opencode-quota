@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { QuotaRow, QuotaWindow, Words } from "../src/core/types.js";
 import { DEFAULT_WORDS } from "../src/view/format.js";
-import { errorWords, type Place, rowFacts } from "../src/view/row-facts.js";
+import {
+  afterPercent,
+  errorWords,
+  type Place,
+  resetAlone,
+  rowFacts,
+} from "../src/view/row-facts.js";
 import { type VisibleRow, visibleRow } from "../src/view/select.js";
 import { quotaRow } from "./helpers/fake-answers.js";
 
@@ -126,6 +132,49 @@ describe("row facts", () => {
       factsOf(paced(30), compact).pace?.words,
       factsOf(paced(30), { ...compact, times: "exact" }).pace?.words,
     ]).toEqual(["runs out in 1h5m", "runs out in 1h 5m"]);
+  });
+
+  /** A 5-hour row with 1 of its 5 hours left, so even use would leave 20%. */
+  const lastHour = quotaRow("x.five_hour", {
+    window: "five_hour",
+    percentRemaining: 30,
+    resetsAt: at(60),
+  });
+  const percentStyle = (change: Partial<Words> = {}) => ({
+    words: words({ reset: "percent", ...change }),
+  });
+  it.each([
+    { name: "time left", row: lastHour, change: {}, reset: "/20% 1h" },
+    { name: "time used", row: lastHour, change: { percent: "used" }, reset: "/80% 1h" },
+    { name: "bare percent", row: lastHour, change: { percent: "bare" }, reset: "/20% 1h" },
+    {
+      name: "the short time alone without a window start",
+      row: quotaRow("x.a", { percentRemaining: 50, resetsAt: WEEK }),
+      change: {},
+      reset: "3d 23h",
+    },
+  ] as const)("writes the percent style's $name as $reset", ({ row, change, reset }) => {
+    expect(factsOf(row, percentStyle(change)).reset).toBe(reset);
+  });
+
+  it("writes the percent style's runs-out time in the short style", () => {
+    expect(factsOf(paced(30), { ...percentStyle(), pace: "runsOut" }).pace?.words).toBe(
+      "runs out in 1h",
+    );
+  });
+
+  it("keeps a place's own times in the percent style", () => {
+    expect(factsOf(lastHour, { ...percentStyle(), times: "exact" }).reset).toBe("1h");
+  });
+
+  it("joins a time share to the percent before it, and leaves its slash off where none comes before", () => {
+    expect([
+      afterPercent("/20% 1h", " "),
+      afterPercent("1h", " · "),
+      afterPercent("", " "),
+      resetAlone("/20% 1h"),
+      resetAlone("1h"),
+    ]).toEqual(["/20% 1h", " · 1h", "", "20% 1h", "1h"]);
   });
 
   it("puts even use where the place draws the mark and the row has a pace", () => {

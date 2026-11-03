@@ -202,6 +202,10 @@ export const STYLE = `
 .oq-prow > span:first-child { overflow: hidden; text-overflow: ellipsis; }
 .oq-prow.oq-plain > span + span, .oq-prow .oq-pwide { grid-column: 2 / -1; overflow: hidden; text-overflow: ellipsis; }
 .oq-pnum { text-align: right; font-variant-numeric: tabular-nums; }
+/* In the "percent" reset style the reset starts after the percent: its time share ("/91% 4d") right
+   after it, a time without one a gap after it. */
+.oq-share { margin-left: -6px; text-align: left; }
+.oq-pafter { text-align: left; }
 .oq-pbar { position: relative; height: 6px; border-radius: 3px; }
 .oq-pfill { position: absolute; inset: 0 auto 0 0; border-radius: 3px; }
 .oq-peven { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; border-radius: 1px; }

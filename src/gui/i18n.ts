@@ -380,6 +380,7 @@ export const en = {
   "option.words.reset.compact": "2h14m · 5d3h",
   "option.words.reset.short": "2h · 5d",
   "option.words.reset.decimal": "2.2h · 5.1d",
+  "option.words.reset.percent": "62% · 5d 3h",
   "option.words.rowNames.short": "5h, 7d, 30d",
   "option.words.rowNames.full": "Weekly, Daily, …",
   "option.words.detail.summary": "main rows only",

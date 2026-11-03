@@ -21,6 +21,7 @@ import {
   type BarShape,
   barParts,
   DEFAULT_WORDS,
+  type DurationStyle,
   formatDuration,
   percentText,
 } from "../view/format.js";
@@ -221,7 +222,9 @@ const SHOW = {
   percent: (value) =>
     percentText({ ...DEFAULT_WORDS, percent: value as Words["percent"] }, 58, true),
   reset: (value) =>
-    RESET_EXAMPLES_MS.map((ms) => formatDuration(ms, value as Words["reset"], 1)).join(" · "),
+    value === "percent"
+      ? `62% · ${formatDuration(RESET_EXAMPLES_MS[1] as number, "short", 1)}`
+      : RESET_EXAMPLES_MS.map((ms) => formatDuration(ms, value as DurationStyle, 1)).join(" · "),
   decimals: (value) =>
     `${value} (${formatDuration(RESET_EXAMPLES_MS[0] as number, "decimal", Number(value))})`,
   minutes: (value) => `every ${Number(value) / MINUTE_MS} min`,
