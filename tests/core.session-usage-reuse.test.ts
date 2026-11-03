@@ -1,4 +1,4 @@
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, rm, stat, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -16,6 +16,10 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "opencode-quota-session-reuse-"));
   databasePath = join(root, "opencode.db");
   vi.stubEnv("OPENCODE_DB", databasePath);
+  // Reads within 2 s of a database write are never kept; a clock 10 s ahead lets these tests'
+  // fresh writes count as settled.
+  const realNow = Date.now.bind(Date);
+  vi.spyOn(Date, "now").mockImplementation(() => realNow() + 10_000);
 });
 
 afterEach(async () => {
@@ -46,6 +50,15 @@ function openWriter(wal = false): DatabaseSync {
   writer = new DatabaseSync(databasePath);
   if (wal) writer.exec("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0;");
   return writer;
+}
+
+async function lastWriteMs(): Promise<number> {
+  const files = await Promise.all(
+    [databasePath, `${databasePath}-wal`].map((file) => stat(file).catch(() => undefined)),
+  );
+  return Math.floor(
+    Math.max(...files.flatMap((info) => (info ? [info.mtimeMs, info.ctimeMs] : []))),
+  );
 }
 
 function addChildMessage(database: DatabaseSync): void {
@@ -150,30 +163,53 @@ describe("session token reuse", () => {
     expect(await sessionUsage("ses_root", "tree")).toMatchObject({ input: 4 });
   });
 
-  it("detects writes that reuse the WAL's existing space", async () => {
+  it("recounts when only the WAL's timestamp changes", async () => {
     writeHistory();
     const database = openWriter(true);
     database.exec("UPDATE session_message SET data = json_set(data, '$.tokens.input', 11)");
-    database.exec("PRAGMA wal_checkpoint(RESTART)");
+    database.exec("PRAGMA wal_checkpoint(PASSIVE)");
+    const readPages = vi.spyOn(storage, "readUsageMessagePages");
     expect(await sessionUsage("ses_root", "current")).toMatchObject({ input: 14 });
-    const before = await stat(`${databasePath}-wal`, { bigint: true });
+    expect(await sessionUsage("ses_root", "current")).toMatchObject({ input: 14 });
+    expect(readPages).toHaveBeenCalledTimes(1);
 
-    database.exec("UPDATE session_message SET data = json_set(data, '$.tokens.input', 21)");
-    const after = await stat(`${databasePath}-wal`, { bigint: true });
-    expect(after.size).toBe(before.size);
-    expect(await sessionUsage("ses_root", "current")).toMatchObject({ input: 24 });
+    const walPath = `${databasePath}-wal`;
+    const before = await stat(walPath);
+    await utimes(walPath, before.atime, new Date(before.mtimeMs + 5_000));
+    expect((await stat(walPath)).size).toBe(before.size);
+    expect(await sessionUsage("ses_root", "current")).toMatchObject({ input: 14 });
+    expect(readPages).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not keep totals read within 2 s of the last database write", async () => {
+    writeHistory();
+    const database = openWriter(true);
+    database.exec("UPDATE session_message SET data = json_set(data, '$.tokens.input', 11)");
+    const readPages = vi.spyOn(storage, "readUsageMessagePages");
+    const lastWrite = await lastWriteMs();
+
+    vi.mocked(Date.now).mockReturnValue(lastWrite + 1_999);
+    expect(await sessionUsage("ses_root", "current")).toMatchObject({ input: 14 });
+    expect(await sessionUsage("ses_root", "current")).toMatchObject({ input: 14 });
+    expect(readPages).toHaveBeenCalledTimes(2);
+
+    vi.mocked(Date.now).mockReturnValue(lastWrite + 2_000);
+    await sessionUsage("ses_root", "current");
+    await sessionUsage("ses_root", "current");
+    expect(readPages).toHaveBeenCalledTimes(3);
   });
 
   it("recounts after 30 seconds and after the clock moves backwards", async () => {
     writeHistory();
-    const now = vi.spyOn(Date, "now").mockReturnValue(100_000);
+    const start = (await lastWriteMs()) + 10_000;
+    const now = vi.mocked(Date.now).mockReturnValue(start);
     const readPages = vi.spyOn(storage, "readUsageMessagePages");
     const first = await sessionUsage("ses_root", "current");
-    now.mockReturnValue(129_999);
+    now.mockReturnValue(start + 29_999);
     expect(await sessionUsage("ses_root", "current")).toBe(first);
-    now.mockReturnValue(130_000);
+    now.mockReturnValue(start + 30_000);
     expect(await sessionUsage("ses_root", "current")).toEqual(first);
-    now.mockReturnValue(90_000);
+    now.mockReturnValue(start - 5_000);
     expect(await sessionUsage("ses_root", "current")).toEqual(first);
     expect(readPages).toHaveBeenCalledTimes(3);
   });

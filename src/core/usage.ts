@@ -562,12 +562,24 @@ type RecentSessionUsage = {
 
 const recentSessionUsage = new Map<string, RecentSessionUsage>();
 
-/** Any database write invalidates totals, including edits and changes to subagent sessions. */
-async function usageDatabaseStamp(dbPath: string): Promise<string> {
+// Coarse file timestamps (older Linux kernels, Windows, network folders) can give a write the
+// same timestamp as the read before it, so a read that starts this soon after a write is not kept.
+const SESSION_USAGE_SETTLE_MS = 2_000;
+
+/**
+ * Any database write changes `key`, including edits and changes to subagent sessions.
+ * `newestChangeMs` is the latest modification or status-change time of the database and its WAL.
+ */
+async function usageDatabaseStamp(
+  dbPath: string,
+): Promise<{ key: string; newestChangeMs: number }> {
+  let newestChangeNs = 0n;
   const stamps = await Promise.all(
     [dbPath, `${dbPath}-wal`].map(async (file) => {
       try {
         const info = await stat(file, { bigint: true });
+        if (info.mtimeNs > newestChangeNs) newestChangeNs = info.mtimeNs;
+        if (info.ctimeNs > newestChangeNs) newestChangeNs = info.ctimeNs;
         return `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
@@ -575,7 +587,7 @@ async function usageDatabaseStamp(dbPath: string): Promise<string> {
       }
     }),
   );
-  return JSON.stringify(stamps);
+  return { key: JSON.stringify(stamps), newestChangeMs: Number(newestChangeNs / 1_000_000n) };
 }
 
 /**
@@ -584,7 +596,8 @@ async function usageDatabaseStamp(dbPath: string): Promise<string> {
  * usage count, and a fork's copies of its parent's messages don't. `scope: "tree"` adds its
  * subagent sessions. `models` holds each model's input by kind for the low cache line.
  * Undefined when no message used a token, or the session or OpenCode's database can't be read.
- * Identical reads share their work for 30 s while the database and its WAL are unchanged.
+ * Identical reads share their work for 30 s while the database and its WAL are unchanged, unless
+ * the read starts within 2 s of the last write to them.
  */
 export async function sessionUsage(
   sessionID: string,
@@ -600,10 +613,11 @@ export async function sessionUsage(
     const databaseStamp = await usageDatabaseStamp(dbPath);
     const key = JSON.stringify([dbPath, sessionID, scope]);
     const recent = recentSessionUsage.get(key);
-    if (recent?.databaseStamp === databaseStamp) return await recent.usage;
+    if (recent?.databaseStamp === databaseStamp.key) return await recent.usage;
 
     const usage = buildSessionUsage(sessionID, scope);
-    recentSessionUsage.set(key, { startedMs: nowMs, databaseStamp, usage });
+    if (nowMs - databaseStamp.newestChangeMs < SESSION_USAGE_SETTLE_MS) return await usage;
+    recentSessionUsage.set(key, { startedMs: nowMs, databaseStamp: databaseStamp.key, usage });
     try {
       return await usage;
     } catch (error) {
