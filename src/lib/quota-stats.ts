@@ -924,8 +924,10 @@ async function getCachedSessionTokenSummary(
   scope: "current" | "tree",
   load: () => Promise<SessionTokenSummary | null>,
 ): Promise<SessionTokenSummary | null> {
-  const revision = getOpenCodeStorageRevision();
+  // Taken before the first look at storage: a write after this moment lands in a later
+  // timestamp than any write the settle check below accepts.
   const now = Date.now();
+  const revision = getOpenCodeStorageRevision();
   for (const [key, entry] of sessionTokenCache) {
     if (entry.revision !== revision?.key || entry.expiresAt <= now) sessionTokenCache.delete(key);
   }
@@ -941,7 +943,7 @@ async function getCachedSessionTokenSummary(
     revision !== null &&
     revisionAfterRead !== null &&
     revisionAfterRead.key === revision.key &&
-    Date.now() - revisionAfterRead.newestChangeMs >= SESSION_TOKEN_CACHE_SETTLE_MS
+    now - revisionAfterRead.newestChangeMs >= SESSION_TOKEN_CACHE_SETTLE_MS
   ) {
     if (sessionTokenCache.size >= SESSION_TOKEN_CACHE_MAX_ENTRIES) {
       const oldestKey = sessionTokenCache.keys().next().value;
