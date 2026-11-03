@@ -161,7 +161,7 @@ describe("quota export production cache policy", () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(startedAt);
 
     await fetchQuotaProviderResult({ provider: anthropic, ctx, ttlMs });
-    now.mockReturnValue(startedAt + ttlMs - 1);
+    now.mockReturnValue(startedAt + 30_000 - 1);
     const withinInterval = await fetchQuotaProviderResult({ provider: anthropic, ctx, ttlMs });
     const exported = await buildQuotaExport({
       providers: [anthropic],

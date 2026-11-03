@@ -645,50 +645,6 @@ export async function loadTuiHomeBottomStatus(params: {
   return { status: "ready", announcementText, compact };
 }
 
-export async function loadTuiHomeCompactStatus(params: {
-  api: TuiPluginApi;
-}): Promise<CompactStatusState> {
-  const quotaClient = createTuiQuotaClient(params.api);
-  const runtime = await resolveQuotaRuntimeContext({
-    client: quotaClient,
-    roots: getTuiRuntimeRootHints(params.api),
-  });
-  const compactSuppressedByNativeProviderQuota =
-    runtime.config.tuiCompactStatus.suppressWhenNativeProviderQuota &&
-    hasNativeProviderQuotaClient(params.api.client);
-
-  if (
-    !runtime.config.enabled ||
-    !runtime.config.tuiCompactStatus.enabled ||
-    !runtime.config.tuiCompactStatus.homeBottom ||
-    compactSuppressedByNativeProviderQuota
-  ) {
-    return { status: "disabled" };
-  }
-
-  const homeRuntime: QuotaRuntimeContext = {
-    ...runtime,
-    config: {
-      ...runtime.config,
-      onlyCurrentModel: false,
-      showSessionTokens: false,
-    },
-    session: {},
-  };
-
-  const { result, compactFormatStyle } = await collectTuiQuotaRenderData({
-    runtime: homeRuntime,
-    request: createQuotaRuntimeRequestContext(homeRuntime),
-  });
-
-  return buildCompactStatusFromData({
-    runtime: homeRuntime,
-    result,
-    enabled: true,
-    formatStyle: compactFormatStyle,
-  });
-}
-
 /**
  * Writes the quota export file if `config.export.enabled` is true.
  *

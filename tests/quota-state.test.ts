@@ -718,10 +718,10 @@ describe("quota-state shared cache", () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(startedAt);
 
     const first = await fetchQuotaProviderResult({ provider, ctx, ttlMs });
-    now.mockReturnValue(startedAt + ttlMs - 1);
+    now.mockReturnValue(startedAt + 30_000 - 1);
     const withinInterval = await fetchQuotaProviderResult({ provider, ctx, ttlMs });
     const cachedRead = await readCachedProviderResult({ provider, ctx, ttlMs });
-    now.mockReturnValue(startedAt + ttlMs);
+    now.mockReturnValue(startedAt + 30_000);
     const afterInterval = await fetchQuotaProviderResult({ provider, ctx, ttlMs });
 
     expect(first.errors[0]?.message).toBe("failure-1");
@@ -1217,7 +1217,7 @@ describe("quota-state shared cache", () => {
     await telemetry.__flushQuotaTelemetryInitializationForTests();
     const key = quotaState.buildQuotaProviderStateCacheKey(provider.id, ctx);
     const path = quotaState.getQuotaProviderStateCacheFilePath(provider.id, key);
-    const persisted = JSON.parse(await (await import("fs/promises")).readFile(path, "utf8"));
+    const persisted = JSON.parse(await (await import("node:fs/promises")).readFile(path, "utf8"));
     expect(persisted.version).toBe(3);
     expect(persisted.timestamp).toBe(1_000);
     expect(JSON.stringify(persisted)).not.toContain("telemetry");
@@ -1733,7 +1733,7 @@ describe("quota-state shared cache", () => {
     expect(provider.fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("does not cache attempted provider results that contain only errors", async () => {
+  it("keeps attempted errors-only results in memory without persisting them", async () => {
     const { __resetQuotaStateForTests, fetchQuotaProviderResult, readCachedProviderResult } =
       await import("../src/lib/quota-state.js");
     __resetQuotaStateForTests();
@@ -1750,13 +1750,19 @@ describe("quota-state shared cache", () => {
     } as any;
     const ctx = createTestContext();
 
-    await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
+    const first = await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
     await fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
 
-    expect(provider.fetch).toHaveBeenCalledTimes(2);
-    await expect(readCachedProviderResult({ provider, ctx, ttlMs: 60_000 })).resolves.toEqual({
-      hit: false,
-    });
+    expect(provider.fetch).toHaveBeenCalledTimes(1);
+    await expect(readCachedProviderResult({ provider, ctx, ttlMs: 60_000 })).resolves.toMatchObject(
+      {
+        hit: true,
+        result: first,
+      },
+    );
+    expect(
+      await readdir(`${TEST_RUNTIME_ROOT}/cache/quota-provider-state`).catch(() => []),
+    ).toEqual([]);
   });
 
   it("caches entry-bearing partial aggregates including internal diagnostics", async () => {
@@ -2066,12 +2072,12 @@ describe("quota-state shared cache", () => {
     const result = await quotaState.fetchQuotaProviderResult({ provider, ctx, ttlMs: 60_000 });
     expect(result.entries[0]?.name).toBe("Fresh");
     expect(provider.fetch).toHaveBeenCalledTimes(1);
-    const replacement = JSON.parse(await (await import("fs/promises")).readFile(path, "utf8"));
+    const replacement = JSON.parse(await (await import("node:fs/promises")).readFile(path, "utf8"));
     expect(replacement.version).toBe(3);
     expect(JSON.stringify(replacement)).not.toContain("barValue");
   });
 
-  it("does not cache a malformed live provider result", async () => {
+  it("backs off after a malformed live provider result", async () => {
     const { fetchQuotaProviderResult, readCachedProviderResult } =
       await import("../src/lib/quota-state.js");
     const provider = {
@@ -2095,10 +2101,17 @@ describe("quota-state shared cache", () => {
       errors: [{ label: "Synthetic", message: "Invalid normalized provider result" }],
     });
     expect(second).toEqual(first);
-    expect(provider.fetch).toHaveBeenCalledTimes(2);
-    await expect(readCachedProviderResult({ provider, ctx, ttlMs: 60_000 })).resolves.toEqual({
-      hit: false,
-    });
+    expect(provider.fetch).toHaveBeenCalledTimes(1);
+    await expect(readCachedProviderResult({ provider, ctx, ttlMs: 60_000 })).resolves.toMatchObject(
+      {
+        hit: true,
+        result: first,
+      },
+    );
+    const quotaState = await import("../src/lib/quota-state.js");
+    const key = quotaState.buildQuotaProviderStateCacheKey(provider.id, ctx);
+    const { existsSync } = await import("node:fs");
+    expect(existsSync(quotaState.getQuotaProviderStateCacheFilePath(provider.id, key))).toBe(false);
   });
 
   it("rejects malformed structured variants and basis invariants", async () => {
@@ -2229,7 +2242,7 @@ describe("quota-state shared cache", () => {
     });
     const key = quotaStateA.buildQuotaProviderStateCacheKey(provider.id, ctx);
     const path = quotaStateA.getQuotaProviderStateCacheFilePath(provider.id, key);
-    expect(await (await import("fs/promises")).readFile(path, "utf8")).not.toContain("\u001b");
+    expect(await (await import("node:fs/promises")).readFile(path, "utf8")).not.toContain("\u001b");
 
     vi.resetModules();
     const quotaStateB = await import("../src/lib/quota-state.js");
@@ -2238,7 +2251,7 @@ describe("quota-state shared cache", () => {
     expect(provider.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects a live barValue row and does not cache it", async () => {
+  it("rejects a live barValue row and backs off with the validation error", async () => {
     const { fetchQuotaProviderResult, readCachedProviderResult } =
       await import("../src/lib/quota-state.js");
     const provider = {
@@ -2270,10 +2283,17 @@ describe("quota-state shared cache", () => {
       errors: [{ label: "OpenCode Zen", message: "Invalid normalized provider result" }],
     });
     expect(second).toEqual(first);
-    expect(provider.fetch).toHaveBeenCalledTimes(2);
-    await expect(readCachedProviderResult({ provider, ctx, ttlMs: 60_000 })).resolves.toEqual({
-      hit: false,
-    });
+    expect(provider.fetch).toHaveBeenCalledTimes(1);
+    await expect(readCachedProviderResult({ provider, ctx, ttlMs: 60_000 })).resolves.toMatchObject(
+      {
+        hit: true,
+        result: first,
+      },
+    );
+    const quotaState = await import("../src/lib/quota-state.js");
+    const key = quotaState.buildQuotaProviderStateCacheKey(provider.id, ctx);
+    const { existsSync } = await import("node:fs");
+    expect(existsSync(quotaState.getQuotaProviderStateCacheFilePath(provider.id, key))).toBe(false);
   });
 
   it("rejects cache v3 timestamps that are parseable but not ISO", async () => {
