@@ -44,6 +44,7 @@ import {
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import type { QuotaSnapshot } from "../core/types.js";
 import { createGuiQuota, type GuiQuotaHost } from "./bridge.js";
+import { ru } from "./i18n-ru.js";
 import { en } from "./i18n.js";
 import { QuotaPanel } from "./panel.js";
 import {
@@ -146,7 +147,7 @@ function createPanelState(ctx: Context) {
 }
 
 export default Plugin.define({
-  i18n: { en },
+  i18n: { en, ru },
   setup(ctx) {
     // The folder and session a quota call names: a session's on the app's own server, else none.
     const directoryOf = (session: MountedSession | undefined) =>
