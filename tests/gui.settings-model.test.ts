@@ -37,6 +37,7 @@ import {
   settingsShape,
 } from "../src/tui/settings-draft.js";
 import { surfaceEditor } from "../src/tui/window/surface-editor.js";
+import { formatDuration } from "../src/view/format.js";
 import { COLOR_ROLES, PRESET_CHOICES, type PresetName, presetChoice } from "../src/view/presets.js";
 import { providerSnapshot, quotaRow as row } from "./helpers/fake-answers.js";
 
@@ -97,6 +98,18 @@ describe("the Settings page's sections", () => {
     for (const key of Object.values(SUBHEADINGS)) need(key);
 
     expect(missing).toEqual([]);
+  });
+
+  it("shows each reset style as the formatter writes 2h 14m and 5d 3h 20m", () => {
+    const examples = SETTINGS_SCHEMA["words.reset"].values.map((style) => [
+      style,
+      en[`option.words.reset.${style}` as keyof typeof en],
+    ]);
+    const printed = SETTINGS_SCHEMA["words.reset"].values.map((style) => [
+      style,
+      `${formatDuration(134 * 60_000, style, 1)} · ${formatDuration(7_400 * 60_000, style, 1)}`,
+    ]);
+    expect(examples).toEqual(printed);
   });
 
   it("puts the Providers section's own settings under Cursor and OpenCode Zen, not as rows", () => {
