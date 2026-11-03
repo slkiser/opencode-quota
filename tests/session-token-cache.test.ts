@@ -62,6 +62,9 @@ describe.skipIf(nodeSqlite === null)("session token summary cache", () => {
     addSession("ses_root");
     addMessage("msg_root", "ses_root", 10);
     historyReads = 0;
+    // Totals read within 2 s of a write are never reused; a clock 10 s ahead lets these tests'
+    // fresh writes count as settled.
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 10_000 });
     const originalOpen = sqlite.openOpenCodeSqliteReadOnly;
     vi.spyOn(sqlite, "openOpenCodeSqliteReadOnly").mockImplementation(async (path) => {
       const conn = await originalOpen(path);
@@ -75,6 +78,7 @@ describe.skipIf(nodeSqlite === null)("session token summary cache", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     writer.close();
     paths.dataDirs = [];
@@ -110,7 +114,7 @@ describe.skipIf(nodeSqlite === null)("session token summary cache", () => {
     expect((await getSessionTokenSummary("ses_root"))?.totalInput).toBe(55);
     const revision = getOpenCodeStorageRevision();
     writer.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-    expect(getOpenCodeStorageRevision()).not.toBe(revision);
+    expect(getOpenCodeStorageRevision()?.key).not.toBe(revision?.key);
     expect((await getSessionTokenSummary("ses_root"))?.totalInput).toBe(55);
     expect(historyReads).toBe(5);
   });
@@ -151,7 +155,7 @@ describe.skipIf(nodeSqlite === null)("session token summary cache", () => {
   });
 
   it("expires nearby reuse and bounds the number of retained sessions", async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ now: Date.now() });
     await getSessionTokenSummary("ses_root");
     vi.advanceTimersByTime(29_999);
     await getSessionTokenSummary("ses_root");
@@ -203,5 +207,27 @@ describe.skipIf(nodeSqlite === null)("session token summary cache", () => {
     utimesSync(dbPath, before.atime, before.mtime);
     expect((await getSessionTokenSummary("ses_root"))?.totalInput).toBe(21);
     expect(historyReads).toBe(2);
+  });
+
+  it("changes the revision when only a file timestamp changes", () => {
+    writer.exec("PRAGMA wal_checkpoint(PASSIVE)");
+    const walPath = `${dbPath}-wal`;
+    const wal = statSync(walPath);
+    const revision = getOpenCodeStorageRevision();
+    utimesSync(walPath, wal.atime, new Date(wal.mtimeMs + 5_000));
+    expect(statSync(walPath).size).toBe(wal.size);
+    expect(getOpenCodeStorageRevision()?.key).not.toBe(revision?.key);
+  });
+
+  it("does not reuse totals read within 2 s of the last write", async () => {
+    const newestChangeMs = getOpenCodeStorageRevision()?.newestChangeMs ?? 0;
+    vi.setSystemTime(newestChangeMs + 1_999);
+    await getSessionTokenSummary("ses_root");
+    await getSessionTokenSummary("ses_root");
+    expect(historyReads).toBe(2);
+    vi.setSystemTime(newestChangeMs + 2_000);
+    await getSessionTokenSummary("ses_root");
+    await getSessionTokenSummary("ses_root");
+    expect(historyReads).toBe(3);
   });
 });

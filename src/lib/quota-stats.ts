@@ -911,6 +911,9 @@ function summarizeSessionTokenMessages(
 
 const SESSION_TOKEN_CACHE_TTL_MS = 30_000;
 const SESSION_TOKEN_CACHE_MAX_ENTRIES = 32;
+// Coarse file timestamps (older Linux kernels, FAT drives, network folders) can give a write the
+// same timestamp as the read before it, so totals read within this time of a write are not reused.
+const SESSION_TOKEN_CACHE_SETTLE_MS = 2_000;
 const sessionTokenCache = new Map<
   string,
   { revision: string; expiresAt: number; summary: SessionTokenSummary | null }
@@ -924,7 +927,7 @@ async function getCachedSessionTokenSummary(
   const revision = getOpenCodeStorageRevision();
   const now = Date.now();
   for (const [key, entry] of sessionTokenCache) {
-    if (entry.revision !== revision || entry.expiresAt <= now) sessionTokenCache.delete(key);
+    if (entry.revision !== revision?.key || entry.expiresAt <= now) sessionTokenCache.delete(key);
   }
 
   const key = JSON.stringify([scope, sessionID]);
@@ -933,13 +936,19 @@ async function getCachedSessionTokenSummary(
 
   const summary = await load();
   // A write during the read must not associate old totals with a new revision.
-  if (revision !== null && revision === getOpenCodeStorageRevision()) {
+  const revisionAfterRead = getOpenCodeStorageRevision();
+  if (
+    revision !== null &&
+    revisionAfterRead !== null &&
+    revisionAfterRead.key === revision.key &&
+    Date.now() - revisionAfterRead.newestChangeMs >= SESSION_TOKEN_CACHE_SETTLE_MS
+  ) {
     if (sessionTokenCache.size >= SESSION_TOKEN_CACHE_MAX_ENTRIES) {
       const oldestKey = sessionTokenCache.keys().next().value;
       if (oldestKey !== undefined) sessionTokenCache.delete(oldestKey);
     }
     sessionTokenCache.set(key, {
-      revision,
+      revision: revision.key,
       expiresAt: Date.now() + SESSION_TOKEN_CACHE_TTL_MS,
       summary: structuredClone(summary),
     });

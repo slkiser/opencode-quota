@@ -86,15 +86,23 @@ export function getOpenCodeDbPath(): string {
   return pickFirstExistingPath(getOpenCodeDbPathCandidates());
 }
 
-/** A conservative revision: any database or WAL write invalidates token totals. */
-export function getOpenCodeStorageRevision(): string | null {
+/**
+ * A conservative revision: any database or WAL write changes `key`. `newestChangeMs` is the
+ * latest modification or status-change time of those files.
+ */
+export type OpenCodeStorageRevision = { key: string; newestChangeMs: number };
+
+export function getOpenCodeStorageRevision(): OpenCodeStorageRevision | null {
   const dbPath = getOpenCodeDbPath();
   try {
     const revisions = [dbPath];
+    let newestChangeNs = 0n;
     for (const path of [dbPath, `${dbPath}-wal`]) {
       try {
         const stat = statSync(path, { bigint: true });
         revisions.push([stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(":"));
+        if (stat.mtimeNs > newestChangeNs) newestChangeNs = stat.mtimeNs;
+        if (stat.ctimeNs > newestChangeNs) newestChangeNs = stat.ctimeNs;
       } catch (error) {
         if (path !== dbPath && (error as NodeJS.ErrnoException).code === "ENOENT") {
           revisions.push("missing");
@@ -103,7 +111,10 @@ export function getOpenCodeStorageRevision(): string | null {
         }
       }
     }
-    return JSON.stringify(revisions);
+    return {
+      key: JSON.stringify(revisions),
+      newestChangeMs: Number(newestChangeNs / 1_000_000n),
+    };
   } catch {
     // Unreadable metadata must never allow reuse of an earlier successful read.
     return null;
