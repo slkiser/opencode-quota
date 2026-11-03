@@ -7,8 +7,8 @@
  * - SDK config is used only as a fallback when no file-backed config exists.
  */
 
-import { existsSync } from "fs";
-import { join } from "path";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { getEffectiveConfigRoot } from "./config-file-utils.js";
 import { isResetTimeDecimals } from "./format-utils.js";
 import {
@@ -208,14 +208,6 @@ export function getQuotaToastConfigPath(
   format: "json" | "jsonc" = "json",
 ): string {
   return join(configRootDir, `opencode-quota/quota-toast.${format}`);
-}
-
-export function resolveQuotaToastConfigPath(configRootDir: string): string {
-  return (
-    QUOTA_TOAST_CONFIG_RELATIVE_PATHS.map((relativePath) => join(configRootDir, relativePath)).find(
-      (path) => existsSync(path),
-    ) ?? getQuotaToastConfigPath(configRootDir)
-  );
 }
 
 function hasOwnKey<T extends object>(value: T, key: PropertyKey): boolean {

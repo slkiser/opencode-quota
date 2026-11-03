@@ -6,8 +6,8 @@
  * for an eligible Copilot Pro or Pro+ annual plan.
  */
 
-import { existsSync, readFileSync } from "fs";
-import { join } from "path";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
 import { readAuthFile } from "./opencode-auth.js";
@@ -482,7 +482,7 @@ function validateQuotaConfig(raw: unknown): { config: CopilotQuotaConfig | null;
 
   const readOptionalString = (key: "username" | "organization" | "enterprise") => {
     const value = obj[key];
-    if (value == null) return undefined;
+    if (value == null) return;
     if (typeof value !== "string" || !value.trim()) {
       throw new Error(`${key} must be a non-empty string when provided`);
     }
@@ -1474,29 +1474,4 @@ export async function resolveCopilotAuthIdentity(): Promise<ResolvedAuthIdentity
 export async function hasCopilotQuotaRuntimeAvailable(): Promise<boolean> {
   const diagnostics = getCopilotQuotaAuthDiagnostics(await readAuthFile());
   return diagnostics.billingApiAccessLikely;
-}
-
-export function formatCopilotQuota(result: CopilotResult): string | null {
-  if (!result || !result.success) return null;
-
-  if (result.mode === "user_plan") {
-    return result.plan ? `Copilot Plan ${result.plan}` : "Copilot Plan available";
-  }
-  const unit =
-    result.unit === "ai_credits"
-      ? "AI Credits"
-      : result.unit === "premium_interactions"
-        ? "Premium Interactions"
-        : "Premium Requests";
-  if (result.mode === "organization_usage") {
-    return `Copilot Org (${result.organization}) ${result.used} ${unit} | ${formatBillingPeriod(result.period)}`;
-  }
-  if (result.mode === "enterprise_usage") {
-    return `Copilot Enterprise (${result.enterprise}) ${result.used} ${unit} | ${formatBillingPeriod(result.period)}`;
-  }
-  if (result.unlimited) return `Copilot ${unit} Unlimited`;
-  if (result.total !== undefined) {
-    return `Copilot ${unit} ${result.used}/${result.total}`;
-  }
-  return `Copilot ${unit} ${result.used} used`;
 }

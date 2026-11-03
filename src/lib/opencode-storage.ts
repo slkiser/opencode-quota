@@ -1,5 +1,5 @@
-import { existsSync } from "fs";
-import { join } from "path";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 import { openOpenCodeSqliteReadOnly } from "./opencode-sqlite.js";
@@ -72,10 +72,6 @@ export function getOpenCodeDataDirCandidates(): string[] {
   // OpenCode stores data under `${Global.Path.data}` which is `join(xdgData, "opencode")`.
   // We return candidate opencode data dirs in priority order.
   return getOpencodeRuntimeDirCandidates().dataDirs;
-}
-
-export function getOpenCodeDataDir(): string {
-  return pickFirstExistingPath(getOpenCodeDataDirCandidates());
 }
 
 export function getOpenCodeDbPathCandidates(): string[] {
@@ -230,10 +226,9 @@ function buildMessageQuery(params: {
     args.push(params.untilMs);
   }
 
-  const sql =
-    `SELECT id, session_id, time_created, time_updated, data FROM "message"` +
-    (where.length ? ` WHERE ${where.join(" AND ")}` : "") +
-    ` ORDER BY time_created ASC, id ASC`;
+  const sql = `SELECT id, session_id, time_created, time_updated, data FROM "message"${
+    where.length ? ` WHERE ${where.join(" AND ")}` : ""
+  } ORDER BY time_created ASC, id ASC`;
 
   return { sql, args };
 }
