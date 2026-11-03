@@ -1,7 +1,7 @@
 {
   "name": "@slkiser/opencode-quota",
   "version": "6.1.0",
-  "packageManager": "pnpm@11.7.0",
+  "packageManager": "pnpm@11.28.9",
   "description": "OpenCode quota & tokens usage with zero context window pollution. Supports GitHub Copilot, OpenAI (Plus/Pro), Google AGY, Z.ai coding plan and more.",
   "type": "module",
   "main": "./dist/index.js",
@@ -77,20 +77,20 @@
   },
   "homepage": "https://github.com/slkiser/opencode-quota#readme",
   "devDependencies": {
-    "@babel/core": "^7.28.0",
-    "@babel/preset-typescript": "^7.27.1",
+    "@babel/core": "^7.29.7",
+    "@babel/preset-typescript": "^7.29.7",
     "@opencode/plugin": "2.2.5",
     "@opentelemetry/sdk-metrics": "2.10.0",
     "@opentui/core": "^0.8.1",
     "@opentui/solid": "^0.8.1",
-    "@types/node": "^22.0.0",
+    "@types/node": "^22.20.5",
     "babel-preset-solid": "^1.9.12",
     "solid-js": "^1.9.12",
     "typescript": "7.0.2",
-    "vite": "npm:@voidzero-dev/vite-plus-core@1.2.0",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.4.0",
     "vite-plugin-solid": "2.11.14",
-    "vite-plus": "1.2.0",
-    "yaml": "^2.8.3"
+    "vite-plus": "1.4.0",
+    "yaml": "^2.9.1"
   },
   "dependencies": {
     "@opentelemetry/api": "~1.9.1",
