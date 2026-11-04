@@ -112,9 +112,10 @@ async function readTree(treeId) {
   batch.stdin.write(`${treeId}\n`);
   while (!pending.includes(10)) await readMore();
   const headerEnd = pending.indexOf(10);
-  const [objectId, type, sizeText] = pending.toString("ascii", 0, headerEnd).split(" ");
+  const header = pending.toString("ascii", 0, headerEnd);
+  const [objectId, type, sizeText] = header.split(" ");
   if (objectId !== treeId || type !== "tree" || !/^\d+$/.test(sizeText)) {
-    throw new Error(`Unexpected git cat-file header for tree ${treeId}`);
+    throw new Error(`Unexpected git cat-file header for tree ${treeId}: ${header}`);
   }
   const size = Number(sizeText);
   pending = pending.subarray(headerEnd + 1);
@@ -148,8 +149,8 @@ async function forbiddenPaths(treeId, prefix) {
   const forbidden = [];
   for (const entry of await readTree(treeId)) {
     const file = `${prefix}${entry.name}`;
-    // Old git tools wrote folder modes zero-padded as 040000.
-    if (Number.parseInt(entry.mode, 8) === 0o40000) {
+    // git reads only the type bits of a mode, so 040000 or 40755 from old tools is a folder too.
+    if ((Number.parseInt(entry.mode, 8) & 0o170000) === 0o040000) {
       for (const nested of await forbiddenPaths(entry.id, `${file}/`)) {
         forbidden.push(nested);
       }
@@ -168,6 +169,11 @@ try {
       violations.push(`${commit} ${file}`);
     }
   }
+} catch (error) {
+  // Stop git: a reply nobody reads would keep git, and this script, waiting forever.
+  batch.stdout.destroy();
+  batch.kill();
+  throw error;
 } finally {
   batch.stdin.end();
   batchStatus = await batchClosed;
