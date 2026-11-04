@@ -71,7 +71,7 @@ Ajoutez le plugin à `opencode.jsonc` ou `opencode.json`, en gardant vos autres 
   <tr><td><code>statusLine</code></td><td>Ligne sous la zone de saisie</td><td>Bande en bas de la fenêtre, et la pastille au-dessus de la zone de saisie</td></tr>
   <tr><td><code>toast</code></td><td>Toasts avec des barres</td><td>Toasts avec les lignes et barres de l'onglet latéral Quota ; un avis de réinitialisation est une phrase</td></tr>
   </table>
-  <p><b>Remarque :</b> dans la TUI, la ligne d'état se masque tant que la barre latérale affiche des quotas, sauf si <b>Next to the sidebar</b> (<code>statusLine.withSidebar</code>) est activé. Dans Desktop, la bande s'affiche aussi à côté de l'onglet latéral Quota par défaut ; <b>Next to the side panel</b> (<code>statusLine.withSidePanel</code>) la désactive.</p>
+  <p><b>Remarque :</b> dans la TUI, la ligne d'état se masque tant que la barre latérale affiche des quotas, sauf si <b>Next to the sidebar</b> (<code>statusLine.withSidebar</code>) est activé. Dans Desktop, la bande s'affiche aussi à côté de l'onglet latéral Quota par défaut ; <b>Next to the side panel</b> (<code>statusLine.withSidePanel</code>) la désactive. <code>statusLine.composerPill: false</code> (<b>Pill above the message box</b>) masque uniquement la pastille dans Desktop.</p>
   </details>
 - **Web :** `/quota`, `/quota_usage` et `/quota_status` publient un rapport dans le chat. L'IA ne le voit jamais.
 - **Terminal :** `npx @slkiser/opencode-quota@latest show`, même quand OpenCode est fermé.

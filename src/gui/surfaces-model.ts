@@ -250,6 +250,11 @@ export function statusStripShows(
   return settings.statusLine.withSidePanel || !(where.panelOnScreen && settings.sidebar.show);
 }
 
+/** The pill above the message box shows: the status line is on and `statusLine.composerPill` is. */
+export function composerPillShows(settings: Settings): boolean {
+  return settings.statusLine.show && settings.statusLine.composerPill;
+}
+
 /** The status line's detail levels, most first: what each provider on the bottom strip shows. */
 export type StripDetail = "full" | "bar" | "reset" | "numbers";
 export const STRIP_DETAILS: readonly StripDetail[] = ["full", "bar", "reset", "numbers"];

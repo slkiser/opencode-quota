@@ -71,7 +71,7 @@ Add the plugin to `opencode.jsonc` or `opencode.json`, and keep your other plugi
   <tr><td><code>statusLine</code></td><td>Line under the message box</td><td>Strip at the bottom of the window, and the pill above the message box</td></tr>
   <tr><td><code>toast</code></td><td>Toasts with bars</td><td>Toasts with the Quota side tab's rows and bars; a reset notice is a sentence</td></tr>
   </table>
-  <p><b>Note:</b> in the TUI the status line hides while the sidebar shows quota, unless <b>Next to the sidebar</b> (<code>statusLine.withSidebar</code>) is on. In Desktop the strip also shows next to the Quota side tab by default; <b>Next to the side panel</b> (<code>statusLine.withSidePanel</code>) turns that off.</p>
+  <p><b>Note:</b> in the TUI the status line hides while the sidebar shows quota, unless <b>Next to the sidebar</b> (<code>statusLine.withSidebar</code>) is on. In Desktop the strip also shows next to the Quota side tab by default; <b>Next to the side panel</b> (<code>statusLine.withSidePanel</code>) turns that off. <code>statusLine.composerPill: false</code> (<b>Pill above the message box</b>) hides only the pill in Desktop.</p>
   </details>
 - **Web:** `/quota`, `/quota_usage` and `/quota_status` post a report in the chat. The AI never sees it.
 - **Terminal:** `npx @slkiser/opencode-quota@latest show`, even with OpenCode closed.

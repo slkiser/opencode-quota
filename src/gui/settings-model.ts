@@ -58,6 +58,7 @@ export const SECTIONS: readonly Section[] = [
     id: "statusLine",
     keys: [
       "statusLine.withSidePanel",
+      "statusLine.composerPill",
       "statusLine.home",
       "statusLine.detail",
       "statusLine.runsOut",
