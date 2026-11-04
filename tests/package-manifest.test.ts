@@ -341,7 +341,7 @@ describe("package manifest compatibility", () => {
 
   it("cancels stale pull request CI runs without cancelling branch pushes", () => {
     expect(ciWorkflow.concurrency).toEqual({
-      group: "ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}",
+      group: "ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}",
       "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
     });
   });
