@@ -129,8 +129,14 @@ async function readTree(treeId) {
   while (offset < body.length) {
     const modeEnd = body.indexOf(32, offset);
     const nameEnd = body.indexOf(0, modeEnd + 1);
+    if (modeEnd < offset || nameEnd < 0 || nameEnd + 1 + hashBytes > body.length) {
+      throw new Error(`Invalid git tree contents: ${treeId}`);
+    }
+    const mode = body.toString("ascii", offset, modeEnd);
+    if (!/^[0-7]+$/.test(mode))
+      throw new Error(`Invalid git tree entry mode in ${treeId}: ${mode}`);
     entries.push({
-      mode: body.toString("ascii", offset, modeEnd),
+      mode,
       name: body.toString("utf8", modeEnd + 1, nameEnd),
       id: body.subarray(nameEnd + 1, nameEnd + 1 + hashBytes).toString("hex"),
     });
