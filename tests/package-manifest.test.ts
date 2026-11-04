@@ -23,6 +23,7 @@ interface WorkflowJob {
 
 interface Workflow {
   on?: Record<string, unknown>;
+  concurrency?: { group?: string; "cancel-in-progress"?: string | boolean };
   jobs: Record<string, WorkflowJob>;
 }
 
@@ -90,12 +91,15 @@ const packedRealOtelFixture = await readFile(
 );
 
 const VERIFY_COMMAND =
-  "pnpm run check && pnpm run verify:typescript-version && pnpm run verify:v4-history && pnpm run typecheck && pnpm run build && pnpm test && pnpm run test:four-surfaces && pnpm run verify:package-contents";
+  "pnpm run check && pnpm run verify:typescript-version && pnpm run verify:v4-history && pnpm run typecheck && pnpm run verify:platform";
+const VERIFY_PLATFORM_COMMAND =
+  "pnpm run build && pnpm test && pnpm run test:four-surfaces && pnpm run verify:package-contents";
 const VERIFY_COMPONENT_COMMANDS = [
   "pnpm run check",
   "pnpm run verify:typescript-version",
   "pnpm run verify:v4-history",
   "pnpm run typecheck",
+  "pnpm run verify:platform",
   "pnpm run build",
   "pnpm test",
   "pnpm run test:four-surfaces",
@@ -272,6 +276,7 @@ describe("package manifest compatibility", () => {
   it("defines one ordered canonical repository gate and a release-only compatibility alias", () => {
     expect(pkg.scripts?.build).toContain("node scripts/clean-dist.mjs && tsc");
     expect(pkg.scripts?.verify).toBe(VERIFY_COMMAND);
+    expect(pkg.scripts?.["verify:platform"]).toBe(VERIFY_PLATFORM_COMMAND);
     expect(pkg.scripts?.verify).not.toContain("verify:release-version");
     expect(pkg.scripts?.verify).not.toContain("verify:release-package");
     expect(pkg.scripts?.["release:check"]).toBe("pnpm verify && pnpm run verify:release-version");
@@ -334,7 +339,14 @@ describe("package manifest compatibility", () => {
     );
   });
 
-  it("runs canonical verification on Ubuntu and Windows before exact-artifact smoke", () => {
+  it("cancels stale pull request CI runs without cancelling branch pushes", () => {
+    expect(ciWorkflow.concurrency).toEqual({
+      group: "ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}",
+      "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
+    });
+  });
+
+  it("runs canonical verification on Ubuntu and platform verification on Windows before exact-artifact smoke", () => {
     expect(Object.keys(ciWorkflow.jobs).sort()).toEqual([
       "pnpm-quality",
       "runtime-smoke",
@@ -374,16 +386,19 @@ describe("package manifest compatibility", () => {
     expect(windows["runs-on"]).toBe("windows-latest");
     expect(
       windows.steps?.find((step) => step.uses === "actions/checkout@v6")?.with?.["fetch-depth"],
-    ).toBe(0);
+    ).toBeUndefined();
     expect(
       windows.steps?.find((step) => step.uses === "actions/setup-node@v6")?.with?.["node-version"],
     ).toBe("24.x");
     expect(namedStep(windows, "Install dependencies").run).toBe("pnpm install --frozen-lockfile");
-    expect(namedStep(windows, "Run canonical verification").run).toBe("pnpm verify");
+    expect(namedStep(windows, "Run platform verification").run).toBe("pnpm run verify:platform");
+    expect(windows.steps?.some((step) => step.run?.includes("pnpm verify"))).toBe(false);
     expect(namedStep(windows, "Activate pnpm").run).toContain(
       "corepack prepare pnpm@11.28.9 --activate",
     );
-    expectCanonicalVerificationOnly(windows);
+    expect(stepIndex(windows, "Run platform verification")).toBeGreaterThan(
+      stepIndex(windows, "Install dependencies"),
+    );
 
     expect(namedStep(quality, "Upload exact npm artifact")).toEqual(
       expect.objectContaining({

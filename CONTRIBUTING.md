@@ -110,7 +110,9 @@ The prompt bar is a fixed 12-cell bar. The label is the provider plus window, fo
 PR and `main` pushes trigger `.github/workflows/ci.yml` (`CI` workflow):
 
 - Jobs: `pnpm-quality` on Ubuntu and `windows-verify` on Windows, both on Node `24.x`
-- Both quality jobs: frozen install, then `pnpm verify`
+- `pnpm-quality`: frozen install, then `pnpm verify`
+- `windows-verify`: frozen install, then `pnpm run verify:platform` (build, tests, four-surfaces test, package contents); the OS-independent checks in `pnpm verify` run only in `pnpm-quality`
+- A new push to a pull request cancels that pull request's older CI run; `main` pushes are never cancelled
 - Ubuntu quality job: pack, audit, and upload one exact npm artifact
 - Job: `runtime-smoke` on Node `22.x` and `24.x`
 - Runtime smoke installs that exact packed artifact as a consumer and verifies the default/server imports, TUI export payload, CLI help, and `engines.node >=22.0.0`

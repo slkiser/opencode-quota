@@ -60,7 +60,8 @@
     "test:stabilization:tui:prompt-bar": "node scripts/test-stabilization-connected.mjs --tui --prompt-bar",
     "test:stabilization:web": "node scripts/test-stabilization-connected.mjs --web",
     "test:stabilization:fixtures": "node scripts/test-stabilization-fixtures.mjs",
-    "verify": "pnpm run check && pnpm run verify:typescript-version && pnpm run verify:v4-history && pnpm run typecheck && pnpm run build && pnpm test && pnpm run test:four-surfaces && pnpm run verify:package-contents",
+    "verify": "pnpm run check && pnpm run verify:typescript-version && pnpm run verify:v4-history && pnpm run typecheck && pnpm run verify:platform",
+    "verify:platform": "pnpm run build && pnpm test && pnpm run test:four-surfaces && pnpm run verify:package-contents",
     "prepublishOnly": "pnpm run build",
     "prepare": "vp config --no-agent --hooks-dir .github/hooks"
   },
