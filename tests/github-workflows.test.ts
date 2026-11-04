@@ -12,7 +12,8 @@ interface WorkflowStep {
 
 interface Workflow {
   concurrency?: {
-    "cancel-in-progress"?: boolean;
+    group?: string;
+    "cancel-in-progress"?: boolean | string;
   };
   jobs: Record<
     string,
@@ -265,5 +266,16 @@ describe("GitHub workflows", () => {
       }
     }
     expect(writeIssueWorkflows).toEqual(["upstream-plugin-update-check.yml"]);
+  });
+
+  it("cancels a stale pull request CI run but never a push to main", async () => {
+    const workflow = parse(await readFile(".github/workflows/ci.yml", "utf8")) as Workflow;
+    // A pull request run shares its number's group; every push to main gets a group of its own
+    // (its commit), so no push to main cancels or replaces another.
+    const group = "ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}";
+    expect(workflow.concurrency).toEqual({
+      group,
+      "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
+    });
   });
 });

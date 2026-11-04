@@ -54,7 +54,7 @@ printf '\n/.github/hooks/_/\n' >> "$(git rev-parse --git-path info/exclude)"
 
 ## Checks
 
-Run `pnpm verify` before opening a PR. It runs lint and formatting, the TypeScript-version and history checks, the build (its `tsc` step is the type check), all tests (the cross-surface test among them), and the package contents check. CI runs the same command, then installs the packed package on Node 22 and 24 as a smoke test, once into a project and once globally with npm 12.
+Run `pnpm verify` before opening a PR. It runs lint and formatting, the TypeScript-version and history checks, the build (its `tsc` step is the type check), all tests (the cross-surface test among them), and the package contents check. CI runs the same command on Linux and only the build, tests and package contents check (`pnpm run verify:platform`) on Windows. A smoke job then installs the packed package on Node 22 and 24 as a smoke test, once into a project and once globally with npm 12.
 
 For quick iteration: `pnpm run test:watch`.
 

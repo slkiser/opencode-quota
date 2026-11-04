@@ -43,6 +43,7 @@
     "release:check": "pnpm verify && pnpm run verify:release-version",
     "smoke:package": "node .github/scripts/smoke-packed-package.mjs",
     "verify:package-contents": "node .github/scripts/verify-package-contents.mjs",
+    "verify:platform": "pnpm run build && pnpm test && pnpm run verify:package-contents",
     "verify:release-package": "node .github/scripts/verify-release-package.mjs",
     "verify:release-version": "node .github/scripts/verify-release-version.mjs",
     "verify:typescript-version": "node .github/scripts/verify-typescript-version.mjs",
@@ -51,7 +52,7 @@
     "test": "vp test run",
     "test:docs": "vp test run tests/contribution-guidance.test.ts tests/google-gemini-cli-org-only-docs.test.ts tests/quota-providers-docs-consistency.test.ts tests/readme-provider-ledger.test.ts",
     "test:watch": "vp test watch",
-    "verify": "pnpm run check && pnpm run verify:typescript-version && pnpm run verify:v4-history && pnpm run build && pnpm test && pnpm run verify:package-contents",
+    "verify": "pnpm run check && pnpm run verify:typescript-version && pnpm run verify:v4-history && pnpm run verify:platform",
     "prepublishOnly": "pnpm run build",
     "prepare": "vp config --no-agent --hooks-dir .github/hooks"
   },

@@ -46,7 +46,10 @@ const SETUP_VP = "voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af
 
 // The build's `tsc` is the type check, and `pnpm test` runs the cross-surface test.
 const VERIFY_COMMAND =
-  "pnpm run check && pnpm run verify:typescript-version && pnpm run verify:v4-history && pnpm run build && pnpm test && pnpm run verify:package-contents";
+  "pnpm run check && pnpm run verify:typescript-version && pnpm run verify:v4-history && pnpm run verify:platform";
+
+// The part of `pnpm verify` that can behave differently per operating system; Windows CI runs only this.
+const PLATFORM_COMMAND = "pnpm run build && pnpm test && pnpm run verify:package-contents";
 
 function namedStep(job: WorkflowJob, name: string): WorkflowStep {
   const step = job.steps?.find((candidate) => candidate.name === name);
@@ -68,8 +71,8 @@ function expectOrdered(job: WorkflowJob, names: string[]): void {
   expect(indexes).toEqual([...indexes].sort((a, b) => a - b));
 }
 
-/** `pnpm verify` runs exactly once, and none of the commands it already runs is repeated. */
-function expectCanonicalVerificationOnly(job: WorkflowJob): void {
+/** The one verification command runs exactly once, and none of the commands it already runs is repeated. */
+function expectSingleVerification(job: WorkflowJob, command: string, commands: string[]): void {
   const runLines =
     job.steps?.flatMap((step) =>
       (step.run ?? "")
@@ -77,10 +80,14 @@ function expectCanonicalVerificationOnly(job: WorkflowJob): void {
         .map((line) => line.trim())
         .filter(Boolean),
     ) ?? [];
-  expect(runLines.filter((line) => line === "pnpm verify")).toEqual(["pnpm verify"]);
-  for (const component of VERIFY_COMMAND.split(" && ")) {
-    expect(runLines).not.toContain(component);
+  expect(runLines.filter((line) => line === command)).toEqual([command]);
+  for (const component of commands.flatMap((entry) => entry.split(" && "))) {
+    if (component !== command) expect(runLines).not.toContain(component);
   }
+}
+
+function expectCanonicalVerificationOnly(job: WorkflowJob): void {
+  expectSingleVerification(job, "pnpm verify", [VERIFY_COMMAND, PLATFORM_COMMAND]);
 }
 
 function expectSinglePack(job: WorkflowJob): void {
@@ -157,6 +164,7 @@ describe("package manifest compatibility", () => {
       ["peerDependencies", "@opentelemetry/sdk-metrics", undefined],
       // One ordered repository gate, and a release-only alias on top of it.
       ["scripts", "verify", VERIFY_COMMAND],
+      ["scripts", "verify:platform", PLATFORM_COMMAND],
       ["scripts", "release:check", "pnpm verify && pnpm run verify:release-version"],
       ["scripts", "build:check", undefined],
       ["scripts", "test:four-surfaces", undefined],
@@ -412,7 +420,7 @@ describe("package manifest compatibility", () => {
     expect(sdkInstall).toBeGreaterThan(moduleSmoke);
   });
 
-  it("runs canonical verification on Ubuntu and Windows before exact-artifact smoke", () => {
+  it("runs canonical verification on Ubuntu, the OS-dependent part on Windows, before exact-artifact smoke", () => {
     expect(Object.keys(ciWorkflow.jobs).sort()).toEqual([
       "pnpm-quality",
       "runtime-smoke",
@@ -421,8 +429,10 @@ describe("package manifest compatibility", () => {
     const quality = ciWorkflow.jobs["pnpm-quality"];
     const windows = ciWorkflow.jobs["windows-verify"];
     expect(windows["runs-on"]).toBe("windows-latest");
+    // Only the Linux job runs the v4 history check, which needs the full history.
+    expect(usesStep(quality, "actions/checkout@v6")?.with?.["fetch-depth"]).toBe(0);
+    expect(usesStep(windows, "actions/checkout@v6")?.with).toBeUndefined();
     for (const job of [quality, windows]) {
-      expect(usesStep(job, "actions/checkout@v6")?.with?.["fetch-depth"]).toBe(0);
       expect(usesStep(job, "actions/setup-node@v6")?.with?.["node-version"]).toBe("24.x");
       expect(namedStep(job, "Install dependencies")).toEqual(
         expect.objectContaining({
@@ -435,9 +445,16 @@ describe("package manifest compatibility", () => {
         }),
       );
       expect(job.steps?.some((step) => step.run?.includes("corepack"))).toBe(false);
-      expect(namedStep(job, "Run canonical verification").run).toBe("pnpm verify");
-      expectCanonicalVerificationOnly(job);
     }
+    expect(namedStep(quality, "Run canonical verification").run).toBe("pnpm verify");
+    expectCanonicalVerificationOnly(quality);
+    expect(namedStep(windows, "Run OS-dependent verification").run).toBe(
+      "pnpm run verify:platform",
+    );
+    expectSingleVerification(windows, "pnpm run verify:platform", [
+      VERIFY_COMMAND,
+      PLATFORM_COMMAND,
+    ]);
 
     const pack = "Pack and audit exact npm artifact once";
     expect(namedStep(quality, pack).run).toBe("pnpm run pack:release-package package-artifacts");
