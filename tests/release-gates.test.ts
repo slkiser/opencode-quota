@@ -293,6 +293,28 @@ describe("v4 release gates", () => {
     expect(result.stderr).toContain(`${commit} zodd/AGENTS.md`);
   });
 
+  it.each([
+    ["an invalid mode", "100x644 zokay", (blob: string) => blob],
+    ["no mode separator", "zzzzzzzzzz", (blob: string) => blob],
+    ["a cut-off object id", "100644 zokay", (blob: string) => blob.slice(0, 20)],
+  ])("rejects a tree entry with %s without hanging", async (_case, modeAndName, objectId) => {
+    const historyRepo = path.join(tempDir, "malformed-entry");
+    const base = await createHistoryRepo(historyRepo);
+    const blob = gitWithInput(historyRepo, ["hash-object", "-w", "--stdin"], "allowed\n");
+    commitHandMadeEntry(historyRepo, base, modeAndName, objectId(blob));
+
+    const result = spawnSync(process.execPath, [historyScript], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 20_000,
+      env: { ...isolatedGitEnv(), V4_HISTORY_BASE: base, V4_HISTORY_REPO: historyRepo },
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Invalid git tree");
+  });
+
   it("fails without hanging when a folder entry points at a large file", async () => {
     const historyRepo = path.join(tempDir, "folder-is-file");
     const base = await createHistoryRepo(historyRepo);

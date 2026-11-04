@@ -148,6 +148,8 @@ async function checkHistory() {
         throw new Error(`Invalid git tree contents: ${tree}`);
       }
       const mode = contents.subarray(offset, modeEnd).toString("ascii");
+      if (!/^[0-7]+$/.test(mode))
+        throw new Error(`Invalid git tree entry mode in ${tree}: ${mode}`);
       const name = contents.subarray(modeEnd + 1, nameEnd).toString("utf8");
       const objectId = contents.subarray(nameEnd + 1, nameEnd + 1 + objectIdBytes).toString("hex");
       entries.push({ mode, name, objectId });
