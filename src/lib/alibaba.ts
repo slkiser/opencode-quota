@@ -344,18 +344,14 @@ async function isRegularFile(file: string): Promise<boolean> {
   }
 }
 
-/** Read what an npm `bl.cmd` shim wraps instead of running it: the package manifest declares its
- * bin, so the `.cmd` text is never needed. Failures stay silent, since a parse error would leak
- * file contents. */
-async function resolveNodeShim(
+/** Read what a shim wraps instead of running it: the package manifest declares its bin, so the
+ * shim text is never needed. Failures stay silent, since a parse error would leak file contents. */
+async function resolveShimEntry(
   paths: path.PlatformPath,
-  shimFile: string,
-  packageName: string,
+  packageRoot: string,
+  shimCommand: string,
   projectFolders: readonly string[],
 ): Promise<string | null> {
-  const packageRoot = paths.join(paths.dirname(shimFile), "node_modules", packageName);
-  const shimCommand = paths.basename(shimFile, paths.extname(shimFile)).toLowerCase();
-
   let contents: string;
   try {
     contents = await readFile(paths.join(packageRoot, "package.json"), "utf8");
@@ -391,6 +387,43 @@ async function resolveNodeShim(
   const real = await realpath(entry).catch(() => null);
   if (real === null || isInsideProject(paths, projectFolders, real)) return null;
   return real;
+}
+
+/** npm's global layout: the wrapped package sits in `node_modules` beside its shims. */
+async function resolveNodeShim(
+  paths: path.PlatformPath,
+  shimFile: string,
+  packageName: string,
+  projectFolders: readonly string[],
+): Promise<string | null> {
+  const packageRoot = paths.join(paths.dirname(shimFile), "node_modules", packageName);
+  const shimCommand = paths.basename(shimFile, paths.extname(shimFile)).toLowerCase();
+  return await resolveShimEntry(paths, packageRoot, shimCommand, projectFolders);
+}
+
+/** bun's global layout: `<prefix>\bin\<name>.exe` with a `<name>.bunx` marker beside it and the
+ * package under `<prefix>\install\global\node_modules`. The marker is bun's own binary format, so
+ * it is never parsed — its presence beside the launcher is the flag that the launcher spawns
+ * `node` itself, and that grandchild escapes `windowsHide`: with a GUI parent (a service) every
+ * check opens a fresh visible `node.exe` console. The entry comes from the manifest, as for npm. */
+async function resolveBunShimEntry(
+  paths: path.PlatformPath,
+  shimFile: string,
+  packageName: string,
+  projectFolders: readonly string[],
+): Promise<string | null> {
+  const shimCommand = paths.basename(shimFile, paths.extname(shimFile)).toLowerCase();
+  const marker = paths.join(paths.dirname(shimFile), `${shimCommand}.bunx`);
+  if (!(await isRegularFile(marker))) return null;
+  const packageRoot = paths.join(
+    paths.dirname(shimFile),
+    "..",
+    "install",
+    "global",
+    "node_modules",
+    packageName,
+  );
+  return await resolveShimEntry(paths, packageRoot, shimCommand, projectFolders);
 }
 
 /** The node that runs a shim's entry: resolved as `bl` is, so `bl` and node come from one install.
@@ -455,6 +488,15 @@ export async function resolveAlibabaTokenPlanExecutable(params: {
       }
       if (isInsideProject(paths, projectFolders, resolved)) {
         return fail("workspace_path_rejected");
+      }
+      if (platform === "win32" && paths.basename(resolved).toLowerCase() === "bl.exe") {
+        // bun's global `bl.exe` is a launcher that spawns `node` itself, and that grandchild opens
+        // a visible console per check when the parent has none. Run node on the entry directly,
+        // like the npm `.cmd` route. No marker, package, entry or node: the file runs as before.
+        const entry = await resolveBunShimEntry(paths, candidate, SHIM_PACKAGE_NAME, projectFolders);
+        const node =
+          entry === null ? null : await resolveNodeExecutable(paths, trusted, projectFolders);
+        if (entry !== null && node !== null) return { ok: true, file: node, args: [entry] };
       }
       return { ok: true, file: resolved };
     }

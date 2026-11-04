@@ -758,6 +758,81 @@ describe("alibaba token plan Windows resolution", () => {
     expect(requests[0]?.cwd).toBe(SAFE_TMP);
   });
 
+  // bun's global shim layout: `<prefix>\bin\bl.exe` and its `bl.bunx` marker, with the package at
+  // `<prefix>\install\global\node_modules\bailian-cli\`. The launcher spawns `node` itself, and
+  // that grandchild opens a visible console per check when the parent has none (a GUI service).
+  const BUN_EXE = W.join(TRUSTED_BIN, "bl.exe");
+  const BUN_MARKER = W.join(TRUSTED_BIN, "bl.bunx");
+  const BUN_PACKAGE_ROOT = W.join(
+    "C:\\",
+    "trusted",
+    "install",
+    "global",
+    "node_modules",
+    "bailian-cli",
+  );
+  const BUN_MANIFEST = W.join(BUN_PACKAGE_ROOT, "package.json");
+  const BUN_ENTRY = W.join(BUN_PACKAGE_ROOT, "dist", "bailian.mjs");
+
+  it("resolves bun's global bl.exe shim to the package entry through node", async () => {
+    await mockWin32Files({
+      [BUN_EXE]: "bl",
+      [BUN_MARKER]: "bunx",
+      [NODE]: "node",
+      [BUN_MANIFEST]: manifest({ bailian: "dist/bailian.mjs", bl: "dist/bailian.mjs" }),
+      [BUN_ENTRY]: "cli",
+    });
+    expect(
+      await resolveAlibabaTokenPlanExecutable({
+        platform: "win32",
+        cwd: WORKSPACE,
+        homedir: HOME,
+        pathEnv: TRUSTED_BIN,
+      }),
+    ).toEqual({ ok: true, file: NODE, args: [BUN_ENTRY] });
+  });
+
+  it("runs the bun shim entry with the fixed argv, no shell, and ignored stdin", async () => {
+    await mockWin32Files({
+      [BUN_EXE]: "bl",
+      [BUN_MARKER]: "bunx",
+      [NODE]: "node",
+      [BUN_MANIFEST]: manifest({ bl: "dist/bailian.mjs" }),
+      [BUN_ENTRY]: "cli",
+    });
+    const requests: AlibabaTokenPlanSpawnRequest[] = [];
+    const result = await queryTokenPlanUsage({
+      runtime: {
+        platform: "win32",
+        cwd: WORKSPACE,
+        homedir: HOME,
+        pathEnv: TRUSTED_BIN,
+        tmpdir: SAFE_TMP,
+        spawn: capturedSpawn(requests),
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(requests[0]?.file).toBe(NODE);
+    expect(requests[0]?.args).toEqual([BUN_ENTRY, ...BL_ARGS]);
+    expect(requests[0]?.shell).toBe(false);
+    expect(requests[0]?.stdin).toBe("ignore");
+    expect(requests[0]?.cwd).toBe(SAFE_TMP);
+  });
+
+  it("runs bl.exe itself when the bun marker names no usable package", async () => {
+    // No manifest under the bun layout: the marker alone changes nothing, and a bun install that
+    // works today keeps working if the layout ever moves.
+    await mockWin32Files({ [BUN_EXE]: "bl", [BUN_MARKER]: "bunx", [NODE]: "node" });
+    expect(
+      await resolveAlibabaTokenPlanExecutable({
+        platform: "win32",
+        cwd: WORKSPACE,
+        homedir: HOME,
+        pathEnv: TRUSTED_BIN,
+      }),
+    ).toEqual({ ok: true, file: BUN_EXE });
+  });
+
   it.each([
     {
       name: "a manifest whose bin does not declare bl",
