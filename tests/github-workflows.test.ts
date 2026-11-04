@@ -272,7 +272,8 @@ describe("GitHub workflows", () => {
     const workflow = parse(await readFile(".github/workflows/ci.yml", "utf8")) as Workflow;
     // A pull request run shares its number's group; every push to main gets a group of its own
     // (its commit), so no push to main cancels or replaces another.
-    const group = "ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}";
+    const group =
+      "ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}";
     expect(workflow.concurrency).toEqual({
       group,
       "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
