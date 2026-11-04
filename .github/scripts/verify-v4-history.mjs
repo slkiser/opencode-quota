@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,7 +21,7 @@ function git(args) {
     process.exit(result.status ?? 1);
   }
 
-  return result.stdout.trim();
+  return result.stdout;
 }
 
 function isWithin(file, directory) {
@@ -83,19 +83,116 @@ function isForbidden(file) {
 git(["cat-file", "-e", `${V4_BASE_COMMIT}^{commit}`]);
 git(["merge-base", "--is-ancestor", V4_BASE_COMMIT, "HEAD"]);
 
-const commits = git(["rev-list", `${V4_BASE_COMMIT}..HEAD`])
-  .split("\n")
+// rev-list keeps the same commit order while also supplying each full root tree.
+const revisions = git(["rev-list", "--format=%T", `${V4_BASE_COMMIT}..HEAD`])
+  .split(/\r?\n/)
   .filter(Boolean);
+const commits = [];
+for (let i = 0; i < revisions.length; i += 2) {
+  commits.push({ commit: revisions[i].slice("commit ".length), tree: revisions[i + 1] });
+}
 const violations = [];
 
-for (const commit of commits) {
-  const files = git(["ls-tree", "-r", "--name-only", commit]).split("\n").filter(Boolean);
-  for (const file of files) {
-    if (isForbidden(file)) violations.push(`${commit} ${file}`);
+async function checkHistory() {
+  if (commits.length === 0) return;
+  const batch = spawn("git", ["cat-file", "--batch"], {
+    cwd: repoRoot,
+    stdio: ["pipe", "pipe", "inherit"],
+  });
+  const finished = new Promise((resolve) => {
+    batch.on("error", (error) => resolve({ error }));
+    batch.on("close", (code) => resolve({ code }));
+  });
+  // A failed Git process can close stdin before a pending request is written.
+  batch.stdin.on("error", () => {});
+  const chunks = batch.stdout[Symbol.asyncIterator]();
+  let buffered = Buffer.alloc(0);
+
+  async function receive() {
+    const { value, done } = await chunks.next();
+    if (done) {
+      const result = await finished;
+      if (result.error) throw result.error;
+      if (result.code !== 0) process.exit(result.code ?? 1);
+      throw new Error("Unexpected end of git cat-file output");
+    }
+    buffered = Buffer.concat([buffered, value]);
   }
+
+  const trees = new Map();
+  async function readTree(tree) {
+    if (trees.has(tree)) return trees.get(tree);
+    batch.stdin.write(`${tree}\n`);
+    let headerEnd = buffered.indexOf(10);
+    while (headerEnd < 0) {
+      await receive();
+      headerEnd = buffered.indexOf(10);
+    }
+    const [object, type, sizeText] = buffered.subarray(0, headerEnd).toString("ascii").split(" ");
+    const size = Number(sizeText);
+    if (object !== tree || type !== "tree" || !Number.isSafeInteger(size) || size < 0) {
+      throw new Error(`Invalid git cat-file tree header: ${object} ${type} ${sizeText}`);
+    }
+    buffered = buffered.subarray(headerEnd + 1);
+    while (buffered.length < size + 1) await receive();
+    const contents = buffered.subarray(0, size);
+    buffered = buffered.subarray(size + 1); // Batch bodies end with one LF, outside the size.
+
+    const entries = [];
+    const objectIdBytes = tree.length / 2; // Supports both SHA-1 and SHA-256 repositories.
+    let offset = 0;
+    while (offset < contents.length) {
+      const modeEnd = contents.indexOf(32, offset);
+      const nameEnd = contents.indexOf(0, modeEnd + 1);
+      if (modeEnd < offset || nameEnd < 0 || nameEnd + 1 + objectIdBytes > contents.length) {
+        throw new Error(`Invalid git tree contents: ${tree}`);
+      }
+      const mode = contents.subarray(offset, modeEnd).toString("ascii");
+      const name = contents.subarray(modeEnd + 1, nameEnd).toString("utf8");
+      const objectId = contents.subarray(nameEnd + 1, nameEnd + 1 + objectIdBytes).toString("hex");
+      entries.push({ mode, name, objectId });
+      offset = nameEnd + 1 + objectIdBytes;
+    }
+    trees.set(tree, entries);
+    return entries;
+  }
+
+  // The same tree can occur under different paths, where the rules give different answers.
+  const checkedTrees = new Map();
+  async function forbiddenFiles(tree, prefix) {
+    const key = `${tree}:${prefix}`;
+    if (checkedTrees.has(key)) return checkedTrees.get(key);
+    const files = [];
+    for (const entry of await readTree(tree)) {
+      const file = `${prefix}${entry.name}`;
+      if (entry.mode === "40000") {
+        for (const nestedFile of await forbiddenFiles(entry.objectId, `${file}/`)) {
+          files.push(nestedFile);
+        }
+      } else if (isForbidden(file)) {
+        files.push(file);
+      }
+    }
+    checkedTrees.set(key, files);
+    return files;
+  }
+
+  try {
+    for (const { commit, tree } of commits) {
+      for (const file of await forbiddenFiles(tree, "")) violations.push(`${commit} ${file}`);
+    }
+  } finally {
+    batch.stdin.end();
+    await finished;
+  }
+  const result = await finished;
+  if (result.error) throw result.error;
+  if (result.code !== 0) process.exit(result.code ?? 1);
 }
 
-const indexedFiles = git(["ls-files"]).split("\n").filter(Boolean);
+await checkHistory();
+
+const indexedFiles = git(["ls-files", "-z"]).split("\0").filter(Boolean);
 for (const file of indexedFiles) {
   if (isForbidden(file)) violations.push(`index ${file}`);
 }

@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -249,6 +249,153 @@ describe("v4 release gates", () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain(`index ${forbidden}`);
+  });
+
+  it("matches full-tree checks for deleted, merged, renamed, shared and indexed paths", async () => {
+    const historyRepo = path.join(tempDir, "planted-history");
+    const base = await createHistoryRepo(historyRepo);
+    const mainBranch = git(historyRepo, ["symbolic-ref", "--short", "HEAD"]);
+    git(historyRepo, ["config", "core.quotePath", "false"]);
+
+    // This branch starts outside the checked range, and carries a file from that parent.
+    git(historyRepo, ["checkout", "-q", "--orphan", "outside"]);
+    git(historyRepo, ["rm", "-rf", "."]);
+    await writeFiles(historyRepo, ["docs/reports/carried.md"]);
+    git(historyRepo, ["add", "-f", "."]);
+    git(historyRepo, ["commit", "-qm", "outside parent"]);
+    const outside = git(historyRepo, ["rev-parse", "HEAD"]);
+    git(historyRepo, ["checkout", "-q", mainBranch]);
+    git(historyRepo, [
+      "merge",
+      "-q",
+      "--allow-unrelated-histories",
+      "--no-ff",
+      "outside",
+      "-m",
+      "carry",
+    ]);
+    const carriedBase = git(historyRepo, ["rev-parse", "HEAD"]);
+
+    const deleted = "nested/.env.deleted";
+    const merged = "docs/reports/side branch é.md";
+    const renamed = "prompt-exports/renamed.md";
+    const sharedAllowed = "docs/readme/shared/notes.md";
+    const sharedForbidden = "local-live-tests/shared/notes.md";
+    const indexed = "references/local/index only é.md";
+
+    await writeFiles(historyRepo, [deleted, "rename-me.md"]);
+    git(historyRepo, ["add", "-f", "."]);
+    git(historyRepo, ["commit", "-qm", "add then delete"]);
+    git(historyRepo, ["rm", deleted]);
+    git(historyRepo, ["commit", "-qm", "delete private file"]);
+
+    git(historyRepo, ["checkout", "-qb", "side"]);
+    await writeFiles(historyRepo, [merged]);
+    git(historyRepo, ["add", "-f", "."]);
+    git(historyRepo, ["commit", "-qm", "side branch private file"]);
+    git(historyRepo, ["checkout", "-q", mainBranch]);
+    await mkdir(path.join(historyRepo, "prompt-exports"), { recursive: true });
+    await rename(path.join(historyRepo, "rename-me.md"), path.join(historyRepo, renamed));
+    await writeFiles(historyRepo, [sharedAllowed, sharedForbidden]);
+    // Identical tree IDs at allowed and forbidden prefixes must be checked separately.
+    await writeFile(
+      path.join(historyRepo, sharedForbidden),
+      await readFile(path.join(historyRepo, sharedAllowed)),
+    );
+    git(historyRepo, ["add", "-f", "."]);
+    git(historyRepo, ["commit", "-qm", "rename and reuse subtree"]);
+    git(historyRepo, ["merge", "-q", "--no-ff", "side", "-m", "merge side"]);
+    git(historyRepo, ["commit", "--allow-empty", "-qm", "reuse root tree"]);
+    await writeFiles(historyRepo, [indexed]);
+    git(historyRepo, ["add", "-f", "."]);
+
+    const forbidden = new Set([
+      "docs/reports/carried.md",
+      deleted,
+      merged,
+      renamed,
+      sharedForbidden,
+      indexed,
+    ]);
+    // A slow reference enumerates every full commit tree, including merged parents.
+    for (const historyBase of [base, carriedBase]) {
+      const commits = git(historyRepo, ["rev-list", `${historyBase}..HEAD`]).split("\n");
+      const violations: string[] = [];
+      for (const commit of commits) {
+        const files = git(historyRepo, ["ls-tree", "-rz", "--name-only", commit]).split("\0");
+        for (const file of files) {
+          if (forbidden.has(file)) violations.push(`${commit} ${file}`);
+        }
+      }
+      for (const file of git(historyRepo, ["ls-files", "-z"]).split("\0")) {
+        if (forbidden.has(file)) violations.push(`index ${file}`);
+      }
+      const result = run(historyScript, [], {
+        V4_HISTORY_BASE: historyBase,
+        V4_HISTORY_REPO: historyRepo,
+      });
+      expect(result.status).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "Forbidden local-only files are tracked in the v4 history or current index:\n" +
+          violations.map((violation) => `- ${violation}\n`).join(""),
+      );
+    }
+    // Both parents excluded by carriedBase still supply files in every descendant tree.
+    expect(git(historyRepo, ["merge-base", "--is-ancestor", outside, carriedBase])).toBe("");
+  });
+
+  it("reads exact Unicode and quoted paths regardless of Git quoting settings", async () => {
+    const historyRepo = path.join(tempDir, "odd-paths");
+    const base = await createHistoryRepo(historyRepo);
+    const forbidden = ["nested é/.env.local", "docs/reports/space é.md"];
+    if (process.platform !== "win32") forbidden.push('nested\tline\nquote"/.env');
+    await writeFiles(historyRepo, forbidden);
+    git(historyRepo, ["add", "-f", "."]);
+    git(historyRepo, ["commit", "-qm", "odd paths"]);
+    const commit = git(historyRepo, ["rev-parse", "HEAD"]);
+    for (const quotePath of ["true", "false"]) {
+      git(historyRepo, ["config", "core.quotePath", quotePath]);
+      const result = run(historyScript, [], {
+        V4_HISTORY_BASE: base,
+        V4_HISTORY_REPO: historyRepo,
+      });
+      expect(result.status).toBe(1);
+      for (const file of forbidden) {
+        expect(result.stderr).toContain(`- ${commit} ${file}\n`);
+        expect(result.stderr).toContain(`- index ${file}\n`);
+      }
+    }
+  });
+
+  it("preserves Git failures for a missing base and a base outside HEAD's ancestry", async () => {
+    const historyRepo = path.join(tempDir, "invalid-base");
+    await createHistoryRepo(historyRepo);
+    const mainBranch = git(historyRepo, ["symbolic-ref", "--short", "HEAD"]);
+    git(historyRepo, ["checkout", "-qb", "side"]);
+    git(historyRepo, ["commit", "--allow-empty", "-qm", "side only"]);
+    const side = git(historyRepo, ["rev-parse", "HEAD"]);
+    git(historyRepo, ["checkout", "-q", mainBranch]);
+    for (const base of ["missing-base", side]) {
+      const result = run(historyScript, [], {
+        V4_HISTORY_BASE: base,
+        V4_HISTORY_REPO: historyRepo,
+      });
+      const expected = spawnSync(
+        "git",
+        base === side
+          ? ["merge-base", "--is-ancestor", side, "HEAD"]
+          : ["cat-file", "-e", `${base}^{commit}`],
+        {
+          cwd: historyRepo,
+          encoding: "utf8",
+          env: isolatedGitEnv(),
+        },
+      );
+      expect(result.status).toBe(expected.status);
+      expect(result.stdout).toBe(expected.stdout);
+      expect(result.stderr).toBe(expected.stderr);
+    }
   });
 
   it("accepts only required dist output and the three allowed root files", async () => {
