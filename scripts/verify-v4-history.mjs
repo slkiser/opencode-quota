@@ -148,7 +148,8 @@ async function forbiddenPaths(treeId, prefix) {
   const forbidden = [];
   for (const entry of await readTree(treeId)) {
     const file = `${prefix}${entry.name}`;
-    if (entry.mode === "40000") {
+    // Old git tools wrote folder modes zero-padded as 040000.
+    if (Number.parseInt(entry.mode, 8) === 0o40000) {
       for (const nested of await forbiddenPaths(entry.id, `${file}/`)) {
         forbidden.push(nested);
       }

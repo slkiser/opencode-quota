@@ -235,6 +235,45 @@ describe("v4 release gates", () => {
     expect(result.stderr).toContain(`index ${forbidden}`);
   });
 
+  it("opens a folder stored with the zero-padded 040000 mode", async () => {
+    const historyRepo = path.join(tempDir, "zero-padded-mode");
+    const base = await createHistoryRepo(historyRepo);
+    const gitWithInput = (args: string[], input: Buffer | string) => {
+      const result = spawnSync("git", args, { cwd: historyRepo, input, env: isolatedGitEnv() });
+      if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
+      return result;
+    };
+
+    const blob = gitWithInput(["hash-object", "-w", "--stdin"], "private\n")
+      .stdout.toString()
+      .trim();
+    const innerTree = gitWithInput(["mktree"], `100644 blob ${blob}\tAGENTS.md\n`)
+      .stdout.toString()
+      .trim();
+    // Old git tools wrote folder modes as 040000; current git can only make one by hand.
+    const baseTree = gitWithInput(["cat-file", "tree", `${base}^{tree}`], "").stdout;
+    const paddedEntry = Buffer.concat([
+      Buffer.from("040000 zpad\0", "utf8"),
+      Buffer.from(innerTree, "hex"),
+    ]);
+    const rootTree = gitWithInput(
+      ["hash-object", "-t", "tree", "--literally", "-w", "--stdin"],
+      Buffer.concat([baseTree, paddedEntry]),
+    )
+      .stdout.toString()
+      .trim();
+    const commit = git(historyRepo, ["commit-tree", rootTree, "-p", base, "-m", "zero-padded"]);
+    git(historyRepo, ["update-ref", "HEAD", commit]);
+
+    const result = run(historyScript, [], {
+      V4_HISTORY_BASE: base,
+      V4_HISTORY_REPO: historyRepo,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(`${commit} zpad/AGENTS.md`);
+  });
+
   it("checks complete merged trees, deleted and renamed paths, and the index with five git processes", async () => {
     const historyRepo = path.join(tempDir, "merged-history");
     await createHistoryRepo(historyRepo);
