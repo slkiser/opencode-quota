@@ -235,6 +235,119 @@ describe("v4 release gates", () => {
     expect(result.stderr).toContain(`index ${forbidden}`);
   });
 
+  it("checks complete merged trees, deleted and renamed paths, and the index with five git processes", async () => {
+    const historyRepo = path.join(tempDir, "merged-history");
+    await createHistoryRepo(historyRepo);
+    git(historyRepo, ["config", "core.quotePath", "false"]);
+    await writeFiles(historyRepo, ["docs/carried.md", "rename.txt"]);
+    git(historyRepo, ["add", "-f", "."]);
+    git(historyRepo, ["commit", "-qm", "base with a carried private file"]);
+    const base = git(historyRepo, ["rev-parse", "HEAD"]);
+    const mainBranch = git(historyRepo, ["symbolic-ref", "--short", "HEAD"]);
+
+    // This file is inherited from the excluded base, not added in the checked range.
+    await writeFiles(historyRepo, ["nested/.env"]);
+    git(historyRepo, ["add", "-f", "."]);
+    git(historyRepo, ["commit", "-qm", "temporary private file"]);
+    const deleted = git(historyRepo, ["rev-parse", "HEAD"]);
+    git(historyRepo, ["rm", "nested/.env", "docs/carried.md"]);
+    git(historyRepo, ["commit", "-qm", "delete private files"]);
+
+    git(historyRepo, ["checkout", "-qb", "side"]);
+    const sidePath = "local-live-tests/space café.txt";
+    await writeFiles(historyRepo, [sidePath]);
+    git(historyRepo, ["add", "-f", "."]);
+    git(historyRepo, ["commit", "-qm", "private side branch file"]);
+    const side = git(historyRepo, ["rev-parse", "HEAD"]);
+
+    git(historyRepo, ["checkout", "-q", mainBranch]);
+    await mkdir(path.join(historyRepo, "prompt-exports"));
+    git(historyRepo, ["mv", "rename.txt", "prompt-exports/renamed.txt"]);
+    // Identical subtree and blob IDs must still be checked under each path prefix.
+    for (const directory of ["src", "docs", "references/upstream-plugins"]) {
+      await mkdir(path.join(historyRepo, directory), { recursive: true });
+      await writeFile(path.join(historyRepo, directory, "shared.txt"), "same blob\n");
+    }
+    git(historyRepo, ["add", "-f", "."]);
+    git(historyRepo, ["commit", "-qm", "rename and reuse a subtree at different paths"]);
+    const renamed = git(historyRepo, ["rev-parse", "HEAD"]);
+    git(historyRepo, ["merge", "--no-ff", "-qm", "merge side", "side"]);
+    const merged = git(historyRepo, ["rev-parse", "HEAD"]);
+    git(historyRepo, ["commit", "--allow-empty", "-qm", "reuse the entire merged tree"]);
+    const repeated = git(historyRepo, ["rev-parse", "HEAD"]);
+    const indexPath = "nested/.env.index only café";
+    await writeFiles(historyRepo, [indexPath]);
+    git(historyRepo, ["add", "-f", "--", indexPath]);
+
+    const tracePath = path.join(tempDir, "git-trace.json");
+    const result = run(historyScript, [], {
+      V4_HISTORY_BASE: base,
+      V4_HISTORY_REPO: historyRepo,
+      GIT_TRACE2_EVENT: tracePath,
+    });
+    const pathsByCommit = new Map([
+      [deleted, ["docs/carried.md", "nested/.env"]],
+      [side, [sidePath]],
+      [renamed, ["docs/shared.txt", "prompt-exports/renamed.txt"]],
+      [merged, ["docs/shared.txt", sidePath, "prompt-exports/renamed.txt"]],
+      [repeated, ["docs/shared.txt", sidePath, "prompt-exports/renamed.txt"]],
+    ]);
+    const expected = git(historyRepo, ["rev-list", `${base}..HEAD`])
+      .split("\n")
+      .flatMap((commit) => (pathsByCommit.get(commit) ?? []).map((file) => `${commit} ${file}`));
+    expected.push(
+      "index docs/shared.txt",
+      `index ${sidePath}`,
+      `index ${indexPath}`,
+      "index prompt-exports/renamed.txt",
+    );
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      `Forbidden local-only files are tracked in the v4 history or current index:\n${expected
+        .map((violation) => `- ${violation}\n`)
+        .join("")}`,
+    );
+    const gitStarts = (await readFile(tracePath, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { event: string; argv?: string[] })
+      .filter((event) => event.event === "start");
+    expect(gitStarts).toHaveLength(5);
+    expect(gitStarts.filter((event) => event.argv?.includes("--batch"))).toHaveLength(1);
+  }, 30_000);
+
+  it("checks paths with quoting characters and whitespace exactly", async () => {
+    const historyRepo = path.join(tempDir, "odd-paths");
+    const base = await createHistoryRepo(historyRepo);
+    git(historyRepo, ["config", "core.protectNTFS", "false"]);
+    const forbidden = [
+      'docs/quoted "café".md',
+      "local-live-tests/tab\tand newline\n.txt",
+      "nested café/.env",
+      "prompt-exports/trailing space ",
+    ];
+    // Populate the index directly: these Git paths need not be legal Windows filenames.
+    const blob = git(historyRepo, ["hash-object", "-w", "README.md"]);
+    for (const file of forbidden) {
+      git(historyRepo, ["update-index", "--add", "--cacheinfo", `100644,${blob},${file}`]);
+    }
+    git(historyRepo, ["update-index", "--add", "--cacheinfo", `120000,${blob},nested/.env.link`]);
+    git(historyRepo, ["update-index", "--add", "--cacheinfo", `160000,${base},.codex`]);
+    git(historyRepo, ["commit", "-qm", "odd private filenames"]);
+    const commit = git(historyRepo, ["rev-parse", "HEAD"]);
+
+    const result = run(historyScript, [], {
+      V4_HISTORY_BASE: base,
+      V4_HISTORY_REPO: historyRepo,
+    });
+    expect(result.status).toBe(1);
+    for (const file of [...forbidden, "nested/.env.link", ".codex"]) {
+      expect(result.stderr).toContain(`- ${commit} ${file}\n`);
+      expect(result.stderr).toContain(`- index ${file}\n`);
+    }
+  });
+
   it("accepts only required dist output and the three allowed root files", async () => {
     const manifestPath = path.join(tempDir, "allowed.json");
     await writeFile(

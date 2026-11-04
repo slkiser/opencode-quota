@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,7 +21,7 @@ function git(args) {
     process.exit(result.status ?? 1);
   }
 
-  return result.stdout.trim();
+  return result.stdout;
 }
 
 function isWithin(file, directory) {
@@ -78,19 +78,103 @@ function isForbidden(file) {
 git(["cat-file", "-e", `${V4_BASE_COMMIT}^{commit}`]);
 git(["merge-base", "--is-ancestor", V4_BASE_COMMIT, "HEAD"]);
 
-const commits = git(["rev-list", `${V4_BASE_COMMIT}..HEAD`])
+const commits = git(["rev-list", "--format=%H %T", "--no-commit-header", `${V4_BASE_COMMIT}..HEAD`])
   .split("\n")
-  .filter(Boolean);
+  .filter(Boolean)
+  .map((line) => line.split(" "));
 const violations = [];
 
-for (const commit of commits) {
-  const files = git(["ls-tree", "-r", "--name-only", commit]).split("\n").filter(Boolean);
-  for (const file of files) {
-    if (isForbidden(file)) violations.push(`${commit} ${file}`);
-  }
+const batch = spawn("git", ["cat-file", "--batch"], {
+  cwd: repoRoot,
+  stdio: ["pipe", "pipe", "inherit"],
+});
+let batchError;
+batch.on("error", (error) => {
+  batchError = error;
+});
+batch.stdin.on("error", (error) => {
+  batchError = error;
+});
+const batchClosed = new Promise((resolve) => batch.on("close", resolve));
+const output = batch.stdout[Symbol.asyncIterator]();
+let pending = Buffer.alloc(0);
+
+async function readMore() {
+  const next = await output.next();
+  if (next.done) throw new Error("Unexpected end of git cat-file output");
+  pending = Buffer.concat([pending, next.value]);
 }
 
-const indexedFiles = git(["ls-files"]).split("\n").filter(Boolean);
+const trees = new Map();
+async function readTree(treeId) {
+  if (trees.has(treeId)) return trees.get(treeId);
+
+  batch.stdin.write(`${treeId}\n`);
+  while (!pending.includes(10)) await readMore();
+  const headerEnd = pending.indexOf(10);
+  const [objectId, type, sizeText] = pending.toString("ascii", 0, headerEnd).split(" ");
+  if (objectId !== treeId || type !== "tree" || !/^\d+$/.test(sizeText)) {
+    throw new Error(`Unexpected git cat-file header for tree ${treeId}`);
+  }
+  const size = Number(sizeText);
+  pending = pending.subarray(headerEnd + 1);
+  while (pending.length < size + 1) await readMore();
+  const body = pending.subarray(0, size);
+  pending = pending.subarray(size + 1);
+
+  const entries = [];
+  const hashBytes = treeId.length / 2;
+  let offset = 0;
+  while (offset < body.length) {
+    const modeEnd = body.indexOf(32, offset);
+    const nameEnd = body.indexOf(0, modeEnd + 1);
+    entries.push({
+      mode: body.toString("ascii", offset, modeEnd),
+      name: body.toString("utf8", modeEnd + 1, nameEnd),
+      id: body.subarray(nameEnd + 1, nameEnd + 1 + hashBytes).toString("hex"),
+    });
+    offset = nameEnd + 1 + hashBytes;
+  }
+  trees.set(treeId, entries);
+  return entries;
+}
+
+const checkedTrees = new Map();
+async function forbiddenPaths(treeId, prefix) {
+  // The same tree can be allowed under src/ and forbidden under docs/.
+  const key = `${treeId} ${prefix}`;
+  if (checkedTrees.has(key)) return checkedTrees.get(key);
+
+  const forbidden = [];
+  for (const entry of await readTree(treeId)) {
+    const file = `${prefix}${entry.name}`;
+    if (entry.mode === "40000") {
+      for (const nested of await forbiddenPaths(entry.id, `${file}/`)) {
+        forbidden.push(nested);
+      }
+    } else if (isForbidden(file)) {
+      forbidden.push(file);
+    }
+  }
+  checkedTrees.set(key, forbidden);
+  return forbidden;
+}
+
+let batchStatus;
+try {
+  for (const [commit, treeId] of commits) {
+    for (const file of await forbiddenPaths(treeId, "")) {
+      violations.push(`${commit} ${file}`);
+    }
+  }
+} finally {
+  batch.stdin.end();
+  batchStatus = await batchClosed;
+}
+if (batchError) throw batchError;
+if (batchStatus !== 0) process.exit(batchStatus ?? 1);
+
+const indexedFiles = git(["ls-files", "-z"]).split("\0").filter(Boolean);
 for (const file of indexedFiles) {
   if (isForbidden(file)) violations.push(`index ${file}`);
 }
