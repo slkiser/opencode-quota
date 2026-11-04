@@ -165,8 +165,8 @@ async function checkHistory() {
     const files = [];
     for (const entry of await readTree(tree)) {
       const file = `${prefix}${entry.name}`;
-      // Old git tools wrote folder modes zero-padded as 040000.
-      if (Number.parseInt(entry.mode, 8) === 0o40000) {
+      // git reads only the type bits of a mode, so 040000 or 40755 from old tools is a folder too.
+      if ((Number.parseInt(entry.mode, 8) & 0o170000) === 0o040000) {
         for (const nestedFile of await forbiddenFiles(entry.objectId, `${file}/`)) {
           files.push(nestedFile);
         }
@@ -182,6 +182,11 @@ async function checkHistory() {
     for (const { commit, tree } of commits) {
       for (const file of await forbiddenFiles(tree, "")) violations.push(`${commit} ${file}`);
     }
+  } catch (error) {
+    // Stop git: a reply nobody reads would keep git, and this script, waiting forever.
+    batch.stdout.destroy();
+    batch.kill();
+    throw error;
   } finally {
     batch.stdin.end();
     await finished;

@@ -74,6 +74,32 @@ async function writeFiles(root: string, files: string[]) {
   );
 }
 
+function gitWithInput(cwd: string, args: string[], input: Buffer | string): string {
+  const result = spawnSync("git", args, { cwd, input, env: isolatedGitEnv() });
+  if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
+  return result.stdout.toString().trim();
+}
+
+// Current git only writes canonical folder modes, so odd tree entries are written by hand.
+function commitHandMadeEntry(repo: string, base: string, modeAndName: string, objectId: string) {
+  const baseTree = spawnSync("git", ["cat-file", "tree", `${base}^{tree}`], {
+    cwd: repo,
+    env: isolatedGitEnv(),
+  }).stdout;
+  const entry = Buffer.concat([
+    Buffer.from(`${modeAndName}\0`, "utf8"),
+    Buffer.from(objectId, "hex"),
+  ]);
+  const tree = gitWithInput(
+    repo,
+    ["hash-object", "-t", "tree", "--literally", "-w", "--stdin"],
+    Buffer.concat([baseTree, entry]),
+  );
+  const commit = git(repo, ["commit-tree", tree, "-p", base, "-m", "hand-made entry"]);
+  git(repo, ["update-ref", "HEAD", commit]);
+  return commit;
+}
+
 async function createHistoryRepo(root: string): Promise<string> {
   await mkdir(root, { recursive: true });
   git(root, ["init", "-q"]);
@@ -251,35 +277,12 @@ describe("v4 release gates", () => {
     expect(result.stderr).toContain(`index ${forbidden}`);
   });
 
-  it("opens a folder stored with the zero-padded 040000 mode", async () => {
-    const historyRepo = path.join(tempDir, "zero-padded-mode");
+  it.each(["040000", "40755"])("opens a folder stored with the hand-made mode %s", async (mode) => {
+    const historyRepo = path.join(tempDir, `folder-mode-${mode}`);
     const base = await createHistoryRepo(historyRepo);
-    const gitWithInput = (args: string[], input: Buffer | string) => {
-      const result = spawnSync("git", args, { cwd: historyRepo, input, env: isolatedGitEnv() });
-      if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
-      return result;
-    };
-
-    const blob = gitWithInput(["hash-object", "-w", "--stdin"], "private\n")
-      .stdout.toString()
-      .trim();
-    const innerTree = gitWithInput(["mktree"], `100644 blob ${blob}\tAGENTS.md\n`)
-      .stdout.toString()
-      .trim();
-    // Old git tools wrote folder modes as 040000; current git can only make one by hand.
-    const baseTree = gitWithInput(["cat-file", "tree", `${base}^{tree}`], "").stdout;
-    const paddedEntry = Buffer.concat([
-      Buffer.from("040000 zpad\0", "utf8"),
-      Buffer.from(innerTree, "hex"),
-    ]);
-    const rootTree = gitWithInput(
-      ["hash-object", "-t", "tree", "--literally", "-w", "--stdin"],
-      Buffer.concat([baseTree, paddedEntry]),
-    )
-      .stdout.toString()
-      .trim();
-    const commit = git(historyRepo, ["commit-tree", rootTree, "-p", base, "-m", "zero-padded"]);
-    git(historyRepo, ["update-ref", "HEAD", commit]);
+    const blob = gitWithInput(historyRepo, ["hash-object", "-w", "--stdin"], "private\n");
+    const innerTree = gitWithInput(historyRepo, ["mktree"], `100644 blob ${blob}\tAGENTS.md\n`);
+    const commit = commitHandMadeEntry(historyRepo, base, `${mode} zodd`, innerTree);
 
     const result = run(historyScript, [], {
       V4_HISTORY_BASE: base,
@@ -287,7 +290,26 @@ describe("v4 release gates", () => {
     });
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain(`${commit} zpad/AGENTS.md`);
+    expect(result.stderr).toContain(`${commit} zodd/AGENTS.md`);
+  });
+
+  it("fails without hanging when a folder entry points at a large file", async () => {
+    const historyRepo = path.join(tempDir, "folder-is-file");
+    const base = await createHistoryRepo(historyRepo);
+    // Larger than a pipe buffer, so a reply the script stops reading would block git.
+    const blob = gitWithInput(historyRepo, ["hash-object", "-w", "--stdin"], "x".repeat(2_000_000));
+    commitHandMadeEntry(historyRepo, base, "40000 zbroken", blob);
+
+    const result = spawnSync(process.execPath, [historyScript], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 20_000,
+      env: { ...isolatedGitEnv(), V4_HISTORY_BASE: base, V4_HISTORY_REPO: historyRepo },
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(blob);
   });
 
   it("matches full-tree checks for deleted, merged, renamed, shared and indexed paths", async () => {
