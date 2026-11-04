@@ -194,5 +194,6 @@ describe("the Settings tabs' field table", () => {
   it("leaves Desktop's own setting to Desktop when the Status line tab resets", () => {
     expect(resetKeys("statusLine")).toContain("statusLine.withSidebar");
     expect(resetKeys("statusLine")).not.toContain("statusLine.withSidePanel");
+    expect(resetKeys("statusLine")).not.toContain("statusLine.composerPill");
   });
 });

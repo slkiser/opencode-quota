@@ -8,6 +8,7 @@ import {
 } from "../src/gui/surface-settings.js";
 import {
   barPositions,
+  composerPillShows,
   currentModelPick,
   groupTone,
   levelCss,
@@ -271,6 +272,22 @@ describe("GUI bottom strip", () => {
     expect(shows({ "statusLine.show": false }, false, true)).toBe(false);
     expect(shows({}, true, false)).toBe(false);
     expect(shows({ "statusLine.home": true, "statusLine.show": false }, true, false)).toBe(true);
+  });
+
+  it("shows the pill above the message box unless its own switch or the status line is off", () => {
+    const shows = (values: Record<string, unknown>) =>
+      composerPillShows(surfaceSettings(withValues(values)));
+    expect(shows({})).toBe(true);
+    expect(shows({ "statusLine.composerPill": false })).toBe(false);
+    expect(shows({ "statusLine.show": false })).toBe(false);
+    expect(shows({ "statusLine.show": false, "statusLine.composerPill": true })).toBe(false);
+    // The strip is its own thing: the pill switch does not touch it.
+    expect(
+      statusStripShows(surfaceSettings(withValues({ "statusLine.composerPill": false })), {
+        home: false,
+        panelOnScreen: false,
+      }),
+    ).toBe(true);
   });
 
   const widths = {

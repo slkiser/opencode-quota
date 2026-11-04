@@ -71,7 +71,7 @@ opencode plugin add @slkiser/opencode-quota
   <tr><td><code>statusLine</code></td><td>輸入框下方的一行</td><td>視窗底部狀態條，以及輸入框上方的膠囊</td></tr>
   <tr><td><code>toast</code></td><td>帶進度條的 toast 通知</td><td>與 Quota 側邊分頁相同的列與進度條的 toast 通知；重置通知為一句話</td></tr>
   </table>
-  <p><b>注意：</b>在 TUI 中，側邊欄顯示配額時狀態列會隱藏，除非開啟 <b>Next to the sidebar</b>（<code>statusLine.withSidebar</code>）。在 Desktop 中，狀態條預設也會顯示在 Quota 側邊分頁旁；<b>Next to the side panel</b>（<code>statusLine.withSidePanel</code>）可將其關閉。</p>
+  <p><b>注意：</b>在 TUI 中，側邊欄顯示配額時狀態列會隱藏，除非開啟 <b>Next to the sidebar</b>（<code>statusLine.withSidebar</code>）。在 Desktop 中，狀態條預設也會顯示在 Quota 側邊分頁旁；<b>Next to the side panel</b>（<code>statusLine.withSidePanel</code>）可將其關閉。<code>statusLine.composerPill: false</code>（<b>Pill above the message box</b>）在 Desktop 中只隱藏膠囊。</p>
   </details>
 - **Web：** `/quota`、`/quota_usage` 和 `/quota_status` 會在聊天中貼出報告。AI 永遠看不到它。
 - **終端機：** `npx @slkiser/opencode-quota@latest show`，即使 OpenCode 已關閉也能使用。

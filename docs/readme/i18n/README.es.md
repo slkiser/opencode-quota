@@ -71,7 +71,7 @@ Agrega el plugin a `opencode.jsonc` o `opencode.json` y conserva tus otros plugi
   <tr><td><code>statusLine</code></td><td>Línea bajo el cuadro de mensaje</td><td>Franja en la parte inferior de la ventana, y la píldora sobre el cuadro de mensaje</td></tr>
   <tr><td><code>toast</code></td><td>Toasts con barras</td><td>Toasts con las filas y barras de la pestaña lateral Quota; un aviso de reinicio es una frase</td></tr>
   </table>
-  <p><b>Nota:</b> en la TUI, la línea de estado se oculta mientras la barra lateral muestra cuotas, salvo que <b>Next to the sidebar</b> (<code>statusLine.withSidebar</code>) esté activado. En Desktop, la franja también se muestra junto a la pestaña lateral Quota de forma predeterminada; <b>Next to the side panel</b> (<code>statusLine.withSidePanel</code>) lo desactiva.</p>
+  <p><b>Nota:</b> en la TUI, la línea de estado se oculta mientras la barra lateral muestra cuotas, salvo que <b>Next to the sidebar</b> (<code>statusLine.withSidebar</code>) esté activado. En Desktop, la franja también se muestra junto a la pestaña lateral Quota de forma predeterminada; <b>Next to the side panel</b> (<code>statusLine.withSidePanel</code>) lo desactiva. <code>statusLine.composerPill: false</code> (<b>Pill above the message box</b>) oculta solo la píldora en Desktop.</p>
   </details>
 - **Web:** `/quota`, `/quota_usage` y `/quota_status` publican un informe en el chat. La IA nunca lo ve.
 - **Terminal:** `npx @slkiser/opencode-quota@latest show`, incluso con OpenCode cerrado.
