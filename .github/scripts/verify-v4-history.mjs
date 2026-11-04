@@ -165,7 +165,8 @@ async function checkHistory() {
     const files = [];
     for (const entry of await readTree(tree)) {
       const file = `${prefix}${entry.name}`;
-      if (entry.mode === "40000") {
+      // Old git tools wrote folder modes zero-padded as 040000.
+      if (Number.parseInt(entry.mode, 8) === 0o40000) {
         for (const nestedFile of await forbiddenFiles(entry.objectId, `${file}/`)) {
           files.push(nestedFile);
         }
