@@ -13,4 +13,5 @@ For visible changes: matching before and after screenshots. Use the same config,
 ## Checklist
 
 - [ ] I ran `pnpm verify`
+- [ ] I tested on released OpenCode version: 
 - [ ] For provider changes, I followed [Provider Changes](https://github.com/slkiser/opencode-quota/blob/main/.github/CONTRIBUTING.md#provider-changes), or this does not apply

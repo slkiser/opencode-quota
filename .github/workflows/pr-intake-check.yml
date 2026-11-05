@@ -30,28 +30,37 @@ jobs:
             // or is one of these files:
             // - src/tui/: the OpenCode TUI plugin (sidebar, status line, toasts, /quota window).
             // - src/gui/: the experimental Desktop GUI plugin.
+            // - src/view/: text, formatting and layout shared by the TUI and the GUI.
             // - src/settings/schema.ts: the table of every setting with its default value.
             // - src/settings/shared.ts: settings where "unset" is not the same as the default.
             const DEFAULT_OR_UI_PATHS = [
               "src/tui/",
               "src/gui/",
+              "src/view/",
               "src/settings/schema.ts",
               "src/settings/shared.ts",
             ];
 
             const label = "needs info";
             const marker = "<!-- pr-intake-check -->";
-            const pullRequest = context.payload.pull_request;
+            const workflowBot = "github-actions[bot]";
             const params = {
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: pullRequest.number,
+              issue_number: context.payload.pull_request.number,
             };
+
+            // Read the PR as it is now, not as it was when this run was queued.
+            const { data: pullRequest } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: params.issue_number,
+            });
 
             const files = await github.paginate(github.rest.pulls.listFiles, {
               owner: context.repo.owner,
               repo: context.repo.repo,
-              pull_number: pullRequest.number,
+              pull_number: params.issue_number,
               per_page: 100,
             });
             // A renamed file counts under both its new and its old name.
@@ -61,31 +70,43 @@ jobs:
               ),
             );
 
-            // "Fixes #12", "closes #12", "Resolves #12", "Refs #12", or a full issue URL.
+            // Any issue reference: "Fixes #12", "Fix #12", "#12", "owner/repo#12", or a full issue URL.
             const body = pullRequest.body ?? "";
             const issueLink =
-              /\b(?:fixes|closes|resolves|refs)\s*:?\s*(?:[\w.-]+\/[\w.-]+)?#\d+/iu.test(body) ||
+              /(?:^|[\s([])(?:[\w.-]+\/[\w.-]+)?#\d+\b/u.test(body) ||
               /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+/iu.test(body);
 
             const needsIssue = changesDefaultOrUi && !issueLink;
             const labeled = pullRequest.labels.some((l) => l.name === label);
-            const comments = await github.paginate(github.rest.issues.listComments, params);
-            const asked = comments.some((c) => c.body?.includes(marker));
 
-            if (needsIssue && !asked) {
-              if (!labeled) {
+            // Who last added or removed the label decides who owns it.
+            const events = await github.paginate(github.rest.issues.listEvents, params);
+            const lastLabelEvent = events
+              .filter((e) => (e.event === "labeled" || e.event === "unlabeled") && e.label?.name === label)
+              .at(-1);
+            const lastChangeByThisWorkflow = lastLabelEvent?.actor?.login === workflowBot;
+            const maintainerRemovedLabel = lastLabelEvent?.event === "unlabeled" && !lastChangeByThisWorkflow;
+
+            const comments = await github.paginate(github.rest.issues.listComments, params);
+            const asked = comments.some((c) => c.user?.login === workflowBot && c.body?.includes(marker));
+
+            if (needsIssue) {
+              // Never re-add a label a maintainer took off.
+              if (!labeled && !maintainerRemovedLabel) {
                 await github.rest.issues.addLabels({ ...params, labels: [label] });
               }
-              await github.rest.issues.createComment({
-                ...params,
-                body: [
-                  marker,
-                  "Thanks for the PR! It changes a default setting or the UI, so please link an issue first: add `Fixes #<issue number>` to the description. If there is no issue yet, open one with a form.",
-                  "",
-                  "Please also add before and after screenshots of what changes on screen. The `needs info` label comes off automatically once the issue is linked.",
-                ].join("\n"),
-              });
-            } else if (!needsIssue && labeled && asked) {
+              if (!asked) {
+                await github.rest.issues.createComment({
+                  ...params,
+                  body: [
+                    marker,
+                    "Thanks for the PR! It changes a default setting or the UI, so please link an issue first: add `Fixes #<issue number>` to the description. If there is no issue yet, open one with a form.",
+                    "",
+                    "Please also add before and after screenshots of what changes on screen. The `needs info` label comes off automatically once the issue is linked.",
+                  ].join("\n"),
+                });
+              }
+            } else if (labeled && lastLabelEvent?.event === "labeled" && lastChangeByThisWorkflow) {
               // Only undo a label this workflow added, never a maintainer's.
               await github.rest.issues.removeLabel({ ...params, name: label });
             }

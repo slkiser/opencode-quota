@@ -409,18 +409,31 @@ describe("GitHub workflows", () => {
 
     const script = steps[0]?.with?.script;
     if (typeof script !== "string") throw new Error("no script in pr-intake-check");
+    const bot = "github-actions[bot]";
+    type LabelEvent = { event: "labeled" | "unlabeled"; by: string };
     const run = async (pr: {
       body: string;
       files: string[];
       labels?: string[];
-      comments?: string[];
+      comments?: { body: string; by: string }[];
+      labelEvents?: LabelEvent[];
     }) => {
       const calls: IssueScriptCall[] = [];
       const github = {
         rest: {
-          pulls: { listFiles: "listFiles" },
+          pulls: {
+            listFiles: "listFiles",
+            get: async () => ({
+              data: {
+                number: 1,
+                body: pr.body,
+                labels: (pr.labels ?? []).map((name) => ({ name })),
+              },
+            }),
+          },
           issues: {
             listComments: "listComments",
+            listEvents: "listEvents",
             addLabels: async (params: { labels: string[] }) => {
               calls.push({ method: "addLabels", labels: params.labels });
             },
@@ -432,30 +445,35 @@ describe("GitHub workflows", () => {
             },
           },
         },
-        paginate: async (method: string) =>
-          method === "listFiles"
-            ? pr.files.map((filename) => ({ filename }))
-            : (pr.comments ?? []).map((body) => ({ body })),
+        paginate: async (method: string) => {
+          if (method === "listFiles") return pr.files.map((filename) => ({ filename }));
+          if (method === "listEvents") {
+            return (pr.labelEvents ?? []).map((e) => ({
+              event: e.event,
+              label: { name: "needs info" },
+              actor: { login: e.by },
+            }));
+          }
+          return (pr.comments ?? []).map((c) => ({ body: c.body, user: { login: c.by } }));
+        },
       };
+      // The queued payload is stale on purpose: the script must read the PR again.
       const context = {
         repo: { owner: "slkiser", repo: "opencode-quota" },
-        payload: {
-          pull_request: {
-            number: 1,
-            body: pr.body,
-            labels: (pr.labels ?? []).map((name) => ({ name })),
-          },
-        },
+        payload: { pull_request: { number: 1, body: "stale", labels: [] } },
       };
       const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
       await new AsyncFunction("github", "context", script)(github, context);
       return calls;
     };
     const asked = [{ method: "addLabels", labels: ["needs info"] }, { method: "createComment" }];
+    const ourComment = { body: "<!-- pr-intake-check -->\nask", by: bot };
+    const weLabeled: LabelEvent[] = [{ event: "labeled", by: bot }];
 
     for (const file of [
       "src/tui/sidebar.tsx",
       "src/gui/panel.tsx",
+      "src/view/format.ts",
       "src/settings/schema.ts",
       "src/settings/shared.ts",
     ]) {
@@ -469,36 +487,79 @@ describe("GitHub workflows", () => {
     for (const body of [
       "closes #3",
       "RESOLVES: #3",
+      "Fix #3",
+      "Close #3",
+      "See #3",
+      "#3",
       "Refs slkiser/opencode-quota#3",
       "See https://github.com/slkiser/opencode-quota/issues/3",
     ]) {
       await expect(run({ body, files: ["src/gui/panel.tsx"] })).resolves.toEqual([]);
     }
+    // Not issue links: an HTML entity and a URL fragment.
+    for (const body of ["a &#123; b", "https://example.com/page#3"]) {
+      await expect(run({ body, files: ["src/gui/panel.tsx"] })).resolves.toEqual(asked);
+    }
     // Other files never need an issue.
     await expect(run({ body: "", files: ["src/providers/mimo.ts", "README.md"] })).resolves.toEqual(
       [],
     );
-    // Already asked: no second comment, and the label is not added again.
+    // Already asked and labeled: nothing more.
     await expect(
       run({
         body: "",
         files: ["src/tui/sidebar.tsx"],
         labels: ["needs info"],
-        comments: ["<!-- pr-intake-check -->\nask"],
+        comments: [ourComment],
+        labelEvents: weLabeled,
       }),
     ).resolves.toEqual([]);
-    // Link added later: remove the label only if this workflow asked.
+    // Link added later: remove the label this workflow added.
     await expect(
       run({
         body: "Fixes #12",
         files: ["src/tui/sidebar.tsx"],
         labels: ["needs info"],
-        comments: ["<!-- pr-intake-check -->\nask"],
+        comments: [ourComment],
+        labelEvents: weLabeled,
       }),
     ).resolves.toEqual([{ method: "removeLabel", name: "needs info" }]);
+    // Link removed again: put the label back, but do not comment twice.
     await expect(
-      run({ body: "Fixes #12", files: ["src/tui/sidebar.tsx"], labels: ["needs info"] }),
+      run({
+        body: "",
+        files: ["src/tui/sidebar.tsx"],
+        comments: [ourComment],
+        labelEvents: [...weLabeled, { event: "unlabeled", by: bot }],
+      }),
+    ).resolves.toEqual([{ method: "addLabels", labels: ["needs info"] }]);
+    // A maintainer's label stays, even after this workflow commented.
+    await expect(
+      run({
+        body: "Fixes #12",
+        files: ["src/tui/sidebar.tsx"],
+        labels: ["needs info"],
+        comments: [ourComment],
+        labelEvents: [{ event: "labeled", by: "slkiser" }],
+      }),
     ).resolves.toEqual([]);
+    // A label a maintainer took off is not added back.
+    await expect(
+      run({
+        body: "",
+        files: ["src/tui/sidebar.tsx"],
+        comments: [ourComment],
+        labelEvents: [...weLabeled, { event: "unlabeled", by: "slkiser" }],
+      }),
+    ).resolves.toEqual([]);
+    // A marker comment posted by someone else does not count as asked.
+    await expect(
+      run({
+        body: "",
+        files: ["src/tui/sidebar.tsx"],
+        comments: [{ body: "<!-- pr-intake-check -->", by: "someone" }],
+      }),
+    ).resolves.toEqual(asked);
   });
 
   it("keeps upstream issue reconciliation on Node 22 with minimal permissions", async () => {
