@@ -200,22 +200,28 @@ async function mockExecutable(file = "/trusted/bin/bl", target = file): Promise<
   );
 }
 
-/** Fake win32 filesystem; `path.win32` keys keep these cases runnable on a POSIX runner too.
+/** Fake case-insensitive win32 filesystem; `path.win32` keys keep these cases runnable on a POSIX runner too.
  * `links` maps a path to the real path a link or junction resolves it to. */
 async function mockWin32Files(
   files: Record<string, string>,
   links: Record<string, string> = {},
 ): Promise<void> {
   const stats = await stat(process.execPath);
+  const contentsByPath = new Map(
+    Object.entries(files).map(([file, text]) => [file.toLowerCase(), text]),
+  );
+  const targetsByPath = new Map(
+    Object.entries(links).map(([file, target]) => [file.toLowerCase(), target]),
+  );
   vi.mocked(stat).mockImplementation(async (candidate) => {
-    if (String(candidate) in files) return stats;
+    if (contentsByPath.has(String(candidate).toLowerCase())) return stats;
     throw new Error("File does not exist");
   });
   vi.mocked(realpath).mockImplementation(
-    async (candidate) => links[String(candidate)] ?? String(candidate),
+    async (candidate) => targetsByPath.get(String(candidate).toLowerCase()) ?? String(candidate),
   );
   vi.mocked(readFile).mockImplementation(async (candidate) => {
-    const contents = files[String(candidate)];
+    const contents = contentsByPath.get(String(candidate).toLowerCase());
     if (contents === undefined) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
     return contents;
   });
@@ -619,6 +625,28 @@ describe("alibaba token plan executable resolution", () => {
     ).toEqual({ ok: true, file });
   });
 
+  it.each(["linux", "darwin"] as const)(
+    "runs bl directly on %s even with a stray bl.bunx marker",
+    async (platform) => {
+      const file = "/trusted/bin/bl";
+      const marker = "/trusted/bin/bl.bunx";
+      await mockExecutable(file);
+      const stats = await stat(file);
+      vi.mocked(stat).mockImplementation(async (candidate) => {
+        if (candidate === file || candidate === marker) return stats;
+        throw new Error("File does not exist");
+      });
+      expect(
+        await resolveAlibabaTokenPlanExecutable({
+          platform,
+          cwd: "/workspace",
+          pathEnv: "/trusted/bin",
+        }),
+      ).toEqual({ ok: true, file });
+      expect(readFile).not.toHaveBeenCalled();
+    },
+  );
+
   it.each(["aix", "freebsd"] as const)("rejects %s instead of probing PATH", async (platform) => {
     const expected = { ok: false, error: { kind: "unsupported_platform" } };
     const params = { platform, cwd: "/workspace", pathEnv: "/usr/bin" };
@@ -757,6 +785,215 @@ describe("alibaba token plan Windows resolution", () => {
     expect(requests[0]?.stdin).toBe("ignore");
     expect(requests[0]?.cwd).toBe(SAFE_TMP);
   });
+
+  // bun's global shim layout: `<prefix>\bin\bl.exe` and its `bl.bunx` marker, with the package at
+  // `<prefix>\install\global\node_modules\bailian-cli\`. The launcher spawns `node` itself, and
+  // that grandchild opens a visible console per check when the parent has none (a GUI service).
+  const BUN_EXE = W.join(TRUSTED_BIN, "bl.exe");
+  const BUN_MARKER = W.join(TRUSTED_BIN, "bl.bunx");
+  const BUN_PACKAGE_ROOT = W.join(
+    "C:\\",
+    "trusted",
+    "install",
+    "global",
+    "node_modules",
+    "bailian-cli",
+  );
+  const BUN_MANIFEST = W.join(BUN_PACKAGE_ROOT, "package.json");
+  const BUN_ENTRY = W.join(BUN_PACKAGE_ROOT, "dist", "bailian.mjs");
+
+  it("resolves bun's global bl.exe shim to the package entry through node", async () => {
+    await mockWin32Files({
+      [BUN_EXE]: "bl",
+      [BUN_MARKER]: "bunx",
+      [NODE]: "node",
+      [BUN_MANIFEST]: manifest({ bailian: "dist/bailian.mjs", bl: "dist/bailian.mjs" }),
+      [BUN_ENTRY]: "cli",
+    });
+    expect(
+      await resolveAlibabaTokenPlanExecutable({
+        platform: "win32",
+        cwd: WORKSPACE,
+        homedir: HOME,
+        pathEnv: TRUSTED_BIN,
+      }),
+    ).toEqual({ ok: true, file: NODE, args: [BUN_ENTRY] });
+  });
+
+  it("runs the bun shim entry with the fixed argv, no shell, and ignored stdin", async () => {
+    await mockWin32Files({
+      [BUN_EXE]: "bl",
+      [BUN_MARKER]: "bunx",
+      [NODE]: "node",
+      [BUN_MANIFEST]: manifest({ bl: "dist/bailian.mjs" }),
+      [BUN_ENTRY]: "cli",
+    });
+    const requests: AlibabaTokenPlanSpawnRequest[] = [];
+    const result = await queryTokenPlanUsage({
+      runtime: {
+        platform: "win32",
+        cwd: WORKSPACE,
+        homedir: HOME,
+        pathEnv: TRUSTED_BIN,
+        tmpdir: SAFE_TMP,
+        spawn: capturedSpawn(requests),
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(requests[0]?.file).toBe(NODE);
+    expect(requests[0]?.args).toEqual([BUN_ENTRY, ...BL_ARGS]);
+    expect(requests[0]?.shell).toBe(false);
+    expect(requests[0]?.stdin).toBe("ignore");
+    expect(requests[0]?.cwd).toBe(SAFE_TMP);
+  });
+
+  it("runs bl.exe itself when the bun marker names no usable package", async () => {
+    // No manifest under the bun layout: the marker alone changes nothing, and a bun install that
+    // works today keeps working if the layout ever moves.
+    await mockWin32Files({ [BUN_EXE]: "bl", [BUN_MARKER]: "bunx", [NODE]: "node" });
+    expect(
+      await resolveAlibabaTokenPlanExecutable({
+        platform: "win32",
+        cwd: WORKSPACE,
+        homedir: HOME,
+        pathEnv: TRUSTED_BIN,
+      }),
+    ).toEqual({ ok: true, file: BUN_EXE });
+  });
+
+  it("runs bl.exe itself when bun's bin folder sits right under a drive root", async () => {
+    // `C:\bin\bl.exe` would put the bun package at `C:\install`, which any local user can create.
+    const rootBin = W.join("C:\\", "bin");
+    const rootExe = W.join(rootBin, "bl.exe");
+    const rootPackage = W.join("C:\\", "install", "global", "node_modules", "bailian-cli");
+    await mockWin32Files({
+      [rootExe]: "bl",
+      [W.join(rootBin, "bl.bunx")]: "bunx",
+      [W.join(rootBin, "node.exe")]: "node",
+      [W.join(rootPackage, "package.json")]: manifest({ bl: "dist/bailian.mjs" }),
+      [W.join(rootPackage, "dist", "bailian.mjs")]: "cli",
+    });
+    expect(
+      await resolveAlibabaTokenPlanExecutable({
+        platform: "win32",
+        cwd: WORKSPACE,
+        homedir: HOME,
+        pathEnv: rootBin,
+      }),
+    ).toEqual({ ok: true, file: rootExe });
+  });
+
+  it.each([
+    { name: "no node.exe on the trusted PATH", missing: NODE },
+    { name: "no bl.bunx marker beside the launcher", missing: BUN_MARKER },
+    {
+      name: "a manifest entry escaping the package root with ..",
+      bin: "../outside.mjs",
+      entry: W.join(BUN_PACKAGE_ROOT, "..", "outside.mjs"),
+    },
+    {
+      name: "an entry linking into the project",
+      links: { [BUN_ENTRY]: W.join(WORKSPACE, "planted", "bailian.mjs") },
+    },
+    {
+      name: "a node.exe linking into the project",
+      links: { [NODE]: W.join(WORKSPACE, "planted", "node.exe") },
+    },
+    {
+      name: "an entry inside a project whose cwd is a junction",
+      cwd: W.join("C:\\", "alias"),
+      links: {
+        [W.join("C:\\", "alias")]: WORKSPACE,
+        [BUN_ENTRY]: W.join(WORKSPACE, "planted", "bailian.mjs"),
+      },
+    },
+  ])("runs bl.exe itself with $name", async ({ missing, bin, entry, links, cwd }) => {
+    const files = {
+      [BUN_EXE]: "bl",
+      [BUN_MARKER]: "bunx",
+      [NODE]: "node",
+      [BUN_MANIFEST]: manifest({ bl: bin ?? "dist/bailian.mjs" }),
+      [entry ?? BUN_ENTRY]: "cli",
+    };
+    if (missing) delete files[missing];
+    await mockWin32Files(files, links);
+    expect(
+      await resolveAlibabaTokenPlanExecutable({
+        platform: "win32",
+        cwd: cwd ?? WORKSPACE,
+        homedir: HOME,
+        pathEnv: TRUSTED_BIN,
+      }),
+    ).toEqual({ ok: true, file: BUN_EXE });
+  });
+
+  it("runs bl.exe itself when node.exe is only on a project PATH entry", async () => {
+    const projectBin = W.join(WORKSPACE, "bin");
+    await mockWin32Files({
+      [BUN_EXE]: "bl",
+      [BUN_MARKER]: "bunx",
+      [W.join(projectBin, "node.exe")]: "node",
+      [BUN_MANIFEST]: manifest({ bl: "dist/bailian.mjs" }),
+      [BUN_ENTRY]: "cli",
+    });
+    expect(
+      await resolveAlibabaTokenPlanExecutable({
+        platform: "win32",
+        cwd: WORKSPACE,
+        homedir: HOME,
+        pathEnv: [projectBin, ".", "relative", TRUSTED_BIN].join(";"),
+      }),
+    ).toEqual({ ok: true, file: BUN_EXE });
+  });
+
+  it("rejects a bun launcher whose realpath is inside the project", async () => {
+    await mockWin32Files(
+      {
+        [BUN_EXE]: "bl",
+        [BUN_MARKER]: "bunx",
+        [NODE]: "node",
+        [BUN_MANIFEST]: manifest({ bl: "dist/bailian.mjs" }),
+        [BUN_ENTRY]: "cli",
+      },
+      { [BUN_EXE]: W.join(WORKSPACE, "bin", "bl.exe") },
+    );
+    expect(
+      await resolveAlibabaTokenPlanExecutable({
+        platform: "win32",
+        cwd: WORKSPACE,
+        homedir: HOME,
+        pathEnv: TRUSTED_BIN,
+      }),
+    ).toMatchObject({ ok: false, error: { kind: "workspace_path_rejected" } });
+  });
+
+  it.each([
+    { name: "npm", shim: SHIM, packageManifest: MANIFEST, entry: ENTRY },
+    { name: "bun", shim: BUN_EXE, packageManifest: BUN_MANIFEST, entry: BUN_ENTRY },
+  ])(
+    "resolves the $name shim with case-insensitive Windows filenames",
+    async ({ shim, packageManifest, entry }) => {
+      const uppercaseShim = shim.toUpperCase();
+      await mockWin32Files(
+        {
+          [uppercaseShim]: "shim",
+          [W.join(TRUSTED_BIN, "BL.bunx")]: "bunx",
+          [NODE.toUpperCase()]: "node",
+          [packageManifest.toUpperCase()]: manifest({ bl: "dist/bailian.mjs" }),
+          [entry.toUpperCase()]: "cli",
+        },
+        { [shim]: uppercaseShim },
+      );
+      expect(
+        await resolveAlibabaTokenPlanExecutable({
+          platform: "win32",
+          cwd: WORKSPACE,
+          homedir: HOME,
+          pathEnv: TRUSTED_BIN,
+        }),
+      ).toEqual({ ok: true, file: NODE, args: [entry] });
+    },
+  );
 
   it.each([
     {
