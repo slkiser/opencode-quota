@@ -861,6 +861,28 @@ describe("alibaba token plan Windows resolution", () => {
     ).toEqual({ ok: true, file: BUN_EXE });
   });
 
+  it("runs bl.exe itself when bun's bin folder sits right under a drive root", async () => {
+    // `C:\bin\bl.exe` would put the bun package at `C:\install`, which any local user can create.
+    const rootBin = W.join("C:\\", "bin");
+    const rootExe = W.join(rootBin, "bl.exe");
+    const rootPackage = W.join("C:\\", "install", "global", "node_modules", "bailian-cli");
+    await mockWin32Files({
+      [rootExe]: "bl",
+      [W.join(rootBin, "bl.bunx")]: "bunx",
+      [W.join(rootBin, "node.exe")]: "node",
+      [W.join(rootPackage, "package.json")]: manifest({ bl: "dist/bailian.mjs" }),
+      [W.join(rootPackage, "dist", "bailian.mjs")]: "cli",
+    });
+    expect(
+      await resolveAlibabaTokenPlanExecutable({
+        platform: "win32",
+        cwd: WORKSPACE,
+        homedir: HOME,
+        pathEnv: rootBin,
+      }),
+    ).toEqual({ ok: true, file: rootExe });
+  });
+
   it.each([
     { name: "no node.exe on the trusted PATH", missing: NODE },
     { name: "no bl.bunx marker beside the launcher", missing: BUN_MARKER },

@@ -415,14 +415,11 @@ async function resolveBunShimEntry(
   const shimCommand = paths.basename(shimFile, paths.extname(shimFile)).toLowerCase();
   const marker = paths.join(paths.dirname(shimFile), `${shimCommand}.bunx`);
   if (!(await isRegularFile(marker))) return null;
-  const packageRoot = paths.join(
-    paths.dirname(shimFile),
-    "..",
-    "install",
-    "global",
-    "node_modules",
-    packageName,
-  );
+  const prefix = paths.dirname(paths.dirname(shimFile));
+  // A bin folder right under a drive root (`C:\bin`) would put the package at the root, where any
+  // local user can create folders, so that layout is never read.
+  if (paths.parse(prefix).root === prefix) return null;
+  const packageRoot = paths.join(prefix, "install", "global", "node_modules", packageName);
   return await resolveShimEntry(paths, packageRoot, shimCommand, projectFolders);
 }
 
