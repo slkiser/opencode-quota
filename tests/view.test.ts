@@ -676,6 +676,32 @@ describe("view text", () => {
       expect(sidebar(on).map(columnsOf)).toEqual(sidebar(display.layout).map(columnsOf));
     });
 
+    it.each([
+      { window: "month", label: "Monthly", resetIn: 10 * 24 * 60 * MINUTE },
+      { window: "year", label: "Yearly", resetIn: 100 * 24 * 60 * MINUTE },
+    ] as const)(
+      "omits the mark for a $window window without a known start",
+      ({ window, label, resetIn }) => {
+        const providerWithWindow = provider("openai", "OpenAI", [
+          row(`openai.${window}`, {
+            label,
+            window,
+            percentRemaining: 60,
+            resetsAt: at(resetIn),
+          }),
+        ]);
+        const lines = sidebarLines({
+          groups: groups("sidebar", [providerWithWindow]),
+          ...drawn,
+          layout: on,
+          width: 40,
+        }).map(lineText);
+
+        expect(lines[1]).toMatch(/[█░]/u);
+        expect(lines[1]).not.toContain("┃");
+      },
+    );
+
     it("is in the bars of the collapsed panel, the status line, the big bar and both toasts", () => {
       const status: StatusInput = { ...statusInput([PACED]), layout: on };
       const toastOn = (toastLayout: ToastLayout) =>

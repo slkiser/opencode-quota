@@ -191,6 +191,8 @@ export const STYLE = `
 .oq-panel { padding: 10px 12px; overflow: auto; height: 100%; box-sizing: border-box; }
 .oq-panel .oq-muted { color: var(--oq-n-muted); }
 .oq-panel-title { font-weight: 600; margin-bottom: 8px; }
+.oq-pfreshness { display: flex; flex-wrap: wrap; gap: 2px 8px; margin-bottom: 8px; font-size: 11px; line-height: 15px; }
+.oq-pfreshness-item { min-width: 0; overflow-wrap: anywhere; }
 /* The rows of every provider share the columns of one grid: label (as wide as the widest, at most
    40% of the room), bar, percent and reset time. Groups and rows are subgrids of it. */
 .oq-prows { display: grid; grid-template-columns: fit-content(40%) minmax(30px, 1fr) max-content max-content;

@@ -93,7 +93,7 @@ For example `/quota_usage 30d` or `/quota_usage between 2026-09-01 2026-09-25`. 
 
 - Change settings in `/quota_settings` (TUI) or the Quota page in Desktop's settings. Both save to `opencode-quota/settings.jsonc` in OpenCode's config folder and keep your comments.
 - Custom providers, the Claude CLI path and the export path are set only in the file.
-- The `┃` in a bar marks even use until the reset. **Even-use mark** (`layout.evenUse`) turns it off.
+- The `┃` marks how much quota should remain now if consumed evenly from window start to reset; with the default “left” wording, the colored fill shows actual quota left. Halfway through a 5-hour window, 60% left versus a 50% target looks like `━━━━━━━━━━┃━────────`: fill to its right means more quota remains than target; to its left means less. Its color follows text, not quota health, and it may be absent when percent or usable timing is unavailable. **Even-use mark** (`layout.evenUse`) turns it off.
 - [Settings and defaults](docs/readme/configuration.md)
 
 ## Providers

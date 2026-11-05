@@ -86,9 +86,9 @@ Roles are `good`, `warning`, `low`, `empty`, `title`, `provider`, `account`, `la
 
 | Setting | Default | Values |
 | --- | --- | --- |
-| `layout.bar` | `"line"` | `blocks`, `shades`, `line`, `squares`, `dots`, `none`. |
+| `layout.bar` | `"line"` | `blocks`, `shades`, `line`, `squares`, `dots`, `none`. `none` hides meters on other quota surfaces; Limits intentionally keeps a thin line. |
 | `layout.barWidth` | `"fill"` | `fill` uses the room the other values leave (up to 20 cells on the expanded sidebar, toasts and Limits; 10 on the collapsed sidebar and Home's one-provider line; 5 on the session status line); or a whole number 1–30, clamped to the available room. |
-| `layout.evenUse` | `true` | The `┃` mark where even use until the reset would be, in the bars of every place, the Limits tab included. It is not the bar's value. **Even-use mark** on Layout's All places page. |
+| `layout.evenUse` | `true` | `┃` marks how much quota should remain now if consumed evenly from the window start through reset; with `words.percent: "left"`, the colored fill shows actual quota remaining. The mark follows text color, not quota health, and may be absent when percent or usable timing is unavailable (including month/year windows without a known start). **Even-use mark** on Layout's All places page. |
 | `layout.indent` | `1` | Whole number 0–4. |
 | `layout.labelWidth` | `8` | Whole number 3–20: the most columns a row name takes. |
 | `layout.providerGap` | `1` | Whole number 0–2. |
@@ -121,7 +121,7 @@ dots            ●●●●●●●●●●●●○○○○○○○○
 none            (no meter; the percent remains)
 ```
 
-With **Even-use mark** on, a separate example at 60% left and 50% left at an even pace is `━━━━━━━━━━┃━────────`. `┃` replaces one cell to show where even use would be; it is not an extra meter cell. When bars are set to `none`, quota surfaces omit the meter, while the Limits tab intentionally keeps its thin line. Usage charts remain analytics and do not use these quota-meter settings.
+With **Even-use mark** on, halfway through a 5-hour window the even-use target is 50% remaining. If actual quota remaining is 60%, a 20-cell meter fills 12 cells and shows `━━━━━━━━━━┃━────────`: `┃` replaces the boundary cell at the target, so it is not an extra cell. Fill to the right of the mark means more quota remains than target; fill to the left means less. The mark follows text color, not quota health. It may be absent when percent or timing is unavailable, including some month/year windows without a known start. With `words.percent: "used"`, the bar and mark turn around to follow the displayed percentage. When bars are set to `none`, other quota surfaces omit the meter, while Limits intentionally substitutes a thin line. Usage charts remain analytics and do not use these quota-meter settings.
 
 ### Words
 

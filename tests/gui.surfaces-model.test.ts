@@ -148,6 +148,84 @@ describe("GUI Quota panel", () => {
     expect(view.groups[0]?.rows.every((item) => item.pace === undefined)).toBe(true);
     expect(view.session).toBeUndefined();
   });
+
+  it("marks provider data stale at twice the default check interval, not before", () => {
+    const { snapshot, settings } = settingsWith({});
+    const withAge = (ageMs: number): QuotaSnapshot => ({
+      ...snapshot,
+      providers: snapshot.providers.map((provider) =>
+        provider.providerId === "anthropic" ? { ...provider, okAtMs: NOW - ageMs } : provider,
+      ),
+    });
+    const age = (ageMs: number) =>
+      panelView(withAge(ageMs), settings, NOW).dataAges.find(
+        (item) => item.providerId === "anthropic",
+      );
+
+    expect(age(10 * 60_000 - 1)).toMatchObject({ ageMs: 10 * 60_000 - 1, stale: false });
+    expect(age(10 * 60_000)).toMatchObject({ ageMs: 10 * 60_000, stale: true });
+    expect(age(10 * 60_000 + 1)).toMatchObject({ ageMs: 10 * 60_000 + 1, stale: true });
+  });
+
+  it("omits ages for missing and future successful timestamps", () => {
+    const { snapshot, settings } = settingsWith({});
+    const noTimestamps = {
+      ...snapshot,
+      providers: snapshot.providers.map((provider) =>
+        provider.providerId === "anthropic" ? { ...provider, okAtMs: NOW + 1 } : provider,
+      ),
+    };
+
+    expect(panelView(noTimestamps, settings, NOW).dataAges).toEqual([]);
+  });
+
+  it("bases age on retained successful data after a failed refresh", () => {
+    const { snapshot, settings } = settingsWith({});
+    const prior = snapshot.providers.find((provider) => provider.providerId === "anthropic")!;
+    const failed = {
+      ...snapshot,
+      providers: [
+        {
+          ...prior,
+          okAtMs: NOW - 12 * 60_000,
+          checkedAtMs: NOW - 1_000,
+          error: { code: "network" as const },
+        },
+        ...snapshot.providers.filter((provider) => provider.providerId !== "anthropic"),
+      ],
+    };
+    const view = panelView(failed, settings, NOW);
+
+    expect(view.groups[0]?.rows).toHaveLength(prior.rows.length);
+    expect(view.dataAges.find((item) => item.providerId === "anthropic")).toMatchObject({
+      ageMs: 12 * 60_000,
+      stale: true,
+    });
+  });
+
+  it("shows one age per provider when its rows form multiple account groups", () => {
+    const { snapshot, settings } = settingsWith({});
+    const provider = snapshot.providers.find((item) => item.providerId === "anthropic")!;
+    const multiAccount = {
+      ...snapshot,
+      providers: snapshot.providers.map((item) =>
+        item.providerId === "anthropic"
+          ? {
+              ...item,
+              okAtMs: NOW - 2 * 60_000,
+              rows: [
+                { ...item.rows[0]!, account: "work" },
+                { ...item.rows[1]!, account: "personal" },
+              ],
+            }
+          : item,
+      ),
+    };
+    const view = panelView(multiAccount, settings, NOW);
+
+    expect(view.groups.filter((group) => group.providerId === "anthropic")).toHaveLength(2);
+    expect(view.dataAges.filter((item) => item.providerId === provider.providerId)).toHaveLength(1);
+  });
 });
 
 describe("GUI bars", () => {

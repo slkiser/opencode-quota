@@ -82,11 +82,56 @@ export type PickedGroup = Omit<SurfaceGroup, "rows"> & { row?: SurfaceRow };
 
 export type PanelView = {
   groups: SurfaceGroup[];
+  /** One successful-data age per shown provider, independent of the last attempt's time. */
+  dataAges: ProviderDataAge[];
   /** "12.3K in · 2.10K out" when `sidebar.sessionTokens` is on and the snapshot has them. */
   session?: string;
   /** "⚠ low cache: 35% (claude-sonnet-5)" for the session's model with a low cache hit. */
   lowCache?: string;
 };
+
+export type ProviderDataAge = {
+  providerId: string;
+  name: string;
+  ageMs: number;
+  stale: boolean;
+};
+
+/** The schema default of `providers.checking.minIntervalMs` (five minutes). */
+const DEFAULT_CHECK_INTERVAL_MS = 5 * 60_000;
+
+/** The successful rows' age; failed attempts never reset it. */
+function providerDataAges(
+  snapshot: QuotaSnapshot,
+  groups: readonly Pick<SurfaceGroup, "providerId">[],
+  nowMs: number,
+): ProviderDataAge[] {
+  const setting = snapshot.settings?.values["providers.checking.minIntervalMs"];
+  const checkIntervalMs =
+    typeof setting === "number" && Number.isFinite(setting) && setting > 0
+      ? setting
+      : DEFAULT_CHECK_INTERVAL_MS;
+  const providers = new Map(snapshot.providers.map((provider) => [provider.providerId, provider]));
+  const seen = new Set<string>();
+  const ages: ProviderDataAge[] = [];
+
+  for (const group of groups) {
+    if (seen.has(group.providerId)) continue;
+    seen.add(group.providerId);
+    const provider = providers.get(group.providerId);
+    const okAtMs = provider?.okAtMs;
+    if (!provider || okAtMs === undefined || !Number.isFinite(okAtMs) || okAtMs > nowMs) continue;
+    const ageMs = nowMs - okAtMs;
+    ages.push({
+      providerId: group.providerId,
+      name: provider.label,
+      ageMs,
+      stale: ageMs >= 2 * checkIntervalMs,
+    });
+  }
+
+  return ages;
+}
 
 /** The longest low-cache line: the model's name is cut to fit it. */
 const LOW_CACHE_WIDTH = 48;
@@ -140,11 +185,13 @@ export function panelView(snapshot: QuotaSnapshot, settings: Settings, nowMs: nu
     ...surfaceGroup(shown, group, nowMs),
     rows: group.rows.map((item) => surfaceRow(settings, rowFacts(item, group, place))),
   }));
+  const dataAges = providerDataAges(snapshot, groups, nowMs);
   const tokens = settings.sidebar.sessionTokens ? snapshot.sessionTokens : undefined;
-  if (!tokens) return { groups };
+  if (!tokens) return { groups, dataAges };
   const lowCache = lowCacheLine(tokens.models ?? [], LOW_CACHE_WIDTH);
   return {
     groups,
+    dataAges,
     session: sessionTokensText(tokens),
     ...(lowCache ? { lowCache: lineText(lowCache) } : {}),
   };
@@ -162,8 +209,8 @@ export function toastView(input: ToastInput): PanelView {
     rows: group.rows.map((item) => surfaceRow(input, rowFacts(item, group, place))),
   }));
   return input.sessionTokens
-    ? { groups, session: sessionTokensText(input.sessionTokens) }
-    : { groups };
+    ? { groups, dataAges: [], session: sessionTokensText(input.sessionTokens) }
+    : { groups, dataAges: [] };
 }
 
 /**

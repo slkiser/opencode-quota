@@ -55,7 +55,7 @@ export const en = {
   "legend.low": "almost out ({{limit}})",
   "legend.warningPace": "getting low ({{limit}}, or up to 5 points faster than even use)",
   "legend.lowPace": "almost out ({{limit}}, or faster than that)",
-  "legend.evenUse": "where even use would be now",
+  "legend.evenUse": "quota left now with even use until reset",
 
   "usage.loading": "Reading OpenCode's history…",
   "usage.error": "Could not load usage: {{message}}",
@@ -112,6 +112,16 @@ export const en = {
   "panel.loading": "Loading quota…",
   "panel.notChecked": "not checked yet",
   "panel.session": "Session",
+  "panel.dataAge.label": "Provider data age",
+  "panel.dataAge": "{{provider}} · {{age}}",
+  "panel.dataAge.stale": "{{provider}} · {{age}} · stale",
+  "panel.dataAge.now": "data just now",
+  "panel.dataAge.minutes.one": "data {{count}} minute ago",
+  "panel.dataAge.minutes.other": "data {{count}} minutes ago",
+  "panel.dataAge.hours.one": "data {{count}} hour ago",
+  "panel.dataAge.hours.other": "data {{count}} hours ago",
+  "panel.dataAge.days.one": "data {{count}} day ago",
+  "panel.dataAge.days.other": "data {{count}} days ago",
   "titlebar.more": "{{text}} +{{count}}",
   "titlebar.title": "Quota: {{text}}. Opens the usage window.",
   "composer.title": "Quota for the current model. Opens the usage window.",
@@ -272,12 +282,14 @@ export const en = {
   "setting.colors.lowBelow.description":
     "Percent left under which a bar turns to the 'almost out' color.",
   "setting.layout.bar": "Bar shape",
-  "setting.layout.bar.description": "How bars are drawn in the terminal.",
+  "setting.layout.bar.description":
+    "How bars are drawn. No bars hides meters everywhere except Limits, which keeps a thin line.",
   "setting.layout.barWidth": "Bar width",
   "setting.layout.barWidth.description":
     "Fill the room the other columns leave, or a fixed number of columns.",
   "setting.layout.evenUse": "Even-use mark",
-  "setting.layout.evenUse.description": "A thin mark in each bar where even use would be now.",
+  "setting.layout.evenUse.description":
+    "┃ marks how much quota should remain now after even use from window start to reset; the colored fill shows actual quota left. Its color follows text, not quota health. The mark may be absent without a percent or usable window timing.",
   "setting.layout.indent": "Row indent",
   "setting.layout.indent.description": "Spaces before each row.",
   "setting.layout.labelWidth": "Label width",
