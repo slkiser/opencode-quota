@@ -1,0 +1,112 @@
+name: PR intake check
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize]
+
+concurrency:
+  group: pr-intake-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    # Maintainers and bots may open PRs without an issue on purpose.
+    if: ${{ github.event.pull_request.user.type != 'Bot' && !contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association) }}
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
+      contents: read
+
+    steps:
+      - name: Ask for a linked issue when a PR changes a default or the UI
+        uses: actions/github-script@v9
+        with:
+          script: |
+            // This pull_request_target workflow never checks out or runs PR code. It only reads
+            // the PR body and the list of changed file names through the GitHub API.
+
+            // A PR "changes a default or the UI" when it changes a file under one of these folders
+            // or is one of these files:
+            // - src/tui/: the OpenCode TUI plugin (sidebar, status line, toasts, /quota window).
+            // - src/gui/: the experimental Desktop GUI plugin.
+            // - src/view/: text, formatting and layout shared by the TUI and the GUI.
+            // - src/settings/schema.ts: the table of every setting with its default value.
+            // - src/settings/shared.ts: settings where "unset" is not the same as the default.
+            const DEFAULT_OR_UI_PATHS = [
+              "src/tui/",
+              "src/gui/",
+              "src/view/",
+              "src/settings/schema.ts",
+              "src/settings/shared.ts",
+            ];
+
+            const label = "needs info";
+            const marker = "<!-- pr-intake-check -->";
+            const workflowBot = "github-actions[bot]";
+            const params = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+            };
+
+            // Read the PR as it is now, not as it was when this run was queued.
+            const { data: pullRequest } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: params.issue_number,
+            });
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: params.issue_number,
+              per_page: 100,
+            });
+            // A renamed file counts under both its new and its old name.
+            const changesDefaultOrUi = files.some((file) =>
+              [file.filename, file.previous_filename].some(
+                (path) => path !== undefined && DEFAULT_OR_UI_PATHS.some((prefix) => path.startsWith(prefix)),
+              ),
+            );
+
+            // Any issue reference: "Fixes #12", "Fix #12", "#12", "owner/repo#12", or a full issue URL.
+            const body = pullRequest.body ?? "";
+            const issueLink =
+              /(?:^|[\s([])(?:[\w.-]+\/[\w.-]+)?#\d+\b/u.test(body) ||
+              /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+/iu.test(body);
+
+            const needsIssue = changesDefaultOrUi && !issueLink;
+            const labeled = pullRequest.labels.some((l) => l.name === label);
+
+            // Who last added or removed the label decides who owns it.
+            const events = await github.paginate(github.rest.issues.listEvents, params);
+            const lastLabelEvent = events
+              .filter((e) => (e.event === "labeled" || e.event === "unlabeled") && e.label?.name === label)
+              .at(-1);
+            const lastChangeByThisWorkflow = lastLabelEvent?.actor?.login === workflowBot;
+            const maintainerRemovedLabel = lastLabelEvent?.event === "unlabeled" && !lastChangeByThisWorkflow;
+
+            const comments = await github.paginate(github.rest.issues.listComments, params);
+            const asked = comments.some((c) => c.user?.login === workflowBot && c.body?.includes(marker));
+
+            if (needsIssue) {
+              // Never re-add a label a maintainer took off.
+              if (!labeled && !maintainerRemovedLabel) {
+                await github.rest.issues.addLabels({ ...params, labels: [label] });
+              }
+              if (!asked) {
+                await github.rest.issues.createComment({
+                  ...params,
+                  body: [
+                    marker,
+                    "Thanks for the PR! It changes a default setting or the UI, so please link an issue first: add `Fixes #<issue number>` to the description. If there is no issue yet, open one with a form.",
+                    "",
+                    "Please also add before and after screenshots of what changes on screen. The `needs info` label comes off automatically once the issue is linked.",
+                  ].join("\n"),
+                });
+              }
+            } else if (labeled && lastLabelEvent?.event === "labeled" && lastChangeByThisWorkflow) {
+              // Only undo a label this workflow added, never a maintainer's.
+              await github.rest.issues.removeLabel({ ...params, name: label });
+            }

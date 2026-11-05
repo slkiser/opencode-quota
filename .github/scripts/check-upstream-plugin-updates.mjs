@@ -5,6 +5,8 @@ import { fetchLatestPublishedPluginVersion } from "./lib/upstream-plugin-registr
 import { UPSTREAM_PLUGIN_SPECS } from "./lib/upstream-plugin-specs.mjs";
 
 const GITHUB_API_ORIGIN = "https://api.github.com";
+// Label of the issues this script creates; the thin-issue check skips bot authors.
+const UPSTREAM_UPDATE_LABEL = "upstream update";
 const WRITE_ISSUES = process.argv.includes("--write-issues");
 
 function getTrackedEntry(lock, pluginId) {
@@ -71,7 +73,7 @@ async function listIssues(repository, token, state) {
 
 async function createIssue(repository, token, title, body) {
   await githubRequest(`/repos/${repository}/issues`, token, {
-    body: JSON.stringify({ body, title }),
+    body: JSON.stringify({ body, labels: [UPSTREAM_UPDATE_LABEL], title }),
     method: "POST",
   });
 }
