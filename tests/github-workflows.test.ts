@@ -223,7 +223,7 @@ describe("GitHub workflows", () => {
   it("keeps issue forms without title prefills and with their labels", async () => {
     const expectedLabels: Record<string, string[]> = {
       "bug_report.yml": ["bug"],
-      "feature_request.yml": ["enhancement"],
+      "feature_request.yml": ["feature"],
       "provider_request.yml": ["provider"],
     };
     for (const [file, labels] of Object.entries(expectedLabels)) {

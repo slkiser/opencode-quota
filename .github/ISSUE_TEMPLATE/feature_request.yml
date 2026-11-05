@@ -1,7 +1,7 @@
 name: Feature request
 description: Propose a new feature or behavior change
 labels:
-  - enhancement
+  - feature
 body:
   - type: markdown
     attributes:
