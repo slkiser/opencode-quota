@@ -493,7 +493,12 @@ export async function resolveAlibabaTokenPlanExecutable(params: {
         // bun's global `bl.exe` is a launcher that spawns `node` itself, and that grandchild opens
         // a visible console per check when the parent has none. Run node on the entry directly,
         // like the npm `.cmd` route. No marker, package, entry or node: the file runs as before.
-        const entry = await resolveBunShimEntry(paths, candidate, SHIM_PACKAGE_NAME, projectFolders);
+        const entry = await resolveBunShimEntry(
+          paths,
+          candidate,
+          SHIM_PACKAGE_NAME,
+          projectFolders,
+        );
         const node =
           entry === null ? null : await resolveNodeExecutable(paths, trusted, projectFolders);
         if (entry !== null && node !== null) return { ok: true, file: node, args: [entry] };
