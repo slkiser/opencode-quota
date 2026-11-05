@@ -96,9 +96,9 @@ describe("quota window: Limits", () => {
     // Like the window's other tabs: the provider one column in, its rows three.
     expect(lines[0]).toBe(" Claude");
     expect(lines[1]).toMatch(
-      /^ {3}5h +[█░┃]+ {2}30% left {3}resets in 2h 30m {3}runs out in 1h 5m$/u,
+      /^ {3}5h +[█░┃━─]+ {2}30% left {3}resets in 2h 30m {3}runs out in 1h 5m$/u,
     );
-    expect(lines[2]).toMatch(/^ {3}Fable +[█░]+ {2}90% left$/u);
+    expect(lines[2]).toMatch(/^ {3}Fable +[█░┃━─]+ {2}90% left$/u);
   });
 
   it("shows exact times and full row names whatever the words", () => {
@@ -110,36 +110,38 @@ describe("quota window: Limits", () => {
     });
     // The words default to smart times ("4.0d") and short row names ("7d").
     expect(limits([provider("anthropic", "Claude", [weekly])])[1]).toMatch(
-      /^ {3}Weekly +[█░┃]+ {2}60% left {3}resets in 3d 23h 58m/u,
+      /^ {3}Weekly +[█░┃━─]+ {2}60% left {3}resets in 3d 23h 58m {3}on track$/u,
     );
   });
 
-  it("lines every provider up in one grid that fills the window, under name-only provider lines", () => {
+  it("lines every provider up in a compact grid under name-only provider lines", () => {
     const lines = limits([CLAUDE, ZEN]);
     const [claude, fiveHour, fable, gap, zen, balance] = lines;
     expect(gap).toBe("");
     // The bars start in one column, the percents and the balance end in one column.
-    expect(fiveHour.indexOf("█")).toBe(BAR_COLUMN);
-    expect(fable.indexOf("█")).toBe(BAR_COLUMN);
+    expect(fiveHour.indexOf("━")).toBe(BAR_COLUMN);
+    expect(fable.indexOf("━")).toBe(BAR_COLUMN);
     const percentEnd = fiveHour.indexOf("30% left") + "30% left".length;
     expect(fable.length).toBe(percentEnd);
     expect(balance).toBe(
       `   Balance${" ".repeat(percentEnd - "   Balance".length - "$12.50 left".length)}$12.50 left`,
     );
-    // The grid fills the window; a provider's line has only its name.
-    expect(fiveHour.length).toBe(WIDE);
+    // The compact grid ends with its last value instead of stretching across the window.
+    expect(fiveHour.length).toBeLessThan(WIDE);
     expect(claude).toBe(" Claude");
     expect(zen).toBe(" OpenCode Zen");
   });
 
   it("draws the bar in the level color with the even-use marker where even use would be", () => {
     const fiveHour = limitLines([CLAUDE])[1];
-    const bar = fiveHour.segments.filter((segment) => /^[█░┃]+$/u.test(segment.text));
+    const bar = fiveHour.segments.filter((segment) => /^[█░┃━─]+$/u.test(segment.text));
     expect(bar.map((segment) => segment.role)).toEqual(["bar", "empty", "label", "empty"]);
     const cells = bar.map((segment) => segment.text).join("");
     // 30% left; half of the 5-hour window has passed, so even use would leave 50%.
     expect(cells.indexOf("┃")).toBe(Math.round(cells.length / 2));
-    expect(bar[0].text).toHaveLength(Math.round(cells.length * 0.3));
+    expect(bar.find((segment) => segment.role === "bar")?.text).toHaveLength(
+      Math.round(cells.length * 0.3),
+    );
   });
 
   it("leaves the even-use marker out with Even-use mark off, in every bar shape", () => {
@@ -194,38 +196,44 @@ describe("quota window: Limits", () => {
       generatedAtMs: NOW,
     };
     const fiveHour = lineText(limitsLines({ snapshot, display, nowMs: NOW, width: WIDE })[1]);
-    const bar = fiveHour.match(/^ {3}5h +([█░┃]+) {2}70% used/u)?.[1] ?? "";
+    const bar = fiveHour.match(/^ {3}5h +([█░┃━─]+) {2}70% used/u)?.[1] ?? "";
     // 70% used, so about 70% of the cells are filled.
-    const filled = [...bar].filter((cell) => cell === "█").length;
+    const filled = [...bar].filter((cell) => cell === "█" || cell === "━").length;
     expect(filled / [...bar].length).toBeCloseTo(0.7, 1);
   });
 
-  it.each([
-    { width: 90, cells: 31 },
-    { width: 110, cells: 51 },
-    { width: 300, cells: 80 },
-  ])(
-    "gives the bar the room the other columns leave, at most 80 cells ($width wide)",
-    ({ width, cells }) => {
-      const fable = limits([CLAUDE], width).find((line) => line.includes("Fable"));
-      expect(fable?.match(/[█░]+/u)?.[0]).toHaveLength(cells);
-    },
-  );
+  it.each([90, 110, 300])("keeps a fill bar compact at 20 cells in a $0-column window", (width) => {
+    const fable = limits([CLAUDE], width).find((line) => line.includes("Fable"));
+    expect(fable?.match(/[█░┃━─]+/u)?.[0]).toHaveLength(20);
+  });
+
+  it("uses the configured bar width in the Limits tab", () => {
+    const display = defaultSettings();
+    display.layout.barWidth = 8;
+    const snapshot: QuotaSnapshot = {
+      version: 6,
+      providers: [CLAUDE],
+      resetNotices: [],
+      generatedAtMs: NOW,
+    };
+    const fiveHour = lineText(limitsLines({ snapshot, display, nowMs: NOW, width: WIDE })[1]);
+    expect(fiveHour.match(/^ {3}5h +([█░┃━─]+) {2}30% left/u)?.[1]).toHaveLength(8);
+  });
 
   it("shortens the reset to its first unit before the bar gets too short (80 columns)", () => {
     // 80 columns leave 72 inside the window: the session's padding, the border and the padding.
     const lines = limits([CLAUDE], 72);
     for (const line of lines) expect(line.length).toBeLessThanOrEqual(72);
-    expect(lines[1]).toMatch(/^ {3}5h +[█░┃]+ {2}30% left {3}2h {3}runs out in 1h 5m$/u);
+    expect(lines[1]).toMatch(/^ {3}5h +[█░┃━─]+ {2}30% left {3}2h {3}runs out in 1h 5m$/u);
   });
 
   it("puts the reset and the pace under the bar when they leave it no room", () => {
     const lines = limits([CLAUDE], 50);
     for (const line of lines) expect(line.length).toBeLessThanOrEqual(50);
     expect(lines.slice(1, 4)).toEqual([
-      expect.stringMatching(/^ {3}5h +[█░┃]+ {2}30% left$/u),
+      expect.stringMatching(/^ {3}5h +[█░┃━─]+ {2}30% left$/u),
       `${" ".repeat(3 + "Fable".length + 2)}resets in 2h 30m · runs out in 1h 5m`,
-      expect.stringMatching(/^ {3}Fable +[█░]+ {2}90% left$/u),
+      expect.stringMatching(/^ {3}Fable +[█░┃━─]+ {2}90% left$/u),
     ]);
   });
 

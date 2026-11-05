@@ -95,6 +95,16 @@ describe("settingsPath", () => {
 });
 
 describe("loadSettings", () => {
+  it("defaults quota bars to the thin line while retaining explicit shapes", async () => {
+    const defaults = await loadSettings();
+    expect(defaults.settings.layout.bar).toBe("line");
+
+    writeSettings('{ "layout": { "bar": "blocks" } }');
+    const explicit = await loadSettings();
+    expect(explicit.issues).toEqual([]);
+    expect(explicit.settings.layout.bar).toBe("blocks");
+  });
+
   it("uses the defaults when the file is missing and writes nothing", async () => {
     const loaded = await loadSettings();
 

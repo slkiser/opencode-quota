@@ -93,7 +93,7 @@ export const SURFACE_DEFAULTS: SurfaceSettings = {
     lowBelow: 20,
   },
   layout: {
-    bar: "blocks",
+    bar: "line",
     barWidth: "fill",
     evenUse: true,
     indent: 1,

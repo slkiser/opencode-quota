@@ -85,6 +85,8 @@ const SNAPSHOT: QuotaSnapshot = {
 /** Each surface's own choices, so each shows something only its own section asks for. */
 function settings(): DisplaySettings {
   const display = defaultSettings();
+  // These golden fixtures exercise the original block shape; the default line has its own test.
+  display.layout.bar = "blocks";
   display.sidebar.names = { "anthropic.five_hour": "Burst" };
   display.sidebar.hidden = ["opencode"];
   display.collapsed.runsOut = true;
@@ -194,7 +196,7 @@ const GOLDEN = [
     ],
     statusLine: {
       auto: "Claude 12% (runs out in 13h) +2 ›",
-      one: "Claude 7d █░░░░┃░░░░ 12% left · 3.2d · runs out…",
+      one: "Claude 7d ░░┃░ 12% left · 3.2d · runs out in 13h",
     },
     grouped: [
       "Claude",
@@ -281,9 +283,9 @@ const GOLDEN = [
     detailed: [
       "Claude",
       "Week                                 3.2d",
-      "████░░░░░░░░░░┃░░░░░░░░░░░░░░░░  12% left",
+      "██░░░░░░░┃░░░░░░░░░░  12% left",
       "5h                                 2h 14m",
-      "██████████████┃███░░░░░░░░░░░░░  58% left",
+      "█████████┃██░░░░░░░░  58% left",
       "",
       "OpenCode Zen",
       "Balance                    $1,240.50 left",
@@ -291,11 +293,11 @@ const GOLDEN = [
       "Copilot (work)",
       "Timed out",
       "30d",
-      "████████████░░░░░░░░░░░░░░░░░░░  40% left",
+      "████████░░░░░░░░░░░░  40% left",
       "",
       "Copilot (home)",
       "30d",
-      "████████████████████████████░░░  90% left",
+      "██████████████████░░  90% left",
       "",
       "OpenRouter",
       "Sign in again",
@@ -350,9 +352,9 @@ const GOLDEN = [
     detailed: [
       "Claude",
       "Week                                           3.2d",
-      "█████░░░░░░░░░░░░░░┃░░░░░░░░░░░░░░░░░░░░░  12% left",
+      "██░░░░░░░┃░░░░░░░░░░  12% left",
       "5h                                           2h 14m",
-      "██████████████████┃█████░░░░░░░░░░░░░░░░░  58% left",
+      "█████████┃██░░░░░░░░  58% left",
       "",
       "OpenCode Zen",
       "Balance                              $1,240.50 left",
@@ -360,11 +362,11 @@ const GOLDEN = [
       "Copilot (work)",
       "Timed out",
       "30d",
-      "████████████████░░░░░░░░░░░░░░░░░░░░░░░░░  40% left",
+      "████████░░░░░░░░░░░░  40% left",
       "",
       "Copilot (home)",
       "30d",
-      "█████████████████████████████████████░░░░  90% left",
+      "██████████████████░░  90% left",
       "",
       "OpenRouter",
       "Sign in again",
@@ -401,6 +403,7 @@ const SHARE_SNAPSHOT: QuotaSnapshot = {
 describe("the percent reset style", () => {
   const percentStyle = (percent: DisplaySettings["words"]["percent"] = "left") => {
     const display = defaultSettings();
+    display.layout.bar = "blocks";
     display.words.reset = "percent";
     display.words.percent = percent;
     return display;

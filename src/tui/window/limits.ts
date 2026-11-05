@@ -5,10 +5,11 @@
  *
  * All rows share one grid: label │ bar │ percent │ reset │ pace, each column as wide as its
  * widest entry, the percent right-aligned. The bar has your bar shape (the thin ━─ line when bars
- * are off) with the even-use marker ┃ (`core/pace.ts`) when `layout.evenUse` is on, and takes the room the other columns
- * leave, so the grid always spans the window. A provider's line has its name and plan; an error
- * gets its own line under it. Like the window's other tabs, a provider's line starts one column
- * in, its rows and its error three.
+ * are off) with the even-use marker ┃ (`core/pace.ts`) when `layout.evenUse` is on. It respects
+ * `layout.barWidth`, and a fill bar is capped to the sidebar's 20 cells so a wide window does not
+ * turn it into a long strip. A provider's line has its name and plan; an error gets its own line
+ * under it. Like the window's other tabs, a provider's line starts one column in, its rows and its
+ * error three.
  *
  * A narrower window first shortens "resets in 2h 30m" to "2h", then the labels, and then puts
  * the reset and the pace on a line under the bar (on two lines when they don't fit together).
@@ -38,7 +39,7 @@ const WIDE_GAP = "   ";
 const LABEL_MAX = 24;
 /** The labels are cut to this before the reset and the pace move under the bar. */
 const LABEL_NARROW = 12;
-const BAR_MAX = 80;
+const BAR_MAX = 20;
 /** The bar each step down to a narrower grid needs; below the last, rows take two lines. */
 const BAR_ROOMY = 20;
 const BAR_SHORT = 14;
@@ -59,8 +60,8 @@ type Grid = {
 
 export type LimitsInput = {
   snapshot: QuotaSnapshot;
-  /** The display settings: row names, the sidebar's order, the bar shape and the words. */
-  display: RowSettings & { layout: Pick<Layout, "bar" | "evenUse">; words: Words };
+  /** The display settings: row names, the sidebar's order, the bar shape and width, and the words. */
+  display: RowSettings & { layout: Pick<Layout, "bar" | "barWidth" | "evenUse">; words: Words };
   nowMs: number;
   /** Columns inside the window. */
   width: number;
@@ -73,7 +74,7 @@ function resetWords(row: RowFacts, long: boolean): string {
 }
 
 /** The widest grid that fits `width`, giving way in the order the file comment describes. */
-function gridFor(rows: RowFacts[], width: number): Grid {
+function gridFor(rows: RowFacts[], width: number, maximumBarWidth: number): Grid {
   const bars = rows.filter((row) => row.percent !== undefined);
   const labelWidest = Math.min(LABEL_MAX, widest(rows.map((row) => row.name)));
   if (bars.length === 0) {
@@ -101,15 +102,15 @@ function gridFor(rows: RowFacts[], width: number): Grid {
       ? 0
       : (reset > 0 ? WIDE_GAP.length + reset : 0) + (pace > 0 ? WIDE_GAP.length + pace : 0);
     const fixed = barColumn + GAP.length + percent + tail;
-    const bar = Math.min(BAR_MAX, Math.max(1, width - fixed));
+    const bar = Math.min(maximumBarWidth, Math.max(1, width - fixed));
     return { label, bar, percent, reset, pace, longReset, narrow, barColumn };
   };
   const roomy = build(true, labelWidest, false);
-  if (roomy.bar >= BAR_ROOMY) return roomy;
+  if (roomy.bar >= Math.min(BAR_ROOMY, maximumBarWidth)) return roomy;
   const short = build(false, labelWidest, false);
-  if (short.bar >= BAR_SHORT) return short;
+  if (short.bar >= Math.min(BAR_SHORT, maximumBarWidth)) return short;
   const cut = build(false, Math.min(labelWidest, LABEL_NARROW), false);
-  if (cut.bar >= BAR_MIN) return cut;
+  if (cut.bar >= Math.min(BAR_MIN, maximumBarWidth)) return cut;
   // A very narrow window cuts the labels further, down to 4 columns, to keep the bar.
   const room = width - INDENT.length - 2 * GAP.length - percent - BAR_MIN;
   return build(true, Math.min(labelWidest, LABEL_NARROW, Math.max(4, room)), true);
@@ -217,7 +218,8 @@ export function limitsLines(input: LimitsInput): Line[] {
   const facts = new Map(
     groups.map((group) => [group.id, group.rows.map((item) => rowFacts(item, group, place))]),
   );
-  const grid = gridFor([...facts.values()].flat(), width);
+  const maximumBarWidth = display.layout.barWidth === "fill" ? BAR_MAX : display.layout.barWidth;
+  const grid = gridFor([...facts.values()].flat(), width, maximumBarWidth);
   // With bars off elsewhere, Limits keeps a thin line.
   const shape = display.layout.bar === "none" ? "line" : display.layout.bar;
   return groups.flatMap((group, index) => {

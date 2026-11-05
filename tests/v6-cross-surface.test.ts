@@ -687,13 +687,13 @@ describe("v6 surfaces on the quota snapshot", () => {
       const fetchedTeam = () => vi.mocked(fetch).mock.calls.some(([url]) => url === teamUrl);
       const { tui, windowTree } = await openSettings("Layout", "All places");
       const sidebar = () => words(tui.render("sidebar.content", { sessionID: "ses_1" }));
-      await vi.waitFor(() => expect(sidebar()).toContain("Plan ████████████████░░░░ 81%"));
+      await vi.waitFor(() => expect(sidebar()).toContain("Plan ━━━━━━━━━━━━━━━━──── 81%"));
       await vi.waitFor(() => expect(settingLine(windowTree(), "words.percent")).toHaveLength(1));
 
       // The sidebar shows the new words before they are saved.
       clickable(settingLine(windowTree(), "words.percent"), "‹").props.onMouseUp();
       expect(sidebar()).toEqual(
-        expect.arrayContaining(["▼ Quota used", "Plan ████░░░░░░░░░░░░░░░░ 19%"]),
+        expect.arrayContaining(["▼ Quota used", "Plan ━━━━──────────────── 19%"]),
       );
 
       clickable(windowTree(), "Providers").props.onMouseUp();

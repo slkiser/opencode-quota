@@ -168,7 +168,7 @@ describe("quota toasts", () => {
     await toasts.afterTurn(trigger, "ses_1");
     expect(refresh).toHaveBeenCalledWith("turn", "ses_1");
     const bar =
-      answer === LOW ? `${"█".repeat(2)}${"░".repeat(18)}  10%` : `${"█".repeat(16)}░░░░  80%`;
+      answer === LOW ? `${"━".repeat(2)}${"─".repeat(18)}  10%` : `${"━".repeat(16)}────  80%`;
     expect(show.mock.calls.map(([toast]) => toast.message)).toEqual(
       shown ? [`Claude\n  7d ${bar} left`] : [],
     );
@@ -196,9 +196,9 @@ describe("quota toasts", () => {
       narrow: await message("detailed", 33),
     }).toEqual({
       // A 33-column terminal leaves the toast 18 columns of text beside its close "x".
-      grouped: "Claude\n  7d ██░  80% left",
-      detailed: `Claude\n7d\n${"█".repeat(33)}${"░".repeat(8)}  80% left`,
-      narrow: "Claude\n7d\n██████░░  80% left",
+      grouped: "Claude\n  7d ━━─  80% left",
+      detailed: `Claude\n7d\n${"━".repeat(16)}${"─".repeat(4)}  80% left`,
+      narrow: "Claude\n7d\n━━━━━━──  80% left",
     });
   });
 
@@ -214,9 +214,9 @@ describe("quota toasts", () => {
       return show.mock.calls[0]?.[0].message;
     };
     expect({ off: await message(false), on: await message(true) }).toEqual({
-      off: "Claude\n  7d ████████████████░░░░  80% left  3.5d",
+      off: "Claude\n  7d ━━━━━━━━━━━━━━━━────  80% left  3.5d",
       // The ┃ takes the place of the bar's middle cell; the bar keeps its 20 cells.
-      on: "Claude\n  7d ██████████┃█████░░░░  80% left  3.5d",
+      on: "Claude\n  7d ━━━━━━━━━━┃━━━━━────  80% left  3.5d",
     });
   });
 
@@ -531,7 +531,7 @@ describe("the Toast page's preview", () => {
   const SECONDS = defaultSettings().toast.seconds * 1000;
   const COPY = 3000;
   const HOUR = 60 * 60 * 1000;
-  const MESSAGE = "Claude\n  7d ████████████████░░░░  80% left";
+  const MESSAGE = "Claude\n  7d ━━━━━━━━━━━━━━━━────  80% left";
   const NOTICE: ToastOptions = {
     variant: "success",
     title: "Quota available",
@@ -1044,7 +1044,7 @@ describe("turn events of the TUI plugin", () => {
 });
 
 describe("colored toasts of the TUI plugin", () => {
-  const PLAIN = `Claude\n  7d ${"█".repeat(16)}░░░░  80% left`;
+  const PLAIN = `Claude\n  7d ${"━".repeat(16)}────  80% left`;
 
   /**
    * The messages OpenCode `version`'s toast gets after a compaction (its `show` stands for that

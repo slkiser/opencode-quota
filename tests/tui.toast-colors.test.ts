@@ -45,6 +45,7 @@ const PROVIDERS = [
 /** A grouped toast of `providers`, 54 columns wide. */
 function lines(providers = PROVIDERS) {
   const display = defaultSettings();
+  display.layout.bar = "blocks";
   const snapshot = { version: 6, providers, resetNotices: [], generatedAtMs: NOW };
   return toastLines({
     groups: visibleGroups(snapshot, display, "toast", DEFAULT_WORDS),

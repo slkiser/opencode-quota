@@ -69,6 +69,18 @@ describe("the Settings tabs' field table", () => {
   });
 
   it.each([
+    { shape: "line", preview: "━━━── line" },
+    { shape: "blocks", preview: "███░░ blocks" },
+    { shape: "shades", preview: "▓▓▓░░ shades" },
+    { shape: "squares", preview: "■■■□□ squares" },
+    { shape: "dots", preview: "●●●○○ dots" },
+    { shape: "none", preview: "no bars" },
+  ])("previews the $shape bar choice on Layout", ({ shape, preview }) => {
+    const bar = field("layout.bar");
+    expect(bar.show(shape)).toBe(preview);
+  });
+
+  it.each([
     // From "fill", the first value, to the first and the last number.
     { path: "layout.barWidth", delta: 1, expected: 4 },
     { path: "layout.barWidth", delta: -1, expected: 12 },

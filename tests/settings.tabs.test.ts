@@ -94,7 +94,7 @@ const EXPECTED = {
     lowBelow: 20,
   },
   layout: {
-    bar: "blocks",
+    bar: "line",
     barWidth: "fill",
     evenUse: true,
     indent: 1,
@@ -453,7 +453,7 @@ it.each([
     expected: { layout: { barWidth: "fill", bar: "dots" } },
   },
   { input: { layout: { barWidth: "wide" } }, expected: { layout: { barWidth: "fill" } } },
-  { input: { layout: { bar: "zigzag" } }, expected: { layout: { bar: "blocks" } } },
+  { input: { layout: { bar: "zigzag" } }, expected: { layout: { bar: "line" } } },
   {
     input: { colors: { good: "#00ff00", low: "pink", reset: "accent" } },
     expected: { colors: { good: "#00ff00", low: undefined, reset: "accent" } },

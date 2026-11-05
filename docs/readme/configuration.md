@@ -86,13 +86,42 @@ Roles are `good`, `warning`, `low`, `empty`, `title`, `provider`, `account`, `la
 
 | Setting | Default | Values |
 | --- | --- | --- |
-| `layout.bar` | `"blocks"` | `blocks`, `shades`, `line`, `squares`, `dots`, `none`. |
-| `layout.barWidth` | `"fill"` | `fill` takes the room the other columns leave, at most 20 cells on the sidebar and 10 on the collapsed panel; or a whole number 1–30. |
+| `layout.bar` | `"line"` | `blocks`, `shades`, `line`, `squares`, `dots`, `none`. |
+| `layout.barWidth` | `"fill"` | `fill` uses the room the other values leave (up to 20 cells on the expanded sidebar, toasts and Limits; 10 on the collapsed sidebar and Home's one-provider line; 5 on the session status line); or a whole number 1–30, clamped to the available room. |
 | `layout.evenUse` | `true` | The `┃` mark where even use until the reset would be, in the bars of every place, the Limits tab included. It is not the bar's value. **Even-use mark** on Layout's All places page. |
 | `layout.indent` | `1` | Whole number 0–4. |
 | `layout.labelWidth` | `8` | Whole number 3–20: the most columns a row name takes. |
 | `layout.providerGap` | `1` | Whole number 0–2. |
 | `layout.separator` | `" · "` | Up to 5 characters. |
+
+#### TUI bar examples
+
+`layout.bar` changes the glyphs, and `layout.barWidth` changes the number of cells. **Bar shape** on Layout → All places previews each choice; the examples below use 20 cells, `words.percent: "left"`, `colors.levelBy: "left"`, and the default thresholds (`warningBelow: 50`, `lowBelow: 20`). The filled part follows the row's level and the rest uses `empty`:
+
+| Percent left | 20-cell row sample | Default theme roles | Example custom roles |
+| --- | --- | --- | --- |
+| 60% | `5h ━━━━━━━━━━━━────────  60% left` | `good` (theme green) + `empty` (theme muted) | `good: blue` + `empty: muted` |
+| 40% | `5h ━━━━━━━━────────────  40% left` | `warning` (theme yellow) + `empty` (theme muted) | `warning: accent` + `empty: muted` |
+| 10% | `5h ━━──────────────────  10% left` | `low` (theme red) + `empty` (theme muted) | `low: red` + `empty: muted` |
+
+The role names describe the active OpenCode theme colors; they are not fixed RGB values. The example overrides use only existing color choices:
+
+```jsonc
+"colors": { "good": "blue", "warning": "accent", "low": "red", "empty": "muted" }
+```
+
+At 60% left, the other supported shapes keep the same 12-of-20 fill; `squares` and `dots` remain available:
+
+```text
+line (default)  ━━━━━━━━━━━━────────
+blocks          ████████████░░░░░░░░
+shades          ▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░
+squares         ■■■■■■■■■■■■□□□□□□□□
+dots            ●●●●●●●●●●●●○○○○○○○○
+none            (no meter; the percent remains)
+```
+
+With **Even-use mark** on, a separate example at 60% left and 50% left at an even pace is `━━━━━━━━━━┃━────────`. `┃` replaces one cell to show where even use would be; it is not an extra meter cell. When bars are set to `none`, quota surfaces omit the meter, while the Limits tab intentionally keeps its thin line. Usage charts remain analytics and do not use these quota-meter settings.
 
 ### Words
 
