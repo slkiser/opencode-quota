@@ -43,6 +43,7 @@ export type QuotaRpcNoticeListOutput = { notices: Notice[] };
 export type QuotaRpcUsageInput = UsageQuery;
 export type QuotaRpcUsageOutput = { report: UsageReport };
 export type QuotaRpcDownloadPricesInput = Record<string, never>;
+/** `message` says what happened, for a toast. */
 export type QuotaRpcDownloadPricesOutput = { ok: boolean; message: string };
 export type QuotaRpcSettingsInput = Record<string, never>;
 export type QuotaRpcSettingsOutput = ClientSettings;

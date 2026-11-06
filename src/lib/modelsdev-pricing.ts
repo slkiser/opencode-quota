@@ -24,7 +24,6 @@ const DEFAULT_MODELSDEV_PROVIDERS = ["anthropic", "google", "moonshotai", "opena
 const API_COST_KEYS = ["input", "output", "cache_read", "cache_write"] as const;
 const SNAPSHOT_COST_KEYS = [...API_COST_KEYS, "reasoning"] as const;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-/** Without pricing settings: the settings' defaults, the "auto" list due after 7 days. */
 const DEFAULT_SETTINGS: PricingSettings = { source: "auto", autoRefreshDays: 7 };
 const REFRESH_MIN_ATTEMPT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const REFRESH_TIMEOUT_MS = 6_000;

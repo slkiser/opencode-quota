@@ -27,7 +27,6 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const errorCode = (error: unknown) =>
   error && typeof error === "object" && "code" in error ? String(error.code) : "";
 
-/** What a lock file of this process holds: our pid and a token of our own. */
 function lockOwnerText(token: string): string {
   return JSON.stringify({ pid: process.pid, token });
 }

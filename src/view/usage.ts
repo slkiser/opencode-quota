@@ -288,7 +288,6 @@ function metricRole(view: View, metric: Metric, text: string): UsageRole {
   return metric === view.mode ? "value" : "text";
 }
 
-/** Each metric column's width: its header or its widest number. */
 function metricWidths(view: View, metrics: Metric[], rows: UsageRow[]): number[] {
   return metrics.map((metric) =>
     Math.max(

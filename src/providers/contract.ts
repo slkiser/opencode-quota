@@ -42,7 +42,6 @@ export function keySlug(text: string): string {
     .replace(/^_+|_+$/gu, "");
 }
 
-/** The common windows: row key, default label and window. */
 export const FIVE_HOUR = { key: "five_hour", label: "5h", window: "five_hour" } as const;
 export const WEEKLY = { key: "weekly", label: "Weekly", window: "week" } as const;
 export const MONTHLY = { key: "monthly", label: "Monthly", window: "month" } as const;

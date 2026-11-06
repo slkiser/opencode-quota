@@ -52,6 +52,7 @@ function sanitizeMessage(text: string, maxLength = 200): string {
   return (sanitized || "unknown").slice(0, maxLength);
 }
 
+/** Canonical ISO time, or undefined when the value is not a parseable time. */
 function isoTime(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const timeMs = Date.parse(value);

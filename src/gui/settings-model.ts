@@ -195,7 +195,6 @@ export type Control =
   /** Shown by the section itself (the providers' switches, the trees) or only in the file. */
   | { kind: "none" };
 
-/** The words of one value of `key`: `option.<key>.<value>`. */
 function optionWords(key: string, value: unknown): Words {
   return { key: `option.${key}.${String(value)}` };
 }

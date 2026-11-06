@@ -199,6 +199,7 @@ function resolvedKey(providerId: string, identity: ProviderIdentity): ResolvedKe
   };
 }
 
+/** `promise`, or a rejection with `message` once `ms` have passed. */
 export function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {

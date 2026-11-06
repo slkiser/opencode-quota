@@ -63,7 +63,6 @@ const BAR_TABS: ReadonlyArray<BarTab> = [...TABS, ...SETTINGS_GROUPS];
 
 const WINDOW_TITLE = "OpenCode Quota";
 const SETTINGS_LABEL = "Settings";
-/** Between the tab bar's items. */
 const TAB_GAP = 2;
 /** "‹" or "›" and its gap. */
 const ARROW_WIDTH = 1 + TAB_GAP;

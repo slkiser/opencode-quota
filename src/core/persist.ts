@@ -57,6 +57,7 @@ export type SavedEntry = {
   resetSeenAtMs: Record<string, number>;
 };
 
+/** When a provider was last checked, its failures in a row and the retry time it asked for. */
 export type LastCheck = { checkedAtMs: number; failures: number; retryAtMs?: number };
 
 export type SavedState = {

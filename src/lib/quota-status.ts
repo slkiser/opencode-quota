@@ -275,7 +275,6 @@ function kvSection(id: string, rows: ReportKvRow[]): ReportSection {
   return { title: `${id}:`, rows };
 }
 
-/** "1 other detail not shown", "3 other details not shown". */
 function countText(count: number, one: string, many: string): string {
   return `${count} ${count === 1 ? one : many}`;
 }

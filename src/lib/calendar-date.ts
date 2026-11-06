@@ -15,6 +15,7 @@ export function daysInMonth(year: number, month: number): number {
   return [4, 6, 9, 11].includes(month) ? 30 : 31;
 }
 
+/** The day `text` names, or null when it is not a real "YYYY-MM-DD" day. */
 export function parseCalendarDate(text: unknown): CalendarDate | null {
   if (typeof text !== "string") return null;
   const match = DATE_PATTERN.exec(text);

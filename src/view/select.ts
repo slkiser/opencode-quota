@@ -35,7 +35,6 @@ export type SurfaceRows = {
 /** The window a provider shows in the collapsed sidebar and the status line. */
 export type WindowChoice = "lowest" | QuotaWindow;
 
-/** The part of the settings that picks rows: every surface's section. */
 export type RowSettings = Record<Surface, SurfaceRows>;
 
 /** A row as a place shows it: `label` is your name for it, or its own; `named` says you named it. */

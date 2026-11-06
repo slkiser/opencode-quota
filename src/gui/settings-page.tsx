@@ -337,7 +337,6 @@ function Page(props: Shown) {
     ),
   );
   const keys = surfaceKeys(props.rules);
-  /** A tree edit: each surface setting it changes goes to the draft. */
   const apply = (edit: SettingsEdit) => {
     const before = shown();
     for (const [key, value] of changedSettings(before, edit(before), keys)) draft.set(key, value);

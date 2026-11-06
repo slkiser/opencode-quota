@@ -28,6 +28,7 @@ function eventToolCallID(event: SessionEvent): string | undefined {
   return typeof id === "string" ? id : undefined;
 }
 
+/** Listens to the turn events until the returned stop. */
 export function listenForTurns(on: On, listeners: TurnListeners): () => void {
   const questionToolCalls = new Set<string>();
   const afterTurn = (event: SessionEvent, trigger: TurnEnd) => {

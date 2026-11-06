@@ -29,6 +29,7 @@ export type V5Conversion = {
   sources: string[];
   /** An old file does not parse: `convertV5` waits (maybe mid-edit); a save converts the rest. */
   malformed: boolean;
+  /** True when this call wrote settings.jsonc. */
   written: boolean;
   /** Why settings.jsonc was not written, when a write was tried. */
   notWrittenReason?: string;

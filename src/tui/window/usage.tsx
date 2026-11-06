@@ -88,12 +88,10 @@ const PART_SHADES: Record<string, number> = {
 /** Where the tab's keyboard is: the range list, or the content with its model rows. */
 type Area = "ranges" | "content";
 
-/** A range's line in the range list. */
 function rangeId(range: UsageRange): string {
   return `quota-usage-range-${range}`;
 }
 
-/** The range list's items, each with its element id. */
 const RANGE_ITEMS = USAGE_RANGES.map((item) => ({
   key: item.range,
   label: item.label,

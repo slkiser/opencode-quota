@@ -19,7 +19,6 @@ import {
 } from "./format.js";
 import type { Group, VisibleRow } from "./select.js";
 
-/** How one place shows rows. */
 export type Place = {
   words: Words;
   nowMs: number;
