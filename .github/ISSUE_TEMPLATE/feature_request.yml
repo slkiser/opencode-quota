@@ -1,16 +1,26 @@
 name: Feature request
 description: Propose a new feature or behavior change
 labels:
-  - enhancement
+  - feature
 body:
   - type: markdown
     attributes:
       value: |
+        Title: the problem you see, not the fix.
+
         Describe the change here. Features target OpenCode Quota 6 on OpenCode 2; OpenCode 1 receives requested small fixes.
 
         Something broken? Use **Bug report**.
 
         New provider? Use **Provider request**.
+
+  - type: input
+    id: what_you_see
+    attributes:
+      label: In one sentence, what do you see?
+      description: What happens on your screen. No function or file names.
+    validations:
+      required: true
 
   - type: dropdown
     id: opencode_line

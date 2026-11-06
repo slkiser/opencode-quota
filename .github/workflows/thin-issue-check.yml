@@ -10,8 +10,9 @@ concurrency:
 
 jobs:
   check:
-    # Maintainers may open short tracking issues on purpose.
-    if: ${{ !contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association) }}
+    # Maintainers may open short tracking issues on purpose. Bots (the upstream update check)
+    # open issues without a form on purpose.
+    if: ${{ github.event.issue.user.type != 'Bot' && !contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association) }}
     runs-on: ubuntu-latest
     permissions:
       issues: write
@@ -23,12 +24,37 @@ jobs:
           script: |
             const label = "needs info";
             const marker = "<!-- thin-issue-check -->";
+            const noFormMarker = "<!-- no-form-issue-check -->";
+            // The issue forms add one of these labels when the issue is created.
+            const formLabels = ["bug", "feature", "provider"];
             const issue = context.payload.issue;
             const params = {
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issue.number,
             };
+
+            // An issue opened without a form (for example by an AI agent using `gh issue create`)
+            // has none of the form labels. Ask for a new issue made with a form, once.
+            const fromForm = issue.labels.some((l) => formLabels.includes(l.name));
+            if (context.payload.action === "opened" && !fromForm) {
+              const comments = await github.paginate(github.rest.issues.listComments, params);
+              if (!comments.some((c) => c.body?.includes(noFormMarker))) {
+                if (!issue.labels.some((l) => l.name === label)) {
+                  await github.rest.issues.addLabels({ ...params, labels: [label] });
+                }
+                await github.rest.issues.createComment({
+                  ...params,
+                  body: [
+                    noFormMarker,
+                    "Thanks for opening this! This issue was not made with one of our forms, so we added the `needs info` label.",
+                    "",
+                    "Please open a new issue with a form: https://github.com/slkiser/opencode-quota/issues/new/choose. The forms ask for the details we need to help.",
+                  ].join("\n"),
+                });
+              }
+              return;
+            }
 
             // Title without a "[bug]:" style prefix.
             const title = issue.title.replace(/^\s*\[[^\]]*\]\s*:?/u, "").trim();
@@ -68,7 +94,11 @@ jobs:
             } else if (!thin && labeled) {
               // Only undo a label this workflow added, never a maintainer's.
               const comments = await github.paginate(github.rest.issues.listComments, params);
-              if (comments.some((c) => c.body?.includes(marker))) {
+              // Never undo the label on an issue that was flagged as not from a form.
+              if (
+                comments.some((c) => c.body?.includes(marker)) &&
+                !comments.some((c) => c.body?.includes(noFormMarker))
+              ) {
                 await github.rest.issues.removeLabel({ ...params, name: label });
               }
             }

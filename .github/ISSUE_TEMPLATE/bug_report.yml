@@ -6,7 +6,17 @@ body:
   - type: markdown
     attributes:
       value: |
+        Title: the problem you see, not the fix.
+
         Using OpenCode 1? The older version of this plugin only gets small fixes now.
+
+  - type: input
+    id: what_you_see
+    attributes:
+      label: In one sentence, what do you see?
+      description: What happens on your screen. No function or file names.
+    validations:
+      required: true
 
   - type: dropdown
     id: opencode_line

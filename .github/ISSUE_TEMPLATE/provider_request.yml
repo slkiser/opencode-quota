@@ -6,8 +6,17 @@ body:
   - type: markdown
     attributes:
       value: |
+        Title: the problem you see, not the fix.
+
         You can probably track this provider yourself today. [Here's how](https://github.com/slkiser/opencode-quota/blob/main/docs/readme/providers.md#custom-providers).
         To be built in, a provider needs all of these: a listing on models.dev (the site OpenCode uses to list providers), requests from 2 different people, and public docs showing how to check usage.
+
+  - type: input
+    id: what_should_show
+    attributes:
+      label: In one sentence, what should the plugin show for this provider?
+    validations:
+      required: true
 
   - type: input
     id: provider

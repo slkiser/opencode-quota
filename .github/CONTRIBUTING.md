@@ -5,9 +5,16 @@ Thanks for contributing! Please read this before you open an issue or PR.
 ## Issues first
 
 - Open an issue before a feature, fix, refactor, or behavior change. Opening the issue and PR together is fine.
-- Link it in the PR with `Fixes #<issue>` or `Refs #<issue>`. No issue? Explain the reason and scope in the PR.
-- Use an issue form (bug, feature, or provider request). Write a short, specific title; the form adds the label, so skip `[bug]`-style prefixes.
+- Link it in the PR with `Fixes #<issue>` or `Refs #<issue>`. A PR that changes a default setting or the UI (the TUI, the Desktop GUI) needs a linked issue first; without one it gets the `needs info` label. For anything else without an issue, explain the reason and scope in the PR.
+- Use an issue form (bug, feature, or provider request). Write a short title that names the problem you see, not the fix; the form adds the label, so skip `[bug]`-style prefixes.
+- An issue opened without a form gets the `needs info` label and a request to open a new one with a form.
 - Very short or mostly empty issues get the `needs info` label. Adding the details removes it. `needs info` issues close after 21 days without activity; nothing else auto-closes.
+
+## If an AI writes your issue or PR
+
+Paste this to your AI first:
+
+> Start with what a user sees on screen. Make the title the problem, not the fix. Keep it under 15 lines. Name no function, file or commit unless asked. Fill in every field of the issue form. Test on a released OpenCode version first. A PR that changes a default or the UI needs a linked issue first.
 
 ## Setup
 
@@ -110,9 +117,9 @@ Every PR that changes what users see must include before-and-after screenshots t
 
 ## PR checklist
 
-- [ ] Linked issue, or a short reason there is none
+- [ ] Linked issue (required if the PR changes a default or the UI), or a short reason there is none
 - [ ] `pnpm verify` passes
-- [ ] Tested on the current released OpenCode; version noted
+- [ ] Tested on the current released OpenCode; version noted in the PR description
 - [ ] Before-and-after screenshots and surface results, or `Not applicable`
 - [ ] Docs updated if commands, config, or workflow changed (usually `README.md`)
   Update the English docs only; the maintainer updates the translations in `docs/readme/i18n/`.

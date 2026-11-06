@@ -1,0 +1,43 @@
+name: PR labels
+
+on:
+  pull_request_target:
+    types: [opened, reopened, edited]
+
+concurrency:
+  group: pr-labels-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Label pull requests from title
+        uses: actions/github-script@v9
+        with:
+          script: |
+            // This pull_request_target workflow never checks out or runs PR code. It only reads
+            // the title and label metadata from the event, then calls the labels API.
+            const pullRequest = context.payload.pull_request;
+            const title = pullRequest.title;
+
+            let label;
+            if (/^feat(?:\([^()\r\n]+\))?!?:/u.test(title)) {
+              label = "feature";
+            } else if (/^fix(?:\([^()\r\n]+\))?!?:/u.test(title)) {
+              label = "bug";
+            }
+
+            if (label === undefined || pullRequest.labels.some(({ name }) => name === label)) {
+              return;
+            }
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pullRequest.number,
+              labels: [label],
+            });
