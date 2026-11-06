@@ -111,7 +111,6 @@ function removeOwnerSnapshots(state: QuotaTelemetryState, ownerId: number): void
   }
 }
 
-/** Keeps the highest value seen for `key`. */
 function keepHighest(
   observations: Map<string, QuotaTelemetryObservation>,
   key: string,

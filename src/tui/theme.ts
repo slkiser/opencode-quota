@@ -79,7 +79,6 @@ export function roleColor(
     : fixedColor(theme, choice, "text");
 }
 
-/** The color of one line segment. */
 export function segmentColor(theme: Theme, display: DisplaySettings, segment: Segment): RGBA {
   return segment.role === "bar"
     ? levelColor(theme, display, segment.percent ?? 100, segment.paceLevel)

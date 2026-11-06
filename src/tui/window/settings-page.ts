@@ -60,7 +60,6 @@ export function resetPage(server: ServerSettings, tab: SettingsTab): void {
   server.discardSwitches();
 }
 
-/** What a page needs from OpenCode's TUI: its theme, its light/dark mode and its commands. */
 export type PageHost = Pick<WindowHost, "theme" | "themeMode" | "keymap">;
 
 export type SettingsPage = ReturnType<typeof settingsPage>;

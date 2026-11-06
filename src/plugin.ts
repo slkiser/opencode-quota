@@ -195,7 +195,6 @@ export function createQuotaServerPlugin(
           return {};
         }
       };
-      // With a session, a snapshot also has the tokens the session used so far.
       const withSessionTokens = async (
         snapshot: QuotaSnapshot,
         sessionID: string | undefined,

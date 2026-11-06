@@ -87,7 +87,6 @@ function parseDeepSeekBalance(payload: unknown): DeepSeekBalance {
   return { success: true, rows, parseIssues };
 }
 
-/** The DeepSeek balance of one API key. */
 async function queryDeepSeekBalance(
   apiKey: string,
   requestTimeoutMs?: number,

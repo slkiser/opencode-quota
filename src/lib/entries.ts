@@ -81,7 +81,6 @@ export interface QuotaProvider {
   /** Best-effort availability check (no network if possible) */
   isAvailable: (ctx: QuotaProviderContext) => Promise<boolean>;
 
-  /** Fetch quota as the row contract. */
   fetch: (
     ctx: QuotaProviderContext,
     cacheContext?: QuotaProviderCacheContext,

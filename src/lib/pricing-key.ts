@@ -147,7 +147,6 @@ function inferOfficialProviderFromModelId(modelId: string): string | null {
   if (lower.startsWith("kimi")) return "moonshotai";
   if (lower.startsWith("glm")) return "zai";
   if (lower.startsWith("grok")) return "xai";
-  // heuristics
   if (lower.includes("claude")) return "anthropic";
   if (lower.includes("gemini")) return "google";
   if (lower.includes("gpt")) return "openai";
@@ -452,7 +451,6 @@ function classifyMissingPricing(params: {
     return { kind: "unpriced", reason: "model id exists in snapshot but has no token pricing" };
   }
 
-  // Provider exists but model key missing from snapshot.
   return { kind: "unknown" };
 }
 

@@ -47,7 +47,6 @@ export type Place = {
 };
 
 export type RowFacts = {
-  /** The row's id, for the lines that show it. */
   id: string;
   name: string;
   /** Its percent left as the row has it, for bars and level colors; undefined without one. */

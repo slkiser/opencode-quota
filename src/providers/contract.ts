@@ -90,8 +90,6 @@ export function quotaRow(fields: {
   return windowRow({ ...fields, method: "remote_api" });
 }
 
-/** One window of a provider reply: the percent left, the counts when it has them, when it resets
- * and when it started. */
 export type WindowValue = {
   percentRemaining: number;
   resetTimeIso?: string;
@@ -101,10 +99,8 @@ export type WindowValue = {
   limit?: Amount;
 };
 
-/** One window's slot: the row key it takes, the label it shows and the window it is. */
 export type Slot = { key: string; label: string; window: QuotaWindow };
 
-/** One window of a provider reply: the slot that names it and the value it reported. */
 export type WindowRow = {
   slot: Slot;
   value: WindowValue | undefined;
@@ -141,7 +137,6 @@ export function failedAccount(name: string, message: string, facts?: ErrorFacts)
   return { name, rows: [], errors: [fetchError(message, facts)] };
 }
 
-/** An error with its request's facts, when there are some. */
 export function fetchError(message: string, facts?: ErrorFacts): FetchError {
   return facts ? { message, facts } : { message };
 }

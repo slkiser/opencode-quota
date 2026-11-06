@@ -24,7 +24,6 @@ export type SettingsShape = {
   recordKeys: ReadonlySet<string>;
 };
 
-/** The shape of the settings these rules describe. */
 export function settingsShape(rules: Readonly<Record<string, SettingRule>>): SettingsShape {
   const entries = Object.entries(rules).filter(
     ([key, rule]) => key !== "version" && rule.fileOnly !== true,

@@ -66,10 +66,6 @@ export interface CopilotQuotaConfig {
   tier: CopilotTier;
 }
 
-// =============================================================================
-// Quota Result Types
-// =============================================================================
-
 type CopilotResultAuthority = "provider_reported" | "locally_derived";
 
 export interface CopilotBudgetResult {
@@ -204,7 +200,6 @@ export interface GoogleAgyQuotaBucket {
   sourceKey: GoogleAgyAuthSourceKey;
 }
 
-/** Error result */
 export interface QuotaError {
   success: false;
   error: string;
@@ -212,7 +207,6 @@ export interface QuotaError {
   facts?: ErrorFacts;
 }
 
-/** Combined quota result */
 export type CopilotResult =
   | CopilotQuotaResult
   | CopilotPlanResult

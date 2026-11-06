@@ -103,7 +103,6 @@ const REFRESH_RESULTS = new Set([
 /** The bound settings, oldest first; the last one still bound is followed. */
 const SETTINGS_BINDINGS: Array<{ current: () => PricingSettings }> = [];
 let LOADED: LoadedList | null = null;
-/** The refresh that runs now, and whether it was forced. */
 let REFRESH_IN_FLIGHT: { force: boolean; result: Promise<RefreshResult> } | null = null;
 let PROCESS_REFRESH_CHECKED = false;
 let BUNDLED_IDS: Pick<PriceListDescription, "bundledProviderIds" | "bundledModelIds"> | null = null;

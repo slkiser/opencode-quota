@@ -71,7 +71,6 @@ const FETCH_TIMEOUT_MS = 60_000;
 /** Visible clients read every minute; background work does not keep a session view alive. */
 const SESSION_VIEW_KEEP_MS = 5 * 60_000;
 
-/** One provider fetch, already turned into rows. */
 export type ProviderFetch = {
   rows: QuotaRow[];
   /**
@@ -90,7 +89,6 @@ export type ProviderFetch = {
 /** One check as the store records it: its rows as shown, its error, and when it was. */
 export type CheckForExport = { rows: QuotaRow[]; error?: QuotaError; checkedAtMs: number };
 
-/** Whose rows a fetch returns. */
 export type ProviderIdentity = {
   /** Changes whenever the rows would differ: another account or other provider settings. */
   key: string;

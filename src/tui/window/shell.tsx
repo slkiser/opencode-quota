@@ -203,7 +203,6 @@ export type QuotaWindow = {
    * shows the default range. On Home it only says to open a session.
    */
   open(tab: WindowTab | "settings"): void;
-  /** Opens the window on its Usage tab, on `choice`. */
   openUsage(choice: UsageChoice): void;
   /** The `session.composer.top` slot. */
   Slot(props: { sessionID: string }): JSX.Element;
@@ -472,7 +471,6 @@ export function createQuotaWindow(
         ))}
       </box>
     );
-    /** The title and the version, as the tab bar shows them. */
     const titleText = () => (version() ? `${WINDOW_TITLE} ${version()}` : WINDOW_TITLE);
     /** The drawn tab bodies' width: the scrollbar's column and a gap before it stay free. */
     const bodyWidth = () => width() - 2;

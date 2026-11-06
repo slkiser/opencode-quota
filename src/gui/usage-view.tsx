@@ -34,7 +34,6 @@ type UsageProps = {
 const BREAKDOWNS: readonly UsageBreakdown[] = ["model", "provider", "day"];
 /** The widest a breakdown row's bar gets, in pixels. */
 const ROW_BAR_MAX = 260;
-/** The breakdown shows this many rows at most. */
 const ROWS_MAX = 40;
 
 /** "2026-10-27" as a local day. */

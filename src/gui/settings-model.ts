@@ -200,7 +200,6 @@ function optionWords(key: string, value: unknown): Words {
   return { key: `option.${key}.${String(value)}` };
 }
 
-/** The words of a suggested number. */
 function suggestedWords(key: string, value: number | null): Words {
   if (value === null) return { key: `option.${key}.unset` };
   if (key === "providers.checking.minIntervalMs") {

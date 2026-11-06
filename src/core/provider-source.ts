@@ -60,7 +60,6 @@ export function customRowPrefix(definitionId: string): string {
   return `${QUOTA_PROVIDERS_AGGREGATE_ID}.custom.${definitionId}.`;
 }
 
-/** The host's registered providers. */
 export function registeredProviders(host: ProviderSourceHost): readonly QuotaProvider[] {
   return host.providers ? host.providers() : getProviders();
 }

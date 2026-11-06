@@ -240,7 +240,6 @@ export function sessionTokensText(tokens: SessionTokens): string {
 const LOW_CACHE_MIN_INPUT_TOKENS = 200_000;
 /** A cache hit below this share is low. */
 const LOW_CACHE_HIT_BELOW = 0.5;
-/** Marks a low cache hit. */
 export const LOW_CACHE_MARK = "⚠";
 
 /** A model's input tokens by kind: new input, cache reads and cache writes. */

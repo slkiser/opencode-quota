@@ -45,7 +45,6 @@ type IncludedCredits = {
   resetTimeIso?: string;
 };
 
-/** One key's rows and errors, and the details its reply gave. */
 type KeyFetch = { rows: ProviderRow[]; errors: FetchError[]; debug: DebugDetail[] };
 
 function sanitizeMessage(text: string, maxLength = 200): string {

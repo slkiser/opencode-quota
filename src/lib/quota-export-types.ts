@@ -23,7 +23,6 @@ interface QuotaExportEntryBase {
   resultType: RowType;
   /** How the value was acquired (ADR 0001). */
   acquisitionMethod: RowMethod;
-  /** Whether the source definition is maintained or user-configured. */
   ownership: "maintained" | "user_configured";
   /** Whether the value was provider-reported or locally derived. */
   authority: RowAuthority;

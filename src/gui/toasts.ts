@@ -61,7 +61,6 @@ const LINES_ATTR = "data-oq-lines";
 /** On a toast's description: our rows stand in for it, so the window's CSS hides it from sight. */
 const ROWS_ATTR = "data-oq-rows";
 
-/** Draws a quota toast's rows (`drawToastRows`). */
 export type DrawRows = (view: PanelView, settings: RowSettings) => DrawnRows;
 
 /** Rows drawn in a toast on screen, after the description they stand in for. */

@@ -85,7 +85,6 @@ const UNPRICED_LIST_LIMIT = 5;
 /** Shown for a path outside the known folders, or with a part this plugin did not name. */
 const CUSTOM_PATH = "(custom path)";
 
-/** The quota providers' ids. */
 const PROVIDER_IDS: ReadonlySet<string> = new Set(Object.keys(QUOTA_PROVIDER_CATALOG));
 /** The provider ids OpenCode uses for them ("github-copilot", "codex", …), and theirs. */
 const OPENCODE_PROVIDER_IDS: ReadonlySet<string> = new Set([

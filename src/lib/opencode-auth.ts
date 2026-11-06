@@ -628,7 +628,6 @@ export async function readActiveCredentialRowsCached(params: {
   }
 }
 
-/** Test helper to clear cached logins between test cases. */
 export function clearCredentialRowCacheForTests(): void {
   rowCache.clear();
   rowCacheGeneration += 1;

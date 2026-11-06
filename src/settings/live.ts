@@ -29,7 +29,6 @@ type LiveSettingsChange = { recheck: boolean; oldCommands: boolean };
 export type LiveSettings = {
   /** What converting the v5 settings at the start did; undefined when it had nothing to do. */
   readonly conversion: V5Conversion | undefined;
-  /** The settings held now. */
   current(): LoadedSettings;
   /** True once this server wrote the v5 settings into settings.jsonc, at the start or by a save. */
   converted(): boolean;
