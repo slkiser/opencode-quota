@@ -438,12 +438,10 @@ function classifyMissingPricing(params: {
     return { kind: "unknown" };
   }
 
-  // Defensive: if provider wasn't in snapshot we should treat this as unknown mapping.
   if (!hasProvider(params.mappedProvider)) {
     return { kind: "unknown" };
   }
 
-  // When provider/model exists in snapshot but has no numeric rates, classify as unpriced.
   if (hasModel(params.mappedProvider, params.mappedModel)) {
     if (params.mappedModel.toLowerCase().endsWith("-free")) {
       return { kind: "unpriced", reason: "free-tier model id not priced in snapshot" };

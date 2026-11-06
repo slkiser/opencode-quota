@@ -8,7 +8,6 @@ import { secretValuesRedactor } from "../core/redact.js";
 import type { QuotaErrorCode } from "../core/types.js";
 import { sanitizeDisplayText } from "./display-sanitize.js";
 
-/** Request timeout in milliseconds. */
 export const REQUEST_TIMEOUT_MS = 5000;
 
 /** Thrown by `fetchWithTimeout` at the deadline; its message never holds the URL. */

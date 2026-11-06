@@ -478,7 +478,6 @@ export function getCopilotQuotaAuthDiagnostics(logins: CopilotLogins): CopilotQu
   const oauthEnterpriseHost = validateEnterpriseHost(copilotEnterpriseUrl(auth));
   const target = pat.config ? resolvePatBillingTarget(pat.config) : null;
   const compatibilityError = target ? validatePatTargetCompatibility(target, pat.tokenKind) : null;
-  // Any PAT config, even an invalid one, is authoritative over OAuth.
   const patBlocksOAuth = pat.state !== "absent";
   const effectiveSource = patBlocksOAuth ? "pat" : auth ? "oauth" : "none";
   const effectiveEnterpriseHost =

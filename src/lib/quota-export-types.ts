@@ -82,7 +82,6 @@ export type QuotaExportProvider = (
 
 /** The version 3 export document, assembled from all configured providers. */
 export interface QuotaExport {
-  /** Schema version. */
   version: 3;
   /** Unix seconds when this document was assembled. */
   exportedAt: number;

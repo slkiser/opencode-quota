@@ -31,7 +31,6 @@ import {
 } from "./contract.js";
 import { statusDetailsFromRecord } from "./result-helpers.js";
 
-/** The 5h, Weekly, Usage Credits and Fable weekly rows of one Claude account. */
 function quotaRows(quota: AnthropicQuotaResult, method: ProviderRow["method"]): ProviderRow[] {
   const rows: ProviderRow[] = [];
   // A plan without a 5-hour limit (Ultra) or a weekly one (Enterprise) has no such row.

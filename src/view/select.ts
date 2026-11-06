@@ -41,7 +41,6 @@ export type RowSettings = Record<Surface, SurfaceRows>;
 /** A row as a place shows it: `label` is your name for it, or its own; `named` says you named it. */
 export type VisibleRow = { row: QuotaRow; label: string; named: boolean };
 
-/** `row` under your name for it in `names`, else its own label. */
 export function visibleRow(row: QuotaRow, names: Readonly<Record<string, string>>): VisibleRow {
   const name = names[row.id];
   return { row, label: name ?? row.label, named: name !== undefined };

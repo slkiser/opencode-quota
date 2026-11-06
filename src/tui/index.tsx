@@ -165,7 +165,6 @@ const plugin = Plugin.define({
         message: `Use /quota_usage ${now}. The old /tokens_* names turn on in /quota_status.`,
       });
     };
-    /** The quota slash commands, by name, with what follows the name. */
     const quotaCommands: Record<string, (argumentsText: string) => void> = {
       quota: () => quotaWindow.open("limits"),
       quota_usage: openUsage,

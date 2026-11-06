@@ -52,7 +52,6 @@ function sanitizeMessage(text: string, maxLength = 200): string {
   return (sanitized || "unknown").slice(0, maxLength);
 }
 
-/** Canonical ISO time, or undefined when the value is not a parseable time. */
 function isoTime(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const timeMs = Date.parse(value);
@@ -214,7 +213,6 @@ function parseOllamaCloudBalance(payload: unknown): KeyFetch {
   };
 }
 
-/** The Ollama Cloud limits and balance of one API key. */
 async function queryOllamaCloudQuota(apiKey: string, requestTimeoutMs?: number): Promise<KeyFetch> {
   const reply = await requestJson(OLLAMA_CLOUD_BALANCE_URL, {
     method: "GET",

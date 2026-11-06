@@ -199,7 +199,6 @@ function resolvedKey(providerId: string, identity: ProviderIdentity): ResolvedKe
   };
 }
 
-/** `promise`, or a rejection with `message` once `ms` have passed. */
 export function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
@@ -212,7 +211,6 @@ function backoffMs(failures: number): number {
   return Math.min(BACKOFF_MAX_MS, BACKOFF_FIRST_MS * 2 ** (failures - 1));
 }
 
-/** When an entry's provider was last checked; none before its first check. */
 function lastCheckOf(entry: Entry | undefined): LastCheck | undefined {
   if (entry?.checkedAtMs === undefined) return undefined;
   const retryAtMs = entry.error?.retryAtMs;
@@ -406,7 +404,6 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
   let unsaved = false;
   /** Names this store in its snapshots, so a TUI can tell a restarted server apart. */
   const serverId = randomUUID();
-  /** The last snapshot's revision; each next snapshot gets one more. */
   let revision = 0;
   /** The provider ids subscribers last heard of, per credential source. */
   const heardProviders = new Map<string, string>();

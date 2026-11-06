@@ -23,7 +23,6 @@ export type SurfaceEditing = {
   /** A sidebar panel is on screen until the returned function runs. */
   sidebarShown(): () => void;
   sidebarOnScreen(): boolean;
-  /** The Settings tab of `surface` is open. */
   tabOpen(surface: Surface): boolean;
 };
 

@@ -50,7 +50,6 @@ type XaiLogin = {
   auth: Exclude<ResolvedXaiOAuth, { state: "none" }>;
 };
 
-/** What one sign-in gave: the credits row, or the error to show. */
 type XaiLoginFetch = { rows: ProviderRow[]; errors: FetchError[]; fallbackName?: XaiLabel };
 
 function isoOrUndefined(value: unknown): string | undefined {

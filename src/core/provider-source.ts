@@ -40,7 +40,6 @@ export type ProviderSourceHost = {
   workspaceRoot: string;
   /** The folder OpenCode runs the session in; see `QuotaProviderContext.locationDirectory`. */
   locationDirectory: string;
-  /** The server settings now. */
   settings: () => LoadedSettings;
   /** The registered providers in display order; `getProviders()` when absent. */
   providers?: () => readonly QuotaProvider[];
@@ -55,7 +54,6 @@ export type ServerSettings = {
   telemetry: boolean;
 };
 
-/** The start of every row id of the custom definition `definitionId`. */
 export function customRowPrefix(definitionId: string): string {
   return `${QUOTA_PROVIDERS_AGGREGATE_ID}.custom.${definitionId}.`;
 }
@@ -102,7 +100,6 @@ export function providerContext(
   };
 }
 
-/** The providers that serve `model`, by the settings in `ctx`. */
 function providerIdsForModel(
   providers: readonly QuotaProvider[],
   ctx: QuotaProviderContext,

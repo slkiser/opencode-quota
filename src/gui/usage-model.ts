@@ -160,7 +160,6 @@ function modelsOf(report: UsageReport, providerID: string | undefined): UsageMod
   return report.models.filter((row) => providerID === undefined || row.providerID === providerID);
 }
 
-/** The day-by-day values of `models` over the report's days. */
 function dailyValues(report: UsageReport, models: UsageModelRow[], mode: UsageMode): number[] {
   const byDate = new Map<string, number>();
   for (const model of models) {

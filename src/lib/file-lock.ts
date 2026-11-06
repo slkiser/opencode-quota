@@ -32,7 +32,6 @@ function lockOwnerText(token: string): string {
   return JSON.stringify({ pid: process.pid, token });
 }
 
-/** Creates `path` holding `text`; false when it already exists. */
 async function createExclusive(path: string, text: string): Promise<boolean> {
   try {
     await writeFile(path, text, { flag: "wx", mode: LOCK_FILE_MODE });

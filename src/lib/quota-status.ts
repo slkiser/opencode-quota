@@ -169,7 +169,6 @@ type ProviderAvailability = {
   matchesCurrentModel?: boolean;
 };
 
-/** Where the report was asked for. */
 export type StatusOrigin = "slash_command" | "tool" | "tui" | "cli";
 
 const ORIGINS: Readonly<Record<StatusOrigin, string>> = {
@@ -184,7 +183,6 @@ export type QuotaStatusReportParams = {
   origin: StatusOrigin;
   /** OpenCode's version and release channel; the CLI runs without OpenCode. */
   opencode?: { version: string; channel: string };
-  /** The server settings as read now. */
   settings: Pick<
     LoadedSettings,
     "path" | "exists" | "issues" | "notRead" | "settings" | "fromFile"
@@ -413,7 +411,6 @@ function issueCodeText(message: string): string {
   return codeOf(ISSUE_CODES, message) ?? "invalid";
 }
 
-/** The code of the first pattern the text matches. */
 function codeOf(codes: ReadonlyArray<readonly [RegExp, string]>, text: string): string | undefined {
   return codes.find(([pattern]) => pattern.test(text))?.[1];
 }
@@ -847,7 +844,6 @@ function listOf(values: Iterable<string>): DebugRule {
   return (value) => (value.split(",").every((item) => allowed.has(item)) ? value : undefined);
 }
 
-/** The same rule for each named key. */
 function each(rule: DebugRule, ...keys: readonly string[]): DebugRules {
   return Object.fromEntries(keys.map((key) => [key, rule]));
 }

@@ -21,7 +21,6 @@ const RAIL_WIDTH = RAIL_INDENT + RAIL_LABEL_WIDTH + 1;
 /** The muted line at the list's right. */
 const LINE_WIDTH = 1;
 
-/** An item of the list: what it picks, its label and its element id. */
 export type RailItem<Key extends string> = { key: Key; label: string; id: string };
 
 /** What the list takes left of the content: the list, the line after it and `gap` columns. */

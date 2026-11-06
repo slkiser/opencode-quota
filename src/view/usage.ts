@@ -813,7 +813,6 @@ function breakdownLines(
   return { lines, modelLines };
 }
 
-/** `right` beside `left`, starting at column `rightStart`. */
 function sideBySide(left: UsageLine[], right: UsageLine[], rightStart: number): UsageLine[] {
   return Array.from({ length: Math.max(left.length, right.length) }, (_, index) => {
     const leftLine = left[index] ?? [];

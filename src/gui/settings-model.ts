@@ -350,7 +350,6 @@ export function fileOnlyKeys(rules: Readonly<Record<string, SettingRule>>): stri
     .map(([key]) => key);
 }
 
-/** A preset's choices, in order. */
 export function presetNames(name: PresetName): string[] {
   return Object.keys(PRESET_CHOICES[name]);
 }

@@ -83,7 +83,6 @@ export type QuotaError = {
   code: QuotaErrorCode;
   /** HTTP status, when the provider answered with one. */
   status?: number;
-  /** When the provider said to try again. */
   retryAtMs?: number;
   /** The local program involved, for `local_tool`, for example "Claude CLI". */
   tool?: string;
@@ -114,7 +113,6 @@ export type ProviderSnapshot = {
    * snapshot holds neither.
    */
   debug?: DebugDetail[];
-  /** This provider's part of the export file. */
   exportPart?: QuotaExportProvider;
 };
 
@@ -150,7 +148,6 @@ export type SessionTokens = {
 /** The words every surface uses, on every client (TUI, Web, Desktop, CLI). */
 export type Words = Settings["words"];
 
-/** A session's model: its id and OpenCode's provider id. */
 export type SessionModel = { id?: string; providerID?: string };
 
 export type QuotaSnapshot = {

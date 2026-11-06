@@ -11,7 +11,6 @@ import { type CredentialRow, formatCredentialDisplayNames } from "../lib/opencod
 /** One row as a provider reports it; `key` is the part of the row id after the provider id. */
 export type ProviderRow = Omit<QuotaRow, "id" | "providerId" | "account"> & { key: string };
 
-/** One error: its words, and the facts of the request that failed when it gave them. */
 export type FetchError = { message: string; facts?: ErrorFacts };
 
 /**
@@ -132,7 +131,6 @@ export function windowRows(
   return rows;
 }
 
-/** An account with one error and no rows. */
 export function failedAccount(name: string, message: string, facts?: ErrorFacts): AccountResult {
   return { name, rows: [], errors: [fetchError(message, facts)] };
 }

@@ -5,7 +5,6 @@
 export const KEY_LAYERS = {
   /** Enter on a typed quota command; above OpenCode's textarea layer. */
   typedCommand: 1,
-  /** The quota window's own keys. */
   window: 10,
   /** The open tab's keys: Settings lines or the Usage tab. */
   tab: 11,

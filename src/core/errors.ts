@@ -120,7 +120,6 @@ export function classifyError(message: string, nowMs: number = Date.now()): Quot
   return error;
 }
 
-/** What a failed request says about itself: its code, HTTP status and when to try again. */
 export type ErrorFacts = Pick<QuotaError, "code" | "status" | "retryAtMs">;
 
 /** The latest retry time a provider's reply may set: a daily quota resets within it. */
