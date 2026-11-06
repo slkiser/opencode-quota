@@ -14,7 +14,7 @@ import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 
 type PricingSettings = Settings["providers"]["pricing"];
 
-/** Which price list reports use: "auto" (runtime when valid, else bundled), or one of them. */
+/** Which price list reports use: "auto" (the newer of runtime and bundled), or one of them. */
 export type PricingSnapshotSource = PricingSettings["source"];
 
 const SOURCE_URL = "https://models.dev/api.json";

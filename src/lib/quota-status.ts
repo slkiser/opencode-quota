@@ -1468,7 +1468,7 @@ export type QuotaStatusPayload = {
   config: {
     settingsPath: string;
     settingsFileExists: boolean;
-    /** The `providers.off` ids that are on, or "auto" when none is off. */
+    /** Ids, as `providers.off` names them, of the providers not switched off; "auto" when none is off. */
     enabledProviders: string[] | "auto";
     onlyCurrentModel: boolean;
     pricingSnapshotSource: PricingSnapshotSource;

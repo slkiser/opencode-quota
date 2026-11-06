@@ -28,7 +28,7 @@ interface QuotaExportEntryBase {
   authority: RowAuthority;
   /**
    * Normalized window label when the entry has one: "Monthly", "Weekly", "5h", "RPM", etc.
-   * Absent when there is only one window for the provider.
+   * Absent when the row has no window.
    */
   window?: string;
   /** Unix seconds of the next source-backed reset. */
@@ -62,8 +62,8 @@ export type QuotaExportSource =
 /**
  * Per-provider export status.
  *
- * One of three states: ok with entries, error with a message, or unavailable
- * (provider not detected or no cache entry exists).
+ * One of four states: ok with entries, partial with entries and errors, error with a message,
+ * or unavailable (provider not detected or no cache entry exists).
  */
 export type QuotaExportProvider = (
   | { status: "ok"; fetchedAt: number; entries: QuotaExportEntry[] }
