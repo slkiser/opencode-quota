@@ -403,7 +403,7 @@ npm install -g bailian-cli
 bl auth login --console
 ```
 
-- It runs `bl usage coding-plan --output json`, which needs the console token. An API Key (AK/SK) signs in to the console too: `bl auth login --open-api --access-key-id <id> --access-key-secret <secret>` mints a CLI access token from it, validates it and saves both.
+- It runs `bl usage coding-plan --output json`, which needs the console token. An API Key (AK/SK) signs in to the console too: `bl auth login --open-api --access-key-id <id> --access-key-secret <secret>` mints a CLI access token from it, validates it and saves both. From `bailian-cli` 2.8.0 the same AK/SK can come from the environment instead: `BAILIAN_ACCESS_KEY_ID` with `BAILIAN_ACCESS_KEY_SECRET`, or `ALIBABA_CLOUD_ACCESS_KEY_ID` with `ALIBABA_CLOUD_ACCESS_KEY_SECRET`.
 - It reports three request windows: `5h`, `Weekly` and `Monthly`, keyed `five_hour`, `weekly` and `monthly`. The quota is **requests**, so a row shows the percent left, the requests used, the limit and the reset time.
 - A window the console reports no quota for has no row: the plan does not cover it, or its limit is 0.
 - An account without a Coding Plan subscription prints `{}`: no rows and no error.
@@ -426,12 +426,12 @@ OpenCode Quota runs two commands, each with its own sign-in. They are independen
 - **Personal** (one row per quota window, `alibaba-token-plan.personal.monthly`) runs `bl usage token-plan --output json` and needs the same **console** token (an API Key can mint one too, see [Coding Plan setup](#alibaba-coding-plan)).
 - It reports every window `bl` sends, one row each with the percent of that window left. Five windows keep their standard ids: `per1Hour` is `alibaba-token-plan.personal.hour`, `per5Hour` is `…personal.five_hour`, `per1Day` is `…personal.day`, `per1Week` is `…personal.weekly` and `per1Month` is `…personal.monthly`. Any other window is named by its count and unit: `per2Day` is `alibaba-token-plan.personal.2_day` (label `2d`), `per3Hour` is `…personal.3_hour` (label `3h`). A window the reply does not carry has no row.
 - A window the reply reports no quota for has no row either: it carries no usage ratio. `/quota_status` says so in `window_hint`, and when other windows do have rows, `no_data_windows` lists the ones without.
-- **Team seats** (one `Credits` row per seat, `alibaba-token-plan.team.<slug>`) run `bl token-plan list-seats --status NORMAL --query-assigned true --page-size 100 --output json` and need **API Key** (AK/SK) credentials: `bl auth login --open-api`, or `ALIBABA_CLOUD_ACCESS_KEY_ID` and `ALIBABA_CLOUD_ACCESS_KEY_SECRET`. Each seat shows the credits left in its billing cycle, out of the cycle total, and the percent of that grant left.
+- **Team seats** (one `Credits` row per seat, `alibaba-token-plan.team.<slug>`) run `bl token-plan list-seats --status NORMAL --query-assigned true --page-size 100 --output json` and need **API Key** (AK/SK) credentials: `bl auth login --open-api`, or either environment pair above. Each seat shows the credits left in its billing cycle, out of the cycle total, and the percent of that grant left.
 - Without the AK/SK no team row is reported; the personal row still is. A seat whose status is not `NORMAL` has no row by design.
 - Neither command carries a region or account, so you see the plan `bl` is signed in to. `bl auth status` says which account, region and site that is.
 - One id reports it: `alibaba-token-plan`, and `alibaba-token-plan-cn` is another name for the same CLI, so a config that names it keeps working for provider selection and for `providers.off`.
 - Its rows are saved and shared between OpenCode windows, keyed to the account the CLI reports.
-- `bl` must be in an absolute folder on the [service `PATH`](troubleshooting.md#service-environment). A native `bl` runs directly, npm's `bl.cmd` shim is run with the `node` on that `PATH`, and other launchers are refused.
+- `bl` must be in an absolute folder on the [service `PATH`](troubleshooting.md#service-environment). A native `bl` runs directly; npm's `bl.cmd` shim and bun's global `bl.exe` shim are run with the `node` on that `PATH`; other launchers are refused.
 - Cookie-based console scraping is not supported. After switching the CLI's console account, restart OpenCode or wait for the next live check.
 
 OpenCode Quota's Google integrations use independent community companion plugins. They are not endorsed by Google.

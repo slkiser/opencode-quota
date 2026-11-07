@@ -229,9 +229,9 @@ export const ERROR_MESSAGES: Record<AlibabaErrorKind, string> = {
   output_truncated: "Alibaba Cloud CLI output exceeded the bounded size limit.",
   nonzero_exit: "Could not read Alibaba Token Plan quota.",
   not_authenticated:
-    "Alibaba Cloud console session is missing or expired. Run `bl auth login --console`.",
+    "Alibaba Cloud console session is missing or expired. Run `bl auth login --console`, or set BAILIAN_ACCESS_KEY_ID with BAILIAN_ACCESS_KEY_SECRET.",
   seat_not_authenticated:
-    "Alibaba Cloud API Key credentials are missing or expired for team seats; this requires login. Run `bl auth login --open-api`, or set ALIBABA_CLOUD_ACCESS_KEY_ID and ALIBABA_CLOUD_ACCESS_KEY_SECRET.",
+    "Alibaba Cloud API Key credentials are missing or expired for team seats; this requires login. Run `bl auth login --open-api`, or set BAILIAN_ACCESS_KEY_ID with BAILIAN_ACCESS_KEY_SECRET (or ALIBABA_CLOUD_ACCESS_KEY_ID with ALIBABA_CLOUD_ACCESS_KEY_SECRET).",
   seat_command_failed: "Could not read Alibaba Token Plan team seats.",
   seat_invalid_schema: "Alibaba Cloud CLI returned an invalid team seat payload.",
   coding_plan_command_failed: "Could not read Alibaba Coding Plan quota.",
@@ -748,9 +748,10 @@ export async function runAlibabaTokenPlanProcess(
       stop();
     }, request.timeoutMs);
 
-    /** `bl` holds its HTTPS connection open after answering, so a whole document in the pipe ends the
-     * wait without an exit code; a failure document is left to the parser, an incomplete one falls
-     * through to the timeout. */
+    /** A whole document in the pipe ends the wait without an exit code: `bl` up to 2.8.0 keeps the
+     * process alive after answering while it flushes usage telemetry. The document is already
+     * complete, so nothing is lost; a failure document is left to the parser, an incomplete one
+     * falls through to the timeout. */
     function wholeDocument(): boolean {
       if (settled || timedOut || truncated) return false;
       const text = Buffer.concat(stdoutChunks).toString("utf8");
@@ -897,13 +898,14 @@ function envelopeFailure(
   };
 }
 
-/** The envelope where it really arrives: on stderr with an empty stdout, on the exit code it carries. */
+/** The envelope where it really arrives: on stderr with an empty stdout, on the exit code it carries.
+ * JSON output writes one object per line and the envelope is written last, after any warning. */
 function stderrEnvelopeFailure(stderr: Buffer, kind: AlibabaErrorKind): AlibabaFailure | null {
-  const text = stderr.toString("utf8").trim();
-  if (!text) return null;
+  const line = stderr.toString("utf8").trim().split(/\r?\n/).at(-1)?.trim();
+  if (!line) return null;
   let payload: unknown;
   try {
-    payload = JSON.parse(text);
+    payload = JSON.parse(line);
   } catch {
     return null;
   }
@@ -963,9 +965,12 @@ function envWithTrustedPath(
     result[name] = value;
   }
   result.PATH = trusted.join(paths.delimiter);
-  // bl's debounced npmjs version check (versionCheckStage) stalls each spawn; this is its
-  // only supported skip knob.
+  // The CLI runs a debounced npmjs version check (versionCheckStage) before the command and
+  // awaits it before exiting, so a spawn that is due pays for a check nobody asked for.
   result.NO_UPDATE_NOTIFIER = "1";
+  // One usage event per spawn would report commands nobody typed; this is the CLI's documented
+  // opt-out. It buys no measurable time: the CLI bounds its send at 1 s.
+  result.DO_NOT_TRACK = "1";
   return result;
 }
 

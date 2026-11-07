@@ -1191,6 +1191,7 @@ describe("alibaba token plan Windows resolution", () => {
       TEST_ENV: "preserved",
       PATH: TRUSTED_BIN,
       NO_UPDATE_NOTIFIER: "1",
+      DO_NOT_TRACK: "1",
     });
   });
 });
@@ -1219,7 +1220,12 @@ describe("alibaba token plan process boundary", () => {
     expect(requests[0]?.stdin).toBe("ignore");
     expect(requests[0]?.file).toBe(`${bin}/${BL_COMMAND}`);
     expect(requests[0]?.cwd).toBe("/safe-tmp");
-    expect(requests[0]?.env).toEqual({ PATH: bin, TEST_ENV: "preserved", NO_UPDATE_NOTIFIER: "1" });
+    expect(requests[0]?.env).toEqual({
+      PATH: bin,
+      TEST_ENV: "preserved",
+      NO_UPDATE_NOTIFIER: "1",
+      DO_NOT_TRACK: "1",
+    });
     expect(requests[0]?.stdoutLimitBytes).toBe(STDOUT_LIMIT_BYTES);
     expect(requests[0]?.stderrLimitBytes).toBe(STDERR_LIMIT_BYTES);
     expect(requests[0]?.killGraceMs).toBe(KILL_GRACE_MS);
@@ -1989,6 +1995,7 @@ describe("alibaba token plan seat process boundary", () => {
       PATH: "/trusted/bin",
       TEST_ENV: "preserved",
       NO_UPDATE_NOTIFIER: "1",
+      DO_NOT_TRACK: "1",
     });
     expect(requests[0]?.timeoutMs).toBe(4_321);
     expect(requests[0]?.stdoutLimitBytes).toBe(STDOUT_LIMIT_BYTES);
@@ -2117,6 +2124,29 @@ describe("alibaba token plan seat process boundary", () => {
     },
   );
 
+  it("finds the envelope after the JSONL warnings 2.8 writes on stderr", async () => {
+    await mockExecutable();
+    const result = await queryAlibabaTokenPlanSeats({
+      runtime: linuxRuntime(async () => ({
+        code: 3,
+        stdout: Buffer.alloc(0),
+        stderr: Buffer.from(
+          `{"warning":{"message":"Using values from different configuration sources."}}\n${REAL_SEAT_ERROR_ENVELOPE}\n`,
+        ),
+        timedOut: false,
+        truncated: false,
+      })),
+    });
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        kind: "seat_not_authenticated",
+        message: SEAT_ENVELOPE_MESSAGE,
+        facts: { code: "login_expired" },
+      },
+    });
+  });
+
   it("keeps a stderr that is not the CLI's own envelope out of the report", async () => {
     await mockExecutable();
     const result = await queryAlibabaTokenPlanSeats({
@@ -2224,6 +2254,7 @@ describe("alibaba token plan credential markers", () => {
       PATH: "/trusted/bin",
       TEST_ENV: "preserved",
       NO_UPDATE_NOTIFIER: "1",
+      DO_NOT_TRACK: "1",
     });
   });
 

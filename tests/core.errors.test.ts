@@ -96,12 +96,12 @@ const PRODUCED: ReadonlyArray<{
   {
     code: "login_expired",
     from: "src/lib/alibaba.ts",
-    text: "Alibaba Cloud console session is missing or expired. Run `bl auth login --console`.",
+    text: "Alibaba Cloud console session is missing or expired. Run `bl auth login --console`, or set BAILIAN_ACCESS_KEY_ID with BAILIAN_ACCESS_KEY_SECRET.",
   },
   {
     code: "login_expired",
     from: "src/lib/alibaba.ts",
-    text: "Alibaba Cloud API Key credentials are missing or expired for team seats; this requires login. Run `bl auth login --open-api`, or set ALIBABA_CLOUD_ACCESS_KEY_ID and ALIBABA_CLOUD_ACCESS_KEY_SECRET.",
+    text: "Alibaba Cloud API Key credentials are missing or expired for team seats; this requires login. Run `bl auth login --open-api`, or set BAILIAN_ACCESS_KEY_ID with BAILIAN_ACCESS_KEY_SECRET (or ALIBABA_CLOUD_ACCESS_KEY_ID with ALIBABA_CLOUD_ACCESS_KEY_SECRET).",
   },
   {
     code: "login_expired",
