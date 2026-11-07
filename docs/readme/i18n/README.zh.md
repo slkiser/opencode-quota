@@ -93,7 +93,7 @@ opencode plugin add @slkiser/opencode-quota
 
 - 在 `/quota_settings`（TUI）或 Desktop 设置中的 Quota 页面修改设置。两者都保存到 OpenCode 配置文件夹中的 `opencode-quota/settings.jsonc`，并保留你的注释。
 - 自定义提供商、Claude CLI 路径和导出路径只能在文件中设置。
-- 进度条中的 `┃` 表示到重置前均匀使用的位置。**Even-use mark**（`layout.evenUse`）可将其关闭。
+- `┃` 表示从窗口开始到重置均匀使用时此刻应剩余的额度；彩色填充表示实际剩余额度。标记使用文本颜色，不代表额度状态；缺少百分比或时间信息时可能不显示。**Even-use mark**（`layout.evenUse`）可将其关闭。
 - [设置和默认值](../configuration.md)
 
 ## 提供商

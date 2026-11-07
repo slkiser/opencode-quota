@@ -82,6 +82,16 @@ function resetClass(reset: string, words: Settings["words"]): string {
   return words.reset === "percent" ? "oq-pnum oq-pafter" : "oq-pnum";
 }
 
+/** The successful-data age in localized, compact units. */
+function dataAgeText(ctx: Context, ageMs: number): string {
+  if (ageMs < CLOCK_MS) return ctx.t("panel.dataAge.now");
+  const minutes = Math.floor(ageMs / CLOCK_MS);
+  if (minutes < 60) return ctx.plural("panel.dataAge.minutes", minutes);
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return ctx.plural("panel.dataAge.hours", hours);
+  return ctx.plural("panel.dataAge.days", Math.floor(hours / 24));
+}
+
 /**
  * Providers and their rows in one grid (`.oq-prows`), so each column (label, bar, percent, reset
  * time) starts and ends at the same x for every provider: each provider's name line, then a line
@@ -199,6 +209,27 @@ export function QuotaPanel(props: PanelProps) {
         {title()}
       </button>
       <Show when={props.snapshot()} fallback={<p class="oq-muted">{ctx.t("panel.loading")}</p>}>
+        <Show when={open()?.dataAges.length}>
+          <div class="oq-pfreshness" role="group" aria-label={ctx.t("panel.dataAge.label")}>
+            <For each={open()?.dataAges ?? []}>
+              {(item) => {
+                const text = ctx.t(item.stale ? "panel.dataAge.stale" : "panel.dataAge", {
+                  provider: item.name,
+                  age: dataAgeText(ctx, item.ageMs),
+                });
+                return (
+                  <span
+                    class="oq-pfreshness-item"
+                    style={{ color: color(item.stale ? "warning" : "reset") }}
+                    aria-label={text}
+                  >
+                    {text}
+                  </span>
+                );
+              }}
+            </For>
+          </div>
+        </Show>
         <Show when={props.open()}>
           <QuotaRows
             groups={open()?.groups ?? []}

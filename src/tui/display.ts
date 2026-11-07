@@ -287,7 +287,10 @@ export const FIELDS: readonly Field[] = [
     choices: lowChoices,
   }),
   ...COLOR_FIELDS.slice(4),
-  field("layout.bar", "Bar shape", SHOW.bar, { group: "Bars" }),
+  field("layout.bar", "Bar shape", SHOW.bar, {
+    group: "Bars",
+    note: "no bars hides meters everywhere except Limits, which keeps a thin line",
+  }),
   field("layout.barWidth", "Bar width", SHOW.barWidth, {
     values: ["fill", 4, 6, 8, 10, 12],
     ...LAYOUT,

@@ -93,7 +93,7 @@ Par exemple `/quota_usage 30d` ou `/quota_usage between 2026-09-01 2026-09-25`. 
 
 - Modifiez les paramètres dans `/quota_settings` (TUI) ou dans la page Quota des paramètres de Desktop. Les deux enregistrent dans `opencode-quota/settings.jsonc`, dans le dossier de configuration d'OpenCode, et conservent vos commentaires.
 - Les fournisseurs personnalisés, le chemin du Claude CLI et le chemin d'export se définissent uniquement dans le fichier.
-- Le `┃` d'une barre marque une utilisation régulière jusqu'à la réinitialisation. **Even-use mark** (`layout.evenUse`) le désactive.
+- `┃` indique le quota qui devrait rester avec une utilisation régulière jusqu'à la réinitialisation ; le remplissage montre le quota réellement restant. Sa couleur est celle du texte, pas un indicateur d'état ; il peut manquer si le pourcentage ou le temps n'est pas disponible. **Even-use mark** (`layout.evenUse`) le désactive.
 - [Paramètres et valeurs par défaut](../configuration.md)
 
 ## Fournisseurs

@@ -86,13 +86,42 @@ Roles are `good`, `warning`, `low`, `empty`, `title`, `provider`, `account`, `la
 
 | Setting | Default | Values |
 | --- | --- | --- |
-| `layout.bar` | `"blocks"` | `blocks`, `shades`, `line`, `squares`, `dots`, `none`. |
-| `layout.barWidth` | `"fill"` | `fill` takes the room the other columns leave, at most 20 cells on the sidebar and 10 on the collapsed panel; or a whole number 1–30. |
-| `layout.evenUse` | `true` | The `┃` mark where even use until the reset would be, in the bars of every place, the Limits tab included. It is not the bar's value. **Even-use mark** on Layout's All places page. |
+| `layout.bar` | `"line"` | `blocks`, `shades`, `line`, `squares`, `dots`, `none`. `none` hides meters on other quota surfaces; Limits intentionally keeps a thin line. |
+| `layout.barWidth` | `"fill"` | `fill` uses the room the other values leave (up to 20 cells on the expanded sidebar, toasts and Limits; 10 on the collapsed sidebar and Home's one-provider line; 5 on the session status line); or a whole number 1–30, clamped to the available room. |
+| `layout.evenUse` | `true` | `┃` marks how much quota should remain now if consumed evenly from the window start through reset; with `words.percent: "left"`, the colored fill shows actual quota remaining. The mark follows text color, not quota health, and may be absent when percent or usable timing is unavailable (including month/year windows without a known start). **Even-use mark** on Layout's All places page. |
 | `layout.indent` | `1` | Whole number 0–4. |
 | `layout.labelWidth` | `8` | Whole number 3–20: the most columns a row name takes. |
 | `layout.providerGap` | `1` | Whole number 0–2. |
 | `layout.separator` | `" · "` | Up to 5 characters. |
+
+#### TUI bar examples
+
+`layout.bar` changes the glyphs, and `layout.barWidth` changes the number of cells. **Bar shape** on Layout → All places previews each choice; the examples below use 20 cells, `words.percent: "left"`, `colors.levelBy: "left"`, and the default thresholds (`warningBelow: 50`, `lowBelow: 20`). The filled part follows the row's level and the rest uses `empty`:
+
+| Percent left | 20-cell row sample | Default theme roles | Example custom roles |
+| --- | --- | --- | --- |
+| 60% | `5h ━━━━━━━━━━━━────────  60% left` | `good` (theme green) + `empty` (theme muted) | `good: blue` + `empty: muted` |
+| 40% | `5h ━━━━━━━━────────────  40% left` | `warning` (theme yellow) + `empty` (theme muted) | `warning: accent` + `empty: muted` |
+| 10% | `5h ━━──────────────────  10% left` | `low` (theme red) + `empty` (theme muted) | `low: red` + `empty: muted` |
+
+The role names describe the active OpenCode theme colors; they are not fixed RGB values. The example overrides use only existing color choices:
+
+```jsonc
+"colors": { "good": "blue", "warning": "accent", "low": "red", "empty": "muted" }
+```
+
+At 60% left, the other supported shapes keep the same 12-of-20 fill; `squares` and `dots` remain available:
+
+```text
+line (default)  ━━━━━━━━━━━━────────
+blocks          ████████████░░░░░░░░
+shades          ▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░
+squares         ■■■■■■■■■■■■□□□□□□□□
+dots            ●●●●●●●●●●●●○○○○○○○○
+none            (no meter; the percent remains)
+```
+
+With **Even-use mark** on, halfway through a 5-hour window the even-use target is 50% remaining. If actual quota remaining is 60%, a 20-cell meter fills 12 cells and shows `━━━━━━━━━━┃━────────`: `┃` replaces the boundary cell at the target, so it is not an extra cell. Fill to the right of the mark means more quota remains than target; fill to the left means less. The mark follows text color, not quota health. It may be absent when percent or timing is unavailable, including some month/year windows without a known start. With `words.percent: "used"`, the bar and mark turn around to follow the displayed percentage. When bars are set to `none`, other quota surfaces omit the meter, while Limits intentionally substitutes a thin line. Usage charts remain analytics and do not use these quota-meter settings.
 
 ### Words
 

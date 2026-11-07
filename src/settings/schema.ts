@@ -126,7 +126,7 @@ export const SETTINGS_SCHEMA = {
   "colors.levelBy": choice(["left", "pace"], "left"),
   "colors.warningBelow": { ...whole(0, 100), default: 50 },
   "colors.lowBelow": { ...whole(0, 100), default: 20 },
-  "layout.bar": choice(["blocks", "shades", "line", "squares", "dots", "none"], "blocks"),
+  "layout.bar": choice(["blocks", "shades", "line", "squares", "dots", "none"], "line"),
   /** "fill": the room the other columns leave, up to each place's most. */
   "layout.barWidth": { ...whole(1, 30), word: "fill", default: "fill" },
   /** The ┃ mark where even use would be, in every place's bars, the Limits tab's too. */

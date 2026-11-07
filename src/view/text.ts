@@ -82,6 +82,27 @@ export type Line = { id: string; segments: Segment[] };
 
 export type Layout = Settings["layout"];
 
+/** The configured meter size: `fill` is deliberately compact on every quota surface. */
+const BAR_FILL_MAX = 20;
+
+/** The requested bar size before a surface clamps it to its available columns. */
+function configuredBarWidth(
+  layout: Pick<Layout, "bar" | "barWidth">,
+  fillMaximum = BAR_FILL_MAX,
+): number {
+  if (layout.bar === "none") return 0;
+  return layout.barWidth === "fill" ? fillMaximum : layout.barWidth;
+}
+
+/** A configured bar size that fits the columns left by the surface's other values. */
+function fitBarWidth(
+  layout: Pick<Layout, "bar" | "barWidth">,
+  available: number,
+  fillMaximum = BAR_FILL_MAX,
+): number {
+  return Math.max(0, Math.min(configuredBarWidth(layout, fillMaximum), Math.floor(available)));
+}
+
 export function lineText(line: Line): string {
   return line.segments.map((segment) => segment.text).join("");
 }
@@ -301,7 +322,7 @@ function resetColumn(reset: string, width: number, words: Words): string {
   return words.reset === "percent" ? afterPercent(reset, " ") : reset.padStart(width);
 }
 
-/** The most cells a "fill" bar takes on the sidebar. */
+/** The most cells a "fill" bar takes on the expanded sidebar. */
 const SIDEBAR_BAR_MOST = 20;
 
 /**
@@ -320,8 +341,7 @@ export function sidebarLines(input: SidebarInput): Line[] {
   );
   const barColumn = layout.indent + nameWidth + 1;
   const fixed = barColumn + 5 + resetWidth;
-  const wanted = layout.barWidth === "fill" ? SIDEBAR_BAR_MOST : layout.barWidth;
-  const barWidth = layout.bar === "none" ? 0 : Math.max(0, Math.min(wanted, width - fixed));
+  const barWidth = fitBarWidth(layout, width - fixed, SIDEBAR_BAR_MOST);
 
   const rowLine = (row: RowFacts): Line => {
     const { percent } = row;
@@ -389,7 +409,7 @@ export function collapsedTitle(groups: Group[]): string {
 
 /** A collapsed line's provider (10) and row name (5) columns. */
 const COLLAPSED_NAMES = 15;
-/** The most cells a collapsed bar takes. */
+/** The most cells a "fill" bar takes on the collapsed sidebar. */
 const COLLAPSED_BAR_MOST = 10;
 
 type CollapsedInput = {
@@ -432,9 +452,7 @@ export function collapsedLines(input: CollapsedInput): Line[] {
   // The reset as wide as the longest, at least "11h 59m".
   const resetWidth = Math.max(7, ...picks.map(({ picked }) => columnsOf(picked?.reset ?? "")));
   const room = input.width - COLLAPSED_NAMES - percentWidth - 1 - resetWidth;
-  const wanted = layout.barWidth === "fill" ? COLLAPSED_BAR_MOST : layout.barWidth;
-  const barWidth =
-    layout.bar === "none" ? 0 : Math.max(0, Math.min(wanted, COLLAPSED_BAR_MOST, room));
+  const barWidth = fitBarWidth(layout, room, COLLAPSED_BAR_MOST);
   const providerLine = (group: Group, picked: RowFacts | undefined): Line => {
     const percent = picked?.percent;
     const name: Segment = {
@@ -485,9 +503,6 @@ export function collapsedLines(input: CollapsedInput): Line[] {
 /** How much one status line segment shows, from the most to the least. */
 export type StatusLevel = "full" | "bar" | "reset" | "numbers";
 const STATUS_LEVELS: readonly StatusLevel[] = ["full", "bar", "reset", "numbers"];
-/** The status line's little bar. */
-const STATUS_BAR_WIDTH = 5;
-
 export type StatusInput = {
   groups: Group[];
   layout: Layout;
@@ -497,6 +512,9 @@ export type StatusInput = {
   /** "(runs out in 2h)" after each provider whose shown row runs out before its reset. */
   runsOut?: boolean;
 };
+
+/** The status line keeps a small default meter; a numeric setting can make it wider. */
+const STATUS_BAR_FILL_MAX = 5;
 
 /** A provider's name on the status line: with its account only when it shows several. */
 function statusName(input: StatusInput, group: Group): string {
@@ -509,7 +527,12 @@ function statusName(input: StatusInput, group: Group): string {
  * last check failed, the error's words take the place of the reset time next to the rows kept
  * from before, or "⚠" where the level shows no reset time.
  */
-function statusSegment(input: StatusInput, group: Group, level: StatusLevel): Line {
+function statusSegment(
+  input: StatusInput,
+  group: Group,
+  level: StatusLevel,
+  barWidth = configuredBarWidth(input.layout, STATUS_BAR_FILL_MAX),
+): Line {
   const { layout, nowMs } = input;
   const picked = pickedFacts(input, group, "usedWord");
   const percent = picked?.percent;
@@ -518,7 +541,7 @@ function statusSegment(input: StatusInput, group: Group, level: StatusLevel): Li
     const value = groupState(group, nowMs) ?? { text: picked?.value ?? "", role: "value" };
     return { id: group.providerId, segments: [name, { ...value, text: ` ${value.text}` }] };
   }
-  const withBar = layout.bar !== "none" && (level === "full" || level === "bar");
+  const withBar = layout.bar !== "none" && barWidth > 0 && (level === "full" || level === "bar");
   const withReset = level === "full" || level === "reset";
   const error = errorWords(group, nowMs);
   const reset = withReset ? picked.reset : "";
@@ -535,7 +558,7 @@ function statusSegment(input: StatusInput, group: Group, level: StatusLevel): Li
         ...(withBar
           ? [
               { text: " ", role: "separator" as const },
-              ...barSegments(layout.bar, percent, STATUS_BAR_WIDTH, picked.evenLeft, input.words),
+              ...barSegments(layout.bar, percent, barWidth, picked.evenLeft, input.words),
             ]
           : []),
         { text: ` ${picked.value}`, role: "percent", percent },
@@ -599,7 +622,15 @@ export function statusLayout(
   const markerWidth = (index: number) =>
     index < groups.length - 1 ? columnsOf(` +${groups.length - index} ›`) : 0;
   for (let index = first; index < groups.length; index++) {
-    const segment = statusSegment(input, groups[index] as Group, chosen);
+    const group = groups[index] as Group;
+    const separatorWidth = shown.length > 0 ? columnsOf(separator) : 0;
+    const available = Math.max(0, room - used - separatorWidth - markerWidth(index));
+    let segment = statusSegment(input, group, chosen);
+    if (columnsOf(lineText(segment)) > available) {
+      const withoutBar = statusSegment(input, group, chosen, 0);
+      const barWidth = Math.max(0, available - columnsOf(lineText(withoutBar)));
+      segment = statusSegment(input, group, chosen, barWidth);
+    }
     const width = columnsOf(lineText(segment)) + (shown.length > 0 ? columnsOf(separator) : 0);
     if (used + width + markerWidth(index) > room) break;
     shown.push(segment);
@@ -627,7 +658,7 @@ export function statusMarkers(layout: StatusLayout): { before: string; after: st
 }
 
 /**
- * §4.3 "one provider, big bar" (v5's prompt bar): the first group with a 10-cell bar. The
+ * §4.3 "one provider, big bar" (v5's prompt bar): the first group with its configured bar. The
  * error's words take the place of the reset time; without a percent row the line shows the
  * group's error or value instead of a bar. Cut to `width` columns when given, keeping " ⚠"
  * when the error's words don't fit.
@@ -647,13 +678,27 @@ export function bigStatusLine(input: StatusInput, width?: number): Line | undefi
     : picked.reset
       ? { text: afterPercent(picked.reset, " · "), role: "reset", percent }
       : undefined;
+  const name = {
+    text: `${statusName(input, group)} ${picked.name} `,
+    role: "statusName" as const,
+    percent,
+  };
+  const trailing: Segment[] = [
+    { text: ` ${picked.value}`, role: "percent", percent },
+    ...(after ? [after] : []),
+    ...(picked.pace ? [{ text: ` · ${picked.pace.words}`, role: "warning" as const }] : []),
+  ];
+  const fixedWidth = columnsOf(name.text + trailing.map((segment) => segment.text).join(""));
+  const fillMaximum = 10;
+  const widthForBar =
+    width === undefined
+      ? configuredBarWidth(input.layout, fillMaximum)
+      : fitBarWidth(input.layout, width - fixedWidth, fillMaximum);
   const segments = withPaceLevel(
     [
-      { text: `${statusName(input, group)} ${picked.name} `, role: "statusName", percent },
-      ...barSegments(input.layout.bar, percent, 10, picked.evenLeft, input.words),
-      { text: ` ${picked.value}`, role: "percent", percent },
-      ...(after ? [after] : []),
-      ...(picked.pace ? [{ text: ` · ${picked.pace.words}`, role: "warning" as const }] : []),
+      name,
+      ...barSegments(input.layout.bar, percent, widthForBar, picked.evenLeft, input.words),
+      ...trailing,
     ],
     picked.paceLevel,
   );
@@ -720,10 +765,9 @@ export type ToastInput = {
 
 /** A toast bar's cells at the least; with less room the row has no bar. */
 const TOAST_BAR_MIN = 3;
-/** A grouped toast's row indent, its name column and its bar at the most. */
+/** A grouped toast's row indent and its name column. */
 const GROUPED_INDENT = 2;
 const GROUPED_NAME_MAX = 9;
-const GROUPED_BAR_MAX = 20;
 
 /** The segments without the spaces at the end of their line. */
 export function trimEnd(segments: Segment[]): Segment[] {
@@ -773,7 +817,7 @@ function groupedToastLines(input: ToastInput): Line[] {
   );
   const barColumn = GROUPED_INDENT + nameWidth + 1;
   const fixed = barColumn + 1 + percentWidth + (resetWidth > 0 ? 2 + resetWidth : 0);
-  const barWidth = layout.bar === "none" ? 0 : Math.min(GROUPED_BAR_MAX, room - fixed);
+  const barWidth = fitBarWidth(layout, room - fixed);
   const withBar = barWidth >= TOAST_BAR_MIN;
 
   const rowLines = (row: RowFacts): Line[] => {
@@ -838,7 +882,7 @@ function detailedToastLines(input: ToastInput): Line[] {
     rows.flatMap((row) => (row.percent === undefined ? [] : [row.value])),
   );
   const percentWidth = Math.max(0, ...percents.map(columnsOf));
-  const barWidth = layout.bar === "none" ? 0 : room - 2 - percentWidth;
+  const barWidth = fitBarWidth(layout, room - 2 - percentWidth);
 
   const rowLines = (row: RowFacts): Line[] => {
     const { percent } = row;

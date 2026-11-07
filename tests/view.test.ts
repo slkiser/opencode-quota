@@ -356,7 +356,10 @@ describe("view select", () => {
 describe("view text", () => {
   // Pinned, so these drawings show bars without the even-use mark; its own tests turn it on.
   const defaults = defaultSettings();
-  const display = { ...defaults, layout: { ...defaults.layout, evenUse: false } };
+  const display = {
+    ...defaults,
+    layout: { ...defaults.layout, bar: "blocks" as const, evenUse: false },
+  };
   const groups = (
     surface: "sidebar" | "collapsed" | "statusLine" | "toast",
     providers = [CLAUDE, ZEN, ROUTER],
@@ -643,19 +646,19 @@ describe("view text", () => {
 
     it("is in every place's bars with a new settings file that does not set it", async () => {
       expect(await placesFromNewFile({ words: { percent: "left" } })).toEqual({
-        sidebar: " 5h ██████████┃███░░░░░░  70% 2h 30m",
-        collapsed: "OpenAI    5h   █████┃█░░░  70%  2h 30m",
-        status: "OpenAI ███┃░ 70% 2h 30m",
-        toast: "  5h █████████┃██░░░░░  70% left  2h 30m",
+        sidebar: " 5h ━━━━━━━━━━┃━━━──────  70% 2h 30m",
+        collapsed: "OpenAI    5h   ━━━━━┃━───  70%  2h 30m",
+        status: "OpenAI ━━━┃─ 70% 2h 30m",
+        toast: "  5h ━━━━━━━━━┃━━─────  70% left  2h 30m",
       });
     });
 
     it("stays out of every place's bars when the file sets it false", async () => {
       expect(await placesFromNewFile({ layout: { evenUse: false } })).toEqual({
-        sidebar: " 5h ██████████████░░░░░░  70% 2h 30m",
-        collapsed: "OpenAI    5h   ███████░░░  70%  2h 30m",
-        status: "OpenAI ████░ 70% 2h 30m",
-        toast: "  5h ████████████░░░░░  70% left  2h 30m",
+        sidebar: " 5h ━━━━━━━━━━━━━━──────  70% 2h 30m",
+        collapsed: "OpenAI    5h   ━━━━━━━───  70%  2h 30m",
+        status: "OpenAI ━━━━─ 70% 2h 30m",
+        toast: "  5h ━━━━━━━━━━━━─────  70% left  2h 30m",
       });
     });
 
@@ -672,6 +675,32 @@ describe("view text", () => {
       // The bar keeps its width.
       expect(sidebar(on).map(columnsOf)).toEqual(sidebar(display.layout).map(columnsOf));
     });
+
+    it.each([
+      { window: "month", label: "Monthly", resetIn: 10 * 24 * 60 * MINUTE },
+      { window: "year", label: "Yearly", resetIn: 100 * 24 * 60 * MINUTE },
+    ] as const)(
+      "omits the mark for a $window window without a known start",
+      ({ window, label, resetIn }) => {
+        const providerWithWindow = provider("openai", "OpenAI", [
+          row(`openai.${window}`, {
+            label,
+            window,
+            percentRemaining: 60,
+            resetsAt: at(resetIn),
+          }),
+        ]);
+        const lines = sidebarLines({
+          groups: groups("sidebar", [providerWithWindow]),
+          ...drawn,
+          layout: on,
+          width: 40,
+        }).map(lineText);
+
+        expect(lines[1]).toMatch(/[█░]/u);
+        expect(lines[1]).not.toContain("┃");
+      },
+    );
 
     it("is in the bars of the collapsed panel, the status line, the big bar and both toasts", () => {
       const status: StatusInput = { ...statusInput([PACED]), layout: on };
@@ -703,9 +732,9 @@ describe("view text", () => {
         detailed: [
           "OpenAI",
           "5h                                2h 30m",
-          "███████████████┃█████░░░░░░░░░  70% left",
+          "██████████┃███░░░░░░  70% left",
           "7d",
-          "████████████░░░░░░░░░░░░░░░░░░  40% left",
+          "████████░░░░░░░░░░░░  40% left",
         ],
       });
     });
@@ -870,11 +899,11 @@ describe("view text", () => {
     expect(statusLayout(input, 9, 0, "auto").shown.map(lineText)).toEqual(["C… ⚠"]);
   });
 
-  it("cuts the big bar to the status line's room, keeping the error's mark", () => {
+  it("shrinks the big bar to the status line's room without cutting off an error", () => {
     const expired = statusInput([{ ...CLAUDE, error: { code: "login_expired" } }]);
     expect([40, 30].map((width) => lineText(bigStatusLine(expired, width)!))).toEqual([
-      "Claude 7d █░░░░░░░░░ 12% left · Sign in…",
-      "Claude 7d █░░░░░░░░░ 12% le… ⚠",
+      "Claude 7d █░░░░ 12% left · Sign in again",
+      "Claude 7d  12% left · Sign in…",
     ]);
     expect(lineText(bigStatusLine(statusInput([ROUTER]), 8)!)).toBe("OpenR… ⚠");
   });
@@ -1041,9 +1070,9 @@ describe("view text", () => {
         "detailed": [
           "Claude",
           "5h                                              2h 14m",
-          "██████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░  42% used",
+          "████████░░░░░░░░░░░░  42% used",
           "7d                                                3.2d",
-          "███████████████████████████████████████░░░░░  88% used",
+          "██████████████████░░  88% used",
         ],
         "grouped": [
           "Claude",
@@ -1114,14 +1143,14 @@ describe("view text", () => {
     expect(widest(lines)).toBeLessThanOrEqual(54);
   });
 
-  it("lays a detailed toast out like v5: two lines per row and a bar as wide as the toast", () => {
+  it("lays a detailed toast out like v5: two lines per row with a compact bar", () => {
     const lines = toast("detailed", 54, [CLAUDE, ZEN, ROUTER, TWO_ACCOUNTS], tokens);
     expect(lines).toEqual([
       "Claude",
       `5h${" ".repeat(46)}2h 14m`,
-      `${"█".repeat(26)}${"░".repeat(18)}  58% left`,
+      `${"█".repeat(12)}${"░".repeat(8)}  58% left`,
       `7d${" ".repeat(48)}3.2d`,
-      `${"█".repeat(5)}${"░".repeat(39)}  12% left`,
+      `${"█".repeat(2)}${"░".repeat(18)}  12% left`,
       "runs out in 13h",
       "",
       "OpenCode Zen",
@@ -1133,15 +1162,20 @@ describe("view text", () => {
       "Copilot (work)",
       "Timed out",
       "30d",
-      `${"█".repeat(18)}${"░".repeat(26)}  40% left`,
+      `${"█".repeat(8)}${"░".repeat(12)}  40% left`,
       "",
       "Copilot (home)",
       "30d",
-      `${"█".repeat(40)}${"░".repeat(4)}  90% left`,
+      `${"█".repeat(18)}${"░".repeat(2)}  90% left`,
       "",
       `Session${" ".repeat(27)}12.3K in · 2.10K out`,
     ]);
-    expect(lines.map(columnsOf).filter((width) => width !== 54 && width > 20)).toEqual([]);
+    expect(widest(lines)).toBeLessThanOrEqual(54);
+    expect(
+      lines
+        .filter((line) => /[█░]/u.test(line))
+        .map((line) => line.match(/[█░┃]+/gu)?.join("").length),
+    ).toEqual([20, 20, 20, 20]);
   });
 
   it("fits both toast layouts in a narrow toast, cutting long names with …", () => {
@@ -1161,13 +1195,13 @@ describe("view text", () => {
       detailed: [
         "Copilot",
         `Premium requests${" ".repeat(17)}18.4d`,
-        `${"█".repeat(22)}${"░".repeat(6)}  80% left`,
+        `${"█".repeat(16)}${"░".repeat(4)}  80% left`,
         "",
         "Claude",
         `5h${" ".repeat(30)}2h 14m`,
-        `${"█".repeat(16)}${"░".repeat(12)}  58% left`,
+        `${"█".repeat(12)}${"░".repeat(8)}  58% left`,
         `7d${" ".repeat(32)}3.2d`,
-        `${"█".repeat(3)}${"░".repeat(25)}  12% left`,
+        `${"█".repeat(2)}${"░".repeat(18)}  12% left`,
         "runs out in 13h",
       ],
     });
