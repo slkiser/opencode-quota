@@ -534,6 +534,8 @@ Reads your OpenCode API key. A limited key shows the budget's percentage left; a
 
 If you are signed in to the OpenCode Console in OpenCode 2, Go first asks the Console (`/api/go/status`). If you are not signed in, the sign-in fails, or that call fails, it uses the official `https://opencode.ai/zen/go/v1/usage` API with your API key.
 
+Go shows only when OpenCode lists `opencode-go` (an account with Go access) or one of the key sources below is set: a Console sign-in alone, without Go, does not add the line.
+
 API key order:
 
 1. `OPENCODE_API_KEY`

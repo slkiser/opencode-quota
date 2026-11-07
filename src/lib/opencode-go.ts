@@ -247,17 +247,20 @@ export async function queryOpenCodeGoConsoleStatus(
     };
   }
 
+  const notSubscribed: OpenCodeGoResult = {
+    success: false,
+    error: "OpenCode Go subscription is not active",
+    notSubscribed: true,
+  };
+
+  // The Console answers `null`, or omits `access`, for an account without Go access: no plan.
+  if (reply.json === null) return notSubscribed;
+
   const root = asRecord(reply.json);
   if (!root) return contractError("console root must be an object");
 
   const access = asRecord(root.access);
-  if (!access) {
-    return {
-      success: false,
-      error: "OpenCode Go subscription is not active",
-      notSubscribed: true,
-    };
-  }
+  if (!access) return notSubscribed;
 
   const meters = asRecord(access.meters);
   if (!meters) return contractError("console access meters are missing");

@@ -5,7 +5,6 @@ import {
   opencodeGoProvider,
 } from "../src/providers/opencode-go.js";
 import type { CredentialDatabaseRow } from "./helpers/credential-database.js";
-import { NO_PROJECT_DIRECTORY } from "./helpers/opencode-folders.js";
 import {
   fakeHttp,
   fetchRows,
@@ -14,9 +13,9 @@ import {
   rowSummary,
   useProviderWorld,
 } from "./helpers/provider-fetch.js";
+import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 
 const world = useProviderWorld();
-const NO_PROJECT_CTX = { config: {}, locationDirectory: NO_PROJECT_DIRECTORY } as never;
 
 beforeEach(() => {
   __resetOpenCodeGoNotSubscribedForTests();
@@ -103,6 +102,20 @@ describe("OpenCode Go with the Console sign-in", () => {
     expect(fetched.error).toBeUndefined();
     expect(rowSummary(fetched.rows)).toEqual(CONSOLE_ROWS);
     expect(fetched.rowLogins).toEqual(["console:go", "console:go", "console:go"]);
+  });
+
+  it("reads a Console null body as no Go plan, not a broken reply", async () => {
+    world.storeLogins([consoleLogin()]);
+    const http = fakeHttp((url) =>
+      url === CONSOLE_STATUS_URL ? new Response("null", { status: 200 }) : USAGE_REPLY,
+    );
+
+    const fetched = await fetchRows(opencodeGoProvider);
+
+    expect(http).toHaveBeenCalledOnce();
+    expect(fetched.rows).toEqual([]);
+    expect(fetched.error).toBeUndefined();
+    expect(fetched.debug).toContainEqual(NOT_SUBSCRIBED_DETAIL);
   });
 
   it.each([
@@ -273,19 +286,6 @@ describe("OpenCode Go with an API key", () => {
       "Bearer free-key",
     ]);
   });
-
-  it("asks again after the availability check found no key", async () => {
-    process.env.OPENCODE_API_KEY = "free-key";
-    const http = fakeHttp(() => notSubscribedReply());
-    await fetchRows(opencodeGoProvider);
-
-    delete process.env.OPENCODE_API_KEY;
-    await expect(opencodeGoProvider.isAvailable(NO_PROJECT_CTX)).resolves.toBe(false);
-    process.env.OPENCODE_API_KEY = "free-key";
-    await fetchRows(opencodeGoProvider);
-
-    expect(http).toHaveBeenCalledTimes(2);
-  });
 });
 
 describe("OpenCode Go with stored keys", () => {
@@ -347,33 +347,44 @@ describe("OpenCode Go with stored keys", () => {
 
 describe("OpenCode Go availability and models", () => {
   it.each([
-    { name: "a Console sign-in", logins: [consoleLogin()], apiKey: false, available: true },
     {
-      name: "an expired sign-in",
-      logins: [consoleLogin({ expires: 1 })],
+      name: "OpenCode lists opencode-go",
+      providerIds: ["opencode-go"],
+      logins: [],
       apiKey: false,
       available: true,
     },
     {
-      name: "a sign-in without a token",
-      logins: [consoleLogin({ access: "" })],
-      apiKey: false,
-      available: true,
-    },
-    { name: "an env key", logins: [], apiKey: true, available: true },
-    {
-      name: "only a broken stored key",
-      logins: [keyLogin("broken", "opencode-go", "")],
+      name: "a Console sign-in alone",
+      providerIds: ["opencode"],
+      logins: [consoleLogin()],
       apiKey: false,
       available: false,
     },
-    { name: "nothing", logins: [], apiKey: false, available: false },
-  ])("is available with $name: $available", async ({ logins, apiKey, available }) => {
+    { name: "an env key", providerIds: [], logins: [], apiKey: true, available: true },
+    {
+      name: "a stored key",
+      providerIds: ["openai"],
+      logins: [keyLogin("go", "opencode-go", "go-key")],
+      apiKey: false,
+      available: true,
+    },
+    {
+      name: "only a broken stored key",
+      providerIds: ["openai"],
+      logins: [keyLogin("broken", "opencode-go", "")],
+      apiKey: false,
+      available: true,
+    },
+    { name: "nothing", providerIds: [], logins: [], apiKey: false, available: false },
+  ])("is available with $name: $available", async ({ providerIds, logins, apiKey, available }) => {
     world.storeLogins(logins);
     if (apiKey) process.env.OPENCODE_API_KEY = "go-key";
     const http = fakeHttp(() => USAGE_REPLY);
 
-    await expect(opencodeGoProvider.isAvailable(NO_PROJECT_CTX)).resolves.toBe(available);
+    await expect(
+      opencodeGoProvider.isAvailable(createProviderAvailabilityContext({ providerIds })),
+    ).resolves.toBe(available);
     expect(http).not.toHaveBeenCalled();
   });
 

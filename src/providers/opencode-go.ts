@@ -30,8 +30,8 @@ import {
   quotaRow,
   WEEKLY,
 } from "./contract.js";
-import { fetchStoredKeys } from "./key-vendor.js";
-import { vendorKeyDetails, vendorKeyState } from "./result-helpers.js";
+import { fetchStoredKeys, isKeyVendorAvailable } from "./key-vendor.js";
+import { vendorKeyDetails } from "./result-helpers.js";
 
 const LABEL = "OpenCode Go";
 const OPENCODE_GO_AUTH = API_KEY_VENDORS["opencode-go"];
@@ -114,12 +114,13 @@ export const opencodeGoProvider: QuotaProvider = {
   },
 
   async isAvailable(ctx: QuotaProviderContext): Promise<boolean> {
-    // Any Console sign-in counts, even a failed one, so fetch() can show its error when there
-    // is no API key.
-    if ((await resolveOpenCodeConsoleAuth()).state !== "none") return true;
-    if (vendorKeyState(await readGoKeys(ctx.locationDirectory)).state === "configured") return true;
-    notSubscribedCredentialFingerprints.clear();
-    return false;
+    // OpenCode lists opencode-go only for an account with Go access, so its own list is the signal.
+    return await isKeyVendorAvailable({
+      ctx,
+      providerId: "opencode-go",
+      availability: "listed-or-key",
+      readKeys: () => readGoKeys(ctx.locationDirectory),
+    });
   },
 
   matchesCurrentModel(model: string): boolean {
@@ -163,6 +164,8 @@ export const opencodeGoProvider: QuotaProvider = {
         return {
           attempted: true,
           accounts: [],
+          // A no-plan answer: clear the last rows rather than read as no data.
+          empty: true,
           debug: [
             { key: "console_auth_state", value: "configured" },
             NOT_SUBSCRIBED_DETAIL,
