@@ -14,6 +14,7 @@
  * the reset and the pace on a line under the bar (on two lines when they don't fit together).
  */
 import type { QuotaSnapshot, Words } from "../../core/types.js";
+import { resolveUiLocale, translate } from "../../i18n.js";
 import { columnsOf, padEndColumns, padStartColumns, sliceColumns } from "../../view/columns.js";
 import { type BarShape, fit } from "../../view/format.js";
 import { errorWords, type Place, type RowFacts, rowFacts } from "../../view/row-facts.js";
@@ -64,6 +65,7 @@ export type LimitsInput = {
   nowMs: number;
   /** Columns inside the window. */
   width: number;
+  locale?: string;
 };
 
 const widest = (texts: string[]) => Math.max(0, ...texts.map(columnsOf));
@@ -198,7 +200,10 @@ export function limitsLines(input: LimitsInput): Line[] {
       {
         id: "",
         segments: [
-          { text: `${INDENT}No quota providers found. The Plugin tab says why.`, role: "value" },
+          {
+            text: `${INDENT}${translate(resolveUiLocale(input.locale ?? "en-US", input.locale ?? "en-US"), "tui.state.noProviders")}`,
+            role: "value",
+          },
         ],
       },
     ];
@@ -208,6 +213,7 @@ export function limitsLines(input: LimitsInput): Line[] {
   const place: Place = {
     words,
     nowMs,
+    locale: input.locale,
     names: "label",
     percent: "words",
     times: "exact",
@@ -223,7 +229,7 @@ export function limitsLines(input: LimitsInput): Line[] {
   return groups.flatMap((group, index) => {
     const lines: Line[] = index > 0 ? [{ id: "", segments: [] }] : [];
     lines.push(providerLine(group));
-    const error = errorWords(group, nowMs);
+    const error = errorWords(group, nowMs, input.locale);
     if (error) {
       lines.push({
         id: group.id,

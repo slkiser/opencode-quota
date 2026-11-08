@@ -120,6 +120,8 @@ export type UsageReport = {
   totals: {
     costUsd: number;
     sessions: number;
+    /** Present when the report also counts requests; older reports may omit it. */
+    requests?: number;
     tokens: UsageTokens;
     tokensByType: UsageByType;
     costByType: UsageByType;

@@ -61,7 +61,7 @@ function Row(props: { ctx: Context; row: LimitRow; words: Words; nowMs: number }
               class="oq-even"
               style={{ left: `${positions().even ?? 0}%` }}
               title={ctx.t("limits.evenUse", {
-                percent: percentText(props.words, evenLeft(), true),
+                percent: percentText(props.words, evenLeft(), true, ctx.locale.locale()),
               })}
             />
           </Show>
@@ -88,21 +88,22 @@ function Row(props: { ctx: Context; row: LimitRow; words: Words; nowMs: number }
 
 export function LimitsView(props: LimitsProps) {
   const { ctx } = props;
-  const cards = () => limitCards(props.snapshot, props.display, props.nowMs, props.providerId);
-  const strip = () => sessionStrip(props.snapshot, props.display.words);
+  const cards = () =>
+    limitCards(props.snapshot, props.display, props.nowMs, props.providerId, ctx.locale.locale());
+  const strip = () => sessionStrip(props.snapshot, props.display.words, ctx.locale.locale());
   const checked = () => {
     const ms = lastCheckedMs(props.snapshot);
     if (ms === undefined) return undefined;
     const ago = props.nowMs - ms;
     return ago < 60_000
       ? ctx.t("limits.checkedNow")
-      : ctx.t("limits.checked", { time: formatDuration(ago, "short", 0) });
+      : ctx.t("limits.checked", { time: formatDuration(ago, "short", 0, ctx.locale.locale()) });
   };
   const pace = () => props.display.colors.levelBy === "pace";
   /** "below 50% left", or "above 50% used" in the used style. */
   const limit = (percentLeft: number) => {
     const words = props.display.words;
-    const percent = percentText(words, percentLeft, true);
+    const percent = percentText(words, percentLeft, true, ctx.locale.locale());
     return words.percent === "used"
       ? ctx.t("legend.above", { percent })
       : ctx.t("legend.below", { percent });

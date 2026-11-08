@@ -92,6 +92,7 @@ For example `/quota_usage 30d` or `/quota_usage between 2026-09-01 2026-09-25`. 
 ## Settings
 
 - Change settings in `/quota_settings` (TUI) or the Quota page in Desktop's settings. Both save to `opencode-quota/settings.jsonc` in OpenCode's config folder and keep your comments.
+- Set **Interface language** to **Automatic**, **English** or **简体中文** in either settings page; the choice is shared by TUI and Desktop. Automatic follows the host language and uses English when it is unsupported.
 - Custom providers, the Claude CLI path and the export path are set only in the file.
 - The `┃` in a bar marks even use until the reset. **Even-use mark** (`layout.evenUse`) turns it off.
 - [Settings and defaults](docs/readme/configuration.md)
@@ -177,6 +178,8 @@ Outside links: [OpenCode docs](https://opencode.ai/docs/) · [OpenCode config](h
 ## Contributors
 
 Thanks to everyone who has contributed to OpenCode Quota.
+
+The interface currently supports English and Simplified Chinese. To improve a translation, update the matching catalog in `src/i18n/` and add or adjust its localization test; missing Simplified Chinese entries fall back to English. See [contribution guidance](.github/CONTRIBUTING.md) before sending a change.
 
 <a href="https://github.com/slkiser/opencode-quota/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=slkiser/opencode-quota" />

@@ -120,6 +120,21 @@ describe("GUI surface settings", () => {
 });
 
 describe("GUI Quota panel", () => {
+  it("uses the selected locale for shared rows, errors, pace, and session formatting", () => {
+    const { snapshot, settings } = settingsWith({});
+    const view = panelView(snapshot, settings, NOW, "zh-Hans");
+
+    expect(view.groups[0]?.rows[0]?.value).toBe("30%");
+    expect(view.groups[0]?.rows[1]?.pace?.words).toContain("预计");
+    expect(view.groups[2]?.error).toBe("请重新登录");
+    expect(view.session).toBe("1.23万 输入 · 2100 输出");
+
+    const toast = toastView(
+      toastInput(snapshot, settings, { nowMs: NOW, width: 51, locale: "zh-Hans" }),
+    );
+    expect(toast.groups[0]?.rows[0]?.value).toBe("30% 剩余");
+  });
+
   it("shows the sidebar's providers in its order, with your names, runs-out and the session", () => {
     const { snapshot, settings } = settingsWith({
       "sidebar.providerOrder": ["openai"],

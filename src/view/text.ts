@@ -4,6 +4,7 @@
  * text.
  */
 import type { QuotaSnapshot, SessionModelInput, SessionTokens, Words } from "../core/types.js";
+import { resolveUiLocale, translate, translatePlural } from "../i18n.js";
 import type { Settings } from "../settings/schema.js";
 import { columnsOf } from "./columns.js";
 import {
@@ -144,10 +145,15 @@ export function barSegments(
 }
 
 /** The words after a group's title: its error, or "not checked yet" before the first check. */
-function groupState(group: Group, nowMs: number): Segment | undefined {
-  const error = errorWords(group, nowMs);
+function groupState(group: Group, nowMs: number, locale = "en-US"): Segment | undefined {
+  const error = errorWords(group, nowMs, locale);
   if (error) return { text: error, role: "error" };
-  if (group.unchecked) return { text: "not checked yet", role: "value" };
+  if (group.unchecked) {
+    return {
+      text: translate(resolveUiLocale(locale, locale), "tui.state.notChecked"),
+      role: "value",
+    };
+  }
   return undefined;
 }
 
@@ -157,7 +163,7 @@ function groupState(group: Group, nowMs: number): Segment | undefined {
  * the place shows it.
  */
 function alwaysOnPlace(
-  input: Pick<StatusInput, "words" | "nowMs" | "layout" | "runsOut">,
+  input: Pick<StatusInput, "words" | "nowMs" | "layout" | "runsOut" | "locale">,
   percent: Place["percent"],
 ): Place {
   return {
@@ -167,6 +173,7 @@ function alwaysOnPlace(
     percent,
     evenUse: input.layout.evenUse,
     pace: input.runsOut ? "runsOut" : undefined,
+    locale: input.locale,
   };
 }
 
@@ -224,6 +231,7 @@ type SidebarInput = {
   layout: Layout;
   words: Words;
   nowMs: number;
+  locale?: string;
   /** Columns the sidebar gives quota. */
   width: number;
   sessionTokens?: SessionTokens;
@@ -232,17 +240,25 @@ type SidebarInput = {
 };
 
 /** §4.1: the expanded panel's title, with the percent's word its rows leave out: "▼ Quota left". */
-export function sidebarTitle(words: Words): string {
-  const word = percentWord(words);
-  return word ? `▼ Quota ${word}` : "▼ Quota";
+export function sidebarTitle(words: Words, locale = "en-US"): string {
+  const uiLocale = resolveUiLocale(locale, locale);
+  const name = translate(uiLocale, "command.quota");
+  const suffix = percentWord(words, locale);
+  return suffix ? `▼ ${name} ${suffix}` : `▼ ${name}`;
 }
 
 /**
  * A group's title line: the provider's name in bold and its account, then (`withState`) its
  * error or "not checked yet" after two spaces. Cut to `width` columns.
  */
-function groupLine(group: Group, nowMs: number, width: number, withState: boolean): Line {
-  const state = withState ? groupState(group, nowMs) : undefined;
+function groupLine(
+  group: Group,
+  nowMs: number,
+  width: number,
+  withState: boolean,
+  locale = "en-US",
+): Line {
+  const state = withState ? groupState(group, nowMs, locale) : undefined;
   return {
     id: group.providerId,
     segments: clip(
@@ -257,13 +273,17 @@ function groupLine(group: Group, nowMs: number, width: number, withState: boolea
 }
 
 /** "Session  12.3K (1.20K) in · 2.10K out", or without cached input, cut to `width` columns. */
-function sessionLine(tokens: SessionTokens, width: number): Line {
+function sessionLine(tokens: SessionTokens, width: number, locale = "en-US"): Line {
   return {
     id: "session",
     segments: clip(
       [
-        { text: "Session", role: "label", bold: true },
-        { text: `  ${sessionTokensText(tokens)}`, role: "value" },
+        {
+          text: translate(resolveUiLocale(locale, locale), "tui.session"),
+          role: "label",
+          bold: true,
+        },
+        { text: `  ${sessionTokensText(tokens, locale)}`, role: "value" },
       ],
       width,
     ),
@@ -274,15 +294,20 @@ function sessionLine(tokens: SessionTokens, width: number): Line {
  * "⚠ low cache: 35% (claude-sonnet-5)" for the model with the lowest cache hit among those
  * whose cache hit is low (`cacheHit`), its name cut to fit `width`; undefined when none is.
  */
-export function lowCacheLine(models: SessionModelInput[], width: number): Line | undefined {
+export function lowCacheLine(
+  models: SessionModelInput[],
+  width: number,
+  locale = "en-US",
+): Line | undefined {
   let worst: { modelID: string; hit: CacheHit } | undefined;
   for (const model of models) {
-    const hit = cacheHit(model);
+    const hit = cacheHit(model, locale);
     if (!hit?.low) continue;
     if (!worst || hit.share < worst.hit.share) worst = { modelID: model.modelID, hit };
   }
   if (!worst) return undefined;
-  const start = `${LOW_CACHE_MARK} low cache: ${worst.hit.text}`;
+  const label = translate(resolveUiLocale(locale, locale), "format.lowCache");
+  const start = `${LOW_CACHE_MARK} ${label}: ${worst.hit.text}`;
   const nameRoom = width - columnsOf(start) - " ()".length;
   const name = worst.modelID;
   const text =
@@ -361,7 +386,7 @@ export function sidebarLines(input: SidebarInput): Line[] {
     if (index > 0) {
       for (let gap = 0; gap < layout.providerGap; gap++) lines.push({ id: "", segments: [] });
     }
-    lines.push(groupLine(group, nowMs, width, true));
+    lines.push(groupLine(group, nowMs, width, true, input.locale));
     for (const row of rows) {
       lines.push(rowLine(row));
       if (!row.pace) continue;
@@ -371,20 +396,26 @@ export function sidebarLines(input: SidebarInput): Line[] {
   });
   if (input.sessionTokens) {
     for (let gap = 0; gap < layout.providerGap; gap++) lines.push({ id: "", segments: [] });
-    lines.push(sessionLine(input.sessionTokens, width));
-    const lowCache = lowCacheLine(input.sessionTokens.models ?? [], width);
+    lines.push(sessionLine(input.sessionTokens, width, input.locale));
+    const lowCache = lowCacheLine(input.sessionTokens.models ?? [], width, input.locale);
     if (lowCache) lines.push(lowCache);
   }
   return lines;
 }
 
 /** §4.2: the collapsed panel's title. A provider with several accounts counts once. */
-export function collapsedTitle(groups: Group[]): string {
+export function collapsedTitle(groups: Group[], locale = "en-US"): string {
   const count = new Set(groups.map((group) => group.providerId)).size;
   const errors = new Set(groups.filter((group) => group.error).map((group) => group.providerId))
     .size;
-  const providers = `${count} ${count === 1 ? "provider" : "providers"}`;
-  return `▶ Quota (${providers}${errors ? `, ${errors} ${errors === 1 ? "error" : "errors"}` : ""})`;
+  const uiLocale = resolveUiLocale(locale, locale);
+  const providers = translatePlural(uiLocale, "tui.quota.providers", count);
+  const errorCount = errors > 0 ? translatePlural(uiLocale, "tui.quota.errors", errors) : undefined;
+  const title = translate(uiLocale, errorCount ? "tui.quota.titleWithErrors" : "tui.quota.title", {
+    providers,
+    errors: errorCount ?? "",
+  });
+  return `▶ ${title}`;
 }
 
 /** A collapsed line's provider (10) and row name (5) columns. */
@@ -397,6 +428,7 @@ type CollapsedInput = {
   layout: Layout;
   words: Words;
   nowMs: number;
+  locale?: string;
   width: number;
   /** Preferred window by provider id, or for all providers (`windowFor`). */
   window: Record<string, WindowChoice>;
@@ -442,12 +474,12 @@ export function collapsedLines(input: CollapsedInput): Line[] {
       role: "provider",
       percent,
     };
-    const state = groupState(group, nowMs);
+    const state = groupState(group, nowMs, input.locale);
     if (!picked || percent === undefined) {
       const value: Segment = state ?? { text: picked?.value ?? "", role: "value" };
       return { id: group.providerId, segments: clip([name, value], input.width) };
     }
-    const error = errorWords(group, nowMs);
+    const error = errorWords(group, nowMs, input.locale);
     return {
       id: group.providerId,
       segments: clip(
@@ -493,6 +525,7 @@ export type StatusInput = {
   layout: Layout;
   words: Words;
   nowMs: number;
+  locale?: string;
   window: Record<string, WindowChoice>;
   /** "(runs out in 2h)" after each provider whose shown row runs out before its reset. */
   runsOut?: boolean;
@@ -515,12 +548,15 @@ function statusSegment(input: StatusInput, group: Group, level: StatusLevel): Li
   const percent = picked?.percent;
   const name: Segment = { text: statusName(input, group), role: "statusName", percent };
   if (!picked || percent === undefined) {
-    const value = groupState(group, nowMs) ?? { text: picked?.value ?? "", role: "value" };
+    const value = groupState(group, nowMs, input.locale) ?? {
+      text: picked?.value ?? "",
+      role: "value",
+    };
     return { id: group.providerId, segments: [name, { ...value, text: ` ${value.text}` }] };
   }
   const withBar = layout.bar !== "none" && (level === "full" || level === "bar");
   const withReset = level === "full" || level === "reset";
-  const error = errorWords(group, nowMs);
+  const error = errorWords(group, nowMs, input.locale);
   const reset = withReset ? picked.reset : "";
   const after: Segment | undefined = error
     ? { text: ` ${withReset ? error : ERROR_MARK}`, role: "error" }
@@ -641,7 +677,7 @@ export function bigStatusLine(input: StatusInput, width?: number): Line | undefi
     const line = statusSegment(input, group, "full");
     return width === undefined ? line : { ...line, segments: clip(line.segments, width) };
   }
-  const error = errorWords(group, input.nowMs);
+  const error = errorWords(group, input.nowMs, input.locale);
   const after: Segment | undefined = error
     ? { text: ` · ${error}`, role: "error" }
     : picked.reset
@@ -671,13 +707,21 @@ export function plainLines(params: {
   groups: Group[];
   words: Words;
   nowMs: number;
+  locale?: string;
   sessionTokens?: SessionTokens;
   /** "runs out in 2h" after each row that runs out before its reset. */
   runsOut?: boolean;
 }): string[] {
   const { words, nowMs } = params;
   const pace = params.runsOut ? "runsOut" : undefined;
-  const place: Place = { words, nowMs, names: "label", percent: "words", pace };
+  const place: Place = {
+    words,
+    nowMs,
+    names: "label",
+    percent: "words",
+    pace,
+    locale: params.locale,
+  };
   const lines = groupFacts(params.groups, place).flatMap(({ group, rows }) => {
     const texts = rows.map((row) => {
       const name = fit(`${group.title} ${row.name}`, PLAIN_NAME_WIDTH);
@@ -688,11 +732,14 @@ export function plainLines(params: {
       const line = `${name} ${percent}`.trimEnd();
       return row.pace ? `${line}  ${row.pace.words}` : line;
     });
-    const state = groupState(group, nowMs);
+    const state = groupState(group, nowMs, params.locale);
     return state ? [...texts, `${fit(group.title, PLAIN_NAME_WIDTH)} ${state.text}`] : texts;
   });
   return params.sessionTokens
-    ? [...lines, `Session  ${sessionTokensText(params.sessionTokens)}`]
+    ? [
+        ...lines,
+        `${translate(resolveUiLocale(params.locale ?? "en-US", params.locale ?? "en-US"), "tui.session")}  ${sessionTokensText(params.sessionTokens, params.locale)}`,
+      ]
     : lines;
 }
 
@@ -706,6 +753,7 @@ export type ToastInput = {
   groups: Group[];
   words: Words;
   nowMs: number;
+  locale?: string;
   /** The bar shape and the even-use mark; a toast's bars take the room it has. */
   layout: Layout;
   /** The colors of its roles and levels, for a window that draws the rows itself. */
@@ -759,7 +807,7 @@ function runsOutLine(id: string, runsOut: string, column: number, room: number):
 function groupedToastLines(input: ToastInput): Line[] {
   const { nowMs, room, layout } = input;
   // "100% left": the number right-aligned, then its word.
-  const word = percentWord(input.words);
+  const word = percentWord(input.words, input.locale);
   const percentWidth = 4 + (word ? word.length + 1 : 0);
   const named = groupFacts(input.groups, alwaysOnPlace(input, "number"));
   const items = named.flatMap(({ rows }) => rows);
@@ -805,10 +853,12 @@ function groupedToastLines(input: ToastInput): Line[] {
   };
 
   const lines = named.flatMap(({ group, rows }) => [
-    groupLine(group, nowMs, room, true),
+    groupLine(group, nowMs, room, true, input.locale),
     ...rows.flatMap(rowLines),
   ]);
-  return input.sessionTokens ? [...lines, sessionLine(input.sessionTokens, room)] : lines;
+  return input.sessionTokens
+    ? [...lines, sessionLine(input.sessionTokens, room, input.locale)]
+    : lines;
 }
 
 /**
@@ -867,18 +917,25 @@ function detailedToastLines(input: ToastInput): Line[] {
 
   const blank: Line = { id: "", segments: [] };
   const lines = named.flatMap(({ group, rows }, index) => {
-    const state = groupState(group, nowMs);
+    const state = groupState(group, nowMs, input.locale);
     return [
       ...(index > 0 ? [blank] : []),
-      groupLine(group, nowMs, room, false),
+      groupLine(group, nowMs, room, false, input.locale),
       ...(state ? [{ id: group.providerId, segments: clip([state], room) }] : []),
       ...rows.flatMap(rowLines),
     ];
   });
   if (!input.sessionTokens) return lines;
   const session = spread(
-    { text: "Session", role: "label", bold: true },
-    { text: sessionTokensText(input.sessionTokens), role: "value" },
+    {
+      text: translate(
+        resolveUiLocale(input.locale ?? "en-US", input.locale ?? "en-US"),
+        "tui.session",
+      ),
+      role: "label",
+      bold: true,
+    },
+    { text: sessionTokensText(input.sessionTokens, input.locale), role: "value" },
     room,
   );
   return [...lines, ...(lines.length > 0 ? [blank] : []), { id: "session", segments: session }];
@@ -899,7 +956,7 @@ export function toastLines(input: ToastInput): Line[] {
 export function toastSentences(input: ToastInput): string[] {
   const named = groupFacts(input.groups, alwaysOnPlace(input, "words"));
   const sentences = named.flatMap(({ group, rows }) => {
-    const state = groupState(group, input.nowMs);
+    const state = groupState(group, input.nowMs, input.locale);
     const parts = [
       ...(state ? [state.text] : []),
       ...rows.map((row) =>
@@ -911,12 +968,15 @@ export function toastSentences(input: ToastInput): string[] {
     return parts.length > 0 ? [`${group.title}: ${parts.join(" · ")}.`] : [];
   });
   return input.sessionTokens
-    ? [...sentences, `Session: ${sessionTokensText(input.sessionTokens)}.`]
+    ? [
+        ...sentences,
+        `${translate(resolveUiLocale(input.locale ?? "en-US", input.locale ?? "en-US"), "tui.session")}: ${sessionTokensText(input.sessionTokens, input.locale)}.`,
+      ]
     : sentences;
 }
 
 /** Where a surface draws: the time, and its columns (a toast's inside the toast, `toastRoom`). */
-export type SurfaceView = { nowMs: number; width: number };
+export type SurfaceView = { nowMs: number; width: number; locale?: string };
 
 /** What every surface draws from: its rows, and its section's "runs out in …" switch. */
 function surfaceInput(
@@ -942,22 +1002,22 @@ function surfaceInput(
 export function sidebarPanel(
   snapshot: QuotaSnapshot | undefined,
   settings: Settings,
-  view: SurfaceView & { open: boolean },
+  view: SurfaceView & { open: boolean; locale?: string },
 ): { title: string; lines: Line[] } {
   const { nowMs, width } = view;
   if (!view.open) {
-    if (!snapshot) return { title: collapsedTitle([]), lines: [] };
+    if (!snapshot) return { title: collapsedTitle([], view.locale), lines: [] };
     const input = surfaceInput("collapsed", snapshot, settings, nowMs);
     const lines = settings.collapsed.show
-      ? collapsedLines({ ...input, width, window: settings.collapsed.window })
+      ? collapsedLines({ ...input, width, locale: view.locale, window: settings.collapsed.window })
       : [];
-    return { title: collapsedTitle(input.groups), lines };
+    return { title: collapsedTitle(input.groups, view.locale), lines };
   }
-  const title = sidebarTitle(settings.words);
+  const title = sidebarTitle(settings.words, view.locale);
   if (!snapshot) return { title, lines: [] };
   const sessionTokens = settings.sidebar.sessionTokens ? snapshot.sessionTokens : undefined;
   const input = surfaceInput("sidebar", snapshot, settings, nowMs);
-  return { title, lines: sidebarLines({ ...input, width, sessionTokens }) };
+  return { title, lines: sidebarLines({ ...input, locale: view.locale, width, sessionTokens }) };
 }
 
 /** §4.3: what the status line lays out (`statusLayout`, `bigStatusLine`). */
@@ -965,9 +1025,11 @@ export function statusLineInput(
   snapshot: QuotaSnapshot,
   settings: Settings,
   nowMs: number,
+  locale = "en-US",
 ): StatusInput {
   return {
     ...surfaceInput("statusLine", snapshot, settings, nowMs),
+    locale,
     window: settings.statusLine.window,
   };
 }
@@ -980,6 +1042,7 @@ export function toastInput(
 ): ToastInput {
   return {
     ...surfaceInput("toast", snapshot, settings, view.nowMs),
+    locale: view.locale,
     colors: settings.colors,
     toastLayout: settings.toast.layout,
     room: view.width,

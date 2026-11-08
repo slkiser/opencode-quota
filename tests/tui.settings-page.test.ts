@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { QuotaSnapshot } from "../src/core/types.js";
+import { createLocalization, type UiLocale } from "../src/i18n.js";
 import type { QuotaRpcSettingsOutput } from "../src/rpc.js";
 import { createFileDisplay, type SettingsTab } from "../src/tui/display.js";
 import { createServerSettings, PROVIDERS_KEY } from "../src/tui/server-settings.js";
@@ -37,7 +38,11 @@ const SNAPSHOT: QuotaSnapshot = {
 };
 
 /** A page over a draft whose server answers `saved`; no TUI and no server plugin. */
-async function pageOn(tab: SettingsTab, saved: QuotaRpcSettingsOutput = SAVED) {
+async function pageOn(
+  tab: SettingsTab,
+  saved: QuotaRpcSettingsOutput = SAVED,
+  locale: UiLocale = "en",
+) {
   const saveSettings = vi.fn(async () => ({ ok: true, issues: [] }));
   const server = createServerSettings({
     settings: async () => structuredClone(saved),
@@ -46,12 +51,16 @@ async function pageOn(tab: SettingsTab, saved: QuotaRpcSettingsOutput = SAVED) {
   await server.load();
   const draft = createFileDisplay(server);
   const dispatch = vi.fn();
+  const localization = createLocalization(
+    () => locale,
+    () => locale,
+  );
   const page = () =>
     settingsPage({
       tab,
       draft,
       snapshot: SNAPSHOT,
-      host: { theme: THEME, themeMode: "dark", keymap: { dispatch } } as never,
+      host: { ...localization, theme: THEME, themeMode: "dark", keymap: { dispatch } } as never,
       refocus: () => {},
     });
   return { server, draft, page, dispatch };
@@ -66,16 +75,30 @@ describe("a Settings page without the window", () => {
     expect(titles(page())).toEqual([
       ["Gateway", "off"],
       ["[x] Cursor", ""],
-      ["Plan", "not set"],
-      ["Included API budget", "from the plan"],
-      ["Billing day", "calendar month"],
+      ["Cursor plan", "not set"],
+      ["Cursor included API budget", "from the plan"],
+      ["Cursor billing day", "calendar month"],
       ["[ ] Copilot", ""],
       ["Check for new numbers", "every 5 min"],
       ["Slow provider: give up", "each provider's own"],
-      ["A model hits its limit", "wait for the reset"],
+      ["Wait for the reset when a model hits its limit", "wait for the reset"],
       ["Prices from", "newest list"],
       ["Download new prices", "every 7 days"],
     ]);
+  });
+
+  it("localizes provider setting values and fallback values in Simplified Chinese", async () => {
+    const { page } = await pageOn("providers", SAVED, "zh-Hans");
+    const settingsPage = page();
+    const rows = titles(settingsPage);
+
+    expect(rows).toContainEqual(["检查新用量的间隔", "每5分钟"]);
+    expect(rows).toContainEqual(["提供方响应较慢时的等待上限", "使用提供方自身的超时"]);
+    expect(rows).toContainEqual(["下载最新价格", "每7天"]);
+    expect(rows).toContainEqual(["Cursor 方案包含的 API 预算", "使用方案默认值"]);
+    expect(settingsPage.options.find((line) => line.id === "providers.cursor.plan")?.note?.()).toBe(
+      "方案所含 API 用量，以百分比显示。",
+    );
   });
 
   it("steps, ticks, switches and asks for typing through ids", async () => {

@@ -97,6 +97,7 @@ function alwaysOnPlace(
   nowMs: number,
   percent: Place["percent"],
   pace: Place["pace"],
+  locale = "en-US",
 ): Place {
   return {
     words: settings.words,
@@ -105,6 +106,7 @@ function alwaysOnPlace(
     percent,
     evenUse: settings.layout.evenUse,
     pace,
+    locale,
   };
 }
 
@@ -113,8 +115,13 @@ function surfaceRow(settings: Pick<Settings, "colors">, facts: RowFacts): Surfac
   return { ...facts, level: barLevel(settings.colors, facts.percent, facts.paceLevel) };
 }
 
-function surfaceGroup(groups: Group[], group: Group, nowMs: number): Omit<SurfaceGroup, "rows"> {
-  const error = errorWords(group, nowMs);
+function surfaceGroup(
+  groups: Group[],
+  group: Group,
+  nowMs: number,
+  locale: string,
+): Omit<SurfaceGroup, "rows"> {
+  const error = errorWords(group, nowMs, locale);
   const accounts = groups.filter((other) => other.providerId === group.providerId).length;
   return {
     id: group.id,
@@ -128,24 +135,30 @@ function surfaceGroup(groups: Group[], group: Group, nowMs: number): Omit<Surfac
 }
 
 /** The open Quota panel: the sidebar's providers and rows, then the session's tokens. */
-export function panelView(snapshot: QuotaSnapshot, settings: Settings, nowMs: number): PanelView {
+export function panelView(
+  snapshot: QuotaSnapshot,
+  settings: Settings,
+  nowMs: number,
+  locale = "en-US",
+): PanelView {
   const place = alwaysOnPlace(
     settings,
     nowMs,
     "number",
     settings.sidebar.runsOut ? "runsOut" : undefined,
+    locale,
   );
   const shown = visibleGroups(snapshot, settings, "sidebar", settings.words);
   const groups = shown.map((group) => ({
-    ...surfaceGroup(shown, group, nowMs),
+    ...surfaceGroup(shown, group, nowMs, locale),
     rows: group.rows.map((item) => surfaceRow(settings, rowFacts(item, group, place))),
   }));
   const tokens = settings.sidebar.sessionTokens ? snapshot.sessionTokens : undefined;
   if (!tokens) return { groups };
-  const lowCache = lowCacheLine(tokens.models ?? [], LOW_CACHE_WIDTH);
+  const lowCache = lowCacheLine(tokens.models ?? [], LOW_CACHE_WIDTH, locale);
   return {
     groups,
-    session: sessionTokensText(tokens),
+    session: sessionTokensText(tokens, locale),
     ...(lowCache ? { lowCache: lineText(lowCache) } : {}),
   };
 }
@@ -156,13 +169,20 @@ export function panelView(snapshot: QuotaSnapshot, settings: Settings, nowMs: nu
  * the toast shows them.
  */
 export function toastView(input: ToastInput): PanelView {
-  const place = alwaysOnPlace(input, input.nowMs, "words", input.runsOut ? "runsOut" : undefined);
+  const locale = input.locale ?? "en-US";
+  const place = alwaysOnPlace(
+    input,
+    input.nowMs,
+    "words",
+    input.runsOut ? "runsOut" : undefined,
+    locale,
+  );
   const groups = input.groups.map((group) => ({
-    ...surfaceGroup(input.groups, group, input.nowMs),
+    ...surfaceGroup(input.groups, group, input.nowMs, locale),
     rows: group.rows.map((item) => surfaceRow(input, rowFacts(item, group, place))),
   }));
   return input.sessionTokens
-    ? { groups, session: sessionTokensText(input.sessionTokens) }
+    ? { groups, session: sessionTokensText(input.sessionTokens, locale) }
     : { groups };
 }
 
@@ -178,14 +198,15 @@ export function pickedGroups(
   surface: "collapsed" | "statusLine",
   nowMs: number,
   place: Partial<Pick<Place, "percent" | "pace">> = {},
+  locale = "en-US",
 ): PickedGroup[] {
   const pace = "pace" in place ? place.pace : settings[surface].runsOut ? "runsOut" : undefined;
-  const rowPlace = alwaysOnPlace(settings, nowMs, place.percent ?? "usedWord", pace);
+  const rowPlace = alwaysOnPlace(settings, nowMs, place.percent ?? "usedWord", pace, locale);
   const shown = visibleGroups(snapshot, settings, surface, settings.words);
   return shown.map((group) => {
     const picked = pickRow(group, windowFor(settings[surface].window, group));
     return {
-      ...surfaceGroup(shown, group, nowMs),
+      ...surfaceGroup(shown, group, nowMs, locale),
       ...(picked ? { row: surfaceRow(settings, rowFacts(picked, group, rowPlace)) } : {}),
     };
   });
@@ -212,11 +233,12 @@ export function currentModelPick(
   snapshot: QuotaSnapshot,
   settings: Settings,
   nowMs: number,
+  locale = "en-US",
 ): PickedGroup | undefined {
   const current = snapshot.currentModelProviderIds;
   if (!current || current.length === 0) return undefined;
   const place = { percent: "words", pace: "all" } as const;
-  return pickedGroups(snapshot, settings, "statusLine", nowMs, place).find((group) =>
+  return pickedGroups(snapshot, settings, "statusLine", nowMs, place, locale).find((group) =>
     current.includes(group.providerId),
   );
 }

@@ -1,3 +1,4 @@
+import { resolveUiLocale, translate } from "../i18n.js";
 /**
  * One error vocabulary for every surface: `providerError` turns a provider's failure into a
  * `QuotaError` (from the facts its request gave, else by reading its words with
@@ -161,37 +162,51 @@ export function providerError(
   };
 }
 
-function formatWait(ms: number): string {
+function formatWait(ms: number, locale: string): string {
   const minutes = Math.max(1, Math.ceil(ms / 60_000));
-  return minutes < 60 ? `${minutes}m` : `${Math.ceil(minutes / 60)}h`;
+  const chinese = resolveUiLocale(locale, locale) === "zh-Hans";
+  return minutes < 60
+    ? `${minutes}${chinese ? "分钟" : "m"}`
+    : `${Math.ceil(minutes / 60)}${chinese ? "小时" : "h"}`;
 }
 
 /** The short words every surface shows for an error, for example "Sign in again". */
-export function describeError(error: QuotaError, providerLabel: string, nowMs: number): string {
+export function describeError(
+  error: QuotaError,
+  providerLabel: string,
+  nowMs: number,
+  locale = "en-US",
+): string {
+  const t = (key: string, params?: Record<string, string | number | boolean>) =>
+    translate(resolveUiLocale(locale, locale), key, params);
   switch (error.code) {
     case "not_configured":
-      return "Not set up";
+      return t("error.notConfigured");
     case "login_expired":
-      return "Sign in again";
+      return t("error.loginExpired");
     case "no_plan":
-      return "No active plan";
+      return t("error.noPlan");
     case "rate_limited":
       return error.retryAtMs !== undefined && error.retryAtMs > nowMs
-        ? `Rate limited, retry in ${formatWait(error.retryAtMs - nowMs)}`
-        : "Rate limited";
+        ? t("error.retryIn", { time: formatWait(error.retryAtMs - nowMs, locale) })
+        : t("error.rateLimited");
     case "timeout":
-      return "Timed out";
+      return t("error.timeout");
     case "network":
-      return `Can't reach ${providerLabel}`;
+      return t("error.cantReach", { provider: providerLabel });
     case "provider_error":
-      return error.status === undefined ? "Provider error" : `Provider error ${error.status}`;
+      return error.status === undefined
+        ? t("error.provider")
+        : t("error.providerStatus", { status: error.status });
     case "bad_response":
-      return "Unexpected reply";
+      return t("error.badResponse");
     case "no_data":
-      return "Nothing reported";
+      return t("error.noData");
     case "local_tool":
-      return `${error.tool ?? "Local tool"} ${error.missing ? "not found" : "failed"}`;
+      return t(error.missing ? "error.localToolMissing" : "error.localToolFailed", {
+        tool: error.tool ?? t("error.localTool"),
+      });
     case "internal":
-      return "Couldn't read";
+      return t("error.internal");
   }
 }

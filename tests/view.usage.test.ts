@@ -948,6 +948,41 @@ describe("usageView", () => {
       [{ text: "No usage in this range.", role: "muted" }],
     ]);
   });
+
+  it.each([undefined, 0])(
+    "keeps the empty state when requests are %s and tokens are zero",
+    (requests) => {
+      const report: UsageReport = {
+        ...EMPTY_REPORT,
+        totals: { ...EMPTY_REPORT.totals, ...(requests === undefined ? {} : { requests }) },
+      };
+      expect(render(report, { mode: "tokens", breakdown: "model", width: 80 })).toEqual([
+        "No usage in this range.",
+      ]);
+    },
+  );
+
+  it("shows a localized exact request-only count instead of the empty state", () => {
+    const report: UsageReport = {
+      ...EMPTY_REPORT,
+      totals: { ...EMPTY_REPORT.totals, requests: 1_234_567 },
+    };
+    const englishLines = usageView(report, {
+      mode: "tokens",
+      breakdown: "model",
+      width: 80,
+    }).lines.map(textOf);
+    const lines = usageView(report, {
+      mode: "tokens",
+      breakdown: "model",
+      width: 80,
+      locale: "zh-Hans",
+    }).lines.map(textOf);
+
+    expect(englishLines).toContain("Requests: 1,234,567");
+    expect(lines).toContain("请求数: 1,234,567");
+    expect(lines).not.toContain("此时间范围内没有令牌用量。");
+  });
 });
 
 describe("provider names", () => {
@@ -1049,6 +1084,20 @@ describe("usageText", () => {
   ])("titles the range: $title", ({ report, title }) => {
     expect(usageText(report, { mode: "tokens", breakdown: "model" })).toBe(
       `${title}\nNo usage in this range.`,
+    );
+  });
+
+  it("localizes usage text and dates for Simplified Chinese", () => {
+    const report = {
+      ...EMPTY_REPORT,
+      range: "between" as const,
+      sinceMs: new Date(2026, 9, 4).getTime(),
+      untilMs: new Date(2026, 9, 10).getTime(),
+    };
+
+    expect(rangeDates(report, "zh-Hans")).toBe("10月4日 – 10月10日");
+    expect(usageText(report, { mode: "cost", breakdown: "model", locale: "zh-Hans" })).toBe(
+      "用量 · 10月4日至10月10日\n此时间范围内没有令牌用量。",
     );
   });
 });

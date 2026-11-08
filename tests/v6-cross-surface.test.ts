@@ -755,7 +755,7 @@ describe("v6 surfaces on the quota snapshot", () => {
       // Too long to follow the value in 120 columns: the note goes on a line under it.
       await vi.waitFor(() =>
         expect(words(windowTree())).toContain(
-          "changed since you reviewed it; look again · https://other.example/accounting",
+          "Changed since you reviewed it; look again. · https://other.example/accounting",
         ),
       );
       expect(await custom()).toMatchObject([{ id: "team-accounting", enabled: false }]);

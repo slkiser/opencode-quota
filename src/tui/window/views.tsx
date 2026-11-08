@@ -22,10 +22,11 @@ export type NoticeReport =
   | { state: "failed"; message: string };
 
 /** The notices, or the one line that says there is none. */
-export function noticeItems(board: NoticeBoard): { items: Notice[]; empty?: string } {
-  return board.notices.length === 0
-    ? { items: [], empty: "No notices right now." }
-    : { items: board.notices };
+export function noticeItems(
+  board: NoticeBoard,
+  noNotices = "No notices right now.",
+): { items: Notice[]; empty?: string } {
+  return board.notices.length === 0 ? { items: [], empty: noNotices } : { items: board.notices };
 }
 
 export type StatusLine = { text: string; heading: boolean };
@@ -83,12 +84,20 @@ export function LimitsView(props: {
     const current = snapshot();
     if (!current) return [];
     const display = props.host.display();
-    return limitsLines({ snapshot: current, display, nowMs: props.nowMs, width: props.width });
+    return limitsLines({
+      snapshot: current,
+      display,
+      nowMs: props.nowMs,
+      width: props.width,
+      locale: props.host.locale(),
+    });
   };
   return (
     <Show
       when={snapshot()}
-      fallback={<text fg={props.host.theme().text.muted}>{"   Loading quota…"}</text>}
+      fallback={
+        <text fg={props.host.theme().text.muted}>{`   ${props.host.t("panel.loading")}`}</text>
+      }
     >
       {lines().map((line) => (
         <LineText line={line} host={props.host} />
@@ -98,15 +107,20 @@ export function LimitsView(props: {
 }
 
 /** Plugin's notices under their title: a bullet, the message, and its link under it. */
-export function NoticesView(props: { theme: WindowTheme; report: NoticeReport }): JSX.Element {
+export function NoticesView(props: {
+  theme: WindowTheme;
+  report: NoticeReport;
+  title: string;
+  t: (key: string, params?: Readonly<Record<string, string | number | boolean>>) => string;
+}): JSX.Element {
   const theme = () => props.theme;
   const body = () => {
     const report = props.report;
-    if (report.state === "loading") return { items: [], empty: "Loading…" };
+    if (report.state === "loading") return { items: [], empty: props.t("tui.state.loading") };
     if (report.state === "failed") {
-      return { items: [], empty: `Couldn't load the notices: ${report.message}` };
+      return { items: [], empty: props.t("tui.state.noticeFailure", { message: report.message }) };
     }
-    return noticeItems(report.board);
+    return noticeItems(report.board, props.t("tui.state.noNotices"));
   };
   return (
     <box flexDirection="column">
@@ -116,7 +130,7 @@ export function NoticesView(props: { theme: WindowTheme; report: NoticeReport })
         wrapMode="none"
         selectable={false}
       >
-        {" Notices"}
+        {` ${props.title}`}
       </text>
       <Show when={body().empty}>
         <text fg={theme().text.muted} wrapMode="word" selectable={false}>
@@ -152,18 +166,30 @@ export function StatusView(props: {
   theme: WindowTheme;
   report: StatusReport;
   width: number;
+  title: string;
+  t: (key: string, params?: Readonly<Record<string, string | number | boolean>>) => string;
 }): JSX.Element {
   const theme = () => props.theme;
   const lines = () => {
     const report = props.report;
-    if (report.state === "loading") return [{ text: "Loading the report…", heading: false }];
+    if (report.state === "loading") {
+      return [{ text: props.t("tui.plugin.setupLoading"), heading: false }];
+    }
     if (report.state === "failed") {
-      return [{ text: `Couldn't load the report: ${report.message}`, heading: false }];
+      return [
+        {
+          text: props.t("tui.state.reportFailure", { message: report.message }),
+          heading: false,
+        },
+      ];
     }
     return statusLines(report.text, props.width - STATUS_LEAD);
   };
   return (
     <box flexDirection="column" marginTop={1} paddingLeft={3}>
+      <text fg={theme().text.action.primary.selected} attributes={TextAttributes.BOLD}>
+        {props.title}
+      </text>
       {lines().map((line) => (
         <text
           fg={theme().text.muted}

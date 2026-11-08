@@ -163,15 +163,17 @@ export function QuotaPanel(props: PanelProps) {
     roleCss(settings(), role, row?.percent, row?.paceLevel);
   const open = createMemo(() => {
     const shown = props.snapshot();
-    return shown ? panelView(shown, settings(), nowMs()) : undefined;
+    return shown ? panelView(shown, settings(), nowMs(), ctx.locale.locale()) : undefined;
   });
   const folded = createMemo(() => {
     const shown = props.snapshot();
-    return shown ? pickedGroups(shown, settings(), "collapsed", nowMs()) : [];
+    return shown
+      ? pickedGroups(shown, settings(), "collapsed", nowMs(), undefined, ctx.locale.locale())
+      : [];
   });
   const title = () => {
     if (props.open()) {
-      const word = percentWord(settings().words);
+      const word = percentWord(settings().words, ctx.locale.locale());
       return word ? ctx.t("panel.titleWord", { word }) : ctx.t("panel.title");
     }
     const counts = providerCounts(folded());

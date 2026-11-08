@@ -6,6 +6,12 @@
  */
 import { createRoot } from "solid-js";
 import { vi } from "vite-plus/test";
+import {
+  translate,
+  translatePlural,
+  type TranslationParams,
+  type UiLocale,
+} from "../../src/i18n.js";
 import { KEY_LAYERS, type KeyLayerName } from "../../src/tui/key-layers.js";
 
 export type KeyCommand = {
@@ -55,12 +61,14 @@ export type FakeTuiHostOptions = {
   /** OpenCode draws the app slot inside a Solid owner, where colored toasts can be made. */
   appOwner?: boolean;
   theme?: unknown;
+  locale?: UiLocale;
   width?: number;
 };
 
 export type FakeTuiHost = ReturnType<typeof createFakeTuiHost>;
 
 export function createFakeTuiHost(options: FakeTuiHostOptions = {}) {
+  const locale = options.locale ?? "en";
   const keyboard: { current?: FakeBox } = {};
   const layers: KeyLayer[] = [];
   const listeners = new Map<string, Listener>();
@@ -130,6 +138,10 @@ export function createFakeTuiHost(options: FakeTuiHostOptions = {}) {
     ...(options.version ? { app: { version: options.version, channel: "latest" } } : {}),
     location: { directory: process.cwd() },
     theme: options.theme,
+    locale: () => locale,
+    t: (key: string, params?: TranslationParams) => translate(locale, key, params),
+    plural: (key: string, count: number, params?: TranslationParams) =>
+      translatePlural(locale, key, count, params),
     renderer,
     client: {
       rpc: vi.fn(

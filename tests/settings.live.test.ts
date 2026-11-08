@@ -105,6 +105,15 @@ describe("createLiveSettings", () => {
     expect(changes).toEqual([NEW_SNAPSHOT]);
   });
 
+  it("persists the interface language through the shared settings file", async () => {
+    writeSettings({});
+    const { live } = await start();
+
+    expect(live.current().settings.system.language).toBe("auto");
+    expect((await live.save({ system: { language: "zh-Hans" } }, {})).ok).toBe(true);
+    expect(live.current().settings.system.language).toBe("zh-Hans");
+  });
+
   it.each([
     {
       name: "an edit",

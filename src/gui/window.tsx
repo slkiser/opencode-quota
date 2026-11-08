@@ -28,6 +28,7 @@ import {
 } from "solid-js";
 import { Portal } from "solid-js/web";
 import type { UsageQuery, UsageReport } from "../core/usage.js";
+import type { UiLocale } from "../i18n.js";
 import { rpcErrorMessage } from "../tui/client.js";
 import { rangeDates } from "../view/usage.js";
 import type { GuiQuota } from "./bridge.js";
@@ -57,6 +58,7 @@ type UsageState = { answered?: Answered; loading: boolean; error?: string };
 
 type WindowProps = {
   ctx: Context;
+  locale: () => UiLocale;
   data: GuiQuota;
   /** The folder on screen (see `index.tsx`). */
   directory: () => string | undefined;
@@ -168,7 +170,8 @@ export function UsageWindow(props: WindowProps) {
 
   const rangeLabel = (answered: Answered) => {
     if (answered.scope !== "all") return ctx.t(`scope.${answered.scope}`);
-    if (answered.range === "between") return rangeDates(answered.report) ?? ctx.t("range.between");
+    if (answered.range === "between")
+      return rangeDates(answered.report, props.locale()) ?? ctx.t("range.between");
     return ctx.t(`range.${answered.range}`);
   };
   /** Why Cost and Tokens can't ask, when they can't. */

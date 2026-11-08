@@ -21,6 +21,7 @@ import type { BoxRenderable, Renderable, RGBA, ScrollBoxRenderable } from "@open
 import type { JSX } from "@opentui/solid";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { DEFAULT_USAGE_RANGE } from "../../core/usage-ranges.js";
+import type { Localization } from "../../i18n.js";
 import { quotaLimitsText } from "../../lib/quota-report-message.js";
 import { getPackageVersion } from "../../lib/version.js";
 import { columnsOf } from "../../view/columns.js";
@@ -61,7 +62,6 @@ const TABS: ReadonlyArray<BarTab> = [
 /** Every tab in the order the tab bar shows them and tab and shift+tab go through them. */
 const BAR_TABS: ReadonlyArray<BarTab> = [...TABS, ...SETTINGS_GROUPS];
 
-const WINDOW_TITLE = "OpenCode Quota";
 const SETTINGS_LABEL = "Settings";
 /** Between the tab bar's items. */
 const TAB_GAP = 2;
@@ -74,13 +74,27 @@ const CLOSE_WIDTH = "esc".length + TAB_GAP;
 const HINT_SEPARATOR = " · ";
 
 /** The keyboard hint of Limits and the other tabs without their own; Limits names the ┃ mark with `evenUse`. */
-export function windowHint(tab: WindowTab | undefined, evenUse: boolean): string {
-  const end = "tab next tab · esc close";
+export function windowHint(
+  tab: WindowTab | undefined,
+  evenUse: boolean,
+  translate: (key: string) => string = (key) =>
+    ({
+      "tui.window.close": "esc close",
+      "tui.window.tabs": "tab next tab",
+      "tui.window.hint.select": "↑↓ select",
+      "tui.window.hint.scroll": "↑↓ scroll",
+      "tui.window.hint.activate": "space/enter or click to use",
+      "tui.window.hint.change": "‹ › (or ←/→) change",
+      "tui.window.hint.copy": "c copy",
+      "tui.window.hint.evenUse": "┃ where even use would be",
+    })[key] ?? key,
+): string {
+  const end = `${translate("tui.window.tabs")} · ${translate("tui.window.close")}`;
   if (tab === "limits") {
-    const mark = evenUse ? "┃ where even use would be · " : "";
-    return `${mark}c copy · ↑↓ scroll · ${end}`;
+    const mark = evenUse ? `${translate("tui.window.hint.evenUse")} · ` : "";
+    return `${mark}${translate("tui.window.hint.copy")} · ${translate("tui.window.hint.scroll")} · ${end}`;
   }
-  return `↑↓ select · space/enter or click to use · ‹ › (or ←/→) change · ${end}`;
+  return `${translate("tui.window.hint.select")} · ${translate("tui.window.hint.activate")} · ${translate("tui.window.hint.change")} · ${end}`;
 }
 
 /** The keyboard hint in `width` columns, its lines broken between " · " items, never inside one. */
@@ -134,14 +148,15 @@ export function tabStrip(
   settingsFrom: number,
   active: number,
   room: number,
+  settingsLabel = SETTINGS_LABEL,
 ): TabStrip {
   const runWidth = (first: number, last: number, label: boolean) => {
     let width = 0;
     for (let index = first; index <= last; index += 1) {
-      width += titles[index].length + (index > first ? TAB_GAP : 0);
+      width += columnsOf(titles[index]) + (index > first ? TAB_GAP : 0);
     }
     if (first < settingsFrom && last >= settingsFrom) {
-      width += (label ? SETTINGS_LABEL.length : 1) + TAB_GAP;
+      width += (label ? columnsOf(settingsLabel) : 1) + TAB_GAP;
     }
     return width;
   };
@@ -185,7 +200,8 @@ export type WindowKey = {
 
 /** What the window needs from OpenCode's TUI context (its theme and client types aren't installed). */
 export type WindowHost = Pick<Plugin.Context, "keymap" | "renderer" | "themeMode" | "ui"> &
-  ClientHost & { theme: WindowTheme };
+  ClientHost &
+  Localization & { theme: WindowTheme };
 
 /** The session on screen; undefined on Home. */
 export function routeSessionID(api: {
@@ -194,8 +210,6 @@ export function routeSessionID(api: {
   const route = api.ui.router.current();
   return route.type === "session" ? route.sessionID : undefined;
 }
-
-const KEYS = "Quota window";
 
 export type QuotaWindow = {
   /**
@@ -237,6 +251,10 @@ export function createQuotaWindow(
   };
   const usage = createUsageTab(api, () => scroll);
   const plugin = createPluginTab(api, settings, copyWithToast);
+  const tabTitle = (item: BarTab) => {
+    const page = item.pages[0] === "system" ? "plugin" : item.pages[0];
+    return api.t(`tui.tab.${page}`);
+  };
   /** The installed plugin's version from its package.json, like "v5.0.2", after the title. */
   const [version, setVersion] = createSignal("");
   void getPackageVersion().then((found) => {
@@ -289,16 +307,16 @@ export function createQuotaWindow(
     if (!snapshot) {
       api.ui.toast.show({
         variant: "info",
-        title: "Limits",
-        message: "Quota is still loading.",
+        title: api.t("tui.tab.limits"),
+        message: api.t("tui.state.loadingQuota"),
         duration: 4_000,
       });
       return;
     }
     const words = host.display().words;
-    copyWithToast(quotaLimitsText({ ...snapshot, words }, Date.now()), "Limits", {
-      copied: "Copied the limits report",
-      failed: "This terminal doesn't allow copying.",
+    copyWithToast(quotaLimitsText({ ...snapshot, words }, Date.now()), api.t("tui.tab.limits"), {
+      copied: api.t("tui.copy.limitsCopied"),
+      failed: api.t("tui.copy.failed"),
     });
   }
 
@@ -307,8 +325,8 @@ export function createQuotaWindow(
     if (!routeSessionID(api)) {
       api.ui.toast.show({
         variant: "info",
-        title: "OpenCode Quota",
-        message: "Open a session first: the quota window opens above its message box.",
+        title: api.t("window.title"),
+        message: api.t("tui.state.openSessionFirst"),
       });
       return;
     }
@@ -404,33 +422,78 @@ export function createQuotaWindow(
       // While a Settings line takes typed text, the keys go to its input.
       enabled: () => !settings.typing(),
       commands: [
-        { bind: "up", title: "Previous line", group: KEYS, run: () => select(-1) },
-        { bind: "down", title: "Next line", group: KEYS, run: () => select(1) },
+        {
+          bind: "up",
+          title: api.t("tui.key.previousLine"),
+          group: api.t("tui.window.keyGroup"),
+          run: () => select(-1),
+        },
+        {
+          bind: "down",
+          title: api.t("tui.key.nextLine"),
+          group: api.t("tui.window.keyGroup"),
+          run: () => select(1),
+        },
         {
           bind: "pageup",
-          title: "Scroll up one page",
-          group: KEYS,
+          title: api.t("tui.key.pageUp"),
+          group: api.t("tui.window.keyGroup"),
           run: () => scroll?.scrollBy(-(scroll.height || 1)),
         },
         {
           bind: "pagedown",
-          title: "Scroll down one page",
-          group: KEYS,
+          title: api.t("tui.key.pageDown"),
+          group: api.t("tui.window.keyGroup"),
           run: () => scroll?.scrollBy(scroll.height || 1),
         },
-        { bind: "space", title: "Use the line", group: KEYS, run: () => tabLines()?.activate() },
-        { bind: "return", title: "Use the line", group: KEYS, run: () => tabLines()?.activate() },
-        { bind: "left", title: "Change the line", group: KEYS, run: () => tabLines()?.step(-1) },
-        { bind: "right", title: "Change the line", group: KEYS, run: () => tabLines()?.step(1) },
+        {
+          bind: "space",
+          title: api.t("tui.key.useLine"),
+          group: api.t("tui.window.keyGroup"),
+          run: () => tabLines()?.activate(),
+        },
+        {
+          bind: "return",
+          title: api.t("tui.key.useLine"),
+          group: api.t("tui.window.keyGroup"),
+          run: () => tabLines()?.activate(),
+        },
+        {
+          bind: "left",
+          title: api.t("tui.key.changeLine"),
+          group: api.t("tui.window.keyGroup"),
+          run: () => tabLines()?.step(-1),
+        },
+        {
+          bind: "right",
+          title: api.t("tui.key.changeLine"),
+          group: api.t("tui.window.keyGroup"),
+          run: () => tabLines()?.step(1),
+        },
         {
           bind: "c",
-          title: "Copy the limits report",
-          group: KEYS,
+          title: api.t("tui.key.copyLimits"),
+          group: api.t("tui.window.keyGroup"),
           run: () => (tab() === "limits" ? copyLimits(props.sessionID) : false),
         },
-        { bind: "tab", title: "Next tab", group: KEYS, run: () => switchTab(1) },
-        { bind: "shift+tab", title: "Previous tab", group: KEYS, run: () => switchTab(-1) },
-        { bind: "escape", title: "Close", group: KEYS, run: close },
+        {
+          bind: "tab",
+          title: api.t("tui.key.nextTab"),
+          group: api.t("tui.window.keyGroup"),
+          run: () => switchTab(1),
+        },
+        {
+          bind: "shift+tab",
+          title: api.t("tui.key.previousTab"),
+          group: api.t("tui.window.keyGroup"),
+          run: () => switchTab(-1),
+        },
+        {
+          bind: "escape",
+          title: api.t("tui.key.close"),
+          group: api.t("tui.window.keyGroup"),
+          run: close,
+        },
       ],
     }));
 
@@ -438,12 +501,10 @@ export function createQuotaWindow(
       const shown = tab();
       return isSettingsTab(shown) ? shown : undefined;
     };
-    const viewHint = () => windowHint(tab(), host.display().layout.evenUse);
+    const viewHint = () => windowHint(tab(), host.display().layout.evenUse, api.t);
     const hint = () =>
       settings.hint(tab() ?? "", hasKeyboard()) ??
-      (hasKeyboard()
-        ? viewHint()
-        : "The keyboard is somewhere else (the message box, a dialog). Click this box to use ↑↓ space tab esc here.");
+      (hasKeyboard() ? viewHint() : api.t("tui.state.keyboardElsewhere"));
     /**
      * Usage's own key hints while the tab or one of its dates has the keyboard, unless the
      * bottom bar asks about unsaved settings.
@@ -473,15 +534,19 @@ export function createQuotaWindow(
       </box>
     );
     /** The title and the version, as the tab bar shows them. */
-    const titleText = () => (version() ? `${WINDOW_TITLE} ${version()}` : WINDOW_TITLE);
+    const titleText = () => {
+      const title = api.t("window.title");
+      return version() ? `${title} ${version()}` : title;
+    };
     /** The drawn tab bodies' width: the scrollbar's column and a gap before it stay free. */
     const bodyWidth = () => width() - 2;
     const strip = () =>
       tabStrip(
-        BAR_TABS.map((item) => item.title),
+        BAR_TABS.map(tabTitle),
         TABS.length,
         Math.max(0, BAR_TABS.indexOf(barTabOf(tab()) ?? BAR_TABS[0])),
         width() - columnsOf(titleText()) - TAB_GAP - CLOSE_WIDTH,
+        api.t("tui.window.settings"),
       );
     const label = (text: string) => (
       <text fg={theme().text.base} wrapMode="none" selectable={false}>
@@ -507,7 +572,7 @@ export function createQuotaWindow(
         if (index === TABS.length && index > first) {
           items.push(
             settingsLabel ? (
-              label(SETTINGS_LABEL)
+              label(api.t("tui.window.settings"))
             ) : (
               <text fg={theme().text.muted} wrapMode="none" selectable={false}>
                 │
@@ -517,7 +582,7 @@ export function createQuotaWindow(
         }
         items.push(
           <Choice
-            label={item.title}
+            label={tabTitle(item)}
             active={barTabOf(tab()) === item}
             theme={theme()}
             run={settings.click(() => showTab(pageOf(item)))}
@@ -574,7 +639,7 @@ export function createQuotaWindow(
         <box flexDirection="row" flexShrink={0}>
           <box flexDirection="row" columnGap={TAB_GAP} flexGrow={1}>
             <text fg={theme().text.base} wrapMode="none" selectable={false}>
-              <b>{WINDOW_TITLE}</b>
+              <b>{api.t("window.title")}</b>
               <span style={{ fg: theme().text.muted }}>{version() ? ` ${version()}` : ""}</span>
             </text>
             <Show when={strip().first > 0}>{arrow("‹", -1)}</Show>

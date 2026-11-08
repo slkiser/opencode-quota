@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { QuotaSnapshot } from "../src/core/types.js";
+import { createLocalization } from "../src/i18n.js";
 import type { QuotaRpcSaveSettingsInput, QuotaRpcSettingsOutput } from "../src/rpc.js";
 import { checkSetting } from "../src/settings/index.js";
 import { CHANGED_SINCE_REVIEW } from "../src/settings/schema.js";
@@ -559,6 +560,10 @@ describe("the server settings this window edits", () => {
       const snapshot = (): QuotaSnapshot =>
         server.dirty() ? { ...SNAPSHOT, words: display().words } : SNAPSHOT;
       const host = {
+        ...createLocalization(
+          () => "en",
+          () => "en",
+        ),
         theme: () => THEME,
         display,
         quota: { watch: () => () => {}, snapshot } as unknown as QuotaClient,

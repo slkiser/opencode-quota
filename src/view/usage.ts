@@ -1,19 +1,19 @@
-import { usageRangeLabel } from "../core/usage-ranges.js";
 /**
  * The usage view: a `UsageReport` laid out like a billing dashboard, adapted to a terminal, as
  * lines of text spans. A span has a role ("title", "muted", "provider:0", ...) and no color, so
  * the TUI Usage tab maps each span to one styled span and picks colors from its theme, and Web
  * `/quota` and the CLI print the same words as plain text (`usageText`).
  *
- * Sections, top to bottom: the total, the providers as a small table, a daily chart (beside
- * the total and the providers when it gets 32 columns there, as tall as they are), totals by
- * token kind, cost (or tokens) by type, the breakdown by model or by day, and the share of
+ * Sections, top to bottom: the total and any request count, providers as a small table, a daily
+ * chart (beside the total and providers when it gets 32 columns there, as tall as they are), totals
+ * by token kind, cost (or tokens) by type, the breakdown by model or by day, and the share of
  * tokens without a price. In the TUI the chart fills its width with each day split by provider
  * in the providers' colors, the "by type" bar is a thin line across the view and each breakdown
  * row has a bar of its amount. `modelDetailView` lays out one model of the breakdown. Every line
  * fits in `width` terminal columns.
  */
 import type { UsageByType, UsageModelRow, UsageReport, UsageRow } from "../core/usage.js";
+import { resolveUiLocale, translate, translatePlural, type UiLocale } from "../i18n.js";
 import { getQuotaProviderDisplayLabel } from "../lib/provider-metadata.js";
 import {
   columnsOf,
@@ -25,6 +25,7 @@ import {
 import {
   type CacheHit,
   cacheHit,
+  formatCount,
   formatShare,
   formatTokens,
   formatUsd,
@@ -34,9 +35,19 @@ import {
 /** What the view counts: money at API prices, or processed tokens. */
 export type UsageMode = "cost" | "tokens";
 export type UsageBreakdown = "model" | "day";
-export type UsageViewOptions = { mode: UsageMode; breakdown: UsageBreakdown; width: number };
-type UsageTextOptions = { mode: UsageMode; breakdown: UsageBreakdown; width?: number };
-type ModelDetailOptions = { mode: UsageMode; width: number };
+export type UsageViewOptions = {
+  mode: UsageMode;
+  breakdown: UsageBreakdown;
+  width: number;
+  locale?: string;
+};
+type UsageTextOptions = {
+  mode: UsageMode;
+  breakdown: UsageBreakdown;
+  width?: number;
+  locale?: string;
+};
+type ModelDetailOptions = { mode: UsageMode; width: number; locale?: string };
 
 /** A part of the "by type" bar: the token kinds that have their own price. */
 type UsagePart = "input" | "cacheRead" | "cacheWrite" | "output";
@@ -114,7 +125,6 @@ const ROW_BAR_MIN_WIDTH = 8;
 const ROW_NAME_MAX_WIDTH = 40;
 /** At the end of each model row in the TUI: enter or a click opens the model's details. */
 const OPEN_MARK = " ▸";
-const CACHE_HEADER = "Cache";
 /** A model's Cache cell without input tokens or cache numbers. */
 const NO_CACHE_HIT = "—";
 
@@ -123,10 +133,12 @@ const NO_CACHE_HIT = "—";
  * model's details alike: "49.9%", or "—" without one. Rounded down to one decimal, like
  * CacheHit.text, so a low cache hit never reads "50.0%".
  */
-function cacheHitText(cache: CacheHit | undefined): string {
+function cacheHitText(cache: CacheHit | undefined, locale: UiLocale): string {
   if (!cache) return NO_CACHE_HIT;
   const tenths = Math.floor(cache.share * 1000);
-  return tenths === 0 && cache.share > 0 ? "<0.1%" : formatShare(tenths / 1000);
+  return tenths === 0 && cache.share > 0
+    ? `<${formatShare(0.001, locale)}`
+    : formatShare(tenths / 1000, locale);
 }
 /** The model breakdown drops its Cache column before its names get narrower than this. */
 const CACHE_NAME_MIN_WIDTH = 8;
@@ -139,20 +151,11 @@ const PART_MARKS: Record<UsagePart, string> = {
   output: "█",
 };
 
-const PART_LABELS: Record<UsagePart, string> = {
-  input: "Input",
-  cacheRead: "Cache read",
-  cacheWrite: "Cache write",
-  output: "Output",
-};
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
 type View = {
   report: UsageReport;
   mode: UsageMode;
   breakdown: UsageBreakdown;
+  locale: UiLocale;
   /** The year of `report.generatedAtMs`; dates in other years show their year. */
   thisYear: number;
 };
@@ -184,19 +187,37 @@ function clip(line: UsageLine, width: number): UsageLine {
   return clipped;
 }
 
-function plural(count: number, word: string): string {
-  return `${count} ${count === 1 ? word : `${word}s`}`;
+function tr(
+  locale: UiLocale,
+  key: string,
+  params?: Readonly<Record<string, string | number | boolean>>,
+): string {
+  return translate(locale, key, params);
+}
+
+function trPlural(
+  locale: UiLocale,
+  key: string,
+  count: number,
+  params?: Readonly<Record<string, string | number | boolean>>,
+): string {
+  return translatePlural(locale, key, count, params);
 }
 
 /** A row's cost, or "no price" when all its tokens come from models without a price. */
-export function costText(row: UsageRow): string {
-  return row.tokens > 0 && row.unpricedTokens >= row.tokens ? "no price" : formatUsd(row.costUsd);
+export function costText(row: UsageRow, locale: UiLocale = "en"): string {
+  return row.tokens > 0 && row.unpricedTokens >= row.tokens
+    ? tr(locale, "usage.noPrice")
+    : formatUsd(row.costUsd, locale);
 }
 
-/** "Sep 11", or "Sep 11, 2025" outside `thisYear`. */
-function shortDate(date: Date, thisYear: number): string {
-  const text = `${MONTHS[date.getMonth()]} ${date.getDate()}`;
-  return date.getFullYear() === thisYear ? text : `${text}, ${date.getFullYear()}`;
+/** A localized short date, with the year when it is outside `thisYear`. */
+function shortDate(date: Date, thisYear: number, locale: UiLocale): string {
+  const options: Intl.DateTimeFormatOptions =
+    date.getFullYear() === thisYear
+      ? { month: "short", day: "numeric" }
+      : { year: "numeric", month: "short", day: "numeric" };
+  return new Intl.DateTimeFormat(locale, options).format(date);
 }
 
 /** The local midnight of a report day like "2026-09-11". */
@@ -209,20 +230,25 @@ function dayDate(day: string): Date {
  * The days a report covers, like "Oct 7 – Oct 13", or one day like "Oct 13"; undefined for
  * "all" and "session", which have no time window.
  */
-export function rangeDates(report: UsageReport): string | undefined {
+export function rangeDates(report: UsageReport, locale: string = "en-US"): string | undefined {
   if (report.sinceMs === undefined || report.untilMs === undefined) return undefined;
+  const uiLocale = resolveUiLocale(locale, locale);
   const thisYear = new Date(report.generatedAtMs).getFullYear();
-  const first = shortDate(new Date(report.sinceMs), thisYear);
-  const last = shortDate(new Date(report.untilMs), thisYear);
+  const first = shortDate(new Date(report.sinceMs), thisYear, uiLocale);
+  const last = shortDate(new Date(report.untilMs), thisYear, uiLocale);
   return first === last ? first : `${first} – ${last}`;
 }
 
-function rangeTitle(report: UsageReport): string {
+function rangeTitle(report: UsageReport, locale: UiLocale): string {
+  if (report.range === "session") return tr(locale, "usage.rangeSession");
   if (report.range !== "between" || report.sinceMs === undefined || report.untilMs === undefined) {
-    return usageRangeLabel(report.range);
+    return tr(locale, `range.${report.range}`);
   }
   const thisYear = new Date(report.generatedAtMs).getFullYear();
-  return `${shortDate(new Date(report.sinceMs), thisYear)} to ${shortDate(new Date(report.untilMs), thisYear)}`;
+  return tr(locale, "usage.rangeBetween", {
+    from: shortDate(new Date(report.sinceMs), thisYear, locale),
+    to: shortDate(new Date(report.untilMs), thisYear, locale),
+  });
 }
 
 /** The report's rows in the mode's order: the report's own (most cost first), or most tokens. */
@@ -238,29 +264,42 @@ function providerRole(report: UsageReport, providerID: string): UsageRole {
 /** The total on one line, or two when it does not fit. */
 function totalLines(view: View, width: number): UsageLine[] {
   const { totals } = view.report;
-  const sessions = plural(totals.sessions, "session");
+  const sessions = translatePlural(view.locale, "usage.sessions", totals.sessions);
   const title =
     view.mode === "cost"
-      ? span(formatUsd(totals.costUsd), "title")
-      : span(`${formatTokens(totals.tokens.processed)} tokens`, "title");
+      ? span(formatUsd(totals.costUsd, view.locale), "title")
+      : span(
+          `${formatTokens(totals.tokens.processed, view.locale)} ${tr(view.locale, "usage.processed")}`,
+          "title",
+        );
   const detail =
     view.mode === "cost"
-      ? `${sessions} · API estimate`
-      : `${sessions} · ${formatUsd(totals.costUsd)} API estimate`;
+      ? `${sessions} · ${tr(view.locale, "usage.apiEstimate")}`
+      : `${sessions} · ${formatUsd(totals.costUsd, view.locale)} ${tr(view.locale, "usage.apiEstimate")}`;
   const fits = columnsOf(title.text) + 2 + columnsOf(detail) <= width;
-  return fits ? [[title, span(`  ${detail}`, "muted")]] : [[title], [span(detail, "muted")]];
+  const total = fits ? [[title, span(`  ${detail}`, "muted")]] : [[title], [span(detail, "muted")]];
+  if (totals.requests === undefined) return total;
+  return [
+    ...total,
+    [
+      span(
+        `${tr(view.locale, "usage.requests")}: ${formatCount(totals.requests, view.locale)}`,
+        "muted",
+      ),
+    ],
+  ];
 }
 
 /** "Unpriced tokens excluded: 4.0% (exo-free)", when any tokens have no price. */
 function unpricedLines(view: View, width: number): UsageLine[] {
   const { totals, models } = view.report;
   if (totals.unpricedShare <= 0) return [];
-  const label = "Unpriced tokens excluded: ";
-  const share = formatShare(totals.unpricedShare);
+  const share = formatShare(totals.unpricedShare, view.locale);
+  const label = `${tr(view.locale, "usage.unpricedLabel")} `;
   const names = models.filter((row) => row.unpricedTokens > 0).map((row) => row.modelID);
   const shown =
     names.length > 3
-      ? `${names.slice(0, 3).join(", ")} +${names.length - 3} more`
+      ? `${names.slice(0, 3).join(", ")} ${trPlural(view.locale, "usage.more", names.length - 3)}`
       : names.join(", ");
   const room = width - columnsOf(label) - columnsOf(share) - " ()".length;
   const line = [span(label, "muted"), span(share, "warning")];
@@ -270,7 +309,12 @@ function unpricedLines(view: View, width: number): UsageLine[] {
 
 type Metric = "cost" | "share" | "tokens";
 
-const METRIC_HEADERS: Record<Metric, string> = { cost: "Cost", share: "Share", tokens: "Tokens" };
+function metricHeader(metric: Metric, locale: UiLocale): string {
+  return tr(
+    locale,
+    metric === "cost" ? "view.cost" : metric === "share" ? "usage.column.share" : "view.tokens",
+  );
+}
 
 /** A table's number columns: the mode's amount, its share, then the other amount. */
 function metricsOf(mode: UsageMode): Metric[] {
@@ -278,13 +322,13 @@ function metricsOf(mode: UsageMode): Metric[] {
 }
 
 function metricText(view: View, metric: Metric, row: UsageRow): string {
-  if (metric === "cost") return costText(row);
-  if (metric === "tokens") return formatTokens(row.tokens);
-  return formatShare(view.mode === "cost" ? row.costShare : row.tokenShare);
+  if (metric === "cost") return costText(row, view.locale);
+  if (metric === "tokens") return formatTokens(row.tokens, view.locale);
+  return formatShare(view.mode === "cost" ? row.costShare : row.tokenShare, view.locale);
 }
 
 function metricRole(view: View, metric: Metric, text: string): UsageRole {
-  if (metric === "share" || text === "no price") return "muted";
+  if (metric === "share" || text === tr(view.locale, "usage.noPrice")) return "muted";
   return metric === view.mode ? "value" : "text";
 }
 
@@ -292,7 +336,7 @@ function metricRole(view: View, metric: Metric, text: string): UsageRole {
 function metricWidths(view: View, metrics: Metric[], rows: UsageRow[]): number[] {
   return metrics.map((metric) =>
     Math.max(
-      columnsOf(METRIC_HEADERS[metric]),
+      columnsOf(metricHeader(metric, view.locale)),
       ...rows.map((row) => columnsOf(metricText(view, metric, row))),
     ),
   );
@@ -306,7 +350,11 @@ function metricSpans(
   row: UsageRow | undefined,
 ): UsageLine {
   return metrics.map((metric, index) => {
-    if (!row) return span(`  ${padStartColumns(METRIC_HEADERS[metric], widths[index])}`, "muted");
+    if (!row)
+      return span(
+        `  ${padStartColumns(metricHeader(metric, view.locale), widths[index])}`,
+        "muted",
+      );
     const text = metricText(view, metric, row);
     return span(`  ${padStartColumns(text, widths[index])}`, metricRole(view, metric, text));
   });
@@ -319,7 +367,8 @@ function metricSpans(
 function providerLines(view: View, width: number): UsageLine[] {
   const rows = inModeOrder(view.report.providers, view.mode);
   const names = rows.map((row) => usageProviderName(row.providerID, view.report.providerNames));
-  const nameWidest = Math.max(columnsOf("Provider") - columnsOf(DOT), ...names.map(columnsOf));
+  const providerHeader = tr(view.locale, "usage.by.provider");
+  const nameWidest = Math.max(columnsOf(providerHeader) - columnsOf(DOT), ...names.map(columnsOf));
   let metrics = metricsOf(view.mode);
   let widths = metricWidths(view, metrics, rows);
   const room = () => width - columnsOf(DOT) - widths.reduce((sum, item) => sum + item + 2, 0);
@@ -330,7 +379,7 @@ function providerLines(view: View, width: number): UsageLine[] {
   const nameWidth = Math.max(1, Math.min(nameWidest, room()));
   return [
     [
-      span(padEndColumns("Provider", columnsOf(DOT) + nameWidth), "muted"),
+      span(padEndColumns(providerHeader, columnsOf(DOT) + nameWidth), "muted"),
       ...metricSpans(view, metrics, widths, undefined),
     ],
     ...rows.map((row, index) => [
@@ -347,13 +396,14 @@ function dateAxis(
   columnStart: (index: number) => number,
   chartWidth: number,
   thisYear: number,
+  locale: UiLocale,
 ): string {
-  const first = shortDate(dayDate(columns[0].first), thisYear);
-  const last = shortDate(dayDate(columns[columns.length - 1].last), thisYear);
+  const first = shortDate(dayDate(columns[0].first), thisYear, locale);
+  const last = shortDate(dayDate(columns[columns.length - 1].last), thisYear, locale);
   const lastAt = chartWidth - columnsOf(last);
   if (lastAt < columnsOf(first) + 2) return truncateColumns(first, chartWidth);
   const middleIndex = Math.floor(columns.length / 2);
-  const middle = shortDate(dayDate(columns[middleIndex].first), thisYear);
+  const middle = shortDate(dayDate(columns[middleIndex].first), thisYear, locale);
   const middleCenter = (columnStart(middleIndex) + columnStart(middleIndex + 1)) / 2;
   const middleAt = Math.round(middleCenter - columnsOf(middle) / 2);
   const middleFits = middleAt >= columnsOf(first) + 2 && middleAt + columnsOf(middle) + 2 <= lastAt;
@@ -479,8 +529,10 @@ function chartLines(
   thisYear: number,
   width: number,
   rows: number,
+  locale: UiLocale,
 ): UsageLine[] {
-  const formatAmount = mode === "cost" ? formatUsd : formatTokens;
+  const formatAmount = (value: number) =>
+    mode === "cost" ? formatUsd(value, locale) : formatTokens(value, locale);
   if (days.length < 2 || days.every((day) => day.amount <= 0)) return [];
 
   // The label column decides the room for the columns, and the columns decide the top value:
@@ -506,8 +558,10 @@ function chartLines(
     ),
   );
 
-  const [daily, amount] = mode === "cost" ? ["Daily cost", "Cost"] : ["Daily tokens", "Tokens"];
-  const title = daysPerColumn === 1 ? daily : `${amount} per ${daysPerColumn} days`;
+  const daily = tr(locale, mode === "cost" ? "usage.dailyCost" : "usage.dailyTokens");
+  const amount = tr(locale, mode === "cost" ? "view.cost" : "view.tokens");
+  const title =
+    daysPerColumn === 1 ? daily : trPlural(locale, "usage.dailyByDays", daysPerColumn, { amount });
   const lines: UsageLine[] = [[span(title, "heading")]];
   for (let row = 0; row < rows; row += 1) {
     const below = (rows - 1 - row) * 8;
@@ -522,10 +576,10 @@ function chartLines(
     lines.push([span(`${padStartColumns(label, labelWidth)} `, "muted"), ...cells]);
   }
   lines.push([
-    span(`${padStartColumns("0", labelWidth)} `, "muted"),
+    span(`${padStartColumns(new Intl.NumberFormat(locale).format(0), labelWidth)} `, "muted"),
     span("─".repeat(chartWidth), "muted"),
   ]);
-  const axis = dateAxis(columns, columnStart, chartWidth, thisYear);
+  const axis = dateAxis(columns, columnStart, chartWidth, thisYear, locale);
   lines.push([span(`${" ".repeat(labelWidth + 1)}${axis}`, "muted")]);
   return lines;
 }
@@ -549,14 +603,14 @@ function grid(items: [label: string, value: string][], width: number): UsageLine
 function totalsLines(view: View, width: number): UsageLine[] {
   const { tokens, cacheSavingsUsd } = view.report.totals;
   return [
-    [span("Totals", "heading")],
+    [span(tr(view.locale, "usage.totals"), "heading")],
     ...grid(
       [
-        ["Processed tokens", formatTokens(tokens.processed)],
-        ["Cached input", formatTokens(tokens.cachedInput)],
-        ["Uncached input", formatTokens(tokens.uncachedInput)],
-        ["Output", formatTokens(tokens.output)],
-        ["Cache savings", formatUsd(cacheSavingsUsd)],
+        [tr(view.locale, "usage.processedTokens"), formatTokens(tokens.processed, view.locale)],
+        [tr(view.locale, "usage.cachedInput"), formatTokens(tokens.cachedInput, view.locale)],
+        [tr(view.locale, "usage.uncachedInput"), formatTokens(tokens.uncachedInput, view.locale)],
+        [tr(view.locale, "usage.output"), formatTokens(tokens.output, view.locale)],
+        [tr(view.locale, "usage.cacheSavings"), formatUsd(cacheSavingsUsd, view.locale)],
       ],
       width,
     ),
@@ -600,6 +654,7 @@ function byTypeLines(
   amounts: UsageByType,
   width: number,
   colored: boolean,
+  locale: UiLocale,
 ): UsageLine[] {
   const barWidth = colored ? width : Math.min(width, BY_TYPE_MAX_WIDTH);
   const parts = (["input", "cacheRead", "cacheWrite", "output"] as const).map((part) => ({
@@ -623,10 +678,11 @@ function byTypeLines(
   });
   const legend: UsageLine[] = [];
   for (const part of parts) {
-    const amount = kind === "cost" ? formatUsd(part.amount) : formatTokens(part.amount);
+    const amount =
+      kind === "cost" ? formatUsd(part.amount, locale) : formatTokens(part.amount, locale);
     const item = [
       span(colored ? THIN_MARK : PART_MARKS[part.part], `part:${part.part}`),
-      span(` ${PART_LABELS[part.part]} `, "muted"),
+      span(` ${tr(locale, `usage.type.${part.part}`)} `, "muted"),
       span(amount, "value"),
     ];
     const current = legend[legend.length - 1];
@@ -636,7 +692,7 @@ function byTypeLines(
       legend.push(item);
     }
   }
-  const title = kind === "cost" ? "Cost by type" : "Tokens by type";
+  const title = tr(locale, kind === "cost" ? "usage.costByType" : "usage.tokensByType");
   return [[span(title, "heading")], bar, ...legend];
 }
 
@@ -657,7 +713,7 @@ function breakdownEntries(view: View): BreakdownEntry[] {
       .map((row) => {
         const date = dayDate(row.date);
         return {
-          name: `${WEEKDAYS[date.getDay()]}, ${shortDate(date, view.thisYear)}`,
+          name: `${new Intl.DateTimeFormat(view.locale, { weekday: "short" }).format(date)}, ${shortDate(date, view.thisYear, view.locale)}`,
           dot: undefined,
           row,
         };
@@ -667,7 +723,7 @@ function breakdownEntries(view: View): BreakdownEntry[] {
     name: modelName(report, row),
     dot: providerRole(report, row.providerID),
     row,
-    cache: cacheHit(row.tokensByType),
+    cache: cacheHit(row.tokensByType, view.locale),
   }));
 }
 
@@ -706,23 +762,27 @@ export function breakdownModels(report: UsageReport, mode: UsageMode): UsageMode
  * the good color, or the warning color with " ⚠" after it when it is low, or muted before 200K
  * input tokens; "—" without one.
  */
-function cacheColumn(shown: BreakdownEntry[]): {
+function cacheColumn(
+  shown: BreakdownEntry[],
+  locale: UiLocale,
+): {
   width: number;
   spans: (entry: BreakdownEntry | undefined) => UsageLine;
 } {
-  const texts = shown.map((entry) => cacheHitText(entry.cache));
-  const percentWidth = Math.max(columnsOf(CACHE_HEADER), ...texts.map(columnsOf));
+  const headerText = tr(locale, "usage.column.cache");
+  const texts = shown.map((entry) => cacheHitText(entry.cache, locale));
+  const percentWidth = Math.max(columnsOf(headerText), ...texts.map(columnsOf));
   const lowAfter = ` ${LOW_CACHE_MARK}`;
   const hang = shown.some((entry) => entry.cache?.low) ? columnsOf(lowAfter) : 0;
   const spans = (entry: BreakdownEntry | undefined): UsageLine => {
     if (!entry) {
-      const header = `  ${padStartColumns(CACHE_HEADER, percentWidth)}${" ".repeat(hang)}`;
+      const header = `  ${padStartColumns(headerText, percentWidth)}${" ".repeat(hang)}`;
       return [span(header, "muted")];
     }
     const { cache } = entry;
     let role: UsageRole = "muted";
     if (cache?.judged) role = cache.low ? "warning" : "good";
-    const cell = span(`  ${padStartColumns(cacheHitText(cache), percentWidth)}`, role);
+    const cell = span(`  ${padStartColumns(cacheHitText(cache, locale), percentWidth)}`, role);
     if (hang === 0) return [cell];
     return [cell, cache?.low ? span(lowAfter, "warning") : span(" ".repeat(hang), "muted")];
   };
@@ -760,7 +820,7 @@ function breakdownLines(
     Math.max(4, ...shown.map((entry) => columnsOf(entry.name))),
   );
   const withoutCache = numberWidth + 2 + dotWidth + metricsWidth;
-  const cache = cacheColumn(shown);
+  const cache = cacheColumn(shown, view.locale);
   const withCache =
     view.breakdown === "model" &&
     width - withoutCache - cache.width >= Math.min(nameWidest, CACHE_NAME_MIN_WIDTH);
@@ -781,9 +841,12 @@ function breakdownLines(
     ].filter((part) => part.text.length > 0);
   };
 
-  const nameHeader = view.breakdown === "model" ? "Model" : "Day";
+  const nameHeader = tr(
+    view.locale,
+    view.breakdown === "model" ? "usage.by.model" : "usage.by.day",
+  );
   const lines: UsageLine[] = [
-    [span("Breakdown", "heading")],
+    [span(tr(view.locale, "usage.breakdown"), "heading")],
     [
       span(
         `${padStartColumns("#", numberWidth)}  ${padEndColumns(nameHeader, dotWidth + nameWidth)}${barWidth > 0 ? " ".repeat(barWidth + 2) : ""}`,
@@ -808,7 +871,7 @@ function breakdownLines(
     ]);
   });
   if (entries.length > shown.length) {
-    lines.push([span(`and ${entries.length - shown.length} more`, "muted")]);
+    lines.push([span(trPlural(view.locale, "usage.more", entries.length - shown.length), "muted")]);
   }
   return { lines, modelLines };
 }
@@ -830,13 +893,31 @@ function buildView(
   contents: Contents,
 ): UsageViewLines {
   const width = Math.max(0, Math.floor(options.width));
-  if (report.totals.tokens.processed <= 0) {
-    return { lines: [clip([span("No usage in this range.", "muted")], width)], modelLines: [] };
+  if (report.totals.tokens.processed <= 0 && (report.totals.requests ?? 0) <= 0) {
+    return {
+      lines: [
+        clip(
+          [
+            span(
+              tr(
+                resolveUiLocale(options.locale ?? "en-US", options.locale ?? "en-US"),
+                "usage.empty",
+              ),
+              "muted",
+            ),
+          ],
+          width,
+        ),
+      ],
+      modelLines: [],
+    };
   }
+  const locale = resolveUiLocale(options.locale ?? "en-US", options.locale ?? "en-US");
   const view: View = {
     report,
     mode: options.mode,
     breakdown: options.breakdown,
+    locale,
     thisYear: new Date(report.generatedAtMs).getFullYear(),
   };
   const layoutWidth = Math.max(LAYOUT_MIN_WIDTH, width);
@@ -857,6 +938,7 @@ function buildView(
         view.thisYear,
         layoutWidth - listUsed - SIDE_GAP,
         rows,
+        view.locale,
       );
       top = sideBySide(list, chart, listUsed + SIDE_GAP);
     } else {
@@ -866,6 +948,7 @@ function buildView(
         view.thisYear,
         layoutWidth,
         CHART_ROWS,
+        view.locale,
       );
       if (chart.length > 0) top = [...list, [], ...chart];
     }
@@ -879,6 +962,7 @@ function buildView(
       view.mode === "cost" ? report.totals.costByType : report.totals.tokensByType,
       layoutWidth,
       contents.colored,
+      view.locale,
     ),
     breakdown.lines,
     unpricedLines(view, layoutWidth),
@@ -940,25 +1024,29 @@ export function modelDetailView(
   const width = Math.max(0, Math.floor(options.width));
   const layoutWidth = Math.max(LAYOUT_MIN_WIDTH, width);
   const { mode } = options;
+  const locale = resolveUiLocale(options.locale ?? "en-US", options.locale ?? "en-US");
   const thisYear = new Date(report.generatedAtMs).getFullYear();
-  const share =
-    mode === "cost"
-      ? `${formatShare(model.costShare)} of cost`
-      : `${formatShare(model.tokenShare)} of tokens`;
+  const shareValue = formatShare(mode === "cost" ? model.costShare : model.tokenShare, locale);
+  const share = tr(locale, "model.share", {
+    provider: usageProviderName(model.providerID, report.providerNames),
+    share: shareValue,
+    what: tr(locale, mode === "cost" ? "model.what.cost" : "model.what.tokens"),
+  });
   let perMillion = "—";
-  if (!model.priced) perMillion = "no price";
-  else if (model.tokens > 0) perMillion = formatUsd((model.costUsd / model.tokens) * 1_000_000);
+  if (!model.priced) perMillion = tr(locale, "usage.noPrice");
+  else if (model.tokens > 0)
+    perMillion = formatUsd((model.costUsd / model.tokens) * 1_000_000, locale);
 
   const lines: UsageLine[] = [
     modelDetailTitle(report, model, width),
-    [span(`${usageProviderName(model.providerID, report.providerNames)} · ${share}`, "muted")],
+    [span(share, "muted")],
     [],
     ...grid(
       [
-        ["Cost", costText(model)],
-        ["Tokens", formatTokens(model.tokens)],
-        ["Per 1M tokens", perMillion],
-        ["Cache hit", cacheHitText(cacheHit(model.tokensByType))],
+        [tr(locale, "model.cost"), costText(model, locale)],
+        [tr(locale, "model.tokens"), formatTokens(model.tokens, locale)],
+        [tr(locale, "model.perMillion"), perMillion],
+        [tr(locale, "model.cacheHit"), cacheHitText(cacheHit(model.tokensByType, locale), locale)],
       ],
       layoutWidth,
     ),
@@ -969,14 +1057,15 @@ export function modelDetailView(
     thisYear,
     layoutWidth,
     DETAIL_CHART_ROWS,
+    locale,
   );
   if (chart.length > 0) lines.push([], ...chart);
 
   const sideWidth = Math.floor((layoutWidth - COLUMN_GAP) / 2);
   const sideBySideFits = sideWidth >= DETAIL_SIDE_MIN_WIDTH;
   const byTypeWidth = sideBySideFits ? sideWidth : layoutWidth;
-  const costByType = byTypeLines("cost", model.costByType, byTypeWidth, true);
-  const tokensByType = byTypeLines("tokens", model.tokensByType, byTypeWidth, true);
+  const costByType = byTypeLines("cost", model.costByType, byTypeWidth, true, locale);
+  const tokensByType = byTypeLines("tokens", model.tokensByType, byTypeWidth, true, locale);
   if (sideBySideFits && costByType.length > 0) {
     lines.push([], ...sideBySide(costByType, tokensByType, sideWidth + COLUMN_GAP));
   } else {
@@ -993,12 +1082,16 @@ export function modelDetailView(
  */
 export function usageText(report: UsageReport, options: UsageTextOptions): string {
   const width = Math.min(TEXT_MAX_WIDTH, options.width ?? TEXT_MAX_WIDTH);
+  const locale = resolveUiLocale(options.locale ?? "en-US", options.locale ?? "en-US");
   const { lines } = buildView(
     report,
-    { mode: options.mode, breakdown: options.breakdown, width },
+    { mode: options.mode, breakdown: options.breakdown, width, locale },
     { chart: false, breakdownRows: TEXT_BREAKDOWN_ROWS, colored: false, sectionGap: 1 },
   );
-  const title = truncateColumns(`Usage · ${rangeTitle(report)}`, width);
+  const title = truncateColumns(
+    `${tr(locale, "usage.title")} · ${rangeTitle(report, locale)}`,
+    width,
+  );
   const texts = lines.map((line) =>
     line
       .map((part) => part.text)

@@ -19,6 +19,7 @@ import { Plugin } from "@opencode/plugin/tui";
 import type { JSX } from "@opentui/solid";
 import { getOwner, type Owner, onCleanup, Show } from "solid-js";
 import { OLD_USAGE_COMMANDS, parseUsageArguments, type UsageRange } from "../core/usage-ranges.js";
+import { createLocalization, withLocalization } from "../i18n.js";
 import { QuotaRpc } from "../rpc.js";
 import {
   type ClientHost,
@@ -34,7 +35,7 @@ import { SidebarPanel, type SurfaceHost } from "./sidebar.js";
 import { HomeFooter, StatusLine, statusLineShows } from "./status-line.js";
 import type { Theme } from "./theme.js";
 import { createToastShow } from "./toast-colors.js";
-import { createToasts, TOAST_TITLE } from "./toasts.js";
+import { createToasts } from "./toasts.js";
 import { listenForTurns } from "./turn-events.js";
 import { createSettingsEditor } from "./window/settings.js";
 import { createQuotaWindow, type WindowHost } from "./window/shell.js";
@@ -82,6 +83,13 @@ const plugin = Plugin.define({
       settings: () => api.client.rpc(QuotaRpc).settings({}, quotaCallOptions(api)),
       saveSettings: (input) => api.client.rpc(QuotaRpc).saveSettings(input, quotaCallOptions(api)),
     });
+    // TUI's current plugin SDK has no locale API; Intl's default locale is its host fallback.
+    // The persisted settings choice is shared with Desktop and overrides that fallback.
+    const localization = createLocalization(
+      () => String(server.value("system.language") ?? "auto"),
+      () => Intl.DateTimeFormat().resolvedOptions().locale,
+    );
+    const localizedApi = withLocalization(api, localization);
     const display = createFileDisplay(server);
     let sidebarStore: ReturnType<TuiContext["storage"]["store"]> | undefined;
     const sidebarState = () => {
@@ -116,8 +124,8 @@ const plugin = Plugin.define({
         conversionShown = true;
         api.ui.toast.show({
           variant: "info",
-          title: TOAST_TITLE,
-          message: "Your 4.x or 5.x settings are now in settings.jsonc, details in /quota_status",
+          title: localizedApi.t("tui.toast.title"),
+          message: localizedApi.t("tui.toast.converted"),
           duration: 15_000,
         });
       }
@@ -135,22 +143,31 @@ const plugin = Plugin.define({
       show: showToast,
       display: display.shown,
       terminalWidth: () => api.renderer.width,
+      locale: localization.locale,
       quota,
       isChildSession,
     });
-    const settings = createSettingsEditor(api, display, toasts);
+    const settings = createSettingsEditor(localizedApi, display, toasts);
     const host: SurfaceHost = {
+      ...localization,
       theme: () => api.theme,
       display: display.shown,
       quota,
       editing: settings,
     };
-    const quotaWindow = createQuotaWindow(api, host, settings);
+    const quotaWindow = createQuotaWindow(localizedApi, host, settings);
     /** `/quota_usage [range]`: the Usage tab, on the typed range or Today; a wrong range says why. */
     const openUsage = (argumentsText: string) => {
       const parsed = parseUsageArguments(argumentsText);
       if (parsed.ok) quotaWindow.openUsage(parsed);
-      else api.ui.toast.show({ variant: "warning", title: TOAST_TITLE, message: parsed.error });
+      else {
+        const problem = parsed.translation.problem;
+        api.ui.toast.show({
+          variant: "warning",
+          title: localizedApi.t("tui.toast.title"),
+          message: `${localizedApi.t(problem.key, "params" in problem ? problem.params : undefined)}\n${localizedApi.t(parsed.translation.help.key)}`,
+        });
+      }
     };
     /** A 4.x or 5.x `/tokens_*` command: `/quota_usage` on its range, or a hint while off. */
     const oldUsage = (range: UsageRange, argumentsText: string) => {
@@ -161,8 +178,8 @@ const plugin = Plugin.define({
       const now = range === "between" ? "between YYYY-MM-DD YYYY-MM-DD" : range;
       api.ui.toast.show({
         variant: "info",
-        title: TOAST_TITLE,
-        message: `Use /quota_usage ${now}. The old /tokens_* names turn on in /quota_status.`,
+        title: localizedApi.t("tui.toast.title"),
+        message: localizedApi.t("tui.toast.oldCommands", { range: now }),
       });
     };
     /** The quota slash commands, by name, with what follows the name. */
@@ -203,29 +220,29 @@ const plugin = Plugin.define({
           commands: [
             {
               id: "quota.limits",
-              title: "Quota limits",
-              group: "OpenCode Quota",
+              title: localizedApi.t("tui.command.limits"),
+              group: localizedApi.t("tui.command.group"),
               palette: true,
               run: () => quotaWindow.open("limits"),
             },
             {
               id: "quota.usage",
-              title: "Quota usage: tokens and API cost",
-              group: "OpenCode Quota",
+              title: localizedApi.t("tui.command.usage"),
+              group: localizedApi.t("tui.command.group"),
               palette: true,
               run: () => quotaWindow.open("usage"),
             },
             {
               id: "quota.status",
-              title: "Quota status report",
-              group: "OpenCode Quota",
+              title: localizedApi.t("tui.command.status"),
+              group: localizedApi.t("tui.command.group"),
               palette: true,
               run: () => quotaWindow.open("system"),
             },
             {
               id: "quota.settings",
-              title: "Quota: settings",
-              group: "OpenCode Quota",
+              title: localizedApi.t("tui.command.settings"),
+              group: localizedApi.t("tui.command.group"),
               palette: true,
               // The server lists /quota, /quota_usage and /quota_status; this one is TUI-only.
               slash: { name: "quota_settings" },

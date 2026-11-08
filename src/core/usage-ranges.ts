@@ -48,13 +48,30 @@ function isUsageRange(text: string): text is UsageRange {
 
 type UsageArguments =
   | { ok: true; range: UsageRange; from?: string; to?: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; translation: UsageArgumentTranslation };
+
+type UsageArgumentTranslation = {
+  problem:
+    | { key: "tui.usage.error.unknownRange"; params: { range: string } }
+    | { key: "tui.usage.error.rangeTakesNoDates"; params: { range: string } }
+    | { key: "tui.usage.error.betweenNeedsDates" }
+    | { key: "tui.usage.error.invalidDate"; params: { date: string } }
+    | { key: "tui.usage.error.dateOrder"; params: { from: string; to: string } };
+  help: { key: "tui.usage.error.help" };
+};
 
 const USAGE_ARGUMENTS_HELP =
   "Usage: /quota_usage [today | 24h | 7d | 30d | 90d | all | session | between YYYY-MM-DD YYYY-MM-DD]";
 
-function argumentsError(problem: string): UsageArguments {
-  return { ok: false, error: `${problem}\n${USAGE_ARGUMENTS_HELP}` };
+function argumentsError(
+  problem: string,
+  translation: UsageArgumentTranslation["problem"],
+): UsageArguments {
+  return {
+    ok: false,
+    error: `${problem}\n${USAGE_ARGUMENTS_HELP}`,
+    translation: { problem: translation, help: { key: "tui.usage.error.help" } },
+  };
 }
 
 /**
@@ -65,17 +82,37 @@ export function parseUsageArguments(text: string): UsageArguments {
   const words = text.trim().split(/\s+/).filter(Boolean);
   if (words.length === 0) return { ok: true, range: DEFAULT_USAGE_RANGE };
   const [range, ...rest] = words;
-  if (!isUsageRange(range)) return argumentsError(`Unknown range "${range}".`);
+  if (!isUsageRange(range)) {
+    return argumentsError(`Unknown range "${range}".`, {
+      key: "tui.usage.error.unknownRange",
+      params: { range },
+    });
+  }
   if (range !== "between") {
     return rest.length === 0
       ? { ok: true, range }
-      : argumentsError(`The range ${range} takes no dates.`);
+      : argumentsError(`The range ${range} takes no dates.`, {
+          key: "tui.usage.error.rangeTakesNoDates",
+          params: { range },
+        });
   }
-  if (rest.length !== 2) return argumentsError("between needs two dates.");
+  if (rest.length !== 2) {
+    return argumentsError("between needs two dates.", { key: "tui.usage.error.betweenNeedsDates" });
+  }
   const [from, to] = rest;
   for (const date of [from, to]) {
-    if (!parseCalendarDate(date)) return argumentsError(`"${date}" is not a date like 2026-01-31.`);
+    if (!parseCalendarDate(date)) {
+      return argumentsError(`"${date}" is not a date like 2026-01-31.`, {
+        key: "tui.usage.error.invalidDate",
+        params: { date },
+      });
+    }
   }
-  if (to < from) return argumentsError(`${to} is before ${from}.`);
+  if (to < from) {
+    return argumentsError(`${to} is before ${from}.`, {
+      key: "tui.usage.error.dateOrder",
+      params: { from, to },
+    });
+  }
   return { ok: true, range, from, to };
 }

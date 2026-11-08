@@ -122,6 +122,7 @@ const EXPECTED = {
   system: {
     exportFile: false,
     exportPath: "",
+    language: "auto",
     telemetry: false,
     oldCommands: true,
   },

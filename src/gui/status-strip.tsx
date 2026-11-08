@@ -125,8 +125,15 @@ export function StatusStrip(props: StripProps) {
     const shown = props.snapshot();
     if (!shown) return [];
     return one()
-      ? pickedGroups(shown, settings(), "statusLine", nowMs(), { percent: "words" }).slice(0, 1)
-      : pickedGroups(shown, settings(), "statusLine", nowMs());
+      ? pickedGroups(
+          shown,
+          settings(),
+          "statusLine",
+          nowMs(),
+          { percent: "words" },
+          ctx.locale.locale(),
+        ).slice(0, 1)
+      : pickedGroups(shown, settings(), "statusLine", nowMs(), undefined, ctx.locale.locale());
   });
 
   const [fontsLoaded, setFontsLoaded] = createSignal(false);

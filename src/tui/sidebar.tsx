@@ -8,6 +8,7 @@
 import type { BoxRenderable } from "@opentui/core";
 import type { JSX } from "@opentui/solid";
 import { createMemo, createSignal, onCleanup, Show } from "solid-js";
+import type { Localization } from "../i18n.js";
 import type { Surface } from "../view/select.js";
 import { type ColorRole, type Line, type Segment, sidebarPanel } from "../view/text.js";
 import type { QuotaClient } from "./client.js";
@@ -29,7 +30,7 @@ export type SurfaceEditing = {
 };
 
 /** What every always-on surface reads. */
-export type SurfaceHost = {
+export type SurfaceHost = Localization & {
   theme: () => Theme;
   /**
    * The saved display settings, or the draft while the Settings tabs edit it. Surfaces take
@@ -99,7 +100,12 @@ export function SidebarPanel(props: {
   const display = () => host.display();
   const snapshot = () => host.quota.snapshot(props.sessionID);
   const panel = createMemo(() =>
-    sidebarPanel(snapshot(), display(), { nowMs: nowMs(), width: width(), open: open() }),
+    sidebarPanel(snapshot(), display(), {
+      nowMs: nowMs(),
+      width: width(),
+      open: open(),
+      locale: host.locale(),
+    }),
   );
   const marked = () => host.editing.marked(open() ? "sidebar" : "collapsed");
 
@@ -120,7 +126,10 @@ export function SidebarPanel(props: {
         >
           <b>{panel().title}</b>
         </text>
-        <Show when={snapshot()} fallback={<text fg={host.theme().text.muted}>Loading quota…</text>}>
+        <Show
+          when={snapshot()}
+          fallback={<text fg={host.theme().text.muted}>{host.t("tui.state.loadingQuota")}</text>}
+        >
           {panel().lines.map((line) => (
             <LineText line={line} host={host} marked={line.id !== "" && line.id === marked()} />
           ))}

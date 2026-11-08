@@ -114,8 +114,12 @@ function pagesOf(tab: SettingsTab): readonly SettingsTab[] | undefined {
   return pages.length > 1 ? pages : undefined;
 }
 
-function pageTitle(tab: SettingsTab): string {
-  return SETTINGS_TABS.find((item) => item.tab === tab)?.title ?? tab;
+function pageTitle(tab: SettingsTab, t?: WindowHost["t"]): string {
+  const key = tab === "layout" ? "tui.tab.allPlaces" : `tui.tab.${tab}`;
+  const translated = t?.(key);
+  return translated && translated !== key
+    ? translated
+    : (SETTINGS_TABS.find((item) => item.tab === tab)?.title ?? tab);
 }
 
 /** What the window keeps left of a Settings tab's body: Layout's page list, else nothing. */
@@ -125,13 +129,14 @@ export function pagesRoom(tab: string | undefined): number {
 }
 
 /** "Reset page" on Layout's pages, which reset only their own lines; "Reset tab" elsewhere. */
-function resetLabel(tab: SettingsTab): string {
-  return pagesOf(tab) ? "Reset page" : "Reset tab";
+function resetLabel(tab: SettingsTab, t?: WindowHost["t"]): string {
+  const key = pagesOf(tab) ? "tui.action.resetPage" : "tui.action.resetTab";
+  const translated = t?.(key);
+  return translated && translated !== key ? translated : pagesOf(tab) ? "Reset page" : "Reset tab";
 }
 
 type Click = (run: () => void) => () => void;
 
-const KEYS = "Quota window";
 const TRANSPARENT = RGBA.fromInts(0, 0, 0, 0);
 /** The selection id of Layout's page list: the list has the keyboard. */
 const PAGES_ID = "pages";
@@ -373,7 +378,7 @@ export function createSettingsEditor(
     } catch (error) {
       api.ui.toast.show({
         variant: "error",
-        title: "Quota settings not loaded",
+        title: api.t("tui.settings.notLoaded"),
         message: rpcErrorMessage(error),
       });
       return;
@@ -406,7 +411,11 @@ export function createSettingsEditor(
       <Show when={pagesOf(props.tab)}>
         {(pages: () => readonly SettingsTab[]) => (
           <Rail
-            items={pages().map((page) => ({ key: page, label: pageTitle(page), id: pageId(page) }))}
+            items={pages().map((page) => ({
+              key: page,
+              label: pageTitle(page, api.t),
+              id: pageId(page),
+            }))}
             chosen={props.tab}
             theme={theme()}
             gap={PAGE_LIST_GAP}
@@ -440,7 +449,7 @@ export function createSettingsEditor(
         <box flexDirection="column" flexShrink={0} marginBottom={1}>
           <Show when={surface()}>
             <Cell fg={theme().text.action.primary.selected} bold>
-              {" Enable/disable"}
+              {` ${api.t("tui.settings.enableDisable")}`}
             </Cell>
           </Show>
           <Show when={surface()}>
@@ -453,7 +462,7 @@ export function createSettingsEditor(
                 onMouseUp={click(() => display.edit(surfaceEditor(current()).toggleSurface()))}
               >
                 <Cell fg={active() ? theme().text.action.primary.focused : theme().text.base} bold>
-                  {`   ${surfaceOn() ? "[x]" : "[ ]"} ${info().switchTitle}`}
+                  {`   ${surfaceOn() ? "[x]" : "[ ]"} ${api.t(`tui.settings.switch.${props.tab}`)}`}
                 </Cell>
               </box>
             )}
@@ -466,10 +475,10 @@ export function createSettingsEditor(
                 selectable={false}
                 flexShrink={1}
               >
-                The sidebar is hidden, so there is nothing to watch here.
+                {api.t("tui.settings.sidebarHidden")}
               </text>
               <Button
-                label="Show sidebar"
+                label={api.t("tui.action.showSidebar")}
                 run={() => {
                   api.keymap.dispatch("session.sidebar.toggle");
                   setTimeout(props.refocus, 50);
@@ -653,21 +662,76 @@ export function createSettingsEditor(
       priority: KEY_LAYERS.tab,
       enabled: () => typing() === undefined && !confirming(),
       commands: [
-        { bind: "up", title: "Previous line", group: KEYS, run: () => select(-1) },
-        { bind: "down", title: "Next line", group: KEYS, run: () => select(1) },
-        { bind: "shift+up", title: "Move up", group: KEYS, run: () => move(-1) },
-        { bind: "shift+down", title: "Move down", group: KEYS, run: () => move(1) },
-        { bind: "alt+up", title: "Move up", group: KEYS, run: () => move(-1) },
-        { bind: "alt+down", title: "Move down", group: KEYS, run: () => move(1) },
-        { bind: "space", title: "Use the line", group: KEYS, run: activate },
-        { bind: "return", title: "Use the line", group: KEYS, run: activate },
-        { bind: "e", title: "Type a value or rename a row", group: KEYS, run: startTyping },
-        { bind: "left", title: "Previous value", group: KEYS, run: () => sideways(-1) },
-        { bind: "right", title: "Next value", group: KEYS, run: () => sideways(1) },
+        {
+          bind: "up",
+          title: api.t("tui.key.previousLine"),
+          group: api.t("tui.window.keyGroup"),
+          run: () => select(-1),
+        },
+        {
+          bind: "down",
+          title: api.t("tui.key.nextLine"),
+          group: api.t("tui.window.keyGroup"),
+          run: () => select(1),
+        },
+        {
+          bind: "shift+up",
+          title: api.t("tui.key.moveUp"),
+          group: api.t("tui.window.keyGroup"),
+          run: () => move(-1),
+        },
+        {
+          bind: "shift+down",
+          title: api.t("tui.key.moveDown"),
+          group: api.t("tui.window.keyGroup"),
+          run: () => move(1),
+        },
+        {
+          bind: "alt+up",
+          title: api.t("tui.key.moveUp"),
+          group: api.t("tui.window.keyGroup"),
+          run: () => move(-1),
+        },
+        {
+          bind: "alt+down",
+          title: api.t("tui.key.moveDown"),
+          group: api.t("tui.window.keyGroup"),
+          run: () => move(1),
+        },
+        {
+          bind: "space",
+          title: api.t("tui.key.useLine"),
+          group: api.t("tui.window.keyGroup"),
+          run: activate,
+        },
+        {
+          bind: "return",
+          title: api.t("tui.key.useLine"),
+          group: api.t("tui.window.keyGroup"),
+          run: activate,
+        },
+        {
+          bind: "e",
+          title: api.t("tui.key.typeValue"),
+          group: api.t("tui.window.keyGroup"),
+          run: startTyping,
+        },
+        {
+          bind: "left",
+          title: api.t("tui.key.previousValue"),
+          group: api.t("tui.window.keyGroup"),
+          run: () => sideways(-1),
+        },
+        {
+          bind: "right",
+          title: api.t("tui.key.nextValue"),
+          group: api.t("tui.window.keyGroup"),
+          run: () => sideways(1),
+        },
         {
           bind: "ctrl+r",
-          title: "Reset this tab or page",
-          group: KEYS,
+          title: api.t("tui.key.reset"),
+          group: api.t("tui.window.keyGroup"),
           run: () => page().reset(),
         },
       ],
@@ -678,8 +742,18 @@ export function createSettingsEditor(
       priority: KEY_LAYERS.typing,
       enabled: () => typing() !== undefined,
       commands: [
-        { bind: "escape", title: "Stop typing", group: KEYS, run: stopTyping },
-        { bind: "return", title: "Keep it", group: KEYS, run: commitTyping },
+        {
+          bind: "escape",
+          title: api.t("tui.key.stopTyping"),
+          group: api.t("tui.window.keyGroup"),
+          run: stopTyping,
+        },
+        {
+          bind: "return",
+          title: api.t("tui.key.keepIt"),
+          group: api.t("tui.window.keyGroup"),
+          run: commitTyping,
+        },
       ],
     }));
 
@@ -757,7 +831,7 @@ export function createSettingsEditor(
                 fg={active() ? fg() : text.action.primary.selected}
                 onUp={click(() => editSurface((current) => current.cycleWindow(providerId, 1)))}
               >
-                {` ‹ ${fit(windowTitle(window()), 11)} › `}
+                {` ‹ ${fit(windowTitle(window(), api.t), 11)} › `}
               </Cell>
             )}
           </Show>
@@ -845,15 +919,15 @@ export function createSettingsEditor(
         await server.save();
       } catch (error) {
         const message = rpcErrorMessage(error);
-        api.ui.toast.show({ variant: "error", title: "Quota settings not saved", message });
+        api.ui.toast.show({ variant: "error", title: api.t("tui.error.settingsSave"), message });
         return;
       }
       setConfirming(false);
       props.close();
       api.ui.toast.show({
         variant: "success",
-        title: "Quota settings saved",
-        message: "Every open OpenCode window uses them now, and they stay after a restart.",
+        title: api.t("tui.settings.savedTitle"),
+        message: api.t("tui.settings.savedMessage"),
         duration: 4_000,
       });
     }
@@ -869,7 +943,14 @@ export function createSettingsEditor(
       target: props.box,
       priority: KEY_LAYERS.save,
       enabled: () => typing() === undefined && (settingsTab() !== undefined || dirty()),
-      commands: [{ bind: "ctrl+s", title: "Save", group: KEYS, run: () => void save() }],
+      commands: [
+        {
+          bind: "ctrl+s",
+          title: api.t("tui.action.save"),
+          group: api.t("tui.window.keyGroup"),
+          run: () => void save(),
+        },
+      ],
     }));
     // While the bottom bar asks about unsaved changes: d drops them, Esc goes back to editing.
     api.keymap.layer(() => ({
@@ -877,8 +958,18 @@ export function createSettingsEditor(
       priority: KEY_LAYERS.confirmClose,
       enabled: () => confirming() && typing() === undefined,
       commands: [
-        { bind: "d", title: "Discard the changes", group: KEYS, run: discardChanges },
-        { bind: "escape", title: "Keep editing", group: KEYS, run: () => setConfirming(false) },
+        {
+          bind: "d",
+          title: api.t("tui.action.discardChanges"),
+          group: api.t("tui.window.keyGroup"),
+          run: discardChanges,
+        },
+        {
+          bind: "escape",
+          title: api.t("tui.action.keepEditing"),
+          group: api.t("tui.window.keyGroup"),
+          run: () => setConfirming(false),
+        },
       ],
     }));
 
@@ -889,27 +980,36 @@ export function createSettingsEditor(
           fallback={
             <>
               <Cell fg={warning()} bold>
-                Keep your changes?
+                {api.t("tui.action.keepChanges")}
               </Cell>
-              <Button label="Save" primary run={() => void save()} />
-              <Button label="Discard" run={discardChanges} />
-              <Button label="Keep editing" run={() => setConfirming(false)} />
+              <Button label={api.t("tui.action.save")} primary run={() => void save()} />
+              <Button label={api.t("tui.action.discard")} run={discardChanges} />
+              <Button label={api.t("tui.action.keepEditing")} run={() => setConfirming(false)} />
             </>
           }
         >
-          <Show when={dirty()} fallback={<Button label="Close" primary run={props.close} />}>
-            <Button label="Save" primary run={() => void save()} />
-            <Button label="Discard" run={discardChanges} />
+          <Show
+            when={dirty()}
+            fallback={<Button label={api.t("tui.action.close")} primary run={props.close} />}
+          >
+            <Button label={api.t("tui.action.save")} primary run={() => void save()} />
+            <Button label={api.t("tui.action.discard")} run={discardChanges} />
           </Show>
           <Show when={settingsTab()}>
             {(current: () => SettingsTab) => (
-              <Button label={resetLabel(current())} run={() => resetPage(server, current())} />
+              <Button
+                label={resetLabel(current(), api.t)}
+                run={() => resetPage(server, current())}
+              />
             )}
           </Show>
           <Show when={settingsTab() === "toast" && shown().toast.show}>
-            <Button label="Show toast" run={() => toasts.preview(props.sessionID)} />
+            <Button
+              label={api.t("tui.action.showToast")}
+              run={() => toasts.preview(props.sessionID)}
+            />
           </Show>
-          <Cell fg={warning()}>{dirty() ? " unsaved changes" : ""}</Cell>
+          <Cell fg={warning()}>{dirty() ? ` ${api.t("tui.action.unsaved")}` : ""}</Cell>
         </Show>
       </Show>
     );
@@ -939,8 +1039,14 @@ export function createSettingsEditor(
     savedSwitch(key: string): boolean | undefined {
       return server.saved() ? server.value(key) === true : undefined;
     },
+    /** A saved Plugin setting of any schema kind, for language and other non-switch choices. */
+    savedValue(key: string): unknown {
+      return server.saved() ? server.value(key) : undefined;
+    },
     /** Saves a Plugin switch straight away; Plugin has no draft and no Save. */
     saveSwitch: (key: string, on: boolean): Promise<void> => server.saveNow(key, on),
+    /** Saves a Plugin setting of any schema kind straight away. */
+    saveValue: (key: string, value: unknown): Promise<void> => server.saveNow(key, value),
     /** Reads the saved settings again, for Plugin's switches. */
     loadSaved: (): Promise<void> => server.load(),
     /**
@@ -976,27 +1082,31 @@ export function createSettingsEditor(
       const current = typing();
       if (current) return current.hint;
       if (!hasKeyboard) return undefined;
-      if (confirming()) return "ctrl+s save · d discard the changes · esc keep editing";
-      if (!isSettingsTab(windowTab)) return undefined;
-      const reset = `ctrl+r ${resetLabel(windowTab).toLowerCase()}`;
-      const end = `↑↓ select · tab next tab · ctrl+s save · ${reset} · esc close`;
-      if (selected() === PAGES_ID) {
-        return `↑↓ page · → or enter the page's lines · tab next tab · ctrl+s save · ${reset} · esc close`;
+      if (confirming()) {
+        return `${api.t("tui.window.hint.save")} · d ${api.t("tui.action.discard").toLowerCase()} · esc ${api.t("tui.action.keepEditing").toLowerCase()}`;
       }
-      if (windowTab === "layout") return `‹ › or ←/→ change · ${end}`;
+      if (!isSettingsTab(windowTab)) return undefined;
+      const reset = `ctrl+r ${resetLabel(windowTab, api.t).toLowerCase()}`;
+      const end = `${api.t("tui.window.hint.select")} · ${api.t("tui.window.tabs")} · ${api.t("tui.window.hint.save")} · ${reset} · ${api.t("tui.window.close")}`;
+      if (selected() === PAGES_ID) {
+        return `${api.t("tui.window.hint.pages")} · ${api.t("tui.window.tabs")} · ${api.t("tui.window.hint.save")} · ${reset} · ${api.t("tui.window.close")}`;
+      }
+      if (windowTab === "layout") return `${api.t("tui.window.hint.change")} · ${end}`;
       if (windowTab === "providers") {
-        return `‹ › or ←/→ change · space ticks a provider or flips a switch · double-click a number (or e) to type it · ${end}`;
+        return `${api.t("tui.window.hint.change")} · ${api.t("tui.window.hint.providers")} · ${end}`;
       }
       if (!isSurfaceTab(windowTab)) {
-        return `‹ › or ←/→ change · double-click a color (or e) to type your own · ${end}`;
+        return `${api.t("tui.window.hint.change")} · ${api.t("tui.window.hint.colors")} · ${end}`;
       }
       const rowsTab = showsRows(windowTab);
       const moving =
         api.renderer.useMouse === false
-          ? "shift+↑↓ move"
-          : `drag ⠿ or shift+↑↓ to move${rowsTab ? " (a provider takes its rows along)" : ""}`;
-      const naming = rowsTab ? "double-click a row (or e) to rename it" : "‹ › pick a window";
-      return `${moving} · [x] or space show/hide · ${naming} · ${end}`;
+          ? api.t("tui.window.hint.move")
+          : `${api.t("tui.window.hint.drag")}${rowsTab ? api.t("tui.window.hint.providerRows") : ""}`;
+      const naming = rowsTab
+        ? api.t("tui.window.hint.rename")
+        : api.t("tui.window.hint.pickWindow");
+      return `${moving} · ${api.t("tui.window.hint.showHide")} · ${naming} · ${end}`;
     },
     Pages,
     Header,

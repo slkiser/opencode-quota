@@ -133,7 +133,7 @@ export const SECTIONS: readonly Section[] = [
   },
   {
     id: "plugin",
-    keys: ["system.oldCommands", "system.exportFile", "system.telemetry"],
+    keys: ["system.oldCommands", "system.exportFile", "system.telemetry", "system.language"],
     instant: true,
   },
   { id: "file", keys: [] },

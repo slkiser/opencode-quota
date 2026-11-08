@@ -236,6 +236,7 @@ export function createGuiToasts(
     },
     display: (snapshot) => settingsOf(snapshot ? newest(snapshot) : latest),
     terminalWidth: () => TOAST_COLUMNS,
+    locale: () => ctx.locale.locale(),
     quota: {
       snapshot: (sessionID) => data.snapshot(sessionID && folders.get(sessionID), sessionID),
       async refresh(reason, sessionID) {

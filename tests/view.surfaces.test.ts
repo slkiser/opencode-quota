@@ -13,6 +13,7 @@ import { createToasts } from "../src/tui/toasts.js";
 import { visibleGroups } from "../src/view/select.js";
 import {
   bigStatusLine,
+  collapsedTitle,
   lineText,
   plainLines,
   sidebarPanel,
@@ -142,6 +143,29 @@ function surfaces(display: DisplaySettings, widths: readonly [number, number, nu
 }
 
 describe("every surface for one snapshot", () => {
+  it("localizes TUI sidebar titles, error states, token totals, and collapsed counts", () => {
+    const uncheckedSnapshot = {
+      ...SNAPSHOT,
+      providers: [
+        ...SNAPSHOT.providers,
+        provider("unchecked", "Unchecked", [], { checkedAtMs: undefined }),
+      ],
+    };
+    const { title, lines } = sidebarPanel(uncheckedSnapshot, settings(), {
+      nowMs: NOW,
+      width: 90,
+      open: true,
+      locale: "zh-Hans",
+    });
+    const text = lines.map(lineText).join("\n");
+
+    expect(title).toBe("▼ 配额 剩余");
+    expect(text).toContain("尚未检查");
+    expect(text).toContain("会话  1.23万 输入 · 2100 输出");
+    expect(text).toContain("请重新登录");
+    expect(collapsedTitle([], "zh-Hans")).toBe("▶ 配额（0 个提供方）");
+  });
+
   it("draws each surface at three widths from its own settings", () => {
     expect(surfaces(settings(), [24, 36, 48])).toEqual(GOLDEN);
   });

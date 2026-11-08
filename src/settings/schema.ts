@@ -181,6 +181,8 @@ export const SETTINGS_SCHEMA = {
   "providers.pricing.source": choice(["auto", "bundled", "runtime"], "auto"),
   "providers.pricing.autoRefreshDays": { ...whole(1), default: 7 },
   "system.exportFile": bool(false),
+  /** Shared TUI and Desktop interface language; auto uses the host locale. */
+  "system.language": choice(["auto", "en", "zh-Hans"], "auto"),
   /** "" = `$XDG_CACHE_HOME/opencode/quota-export.json`. */
   "system.exportPath": { kind: "path", allowEmpty: true, default: "", fileOnly: true },
   "system.telemetry": bool(false),

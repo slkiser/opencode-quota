@@ -28,12 +28,7 @@ import {
 } from "@opentui/core";
 import { type JSX, useTerminalDimensions } from "@opentui/solid";
 import { createMemo, createSignal, Show } from "solid-js";
-import {
-  DEFAULT_USAGE_RANGE,
-  USAGE_RANGES,
-  type UsageRange,
-  usageRangeLabel,
-} from "../../core/usage-ranges.js";
+import { DEFAULT_USAGE_RANGE, USAGE_RANGES, type UsageRange } from "../../core/usage-ranges.js";
 import type { UsageModelRow, UsageQuery, UsageReport } from "../../core/usage.js";
 import { parseCalendarDate } from "../../lib/calendar-date.js";
 import { sanitizeDisplayText } from "../../lib/display-sanitize.js";
@@ -68,7 +63,6 @@ type UsageResult =
 const DIALOG_WIDTH = 88;
 /** Room for " esc" after the model popup's title. */
 const CLOSE_LABEL_ROOM = " esc".length;
-const KEYS = "Usage";
 /** An option's two spaces around its label, inside its raised background. */
 const OPTION_PAD = 2;
 const TRANSPARENT = RGBA.fromInts(0, 0, 0, 0);
@@ -94,11 +88,15 @@ function rangeId(range: UsageRange): string {
 }
 
 /** The range list's items, each with its element id. */
-const RANGE_ITEMS = USAGE_RANGES.map((item) => ({
-  key: item.range,
-  label: item.label,
-  id: rangeId(item.range),
-}));
+function rangeItems(
+  translate: WindowHost["t"],
+): Array<{ key: UsageRange; label: string; id: string }> {
+  return USAGE_RANGES.map((item) => ({
+    key: item.range,
+    label: translate(`tui.usage.range.${item.range}`),
+    id: rangeId(item.range),
+  }));
+}
 
 /** A model row's element id, to scroll it into view. */
 function modelRowId(index: number): string {
@@ -257,13 +255,27 @@ function ModelDetail(props: {
   // The dialog starts a quarter of the way down; the title row and paddings take 4 rows.
   const maxHeight = () => Math.max(1, Math.floor(dimensions().height * 0.75) - 4);
   const lines = () =>
-    modelDetailView(props.report, props.model, { mode: props.mode, width: width() });
+    modelDetailView(props.report, props.model, {
+      mode: props.mode,
+      width: width(),
+      locale: props.api.locale(),
+    });
   let scroll: ScrollBoxRenderable | undefined;
   props.api.keymap.layer(() => ({
     mode: "modal",
     commands: [
-      { bind: "up", title: "Scroll up", group: KEYS, run: () => scroll?.scrollBy(-1) },
-      { bind: "down", title: "Scroll down", group: KEYS, run: () => scroll?.scrollBy(1) },
+      {
+        bind: "up",
+        title: props.api.t("tui.usage.scrollUp"),
+        group: props.api.t("tui.usage.rangeTitle"),
+        run: () => scroll?.scrollBy(-1),
+      },
+      {
+        bind: "down",
+        title: props.api.t("tui.usage.scrollDown"),
+        group: props.api.t("tui.usage.rangeTitle"),
+        run: () => scroll?.scrollBy(1),
+      },
     ],
   }));
   return (
@@ -382,8 +394,8 @@ export function createUsageTab(
     if (!parseCalendarDate(from) || !parseCalendarDate(to) || to < from) {
       api.ui.toast.show({
         variant: "warning",
-        title: "Usage",
-        message: "Type two dates like 2026-09-01, the first one not after the second.",
+        title: api.t("tui.usage.rangeTitle"),
+        message: api.t("tui.usage.badDates"),
       });
       return;
     }
@@ -406,13 +418,13 @@ export function createUsageTab(
       const answer = await api.client.rpc(QuotaRpc).downloadPrices({}, quotaCallOptions(api));
       api.ui.toast.show({
         variant: answer.ok ? "success" : "error",
-        title: "Prices",
+        title: api.t("tui.state.missingPrices"),
         message: sanitizeDisplayText(answer.message),
         duration: 6_000,
       });
       if (answer.ok) void load();
     } catch (error) {
-      api.ui.toast.show(errorToast(error, "Prices"));
+      api.ui.toast.show(errorToast(error, api.t("tui.state.missingPrices")));
     } finally {
       setDownloading(false);
     }
@@ -512,36 +524,44 @@ export function createUsageTab(
     const field = dateFocus();
     if (field) {
       return [
-        { key: "enter", label: field === "from" ? "next date" : "apply" },
-        { key: "tab", label: "other date" },
-        { key: "esc", label: "back" },
+        {
+          key: "enter",
+          label: api.t(field === "from" ? "tui.usage.hint.nextDate" : "tui.usage.hint.apply"),
+        },
+        { key: "tab", label: api.t("tui.usage.hint.otherDate") },
+        { key: "esc", label: api.t("tui.usage.hint.back") },
       ];
     }
     const hasRows = modelRows().length > 0;
     let moves: KeyHint[];
     if (area() === "ranges") {
-      moves = [{ key: "↑↓", label: "range" }, ...(hasRows ? [{ key: "→", label: "models" }] : [])];
+      moves = [
+        { key: "↑↓", label: api.t("tui.usage.hint.range") },
+        ...(hasRows ? [{ key: "→", label: api.t("tui.usage.hint.models") }] : []),
+      ];
     } else if (hasRows) {
       moves = [
-        { key: "↑↓", label: "models" },
-        { key: "enter", label: "details" },
-        { key: "←", label: "ranges" },
+        { key: "↑↓", label: api.t("tui.usage.hint.models") },
+        { key: "enter", label: api.t("tui.usage.hint.details") },
+        { key: "←", label: api.t("tui.usage.hint.ranges") },
       ];
     } else {
       moves = [
-        { key: "↑↓", label: "scroll" },
-        { key: "←", label: "ranges" },
+        { key: "↑↓", label: api.t("tui.usage.hint.scroll") },
+        { key: "←", label: api.t("tui.usage.hint.ranges") },
       ];
     }
     return [
       ...moves,
-      ...(range() === "between" ? [{ key: "d", label: "type dates" }] : []),
-      { key: "c", label: "cost" },
-      { key: "t", label: "tokens" },
-      { key: "b", label: "by model/day" },
-      downloading() ? { label: "updating prices…" } : { key: "p", label: "update prices" },
-      { key: "tab", label: "next tab" },
-      { key: "esc", label: "close" },
+      ...(range() === "between" ? [{ key: "d", label: api.t("tui.usage.hint.typeDates") }] : []),
+      { key: "c", label: api.t("tui.usage.hint.cost") },
+      { key: "t", label: api.t("tui.usage.hint.tokens") },
+      { key: "b", label: api.t("tui.usage.hint.byModelDay") },
+      downloading()
+        ? { label: api.t("tui.usage.hint.updatingPrices") }
+        : { key: "p", label: api.t("tui.usage.hint.updatePrices") },
+      { key: "tab", label: api.t("tui.usage.hint.nextTab") },
+      { key: "esc", label: api.t("tui.usage.hint.close") },
     ];
   }
 
@@ -549,7 +569,7 @@ export function createUsageTab(
   function RangeList(): JSX.Element {
     return (
       <Rail
-        items={RANGE_ITEMS}
+        items={rangeItems(api.t)}
         chosen={range()}
         theme={api.theme}
         gap={RANGE_LIST_GAP}
@@ -571,43 +591,43 @@ export function createUsageTab(
       window?: WindowKey["run"];
       date?: (field: DateField) => void;
     }> = [
-      { bind: "up", title: "Previous range or model", window: () => move(-1) },
-      { bind: "down", title: "Next range or model", window: () => move(1) },
+      { bind: "up", title: api.t("tui.usage.previous"), window: () => move(-1) },
+      { bind: "down", title: api.t("tui.usage.next"), window: () => move(1) },
       {
         bind: "right",
-        title: "To the models",
+        title: api.t("tui.usage.toModels"),
         window: () => (area() === "ranges" ? toModels() : false),
         date: (field) => dateInput(field)?.moveCursorRight(),
       },
       {
         bind: "left",
-        title: "Back to the ranges",
+        title: api.t("tui.usage.backToRanges"),
         window: () => (area() === "content" ? toRanges() : false),
         date: (field) => dateInput(field)?.moveCursorLeft(),
       },
       {
         bind: "return",
-        title: "To the models, open a model, or the next date",
+        title: api.t("tui.usage.toModelsOrDate"),
         window: enter,
         date: (field) => submitDate(field),
       },
       {
         bind: "tab",
-        title: "Other date",
+        title: api.t("tui.usage.otherDate"),
         date: (field) => dateInput(field === "from" ? "to" : "from")?.focus(),
       },
-      { bind: "escape", title: "Back to the window", date: backToWindow },
-      { bind: "c", title: "Show cost", window: () => chooseMode("cost") },
-      { bind: "t", title: "Show tokens", window: () => chooseMode("tokens") },
+      { bind: "escape", title: api.t("tui.usage.backToWindow"), date: backToWindow },
+      { bind: "c", title: api.t("tui.usage.showCost"), window: () => chooseMode("cost") },
+      { bind: "t", title: api.t("tui.usage.showTokens"), window: () => chooseMode("tokens") },
       {
         bind: "b",
-        title: "Breakdown by model or by day",
+        title: api.t("tui.usage.breakdownKey"),
         window: () => chooseBreakdown(breakdown() === "model" ? "day" : "model"),
       },
-      { bind: "p", title: "Update prices", window: () => void downloadPrices() },
+      { bind: "p", title: api.t("tui.usage.updatePrices"), window: () => void downloadPrices() },
       {
         bind: "d",
-        title: "Type the dates",
+        title: api.t("tui.usage.typeDates"),
         window: () => {
           if (range() === "between") typeDates();
         },
@@ -620,7 +640,7 @@ export function createUsageTab(
       commands: keys.map((key) => ({
         bind: key.bind,
         title: key.title,
-        group: KEYS,
+        group: api.t("tui.usage.rangeTitle"),
         run: () => {
           const field = dateFocus();
           if (field) return key.date ? key.date(field) : false;
@@ -632,7 +652,12 @@ export function createUsageTab(
     const view = createMemo((): UsageViewLines => {
       const report = readyReport();
       return report
-        ? usageView(report, { mode: mode(), breakdown: breakdown(), width: props.width })
+        ? usageView(report, {
+            mode: mode(),
+            breakdown: breakdown(),
+            width: props.width,
+            locale: api.locale(),
+          })
         : { lines: [], modelLines: [] };
     });
     const dateBox = (field: DateField) => (
@@ -667,7 +692,7 @@ export function createUsageTab(
     /** The report's dates after the range's name; a click on Between's types them. */
     const datesText = () => {
       const report = readyReport();
-      const text = report ? rangeDates(report) : undefined;
+      const text = report ? rangeDates(report, api.locale()) : undefined;
       if (!text) return null;
       return (
         <text
@@ -692,26 +717,26 @@ export function createUsageTab(
             flexShrink={0}
             selectable={false}
           >
-            {usageRangeLabel(range())}
+            {api.t(`tui.usage.range.${range()}`)}
           </text>
           <Show when={editingDates() && range() === "between"} fallback={datesText()}>
             <box flexDirection="row" columnGap={1} marginLeft={2} flexShrink={0}>
               {dateBox("from")}
               <text fg={theme().text.muted} wrapMode="none" flexShrink={0} selectable={false}>
-                to
+                {api.t("range.to")}
               </text>
               {dateBox("to")}
             </box>
           </Show>
           <box flexGrow={1} />
           <Option
-            label="Cost"
+            label={api.t("tui.usage.modeCost")}
             active={mode() === "cost"}
             theme={theme()}
             run={() => chooseMode("cost")}
           />
           <Option
-            label="Tokens"
+            label={api.t("tui.usage.modeTokens")}
             active={mode() === "tokens"}
             theme={theme()}
             run={() => chooseMode("tokens")}
@@ -719,11 +744,11 @@ export function createUsageTab(
         </box>
         <box flexDirection="column" marginTop={1}>
           <Show when={result().state === "loading"}>
-            <text fg={theme().text.muted}>Loading usage…</text>
+            <text fg={theme().text.muted}>{api.t("tui.state.loading")}</text>
           </Show>
           <Show when={failure()}>
             <text fg={theme().text.feedback.error.base} wrapMode="word">
-              {`Couldn't load the usage: ${failure()}`}
+              {api.t("tui.state.usageFailure", { message: failure() ?? "" })}
             </text>
           </Show>
           {view().lines.map((line, index) => {
@@ -734,13 +759,13 @@ export function createUsageTab(
                   <box flexGrow={1} />
                   <box flexDirection="row" flexShrink={0}>
                     <Option
-                      label="Model"
+                      label={api.t("tui.usage.breakdownModel")}
                       active={breakdown() === "model"}
                       theme={theme()}
                       run={() => chooseBreakdown("model")}
                     />
                     <Option
-                      label="Day"
+                      label={api.t("tui.usage.breakdownDay")}
                       active={breakdown() === "day"}
                       theme={theme()}
                       run={() => chooseBreakdown("day")}

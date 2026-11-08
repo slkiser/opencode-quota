@@ -68,6 +68,10 @@ For quick iteration: `pnpm run test:watch`.
 - **Money.** Use the shared formatter, which shows USD as `$12.50` and other currencies with an ISO code after the amount, such as `8.25 CNY`. Never convert amounts or add up different currencies.
 - Keep these boundary tests passing and up to date: `tests/plugin.command-handled-boundary.test.ts`, `tests/tui-dist-import-graph.test.ts`, `tests/quota-provider-boundary.test.ts`, `tests/v6-cross-surface.test.ts`.
 
+## Interface translations
+
+The interface language is shared by TUI and Desktop. Add English source strings to `src/i18n/catalog.ts`, then translate the same keys in `src/i18n/zh-Hans.ts`; missing translations intentionally fall back to English one key at a time. Keep interpolation placeholders unchanged, and cover locale resolution, fallback, or formatting behavior in the focused tests under `tests/`.
+
 ## Provider changes
 
 **Built-in providers** are considered only when:

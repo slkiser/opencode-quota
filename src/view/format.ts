@@ -1,38 +1,64 @@
 /**
  * Words and numbers every quota and usage surface shows: percents, reset times, bars, amounts,
- * money, token counts and shares. Pure functions, shared by the TUI, the Web text and the CLI.
- * Money, token counts and shares are written the way a billing dashboard writes them, always
- * in US English, so the text is the same on every machine.
+ * money, token and request counts, and shares. Pure functions, shared by the TUI, the Web text and
+ * the CLI.
+ * Locale-aware money, token and request counts, shares and dates use the selected interface language.
  */
 import type { Pace } from "../core/pace.js";
 import type { Amount, QuotaRow, SessionTokens, Words } from "../core/types.js";
+import { intlLocale, resolveUiLocale, translate } from "../i18n.js";
 import type { Settings } from "../settings/schema.js";
 import { columnsOf, padEndColumns, sliceColumns } from "./columns.js";
 
-const USD = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
-const COMPACT = new Intl.NumberFormat("en-US", {
-  notation: "compact",
-  minimumSignificantDigits: 3,
-  maximumSignificantDigits: 3,
-});
+function intl(locale: string): string {
+  return intlLocale(resolveUiLocale(locale, locale));
+}
+
+function uiWord(locale: string, key: string): string {
+  return translate(resolveUiLocale(locale, locale), key);
+}
 
 /** "$1,234.56", "$0.00", and "<$0.01" for an amount above 0 that would show as $0.00. */
-export function formatUsd(usd: number): string {
-  const text = USD.format(usd);
-  return usd > 0 && text === "$0.00" ? "<$0.01" : text;
+export function formatUsd(usd: number, locale = "en-US"): string {
+  const format = new Intl.NumberFormat(intl(locale), {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const text = format.format(usd);
+  return usd > 0 && text === format.format(0) ? `<${format.format(0.01)}` : text;
 }
 
 /** Whole below 1,000, then always three significant digits: "950", "12.3K", "8.00M", "13.4B". */
-export function formatTokens(count: number): string {
+export function formatTokens(count: number, locale = "en-US"): string {
   const whole = Math.round(count);
-  return whole < 1000 ? String(whole) : COMPACT.format(whole);
+  return whole < 1000
+    ? new Intl.NumberFormat(intl(locale), { maximumFractionDigits: 0 }).format(whole)
+    : new Intl.NumberFormat(intl(locale), {
+        notation: "compact",
+        minimumSignificantDigits: 3,
+        maximumSignificantDigits: 3,
+      }).format(whole);
+}
+
+/** A rounded, grouped integer count (never compacted like a token amount). */
+export function formatCount(count: number, locale = "en-US"): string {
+  return new Intl.NumberFormat(intl(locale), { maximumFractionDigits: 0 }).format(
+    Math.round(count),
+  );
 }
 
 /** A 0..1 share with one decimal: "92.5%", "5.0%", "100.0%"; "<0.1%" above 0; "0%" for 0. */
-export function formatShare(share: number): string {
-  if (share === 0) return "0%";
-  const text = (share * 100).toFixed(1);
-  return share > 0 && text === "0.0" ? "<0.1%" : `${text}%`;
+export function formatShare(share: number, locale = "en-US"): string {
+  const format = new Intl.NumberFormat(intl(locale), {
+    style: "percent",
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+  if (share === 0) return new Intl.NumberFormat(intl(locale), { style: "percent" }).format(0);
+  const text = format.format(share);
+  return share > 0 && text === format.format(0) ? `<${format.format(0.001)}` : text;
 }
 
 /** The words until the server sends its own (docs/v6-build.local.md §5). */
@@ -46,16 +72,11 @@ export const DEFAULT_WORDS: Words = {
   sessionTokens: "current",
 };
 
-const PERCENT_WORDS: Record<Words["percent"], string> = {
-  left: "left",
-  remaining: "remaining",
-  bare: "",
-  used: "used",
-};
-
 /** The word after a percent ("left", "used", or "" for the bare style). */
-export function percentWord(words: Words): string {
-  return PERCENT_WORDS[words.percent];
+export function percentWord(words: Words, locale = "en-US"): string {
+  if (words.percent === "bare") return "";
+  if (words.percent === "used") return uiWord(locale, "format.used");
+  return uiWord(locale, words.percent === "remaining" ? "format.remaining" : "format.left");
 }
 
 /** A raw percent left as a whole number from 0 to 100. */
@@ -81,10 +102,19 @@ export function shownEvenLeft(words: Words, evenLeft: number): number {
 }
 
 /** "58% left", "42% used", or "58%" without the word. */
-export function percentText(words: Words, percentRemaining: number, withWord: boolean): string {
+export function percentText(
+  words: Words,
+  percentRemaining: number,
+  withWord: boolean,
+  locale = "en-US",
+): string {
   const value = shownPercent(words, percentRemaining);
-  const word = withWord ? percentWord(words) : "";
-  return word ? `${value}% ${word}` : `${value}%`;
+  const number = new Intl.NumberFormat(intl(locale), {
+    style: "percent",
+    maximumFractionDigits: 0,
+  }).format(value / 100);
+  const suffix = withWord ? percentWord(words, locale) : "";
+  return suffix ? `${number} ${suffix}` : number;
 }
 
 /** The reset styles that are a time alone: every one but "percent", which adds the window's time share. */
@@ -96,31 +126,54 @@ export type DurationStyle = Exclude<Words["reset"], "percent">;
  * in whole hours ("23h"), below that like "exact" ("11h 35m"). A time that rounds to 24 hours
  * is "1.0d".
  */
-export function formatDuration(ms: number, style: DurationStyle, decimals: number): string {
-  if (!(ms > 0)) return "now";
+export function formatDuration(
+  ms: number,
+  style: DurationStyle,
+  decimals: number,
+  locale = "en-US",
+): string {
+  if (!(ms > 0)) return uiWord(locale, "format.now");
+  const chinese = resolveUiLocale(locale, locale) === "zh-Hans";
+  const units = chinese
+    ? { day: "天", hour: "小时", minute: "分钟" }
+    : { day: "d", hour: "h", minute: "m" };
+  const decimal = (value: number) =>
+    new Intl.NumberFormat(intl(locale), {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }).format(value);
   const minutes = Math.ceil(ms / 60_000);
   if (style === "smart" && minutes >= 720) {
     const hours = Math.round(minutes / 60);
-    return hours < 24 ? `${hours}h` : `${(Math.round(minutes / 144) / 10).toFixed(1)}d`;
+    return hours < 24
+      ? `${hours}${units.hour}`
+      : `${decimal(Math.round(minutes / 144) / 10)}${units.day}`;
   }
   if (style === "decimal") {
     return minutes >= 1440
-      ? `${(minutes / 1440).toFixed(decimals)}d`
-      : `${(minutes / 60).toFixed(decimals)}h`;
+      ? `${decimal(minutes / 1440)}${units.day}`
+      : `${decimal(minutes / 60)}${units.hour}`;
   }
   const days = Math.floor(minutes / 1440);
   const hours = Math.floor((minutes % 1440) / 60);
   const rest = minutes % 60;
-  let parts = [days && `${days}d`, hours && `${hours}h`, rest && `${rest}m`].filter(
-    (part): part is string => Boolean(part),
-  );
+  let parts = [
+    days && `${days}${units.day}`,
+    hours && `${hours}${units.hour}`,
+    rest && `${rest}${units.minute}`,
+  ].filter((part): part is string => Boolean(part));
   if (style === "short") parts = parts.slice(0, days ? 2 : 1);
-  return parts.join(style === "compact" ? "" : " ");
+  return parts.join(chinese || style === "compact" ? "" : " ");
 }
 
 /** A time in its largest unit ("28d", "2h", "40m"); "now" for the past. The "percent" reset style uses it. */
-export function largestUnit(ms: number): string {
-  return formatDuration(ms, "short", 0).split(" ")[0] as string;
+export function largestUnit(ms: number, locale = "en-US"): string {
+  if (!(ms > 0)) return uiWord(locale, "format.now");
+  const minutes = Math.ceil(ms / 60_000);
+  const chinese = resolveUiLocale(locale, locale) === "zh-Hans";
+  if (minutes >= 1440) return `${Math.floor(minutes / 1440)}${chinese ? "天" : "d"}`;
+  if (minutes >= 60) return `${Math.floor(minutes / 60)}${chinese ? "小时" : "h"}`;
+  return `${minutes}${chinese ? "分钟" : "m"}`;
 }
 
 export type BarShape = Settings["layout"]["bar"];
@@ -190,50 +243,73 @@ export function barLevel(
   return colors.levelBy === "pace" && paceLevel ? paceLevel : levelOf(percentRemaining, colors);
 }
 
-function groupDigits(integer: string): string {
-  return integer.replace(/\B(?=(\d{3})+(?!\d))/gu, ",");
+function groupDigits(integer: string, locale: string): string {
+  const separator =
+    new Intl.NumberFormat(intl(locale)).formatToParts(1000).find((part) => part.type === "group")
+      ?.value ?? ",";
+  return integer.replace(/\B(?=(\d{3})+(?!\d))/gu, separator);
+}
+
+function decimalSeparator(locale: string): string {
+  return (
+    new Intl.NumberFormat(intl(locale)).formatToParts(1.1).find((part) => part.type === "decimal")
+      ?.value ?? "."
+  );
 }
 
 /**
  * "$12.40", "12.40 EUR", "1 request", "1,200 requests", "30 nano". A count unit is one word
  * ("request"); it is plural for every number but 1, and the plain "unit" is not shown.
  */
-export function amountText(amount: Amount): string {
+export function amountText(amount: Amount, locale = "en-US"): string {
   const { unit } = amount;
   if (unit.kind === "currency") {
     const value = Number(amount.decimal);
-    const sign = value < 0 ? "-" : "";
     const [integer = "0", cents = "00"] = Math.abs(value).toFixed(2).split(".");
-    const money = `${groupDigits(integer)}.${cents}`;
-    return unit.code === "USD" ? `${sign}$${money}` : `${sign}${money} ${unit.code}`;
+    const money = `${groupDigits(integer, locale)}${decimalSeparator(locale)}${cents}`;
+    if (unit.code === "USD") {
+      return new Intl.NumberFormat(intl(locale), {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(value);
+    }
+    const sign = value < 0 ? "-" : "";
+    return resolveUiLocale(locale, locale) === "en"
+      ? `${sign}${money} ${unit.code}`
+      : `${sign}${unit.code} ${money}`;
   }
   const [integer = "0", fraction] = amount.decimal.replace(/^-/u, "").split(".");
   const sign = amount.decimal.startsWith("-") ? "-" : "";
-  const number = `${sign}${groupDigits(integer)}${fraction ? `.${fraction}` : ""}`;
+  const number = `${sign}${groupDigits(integer, locale)}${fraction ? `${decimalSeparator(locale)}${fraction}` : ""}`;
   if (unit.kind === "custom") return `${number} ${unit.symbol}`;
   if (unit.unit === "unit") return number;
-  return `${number} ${integer === "1" && !fraction ? unit.unit : `${unit.unit}s`}`;
+  const singular = new Intl.PluralRules(intl(locale)).select(Number(amount.decimal)) === "one";
+  return `${number} ${singular || resolveUiLocale(locale, locale) === "zh-Hans" ? unit.unit : `${unit.unit}s`}`;
 }
 
 /** The value of a row without a percent: its text, amount, used/limit, or yes/no. */
-export function rowValueText(row: QuotaRow): string {
+export function rowValueText(row: QuotaRow, locale = "en-US"): string {
   if (row.text !== undefined) return row.text;
   if (row.amount) {
-    const amount = amountText(row.amount);
-    if (row.type === "balance") return `${amount} left`;
-    return row.type === "usage" ? `${amount} used` : amount;
+    const amount = amountText(row.amount, locale);
+    if (row.type === "balance") return `${amount} ${uiWord(locale, "format.left")}`;
+    return row.type === "usage" ? `${amount} ${uiWord(locale, "format.used")}` : amount;
   }
-  if (row.remaining) return `${amountText(row.remaining)} left`;
-  if (row.used && row.limit) return `${amountText(row.used)}/${amountText(row.limit)}`;
-  if (row.used) return `${amountText(row.used)} used`;
-  if (row.flag !== undefined) return row.flag ? "Enabled" : "Disabled";
+  if (row.remaining) return `${amountText(row.remaining, locale)} ${uiWord(locale, "format.left")}`;
+  if (row.used && row.limit)
+    return `${amountText(row.used, locale)}/${amountText(row.limit, locale)}`;
+  if (row.used) return `${amountText(row.used, locale)} ${uiWord(locale, "format.used")}`;
+  if (row.flag !== undefined)
+    return uiWord(locale, row.flag ? "format.enabled" : "format.disabled");
   return "";
 }
 
 /** "12.3K (1.20K) in · 2.10K out", with cached input only when it is non-zero. */
-export function sessionTokensText(tokens: SessionTokens): string {
-  const cached = tokens.cachedInput > 0 ? ` (${formatTokens(tokens.cachedInput)})` : "";
-  return `${formatTokens(tokens.input)}${cached} in · ${formatTokens(tokens.output)} out`;
+export function sessionTokensText(tokens: SessionTokens, locale = "en-US"): string {
+  const cached = tokens.cachedInput > 0 ? ` (${formatTokens(tokens.cachedInput, locale)})` : "";
+  return `${formatTokens(tokens.input, locale)}${cached} ${uiWord(locale, "format.in")} · ${formatTokens(tokens.output, locale)} ${uiWord(locale, "format.out")}`;
 }
 
 /** A model's cache hit can be low once it read this many input tokens. */
@@ -262,14 +338,17 @@ export type CacheHit = {
  * The cache hit of `tokens`; undefined without input tokens, or without cache reads and cache
  * writes (the provider reports no cache numbers).
  */
-export function cacheHit(tokens: InputTokens): CacheHit | undefined {
+export function cacheHit(tokens: InputTokens, locale = "en-US"): CacheHit | undefined {
   const allInput = tokens.input + tokens.cacheRead + tokens.cacheWrite;
   if (allInput <= 0 || tokens.cacheRead + tokens.cacheWrite <= 0) return undefined;
   const share = tokens.cacheRead / allInput;
   const judged = allInput >= LOW_CACHE_MIN_INPUT_TOKENS;
   return {
     share,
-    text: `${Math.floor((tokens.cacheRead * 100) / allInput)}%`,
+    text: new Intl.NumberFormat(intl(locale), {
+      style: "percent",
+      maximumFractionDigits: 0,
+    }).format(Math.floor((tokens.cacheRead * 100) / allInput) / 100),
     judged,
     low: judged && share < LOW_CACHE_HIT_BELOW,
   };

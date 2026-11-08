@@ -28,6 +28,7 @@ import {
   usageReport,
   withProviderNames,
 } from "./core/usage.js";
+import { resolveUiLocale } from "./i18n.js";
 import { findGitWorktreeRoot } from "./lib/config-file-utils.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
 import { homeNoticeLine, listNotices } from "./lib/maintainer-home-notice.js";
@@ -410,6 +411,10 @@ export function createQuotaServerPlugin(
           text = usageText(await loadUsageReport({ range, from, to, sessionID }), {
             mode: "cost",
             breakdown: "model",
+            locale: resolveUiLocale(
+              liveSettings.current().settings.system.language,
+              Intl.DateTimeFormat().resolvedOptions().locale,
+            ),
           });
         } catch (error) {
           text = `Couldn't read the usage: ${error instanceof Error ? error.message : String(error)}`;

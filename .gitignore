@@ -29,6 +29,8 @@ tui.json
 docs/*
 !docs/readme/
 !docs/readme/**
+!docs/ui/
+!docs/ui/**
 /docs/readme/v4-release-readiness.md
 /docs/adr/
 AGENTS.md

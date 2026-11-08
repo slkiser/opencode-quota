@@ -99,6 +99,7 @@ function start(
     },
     toast: { show },
     t: (key: string) => key,
+    locale: { locale: () => "en" },
   } as unknown as Context;
   const waiting: Array<() => void> = [];
   const stops: Array<ReturnType<typeof vi.fn>> = [];

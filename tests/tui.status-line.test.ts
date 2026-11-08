@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { QuotaSnapshot } from "../src/core/types.js";
+import { createLocalization } from "../src/i18n.js";
 import { convertV5 } from "../src/settings/index.js";
 import { defaultSettings } from "../src/settings/schema.js";
 import type { SurfaceHost } from "../src/tui/sidebar.js";
@@ -55,6 +56,10 @@ describe("HomeFooter", () => {
 
     const { HomeFooter, StatusLine } = await import("../src/tui/status-line.tsx");
     const host = {
+      ...createLocalization(
+        () => "en",
+        () => "en",
+      ),
       theme: () => ({ text: { muted: "muted" } }),
       display,
       quota: { homeLine: () => "", watchHome: () => () => {} },
@@ -93,6 +98,10 @@ describe("statusLineShows", () => {
       Object.assign(settings.statusLine, change);
       settings.sidebar.show = sidebarShow ?? true;
       const host = {
+        ...createLocalization(
+          () => "en",
+          () => "en",
+        ),
         display: () => settings,
         editing: {
           sidebarOnScreen: () => sidebar === true,
@@ -145,6 +154,10 @@ describe("StatusLine", () => {
     const settings = defaultSettings();
     const { StatusLine } = await import("../src/tui/status-line.tsx");
     const host = {
+      ...createLocalization(
+        () => "en",
+        () => "en",
+      ),
       theme: () => THEME,
       display: () => settings,
       editing: { marked: () => undefined },

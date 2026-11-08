@@ -119,12 +119,14 @@ export function limitCards(
   display: GuiDisplay,
   nowMs: number,
   providerId?: string,
+  locale = "en-US",
 ): LimitCard[] {
   const { words } = display;
   const rows: RowSettings = { ...display.rows, sidebar: { ...display.rows.sidebar, hidden: [] } };
   const place: Place = {
     words,
     nowMs,
+    locale,
     names: "label",
     percent: "words",
     // "resets in" takes a time: the "percent" style's time share would read as one.
@@ -136,7 +138,7 @@ export function limitCards(
   return visibleGroups(snapshot, rows, "sidebar", words)
     .filter((group) => providerId === undefined || group.providerId === providerId)
     .map((group) => {
-      const error = errorWords(group, nowMs);
+      const error = errorWords(group, nowMs, locale);
       return {
         id: group.id,
         providerId: group.providerId,
@@ -173,14 +175,18 @@ export function limitProviders(snapshot: QuotaSnapshot): Array<[string, string]>
 }
 
 /** The session's tokens, when the snapshot has them (it does for a watched session). */
-export function sessionStrip(snapshot: QuotaSnapshot, words: Words): SessionStrip | undefined {
+export function sessionStrip(
+  snapshot: QuotaSnapshot,
+  words: Words,
+  locale = "en-US",
+): SessionStrip | undefined {
   const tokens = snapshot.sessionTokens;
   if (!tokens) return undefined;
   return {
     tree: words.sessionTokens === "tree",
-    input: formatTokens(tokens.input),
-    cached: formatTokens(tokens.cachedInput),
-    output: formatTokens(tokens.output),
+    input: formatTokens(tokens.input, locale),
+    cached: formatTokens(tokens.cachedInput, locale),
+    output: formatTokens(tokens.output, locale),
   };
 }
 

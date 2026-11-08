@@ -20,17 +20,21 @@ type SystemSwitch = { key: string; group: string; title: string; note?: string }
 const SYSTEM_SWITCHES: ReadonlyArray<SystemSwitch> = [
   {
     key: "system.oldCommands",
-    group: "Commands",
-    title: "Old command names",
-    note: "the 4.x and 5.x /tokens_* names; the / list changes after a restart",
+    group: "tui.plugin.commands",
+    title: "tui.plugin.oldCommands",
+    note: "tui.plugin.oldCommands.note",
   },
   {
     key: "system.exportFile",
-    group: "For other tools",
-    title: "Quota file (JSON)",
-    note: "for status bars and scripts; the opencode-quota CLI works either way",
+    group: "tui.plugin.otherTools",
+    title: "tui.plugin.quotaFile",
+    note: "tui.plugin.quotaFile.note",
   },
-  { key: "system.telemetry", group: "For other tools", title: "OpenTelemetry metrics" },
+  {
+    key: "system.telemetry",
+    group: "tui.plugin.otherTools",
+    title: "tui.plugin.telemetry",
+  },
 ];
 
 /** Copies `text` and says in a toast titled `title` whether the terminal let it. */
@@ -85,7 +89,7 @@ export function createPluginTab(api: WindowHost, settings: SettingsEditor, copy:
     try {
       await settings.saveSwitch(key, on);
     } catch (error) {
-      api.ui.toast.show(errorToast(error));
+      api.ui.toast.show(errorToast(error, api.t("tui.toast.title")));
     } finally {
       savingSwitches.delete(key);
     }
@@ -94,9 +98,9 @@ export function createPluginTab(api: WindowHost, settings: SettingsEditor, copy:
   function copyReport(): void {
     const report = status();
     if (report.state !== "ready") return;
-    copy(report.text, "Status report", {
-      copied: "Copied. Paste it into a GitHub issue.",
-      failed: "This terminal doesn't allow copying; select the text instead.",
+    copy(report.text, api.t("tui.plugin.statusReport"), {
+      copied: api.t("tui.plugin.copied"),
+      failed: api.t("tui.plugin.copyFailed"),
     });
   }
 
@@ -107,11 +111,11 @@ export function createPluginTab(api: WindowHost, settings: SettingsEditor, copy:
   function lines(): OptionLine[] {
     const copyLine: OptionLine = {
       id: "copy",
-      group: "Status report",
-      title: "Copy the report",
-      value: () => "copy",
+      group: api.t("tui.plugin.copyGroup"),
+      title: api.t("tui.plugin.copyReport"),
+      value: () => api.t("tui.plugin.copy"),
       run: copyReport,
-      note: () => "then paste it into a GitHub issue",
+      note: () => api.t("tui.plugin.pasteIssue"),
     };
     const switches = SYSTEM_SWITCHES.flatMap(({ key, group, title, note }, index): OptionLine[] => {
       const on = settings.savedSwitch(key);
@@ -119,15 +123,43 @@ export function createPluginTab(api: WindowHost, settings: SettingsEditor, copy:
       return [
         {
           id: key,
-          ...(group !== SYSTEM_SWITCHES[index - 1]?.group ? { group } : {}),
-          title,
-          value: () => (on ? "on" : "off"),
+          ...(group !== SYSTEM_SWITCHES[index - 1]?.group ? { group: api.t(group) } : {}),
+          title: api.t(title),
+          value: () => api.t(on ? "tui.action.on" : "tui.action.off"),
           cycle: () => void flipSwitch(key, !on),
-          ...(note ? { note: () => note } : {}),
+          ...(note ? { note: () => api.t(note) } : {}),
         },
       ];
     });
-    return [...switches, copyLine];
+    const language = settings.savedValue("system.language");
+    const languageLine: OptionLine[] =
+      typeof language === "string"
+        ? [
+            {
+              id: "system.language",
+              group: api.t("tui.plugin.language"),
+              title: api.t("tui.plugin.language"),
+              value: () =>
+                api.t(`option.system.language.${String(settings.savedValue("system.language"))}`),
+              cycle: (delta) => {
+                if (savingSwitches.has("system.language")) return;
+                const choices = ["auto", "en", "zh-Hans"] as const;
+                const current = choices.indexOf(language as (typeof choices)[number]);
+                const next = choices[(current + delta + choices.length) % choices.length];
+                if (!next) return;
+                savingSwitches.add("system.language");
+                void settings
+                  .saveValue("system.language", next)
+                  .catch((error: unknown) =>
+                    api.ui.toast.show(errorToast(error, api.t("tui.toast.title"))),
+                  )
+                  .finally(() => savingSwitches.delete("system.language"));
+              },
+              note: () => api.t("tui.plugin.language.note"),
+            },
+          ]
+        : [];
+    return [...switches, ...languageLine, copyLine];
   }
 
   const selectedLine = () => lines().find((line) => line.id === selected());
@@ -164,7 +196,12 @@ export function createPluginTab(api: WindowHost, settings: SettingsEditor, copy:
     View(props: { width: number }): JSX.Element {
       return (
         <>
-          <NoticesView theme={api.theme} report={notices()} />
+          <NoticesView
+            theme={api.theme}
+            report={notices()}
+            title={api.t("tui.plugin.notices")}
+            t={api.t}
+          />
           {lines().map((line) => (
             <OptionRow
               line={line}
@@ -177,7 +214,13 @@ export function createPluginTab(api: WindowHost, settings: SettingsEditor, copy:
               width={props.width}
             />
           ))}
-          <StatusView theme={api.theme} report={status()} width={props.width} />
+          <StatusView
+            theme={api.theme}
+            report={status()}
+            width={props.width}
+            title={api.t("tui.plugin.setupCheck")}
+            t={api.t}
+          />
         </>
       );
     },

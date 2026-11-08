@@ -83,7 +83,11 @@ async function flush(): Promise<void> {
  * The window on a fake host; `snapshot` is the quota every surface shows (none by default), and
  * `answers` are more of the server's RPC methods.
  */
-function fakeHost(snapshot?: QuotaSnapshot, answers: Record<string, unknown> = {}) {
+function fakeHost(
+  snapshot?: QuotaSnapshot,
+  answers: Record<string, unknown> = {},
+  locale: "en" | "zh-Hans" = "en",
+) {
   // The server's notices; the answer comes when the test says so.
   const server = {
     notices: [
@@ -140,6 +144,7 @@ function fakeHost(snapshot?: QuotaSnapshot, answers: Record<string, unknown> = {
     },
     route: { type: "session", sessionID: "ses_1" },
     theme: THEME,
+    locale,
   });
   const api = tui.context;
   const display = createFileDisplay(
@@ -163,6 +168,9 @@ function fakeHost(snapshot?: QuotaSnapshot, answers: Record<string, unknown> = {
     closePreview: () => {},
   });
   const surface = {
+    locale: api.locale,
+    t: api.t,
+    plural: api.plural,
     theme: () => THEME,
     display: display.shown,
     quota: {
@@ -897,15 +905,28 @@ describe("quota window: the Usage tab", () => {
   });
 
   /** The window on a fake host whose server reads the usage history; a test can swap `answers`. */
-  function usageHost() {
+  function usageHost(locale: "en" | "zh-Hans" = "en") {
     const answers = {
       usage: async (query: UsageQuery) => ({ report: await usageReport(query) }),
     };
-    const tui = fakeHost(undefined, { usage: (query: UsageQuery) => answers.usage(query) });
+    const tui = fakeHost(undefined, { usage: (query: UsageQuery) => answers.usage(query) }, locale);
     stubJsx({ renderables: tui });
     const usageTab = () => tui.quotaWindow.Slot({ sessionID: "ses_1" });
     return { tui: { ...tui, answers }, usageTab };
   }
+
+  it("localizes the Usage tab controls and range list in Simplified Chinese", async () => {
+    const { tui, usageTab } = usageHost("zh-Hans");
+    tui.quotaWindow.open("usage");
+    await vi.waitFor(() => expect(textLines(usageTab()).join(" ")).toContain("明细"));
+
+    const text = textLines(usageTab()).join(" ");
+    expect(text).toContain("今天");
+    expect(text).toContain("费用");
+    expect(text).toContain("令牌");
+    expect(text).toContain("模型");
+    expect(text).toContain("日期");
+  });
 
   it("keeps the newest range when an older answer arrives last", async () => {
     const { tui, usageTab } = usageHost();

@@ -34,7 +34,7 @@
  * dropped unshown, so a later snapshot can bring them.
  */
 import type { QuotaSnapshot, ResetNotice } from "../core/types.js";
-import { WINDOWS } from "../core/windows.js";
+import { resolveUiLocale, translate } from "../i18n.js";
 import { levelOf } from "../view/format.js";
 import { rowFacts } from "../view/row-facts.js";
 import { visibleRow } from "../view/select.js";
@@ -42,9 +42,6 @@ import { type Line, lineText, type ToastInput, toastInput, toastLines } from "..
 import type { QuotaClient } from "./client.js";
 import type { DisplaySettings } from "./display.js";
 import type { DrawnToast } from "./toast-colors.js";
-
-/** The title of quota's one-line toasts (a hint, a wrong range); quota toasts have none. */
-export const TOAST_TITLE = "OpenCode Quota";
 
 export type ToastOptions = {
   variant: "info" | "success" | "warning" | "error";
@@ -74,6 +71,8 @@ export type ToastHost = {
    * some provider of its key answers again); without it, one for all sessions.
    */
   allFailKey?: (sessionID: string) => string;
+  /** Selected language for plugin-owned toast copy and shared row formatters. */
+  locale?: () => string;
   now?: () => number;
 };
 
@@ -156,6 +155,7 @@ export function resetMessage(
   snapshot: QuotaSnapshot,
   display: DisplaySettings,
   nowMs: number,
+  locale = "en-US",
 ): string | undefined {
   const provider = snapshot.providers.find((item) => item.providerId === notice.providerId);
   const row = provider?.rows.find(
@@ -166,10 +166,16 @@ export function resetMessage(
     { ...row, percentRemaining: notice.percentRemaining },
     display.toast.names,
   );
-  const place = { words: display.words, nowMs, names: "label", percent: "words" } as const;
+  const place = { words: display.words, nowMs, names: "label", percent: "words", locale } as const;
   const facts = rowFacts(item, { rows: [item] }, place);
   const title = notice.account ? `${provider.label} (${notice.account})` : provider.label;
-  return `${WINDOWS[notice.window].label} quota reset: ${title} ${facts.name} is available again (${facts.value}).`;
+  const uiLocale = resolveUiLocale(locale, locale);
+  return translate(uiLocale, "tui.quota.resetNotice", {
+    window: translate(uiLocale, `tui.quota.window.${notice.window}`),
+    title,
+    row: facts.name,
+    value: facts.value,
+  });
 }
 
 export function createToasts(host: ToastHost): Toasts {
@@ -192,14 +198,17 @@ export function createToasts(host: ToastHost): Toasts {
     const messages = waitingNotices.flatMap(({ notice, snapshot }) => {
       const display = host.display(snapshot);
       if (!wantsResetNotice(display, notice)) return [];
-      const message = resetMessage(notice, snapshot, display, now());
+      const message = resetMessage(notice, snapshot, display, now(), host.locale?.());
       return message ? [message] : [];
     });
     waitingNotices = [];
     if (messages.length === 0) return;
     host.show({
       variant: "success",
-      title: "Quota available",
+      title: translate(
+        resolveUiLocale(host.locale?.() ?? "en-US", host.locale?.()),
+        "tui.quota.resetAvailable",
+      ),
       message: messages.join("\n"),
       duration: host.display().toast.seconds * 1000,
     });
@@ -217,6 +226,7 @@ export function createToasts(host: ToastHost): Toasts {
     return toastInput(snapshot, display, {
       nowMs: now(),
       width: toastRoom(host.terminalWidth()),
+      locale: host.locale?.(),
     });
   }
 

@@ -899,6 +899,35 @@ describe("commands of the TUI plugin", () => {
     );
   });
 
+  it("localizes fixed /quota_usage argument errors in the TUI", async () => {
+    const settings = {
+      values: { "system.language": "zh-Hans" },
+      fromFile: ["system.language"],
+      providers: [],
+      custom: [],
+    };
+    rpc.snapshot.mockResolvedValue({ snapshot: { ...snapshot([]), settings } });
+    const tui = startTui({ type: "session", sessionID: "ses_usage_error" });
+    const unknownRange =
+      '未知范围 "bogus"。\n用法：/quota_usage [today | 24h | 7d | 30d | 90d | all | session | between YYYY-MM-DD YYYY-MM-DD]';
+
+    await vi.waitFor(() => {
+      tui.typed("/quota_usage bogus");
+      expect(tui.toast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "OpenCode 配额", message: unknownRange }),
+      );
+    });
+
+    const invalidDate =
+      '"2026-09-31" 不是有效日期。\n用法：/quota_usage [today | 24h | 7d | 30d | 90d | all | session | between YYYY-MM-DD YYYY-MM-DD]';
+    await vi.waitFor(() => {
+      tui.typed("/quota_usage between 2026-09-31 2026-10-01");
+      expect(tui.toast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "OpenCode 配额", message: invalidDate }),
+      );
+    });
+  });
+
   it("leaves other text and a missing editor to OpenCode's submit", () => {
     const tui = startTui();
     for (const text of ["hello", "/quotax", "/quota_statu", "/help", "hello /quota", "/", ""]) {

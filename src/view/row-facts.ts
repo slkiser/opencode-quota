@@ -8,6 +8,7 @@ import { describeError } from "../core/errors.js";
 import { type Pace, paceOf } from "../core/pace.js";
 import type { Words } from "../core/types.js";
 import { WINDOWS } from "../core/windows.js";
+import { resolveUiLocale, translate } from "../i18n.js";
 import {
   type DurationStyle,
   formatDuration,
@@ -22,6 +23,8 @@ import type { Group, VisibleRow } from "./select.js";
 /** How one place shows rows. */
 export type Place = {
   words: Words;
+  /** The selected interface language; omitted by text-only callers to keep English output. */
+  locale?: string;
   nowMs: number;
   /**
    * "words" (sidebar, collapsed sidebar, status line, toasts, /quota text): your name; else, with
@@ -109,17 +112,25 @@ function durationStyle(times: Words["reset"]): DurationStyle {
 }
 
 /** The share of the window's time left, or used when `words.percent` is "used": "/91%". */
-function timeShare(pace: Pace, words: Words): string {
+function timeShare(pace: Pace, words: Words, locale: string): string {
   const share = words.percent === "used" ? 100 - pace.evenLeft : pace.evenLeft;
-  return `${SHARE_MARK}${Math.round(share)}%`;
+  const number = new Intl.NumberFormat(resolveUiLocale(locale, locale), {
+    style: "percent",
+    maximumFractionDigits: 0,
+  }).format(Math.round(share) / 100);
+  return `${SHARE_MARK}${number}`;
 }
 
 /** "plenty to spare", "on track", "faster than it refills", or "runs out in 2h 10m". */
-function paceWords(pace: Pace, times: DurationStyle, words: Words): string {
-  if (pace.kind === "spare") return "plenty to spare";
-  if (pace.kind === "on_track") return "on track";
-  if (pace.runsOutInMs === undefined) return "faster than it refills";
-  return `runs out in ${formatDuration(pace.runsOutInMs, times, words.resetDecimals)}`;
+function paceWords(pace: Pace, times: DurationStyle, words: Words, locale: string): string {
+  const t = (key: string, params?: Record<string, string | number | boolean>) =>
+    translate(resolveUiLocale(locale, locale), key, params);
+  if (pace.kind === "spare") return t("format.plenty");
+  if (pace.kind === "on_track") return t("format.onTrack");
+  if (pace.runsOutInMs === undefined) return t("format.faster");
+  return t("format.runsOut", {
+    time: formatDuration(pace.runsOutInMs, times, words.resetDecimals, locale),
+  });
 }
 
 function showsPace(pace: Pace, shown: Place["pace"]): boolean {
@@ -132,25 +143,28 @@ function showsPace(pace: Pace, shown: Place["pace"]): boolean {
 export function rowFacts(item: VisibleRow, group: Pick<Group, "rows">, place: Place): RowFacts {
   const { row } = item;
   const { words, nowMs } = place;
+  const locale = place.locale ?? "en-US";
   const name = nameOf(item, group, place);
   const percent = row.percentRemaining;
   if (percent === undefined) {
-    return { id: row.id, name, value: rowValueText(row), reset: "", shortReset: "" };
+    return { id: row.id, name, value: rowValueText(row, locale), reset: "", shortReset: "" };
   }
   const withWord =
     place.percent === "words" || (place.percent === "usedWord" && words.percent === "used");
   const times = place.times ?? words.reset;
   const resetMs = Date.parse(row.resetsAt ?? "");
   const resetIn = (style: DurationStyle) =>
-    Number.isFinite(resetMs) ? formatDuration(resetMs - nowMs, style, words.resetDecimals) : "";
+    Number.isFinite(resetMs)
+      ? formatDuration(resetMs - nowMs, style, words.resetDecimals, locale)
+      : "";
   const pace = paceOf(row, nowMs);
   // Without a pace (the window's start unknown) the "percent" style shows the time alone.
-  const percentStyleTime = Number.isFinite(resetMs) ? largestUnit(resetMs - nowMs) : "";
+  const percentStyleTime = Number.isFinite(resetMs) ? largestUnit(resetMs - nowMs, locale) : "";
   const reset =
     times !== "percent"
       ? resetIn(times)
       : pace
-        ? `${timeShare(pace, words)} ${percentStyleTime}`
+        ? `${timeShare(pace, words, locale)} ${percentStyleTime}`
         : percentStyleTime;
   const level = pace && paceLevel(pace, percent);
   return {
@@ -158,13 +172,16 @@ export function rowFacts(item: VisibleRow, group: Pick<Group, "rows">, place: Pl
     name,
     percent,
     ...(level ? { paceLevel: level } : {}),
-    value: percentText(words, percent, withWord),
+    value: percentText(words, percent, withWord, locale),
     reset,
     shortReset: resetIn("short"),
     ...(place.evenUse && pace ? { evenLeft: pace.evenLeft } : {}),
     ...(pace && showsPace(pace, place.pace)
       ? {
-          pace: { words: paceWords(pace, durationStyle(times), words), fast: pace.kind === "fast" },
+          pace: {
+            words: paceWords(pace, durationStyle(times), words, locale),
+            fast: pace.kind === "fast",
+          },
         }
       : {}),
   };
@@ -174,6 +191,7 @@ export function rowFacts(item: VisibleRow, group: Pick<Group, "rows">, place: Pl
 export function errorWords(
   group: Pick<Group, "error" | "name">,
   nowMs: number,
+  locale = "en-US",
 ): string | undefined {
-  return group.error ? describeError(group.error, group.name, nowMs) : undefined;
+  return group.error ? describeError(group.error, group.name, nowMs, locale) : undefined;
 }

@@ -25,6 +25,28 @@ describe("usage ranges", () => {
     expect(parseUsageArguments("session_tree")).toEqual({
       ok: false,
       error: `Unknown range "session_tree".\nUsage: /quota_usage [today | 24h | 7d | 30d | 90d | all | session | between YYYY-MM-DD YYYY-MM-DD]`,
+      translation: {
+        problem: { key: "tui.usage.error.unknownRange", params: { range: "session_tree" } },
+        help: { key: "tui.usage.error.help" },
+      },
+    });
+  });
+
+  it.each([
+    ["today extra", { key: "tui.usage.error.rangeTakesNoDates", params: { range: "today" } }],
+    ["between", { key: "tui.usage.error.betweenNeedsDates" }],
+    [
+      "between 2026-09-31 2026-10-01",
+      { key: "tui.usage.error.invalidDate", params: { date: "2026-09-31" } },
+    ],
+    [
+      "between 2026-10-02 2026-10-01",
+      { key: "tui.usage.error.dateOrder", params: { from: "2026-10-02", to: "2026-10-01" } },
+    ],
+  ] as const)("provides translation details for invalid arguments: %s", (input, problem) => {
+    expect(parseUsageArguments(input)).toMatchObject({
+      ok: false,
+      translation: { problem, help: { key: "tui.usage.error.help" } },
     });
   });
 

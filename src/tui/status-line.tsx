@@ -68,7 +68,7 @@ export function StatusLine(props: {
   const display = () => host.display();
   const input = (): StatusInput | undefined => {
     const snapshot = host.quota.snapshot(props.sessionID);
-    return snapshot && statusLineInput(snapshot, display(), nowMs());
+    return snapshot && statusLineInput(snapshot, display(), nowMs(), props.host.locale());
   };
   const big = () => display().statusLine.detail === "one";
   const layout = () => {

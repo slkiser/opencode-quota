@@ -8,6 +8,7 @@ import type { QuotaSnapshot, QuotaWindow } from "../../core/types.js";
 import { ALL_PROVIDERS, WINDOWS } from "../../core/windows.js";
 import type { CustomProviderSwitch } from "../../settings/index.js";
 import { CHANGED_SINCE_REVIEW } from "../../settings/schema.js";
+import { formatDuration, formatUsd } from "../../view/format.js";
 import type { Surface, WindowChoice } from "../../view/select.js";
 import type { ColorRole } from "../../view/text.js";
 import {
@@ -61,13 +62,17 @@ export function resetPage(server: ServerSettings, tab: SettingsTab): void {
 }
 
 /** What a page needs from OpenCode's TUI: its theme, its light/dark mode and its commands. */
-export type PageHost = Pick<WindowHost, "theme" | "themeMode" | "keymap">;
+export type PageHost = Pick<WindowHost, "theme" | "themeMode" | "keymap"> & {
+  locale?: WindowHost["locale"];
+  t?: WindowHost["t"];
+};
 
 export type SettingsPage = ReturnType<typeof settingsPage>;
 
 /** A window choice as its ‹ › shows it: "lowest left", "5h", … */
-export function windowTitle(choice: WindowChoice): string {
-  return choice === "lowest" ? "lowest left" : WINDOWS[choice].short;
+export function windowTitle(choice: WindowChoice, t?: WindowHost["t"]): string {
+  if (choice !== "lowest") return WINDOWS[choice].short;
+  return t?.("settings.window.lowest") ?? "lowest left";
 }
 
 /**
@@ -83,6 +88,91 @@ export function settingsPage(input: {
 }) {
   const { tab, draft, snapshot, host, refocus } = input;
   const server = draft.server;
+  const translated = (key: string, fallback: string): string => {
+    const value = host.t?.(key);
+    return value && value !== key ? value : fallback;
+  };
+  const localizedOptionValue = (field: Field, value: FieldValue, fallback: string): string => {
+    const t = host.t;
+    if (!t || host.locale?.() === "en") return fallback;
+    const count = Number(value);
+    switch (field.path) {
+      case "statusLine.width":
+        return count === 0 ? t("tui.value.allFreeRoom") : t("tui.value.upToColumns", { count });
+      case "statusLine.autoScrollSeconds":
+        return count === 0 ? t("tui.action.off") : t("tui.value.everySeconds", { count });
+      case "toast.seconds":
+        return t("tui.value.seconds", { count });
+      case "layout.barWidth":
+        return value === "fill" ? t("tui.value.fillRoom") : t("tui.value.columns", { count });
+      case "layout.indent":
+        return t(`tui.value.spaces.${count === 1 ? "one" : "other"}`, { count });
+      case "layout.labelWidth":
+        return t(`tui.value.letters.${count === 1 ? "one" : "other"}`, { count });
+      case "layout.providerGap":
+        return count === 0
+          ? t("tui.value.noGap")
+          : t(`tui.value.emptyLines.${count === 1 ? "one" : "other"}`, { count });
+      case "words.resetDecimals":
+        return t("tui.value.decimals", {
+          count,
+          duration: formatDuration(134 * 60_000, "decimal", count, host.locale?.() ?? "zh-Hans"),
+        });
+      case "providers.cursor.includedApiUsd":
+        return typeof value === "number"
+          ? t("tui.value.monthlyUsd", { amount: formatUsd(value, host.locale?.() ?? "zh-Hans") })
+          : t("tui.value.fromPlan");
+      case "providers.cursor.billingCycleStartDay":
+        return typeof value === "number"
+          ? t("tui.value.dayNumber", { count })
+          : t("tui.value.calendarMonth");
+      case "providers.opencode.monthlyLimitUsd":
+        return typeof value === "number"
+          ? t("tui.value.monthlyUsd", { amount: formatUsd(value, host.locale?.() ?? "zh-Hans") })
+          : t("tui.value.fromConsole");
+      case "providers.checking.minIntervalMs":
+        return t("tui.value.everyMinutes", { count: count / 60_000 });
+      case "providers.checking.requestTimeoutMs":
+        return value === null
+          ? t("option.providers.checking.requestTimeoutMs.unset")
+          : t("option.seconds", { count: count / 1_000 });
+      case "providers.pricing.autoRefreshDays":
+        return count === 1 ? t("tui.value.everyDay") : t("tui.value.everyDays", { count });
+      case "colors.warningBelow":
+      case "colors.lowBelow":
+        return t("tui.value.percentLeft", { count });
+      default:
+        return fallback;
+    }
+  };
+  const optionValue = (field: Field, value: FieldValue): string => {
+    const fallback = field.show(value);
+    if (value === "on" || value === "off") {
+      return translated(`tui.option.${value}`, fallback);
+    }
+    if (field.color && value !== null && value !== undefined) {
+      return translated(`option.color.${String(value)}`, fallback);
+    }
+    if (value === null) {
+      if (field.path === "providers.cursor.includedApiUsd") {
+        return translated("tui.value.fromPlan", fallback);
+      }
+      if (field.path === "providers.opencode.monthlyLimitUsd") {
+        return translated("tui.value.fromConsole", fallback);
+      }
+      if (field.path === "providers.cursor.billingCycleStartDay") {
+        return translated("tui.value.calendarMonth", fallback);
+      }
+      if (field.path === "providers.checking.requestTimeoutMs") {
+        return translated("option.providers.checking.requestTimeoutMs.unset", fallback);
+      }
+      return fallback;
+    }
+    const translatedValue = translated(`option.${field.path}.${String(value)}`, fallback);
+    return translatedValue === fallback
+      ? localizedOptionValue(field, value, fallback)
+      : translatedValue;
+  };
   const shown = () => draft.shown();
   const lineValue = (path: string): FieldValue => server.value(path) as FieldValue;
   const surface = isSurfaceTab(tab) ? tab : undefined;
@@ -98,7 +188,9 @@ export function settingsPage(input: {
     if (role) {
       return {
         placeholder: "#rrggbb",
-        hint: "Type a color like #89b4fa, then enter · enter with nothing typed = the theme's color · esc stop",
+        hint:
+          host.t?.("tui.window.hint.colorInput") ??
+          "Type a color like #89b4fa, then enter · enter with nothing typed = the theme's color · esc stop",
         apply: (text) => draft.edit((settings) => typedColor(settings, field, text)),
       };
     }
@@ -106,7 +198,12 @@ export function settingsPage(input: {
     if (!placeholder) return undefined;
     return {
       placeholder,
-      hint: `Type ${placeholder}, then enter · enter with nothing typed = ${field.show(null)} · esc stop`,
+      hint:
+        host.t?.("tui.window.hint.typeValue", {
+          placeholder,
+          value: optionValue(field, null),
+        }) ??
+        `Type ${placeholder}, then enter · enter with nothing typed = ${field.show(null)} · esc stop`,
       apply: (text) => {
         const value = typedNumber(field, text);
         if (value !== undefined) server.set(field.path, value);
@@ -120,10 +217,10 @@ export function settingsPage(input: {
     const value = () => (server.unset(field.path) ? null : lineValue(field.path));
     return {
       id: field.path,
-      group: field.group,
-      title: field.title,
+      group: field.group ? translated(`tui.setting.group.${field.group}`, field.group) : undefined,
+      title: translated(`setting.${field.path}`, field.title),
       depth: field.provider ? 1 : 0,
-      value: () => field.show(value()),
+      value: () => optionValue(field, value()),
       cycle:
         field.values.length > 0
           ? (delta) => {
@@ -132,10 +229,13 @@ export function settingsPage(input: {
             }
           : undefined,
       typed: typedValue(field, role),
-      note: () =>
-        field.preset && presetChoice(field.preset, lineValue) !== undefined
-          ? "from the preset"
-          : (field.note ?? ""),
+      note: () => {
+        if (field.preset && presetChoice(field.preset, lineValue) !== undefined) {
+          return translated("tui.setting.fromPreset", "from the preset");
+        }
+        if (!field.note || host.locale?.() !== "zh-Hans") return field.note ?? "";
+        return translated(`setting.${field.path}.description`, field.note);
+      },
       swatches: role ? () => [roleColor(host.theme, shown(), role, 60)] : undefined,
     };
   }
@@ -144,10 +244,15 @@ export function settingsPage(input: {
     const choice = () => presetChoice(name, lineValue);
     return {
       id: `preset.${name}`,
-      title: PRESETS[name].title,
-      value: () => choice() ?? "your own",
+      title: translated(`preset.${name}`, PRESETS[name].title),
+      value: () => {
+        const preset = choice();
+        return preset
+          ? translated(`preset.${name}.${preset}`, preset)
+          : translated("tui.setting.yourOwn", "your own");
+      },
       cycle: (delta) => setValues(presetValues(name, choice(), delta)),
-      note: () => `sets ${PRESETS[name].drives}`,
+      note: () => translated(`tui.setting.preset.${name}`, `sets ${PRESETS[name].drives}`),
     };
   }
 
@@ -156,16 +261,20 @@ export function settingsPage(input: {
     return [
       {
         id: "theme",
-        group: "OpenCode theme",
-        title: "Theme",
-        value: () => "open the theme list",
+        group: translated("tui.setting.group.OpenCode theme", "OpenCode theme"),
+        title: translated("tui.setting.theme", "Theme"),
+        value: () => translated("tui.setting.openThemeList", "open the theme list"),
         run: () => host.keymap.dispatch("theme.switch"),
         swatches: () => COLOR_NAMES.map((name) => namedColor(host.theme, name)),
-        note: () => "↑↓ shows each theme live · enter keeps it · esc puts it back",
+        note: () =>
+          translated(
+            "tui.setting.themeNote",
+            "↑↓ shows each theme live · enter keeps it · esc puts it back",
+          ),
       },
       {
         id: "themeMode",
-        title: "Light or dark",
+        title: translated("tui.setting.themeMode", "Light or dark"),
         value: () => host.themeMode ?? "dark",
         cycle: () => {
           host.keymap.dispatch("theme.switch_mode");
@@ -173,7 +282,7 @@ export function settingsPage(input: {
           // it before the last dialog opened (the message box); take it back after that.
           setTimeout(refocus, 50);
         },
-        note: () => "some themes have only one",
+        note: () => translated("tui.setting.themeModeNote", "some themes have only one"),
       },
     ];
   }
@@ -187,18 +296,23 @@ export function settingsPage(input: {
     const request = entry.request;
     const changed = server.changedSinceReview(entry.id);
     const where = !request
-      ? "a local estimate: sends nothing"
+      ? translated("providers.custom.local", "a local estimate: sends nothing")
       : request.insecure
-        ? `${request.url}  plain http: the key travels unencrypted`
+        ? `${request.url}  ${translated("providers.custom.insecure", "plain http: the key travels unencrypted")}`
         : request.url;
     return {
       id: `custom.${entry.id}`,
-      group: first ? "Custom providers (added in settings.jsonc)" : undefined,
+      group: first
+        ? translated("tui.setting.customProviders", "Custom providers (added in settings.jsonc)")
+        : undefined,
       gap: !first,
       title: entry.label,
       value: () => (on() ? "on" : "off"),
       cycle: () => server.switchCustom(entry.id, !on()),
-      note: () => (changed ? `${CHANGED_SINCE_REVIEW} · ${where}` : where),
+      note: () =>
+        changed
+          ? `${translated("providers.custom.changed", CHANGED_SINCE_REVIEW)} · ${where}`
+          : where,
       warning: changed || request?.insecure,
       detail: request ? `key: ${request.key}` : undefined,
     };
@@ -223,14 +337,19 @@ export function settingsPage(input: {
       const ticked = isTicked(off(), id);
       const tick: OptionLine = {
         id: `provider.${id}`,
-        group: id === ordered[0]?.id ? "Which providers" : undefined,
+        group:
+          id === ordered[0]?.id
+            ? translated("tui.setting.group.Which providers", "Which providers")
+            : undefined,
         title: `${ticked ? "[x]" : "[ ]"} ${label}`,
         tick: true,
         warning: true,
         // The tick says on or off; only a saved tick quota can't use says more (a tick not
         // saved yet is not checked yet).
         value: () =>
-          ticked && isTicked(savedOff, id) && snapshot && !found.includes(id) ? "not set up" : "",
+          ticked && isTicked(savedOff, id) && snapshot && !found.includes(id)
+            ? translated("tui.state.providerNotSetup", "not set up")
+            : "",
         cycle: () => server.set(PROVIDERS_KEY, withTick(off(), id, !ticked)),
       };
       const nested = ticked ? FIELDS.filter((field) => field.provider === id) : [];
@@ -264,16 +383,20 @@ export function settingsPage(input: {
     };
     return {
       id: `${place}.window.${ALL_PROVIDERS}`,
-      group: "Window",
-      title: "For all providers",
-      value: () => windowTitle(current()),
+      group: translated("tui.setting.group.Window", "Window"),
+      title: translated("tui.setting.allProviders", "For all providers"),
+      value: () => windowTitle(current(), host.t),
       cycle: (delta) => {
         const next = stepIn(choices(), current(), delta);
         draft.edit((settings) =>
           setIn(settings, [place, "window", ALL_PROVIDERS], next === "lowest" ? undefined : next),
         );
       },
-      note: () => "a pick below wins; a provider without it shows its lowest",
+      note: () =>
+        translated(
+          "tui.setting.allProvidersNote",
+          "a pick below wins; a provider without it shows its lowest",
+        ),
     };
   }
 
@@ -300,7 +423,10 @@ export function settingsPage(input: {
     return [
       ...presets
         .filter((name) => PRESETS[name].before === undefined)
-        .map((name) => ({ ...presetLine(name), group: "Preset" })),
+        .map((name) => ({
+          ...presetLine(name),
+          group: translated("tui.setting.group.Preset", "Preset"),
+        })),
       ...(tab === "colors" ? themeLines() : []),
       ...fields,
       ...(tab === "collapsed" || tab === "statusLine" ? [allProvidersLine(tab)] : []),

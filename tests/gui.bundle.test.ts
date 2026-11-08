@@ -56,6 +56,7 @@ function fakeWindow() {
       return () => {};
     },
     t: (key: string) => key,
+    locale: { locale: () => "en-US" },
     dialogs: { open: vi.fn() },
   };
   return { ctx, rpc, added };
@@ -114,7 +115,7 @@ describe("GUI bundle (dist/gui-experimental.cjs)", () => {
     ]);
     expect(added[0]?.item).toEqual(expect.stringContaining(".oq-window"));
     const command = (added[1]?.item as (() => Command) | undefined)?.();
-    expect(command).toMatchObject({ id: "quota", title: "command.quota" });
+    expect(command).toMatchObject({ id: "quota", title: "Quota" });
     expect(rpc.snapshot).not.toHaveBeenCalled();
     command?.run();
     expect(ctx.dialogs.open).toHaveBeenCalledWith(expect.any(Function));
@@ -132,7 +133,7 @@ describe("GUI bundle (dist/gui-experimental.cjs)", () => {
 
     const shown = page?.();
 
-    expect(shown).toMatchObject({ id: "quota", title: "settings.title" });
+    expect(shown).toMatchObject({ id: "quota", title: "Quota" });
     expect(shown?.entries.map((entry) => entry.id)).toEqual(
       expect.arrayContaining(["quota", "quota.places", "quota.plugin", "quota.file"]),
     );

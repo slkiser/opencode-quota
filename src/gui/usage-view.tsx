@@ -9,7 +9,13 @@
 import type { Context } from "@opencode/plugin/gui";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { UsageByType, UsageReport } from "../core/usage.js";
-import { formatShare, formatTokens, formatUsd, LOW_CACHE_MARK } from "../view/format.js";
+import {
+  formatCount,
+  formatShare,
+  formatTokens,
+  formatUsd,
+  LOW_CACHE_MARK,
+} from "../view/format.js";
 import { Chart } from "./chart.js";
 import {
   type BreakdownRow,
@@ -43,17 +49,31 @@ function dayOf(date: string): Date {
   return new Date(year, month - 1, day);
 }
 
+type UsageFormatters = {
+  value: (amount: number) => string;
+  usd: (amount: number) => string;
+  tokens: (amount: number) => string;
+  count: (amount: number) => string;
+  share: (amount: number) => string;
+  dateLabel: (date: string, long: boolean) => string;
+};
+
 /** Writes values and days in the mode and the interface language. */
-function formatters(ctx: Context, mode: UsageMode) {
-  const value = (amount: number) => (mode === "cost" ? formatUsd(amount) : formatTokens(amount));
+export function usageFormatters(ctx: Context, mode: UsageMode): UsageFormatters {
+  const locale = () => ctx.locale.locale();
+  const usd = (amount: number) => formatUsd(amount, locale());
+  const tokens = (amount: number) => formatTokens(amount, locale());
+  const count = (amount: number) => formatCount(amount, locale());
+  const share = (amount: number) => formatShare(amount, locale());
+  const value = mode === "cost" ? usd : tokens;
   const dateLabel = (date: string, long: boolean) =>
     new Intl.DateTimeFormat(
-      ctx.locale.locale(),
+      locale(),
       long
         ? { weekday: "short", month: "short", day: "numeric" }
         : { month: "short", day: "numeric" },
     ).format(dayOf(date));
-  return { value, dateLabel };
+  return { value, usd, tokens, count, share, dateLabel };
 }
 
 function TypeBar(props: { ctx: Context; byType: UsageByType; format: (value: number) => string }) {
@@ -82,7 +102,7 @@ function TypeBar(props: { ctx: Context; byType: UsageByType; format: (value: num
 }
 
 function ChartOrNote(props: { ctx: Context; chart: ChartData; mode: UsageMode; height: number }) {
-  const format = () => formatters(props.ctx, props.mode);
+  const format = () => usageFormatters(props.ctx, props.mode);
   return (
     <Show
       when={props.chart.dates.length > 1}
@@ -122,7 +142,7 @@ function FillChart(props: { ctx: Context; chart: ChartData; mode: UsageMode }) {
     observer.observe(element);
     onCleanup(() => observer.disconnect());
   });
-  const format = () => formatters(props.ctx, props.mode);
+  const format = () => usageFormatters(props.ctx, props.mode);
   return (
     <Show
       when={props.chart.dates.length > 1}
@@ -158,6 +178,7 @@ function ModelPopup(props: {
 }) {
   const { ctx } = props;
   const detail = () => modelDetail(props.report, props.mode, props.modelKey, props.providerId);
+  const format = () => usageFormatters(ctx, props.mode);
   createEffect(() => {
     if (!detail()) props.close();
   });
@@ -168,7 +189,7 @@ function ModelPopup(props: {
           title={shown().name}
           description={ctx.t("model.share", {
             provider: shown().providerName,
-            share: formatShare(shown().share),
+            share: format().share(shown().share),
             what: ctx.t(props.mode === "cost" ? "model.what.cost" : "model.what.tokens"),
           })}
           size="large"
@@ -184,19 +205,21 @@ function ModelPopup(props: {
               <div>
                 <div class="oq-k">{ctx.t("model.cost")}</div>
                 <div class="oq-v">
-                  {shown().model.priced ? formatUsd(shown().model.costUsd) : ctx.t("usage.noPrice")}
+                  {shown().model.priced
+                    ? format().usd(shown().model.costUsd)
+                    : ctx.t("usage.noPrice")}
                 </div>
               </div>
               <div>
                 <div class="oq-k">{ctx.t("model.tokens")}</div>
-                <div class="oq-v">{formatTokens(shown().model.tokens)}</div>
+                <div class="oq-v">{format().tokens(shown().model.tokens)}</div>
               </div>
               <div>
                 <div class="oq-k">{ctx.t("model.perMillion")}</div>
                 <div class="oq-v">
                   {shown().perMillionUsd === undefined
                     ? "—"
-                    : formatUsd(shown().perMillionUsd ?? 0)}
+                    : format().usd(shown().perMillionUsd ?? 0)}
                 </div>
               </div>
               <div>
@@ -208,11 +231,11 @@ function ModelPopup(props: {
             <div class="oq-pair">
               <div>
                 <div class="oq-section">{ctx.t("usage.costByType")}</div>
-                <TypeBar ctx={ctx} byType={shown().model.costByType} format={formatUsd} />
+                <TypeBar ctx={ctx} byType={shown().model.costByType} format={format().usd} />
               </div>
               <div>
                 <div class="oq-section">{ctx.t("usage.tokensByType")}</div>
-                <TypeBar ctx={ctx} byType={shown().model.tokensByType} format={formatTokens} />
+                <TypeBar ctx={ctx} byType={shown().model.tokensByType} format={format().tokens} />
               </div>
             </div>
           </div>
@@ -226,12 +249,13 @@ export function UsageView(props: UsageProps) {
   const { ctx } = props;
   const [by, setBy] = createSignal<UsageBreakdown>("model");
   const view = () => usageView(props.report, props.mode, props.providerId);
+  const requests = () => props.report.totals.requests;
   const rows = createMemo(() => breakdownRows(props.report, props.mode, by(), props.providerId));
   const most = createMemo(() => Math.max(...rows().map((item) => item.value), 0));
-  const format = () => formatters(ctx, props.mode);
+  const format = () => usageFormatters(ctx, props.mode);
   const cost = () => props.mode === "cost";
   const other = (row: { costUsd: number; tokens: number }) =>
-    cost() ? formatTokens(row.tokens) : formatUsd(row.costUsd);
+    cost() ? format().tokens(row.tokens) : format().usd(row.costUsd);
   const rowName = (row: BreakdownRow) =>
     by() === "day" ? format().dateLabel(row.name, true) : row.name;
   const barWidth = (row: BreakdownRow) =>
@@ -251,7 +275,10 @@ export function UsageView(props: UsageProps) {
   };
 
   return (
-    <Show when={view().tokens.processed > 0} fallback={<p>{ctx.t("usage.empty")}</p>}>
+    <Show
+      when={view().tokens.processed > 0 || (requests() ?? 0) > 0}
+      fallback={<p>{ctx.t("usage.empty")}</p>}
+    >
       <div class="oq-top">
         <div>
           <div class="oq-total">{format().value(view().total)}</div>
@@ -273,18 +300,18 @@ export function UsageView(props: UsageProps) {
                       {ctx.plural("usage.sessions", provider.sessions)}
                     </span>
                     <span class="oq-amount">
-                      {cost() ? formatUsd(provider.costUsd) : formatTokens(provider.tokens)}
+                      {cost() ? format().usd(provider.costUsd) : format().tokens(provider.tokens)}
                     </span>
                   </div>
                   <div class="oq-l2">
                     {cost()
                       ? ctx.t("usage.costShare", {
-                          share: formatShare(provider.share),
-                          tokens: formatTokens(provider.tokens),
+                          share: format().share(provider.share),
+                          tokens: format().tokens(provider.tokens),
                         })
                       : ctx.t("usage.tokenShare", {
-                          share: formatShare(provider.share),
-                          cost: formatUsd(provider.costUsd),
+                          share: format().share(provider.share),
+                          cost: format().usd(provider.costUsd),
                         })}
                     {provider.unpricedTokens > 0 ? ` · ${ctx.t("usage.noPrice")}` : ""}
                   </div>
@@ -305,24 +332,32 @@ export function UsageView(props: UsageProps) {
       <div class="oq-totals">
         <div>
           <div class="oq-k">{ctx.t("usage.processedTokens")}</div>
-          <div class="oq-v">{formatTokens(view().tokens.processed)}</div>
+          <div class="oq-v">{format().tokens(view().tokens.processed)}</div>
         </div>
         <div>
           <div class="oq-k">{ctx.t("usage.cachedInput")}</div>
-          <div class="oq-v">{formatTokens(view().tokens.cachedInput)}</div>
+          <div class="oq-v">{format().tokens(view().tokens.cachedInput)}</div>
         </div>
         <div>
           <div class="oq-k">{ctx.t("usage.uncachedInput")}</div>
-          <div class="oq-v">{formatTokens(view().tokens.uncachedInput)}</div>
+          <div class="oq-v">{format().tokens(view().tokens.uncachedInput)}</div>
         </div>
         <div>
           <div class="oq-k">{ctx.t("usage.output")}</div>
-          <div class="oq-v">{formatTokens(view().tokens.output)}</div>
+          <div class="oq-v">{format().tokens(view().tokens.output)}</div>
         </div>
         <Show when={view().cacheSavingsUsd !== undefined}>
           <div>
             <div class="oq-k">{ctx.t("usage.cacheSavings")}</div>
-            <div class="oq-v">{formatUsd(view().cacheSavingsUsd ?? 0)}</div>
+            <div class="oq-v">{format().usd(view().cacheSavingsUsd ?? 0)}</div>
+          </div>
+        </Show>
+        <Show when={requests() !== undefined}>
+          <div>
+            <div class="oq-k">
+              {ctx.t(props.providerId ? "usage.requestsAllProviders" : "usage.requests")}
+            </div>
+            <div class="oq-v">{format().count(requests() ?? 0)}</div>
           </div>
         </Show>
       </div>
@@ -379,7 +414,7 @@ export function UsageView(props: UsageProps) {
                   <div class="oq-rowbar" style={{ width: `${barWidth(row)}px` }} />
                 </td>
                 <td>{cost() && !row.priced ? "—" : format().value(row.value)}</td>
-                <td>{formatShare(row.share)}</td>
+                <td>{format().share(row.share)}</td>
                 <td>{other(row)}</td>
                 <Show when={by() === "model"}>
                   <td class={row.cache?.low ? "oq-warning" : undefined}>
@@ -394,7 +429,7 @@ export function UsageView(props: UsageProps) {
       </table>
       <Show when={view().unpricedShare > 0}>
         <div class="oq-note">
-          {ctx.t("usage.unpriced", { share: formatShare(view().unpricedShare) })}
+          {ctx.t("usage.unpriced", { share: format().share(view().unpricedShare) })}
         </div>
       </Show>
     </Show>

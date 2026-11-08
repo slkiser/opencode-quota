@@ -533,4 +533,10 @@ describe("describeError", () => {
   ] as const)("%o → %s", (error, words) => {
     expect(describeError(error, "Copilot", NOW_MS)).toBe(words);
   });
+
+  it("localizes the fallback local-tool name", () => {
+    expect(describeError({ code: "local_tool" }, "Copilot", NOW_MS, "zh-CN")).toBe(
+      "本地工具 执行失败",
+    );
+  });
 });

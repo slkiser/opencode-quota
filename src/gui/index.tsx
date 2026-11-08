@@ -43,8 +43,9 @@ import {
 } from "@opencode/plugin/gui";
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import type { QuotaSnapshot } from "../core/types.js";
+import { createLocalization, withLocalization } from "../i18n.js";
 import { createGuiQuota, type GuiQuotaHost } from "./bridge.js";
-import { en } from "./i18n.js";
+import { en, zhHans } from "./i18n.js";
 import { QuotaPanel } from "./panel.js";
 import {
   createSettingsPageState,
@@ -146,7 +147,7 @@ function createPanelState(ctx: Context) {
 }
 
 export default Plugin.define({
-  i18n: { en },
+  i18n: { en, "zh-Hans": zhHans },
   setup(ctx) {
     // The folder and session a quota call names: a session's on the app's own server, else none.
     const directoryOf = (session: MountedSession | undefined) =>
@@ -166,7 +167,6 @@ export default Plugin.define({
       directory,
       onSnapshot: (snapshot, folder) => toasts?.receive(snapshot, folder),
     });
-    toasts = createGuiToasts(ctx, data, settingsOf);
     createEffect(() => {
       onCleanup(data.watch(directory(), sessionID()));
     });
@@ -179,14 +179,26 @@ export default Plugin.define({
       data.snapshot(directoryOf(session), sessionIDOf(session));
     const current = () => data.snapshot(directory(), sessionID());
     const currentSettings = createMemo(() => settingsOf(current()));
-    const unchecked = () => ctx.t("panel.notChecked");
+    const localization = createLocalization(
+      () =>
+        String(
+          preview()?.["system.language"] ??
+            current()?.settings?.values["system.language"] ??
+            "auto",
+        ),
+      () => ctx.locale.locale(),
+    );
+    const uiCtx = withLocalization(ctx, localization);
+    const unchecked = () => uiCtx.t("panel.notChecked");
+    toasts = createGuiToasts(uiCtx, data, settingsOf);
 
     /** The usage window for the folder and session on screen, or on Cost for `scoped`. */
     const openWindow = (scoped?: MountedSession) => {
       ctx.dialogs.open(() =>
         scoped ? (
           <UsageWindow
-            ctx={ctx}
+            ctx={uiCtx}
+            locale={uiCtx.locale}
             data={data}
             directory={() => directoryOf(scoped)}
             sessionID={() => sessionIDOf(scoped)}
@@ -194,7 +206,13 @@ export default Plugin.define({
             scope="session"
           />
         ) : (
-          <UsageWindow ctx={ctx} data={data} directory={directory} sessionID={sessionID} />
+          <UsageWindow
+            ctx={uiCtx}
+            locale={uiCtx.locale}
+            data={data}
+            directory={directory}
+            sessionID={sessionID}
+          />
         ),
       );
     };
@@ -202,8 +220,8 @@ export default Plugin.define({
     ctx.add(Style, STYLE);
     ctx.add(Command, () => ({
       id: "quota",
-      title: ctx.t("command.quota"),
-      description: ctx.t("command.quota.description"),
+      title: uiCtx.t("command.quota"),
+      description: uiCtx.t("command.quota.description"),
       keywords: "usage limits tokens cost",
       // Listed when the palette opens, before anything is typed.
       featured: true as const,
@@ -216,7 +234,7 @@ export default Plugin.define({
     const panelState = createPanelState(ctx);
     let tab: PanelTab | undefined;
     const panelTab = () => {
-      const title = ctx.t("panel.tab");
+      const title = uiCtx.t("panel.tab");
       if (tab?.title !== title) tab = { id: PANEL_ID, title, pinned: true };
       return tab;
     };
@@ -235,7 +253,7 @@ export default Plugin.define({
         panelState.load();
         return (
           <QuotaPanel
-            ctx={ctx}
+            ctx={uiCtx}
             snapshot={() => snapshotOf(props.session)}
             settings={() => settingsOf(snapshotOf(props.session))}
             open={panelState.open}
@@ -253,7 +271,7 @@ export default Plugin.define({
       return {
         menu: "session.panel" as const,
         id: PANEL_ID,
-        title: ctx.t("panel.tab"),
+        title: uiCtx.t("panel.tab"),
         icon: "status" as const,
         ...(opened ? { opened: true } : {}),
         run: () => {
@@ -267,21 +285,21 @@ export default Plugin.define({
       const shown = current();
       const settings = currentSettings();
       if (!shown || !settings.collapsed.show) return undefined;
-      const groups = pickedGroups(shown, settings, "collapsed", nowMs());
+      const groups = pickedGroups(shown, settings, "collapsed", nowMs(), undefined, uiCtx.locale());
       if (groups.length === 0) return undefined;
       const text = groups
         .slice(0, TITLEBAR_PROVIDERS)
         .map((group) => pickedText(group, unchecked()))
         .join(" · ");
       const more = groups.length - TITLEBAR_PROVIDERS;
-      const label = more > 0 ? ctx.t("titlebar.more", { text, count: more }) : text;
+      const label = more > 0 ? uiCtx.t("titlebar.more", { text, count: more }) : text;
       // The host shows only the icon until the pointer is over the pill, so the icon carries the
       // state: a warning when any provider it counts (the "+N" ones too) is almost out or failed.
       const alert = groups.some((group) => group.error !== undefined || group.row?.level === "low");
       return {
         id: "quota",
         label,
-        title: ctx.t("titlebar.title", { text: label }),
+        title: uiCtx.t("titlebar.title", { text: label }),
         icon: alert ? ("warning" as const) : ("window-analytics" as const),
         run: () => openWindow(),
       };
@@ -296,14 +314,14 @@ export default Plugin.define({
         const settings = settingsOf(shown);
         if (!settings.statusLine.show) return undefined;
         // A provider whose check failed shows its error.
-        const pick = currentModelPick(shown, settings, nowMs());
+        const pick = currentModelPick(shown, settings, nowMs(), uiCtx.locale());
         if (!pick) return undefined;
         const tone = groupTone(pick);
         return {
           label: pickedText(pick, unchecked(), true),
           icon: "status" as const,
           ...(tone ? { tone } : {}),
-          title: ctx.t("composer.title"),
+          title: uiCtx.t("composer.title"),
           run: () => openWindow(),
         };
       },
@@ -325,7 +343,7 @@ export default Plugin.define({
         return (
           <Show when={shows()}>
             <StatusStrip
-              ctx={ctx}
+              ctx={uiCtx}
               snapshot={current}
               settings={currentSettings}
               openWindow={() => openWindow()}
@@ -342,7 +360,7 @@ export default Plugin.define({
       render: (input) => (
         <Show when={input.session.server.builtin}>
           <ctx.ui.Button variant="ghost" onClick={() => openWindow(input.session)}>
-            {ctx.t("menu.sessionUsage")}
+            {uiCtx.t("menu.sessionUsage")}
           </ctx.ui.Button>
         </Show>
       ),
@@ -352,12 +370,12 @@ export default Plugin.define({
     const settingsPage = createSettingsPageState(data);
     addSafely(ctx, SettingsPage, () => ({
       id: SETTINGS_PAGE_ID,
-      title: ctx.t("settings.title"),
+      title: uiCtx.t("settings.title"),
       icon: "status" as const,
-      entries: settingsEntries(ctx),
+      entries: settingsEntries(uiCtx),
       render: (input: { readonly target?: string }) => (
         <SettingsPageView
-          ctx={ctx}
+          ctx={uiCtx}
           data={data}
           state={settingsPage}
           directory={directory}
