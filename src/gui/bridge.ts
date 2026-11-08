@@ -88,7 +88,6 @@ export type GuiQuota = {
   ): Promise<void>;
   /** Tokens and cost from OpenCode's history for one range, in a folder (none: the server's own). */
   usage(query: UsageQuery, directory: string | undefined): Promise<UsageReport>;
-  /** The server settings a client may read. */
   settings(): Promise<ClientSettings>;
   /** A patch of settings.jsonc, through the server's settings code; see `QuotaRpc`. */
   saveSettings(input: QuotaRpcSaveSettingsInput): Promise<QuotaRpcSaveSettingsOutput>;

@@ -62,7 +62,6 @@ import {
 import { DEFAULT_QUICK_LOOK_RANGE } from "./view/quick-look.js";
 import { usageText } from "./view/usage.js";
 
-/** How long a usage report waits for OpenCode's provider names. */
 const PROVIDER_NAMES_TIMEOUT_MS = 2_000;
 
 type ModelMessage = {
@@ -196,7 +195,6 @@ export function createQuotaServerPlugin(
           return {};
         }
       };
-      // With a session, a snapshot also has the tokens the session used so far.
       const withSessionTokens = async (
         snapshot: QuotaSnapshot,
         sessionID: string | undefined,
@@ -354,7 +352,6 @@ export function createQuotaServerPlugin(
       });
 
       await ctx.tool.transform((editor) => {
-        // Agent tools: read and change the settings file, add, test and remove custom providers.
         const host = {
           openCodeProviderIds: async () => (await ctx.provider.list()).data.map(({ id }) => id),
           locationDirectory,

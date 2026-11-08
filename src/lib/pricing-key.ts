@@ -147,7 +147,6 @@ function inferOfficialProviderFromModelId(modelId: string): string | null {
   if (lower.startsWith("kimi")) return "moonshotai";
   if (lower.startsWith("glm")) return "zai";
   if (lower.startsWith("grok")) return "xai";
-  // heuristics
   if (lower.includes("claude")) return "anthropic";
   if (lower.includes("gemini")) return "google";
   if (lower.includes("gpt")) return "openai";
@@ -439,12 +438,10 @@ function classifyMissingPricing(params: {
     return { kind: "unknown" };
   }
 
-  // Defensive: if provider wasn't in snapshot we should treat this as unknown mapping.
   if (!hasProvider(params.mappedProvider)) {
     return { kind: "unknown" };
   }
 
-  // When provider/model exists in snapshot but has no numeric rates, classify as unpriced.
   if (hasModel(params.mappedProvider, params.mappedModel)) {
     if (params.mappedModel.toLowerCase().endsWith("-free")) {
       return { kind: "unpriced", reason: "free-tier model id not priced in snapshot" };
@@ -452,7 +449,6 @@ function classifyMissingPricing(params: {
     return { kind: "unpriced", reason: "model id exists in snapshot but has no token pricing" };
   }
 
-  // Provider exists but model key missing from snapshot.
   return { kind: "unknown" };
 }
 

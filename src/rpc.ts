@@ -112,12 +112,10 @@ function eventSchema<T extends Readonly<Record<string, unknown>>>(
   };
 }
 
-/** An input with no fields of its own. */
 function checkObjectInput(value: unknown): string | null {
   return isRecord(value) ? null : "input must be an object";
 }
 
-/** An input whose only field is an optional session id. */
 function checkSessionInput(value: unknown): string | null {
   return isRecord(value) ? checkOptionalString(value, "sessionID") : "input must be an object";
 }
@@ -141,7 +139,6 @@ function checkSnapshotOutput(value: unknown): string | null {
 }
 
 const REFRESH_REASONS: readonly QuotaRpcRefreshReason[] = ["poll", "turn", "manual"];
-/** What each usage range needs besides itself. */
 const USAGE_RANGE_NEEDS: Record<UsageRange, "nothing" | "sessionID" | "dates"> = {
   today: "nothing",
   "24h": "nothing",

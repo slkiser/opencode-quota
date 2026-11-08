@@ -27,12 +27,10 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const errorCode = (error: unknown) =>
   error && typeof error === "object" && "code" in error ? String(error.code) : "";
 
-/** What a lock file of this process holds: our pid and a token of our own. */
 function lockOwnerText(token: string): string {
   return JSON.stringify({ pid: process.pid, token });
 }
 
-/** Creates `path` holding `text`; false when it already exists. */
 async function createExclusive(path: string, text: string): Promise<boolean> {
   try {
     await writeFile(path, text, { flag: "wx", mode: LOCK_FILE_MODE });

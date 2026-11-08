@@ -99,7 +99,6 @@ export function firstLoginRow(
   return undefined;
 }
 
-/** True when `value` is missing or passes `check`, like an optional field of a schema. */
 function isMissingOr(value: unknown, check: (value: unknown) => boolean): boolean {
   return value === undefined || check(value);
 }

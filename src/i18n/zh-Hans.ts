@@ -637,12 +637,16 @@ export const zhHans = {
     "未能显示所有提供方时，两次滚动之间的秒数；0 表示关闭。",
   "setting.statusLine.detail": "显示内容",
   "setting.statusLine.detail.description": "状态栏中每个提供方显示多少信息。",
+  "setting.statusLine.composerPill": "消息框上方的胶囊",
+  "setting.statusLine.composerPill.description":
+    "仅限 Desktop；在消息框上方显示状态胶囊。关闭后仍保留底部状态栏。",
   "setting.statusLine.home": "主屏幕上",
   "setting.statusLine.home.description": "打开会话前，也在主屏幕显示状态栏。",
   "setting.statusLine.runsOut": "预计用尽时间…",
   "setting.statusLine.runsOut.description": "当提供方限额会在重置前用尽时，显示在提供方之后。",
   "setting.statusLine.show": "底部状态栏",
-  "setting.statusLine.show.description": "在窗口底部显示配额信息，并在消息框上方显示胶囊。",
+  "setting.statusLine.show.description":
+    "在窗口底部显示配额信息，并在消息框上方显示胶囊。关闭此选项后，底部状态栏和消息框上方的胶囊都会隐藏。",
   "setting.statusLine.width": "宽度",
   "setting.statusLine.width.description": "状态栏最多占用的列数；0 表示使用所有可用空间。",
   "setting.statusLine.withSidePanel": "与侧边栏面板同时显示",

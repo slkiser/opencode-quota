@@ -75,13 +75,12 @@ export type QuotaProviderCachePolicy =
     };
 
 export interface QuotaProvider {
-  /** Stable id used by config.enabledProviders */
+  /** Stable id; the `providers.off` setting names providers by it. */
   id: string;
 
   /** Best-effort availability check (no network if possible) */
   isAvailable: (ctx: QuotaProviderContext) => Promise<boolean>;
 
-  /** Fetch quota as the row contract. */
   fetch: (
     ctx: QuotaProviderContext,
     cacheContext?: QuotaProviderCacheContext,

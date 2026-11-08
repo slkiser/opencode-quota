@@ -156,12 +156,10 @@ const HOUR_MS = 60 * 60 * 1000;
 /** Rows read in one go: one page holds the event loop for a few milliseconds. */
 const PAGE_ROWS = 250;
 
-/** How long a report answers the same question again. */
 const REPORT_REUSE_MS = 30_000;
 
 type TimeWindow = { sinceMs?: number; untilMs?: number };
 
-/** What one message adds to the report. */
 type MessageUse = {
   priced: boolean;
   tokens: UsageTokens;
@@ -290,7 +288,6 @@ function messageUse(buckets: TokenBuckets, price: MessagePrice): MessageUse {
   };
 }
 
-/** `map`'s value for `key`, created and stored first when missing. */
 function entryFor<K, V>(map: Map<K, V>, key: K, create: () => V): V {
   let value = map.get(key);
   if (value === undefined) {
@@ -338,7 +335,6 @@ function byCostThenTokens(a: UsageRow, b: UsageRow): number {
   return b.costUsd - a.costUsd || b.tokens - a.tokens;
 }
 
-/** Every local day from the one holding `firstMs` to the one holding `lastMs`. */
 function localDays(firstMs: number, lastMs: number): string[] {
   const days: string[] = [];
   for (let dayMs = localMidnight(firstMs, 0); dayMs <= lastMs; dayMs = localMidnight(dayMs, 1)) {

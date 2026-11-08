@@ -12,9 +12,7 @@ export type SessionEvent = {
 };
 
 export type TurnListeners = {
-  /** A turn ended in `sessionID`. */
   afterTurn(trigger: TurnEnd, sessionID: string, event: SessionEvent): void;
-  /** A step ended in `sessionID`. */
   stepEnded(sessionID: string, event: SessionEvent): void;
 };
 

@@ -23,13 +23,12 @@ interface QuotaExportEntryBase {
   resultType: RowType;
   /** How the value was acquired (ADR 0001). */
   acquisitionMethod: RowMethod;
-  /** Whether the source definition is maintained or user-configured. */
   ownership: "maintained" | "user_configured";
   /** Whether the value was provider-reported or locally derived. */
   authority: RowAuthority;
   /**
    * Normalized window label when the entry has one: "Monthly", "Weekly", "5h", "RPM", etc.
-   * Absent when there is only one window for the provider.
+   * Absent when the row has no window.
    */
   window?: string;
   /** Unix seconds of the next source-backed reset. */
@@ -63,8 +62,8 @@ export type QuotaExportSource =
 /**
  * Per-provider export status.
  *
- * One of three states: ok with entries, error with a message, or unavailable
- * (provider not detected or no cache entry exists).
+ * One of four states: ok with entries, partial with entries and errors, error with a message,
+ * or unavailable (provider not detected or no cache entry exists).
  */
 export type QuotaExportProvider = (
   | { status: "ok"; fetchedAt: number; entries: QuotaExportEntry[] }
@@ -83,7 +82,6 @@ export type QuotaExportProvider = (
 
 /** The version 3 export document, assembled from all configured providers. */
 export interface QuotaExport {
-  /** Schema version. */
   version: 3;
   /** Unix seconds when this document was assembled. */
   exportedAt: number;

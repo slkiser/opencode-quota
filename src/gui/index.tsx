@@ -58,6 +58,7 @@ import { StatusStrip } from "./status-strip.js";
 import { STYLE } from "./style.js";
 import { surfaceSettings } from "./surface-settings.js";
 import {
+  composerPillShows,
   currentModelPick,
   groupTone,
   pickedGroups,
@@ -312,7 +313,7 @@ export default Plugin.define({
         const shown = snapshotOf(input.session);
         if (!shown) return undefined;
         const settings = settingsOf(shown);
-        if (!settings.statusLine.show) return undefined;
+        if (!composerPillShows(settings)) return undefined;
         // A provider whose check failed shows its error.
         const pick = currentModelPick(shown, settings, nowMs(), uiCtx.locale());
         if (!pick) return undefined;

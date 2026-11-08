@@ -66,10 +66,6 @@ export interface CopilotQuotaConfig {
   tier: CopilotTier;
 }
 
-// =============================================================================
-// Quota Result Types
-// =============================================================================
-
 type CopilotResultAuthority = "provider_reported" | "locally_derived";
 
 export interface CopilotBudgetResult {
@@ -112,7 +108,6 @@ export interface CopilotPlanResult {
   resetTimeIso?: string;
 }
 
-/** Result from fetching organization-scoped Copilot AI Credit usage. */
 export interface CopilotOrganizationUsageResult {
   success: true;
   mode: "organization_usage";
@@ -133,7 +128,6 @@ export interface CopilotOrganizationUsageResult {
   resetTimeIso?: string;
 }
 
-/** Result from fetching enterprise-scoped Copilot AI Credit usage. */
 export interface CopilotEnterpriseUsageResult {
   success: true;
   mode: "enterprise_usage";
@@ -204,15 +198,12 @@ export interface GoogleAgyQuotaBucket {
   sourceKey: GoogleAgyAuthSourceKey;
 }
 
-/** Error result */
 export interface QuotaError {
   success: false;
   error: string;
-  /** The facts of the request that failed, when it gave them. */
   facts?: ErrorFacts;
 }
 
-/** Combined quota result */
 export type CopilotResult =
   | CopilotQuotaResult
   | CopilotPlanResult

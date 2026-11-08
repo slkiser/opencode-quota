@@ -16,7 +16,6 @@ import type {
 import type { SettingRule } from "../settings/schema.js";
 import { CHANGED_SINCE_REVIEW, RECORD_KINDS, UNSET_IS_NOT_DEFAULT } from "../settings/shared.js";
 
-/** What a draft needs to know of the settings. */
 export type SettingsShape = {
   /** Each key's default as a client sees it: no `version`, file-only key or unset color. */
   defaults: Readonly<Record<string, unknown>>;
@@ -24,7 +23,6 @@ export type SettingsShape = {
   recordKeys: ReadonlySet<string>;
 };
 
-/** The shape of the settings these rules describe. */
 export function settingsShape(rules: Readonly<Record<string, SettingRule>>): SettingsShape {
   const entries = Object.entries(rules).filter(
     ([key, rule]) => key !== "version" && rule.fileOnly !== true,
@@ -313,7 +311,6 @@ export function createSettingsDraft(rpc: ServerSettingsRpc, initialShape: Settin
     dirty,
     /** How many settings and custom provider switches the draft changes. */
     count,
-    /** The settings the draft changes, by dotted key. */
     changedKeys: (): string[] => Object.keys(changes()),
     async load(): Promise<void> {
       await readSaved();

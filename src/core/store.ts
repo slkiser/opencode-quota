@@ -71,7 +71,6 @@ const FETCH_TIMEOUT_MS = 60_000;
 /** Visible clients read every minute; background work does not keep a session view alive. */
 const SESSION_VIEW_KEEP_MS = 5 * 60_000;
 
-/** One provider fetch, already turned into rows. */
 export type ProviderFetch = {
   rows: QuotaRow[];
   /**
@@ -90,7 +89,6 @@ export type ProviderFetch = {
 /** One check as the store records it: its rows as shown, its error, and when it was. */
 export type CheckForExport = { rows: QuotaRow[]; error?: QuotaError; checkedAtMs: number };
 
-/** Whose rows a fetch returns. */
 export type ProviderIdentity = {
   /** Changes whenever the rows would differ: another account or other provider settings. */
   key: string;
@@ -214,7 +212,6 @@ function backoffMs(failures: number): number {
   return Math.min(BACKOFF_MAX_MS, BACKOFF_FIRST_MS * 2 ** (failures - 1));
 }
 
-/** When an entry's provider was last checked; none before its first check. */
 function lastCheckOf(entry: Entry | undefined): LastCheck | undefined {
   if (entry?.checkedAtMs === undefined) return undefined;
   const retryAtMs = entry.error?.retryAtMs;
@@ -408,7 +405,6 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
   let unsaved = false;
   /** Names this store in its snapshots, so a TUI can tell a restarted server apart. */
   const serverId = randomUUID();
-  /** The last snapshot's revision; each next snapshot gets one more. */
   let revision = 0;
   /** The provider ids subscribers last heard of, per credential source. */
   const heardProviders = new Map<string, string>();

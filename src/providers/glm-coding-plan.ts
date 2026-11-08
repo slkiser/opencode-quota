@@ -66,7 +66,6 @@ type GlmLimit = {
 
 type GlmWindow = { percentRemaining: number; resetTimeIso?: string };
 
-/** One key's rows, or the error to show. */
 type GlmReply = { success: true; rows: ProviderRow[] } | QuotaError;
 
 const MCP = { key: "mcp", label: "MCP", window: "mcp" } as const;

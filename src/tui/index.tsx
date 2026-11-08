@@ -182,7 +182,6 @@ const plugin = Plugin.define({
         message: localizedApi.t("tui.toast.oldCommands", { range: now }),
       });
     };
-    /** The quota slash commands, by name, with what follows the name. */
     const quotaCommands: Record<string, (argumentsText: string) => void> = {
       quota: () => quotaWindow.open("limits"),
       quota_usage: openUsage,

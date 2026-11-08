@@ -18,7 +18,6 @@ const CONSOLE_METER_KEYS: Record<OpenCodeGoWindowKey, string> = {
 const OFFSET_ISO_TIMESTAMP =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/;
 
-/** Redact the token, strip control characters, collapse whitespace, cap at 120 characters. */
 function sanitizeMessage(text: string, accessToken: string): string {
   const redacted = accessToken ? text.replaceAll(accessToken, "[redacted]") : text;
   const sanitized = sanitizeDisplayText(redacted).replace(/\s+/g, " ").trim();

@@ -82,7 +82,6 @@ const PART_SHADES: Record<string, number> = {
 /** Where the tab's keyboard is: the range list, or the content with its model rows. */
 type Area = "ranges" | "content";
 
-/** A range's line in the range list. */
 function rangeId(range: UsageRange): string {
   return `quota-usage-range-${range}`;
 }
@@ -103,7 +102,6 @@ function modelRowId(index: number): string {
   return `quota-usage-model-${index}`;
 }
 
-/** `from` moved `share` of the way to `to`. */
 function mix(from: RGBA, to: RGBA, share: number): RGBA {
   const step = (a: number, b: number) => a + (b - a) * share;
   return RGBA.fromValues(
@@ -348,7 +346,6 @@ export function createUsageTab(
   let fromInput: InputRenderable | undefined;
   let toInput: InputRenderable | undefined;
   let windowBox: () => Renderable | undefined = () => undefined;
-  /** The date input that has the keyboard, if any. */
   const [dateFocus, setDateFocus] = createSignal<DateField>();
 
   function dateInput(field: DateField): InputRenderable | undefined {

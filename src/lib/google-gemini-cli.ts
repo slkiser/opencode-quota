@@ -24,7 +24,6 @@ export type RetrieveUserQuotaResponse = {
   }[];
 };
 
-/** The Google OAuth quota flow of Gemini CLI. */
 export const GEMINI_CLI_FLAVOR: GoogleQuotaFlavor<
   GeminiCliAuthSourceKey,
   RetrieveUserQuotaResponse,

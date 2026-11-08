@@ -58,6 +58,7 @@ export const SECTIONS: readonly Section[] = [
     id: "statusLine",
     keys: [
       "statusLine.withSidePanel",
+      "statusLine.composerPill",
       "statusLine.home",
       "statusLine.detail",
       "statusLine.runsOut",
@@ -194,12 +195,10 @@ export type Control =
   /** Shown by the section itself (the providers' switches, the trees) or only in the file. */
   | { kind: "none" };
 
-/** The words of one value of `key`: `option.<key>.<value>`. */
 function optionWords(key: string, value: unknown): Words {
   return { key: `option.${key}.${String(value)}` };
 }
 
-/** The words of a suggested number. */
 function suggestedWords(key: string, value: number | null): Words {
   if (value === null) return { key: `option.${key}.unset` };
   if (key === "providers.checking.minIntervalMs") {
@@ -350,7 +349,6 @@ export function fileOnlyKeys(rules: Readonly<Record<string, SettingRule>>): stri
     .map(([key]) => key);
 }
 
-/** A preset's choices, in order. */
 export function presetNames(name: PresetName): string[] {
   return Object.keys(PRESET_CHOICES[name]);
 }

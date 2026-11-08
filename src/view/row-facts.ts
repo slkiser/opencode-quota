@@ -20,7 +20,6 @@ import {
 } from "./format.js";
 import type { Group, VisibleRow } from "./select.js";
 
-/** How one place shows rows. */
 export type Place = {
   words: Words;
   /** The selected interface language; omitted by text-only callers to keep English output. */
@@ -50,7 +49,6 @@ export type Place = {
 };
 
 export type RowFacts = {
-  /** The row's id, for the lines that show it. */
   id: string;
   name: string;
   /** Its percent left as the row has it, for bars and level colors; undefined without one. */

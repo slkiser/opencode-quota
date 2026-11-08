@@ -35,7 +35,6 @@ const REQUEST_UNIT = { kind: "count", unit: "request" } as const;
 
 type MiniMaxQuotaEndpointId = "international" | "china";
 
-/** Each region's quota URL. */
 const MINIMAX_QUOTA_URLS: Readonly<Record<MiniMaxQuotaEndpointId, string>> = {
   international: "https://api.minimax.io/v1/api/openplatform/coding_plan/remains",
   // CN Token Plan docs use this path on minimaxi.com; api.minimaxi.com returns MiniMax base_resp auth errors for it.

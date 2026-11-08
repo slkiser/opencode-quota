@@ -75,7 +75,6 @@ const DEFINITION_SECRET_MESSAGE =
   "looks like a key or other secret, so nothing was saved. Put the key in an environment " +
   "variable and set apiKeyEnv to its name, or leave apiKeyEnv out to use OpenCode's key.";
 
-/** How the agent tells the user to switch a provider on. */
 function switchOnStep(): string {
   return (
     `Ask the user to switch it on: "enabled": true in ${settingsPath()}, or ` +
@@ -152,7 +151,6 @@ function definitionSecretIssues(definition: Record<string, unknown>): SettingsIs
  * saves, always switched off) is never read: until the user switches it on, nothing touches it.
  */
 async function credentialValues(host: QuotaAgentToolsHost): Promise<string[]> {
-  // Each provider's key variable and OpenCode provider.
   const sources = host.settings
     .current()
     .settings.providers.custom.filter((definition) => definition.enabled !== false)

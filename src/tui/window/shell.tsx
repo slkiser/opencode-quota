@@ -63,14 +63,12 @@ const TABS: ReadonlyArray<BarTab> = [
 const BAR_TABS: ReadonlyArray<BarTab> = [...TABS, ...SETTINGS_GROUPS];
 
 const SETTINGS_LABEL = "Settings";
-/** Between the tab bar's items. */
 const TAB_GAP = 2;
 /** "‹" or "›" and its gap. */
 const ARROW_WIDTH = 1 + TAB_GAP;
 /** The "esc" that closes the window, at the right end of the tab bar, and the gap before it. */
 const CLOSE_WIDTH = "esc".length + TAB_GAP;
 
-/** The tabs the tab bar shows, `first` to `last`, and whether "Settings" labels its group. */
 const HINT_SEPARATOR = " · ";
 
 /** The keyboard hint of Limits and the other tabs without their own; Limits names the ┃ mark with `evenUse`. */
@@ -217,7 +215,6 @@ export type QuotaWindow = {
    * shows the default range. On Home it only says to open a session.
    */
   open(tab: WindowTab | "settings"): void;
-  /** Opens the window on its Usage tab, on `choice`. */
   openUsage(choice: UsageChoice): void;
   /** The `session.composer.top` slot. */
   Slot(props: { sessionID: string }): JSX.Element;
@@ -261,7 +258,6 @@ export function createQuotaWindow(
     if (found) setVersion(`v${found}`);
   });
 
-  /** The tab bar's tab that shows `shown`. */
   function barTabOf(shown: WindowTab | undefined): BarTab | undefined {
     return BAR_TABS.find((item) => shown !== undefined && item.pages.includes(shown));
   }

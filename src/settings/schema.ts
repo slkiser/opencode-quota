@@ -78,6 +78,8 @@ export const SETTINGS_SCHEMA = {
   "statusLine.withSidebar": bool(false),
   /** Desktop's: also while the Quota tab shows in the side panel; else only when it does not. */
   "statusLine.withSidePanel": bool(true),
+  /** Desktop's: the pill above the message box; else only the bottom strip shows. */
+  "statusLine.composerPill": bool(true),
   "statusLine.runsOut": bool(false),
   "statusLine.hidden": { kind: "strings", default: [] },
   "statusLine.providerOrder": { kind: "strings", default: [] },

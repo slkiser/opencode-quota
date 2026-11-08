@@ -52,7 +52,6 @@ export function settingsPath(): string {
 
 export type LoadedSettings = {
   path: string;
-  /** False while settings.jsonc does not exist. */
   exists: boolean;
   settings: Settings;
   issues: SettingsIssue[];
@@ -320,7 +319,6 @@ type PlanText = (
   read: ReturnType<typeof readSettingsText>,
 ) => { text: string } | { issues: SettingsIssue[] } | undefined;
 
-/** A custom provider switch: on or off, for the definition with this fingerprint. */
 export type CustomSwitch = { enabled: boolean; fingerprint: string };
 
 /**

@@ -45,7 +45,6 @@ type IncludedCredits = {
   resetTimeIso?: string;
 };
 
-/** One key's rows and errors, and the details its reply gave. */
 type KeyFetch = { rows: ProviderRow[]; errors: FetchError[]; debug: DebugDetail[] };
 
 function sanitizeMessage(text: string, maxLength = 200): string {
@@ -215,7 +214,6 @@ function parseOllamaCloudBalance(payload: unknown): KeyFetch {
   };
 }
 
-/** The Ollama Cloud limits and balance of one API key. */
 async function queryOllamaCloudQuota(apiKey: string, requestTimeoutMs?: number): Promise<KeyFetch> {
   const reply = await requestJson(OLLAMA_CLOUD_BALANCE_URL, {
     method: "GET",

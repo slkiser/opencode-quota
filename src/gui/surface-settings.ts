@@ -45,6 +45,7 @@ export const SURFACE_DEFAULTS: SurfaceSettings = {
     show: true,
     withSidebar: false,
     withSidePanel: true,
+    composerPill: true,
     runsOut: false,
     hidden: [],
     providerOrder: [],

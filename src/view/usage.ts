@@ -332,7 +332,6 @@ function metricRole(view: View, metric: Metric, text: string): UsageRole {
   return metric === view.mode ? "value" : "text";
 }
 
-/** Each metric column's width: its header or its widest number. */
 function metricWidths(view: View, metrics: Metric[], rows: UsageRow[]): number[] {
   return metrics.map((metric) =>
     Math.max(
@@ -876,7 +875,6 @@ function breakdownLines(
   return { lines, modelLines };
 }
 
-/** `right` beside `left`, starting at column `rightStart`. */
 function sideBySide(left: UsageLine[], right: UsageLine[], rightStart: number): UsageLine[] {
   return Array.from({ length: Math.max(left.length, right.length) }, (_, index) => {
     const leftLine = left[index] ?? [];

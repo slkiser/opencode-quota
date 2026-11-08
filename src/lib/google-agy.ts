@@ -19,7 +19,6 @@ export const AGY_AUTH_KEYS = [
 
 type AgyAccount = GoogleAccount<GoogleAgyAuthSourceKey>;
 
-/** The Google OAuth quota flow of Google AGY. */
 export const AGY_FLAVOR: GoogleQuotaFlavor<
   GoogleAgyAuthSourceKey,
   GoogleAgyQuotaSummaryResponse,

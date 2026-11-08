@@ -8,7 +8,6 @@ pnpm-debug.log*
 
 # OS / editors
 .DS_Store
-.vscode/
 
 # Build / tooling artifacts
 *.tsbuildinfo
@@ -31,12 +30,9 @@ docs/*
 !docs/readme/**
 !docs/ui/
 !docs/ui/**
-/docs/readme/v4-release-readiness.md
 /docs/adr/
 AGENTS.md
 /.agents
-/prompt-exports
-/opencode-quota
 /local-live-tests/
 
 # Tracked upstream plugin copies (they contain dist/ folders)

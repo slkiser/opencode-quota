@@ -114,7 +114,6 @@ export type ProviderSnapshot = {
    * snapshot holds neither.
    */
   debug?: DebugDetail[];
-  /** This provider's part of the export file. */
   exportPart?: QuotaExportProvider;
 };
 

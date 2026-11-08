@@ -85,7 +85,6 @@ const UNPRICED_LIST_LIMIT = 5;
 /** Shown for a path outside the known folders, or with a part this plugin did not name. */
 const CUSTOM_PATH = "(custom path)";
 
-/** The quota providers' ids. */
 const PROVIDER_IDS: ReadonlySet<string> = new Set(Object.keys(QUOTA_PROVIDER_CATALOG));
 /** The provider ids OpenCode uses for them ("github-copilot", "codex", …), and theirs. */
 const OPENCODE_PROVIDER_IDS: ReadonlySet<string> = new Set([
@@ -170,7 +169,6 @@ type ProviderAvailability = {
   matchesCurrentModel?: boolean;
 };
 
-/** Where the report was asked for. */
 export type StatusOrigin = "slash_command" | "tool" | "tui" | "cli";
 
 const ORIGINS: Readonly<Record<StatusOrigin, string>> = {
@@ -185,7 +183,6 @@ export type QuotaStatusReportParams = {
   origin: StatusOrigin;
   /** OpenCode's version and release channel; the CLI runs without OpenCode. */
   opencode?: { version: string; channel: string };
-  /** The server settings as read now. */
   settings: Pick<
     LoadedSettings,
     "path" | "exists" | "issues" | "notRead" | "settings" | "fromFile"
@@ -278,7 +275,6 @@ function kvSection(id: string, rows: ReportKvRow[]): ReportSection {
   return { title: `${id}:`, rows };
 }
 
-/** "1 other detail not shown", "3 other details not shown". */
 function countText(count: number, one: string, many: string): string {
   return `${count} ${count === 1 ? one : many}`;
 }
@@ -414,7 +410,6 @@ function issueCodeText(message: string): string {
   return codeOf(ISSUE_CODES, message) ?? "invalid";
 }
 
-/** The code of the first pattern the text matches. */
 function codeOf(codes: ReadonlyArray<readonly [RegExp, string]>, text: string): string | undefined {
   return codes.find(([pattern]) => pattern.test(text))?.[1];
 }
@@ -848,7 +843,6 @@ function listOf(values: Iterable<string>): DebugRule {
   return (value) => (value.split(",").every((item) => allowed.has(item)) ? value : undefined);
 }
 
-/** The same rule for each named key. */
 function each(rule: DebugRule, ...keys: readonly string[]): DebugRules {
   return Object.fromEntries(keys.map((key) => [key, rule]));
 }
@@ -1474,7 +1468,7 @@ export type QuotaStatusPayload = {
   config: {
     settingsPath: string;
     settingsFileExists: boolean;
-    /** The `providers.off` ids that are on, or "auto" when none is off. */
+    /** Ids, as `providers.off` names them, of the providers not switched off; "auto" when none is off. */
     enabledProviders: string[] | "auto";
     onlyCurrentModel: boolean;
     pricingSnapshotSource: PricingSnapshotSource;

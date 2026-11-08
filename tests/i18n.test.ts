@@ -21,6 +21,17 @@ describe("quota interface localization", () => {
     ).toBe("将密钥 OPENAI_API_KEY 发送到 https://example.test。");
   });
 
+  it("translates the Desktop composer-pill setting", () => {
+    for (const key of [
+      "setting.statusLine.composerPill",
+      "setting.statusLine.composerPill.description",
+    ]) {
+      const english = translate("en", key);
+      expect(english).not.toBe(key);
+      expect(translate("zh-Hans", key)).not.toBe(english);
+    }
+  });
+
   it("selects locale plural categories and falls back when a category is missing", () => {
     expect(translatePlural("zh-Hans", "usage.sessions", 2)).toBe("2 个会话");
     expect(translatePlural("en", "usage.sessions", 2)).toBe("2 sessions");

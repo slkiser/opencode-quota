@@ -19,7 +19,6 @@ import {
   settingsFrom,
 } from "./schema.js";
 
-/** A v5 key and its destination in settings.jsonc. */
 export type ConvertedKey = { key: string; to: string; where: "server"; note?: string };
 export type SkippedKey = { key: string; reason: string };
 
@@ -52,7 +51,6 @@ const HOST_FILE_NAMES = ["opencode.json", "opencode.jsonc"] as const;
 const NO_FORMAT_STYLE =
   "no v6 equivalent: the sidebar shows every row and the collapsed sidebar one per provider";
 
-/** v5 keys v6 does not keep, and why. */
 const DROPPED: ReadonlyMap<string, string> = new Map(
   Object.entries({
     enabled: "v6 has no switch of its own; turn the plugin off in OpenCode's plugin list",
@@ -328,7 +326,6 @@ function readV5Values(sources: readonly V5Source[]): {
   return { values, dropped, invalid };
 }
 
-/** Where every valid v5 value goes. */
 function mapV5Values(values: ReadonlyMap<string, unknown>): {
   server: Record<string, unknown>;
   converted: ConvertedKey[];

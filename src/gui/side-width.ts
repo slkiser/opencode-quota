@@ -42,7 +42,6 @@ export type SidePanel = {
   readonly divider: HTMLElement;
   /** The side panel's width in pixels. */
   readonly width: number;
-  /** The side panel's element. */
   readonly element: HTMLElement;
   /**
    * The Quota tab is the only tab on screen in the side panel: not in the bottom pane, and not
