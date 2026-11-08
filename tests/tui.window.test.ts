@@ -489,6 +489,7 @@ function twoModelReport(): UsageReport {
     totals: {
       costUsd: 2,
       sessions: 1,
+      requests: 2,
       tokens: { processed: 200, cachedInput: 0, uncachedInput: 200, output: 0 },
       tokensByType: { ...byType, input: 200 },
       costByType: { ...byType, input: 2 },

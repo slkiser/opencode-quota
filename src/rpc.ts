@@ -6,7 +6,7 @@
  *
  * Methods: `snapshot` (the last known quota, instantly), `refresh`, `notices` (the Home
  * notice line), `noticeList` (the active maintainer notices), `status` (the /quota_status report),
- * `usage` (tokens and cost from OpenCode's history for one range),
+ * `usage` (request count, tokens and cost from OpenCode's history for one range),
  * `downloadPrices` (a new price list from models.dev), `settings` (the server settings a client
  * may change), `saveSettings` (a patch of the server settings file, and custom provider
  * switches), `settingsSchema` (every setting's rule, for a client that builds its controls from

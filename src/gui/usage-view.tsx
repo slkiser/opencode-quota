@@ -1,15 +1,21 @@
 /** @jsxImportSource solid-js */
 /**
  * The usage window's Cost and Tokens views: the big total with its sessions and range, the
- * provider lines with their shares, the daily chart by provider, the totals by token kind, the
- * "by type" bar, the Breakdown table by model, provider or day, and the share of tokens without
- * a price. A click on a model row opens that model's popup. The numbers come from
+ * provider lines with their shares, the daily chart by provider, the request count and token
+ * totals, the "by type" bar, the Breakdown table by model, provider or day, and the share of
+ * tokens without a price. A click on a model row opens that model's popup. The numbers come from
  * `usage-model.ts`, written with the shared money, token and share formatters.
  */
 import type { Context } from "@opencode/plugin/gui";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { UsageByType, UsageReport } from "../core/usage.js";
-import { formatShare, formatTokens, formatUsd, LOW_CACHE_MARK } from "../view/format.js";
+import {
+  formatCount,
+  formatShare,
+  formatTokens,
+  formatUsd,
+  LOW_CACHE_MARK,
+} from "../view/format.js";
 import { Chart } from "./chart.js";
 import {
   type BreakdownRow,
@@ -251,7 +257,10 @@ export function UsageView(props: UsageProps) {
   };
 
   return (
-    <Show when={view().tokens.processed > 0} fallback={<p>{ctx.t("usage.empty")}</p>}>
+    <Show
+      when={view().tokens.processed > 0 || view().requests > 0}
+      fallback={<p>{ctx.t("usage.empty")}</p>}
+    >
       <div class="oq-top">
         <div>
           <div class="oq-total">{format().value(view().total)}</div>
@@ -306,6 +315,12 @@ export function UsageView(props: UsageProps) {
         <div>
           <div class="oq-k">{ctx.t("usage.processedTokens")}</div>
           <div class="oq-v">{formatTokens(view().tokens.processed)}</div>
+        </div>
+        <div>
+          <div class="oq-k">
+            {ctx.t(props.providerId ? "usage.requestsAllProviders" : "usage.requests")}
+          </div>
+          <div class="oq-v">{formatCount(view().requests)}</div>
         </div>
         <div>
           <div class="oq-k">{ctx.t("usage.cachedInput")}</div>

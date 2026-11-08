@@ -127,17 +127,43 @@ describe("usage report ranges", () => {
     message({ created: at(-90, 23, 59, 59, 999), tokens: { output: 128 } }),
   ];
 
-  const cases: Array<{ query: UsageQuery; tokens: number; days: [string, string, number] }> = [
-    { query: { range: "today" }, tokens: 1, days: ["2026-03-15", "2026-03-15", 1] },
-    { query: { range: "7d" }, tokens: 1 + 2 + 4, days: ["2026-03-09", "2026-03-15", 7] },
-    { query: { range: "30d" }, tokens: 31, days: ["2026-02-14", "2026-03-15", 30] },
+  const cases: Array<{
+    query: UsageQuery;
+    tokens: number;
+    requests: number;
+    days: [string, string, number];
+  }> = [
+    { query: { range: "today" }, tokens: 1, requests: 1, days: ["2026-03-15", "2026-03-15", 1] },
+    {
+      query: { range: "7d" },
+      tokens: 1 + 2 + 4,
+      requests: 3,
+      days: ["2026-03-09", "2026-03-15", 7],
+    },
+    {
+      query: { range: "30d" },
+      tokens: 31,
+      requests: 5,
+      days: ["2026-02-14", "2026-03-15", 30],
+    },
     // 90d starts 89 days before today, on 2025-12-16.
-    { query: { range: "90d" }, tokens: 127, days: ["2025-12-16", "2026-03-15", 90] },
+    {
+      query: { range: "90d" },
+      tokens: 127,
+      requests: 7,
+      days: ["2025-12-16", "2026-03-15", 90],
+    },
     // All time runs from the first to the last message: the one 90 days ago counts too.
-    { query: { range: "all" }, tokens: 255, days: ["2025-12-15", "2026-03-15", 91] },
+    {
+      query: { range: "all" },
+      tokens: 255,
+      requests: 8,
+      days: ["2025-12-15", "2026-03-15", 91],
+    },
     {
       query: { range: "between", from: "2026-03-08", to: "2026-03-14" },
       tokens: 2 + 4 + 8,
+      requests: 3,
       days: ["2026-03-08", "2026-03-14", 7],
     },
   ];
@@ -148,6 +174,7 @@ describe("usage report ranges", () => {
     const report = await usageReport(item.query, NOW);
 
     expect(report.totals.tokens.processed).toBe(item.tokens);
+    expect(report.totals.requests).toBe(item.requests);
     const [firstDay, lastDay, dayCount] = item.days;
     expect(report.days).toHaveLength(dayCount);
     expect(report.days[0]?.date).toBe(firstDay);
@@ -166,6 +193,7 @@ describe("usage report ranges", () => {
 
     expect(report).toMatchObject({ sinceMs: at(-1, 12), untilMs: NOW });
     expect(report.totals.tokens.processed).toBe(2 + 4);
+    expect(report.totals.requests).toBe(2);
     expect(report.days.map(({ date, tokens }) => [date, tokens])).toEqual([
       ["2026-03-14", 2],
       ["2026-03-15", 4],
@@ -198,6 +226,7 @@ describe("usage report ranges", () => {
     expect(quarter.totals).toEqual({
       costUsd: 0,
       sessions: 0,
+      requests: 0,
       tokens: { processed: 0, cachedInput: 0, uncachedInput: 0, output: 0 },
       tokensByType: { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 },
       costByType: { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 },
@@ -219,6 +248,40 @@ describe("usage report ranges", () => {
     expect(week.days.map((day) => [day.tokens, day.costShare, day.tokenShare])).toEqual(
       Array.from({ length: 7 }, () => [0, 0, 0]),
     );
+  });
+
+  it("counts each completed usage-bearing assistant message and usage-bearing compaction", async () => {
+    writeHistory([
+      // Three assistant messages are separate requests even when they form one tool loop.
+      message({ created: at(0, 8), tokens: { output: 1 } }),
+      message({ created: at(0, 8, 1), tokens: { output: 2 } }),
+      message({ created: at(0, 8, 2), tokens: { output: 4 } }),
+      // An interrupted assistant message has usage but no completion time; its usage totals stay
+      // as before, but it is not a completed request.
+      message({ created: at(0, 8, 3), completed: undefined, tokens: { output: 8 } }),
+      // OpenCode can persist an aborted assistant with completion time and usage, alongside its
+      // structured `error.type` marker (packages/schema/src/session-message.ts).
+      message({
+        created: at(0, 8, 4),
+        tokens: { output: 16 },
+        error: { type: "aborted", message: "Step interrupted" },
+      }),
+      // Completion without usage metadata also does not constitute a request.
+      message({ created: at(0, 8, 5), omitUsageMetadata: true }),
+      message({
+        type: "compaction",
+        status: "failed",
+        created: at(0, 8, 6),
+        tokens: { output: 32 },
+      }),
+      message({ type: "compaction", status: "running", created: at(0, 8, 7) }),
+    ]);
+
+    const report = await usageReport({ range: "today" }, NOW);
+
+    expect(report.totals.requests).toBe(4);
+    // Request-count eligibility does not change the existing token totals.
+    expect(report.totals.tokens.processed).toBe(1 + 2 + 4 + 8 + 16 + 32);
   });
 
   it.each<{ query: UsageQuery; error: string }>([
@@ -355,24 +418,36 @@ describe("usage report sessions", () => {
     message({ sessionID: "ses_other", created: at(0, 11), tokens: { output: 8 } }),
   ];
 
-  it.each<{ query: UsageQuery; tokens: number; sessions: number }>([
+  it.each<{ query: UsageQuery; tokens: number; requests: number; sessions: number }>([
     // A session counts with its subagent sessions, and theirs.
-    { query: { range: "session", sessionID: "ses_root" }, tokens: 1 + 2 + 4, sessions: 1 },
-    { query: { range: "session", sessionID: "ses_child" }, tokens: 2 + 4, sessions: 1 },
+    {
+      query: { range: "session", sessionID: "ses_root" },
+      tokens: 1 + 2 + 4,
+      requests: 3,
+      sessions: 1,
+    },
+    {
+      query: { range: "session", sessionID: "ses_child" },
+      tokens: 2 + 4,
+      requests: 2,
+      sessions: 1,
+    },
     // Without its subagents, the session alone.
     {
       query: { range: "session", sessionID: "ses_root", subagents: false },
       tokens: 1,
+      requests: 1,
       sessions: 1,
     },
     // Subagent sessions count as part of their top session.
-    { query: { range: "today" }, tokens: 15, sessions: 2 },
+    { query: { range: "today" }, tokens: 15, requests: 4, sessions: 2 },
   ])("$query.range $query.sessionID counts $sessions session(s)", async (item) => {
     writeHistory(history(), sessions);
 
     const report = await usageReport(item.query, NOW);
 
     expect(report.totals.tokens.processed).toBe(item.tokens);
+    expect(report.totals.requests).toBe(item.requests);
     expect(report.totals.sessions).toBe(item.sessions);
     expect(report.providers.map((provider) => provider.sessions)).toEqual([item.sessions]);
     expect(report.sessionID).toBe(item.query.sessionID);
@@ -430,32 +505,60 @@ describe("usage report sessions", () => {
       return [...parent, ...copies, ...added];
     };
 
-    it.each<{ query: UsageQuery; forkAddsWork: boolean; tokens: number; sessions: number }>([
-      { query: { range: "90d" }, forkAddsWork: false, tokens: 1 + 2, sessions: 1 },
-      { query: { range: "today" }, forkAddsWork: false, tokens: 1 + 2, sessions: 1 },
+    it.each<{
+      query: UsageQuery;
+      forkAddsWork: boolean;
+      tokens: number;
+      requests: number;
+      sessions: number;
+    }>([
+      {
+        query: { range: "90d" },
+        forkAddsWork: false,
+        tokens: 1 + 2,
+        requests: 2,
+        sessions: 1,
+      },
+      {
+        query: { range: "today" },
+        forkAddsWork: false,
+        tokens: 1 + 2,
+        requests: 2,
+        sessions: 1,
+      },
       {
         query: { range: "between", from: "2026-03-15", to: "2026-03-15" },
         forkAddsWork: false,
         tokens: 1 + 2,
+        requests: 2,
         sessions: 1,
       },
       {
         query: { range: "session", sessionID: "ses_fork" },
         forkAddsWork: false,
         tokens: 0,
+        requests: 0,
         sessions: 0,
       },
-      { query: { range: "90d" }, forkAddsWork: true, tokens: 1 + 2 + 4 + 8, sessions: 2 },
+      {
+        query: { range: "90d" },
+        forkAddsWork: true,
+        tokens: 1 + 2 + 4 + 8,
+        requests: 4,
+        sessions: 2,
+      },
       {
         query: { range: "session", sessionID: "ses_fork" },
         forkAddsWork: true,
         tokens: 4 + 8,
+        requests: 2,
         sessions: 1,
       },
       {
         query: { range: "session", sessionID: "ses_parent" },
         forkAddsWork: true,
         tokens: 1 + 2,
+        requests: 2,
         sessions: 1,
       },
     ])(
@@ -466,6 +569,7 @@ describe("usage report sessions", () => {
         const report = await usageReport(item.query, NOW);
 
         expect(report.totals.tokens.processed).toBe(item.tokens);
+        expect(report.totals.requests).toBe(item.requests);
         expect(report.totals.sessions).toBe(item.sessions);
         expect(report.totals.costUsd).toBeCloseTo((item.tokens * 10) / M, 10);
       },

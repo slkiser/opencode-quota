@@ -40,6 +40,10 @@ export interface OpenCodeMessage {
   providerID?: string;
   modelID?: string;
   tokens?: OpenCodeTokens;
+  /** True when the stored message has token usage metadata, even when its values are all zero. */
+  hasUsageMetadata?: boolean;
+  /** OpenCode's structured assistant error type, e.g. `aborted` for an interrupted step. */
+  errorType?: string;
   cost?: number;
   time?: {
     created?: number;
@@ -76,6 +80,8 @@ type ProjectedMessageRow = {
   tokens_reasoning: unknown;
   tokens_cache_read: unknown;
   tokens_cache_write: unknown;
+  has_usage_metadata?: unknown;
+  error_type?: unknown;
   cost: unknown;
   time_completed: unknown;
 };
@@ -106,6 +112,7 @@ function mapRowToOpenCodeMessage(row: ProjectedMessageRow): OpenCodeMessage | nu
   const reasoning = normalizeNumber(row.tokens_reasoning);
   const cacheRead = normalizeNumber(row.tokens_cache_read);
   const cacheWrite = normalizeNumber(row.tokens_cache_write);
+  const errorType = normalizeString(row.error_type);
   const hasTokens = [input, output, reasoning, cacheRead, cacheWrite].some(
     (value) => value !== undefined,
   );
@@ -124,6 +131,10 @@ function mapRowToOpenCodeMessage(row: ProjectedMessageRow): OpenCodeMessage | nu
           cache: { read: cacheRead ?? 0, write: cacheWrite ?? 0 },
         }
       : undefined,
+    ...(row.has_usage_metadata === undefined
+      ? {}
+      : { hasUsageMetadata: row.has_usage_metadata === 1 }),
+    ...(errorType === undefined ? {} : { errorType }),
     cost: normalizeNumber(row.cost),
     time: {
       created: row.time_created,
@@ -399,6 +410,9 @@ const USAGE_MESSAGE_COLUMNS = [
   `${guardedJsonScalar("$.tokens.reasoning", "message.data")} AS tokens_reasoning`,
   `${guardedJsonScalar("$.tokens.cache.read", "message.data")} AS tokens_cache_read`,
   `${guardedJsonScalar("$.tokens.cache.write", "message.data")} AS tokens_cache_write`,
+  `${guardedJsonScalar("$.time.completed", "message.data")} AS time_completed`,
+  `(CASE WHEN json_valid(message.data) THEN json_type(message.data, '$.tokens') END = 'object') AS has_usage_metadata`,
+  `${guardedJsonScalar("$.error.type", "message.data")} AS error_type`,
 ].join(", ");
 
 const USAGE_MESSAGE_FILTERS = [

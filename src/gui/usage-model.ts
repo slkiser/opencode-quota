@@ -1,13 +1,12 @@
 /**
  * What the usage window's Cost and Tokens views show, from a `UsageReport`: the question to ask
  * for the chosen range and sessions, the big total, the provider lines with their shares, the
- * daily chart split by provider, the totals by token kind, the "by type" bar, and the breakdown
- * by model, provider or day. Pure.
+ * daily chart split by provider, the request count and token totals, the "by type" bar, and the
+ * breakdown by model, provider or day. Pure.
  *
- * With a provider picked, every number is that provider's: its models' tokens and cost, with
- * shares of its own total. The report's cache savings cover every provider, so they show only
- * without a pick. A provider's color is its place in the report's providers, so it keeps its
- * color whatever the pick.
+ * With a provider picked, its models' tokens and cost have shares of that provider's total. The
+ * request count and cache savings cover every provider, so they stay report-wide. A provider's
+ * color is its place in the report's providers, so it keeps its color whatever the pick.
  */
 import type { UsageRange } from "../core/usage-ranges.js";
 import type { UsageByType, UsageModelRow, UsageQuery, UsageReport } from "../core/usage.js";
@@ -93,6 +92,8 @@ export type UsageView = {
   total: number;
   costUsd: number;
   sessions: number;
+  /** The report-wide request count; there is no provider-level request breakdown. */
+  requests: number;
   providers: ProviderLine[];
   tokens: TokenTotals;
   byType: UsageByType;
@@ -215,6 +216,7 @@ export function usageView(
     total,
     costUsd,
     sessions: providerID === undefined ? report.totals.sessions : (rows[0]?.sessions ?? 0),
+    requests: report.totals.requests,
     providers: rows.map((row) => ({
       providerID: row.providerID,
       name: usageProviderName(row.providerID, report.providerNames),
