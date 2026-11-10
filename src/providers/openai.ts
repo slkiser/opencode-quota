@@ -116,12 +116,27 @@ function activeLoginStatusDetails(logins: readonly OpenAILogin[]): DebugDetail[]
 const CODE_REVIEW = { key: "code_review", label: "Code review", window: "code_review" } as const;
 
 function quotaWindowRows(result: Extract<OpenAIResult, { success: true }>): ProviderRow[] {
-  return windowRows([
+  const rows = windowRows([
     { slot: FIVE_HOUR, value: result.windows.hourly },
     { slot: WEEKLY, value: result.windows.weekly },
     { slot: MONTHLY, value: result.windows.monthly },
     { slot: CODE_REVIEW, value: result.windows.codeReview },
   ]);
+  const credits = result.credits;
+  rows.push({
+    key: "codex_credits",
+    label: "Codex credits",
+    type: "balance",
+    method: "remote_api",
+    authority: "provider_reported",
+    prominence: "primary",
+    ...(credits?.unlimited === true
+      ? { text: "Unlimited credits" }
+      : credits?.balance !== undefined
+        ? { amount: { decimal: credits.balance, unit: { kind: "count", unit: "credit" } } }
+        : { text: "No data" }),
+  });
+  return rows;
 }
 
 /**

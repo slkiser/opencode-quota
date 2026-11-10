@@ -184,3 +184,30 @@ export function pickRow(
   )[0];
   return lowest ?? group.rows[0];
 }
+
+/** Keep the independent Codex count balance beside the chosen window on both status lines.
+ * Work on already filtered/named rows; other providers and balance kinds keep their behavior. */
+export function statusGroups(
+  groups: Group[],
+  windows: Readonly<Record<string, WindowChoice>>,
+): Group[] {
+  return groups.flatMap((group) => {
+    const credits = group.rows.find(({ row }) => row.id === "openai.codex_credits");
+    if (!credits) return [group];
+    const creditGroup: Group = {
+      ...group,
+      id: `${group.id}.codex_credits`,
+      name: credits.label,
+      title: group.account ? `${credits.label} (${group.account})` : credits.label,
+      rows: [credits],
+    };
+    // Snapshots expose one provider error, not which login retained old rows. Warn on
+    // every credits segment so a later account's stale balance cannot look fresh.
+    const providerError = groups.find(
+      (other) => other.providerId === group.providerId && other.error,
+    )?.error;
+    if (providerError) creditGroup.error = providerError;
+    if (pickRow(group, windowFor(windows, group)) === credits) return [creditGroup];
+    return [group, creditGroup];
+  });
+}

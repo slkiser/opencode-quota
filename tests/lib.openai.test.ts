@@ -464,6 +464,7 @@ describe("queryOpenAIQuota", () => {
     expect(out).toEqual({
       success: true,
       label: "OpenAI (Plus)",
+      credits: { balance: "12.34", hasCredits: true, unlimited: false },
       windows: {
         hourly: HOURLY_80,
         codeReview: { percentRemaining: 95, resetTimeIso: "2026-01-01T00:01:00.000Z" },

@@ -29,6 +29,7 @@ interface OpenAIUsageResponse {
   rate_limit: { primary_window?: unknown; secondary_window?: unknown } | null;
   code_review_rate_limit?: { primary_window?: unknown } | null;
   spend_control?: { individual_limit?: unknown } | null;
+  credits?: unknown;
 }
 
 interface JwtPayload {
@@ -135,7 +136,62 @@ export const OPENAI_AUTH_SOURCE_KEYS = ["openai", "codex", "chatgpt"] as const;
 
 type OpenAIAuthSourceKey = (typeof OPENAI_AUTH_SOURCE_KEYS)[number];
 
-export type OpenAIResult = { success: true; label: string; windows: OpenAIWindows } | QuotaError;
+export type OpenAICredits = {
+  balance?: string;
+  hasCredits?: boolean;
+  unlimited?: boolean;
+};
+
+/** Expand the parsed number's shortest representation, without the shared helper's rounding. */
+function creditNumberText(value: number): string | undefined {
+  if (!Number.isFinite(value) || value < 0 || value > Number.MAX_SAFE_INTEGER) return undefined;
+  const raw = String(value);
+  const [mantissa = "", exponent] = raw.split("e");
+  if (exponent === undefined) return raw;
+  const [integer = "", fraction = ""] = mantissa.split(".");
+  const digits = integer + fraction;
+  const index = integer.length + Number(exponent);
+  if (index <= 0) return `0.${"0".repeat(-index)}${digits}`;
+  if (index >= digits.length) return digits + "0".repeat(index - digits.length);
+  return `${digits.slice(0, index)}.${digits.slice(index)}`;
+}
+
+/** Preserve decimal credit balances exactly; never coerce null, booleans or blanks to zero. */
+function parseCredits(value: unknown): OpenAICredits | undefined {
+  if (!isRecord(value)) return undefined;
+  const raw = value.balance;
+  const text =
+    typeof raw === "string"
+      ? raw.trim()
+      : typeof raw === "number"
+        ? (creditNumberText(raw) ?? "")
+        : "";
+  let balance: string | undefined;
+  if (/^\d+(?:\.\d+)?$/u.test(text)) {
+    const [integer = "0", fraction = ""] = text.split(".");
+    const whole = integer.replace(/^0+(?=\d)/u, "");
+    const decimals = fraction.replace(/0+$/u, "");
+    balance = decimals ? `${whole}.${decimals}` : whole;
+  }
+  // Metadata alone is meaningful only when it explicitly reports whether credits exist.
+  // A malformed amount is not made trustworthy by has_credits; unlimited is usable on its own.
+  const hasCredits = typeof value.has_credits === "boolean" ? value.has_credits : undefined;
+  if (
+    balance === undefined &&
+    value.unlimited !== true &&
+    (raw != null || hasCredits === undefined)
+  )
+    return undefined;
+  return {
+    ...(balance !== undefined ? { balance } : {}),
+    ...(hasCredits !== undefined ? { hasCredits } : {}),
+    ...(typeof value.unlimited === "boolean" ? { unlimited: value.unlimited } : {}),
+  };
+}
+
+export type OpenAIResult =
+  | { success: true; label: string; windows: OpenAIWindows; credits?: OpenAICredits }
+  | QuotaError;
 
 /** A stored OpenAI login: one OpenCode could not return, or one with an access token. */
 export type OpenAIOAuthLogin =
@@ -282,11 +338,17 @@ function parseUsageResponse(data: OpenAIUsageResponse): OpenAIResult {
   const codeReview = parseWindowValue(data.code_review_rate_limit?.primary_window, observedAtMs);
   if (codeReview) windows.codeReview = codeReview;
 
-  if (Object.keys(windows).length === 0) {
+  const credits = parseCredits(data.credits);
+  if (Object.keys(windows).length === 0 && !credits) {
     return { success: false, error: "No quota data" };
   }
 
-  return { success: true, label: derivePlanLabel(data.plan_type), windows };
+  return {
+    success: true,
+    label: derivePlanLabel(data.plan_type),
+    windows,
+    ...(credits ? { credits } : {}),
+  };
 }
 
 export async function queryOpenAIQuota(options: {

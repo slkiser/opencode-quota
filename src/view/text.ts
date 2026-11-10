@@ -27,11 +27,13 @@ import {
   type Place,
   type RowFacts,
   resetAlone,
+  retainedStatusBalance,
   rowFacts,
 } from "./row-facts.js";
 import {
   type Group,
   pickRow,
+  statusGroups,
   type Surface,
   visibleGroups,
   type WindowChoice,
@@ -500,7 +502,11 @@ export type StatusInput = {
 
 /** A provider's name on the status line: with its account only when it shows several. */
 function statusName(input: StatusInput, group: Group): string {
-  const accounts = input.groups.filter((other) => other.providerId === group.providerId).length;
+  const accounts = new Set(
+    input.groups
+      .filter((other) => other.providerId === group.providerId)
+      .map((other) => other.account),
+  ).size;
   return accounts > 1 ? group.title : group.name;
 }
 
@@ -515,6 +521,16 @@ function statusSegment(input: StatusInput, group: Group, level: StatusLevel): Li
   const percent = picked?.percent;
   const name: Segment = { text: statusName(input, group), role: "statusName", percent };
   if (!picked || percent === undefined) {
+    const retained = retainedStatusBalance(picked, errorWords(group, nowMs));
+    if (retained)
+      return {
+        id: group.providerId,
+        segments: [
+          name,
+          { text: ` ${picked!.value}`, role: "value" },
+          { text: ` (${errorWords(group, nowMs)})`, role: "error" },
+        ],
+      };
     const value = groupState(group, nowMs) ?? { text: picked?.value ?? "", role: "value" };
     return { id: group.providerId, segments: [name, { ...value, text: ` ${value.text}` }] };
   }
@@ -966,8 +982,10 @@ export function statusLineInput(
   settings: Settings,
   nowMs: number,
 ): StatusInput {
+  const input = surfaceInput("statusLine", snapshot, settings, nowMs);
   return {
-    ...surfaceInput("statusLine", snapshot, settings, nowMs),
+    ...input,
+    groups: statusGroups(input.groups, settings.statusLine.window),
     window: settings.statusLine.window,
   };
 }

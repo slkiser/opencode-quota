@@ -68,6 +68,14 @@ export type RowFacts = {
   pace?: { words: string; fast: boolean };
 };
 
+/** A retained Codex balance must remain visible, but must not look freshly checked. */
+export function retainedStatusBalance(
+  row: Pick<RowFacts, "id" | "value"> | undefined,
+  error: string | undefined,
+): string | undefined {
+  return row?.id === "openai.codex_credits" && error ? `${row.value} (${error})` : undefined;
+}
+
 function nameOf(item: VisibleRow, group: Pick<Group, "rows">, place: Place): string {
   const { window } = item.row;
   if (place.names === "label" || !window) return item.label;

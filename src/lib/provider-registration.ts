@@ -52,7 +52,7 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     runtimeIds: ["openai", "chatgpt", "codex"],
     synonyms: [],
     // `status`: an OpenAI login without a ChatGPT plan ("unavailable for API key").
-    rowKeys: ["five_hour", "weekly", "monthly", "code_review", "status"],
+    rowKeys: ["five_hour", "weekly", "monthly", "code_review", "codex_credits", "status"],
   },
   {
     id: "openrouter",

@@ -25,8 +25,14 @@ import {
   shownEvenLeft,
   shownPercent,
 } from "../view/format.js";
-import { errorWords, type Place, type RowFacts, rowFacts } from "../view/row-facts.js";
-import { type Group, pickRow, visibleGroups, windowFor } from "../view/select.js";
+import {
+  errorWords,
+  type Place,
+  retainedStatusBalance,
+  type RowFacts,
+  rowFacts,
+} from "../view/row-facts.js";
+import { type Group, pickRow, statusGroups, visibleGroups, windowFor } from "../view/select.js";
 import {
   type ColorRole,
   lineText,
@@ -182,7 +188,8 @@ export function pickedGroups(
   const pace = "pace" in place ? place.pace : settings[surface].runsOut ? "runsOut" : undefined;
   const rowPlace = alwaysOnPlace(settings, nowMs, place.percent ?? "usedWord", pace);
   const shown = visibleGroups(snapshot, settings, surface, settings.words);
-  return shown.map((group) => {
+  const groups = surface === "statusLine" ? statusGroups(shown, settings.statusLine.window) : shown;
+  return groups.map((group) => {
     const picked = pickRow(group, windowFor(settings[surface].window, group));
     return {
       ...surfaceGroup(shown, group, nowMs),
@@ -229,7 +236,10 @@ export function pickedText(group: PickedGroup, unchecked: string, withName = fal
   const { row } = group;
   const name = withName && row?.percent !== undefined ? `${group.title} ${row.name}` : group.title;
   if (!row || row.percent === undefined) {
-    const state = group.error ?? (group.unchecked ? unchecked : row?.value);
+    const state =
+      retainedStatusBalance(row, group.error) ??
+      group.error ??
+      (group.unchecked ? unchecked : row?.value);
     return state ? `${name} ${state}` : name;
   }
   const pace = row.pace ? ` (${row.pace.words})` : "";
