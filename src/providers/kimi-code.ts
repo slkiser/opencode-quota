@@ -1,9 +1,10 @@
 /**
- * Kimi Code quota (global and China endpoints): the weekly usage and each named limit. Each key
+ * Kimi Code quota (global and China endpoints): legacy limits and monthly usage ratios. Each key
  * stored in OpenCode is queried as its own account; without stored keys, the key the resolver
  * finds is.
  */
 
+import type { QuotaWindow } from "../core/types.js";
 import { classifyWindow } from "../core/windows.js";
 import { API_KEY_VENDORS, type ApiKeyLoginSpec, readVendorKeys } from "../lib/api-key-resolver.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "../lib/display-sanitize.js";
@@ -33,11 +34,13 @@ type KimiSpec = {
   auth: ApiKeyLoginSpec;
 };
 
-/** One window of the reply: the weekly usage or one of the limits. */
+/** One legacy limit or monthly usage window of the reply. */
 type KimiWindow = {
   label: string;
-  used: number;
-  limit: number;
+  key?: string;
+  window?: QuotaWindow;
+  used?: number;
+  limit?: number;
   percentRemaining: number;
   resetTimeIso?: string;
 };
@@ -45,6 +48,11 @@ type KimiWindow = {
 type KimiReply = { success: true; windows: KimiWindow[] } | QuotaError;
 
 const USER_AGENT = "OpenCode-Quota-Toast/1.0";
+
+const MONTHLY_WINDOWS = [
+  { field: "limit_month_total", key: "limit.month_total", label: "Monthly total" },
+  { field: "limit_month_code", key: "limit.month_code", label: "Monthly code" },
+] as const;
 
 function getFiniteNumber(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -157,11 +165,35 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-/** The weekly `usage` row, then one row per `limits` item (each may sit under `data`). */
+function toMonthlyWindow(
+  value: unknown,
+  slot: (typeof MONTHLY_WINDOWS)[number],
+): KimiWindow | null {
+  const data = Array.isArray(value) ? undefined : asObject(value);
+  if (!data) return null;
+  const rawRatio = data.used_ratio;
+  if (typeof rawRatio !== "number" && typeof rawRatio !== "string") return null;
+  if (typeof rawRatio === "string" && rawRatio.trim().length === 0) return null;
+  const usedRatio = getFiniteNumber(rawRatio);
+  if (usedRatio === undefined) return null;
+
+  // Bound the finite ratio before multiplying, so extreme overages cannot overflow.
+  const ratio = Math.max(0, Math.min(1, usedRatio));
+  return {
+    key: slot.key,
+    label: slot.label,
+    window: "month",
+    percentRemaining: clampPercent((1 - ratio) * 100),
+    resetTimeIso: parseResetTimeIso(data),
+  };
+}
+
+/** Legacy `usage` and `limits` rows, then monthly `usages` (each may sit under `data`). */
 function parseKimiWindows(payload: Record<string, unknown>): KimiWindow[] {
   const data = asObject(payload.data);
   const usage = asObject(data?.usage ?? payload.usage);
   const limits = data?.limits ?? payload.limits;
+  const usages = asObject(data?.usages ?? payload.usages);
   const windows: KimiWindow[] = [];
 
   const usageWindow = usage ? toUsageWindow(usage, "Weekly limit") : null;
@@ -176,6 +208,11 @@ function parseKimiWindows(payload: Record<string, unknown>): KimiWindow[] {
       const limitWindow = toUsageWindow(detail, buildLimitLabel(itemMap, detail, window, index));
       if (limitWindow) windows.push(limitWindow);
     }
+  }
+
+  for (const slot of MONTHLY_WINDOWS) {
+    const monthly = toMonthlyWindow(usages?.[slot.field], slot);
+    if (monthly) windows.push(monthly);
   }
 
   return windows;
@@ -220,12 +257,13 @@ async function queryKimiWindows(
   }
 }
 
-/** The weekly window keeps the key `weekly`; every other limit is `limit.<its name>`. */
+/** Monthly windows have stable keys; legacy limits retain their name-derived keys. */
 function kimiRows(windows: readonly KimiWindow[]): ProviderRow[] {
   return windows.flatMap((window) => {
     const name = window.label.replace(/:+$/u, "").trim();
-    const kind = classifyWindow(name);
+    const kind = window.window ?? classifyWindow(name);
     const values = { percentRemaining: window.percentRemaining, resetsAt: window.resetTimeIso };
+    if (window.key) return [quotaRow({ key: window.key, label: name, window: kind, ...values })];
     if (kind === "week") return [quotaRow({ key: "weekly", label: name, window: kind, ...values })];
     const limit = keySlug(name.replace(/\s+limit$/iu, "")) || keySlug(name);
     return limit ? [quotaRow({ key: `limit.${limit}`, label: name, window: kind, ...values })] : [];

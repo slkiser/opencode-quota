@@ -474,6 +474,8 @@ Shows your account balance: one **Total balance** row per currency, never added 
 
 ### Kimi Code
 
+Shows the detailed 5-hour limit and the legacy weekly quota when returned by the API. Newer replies can also report separate **Monthly total** and **Monthly code** quotas. The shared monthly total can block Kimi Code even when a shorter window still has quota left. The default `lowest` window considers all these quotas; an explicit window selection keeps its usual behavior (`month` selects the first visible monthly row, normally **Monthly total**). Missing monthly fields do not create quota rows.
+
 Each regional plan has its own key and host. A key is sent only to its own host, and a failed request is never retried on the other one.
 
 - **Kimi Code (Global)** uses `api.kimi.ai`. Key order: `KIMI_GLOBAL_API_KEY` → `provider.kimi-code-plan-global.options.apiKey` in OpenCode config → `kimi-code-plan-global` API-key login saved in OpenCode 2.

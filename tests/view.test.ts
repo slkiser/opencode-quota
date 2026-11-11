@@ -353,6 +353,92 @@ describe("view select", () => {
   });
 });
 
+describe("Kimi monthly quota views", () => {
+  const id = "kimi-code-plan-global";
+  const display = defaultSettings();
+  const kimi = (total: number, code: number) =>
+    provider(id, "Kimi Code", [
+      row(`${id}.limit.5h`, { label: "5h limit", window: "five_hour", percentRemaining: 100 }),
+      row(`${id}.weekly`, { label: "Weekly limit", window: "week", percentRemaining: 100 }),
+      row(`${id}.limit.month_total`, {
+        label: "Monthly total",
+        window: "month",
+        percentRemaining: total,
+        resetsAt: at(14 * 24 * 60 * MINUTE),
+      }),
+      row(`${id}.limit.month_code`, {
+        label: "Monthly code",
+        window: "month",
+        percentRemaining: code,
+        resetsAt: at(14 * 24 * 60 * MINUTE),
+      }),
+    ]);
+
+  it.each([
+    { total: 0, code: 100, choice: undefined, expected: "limit.month_total" },
+    { total: 70, code: 0, choice: "lowest", expected: "limit.month_code" },
+    { total: 0, code: 100, choice: "five_hour", expected: "limit.5h" },
+    { total: 70, code: 0, choice: "month", expected: "limit.month_total" },
+  ] as const)(
+    "picks $expected with total $total%, code $code% and window $choice",
+    ({ total, code, choice, expected }) => {
+      for (const surface of ["collapsed", "statusLine"] as const) {
+        const [group] = visibleGroups(
+          snapshot([kimi(total, code)]),
+          display,
+          surface,
+          DEFAULT_WORDS,
+        );
+        expect(pickRow(group!, choice)?.row.id).toBe(`${id}.${expected}`);
+      }
+    },
+  );
+
+  it.each([
+    { total: 0, code: 100 },
+    { total: 70, code: 0 },
+  ])(
+    "shows an exhausted month in the status line: total $total%, code $code%",
+    ({ total, code }) => {
+      const groups = visibleGroups(
+        snapshot([kimi(total, code)]),
+        display,
+        "statusLine",
+        DEFAULT_WORDS,
+      );
+      const result = statusLayout(
+        { groups, layout: display.layout, words: DEFAULT_WORDS, nowMs: NOW, window: {} },
+        200,
+        0,
+        "numbers",
+      );
+
+      expect(result.shown.map(lineText)).toEqual(["Kimi Code 0%"]);
+    },
+  );
+
+  it("keeps both monthly names distinct with short row names and enough label room", () => {
+    const shortWords = words({ rowNames: "short" });
+    const groups = visibleGroups(snapshot([kimi(0, 75)]), display, "sidebar", shortWords);
+    const lines = sidebarLines({
+      groups,
+      layout: { ...display.layout, labelWidth: 20 },
+      words: shortWords,
+      nowMs: NOW,
+      width: 80,
+    });
+    const total = lines.find((line) => line.id === `${id}.limit.month_total`);
+    const code = lines.find((line) => line.id === `${id}.limit.month_code`);
+
+    expect(total).toBeDefined();
+    expect(code).toBeDefined();
+    expect(lineText(total!)).toContain("Monthly total");
+    expect(lineText(code!)).toContain("Monthly code");
+    expect(lineText(total!)).toContain("0%");
+    expect(lineText(code!)).toContain("75%");
+  });
+});
+
 describe("view text", () => {
   // Pinned, so these drawings show bars without the even-use mark; its own tests turn it on.
   const defaults = defaultSettings();
