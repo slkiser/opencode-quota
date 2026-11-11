@@ -791,13 +791,13 @@ describe("renderQuotaStatusReport", () => {
           {
             key: "member_budget_note",
             value:
-              "member budgets found, but not all can be evaluated (model filters, per-model limits, or missing amounts); using the credit limit",
+              "member budgets found, but none can be used as the monthly cap (model filters, per-model limits, or missing amounts); using the credit limit",
           },
           { key: "member_budget_note", value: "usr_secret has 3 budgets" },
         ],
       }),
       lines: [
-        "- budget_source: member_budget\n- member_budget_note: member budgets found, but not all can be evaluated (model filters, per-model limits, or missing amounts); using the credit limit",
+        "- budget_source: member_budget\n- member_budget_note: member budgets found, but none can be used as the monthly cap (model filters, per-model limits, or missing amounts); using the credit limit",
         "- 2 other details not shown",
       ],
       absent: ["org_budget", "usr_secret"],
