@@ -9,6 +9,7 @@ import { type Pace, paceOf } from "../core/pace.js";
 import type { Words } from "../core/types.js";
 import { WINDOWS } from "../core/windows.js";
 import {
+  codexCreditsText,
   type DurationStyle,
   formatDuration,
   largestUnit,
@@ -34,6 +35,8 @@ export type Place = {
    * "58%" in the bare style. "usedWord": "58%", but "42% used", which bare would read as left.
    */
   percent: "number" | "words" | "usedWord";
+  /** Whole Codex credits without a repeated unit, only where the UI asks for compact values. */
+  codexCredits?: "compact";
   /** Reset and pace times in this style, whatever the words (Limits: always "exact"). */
   times?: Words["reset"];
   /** The place draws the even-use mark, so its facts have `evenLeft`. */
@@ -141,7 +144,8 @@ export function rowFacts(item: VisibleRow, group: Pick<Group, "rows">, place: Pl
   const name = nameOf(item, group, place);
   const percent = row.percentRemaining;
   if (percent === undefined) {
-    return { id: row.id, name, value: rowValueText(row), reset: "", shortReset: "" };
+    const compact = place.codexCredits === "compact" ? codexCreditsText(row) : undefined;
+    return { id: row.id, name, value: compact ?? rowValueText(row), reset: "", shortReset: "" };
   }
   const withWord =
     place.percent === "words" || (place.percent === "usedWord" && words.percent === "used");

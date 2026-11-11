@@ -185,9 +185,10 @@ function pickedFacts(
   input: StatusInput,
   group: Group,
   percent: Place["percent"],
+  codexCredits?: Place["codexCredits"],
 ): RowFacts | undefined {
   const picked = pickRow(group, windowFor(input.window, group));
-  return picked && rowFacts(picked, group, alwaysOnPlace(input, percent));
+  return picked && rowFacts(picked, group, { ...alwaysOnPlace(input, percent), codexCredits });
 }
 
 /** Marks rows kept from an earlier check when there is no room for the error's words. */
@@ -517,7 +518,7 @@ function statusName(input: StatusInput, group: Group): string {
  */
 function statusSegment(input: StatusInput, group: Group, level: StatusLevel): Line {
   const { layout, nowMs } = input;
-  const picked = pickedFacts(input, group, "usedWord");
+  const picked = pickedFacts(input, group, "usedWord", "compact");
   const percent = picked?.percent;
   const name: Segment = { text: statusName(input, group), role: "statusName", percent };
   if (!picked || percent === undefined) {
@@ -651,7 +652,7 @@ export function statusMarkers(layout: StatusLayout): { before: string; after: st
 export function bigStatusLine(input: StatusInput, width?: number): Line | undefined {
   const group = input.groups[0];
   if (!group) return undefined;
-  const picked = pickedFacts(input, group, "words");
+  const picked = pickedFacts(input, group, "words", "compact");
   const percent = picked?.percent;
   if (!picked || percent === undefined) {
     const line = statusSegment(input, group, "full");

@@ -215,6 +215,22 @@ export function amountText(amount: Amount): string {
   return `${number} ${integer === "1" && !fraction ? unit.unit : `${unit.unit}s`}`;
 }
 
+/** Whole Codex credits for compact UI; the exact amount remains in the row and full formats. */
+export function codexCreditsText(row: QuotaRow): string | undefined {
+  const { amount } = row;
+  if (
+    row.id !== "openai.codex_credits" ||
+    row.type !== "balance" ||
+    row.text !== undefined ||
+    !amount ||
+    amount.unit.kind !== "count" ||
+    amount.unit.unit !== "credit" ||
+    !/^(?:0|[1-9]\d*)(?:\.\d+)?$/u.test(amount.decimal)
+  )
+    return undefined;
+  return groupDigits(amount.decimal.split(".")[0]!);
+}
+
 /** The value of a row without a percent: its text, amount, used/limit, or yes/no. */
 export function rowValueText(row: QuotaRow): string {
   if (row.text !== undefined) return row.text;

@@ -141,6 +141,7 @@ export function panelView(snapshot: QuotaSnapshot, settings: Settings, nowMs: nu
     "number",
     settings.sidebar.runsOut ? "runsOut" : undefined,
   );
+  place.codexCredits = "compact";
   const shown = visibleGroups(snapshot, settings, "sidebar", settings.words);
   const groups = shown.map((group) => ({
     ...surfaceGroup(shown, group, nowMs),
@@ -187,6 +188,7 @@ export function pickedGroups(
 ): PickedGroup[] {
   const pace = "pace" in place ? place.pace : settings[surface].runsOut ? "runsOut" : undefined;
   const rowPlace = alwaysOnPlace(settings, nowMs, place.percent ?? "usedWord", pace);
+  if (surface === "statusLine") rowPlace.codexCredits = "compact";
   const shown = visibleGroups(snapshot, settings, surface, settings.words);
   const groups = surface === "statusLine" ? statusGroups(shown, settings.statusLine.window) : shown;
   return groups.map((group) => {

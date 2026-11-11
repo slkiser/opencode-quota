@@ -1,15 +1,25 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { rowsFromProviderResult } from "../src/core/rows.js";
 import { createQuotaStore } from "../src/core/store.js";
-import type { QuotaSnapshot } from "../src/core/types.js";
-import { pickedGroups, pickedText } from "../src/gui/surfaces-model.js";
+import type { QuotaRow, QuotaSnapshot } from "../src/core/types.js";
+import { displayOf, limitCards } from "../src/gui/limits-model.js";
+import { panelView, pickedGroups, pickedText, toastView } from "../src/gui/surfaces-model.js";
 import { queryOpenAIQuota } from "../src/lib/openai.js";
 import { readCredentialRows } from "../src/lib/opencode-auth.js";
 import { PROVIDER_ROW_KEYS } from "../src/lib/provider-metadata.js";
 import { openaiProvider } from "../src/providers/openai.js";
 import { defaultSettings } from "../src/settings/schema.js";
-import { amountText } from "../src/view/format.js";
-import { bigStatusLine, lineText, statusLayout, statusLineInput } from "../src/view/text.js";
+import { amountText, rowValueText } from "../src/view/format.js";
+import { rowFacts } from "../src/view/row-facts.js";
+import { visibleGroups, visibleRow } from "../src/view/select.js";
+import {
+  bigStatusLine,
+  lineText,
+  plainLines,
+  statusLayout,
+  statusLineInput,
+  toastInput,
+} from "../src/view/text.js";
 import { fakeHttp } from "./helpers/provider-fetch.js";
 
 vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
@@ -36,6 +46,17 @@ async function providerRows(credits: unknown) {
   ]);
   fakeHttp(() => reply(credits));
   return rowsFromProviderResult("openai", await openaiProvider.fetch({ config: {} } as never), 0);
+}
+
+function snapshotOf(rows: QuotaRow[]): QuotaSnapshot {
+  return {
+    version: 6,
+    providers: [{ providerId: "openai", label: "OpenAI", rows, refreshing: false, checkedAtMs: 0 }],
+    resetNotices: [],
+    generatedAtMs: 0,
+    serverId: "test",
+    revision: 1,
+  };
 }
 
 afterEach(() => {
@@ -243,6 +264,150 @@ describe("Codex credits", () => {
     },
   );
 
+  it.each([
+    ["50209.206695", "50,209"],
+    ["54034.7659980000", "54,034"],
+    ["123.99", "123"],
+    ["0", "0"],
+    ["0.25", "0"],
+    ["0.999999", "0"],
+    ["1.999", "1"],
+    ["999.999", "999"],
+    ["1000.001", "1,000"],
+    ["9007199254740993.123456789", "9,007,199,254,740,993"],
+  ])(
+    "shows balance %s as %s only in compact UI, without mutating the snapshot",
+    async (balance, expected) => {
+      const fetched = await providerRows({ balance });
+      const snapshot = snapshotOf(fetched.rows);
+      const before = structuredClone(snapshot);
+      const settings = defaultSettings();
+      const credit = fetched.rows.find((row) => row.id === "openai.codex_credits")!;
+      const full = rowValueText(credit);
+      expect(full).toContain("credits left");
+
+      const groups = pickedGroups(snapshot, settings, "statusLine", 0);
+      const status = groups.find((group) => group.row?.id === credit.id)!;
+      expect(status.row?.value).toBe(expected);
+      expect(pickedText(status, "Unchecked")).toContain("Codex credits");
+      expect(pickedText(status, "Unchecked")).not.toContain("credits left");
+      expect(groups[0]?.row?.percent).toBe(0);
+
+      for (const rows of [
+        limitCards(snapshot, displayOf(snapshot), 0).flatMap((card) => card.rows),
+        panelView(snapshot, settings, 0).groups.flatMap((group) => group.rows),
+      ]) {
+        expect(rows.find((row) => row.id === credit.id)).toMatchObject({
+          name: "Codex credits",
+          value: expected,
+        });
+      }
+
+      for (const level of ["auto", "full", "bar", "reset", "numbers"] as const) {
+        const rendered = statusLayout(statusLineInput(snapshot, settings, 0), 200, 0, level);
+        const line = rendered.shown.find((line) => lineText(line).includes("Codex credits"));
+        expect(line?.segments.find((segment) => segment.role === "value")?.text.trim()).toBe(
+          expected,
+        );
+      }
+
+      const toast = toastView(toastInput(snapshot, settings, { nowMs: 0, width: 200 }));
+      expect(
+        toast.groups.flatMap((group) => group.rows).find((row) => row.id === credit.id)?.value,
+      ).toBe(full);
+      expect(
+        plainLines({
+          groups: visibleGroups(snapshot, settings, "sidebar", settings.words),
+          words: settings.words,
+          nowMs: 0,
+        }).join("\n"),
+      ).toContain(full);
+      expect(rowValueText(credit)).toBe(full);
+      expect(snapshot).toEqual(before);
+    },
+  );
+
+  it.each([
+    { credits: null, text: "No data" },
+    { credits: { balance: "bad" }, text: "No data" },
+    { credits: { balance: "0", unlimited: true }, text: "Unlimited credits" },
+  ])("keeps $text in compact surfaces", async ({ credits, text }) => {
+    const fetched = await providerRows(credits);
+    const snapshot = snapshotOf(fetched.rows);
+    const settings = defaultSettings();
+    const status = pickedGroups(snapshot, settings, "statusLine", 0).find(
+      (group) => group.row?.id === "openai.codex_credits",
+    );
+    expect(status?.row?.value).toBe(text);
+    for (const rows of [
+      limitCards(snapshot, displayOf(snapshot), 0).flatMap((card) => card.rows),
+      panelView(snapshot, settings, 0).groups.flatMap((group) => group.rows),
+    ]) {
+      expect(rows.find((row) => row.id === "openai.codex_credits")?.value).toBe(text);
+    }
+    expect(
+      statusLayout(statusLineInput(snapshot, settings, 0), 200, 0, "full")
+        .shown.map(lineText)
+        .join(" "),
+    ).toContain(text);
+  });
+
+  const fullValueCases: { name: string; fields: Partial<QuotaRow>; expected: string }[] = [
+    {
+      name: "another balance in credits",
+      fields: { id: "other.credits" },
+      expected: "12.34 credits left",
+    },
+    { name: "a usage row", fields: { type: "usage" }, expected: "12.34 credits used" },
+    {
+      name: "a currency balance",
+      fields: { amount: { decimal: "20.5", unit: { kind: "currency", code: "USD" } } },
+      expected: "$20.50 left",
+    },
+    {
+      name: "another count unit",
+      fields: { amount: { decimal: "12.34", unit: { kind: "count", unit: "request" } } },
+      expected: "12.34 requests left",
+    },
+    {
+      name: "a custom unit",
+      fields: { amount: { decimal: "12.34", unit: { kind: "custom", symbol: "token" } } },
+      expected: "12.34 token left",
+    },
+    { name: "a missing amount", fields: { amount: undefined }, expected: "" },
+    {
+      name: "No data takes precedence over an amount",
+      fields: { text: "No data" },
+      expected: "No data",
+    },
+    {
+      name: "Unlimited takes precedence over an amount",
+      fields: { text: "Unlimited credits" },
+      expected: "Unlimited credits",
+    },
+  ];
+
+  it.each(fullValueCases)(
+    "keeps the full value for $name even with compact opt-in",
+    async ({ fields, expected }) => {
+      const fetched = await providerRows({ balance: "12.34" });
+      const credit = fetched.rows.find((row) => row.id === "openai.codex_credits")!;
+      const item = visibleRow({ ...credit, ...fields }, {});
+      const place = {
+        words: defaultSettings().words,
+        nowMs: 0,
+        names: "words",
+        percent: "number",
+      } as const;
+      expect(rowFacts(item, { rows: [item] }, { ...place, codexCredits: "compact" }).value).toBe(
+        expected,
+      );
+      expect(rowFacts(item, { rows: [item] }, place).value).toBe(expected);
+      const original = visibleRow(credit, {});
+      expect(rowFacts(original, { rows: [original] }, place).value).toBe("12.34 credits left");
+    },
+  );
+
   it("shows credits beside the weekly limit in Desktop, in credits and not dollars", async () => {
     const fetched = await providerRows({ balance: "54034.7659980000", has_credits: true });
     const snapshot = {
@@ -266,24 +431,25 @@ describe("Codex credits", () => {
     expect(groups).toHaveLength(2);
     expect(groups[0]?.row?.percent).toBe(0);
     expect(groups[1]?.title).toContain("Codex credits");
-    expect(groups[1]?.row?.value).toBe("54,034.765998 credits left");
+    expect(groups[1]?.row?.value).toBe("54,034");
     expect(groups[1]?.row?.value).not.toContain("$");
 
     const tui = statusLayout(statusLineInput(snapshot, settings, 0), 200, 0, "full");
-    expect(tui.shown.map(lineText).join(" ")).toContain("54,034.765998 credits left");
+    expect(tui.shown.map(lineText).join(" ")).toContain("Codex credits 54,034");
     expect(tui.shown.map(lineText).join(" ")).not.toContain("(Pro)");
 
     const failed = structuredClone(snapshot);
     failed.providers[0]!.error = { code: "network" };
     const staleTui = statusLayout(statusLineInput(failed, settings, 0), 200, 0, "full");
-    expect(staleTui.shown.map(lineText).join(" ")).toContain("54,034.765998 credits left");
+    expect(staleTui.shown.map(lineText).join(" ")).toContain("Codex credits 54,034");
     const staleCredit = pickedGroups(failed, settings, "statusLine", 0)[1]!;
     expect(staleCredit.error).toBeDefined();
-    expect(pickedText(staleCredit, "Unchecked")).toContain("54,034.765998 credits left");
+    expect(pickedText(staleCredit, "Unchecked")).toContain("Codex credits 54,034");
     expect(pickedText(staleCredit, "Unchecked")).toContain(staleCredit.error!);
 
     settings.sidebar.names = { "openai.codex_credits": "My credits" };
     expect(pickedGroups(snapshot, settings, "statusLine", 0)[1]?.title).toBe("My credits");
+    expect(pickedGroups(snapshot, settings, "statusLine", 0)[1]?.row?.value).toBe("54,034");
     expect(
       statusLayout(statusLineInput(snapshot, settings, 0), 200, 0, "full")
         .shown.map(lineText)
@@ -295,9 +461,13 @@ describe("Codex credits", () => {
     expect(onlyCredits).toHaveLength(1);
     expect(onlyCredits[0]?.title).toBe("My credits");
     const staleOnly = statusLineInput(failed, settings, 0);
+    expect(lineText(bigStatusLine(staleOnly, 16)!)).toContain("⚠");
     for (const width of [24, 28, 32, 36]) {
-      const narrow = lineText(bigStatusLine(staleOnly, width)!);
-      expect(narrow).toContain("⚠");
+      const narrow = bigStatusLine(staleOnly, width)!;
+      // The shorter balance may leave room for the error's words instead of its marker.
+      expect(narrow.segments.find((segment) => segment.role === "error")?.text).toMatch(
+        /[A-Za-z]|⚠/u,
+      );
     }
 
     settings.statusLine.hidden = ["openai.codex_credits"];
@@ -358,6 +528,11 @@ describe("Codex credits", () => {
           .filter((group) => group.row?.id === "openai.codex_credits")
           .map((group) => group.title),
       ).toEqual(["Codex credits (A (Pro))", "Codex credits (B (Pro))"]);
+      expect(
+        groups
+          .filter((group) => group.row?.id === "openai.codex_credits")
+          .map((group) => group.row?.value),
+      ).toEqual(["12", "56"]);
       logins[0]!.active = false;
       logins[1]!.active = true;
       clock += 60_000;
@@ -404,13 +579,13 @@ describe("Codex credits", () => {
     const input = statusLineInput(snapshot, settings, 0);
     const one = lineText(bigStatusLine(input)!);
     expect(one).toContain("OpenAI");
-    expect(one).not.toContain("123.45");
-    for (const level of ["auto", "full", "numbers"] as const) {
-      const page = statusLayout(input, 30, 0, level);
+    expect(one).not.toContain("Codex credits");
+    for (const level of ["auto", "full", "bar", "reset", "numbers"] as const) {
+      const page = statusLayout(input, 20, 0, level);
       expect(page.hiddenAfter).toBe(1);
       const next = statusLayout(input, 60, 1, level);
       expect(next.hiddenAfter).toBe(0);
-      expect(next.shown.map(lineText).join(" ")).toContain("123.45 credits left");
+      expect(next.shown.map(lineText).join(" ")).toContain("Codex credits 123");
     }
     snapshot.providers.push({
       providerId: "openrouter",

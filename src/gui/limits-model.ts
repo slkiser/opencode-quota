@@ -127,6 +127,7 @@ export function limitCards(
     nowMs,
     names: "label",
     percent: "words",
+    codexCredits: "compact",
     // "resets in" takes a time: the "percent" style's time share would read as one.
     ...(words.reset === "percent" ? { times: "short" as const } : {}),
     evenUse: display.evenUse,
