@@ -23,6 +23,13 @@ async function expectAccepted(schema: StandardSchema, value: unknown): Promise<v
   expect(result.value).toBe(value);
 }
 
+/** An omitted input is accepted as `{}`: the handler reads fields off the value it gets. */
+async function expectEmptyInput(schema: StandardSchema, value: unknown): Promise<void> {
+  const result = await validate(schema, value);
+  expect(result.issues).toBeUndefined();
+  expect(result.value).toEqual({});
+}
+
 async function expectRejected(schema: StandardSchema, value: unknown, message: string) {
   const result = await validate(schema, value);
   expect(result.issues).toEqual([{ message }]);
@@ -63,6 +70,22 @@ describe("quota RPC definition", () => {
     }
   });
 
+  it("accepts an omitted input as an empty object, as OpenCode's RPC route sends it", async () => {
+    for (const method of [
+      methods.snapshot,
+      methods.notices,
+      methods.noticeList,
+      methods.status,
+      methods.downloadPrices,
+      methods.settings,
+      methods.settingsSchema,
+    ]) {
+      await expectEmptyInput(method.input, undefined);
+    }
+    // A given value is still passed through unchanged.
+    await expectAccepted(methods.snapshot.input, { sessionID: "ses_1" });
+  });
+
   it("validates snapshot and refresh input", async () => {
     await expectAccepted(methods.snapshot.input, {});
     await expectAccepted(methods.snapshot.input, { sessionID: "session-1" });
@@ -80,6 +103,7 @@ describe("quota RPC definition", () => {
     const reasonIssue = "reason must be one of poll, turn, manual";
     await expectRejected(methods.refresh.input, [], "input must be an object");
     await expectRejected(methods.refresh.input, {}, reasonIssue);
+    await expectRejected(methods.refresh.input, undefined, reasonIssue);
     // A retry refresh is the server's own; clients can't ask for one.
     await expectRejected(methods.refresh.input, { reason: "retry" }, reasonIssue);
     await expectRejected(
@@ -101,7 +125,7 @@ describe("quota RPC definition", () => {
 
   it("validates notices input and requires a homeLine string in its output", async () => {
     await expectAccepted(methods.notices.input, {});
-    for (const value of [undefined, null, []]) {
+    for (const value of [null, []]) {
       await expectRejected(methods.notices.input, value, "input must be an object");
     }
     await expectAccepted(methods.notices.output, { homeLine: "" });
@@ -112,7 +136,7 @@ describe("quota RPC definition", () => {
 
   it("validates noticeList and status input and requires their output", async () => {
     await expectAccepted(methods.noticeList.input, {});
-    for (const input of [undefined, null, []]) {
+    for (const input of [null, []]) {
       await expectRejected(methods.noticeList.input, input, "input must be an object");
     }
     await expectAccepted(methods.noticeList.output, { notices: [] });
@@ -148,6 +172,7 @@ describe("quota RPC definition", () => {
     const rangeIssue = "range must be one of today, 24h, 7d, 30d, 90d, all, session, between";
     const cases: Array<[unknown, string]> = [
       [null, "input must be an object"],
+      [undefined, rangeIssue],
       [{}, rangeIssue],
       [{ range: "session_tree", sessionID: "ses_1" }, rangeIssue],
       [{ range: "toString" }, rangeIssue],
