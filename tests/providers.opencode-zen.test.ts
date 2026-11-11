@@ -44,16 +44,23 @@ const BUDGET_ROUTE = "policies/current-budgets";
 
 /** A funded account without a monthly limit or member budget: $42.50 balance, auto reload off. */
 const ROUTES: Record<string, unknown> = {
-  "billing/status": { balanceMicroCents: "4250000000" },
-  "billing/account": { creditLimitMicroCents: null },
+  "billing/status": {
+    balanceMicroCents: "4250000000",
+    availableMicroCents: "4250000000",
+    creditLimitMicroCents: null,
+  },
   "billing/auto-recharge": { enabled: false, thresholdDollars: 5, rechargeAmountDollars: 20 },
   [BUDGET_ROUTE]: [],
   "usage/cost-by-day": [],
 };
 
-/** A $100 credit limit with $5.75 spent this month: the fallback when no member budget is used. */
+/** A $100 credit agreement with $94.25 left ($5.75 drawn), with the ledger balance in arrears. */
 const CREDIT_LIMIT = {
-  "billing/account": { creditLimitMicroCents: "10000000000" },
+  "billing/status": {
+    balanceMicroCents: "-575000000",
+    availableMicroCents: "9425000000",
+    creditLimitMicroCents: "10000000000",
+  },
   "usage/cost-by-day": [{ date: "2026-09-24", totalCostMicroCents: "575000000" }],
 };
 
@@ -94,17 +101,33 @@ function consoleHttp(overrides: Record<string, unknown> = {}, consoleApi = CONSO
 
 const serverError = () => new Response("server error", { status: 500 });
 const NEXT_MONTH = "2026-10-01T00:00:00.000Z";
-const NO_SPEND_ROW = ["opencode.monthly", null, "Monthly", "month", "0 USD", null];
-const CREDIT_LIMIT_ROW = [
+const BALANCE_ROW = ["opencode.balance", null, "Balance", null, "42.5 USD", null];
+const RELOAD_OFF_ROW = ["opencode.auto_reload", null, "Auto reload", null, false, null];
+const RELOAD_ON_ROW = ["opencode.auto_reload", null, "Auto reload", null, true, null];
+const CREDIT_ROW = [
+  "opencode.credit",
+  null,
+  "Credit",
+  null,
+  "$5.75 drawn | $100.00 limit (5.75 USD of 100 USD)",
+  null,
+];
+const MONTHLY_60_15_ROW = [
   "opencode.monthly",
   null,
   "Monthly",
   "month",
-  "94.25 (5.75 USD of 100 USD)",
-  null,
+  "$15.00 spent | $60.00 limit (15 USD of 60 USD)",
+  NEXT_MONTH,
 ];
-const BALANCE_ROW = ["opencode.balance", null, "Balance", null, "42.5 USD", null];
-const RELOAD_OFF_ROW = ["opencode.auto_reload", null, "Auto reload", null, false, null];
+const MONTHLY_ZERO_ROW = [
+  "opencode.monthly",
+  null,
+  "Monthly",
+  "month",
+  "$0.00 spent | $0.00 limit (0 USD of 0 USD)",
+  NEXT_MONTH,
+];
 
 function errorDebug(fetched: { debug: Array<{ key: string; value: string }> }): string[] {
   return fetched.debug.filter((item) => item.key === "error").map((item) => item.value);
@@ -213,15 +236,11 @@ describe("OpenCode Zen provider", () => {
 
     const fetched = await fetchRows(opencodeZenProvider);
 
-    expect(rowSummary(fetched.rows)).toEqual([NO_SPEND_ROW, BALANCE_ROW, RELOAD_OFF_ROW]);
+    expect(rowSummary(fetched.rows)).toEqual([BALANCE_ROW, RELOAD_OFF_ROW]);
     expect(http.mock.calls.map(([url]) => url).sort()).toEqual(
-      [
-        "billing/account",
-        "billing/auto-recharge",
-        "billing/status",
-        BUDGET_ROUTE,
-        "usage/cost-by-day",
-      ].map((route) => `https://console.example.test/api/${route}`),
+      ["billing/auto-recharge", "billing/status", BUDGET_ROUTE, "usage/cost-by-day"].map(
+        (route) => `https://console.example.test/api/${route}`,
+      ),
     );
     for (const [, init] of http.mock.calls) {
       expect(requestHeader(init, "Authorization")).toBe("Bearer st_secret-token");
@@ -233,7 +252,7 @@ describe("OpenCode Zen provider", () => {
 
   it.each([
     [
-      "this month's spend when there is no limit (string micro-cents, older months left out)",
+      "only the spendable balance when there is no monthly cap, ignoring this month's spend",
       {
         "usage/cost-by-day": [
           { date: "2026-08-31", totalCostMicroCents: "900000000" },
@@ -242,41 +261,39 @@ describe("OpenCode Zen provider", () => {
         ],
       },
       {},
-      [
-        ["opencode.monthly", null, "Monthly", "month", "11.8202 USD", null],
-        BALANCE_ROW,
-        RELOAD_OFF_ROW,
-      ],
+      [BALANCE_ROW, RELOAD_OFF_ROW],
     ],
     [
-      "the credit limit as the monthly budget, with auto reload on",
+      "the available amount when it is smaller than the ledger balance",
+      {
+        "billing/status": {
+          balanceMicroCents: "4250000000",
+          availableMicroCents: "3000000000",
+        },
+      },
+      {},
+      [["opencode.balance", null, "Balance", null, "30 USD", null], RELOAD_OFF_ROW],
+    ],
+    [
+      "credit drawn against the agreement first, with auto reload on",
       {
         ...CREDIT_LIMIT,
         "billing/auto-recharge": { enabled: true, thresholdDollars: 5, rechargeAmountDollars: 20 },
       },
       {},
-      [
-        CREDIT_LIMIT_ROW,
-        BALANCE_ROW,
-        ["opencode.auto_reload", null, "Auto reload", null, true, null],
-      ],
+      [CREDIT_ROW, RELOAD_ON_ROW],
     ],
     [
-      "a member budget before the credit limit, reset when the Console says",
+      "a member budget after the credit row, reset when the Console says",
       { ...CREDIT_LIMIT, [BUDGET_ROUTE]: [budget({ limitDollars: 60, spentDollars: 15 })] },
       {},
-      [
-        [
-          "opencode.monthly",
-          null,
-          "Monthly",
-          "month",
-          "$15.00 spent | $60.00 limit (15 USD of 60 USD)",
-          NEXT_MONTH,
-        ],
-        BALANCE_ROW,
-        RELOAD_OFF_ROW,
-      ],
+      [CREDIT_ROW, MONTHLY_60_15_ROW, RELOAD_OFF_ROW],
+    ],
+    [
+      "the balance before a member budget when the account has no credit",
+      { [BUDGET_ROUTE]: [budget({ limitDollars: 60, spentDollars: 15 })] },
+      {},
+      [BALANCE_ROW, MONTHLY_60_15_ROW, RELOAD_OFF_ROW],
     ],
     [
       "the personal cap when it leaves less than the workspace cap",
@@ -295,6 +312,7 @@ describe("OpenCode Zen provider", () => {
       },
       {},
       [
+        CREDIT_ROW,
         [
           "opencode.monthly",
           null,
@@ -303,7 +321,6 @@ describe("OpenCode Zen provider", () => {
           "$3.00 spent | $30.00 limit (3 USD of 30 USD)",
           NEXT_MONTH,
         ],
-        BALANCE_ROW,
         RELOAD_OFF_ROW,
       ],
     ],
@@ -324,6 +341,7 @@ describe("OpenCode Zen provider", () => {
       },
       {},
       [
+        CREDIT_ROW,
         [
           "opencode.monthly",
           null,
@@ -332,7 +350,6 @@ describe("OpenCode Zen provider", () => {
           "$35.00 spent | $40.00 limit (35 USD of 40 USD)",
           NEXT_MONTH,
         ],
-        BALANCE_ROW,
         RELOAD_OFF_ROW,
       ],
     ],
@@ -353,6 +370,7 @@ describe("OpenCode Zen provider", () => {
       },
       {},
       [
+        CREDIT_ROW,
         [
           "opencode.monthly",
           null,
@@ -361,7 +379,6 @@ describe("OpenCode Zen provider", () => {
           "$2.44 spent | $40.00 limit (2.44 USD of 40 USD)",
           NEXT_MONTH,
         ],
-        BALANCE_ROW,
         RELOAD_OFF_ROW,
       ],
     ],
@@ -369,18 +386,7 @@ describe("OpenCode Zen provider", () => {
       "a $0 member budget as a blocking cap",
       { ...CREDIT_LIMIT, [BUDGET_ROUTE]: [budget({ limitDollars: 0, spentDollars: 0 })] },
       {},
-      [
-        [
-          "opencode.monthly",
-          null,
-          "Monthly",
-          "month",
-          "$0.00 spent | $0.00 limit (0 USD of 0 USD)",
-          NEXT_MONTH,
-        ],
-        BALANCE_ROW,
-        RELOAD_OFF_ROW,
-      ],
+      [CREDIT_ROW, MONTHLY_ZERO_ROW, RELOAD_OFF_ROW],
     ],
     [
       "a $0 per-model member budget as a blocking cap",
@@ -389,26 +395,22 @@ describe("OpenCode Zen provider", () => {
         [BUDGET_ROUTE]: [budget({ limitDollars: 0, spentDollars: 0, per: "model" })],
       },
       {},
+      [CREDIT_ROW, MONTHLY_ZERO_ROW, RELOAD_OFF_ROW],
+    ],
+    [
+      "the configured opencodeMonthlyLimit over the credit row",
+      CREDIT_LIMIT,
+      { opencodeMonthlyLimit: 200 },
       [
+        CREDIT_ROW,
         [
           "opencode.monthly",
           null,
           "Monthly",
           "month",
-          "$0.00 spent | $0.00 limit (0 USD of 0 USD)",
-          NEXT_MONTH,
+          "$5.75 spent | $200.00 limit (5.75 USD of 200 USD)",
+          null,
         ],
-        BALANCE_ROW,
-        RELOAD_OFF_ROW,
-      ],
-    ],
-    [
-      "the configured opencodeMonthlyLimit over the credit limit",
-      CREDIT_LIMIT,
-      { opencodeMonthlyLimit: 200 },
-      [
-        ["opencode.monthly", null, "Monthly", "month", "97.125 (5.75 USD of 200 USD)", null],
-        BALANCE_ROW,
         RELOAD_OFF_ROW,
       ],
     ],
@@ -446,35 +448,31 @@ describe("OpenCode Zen provider", () => {
     ["a missing spend", [budget({ spentDollars: undefined })]],
     ["an unknown coverage", [budget({ coverage: "some" })]],
   ])(
-    "uses the credit limit without an error for a member budget with %s",
+    "shows no monthly cap without an error for a member budget with %s",
     async (_name, budgets) => {
       world.storeLogins([consoleLogin()]);
       consoleHttp({ ...CREDIT_LIMIT, [BUDGET_ROUTE]: budgets });
 
       const fetched = await fetchRows(opencodeZenProvider);
 
-      expect(rowSummary(fetched.rows)).toEqual([CREDIT_LIMIT_ROW, BALANCE_ROW, RELOAD_OFF_ROW]);
+      expect(rowSummary(fetched.rows)).toEqual([CREDIT_ROW, RELOAD_OFF_ROW]);
       expect(fetched.error).toBeUndefined();
-      expect(fetched.debug).toEqual(
-        expect.arrayContaining([
-          { key: "budget_source", value: "credit_limit" },
-          {
-            key: "member_budget_note",
-            value:
-              "member budgets found, but none can be used as the monthly cap (model filters, per-model limits, or missing amounts); using the credit limit",
-          },
-        ]),
-      );
+      expect(fetched.debug).toContainEqual({
+        key: "member_budget_note",
+        value:
+          "member budgets found, but none can be used as the monthly cap (model filters, per-model limits, or missing amounts); no monthly cap is shown",
+      });
+      expect(fetched.debug.map((item) => item.key)).not.toContain("budget_source");
     },
   );
 
-  it("uses the credit limit quietly for a member without budgets", async () => {
+  it("shows only the credit drawn for a member without budgets", async () => {
     world.storeLogins([consoleLogin()]);
     consoleHttp(CREDIT_LIMIT);
 
     const fetched = await fetchRows(opencodeZenProvider);
 
-    expect(rowSummary(fetched.rows)).toEqual([CREDIT_LIMIT_ROW, BALANCE_ROW, RELOAD_OFF_ROW]);
+    expect(rowSummary(fetched.rows)).toEqual([CREDIT_ROW, RELOAD_OFF_ROW]);
     expect(fetched.error).toBeUndefined();
     expect(fetched.debug.map((item) => item.key)).not.toContain("member_budget_note");
   });
@@ -506,6 +504,24 @@ describe("OpenCode Zen provider", () => {
 
     expect(fetched.rows.find((row) => row.id === "opencode.monthly")?.resetsAt).toBe(
       "2026-10-15T00:00:00.000Z",
+    );
+  });
+
+  it("says why the last auto reload failed, on the auto reload row", async () => {
+    world.storeLogins([consoleLogin()]);
+    consoleHttp({
+      "billing/auto-recharge": {
+        enabled: true,
+        thresholdDollars: 5,
+        rechargeAmountDollars: 20,
+        failureReason: "card_declined",
+      },
+    });
+
+    const fetched = await fetchRows(opencodeZenProvider);
+
+    expect(fetched.rows.find((row) => row.id === "opencode.auto_reload")?.text).toBe(
+      "Auto reload failed: card_declined",
     );
   });
 
@@ -557,27 +573,30 @@ describe("OpenCode Zen provider", () => {
     expect(monthly?.remaining).toBeUndefined();
   });
 
-  it("keeps a credit limit as spendable money, with the balance supplementary", async () => {
+  it("shows a credit agreement as drawn money, with no window and no reset", async () => {
     world.storeLogins([consoleLogin()]);
     consoleHttp(CREDIT_LIMIT);
 
     const fetched = await fetchRows(opencodeZenProvider);
-    const [monthly, balance] = fetched.rows;
+    const [credit] = fetched.rows;
 
-    expect(monthly).toMatchObject({
-      id: "opencode.monthly",
+    expect(credit).toMatchObject({
+      id: "opencode.credit",
+      label: "Credit",
       type: "budget",
-      percentRemaining: 94.25,
+      prominence: "primary",
       used: { decimal: "5.75" },
       limit: { decimal: "100" },
-      remaining: { decimal: "94.25" },
+      text: "$5.75 drawn | $100.00 limit",
     });
-    expect(monthly?.resetsAt).toBeUndefined();
-    expect(monthly?.text).toBeUndefined();
-    expect(balance).toMatchObject({ id: "opencode.balance", prominence: "supplementary" });
+    expect(credit?.window).toBeUndefined();
+    expect(credit?.resetsAt).toBeUndefined();
+    expect(credit?.percentRemaining).toBeUndefined();
+    expect(credit?.remaining).toBeUndefined();
+    expect(fetched.rows.map((row) => row.id)).toEqual(["opencode.credit", "opencode.auto_reload"]);
   });
 
-  it("shows this month's spend without a limit, with the balance primary", async () => {
+  it("keeps the balance primary when there is no monthly cap", async () => {
     world.storeLogins([consoleLogin()]);
     consoleHttp({
       "usage/cost-by-day": [{ date: "2026-09-24", totalCostMicroCents: 575_000_000 }],
@@ -585,12 +604,8 @@ describe("OpenCode Zen provider", () => {
 
     const fetched = await fetchRows(opencodeZenProvider);
 
-    expect(rowSummary(fetched.rows)).toEqual([
-      ["opencode.monthly", null, "Monthly", "month", "5.75 USD", null],
-      BALANCE_ROW,
-      RELOAD_OFF_ROW,
-    ]);
-    expect(fetched.rows[1]).toMatchObject({ id: "opencode.balance", prominence: "primary" });
+    expect(rowSummary(fetched.rows)).toEqual([BALANCE_ROW, RELOAD_OFF_ROW]);
+    expect(fetched.rows[0]).toMatchObject({ id: "opencode.balance", prominence: "primary" });
   });
 
   it.each([
@@ -605,23 +620,23 @@ describe("OpenCode Zen provider", () => {
       ],
     ],
     [
-      "a failed budget route, falling back to the credit limit",
+      "a failed budget route, keeping the credit row",
       { ...CREDIT_LIMIT, [BUDGET_ROUTE]: serverError },
-      [CREDIT_LIMIT_ROW, BALANCE_ROW, RELOAD_OFF_ROW],
+      [CREDIT_ROW, RELOAD_OFF_ROW],
       "provider_error",
       ["OpenCode Console policies/current-budgets error 500"],
     ],
     [
-      "a forbidden budget route, falling back to the credit limit",
+      "a forbidden budget route, keeping the credit row",
       { ...CREDIT_LIMIT, [BUDGET_ROUTE]: () => new Response("forbidden", { status: 403 }) },
-      [CREDIT_LIMIT_ROW, BALANCE_ROW, RELOAD_OFF_ROW],
+      [CREDIT_ROW, RELOAD_OFF_ROW],
       "provider_error",
       ["OpenCode Console policies/current-budgets error 403"],
     ],
     [
-      "a budget reply that is not a list, falling back to the credit limit",
+      "a budget reply that is not a list, keeping the credit row",
       { ...CREDIT_LIMIT, [BUDGET_ROUTE]: { budgets: [] } },
-      [CREDIT_LIMIT_ROW, BALANCE_ROW, RELOAD_OFF_ROW],
+      [CREDIT_ROW, RELOAD_OFF_ROW],
       "bad_response",
       ["Could not parse OpenCode Console policies/current-budgets response"],
     ],
@@ -643,7 +658,7 @@ describe("OpenCode Zen provider", () => {
 
     const fetched = await fetchRows(opencodeZenProvider);
 
-    expect(rowSummary(fetched.rows)).toEqual([CREDIT_LIMIT_ROW, BALANCE_ROW, RELOAD_OFF_ROW]);
+    expect(rowSummary(fetched.rows)).toEqual([CREDIT_ROW, RELOAD_OFF_ROW]);
     expect(fetched.error).toBeUndefined();
     expect(http.mock.calls.map(([url]) => url)).toContain(`${CONSOLE_API}/${BUDGET_ROUTE}`);
   });
@@ -660,7 +675,7 @@ describe("OpenCode Zen provider", () => {
 
     const fetched = await fetchRows(opencodeZenProvider);
 
-    expect(rowSummary(fetched.rows)).toEqual([CREDIT_LIMIT_ROW, BALANCE_ROW, RELOAD_OFF_ROW]);
+    expect(rowSummary(fetched.rows)).toEqual([CREDIT_ROW, RELOAD_OFF_ROW]);
     expect(errorDebug(fetched)).toEqual([
       "OpenCode Zen: Could not parse OpenCode Console policies/current-budgets response",
     ]);
@@ -712,6 +727,12 @@ describe("OpenCode Zen provider", () => {
     [
       "an unreadable balance",
       { "billing/status": { balanceMicroCents: "lots" } },
+      "bad_response",
+      "Could not parse OpenCode Console billing/status response",
+    ],
+    [
+      "an unreadable available amount",
+      { "billing/status": { balanceMicroCents: "100", availableMicroCents: "lots" } },
       "bad_response",
       "Could not parse OpenCode Console billing/status response",
     ],

@@ -1171,7 +1171,7 @@ const DEBUG_DETAILS = {
   },
   opencode: {
     console_auth_state: oneOf(...CONSOLE_AUTH_STATES),
-    budget_source: oneOf("member_budget", "credit_limit"),
+    budget_source: oneOf("member_budget"),
     member_budget_note: oneOf(MEMBER_BUDGET_NOTE),
     auto_reload: bool,
   },

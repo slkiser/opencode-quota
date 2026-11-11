@@ -17,47 +17,37 @@ const SESSION_ERROR =
  */
 export const OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR = 100_000_000;
 
-/**
- * Where the monthly limit and usage come from: the budgets the Console reports for the
- * signed-in account (policies/current-budgets), or the credit limit (billing/account)
- * plus this month's usage costs (usage/cost-by-day).
- */
-type OpenCodeZenBudgetSource = "member_budget" | "credit_limit";
-
 /** The /quota_status note when the Console has budgets but none can be the monthly cap. */
 export const MEMBER_BUDGET_NOTE =
-  "member budgets found, but none can be used as the monthly cap (model filters, per-model limits, or missing amounts); using the credit limit";
+  "member budgets found, but none can be used as the monthly cap (model filters, per-model limits, or missing amounts); no monthly cap is shown";
 
 interface OpenCodeZenBillingData {
-  balance: number;
+  /** Money the Console lets the account spend now, in USD: the balance, or the credit left under an agreement. */
+  available: number;
   /**
    * The Console credit line in USD; null when it grants none, which leaves the balance as the
    * account's only money.
    */
   creditLimit: number | null;
   /**
-   * Monthly limit in USD from `budgetSource`: null when there is no limit or its route
+   * Monthly limit in USD from a Console member budget: null when there is none or its route
    * failed. A member budget of $0 is a real blocking limit, not an absence.
    */
   monthlyLimit: number | null;
-  /** Current-month usage in billing units from `budgetSource`; null when its route failed. */
+  /** Current-month usage in billing units: a member budget's own spend, else the cost-by-day sum; null when neither is known. */
   monthlyUsage: number | null;
-  lastPayment: number | null;
   /** Auto-reload state; null (unknown) when billing/auto-recharge failed. */
   reload: boolean | null;
   reloadAmount: number | null;
   reloadTrigger: number | null;
+  /** Why the Console says the last auto-reload failed; null when it reports none. */
+  reloadFailure: string | null;
   /**
    * Member-budget reset ISO timestamp: the start of the next UTC month, because Console
    * monthly budgets run per UTC calendar month. Null for the credit limit.
    */
   budgetResetIso: string | null;
-  budgetSource: OpenCodeZenBudgetSource;
-  /**
-   * True when the Console reports budgets but none of them can be used as the monthly
-   * cap (a model filter, a per-model limit, a missing amount). The credit-limit
-   * fallback applies then.
-   */
+  /** True when the Console reports budgets but none of them can be used as the monthly cap. */
   memberBudgetsSkipped: boolean;
 }
 
@@ -71,7 +61,6 @@ type OpenCodeZenResult =
 
 type ConsoleRoute =
   | "billing/status"
-  | "billing/account"
   | "billing/auto-recharge"
   | "policies/current-budgets"
   | "usage/cost-by-day";
@@ -100,27 +89,36 @@ function parseDollars(value: unknown): number | null {
   return invalidResponse();
 }
 
-/** A nullable micro-cent field: null stays null; a missing or malformed value is invalid. */
-function parseNullableMicroCents(value: unknown): number | null {
-  if (value === null) return null;
+/** A micro-cent field the Console may omit or send as null: both mean "not set". */
+function parseOptionalMicroCents(value: unknown): number | null {
+  if (value === undefined || value === null) return null;
   const parsed = parseMicroCents(value);
   return parsed === null ? invalidResponse() : parsed;
 }
 
-function parseBalance(json: unknown): number {
-  const balance = parseMicroCents(asRecord(json)?.balanceMicroCents);
-  return balance === null ? invalidResponse() : Math.max(0, balance);
-}
-
-/** Returns the credit limit in USD, or null when the account has no limit. */
-function parseCreditLimit(json: unknown): number | null {
-  const limit = parseNullableMicroCents(asRecord(json)?.creditLimitMicroCents);
-  return limit === null ? null : limit / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
+/**
+ * Money the account can spend now and its credit line, in USD, from billing/status.
+ *
+ * `availableMicroCents` is the number to spend: the prepaid balance, or the credit left
+ * under an agreement. The ledger balance is only the fallback, because an account whose
+ * billing/status omits the available amount can spend its balance, and in a prepaid
+ * account the two are equal.
+ */
+function parseBillingStatus(json: unknown): { available: number; creditLimit: number | null } {
+  const record = asRecord(json);
+  const balance = parseMicroCents(record?.balanceMicroCents);
+  if (balance === null) return invalidResponse();
+  const available = parseOptionalMicroCents(record?.availableMicroCents) ?? balance;
+  const creditLimit = parseOptionalMicroCents(record?.creditLimitMicroCents);
+  return {
+    available: Math.max(0, available) / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR,
+    creditLimit: creditLimit === null ? null : creditLimit / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR,
+  };
 }
 
 function parseAutoRecharge(
   json: unknown,
-): Pick<OpenCodeZenBillingData, "reload" | "reloadAmount" | "reloadTrigger"> {
+): Pick<OpenCodeZenBillingData, "reload" | "reloadAmount" | "reloadTrigger" | "reloadFailure"> {
   const autoRecharge = asRecord(json);
   if (!autoRecharge || typeof autoRecharge.enabled !== "boolean") return invalidResponse();
 
@@ -128,6 +126,10 @@ function parseAutoRecharge(
     reload: autoRecharge.enabled,
     reloadAmount: parseDollars(autoRecharge.rechargeAmountDollars),
     reloadTrigger: parseDollars(autoRecharge.thresholdDollars),
+    reloadFailure:
+      typeof autoRecharge.failureReason === "string" && autoRecharge.failureReason.trim()
+        ? autoRecharge.failureReason
+        : null,
   };
 }
 
@@ -331,9 +333,8 @@ export async function queryOpenCodeZenQuota(
     timeoutMs: options.requestTimeoutMs ?? CONSOLE_TIMEOUT_MS,
   };
   const now = new Date();
-  const [balance, creditLimit, autoRecharge, budgets, monthlyUsage] = await Promise.all([
-    fetchConsoleRoute({ ...request, route: "billing/status", parse: parseBalance }),
-    fetchConsoleRoute({ ...request, route: "billing/account", parse: parseCreditLimit }),
+  const [billing, autoRecharge, budgets, monthlyUsage] = await Promise.all([
+    fetchConsoleRoute({ ...request, route: "billing/status", parse: parseBillingStatus }),
     fetchConsoleRoute({ ...request, route: "billing/auto-recharge", parse: parseAutoRecharge }),
     fetchCurrentBudgets(request),
     fetchConsoleRoute({
@@ -343,19 +344,18 @@ export async function queryOpenCodeZenQuota(
     }),
   ]);
 
-  const optional = [creditLimit, autoRecharge, budgets, monthlyUsage];
-  if ([balance, ...optional].some((result) => !result.success && result.error === SESSION_ERROR)) {
+  const optional = [autoRecharge, budgets, monthlyUsage];
+  if ([billing, ...optional].some((result) => !result.success && result.error === SESSION_ERROR)) {
     return { success: false, error: SESSION_ERROR };
   }
-  if (!balance.success) return balance;
+  if (!billing.success) return billing;
 
-  // Prefer a member budget ($0 included: it blocks). Otherwise (no member budgets, budgets
-  // that cannot all be evaluated, or a failed member route) fall back to the credit limit
-  // plus this month's usage costs.
-  let monthlyLimit = creditLimit.success ? creditLimit.data : null;
+  // The monthly cap is only a Console member budget ($0 included: it blocks). A credit limit
+  // is an agreement on the money, not a monthly allowance, so it never supplies the cap.
+  let monthlyLimit: number | null = null;
   let usage = monthlyUsage.success ? monthlyUsage.data : null;
   let budgetResetIso: string | null = null;
-  let budgetSource: OpenCodeZenBudgetSource = "credit_limit";
+
   let memberBudgetsSkipped = false;
   if (budgets.success) {
     const { limitMicroCents, spentMicroCents, hasBudgets, resetsAtIso } = budgets.data;
@@ -363,7 +363,6 @@ export async function queryOpenCodeZenQuota(
       monthlyLimit = limitMicroCents / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
       usage = spentMicroCents;
       budgetResetIso = resetsAtIso ?? nextUtcMonthStartIso(now);
-      budgetSource = "member_budget";
     } else if (hasBudgets) {
       memberBudgetsSkipped = true;
     }
@@ -372,16 +371,15 @@ export async function queryOpenCodeZenQuota(
   return {
     success: true,
     data: {
-      balance: balance.data,
-      creditLimit: creditLimit.success ? creditLimit.data : null,
+      available: billing.data.available,
+      creditLimit: billing.data.creditLimit,
       monthlyLimit,
       monthlyUsage: usage,
-      lastPayment: null,
       ...(autoRecharge.success
         ? autoRecharge.data
-        : { reload: null, reloadAmount: null, reloadTrigger: null }),
+        : { reload: null, reloadAmount: null, reloadTrigger: null, reloadFailure: null }),
       budgetResetIso,
-      budgetSource,
+
       memberBudgetsSkipped,
     },
     errors: optional.flatMap((result) => (result.success ? [] : [result.error])),

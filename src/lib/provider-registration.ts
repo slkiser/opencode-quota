@@ -249,7 +249,7 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     label: "OpenCode Zen",
     runtimeIds: ["opencode", "opencode-zen"],
     synonyms: ["opencode-zen"],
-    rowKeys: ["monthly", "balance", "auto_reload"],
+    rowKeys: ["monthly", "balance", "credit", "auto_reload"],
   },
   {
     id: "ollama-cloud",
