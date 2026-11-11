@@ -31,6 +31,11 @@ export const MEMBER_BUDGET_NOTE =
 interface OpenCodeZenBillingData {
   balance: number;
   /**
+   * The Console credit line in USD; null when it grants none, which leaves the balance as the
+   * account's only money.
+   */
+  creditLimit: number | null;
+  /**
    * Monthly limit in USD from `budgetSource`: null when there is no limit or its route
    * failed. A member budget of $0 is a real blocking limit, not an absence.
    */
@@ -368,6 +373,7 @@ export async function queryOpenCodeZenQuota(
     success: true,
     data: {
       balance: balance.data,
+      creditLimit: creditLimit.success ? creditLimit.data : null,
       monthlyLimit,
       monthlyUsage: usage,
       lastPayment: null,

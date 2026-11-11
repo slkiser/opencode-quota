@@ -266,7 +266,14 @@ describe("OpenCode Zen provider", () => {
       { ...CREDIT_LIMIT, [BUDGET_ROUTE]: [budget({ limitDollars: 60, spentDollars: 15 })] },
       {},
       [
-        ["opencode.monthly", null, "Monthly", "month", "75 (15 USD of 60 USD)", NEXT_MONTH],
+        [
+          "opencode.monthly",
+          null,
+          "Monthly",
+          "month",
+          "$15.00 spent | $60.00 limit (15 USD of 60 USD)",
+          NEXT_MONTH,
+        ],
         BALANCE_ROW,
         RELOAD_OFF_ROW,
       ],
@@ -288,7 +295,14 @@ describe("OpenCode Zen provider", () => {
       },
       {},
       [
-        ["opencode.monthly", null, "Monthly", "month", "90 (3 USD of 30 USD)", NEXT_MONTH],
+        [
+          "opencode.monthly",
+          null,
+          "Monthly",
+          "month",
+          "$3.00 spent | $30.00 limit (3 USD of 30 USD)",
+          NEXT_MONTH,
+        ],
         BALANCE_ROW,
         RELOAD_OFF_ROW,
       ],
@@ -310,7 +324,14 @@ describe("OpenCode Zen provider", () => {
       },
       {},
       [
-        ["opencode.monthly", null, "Monthly", "month", "12.5 (35 USD of 40 USD)", NEXT_MONTH],
+        [
+          "opencode.monthly",
+          null,
+          "Monthly",
+          "month",
+          "$35.00 spent | $40.00 limit (35 USD of 40 USD)",
+          NEXT_MONTH,
+        ],
         BALANCE_ROW,
         RELOAD_OFF_ROW,
       ],
@@ -332,30 +353,51 @@ describe("OpenCode Zen provider", () => {
       },
       {},
       [
-        ["opencode.monthly", null, "Monthly", "month", "93.9 (2.44 USD of 40 USD)", NEXT_MONTH],
+        [
+          "opencode.monthly",
+          null,
+          "Monthly",
+          "month",
+          "$2.44 spent | $40.00 limit (2.44 USD of 40 USD)",
+          NEXT_MONTH,
+        ],
         BALANCE_ROW,
         RELOAD_OFF_ROW,
       ],
     ],
     [
-      "a $0 member budget as a blocking 0% budget",
+      "a $0 member budget as a blocking cap",
       { ...CREDIT_LIMIT, [BUDGET_ROUTE]: [budget({ limitDollars: 0, spentDollars: 0 })] },
       {},
       [
-        ["opencode.monthly", null, "Monthly", "month", "0 (0 USD of 0 USD)", NEXT_MONTH],
+        [
+          "opencode.monthly",
+          null,
+          "Monthly",
+          "month",
+          "$0.00 spent | $0.00 limit (0 USD of 0 USD)",
+          NEXT_MONTH,
+        ],
         BALANCE_ROW,
         RELOAD_OFF_ROW,
       ],
     ],
     [
-      "a $0 per-model member budget as a blocking 0% budget",
+      "a $0 per-model member budget as a blocking cap",
       {
         ...CREDIT_LIMIT,
         [BUDGET_ROUTE]: [budget({ limitDollars: 0, spentDollars: 0, per: "model" })],
       },
       {},
       [
-        ["opencode.monthly", null, "Monthly", "month", "0 (0 USD of 0 USD)", NEXT_MONTH],
+        [
+          "opencode.monthly",
+          null,
+          "Monthly",
+          "month",
+          "$0.00 spent | $0.00 limit (0 USD of 0 USD)",
+          NEXT_MONTH,
+        ],
         BALANCE_ROW,
         RELOAD_OFF_ROW,
       ],
@@ -447,7 +489,9 @@ describe("OpenCode Zen provider", () => {
 
     const fetched = await fetchRows(opencodeZenProvider);
 
-    expect(fetched.rows[0]?.resetsAt).toBe("2027-01-01T00:00:00.000Z");
+    expect(fetched.rows.find((row) => row.id === "opencode.monthly")?.resetsAt).toBe(
+      "2027-01-01T00:00:00.000Z",
+    );
   });
 
   it("resets a member budget when the Console gives the reset time", async () => {
@@ -460,7 +504,93 @@ describe("OpenCode Zen provider", () => {
 
     const fetched = await fetchRows(opencodeZenProvider);
 
-    expect(fetched.rows[0]?.resetsAt).toBe("2026-10-15T00:00:00.000Z");
+    expect(fetched.rows.find((row) => row.id === "opencode.monthly")?.resetsAt).toBe(
+      "2026-10-15T00:00:00.000Z",
+    );
+  });
+
+  it("shows a member budget as spend against a cap, with the balance first", async () => {
+    world.storeLogins([consoleLogin()]);
+    consoleHttp({
+      "billing/status": { balanceMicroCents: "0" },
+      [BUDGET_ROUTE]: [budget({ limitDollars: 60, spentDollars: 15 })],
+    });
+
+    const fetched = await fetchRows(opencodeZenProvider);
+    const [balance, monthly] = fetched.rows;
+
+    expect(balance).toMatchObject({
+      id: "opencode.balance",
+      type: "balance",
+      prominence: "primary",
+      amount: { decimal: "0", unit: { kind: "currency", code: "USD" } },
+    });
+    expect(monthly).toMatchObject({
+      id: "opencode.monthly",
+      type: "budget",
+      used: { decimal: "15", unit: { kind: "currency", code: "USD" } },
+      limit: { decimal: "60", unit: { kind: "currency", code: "USD" } },
+      text: "$15.00 spent | $60.00 limit",
+      resetsAt: NEXT_MONTH,
+    });
+    expect(monthly?.percentRemaining).toBeUndefined();
+    expect(monthly?.remaining).toBeUndefined();
+    expect(fetched.rows.map((row) => row.id)).toEqual([
+      "opencode.balance",
+      "opencode.monthly",
+      "opencode.auto_reload",
+    ]);
+  });
+
+  it("shows a $0 member budget as a blocking cap, not as 0% of quota", async () => {
+    world.storeLogins([consoleLogin()]);
+    consoleHttp({
+      ...CREDIT_LIMIT,
+      [BUDGET_ROUTE]: [budget({ limitDollars: 0, spentDollars: 0 })],
+    });
+
+    const fetched = await fetchRows(opencodeZenProvider);
+    const monthly = fetched.rows.find((row) => row.id === "opencode.monthly");
+
+    expect(monthly).toMatchObject({ text: "$0.00 spent | $0.00 limit" });
+    expect(monthly?.percentRemaining).toBeUndefined();
+    expect(monthly?.remaining).toBeUndefined();
+  });
+
+  it("keeps a credit limit as spendable money, with the balance supplementary", async () => {
+    world.storeLogins([consoleLogin()]);
+    consoleHttp(CREDIT_LIMIT);
+
+    const fetched = await fetchRows(opencodeZenProvider);
+    const [monthly, balance] = fetched.rows;
+
+    expect(monthly).toMatchObject({
+      id: "opencode.monthly",
+      type: "budget",
+      percentRemaining: 94.25,
+      used: { decimal: "5.75" },
+      limit: { decimal: "100" },
+      remaining: { decimal: "94.25" },
+    });
+    expect(monthly?.resetsAt).toBeUndefined();
+    expect(monthly?.text).toBeUndefined();
+    expect(balance).toMatchObject({ id: "opencode.balance", prominence: "supplementary" });
+  });
+
+  it("shows this month's spend without a limit, with the balance primary", async () => {
+    world.storeLogins([consoleLogin()]);
+    consoleHttp({
+      "usage/cost-by-day": [{ date: "2026-09-24", totalCostMicroCents: 575_000_000 }],
+    });
+
+    const fetched = await fetchRows(opencodeZenProvider);
+
+    expect(rowSummary(fetched.rows)).toEqual([
+      ["opencode.monthly", null, "Monthly", "month", "5.75 USD", null],
+      BALANCE_ROW,
+      RELOAD_OFF_ROW,
+    ]);
+    expect(fetched.rows[1]).toMatchObject({ id: "opencode.balance", prominence: "primary" });
   });
 
   it.each([

@@ -1,4 +1,5 @@
 import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
+import { fmtUsdAmount } from "../lib/format-utils.js";
 import {
   consoleLoginIdentity,
   consoleSignInFailure,
@@ -127,37 +128,62 @@ export const opencodeZenProvider: QuotaProvider = {
       Number.isFinite(effectiveMonthlyLimit) &&
       (effectiveMonthlyLimit > 0 || zeroBudgetActive) &&
       hasMonthlyUsage;
-    const rows: ProviderRow[] = [];
+    // A Console member budget is a policy cap on the month's spend, not money, so it shows spend
+    // against the cap instead of a bar that reads as quota left. The balance leads when it is the
+    // account's only money, which is the case with no credit line behind the cap.
+    const capOnly = hasMonthlyBudget && data.budgetSource === "member_budget";
+    const balanceLeads = capOnly && data.creditLimit === null;
 
+    let monthlyRow: ProviderRow | null = null;
     if (hasMonthlyBudget) {
-      const monthlyRemainingUsd = Math.max(0, effectiveMonthlyLimit - monthlyUsageUsd);
-      rows.push({
-        ...MONTHLY,
-        ...ZEN_ROW,
-        type: "budget",
-        authority: "locally_derived",
-        percentRemaining:
-          effectiveMonthlyLimit > 0
-            ? Math.min(100, (monthlyRemainingUsd / effectiveMonthlyLimit) * 100)
-            : 0,
-        used: usd(monthlyUsageUsd),
-        limit: usd(effectiveMonthlyLimit),
-        remaining: usd(monthlyRemainingUsd),
-        ...(data.budgetResetIso ? { resetsAt: data.budgetResetIso } : {}),
-      });
+      const reset = data.budgetResetIso ? { resetsAt: data.budgetResetIso } : {};
+      if (capOnly) {
+        // The text says "spent | limit", never "$X left": a cap is not a balance to spend.
+        monthlyRow = {
+          ...MONTHLY,
+          ...ZEN_ROW,
+          type: "budget",
+          authority: "locally_derived",
+          used: usd(monthlyUsageUsd),
+          limit: usd(effectiveMonthlyLimit),
+          text: `${fmtUsdAmount(monthlyUsageUsd)} spent | ${fmtUsdAmount(effectiveMonthlyLimit)} limit`,
+          ...reset,
+        };
+      } else {
+        const monthlyRemainingUsd = Math.max(0, effectiveMonthlyLimit - monthlyUsageUsd);
+        monthlyRow = {
+          ...MONTHLY,
+          ...ZEN_ROW,
+          type: "budget",
+          authority: "locally_derived",
+          percentRemaining:
+            effectiveMonthlyLimit > 0
+              ? Math.min(100, (monthlyRemainingUsd / effectiveMonthlyLimit) * 100)
+              : 0,
+          used: usd(monthlyUsageUsd),
+          limit: usd(effectiveMonthlyLimit),
+          remaining: usd(monthlyRemainingUsd),
+          ...reset,
+        };
+      }
     } else if (hasMonthlyUsage) {
       // No limit to measure against: still show this month's real spend.
-      rows.push({ ...MONTHLY, ...ZEN_ROW, type: "usage", amount: usd(monthlyUsageUsd) });
+      monthlyRow = { ...MONTHLY, ...ZEN_ROW, type: "usage", amount: usd(monthlyUsageUsd) };
     }
 
-    rows.push({
+    const rows: ProviderRow[] = [];
+    const balanceRow: ProviderRow = {
       ...ZEN_ROW,
       key: "balance",
       label: "Balance",
       type: "balance",
-      prominence: hasMonthlyBudget ? "supplementary" : "primary",
+      prominence: balanceLeads ? "primary" : hasMonthlyBudget ? "supplementary" : "primary",
       amount: usd(balanceUsd),
-    });
+    };
+    // The collapsed line shows the first row, so a spend cap goes after the money.
+    if (monthlyRow && !balanceLeads) rows.push(monthlyRow);
+    rows.push(balanceRow);
+    if (monthlyRow && balanceLeads) rows.push(monthlyRow);
     if (data.reload !== null) {
       rows.push({
         ...ZEN_ROW,
