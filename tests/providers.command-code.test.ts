@@ -25,7 +25,7 @@ function storedKey() {
   world.storeLogins([keyLogin("command", "commandcode", "fixture-key")]);
 }
 
-it.each([null, { id: "org /?&" }])("reads both rows for account org=%j", async (org) => {
+it.each([undefined, null, { id: "org /?&" }])("reads both rows for account org=%j", async (org) => {
   storedKey();
   const http = fakeHttp((url) => (url.includes("whoami") ? { success: true, org } : CREDITS));
   await expect(provider.isAvailable(ctx as never)).resolves.toBe(true);
@@ -85,6 +85,24 @@ it.each([undefined, null, 0])("omits a window with cap=%s", async (cap) => {
   expect(fetched.error).toBeUndefined();
   expect(fetched.rows.map((row) => row.id)).toEqual(["commandcode.weekly"]);
 });
+
+it.each([undefined, null])(
+  "shows a window without a reset time for resetAt=%s",
+  async (resetAt) => {
+    storedKey();
+    fakeHttp((url) =>
+      url.includes("whoami")
+        ? { success: true, org: null }
+        : { windowLimits: { fiveHour: { ...FIVE, resetAt }, weekly: WEEK } },
+    );
+    const fetched = await fetchRows(provider);
+    expect(fetched.error).toBeUndefined();
+    expect(fetched.rows.map((row) => [row.id, row.resetsAt])).toEqual([
+      ["commandcode.five_hour", undefined],
+      ["commandcode.weekly", "2026-11-20T00:00:00.000Z"],
+    ]);
+  },
+);
 
 it.each([
   { endpoint: "whoami", reply: () => new Response("{broken") },

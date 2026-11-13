@@ -471,7 +471,7 @@ Quota checks `google-gemini-cli` when it finds it.
 
 ### Command Code
 
-Shows the GOAT plan's **5h** and **Weekly** quota and reset times. Uses the `commandcode` key saved in OpenCode, or see [API keys](#api-keys). Organization logins read that organization's limits.
+Shows the **5h** and **Weekly** quota and reset times. Uses the `commandcode` key saved in OpenCode, or see [API keys](#api-keys). Organization logins read that organization's limits.
 
 <a id="deepseek"></a>
 

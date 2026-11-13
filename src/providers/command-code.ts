@@ -48,7 +48,7 @@ async function queryCommandCode(
       throw new Error("Command Code whoami returned an unexpected response shape");
     }
     const orgId = isRecord(identity.org) ? nonEmptyString(identity.org.id) : undefined;
-    if (identity.org !== null && !orgId) {
+    if (identity.org !== undefined && identity.org !== null && !orgId) {
       throw new Error("Command Code whoami returned an invalid org");
     }
     const query = orgId ? `?${new URLSearchParams({ orgId })}` : "";
@@ -67,14 +67,14 @@ async function queryCommandCode(
       if (value.cap === undefined || value.cap === null || value.cap === 0) continue;
       const cap = finiteNumber(value.cap);
       const used = finiteNumber(value.used);
-      const resetAt = finiteNumber(value.resetAt);
+      const hasReset = value.resetAt !== undefined && value.resetAt !== null;
+      const resetAt = hasReset ? finiteNumber(value.resetAt) : undefined;
       if (
         cap === undefined ||
         cap < 0 ||
         used === undefined ||
         used < 0 ||
-        resetAt === undefined ||
-        !Number.isFinite(new Date(resetAt).getTime())
+        (hasReset && (resetAt === undefined || !Number.isFinite(new Date(resetAt).getTime())))
       ) {
         throw new Error(`Command Code ${field} returned an invalid window`);
       }
@@ -82,7 +82,7 @@ async function queryCommandCode(
         quotaRow({
           ...slot,
           percentRemaining: clampPercent(((cap - used) / cap) * 100),
-          resetsAt: new Date(resetAt).toISOString(),
+          ...(resetAt === undefined ? {} : { resetsAt: new Date(resetAt).toISOString() }),
         }),
       );
     }
