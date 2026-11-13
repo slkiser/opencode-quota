@@ -494,7 +494,7 @@ describe("quota store", () => {
 
   it.each([
     ["successful check", undefined, 30 * SECOND],
-    ["failure backoff", { code: "network" }, MINUTE],
+    ["failure backoff", { code: "network" }, 5 * MINUTE],
     ["rate limit", { code: "rate_limited", retryAtMs: START_MS + 10 * MINUTE }, 10 * MINUTE],
   ] as const)("honors a restored %s without saved rows", async (_name, error, waitMs) => {
     const first = fakeProvider();

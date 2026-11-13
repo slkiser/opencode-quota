@@ -2,7 +2,8 @@
  * OpenCode loads the plugin again many times an hour: every module starts afresh and a new store
  * reads the snapshot file the last one wrote. Through the real Claude provider, a temp
  * `opencode.db` and fake HTTP, the new instance sends no usage request before the last check's
- * wait has passed, also when the login can't be saved (as on Windows).
+ * wait has passed. A login that can't be saved (as on Windows) is checked again after 30 s; it
+ * sends none only within the minute Claude's shared probe reuses its last reply.
  */
 
 import { join } from "node:path";
@@ -126,7 +127,7 @@ describe.each([
   });
 
   it.runIf(!saved || POSIX_IDENTITY_STORAGE)(
-    "waits out the check interval of the last check",
+    "sends no usage request within the check interval of the last check",
     async () => {
       usageReply = usage;
       const first = await startInstance();
