@@ -504,7 +504,11 @@ describe("panelWidthApi", () => {
 });
 
 describe("followSideWidth with Desktop's panel width API", () => {
-  function startWithApi(stored: number | undefined, remembered: number) {
+  function startWithApi(
+    stored: number | undefined,
+    remembered: number,
+    breakApi: (side: ReturnType<typeof widthLayout>["side"]) => void = () => {},
+  ) {
     vi.stubGlobal("require", () => ({ Schema: { Struct: (fields: object) => fields, Finite: 0 } }));
     const value = { quota: remembered, other: 700 };
     const layout = widthLayout(stored);
@@ -513,7 +517,9 @@ describe("followSideWidth with Desktop's panel width API", () => {
       storage: { store: () => ({ value, ready: () => true, set: vi.fn() }) },
       layout,
     } as unknown as Context;
-    followSideWidth(ctx, "opencode-quota:quota", panelWidthApi(ctx, "quota"));
+    const api = panelWidthApi(ctx, "quota");
+    breakApi(layout.side);
+    followSideWidth(ctx, "opencode-quota:quota", api);
     rerun();
     show("quota", 700);
     show("other", 320);
@@ -528,6 +534,26 @@ describe("followSideWidth with Desktop's panel width API", () => {
     expect(watchHandDrags).not.toHaveBeenCalled();
     expect(watchSideTabs).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["reading", "width"],
+    ["storing", "resize"],
+  ] as const)(
+    "drags the divider instead when %s the width fails after the probe",
+    (_name, method) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      startWithApi(undefined, 450, (side) =>
+        side[method].mockImplementation(() => {
+          throw new Error("gone");
+        }),
+      );
+
+      expect(watchHandDrags).toHaveBeenCalled();
+      expect(dragSide).toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledOnce();
+      warn.mockRestore();
+    },
+  );
 
   it("hands Desktop the Quota width the trick remembered, once, only when Desktop stores none", () => {
     expect(startWithApi(undefined, 450).resize.mock.calls).toEqual([["quota", 450]]);
