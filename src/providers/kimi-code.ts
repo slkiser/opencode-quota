@@ -174,6 +174,31 @@ function usageLabel(key: string): string {
   return words ? `${words.charAt(0).toUpperCase()}${words.slice(1)} limit` : key;
 }
 
+/** Match ratios by duration or API key, independently of the displayed limit name. */
+function limitUsageKey(
+  item: Record<string, unknown>,
+  detail: Record<string, unknown>,
+  window: Record<string, unknown>,
+  label: string,
+): string | undefined {
+  const duration = getFiniteNumber(window.duration ?? item.duration ?? detail.duration);
+  const timeUnit = String(window.timeUnit ?? item.timeUnit ?? detail.timeUnit ?? "");
+  const secondsPerUnit = timeUnit.includes("MINUTE")
+    ? 60
+    : timeUnit.includes("HOUR")
+      ? 3600
+      : timeUnit.includes("DAY")
+        ? 86400
+        : 1;
+  if (duration !== undefined && duration * secondsPerUnit === 18000) {
+    return "limit_5h";
+  }
+  if (duration === undefined && classifyWindow(label) === "five_hour") {
+    return "limit_5h";
+  }
+  return nonEmptyString(item.key ?? detail.key);
+}
+
 /**
  * The weekly `usage` row, one row per `limits` item, then the `usages` ratios the limits do not
  * already report (each may sit under `data`). `used_ratio` is a fraction, so 0.15 means 15% used.
@@ -184,6 +209,7 @@ function parseKimiWindows(payload: Record<string, unknown>): KimiWindow[] {
   const limits = data?.limits ?? payload.limits;
   const usages = asObject(data?.usages ?? payload.usages);
   const windows: KimiWindow[] = [];
+  const reportedKeys = new Set<string>();
 
   const usageWindow = usage ? toUsageWindow(usage, "Weekly limit") : null;
   if (usageWindow) windows.push(usageWindow);
@@ -195,17 +221,19 @@ function parseKimiWindows(payload: Record<string, unknown>): KimiWindow[] {
       const detail = asObject(itemMap.detail) ?? itemMap;
       const window = asObject(itemMap.window) ?? {};
       const limitWindow = toUsageWindow(detail, buildLimitLabel(itemMap, detail, window, index));
-      if (limitWindow) windows.push(limitWindow);
+      if (!limitWindow) continue;
+      windows.push(limitWindow);
+      const key = limitUsageKey(itemMap, detail, window, limitWindow.label);
+      if (key) reportedKeys.add(key);
     }
   }
 
   if (usages) {
-    const labels = new Set(windows.map((window) => keySlug(window.label)));
     for (const [key, item] of Object.entries(usages)) {
       const itemMap = asObject(item);
       if (!itemMap) continue;
       const label = usageLabel(key);
-      if (labels.has(keySlug(label))) continue;
+      if (reportedKeys.has(key)) continue;
       const usedRatio = getFiniteNumber(itemMap.used_ratio ?? itemMap.usedRatio);
       if (usedRatio === undefined) continue;
       windows.push({
@@ -213,7 +241,6 @@ function parseKimiWindows(payload: Record<string, unknown>): KimiWindow[] {
         percentRemaining: clampPercent(100 - usedRatio * 100),
         resetTimeIso: parseResetTimeIso(itemMap),
       });
-      labels.add(keySlug(label));
     }
   }
 

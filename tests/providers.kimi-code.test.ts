@@ -184,6 +184,36 @@ describe("Kimi Code reply parsing", () => {
   });
 
   it.each([
+    ["5-hour limit", 300, "TIME_UNIT_MINUTE", "limit_5h"],
+    ["Rate limit 5h", 5, "TIME_UNIT_HOUR", "limit_5h"],
+    ["Burst quota", 18000, "TIME_UNIT_SECOND", "limit_5h"],
+    ["Total quota", 30, "TIME_UNIT_DAY", "limit_month_total"],
+    ["Code quota", 30, "TIME_UNIT_DAY", "limit_month_code"],
+  ])("keeps only the named limit for %s", async (name, duration, timeUnit, key) => {
+    const window = { duration, timeUnit };
+    const limit = { name, key: key.includes("month") ? key : undefined, window };
+    fakeHttp(() => ({
+      limits: [{ ...limit, detail: { limit: 100, used: 22 } }],
+      usages: { [key]: { used_ratio: 0.3 } },
+    }));
+    const fetched = await fetchRows(kimiCodePlanGlobalProvider);
+    expect(fetched.rows.map((row) => [row.label, row.percentRemaining])).toEqual([[name, 78]]);
+  });
+
+  it.each([
+    ["invalid", undefined],
+    [NaN, undefined],
+    [-0.2, 100],
+    [1.2, 0],
+  ])("skips or clamps the usage ratio %s", async (used_ratio, remaining) => {
+    fakeHttp(() => ({ usages: { limit_month_total: { used_ratio } } }));
+    const fetched = await fetchRows(kimiCodePlanGlobalProvider);
+    expect(fetched.rows.map((row) => row.percentRemaining)).toEqual(
+      remaining === undefined ? [] : [remaining],
+    );
+  });
+
+  it.each([
     {
       name: "used worked out from the limit and what remains",
       reply: { usage: { limit: "100", remaining: "30" } },
