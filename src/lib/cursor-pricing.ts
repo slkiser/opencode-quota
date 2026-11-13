@@ -5,7 +5,7 @@ export type CursorQuotaPlan = "none" | "pro" | "pro-plus" | "ultra";
 
 /** "unpriced": Cursor's own price, which no table here holds. */
 type CursorResolvedModel =
-  | { kind: "local"; model: CursorLocalPricingModel; pool: "auto_composer" }
+  | { kind: "local"; model: CursorLocalPricingModel; pool: "auto_composer" | "api" }
   | { kind: "official"; providerHint: string; modelHint: string; pool: "api" }
   | { kind: "unpriced" }
   | { kind: "unknown" };
@@ -59,6 +59,12 @@ const CURSOR_MODELS_WITH_LONG_CONTEXT_RATE = new Set([
   "claude-sonnet-4",
   "grok-4.7",
   "grok-4.7-fast",
+]);
+
+// Third-party models in Cursor's own table: Cursor bills them to the API allowance.
+const CURSOR_LOCAL_API_POOL_MODELS: ReadonlySet<string> = new Set([
+  "claude-fable-5-2",
+  "deepseek-v41-flash-1017",
 ]);
 
 // Cursor's price for these differs from models.dev's, or models.dev has none.
@@ -236,7 +242,8 @@ export function resolveCursorModel(rawModelId?: string): CursorResolvedModel {
   // `default[]` is another id for Cursor's Auto model.
   const localModel = model === "default[]" ? "auto" : model;
   if (Object.hasOwn(CURSOR_LOCAL_PRICING, localModel)) {
-    return { kind: "local", model: localModel as CursorLocalPricingModel, pool: "auto_composer" };
+    const pool = CURSOR_LOCAL_API_POOL_MODELS.has(localModel) ? "api" : "auto_composer";
+    return { kind: "local", model: localModel as CursorLocalPricingModel, pool };
   }
 
   if (Object.hasOwn(CURSOR_OFFICIAL_MODEL_ALIASES, model)) {

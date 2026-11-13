@@ -1,4 +1,4 @@
-import { isCursorModelId, isCursorProviderId } from "./cursor-pricing.js";
+import { isCursorModelId, isCursorProviderId, resolveCursorModel } from "./cursor-pricing.js";
 import { iterAssistantMessages } from "./opencode-storage.js";
 import { priceMessage } from "./pricing-key.js";
 import {
@@ -89,11 +89,14 @@ export async function getCurrentCursorUsageSummary(params?: {
 
     const sourceModelID = msg.modelID ?? "unknown";
     const tokens = tokenBucketsFromMessage(msg);
-    // Priced as the Usage tab prices it: Cursor's own table is Auto+Composer, any other price
-    // (Cursor's aliases, else models.dev's normal match) the API pool.
+    // Priced as the Usage tab prices it: Cursor's own table is Auto+Composer except its
+    // third-party models, and any other price (Cursor's aliases, else models.dev's normal match)
+    // the API pool.
     const price = priceMessage({ providerID: msg.providerID, modelID: msg.modelID }, tokens);
     if (price.kind === "priced") {
-      accumulateBucket(price.key.provider === "cursor" ? autoComposer : api, tokens, price.usd);
+      const autoComposerPool =
+        price.key.provider === "cursor" && resolveCursorModel(msg.modelID).pool !== "api";
+      accumulateBucket(autoComposerPool ? autoComposer : api, tokens, price.usd);
       accumulateBucket(total, tokens, price.usd);
       continue;
     }
