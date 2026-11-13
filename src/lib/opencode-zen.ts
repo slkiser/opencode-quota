@@ -173,7 +173,7 @@ function toMicroCents(dollars: number): number {
 /**
  * Current budgets already have their policies resolved by the Console. Select the least
  * USD left among whole-set caps covering all models; a $0 per-model cap also blocks all
- * models. Filtered and nonzero per-model caps do not compete. Missing amounts on an
+ * models. Filtered caps, nonzero per-model caps and caps of an unknown `per` do not compete. Missing amounts on an
  * applicable cap make the binding budget unknown, so the credit-limit fallback applies.
  */
 function parseMemberBudgets(json: unknown): MemberBudget {
@@ -185,10 +185,10 @@ function parseMemberBudgets(json: unknown): MemberBudget {
     const budget = asRecord(item);
     if (!budget) return invalidResponse();
     const { per } = budget;
-    if (per !== "set" && per !== "model") return invalidResponse();
     const limit = parseBudgetDollars(budget.limitDollars);
     const spent = parseBudgetDollars(budget.spentDollars);
-    if (budget.coverage !== "all" || (per === "model" && limit !== 0)) continue;
+    if (budget.coverage !== "all") continue;
+    if (per !== "set" && !(per === "model" && limit === 0)) continue;
     if (limit === null || spent === null) {
       skipped = true;
       continue;
