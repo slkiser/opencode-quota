@@ -94,8 +94,9 @@ export async function getCurrentCursorUsageSummary(params?: {
     // the API pool.
     const price = priceMessage({ providerID: msg.providerID, modelID: msg.modelID }, tokens);
     if (price.kind === "priced") {
+      const model = resolveCursorModel(msg.modelID);
       const autoComposerPool =
-        price.key.provider === "cursor" && resolveCursorModel(msg.modelID).pool !== "api";
+        price.key.provider === "cursor" && !(model.kind === "local" && model.pool === "api");
       accumulateBucket(autoComposerPool ? autoComposer : api, tokens, price.usd);
       accumulateBucket(total, tokens, price.usd);
       continue;
