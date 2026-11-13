@@ -125,7 +125,7 @@ type FolderState = {
 };
 
 export type QuotaClient = {
-  /** The latest snapshot with what is known about `sessionID`; undefined before the first answer. */
+  /** The current folder's latest snapshot with what is known about `sessionID`; undefined before its first answer. */
   snapshot(sessionID?: string): QuotaSnapshot | undefined;
   /** The Home notice line ("" when there is none). */
   homeLine(): string;
