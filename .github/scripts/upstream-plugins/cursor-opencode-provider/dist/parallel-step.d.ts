@@ -4,7 +4,8 @@
  * Cursor fires execs as they are generated; CLI demuxes them concurrently and
  * has no step boundary. OpenCode needs one `finish: tool-calls` after every
  * call of the generation. Cursor's `tool_requests_listed` (InteractionUpdate
- * field 27) carries that count. See tasks/plans/parallel-tool-calls-cli-parity.md.
+ * field 27) carries that count. Calls held behind a file change
+ * (`src/step-order.ts`) count as disposed here and run in a later host step.
  */
 /** Idle without a progress frame while holding → close the step (ms). */
 export declare const PARALLEL_STEP_IDLE_MS = 1500;
@@ -19,6 +20,11 @@ export type ParallelStepState = {
     emitted: number;
     /** Wall time of the last progress frame (for the liveness guard). */
     lastProgressAt: number;
+    /**
+     * Runs only calls released from a hold. Its Cursor step was booked with the
+     * host step that held them, so its finish books nothing.
+     */
+    unbilled?: boolean;
 };
 export declare function noteToolRequestsListedSeen(): void;
 export declare function hasSeenToolRequestsListed(): boolean;

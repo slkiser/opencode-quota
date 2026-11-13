@@ -25,12 +25,23 @@ const CURSOR_PROVIDER_IDS = new Set([
 
 const CURSOR_LOCAL_PRICING = {
   auto: { input: 1.25, output: 6, cache_read: 0.25 },
+  "claude-fable-5-2": {
+    input: 8,
+    output: 40,
+    cache_read: 0.2,
+    cache_write: 10,
+  },
   "composer-1": { input: 1.25, output: 10, cache_read: 0.125 },
   "composer-1.5": { input: 3.5, output: 17.5, cache_read: 0.35 },
   "composer-2": { input: 0.5, output: 2.5, cache_read: 0.2 },
   "composer-2-fast": { input: 1.5, output: 7.5, cache_read: 0.35 },
   "composer-2.5": { input: 0.5, output: 2.5, cache_read: 0.2 },
   "composer-2.5-fast": { input: 3, output: 15, cache_read: 0.5 },
+  "deepseek-v41-flash-1017": {
+    input: 0.3,
+    output: 1.2,
+    cache_read: 0.006,
+  },
   "grok-4.5": { input: 2, output: 6, cache_read: 0.5 },
   "grok-4.5-fast": { input: 4, output: 18, cache_read: 1 },
   "grok-4.6": { input: 2, output: 6, cache_read: 0.5 },

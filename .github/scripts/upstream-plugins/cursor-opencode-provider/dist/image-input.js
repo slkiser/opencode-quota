@@ -10,21 +10,8 @@ function isToolMediaCaption(message) {
     const first = message.content[0];
     return first?.type === "text" && first.text === "Attached media from tool result:";
 }
-export function hasCursorUserImages(lastUser) {
-    return !isToolMediaCaption(lastUser) && !!lastUser && Array.isArray(lastUser.content) && lastUser.content.some((part) => {
-        if (!part || typeof part !== "object")
-            return false;
-        const file = part;
-        return file.type === "file" && typeof file.mediaType === "string" && file.mediaType.startsWith("image/");
-    });
-}
 function unsupported(functionality, message) {
     throw new UnsupportedFunctionalityError({ functionality, message });
-}
-export function assertCursorUserImageSupport(lastUser, supportsImages, modelId) {
-    if (!hasCursorUserImages(lastUser) || supportsImages)
-        return;
-    unsupported("image input", `Cursor model ${JSON.stringify(modelId)} does not support image input`);
 }
 function decodeBase64(value, remaining) {
     const normalized = value.replace(/\s/g, "");
@@ -88,7 +75,8 @@ function cursorImageBudget(value) {
         return MAX_CURSOR_IMAGE_INPUT_BYTES;
     return Math.min(MAX_CURSOR_IMAGE_INPUT_BYTES, Math.max(0, Math.floor(value)));
 }
-function imageContentHash(data) {
+/** The hash a Run's history-image set keys an image by. */
+export function imageContentHash(data) {
     return createHash("sha256").update(data).digest("hex");
 }
 async function readResponseBytes(response, remaining) {
@@ -274,11 +262,8 @@ function cursorHistoryImageParts(prompt) {
     }
     return parts;
 }
-export async function extractCursorHistoryImages(prompt, options) {
+export async function extractCursorHistoryImages(prompt, options = {}) {
     const candidates = cursorHistoryImageParts(prompt);
-    if (!options.supportsImages) {
-        return { images: [], hashes: [], candidateCount: candidates.length, duplicateCount: 0 };
-    }
     const maxBytes = cursorImageBudget(options.maxBytes ?? MAX_CURSOR_IMAGE_INPUT_BYTES);
     const images = [];
     const hashes = [];
@@ -305,13 +290,18 @@ export async function extractCursorHistoryImages(prompt, options) {
             duplicateCount++;
             continue;
         }
-        assertImageSize(image.data.length, maxBytes - totalBytes);
+        // Earlier images are context, not this turn's attachments: one that no
+        // longer fits the combined budget is omitted, like an oversized tool image.
+        if (image.data.length > maxBytes - totalBytes) {
+            omittedCount++;
+            continue;
+        }
         totalBytes += image.data.length;
         images.push(image);
         hashes.push(hash);
         hashesThisTurn.add(hash);
     }
-    return { images, hashes, candidateCount: candidates.length, duplicateCount, ...(omittedCount > 0 ? { omittedCount } : {}) };
+    return { images, hashes, duplicateCount, ...(omittedCount > 0 ? { omittedCount } : {}) };
 }
 /**
  * Decode the images a host tool returned (its own `file-data` / `image-data`
@@ -354,10 +344,10 @@ export async function extractCursorToolResultImages(parts, options = {}) {
     }
     return { images, hashes, omittedCount };
 }
-export async function extractCursorPromptImages(prompt, lastUser, options) {
+export async function extractCursorPromptImages(prompt, lastUser, options = {}) {
     const maxBytes = cursorImageBudget(options.maxBytes ?? MAX_CURSOR_IMAGE_INPUT_BYTES);
     const toolCaption = isToolMediaCaption(lastUser);
-    const caption = toolCaption && options.supportsImages
+    const caption = toolCaption
         ? await extractCursorToolResultImages(lastUser.content, { signal: options.signal, maxBytes })
         : undefined;
     const captionHashes = [];
@@ -380,7 +370,6 @@ export async function extractCursorPromptImages(prompt, lastUser, options) {
     for (const hash of userHashes)
         seenHashes.add(hash);
     const history = await extractCursorHistoryImages(prompt, {
-        supportsImages: options.supportsImages,
         seenHashes,
         signal: options.signal,
         maxBytes: maxBytes - userBytes,
@@ -391,7 +380,6 @@ export async function extractCursorPromptImages(prompt, lastUser, options) {
         hashes: [...userHashes, ...history.hashes],
         duplicateCount: history.duplicateCount + captionDuplicates,
         images: [...userImages, ...history.images],
-        userImageCount: toolCaption ? 0 : userImages.length,
         ...((history.omittedCount ?? 0) + (caption?.omittedCount ?? 0) > 0
             ? { omittedCount: (history.omittedCount ?? 0) + (caption?.omittedCount ?? 0) } : {}),
     };

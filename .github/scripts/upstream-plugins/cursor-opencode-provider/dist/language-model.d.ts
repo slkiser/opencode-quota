@@ -197,6 +197,8 @@ export declare function deliverContinuationResults(session: CursorSession, trail
     sessionEditsDenied?: boolean;
     sessionPermissionsUnavailable?: boolean;
 }): Promise<CursorSession | undefined>;
+/** Notes the interrupted Run's own request delivered, older than the deferred ones. */
+export declare function restoreInterruptedRunHostNotes(sessionKey: string, persisted: string | undefined, deferred: string | undefined): void;
 /** Notes the restart snapshot kept for this session's next user turn. */
 export declare function restorePersistedHostNotes(sessionKey: string, persisted: string | undefined): void;
 /**
@@ -356,6 +358,8 @@ export { sessionIdToUuid } from "./protocol/conversation-bind.js";
  * still gets its identity from that set.
  */
 export declare function refreshHeldSessionToolCatalog(session: CursorSession, callOptions: LanguageModelV3CallOptions): Promise<void>;
+/** Exported for tests. */
+export declare function extractTools(callOptions: LanguageModelV3CallOptions): OpencodeToolDef[];
 /** Exported for tests — AI SDK V3 span ends that must precede finish / tool-call. */
 export declare function spanEndParts(opts: {
     textStarted: boolean;

@@ -443,6 +443,12 @@ export function maintainRuntimeFiles(layout, now = Date.now()) {
         maintenance.delete(maintenance.keys().next().value);
     sweepRuntimeFiles(layout, now);
 }
+/** A read of a host shell's terminal record, which `runtimeExecMessages` answers without the host. */
+export function isTerminalRecordRead(message, context) {
+    const root = runtimeRootFromContext(context);
+    const args = message.read_args;
+    return !!root && typeof args?.path === "string" && metadataTarget(root, args.path)?.kind === "terminal";
+}
 /** Native internal filesystem requests never enter the host's workspace tools. */
 export async function runtimeExecMessages(message, context, allowTools) {
     const root = runtimeRootFromContext(context);

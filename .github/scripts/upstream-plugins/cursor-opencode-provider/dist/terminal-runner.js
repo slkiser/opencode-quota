@@ -75,6 +75,13 @@ function softBackgroundWindow(policy, shellId) {
 function capturedOutput(bytes) {
     return [
         `  cursor_output=${bytes}`,
+        // The supervisor can append its footer after the launcher's done check.
+        // Read the final output bound after sampling the live size: if that size
+        // included footer bytes, output-bytes was already published before them.
+        // The bound only trims: a command that finishes after the sample publishes
+        // a larger one, and those later bytes are not this result's output.
+        '  cursor_final_output=$(cat "$cursor_job/output-bytes" 2>/dev/null) || cursor_final_output=',
+        `  case "$cursor_final_output" in ''|*[!0-9]*) ;; *) [ "$cursor_final_output" -ge "$cursor_output" ] || cursor_output=$cursor_final_output ;; esac`,
         // BSD head rejects `-c 0` ("illegal byte count") and its stderr reaches the result.
         `  if [ "$cursor_output" -gt 0 ]; then tail -c +$((cursor_header + 1)) "$cursor_terminal" | head -c "$cursor_output" | head -c ${MAX_LAUNCHER_OUTPUT_BYTES}; fi`,
         `  if [ "$cursor_output" -gt ${MAX_LAUNCHER_OUTPUT_BYTES} ]; then printf "\\n[Partial output: terminal file contains more output]\\n"; fi`,

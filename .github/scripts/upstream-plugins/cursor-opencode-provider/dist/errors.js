@@ -25,6 +25,11 @@ export class CursorProviderError extends Error {
     hostRetryable;
     /** What the failed attempt did that a replay inside the Run would repeat. */
     replayBarrier;
+    /**
+     * The attempt's only barriers were Cursor's echoes of the Run's own injections: a replay inside
+     * the Run is still unsafe, but a history rebuild may represent them (`canRebaseFromHistory`).
+     */
+    replayBarrierEchoesOnly;
     constructor(message, options) {
         super(message, options.cause === undefined ? undefined : { cause: options.cause });
         this.name = "CursorProviderError";
@@ -246,15 +251,32 @@ export class CursorRetryExhaustedError extends CursorProviderError {
         this.attempts = attempts;
     }
 }
+const OFFLINE_NETWORK_CODES = new Set([
+    "ENOTFOUND",
+    "EAI_AGAIN",
+    "ENETDOWN",
+    "ENETUNREACH",
+    "EHOSTDOWN",
+    "EHOSTUNREACH",
+]);
+/** A local name-resolution/routing failure, including a fetch wrapper's cause. */
+export function offlineNetworkCode(error) {
+    const seen = new Set();
+    while (error && typeof error === "object" && !seen.has(error)) {
+        seen.add(error);
+        const code = errorCode(error);
+        if (code && OFFLINE_NETWORK_CODES.has(code))
+            return code;
+        error = error.cause;
+    }
+    return undefined;
+}
 const TRANSIENT_NETWORK_CODES = new Set([
+    ...OFFLINE_NETWORK_CODES,
     "ECONNABORTED",
     "ECONNREFUSED",
     "ECONNRESET",
-    "EHOSTUNREACH",
-    "ENETDOWN",
     "ENETRESET",
-    "ENETUNREACH",
-    "ENOTFOUND",
     "EPIPE",
     "ERR_HTTP2_GOAWAY_SESSION",
     "ERR_HTTP2_SESSION_ERROR",
@@ -313,7 +335,7 @@ export function toCursorProviderError(error, options = { replaySafe: false }) {
         error.replaySafe = options.replaySafe && error.replaySafe;
         return error;
     }
-    const code = errorCode(error);
+    const code = errorCode(error) ?? offlineNetworkCode(error);
     const name = error instanceof Error ? error.name : "Error";
     const message = error instanceof Error ? error.message : "";
     if (name.startsWith("Auth") || /access token|api key|authentication/i.test(message)) {

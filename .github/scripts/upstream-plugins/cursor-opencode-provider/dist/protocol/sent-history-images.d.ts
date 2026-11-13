@@ -22,6 +22,16 @@ export declare function checkpointFingerprint(checkpoint: Uint8Array): string;
 /** The images `checkpoint` is known to hold. */
 export declare function heldHistoryImageHashes(sessionKey: string, conversationId: string, checkpoint: Uint8Array): ReadonlySet<string> | undefined;
 export declare function runHistoryImages(held?: ReadonlySet<string>): RunHistoryImages;
+/** The images a checkpoint that arrived at `arrival` holds: those the Run stood on and those it sent before. */
+export declare function historyImagesHeldAt(run: RunHistoryImages, arrival?: number): string[];
+/**
+ * A Run that resumes another Run's checkpoint continues that turn. The images
+ * the checkpoint holds count, like the Run's own, once its turn ends on a
+ * checkpoint of its own.
+ */
+export declare function carryHistoryImages(run: RunHistoryImages, hashes: readonly string[]): void;
+/** The image is in this Run's conversation: held by its checkpoint, or sent by the Run. */
+export declare function runHasHistoryImage(run: RunHistoryImages, hash: string): boolean;
 /** `lastArrival`: the last frame arrival once the images are written. */
 export declare function noteHistoryImagesSent(run: RunHistoryImages, hashes: readonly string[], lastArrival?: number): void;
 /**

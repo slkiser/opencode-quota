@@ -83,7 +83,7 @@ Do not report a suspected vulnerability in a public GitHub issue, discussion, or
 
 Use GitHub's private [vulnerability reporting form](https://github.com/oakimov/cursor-opencode-provider/security/advisories/new). This keeps the report and subsequent discussion private between the reporter and the repository maintainers.
 
-Include the affected version, environment (OpenCode 1.x vs 2.0, plugin entrypoint), impact, reproduction steps, and any suggested mitigation. The initial message should not include credentials, personal data, or exploit code beyond what is needed to reproduce the issue. If the report requires sensitive supporting material, first send a minimal description and ask the maintainers to coordinate a suitable transfer method.
+Include the affected version, environment (OpenCode 1.x vs 2.x, plugin entrypoint), impact, reproduction steps, and any suggested mitigation. The initial message should not include credentials, personal data, or exploit code beyond what is needed to reproduce the issue. If the report requires sensitive supporting material, first send a minimal description and ask the maintainers to coordinate a suitable transfer method.
 
 Reports must describe a concrete, reproducible security impact. Automated scanner output or model-generated speculation without validation may not receive a response.
 

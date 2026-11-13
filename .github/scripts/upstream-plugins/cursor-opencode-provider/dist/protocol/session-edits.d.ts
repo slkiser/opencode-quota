@@ -38,7 +38,10 @@ export declare function sessionEditsGuidance(conversationId: string, denied: boo
 export declare function recordSessionEditsGuidance(conversationId: string, denied: boolean | undefined): void;
 /** Snapshot value: an unknown conversation may hold a deny. */
 export declare function sessionEditsDenySent(conversationId: string): boolean;
-/** Restart snapshot marker; live state recorded by this process wins. */
-export declare function restoreSessionEditsDenySent(conversationId: string, denySent: boolean): void;
+/**
+ * Restart snapshot marker; live state recorded by this process wins, unless the snapshot is newer than it
+ * (`replace`: another module copy wrote it after this copy last served the conversation).
+ */
+export declare function restoreSessionEditsDenySent(conversationId: string, denySent: boolean, replace?: boolean): void;
 export declare function resetSessionEditsGuidanceForTests(): void;
 export declare function notPermittedThisTurnReason(toolName: string, permittedToolNames: Iterable<string>): string;

@@ -55,6 +55,17 @@ export function cursorExecVariantByRequestField(field) {
 export function cursorExecVariantByRequestName(name) {
     return BY_REQUEST_NAME.get(name);
 }
+/**
+ * Exec requests that never carry a new tool call: setup probes
+ * (`request_context_args`, `mcp_state_exec_args`) and requests about a call
+ * already sent. Cursor CLI's force-background executors look up the running
+ * call by `tool_call_id` and only move it to the background (`ACCEPTED`) or
+ * answer `NOT_FOUND`.
+ */
+const NO_NEW_CALL_REQUEST_FIELDS = new Set([10, 30, 31, 36]);
+export function isExecRequestWithoutNewCall(field) {
+    return field !== undefined && NO_NEW_CALL_REQUEST_FIELDS.has(field);
+}
 export function describeCursorExecVariant(field) {
     if (field === undefined)
         return "unknown request field";
@@ -65,6 +76,7 @@ export function describeCursorExecVariant(field) {
 }
 /**
  * `ForceBackgroundShellResult` / `ForceBackgroundSubagentResult` status.
- * Cursor CLI `ForceBackgroundStatus`: 0 unspecified, 1 ok, 2 error.
+ * Cursor CLI `ForceBackground{Shell,Subagent}Status`: 0 UNSPECIFIED,
+ * 1 ACCEPTED, 2 NOT_FOUND.
  */
 export const FORCE_BACKGROUND_STATUS_ERROR = 2;

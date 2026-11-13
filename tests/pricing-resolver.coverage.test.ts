@@ -87,6 +87,13 @@ describe("resolvePricingKey snapshot coverage", () => {
     expect(lookupCursorLocalCost(model)).toEqual(rates);
   });
 
+  it.each([
+    ["claude-fable-5-2", { input: 8, output: 40, cache_read: 0.2, cache_write: 10 }],
+    ["deepseek-v41-flash-1017", { input: 0.3, output: 1.2, cache_read: 0.006 }],
+  ])("looks up the new Cursor model %s at its published rates", (model, rates) => {
+    expect(lookupCursorLocalCost(model)).toEqual(rates);
+  });
+
   it("prices every synced upstream Cursor model's messages at Cursor's published rates", () => {
     type UpstreamRates = {
       input: number;

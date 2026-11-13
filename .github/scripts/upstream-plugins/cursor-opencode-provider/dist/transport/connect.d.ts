@@ -33,8 +33,27 @@ export declare function fetchAgentUrl(token: string, options?: {
     telemetryEnabled?: boolean;
     timeoutMs?: number;
 }): Promise<string>;
+export declare const RUN_COMPRESS_MIN_BYTES = 1024;
+/**
+ * Cursor could not take a gzip-compressed Run: HTTP 415, `unimplemented` (how Connect and gRPC
+ * refuse an unsupported encoding), or `invalid_argument`/`internal` naming the compression.
+ */
+export declare function isCompressionRejection(status: {
+    httpStatus?: number;
+    code?: string;
+    message?: string;
+}): boolean;
+/**
+ * Compress a Run's opening request before its stream opens. The stream then writes it at once, so a refusal
+ * or HTTP error can only arrive after it went out and still reaches the registered Run.
+ */
+export declare function compressRunRequestAhead(request: Uint8Array): Promise<void>;
+export declare function resetRunCompressionForTests(...uncompressedOrigins: string[]): void;
 export type BidiStream = {
-    write(msg: Uint8Array): boolean | void;
+    /** A promise while the message waits for compression, its own or an earlier one's; false when backpressured. */
+    write(msg: Uint8Array): boolean | void | Promise<boolean>;
+    /** Cursor refused this Run for its gzip compression; the origin's later Runs go uncompressed. */
+    compressionRejected?(): boolean;
     /**
      * Resolves once a backpressured write has drained. There is no deadline, as
      * in Cursor CLI's transport: a stream error or close (remote or local) settles
@@ -47,6 +66,7 @@ export type BidiStream = {
         payload: Uint8Array;
     }>;
     destroy(): void;
+    /** Nothing more can be written: Cursor ended or reset the stream, or it was closed locally. */
     isClosed(): boolean;
     onTerminal(listener: (event: BidiTerminalEvent) => void): () => void;
 };

@@ -1,6 +1,6 @@
 {
   "name": "cursor-opencode-provider",
-  "version": "0.8.5",
+  "version": "0.8.7",
   "description": "Use Cursor subscription models from OpenCode via Cursor's Connect-RPC agent protocol",
   "type": "module",
   "license": "MIT",
@@ -83,6 +83,9 @@
     "generate:pricing": "bun run scripts/generate-cursor-pricing.ts",
     "generate:pricing:check": "bun run scripts/generate-cursor-pricing.ts -- --check",
     "check:pricing": "bun run scripts/check-cursor-pricing-coverage.ts",
+    "live-test": "bash scripts/live-test.sh",
+    "generate:images": "bun run scripts/probe-cursor-image-input.ts",
+    "generate:images:check": "bun run scripts/probe-cursor-image-input.ts -- --check",
     "prepublishOnly": "bun run generate:pricing && bun run build"
   },
   "dependencies": {
