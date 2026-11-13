@@ -5,7 +5,7 @@ import { en } from "../src/gui/i18n.js";
 import { UsageView } from "../src/gui/usage-view.js";
 import { stubJsx } from "./helpers/fake-tui-host.js";
 
-function report(requests: number): UsageReport {
+function report(requests: number, providers: UsageReport["providers"] = []): UsageReport {
   const byType = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
   return {
     range: "7d",
@@ -21,7 +21,7 @@ function report(requests: number): UsageReport {
       unpricedTokens: 0,
       unpricedShare: 0,
     },
-    providers: [],
+    providers,
     models: [],
     days: [],
   };
@@ -36,7 +36,11 @@ function textOf(node: unknown): string {
   return "";
 }
 
-function render(requests: number, providerId?: string): string {
+function render(
+  requests: number,
+  providerId?: string,
+  providers: UsageReport["providers"] = [],
+): string {
   const messages: Record<string, string> = en;
   const ctx = {
     t: (key: string) => messages[key] ?? key,
@@ -49,7 +53,7 @@ function render(requests: number, providerId?: string): string {
     return createRoot((dispose) => {
       const tree = UsageView({
         ctx: ctx as never,
-        report: report(requests),
+        report: report(requests, providers),
         mode: "tokens",
         providerId,
         rangeLabel: "7 days",
@@ -76,7 +80,9 @@ describe("GUI usage totals", () => {
     expect(render(0)).toContain("No tokens used in this range.");
   });
 
-  it("marks the request count report-wide when a provider filter is selected", () => {
-    expect(render(1_234, "openai")).toContain("Requests (all providers)1,234");
+  it("shows the picked provider's own request count", () => {
+    const zero = { costUsd: 0, costShare: 0, tokens: 0, tokenShare: 0, unpricedTokens: 0 };
+    const openai = { providerID: "openai", sessions: 1, requests: 34, ...zero };
+    expect(render(1_234, "openai", [openai])).toContain("Requests34");
   });
 });

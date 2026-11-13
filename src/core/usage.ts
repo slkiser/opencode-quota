@@ -93,6 +93,8 @@ export type UsageProviderRow = UsageRow & {
   /** OpenCode's provider id, for example "anthropic" or "github-copilot". */
   providerID: string;
   sessions: number;
+  /** This provider's requests, counted like `totals.requests`. */
+  requests: number;
 };
 
 /** `date` is a local day like "2026-01-31". */
@@ -423,7 +425,7 @@ async function buildUsageReport(query: UsageQuery, nowMs: number): Promise<Usage
   let cacheSavingsUsd = 0;
   const sessions = new Set<string>();
   const topSessionIDs = new Map<string, string>();
-  const providers = new Map<string, { tally: Tally; sessions: Set<string> }>();
+  const providers = new Map<string, { tally: Tally; sessions: Set<string>; requests: number }>();
   const models = new Map<string, ModelTally>();
   const days = new Map<string, Tally>();
   let firstMs = Number.POSITIVE_INFINITY;
@@ -442,9 +444,9 @@ async function buildUsageReport(query: UsageQuery, nowMs: number): Promise<Usage
         typeof completedMs === "number" &&
         Number.isFinite(completedMs) &&
         completedMs > 0;
-      if (message.hasUsageMetadata && (completedAssistant || message.role === "compaction")) {
-        requests += 1;
-      }
+      const isRequest =
+        message.hasUsageMetadata === true && (completedAssistant || message.role === "compaction");
+      if (isRequest) requests += 1;
       const providerID = message.providerID ?? "unknown";
       const modelID = message.modelID ?? "unknown";
       const modelKey = `${providerID}\n${modelID}`;
@@ -470,9 +472,11 @@ async function buildUsageReport(query: UsageQuery, nowMs: number): Promise<Usage
       const provider = entryFor(providers, providerID, () => ({
         tally: emptyTally(),
         sessions: new Set<string>(),
+        requests: 0,
       }));
       addUse(provider.tally, use);
       provider.sessions.add(topSession);
+      if (isRequest) provider.requests += 1;
       const model = entryFor(models, modelKey, () => ({
         providerID,
         modelID,
@@ -529,6 +533,7 @@ async function buildUsageReport(query: UsageQuery, nowMs: number): Promise<Usage
       .map(([providerID, provider]) => ({
         providerID,
         sessions: provider.sessions.size,
+        requests: provider.requests,
         ...toRow(provider.tally, rowTotal),
       }))
       .sort((a, b) => byCostThenTokens(a, b) || a.providerID.localeCompare(b.providerID)),

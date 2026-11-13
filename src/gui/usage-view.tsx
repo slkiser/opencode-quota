@@ -317,9 +317,7 @@ export function UsageView(props: UsageProps) {
           <div class="oq-v">{formatTokens(view().tokens.processed)}</div>
         </div>
         <div>
-          <div class="oq-k">
-            {ctx.t(props.providerId ? "usage.requestsAllProviders" : "usage.requests")}
-          </div>
+          <div class="oq-k">{ctx.t("usage.requests")}</div>
           <div class="oq-v">{formatCount(view().requests)}</div>
         </div>
         <div>

@@ -78,6 +78,7 @@ const REPORT: UsageReport = {
     {
       providerID: "anthropic",
       sessions: 2,
+      requests: 1_000,
       costUsd: 6,
       costShare: 0.75,
       tokens: 1_000,
@@ -87,6 +88,7 @@ const REPORT: UsageReport = {
     {
       providerID: "openai",
       sessions: 4,
+      requests: 234,
       costUsd: 2,
       costShare: 0.25,
       tokens: 4_000,
@@ -179,8 +181,8 @@ describe("GUI usage view", () => {
     const view = usageView(REPORT, "cost", "openai");
     expect(view.total).toBe(2);
     expect(view.sessions).toBe(4);
-    // Request count is report-wide; the report has no provider-level request breakdown.
-    expect(view.requests).toBe(1_234);
+    expect(view.requests).toBe(234);
+    expect(usageView(REPORT, "cost", "anthropic").requests).toBe(1_000);
     expect(view.providers.map((row) => [row.providerID, row.share, row.color])).toEqual([
       ["openai", 1, 1],
     ]);

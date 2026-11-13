@@ -284,6 +284,28 @@ describe("usage report ranges", () => {
     expect(report.totals.tokens.processed).toBe(1 + 2 + 4 + 8 + 16 + 32);
   });
 
+  it("counts each provider's own requests, and its uncounted messages still add tokens", async () => {
+    writeHistory([
+      message({ providerID: "anthropic", created: at(0, 8), tokens: { output: 1 } }),
+      message({ providerID: "anthropic", created: at(0, 9), tokens: { output: 2 } }),
+      message({ providerID: "openai", created: at(0, 10), tokens: { output: 4 } }),
+      message({
+        providerID: "openai",
+        created: at(0, 11),
+        completed: undefined,
+        tokens: { output: 8 },
+      }),
+    ]);
+
+    const report = await usageReport({ range: "today" }, NOW);
+
+    expect(report.totals.requests).toBe(3);
+    expect(report.providers.map((row) => [row.providerID, row.requests, row.tokens])).toEqual([
+      ["openai", 1, 12],
+      ["anthropic", 2, 3],
+    ]);
+  });
+
   it.each<{ query: UsageQuery; error: string }>([
     {
       query: { range: "between", from: "2026-03-14", to: "2026-03-08" },
@@ -771,9 +793,9 @@ describe("usage report cost", () => {
       unpricedTokens,
     });
     expect(report.providers).toEqual([
-      { providerID: "github-copilot", sessions: 1, ...row(10, M, 0) },
-      { providerID: "anthropic", sessions: 1, ...row(2, M, 0) },
-      { providerID: "acme", sessions: 1, ...row(0, 3 * M, 3 * M) },
+      { providerID: "github-copilot", sessions: 1, requests: 1, ...row(10, M, 0) },
+      { providerID: "anthropic", sessions: 1, requests: 1, ...row(2, M, 0) },
+      { providerID: "acme", sessions: 1, requests: 1, ...row(0, 3 * M, 3 * M) },
     ]);
     expect(report.models).toMatchObject([
       { providerID: "github-copilot", modelID: "claude-test", priced: true, ...row(10, M, 0) },
