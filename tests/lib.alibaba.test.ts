@@ -2106,6 +2106,19 @@ describe("alibaba token plan seat process boundary", () => {
         facts: { code: "login_expired" },
       },
     },
+    {
+      name: "exit 3 with a multi-line pretty-printed envelope on stderr",
+      run: {
+        code: 3,
+        stdout: "",
+        stderr: JSON.stringify(JSON.parse(REAL_SEAT_ERROR_ENVELOPE), null, 2),
+      },
+      error: {
+        kind: "seat_not_authenticated",
+        message: SEAT_ENVELOPE_MESSAGE,
+        facts: { code: "login_expired" },
+      },
+    },
   ])(
     "maps $name, keeping a stderr that is not the CLI's envelope out of the report",
     async ({ run, error }) => {

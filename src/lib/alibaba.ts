@@ -899,17 +899,26 @@ function envelopeFailure(
 }
 
 /** The envelope where it really arrives: on stderr with an empty stdout, on the exit code it carries.
- * JSON output writes one object per line and the envelope is written last, after any warning. */
+ * JSON output writes one object per line and the envelope is written last, after any warning.
+ * A standalone pretty-printed envelope needs the whole text instead. */
 function stderrEnvelopeFailure(stderr: Buffer, kind: AlibabaErrorKind): AlibabaFailure | null {
-  const line = stderr.toString("utf8").trim().split(/\r?\n/).at(-1)?.trim();
+  const text = stderr.toString("utf8").trim();
+  const line = text.split(/\r?\n/).at(-1)?.trim();
   if (!line) return null;
   let payload: unknown;
   try {
     payload = JSON.parse(line);
   } catch {
-    return null;
+    payload = undefined;
   }
-  const record = asRecord(payload);
+  let record = asRecord(payload);
+  if (!record) {
+    try {
+      record = asRecord(JSON.parse(text));
+    } catch {
+      return null;
+    }
+  }
   const envelope = record ? asRecord(record.error) : undefined;
   return envelope ? envelopeFailure(envelope, kind) : null;
 }
