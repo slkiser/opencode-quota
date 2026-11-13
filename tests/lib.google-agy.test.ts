@@ -362,7 +362,7 @@ describe("google agy logic", () => {
           headers: {
             "Content-Type": "application/json",
             Authorization: "Bearer cached-access-token",
-            "User-Agent": "antigravity/cli/1.4.12 darwin/amd64",
+            "User-Agent": "antigravity/cli/1.5.8 darwin/amd64",
             "x-activity-request-id": expect.any(String),
           },
           body: JSON.stringify({ project: "project-1" }),

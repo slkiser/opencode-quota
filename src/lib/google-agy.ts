@@ -37,7 +37,7 @@ const AGY_CODE_ASSIST_ENDPOINT = "https://daily-cloudcode-pa.googleapis.com";
 const AGY_QUOTA_SUMMARY_API_URL = `${AGY_CODE_ASSIST_ENDPOINT}/v1internal:retrieveUserQuotaSummary`;
 const AGY_QUOTA_TIMEOUT_MS = 6_000;
 const AGY_ACCOUNTS_CONCURRENCY = 3;
-const AGY_USER_AGENT = "antigravity/cli/1.4.12 darwin/amd64";
+const AGY_USER_AGENT = "antigravity/cli/1.5.8 darwin/amd64";
 
 function createAgyActivityRequestId(): string {
   return crypto.randomUUID();
