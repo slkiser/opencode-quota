@@ -492,30 +492,42 @@ describe("quota store", () => {
     );
   });
 
-  it("waits out the last check of a login that can't be saved after a restart", async () => {
+  it.each([
+    ["successful check", undefined, 30 * SECOND],
+    ["failure backoff", { code: "network" }, MINUTE],
+    ["rate limit", { code: "rate_limited", retryAtMs: START_MS + 10 * MINUTE }, 10 * MINUTE],
+  ] as const)("honors a restored %s without saved rows", async (_name, error, waitMs) => {
     const first = fakeProvider();
     first.signInAs("settings-only", false);
     first.fetch.mockResolvedValue({
-      rows: [],
-      error: { code: "rate_limited", retryAtMs: START_MS + 10 * MINUTE },
+      rows: error ? [] : [row("allowance", 50)],
+      ...(error ? { error } : {}),
       debug: [],
     });
-    await makeStore([first.provider], MINUTE).refresh({ reason: "poll" });
+    await makeStore([first.provider]).refresh({ reason: "poll" });
     // The file keeps when the provider was last checked, and nothing of the login.
     const saved = await savedFile();
     expect(saved.entries).toEqual({});
     expect(saved.lastChecks).toEqual({
-      copilot: { checkedAtMs: START_MS, failures: 1, retryAtMs: START_MS + 10 * MINUTE },
+      copilot: {
+        checkedAtMs: START_MS,
+        failures: error ? 1 : 0,
+        ...(error && "retryAtMs" in error ? { retryAtMs: error.retryAtMs } : {}),
+      },
     });
 
     const second = fakeProvider();
     second.signInAs("settings-only", false);
-    const store = makeStore([second.provider], MINUTE);
-    clock += 10 * MINUTE - SECOND;
+    const store = makeStore([second.provider]);
+    clock += waitMs - SECOND;
     expect(only(await store.snapshot()).rows).toEqual([]);
     await store.refresh({ reason: "poll" });
     expect(second.fetch).not.toHaveBeenCalled();
     clock += SECOND;
+    await store.refresh({ reason: "poll" });
+    expect(second.fetch).toHaveBeenCalledOnce();
+    expect(only(await store.snapshot({ refresh: false })).rows).toEqual([row("allowance", 50)]);
+    clock += 5 * MINUTE - SECOND;
     await store.refresh({ reason: "poll" });
     expect(second.fetch).toHaveBeenCalledOnce();
   });
@@ -528,7 +540,7 @@ describe("quota store", () => {
     const second = fakeProvider();
     second.signInAs("settings-only", false);
     const store = makeStore([second.provider]);
-    clock += MINUTE;
+    clock += 29 * SECOND;
     await store.refresh({ reason: "poll" });
     expect(second.fetch).not.toHaveBeenCalled();
     store.invalidateIdentity();
