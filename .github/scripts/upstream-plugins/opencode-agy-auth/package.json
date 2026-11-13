@@ -1,6 +1,6 @@
 {
   "name": "@anthonyhaussman/opencode-agy-auth",
-  "version": "1.4.12-alpha.0",
+  "version": "1.5.8-alpha.0",
   "author": "antigravity",
   "repository": {
     "type": "git",
@@ -47,13 +47,13 @@
   "devDependencies": {
     "@opencode-ai/sdk": "^1.19.5",
     "@types/node": "^26.6.6",
-    "@vitest/coverage-v8": "^5.0.5",
+    "@vitest/coverage-v8": "^5.1.0",
     "tsup": "^9.0.0",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.5"
+    "vitest": "^5.1.0"
   },
   "dependencies": {
-    "@ai-sdk/google": "^4.0.109",
+    "@ai-sdk/google": "^4.0.120",
     "@openauthjs/openauth": "^0.4.3",
     "@opencode-ai/plugin": "^1.19.5"
   }

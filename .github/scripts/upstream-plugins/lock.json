@@ -9,12 +9,12 @@
       "version": "0.8.5"
     },
     "opencode-agy-auth": {
-      "npmUrl": "https://www.npmjs.com/package/%40anthonyhaussman/opencode-agy-auth/v/1.4.12-alpha.0",
+      "npmUrl": "https://www.npmjs.com/package/%40anthonyhaussman/opencode-agy-auth/v/1.5.8-alpha.0",
       "packageName": "@anthonyhaussman/opencode-agy-auth",
-      "publishedAt": "2026-11-01T09:48:52.144Z",
+      "publishedAt": "2026-11-13T07:31:13.146Z",
       "referenceDir": ".github/scripts/upstream-plugins/opencode-agy-auth",
       "repo": "anthonyhaussman/opencode-agy-auth",
-      "version": "1.4.12-alpha.0"
+      "version": "1.5.8-alpha.0"
     },
     "opencode-gemini-auth": {
       "npmUrl": "https://www.npmjs.com/package/opencode-gemini-auth/v/2.0.1",

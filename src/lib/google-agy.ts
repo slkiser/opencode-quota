@@ -35,7 +35,7 @@ export const AGY_FLAVOR: GoogleQuotaFlavor<
   companion: agyCompanion,
   quotaUrl: "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
   quotaHeaders: () => ({
-    "User-Agent": "antigravity/cli/1.4.12 darwin/amd64",
+    "User-Agent": "antigravity/cli/1.5.8 darwin/amd64",
     "x-activity-request-id": crypto.randomUUID(),
   }),
   tokenCache: createGoogleTokenCache(),
