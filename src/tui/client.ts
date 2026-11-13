@@ -1,17 +1,19 @@
 /**
- * The TUI's quota data: the server's last snapshot, kept in Solid signals so every surface
+ * The TUI's quota data: each folder's last snapshot, kept in Solid signals so every surface
  * redraws when it changes. It asks the server over the quota RPC (`snapshot` when a surface
  * shows, `refresh` after a turn), applies every `changed` event, and asks again every minute
  * in case an event was missed. Nothing reaches OpenCode until a surface shows or a turn ends.
  *
  * Answers can arrive out of order. The newest snapshot per credential source wins; a snapshot
- * from another server (a new `serverId`: OpenCode restarted it) always wins, as its revisions
- * start over, and from then on the old server's answers are ignored. A session's model follows
- * its newest revision; its token totals come from the latest call about it.
+ * from a new `serverId` for the same folder always wins, as its revisions start over, and from
+ * then on that folder's old server is ignored. Each folder keeps its own server and snapshots
+ * when global tabs switch between folders. A session's model follows its newest revision;
+ * its token totals come from the latest call about it.
  *
  * Every TUI on a shared background service hears the `changed` events of every folder, and each
- * folder's server plugin has its own `serverId`. So a TUI takes only the events of its own
- * folder (`ownFolderEvents`); another folder's would look like a restart and retire its server.
+ * folder's server plugin has its own `serverId`. A TUI takes only the events of its current
+ * folder (`ownFolderEvents`). Calls keep the folder they named, even if a tab switches before
+ * the answer arrives; events name the folder they update.
  */
 import { createSignal } from "solid-js";
 import type { QuotaSnapshot } from "../core/types.js";
@@ -115,6 +117,13 @@ type SessionPart = Pick<
 
 type SessionRead = { atMs: number };
 
+type FolderState = {
+  latest?: QuotaSnapshot;
+  sources: Record<string, QuotaSnapshot>;
+  defaultScope?: string;
+  retiredServers: Set<string>;
+};
+
 export type QuotaClient = {
   /** The latest snapshot with what is known about `sessionID`; undefined before the first answer. */
   snapshot(sessionID?: string): QuotaSnapshot | undefined;
@@ -172,10 +181,8 @@ export function createQuotaClient(
   onSnapshot: (snapshot: QuotaSnapshot) => void = () => {},
   onFailure: (error: unknown) => void = () => {},
 ): QuotaClient {
-  const [latest, setLatest] = createSignal<QuotaSnapshot>();
-  const [sources, setSources] = createSignal<Record<string, QuotaSnapshot>>({});
+  const [folders, setFolders] = createSignal<Record<string, FolderState>>({});
   const [sessions, setSessions] = createSignal<Record<string, SessionPart>>({});
-  const [defaultScope, setDefaultScope] = createSignal<string>();
   const [homeLine, setHomeLine] = createSignal("");
   /** Sessions on screen, with how many surfaces show each. */
   const watched = new Map<string, number>();
@@ -186,11 +193,9 @@ export function createQuotaClient(
   /** Numbers every call; session token totals come only from a later call than the last one. */
   let calls = 0;
   const sessionCalls = new Map<string, number>();
-  const sessionRevisions = new Map<string, number>();
+  const sessionRevisions = new Map<string, { serverId: string; revision: number }>();
   /** Least recently read first, including reads in the same millisecond. */
   const sessionReads = new Map<string, SessionRead>();
-  /** Servers this client moved away from; their answers are ignored. */
-  const retiredServers = new Set<string>();
   /** Bumped when the TUI stops: answers to calls made before then are dropped. */
   let mount = 0;
   /** Snapshot calls on their way, by session ("" for none), with their call numbers. */
@@ -234,6 +239,7 @@ export function createQuotaClient(
   /** `call` numbers the request a session's part came from. */
   function apply(
     snapshot: QuotaSnapshot,
+    directory: string,
     session?: { id?: string; call: number; notices?: boolean; read?: SessionRead },
   ): void {
     forgetInactiveSessions();
@@ -244,31 +250,45 @@ export function createQuotaClient(
       sessionTokens,
       ...shared
     } = snapshot;
-    if (retiredServers.has(shared.serverId)) return;
-    // An answer that left before a newer snapshot arrived must not undo it.
-    const current = latest();
+    const folder = {
+      ...(folders()[directory] ?? { sources: {}, retiredServers: new Set<string>() }),
+    };
+    if (folder.retiredServers.has(shared.serverId)) return;
+    // Revisions compare only within one folder's current server.
+    const current = folder.latest;
     if (current && current.serverId !== shared.serverId) {
-      retiredServers.add(current.serverId);
-      setSources({});
-      sessionRevisions.clear();
-    }
-    if (!current || current.serverId !== shared.serverId || current.revision < shared.revision) {
-      setLatest(shared);
+      folder.retiredServers.add(current.serverId);
+      folder.sources = {};
     }
     const scope = shared.sourceScope ?? "";
-    const previous = sources()[scope];
-    if (!previous || previous.revision < shared.revision) {
-      setSources((all) => ({ ...all, [scope]: shared }));
-    }
-    if (session && !session.id) setDefaultScope(scope);
+    const previous = folder.sources[scope];
+    setFolders((all) => ({
+      ...all,
+      [directory]: {
+        ...folder,
+        latest:
+          !current || current.serverId !== shared.serverId || current.revision < shared.revision
+            ? shared
+            : current,
+        sources:
+          !previous || previous.revision < shared.revision
+            ? { ...folder.sources, [scope]: shared }
+            : folder.sources,
+        defaultScope: session && !session.id ? scope : folder.defaultScope,
+      },
+    }));
     const sessionID = session?.id ?? snapshotSessionID;
     // An old event or a late answer cannot recreate an expired session's records.
     const read = sessionID ? sessionReads.get(sessionID) : undefined;
     if (sessionID && read && (!session || session.read === read)) {
       const newerCall = session && session.call > (sessionCalls.get(sessionID) ?? 0);
-      const newerModel = shared.revision > (sessionRevisions.get(sessionID) ?? 0);
+      const model = sessionRevisions.get(sessionID);
+      const newerModel =
+        !model || model.serverId !== shared.serverId || shared.revision > model.revision;
       if (newerCall) sessionCalls.set(sessionID, session.call);
-      if (newerModel) sessionRevisions.set(sessionID, shared.revision);
+      if (newerModel) {
+        sessionRevisions.set(sessionID, { serverId: shared.serverId, revision: shared.revision });
+      }
       setSessions((all) => ({
         ...all,
         [sessionID]: {
@@ -287,7 +307,9 @@ export function createQuotaClient(
     const requested =
       session?.notices && (!session.id || (sessions()[session.id]?.sourceScope ?? "") === scope);
     onSnapshot(
-      requested || active || (globalWatchers > 0 && scope === (defaultScope() ?? ""))
+      requested ||
+        active ||
+        (globalWatchers > 0 && scope === (folders()[directory]?.defaultScope ?? ""))
         ? snapshot
         : { ...snapshot, resetNotices: [] },
     );
@@ -303,7 +325,10 @@ export function createQuotaClient(
         (event) => {
           if (signal.aborted) return;
           if (host.acceptsEventFrom && !host.acceptsEventFrom(event.location)) return;
-          apply(event.data.snapshot);
+          apply(
+            event.data.snapshot,
+            event.location?.directory ?? hostLocation(host)?.directory ?? "",
+          );
         },
         { signal },
       );
@@ -324,15 +349,18 @@ export function createQuotaClient(
     loading.set(key, call);
     subscribe();
     let request: Promise<QuotaRpcSnapshotOutput>;
+    let directory = "";
     try {
-      request = rpc().snapshot(sessionID ? { sessionID } : {}, quotaCallOptions(host));
+      const options = quotaCallOptions(host);
+      directory = options.location?.directory ?? "";
+      request = rpc().snapshot(sessionID ? { sessionID } : {}, options);
     } catch (error) {
       // A client without the RPC, or no folder to name: fail like a rejected call.
       request = Promise.reject(error);
     }
     request
       .then((output) => {
-        if (at === mount) apply(output.snapshot, { id: sessionID, call, read });
+        if (at === mount) apply(output.snapshot, directory, { id: sessionID, call, read });
       })
       .catch((error) => {
         if (at === mount && host.client === client) onFailure(error);
@@ -353,8 +381,12 @@ export function createQuotaClient(
       .catch(reportFailure);
   }
 
-  function snapshot(sessionID?: string): QuotaSnapshot | undefined {
-    const shared = latest();
+  function snapshot(
+    sessionID?: string,
+    directory = hostLocation(host)?.directory ?? "",
+  ): QuotaSnapshot | undefined {
+    const folder = folders()[directory];
+    const shared = folder?.latest;
     if (!shared) return undefined;
     const part = sessionID ? sessions()[sessionID] : undefined;
     const read = sessionID ? sessionReads.get(sessionID) : undefined;
@@ -364,8 +396,10 @@ export function createQuotaClient(
       sessionReads.set(sessionID, read);
     }
     if (sessionID && !part && shared.sourceScope) return undefined;
-    const scope = part ? (part.sourceScope ?? "") : (defaultScope() ?? shared.sourceScope ?? "");
-    const source = sources()[scope];
+    const scope = part
+      ? (part.sourceScope ?? "")
+      : (folder.defaultScope ?? shared.sourceScope ?? "");
+    const source = folder.sources[scope];
     if (!source) return undefined;
     const { sourceScope: _scope, ...common } = shared;
     return {
@@ -421,10 +455,16 @@ export function createQuotaClient(
       try {
         const input: QuotaRpcRefreshInput = sessionID ? { reason, sessionID } : { reason };
         subscribe();
-        const output = await rpc().refresh(input, quotaCallOptions(host));
+        const options = quotaCallOptions(host);
+        const output = await rpc().refresh(input, options);
         if (at !== mount) return undefined;
-        apply(output.snapshot, { id: sessionID, call, notices: true, read });
-        return snapshot(sessionID);
+        apply(output.snapshot, options.location?.directory ?? "", {
+          id: sessionID,
+          call,
+          notices: true,
+          read,
+        });
+        return snapshot(sessionID, options.location?.directory ?? "");
       } catch (error) {
         if (at === mount && host.client === client) onFailure(error);
         reportFailure(error);
