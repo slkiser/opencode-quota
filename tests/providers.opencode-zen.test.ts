@@ -40,14 +40,14 @@ function consoleLogin(value: Record<string, unknown> = {}): CredentialDatabaseRo
   };
 }
 
-const MEMBER_ROUTE = "policies/members/usr_me";
+const MEMBER_ROUTE = "policies/current-budgets";
 
 /** A funded account without a monthly limit or member budget: $42.50 balance, auto reload off. */
 const ROUTES: Record<string, unknown> = {
   "billing/status": { balanceMicroCents: "4250000000" },
   "billing/account": { creditLimitMicroCents: null },
   "billing/auto-recharge": { enabled: false, thresholdDollars: 5, rechargeAmountDollars: 20 },
-  [MEMBER_ROUTE]: { userID: "usr_me", budgets: [], policies: [] },
+  [MEMBER_ROUTE]: [],
   "usage/cost-by-day": [],
 };
 
@@ -57,44 +57,18 @@ const CREDIT_LIMIT = {
   "usage/cost-by-day": [{ date: "2026-09-24", totalCostMicroCents: "575000000" }],
 };
 
-/** A monthly budget rule, unfiltered (`includeUnknownPrice` alone restricts no model). */
-function budgetRule(id: string, fields: Record<string, unknown> = {}) {
-  return {
-    id,
-    kind: "budget",
-    period: "month",
-    scope: "combined",
-    per: "set",
-    selector: { includeUnknownPrice: false },
-    ...fields,
-  };
-}
-
-/** The signed-in member's budgets, each with its own policy holding `rule` (default: matching). */
+/** Current budgets with amounts, scope and reset already resolved by the Console. */
 function member(
-  budgets: Array<{
-    limit?: number | null;
-    spent?: number | null;
-    scope?: string;
-    per?: string;
-    rule?: Record<string, unknown>;
-  }>,
+  budgets: Array<{ limit?: number | null; spent?: number | null } & Record<string, unknown>>,
 ) {
-  return {
-    userID: "usr_me",
-    budgets: budgets.map(({ limit, spent, scope = "combined", per }, index) => ({
-      policyID: `pol_${index}`,
-      ruleID: `rule_${index}`,
-      scope,
-      ...(per ? { per } : {}),
-      limitDollars: limit,
-      spentDollars: spent,
-    })),
-    policies: budgets.map(({ scope = "combined", per, rule }, index) => ({
-      id: `pol_${index}`,
-      rules: [budgetRule(`rule_${index}`, { scope, ...(per ? { per } : {}), ...rule })],
-    })),
-  };
+  return budgets.map(({ limit, spent, ...fields }) => ({
+    limitDollars: limit,
+    spentDollars: spent,
+    coverage: "all",
+    per: "set",
+    modelCount: 0,
+    ...fields,
+  }));
 }
 
 /**
@@ -299,6 +273,7 @@ describe("OpenCode Zen provider", () => {
         [MEMBER_ROUTE]: member([
           { limit: 40, spent: 3 },
           { limit: 30, spent: 3, scope: "each" },
+          { limit: 1, spent: 0, coverage: "models", modelCount: 1 },
         ]),
       },
       {},
@@ -315,6 +290,7 @@ describe("OpenCode Zen provider", () => {
         [MEMBER_ROUTE]: member([
           { limit: 40, spent: 35 },
           { limit: 30, spent: 2.44, scope: "each" },
+          { limit: 1, spent: 0, per: "model" },
         ]),
       },
       {},
@@ -375,30 +351,24 @@ describe("OpenCode Zen provider", () => {
   });
 
   it.each([
-    ["a model filter", [{ limit: 10, spent: 1, rule: { selector: { models: ["gpt-5"] } } }]],
-    ["a vendor filter", [{ limit: 10, spent: 1, rule: { selector: { vendors: ["openai"] } } }]],
-    ["a price filter", [{ limit: 10, spent: 1, rule: { selector: { inputPriceAtLeast: 0 } } }]],
-    ["a null selector", [{ limit: 10, spent: 1, rule: { selector: null } }]],
-    ["a text selector", [{ limit: 10, spent: 1, rule: { selector: "openai" } }]],
-    ["an unknown selector key", [{ limit: 10, spent: 1, rule: { selector: { brands: [] } } }]],
-    ["a non-string models entry", [{ limit: 10, spent: 1, rule: { selector: { models: [7] } } }]],
-    ["a non-list vendors filter", [{ limit: 10, spent: 1, rule: { selector: { vendors: "x" } } }]],
+    ["a model filter", [{ limit: 10, spent: 1, coverage: "models", modelCount: 1 }]],
+    ["a vendor filter", [{ limit: 10, spent: 1, coverage: "models", vendors: ["openai"] }]],
+    ["a price filter", [{ limit: 10, spent: 1, coverage: "models", inputPriceAtLeast: 0 }]],
+    ["a null coverage", [{ limit: 10, spent: 1, coverage: null }]],
+    ["an unknown coverage", [{ limit: 10, spent: 1, coverage: "some" }]],
+    ["a missing coverage", [{ limit: 10, spent: 1, coverage: undefined }]],
+    ["a numeric coverage", [{ limit: 10, spent: 1, coverage: 7 }]],
+    ["a list coverage", [{ limit: 10, spent: 1, coverage: [] }]],
+    ["an object coverage", [{ limit: 10, spent: 1, coverage: {} }]],
+    ["missing amounts next to an applicable budget", [{ limit: 40, spent: 2.44 }, { limit: 10 }]],
+    ["a zero cap over some models only", [{ limit: 0, spent: 0, coverage: "models" }]],
+    ["a filtered per-model cap", [{ limit: 40, spent: 2, per: "model", coverage: "models" }]],
     [
-      "a non-boolean includeUnknownPrice",
-      [{ limit: 10, spent: 1, rule: { selector: { includeUnknownPrice: "no" } } }],
+      "a zero per-model cap over some models",
+      [{ limit: 0, spent: 0, per: "model", coverage: "models" }],
     ],
-    [
-      "a filtered budget next to an applicable one",
-      [
-        { limit: 40, spent: 2.44 },
-        { limit: 10, spent: 1, rule: { selector: { models: ["gpt-5"] } } },
-      ],
-    ],
-    ["a rule that is not a monthly budget", [{ limit: 40, spent: 2, rule: { kind: "usage" } }]],
-    ["a weekly budget rule", [{ limit: 40, spent: 2, rule: { period: "week" } }]],
-    ["a rule with another scope", [{ limit: 40, spent: 2, rule: { scope: "each" } }]],
     ["a non-zero per-model budget", [{ limit: 25, spent: 3, per: "model" }]],
-    ["a rule the policy does not have", [{ limit: 40, spent: 2, rule: { id: "rule_gone" } }]],
+    ["a missing limit", [{ spent: 2 }]],
     ["missing amounts", [{ limit: null, spent: null }]],
     ["a missing spend", [{ limit: 40 }]],
   ])(
@@ -447,6 +417,24 @@ describe("OpenCode Zen provider", () => {
   });
 
   it.each([
+    ["the selected cap's reset", "2026-10-15T02:00:00+02:00", "2026-10-15T00:00:00.000Z"],
+    ["the UTC month fallback for an unreadable reset", "unknown", NEXT_MONTH],
+    ["the UTC month fallback for a null reset", null, NEXT_MONTH],
+  ])("uses %s", async (_name, resetsAt, expected) => {
+    world.storeLogins([consoleLogin()]);
+    consoleHttp({
+      [MEMBER_ROUTE]: member([
+        { limit: 60, spent: 15, resetsAt: "2026-11-01T00:00:00.000Z" },
+        { limit: 30, spent: 3, resetsAt },
+      ]),
+    });
+
+    const fetched = await fetchRows(opencodeZenProvider);
+
+    expect(fetched.rows[0]?.resetsAt).toBe(expected);
+  });
+
+  it.each([
     [
       "failed auto reload and usage routes",
       { "billing/auto-recharge": serverError, "usage/cost-by-day": serverError },
@@ -462,21 +450,21 @@ describe("OpenCode Zen provider", () => {
       { ...CREDIT_LIMIT, [MEMBER_ROUTE]: serverError },
       [CREDIT_LIMIT_ROW, BALANCE_ROW, RELOAD_OFF_ROW],
       "provider_error",
-      ["OpenCode Console policies/members error 500"],
+      ["OpenCode Console policies/current-budgets error 500"],
     ],
     [
       "a forbidden member route, falling back to the credit limit",
       { ...CREDIT_LIMIT, [MEMBER_ROUTE]: () => new Response("forbidden", { status: 403 }) },
       [CREDIT_LIMIT_ROW, BALANCE_ROW, RELOAD_OFF_ROW],
       "provider_error",
-      ["OpenCode Console policies/members error 403"],
+      ["OpenCode Console policies/current-budgets error 403"],
     ],
     [
-      "a member reply for another account, falling back to the credit limit",
-      { ...CREDIT_LIMIT, [MEMBER_ROUTE]: { ...member([{ limit: 0, spent: 0 }]), userID: "usr_x" } },
+      "a budget reply that is not a list, falling back to the credit limit",
+      { ...CREDIT_LIMIT, [MEMBER_ROUTE]: { budgets: [] } },
       [CREDIT_LIMIT_ROW, BALANCE_ROW, RELOAD_OFF_ROW],
       "bad_response",
-      ["Could not parse OpenCode Console policies/members response"],
+      ["Could not parse OpenCode Console policies/current-budgets response"],
     ],
   ])("keeps the balance and reports %s", async (_name, overrides, rows, code, messages) => {
     world.storeLogins([consoleLogin()]);
@@ -490,34 +478,40 @@ describe("OpenCode Zen provider", () => {
     expect(JSON.stringify(fetched)).not.toContain("usr_me");
   });
 
-  it("asks for no member budget and lists why for a sign-in without an account id", async () => {
+  it("reads current budgets for a sign-in without an account id", async () => {
     world.storeLogins([consoleLogin({ metadata: { orgID: "wrk_abc" } })]);
-    const http = consoleHttp(CREDIT_LIMIT);
+    const http = consoleHttp({
+      ...CREDIT_LIMIT,
+      "policies/current-budgets": [
+        { limitDollars: 60, spentDollars: 15, coverage: "all", per: "set", modelCount: 0 },
+      ],
+    });
 
     const fetched = await fetchRows(opencodeZenProvider);
 
-    expect(rowSummary(fetched.rows)).toEqual([CREDIT_LIMIT_ROW, BALANCE_ROW, RELOAD_OFF_ROW]);
-    expect(fetched.error?.code).toBe("no_data");
-    expect(errorDebug(fetched)).toEqual([
-      "OpenCode Zen: OpenCode Console member budgets unavailable: the Console sign-in has no account id",
+    expect(rowSummary(fetched.rows)).toEqual([
+      ["opencode.monthly", null, "Monthly", "month", "75 (15 USD of 60 USD)", NEXT_MONTH],
+      BALANCE_ROW,
+      RELOAD_OFF_ROW,
     ]);
-    expect(http.mock.calls.map(([url]) => url)).not.toContain(`${CONSOLE_API}/${MEMBER_ROUTE}`);
+    expect(fetched.error).toBeUndefined();
+    expect(errorDebug(fetched)).toEqual([]);
+    expect(http.mock.calls.map(([url]) => url)).toContain(
+      `${CONSOLE_API}/policies/current-budgets`,
+    );
   });
 
   it.each([
-    ["no budgets list", { userID: "usr_me", policies: [] }],
+    ["no budgets list", {}],
     ["a text reply", "none"],
-    ["a budget that is not an object", { userID: "usr_me", budgets: ["none"], policies: [] }],
-    ["policies that are not a list", { ...member([{ limit: 60, spent: 5 }]), policies: {} }],
-    ["an unknown scope", member([{ limit: 60, spent: 5, scope: "per-user" }])],
+    ["a budget that is not an object", ["none"]],
+    ["a null reply", null],
+    ["a null budget", [null]],
     ["an unknown per", member([{ limit: 60, spent: 5, per: "day" }])],
-    ["a text amount", member([{ limit: "60" as never, spent: 5 }])],
+    ["a text amount", [{ limitDollars: "60", spentDollars: 5, coverage: "all", per: "set" }]],
     ["a negative amount", member([{ limit: -1, spent: 5 }])],
     ["an amount over 90,000,000 dollars", member([{ limit: 90_000_001, spent: 5 }])],
-    [
-      "a budget without a rule id",
-      { userID: "usr_me", budgets: [{ policyID: "pol_0", scope: "combined" }], policies: [] },
-    ],
+    ["a text spend", [{ limitDollars: 60, spentDollars: "5", coverage: "all", per: "set" }]],
   ])("lists a parse error for a member reply with %s", async (_name, reply) => {
     world.storeLogins([consoleLogin()]);
     consoleHttp({ ...CREDIT_LIMIT, [MEMBER_ROUTE]: reply });
@@ -526,7 +520,7 @@ describe("OpenCode Zen provider", () => {
 
     expect(rowSummary(fetched.rows)).toEqual([CREDIT_LIMIT_ROW, BALANCE_ROW, RELOAD_OFF_ROW]);
     expect(errorDebug(fetched)).toEqual([
-      "OpenCode Zen: Could not parse OpenCode Console policies/members response",
+      "OpenCode Zen: Could not parse OpenCode Console policies/current-budgets response",
     ]);
   });
 
@@ -536,7 +530,7 @@ describe("OpenCode Zen provider", () => {
     ["an account id that needs URL encoding", "usr me/1"],
   ])("keeps %s out of a failed member request", async (_name, accountID) => {
     world.storeLogins([consoleLogin({ metadata: { orgID: "wrk_abc", accountID } })]);
-    const memberPath = `policies/members/${encodeURIComponent(accountID.trim())}`;
+    const memberPath = MEMBER_ROUTE;
     consoleHttp({
       [memberPath]: () => {
         throw new Error(`connect ECONNREFUSED for /api/${memberPath} (${accountID.trim()})`);
@@ -546,7 +540,7 @@ describe("OpenCode Zen provider", () => {
     const fetched = await fetchRows(opencodeZenProvider);
 
     expect(errorDebug(fetched)).toEqual([
-      "OpenCode Zen: OpenCode Console policies/members request failed: connect ECONNREFUSED for /api/policies/members/[redacted] ([redacted])",
+      "OpenCode Zen: OpenCode Console policies/current-budgets request failed: connect ECONNREFUSED for /api/policies/current-budgets ([redacted])",
     ]);
     expect(JSON.stringify(fetched)).not.toContain(accountID.trim());
     expect(JSON.stringify(fetched)).not.toContain(encodeURIComponent(accountID.trim()));
