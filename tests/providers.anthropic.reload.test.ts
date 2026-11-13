@@ -137,10 +137,12 @@ describe.each([
       vi.setSystemTime(START_MS + MINUTE - SECOND);
       const { store, snapshot } = await reloadAndPoll();
       expect(usageRequests()).toBe(1);
-      // Only a saved login's rows are shown again; others wait for the next check.
-      expect(snapshot.providers[0]?.rows.length).toBe(saved ? 2 : 0);
+      // A saved login's rows come back from the file; others are checked again after 30 s and
+      // get the reply Claude's shared probe still holds, so no usage request goes out.
+      expect(snapshot.providers[0]?.rows.length).toBe(2);
 
-      vi.setSystemTime(START_MS + MINUTE);
+      // The next request waits one interval after the last check: the file's, or that recheck's.
+      vi.setSystemTime(saved ? START_MS + MINUTE : START_MS + 2 * MINUTE - SECOND);
       await store.refresh({ reason: "poll" });
       expect(usageRequests()).toBe(2);
     },
