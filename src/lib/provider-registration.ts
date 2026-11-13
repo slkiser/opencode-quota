@@ -70,6 +70,17 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     rowKeys: ["api", "auto_composer"],
   },
   {
+    id: "commandcode",
+    label: "Command Code",
+    runtimeIds: ["commandcode"],
+    synonyms: [],
+    rowKeys: ["five_hour", "weekly"],
+    apiKey: {
+      envVars: ["CMD_API_KEY"],
+      providerKeys: ["commandcode"],
+    },
+  },
+  {
     id: "alibaba-coding-plan",
     label: "Alibaba Coding Plan",
     // OpenCode reaches Alibaba's models under the bare ids, so those belong to the Coding Plan.
