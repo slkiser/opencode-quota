@@ -240,7 +240,10 @@ function isDue(
   nowMs: number,
   providerMinIntervalMs?: number,
 ): boolean {
-  if (reason === "manual" || reason === "retry") return true;
+  if (reason === "manual") return true;
+  // The retry after a model's limit error checks at once, except past a provider's own floor.
+  const hasOwnFloor = providerMinIntervalMs !== undefined && providerMinIntervalMs > 0;
+  if (reason === "retry" && !hasOwnFloor) return true;
   if (last === undefined || last.checkedAtMs > nowMs) return true;
   // A model turn just used quota, so it may refresh 30 s after the last check even when
   // `minIntervalMs` is longer; a provider's own `minIntervalMs` is a hard floor.
@@ -674,10 +677,14 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
       }
       group.rows.push(...(entry?.rows ?? []));
       if (exportPart) group.parts.push(exportPart);
-      for (const field of ["okAtMs", "checkedAtMs"] as const) {
-        if (snapshot[field] !== undefined)
-          group.snapshot[field] = Math.max(group.snapshot[field] ?? 0, snapshot[field]);
-      }
+      // A group is only as fresh as its oldest part: "checked … ago" and the retry wait read okAtMs.
+      if (snapshot.okAtMs !== undefined)
+        group.snapshot.okAtMs = Math.min(group.snapshot.okAtMs ?? snapshot.okAtMs, snapshot.okAtMs);
+      if (snapshot.checkedAtMs !== undefined)
+        group.snapshot.checkedAtMs = Math.max(
+          group.snapshot.checkedAtMs ?? 0,
+          snapshot.checkedAtMs,
+        );
       if (snapshot.error && !group.snapshot.error) group.snapshot.error = snapshot.error;
       group.snapshot.refreshing ||= snapshot.refreshing;
       group.snapshot.debug?.push(...(snapshot.debug ?? []));

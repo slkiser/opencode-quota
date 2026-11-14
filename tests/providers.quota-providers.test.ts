@@ -274,6 +274,26 @@ describe("quota-providers aggregate provider", () => {
     expect(runtimeMocks.fetchRemoteQuotaProvider).toHaveBeenCalledTimes(4);
   });
 
+  it("keeps a definition's floor on the retry after a model's limit error", async () => {
+    const { store } = scheduled([{ ...remote("tight"), minIntervalMs: 600_000 }, remote("plain")]);
+    await store.refresh({ reason: "poll" });
+    clock += 1000;
+    await store.refresh({ reason: "retry" });
+    expect(requested().filter((id) => id === "tight")).toHaveLength(1);
+    expect(requested().filter((id) => id === "plain")).toHaveLength(2);
+  });
+
+  it("reports a group as fresh as its oldest definition", async () => {
+    const { store } = scheduled([{ ...remote("tight"), minIntervalMs: 600_000 }, remote("plain")]);
+    runtimeMocks.fetchRemoteQuotaProvider.mockResolvedValue(success);
+    await store.refresh({ reason: "poll" });
+    const polledAtMs = clock;
+    clock += 30_000;
+    const snapshot = await store.refresh({ reason: "turn" });
+    expect(requested().filter((id) => id === "plain")).toHaveLength(2);
+    expect(snapshot.providers[0]).toMatchObject({ okAtMs: polledAtMs, checkedAtMs: clock });
+  });
+
   it.each([60_000, 700_000])(
     "does not repeat a skipped rate-limit error and respects a %i ms Retry-After plus the interval",
     async (retryWait) => {
