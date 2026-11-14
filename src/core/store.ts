@@ -15,9 +15,9 @@
  * - Rows and reset notices belong to an identity (account plus provider settings). Those of
  *   another identity are never shown; those whose identity can't be saved stay in memory and
  *   go on a login change. For those the file keeps only when their provider was last checked
- *   (with its failures and retry time), so a restarted store waits that check out before it
- *   asks the provider; a login change or settings recheck ends that wait, also one that comes
- *   before the file is read.
+ *   (with its failures and retry time). Without rows after a restart, the store may check again
+ *   30 s (or the configured interval if shorter) after a successful last check; a failed one
+ *   keeps the full interval, its backoff and retry time. A login change or settings recheck ends that wait, also one before the file is read.
  * - Rows also carry their login. A failed refresh keeps the last good rows and records the
  *   error; when one of several logins fails, that login keeps its last rows. Logins that share
  *   an account name are numbered here ("Pro", "Pro 2"), by login, so the numbers stay put;
@@ -230,8 +230,8 @@ function isDue(
 ): boolean {
   if (reason === "manual" || reason === "retry") return true;
   if (last === undefined || last.checkedAtMs > nowMs) return true;
-  // The one exception to the configured minimum: a model turn just used quota, so it may
-  // refresh 30 s after the last check even when `minIntervalMs` is longer.
+  // A model turn just used quota, so it may refresh 30 s after the last check even when
+  // `minIntervalMs` is longer.
   let waitMs = reason === "turn" ? Math.min(minIntervalMs, TURN_MIN_INTERVAL_MS) : minIntervalMs;
   if (last.failures > 0) waitMs = Math.max(waitMs, backoffMs(last.failures));
   if (nowMs - last.checkedAtMs < waitMs) return false;
@@ -712,10 +712,22 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
     const where = operation.keys.get(provider.id);
     if (!where) return;
     const minIntervalMs = provider.minIntervalMs ?? operation.source.minIntervalMs;
-    // A login that can't be saved has no entry after a restart: the file's last check of its
-    // provider waits instead, so a plugin reload asks no sooner than the last process would.
-    const last = lastCheckOf(entries.get(where.key)) ?? fileLastCheck(provider.id, where);
-    if (!isDue(last, reason, minIntervalMs, now())) return;
+    const entry = entries.get(where.key);
+    const memoryLastCheck = lastCheckOf(entry);
+    const restoredLastCheck =
+      memoryLastCheck === undefined ? fileLastCheck(provider.id, where) : undefined;
+    const last = memoryLastCheck ?? restoredLastCheck;
+    // Memory-only rows are lost on restart, but the file still has their provider's last check.
+    // With nothing to show after a successful check, use the 30 s floor for that restored check
+    // alone. A failed one keeps the full interval and its backoff and retry time; checks made
+    // here keep the full interval.
+    const intervalMs =
+      restoredLastCheck !== undefined &&
+      restoredLastCheck.failures === 0 &&
+      (entry?.rows.length ?? 0) === 0
+        ? Math.min(minIntervalMs, TURN_MIN_INTERVAL_MS)
+        : minIntervalMs;
+    if (!isDue(last, reason, intervalMs, now())) return;
     const result = await fetchProvider(provider, where.key);
     // A fetch is stored only under the account it read. A login change (new generation) or
     // another account now (same generation) drops its answer.
