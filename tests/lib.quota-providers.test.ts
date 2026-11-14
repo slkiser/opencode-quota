@@ -180,6 +180,33 @@ describe("quotaProviders schema", () => {
     }
   });
 
+  it.each([quotaProvider, localQuotaProvider])(
+    "validates a definition's minimum check interval",
+    (definition) => {
+      for (const minIntervalMs of [1, 600_000]) {
+        expect(validateQuotaProviders([definition({ minIntervalMs })]).value?.[0]).toMatchObject({
+          minIntervalMs,
+        });
+      }
+      for (const minIntervalMs of [
+        0,
+        -1,
+        1.5,
+        "600000",
+        null,
+        true,
+        Infinity,
+        NaN,
+        Number.MAX_VALUE,
+      ]) {
+        expect(validateQuotaProviders([definition({ minIntervalMs })]).issues).toContainEqual({
+          key: "quotaProviders[0].minIntervalMs",
+          message: "expected positive whole milliseconds (a safe integer)",
+        });
+      }
+    },
+  );
+
   // Built-in providers of 4.x and 5.x that this version does not have.
   it.each(["chutes", "kilo", "nanogpt", "nano-gpt", "synthetic"])(
     "accepts a custom provider with the id %s",

@@ -249,6 +249,8 @@ interface QuotaProviderDefinitionBase {
   mode: QuotaProviderMode;
   /** Exact OpenCode model ids, without a provider prefix. Omission covers the provider. */
   modelIds?: string[];
+  /** Hard minimum between automatic checks of this definition, in whole milliseconds. */
+  minIntervalMs?: number;
   /**
    * `false` switches the definition off: it is never fetched and its key is never sent. Omission
    * means on. Agents add definitions switched off; only the user switches them on.
@@ -306,7 +308,15 @@ type QuotaProvidersValidationResult =
   | { value: QuotaProviderDefinition[]; issues: [] }
   | { value?: undefined; issues: QuotaProviderValidationIssue[] };
 
-const BASE_FIELDS = ["id", "providerId", "label", "mode", "modelIds", "enabled"] as const;
+const BASE_FIELDS = [
+  "id",
+  "providerId",
+  "label",
+  "mode",
+  "modelIds",
+  "enabled",
+  "minIntervalMs",
+] as const;
 const REMOTE_FIELDS = [...BASE_FIELDS, "url", "format", "apiKeyEnv", "adapter"] as const;
 const LOCAL_FIELDS = [...BASE_FIELDS, "windows", "pricingModelMap"] as const;
 /** Every top-level field a definition can have, in either mode. */
@@ -1473,6 +1483,21 @@ export function validateQuotaProviders(value: unknown): QuotaProvidersValidation
       issues.push({ key: `${providerKey}.enabled`, message: "expected true or false" });
     }
     const switchField = typeof enabled === "boolean" ? { enabled } : {};
+    const minIntervalMs = raw.minIntervalMs;
+    if (
+      hasOwnKey(raw, "minIntervalMs") &&
+      !(
+        typeof minIntervalMs === "number" &&
+        Number.isSafeInteger(minIntervalMs) &&
+        minIntervalMs > 0
+      )
+    ) {
+      issues.push({
+        key: `${providerKey}.minIntervalMs`,
+        message: "expected positive whole milliseconds (a safe integer)",
+      });
+    }
+    const intervalField = typeof minIntervalMs === "number" ? { minIntervalMs } : {};
     const modelIdsValid =
       !hasOwnKey(raw, "modelIds") ||
       (Array.isArray(raw.modelIds) && modelIds?.length === raw.modelIds.length);
@@ -1558,6 +1583,7 @@ export function validateQuotaProviders(value: unknown): QuotaProvidersValidation
           ...(apiKeyEnv !== undefined ? { apiKeyEnv: apiKeyEnv as string } : {}),
           ...(modelIds ? { modelIds } : {}),
           ...switchField,
+          ...intervalField,
         };
         definitions.push({
           index,
@@ -1592,6 +1618,7 @@ export function validateQuotaProviders(value: unknown): QuotaProvidersValidation
             ...(modelIds ? { modelIds } : {}),
             ...(pricingModelMap ? { pricingModelMap } : {}),
             ...switchField,
+            ...intervalField,
           },
         });
       }
