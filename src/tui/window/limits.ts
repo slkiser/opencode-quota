@@ -6,16 +6,17 @@
  * All rows share one grid: label │ bar │ percent │ reset │ pace, each column as wide as its
  * widest entry, the percent right-aligned. The bar has your bar shape (the thin ━─ line when bars
  * are off) with the even-use marker ┃ (`core/pace.ts`) when `layout.evenUse` is on, and takes the room the other columns
- * leave, so the grid always spans the window. A provider's line has its name and plan; an error
- * gets its own line under it. Like the window's other tabs, a provider's line starts one column
- * in, its rows and its error three.
+ * leave, so the grid always spans the window. A provider's line has its name, its plan and how
+ * long ago its rows were checked (the tab checks again each time it shows); an error gets its
+ * own line under it. Like the window's other tabs, a provider's line starts one column in, its
+ * rows and its error three.
  *
  * A narrower window first shortens "resets in 2h 30m" to "2h", then the labels, and then puts
  * the reset and the pace on a line under the bar (on two lines when they don't fit together).
  */
 import type { QuotaSnapshot, Words } from "../../core/types.js";
 import { columnsOf, padEndColumns, padStartColumns, sliceColumns } from "../../view/columns.js";
-import { type BarShape, fit } from "../../view/format.js";
+import { type BarShape, checkedAgoText, fit } from "../../view/format.js";
 import { errorWords, type Place, type RowFacts, rowFacts } from "../../view/row-facts.js";
 import { type Group, type RowSettings, visibleGroups } from "../../view/select.js";
 import {
@@ -176,12 +177,13 @@ function clipped(line: Line, width: number): Line {
   return { id: line.id, segments };
 }
 
-/** The provider's line: its name and plan. */
-function providerLine(group: Group): Line {
+/** The provider's line: its name, its plan and `checked` ("checked 4 min ago"), when it has one. */
+function providerLine(group: Group, checked: string | undefined): Line {
   const indent: Segment = { text: HEADING_INDENT, role: "label" };
   const name: Segment = { text: group.name, role: "provider", bold: true };
   const account: Segment[] = group.account ? [{ text: `  ${group.account}`, role: "account" }] : [];
-  return { id: group.id, segments: [indent, name, ...account] };
+  const age: Segment[] = checked ? [{ text: `${WIDE_GAP}${checked}`, role: "value" }] : [];
+  return { id: group.id, segments: [indent, name, ...account, ...age] };
 }
 
 export function limitsLines(input: LimitsInput): Line[] {
@@ -222,7 +224,10 @@ export function limitsLines(input: LimitsInput): Line[] {
   const shape = display.layout.bar === "none" ? "line" : display.layout.bar;
   return groups.flatMap((group, index) => {
     const lines: Line[] = index > 0 ? [{ id: "", segments: [] }] : [];
-    lines.push(providerLine(group));
+    const okAtMs = snapshot.providers.find(
+      (provider) => provider.providerId === group.providerId,
+    )?.okAtMs;
+    lines.push(providerLine(group, checkedAgoText(okAtMs, nowMs)));
     const error = errorWords(group, nowMs);
     if (error) {
       lines.push({

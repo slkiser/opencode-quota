@@ -10,6 +10,7 @@ const EXPECTED_PROVIDER_ORDER = [
   "anthropic-api",
   "openrouter",
   "cursor",
+  "commandcode",
   "alibaba-coding-plan",
   "alibaba-token-plan",
   "google-gemini-cli",

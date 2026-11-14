@@ -38,8 +38,6 @@ export const en = {
 
   "limits.none": "No provider is enabled and signed in.",
   "limits.current": "serves the current model",
-  "limits.checked": "Checked {{time}} ago",
-  "limits.checkedNow": "Checked just now",
   "limits.resetsIn": "resets in {{time}}",
   "limits.noReset": "no reset time",
   "limits.evenUse": "Even use: {{percent}}",
@@ -221,7 +219,7 @@ export const en = {
     "After the provider, when its limit runs out before the reset.",
   "setting.statusLine.width": "Width",
   "setting.statusLine.width.description":
-    "The most columns the line takes, in columns; 0 uses all the free room.",
+    "The most columns the line takes, in columns; 0 uses all the free space.",
   "setting.statusLine.autoScrollSeconds": "Scroll by itself",
   "setting.statusLine.autoScrollSeconds.description":
     "Seconds between scroll steps when not every provider fits; 0 is off.",
@@ -275,7 +273,7 @@ export const en = {
   "setting.layout.bar.description": "How bars are drawn in the terminal.",
   "setting.layout.barWidth": "Bar width",
   "setting.layout.barWidth.description":
-    "Fill the room the other columns leave, or a fixed number of columns.",
+    "Fill the space the other columns leave, or a fixed number of columns.",
   "setting.layout.evenUse": "Even-use mark",
   "setting.layout.evenUse.description": "A thin mark in each bar where even use would be now.",
   "setting.layout.indent": "Row indent",
@@ -422,8 +420,8 @@ export const en = {
   "preset.colors.theme colors": "theme colors",
   "preset.colors.grey": "grey",
   "preset.layout.compact": "compact",
-  "preset.layout.comfortable": "comfortable",
-  "preset.layout.roomy": "roomy",
+  "preset.layout.normal": "normal",
+  "preset.layout.large": "large",
   "preset.words.normal": "normal",
   "preset.words.short": "short",
   "preset.words.spelled out": "spelled out",

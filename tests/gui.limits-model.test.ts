@@ -2,7 +2,6 @@ import { describe, expect, it } from "vite-plus/test";
 import type { QuotaRow, QuotaSnapshot } from "../src/core/types.js";
 import {
   displayOf,
-  lastCheckedMs,
   limitCards,
   limitProviders,
   resetAtFormat,
@@ -161,6 +160,21 @@ describe("GUI limit cards", () => {
     expect(cards[1]?.rows.map((item) => item.value)).toEqual(["70% used", "90% used", "10% used"]);
   });
 
+  it("says on each card how long ago its rows were checked, counting on until a refresh", () => {
+    // Anthropic's rows came in at `okAtMs`; OpenRouter has no good check yet, so it says nothing.
+    const ages = (okAtMs: number, nowMs: number) => {
+      const providers = SNAPSHOT.providers.map((provider) =>
+        provider.providerId === "anthropic" ? { ...provider, okAtMs } : provider,
+      );
+      const shown = { ...SNAPSHOT, providers };
+      return limitCards(shown, displayOf(shown), nowMs).map((card) => card.checked);
+    };
+    expect(ages(NOW - 2 * HOUR, NOW)).toEqual(["checked 2 h ago", undefined]);
+    expect(ages(NOW - 2 * HOUR, NOW + HOUR)).toEqual(["checked 3 h ago", undefined]);
+    // A refresh brings new rows.
+    expect(ages(NOW + HOUR, NOW + HOUR)).toEqual(["checked just now", undefined]);
+  });
+
   it("shows one provider when it is picked", () => {
     const cards = limitCards(SNAPSHOT, displayOf(SNAPSHOT), NOW, "openrouter");
     expect(cards.map((card) => card.providerId)).toEqual(["openrouter"]);
@@ -181,11 +195,6 @@ describe("GUI session strip and check time", () => {
     });
     expect(sessionStrip(SNAPSHOT, { ...DEFAULT_WORDS, sessionTokens: "tree" })?.tree).toBe(true);
     expect(sessionStrip({ ...SNAPSHOT, sessionTokens: undefined }, DEFAULT_WORDS)).toBeUndefined();
-  });
-
-  it("takes the latest check of any provider", () => {
-    expect(lastCheckedMs(SNAPSHOT)).toBe(NOW - 3 * 60_000);
-    expect(lastCheckedMs({ ...SNAPSHOT, providers: [] })).toBeUndefined();
   });
 });
 

@@ -11,6 +11,7 @@ import {
 import { alibabaCodingPlanProvider, alibabaTokenPlanProvider } from "./alibaba.js";
 import { anthropicApiProvider } from "./anthropic-api.js";
 import { anthropicProvider } from "./anthropic.js";
+import { commandCodeProvider } from "./command-code.js";
 import { copilotProvider } from "./copilot.js";
 import { cursorProvider } from "./cursor.js";
 import { deepseekProvider } from "./deepseek.js";
@@ -38,6 +39,7 @@ const PROVIDERS_BY_ID = {
   openai: openaiProvider,
   openrouter: openRouterProvider,
   cursor: cursorProvider,
+  commandcode: commandCodeProvider,
   "alibaba-coding-plan": alibabaCodingPlanProvider,
   "alibaba-token-plan": alibabaTokenPlanProvider,
   "google-gemini-cli": googleGeminiCliProvider,

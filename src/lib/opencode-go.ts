@@ -248,9 +248,9 @@ export async function queryOpenCodeGoConsoleStatus(
   }
 
   const root = asRecord(reply.json);
-  if (!root) return contractError("console root must be an object");
+  if (reply.json !== null && !root) return contractError("console root must be an object");
 
-  const access = asRecord(root.access);
+  const access = asRecord(root?.access);
   if (!access) {
     return {
       success: false,

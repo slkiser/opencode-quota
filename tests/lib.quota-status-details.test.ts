@@ -19,6 +19,7 @@ const PROVIDER_FILES: Readonly<Record<string, readonly string[]>> = {
   "alibaba.ts": ["alibaba-coding-plan", "alibaba-token-plan"],
   "anthropic.ts": ["anthropic"],
   "anthropic-api.ts": ["anthropic-api"],
+  "command-code.ts": ["commandcode"],
   "copilot.ts": ["copilot"],
   "cursor.ts": ["cursor"],
   "deepseek.ts": ["deepseek"],

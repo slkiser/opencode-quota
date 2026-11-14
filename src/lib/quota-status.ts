@@ -1141,6 +1141,7 @@ const DEBUG_DETAILS = {
   "google-gemini-cli": GOOGLE_DETAILS,
   "google-agy": GOOGLE_DETAILS,
   openrouter: {},
+  commandcode: {},
   zai: {},
   zhipu: {},
   deepseek: {},
