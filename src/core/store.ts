@@ -4,7 +4,7 @@
  *
  * - `snapshot()` answers at once from what is known; when a provider is due it starts a
  *   background refresh.
- * - Refreshes are single-flight per cache identity and keep a minimum interval (30 s after a turn,
+ * - Refreshes are single-flight per cache identity and keep a minimum interval (by default 30 s after a turn,
  *   none for a manual or retry refresh); failures back off from 1 to 15 minutes, or until the
  *   provider's own retry time.
  * - Every snapshot, refresh, login-change and settings-change pass is one operation: it reads
@@ -33,8 +33,14 @@
  * - Reads from OpenCode and provider fetches have time limits, so `dispose` always ends.
  */
 import { createHash, randomUUID } from "node:crypto";
+import { sanitizeSingleLineDisplaySnippet } from "../lib/display-sanitize.js";
 import { withOpenCodeConfigReadScope } from "../lib/opencode-config-files.js";
-import type { QuotaExportProvider } from "../lib/quota-export-types.js";
+import type {
+  QuotaExportEntry,
+  QuotaExportError,
+  QuotaExportProvider,
+  QuotaExportSource,
+} from "../lib/quota-export-types.js";
 import { classifyError, RETRY_WAIT_MAX_MS } from "./errors.js";
 import {
   joinNotices,
@@ -101,12 +107,16 @@ export type ProviderIdentity = {
 
 export type StoreProvider = {
   id: string;
+  /** Independent check slot for definitions sharing the same display provider id. */
+  key?: string;
   /** Registration label, for example "Anthropic". */
   label: string;
-  /** Overrides the source's minimum interval (0 for providers that only read local data). */
+  /** Overrides the source's minimum, including turns (0 for providers reading local data). */
   minIntervalMs?: number;
   identity: () => Promise<ProviderIdentity>;
   fetch: () => Promise<ProviderFetch>;
+  /** Rebuilds export metadata from a saved check without fetching or recording a new check. */
+  restoreExportPart?: (snapshot: ProviderSnapshot) => QuotaExportProvider;
 };
 
 /** The providers to show and refresh now (enabled and available, in registration order). */
@@ -170,6 +180,7 @@ export type QuotaStore = {
 /** A saved entry and what this process keeps of it in memory only (see `ProviderSnapshot`). */
 type Entry = SavedEntry & {
   persist: boolean;
+  checkId?: string;
   debug: DebugDetail[];
   exportPart?: QuotaExportProvider;
 };
@@ -227,12 +238,19 @@ function isDue(
   reason: RefreshReason,
   minIntervalMs: number,
   nowMs: number,
+  providerMinIntervalMs?: number,
 ): boolean {
-  if (reason === "manual" || reason === "retry") return true;
+  if (reason === "manual") return true;
+  // The retry after a model's limit error checks at once, except past a provider's own floor.
+  const hasOwnFloor = providerMinIntervalMs !== undefined && providerMinIntervalMs > 0;
+  if (reason === "retry" && !hasOwnFloor) return true;
   if (last === undefined || last.checkedAtMs > nowMs) return true;
   // A model turn just used quota, so it may refresh 30 s after the last check even when
-  // `minIntervalMs` is longer.
-  let waitMs = reason === "turn" ? Math.min(minIntervalMs, TURN_MIN_INTERVAL_MS) : minIntervalMs;
+  // `minIntervalMs` is longer; a provider's own `minIntervalMs` is a hard floor.
+  let waitMs =
+    reason === "turn" && providerMinIntervalMs === undefined
+      ? Math.min(minIntervalMs, TURN_MIN_INTERVAL_MS)
+      : minIntervalMs;
   if (last.failures > 0) waitMs = Math.max(waitMs, backoffMs(last.failures));
   if (nowMs - last.checkedAtMs < waitMs) return false;
   // A retry time waits at most a day (the most a reply can ask), so a far one never stalls checks.
@@ -240,6 +258,47 @@ function isDue(
   return (
     retryAtMs === undefined || nowMs >= Math.min(retryAtMs, last.checkedAtMs + RETRY_WAIT_MAX_MS)
   );
+}
+
+/** Independently checked entries share one display/export group, in configured order. */
+function groupedExport(
+  parts: QuotaExportProvider[],
+  provider: ProviderSnapshot,
+): QuotaExportProvider {
+  if (parts.length === 1) return parts[0]!;
+  const entries: QuotaExportEntry[] = [];
+  const errors: QuotaExportError[] = [];
+  const sources = new Map<string, QuotaExportSource>();
+  let fetchedAt: number | undefined;
+  for (const part of parts) {
+    if ("fetchedAt" in part) fetchedAt = Math.max(fetchedAt ?? 0, part.fetchedAt);
+    if ("entries" in part) entries.push(...part.entries);
+    if (part.status === "partial") errors.push(...part.errors);
+    if (part.status === "error") errors.push({ label: provider.label, message: part.error });
+    for (const source of part.sources ?? []) {
+      if (!sources.has(source.id) || !("status" in source) || source.status !== "unavailable") {
+        sources.set(source.id, source);
+      }
+    }
+  }
+  // Rows with identical labels are numbered together, including in the export.
+  const numbered = entries.map((entry) => {
+    const row = provider.rows.find((row) => row.id === entry.id);
+    if (!row || row.account === entry.account) return entry;
+    const { account: _account, ...fields } = entry;
+    const account = row.account ? ` (${row.account})` : "";
+    return {
+      ...fields,
+      name: sanitizeSingleLineDisplaySnippet(`${provider.label}${account} ${row.label}`, 300),
+      ...(row.account ? { account: row.account } : {}),
+    };
+  });
+  const sourceList = sources.size ? { sources: [...sources.values()] } : {};
+  if (fetchedAt === undefined) return { status: "unavailable", ...sourceList };
+  if (errors.length === 0) return { status: "ok", fetchedAt, entries: numbered, ...sourceList };
+  return numbered.length
+    ? { status: "partial", fetchedAt, entries: numbered, errors, ...sourceList }
+    : { status: "error", fetchedAt, error: errors[0]!.message, ...sourceList };
 }
 
 /** Each fetched row with its login, shortened to a hash of the keyed id it arrives as. */
@@ -385,7 +444,7 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
   const lastChecksFromFile = new Map<string, LastCheck>();
   /** A login change or settings recheck ended those waits, also before the file was read. */
   let fileWaitsEnded = false;
-  const inFlight = new Map<string, Promise<void>>();
+  const inFlight = new Map<string, Promise<boolean>>();
   /** Running fetches per cache identity (an old one may still run after a login change). */
   const fetching = new Map<string, number>();
   /** The last operation per session, or per credential source for callers without a session. */
@@ -482,7 +541,13 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
     const saved = new Map<string, SavedEntry>();
     for (const [
       key,
-      { persist: keep, debug: _memoryOnly, exportPart: _alsoMemoryOnly, ...entry },
+      {
+        persist: keep,
+        checkId: _checkId,
+        debug: _memoryOnly,
+        exportPart: _alsoMemoryOnly,
+        ...entry
+      },
     ] of entries) {
       if (keep) saved.set(key, entry);
     }
@@ -490,9 +555,10 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
     const lastChecks = new Map<string, LastCheck>();
     for (const entry of entries.values()) {
       const lastCheck = entry.persist ? undefined : lastCheckOf(entry);
-      const other = lastChecks.get(entry.providerId);
+      const checkId = entry.checkId ?? entry.providerId;
+      const other = lastChecks.get(checkId);
       if (lastCheck && (!other || other.checkedAtMs < lastCheck.checkedAtMs)) {
-        lastChecks.set(entry.providerId, lastCheck);
+        lastChecks.set(checkId, lastCheck);
       }
     }
     try {
@@ -556,7 +622,7 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
     const keys = new Map<string, ResolvedKey>();
     await Promise.all(
       source.providers.map(async (provider) => {
-        keys.set(provider.id, await resolveKey(provider, scope));
+        keys.set(provider.key ?? provider.id, await resolveKey(provider, scope));
       }),
     );
     const operation = { generation: startedIn, source, keys, model, scope, sessionID };
@@ -575,23 +641,58 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
     const nowMs = now();
     const current = isCurrent(operation);
     const resetNotices: ResetNotice[] = [];
-    const providers = operation.source.providers.map((provider): ProviderSnapshot => {
-      const key = current ? operation.keys.get(provider.id)?.key : undefined;
+    const groups = new Map<
+      string,
+      { snapshot: ProviderSnapshot; rows: LoginRow[]; parts: QuotaExportProvider[] }
+    >();
+    for (const provider of operation.source.providers) {
+      const key = current ? operation.keys.get(provider.key ?? provider.id)?.key : undefined;
       const entry = key === undefined ? undefined : entries.get(key);
       for (const notice of entry?.notices ?? []) {
         if (nowMs - notice.atMs <= RESET_NOTICE_KEEP_MS) resetNotices.push(notice);
       }
-      return {
+      const snapshot: ProviderSnapshot = {
         providerId: provider.id,
         label: provider.label,
-        rows: shownRows(entry?.rows ?? []),
+        rows: [],
         ...(entry?.okAtMs === undefined ? {} : { okAtMs: entry.okAtMs }),
         ...(entry?.checkedAtMs === undefined ? {} : { checkedAtMs: entry.checkedAtMs }),
         ...(entry?.error === undefined ? {} : { error: entry.error }),
         refreshing: key !== undefined && fetching.has(key),
-        debug: entry?.debug ?? [],
-        ...(entry?.exportPart === undefined ? {} : { exportPart: entry.exportPart }),
+        debug: [...(entry?.debug ?? [])],
       };
+      const exportPart =
+        entry?.exportPart ??
+        (entry?.checkedAtMs === undefined
+          ? undefined
+          : provider.restoreExportPart?.({ ...snapshot, rows: shownRows(entry.rows) }));
+      const group = groups.get(provider.id);
+      if (!group) {
+        groups.set(provider.id, {
+          snapshot,
+          rows: [...(entry?.rows ?? [])],
+          parts: exportPart ? [exportPart] : [],
+        });
+        continue;
+      }
+      group.rows.push(...(entry?.rows ?? []));
+      if (exportPart) group.parts.push(exportPart);
+      // A group is only as fresh as its oldest part: "checked … ago" and the retry wait read okAtMs.
+      if (snapshot.okAtMs !== undefined)
+        group.snapshot.okAtMs = Math.min(group.snapshot.okAtMs ?? snapshot.okAtMs, snapshot.okAtMs);
+      if (snapshot.checkedAtMs !== undefined)
+        group.snapshot.checkedAtMs = Math.max(
+          group.snapshot.checkedAtMs ?? 0,
+          snapshot.checkedAtMs,
+        );
+      if (snapshot.error && !group.snapshot.error) group.snapshot.error = snapshot.error;
+      group.snapshot.refreshing ||= snapshot.refreshing;
+      group.snapshot.debug?.push(...(snapshot.debug ?? []));
+    }
+    const providers = [...groups.values()].map(({ snapshot, rows, parts }) => {
+      snapshot.rows = shownRows(rows);
+      if (parts.length) snapshot.exportPart = groupedExport(parts, snapshot);
+      return snapshot;
     });
     revision += 1;
     const snapshot: QuotaSnapshot = {
@@ -622,7 +723,9 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
   }
 
   function providerIdsOf(operation: Operation): string {
-    return JSON.stringify(operation.source.providers.map((provider) => provider.id));
+    return JSON.stringify(
+      operation.source.providers.map((provider) => provider.key ?? provider.id),
+    );
   }
 
   function emit(operation: Operation): void {
@@ -669,6 +772,7 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
     entries.set(where.key, {
       providerId: provider.id,
       persist: where.persist,
+      ...(provider.key ? { checkId: provider.key } : {}),
       rows,
       ...(okAtMs === undefined ? {} : { okAtMs }),
       checkedAtMs: nowMs,
@@ -678,7 +782,9 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
       failures:
         error === undefined
           ? 0
-          : (previous?.failures ?? fileLastCheck(provider.id, where)?.failures ?? 0) + 1,
+          : (previous?.failures ??
+              fileLastCheck(provider.key ?? provider.id, where)?.failures ??
+              0) + 1,
       debug: result.debug,
       ...(exportPart === undefined ? {} : { exportPart }),
       notices,
@@ -686,7 +792,7 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
         ? resetSeenTimes(previous, rows, nowMs)
         : (previous?.resetSeenAtMs ?? {}),
     });
-    if (!where.persist) lastChecksFromFile.delete(provider.id);
+    if (!where.persist) lastChecksFromFile.delete(provider.key ?? provider.id);
     persist();
   }
 
@@ -704,49 +810,53 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
     }
   }
 
+  /** True when a fetch ran; a manual caller joining a skipped pass must still fetch. */
   async function refreshProviderNow(
     operation: Operation,
     provider: StoreProvider,
     reason: RefreshReason,
-  ): Promise<void> {
-    const where = operation.keys.get(provider.id);
-    if (!where) return;
+  ): Promise<boolean> {
+    const providerKey = provider.key ?? provider.id;
+    const where = operation.keys.get(providerKey);
+    if (!where) return false;
     const minIntervalMs = provider.minIntervalMs ?? operation.source.minIntervalMs;
     const entry = entries.get(where.key);
     const memoryLastCheck = lastCheckOf(entry);
     const restoredLastCheck =
-      memoryLastCheck === undefined ? fileLastCheck(provider.id, where) : undefined;
+      memoryLastCheck === undefined ? fileLastCheck(providerKey, where) : undefined;
     const last = memoryLastCheck ?? restoredLastCheck;
     // Memory-only rows are lost on restart, but the file still has their provider's last check.
     // With nothing to show after a successful check, use the 30 s floor for that restored check
-    // alone. A failed one keeps the full interval and its backoff and retry time; checks made
-    // here keep the full interval.
+    // alone, unless the provider sets its own minimum. A failed one keeps the full interval and
+    // its backoff and retry time; checks made here keep the full interval.
     const intervalMs =
       restoredLastCheck !== undefined &&
       restoredLastCheck.failures === 0 &&
-      (entry?.rows.length ?? 0) === 0
+      (entry?.rows.length ?? 0) === 0 &&
+      provider.minIntervalMs === undefined
         ? Math.min(minIntervalMs, TURN_MIN_INTERVAL_MS)
         : minIntervalMs;
-    if (!isDue(last, reason, intervalMs, now())) return;
+    if (!isDue(last, reason, intervalMs, now(), provider.minIntervalMs)) return false;
     const result = await fetchProvider(provider, where.key);
     // A fetch is stored only under the account it read. A login change (new generation) or
     // another account now (same generation) drops its answer.
-    if (!isCurrent(operation)) return;
+    if (!isCurrent(operation)) return true;
     const after = await withOpenCodeConfigReadScope(() => resolveKey(provider, operation.scope), {
       fresh: true,
     });
-    if (!isCurrent(operation)) return;
+    if (!isCurrent(operation)) return true;
     if (after.key !== where.key) {
-      operation.keys.set(provider.id, after);
-      return;
+      operation.keys.set(providerKey, after);
+      return true;
     }
     record(provider, where, result);
     // Providers with the same identity share new rows across scopes; each view still reads
     // its own keys for providers whose credential source differs.
     forgetInactiveSessions();
     for (const view of views.values()) {
-      if (view.keys.get(provider.id)?.key === where.key) emit(view);
+      if (view.keys.get(providerKey)?.key === where.key) emit(view);
     }
+    return true;
   }
 
   function refreshProvider(
@@ -757,15 +867,18 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
     // A stale operation never joins or starts a refresh: one of the new generation would join
     // its run, which fetches nothing.
     if (disposed || !isCurrent(operation)) return Promise.resolve();
-    const key = operation.keys.get(provider.id)?.key;
+    const key = operation.keys.get(provider.key ?? provider.id)?.key;
     if (key === undefined) return Promise.resolve();
     const running = inFlight.get(key);
-    if (running) return running;
-    const run: Promise<void> = refreshProviderNow(operation, provider, reason).finally(() => {
+    if (running)
+      return running.then((checked) => {
+        if (!checked && reason === "manual") return refreshProvider(operation, provider, reason);
+      });
+    const run = refreshProviderNow(operation, provider, reason).finally(() => {
       if (inFlight.get(key) === run) inFlight.delete(key);
     });
     inFlight.set(key, run);
-    return run;
+    return run.then(() => {});
   }
 
   /** The providers a refresh asks: all of them, `providerIds`, or those serving `model`. */

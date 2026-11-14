@@ -1,16 +1,22 @@
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { readSavedState } from "../src/core/persist.js";
+import { loadProviderSource } from "../src/core/provider-source.js";
+import { createQuotaStore, type QuotaStore } from "../src/core/store.js";
 import type { QuotaProviderContext } from "../src/lib/entries.js";
 import { bindCredentialSource } from "../src/lib/opencode-auth.js";
+import { buildQuotaExportFromSnapshot } from "../src/lib/quota-export.js";
 import type {
   QuotaProviderDefinition,
   RemoteApiQuotaProviderDefinition,
 } from "../src/lib/quota-providers.js";
 import { createRuntimeProviderIdResolver } from "../src/lib/runtime-provider-ids.js";
 import type { ProviderFetchResult, ProviderRow } from "../src/providers/contract.js";
+import { defaultSettings } from "../src/settings/index.js";
 import { NO_PROJECT_DIRECTORY, useOpencodeFolders } from "./helpers/opencode-folders.js";
 
-useOpencodeFolders();
+const folders = useOpencodeFolders();
 
 const runtimeMocks = vi.hoisted(() => ({
   resolveQuotaProviderApiKey: vi.fn(),
@@ -32,6 +38,7 @@ vi.mock("../src/lib/quota-providers-local.js", () => ({
 }));
 
 vi.mock("../src/lib/resolved-auth-identity.js", () => ({
+  isResolvedAuthIdentityKeyDurable: () => true,
   deriveResolvedAuthIdentity: vi.fn(
     async (params: { providerId: string; principal: { value: string } }) =>
       `opaque:${params.providerId}:${params.principal.value}`,
@@ -119,7 +126,59 @@ function context(
 }
 
 describe("quota-providers aggregate provider", () => {
+  let clock = 0;
+  const stores: QuotaStore[] = [];
+  const file = join(folders.root, "snapshot.json");
+  const requested = () =>
+    runtimeMocks.fetchRemoteQuotaProvider.mock.calls.map(([definition]) => definition.id);
+  const success = { success: true, rows: [adapterRow("Daily", { percentRemaining: 80 })] };
+  function failure(status: number, retryAtMs?: number) {
+    return {
+      success: false,
+      outcome: "http_error",
+      error: `HTTP ${status}`,
+      facts: { code: "provider_error", status, retryAtMs },
+    };
+  }
+  function scheduled(
+    definitions: QuotaProviderDefinition[] = [{ ...remote("tight"), minIntervalMs: 600_000 }],
+  ) {
+    runtimeMocks.fetchRemoteQuotaProvider.mockResolvedValue(success);
+    const ctx = context(
+      definitions,
+      definitions.map((definition) => definition.providerId),
+    );
+    const settings = defaultSettings();
+    settings.providers.custom = definitions;
+    const loaded = {
+      path: "settings.jsonc",
+      exists: true,
+      settings,
+      issues: [],
+      fromFile: [],
+      notRead: [],
+    };
+    const store = createQuotaStore({
+      source: () =>
+        loadProviderSource({
+          client: ctx.client,
+          workspaceRoot: folders.root,
+          locationDirectory: folders.root,
+          settings: () => loaded,
+          providers: () => [quotaProvidersProvider],
+        }),
+      file,
+      now: () => clock,
+    });
+    stores.push(store);
+    return { store, settings };
+  }
+  afterEach(async () => {
+    await Promise.all(stores.splice(0).map((store) => store.dispose()));
+  });
   beforeEach(() => {
+    clock = 1_800_000_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => clock);
     runtimeMocks.resolveQuotaProviderApiKey.mockReset().mockResolvedValue({
       key: "secret",
       source: "opencode.db",
@@ -132,6 +191,168 @@ describe("quota-providers aggregate provider", () => {
     });
     runtimeMocks.collectLocalQuotaProviderEstimate.mockReset().mockResolvedValue({ rows: [] });
   });
+
+  it.each(["turn", "poll"] as const)(
+    "keeps rows and check times on skips, then checks at the %s floor",
+    async (dueReason) => {
+      const { store } = scheduled();
+      const first = await store.refresh({ reason: "poll" });
+      clock += 30_000;
+      for (const reason of ["turn", "poll"] as const) {
+        expect((await store.refresh({ reason })).providers).toEqual(first.providers);
+      }
+      expect(runtimeMocks.fetchRemoteQuotaProvider).toHaveBeenCalledTimes(1);
+      clock += 569_999;
+      await store.refresh({ reason: dueReason });
+      expect(runtimeMocks.fetchRemoteQuotaProvider).toHaveBeenCalledTimes(1);
+      clock += 1;
+      await store.refresh({ reason: dueReason });
+      expect(runtimeMocks.fetchRemoteQuotaProvider).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("keeps the last success, error and failed outcome when a definition is skipped", async () => {
+    const { store } = scheduled();
+    await store.refresh({ reason: "poll" });
+    clock += 1000;
+    runtimeMocks.fetchRemoteQuotaProvider.mockResolvedValue(failure(503));
+    const failed = await store.refresh({ reason: "manual" });
+    clock += 60_000;
+    expect((await store.refresh({ reason: "turn" })).providers).toEqual(failed.providers);
+    expect(runtimeMocks.fetchRemoteQuotaProvider).toHaveBeenCalledTimes(2);
+    expect(failed.providers[0]).toMatchObject({ okAtMs: clock - 61_000, error: { status: 503 } });
+    expect(failed.providers[0]?.debug?.[0]?.value).toContain("outcome=http_error");
+  });
+
+  it("keeps the real error and backoff when a skipped definition has no good rows", async () => {
+    const { store } = scheduled();
+    runtimeMocks.fetchRemoteQuotaProvider.mockResolvedValue(failure(503));
+    const failed = await store.refresh({ reason: "poll" });
+    await store.dispose();
+    const saved = await readSavedState(file);
+    expect([...saved.entries.values()].map(({ failures }) => failures)).toEqual([1]);
+    clock += 60_000;
+    const restarted = scheduled().store;
+    const skipped = await restarted.refresh({ reason: "turn" });
+    expect(skipped.providers[0]).toMatchObject({
+      rows: [],
+      checkedAtMs: clock - 60_000,
+      error: { status: 503 },
+    });
+    await restarted.dispose();
+    expect((await readSavedState(file)).entries).toEqual(saved.entries);
+    expect(runtimeMocks.fetchRemoteQuotaProvider).toHaveBeenCalledTimes(1);
+    expect(failed.providers[0]?.error?.code).toBe("provider_error");
+  });
+
+  it("checks skipped definitions when a manual refresh joins a running automatic refresh", async () => {
+    const { store } = scheduled([{ ...remote("tight"), minIntervalMs: 600_000 }, remote("plain")]);
+    await store.refresh({ reason: "poll" });
+    clock += 30_000;
+    let finish = () => {};
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    runtimeMocks.fetchRemoteQuotaProvider.mockImplementation(
+      async (definition: QuotaProviderDefinition) => {
+        if (definition.id === "plain") await pending;
+        return success;
+      },
+    );
+    const automatic = store.refresh({ reason: "turn" });
+    let manual: ReturnType<QuotaStore["refresh"]> | undefined;
+    try {
+      await vi.waitFor(() =>
+        expect(runtimeMocks.fetchRemoteQuotaProvider).toHaveBeenCalledTimes(3),
+      );
+      manual = store.refresh({ reason: "manual" });
+      await vi.waitFor(() => expect(requested().filter((id) => id === "tight")).toHaveLength(2));
+    } finally {
+      finish();
+    }
+    await Promise.all([automatic, manual]);
+    expect(runtimeMocks.fetchRemoteQuotaProvider).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps a definition's floor on the retry after a model's limit error", async () => {
+    const { store } = scheduled([{ ...remote("tight"), minIntervalMs: 600_000 }, remote("plain")]);
+    await store.refresh({ reason: "poll" });
+    clock += 1000;
+    await store.refresh({ reason: "retry" });
+    expect(requested().filter((id) => id === "tight")).toHaveLength(1);
+    expect(requested().filter((id) => id === "plain")).toHaveLength(2);
+  });
+
+  it("reports a group as fresh as its oldest definition", async () => {
+    const { store } = scheduled([{ ...remote("tight"), minIntervalMs: 600_000 }, remote("plain")]);
+    runtimeMocks.fetchRemoteQuotaProvider.mockResolvedValue(success);
+    await store.refresh({ reason: "poll" });
+    const polledAtMs = clock;
+    clock += 30_000;
+    const snapshot = await store.refresh({ reason: "turn" });
+    expect(requested().filter((id) => id === "plain")).toHaveLength(2);
+    expect(snapshot.providers[0]).toMatchObject({ okAtMs: polledAtMs, checkedAtMs: clock });
+  });
+
+  it.each([60_000, 700_000])(
+    "does not repeat a skipped rate-limit error and respects a %i ms Retry-After plus the interval",
+    async (retryWait) => {
+      const { store } = scheduled();
+      runtimeMocks.fetchRemoteQuotaProvider.mockResolvedValue(failure(429, clock + retryWait));
+      const heard = vi.fn();
+      store.subscribe(heard);
+      await store.refresh({ reason: "poll" });
+      heard.mockClear();
+      for (const elapsed of [30_000, 60_000, 599_999]) {
+        clock = 1_800_000_000_000 + elapsed;
+        await store.refresh({ reason: "turn" });
+        await store.refresh({ reason: "poll" });
+      }
+      expect(runtimeMocks.fetchRemoteQuotaProvider).toHaveBeenCalledTimes(1);
+      expect(heard).not.toHaveBeenCalled();
+      clock = 1_800_000_000_000 + Math.max(600_000, retryWait);
+      await store.refresh({ reason: "turn" });
+      expect(runtimeMocks.fetchRemoteQuotaProvider).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each([false, true])(
+    "keeps turn floor, grouping, row ids, exports and custom off (restart=%s)",
+    async (restart) => {
+      const definitions = [
+        { ...remote("tight"), label: "Same", minIntervalMs: 600_000 },
+        { ...remote("plain"), label: "Same" },
+      ];
+      let { store, settings } = scheduled(definitions);
+      await store.refresh({ reason: "poll" });
+      if (restart) {
+        await store.dispose();
+        ({ store, settings } = scheduled(definitions));
+      }
+      clock += 30_000;
+      const snapshot = await store.refresh({ reason: "turn" });
+      expect(requested()).toEqual(["tight", "plain", "plain"]);
+      expect(snapshot.providers.map(({ providerId }) => providerId)).toEqual(["quota-providers"]);
+      expect(snapshot.providers[0]?.rows.map(({ id }) => id)).toEqual([
+        "quota-providers.custom.tight.Daily",
+        "quota-providers.custom.plain.Daily",
+      ]);
+      expect(snapshot.providers[0]?.rows.map(({ account }) => account).sort()).toEqual([
+        "Same",
+        "Same 2",
+      ]);
+      const exported = buildQuotaExportFromSnapshot(snapshot).providers["quota-providers"];
+      expect(exported?.sources).toEqual(
+        ["tight", "plain"].map((id) => ({ id, providerId: id, status: "ok", entryCount: 1 })),
+      );
+      if (exported?.status !== "ok") throw new Error("expected checked custom rows");
+      expect(exported.entries.map(({ account }) => account)).toEqual(
+        snapshot.providers[0]?.rows.map(({ account }) => account),
+      );
+      settings.providers.off = ["custom"];
+      expect((await store.refresh({ reason: "manual" })).providers).toEqual([]);
+    },
+  );
 
   it.each([
     ["no runtime match", [remote("stable", "provider-one", ["model-a"])], ["unrelated"], {}, []],

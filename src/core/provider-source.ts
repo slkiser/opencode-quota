@@ -18,6 +18,7 @@ import { exportProviderFromCheck } from "../lib/quota-export.js";
 import {
   cloneQuotaProviders,
   QUOTA_PROVIDERS_AGGREGATE_ID,
+  type QuotaProviderDefinition,
   selectEligibleQuotaProviderDefinitions,
 } from "../lib/quota-providers.js";
 import {
@@ -25,6 +26,7 @@ import {
   isResolvedAuthIdentityKeyDurable,
 } from "../lib/resolved-auth-identity.js";
 import { createRuntimeProviderIdResolver } from "../lib/runtime-provider-ids.js";
+import type { AccountResult } from "../providers/contract.js";
 import { getProviders } from "../providers/registry.js";
 import type { LoadedSettings, Settings } from "../settings/index.js";
 import { offProviderId } from "../settings/schema.js";
@@ -212,14 +214,45 @@ function storeProvider(
   provider: QuotaProvider,
   ctx: QuotaProviderContext,
   settingsKey: string,
+  definition?: QuotaProviderDefinition,
 ): StoreProvider {
+  const cacheContext = () =>
+    definition
+      ? Promise.resolve({ runtimeEligibleQuotaProviders: [definition] })
+      : cacheContextFor(provider, ctx);
+  const buildExportPart = (check: CheckForExport, accounts: readonly AccountResult[]) =>
+    exportProviderFromCheck({
+      ...check,
+      providerId: provider.id,
+      label: getQuotaProviderDisplayLabel(provider.id),
+      customDefinitions: ctx.config.quotaProviders ?? [],
+      accounts,
+    });
   return {
     id: provider.id,
+    ...(definition ? { key: `${provider.id}:${definition.id}` } : {}),
     label: getQuotaProviderDisplayLabel(provider.id),
     // Cursor counts OpenCode's own history: cheap, and stale at once.
     ...(isLiveLocalUsageProviderId(provider.id) ? { minIntervalMs: 0 } : {}),
+    ...(definition?.minIntervalMs === undefined ? {} : { minIntervalMs: definition.minIntervalMs }),
+    ...(definition
+      ? {
+          restoreExportPart(snapshot) {
+            // The saved rows can predate a failed check; only that check determines source status.
+            const answered = snapshot.okAtMs === snapshot.checkedAtMs;
+            return buildExportPart({ ...snapshot, checkedAtMs: snapshot.checkedAtMs! }, [
+              {
+                name: definition.label,
+                login: definition.id,
+                rows: answered ? snapshot.rows.map((row) => ({ ...row, key: row.id })) : [],
+                errors: snapshot.error ? [{ message: "" }] : [],
+              },
+            ]);
+          },
+        }
+      : {}),
     async identity(): Promise<ProviderIdentity> {
-      const account = await accountIdentity(provider, ctx, await cacheContextFor(provider, ctx));
+      const account = await accountIdentity(provider, ctx, await cacheContext());
       if (account === null) {
         const scope =
           provider.cachePolicy?.kind === "resolved-auth"
@@ -233,21 +266,14 @@ function storeProvider(
       return { key: `${account}\u001f${settingsKey}`, persist };
     },
     async fetch() {
-      const result = await provider.fetch(ctx, await cacheContextFor(provider, ctx));
+      const result = await provider.fetch(ctx, await cacheContext());
       const fetched = rowsFromProviderResult(provider.id, result);
-      const buildExportPart = (check: CheckForExport) =>
-        exportProviderFromCheck({
-          ...check,
-          providerId: provider.id,
-          label: getQuotaProviderDisplayLabel(provider.id),
-          customDefinitions: ctx.config.quotaProviders ?? [],
-          accounts: result.accounts,
-        });
-      if (!fetched.rowLogins) return { ...fetched, buildExportPart };
+      const exportPart = (check: CheckForExport) => buildExportPart(check, result.accounts);
+      if (!fetched.rowLogins) return { ...fetched, buildExportPart: exportPart };
       return {
         ...fetched,
         rowLogins: await keyedLogins(provider.id, fetched.rowLogins),
-        buildExportPart,
+        buildExportPart: exportPart,
       };
     },
   };
@@ -302,11 +328,29 @@ async function readProviderSource(
   const availableProviderIds = config.quotaProviders?.length
     ? await openCodeProviderIds(ctx)
     : new Set<string>();
+  const customDefinitions = selectEligibleQuotaProviderDefinitions({
+    definitions: config.quotaProviders ?? [],
+    availableProviderIds,
+  });
+  const separateCustomChecks = customDefinitions.some(
+    (definition) => definition.minIntervalMs !== undefined,
+  );
   return {
     ...(scoped.length ? { scope: JSON.stringify(scoped) } : {}),
     providers: enabled
       .filter((_, index) => available[index])
-      .map((provider) => storeProvider(provider, ctx, settingsKey)),
+      .flatMap((provider) =>
+        provider.id === QUOTA_PROVIDERS_AGGREGATE_ID && separateCustomChecks
+          ? customDefinitions.map((definition) =>
+              storeProvider(
+                provider,
+                ctx,
+                JSON.stringify([settingsKey, definition.id]),
+                definition,
+              ),
+            )
+          : [storeProvider(provider, ctx, settingsKey)],
+      ),
     minIntervalMs: loaded.settings.providers.checking.minIntervalMs,
     providerIdsForModel: (model) => providerIdsForModel(providers, ctx, model),
     // A custom definition's rows serve only the models the definition serves.
