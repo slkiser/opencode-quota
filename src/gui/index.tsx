@@ -12,8 +12,8 @@
  *   strip while the sidebar shows, and listed in its + menu; plugin storage remembers whether
  *   it is open or folded. While the tab is the only one showing in the side panel, the panel is
  *   as narrow as the app allows, or as wide as the user last made it for Quota; the other tabs
- *   get their width back (`side-width-follow.ts`, an unofficial trick that leaves the app's own
- *   width alone when it fails);
+ *   get their width back (`side-width-follow.ts`: Desktop's panel width API where Desktop has
+ *   it, else an unofficial trick that leaves the app's own width alone when it fails);
  * - a titlebar pill (the collapsed sidebar), a pill above the composer (the current model's
  *   limit) and the session menu's "Quota usage for this session", which open the usage window;
  * - a strip at the bottom of the window (the status line);
@@ -52,7 +52,7 @@ import {
   SettingsPageView,
   settingsEntries,
 } from "./settings-page.js";
-import { followSideWidth } from "./side-width-follow.js";
+import { followSideWidth, panelWidthApi } from "./side-width-follow.js";
 import { StatusStrip } from "./status-strip.js";
 import { STYLE } from "./style.js";
 import { surfaceSettings } from "./surface-settings.js";
@@ -221,9 +221,11 @@ export default Plugin.define({
       if (tab?.title !== title) tab = { id: PANEL_ID, title, pinned: true };
       return tab;
     };
+    const panelWidth = Panel ? panelWidthApi(ctx, PANEL_ID) : undefined;
     addSafely(ctx, Panel, {
       id: PANEL_ID,
       region: "side",
+      ...(panelWidth ? { width: "narrow" as const } : {}),
       // Only the app's own server runs this plugin's server part, so other servers get no tab.
       list: (input) =>
         input.session.server.builtin && settingsOf(snapshotOf(input.session)).sidebar.show
@@ -245,7 +247,7 @@ export default Plugin.define({
         );
       },
     });
-    if (Panel) followSideWidth(ctx, panelKey);
+    if (Panel) followSideWidth(ctx, panelKey, panelWidth);
     addSafely(ctx, MenuItem, () => {
       if (!currentSettings().sidebar.show) return undefined;
       const session = ctx.sessions.current();
