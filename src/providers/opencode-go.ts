@@ -210,12 +210,15 @@ async function fetchWithApiKey(
   consoleFailure?: FetchError,
 ): Promise<ProviderFetchResult> {
   const windows = OPENCODE_GO_WINDOW_ORDER;
-  const notSubscribed: ProviderFetchResult = {
-    attempted: true,
-    accounts: [],
-    empty: true,
-    debug: [...debug, NOT_SUBSCRIBED_DETAIL],
-  };
+  // Keys without a Go plan mean nothing to show, unless the Console failed: then its failure is
+  // Go's one error row, so the Console's last rows stay.
+  const notSubscribed: ProviderFetchResult = consoleFailure
+    ? {
+        attempted: true,
+        accounts: [{ name: LABEL, rows: [], errors: [consoleFailure] }],
+        debug: [...debug, NOT_SUBSCRIBED_DETAIL],
+      }
+    : { attempted: true, accounts: [], empty: true, debug: [...debug, NOT_SUBSCRIBED_DETAIL] };
 
   if (!keys.envOrConfig) {
     const storedKeys = keys.logins.flatMap(({ auth }) =>
@@ -254,12 +257,8 @@ async function fetchWithApiKey(
     const nothingShown = accounts.every(
       (account) => account.rows.length === 0 && account.errors.length === 0,
     );
-    return {
-      attempted: true,
-      accounts,
-      ...(nothingShown && storedKeys.length > 0 ? { empty: true } : {}),
-      debug: nothingShown && storedKeys.length > 0 ? [...debug, NOT_SUBSCRIBED_DETAIL] : debug,
-    };
+    if (nothingShown && storedKeys.length > 0) return notSubscribed;
+    return { attempted: true, accounts, debug };
   }
 
   const apiKey = keys.envOrConfig.key;

@@ -198,6 +198,20 @@ describe("OpenCode Go with the Console sign-in", () => {
     expect(fetched.error?.code).toBe(errorCode);
     expect(fetched.debug).toContainEqual(detail);
   });
+
+  it.each([
+    { name: "a Console 500", login: consoleLogin(), errorCode: "provider_error" },
+    { name: "an expired sign-in", login: consoleLogin({ expires: 1 }), errorCode: "login_expired" },
+  ])("$name with a key without Go is Go's error, not nothing to show", async (row) => {
+    world.storeLogins([row.login]);
+    process.env.OPENCODE_API_KEY = "free-key";
+    fakeHttp((url) =>
+      url === CONSOLE_STATUS_URL ? new Response("{}", { status: 500 }) : notSubscribedReply(),
+    );
+    const fetched = await fetchRows(opencodeGoProvider);
+    expect(fetched).toMatchObject({ rows: [], error: { code: row.errorCode } });
+    expect(fetched.empty).toBeUndefined();
+  });
 });
 
 describe("OpenCode Go with an API key", () => {
