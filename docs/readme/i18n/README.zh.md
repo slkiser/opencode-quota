@@ -107,6 +107,7 @@ opencode plugin add @slkiser/opencode-quota
 | 美国 | 套餐 |
 | --- | --- |
 | [Anthropic (Claude)](../providers.md#anthropic-claude)\* | 个人 · 企业 |
+| [Claude API](../providers.md#claude-api)\* | 个人 · 企业 |
 | Command Code | 个人 · 企业 |
 | [Cursor](../providers.md#cursor)\* | 个人 · 企业 |
 | [Gemini CLI](../providers.md#gemini-cli)\* | 企业 |

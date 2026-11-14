@@ -107,6 +107,7 @@ Inicia sesión con `/connect` y el proveedor aparece. Activa o desactiva proveed
 | Estadounidenses | Planes |
 | --- | --- |
 | [Anthropic (Claude)](../providers.md#anthropic-claude)\* | Personal · Empresa |
+| [Claude API](../providers.md#claude-api)\* | Personal · Empresa |
 | Command Code | Personal · Empresa |
 | [Cursor](../providers.md#cursor)\* | Personal · Empresa |
 | [Gemini CLI](../providers.md#gemini-cli)\* | Empresa |
