@@ -77,6 +77,7 @@ function report(rows: UsageProviderRow[], range: UsageReport["range"] = "7d"): U
     totals: {
       costUsd,
       sessions: rows.reduce((sum, item) => sum + item.sessions, 0),
+      requests: 0,
       tokens: {
         processed: tokens,
         cachedInput: tokens * 0.6,

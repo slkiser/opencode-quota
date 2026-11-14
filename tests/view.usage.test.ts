@@ -27,6 +27,7 @@ type Amounts = [costUsd: number, tokens: number, unpricedTokens?: number];
 type ReportSpec = {
   range?: UsageReport["range"];
   sessions: number;
+  requests?: number;
   providers: [providerID: string, sessions: number, ...Amounts][];
   models: [providerID: string, modelID: string, ...Amounts][];
   /** One entry per day, oldest first, ending on `lastDay`. */
@@ -86,6 +87,7 @@ function buildReport(spec: ReportSpec): UsageReport {
     totals: {
       costUsd,
       sessions: spec.sessions,
+      requests: spec.requests ?? 0,
       tokens: { processed: tokens, ...spec.tokens },
       tokensByType: spec.tokensByType ?? {
         input: spec.tokens.uncachedInput,
@@ -115,6 +117,7 @@ const DAILY_TOTAL = DAILY_COST.reduce((sum, cost) => sum + cost, 0);
 function skewedReport(): UsageReport {
   return buildReport({
     sessions: 636,
+    requests: 12_345,
     providers: [
       ["anthropic", 248, 5011, 12_900 * M],
       ["cursor", 316, 353.05, 368 * M],
@@ -657,6 +660,7 @@ describe("usageView", () => {
     const lines = skewedFrom("Totals", { width: 110 });
     expect(textOf(lines[1]).split(/ {2,}/).filter(Boolean)).toEqual([
       "Processed tokens",
+      "Requests",
       "Cached input",
       "Uncached input",
       "Output",
@@ -664,11 +668,22 @@ describe("usageView", () => {
     ]);
     expect(lines[2].map((part) => [part.text.trim(), part.role])).toEqual([
       ["13.4B", "value"],
+      ["12,345", "value"],
       ["13.2B", "value"],
       ["146M", "value"],
       ["50.0M", "value"],
       ["$49,636.93", "value"],
     ]);
+  });
+
+  it("shows requests even when a usage-bearing request has no tokens", () => {
+    const report = { ...EMPTY_REPORT, totals: { ...EMPTY_REPORT.totals, requests: 1 } };
+    const lines = usageView(report, { mode: "tokens", breakdown: "model", width: 80 }).lines;
+    const text = usageText(report, { mode: "tokens", breakdown: "model" });
+
+    expect(lines.map(textOf).join("\n")).toContain("Requests");
+    expect(text).toContain("Requests");
+    expect(text).not.toContain("No usage in this range.");
   });
 
   it.each([

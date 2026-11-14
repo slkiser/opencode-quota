@@ -66,6 +66,7 @@ const REPORT: UsageReport = {
   totals: {
     costUsd: 8,
     sessions: 5,
+    requests: 1_234,
     tokens: { processed: 5_000, cachedInput: 1_300, uncachedInput: 2_100, output: 1_600 },
     tokensByType: byType(1_600, 1_300, 500, 1_600),
     costByType: byType(4, 2, 0, 2),
@@ -77,6 +78,7 @@ const REPORT: UsageReport = {
     {
       providerID: "anthropic",
       sessions: 2,
+      requests: 1_000,
       costUsd: 6,
       costShare: 0.75,
       tokens: 1_000,
@@ -86,6 +88,7 @@ const REPORT: UsageReport = {
     {
       providerID: "openai",
       sessions: 4,
+      requests: 234,
       costUsd: 2,
       costShare: 0.25,
       tokens: 4_000,
@@ -139,6 +142,7 @@ describe("GUI usage view", () => {
     const view = usageView(REPORT, "cost", undefined);
     expect(view.total).toBe(8);
     expect(view.sessions).toBe(5);
+    expect(view.requests).toBe(1_234);
     expect(view.providers.map((row) => [row.name, row.share, row.color])).toEqual([
       ["Anthropic", 0.75, 0],
       ["OpenAI", 0.25, 1],
@@ -177,6 +181,8 @@ describe("GUI usage view", () => {
     const view = usageView(REPORT, "cost", "openai");
     expect(view.total).toBe(2);
     expect(view.sessions).toBe(4);
+    expect(view.requests).toBe(234);
+    expect(usageView(REPORT, "cost", "anthropic").requests).toBe(1_000);
     expect(view.providers.map((row) => [row.providerID, row.share, row.color])).toEqual([
       ["openai", 1, 1],
     ]);

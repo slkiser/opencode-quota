@@ -8,6 +8,9 @@
  * - Messages are OpenCode's assistant messages and the compactions that recorded usage, picked
  *   by creation time. A fork starts with copies of its parent's messages; only the parent
  *   counts them, in every range (`readUsageMessagePages` leaves them out).
+ * - Requests count completed, non-aborted assistant messages with token usage metadata, plus
+ *   compactions with recorded usage. Assistant messages without completion or usage metadata are
+ *   not requests.
  * - Cost comes from the shared pricing resolver (models.dev snapshot, Cursor's own table). A
  *   model without a price adds tokens but no cost; its tokens are the unpriced share. A failed
  *   compaction names no model, so its tokens are unpriced too (provider and model "unknown").
@@ -90,6 +93,8 @@ export type UsageProviderRow = UsageRow & {
   /** OpenCode's provider id, for example "anthropic" or "github-copilot". */
   providerID: string;
   sessions: number;
+  /** This provider's requests, counted like `totals.requests`. */
+  requests: number;
 };
 
 /** `date` is a local day like "2026-01-31". */
@@ -120,6 +125,8 @@ export type UsageReport = {
   totals: {
     costUsd: number;
     sessions: number;
+    /** Completed assistant messages with usage metadata, plus usage-bearing compactions. */
+    requests: number;
     tokens: UsageTokens;
     tokensByType: UsageByType;
     costByType: UsageByType;
@@ -410,10 +417,11 @@ async function buildUsageReport(query: UsageQuery, nowMs: number): Promise<Usage
   const tokensByType = emptyByType();
   const costByType = emptyByType();
   const total = emptyTally();
+  let requests = 0;
   let cacheSavingsUsd = 0;
   const sessions = new Set<string>();
   const topSessionIDs = new Map<string, string>();
-  const providers = new Map<string, { tally: Tally; sessions: Set<string> }>();
+  const providers = new Map<string, { tally: Tally; sessions: Set<string>; requests: number }>();
   const models = new Map<string, ModelTally>();
   const days = new Map<string, Tally>();
   let firstMs = Number.POSITIVE_INFINITY;
@@ -425,6 +433,16 @@ async function buildUsageReport(query: UsageQuery, nowMs: number): Promise<Usage
       // Storage always sets the creation time; it is what places a message on a day.
       const createdMs = message.time?.created;
       if (typeof createdMs !== "number") continue;
+      const completedMs = message.time?.completed;
+      const completedAssistant =
+        message.role === "assistant" &&
+        message.errorType !== "aborted" &&
+        typeof completedMs === "number" &&
+        Number.isFinite(completedMs) &&
+        completedMs > 0;
+      const isRequest =
+        message.hasUsageMetadata === true && (completedAssistant || message.role === "compaction");
+      if (isRequest) requests += 1;
       const providerID = message.providerID ?? "unknown";
       const modelID = message.modelID ?? "unknown";
       const modelKey = `${providerID}\n${modelID}`;
@@ -450,9 +468,11 @@ async function buildUsageReport(query: UsageQuery, nowMs: number): Promise<Usage
       const provider = entryFor(providers, providerID, () => ({
         tally: emptyTally(),
         sessions: new Set<string>(),
+        requests: 0,
       }));
       addUse(provider.tally, use);
       provider.sessions.add(topSession);
+      if (isRequest) provider.requests += 1;
       const model = entryFor(models, modelKey, () => ({
         providerID,
         modelID,
@@ -497,6 +517,7 @@ async function buildUsageReport(query: UsageQuery, nowMs: number): Promise<Usage
     totals: {
       costUsd: total.costUsd,
       sessions: sessions.size,
+      requests,
       tokens: totalTokens,
       tokensByType,
       costByType,
@@ -508,6 +529,7 @@ async function buildUsageReport(query: UsageQuery, nowMs: number): Promise<Usage
       .map(([providerID, provider]) => ({
         providerID,
         sessions: provider.sessions.size,
+        requests: provider.requests,
         ...toRow(provider.tally, rowTotal),
       }))
       .sort((a, b) => byCostThenTokens(a, b) || a.providerID.localeCompare(b.providerID)),

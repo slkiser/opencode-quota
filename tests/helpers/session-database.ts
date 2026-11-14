@@ -36,6 +36,10 @@ export type SessionDatabaseMessage = {
     cacheRead?: number;
     cacheWrite?: number;
   };
+  /** Leave usage metadata out of an assistant message. */
+  omitUsageMetadata?: boolean;
+  /** OpenCode's optional structured assistant error, including `{ type: "aborted", message }`. */
+  error?: { type: string; message: string };
   cost?: number;
 };
 
@@ -67,8 +71,10 @@ function messageData(message: SessionDatabaseMessage): Record<string, unknown> {
   }
   return {
     ...model,
-    tokens: tokenUsage(message.tokens ?? {}),
-    cost: message.cost ?? 0,
+    ...(message.omitUsageMetadata
+      ? {}
+      : { tokens: tokenUsage(message.tokens ?? {}), cost: message.cost ?? 0 }),
+    ...(message.error ? { error: message.error } : {}),
     time:
       message.completed === undefined
         ? { created: message.created }

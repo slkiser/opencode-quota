@@ -6,8 +6,8 @@ import { usageRangeLabel } from "../core/usage-ranges.js";
  * `/quota` and the CLI print the same words as plain text (`usageText`).
  *
  * Sections, top to bottom: the total, the providers as a small table, a daily chart (beside
- * the total and the providers when it gets 32 columns there, as tall as they are), totals by
- * token kind, cost (or tokens) by type, the breakdown by model or by day, and the share of
+ * the total and the providers when it gets 32 columns there, as tall as they are), the request
+ * count and token totals, cost (or tokens) by type, the breakdown by model or by day, and the share of
  * tokens without a price. In the TUI the chart fills its width with each day split by provider
  * in the providers' colors, the "by type" bar is a thin line across the view and each breakdown
  * row has a bar of its amount. `modelDetailView` lays out one model of the breakdown. Every line
@@ -25,6 +25,7 @@ import {
 import {
   type CacheHit,
   cacheHit,
+  formatCount,
   formatShare,
   formatTokens,
   formatUsd,
@@ -552,6 +553,7 @@ function totalsLines(view: View, width: number): UsageLine[] {
     ...grid(
       [
         ["Processed tokens", formatTokens(tokens.processed)],
+        ["Requests", formatCount(view.report.totals.requests)],
         ["Cached input", formatTokens(tokens.cachedInput)],
         ["Uncached input", formatTokens(tokens.uncachedInput)],
         ["Output", formatTokens(tokens.output)],
@@ -828,7 +830,7 @@ function buildView(
   contents: Contents,
 ): UsageViewLines {
   const width = Math.max(0, Math.floor(options.width));
-  if (report.totals.tokens.processed <= 0) {
+  if (report.totals.tokens.processed <= 0 && report.totals.requests <= 0) {
     return { lines: [clip([span("No usage in this range.", "muted")], width)], modelLines: [] };
   }
   const view: View = {

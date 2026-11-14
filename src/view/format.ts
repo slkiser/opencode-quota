@@ -1,8 +1,8 @@
 /**
  * Words and numbers every quota and usage surface shows: percents, reset times, bars, amounts,
- * money, token counts and shares. Pure functions, shared by the TUI, the Web text and the CLI.
- * Money, token counts and shares are written the way a billing dashboard writes them, always
- * in US English, so the text is the same on every machine.
+ * money, token and request counts and shares. Pure functions, shared by the TUI, the Web text and
+ * the CLI. Money, token counts, request counts and shares are written the way a billing dashboard
+ * writes them, always in US English, so the text is the same on every machine.
  */
 import type { Pace } from "../core/pace.js";
 import type { Amount, QuotaRow, SessionTokens, Words } from "../core/types.js";
@@ -15,6 +15,7 @@ const COMPACT = new Intl.NumberFormat("en-US", {
   minimumSignificantDigits: 3,
   maximumSignificantDigits: 3,
 });
+const COUNT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 
 /** "$1,234.56", "$0.00", and "<$0.01" for an amount above 0 that would show as $0.00. */
 export function formatUsd(usd: number): string {
@@ -26,6 +27,11 @@ export function formatUsd(usd: number): string {
 export function formatTokens(count: number): string {
   const whole = Math.round(count);
   return whole < 1000 ? String(whole) : COMPACT.format(whole);
+}
+
+/** A request count shown exactly, with grouped digits rather than token-style compact notation. */
+export function formatCount(count: number): string {
+  return COUNT.format(Math.round(count));
 }
 
 /** A 0..1 share with one decimal: "92.5%", "5.0%", "100.0%"; "<0.1%" above 0; "0%" for 0. */

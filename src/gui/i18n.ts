@@ -71,6 +71,7 @@ export const en = {
   "usage.total": "Total",
   "usage.totals": "Totals",
   "usage.processedTokens": "Processed tokens",
+  "usage.requests": "Requests",
   "usage.cachedInput": "Cached input",
   "usage.uncachedInput": "Uncached input",
   "usage.output": "Output",
