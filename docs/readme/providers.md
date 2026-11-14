@@ -586,6 +586,7 @@ API key order:
 4. An `opencode-go` API-key login saved in OpenCode 2 (`opencode.db`). `opencode auth login opencode-go` creates it.
 5. A legacy `opencode` API-key login as the final fallback.
 
+- Go shows when OpenCode lists `opencode-go` (an account with Go access) or one of the API keys above is set; a Console sign-in without Go adds no Go line.
 - Go shows **Five-hour**, **Weekly** and **Monthly**; a window the API reports as `rate-limited` shows as 0% left. When the Console reports no Go subscription, no Go rows appear.
 - `OPENCODE_GO_WORKSPACE_ID`, `OPENCODE_GO_AUTH_COOKIE` and the `opencode-quota/opencode-go.json` file are not read and cannot be converted to an API key.
 

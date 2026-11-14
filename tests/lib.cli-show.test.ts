@@ -43,7 +43,9 @@ import {
   runCliStatusCommand,
 } from "../src/lib/cli-show.js";
 import { describePriceList } from "../src/lib/modelsdev-pricing.js";
+import { createSqliteCredentialSource } from "../src/lib/opencode-auth-sqlite.js";
 import {
+  bindCredentialSource,
   clearCredentialRowCacheForTests,
   getCredentialSourceDiagnostics,
   readCredentialRows,
@@ -146,6 +148,24 @@ describe("createCliQuotaClient", () => {
       { id: "kimi-code-plan-global" },
       { id: "kimi-code-plan-cn" },
     ]);
+  });
+
+  it("lists OpenCode Go for a Console sign-in, leaving the plan to Go's Console check", async () => {
+    writeCredentialDatabase(join(tempDir, "opencode.db"), [
+      { id: "console", integrationId: "opencode", active: 1, updated: 1, value: { type: "oauth" } },
+    ]);
+    const unbind = bindCredentialSource(createSqliteCredentialSource());
+    try {
+      const client = createCliQuotaClient({
+        directory: workspaceDir,
+        anthropicBinaryPath: "claude",
+      });
+      await expect(client.config.providers()).resolves.toEqual({
+        data: { providers: [{ id: "opencode-go" }] },
+      });
+    } finally {
+      unbind();
+    }
   });
 
   it("lists the providers of every OpenCode config file that counts for its folder", async () => {

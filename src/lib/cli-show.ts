@@ -20,6 +20,7 @@ import { usePricingSettings } from "./modelsdev-pricing.js";
 import { createSqliteCredentialSource } from "./opencode-auth-sqlite.js";
 import { bindCredentialSource } from "./opencode-auth.js";
 import { loadConfiguredProviderIds } from "./opencode-config-providers.js";
+import { resolveOpenCodeConsoleAuth } from "./opencode-console-auth.js";
 import { getCanonicalQuotaProviderId } from "./provider-metadata.js";
 
 interface RunCliCommandOptions {
@@ -139,21 +140,26 @@ function parseArgs(command: CliCommand, argv: string[]): ParsedArgs {
   return { ok: true, providerId, help: false, json, threshold };
 }
 
-/** Logins OpenCode may not list as providers: the Claude CLI and the Kimi CLI. */
+/**
+ * Logins OpenCode may not list as providers: the Claude CLI, the Kimi CLI and the Console
+ * sign-in. OpenCode lists Go from the Console's own answer; here Go's Console check decides.
+ */
 async function loadCliAuthenticatedProviderIds(
   anthropicBinaryPath: string,
   directory: string,
 ): Promise<string[]> {
-  const [anthropicConfigured, kimiGlobalAuth, kimiCnAuth] = await Promise.all([
+  const [anthropicConfigured, kimiGlobalAuth, kimiCnAuth, consoleAuth] = await Promise.all([
     hasAnthropicCredentialsConfigured({ binaryPath: anthropicBinaryPath }),
     resolveApiKeyLogin(API_KEY_VENDORS["kimi-code-plan-global"], directory),
     resolveApiKeyLogin(API_KEY_VENDORS["kimi-code-plan-cn"], directory),
+    resolveOpenCodeConsoleAuth(),
   ]);
 
   return [
     ...(anthropicConfigured ? ["anthropic"] : []),
     ...(kimiGlobalAuth.state === "configured" ? ["kimi-code-plan-global"] : []),
     ...(kimiCnAuth.state === "configured" ? ["kimi-code-plan-cn"] : []),
+    ...(consoleAuth.state === "none" ? [] : ["opencode-go"]),
   ];
 }
 

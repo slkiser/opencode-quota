@@ -112,6 +112,7 @@ describe("OpenCode Go with the Console sign-in", () => {
 
     const fetched = await fetchRows(opencodeGoProvider);
 
+    expect(fetched.empty).toBe(true);
     expect(fetched.rows).toEqual([]);
     expect(fetched.error).toBeUndefined();
     expect(fetched.debug).toContainEqual(NOT_SUBSCRIBED_DETAIL);
@@ -197,6 +198,20 @@ describe("OpenCode Go with the Console sign-in", () => {
     expect(fetched.error?.code).toBe(errorCode);
     expect(fetched.debug).toContainEqual(detail);
   });
+
+  it.each([
+    { name: "a Console 500", login: consoleLogin(), errorCode: "provider_error" },
+    { name: "an expired sign-in", login: consoleLogin({ expires: 1 }), errorCode: "login_expired" },
+  ])("$name with a key without Go is Go's error, not nothing to show", async (row) => {
+    world.storeLogins([row.login]);
+    process.env.OPENCODE_API_KEY = "free-key";
+    fakeHttp((url) =>
+      url === CONSOLE_STATUS_URL ? new Response("{}", { status: 500 }) : notSubscribedReply(),
+    );
+    const fetched = await fetchRows(opencodeGoProvider);
+    expect(fetched).toMatchObject({ rows: [], error: { code: row.errorCode } });
+    expect(fetched.empty).toBeUndefined();
+  });
 });
 
 describe("OpenCode Go with an API key", () => {
@@ -271,6 +286,7 @@ describe("OpenCode Go with an API key", () => {
       await fetchRows(opencodeGoProvider),
       await fetchRows(opencodeGoProvider),
     ]) {
+      expect(fetched.empty).toBe(true);
       expect(fetched.rows).toEqual([]);
       expect(fetched.error).toBeUndefined();
       expect(fetched.debug).toContainEqual(NOT_SUBSCRIBED_DETAIL);
@@ -302,6 +318,13 @@ describe("OpenCode Go with an API key", () => {
 });
 
 describe("OpenCode Go with stored keys", () => {
+  it("answers with nothing when all stored keys have no Go plan", async () => {
+    world.storeLogins([keyLogin("free", "opencode-go", "free-key")]);
+    fakeHttp(() => notSubscribedReply());
+    expect(await fetchRows(opencodeGoProvider)).toMatchObject({ rows: [], empty: true });
+    expect(await fetchRows(opencodeGoProvider)).toMatchObject({ rows: [], empty: true });
+  });
+
   it("queries each key as its own account: a broken login first, a key without Go hidden", async () => {
     world.storeLogins([
       keyLogin("work", "opencode-go", "work-key", { label: "Work", updated: 4 }),
@@ -360,33 +383,54 @@ describe("OpenCode Go with stored keys", () => {
 
 describe("OpenCode Go availability and models", () => {
   it.each([
-    { name: "a Console sign-in", logins: [consoleLogin()], apiKey: false, available: true },
+    {
+      name: "a sign-in OpenCode lists as Go",
+      logins: [consoleLogin()],
+      apiKey: false,
+      listed: true,
+      available: true,
+    },
+    {
+      name: "a sign-in without Go",
+      logins: [consoleLogin()],
+      apiKey: false,
+      listed: false,
+      available: false,
+    },
     {
       name: "an expired sign-in",
       logins: [consoleLogin({ expires: 1 })],
       apiKey: false,
-      available: true,
+      listed: false,
+      available: false,
     },
     {
       name: "a sign-in without a token",
       logins: [consoleLogin({ access: "" })],
       apiKey: false,
-      available: true,
+      listed: false,
+      available: false,
     },
-    { name: "an env key", logins: [], apiKey: true, available: true },
+    { name: "an env key", logins: [], apiKey: true, listed: false, available: true },
     {
       name: "only a broken stored key",
       logins: [keyLogin("broken", "opencode-go", "")],
       apiKey: false,
+      listed: false,
       available: false,
     },
-    { name: "nothing", logins: [], apiKey: false, available: false },
-  ])("is available with $name: $available", async ({ logins, apiKey, available }) => {
+    { name: "nothing", logins: [], apiKey: false, listed: false, available: false },
+  ])("is available with $name: $available", async ({ logins, apiKey, listed, available }) => {
     world.storeLogins(logins);
     if (apiKey) process.env.OPENCODE_API_KEY = "go-key";
     const http = fakeHttp(() => USAGE_REPLY);
+    const ctx = {
+      config: {},
+      locationDirectory: NO_PROJECT_DIRECTORY,
+      resolveRuntimeProviderIds: async () => new Set(listed ? ["opencode-go"] : []),
+    };
 
-    await expect(opencodeGoProvider.isAvailable(NO_PROJECT_CTX)).resolves.toBe(available);
+    await expect(opencodeGoProvider.isAvailable(ctx as never)).resolves.toBe(available);
     expect(http).not.toHaveBeenCalled();
   });
 

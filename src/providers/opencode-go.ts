@@ -15,6 +15,7 @@ import {
   resolveOpenCodeConsoleAuth,
 } from "../lib/opencode-console-auth.js";
 import { queryOpenCodeGoConsoleStatus, queryOpenCodeGoQuota } from "../lib/opencode-go.js";
+import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
 import { composeResolvedAuthIdentities } from "../lib/resolved-auth-identity.js";
 import type { OpenCodeGoResult, OpenCodeGoWindowKey } from "../lib/types.js";
@@ -114,9 +115,14 @@ export const opencodeGoProvider: QuotaProvider = {
   },
 
   async isAvailable(ctx: QuotaProviderContext): Promise<boolean> {
-    // Any Console sign-in counts, even a failed one, so fetch() can show its error when there
-    // is no API key.
-    if ((await resolveOpenCodeConsoleAuth()).state !== "none") return true;
+    // OpenCode lists opencode-go only for an account with Go access, so a Console sign-in
+    // without Go adds no Go line. A key works without the listing.
+    const listed = await isCanonicalProviderAvailable({
+      ctx,
+      providerId: "opencode-go",
+      fallbackOnError: false,
+    });
+    if (listed) return true;
     if (vendorKeyState(await readGoKeys(ctx.locationDirectory)).state === "configured") return true;
     notSubscribedCredentialFingerprints.clear();
     return false;
@@ -163,6 +169,7 @@ export const opencodeGoProvider: QuotaProvider = {
         return {
           attempted: true,
           accounts: [],
+          empty: true,
           debug: [
             { key: "console_auth_state", value: "configured" },
             NOT_SUBSCRIBED_DETAIL,
@@ -209,11 +216,15 @@ async function fetchWithApiKey(
   consoleFailure?: FetchError,
 ): Promise<ProviderFetchResult> {
   const windows = OPENCODE_GO_WINDOW_ORDER;
-  const notSubscribed: ProviderFetchResult = {
-    attempted: true,
-    accounts: [],
-    debug: [...debug, NOT_SUBSCRIBED_DETAIL],
-  };
+  // Keys without a Go plan mean nothing to show, unless the Console failed: then its failure is
+  // Go's one error row, so the Console's last rows stay.
+  const notSubscribed: ProviderFetchResult = consoleFailure
+    ? {
+        attempted: true,
+        accounts: [{ name: LABEL, rows: [], errors: [consoleFailure] }],
+        debug: [...debug, NOT_SUBSCRIBED_DETAIL],
+      }
+    : { attempted: true, accounts: [], empty: true, debug: [...debug, NOT_SUBSCRIBED_DETAIL] };
 
   if (!keys.envOrConfig) {
     const storedKeys = keys.logins.flatMap(({ auth }) =>
@@ -252,11 +263,8 @@ async function fetchWithApiKey(
     const nothingShown = accounts.every(
       (account) => account.rows.length === 0 && account.errors.length === 0,
     );
-    return {
-      attempted: true,
-      accounts,
-      debug: nothingShown && storedKeys.length > 0 ? [...debug, NOT_SUBSCRIBED_DETAIL] : debug,
-    };
+    if (nothingShown && storedKeys.length > 0) return notSubscribed;
+    return { attempted: true, accounts, debug };
   }
 
   const apiKey = keys.envOrConfig.key;
