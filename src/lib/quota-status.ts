@@ -160,6 +160,7 @@ const KEY_VENDORS: Readonly<Record<string, { envVars: readonly string[] }>> = {
   openrouter: { envVars: ["OPENROUTER_API_KEY"] },
   cursor: { envVars: ["CURSOR_API_KEY"] },
   xiaomi: { envVars: ["MIMO_USAGE_COOKIE"] },
+  "anthropic-api": { envVars: ["ANTHROPIC_CONSOLE_COOKIE"] },
 };
 
 type ProviderAvailability = {
@@ -1175,6 +1176,10 @@ const DEBUG_DETAILS = {
     budget_source: oneOf("member_budget", "credit_limit"),
     member_budget_note: oneOf(MEMBER_BUDGET_NOTE),
     auto_reload: bool,
+  },
+  "anthropic-api": {
+    config_state: oneOf("none", "configured", "invalid"),
+    config_source: keySource,
   },
   "quota-providers": {},
 } satisfies Record<CanonicalQuotaProviderId, DebugRules>;

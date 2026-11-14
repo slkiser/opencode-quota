@@ -107,6 +107,7 @@ Connectez-vous avec `/connect` et le fournisseur apparaît. Activez ou désactiv
 | Américains | Offres |
 | --- | --- |
 | [Anthropic (Claude)](../providers.md#anthropic-claude)\* | Particulier · Entreprise |
+| [Claude API](../providers.md#claude-api)\* | Particulier · Entreprise |
 | Command Code | Particulier · Entreprise |
 | [Cursor](../providers.md#cursor)\* | Particulier · Entreprise |
 | [Gemini CLI](../providers.md#gemini-cli)\* | Entreprise |

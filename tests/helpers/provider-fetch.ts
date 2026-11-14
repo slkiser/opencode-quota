@@ -23,6 +23,8 @@ const PROVIDER_ENV_NAMES = [
   "OPENCODE_CONFIG_DIR",
   "OPENCODE_DB",
   "MIMO_USAGE_COOKIE",
+  "ANTHROPIC_CONSOLE_COOKIE",
+  "ANTHROPIC_CONSOLE_ORGANIZATION",
   "OPENROUTER_API_KEY",
   // The Alibaba CLI reads these for the seat command; a test must not inherit a real one.
   "ALIBABA_CLOUD_ACCESS_KEY_ID",

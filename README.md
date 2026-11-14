@@ -107,6 +107,7 @@ Log in with `/connect` and the provider shows up. Switch providers on or off in 
 | American | Plans |
 | --- | --- |
 | [Anthropic (Claude)](docs/readme/providers.md#anthropic-claude)\* | Personal · Business |
+| [Claude API](docs/readme/providers.md#claude-api)\* | Personal · Business |
 | Command Code | Personal · Business |
 | [Cursor](docs/readme/providers.md#cursor)\* | Personal · Business |
 | [Gemini CLI](docs/readme/providers.md#gemini-cli)\* | Business |

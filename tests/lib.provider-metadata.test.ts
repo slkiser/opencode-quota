@@ -67,8 +67,8 @@ describe("provider-metadata", () => {
     [" KIMI-CODE-PLAN-GLOBAL ", ["kimi-code-plan-global"]],
     ["google", ["google-gemini-cli"]],
     ["claude", []],
-    ["claude-code", ["anthropic"]],
-    ["claude-agent", ["anthropic"]],
+    ["claude-code", ["anthropic", "anthropic-api"]],
+    ["claude-agent", ["anthropic", "anthropic-api"]],
   ])("finds the provider owning the runtime id %j", (runtimeId, ids) => {
     expect(getQuotaProviderIdsForRuntimeId(runtimeId)).toEqual(ids);
   });
