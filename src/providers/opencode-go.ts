@@ -15,6 +15,7 @@ import {
   resolveOpenCodeConsoleAuth,
 } from "../lib/opencode-console-auth.js";
 import { queryOpenCodeGoConsoleStatus, queryOpenCodeGoQuota } from "../lib/opencode-go.js";
+import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
 import { composeResolvedAuthIdentities } from "../lib/resolved-auth-identity.js";
 import type { OpenCodeGoResult, OpenCodeGoWindowKey } from "../lib/types.js";
@@ -114,9 +115,14 @@ export const opencodeGoProvider: QuotaProvider = {
   },
 
   async isAvailable(ctx: QuotaProviderContext): Promise<boolean> {
-    // Any Console sign-in counts, even a failed one, so fetch() can show its error when there
-    // is no API key.
-    if ((await resolveOpenCodeConsoleAuth()).state !== "none") return true;
+    // OpenCode lists opencode-go only for an account with Go access, so a Console sign-in
+    // without Go adds no Go line. A key works without the listing.
+    const listed = await isCanonicalProviderAvailable({
+      ctx,
+      providerId: "opencode-go",
+      fallbackOnError: false,
+    });
+    if (listed) return true;
     if (vendorKeyState(await readGoKeys(ctx.locationDirectory)).state === "configured") return true;
     notSubscribedCredentialFingerprints.clear();
     return false;

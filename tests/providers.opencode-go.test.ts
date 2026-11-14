@@ -383,33 +383,54 @@ describe("OpenCode Go with stored keys", () => {
 
 describe("OpenCode Go availability and models", () => {
   it.each([
-    { name: "a Console sign-in", logins: [consoleLogin()], apiKey: false, available: true },
+    {
+      name: "a sign-in OpenCode lists as Go",
+      logins: [consoleLogin()],
+      apiKey: false,
+      listed: true,
+      available: true,
+    },
+    {
+      name: "a sign-in without Go",
+      logins: [consoleLogin()],
+      apiKey: false,
+      listed: false,
+      available: false,
+    },
     {
       name: "an expired sign-in",
       logins: [consoleLogin({ expires: 1 })],
       apiKey: false,
-      available: true,
+      listed: false,
+      available: false,
     },
     {
       name: "a sign-in without a token",
       logins: [consoleLogin({ access: "" })],
       apiKey: false,
-      available: true,
+      listed: false,
+      available: false,
     },
-    { name: "an env key", logins: [], apiKey: true, available: true },
+    { name: "an env key", logins: [], apiKey: true, listed: false, available: true },
     {
       name: "only a broken stored key",
       logins: [keyLogin("broken", "opencode-go", "")],
       apiKey: false,
+      listed: false,
       available: false,
     },
-    { name: "nothing", logins: [], apiKey: false, available: false },
-  ])("is available with $name: $available", async ({ logins, apiKey, available }) => {
+    { name: "nothing", logins: [], apiKey: false, listed: false, available: false },
+  ])("is available with $name: $available", async ({ logins, apiKey, listed, available }) => {
     world.storeLogins(logins);
     if (apiKey) process.env.OPENCODE_API_KEY = "go-key";
     const http = fakeHttp(() => USAGE_REPLY);
+    const ctx = {
+      config: {},
+      locationDirectory: NO_PROJECT_DIRECTORY,
+      resolveRuntimeProviderIds: async () => new Set(listed ? ["opencode-go"] : []),
+    };
 
-    await expect(opencodeGoProvider.isAvailable(NO_PROJECT_CTX)).resolves.toBe(available);
+    await expect(opencodeGoProvider.isAvailable(ctx as never)).resolves.toBe(available);
     expect(http).not.toHaveBeenCalled();
   });
 
