@@ -98,7 +98,7 @@ export const STYLE = `
 .oq-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 12px; }
 .oq-card { background: var(--oq-raised); border: 1px solid var(--oq-line); border-radius: 12px; padding: 12px 14px 8px; }
 .oq-card.oq-current { box-shadow: 0 0 0 2px color-mix(in srgb, var(--oq-s0) 35%, transparent); }
-.oq-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.oq-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-bottom: 6px; }
 .oq-card-head .oq-name { font-weight: 600; font-size: 14px; }
 .oq-card-head .oq-age { font-size: 11.5px; color: var(--oq-muted); white-space: nowrap; }
 .oq-chip { display: inline-flex; font-size: 11px; padding: 1px 7px; border-radius: 99px;
