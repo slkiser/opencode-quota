@@ -19,6 +19,7 @@ Most providers work automatically. `Automatic` means OpenCode Quota reuses the l
 | Provider           | Auth/setup                             | Data from          | Reports            |
 | ------------------ | -------------------------------------- | ------------------ | ------------------ |
 | Anthropic (Claude) | [Needs setup](#anthropic-claude)       | Local CLI/OAuth    | Quota              |
+| Command Code       | Automatic                              | Remote API         | Quota              |
 | Cursor             | [Needs setup](#cursor)                 | Local estimate     | Budget and spend   |
 | GitHub Copilot     | Automatic                              | Remote API         | Budget and usage   |
 | Google AGY         | [Needs setup](#google-agy-quick-setup) | Remote API         | Quota              |
@@ -37,6 +38,7 @@ Most providers work automatically. `Automatic` means OpenCode Quota reuses the l
 | Provider                | Auth/setup                             | Data from          | Reports            |
 | ----------------------- | -------------------------------------- | ------------------ | ------------------ |
 | Anthropic (Claude)      | [Needs setup](#anthropic-claude)       | Local CLI/OAuth    | Quota              |
+| Command Code            | Automatic                              | Remote API         | Quota              |
 | Cursor                  | [Needs setup](#cursor)                 | Local estimate     | Budget and spend   |
 | Gemini CLI              | [Needs setup](#gemini-cli)             | Remote API         | Quota              |
 | GitHub Copilot          | [Needs setup](#github-copilot)         | Remote API         | Budget and usage   |
@@ -296,6 +298,7 @@ These providers read an API key from, in order: an environment variable, then `p
 
 | Provider                | Environment variables (first match wins)              | Notes |
 | ----------------------- | ----------------------------------------------------- | ----- |
+| Command Code            | `CMD_API_KEY`                                         | See [Command Code](#command-code). |
 | DeepSeek                | `DEEPSEEK_API_KEY`                                     | See [DeepSeek](#deepseek). |
 | Kimi Code / Kimi Code (CN) | See [Kimi Code](#kimi-code)                         | Each region has its own keys. |
 | MiniMax Token Plan      | `MINIMAX_CODING_PLAN_API_KEY`, `MINIMAX_API_KEY`       | International endpoint. Runtime/config ids like `minimax` and `minimax-coding-plan` use this provider. |
@@ -463,6 +466,12 @@ opencode auth login google
 ```
 
 Quota checks `google-gemini-cli` when it finds it.
+
+<a id="command-code"></a>
+
+### Command Code
+
+Shows the **5h** and **Weekly** quota and reset times. Uses the `commandcode` key saved in OpenCode, or see [API keys](#api-keys). Organization logins read that organization's limits.
 
 <a id="deepseek"></a>
 

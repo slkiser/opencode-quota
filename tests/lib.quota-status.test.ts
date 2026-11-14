@@ -2462,6 +2462,7 @@ describe("statusReport", () => {
 
   /** Every provider that reads an API key or a key file: each shows where it looked. */
   const KEY_PROVIDERS = [
+    "commandcode",
     "deepseek",
     "ollama-cloud",
     "zai",

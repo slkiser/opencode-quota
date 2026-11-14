@@ -18,6 +18,7 @@ const source = (path: string) => readFileSync(fileURLToPath(new URL(path, SRC)),
 const PROVIDER_FILES: Readonly<Record<string, readonly string[]>> = {
   "alibaba.ts": ["alibaba-coding-plan", "alibaba-token-plan"],
   "anthropic.ts": ["anthropic"],
+  "command-code.ts": ["commandcode"],
   "copilot.ts": ["copilot"],
   "cursor.ts": ["cursor"],
   "deepseek.ts": ["deepseek"],

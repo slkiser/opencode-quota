@@ -9,6 +9,7 @@ const EXPECTED_PROVIDER_ORDER = [
   "openai",
   "openrouter",
   "cursor",
+  "commandcode",
   "alibaba-coding-plan",
   "alibaba-token-plan",
   "google-gemini-cli",

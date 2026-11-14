@@ -51,6 +51,12 @@ const DB_PATHS = ["/tmp/opencode.db"];
 // tables, so a wrong env var, config alias, or login id in a table fails here.
 // Order is precedence: the first env var, config alias, and login id wins.
 const EXPECTED_API_KEY_VENDORS: Record<string, ApiKeyLoginSpec> = {
+  commandcode: {
+    displayName: "Command Code",
+    envVars: ["CMD_API_KEY"],
+    providerKeys: ["commandcode"],
+    authKeys: ["commandcode"],
+  },
   deepseek: {
     displayName: "DeepSeek",
     envVars: ["DEEPSEEK_API_KEY"],
