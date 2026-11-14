@@ -58,6 +58,7 @@ function fakeRpc(own?: { directory: string }) {
   );
   return {
     client,
+    host,
     rpc,
     answer: (index: number, answer: QuotaSnapshot) => waiting[index]?.(answer),
     changed: (answer: QuotaSnapshot, directory?: string) => changed(answer, directory),
@@ -92,6 +93,78 @@ describe("TUI quota client", () => {
     changed(snapshot(1, 0, "server-2"));
     expect(client.snapshot()).toMatchObject({ serverId: "server-2", revision: 2 });
     stop();
+  });
+
+  it("applies folder A again after a folder B answer, keeping revisions and sessions separate", async () => {
+    const { client, host, answer, changed } = fakeRpc();
+    const stop = client.start();
+    const folderA = host.location;
+    for (const [index, directory, serverId, revision] of [
+      [0, folderA.directory, "server-a", 5],
+      [1, "/folder-b", "server-b", 50],
+      [2, folderA.directory, "server-a", 6],
+    ] as const) {
+      host.location = { directory };
+      const unwatch = client.watch(`session-${index}`);
+      const value = { ...snapshot(revision, index, serverId), sourceScope: "shared-scope" };
+      answer(index, value);
+      await settle();
+      expect(client.snapshot(`session-${index}`)).toMatchObject(value);
+      unwatch();
+    }
+    changed({ ...snapshot(4, 99, "server-a"), sourceScope: "shared-scope" });
+    expect(client.snapshot("session-0")).toMatchObject(snapshot(6, 0, "server-a"));
+    host.location = { directory: "/folder-b" };
+    expect(client.snapshot("session-1")).toMatchObject(snapshot(50, 1, "server-b"));
+    stop();
+  });
+
+  it("retires only the restarted folder's old server and resets its model revisions", async () => {
+    const { client, host, answer, changed } = fakeRpc();
+    const stop = client.start();
+    const folderA = host.location;
+    for (const [index, directory, serverId, revision] of [
+      [0, folderA.directory, "server-a", 50],
+      [1, "/folder-b", "server-b", 60],
+      [2, folderA.directory, "server-a-new", 1],
+    ] as const) {
+      host.location = { directory };
+      const request = client.refresh("turn", directory);
+      answer(index, {
+        ...snapshot(revision, index, serverId),
+        currentModelProviderIds: [serverId],
+      });
+      await request;
+    }
+    changed(snapshot(100, 99, "server-a"), folderA.directory);
+    expect(client.snapshot(folderA.directory)).toMatchObject({
+      serverId: "server-a-new",
+      revision: 1,
+      currentModelProviderIds: ["server-a-new"],
+    });
+    host.location = { directory: "/folder-b" };
+    changed(snapshot(61, 0, "server-b"), "/folder-b");
+    expect(client.snapshot("/folder-b")).toMatchObject({
+      serverId: "server-b",
+      revision: 61,
+      currentModelProviderIds: ["server-b"],
+    });
+    stop();
+  });
+
+  it("keeps a late answer with the folder named when its call started", async () => {
+    const { client, host, answer } = fakeRpc();
+    const folderA = host.location;
+    const first = client.refresh("turn", "session-a");
+    host.location = { directory: "/folder-b" };
+    const second = client.refresh("turn", "session-b");
+    answer(1, snapshot(50, 2, "server-b"));
+    await second;
+    answer(0, snapshot(5, 1, "server-a"));
+    expect(await first).toMatchObject(snapshot(5, 1, "server-a"));
+    expect(client.snapshot("session-b")).toMatchObject(snapshot(50, 2, "server-b"));
+    host.location = folderA;
+    expect(client.snapshot("session-a")).toMatchObject(snapshot(5, 1, "server-a"));
   });
 
   it("keeps its own folder's server when another folder's server, on the same service, speaks", async () => {
