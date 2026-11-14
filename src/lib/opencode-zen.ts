@@ -19,7 +19,7 @@ export const OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR = 100_000_000;
 
 /**
  * Where the monthly limit and usage come from: a member budget
- * (policies/members/{account id}), or the credit limit (billing/account) plus this
+ * (policies/current-budgets), or the credit limit (billing/account) plus this
  * month's usage costs (usage/cost-by-day).
  */
 type OpenCodeZenBudgetSource = "member_budget" | "credit_limit";
@@ -43,15 +43,14 @@ interface OpenCodeZenBillingData {
   reloadAmount: number | null;
   reloadTrigger: number | null;
   /**
-   * Member-budget reset ISO timestamp: the start of the next UTC month, because Console
-   * monthly budgets run per UTC calendar month. Null for the credit limit.
+   * Member-budget reset ISO timestamp from the Console, else the start of the next UTC
+   * month. Null for the credit limit.
    */
   budgetResetIso: string | null;
   budgetSource: OpenCodeZenBudgetSource;
   /**
-   * True when the member has budgets but not all of them can be safely evaluated (model
-   * filter, per-model limit, unmatched rule, missing amount). No member budget is used
-   * then, and the credit-limit fallback applies.
+   * True when the member has budgets but none can be used, or an applicable budget has
+   * missing amounts. The credit-limit fallback applies.
    */
   memberBudgetsSkipped: boolean;
 }
@@ -68,7 +67,7 @@ type ConsoleRoute =
   | "billing/status"
   | "billing/account"
   | "billing/auto-recharge"
-  | "policies/members"
+  | "policies/current-budgets"
   | "usage/cost-by-day";
 
 type ConsoleRouteResult<T> =
@@ -151,6 +150,8 @@ type MemberBudget = {
   spentMicroCents: number | null;
   /** Budget candidates seen; 0 for a member with no budgets. */
   budgetCount: number;
+  /** The selected cap's reset, or null when absent or unreadable. */
+  resetsAtIso: string | null;
 };
 
 /** Caps dollar amounts so the ×100,000,000 conversion cannot lose Number precision. */
@@ -170,95 +171,51 @@ function toMicroCents(dollars: number): number {
 }
 
 /**
- * True only for no selector, or a selector made only of known Console keys that does not
- * restrict models: `models`/`vendors` must be string arrays (empty = no filter),
- * `inputPriceAtLeast` filters as soon as it is present, and `includeUnknownPrice` alone
- * does not. Anything else (null, wrong types, unknown keys) counts as a filter.
+ * Current budgets already have their policies resolved by the Console. Select the least
+ * USD left among whole-set caps covering all models; a $0 per-model cap also blocks all
+ * models. Filtered caps, nonzero per-model caps and caps of an unknown `per` do not compete. Missing amounts on an
+ * applicable cap make the binding budget unknown, so the credit-limit fallback applies.
  */
-function ruleSelectorUnfiltered(selector: unknown): boolean {
-  if (selector === undefined) return true;
-  const spec = asRecord(selector);
-  if (!spec) return false;
-  const known = new Set(["models", "vendors", "inputPriceAtLeast", "includeUnknownPrice"]);
-  if (Object.keys(spec).some((key) => !known.has(key))) return false;
-  for (const key of ["models", "vendors"] as const) {
-    const filter = spec[key];
-    if (filter === undefined) continue;
-    if (!Array.isArray(filter) || filter.some((entry) => typeof entry !== "string")) return false;
-    if (filter.length > 0) return false;
-  }
-  if (spec.inputPriceAtLeast !== undefined) return false;
-  return spec.includeUnknownPrice === undefined || typeof spec.includeUnknownPrice === "boolean";
-}
+function parseMemberBudgets(json: unknown): MemberBudget {
+  if (!Array.isArray(json)) return invalidResponse();
 
-/**
- * The binding monthly budget from the member detail that `policies/members/{account id}`
- * returns for the signed-in account: the smallest remaining USD among the budgets that
- * provably apply. The reply must name the same account.
- *
- * A budget counts only when its `policyID` matches a policy and its `ruleID` matches a
- * `kind: "budget"`, `period: "month"` rule in it with the same `scope` (`each` per member,
- * `combined` shared over the rule's audience) and `per` (default `set`), whose selector
- * does not restrict models. A `per: "model"` budget has no per-model spend here, so only a
- * $0 limit counts (it blocks every model). One budget that cannot be evaluated could be
- * the binding one, so then none is used; `budgetCount` still tells a member without
- * budgets from one with budgets Zen cannot evaluate.
- */
-function parseMemberBudgets(json: unknown, accountId: string): MemberBudget {
-  const member = asRecord(json);
-  if (!member || member.userID !== accountId) return invalidResponse();
-  if (!Array.isArray(member.budgets) || !Array.isArray(member.policies)) {
-    return invalidResponse();
-  }
-
-  let selected: { limit: number; spent: number } | null = null;
+  let selected: { limit: number; spent: number; resetsAtIso: string | null } | null = null;
   let skipped = false;
-  let budgetCount = 0;
-  for (const item of member.budgets) {
+  for (const item of json) {
     const budget = asRecord(item);
     if (!budget) return invalidResponse();
-    const { policyID, ruleID, scope } = budget;
-    if (typeof policyID !== "string" || typeof ruleID !== "string") return invalidResponse();
-    if (scope !== "each" && scope !== "combined") return invalidResponse();
-    const per = budget.per ?? "set";
-    if (per !== "set" && per !== "model") return invalidResponse();
-    budgetCount += 1;
-
+    const { per } = budget;
     const limit = parseBudgetDollars(budget.limitDollars);
     const spent = parseBudgetDollars(budget.spentDollars);
+    if (budget.coverage !== "all") continue;
+    if (per !== "set" && !(per === "model" && limit === 0)) continue;
     if (limit === null || spent === null) {
       skipped = true;
       continue;
     }
-
-    const policy = member.policies.map(asRecord).find((candidate) => candidate?.id === policyID);
-    const rule = Array.isArray(policy?.rules)
-      ? policy.rules.map(asRecord).find((candidate) => candidate?.id === ruleID)
-      : undefined;
-    const applies =
-      rule?.kind === "budget" &&
-      rule.period === "month" &&
-      rule.scope === scope &&
-      (rule.per ?? "set") === per &&
-      ruleSelectorUnfiltered(rule.selector) &&
-      (per === "set" || limit === 0);
-    if (!applies) {
-      skipped = true;
-      continue;
-    }
-
     if (selected === null || limit - spent < selected.limit - selected.spent) {
-      selected = { limit, spent };
+      const resetMs = typeof budget.resetsAt === "string" ? Date.parse(budget.resetsAt) : NaN;
+      selected = {
+        limit,
+        spent,
+        resetsAtIso: Number.isFinite(resetMs) ? new Date(resetMs).toISOString() : null,
+      };
     }
   }
 
   if (skipped || selected === null) {
-    return { limitMicroCents: null, spentMicroCents: null, budgetCount };
+    return {
+      limitMicroCents: null,
+      spentMicroCents: null,
+      budgetCount: json.length,
+      resetsAtIso: null,
+    };
   }
   return {
     limitMicroCents: toMicroCents(selected.limit),
     spentMicroCents: toMicroCents(selected.spent),
-    budgetCount,
+    budgetCount: json.length,
+    resetsAtIso: selected.resetsAtIso,
   };
 }
 
@@ -268,8 +225,7 @@ function nextUtcMonthStartIso(now: Date): string {
 }
 
 /**
- * The token, org id and account id. The member route puts the trimmed, URL-encoded account id
- * in its path, so both forms are secrets.
+ * The token, org id and account id are kept out of error text in raw and encoded forms.
  */
 function consoleSecrets(credential: OpenCodeConsoleCredential): Array<string | undefined> {
   const accountId = credential.accountId?.trim();
@@ -282,16 +238,13 @@ function consoleSecrets(credential: OpenCodeConsoleCredential): Array<string | u
 }
 
 async function fetchConsoleRoute<T>(params: {
-  /** Names the route in error text. */
+  /** The URL path after `/api/`, also used in error text. */
   route: ConsoleRoute;
-  /** The URL path after `/api/` when it adds an id to `route`; the id stays out of error text. */
-  path?: string;
   credential: OpenCodeConsoleCredential;
   timeoutMs: number;
   parse: (json: unknown) => T;
 }): Promise<ConsoleRouteResult<T>> {
-  const path = params.path ?? params.route;
-  const reply = await requestJson(`${consoleBaseUrl(params.credential)}/api/${path}`, {
+  const reply = await requestJson(`${consoleBaseUrl(params.credential)}/api/${params.route}`, {
     method: "GET",
     redirect: "manual",
     headers: consoleHeaders(params.credential),
@@ -337,26 +290,6 @@ async function fetchConsoleRoute<T>(params: {
   }
 }
 
-/** The signed-in account's member budgets; a sign-in without an account id has none to ask for. */
-async function fetchMemberBudget(request: {
-  credential: OpenCodeConsoleCredential;
-  timeoutMs: number;
-}): Promise<ConsoleRouteResult<MemberBudget>> {
-  const accountId = request.credential.accountId?.trim();
-  if (!accountId) {
-    return {
-      success: false,
-      error: "OpenCode Console member budgets unavailable: the Console sign-in has no account id",
-    };
-  }
-  return fetchConsoleRoute({
-    ...request,
-    route: "policies/members",
-    path: `policies/members/${encodeURIComponent(accountId)}`,
-    parse: (json) => parseMemberBudgets(json, accountId),
-  });
-}
-
 export async function queryOpenCodeZenQuota(
   credential: OpenCodeConsoleCredential,
   options: { requestTimeoutMs?: number } = {},
@@ -370,7 +303,7 @@ export async function queryOpenCodeZenQuota(
     fetchConsoleRoute({ ...request, route: "billing/status", parse: parseBalance }),
     fetchConsoleRoute({ ...request, route: "billing/account", parse: parseCreditLimit }),
     fetchConsoleRoute({ ...request, route: "billing/auto-recharge", parse: parseAutoRecharge }),
-    fetchMemberBudget(request),
+    fetchConsoleRoute({ ...request, route: "policies/current-budgets", parse: parseMemberBudgets }),
     fetchConsoleRoute({
       ...request,
       route: "usage/cost-by-day",
@@ -385,7 +318,7 @@ export async function queryOpenCodeZenQuota(
   if (!balance.success) return balance;
 
   // Prefer a member budget ($0 included: it blocks). Otherwise (no member budgets, budgets
-  // that cannot all be evaluated, or a failed member route) fall back to the credit limit
+  // that cannot be evaluated, or a failed budget route) fall back to the credit limit
   // plus this month's usage costs.
   let monthlyLimit = creditLimit.success ? creditLimit.data : null;
   let usage = monthlyUsage.success ? monthlyUsage.data : null;
@@ -393,11 +326,11 @@ export async function queryOpenCodeZenQuota(
   let budgetSource: OpenCodeZenBudgetSource = "credit_limit";
   let memberBudgetsSkipped = false;
   if (member.success) {
-    const { limitMicroCents, spentMicroCents, budgetCount } = member.data;
+    const { limitMicroCents, spentMicroCents, budgetCount, resetsAtIso } = member.data;
     if (limitMicroCents !== null && spentMicroCents !== null) {
       monthlyLimit = limitMicroCents / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
       usage = spentMicroCents;
-      budgetResetIso = nextUtcMonthStartIso(now);
+      budgetResetIso = resetsAtIso ?? nextUtcMonthStartIso(now);
       budgetSource = "member_budget";
     } else if (budgetCount > 0) {
       memberBudgetsSkipped = true;

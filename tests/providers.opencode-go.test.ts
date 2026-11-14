@@ -105,6 +105,19 @@ describe("OpenCode Go with the Console sign-in", () => {
     expect(fetched.rowLogins).toEqual(["console:go", "console:go", "console:go"]);
   });
 
+  it("reads a null Console body as no Go plan without asking the API key", async () => {
+    world.storeLogins([consoleLogin()]);
+    process.env.OPENCODE_API_KEY = "go-key";
+    const http = fakeHttp(() => null);
+
+    const fetched = await fetchRows(opencodeGoProvider);
+
+    expect(fetched.rows).toEqual([]);
+    expect(fetched.error).toBeUndefined();
+    expect(fetched.debug).toContainEqual(NOT_SUBSCRIBED_DETAIL);
+    expect(http.mock.calls.map(([url]) => url)).toEqual([CONSOLE_STATUS_URL]);
+  });
+
   it.each([
     {
       name: "a Console 404 means no Go plan, and the API key is not asked",

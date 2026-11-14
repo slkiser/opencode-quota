@@ -86,6 +86,13 @@ export function formatCursorTokenCategories(details) {
     const categories = Object.fromEntries(categoryTokens(details));
     return Object.keys(categories).length > 0 ? JSON.stringify(categories) : "unavailable";
 }
+/** Cursor's per-category character counts, which tell a real context jump from repeated token accounting. */
+export function formatCursorCategoryCharacters(details) {
+    const characters = Object.fromEntries((currentCursorTokenBreakdown(details)?.categories ?? [])
+        .filter((category) => category.characterCount !== undefined)
+        .map((category) => [category.id || category.label || "(unnamed)", category.characterCount]));
+    return Object.keys(characters).length > 0 ? JSON.stringify(characters) : "unavailable";
+}
 /**
  * Explain Cursor's aggregate cache counters using the state visible to this
  * client. `stepStarts` is deliberately not called a model-call count: Cursor
@@ -282,7 +289,7 @@ export function formatFinishTrace(input) {
             `rawCacheRead=${turnEnded.cacheRead} rawCacheWrite=${turnEnded.cacheWrite} ` +
             (occupancy ? `occupancyPrefixCache=${occupancy.priorUsedTokens} ` : "")
         : occupancy
-            ? `occupancyIn=${Math.max(0, occupancy.usedTokens - 1)} occupancyOut=${occupancy.usedTokens > 0 ? 1 : 0} ` +
+            ? `occupancyIn=${usage.inputTokens?.total ?? 0} occupancyOut=${usage.outputTokens?.total ?? 0} ` +
                 `occupancyCacheRead=${usage.inputTokens?.cacheRead ?? 0} ` +
                 `occupancyCacheWrite=${usage.inputTokens?.cacheWrite ?? 0} `
             : `estIn=${estimate.inputTokens} estOut=${estimate.outputTokens} ` +
@@ -321,17 +328,19 @@ export function emptyLanguageModelV3Usage() {
 }
 /**
  * Occupancy-shaped counters for {@link formatTurnUsageValidation}: `usedTokens`
- * with `prior.usedTokens` of it cached, the shape every step finish sends
- * (`shapeStepUsage` in `src/billing.ts`). Always validate occupancy finishes —
- * including TurnEnded/stop — against these, not against aggregate TurnEnded
- * request counters. Request cache ratios stay on `finish:` / cache diagnosis.
+ * with `outputTokens` of it output and `prior.usedTokens` of the rest cached, the
+ * shape every step finish sends (`shapeStepUsage` in `src/billing.ts`). Always
+ * validate occupancy finishes — including TurnEnded/stop — against these, not
+ * against aggregate TurnEnded request counters. Request cache ratios stay on
+ * `finish:` / cache diagnosis.
  */
-export function occupancyValidationCounters(details, prior) {
+export function occupancyValidationCounters(details, prior, outputTokens = 1) {
     const used = Math.max(0, Math.trunc(details.usedTokens));
-    const input = Math.max(0, used - 1);
+    const output = used > 0 ? Math.min(used, Math.max(1, Math.trunc(outputTokens))) : 0;
+    const input = used - output;
     return {
         inputTokens: input,
-        outputTokens: used > 0 ? 1 : 0,
+        outputTokens: output,
         // Cursor can shrink the context between checkpoints; the prior prefix
         // cannot be larger than what is in context now.
         cacheRead: Math.min(input, Math.max(0, Math.trunc(prior?.usedTokens ?? 0))),

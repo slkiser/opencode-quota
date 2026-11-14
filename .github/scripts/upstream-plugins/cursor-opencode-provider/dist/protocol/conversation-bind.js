@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { processShared } from "../process-shared.js";
 import { clearCheckpoint } from "./checkpoint.js";
 import { clearConversationBlobs } from "./blob-store.js";
 import { transferFrozenRequestContext } from "../context/frozen.js";
@@ -10,10 +11,10 @@ import { transferFrozenRequestContext } from "../context/frozen.js";
  * and drop the prior checkpoint + blobs so Cursor no longer bills the old
  * cached conversation against OpenCode's newly compacted prompt.
  */
-const activeBySession = new Map();
+const activeBySession = processShared("conversation-bindings.v1", () => new Map());
 // A compaction id cannot be reconstructed from its host session key. Keep its
 // tiny binding even when the recent-session index soft-evicts that session.
-const remintedBySession = new Map();
+const remintedBySession = processShared("reminted-conversation-bindings.v1", () => new Map());
 export const MAX_ACTIVE_CONVERSATION_BINDINGS = 256;
 function rememberConversation(sessionKey, conversationId) {
     if (conversationId === sessionIdToUuid(sessionKey))
@@ -39,6 +40,10 @@ export function resetConversationBindingsForTests() {
 }
 export function hasConversationBinding(sessionKey) {
     return activeBySession.has(sessionKey) || remintedBySession.has(sessionKey);
+}
+/** The conversation this process has bound the session to, without minting one. */
+export function boundConversationId(sessionKey) {
+    return activeBySession.get(sessionKey) ?? remintedBySession.get(sessionKey);
 }
 export function isActiveConversationBinding(sessionKey, conversationId) {
     return (activeBySession.get(sessionKey) ?? remintedBySession.get(sessionKey)

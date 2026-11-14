@@ -124,6 +124,9 @@ export function restoreTurnProvenance(sessionKey, value) {
         stepPending: false,
     });
 }
+export function forgetTurnProvenance(sessionKey) {
+    provenanceBySession.delete(sessionKey);
+}
 export function resetTurnProvenanceForTests() {
     provenanceBySession.clear();
 }

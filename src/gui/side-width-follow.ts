@@ -1,6 +1,14 @@
 /**
  * Makes the Quota tab open Desktop's side panel narrow, and gives the width back to the other
- * tabs. While the Quota tab is the only tab on screen in the side panel, the panel is as narrow
+ * tabs.
+ *
+ * A Desktop with the panel width API (`ctx.layout.side.width` and `resize`, anomalyco/opencode
+ * #61509) does all of that itself for a panel registered with `width: "narrow"`: it narrows the
+ * side panel while the side pane shows Quota, remembers the width the user drags it to, app-wide,
+ * and gives the other tabs the conversation's width. There `followSideWidth` only hands Desktop
+ * the Quota width the trick below remembered, once, when Desktop stores none yet.
+ *
+ * Without that API (older Desktop, or a probe that throws), the trick below does it. While the Quota tab is the only tab on screen in the side panel, the panel is as narrow
  * as the app allows (Quota's content is small), or the width the user last gave it; when another
  * tab shows, the panel gets the width it had before Quota showed. Quota in the panel's split
  * pane, next to another tab, or in the bottom pane counts as another tab: the app's tab state
@@ -69,8 +77,49 @@ function openSideWidths(ctx: Context): WidthsStore {
   }
 }
 
-/** @param panelKey the Quota tab's key, `${ctx.id}:quota`. */
-export function followSideWidth(ctx: Context, panelKey: string): void {
+/** Desktop's own side panel width for one of this plugin's panels, in CSS pixels. */
+export type PanelWidth = {
+  /** The stored width; undefined when none is stored. Reactive. */
+  get(): number | undefined;
+  /** Stores a width, as a divider drag on the panel's tab does. */
+  set(width: number): void;
+};
+
+/** The methods #61509 adds to `ctx.layout.side`; @opencode/plugin 2.2.5's types lack them. */
+type SideWidthMethods = {
+  width(panel: string): number | undefined;
+  resize(panel: string, width: number): void;
+};
+
+const hasWidthMethods = (side: object): side is SideWidthMethods =>
+  typeof (side as Partial<SideWidthMethods>).width === "function" &&
+  typeof (side as Partial<SideWidthMethods>).resize === "function";
+
+/**
+ * Desktop's panel width API for the panel `panelId`, when this Desktop has it and a first read
+ * works; undefined otherwise, and the trick sizes the panel.
+ */
+export function panelWidthApi(ctx: Context, panelId: string): PanelWidth | undefined {
+  try {
+    const side: object | undefined = ctx.layout?.side;
+    if (!side || !hasWidthMethods(side)) return undefined;
+    const width = side.width(panelId);
+    if (width !== undefined && typeof width !== "number") return undefined;
+    return {
+      get: () => side.width(panelId),
+      set: (pixels) => side.resize(panelId, pixels),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * @param panelKey the Quota tab's key, `${ctx.id}:quota`.
+ * @param panelWidth Desktop's width API for the Quota panel (`panelWidthApi`); without it, the
+ *   trick sizes the panel.
+ */
+export function followSideWidth(ctx: Context, panelKey: string, panelWidth?: PanelWidth): void {
   const widths = openSideWidths(ctx);
   const remembered = (): SideWidths => widths.value ?? SIDE_WIDTHS_INITIAL;
   /** For each session (by key), the tab whose width its side panel holds, as far as this window knows. */
@@ -86,6 +135,21 @@ export function followSideWidth(ctx: Context, panelKey: string): void {
     warned = true;
     console.warn(`[opencode-quota] the side panel's width is left to OpenCode: ${String(error)}`);
   };
+
+  if (panelWidth) {
+    let handedOver = false;
+    createEffect(() => {
+      try {
+        if (handedOver || !widths.ready() || !ctx.layout.ready()) return;
+        handedOver = true;
+        const quota = remembered().quota;
+        if (quota > 0 && panelWidth.get() === undefined) panelWidth.set(quota);
+      } catch (error) {
+        console.warn(`[opencode-quota] Desktop's panel width API failed: ${String(error)}`);
+      }
+    });
+    return;
+  }
 
   createEffect(() => {
     try {

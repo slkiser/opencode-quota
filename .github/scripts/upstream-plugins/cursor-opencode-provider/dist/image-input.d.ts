@@ -7,19 +7,14 @@ export type CursorImageInput = {
 export type CursorHistoryImageExtraction = {
     images: CursorImageInput[];
     hashes: string[];
-    candidateCount: number;
     duplicateCount: number;
-    /** Unreadable optional tool media; explicit user attachments still fail loudly. */
+    /** Unreadable tool media or earlier images past the budget; this turn's attachments still fail loudly. */
     omittedCount?: number;
 };
-export type CursorPromptImageExtraction = CursorHistoryImageExtraction & {
-    userImageCount: number;
-};
-export declare function hasCursorUserImages(lastUser: Record<string, unknown> | undefined): boolean;
-export declare function assertCursorUserImageSupport(lastUser: Record<string, unknown> | undefined, supportsImages: boolean, modelId: string): void;
+/** The hash a Run's history-image set keys an image by. */
+export declare function imageContentHash(data: Uint8Array): string;
 export declare function extractCursorUserImages(lastUser: Record<string, unknown> | undefined, signal?: AbortSignal, maxBytes?: number): Promise<CursorImageInput[]>;
-export declare function extractCursorHistoryImages(prompt: readonly unknown[], options: {
-    supportsImages: boolean;
+export declare function extractCursorHistoryImages(prompt: readonly unknown[], options?: {
     seenHashes?: ReadonlySet<string>;
     signal?: AbortSignal;
     maxBytes?: number;
@@ -41,9 +36,8 @@ export declare function extractCursorToolResultImages(parts: readonly unknown[],
     hashes: string[];
     omittedCount: number;
 }>;
-export declare function extractCursorPromptImages(prompt: readonly unknown[], lastUser: Record<string, unknown> | undefined, options: {
-    supportsImages: boolean;
+export declare function extractCursorPromptImages(prompt: readonly unknown[], lastUser: Record<string, unknown> | undefined, options?: {
     seenHistoryHashes?: ReadonlySet<string>;
     signal?: AbortSignal;
     maxBytes?: number;
-}): Promise<CursorPromptImageExtraction>;
+}): Promise<CursorHistoryImageExtraction>;

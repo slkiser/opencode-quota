@@ -91,8 +91,6 @@ export function buildRunRequest(input) {
         },
         conversation_state: conversationState,
         mcp_tools: { mcp_tools: [] },
-        unknown_flag: 0,
-        field_12: 0,
     };
     return encodeMessage("AgentClientMessage", {
         run_request: runRequest,

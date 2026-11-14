@@ -19,6 +19,12 @@ export const CURSOR_MODEL_COSTS = {
         "cache_read": 0.25,
         "cache_write": 12.5
     },
+    "claude-fable-5-2": {
+        "input": 8,
+        "output": 40,
+        "cache_read": 0.2,
+        "cache_write": 10
+    },
     "claude-haiku-4-5": {
         "input": 1,
         "output": 5,
@@ -112,6 +118,11 @@ export const CURSOR_MODEL_COSTS = {
         "input": 3,
         "output": 15,
         "cache_read": 0.5
+    },
+    "deepseek-v41-flash-1017": {
+        "input": 0.3,
+        "output": 1.2,
+        "cache_read": 0.006
     },
     "gemini-2.5-flash": {
         "input": 0.3,
@@ -296,6 +307,10 @@ export const CURSOR_MODEL_CONTEXTS = {
         "maxContext": 300000,
         "maxContextForMaxMode": 1000000
     },
+    "claude-fable-5-2": {
+        "maxContext": 300000,
+        "maxContextForMaxMode": 1000000
+    },
     "claude-haiku-4-5": {
         "maxContext": 200000
     },
@@ -349,6 +364,9 @@ export const CURSOR_MODEL_CONTEXTS = {
     },
     "composer-2.5": {
         "maxContext": 200000
+    },
+    "deepseek-v41-flash-1017": {
+        "maxContext": 1000000
     },
     "gemini-2.5-flash": {
         "maxContext": 200000,
@@ -453,142 +471,5 @@ export const CURSOR_MODEL_CONTEXTS = {
     "muse-wonder-1.0": {
         "maxContext": 300000,
         "maxContextForMaxMode": 1000000
-    }
-};
-export const CURSOR_MODEL_CAPABILITIES = {
-    "claude-fable-5": {
-        "supportsImages": true
-    },
-    "claude-fable-5-1": {
-        "supportsImages": true
-    },
-    "claude-haiku-4-5": {
-        "supportsImages": true
-    },
-    "claude-haiku-5-5": {
-        "supportsImages": true
-    },
-    "claude-opus-4-5": {
-        "supportsImages": true
-    },
-    "claude-opus-4-6": {
-        "supportsImages": true
-    },
-    "claude-opus-4-7": {
-        "supportsImages": true
-    },
-    "claude-opus-4-8": {
-        "supportsImages": true
-    },
-    "claude-opus-5": {
-        "supportsImages": true
-    },
-    "claude-opus-5-5": {
-        "supportsImages": true
-    },
-    "claude-sonnet-4": {
-        "supportsImages": true
-    },
-    "claude-sonnet-4-5": {
-        "supportsImages": true
-    },
-    "claude-sonnet-4-6": {
-        "supportsImages": true
-    },
-    "claude-sonnet-5": {
-        "supportsImages": true
-    },
-    "claude-sonnet-5-5": {
-        "supportsImages": true
-    },
-    "composer-2.5": {
-        "supportsImages": true
-    },
-    "gemini-2.5-flash": {
-        "supportsImages": true
-    },
-    "gemini-3-flash": {
-        "supportsImages": true
-    },
-    "gemini-3.1-pro": {
-        "supportsImages": true
-    },
-    "gemini-3.5-flash": {
-        "supportsImages": true
-    },
-    "gemini-3.6-flash": {
-        "supportsImages": true
-    },
-    "gemini-3.7-flash": {
-        "supportsImages": true
-    },
-    "gemini-3.8-flash": {
-        "supportsImages": true
-    },
-    "gemini-4-argon": {
-        "supportsImages": true
-    },
-    "glm-5.2": {
-        "supportsImages": false
-    },
-    "glm-5.3": {
-        "supportsImages": false
-    },
-    "glm-5.3-flash": {
-        "supportsImages": true
-    },
-    "gpt-5-mini": {
-        "supportsImages": true
-    },
-    "gpt-5.1": {
-        "supportsImages": true
-    },
-    "gpt-5.2": {
-        "supportsImages": true
-    },
-    "gpt-5.3-codex": {
-        "supportsImages": true
-    },
-    "gpt-5.4": {
-        "supportsImages": true
-    },
-    "gpt-5.4-mini": {
-        "supportsImages": true
-    },
-    "gpt-5.4-nano": {
-        "supportsImages": true
-    },
-    "gpt-5.5": {
-        "supportsImages": true
-    },
-    "gpt-5.6-luna": {
-        "supportsImages": true
-    },
-    "gpt-5.6-sol": {
-        "supportsImages": true
-    },
-    "gpt-5.6-terra": {
-        "supportsImages": true
-    },
-    "grok-4.5": {
-        "supportsImages": false
-    },
-    "grok-4.6": {
-        "supportsImages": false
-    },
-    "grok-4.7": {
-        "supportsImages": false
-    },
-    "kimi-k2.7-code": {
-        "supportsImages": true
-    },
-    "kimi-k3": {
-        "supportsImages": true
-    },
-    "muse-spark-1.3": {
-        "supportsImages": true
-    },
-    "muse-wonder-1.0": {
-        "supportsImages": true
     }
 };

@@ -19,6 +19,12 @@ export declare const CURSOR_MODEL_COSTS: {
         readonly cache_read: 0.25;
         readonly cache_write: 12.5;
     };
+    readonly "claude-fable-5-2": {
+        readonly input: 8;
+        readonly output: 40;
+        readonly cache_read: 0.2;
+        readonly cache_write: 10;
+    };
     readonly "claude-haiku-4-5": {
         readonly input: 1;
         readonly output: 5;
@@ -112,6 +118,11 @@ export declare const CURSOR_MODEL_COSTS: {
         readonly input: 3;
         readonly output: 15;
         readonly cache_read: 0.5;
+    };
+    readonly "deepseek-v41-flash-1017": {
+        readonly input: 0.3;
+        readonly output: 1.2;
+        readonly cache_read: 0.006;
     };
     readonly "gemini-2.5-flash": {
         readonly input: 0.3;
@@ -296,6 +307,10 @@ export declare const CURSOR_MODEL_CONTEXTS: {
         readonly maxContext: 300000;
         readonly maxContextForMaxMode: 1000000;
     };
+    readonly "claude-fable-5-2": {
+        readonly maxContext: 300000;
+        readonly maxContextForMaxMode: 1000000;
+    };
     readonly "claude-haiku-4-5": {
         readonly maxContext: 200000;
     };
@@ -349,6 +364,9 @@ export declare const CURSOR_MODEL_CONTEXTS: {
     };
     readonly "composer-2.5": {
         readonly maxContext: 200000;
+    };
+    readonly "deepseek-v41-flash-1017": {
+        readonly maxContext: 1000000;
     };
     readonly "gemini-2.5-flash": {
         readonly maxContext: 200000;
@@ -453,142 +471,5 @@ export declare const CURSOR_MODEL_CONTEXTS: {
     readonly "muse-wonder-1.0": {
         readonly maxContext: 300000;
         readonly maxContextForMaxMode: 1000000;
-    };
-};
-export declare const CURSOR_MODEL_CAPABILITIES: {
-    readonly "claude-fable-5": {
-        readonly supportsImages: true;
-    };
-    readonly "claude-fable-5-1": {
-        readonly supportsImages: true;
-    };
-    readonly "claude-haiku-4-5": {
-        readonly supportsImages: true;
-    };
-    readonly "claude-haiku-5-5": {
-        readonly supportsImages: true;
-    };
-    readonly "claude-opus-4-5": {
-        readonly supportsImages: true;
-    };
-    readonly "claude-opus-4-6": {
-        readonly supportsImages: true;
-    };
-    readonly "claude-opus-4-7": {
-        readonly supportsImages: true;
-    };
-    readonly "claude-opus-4-8": {
-        readonly supportsImages: true;
-    };
-    readonly "claude-opus-5": {
-        readonly supportsImages: true;
-    };
-    readonly "claude-opus-5-5": {
-        readonly supportsImages: true;
-    };
-    readonly "claude-sonnet-4": {
-        readonly supportsImages: true;
-    };
-    readonly "claude-sonnet-4-5": {
-        readonly supportsImages: true;
-    };
-    readonly "claude-sonnet-4-6": {
-        readonly supportsImages: true;
-    };
-    readonly "claude-sonnet-5": {
-        readonly supportsImages: true;
-    };
-    readonly "claude-sonnet-5-5": {
-        readonly supportsImages: true;
-    };
-    readonly "composer-2.5": {
-        readonly supportsImages: true;
-    };
-    readonly "gemini-2.5-flash": {
-        readonly supportsImages: true;
-    };
-    readonly "gemini-3-flash": {
-        readonly supportsImages: true;
-    };
-    readonly "gemini-3.1-pro": {
-        readonly supportsImages: true;
-    };
-    readonly "gemini-3.5-flash": {
-        readonly supportsImages: true;
-    };
-    readonly "gemini-3.6-flash": {
-        readonly supportsImages: true;
-    };
-    readonly "gemini-3.7-flash": {
-        readonly supportsImages: true;
-    };
-    readonly "gemini-3.8-flash": {
-        readonly supportsImages: true;
-    };
-    readonly "gemini-4-argon": {
-        readonly supportsImages: true;
-    };
-    readonly "glm-5.2": {
-        readonly supportsImages: false;
-    };
-    readonly "glm-5.3": {
-        readonly supportsImages: false;
-    };
-    readonly "glm-5.3-flash": {
-        readonly supportsImages: true;
-    };
-    readonly "gpt-5-mini": {
-        readonly supportsImages: true;
-    };
-    readonly "gpt-5.1": {
-        readonly supportsImages: true;
-    };
-    readonly "gpt-5.2": {
-        readonly supportsImages: true;
-    };
-    readonly "gpt-5.3-codex": {
-        readonly supportsImages: true;
-    };
-    readonly "gpt-5.4": {
-        readonly supportsImages: true;
-    };
-    readonly "gpt-5.4-mini": {
-        readonly supportsImages: true;
-    };
-    readonly "gpt-5.4-nano": {
-        readonly supportsImages: true;
-    };
-    readonly "gpt-5.5": {
-        readonly supportsImages: true;
-    };
-    readonly "gpt-5.6-luna": {
-        readonly supportsImages: true;
-    };
-    readonly "gpt-5.6-sol": {
-        readonly supportsImages: true;
-    };
-    readonly "gpt-5.6-terra": {
-        readonly supportsImages: true;
-    };
-    readonly "grok-4.5": {
-        readonly supportsImages: false;
-    };
-    readonly "grok-4.6": {
-        readonly supportsImages: false;
-    };
-    readonly "grok-4.7": {
-        readonly supportsImages: false;
-    };
-    readonly "kimi-k2.7-code": {
-        readonly supportsImages: true;
-    };
-    readonly "kimi-k3": {
-        readonly supportsImages: true;
-    };
-    readonly "muse-spark-1.3": {
-        readonly supportsImages: true;
-    };
-    readonly "muse-wonder-1.0": {
-        readonly supportsImages: true;
     };
 };

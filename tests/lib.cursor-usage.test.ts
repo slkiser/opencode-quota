@@ -174,6 +174,14 @@ describe("getCurrentCursorUsageSummary", () => {
       },
     ],
     [
+      "third-party models in Cursor's own table in the API pool",
+      [
+        message("cursor", "claude-fable-5-2", 1_000_000, 100_000),
+        message("cursor", "cursor/deepseek-v41-flash-1017", 1_000_000, 1_000_000),
+      ],
+      { auto: [0, 0], api: [2, 13.5], total: 2, unknown: [], unpriced: 0 },
+    ],
+    [
       "a Cursor official fallback alias",
       [message("cursor", "cursor/gpt-5.3-codex-spark-preview", 1_000_000, 1_000_000)],
       { auto: [0, 0], api: [1, 15.75], total: 1, unknown: [], unpriced: 0 },

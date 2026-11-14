@@ -16,6 +16,7 @@ import { columnsOf } from "../src/view/columns.js";
 import {
   amountText,
   barParts,
+  checkedAgoText,
   DEFAULT_WORDS,
   fit as fitToWidth,
   formatDuration,
@@ -149,6 +150,22 @@ describe("view format", () => {
     { ms: 0, style: "smart", expected: "now" },
   ] as const)("$ms ms in the $style style is $expected", ({ ms, style, expected }) => {
     expect(formatDuration(ms, style, 1)).toBe(expected);
+  });
+
+  it.each([
+    { ageMs: 59_999, expected: "checked just now" },
+    { ageMs: -MINUTE, expected: "checked just now" },
+    { ageMs: MINUTE, expected: "checked 1 min ago" },
+    { ageMs: 59 * MINUTE + 59_999, expected: "checked 59 min ago" },
+    { ageMs: 60 * MINUTE, expected: "checked 1 h ago" },
+    { ageMs: 1439 * MINUTE, expected: "checked 23 h ago" },
+    { ageMs: 1440 * MINUTE, expected: "checked 1 d ago" },
+  ])("data checked $ageMs ms ago reads $expected", ({ ageMs, expected }) => {
+    expect(checkedAgoText(NOW - ageMs, NOW)).toBe(expected);
+  });
+
+  it("says nothing about a provider never checked", () => {
+    expect(checkedAgoText(undefined, NOW)).toBeUndefined();
   });
 
   it.each([

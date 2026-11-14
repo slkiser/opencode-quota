@@ -9,7 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { errorMessage, trace } from "./debug.js";
-import { takePendingCursorImage } from "./image-staging.js";
+import { finishCursorImageSave, takePendingCursorImage } from "./image-staging.js";
 /**
  * Marks a refusal that must reach Cursor as `WriteResult.permission_denied`
  * rather than a generic error — the variant its own executor returns and its
@@ -119,6 +119,16 @@ export async function executeCursorImageSave(args, ctx) {
         // three: nothing here should confirm whether an id was ever valid.
         throw new Error("No pending Cursor image matches that id. It may have already been saved or expired.");
     }
+    // The path stays reserved through the permission wait, so another image
+    // staged meanwhile under the same name is kept beside it.
+    try {
+        return await commitCursorImage(image, ctx);
+    }
+    finally {
+        finishCursorImageSave(image.id);
+    }
+}
+async function commitCursorImage(image, ctx) {
     const workspace = ctx.worktree || ctx.directory;
     const allowedRoots = [image.projectDir, workspace].filter((root) => !!root);
     const contained = resolveContainedImagePath(image.path, allowedRoots);

@@ -1,6 +1,8 @@
 import { type AskQuestionResultMessage, type DecodedAskQuestionQuery } from "./ask-question.js";
 import { type DecodedGenerateImageQuery } from "./generate-image.js";
-import { CURSOR_PLAN_STAGE_TOOL, type CreatePlanBridge, type DecodedCreatePlanQuery, createPlanApprovalQuestionInput } from "./create-plan.js";
+import { CURSOR_PLAN_STAGE_TOOL, type CreatePlanAfterWrite, type CreatePlanBridge, type DecodedCreatePlanQuery, createPlanApprovalQuestionInput } from "./create-plan.js";
+import type { HostPatchTool } from "./apply-patch.js";
+import type { HostFilePathKey } from "./tools.js";
 import { type DecodedSwitchModeQuery, type SwitchModeBridge, type SwitchModeHostTool } from "./switch-mode.js";
 export type InteractionQueryWireInfo = {
     id?: number;
@@ -37,19 +39,27 @@ export type HandledInteraction = {
     };
     /**
      * Present when CreatePlan needs a host tool: a host plan-stage tool that
-     * owns the write *and* the review, the host's `plan_exit` review of the
-     * plan file the provider just wrote (`planUri` / `planPath` set), or the
-     * emulated `question` prompt after that write.
+     * owns the write *and* the review, a preliminary host `write`/`patch`
+     * persistence call (`persistence` set; review waits for success), the host
+     * `plan_exit` review, or the emulated `question` prompt after persistence.
      */
     createPlan?: DecodedCreatePlanQuery & {
         bridge: CreatePlanBridge;
-        toolName: typeof CURSOR_PLAN_STAGE_TOOL | "plan_exit" | "question";
+        toolName: typeof CURSOR_PLAN_STAGE_TOOL | "plan_exit" | "question" | "write" | HostPatchTool;
         planUri?: string;
-        /** Filesystem path of the plan the provider just wrote. */
+        /** Filesystem path of the plan being saved. */
         planPath?: string;
+        /** Plan markdown prepared for persistence / review display. */
+        markdown?: string;
         questionInput?: ReturnType<typeof createPlanApprovalQuestionInput>;
         /** The plan to show the user before the host review. */
         planReview?: string;
+        /** Host file-tool call that must complete before review or acknowledgment. */
+        persistence?: {
+            toolName: "write" | HostPatchTool;
+            input: Record<string, unknown>;
+            afterWrite: CreatePlanAfterWrite;
+        };
     };
     /**
      * Cursor tool call id of a CreatePlan the host plan agent will record
@@ -57,9 +67,10 @@ export type HandledInteraction = {
      */
     deferredCreatePlanToolCallId?: string;
     /**
-     * Plan text for the assistant transcript when the plan was written without a
-     * host review tool. A session edit deny uses this: the user still sees the
-     * plan, and Cursor receives the not-approved error.
+     * Plan text for the assistant transcript when the plan was acknowledged
+     * without a host review tool. A session edit deny may use this after the
+     * host file tool succeeds: the user still sees the plan, and Cursor receives
+     * the not-approved error.
      */
     planReview?: string;
     /** End the owning Run after this immediate planning refusal has been delivered. */
@@ -114,6 +125,11 @@ export type HandleInteractionQueryOptions = {
     sessionEditsDenied?: boolean;
     /** Session permission evidence was unavailable; no execution approval is safe. */
     sessionPermissionsUnavailable?: boolean;
+    /**
+     * Host write-tool path key from advertised schemas (`filePath` vs `path`).
+     * Defaults to OpenCode 1.x `filePath` when omitted.
+     */
+    hostFilePathKey?: HostFilePathKey;
 };
 export declare class UnsupportedInteractionQueryError extends Error {
     constructor(info: InteractionQueryWireInfo);

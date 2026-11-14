@@ -8,8 +8,12 @@
  * fields (repeated bytes), not the seed JSON strings we invent on turn 1.
  */
 import { type CursorConversationTokenDetails } from "./token-details.js";
+import { type OccupancyObservation } from "../checkpoint-occupancy.js";
 /** Replace the stored checkpoint for a conversation (CLI handleCheckpoint). */
-export declare function setCheckpoint(conversationId: string, bytes: Uint8Array): void;
+export declare function setCheckpoint(conversationId: string, bytes: Uint8Array, observation?: OccupancyObservation): void;
+/** Private restart metadata, including a candidate followed by a zero-token checkpoint. */
+export declare function serializeCheckpointOccupancyGuard(conversationId: string): string | undefined;
+export declare function restoreCheckpointOccupancyGuard(conversationId: string, value: string | undefined): void;
 /** Token-details-only checkpoint for local persistence; never sent as Run state. */
 export declare function getCheckpointOccupancy(conversationId: string): Uint8Array | undefined;
 /** Retain only field #5, without duplicating the checkpoint's potentially large blob graph. */

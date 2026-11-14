@@ -55,7 +55,7 @@ export async function writeStreamMessage(stream, message, operation, shouldWrite
 async function writeStreamMessageNow(stream, message, operation) {
     let accepted;
     try {
-        accepted = stream.write(message);
+        accepted = await stream.write(message);
     }
     catch (cause) {
         throw toCursorProviderError(cause, {

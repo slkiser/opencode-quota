@@ -1,11 +1,16 @@
-import { gunzipSync, gzipSync } from "node:zlib";
+import { gunzipSync, gzip, gzipSync } from "node:zlib";
 export const FLAG_GZIP = 0x01;
 export const FLAG_END_STREAM = 0x02;
 export function encodeFrame(flags, payload) {
-    let data = payload;
-    if (flags & FLAG_GZIP) {
-        data = gzipSync(data);
-    }
+    return frameBytes(flags, flags & FLAG_GZIP ? gzipSync(payload) : payload);
+}
+/** A gzip frame compressed on zlib's thread pool, off the event loop, as Cursor CLI does. */
+export function encodeGzipFrame(payload) {
+    return new Promise((resolve, reject) => {
+        gzip(payload, (error, data) => error ? reject(error) : resolve(frameBytes(FLAG_GZIP, data)));
+    });
+}
+function frameBytes(flags, data) {
     const len = data.length;
     const header = new Uint8Array(5);
     header[0] = flags;

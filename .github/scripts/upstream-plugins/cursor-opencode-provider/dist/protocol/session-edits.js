@@ -124,9 +124,12 @@ export function recordSessionEditsGuidance(conversationId, denied) {
 export function sessionEditsDenySent(conversationId) {
     return editGuidanceByConversation.get(conversationId)?.denySent ?? true;
 }
-/** Restart snapshot marker; live state recorded by this process wins. */
-export function restoreSessionEditsDenySent(conversationId, denySent) {
-    if (editGuidanceByConversation.has(conversationId))
+/**
+ * Restart snapshot marker; live state recorded by this process wins, unless the snapshot is newer than it
+ * (`replace`: another module copy wrote it after this copy last served the conversation).
+ */
+export function restoreSessionEditsDenySent(conversationId, denySent, replace = false) {
+    if (!replace && editGuidanceByConversation.has(conversationId))
         return;
     setEditGuidance(conversationId, { denySent });
 }

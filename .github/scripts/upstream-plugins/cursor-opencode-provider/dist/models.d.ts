@@ -24,7 +24,6 @@ export type ModelInfo = {
     family?: string;
     supportsThinking?: boolean;
     supportsAgent?: boolean;
-    supportsImages?: boolean;
     maxContext?: number;
     /** Context window when max-mode is on (proto field 16). */
     maxContextForMaxMode?: number;
@@ -45,6 +44,24 @@ export type ModelCache = {
 export declare class CursorVariantSelectionError extends Error {
     constructor(message: string);
 }
+/**
+ * Whether these variants expose a reasoning choice.
+ *
+ * A published `thinking` parameter decides on its own: `thinking: "false"`
+ * beside `effort: "high"` describes a non-thinking variant, so effort values
+ * only count when the model publishes no `thinking` parameter at all.
+ *
+ * Some Cursor models report `supports_thinking: false` yet still publish such
+ * variants (`deepseek-v41-flash-1017`, `claude-sonnet-5-5`,
+ * `claude-haiku-5-5`, `muse-wonder-1.0`). OpenCode 1.x reports the
+ * resulting `reasoning` flag as the model's capability; it offers the
+ * published variants either way, and OpenCode 2.x has no such flag.
+ *
+ * Pass the variants the entry is built from — not every variant the model
+ * lists — so a 1M or Fast entry is not marked reasoning because of variants it
+ * does not offer.
+ */
+export declare function variantsSupportReasoning(variants: ModelVariant[] | undefined): boolean;
 export declare function normalizeModelParameterValues(value: unknown): ModelParameterValue[] | null;
 export declare function normalizeModelCache(value: unknown): ModelCache | null;
 /**

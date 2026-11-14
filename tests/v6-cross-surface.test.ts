@@ -409,12 +409,12 @@ describe("v6 surfaces on the quota snapshot", () => {
         "Providers",
         "esc",
         // Like the window's other tabs: a provider one column in, its rows and errors three.
-        " Copilot  pro",
+        " Copilot  pro   checked just now",
         expect.stringMatching(/^ {3}Plan +█+░+ {2}81% left$/u),
         expect.stringMatching(
           /^ {3}5h +░+ {3}0% left {3}resets in 2h 14m {3}faster than it refills$/u,
         ),
-        " Custom providers  Team",
+        " Custom providers  Team   checked just now",
       ]),
     );
     expect(quotaWindow()).not.toContain("Close");

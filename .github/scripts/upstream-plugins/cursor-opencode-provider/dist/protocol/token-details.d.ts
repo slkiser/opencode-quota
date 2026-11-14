@@ -13,8 +13,10 @@ export type CursorConversationTokenDetails = {
     usedTokens: number;
     maxTokens: number;
     breakdown?: CursorPromptTokenBreakdown;
+    /** Current unconfirmed checkpoint work count; `usedTokens` retains the accepted snapshot. */
+    rawUsedTokens?: number;
 };
-export type CursorContextUsageSource = "checkpoint-current-run" | "checkpoint-previous-turn";
+export type CursorContextUsageSource = "checkpoint-current-run" | "checkpoint-previous-turn" | "checkpoint-held-spike";
 /** Cursor can update occupancy while retaining categories from an older checkpoint. */
 export declare function currentCursorTokenBreakdown(details: CursorConversationTokenDetails | undefined): CursorPromptTokenBreakdown | undefined;
 /**
@@ -32,4 +34,5 @@ export declare function cursorContextUsageMetadata(details: CursorConversationTo
     remainingTokens: number;
     usedPercent?: number;
     breakdown?: CursorPromptTokenBreakdown;
+    rawUsedTokens?: number;
 };

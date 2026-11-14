@@ -25,6 +25,7 @@ export declare function takeQueuedSteer(inboxID: string): HostSteer | undefined;
 export declare function listenForHostSteers(sessionID: string, listener: (steer: HostSteer) => boolean): () => void;
 /** false when there is no room to track it; OpenCode's own copy then runs as usual. */
 export declare function recordEarlySteer(steer: EarlySteer): boolean;
+export declare function findEarlySteer(sessionID: string | undefined, injectionId: string): EarlySteer | undefined;
 export declare function isEarlySteerTracked(sessionID: string, injectionId: string): boolean;
 /** An injection Cursor never accepted. A promoted one stays, to be sent at `turn_ended`. */
 export declare function forgetUndeliveredEarlySteer(sessionID: string, injectionId: string): void;

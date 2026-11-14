@@ -19,6 +19,7 @@ Most providers work automatically. `Automatic` means OpenCode Quota reuses the l
 | Provider           | Auth/setup                             | Data from          | Reports            |
 | ------------------ | -------------------------------------- | ------------------ | ------------------ |
 | Anthropic (Claude) | [Needs setup](#anthropic-claude)       | Local CLI/OAuth    | Quota              |
+| Command Code       | Automatic                              | Remote API         | Quota              |
 | Cursor             | [Needs setup](#cursor)                 | Local estimate     | Budget and spend   |
 | GitHub Copilot     | Automatic                              | Remote API         | Budget and usage   |
 | Google AGY         | [Needs setup](#google-agy-quick-setup) | Remote API         | Quota              |
@@ -37,6 +38,7 @@ Most providers work automatically. `Automatic` means OpenCode Quota reuses the l
 | Provider                | Auth/setup                             | Data from          | Reports            |
 | ----------------------- | -------------------------------------- | ------------------ | ------------------ |
 | Anthropic (Claude)      | [Needs setup](#anthropic-claude)       | Local CLI/OAuth    | Quota              |
+| Command Code            | Automatic                              | Remote API         | Quota              |
 | Cursor                  | [Needs setup](#cursor)                 | Local estimate     | Budget and spend   |
 | Gemini CLI              | [Needs setup](#gemini-cli)             | Remote API         | Quota              |
 | GitHub Copilot          | [Needs setup](#github-copilot)         | Remote API         | Budget and usage   |
@@ -297,6 +299,7 @@ These providers read an API key from, in order: an environment variable, then `p
 
 | Provider                | Environment variables (first match wins)              | Notes |
 | ----------------------- | ----------------------------------------------------- | ----- |
+| Command Code            | `CMD_API_KEY`                                         | See [Command Code](#command-code). |
 | DeepSeek                | `DEEPSEEK_API_KEY`                                     | See [DeepSeek](#deepseek). |
 | Kimi Code / Kimi Code (CN) | See [Kimi Code](#kimi-code)                         | Each region has its own keys. |
 | MiniMax Token Plan      | `MINIMAX_CODING_PLAN_API_KEY`, `MINIMAX_API_KEY`       | International endpoint. Runtime/config ids like `minimax` and `minimax-coding-plan` use this provider. |
@@ -388,7 +391,7 @@ Use companion plugin [`cursor-opencode-provider`](https://github.com/oakimov/cur
 
 Restart OpenCode, run `/connect`, choose **Cursor**, then sign in with **Cursor account (browser login)** or paste an **API key** from [cursor.com/settings](https://cursor.com/settings). A `CURSOR_API_KEY` environment variable also works. OpenCode 1 plugins such as `@playwo/opencode-cursor-oauth` and `@rama_nigg/open-cursor` do not run on OpenCode 2; replace them with this entry.
 
-Cursor estimates the current billing cycle from your local OpenCode history, priced like the Usage tab: Auto, Composer and Grok 4.5–4.7 at Cursor's own prices, every other model at its models.dev price. These have no price: a request whose prompt passes 200k tokens on Claude Sonnet 4 or Grok 4.7 (Cursor bills those at a higher rate), Gemini 3.6 Flash, GLM 5.3 Flash and the Muse models (Cursor's price is not models.dev's), and any request on `claude-sonnet-4-1m` or the `grok-4.7-1m` and `grok-4.7-500k` models. A cache write costs nothing unless Cursor publishes a cache-write rate for the model, as cursor-opencode-provider bills it.
+Cursor estimates the current billing cycle from your local OpenCode history, priced like the Usage tab: Auto, Composer, Grok 4.5–4.7, Claude Fable 5.2 and DeepSeek V4.1 Flash at Cursor's own prices, every other model at its models.dev price. These have no price: a request whose prompt passes 200k tokens on Claude Sonnet 4 or Grok 4.7 (Cursor bills those at a higher rate), Gemini 3.6 Flash, GLM 5.3 Flash and the Muse models (Cursor's price is not models.dev's), and any request on `claude-sonnet-4-1m` or the `grok-4.7-1m` and `grok-4.7-500k` models. A cache write costs nothing unless Cursor publishes a cache-write rate for the model, as cursor-opencode-provider bills it.
 
 - With every request priced and a **Plan** or **Included API budget** set under Cursor on the Providers tab, it shows an **API budget** percentage; without one, **API spend**. With any unpriced request, it shows only **Known API spend**, never a percentage or a total.
 - **Billing day** sets the cycle's first day; unset, the cycle is the local calendar month.
@@ -464,6 +467,12 @@ opencode auth login google
 ```
 
 Quota checks `google-gemini-cli` when it finds it.
+
+<a id="command-code"></a>
+
+### Command Code
+
+Shows the **5h** and **Weekly** quota and reset times. Uses the `commandcode` key saved in OpenCode, or see [API keys](#api-keys). Organization logins read that organization's limits.
 
 <a id="deepseek"></a>
 

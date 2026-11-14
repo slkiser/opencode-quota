@@ -54,6 +54,48 @@ function optionalPositiveNumber(record, names) {
     }
     return undefined;
 }
+/**
+ * Parameter ids Cursor uses for a reasoning-effort choice. The id differs by
+ * model, even within one family: `claude-opus-5-5` publishes `effort`,
+ * `claude-sonnet-5-5` publishes `reasoning_effort`, and GPT models publish
+ * `reasoning`.
+ */
+const EFFORT_PARAMETER_IDS = ["effort", "reasoning", "reasoning_effort"];
+const THINKING_PARAMETER_ID = "thinking";
+const DISABLED_REASONING_VALUES = new Set(["", "none", "false", "off", "disabled"]);
+/** Shared by variant resolution and the reasoning capability check. */
+function isEffortParameter(id) {
+    return EFFORT_PARAMETER_IDS.includes(id);
+}
+function isEnabledReasoningValue(value) {
+    return !DISABLED_REASONING_VALUES.has(value.trim().toLowerCase());
+}
+/**
+ * Whether these variants expose a reasoning choice.
+ *
+ * A published `thinking` parameter decides on its own: `thinking: "false"`
+ * beside `effort: "high"` describes a non-thinking variant, so effort values
+ * only count when the model publishes no `thinking` parameter at all.
+ *
+ * Some Cursor models report `supports_thinking: false` yet still publish such
+ * variants (`deepseek-v41-flash-1017`, `claude-sonnet-5-5`,
+ * `claude-haiku-5-5`, `muse-wonder-1.0`). OpenCode 1.x reports the
+ * resulting `reasoning` flag as the model's capability; it offers the
+ * published variants either way, and OpenCode 2.x has no such flag.
+ *
+ * Pass the variants the entry is built from — not every variant the model
+ * lists — so a 1M or Fast entry is not marked reasoning because of variants it
+ * does not offer.
+ */
+export function variantsSupportReasoning(variants) {
+    if (!variants || variants.length === 0)
+        return false;
+    const publishesThinking = variants.some((variant) => variant.parameterValues.some((parameter) => parameter.id === THINKING_PARAMETER_ID));
+    if (publishesThinking) {
+        return variants.some((variant) => variant.parameterValues.some((parameter) => parameter.id === THINKING_PARAMETER_ID && isEnabledReasoningValue(parameter.value)));
+    }
+    return variants.some((variant) => variant.parameterValues.some((parameter) => isEffortParameter(parameter.id) && isEnabledReasoningValue(parameter.value)));
+}
 export function normalizeModelParameterValues(value) {
     if (!Array.isArray(value))
         return null;
@@ -115,7 +157,6 @@ function normalizeModelInfo(value) {
     const family = optionalString(value, ["family"]);
     const supportsThinking = optionalBoolean(value, ["supportsThinking", "supports_thinking"]);
     const supportsAgent = optionalBoolean(value, ["supportsAgent", "supports_agent"]);
-    const supportsImages = optionalBoolean(value, ["supportsImages", "supports_images"]);
     const supportsMaxMode = optionalBoolean(value, ["supportsMaxMode", "supports_max_mode"]);
     const supportsNonMaxMode = optionalBoolean(value, ["supportsNonMaxMode", "supports_non_max_mode"]);
     const maxContext = optionalPositiveNumber(value, ["maxContext", "contextTokenLimit", "context_token_limit"]);
@@ -124,7 +165,6 @@ function normalizeModelInfo(value) {
         family === null ||
         supportsThinking === null ||
         supportsAgent === null ||
-        supportsImages === null ||
         supportsMaxMode === null ||
         supportsNonMaxMode === null ||
         maxContext === null ||
@@ -137,7 +177,6 @@ function normalizeModelInfo(value) {
         ...(family === undefined ? {} : { family }),
         ...(supportsThinking === undefined ? {} : { supportsThinking }),
         ...(supportsAgent === undefined ? {} : { supportsAgent }),
-        ...(supportsImages === undefined ? {} : { supportsImages }),
         ...(maxContext === undefined ? {} : { maxContext }),
         ...(maxContextForMaxMode === undefined ? {} : { maxContextForMaxMode }),
         ...(supportsMaxMode === undefined ? {} : { supportsMaxMode }),
@@ -359,10 +398,6 @@ export function mapAvailableModelsResponse(raw) {
             variantContextTokens(variants.find((v) => v.parameterValues.some((p) => p.id === "context")));
         const variantMaxContext = variantContextTokens(variants.find((v) => v.isDefaultMax)) ??
             variantContextTokens(variants.find((v) => variantIsMaxMode(v) && variantContextTokens(v) !== undefined));
-        const supportsImages = optionalBoolean(e, ["supportsImages", "supports_images"]);
-        if (supportsImages === null) {
-            throw new Error(`AvailableModels returned invalid supportsImages for ${name}`);
-        }
         const supportsNonMaxMode = optionalBoolean(e, ["supportsNonMaxMode", "supports_non_max_mode"]);
         if (supportsNonMaxMode === null) {
             throw new Error(`AvailableModels returned invalid supportsNonMaxMode for ${name}`);
@@ -372,7 +407,6 @@ export function mapAvailableModelsResponse(raw) {
             displayName: (e.clientDisplayName ?? e.client_display_name ?? name),
             supportsThinking: apiBoolean(e, ["supportsThinking", "supports_thinking"]),
             supportsAgent: apiBoolean(e, ["supportsAgent", "supports_agent"]),
-            ...(supportsImages === undefined ? {} : { supportsImages }),
             maxContext: variantBaseContext ?? positiveNumber(e.contextTokenLimit ?? e.context_token_limit),
             maxContextForMaxMode: variantMaxContext ??
                 positiveNumber(e.contextTokenLimitForMaxMode ?? e.context_token_limit_for_max_mode),
@@ -405,7 +439,7 @@ export function resolveVariantParameters(model, opts = {}) {
         }
         return opts.reasoningEffort ? [{ id: "effort", value: opts.reasoningEffort }] : [];
     }
-    const effortOf = (v) => v.parameterValues.find((p) => p.id === "effort" || p.id === "reasoning" || p.id === "reasoning_effort")?.value;
+    const effortOf = (v) => v.parameterValues.find((p) => isEffortParameter(p.id))?.value;
     const isFast = (v) => v.parameterValues.find((p) => p.id === "fast")?.value === "true";
     const wantMax = (opts.maxMode ?? false) || model.supportsNonMaxMode === false;
     // 1. Variant explicitly picked by opencode (verbatim — preserves context, fast, …).

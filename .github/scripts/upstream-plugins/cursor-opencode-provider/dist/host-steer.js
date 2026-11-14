@@ -59,6 +59,9 @@ function keep(sessionID, records) {
     else
         state.injected.set(sessionID, records);
 }
+export function findEarlySteer(sessionID, injectionId) {
+    return sessionID ? state.injected.get(sessionID)?.find((record) => record.injectionId === injectionId) : undefined;
+}
 export function isEarlySteerTracked(sessionID, injectionId) {
     return !!state.injected.get(sessionID)?.some((record) => record.injectionId === injectionId);
 }

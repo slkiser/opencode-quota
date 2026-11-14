@@ -70,8 +70,8 @@ function colorChoice(changes: Partial<Record<ColorRole, ColorChoice>>) {
 export const PRESET_CHOICES: Record<PresetName, Record<string, Record<string, FieldValue>>> = {
   layout: {
     compact: layoutChoice(6, 1, 6, 0),
-    comfortable: layoutChoice("fill", 1, 8, 1),
-    roomy: layoutChoice("fill", 2, 8, 2),
+    normal: layoutChoice("fill", 1, 8, 1),
+    large: layoutChoice("fill", 2, 8, 2),
   },
   toast: {
     "only failures": toastChoice("off", false, false, "off"),

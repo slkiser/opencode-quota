@@ -184,17 +184,36 @@ export class SessionManager {
         this.scheduleHardDeadline(session);
         return dropped;
     }
+    /**
+     * A held exec is about to be dispatched again (`src/step-order.ts`): drop
+     * the entry that kept it owed while it waited, without a tombstone, so its
+     * dispatch can register it afresh. False when that entry is gone (Stop, a
+     * fresh turn's cancel, Cursor's abort) and the exec must not run.
+     */
+    forgetHeldExec(session, execId, pending) {
+        const current = session.pending.get(execId);
+        if (session.closed || current === undefined || current !== pending || current.state !== "pending" || current.aborted) {
+            return false;
+        }
+        session.pending.delete(execId);
+        this.byExecId.delete(this.key(session.sessionId, execId));
+        // Its dispatch is the next frame read; an idle deadline from the wait must not precede it.
+        if (session.pending.size === 0)
+            this.recordSemanticProgress(session);
+        this.scheduleHardDeadline(session);
+        return true;
+    }
     /** Cursor withdrew this exec; returns false when it is not one the host still owes. */
     markExecAborted(session, execId) {
         const pending = session.pending.get(execId);
-        if (session.closed || !pending || pending.bridged || pending.aborted || pending.state !== "pending")
+        if (session.closed || !pending || pending.bridged || pending.aborted || pending.answered || pending.state !== "pending")
             return false;
         pending.aborted = true;
         return true;
     }
     /**
      * Clear pendings that do not require a Cursor exec write: display-only bridged
-     * ones and execs Cursor aborted. Used when the host starts a fresh user turn
+     * ones, execs Cursor aborted and ones it already has the reply for. Used when the host starts a fresh user turn
      * instead of returning the result (e.g. human `continue` while a todowrite
      * mirror is outstanding).
      *
@@ -205,7 +224,7 @@ export class SessionManager {
             return 0;
         let settled = 0;
         for (const [execId, pending] of [...session.pending.entries()]) {
-            if (!pending.bridged && !pending.aborted)
+            if (!pending.bridged && !pending.aborted && !pending.answered)
                 continue;
             if (pending.state === "claimed")
                 continue;
@@ -271,7 +290,7 @@ export class SessionManager {
             session.lastHeartbeatWriteAt = this.now();
     }
     /** Register that `session` is awaiting a result for `execId`. */
-    registerPending(execId, session, resultField, toolName, bridged = false, resultMetadata) {
+    registerPending(execId, session, resultField, toolName, bridged = false, resultMetadata, answered = false) {
         this.registerSession(session);
         if (session.closed)
             throw new CursorProtocolError("Cannot register a pending exec on a closed Cursor session");
@@ -283,6 +302,7 @@ export class SessionManager {
             toolName,
             bridged,
             resultMetadata,
+            ...(answered ? { answered } : {}),
             state: "pending",
             registeredAt: now,
             hardDeadlineAt: now + session.policy.hardCapMs,
@@ -302,7 +322,9 @@ export class SessionManager {
             const legacyExpiresAt = session.expiresAt;
             if (!pending ||
                 session.closed ||
-                session.stream.isClosed() ||
+                // Cursor never waits for an answered step, so its result writes nothing
+                // and needs no live stream, also before the end has been announced.
+                (session.stream.isClosed() && !pending.answered) ||
                 (typeof legacyExpiresAt === "number" && this.now() >= legacyExpiresAt)) {
                 this.byExecId.delete(key);
                 if (!session.closed)
@@ -341,7 +363,9 @@ export class SessionManager {
     }
     async deliverClaim(claim, frames, 
     /** Called at each actual serialized write, before write() and its drain. */
-    beforeWrite) {
+    beforeWrite, 
+    /** A completed host phase queued the interaction's next phase instead of its final reply. */
+    options) {
         const { session, execId, pending } = claim;
         const key = this.key(session.sessionId, execId);
         const unavailable = (framesWritten) => {
@@ -371,7 +395,7 @@ export class SessionManager {
         this.delivering.add(pending);
         let framesWritten = 0;
         try {
-            if (!pending.bridged && !pending.aborted && frames.length === 0) {
+            if (!pending.bridged && !pending.aborted && !pending.answered && frames.length === 0 && !options?.replyDeferred) {
                 throw new CursorProtocolError("No result frames were produced");
             }
             for (const frame of frames) {
@@ -404,6 +428,8 @@ export class SessionManager {
             return { kind: "terminal", reason, framesWritten };
         }
         pending.state = "delivered";
+        if (pending.answered)
+            session.answeredContinuation = true;
         this.putTombstone(key, "delivered");
         session.pending.delete(execId);
         this.byExecId.delete(key);
@@ -439,6 +465,7 @@ export class SessionManager {
         }
         session.pumpOwner = owner;
         session.pumpActive = true;
+        session.answeredContinuation = undefined;
     }
     isPumpOwner(session, owner) {
         return !session.closed && session.pumpOwner === owner;
@@ -450,10 +477,40 @@ export class SessionManager {
         session.pumpActive = false;
         const deferred = session.deferredTerminalReason;
         session.deferredTerminalReason = null;
+        if (deferred === "remote-clean-close" && this.holdsOnlyAnsweredWork(session)) {
+            this.holdAfterCleanClose(session);
+            return true;
+        }
         // A Run the host stopped is closed by its cancel, after it has read what Cursor sent last.
         if (deferred && !session.hostInterrupted)
             this.close(session, deferred);
         return true;
+    }
+    /**
+     * Cursor can finish its turn and close the Run cleanly while the host still
+     * runs steps whose replies Cursor already has (copies of input images, which
+     * Cursor never waits for). Its last frames are queued for the next pump, so
+     * keep the Run: the step's result then plays them instead of rebuilding a Run
+     * from host history, which would send the images again.
+     */
+    holdsOnlyAnsweredWork(session) {
+        if (session.hostInterrupted)
+            return false;
+        // Delivered, with the pump that plays Cursor's queued frames still to come.
+        if (session.pending.size === 0)
+            return !!session.answeredContinuation;
+        return [...session.pending.values()].every((pending) => pending.answered);
+    }
+    holdAfterCleanClose(session) {
+        session.deferredTerminalReason = "remote-clean-close";
+        // Nothing can be written to an ended stream; a heartbeat would fail and close the Run.
+        if (session.heartbeatCancel)
+            session.heartbeatCancel();
+        else if (session.heartbeat)
+            clearInterval(session.heartbeat);
+        session.heartbeat = null;
+        trace(`sessionManager: Run closed cleanly while the host finishes answered steps; keeping it for the queued frames ` +
+            `pending=${session.pending.size} queued=${session.heldFrames?.length ?? 0} sessionId=${session.sessionId}`);
     }
     /**
      * Swap the live bidi Run while a pump is still pulling frames.
@@ -471,6 +528,8 @@ export class SessionManager {
         session.stream = next;
         // Preserve session totals but give the replacement Run its own estimates.
         session.billing.estimatedUsd = 0;
+        session.billing.estimatedOutputTokens = 0;
+        session.billing.estimatedReasoningTokens = 0;
         delete session.billing.ledgerEpoch;
         if (runId !== undefined)
             session.runId = runId;
@@ -480,6 +539,7 @@ export class SessionManager {
         session.heldFrames = undefined;
         session.parallelStep = undefined;
         session.priorParallelStepCallIds = undefined;
+        session.stepOrder = undefined;
         this.subscribeTerminal(session);
         try {
             old.destroy();
@@ -536,6 +596,7 @@ export class SessionManager {
         session.heldFrames = undefined;
         session.parallelStep = undefined;
         session.priorParallelStepCallIds = undefined;
+        session.stepOrder = undefined;
         session.pumpOwner = null;
         session.pumpActive = false;
         session.displayToolCalls?.clear();
@@ -590,6 +651,10 @@ export class SessionManager {
         const reason = event.kind === "remote-error" ? "remote-error" : "remote-clean-close";
         if (event.kind === "remote-error")
             session.closeError = event.error;
+        if (reason === "remote-clean-close" && session.pumpOwner === null && this.holdsOnlyAnsweredWork(session)) {
+            this.holdAfterCleanClose(session);
+            return;
+        }
         if (session.pumpOwner !== null || session.hostInterrupted) {
             session.deferredTerminalReason = reason;
             return;
