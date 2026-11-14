@@ -1,6 +1,6 @@
 {
   "name": "@slkiser/opencode-quota",
-  "version": "6.2.2",
+  "version": "6.3.0",
   "packageManager": "pnpm@11.28.9",
   "description": "OpenCode quota & tokens usage with zero context window pollution. Supports GitHub Copilot, OpenAI (Plus/Pro), Google AGY, Z.ai coding plan and more.",
   "type": "module",
