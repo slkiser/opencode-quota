@@ -94,7 +94,7 @@ describe("quota window: Limits", () => {
   it("shows every row, hidden and supplementary ones too, with reset and pace", () => {
     const lines = limits([CLAUDE], WIDE, ["anthropic.five_hour"]);
     // Like the window's other tabs: the provider one column in, its rows three.
-    expect(lines[0]).toBe(" Claude");
+    expect(lines[0]).toBe(" Claude   checked just now");
     expect(lines[1]).toMatch(
       /^ {3}5h +[█░┃]+ {2}30% left {3}resets in 2h 30m {3}runs out in 1h 5m$/u,
     );
@@ -126,10 +126,10 @@ describe("quota window: Limits", () => {
     expect(balance).toBe(
       `   Balance${" ".repeat(percentEnd - "   Balance".length - "$12.50 left".length)}$12.50 left`,
     );
-    // The grid fills the window; a provider's line has only its name.
+    // The grid fills the window; a provider's line has its name and how old its rows are.
     expect(fiveHour.length).toBe(WIDE);
-    expect(claude).toBe(" Claude");
-    expect(zen).toBe(" OpenCode Zen");
+    expect(claude).toBe(" Claude   checked just now");
+    expect(zen).toBe(" OpenCode Zen   checked just now");
   });
 
   it("draws the bar in the level color with the even-use marker where even use would be", () => {
@@ -258,13 +258,37 @@ describe("quota window: Limits", () => {
   it("puts a provider's error on its own line under its name", () => {
     const failed = provider("anthropic", "Claude", [], { error: { code: "login_expired" } });
     const lines = limitLines([failed]);
-    expect(lines.map(lineText)).toEqual([" Claude", "   Sign in again"]);
+    expect(lines.map(lineText)).toEqual([" Claude   checked just now", "   Sign in again"]);
     expect(lines[1].segments[0].role).toBe("error");
   });
 
   it("lines balances up at their right ends when no row has a bar", () => {
     const lines = limits([ZEN]);
-    expect(lines).toEqual([" OpenCode Zen", "   Balance  $12.50 left"]);
+    expect(lines).toEqual([" OpenCode Zen   checked just now", "   Balance  $12.50 left"]);
+  });
+
+  it("says on each provider's line how long ago its rows were checked, counting on until a refresh", () => {
+    const checked = provider("anthropic", "Claude", [FIVE_HOUR], { okAtMs: NOW - 4 * MINUTE });
+    const snapshot: QuotaSnapshot = {
+      version: 6,
+      providers: [checked],
+      resetNotices: [],
+      generatedAtMs: NOW,
+    };
+    const header = (shown: QuotaSnapshot, nowMs: number) =>
+      lineText(limitsLines({ snapshot: shown, display: defaultSettings(), nowMs, width: WIDE })[0]);
+    expect(header(snapshot, NOW)).toBe(" Claude   checked 4 min ago");
+    expect(header(snapshot, NOW + 2 * 60 * MINUTE)).toBe(" Claude   checked 2 h ago");
+    const refreshed = { ...snapshot, providers: [{ ...checked, okAtMs: NOW + 2 * 60 * MINUTE }] };
+    expect(header(refreshed, NOW + 2 * 60 * MINUTE)).toBe(" Claude   checked just now");
+  });
+
+  it("says nothing about the age of a provider never checked", () => {
+    const never = provider("anthropic", "Claude", [], {
+      okAtMs: undefined,
+      checkedAtMs: undefined,
+    });
+    expect(limits([never])[0]).toBe(" Claude");
   });
 
   it("says where to look when no provider is found", () => {

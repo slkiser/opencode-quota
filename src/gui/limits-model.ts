@@ -1,7 +1,7 @@
 /**
  * What the usage window's Limits view shows, from the quota snapshot: one card per provider
- * account with its rows, its error and the "serves the current model" mark; the session's
- * tokens; and when the providers were last checked. Pure.
+ * account with its rows, its error, how long ago it was checked and the "serves the current
+ * model" mark; the session's tokens; and when the providers were last checked. Pure.
  *
  * Providers and rows come from `visibleGroups` with the sidebar's order and your row names, as
  * the TUI's Limits tab picks them, but with `words.detail` and `words.onlyCurrentModel` as set.
@@ -9,7 +9,13 @@
  * `layout.evenUse` is on, and every pace word; its bar level from `barLevel`.
  */
 import type { QuotaSnapshot, Words } from "../core/types.js";
-import { barLevel, DEFAULT_WORDS, formatTokens, type Level } from "../view/format.js";
+import {
+  barLevel,
+  checkedAgoText,
+  DEFAULT_WORDS,
+  formatTokens,
+  type Level,
+} from "../view/format.js";
 import { errorWords, type Place, type RowFacts, rowFacts } from "../view/row-facts.js";
 import { type RowSettings, type SurfaceRows, visibleGroups } from "../view/select.js";
 
@@ -35,6 +41,8 @@ export type LimitCard = {
   account?: string;
   /** Why the provider's last check failed. */
   error?: string;
+  /** "checked 4 min ago": how old its rows are; undefined before its first good check. */
+  checked?: string;
   /** The provider serves the session's current model; false when the snapshot doesn't say. */
   current: boolean;
   rows: LimitRow[];
@@ -137,12 +145,17 @@ export function limitCards(
     .filter((group) => providerId === undefined || group.providerId === providerId)
     .map((group) => {
       const error = errorWords(group, nowMs);
+      const okAtMs = snapshot.providers.find(
+        (provider) => provider.providerId === group.providerId,
+      )?.okAtMs;
+      const checked = checkedAgoText(okAtMs, nowMs);
       return {
         id: group.id,
         providerId: group.providerId,
         name: group.name,
         ...(group.account === undefined ? {} : { account: group.account }),
         ...(error === undefined ? {} : { error }),
+        ...(checked === undefined ? {} : { checked }),
         current: current.has(group.providerId),
         rows: group.rows.map((item) => {
           const facts = rowFacts(item, group, place);

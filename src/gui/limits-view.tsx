@@ -1,9 +1,9 @@
 /** @jsxImportSource solid-js */
 /**
  * The usage window's Limits view: the session's tokens, when the providers were checked, one
- * card per provider account with its rows, and the legend of the bar colors. Each row has its
- * bar in its level's color with the even-use mark, its percent in your words, when it resets,
- * and its pace. The words of each row come from `limits-model.ts`.
+ * card per provider account with its rows and how long ago it was checked, and the legend of
+ * the bar colors. Each row has its bar in its level's color with the even-use mark, its percent
+ * in your words, when it resets, and its pace. The words of each row come from `limits-model.ts`.
  */
 import type { Context } from "@opencode/plugin/gui";
 import { For, Show } from "solid-js";
@@ -137,6 +137,9 @@ export function LimitsView(props: LimitsProps) {
                   <span class="oq-name">{card.name}</span>
                   <Show when={card.account}>
                     {(account) => <span class="oq-chip">{account()}</span>}
+                  </Show>
+                  <Show when={card.checked}>
+                    {(checked) => <span class="oq-age">{checked()}</span>}
                   </Show>
                   <Show when={card.current}>
                     <span class="oq-chip oq-current-chip">{ctx.t("limits.current")}</span>

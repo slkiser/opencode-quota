@@ -100,6 +100,7 @@ export const STYLE = `
 .oq-card.oq-current { box-shadow: 0 0 0 2px color-mix(in srgb, var(--oq-s0) 35%, transparent); }
 .oq-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .oq-card-head .oq-name { font-weight: 600; font-size: 14px; }
+.oq-card-head .oq-age { font-size: 11.5px; color: var(--oq-muted); white-space: nowrap; }
 .oq-chip { display: inline-flex; font-size: 11px; padding: 1px 7px; border-radius: 99px;
   background: var(--oq-hover); color: var(--oq-text-2); white-space: nowrap; }
 .oq-chip.oq-current-chip { margin-left: auto; color: var(--oq-s0); background: color-mix(in srgb, var(--oq-s0) 12%, transparent); }
