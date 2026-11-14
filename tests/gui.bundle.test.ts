@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 type Command = { id: string; title: string; run: () => void };
 type Definition = {
-  i18n: { en: Record<string, string> };
+  i18n: { en: Record<string, string>; ru: Record<string, string> };
   setup: (ctx: unknown) => (() => void) | void;
 };
 
@@ -93,6 +93,7 @@ describe("GUI bundle (dist/gui-experimental.cjs)", () => {
   it("adds its CSS, a Quota command whose run opens a dialog, and the always-on surfaces", async () => {
     const { definition } = await loadGui();
     expect(definition.i18n.en["command.quota"]).toBe("Quota");
+    expect(definition.i18n.ru["command.quota"]).toBe("Квоты");
     const { ctx, rpc, added } = fakeWindow();
 
     const cleanup = definition.setup(ctx);
